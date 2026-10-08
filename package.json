@@ -1,0 +1,12 @@
+{
+  "name": "translation-workbench", "private": true, "version": "0.1.0", "type": "module",
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "start": "tsx apps/worker/src/server.ts",
+    "build": "npm run build --workspace @workbench/web",
+    "typecheck": "tsc --noEmit && npm run typecheck --workspace @workbench/web",
+    "test": "tsx --test packages/core/tests/*.test.ts packages/providers/tests/*.test.ts apps/worker/tests/*.test.ts scripts/*.test.ts"
+  },
+  "devDependencies": {"tsx":"^4.20.0","typescript":"^5.9.0","@types/node":"^26.0.0"}
+}

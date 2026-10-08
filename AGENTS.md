@@ -1,0 +1,10 @@
+# Translation Workbench working rules
+
+- Before changing UI or features, write the user journey and acceptance criteria in `UX_FLOW_PLAN.txt`: starting context, action, expected destination, preserved state, Back/Forward behavior, and recovery. Inspect current code and real data first. Do not choose a layout and invent a flow afterward.
+- Check the complete journey in the browser, including native Back/Forward, retained filters/scroll/drafts, and realistic data volume. A successful build is not UX verification.
+- Labels must describe actual scope and evidence. “All” must include the entire selected dataset. Optimize rendering or layout without silently excluding data. Distinguish source relationships, derived relationships, and unresolved associations.
+- Preserve original game files, `orwell_1_reorder`, and sibling `orwell_dll`. Never run AI jobs or modify existing translations as part of UI verification without authorization for that action.
+- Keep graph and reading space generous. Use established table/list patterns for collections; avoid redundant bars and ad hoc modal workflows.
+- Prefer established libraries over custom infrastructure, especially graph layout, edge routing, zoom, and pan. Use ELK for directed layout and a dedicated routing library for manually positioned diagrams; keep D3/Canvas rendering. Do not replace these with hand-written row packing, serpentine template coordinates, or threshold-based detour rules. Explain a concrete unmet requirement before introducing a custom alternative.
+- Graphs should read predominantly in one direction: source scene/dialogue flows top-to-bottom, user processes left-to-right. Preserve true branches, joins, and feedback loops without inventing an execution order. Give routes and nodes enough space; a compact bounding box is not the usability goal.
+- Project chat is a global side panel alongside the current workspace, not a destination tab. Verify that source/material navigation, native history, drafts, and main-view interaction continue while chat is open.

@@ -1,0 +1,93 @@
+.workspace-shell { display:flex; flex-direction:column; height:100dvh; min-height:500px; overflow:hidden; }
+.workspace-shell .masthead { flex:0 0 48px; height:48px; min-height:48px; gap:18px; padding:0 20px; }
+.workspace-shell .brand { gap:9px; }
+.workspace-shell .brand-mark { width:27px; height:27px; border-radius:7px 2px; }
+.workspace-shell .brand-mark svg { width:17px; height:17px; }
+.workspace-shell .brand-name { font-size:12px; white-space:nowrap; }
+.workspace-shell .project-picker { display:flex; align-items:center; gap:11px; min-width:0; padding-left:18px; font-size:11px; }
+.workspace-shell .project-picker strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.workspace-shell .project-picker span { margin:0; font-size:11px; white-space:nowrap; }
+.workspace-shell .connection-status { flex-shrink:0; font-size:11px; }
+.workspace-shell .nav { flex:0 0 auto; min-height:42px; padding:0 20px; gap:24px; flex-wrap:nowrap; }
+.workspace-shell .nav-tab { padding:12px 0 10px; font-size:11px; gap:6px; white-space:nowrap; }
+.workspace-shell .nav-right { gap:7px; }
+.workspace-shell .shell-content { flex:1 1 0; min-height:0; overflow:hidden; }
+.workspace-shell .graph-workspace { height:100%; min-height:0; overflow:hidden; }
+.workspace-shell .shell-page { height:100%; overflow:auto; scrollbar-width:thin; }
+.workspace-shell [hidden] { display:none !important; }
+.workspace-shell .run-progress.compact { position:relative; flex:0 0 auto; padding:0 20px; z-index:8; box-shadow:none; }
+.workspace-shell .run-compact-row { display:flex; align-items:center; gap:13px; min-height:39px; }
+.workspace-shell .run-compact-status { display:flex; align-items:center; gap:7px; white-space:nowrap; font-size:11px; }
+.workspace-shell .run-compact-status strong { color:var(--text); font-weight:500; }
+.workspace-shell .run-compact-status > span { color:var(--text-secondary); font-size:11px; }
+.workspace-shell .run-compact-status svg { color:var(--accent); }
+.workspace-shell .has-error .run-compact-status svg,.workspace-shell .has-error .run-compact-status > span { color:var(--amber); }
+.workspace-shell .run-compact-scope { min-width:40px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text-secondary); font-size:11px; }
+.workspace-shell .run-compact-model { min-width:40px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); font:9px 'IBM Plex Mono',monospace; }
+.workspace-shell .run-compact-count { color:var(--text-secondary); font-size:11px; white-space:nowrap; }
+.workspace-shell .run-compact-controls { margin-left:auto; display:flex; align-items:center; gap:5px; flex-shrink:0; }
+.workspace-shell .run-expand-button svg { transition:transform .16s ease; }
+.workspace-shell .run-expand-button svg.expanded { transform:rotate(90deg); }
+.workspace-shell .run-progress.compact .run-progress-track { height:2px; margin:0 -20px; border-radius:0; }
+.workspace-shell .run-expanded-details { max-height:220px; overflow:auto; padding:3px 0 9px; }
+.workspace-shell .run-expanded-details .run-progress-metrics { margin:10px 0 8px; gap:7px 18px; }
+.workspace-shell .run-expanded-details .run-progress-footer { font-size:11px; }
+.workspace-shell .scene-detail-page { min-height:100%; }
+.workspace-shell .scene-detail-top { display:flex; align-items:center; gap:12px; padding:14px 24px; border-bottom:1px solid var(--line); color:var(--muted); font-size:11px; }
+.workspace-shell .scene-switcher { margin-left:auto; display:flex; align-items:center; gap:8px; min-width:0; }
+.workspace-shell .scene-switcher select { max-width:340px; min-width:100px; color:var(--text); font-size:11px; border:1px solid var(--control-border); border-radius:4px; background:var(--input); padding:6px 8px; }
+.workspace-shell .scene-detail-header { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:21px 24px 14px; }
+.workspace-shell .scene-detail-header h1 { font-size:20px; overflow-wrap:anywhere; }
+.workspace-shell .scene-detail-meta { display:flex; flex-wrap:wrap; align-items:center; gap:8px 15px; font-size:11px; color:var(--muted); margin-top:9px; }
+.workspace-shell .scene-detail-description { margin:0; padding:0 24px 18px; white-space:pre-wrap; color:var(--text-secondary); font-size:11px; line-height:1.9; overflow-wrap:anywhere; }
+.workspace-shell .scene-detail-body { display:grid; grid-template-columns:minmax(360px,1fr) 285px; border-top:1px solid var(--line); min-height:400px; }
+.workspace-shell .scene-detail-editor { min-width:0; }
+.workspace-shell .scene-editor-hint { display:flex; flex-wrap:wrap; align-items:center; gap:7px; font-size:11px; color:var(--muted); padding:12px 24px; border-bottom:1px solid var(--line); }
+.workspace-shell .scene-editor-hint > span { margin-left:auto; }
+.workspace-shell .scene-detail-body .context-pane { padding-top:19px; }
+.workspace-shell .scene-detail-body .line-card { scroll-margin-top:22px; }
+.workspace-shell .scene-detail-header .actions { flex-shrink:0; }
+@media (max-width:1100px) {
+  .workspace-shell .nav { gap:17px; }
+  .workspace-shell .nav-right { gap:5px; }
+  .workspace-shell .run-compact-model { display:none; }
+}
+@media (max-width:850px) {
+  .workspace-shell .masthead { gap:11px; padding-inline:14px; }
+  .workspace-shell .brand-name { font-size:11px; }
+  .workspace-shell .project-picker { padding-left:11px; }
+  .workspace-shell .connection-status { display:none; }
+  .workspace-shell .nav { flex-wrap:wrap; padding:0 14px 7px; gap:0 19px; }
+  .workspace-shell .nav-right { margin-left:auto; }
+  .workspace-shell .run-compact-row { gap:8px; flex-wrap:wrap; padding:7px 0; }
+  .workspace-shell .run-compact-scope { max-width:180px; }
+  .workspace-shell .run-compact-status > span { display:none; }
+  .workspace-shell .scene-detail-body { grid-template-columns:minmax(0,1fr); }
+  .workspace-shell .scene-detail-body .context-pane { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:15px; border-left:0; border-top:1px solid var(--line); }
+  .workspace-shell .scene-detail-body .context-title { grid-column:1/-1; margin-bottom:0; }
+}
+@media (max-width:570px) {
+  .workspace-shell { min-height:420px; }
+  .workspace-shell .masthead { flex-basis:42px; min-height:42px; height:42px; }
+  .workspace-shell .brand-name { display:none; }
+  .workspace-shell .project-picker { font-size:11px; border-left:0; padding-left:0; }
+  .workspace-shell .project-picker span { font-size:11px; }
+  .workspace-shell .nav { column-gap:17px; padding-bottom:8px; }
+  .workspace-shell .nav-tab { font-size:11px; gap:4px; }
+  .workspace-shell .nav-tab svg { width:12px; height:12px; }
+  .workspace-shell .nav-right { width:100%; justify-content:flex-end; }
+  .workspace-shell .run-progress.compact { padding-inline:14px; }
+  .workspace-shell .run-progress.compact .run-progress-track { margin-inline:-14px; }
+  .workspace-shell .run-compact-status { font-size:11px; }
+  .workspace-shell .run-compact-count { margin-left:auto; }
+  .workspace-shell .run-compact-scope { display:none; }
+  .workspace-shell .run-compact-controls { width:100%; }
+  .workspace-shell .run-expand-button { margin-left:auto; }
+  .workspace-shell .scene-detail-top { flex-wrap:wrap; padding:12px 16px; }
+  .workspace-shell .scene-switcher { width:100%; margin-left:0; }
+  .workspace-shell .scene-switcher select { flex:1; max-width:none; min-width:0; }
+  .workspace-shell .scene-detail-header { flex-wrap:wrap; padding:18px 16px 12px; }
+  .workspace-shell .scene-detail-description { padding-inline:16px; }
+  .workspace-shell .scene-detail-body .context-pane { display:block; }
+  .workspace-shell .scene-editor-hint { padding-inline:16px; }
+}

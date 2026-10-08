@@ -1,0 +1,6 @@
+libavoid-js 0.5.0-beta.5 — Copyright Vladyslav Hnatiuk and contributors
+Original libavoid — Copyright Monash University and contributors
+License: LGPL-2.1-or-later. License text is included alongside this notice.
+Upstream source and build instructions: https://github.com/Aksem/libavoid-js
+Underlying library source: https://github.com/mjwybrow/adaptagrams/tree/master/cola/libavoid
+The unmodified library is dynamically loaded as a separate WebAssembly asset. Package version is pinned in package-lock.json; source/rebuild instructions above allow replacement of the library asset.

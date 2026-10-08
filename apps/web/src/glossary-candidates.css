@@ -1,0 +1,53 @@
+.glossary-candidates .knowledge-layout { grid-template-columns:220px minmax(0,1fr); gap:20px; }
+.glossary-candidates .term-detail,.glossary-candidates .term-menu { min-width:0; }
+.glossary-candidates .gc-menu-meta { font-size:11px; }
+.glossary-candidates .term-menu strong,.glossary-candidates .term-menu span { overflow-wrap:anywhere; }
+.gc-heading { margin-bottom:20px; }
+.gc-description textarea { min-height:68px; }
+.gc-section-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:23px; }
+.gc-section-heading h3 { margin:0; font-size:12px; font-weight:500; }
+.gc-help { margin:7px 0 12px; }
+.gc-candidate-list { display:grid; gap:10px; }
+.gc-candidate { border:1px solid var(--line); border-radius:5px; padding:14px; background:var(--panel); min-width:0; }
+.gc-candidate.disabled { background:transparent; border-style:dashed; }
+.gc-candidate-heading { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:12px; font-size:11px; }
+.gc-candidate-heading > strong { color:var(--accent); font-weight:500; }
+.gc-candidate-heading > .gc-text-button { margin-left:auto; }
+.gc-version { color:var(--muted); font-size:11px; }
+.gc-candidate-fields { display:grid; grid-template-columns:minmax(140px,.7fr) minmax(0,1.3fr); gap:12px; }
+.gc-candidate-fields textarea { min-height:65px; }
+.gc-candidate-footer { display:flex; gap:14px; flex-wrap:wrap; align-items:center; margin-top:12px; }
+.gc-default-choice { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--muted); }
+.gc-default-choice input { width:13px; height:13px; margin:0; accent-color:var(--accent); }
+.gc-text-button { border:0; padding:0; color:var(--teal); background:none; font-size:11px; line-height:1.8; display:inline-flex; align-items:center; gap:5px; text-align:left; }
+.gc-text-button:hover,.gc-text-button[aria-pressed=true] { color:var(--accent); text-decoration:underline; }
+.gc-text-button:disabled { opacity:.45; }
+.gc-disabled-copy { display:flex; flex-wrap:wrap; gap:8px; margin:0; font-size:11px; line-height:1.8; color:var(--muted); overflow-wrap:anywhere; }
+.gc-disabled-copy strong { color:var(--text-secondary); font-weight:500; }
+.gc-impact { font-size:11px; line-height:1.8; color:var(--amber); margin:10px 0 0; }
+.gc-evidence { margin-top:12px; border-top:1px solid var(--line); }
+.gc-evidence > div { padding:10px 0; border-bottom:1px solid var(--line); }
+.gc-evidence > div:last-child { border-bottom:0; padding-bottom:0; }
+.gc-evidence p { margin:5px 0; font-size:11px; line-height:1.8; overflow-wrap:anywhere; white-space:pre-wrap; }
+.gc-evidence p > span { color:var(--muted); font-size:11px; margin-right:8px; }
+.gc-save { margin-top:17px; }
+.gc-aliases { margin:14px 0; }
+.gc-usage-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; padding-top:8px; border-top:1px solid var(--line); }
+.gc-usage-heading .section-title { margin:12px 0; flex-wrap:wrap; }
+.gc-usage-heading .field { max-width:100%; }
+.gc-usage-heading select { max-width:260px; padding:7px; font-size:11px; }
+.gc-usage-actions { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px; padding:6px 0 14px; }
+.gc-empty { padding:12px 0; }
+.glossary-candidates .occurrence { gap:12px; }
+.glossary-candidates .occ-scene { flex:0 0 90px; min-width:0; overflow-wrap:anywhere; }
+.glossary-candidates .occ-text { overflow-wrap:anywhere; }
+.gc-usage-meta { display:block; font:9px/1.8 'Noto Sans KR',sans-serif; color:var(--teal); margin-top:6px; }
+.gc-stale-pill { align-self:center; flex-shrink:0; }
+.gc-occ-arrow { flex-shrink:0; margin-top:5px; }
+.gc-resource-usages { display:block; margin-top:7px; color:var(--teal); font-size:11px; line-height:1.8; }
+@media (max-width:1100px) { .gc-candidate-fields { grid-template-columns:1fr; gap:10px; } .glossary-candidates .term-detail { padding:20px; } .glossary-candidates .knowledge-layout { grid-template-columns:190px minmax(0,1fr); gap:16px; } .gc-stale-pill { font-size:11px; } }
+@media (max-width:760px) { .glossary-candidates .knowledge-layout { grid-template-columns:1fr; } .gc-usage-heading { align-items:flex-start; } .gc-usage-heading .field { width:100%; } .gc-usage-heading select { max-width:none; } .glossary-candidates .occ-scene { flex-basis:65px; } .gc-stale-pill { display:none; } }
+
+.gc-create { display:flex; flex-direction:column; gap:18px; align-self:start; }
+.gc-create .field { margin:0; }
+.gc-create .field input,.gc-create .field textarea { width:100%; }

@@ -1,0 +1,34 @@
+/* Neutral work surfaces. Colour is reserved for interaction and status. */
+:root {
+  --bg: #141414;
+  --panel: #1e1e1e;
+  --panel2: #292929;
+  --surface: var(--panel);
+  --input: #171717;
+  --hover: #333333;
+  --text: #f4f4f5;
+  --text-secondary: #d4d4d8;
+  --muted: #b5b5be;
+  --line: #45454c;
+  --control-border: #73737e;
+  --accent: #a6c8ff;
+  --accent-fill: #a6c8ff;
+  --accent-hover: #c3d9ff;
+  --on-accent: #111827;
+  --selected: #26364d;
+  --focus-ring: #a6c8ff40;
+  --success: #8ed7b0;
+  --success-bg: #1d3229;
+  --success-border: #53886c;
+  --teal: var(--success);
+  --amber: #f1c681;
+  --warning-bg: #362c1e;
+  --warning-border: #9a7845;
+  --red: #ffb0b0;
+  --danger-bg: #382425;
+  --danger-border: #aa6368;
+  --condition: #d3b7ff;
+  --condition-bg: #30253e;
+  --condition-border: #9676bd;
+  --scrim: #000000b8;
+}

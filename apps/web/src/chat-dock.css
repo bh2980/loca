@@ -1,0 +1,26 @@
+.workspace-shell .workbench-body{display:flex;flex:1 1 0;min-height:0;min-width:0;position:relative;overflow:hidden}
+.workspace-shell .workbench-body>.shell-content{min-width:0;position:relative;container-type:inline-size;container-name:workbench-main}
+.workspace-shell .chat-dock{flex:0 0 auto;position:relative;min-width:0;max-width:48%;height:100%;min-height:0;border-left:1px solid var(--line);background:var(--panel);z-index:30}
+.chat-dock-resize{position:absolute;inset:0 auto 0 -4px;width:8px;cursor:col-resize;touch-action:none;z-index:10}
+.chat-dock-resize:hover,.chat-dock-resize:focus-visible{background:color-mix(in srgb,var(--accent) 45%,transparent);outline:0}
+.workspace-shell .nav-right .chat-toggle[aria-expanded=true]{background:var(--panel2);border-color:var(--accent);color:var(--accent)}
+.workspace-shell .shell-content>.unit-inspector{position:absolute;top:12px;right:12px;bottom:12px;max-width:calc(100% - 24px);max-height:calc(100% - 24px)}
+@container workbench-main (max-width:850px){
+ .workspace-shell .scene-detail-body{grid-template-columns:minmax(0,1fr)}
+ .workspace-shell .scene-detail-body .context-pane{border-left:0;border-top:1px solid var(--line)}
+ .workspace-shell .scene-detail-top,.ux-reading-toolbar,.ux-scope-actions{flex-wrap:wrap}
+ .workspace-shell .scene-detail-header{align-items:flex-start;flex-wrap:wrap}
+ .ux-scope-actions>.actions{margin-left:0}
+ .workspace-shell .scene-detail-header,.workspace-shell .scene-detail-top{padding-inline:16px}
+ .scene-chrome{grid-template-columns:minmax(0,1fr) auto;gap:8px}
+ .scene-chrome-location{grid-column:1/-1;gap:8px}
+ .scene-chrome-location>label{flex:1}
+ .scene-chrome-location select{width:100%;max-width:100%}
+ .scene-chrome-views{justify-self:start}
+ .scene-chrome-actions{justify-self:end}
+ .map-workspace .map-topbar{flex-wrap:wrap}
+ .map-workspace .map-inspector{max-width:calc(100% - 28px);min-width:min(260px,calc(100% - 28px))}
+}
+@media(max-width:800px){
+ .workspace-shell .chat-dock{position:absolute;right:0;top:0;bottom:0;max-width:calc(100% - 48px);box-shadow:-12px 0 28px #0006}
+}
