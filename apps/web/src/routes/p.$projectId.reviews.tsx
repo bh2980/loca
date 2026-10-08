@@ -83,7 +83,7 @@ function Reviews() {
                   {item.groupTitle} · {item.key}
                 </p>
                 <p className="truncate text-sm">{item.source}</p>
-                {item.data.review && !item.data.review.passed && <p className="truncate text-xs text-amber-700">{item.data.review.issues[0]}</p>}
+                {!!item.data.issues?.length && <p className="truncate text-xs text-amber-700">{item.data.issues[0]}</p>}
               </button>
             </li>
           ))}
@@ -107,19 +107,14 @@ function Reviews() {
                 <h3 className="mb-1 text-xs font-medium text-muted-foreground">원문{current.speaker ? ` · ${current.speaker}` : ''}</h3>
                 <p className="text-base whitespace-pre-wrap">{current.source}</p>
               </section>
-              {(current.data.review || current.data.check) && (
-                <section className="space-y-1 rounded-md border p-3 text-sm">
-                  {current.data.check && !current.data.check.passed && <p className="text-amber-700">형식 검사: {current.data.check.issues.join(', ')}</p>}
-                  {current.data.review &&
-                    (current.data.review.passed ? (
-                      <p className="text-emerald-700">마지막 검수 통과</p>
-                    ) : (
-                      <ul className="list-disc pl-5 text-amber-800">
-                        {current.data.review.issues.map((issue, i) => (
-                          <li key={i}>{issue}</li>
-                        ))}
-                      </ul>
+              {!!current.data.issues?.length && (
+                <section className="rounded-md border p-3 text-sm">
+                  <h3 className="mb-1 text-xs font-medium text-muted-foreground">앞 단계에서 지적된 문제</h3>
+                  <ul className="list-disc pl-5 text-amber-800">
+                    {current.data.issues.map((issue, i) => (
+                      <li key={i}>{issue}</li>
                     ))}
+                  </ul>
                 </section>
               )}
               <section>

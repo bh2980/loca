@@ -1,14 +1,15 @@
 import { z } from 'zod';
 
-export const CONNECTION_KINDS = ['openai', 'systemone', 'codex', 'claude', 'grok', 'antigravity'] as const;
+export const CONNECTION_KINDS = ['openai', 'systemone', 'codex', 'claude', 'grok', 'antigravity', 'http'] as const;
 export type ConnectionKind = (typeof CONNECTION_KINDS)[number];
 
 /**
  * generate: structured generation (translate / revise / review nodes)
  * judge:    typed decision only (review nodes)
  * chat:     tool-calling conversation (project chat agent)
+ * tool:     plain HTTP API called by the workflow "HTTP 호출" function (spell checkers, dictionaries…)
  */
-export type Capability = 'generate' | 'judge' | 'chat';
+export type Capability = 'generate' | 'judge' | 'chat' | 'tool';
 
 export interface ConnectionKindInfo {
   label: string;
@@ -40,6 +41,7 @@ export const CONNECTION_KIND_INFO: Record<ConnectionKind, ConnectionKindInfo> = 
   claude: { label: 'Claude Code CLI', transport: 'cli', capabilities: ['generate'], needsKey: false, efforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
   grok: { label: 'Grok CLI', transport: 'cli', capabilities: ['generate'], needsKey: false, efforts: [] },
   antigravity: { label: 'Antigravity CLI', transport: 'cli', capabilities: ['generate'], needsKey: false, efforts: [] },
+  http: { label: 'HTTP API (도구)', transport: 'http', capabilities: ['tool'], needsKey: false, efforts: [] },
 };
 
 export const connectionInputSchema = z.object({
@@ -48,6 +50,8 @@ export const connectionInputSchema = z.object({
   baseUrl: z.string().trim().url().optional(),
   /** Absolute path to the CLI executable. Empty = resolve from PATH. */
   executable: z.string().trim().optional(),
+  /** HTTP tools: how the stored key is sent, e.g. "Authorization: Bearer {key}" or "X-API-Key: {key}". */
+  headerTemplate: z.string().trim().optional(),
 });
 export type ConnectionInput = z.infer<typeof connectionInputSchema>;
 

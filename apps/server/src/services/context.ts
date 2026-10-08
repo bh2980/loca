@@ -156,7 +156,7 @@ export function buildContext(
       ? db
           .select({ source: terms.source, target: terms.target, note: terms.note })
           .from(terms)
-          .where(eq(terms.projectId, projectId))
+          .where(and(eq(terms.projectId, projectId), eq(terms.status, 'confirmed')))
           .all()
           .filter((term) => mentions(text, term.source))
       : [],

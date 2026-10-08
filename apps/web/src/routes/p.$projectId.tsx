@@ -1,5 +1,7 @@
 import { useEffect } from 'react';
-import { createFileRoute, Outlet } from '@tanstack/react-router';
+import { createFileRoute, Link, Outlet } from '@tanstack/react-router';
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
+import { ApiError } from '@/lib/api';
 import { MessageSquare } from 'lucide-react';
 import { useDefaultLayout } from 'react-resizable-panels';
 import { AppSidebar } from '@/components/app-sidebar';
@@ -18,6 +20,19 @@ import { useViewState } from '@/lib/view-context';
 export const Route = createFileRoute('/p/$projectId')({
   loader: ({ context, params }) => context.queryClient.ensureQueryData(q.project(params.projectId)),
   component: ProjectLayout,
+  errorComponent: ({ error }) => (
+    <Empty className="m-auto min-h-svh">
+      <EmptyHeader>
+        <EmptyTitle>{error instanceof ApiError && error.status === 404 ? '프로젝트를 찾을 수 없습니다' : '화면을 불러오지 못했습니다'}</EmptyTitle>
+        <EmptyDescription>{error instanceof Error ? error.message : String(error)}</EmptyDescription>
+      </EmptyHeader>
+      <EmptyContent>
+        <Button asChild variant="outline">
+          <Link to="/">프로젝트 목록으로</Link>
+        </Button>
+      </EmptyContent>
+    </Empty>
+  ),
 });
 
 function ProjectLayout() {

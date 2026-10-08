@@ -18,15 +18,15 @@ import {
 import '@xyflow/react/dist/style.css';
 import { ChevronLeft, LayoutGrid, Plus, RotateCcw, Save } from 'lucide-react';
 import { toast } from 'sonner';
-import { NODE_TYPES, workflowNodeSchema, type WorkflowDefinition, type WorkflowIssue, type WorkflowNode, type WorkflowNodeType } from '@tw/shared';
+import { AI_OUTPUTS, AI_PRESETS, FUNCTIONS, FUNCTION_NAMES, nodeName, workflowNodeSchema, type FunctionName, type WorkflowDefinition, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
 import { Page } from '@/components/page';
 import { autoLayout } from '@/components/workflow/auto-layout';
 import { NodeConfig } from '@/components/workflow/node-config';
-import { NODE_ICON, WorkflowNodeView, type FlowNode } from '@/components/workflow/node-view';
+import { nodeIcon, WorkflowNodeView, type FlowNode } from '@/components/workflow/node-view';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { client, unwrap } from '@/lib/api';
@@ -118,20 +118,25 @@ function WorkflowEditor() {
 
   const statusName = new Map(statuses.data?.statuses.map((status) => [status.id, status.name]));
   const profileName = new Map(profiles.data?.map((profile) => [profile.id, profile.name]));
+  const connectionName = new Map(connections.data?.map((connection) => [connection.id, connection.name]));
   const summary = (node: WorkflowNode): string => {
     switch (node.type) {
       case 'entry':
         return node.config.statusIds.length ? node.config.statusIds.map((id) => statusName.get(id) ?? '삭제된 상태').join(', ') : '범위 안의 모든 대사';
-      case 'translate':
-      case 'review':
-      case 'revise':
-        return `${profileName.get(node.config.profileId) ?? '프로필 없음'} · ${node.config.batch.mode === 'unit' ? '하나씩' : node.config.batch.mode === 'group' ? `장면별 ≤${node.config.batch.size}` : `${node.config.batch.size}개씩`}`;
-      case 'check':
-        return [node.config.placeholders && '자리표시자', node.config.tags && '태그', node.config.newlines && '줄바꿈', node.config.emptyText && '빈 번역'].filter(Boolean).join(' · ');
+      case 'ai': {
+        const batch = node.config.batch.mode === 'unit' ? '하나씩' : node.config.batch.mode === 'group' ? `장면별 ≤${node.config.batch.size}` : `${node.config.batch.size}개씩`;
+        return `${AI_OUTPUTS[node.config.output].label} · ${profileName.get(node.config.profileId) ?? '프로필 없음'} · ${batch}`;
+      }
+      case 'function': {
+        const params = node.config.params as Record<string, unknown>;
+        if (node.config.fn === 'setStatus')
+          return [params.statusId && `→ ${statusName.get(params.statusId as string) ?? '삭제된 상태'}`, params.applyCandidate && '대표 번역 적용'].filter(Boolean).join(' · ') || '변경 없음';
+        if (node.config.fn === 'http') return `${(params.method as string) ?? 'POST'} ${connectionName.get(params.connectionId as string) ?? '연결 없음'}/${(params.path as string) ?? ''}`;
+        if (node.config.fn === 'script') return `출구: ${((params.ports as string[]) ?? ['out']).join(', ')}`;
+        return FUNCTIONS[node.config.fn as FunctionName]?.description ?? node.config.fn;
+      }
       case 'condition':
         return node.config.description || '조건식';
-      case 'update':
-        return [node.config.statusId && `→ ${statusName.get(node.config.statusId) ?? '삭제된 상태'}`, node.config.applyCandidate && '대표 번역 적용'].filter(Boolean).join(' · ') || '변경 없음';
       case 'human':
         return node.config.instructions || '검토함에서 승인/반려';
       default:
@@ -165,7 +170,7 @@ function WorkflowEditor() {
           live: liveCounts.get(node.id),
         },
       })),
-    [current?.definition, search.node, issues, liveCounts, statuses.data, profiles.data], // eslint-disable-line react-hooks/exhaustive-deps
+    [current?.definition, search.node, issues, liveCounts, statuses.data, profiles.data, connections.data], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const edges: Edge[] = useMemo(
     () =>
@@ -189,7 +194,7 @@ function WorkflowEditor() {
   const selected = current?.definition.nodes.find((node) => node.id === search.node);
   useReportView('workflow', [
     workflow.data && { kind: '워크플로', id: workflow.data.id, label: `${workflow.data.name} v${workflow.data.version}` },
-    selected && { kind: '워크플로 노드', id: selected.id, label: selected.label ?? NODE_TYPES[selected.type].label },
+    selected && { kind: '워크플로 노드', id: selected.id, label: nodeName(selected) },
   ]);
 
   const onNodesChange = (changes: NodeChange<FlowNode>[]) => {
@@ -221,10 +226,13 @@ function WorkflowEditor() {
     });
   };
 
-  const addNode = (type: WorkflowNodeType) => {
-    const center = flow.screenToFlowPosition({ x: window.innerWidth / 2 - 200, y: window.innerHeight / 2 });
-    const id = `${type}-${crypto.randomUUID().slice(0, 6)}`;
-    const node = workflowNodeSchema.parse({ id, type, position: center, config: type === 'condition' ? { expression: true } : {} });
+  /** New nodes appear at the centre of the view; AI presets and functions are just pre-filled configs. */
+  const addNode = (seed: Pick<WorkflowNode, 'type'> & { label?: string; config?: unknown }, prefix: string) => {
+    const position = flow.screenToFlowPosition({ x: window.innerWidth / 2 - 200, y: window.innerHeight / 2 });
+    const taken = new Set(current?.definition.nodes.map((node) => node.id));
+    let id = prefix;
+    for (let n = 2; taken.has(id); n++) id = `${prefix}${n}`;
+    const node = workflowNodeSchema.parse({ id, position, config: {}, ...seed });
     setDraft((value) => ({ ...value, definition: { ...value.definition, nodes: [...value.definition.nodes, node] } }));
     select(id);
   };
@@ -275,21 +283,40 @@ function WorkflowEditor() {
                 <Plus /> 노드 추가
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-72">
-              {(Object.keys(NODE_TYPES) as WorkflowNodeType[])
-                .filter((type) => type !== 'entry' || !hasEntry)
-                .map((type) => {
-                  const Icon = NODE_ICON[type];
-                  return (
-                    <DropdownMenuItem key={type} onSelect={() => addNode(type)} className="items-start">
-                      <Icon className="mt-0.5" />
-                      <div>
-                        <p className="text-sm">{NODE_TYPES[type].label}</p>
-                        <p className="text-xs text-muted-foreground">{NODE_TYPES[type].description}</p>
-                      </div>
-                    </DropdownMenuItem>
-                  );
-                })}
+            <DropdownMenuContent align="end" className="max-h-[70vh] w-80 overflow-auto">
+              <DropdownMenuLabel className="text-xs text-muted-foreground">AI</DropdownMenuLabel>
+              {Object.entries(AI_PRESETS).map(([key, preset]) => (
+                <PaletteItem
+                  key={key}
+                  icon={nodeIcon({ type: 'ai', config: { output: preset.output } } as WorkflowNode)}
+                  title={preset.label}
+                  description={AI_OUTPUTS[preset.output].description}
+                  onSelect={() => addNode({ type: 'ai', label: preset.label, config: { profileId: profiles.data?.[0]?.id ?? '', output: preset.output, instructions: preset.instructions, include: preset.include } }, key)}
+                />
+              ))}
+              <PaletteItem
+                icon={nodeIcon({ type: 'ai', config: { output: 'json' } } as WorkflowNode)}
+                title="AI 자유 형식"
+                description="필드를 직접 정해 대사마다 채우게 합니다."
+                onSelect={() => addNode({ type: 'ai', config: { profileId: profiles.data?.[0]?.id ?? '', output: 'json', fields: [{ name: 'note', type: 'string', description: '' }] } }, 'ai')}
+              />
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel className="text-xs text-muted-foreground">함수</DropdownMenuLabel>
+              {FUNCTION_NAMES.map((fn) => (
+                <PaletteItem
+                  key={fn}
+                  icon={nodeIcon({ type: 'function', config: { fn, params: {} } } as WorkflowNode)}
+                  title={FUNCTIONS[fn].label}
+                  description={FUNCTIONS[fn].description}
+                  onSelect={() => addNode({ type: 'function', config: { fn, params: {} } }, fn)}
+                />
+              ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel className="text-xs text-muted-foreground">흐름</DropdownMenuLabel>
+              <PaletteItem icon={nodeIcon({ type: 'condition' } as WorkflowNode)} title="조건" description="방문 횟수·앞 노드 출력으로 분기합니다." onSelect={() => addNode({ type: 'condition', config: { expression: true, description: '' } }, 'condition')} />
+              <PaletteItem icon={nodeIcon({ type: 'human' } as WorkflowNode)} title="사람 확인" description="검토함에서 승인/반려를 기다립니다." onSelect={() => addNode({ type: 'human', config: {} }, 'human')} />
+              <PaletteItem icon={nodeIcon({ type: 'end' } as WorkflowNode)} title="종료" description="대사의 흐름을 마칩니다." onSelect={() => addNode({ type: 'end', config: {} }, 'end')} />
+              {!hasEntry && <PaletteItem icon={nodeIcon({ type: 'entry' } as WorkflowNode)} title="진입" description="대사가 흐름에 들어오는 곳" onSelect={() => addNode({ type: 'entry', config: {} }, 'entry')} />}
             </DropdownMenuContent>
           </DropdownMenu>
           <Button variant="outline" size="sm" onClick={() => void arrange()}>
@@ -345,6 +372,7 @@ function WorkflowEditor() {
               refs={{
                 statuses: statuses.data?.statuses ?? [],
                 tags: statuses.data?.tags ?? [],
+                projectId,
                 profiles: profiles.data ?? [],
                 connections: connections.data ?? [],
                 nodes: current.definition.nodes,
@@ -367,5 +395,17 @@ function WorkflowEditor() {
         )}
       </div>
     </Page>
+  );
+}
+
+function PaletteItem({ icon: Icon, title, description, onSelect }: { icon: typeof Plus; title: string; description: string; onSelect: () => void }) {
+  return (
+    <DropdownMenuItem onSelect={onSelect} className="items-start">
+      <Icon className="mt-0.5" />
+      <div>
+        <p className="text-sm">{title}</p>
+        <p className="text-xs text-muted-foreground">{description}</p>
+      </div>
+    </DropdownMenuItem>
   );
 }

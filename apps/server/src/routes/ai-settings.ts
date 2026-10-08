@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { asc, eq, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import * as ai from '@tw/ai';
-import { CONNECTION_KIND_INFO, connectionInputSchema, profileInputSchema } from '@tw/shared';
+import { CONNECTION_KIND_INFO, connectionInputSchema, patchOf, profileInputSchema } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
@@ -31,7 +31,7 @@ export const connectionRoutes = new Hono<Env>()
     events.changed(undefined, 'connections');
     return c.json(row, 201);
   })
-  .patch('/:id', validate('json', connectionInputSchema.omit({ kind: true }).partial()), (c) => {
+  .patch('/:id', validate('json', patchOf(connectionInputSchema.omit({ kind: true }))), (c) => {
     const { db } = c.var.deps;
     const input = c.req.valid('json');
     found(db.update(s.connections).set({ ...input, executable: input.executable === '' ? null : input.executable }).where(eq(s.connections.id, c.req.param('id'))).returning().get(), '연결');

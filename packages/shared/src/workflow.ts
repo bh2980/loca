@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import Graph from 'graphology';
+import { FUNCTIONS, functionPorts, type FunctionName, type Port } from './functions.ts';
 import { stronglyConnectedComponents } from 'graphology-components';
 
 /** What an AI node pulls into its prompt. Every field maps to stored project data. */
@@ -20,43 +21,43 @@ export const batchConfigSchema = z.object({
 const position = z.object({ x: z.number(), y: z.number() });
 const base = { id: z.string().min(1), position, label: z.string().optional() };
 
+/** What an AI node returns for each line; the choice also decides its exits. */
+export const AI_OUTPUTS = {
+  candidate: { label: '번역 후보', description: '대사마다 새 번역 후보를 만듭니다.' },
+  verdict: { label: '판정', description: '통과/실패와 의견을 냅니다.' },
+  terms: { label: '용어 후보', description: '원문에서 용어(원문·번역·메모)를 뽑습니다.' },
+  json: { label: '자유 형식', description: '직접 정한 필드를 대사마다 채웁니다.' },
+} as const;
+export type AiOutput = keyof typeof AI_OUTPUTS;
+
+export const jsonFieldSchema = z.object({
+  name: z.string().trim().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, '영문·숫자·_ 로 된 이름'),
+  type: z.enum(['string', 'number', 'boolean']).default('string'),
+  description: z.string().default(''),
+});
+
 const aiConfig = z.object({
   profileId: z.string().default(''),
   instructions: z.string().default(''),
+  output: z.enum(['candidate', 'verdict', 'terms', 'json']).default('candidate'),
+  fields: z.array(jsonFieldSchema).default([]),
+  /** Also show the model the line's current candidate / the latest failing issues. */
+  include: z
+    .object({ candidate: z.boolean().default(true), issues: z.boolean().default(true) })
+    .default({ candidate: true, issues: true }),
   context: contextConfigSchema.default(contextConfigSchema.parse({})),
   batch: batchConfigSchema.default(batchConfigSchema.parse({})),
 });
 
 export const workflowNodeSchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('entry'), config: z.object({ statusIds: z.array(z.string()).default([]) }) }),
-  z.object({ ...base, type: z.literal('translate'), config: aiConfig }),
-  z.object({ ...base, type: z.literal('review'), config: aiConfig }),
-  z.object({ ...base, type: z.literal('revise'), config: aiConfig }),
-  z.object({
-    ...base,
-    type: z.literal('check'),
-    config: z.object({
-      placeholders: z.boolean().default(true),
-      tags: z.boolean().default(true),
-      newlines: z.boolean().default(true),
-      emptyText: z.boolean().default(true),
-    }),
-  }),
+  z.object({ ...base, type: z.literal('ai'), config: aiConfig }),
+  z.object({ ...base, type: z.literal('function'), config: z.object({ fn: z.string(), params: z.record(z.string(), z.unknown()).default({}) }) }),
   z.object({
     ...base,
     type: z.literal('condition'),
-    // JSON Logic expression evaluated against the item's data (see ConditionData).
+    // JSON Logic expression evaluated against the line's data (see ConditionData).
     config: z.object({ expression: z.unknown(), description: z.string().default('') }),
-  }),
-  z.object({
-    ...base,
-    type: z.literal('update'),
-    config: z.object({
-      statusId: z.string().optional(),
-      addTagIds: z.array(z.string()).default([]),
-      removeTagIds: z.array(z.string()).default([]),
-      applyCandidate: z.boolean().default(false),
-    }),
   }),
   z.object({ ...base, type: z.literal('human'), config: z.object({ instructions: z.string().default('') }) }),
   z.object({ ...base, type: z.literal('end'), config: z.object({}).default({}) }),
@@ -82,74 +83,65 @@ export const workflowDefinitionSchema = z.object({
 
 export type ContextConfig = z.infer<typeof contextConfigSchema>;
 export type BatchConfig = z.infer<typeof batchConfigSchema>;
+export type JsonField = z.infer<typeof jsonFieldSchema>;
 export type WorkflowNode = z.infer<typeof workflowNodeSchema>;
 export type WorkflowNodeType = WorkflowNode['type'];
 export type WorkflowEdge = z.infer<typeof workflowEdgeSchema>;
 export type WorkflowDefinition = z.infer<typeof workflowDefinitionSchema>;
-export type AiNode = Extract<WorkflowNode, { type: 'translate' | 'review' | 'revise' }>;
+export type AiNode = Extract<WorkflowNode, { type: 'ai' }>;
+export type FunctionNode = Extract<WorkflowNode, { type: 'function' }>;
 
 export interface NodeTypeInfo {
   label: string;
   description: string;
   hasInput: boolean;
-  outputs: { id: string; label: string }[];
 }
 
 export const NODE_TYPES: Record<WorkflowNodeType, NodeTypeInfo> = {
-  entry: { label: '진입', description: '선택한 상태의 대사가 흐름에 들어옵니다.', hasInput: false, outputs: [{ id: 'out', label: '다음' }] },
-  translate: {
-    label: 'AI 번역',
-    description: '문맥과 함께 번역 후보를 만듭니다.',
-    hasInput: true,
-    outputs: [{ id: 'out', label: '완료' }, { id: 'error', label: '오류' }],
-  },
-  review: {
-    label: 'AI 검수',
-    description: '최신 후보를 검수하고 통과/실패를 판정합니다.',
-    hasInput: true,
-    outputs: [{ id: 'pass', label: '통과' }, { id: 'fail', label: '실패' }, { id: 'error', label: '오류' }],
-  },
-  revise: {
-    label: 'AI 수정',
-    description: '검수·형식 검사 의견을 반영해 새 후보를 만듭니다.',
-    hasInput: true,
-    outputs: [{ id: 'out', label: '완료' }, { id: 'error', label: '오류' }],
-  },
-  check: {
-    label: '형식 검사',
-    description: '태그·플레이스홀더·줄바꿈 보존을 검사합니다.',
-    hasInput: true,
-    outputs: [{ id: 'pass', label: '통과' }, { id: 'fail', label: '실패' }],
-  },
-  condition: {
-    label: '조건',
-    description: '방문 횟수·검수 결과 등으로 분기합니다.',
-    hasInput: true,
-    outputs: [{ id: 'true', label: '참' }, { id: 'false', label: '거짓' }],
-  },
-  update: {
-    label: '상태 변경',
-    description: '상태·태그를 바꾸고 후보를 대표 번역으로 적용합니다.',
-    hasInput: true,
-    outputs: [{ id: 'out', label: '다음' }],
-  },
-  human: {
-    label: '사람 확인',
-    description: '검토함에서 사람이 승인하거나 반려할 때까지 기다립니다.',
-    hasInput: true,
-    outputs: [{ id: 'approved', label: '승인' }, { id: 'rejected', label: '반려' }],
-  },
-  end: { label: '종료', description: '대사의 흐름을 마칩니다.', hasInput: true, outputs: [] },
+  entry: { label: '진입', description: '선택한 상태의 대사가 흐름에 들어옵니다.', hasInput: false },
+  ai: { label: 'AI', description: '프로필·지시문·문맥으로 AI를 호출해 후보·판정·용어·데이터를 받습니다.', hasInput: true },
+  function: { label: '함수', description: '형식 검사·상태 변경·HTTP 호출·스크립트 등 정해진 동작을 실행합니다.', hasInput: true },
+  condition: { label: '조건', description: '방문 횟수·앞 노드의 출력 등으로 분기합니다.', hasInput: true },
+  human: { label: '사람 확인', description: '검토함에서 사람이 승인하거나 반려할 때까지 기다립니다.', hasInput: true },
+  end: { label: '종료', description: '대사의 흐름을 마칩니다.', hasInput: true },
 };
 
-export const isAiNode = (node: WorkflowNode): node is AiNode =>
-  node.type === 'translate' || node.type === 'review' || node.type === 'revise';
+const OUT: Port[] = [{ id: 'out', label: '완료' }];
+const ERROR: Port = { id: 'error', label: '오류' };
 
-/** Data a condition expression can read, e.g. {"<": [{"var": "visits.revise"}, 3]}. */
+/** The exits of a node, derived from its type and config. */
+export function nodePorts(node: WorkflowNode): Port[] {
+  switch (node.type) {
+    case 'entry':
+      return [{ id: 'out', label: '다음' }];
+    case 'ai':
+      return node.config.output === 'verdict' ? [{ id: 'pass', label: '통과' }, { id: 'fail', label: '실패' }, ERROR] : [...OUT, ERROR];
+    case 'function':
+      return functionPorts(node.config.fn, node.config.params);
+    case 'condition':
+      return [{ id: 'true', label: '참' }, { id: 'false', label: '거짓' }];
+    case 'human':
+      return [{ id: 'approved', label: '승인' }, { id: 'rejected', label: '반려' }];
+    case 'end':
+      return [];
+  }
+}
+
+/** A short name for a node: its label, else its function / output kind. */
+export function nodeName(node: WorkflowNode): string {
+  if (node.label) return node.label;
+  if (node.type === 'function') return FUNCTIONS[node.config.fn as FunctionName]?.label ?? node.config.fn;
+  if (node.type === 'ai') return `AI ${AI_OUTPUTS[node.config.output].label}`;
+  return NODE_TYPES[node.type].label;
+}
+
+/** Data a condition expression can read, e.g. {"<": [{"var": "visits.review"}, 3]}. */
 export interface ConditionData {
   visits: Record<string, number>;
-  review?: { passed: boolean; score?: number; issues: string[] };
-  check?: { passed: boolean; issues: string[] };
+  /** Every node's output for this line, by node id (verdicts: {passed, issues}). */
+  outputs: Record<string, Record<string, unknown>>;
+  candidate: string | null;
+  issues: string[];
   unit: { kind: string; speaker: string | null; statusId: string; tagIds: string[] };
 }
 
@@ -164,6 +156,8 @@ export interface WorkflowRefs {
   profileIds: Set<string>;
   statusIds: Set<string>;
   tagIds: Set<string>;
+  /** HTTP tool connections usable by the http function. */
+  toolConnectionIds: Set<string>;
 }
 
 export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowRefs): WorkflowIssue[] {
@@ -187,8 +181,8 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
     }
     const source = graph.getNodeAttribute(edge.source, 'node') as WorkflowNode;
     const target = graph.getNodeAttribute(edge.target, 'node') as WorkflowNode;
-    if (!NODE_TYPES[source.type].outputs.some((port) => port.id === edge.sourceHandle))
-      error(`'${NODE_TYPES[source.type].label}'에 없는 출구입니다: ${edge.sourceHandle}`, { edgeId: edge.id });
+    if (!nodePorts(source).some((port) => port.id === edge.sourceHandle))
+      error(`'${nodeName(source)}'에 없는 출구입니다: ${edge.sourceHandle}`, { edgeId: edge.id });
     if (!NODE_TYPES[target.type].hasInput) error('진입 노드로 들어가는 연결은 둘 수 없습니다.', { edgeId: edge.id });
     const port = `${edge.source}:${edge.sourceHandle}`;
     if (usedPorts.has(port)) error('한 출구에는 연결을 하나만 둘 수 있습니다.', { edgeId: edge.id });
@@ -197,20 +191,41 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
   }
 
   for (const node of definition.nodes) {
-    const info = NODE_TYPES[node.type];
-    for (const port of info.outputs) {
+    for (const port of nodePorts(node)) {
       // An unconnected error port means "mark the line failed"; every other exit must lead somewhere.
       if (port.id !== 'error' && !usedPorts.has(`${node.id}:${port.id}`))
         error(`'${port.label}' 출구가 연결되지 않았습니다.`, { nodeId: node.id });
     }
-    if (isAiNode(node) && !refs.profileIds.has(node.config.profileId))
-      error(node.config.profileId ? '삭제된 AI 프로필입니다.' : 'AI 프로필을 선택하세요.', { nodeId: node.id });
+    if (node.type === 'ai') {
+      if (!refs.profileIds.has(node.config.profileId))
+        error(node.config.profileId ? '삭제된 AI 프로필입니다.' : 'AI 프로필을 선택하세요.', { nodeId: node.id });
+      if (node.config.output === 'json' && !node.config.fields.length) error('자유 형식 출력에는 필드가 하나 이상 필요합니다.', { nodeId: node.id });
+    }
     if (node.type === 'entry')
       for (const id of node.config.statusIds) if (!refs.statusIds.has(id)) error('삭제된 상태가 있습니다.', { nodeId: node.id });
-    if (node.type === 'update') {
-      if (node.config.statusId && !refs.statusIds.has(node.config.statusId)) error('삭제된 상태입니다.', { nodeId: node.id });
-      for (const id of [...node.config.addTagIds, ...node.config.removeTagIds])
-        if (!refs.tagIds.has(id)) error('삭제된 태그가 있습니다.', { nodeId: node.id });
+    if (node.type === 'function') {
+      const info = FUNCTIONS[node.config.fn as FunctionName];
+      if (!info) {
+        error(`알 수 없는 함수입니다: ${node.config.fn}`, { nodeId: node.id });
+        continue;
+      }
+      const parsed = info.params.safeParse(node.config.params);
+      if (!parsed.success) {
+        error(`설정 오류: ${parsed.error.issues[0]?.path.join('.')} ${parsed.error.issues[0]?.message}`, { nodeId: node.id });
+        continue;
+      }
+      const params = parsed.data as Record<string, unknown>;
+      if (node.config.fn === 'setStatus') {
+        if (params.statusId && !refs.statusIds.has(params.statusId as string)) error('삭제된 상태입니다.', { nodeId: node.id });
+        for (const id of [...(params.addTagIds as string[]), ...(params.removeTagIds as string[])])
+          if (!refs.tagIds.has(id)) error('삭제된 태그가 있습니다.', { nodeId: node.id });
+      }
+      if (node.config.fn === 'http' && !refs.toolConnectionIds.has(params.connectionId as string))
+        error(params.connectionId ? '삭제된 도구 연결입니다.' : '호출할 HTTP 연결을 선택하세요.', { nodeId: node.id });
+      if (node.config.fn === 'addTerms' && params.fromNodeId) {
+        const from = definition.nodes.find((other) => other.id === params.fromNodeId);
+        if (from?.type !== 'ai' || from.config.output !== 'terms') error('용어 후보를 내는 AI 노드를 선택하세요.', { nodeId: node.id });
+      }
     }
     if (node.type === 'condition' && (node.config.expression === undefined || node.config.expression === null))
       error('조건식을 입력하세요.', { nodeId: node.id });
@@ -233,10 +248,8 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
   for (const component of stronglyConnectedComponents(graph)) {
     const looping = component.length > 1 || graph.hasDirectedEdge(component[0], component[0]);
     if (!looping) continue;
-    const exits = component.some((id) => {
-      const type = (graph.getNodeAttribute(id, 'node') as WorkflowNode).type;
-      return type === 'condition' || type === 'human' || type === 'review' || type === 'check';
-    });
+    // Something in the loop must be able to choose a different exit.
+    const exits = component.some((id) => nodePorts(graph.getNodeAttribute(id, 'node') as WorkflowNode).filter((port) => port.id !== 'error').length > 1);
     if (!exits)
       warn(`분기 없이 도는 순환이 있습니다. 노드 방문 상한(${definition.settings.maxVisitsPerNode}회)에서만 멈춥니다.`, {
         nodeId: component[0],

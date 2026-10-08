@@ -1,12 +1,18 @@
 import { Hono } from 'hono';
 import { and, asc, eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { DOCUMENT_KINDS } from '@tw/shared';
+import { DOCUMENT_KINDS, patchOf } from '@tw/shared';
 import { found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 
-export const termInput = z.object({ source: z.string().trim().min(1), target: z.string().default(''), note: z.string().default('') });
+export const termInput = z.object({
+  source: z.string().trim().min(1),
+  target: z.string().default(''),
+  note: z.string().default(''),
+  /** candidate = proposed (not used as context yet), confirmed = used by AI nodes. */
+  status: z.enum(['candidate', 'confirmed']).default('confirmed'),
+});
 export const documentInput = z.object({ kind: z.enum(DOCUMENT_KINDS).default('note'), title: z.string().trim().min(1), body: z.string().default(''), alwaysInclude: z.boolean().default(false) });
 export const characterInput = z.object({ name: z.string().trim().min(1), aliases: z.array(z.string().trim().min(1)).default([]), profile: z.string().default('') });
 export const relationshipInput = z.object({ fromId: z.string(), toId: z.string(), kind: z.string().trim().min(1), description: z.string().default(''), mutual: z.boolean().default(false) });
@@ -22,7 +28,7 @@ export const knowledgeRoutes = new Hono<Env>()
     events.changed(projectId, 'terms');
     return c.json(row, 201);
   })
-  .patch('/terms/:id', validate('json', termInput.partial()), (c) => {
+  .patch('/terms/:id', validate('json', patchOf(termInput)), (c) => {
     const projectId = c.req.param('projectId')!;
     found(c.var.deps.db.update(s.terms).set(c.req.valid('json')).where(byProject(s.terms, c.req.param('id'), projectId)).returning().get(), '용어');
     events.changed(projectId, 'terms');
@@ -42,7 +48,7 @@ export const knowledgeRoutes = new Hono<Env>()
     events.changed(projectId, 'knowledge');
     return c.json(row, 201);
   })
-  .patch('/documents/:id', validate('json', documentInput.partial()), (c) => {
+  .patch('/documents/:id', validate('json', patchOf(documentInput)), (c) => {
     const projectId = c.req.param('projectId')!;
     found(c.var.deps.db.update(s.documents).set(c.req.valid('json')).where(byProject(s.documents, c.req.param('id'), projectId)).returning().get(), '문서');
     events.changed(projectId, 'knowledge');
@@ -69,7 +75,7 @@ export const knowledgeRoutes = new Hono<Env>()
     events.changed(projectId, 'knowledge');
     return c.json(row, 201);
   })
-  .patch('/characters/:id', validate('json', characterInput.partial()), (c) => {
+  .patch('/characters/:id', validate('json', patchOf(characterInput)), (c) => {
     const projectId = c.req.param('projectId')!;
     found(c.var.deps.db.update(s.characters).set(c.req.valid('json')).where(byProject(s.characters, c.req.param('id'), projectId)).returning().get(), '인물');
     events.changed(projectId, 'knowledge');
@@ -87,7 +93,7 @@ export const knowledgeRoutes = new Hono<Env>()
     events.changed(projectId, 'knowledge');
     return c.json(row, 201);
   })
-  .patch('/relationships/:id', validate('json', relationshipInput.partial()), (c) => {
+  .patch('/relationships/:id', validate('json', patchOf(relationshipInput)), (c) => {
     const projectId = c.req.param('projectId')!;
     found(c.var.deps.db.update(s.relationships).set(c.req.valid('json')).where(byProject(s.relationships, c.req.param('id'), projectId)).returning().get(), '관계');
     events.changed(projectId, 'knowledge');

@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { importFileSchema, STATUS_COLORS } from '@tw/shared';
+import { importFileSchema, patchOf, STATUS_COLORS } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
@@ -147,7 +147,7 @@ export const projectRoutes = new Hono<Env>()
     events.changed(projectId, 'statuses');
     return c.json(row, 201);
   })
-  .patch('/:projectId/statuses/:id', validate('json', statusInput.partial()), (c) => {
+  .patch('/:projectId/statuses/:id', validate('json', patchOf(statusInput)), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     found(db.update(s.statuses).set(c.req.valid('json')).where(and(eq(s.statuses.id, c.req.param('id')), eq(s.statuses.projectId, projectId))).returning().get(), '상태');
@@ -185,7 +185,7 @@ export const projectRoutes = new Hono<Env>()
     events.changed(projectId, 'statuses');
     return c.json(row, 201);
   })
-  .patch('/:projectId/tags/:id', validate('json', tagInput.partial()), (c) => {
+  .patch('/:projectId/tags/:id', validate('json', patchOf(tagInput)), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     found(db.update(s.tags).set(c.req.valid('json')).where(and(eq(s.tags.id, c.req.param('id')), eq(s.tags.projectId, projectId))).returning().get(), '태그');

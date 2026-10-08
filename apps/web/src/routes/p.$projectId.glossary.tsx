@@ -10,14 +10,16 @@ import { Input } from '@/components/ui/input';
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
 import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 
 export const Route = createFileRoute('/p/$projectId/glossary')({
-  validateSearch: (raw: Record<string, unknown>): { q?: string; term?: string } => ({
+  validateSearch: (raw: Record<string, unknown>): { q?: string; term?: string; view?: 'candidate' } => ({
     q: typeof raw.q === 'string' && raw.q ? raw.q : undefined,
+    view: raw.view === 'candidate' ? 'candidate' : undefined,
     term: typeof raw.term === 'string' && raw.term ? raw.term : undefined,
   }),
   component: Glossary,
@@ -28,6 +30,8 @@ interface Term {
   source: string;
   target: string;
   note: string;
+  status: 'candidate' | 'confirmed';
+  origin: string | null;
 }
 
 function Glossary() {
@@ -37,7 +41,17 @@ function Glossary() {
   const terms = useQuery(q.terms(projectId));
   const [draft, setDraft] = useState({ source: '', target: '', note: '' });
 
-  const all = terms.data ?? [];
+  // Candidates (e.g. from a workflow's "add terms") are kept apart until a person accepts them.
+  const candidates = (terms.data ?? []).filter((term) => term.status === 'candidate');
+  const all = (terms.data ?? []).filter((term) => (search.view === 'candidate' ? term.status === 'candidate' : term.status === 'confirmed'));
+  const decide = useMutation({
+    mutationFn: ({ id, accept }: { id: string; accept: boolean }) =>
+      accept
+        ? unwrap(client.projects[':projectId'].terms[':id'].$patch({ param: { projectId, id }, json: { status: 'confirmed' } }))
+        : unwrap(client.projects[':projectId'].terms[':id'].$delete({ param: { projectId, id } })),
+    onSuccess: (_data, { accept }) => toast.success(accept ? '용어집에 확정했습니다.' : '후보를 버렸습니다.'),
+    onError: (error) => toast.error(error.message),
+  });
   const needle = search.q?.toLowerCase();
   const rows = needle ? all.filter((term) => [term.source, term.target, term.note].some((text) => text.toLowerCase().includes(needle))) : all;
   const selected = all.find((term) => term.id === search.term);
@@ -54,10 +68,16 @@ function Glossary() {
   const select = (id?: string) => void navigate({ search: (previous) => ({ ...previous, term: id }), replace: true });
 
   return (
-    <Page title="용어집" description="번역 때 AI에게 항상 알려 주는 고유명사·표기 규칙입니다.">
+    <Page title="용어집" description="확정 용어는 원문에 나올 때 AI 노드의 문맥으로 들어갑니다. 후보는 수락하기 전까지 쓰이지 않습니다.">
       <div className="flex min-h-0 gap-0 rounded-lg border">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2 border-b p-3">
+            <Tabs value={search.view ?? 'confirmed'} onValueChange={(value) => void navigate({ search: (previous) => ({ ...previous, view: value === 'candidate' ? 'candidate' : undefined, term: undefined }) })}>
+              <TabsList>
+                <TabsTrigger value="confirmed">확정</TabsTrigger>
+                <TabsTrigger value="candidate">후보 {candidates.length > 0 && <span className="ml-1 rounded bg-amber-100 px-1 text-[11px] text-amber-800">{candidates.length}</span>}</TabsTrigger>
+              </TabsList>
+            </Tabs>
             <InputGroup className="w-64">
               <InputGroupAddon>
                 <Search />
@@ -82,6 +102,7 @@ function Glossary() {
               </TableRow>
             </TableHeader>
             <TableBody>
+              {search.view !== 'candidate' && (
               <TableRow className="bg-muted/30 hover:bg-muted/30">
                 {(['source', 'target', 'note'] as const).map((field) => (
                   <TableCell key={field}>
@@ -100,19 +121,32 @@ function Glossary() {
                   </Button>
                 </TableCell>
               </TableRow>
+              )}
               {rows.map((term) => (
                 <TableRow key={term.id} data-state={term.id === search.term ? 'selected' : undefined} className="cursor-pointer" onClick={() => select(term.id === search.term ? undefined : term.id)}>
                   <TableCell className="font-medium">{term.source}</TableCell>
                   <TableCell>{term.target || <span className="text-muted-foreground">—</span>}</TableCell>
-                  <TableCell className="truncate text-muted-foreground" colSpan={2}>
+                  <TableCell className="truncate text-muted-foreground" colSpan={term.status === 'candidate' ? 1 : 2}>
                     {term.note}
                   </TableCell>
+                  {term.status === 'candidate' && (
+                    <TableCell onClick={(event) => event.stopPropagation()}>
+                      <div className="flex gap-1">
+                        <Button size="sm" variant="outline" className="h-7" onClick={() => decide.mutate({ id: term.id, accept: true })}>
+                          수락
+                        </Button>
+                        <Button size="sm" variant="ghost" className="h-7" onClick={() => decide.mutate({ id: term.id, accept: false })}>
+                          버리기
+                        </Button>
+                      </div>
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
               {terms.data && rows.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={4} className="py-10 text-center text-muted-foreground">
-                    {needle ? '조건에 맞는 용어가 없습니다.' : '아직 용어가 없습니다. 위에서 추가하세요.'}
+                    {needle ? '조건에 맞는 용어가 없습니다.' : search.view === 'candidate' ? '검토할 용어 후보가 없습니다. 워크플로의 ‘용어 후보 추가’ 함수가 여기에 모읍니다.' : '아직 용어가 없습니다. 위에서 추가하세요.'}
                   </TableCell>
                 </TableRow>
               )}

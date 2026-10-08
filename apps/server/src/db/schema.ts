@@ -92,7 +92,7 @@ export const candidates = sqliteTable(
     id: id(),
     unitId: text('unit_id').notNull().references(() => units.id, { onDelete: 'cascade' }),
     text: text('text').notNull(),
-    origin: text('origin', { enum: ['ai', 'human', 'import'] }).notNull(),
+    origin: text('origin', { enum: ['ai', 'human', 'import', 'tool'] }).notNull(),
     profileId: text('profile_id'),
     model: text('model'),
     runId: text('run_id'),
@@ -162,6 +162,10 @@ export const terms = sqliteTable('terms', {
   source: text('source').notNull(),
   target: text('target').notNull().default(''),
   note: text('note').notNull().default(''),
+  /** Candidates (e.g. extracted by a workflow) are not used as context until a person confirms them. */
+  status: text('status', { enum: ['candidate', 'confirmed'] }).notNull().default('confirmed'),
+  /** Where a candidate came from, e.g. "run:<id>". */
+  origin: text('origin'),
   updatedAt: updatedAt(),
 });
 
@@ -197,10 +201,11 @@ export const relationships = sqliteTable('relationships', {
 /** App-wide: connections and profiles are shared by every project. Secrets live in the OS keyring. */
 export const connections = sqliteTable('connections', {
   id: id(),
-  kind: text('kind', { enum: ['openai', 'systemone', 'codex', 'claude', 'grok', 'antigravity'] }).notNull(),
+  kind: text('kind', { enum: ['openai', 'systemone', 'codex', 'claude', 'grok', 'antigravity', 'http'] }).notNull(),
   name: text('name').notNull(),
   baseUrl: text('base_url'),
   executable: text('executable'),
+  headerTemplate: text('header_template'),
   createdAt: createdAt(),
 });
 
@@ -273,11 +278,14 @@ export const runs = sqliteTable(
 
 export type ItemState = 'queued' | 'running' | 'waiting' | 'done' | 'failed' | 'cancelled';
 export interface ItemData {
+  /** The line's current candidate in this run (set by AI, HTTP, script or a person). */
   candidateId?: string;
   candidateText?: string;
-  review?: { passed: boolean; issues: string[]; confidence?: number };
-  check?: { passed: boolean; issues: string[] };
-  /** Last node and exit taken, for display. */
+  /** Problems found by the most recent failing verdict or check; cleared by a new candidate. */
+  issues?: string[];
+  /** Every node's output for this line, by node id. Conditions and later nodes read these. */
+  outputs?: Record<string, Record<string, unknown>>;
+  /** Nodes and exits taken, for display. */
   path: { nodeId: string; port: string; at: number }[];
 }
 

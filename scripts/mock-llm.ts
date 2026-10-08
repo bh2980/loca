@@ -18,6 +18,13 @@ interface Message {
 }
 const text = (message?: Message) => (typeof message?.content === 'string' ? message.content : (message?.content ?? []).map((part) => part.text ?? '').join(''));
 
+/** A stand-in spell checker for the workflow HTTP function: drops the mock "[KO]" marks and tidies spaces. */
+app.post('/spell', async (c) => {
+  const { text } = (await c.req.json()) as { text?: string };
+  const fixed = (text ?? '').replace(/\[KO✓?\]\s*/g, '').replace(/\s{2,}/g, ' ').trim();
+  return c.json({ result: { text: fixed, corrections: fixed === text ? 0 : 1 } });
+});
+
 app.get('/v1/models', (c) => c.json({ object: 'list', data: [{ id: 'mock', object: 'model' }] }));
 
 app.post('/v1/chat/completions', async (c) => {
@@ -29,6 +36,12 @@ app.post('/v1/chat/completions', async (c) => {
     const input = JSON.parse(text(last)) as { lines: { id: string; source: string; candidate?: string }[] };
     // Lines mentioning "orders" never pass review, so they end up waiting for a person.
     const stubborn = (source: string) => /orders/i.test(source);
+    if (system.includes('Find proper nouns')) {
+      // Capitalised words that are not sentence starts stand in for proper nouns.
+      const words = new Set(input.lines.flatMap((line) => [...line.source.matchAll(/(?<=\s)([A-Z][a-z]{3,})/g)].map((match) => match[1])));
+      const terms = [...words].map((source) => ({ source, target: `[${source}]`, note: '모의 추출' }));
+      return c.json({ id: 'mock', object: 'chat.completion', model: 'mock', choices: [{ index: 0, message: { role: 'assistant', content: JSON.stringify({ terms }) }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } });
+    }
     const kind = system.includes('Review each') ? 'review' : system.includes('Revise each') ? 'revise' : 'translate';
     const content =
       kind === 'review'

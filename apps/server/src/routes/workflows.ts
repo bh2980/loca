@@ -1,11 +1,13 @@
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { isAiNode, translationTemplate, validateWorkflow, workflowDefinitionSchema, type WorkflowDefinition } from '@tw/shared';
+import { translationTemplate, validateWorkflow, workflowDefinitionSchema, type WorkflowDefinition } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
+import { lineView } from '../engine/functions/index.ts';
+import { runScript } from '../engine/functions/sandbox.ts';
 import { createRun, selectRunUnits } from '../engine/runner.ts';
 import { snapshotProfiles } from '../services/routes.ts';
 
@@ -17,6 +19,7 @@ export function workflowIssues(db: Db, projectId: string, definition: WorkflowDe
     profileIds: ids(db.select({ id: s.profiles.id }).from(s.profiles).all()),
     statusIds: ids(db.select({ id: s.statuses.id }).from(s.statuses).where(eq(s.statuses.projectId, projectId)).all()),
     tagIds: ids(db.select({ id: s.tags.id }).from(s.tags).where(eq(s.tags.projectId, projectId)).all()),
+    toolConnectionIds: ids(db.select({ id: s.connections.id }).from(s.connections).where(eq(s.connections.kind, 'http')).all()),
   });
 }
 
@@ -109,11 +112,30 @@ export const workflowRoutes = new Hono<Env>()
     const workflow = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
     const errors = workflowIssues(db, workflow.projectId, workflow.definition).filter((issue) => issue.level === 'error');
     if (errors.length) badRequest(`워크플로에 오류가 ${errors.length}개 있습니다: ${errors[0].message}`);
-    const profileIds = [...new Set(workflow.definition.nodes.filter(isAiNode).map((node) => node.config.profileId))];
+    const profileIds = [...new Set(workflow.definition.nodes.flatMap((node) => (node.type === 'ai' ? [node.config.profileId] : [])))];
     try {
       return c.json(createRun(db, { projectId: workflow.projectId, workflow, profiles: snapshotProfiles(db, profileIds), scope: c.req.valid('json') }), 201);
     } catch (error) {
       return badRequest(error instanceof Error ? error.message : String(error));
+    }
+  })
+
+  /** Try a script node on one real line. Read-only: nothing is stored. */
+  .post('/projects/:projectId/script-test', validate('json', z.object({ code: z.string(), ports: z.array(z.string()).min(1), unitId: z.string().optional() })), async (c) => {
+    const { db } = c.var.deps;
+    const { code, ports, unitId } = c.req.valid('json');
+    const unit = unitId
+      ? db.select().from(s.units).where(and(eq(s.units.id, unitId), eq(s.units.projectId, c.req.param('projectId')))).get()
+      : db.select().from(s.units).where(eq(s.units.projectId, c.req.param('projectId'))).orderBy(asc(s.units.sort)).limit(1).get();
+    if (!unit) return badRequest('시험할 대사가 없습니다.');
+    const input = lineView({ unit, item: { data: { path: [], outputs: {} }, visits: {} } as never, tagIds: [], projectId: unit.projectId, runId: 'test' });
+    const started = Date.now();
+    try {
+      const result = await runScript(code, input);
+      const port = result.port ?? ports[0];
+      return c.json({ ok: true as const, input, result, port, validPort: ports.includes(port), ms: Date.now() - started });
+    } catch (error) {
+      return c.json({ ok: false as const, input, error: error instanceof Error ? error.message : String(error), ms: Date.now() - started });
     }
   })
 

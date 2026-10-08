@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { checkFormat } from './format-check.ts';
 import { importFileSchema } from './import-format.ts';
 import { translationTemplate } from './defaults.ts';
-import { validateWorkflow, workflowDefinitionSchema, type WorkflowDefinition } from './workflow.ts';
+import { nodePorts, validateWorkflow, workflowDefinitionSchema, workflowNodeSchema, type WorkflowDefinition } from './workflow.ts';
 
 const ids = { profileId: 'p', untranslated: 's0', draft: 's1', needsReview: 's2', confirmed: 's3' };
-const refs = { profileIds: new Set(['p']), statusIds: new Set(['s0', 's1', 's2', 's3']), tagIds: new Set<string>() };
+const refs = { profileIds: new Set(['p']), statusIds: new Set(['s0', 's1', 's2', 's3']), tagIds: new Set<string>(), toolConnectionIds: new Set<string>() };
 
 describe('workflow validation', () => {
   it('accepts the default template', () => {
@@ -25,8 +25,8 @@ describe('workflow validation', () => {
     const definition = workflowDefinitionSchema.parse({
       nodes: [
         { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: {} },
-        { id: 'a', type: 'update', position: { x: 0, y: 0 }, config: {} },
-        { id: 'b', type: 'update', position: { x: 0, y: 0 }, config: {} },
+        { id: 'a', type: 'function', position: { x: 0, y: 0 }, config: { fn: 'setStatus' } },
+        { id: 'b', type: 'function', position: { x: 0, y: 0 }, config: { fn: 'setStatus' } },
       ],
       edges: [
         { id: '1', source: 'entry', sourceHandle: 'out', target: 'a' },
@@ -35,6 +35,33 @@ describe('workflow validation', () => {
       ],
     });
     expect(validateWorkflow(definition, refs)).toContainEqual(expect.objectContaining({ level: 'warning', message: expect.stringContaining('순환') }));
+  });
+});
+
+describe('node exits', () => {
+  it('derive from config', () => {
+    const verdict = workflowNodeSchema.parse({ id: 'a', type: 'ai', position: { x: 0, y: 0 }, config: { output: 'verdict' } });
+    expect(nodePorts(verdict).map((port) => port.id)).toEqual(['pass', 'fail', 'error']);
+    const script = workflowNodeSchema.parse({ id: 's', type: 'function', position: { x: 0, y: 0 }, config: { fn: 'script', params: { ports: ['keep', 'retry'] } } });
+    expect(nodePorts(script).map((port) => port.id)).toEqual(['keep', 'retry', 'error']);
+  });
+
+  it('flags an http node without a connection and an unknown function', () => {
+    const definition = workflowDefinitionSchema.parse({
+      nodes: [
+        { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: {} },
+        { id: 'h', type: 'function', position: { x: 0, y: 0 }, config: { fn: 'http' } },
+        { id: 'x', type: 'function', position: { x: 0, y: 0 }, config: { fn: 'nope' } },
+        { id: 'end', type: 'end', position: { x: 0, y: 0 } },
+      ],
+      edges: [
+        { id: '1', source: 'entry', sourceHandle: 'out', target: 'h' },
+        { id: '2', source: 'h', sourceHandle: 'out', target: 'x' },
+      ],
+    });
+    const issues = validateWorkflow(definition, refs);
+    expect(issues).toContainEqual(expect.objectContaining({ nodeId: 'h', message: expect.stringContaining('HTTP') }));
+    expect(issues).toContainEqual(expect.objectContaining({ nodeId: 'x', message: expect.stringContaining('알 수 없는 함수') }));
   });
 });
 

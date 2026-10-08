@@ -2,7 +2,9 @@
   "name": "@tw/server",
   "private": true,
   "type": "module",
-  "exports": { "./app": "./src/app.ts" },
+  "exports": {
+    "./app": "./src/app.ts"
+  },
   "scripts": {
     "dev": "tsx watch src/main.ts",
     "start": "tsx src/main.ts",
@@ -19,9 +21,11 @@
     "better-sqlite3": "^12.11.1",
     "drizzle-orm": "^0.45.4",
     "elkjs": "^0.12.0",
+    "es-toolkit": "^1.52.0",
     "hono": "^4.13.13",
     "json-logic-js": "^2.0.5",
     "p-queue": "^9.3.3",
+    "quickjs-emscripten": "^0.32.0",
     "tsx": "^4.23.15",
     "zod": "^4.6.5"
   },

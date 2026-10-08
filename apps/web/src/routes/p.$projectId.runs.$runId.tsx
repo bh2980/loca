@@ -1,10 +1,10 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, Pause, Play, Square } from 'lucide-react';
-import { NODE_TYPES, type WorkflowNode } from '@tw/shared';
+import { nodeName as nameOf, type WorkflowNode } from '@tw/shared';
 import { LineDetail } from '@/components/line-detail';
 import { Page } from '@/components/page';
-import { NODE_ICON } from '@/components/workflow/node-view';
+import { nodeIcon } from '@/components/workflow/node-view';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -60,7 +60,7 @@ function RunDetail() {
   const order = data.definition.nodes.filter((node) => byNode.has(node.id));
   const nodeName = (id: string) => {
     const node = nodeById.get(id);
-    return node ? (node.label ?? NODE_TYPES[node.type].label) : id;
+    return node ? nameOf(node) : id;
   };
   const active = data.status === 'running' || data.status === 'paused';
 
@@ -108,7 +108,7 @@ function RunDetail() {
             {/* Where every line is right now, node by node, in workflow order. */}
             <div className="grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] gap-2">
               {order.map((node) => {
-                const Icon = NODE_ICON[node.type];
+                const Icon = nodeIcon(node);
                 const rows = byNode.get(node.id)!;
                 const selected = search.node === node.id;
                 return (
@@ -161,7 +161,7 @@ function RunDetail() {
                     <TableHead>원문</TableHead>
                     <TableHead>최신 후보</TableHead>
                     <TableHead className="w-40">위치</TableHead>
-                    <TableHead className="w-56">검수·오류</TableHead>
+                    <TableHead className="w-56">판정·지적·오류</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -179,8 +179,14 @@ function RunDetail() {
                       </TableCell>
                       <TableCell className="text-xs">
                         {item.error && <p className="text-destructive">{item.error}</p>}
-                        {item.data.check && !item.data.check.passed && <p className="text-amber-700">형식: {item.data.check.issues.join(', ')}</p>}
-                        {item.data.review && <p className={item.data.review.passed ? 'text-emerald-700' : 'text-amber-700'}>{item.data.review.passed ? '검수 통과' : `검수: ${item.data.review.issues.join(' / ')}`}</p>}
+                        {!!item.data.issues?.length && <p className="text-amber-700">{item.data.issues.join(' / ')}</p>}
+                        {Object.entries(item.data.outputs ?? {})
+                          .filter(([, output]) => typeof output.passed === 'boolean')
+                          .map(([nodeId, output]) => (
+                            <p key={nodeId} className={output.passed ? 'text-emerald-700' : 'text-amber-700'}>
+                              {nodeName(nodeId)} {output.passed ? '통과' : '실패'}
+                            </p>
+                          ))}
                       </TableCell>
                     </TableRow>
                   ))}

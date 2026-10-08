@@ -15,6 +15,7 @@ export { openaiProviderOptions } from './openai.ts';
 export function generate<T>(route: ResolvedRoute, request: GenerateRequest<T>): Promise<GenerateResult<T>> {
   if (route.kind === 'openai') return openaiGenerate(route, request);
   if (route.kind === 'systemone') throw new ModelError('config', 'System One은 판정(검수)에만 사용할 수 있습니다.', false);
+  if (route.kind === 'http') throw new ModelError('config', 'HTTP 도구 연결은 AI 노드에 쓸 수 없습니다.', false);
   return cliGenerate(route, request);
 }
 
@@ -31,6 +32,7 @@ export function chatModel(route: ResolvedRoute): LanguageModel {
 
 /** Model ids the connection can serve. CLIs do not expose a reliable list, so the user types the id. */
 export async function listModels(route: Omit<ResolvedRoute, 'model'>): Promise<string[] | null> {
+  if (route.kind === 'http') return null;
   if (route.kind === 'openai') return openaiModels(route);
   if (route.kind === 'systemone') return systemOneModels(route);
   return null;
@@ -38,11 +40,17 @@ export async function listModels(route: Omit<ResolvedRoute, 'model'>): Promise<s
 
 /** Cheap reachability check: API → model list, CLI → `--version`. */
 export async function probe(route: Omit<ResolvedRoute, 'model'>): Promise<string> {
+  if (route.kind === 'http') {
+    const response = await fetch(route.baseUrl ?? '', { signal: AbortSignal.timeout(10_000) }).catch(() => {
+      throw new ModelError('network', '주소에 연결하지 못했습니다.');
+    });
+    return `서버가 응답했습니다 (HTTP ${response.status}).`;
+  }
   if (route.kind === 'openai' || route.kind === 'systemone') {
     const models = await listModels(route);
     return `모델 ${models?.length ?? 0}개를 확인했습니다.`;
   }
-  return `CLI ${await cliVersion(route.kind, route.executable)}`;
+  return `CLI ${await cliVersion(route.kind as Parameters<typeof cliVersion>[0], route.executable)}`;
 }
 
 export interface Attempt {

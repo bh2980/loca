@@ -1,3 +1,4 @@
+import { AI_PRESETS } from './presets.ts';
 import type { WorkflowDefinition } from './workflow.ts';
 
 export type StatusKind = 'initial' | 'normal' | 'final';
@@ -14,7 +15,7 @@ export const STATUS_COLORS = ['#a1a1aa', '#3b82f6', '#8b5cf6', '#ec4899', '#f59e
 /**
  * The default translation flow, expressed as an ordinary user workflow:
  * untranslated → translate → format check → review → confirmed;
- * failures are revised up to 3 times, then wait for a person.
+ * a failing line is revised while review has run fewer than 3 times, then waits for a person.
  */
 export function translationTemplate(ids: {
   profileId: string;
@@ -23,52 +24,38 @@ export function translationTemplate(ids: {
   needsReview: string;
   confirmed: string;
 }): WorkflowDefinition {
-  const ai = (instructions: string) => ({
+  const ai = (preset: keyof typeof AI_PRESETS) => ({
     profileId: ids.profileId,
-    instructions,
+    instructions: AI_PRESETS[preset].instructions,
+    output: AI_PRESETS[preset].output,
+    fields: [],
+    include: AI_PRESETS[preset].include,
     context: { glossary: true, documents: true, characters: true, relationships: true, precedingLines: 8, previousScenes: 1 },
     batch: { mode: 'group' as const, size: 30 },
   });
-  const at = (column: number, row: number) => ({ x: column * 280, y: row * 160 });
+  const status = (statusId: string, applyCandidate = false) => ({ fn: 'setStatus', params: { statusId, addTagIds: [], removeTagIds: [], applyCandidate } });
+  const at = (column: number, row: number) => ({ x: column * 300, y: row * 180 });
   return {
     settings: { maxVisitsPerNode: 5, concurrency: 2 },
     nodes: [
       { id: 'entry', type: 'entry', position: at(0, 1), config: { statusIds: [ids.untranslated] } },
-      { id: 'translate', type: 'translate', position: at(1, 1), config: ai('') },
-      { id: 'draft', type: 'update', position: at(2, 1), label: 'AI 초벌로', config: { statusId: ids.draft, addTagIds: [], removeTagIds: [], applyCandidate: false } },
-      { id: 'check', type: 'check', position: at(3, 1), config: { placeholders: true, tags: true, newlines: true, emptyText: true } },
-      { id: 'review', type: 'review', position: at(4, 1), config: ai('') },
-      {
-        id: 'confirm',
-        type: 'update',
-        position: at(5, 1),
-        label: '확정',
-        config: { statusId: ids.confirmed, addTagIds: [], removeTagIds: [], applyCandidate: true },
-      },
+      { id: 'translate', type: 'ai', position: at(1, 1), label: 'AI 번역', config: ai('translate') },
+      { id: 'draft', type: 'function', position: at(2, 1), label: 'AI 초벌로', config: status(ids.draft) },
+      { id: 'check', type: 'function', position: at(3, 1), label: '형식 검사', config: { fn: 'formatCheck', params: { placeholders: true, tags: true, newlines: true, emptyText: true } } },
+      { id: 'review', type: 'ai', position: at(4, 1), label: 'AI 검수', config: ai('review') },
+      { id: 'confirm', type: 'function', position: at(5, 1), label: '확정', config: status(ids.confirmed, true) },
       { id: 'end', type: 'end', position: at(6, 1), config: {} },
       {
         id: 'retry',
         type: 'condition',
         position: at(4, 2),
-        label: '수정 3회 미만?',
-        config: { expression: { '<': [{ var: 'visits.revise' }, 3] }, description: '수정 노드 방문이 3회 미만이면 다시 수정합니다.' },
+        label: '검수 3회 미만?',
+        config: { expression: { '<': [{ var: 'visits.review' }, 3] }, description: "'AI 검수' 방문이 3회 미만이면 다시 수정합니다." },
       },
-      { id: 'revise', type: 'revise', position: at(3, 3), config: ai('') },
-      {
-        id: 'escalate',
-        type: 'update',
-        position: at(5, 3),
-        label: '사람 확인 필요로',
-        config: { statusId: ids.needsReview, addTagIds: [], removeTagIds: [], applyCandidate: false },
-      },
+      { id: 'revise', type: 'ai', position: at(3, 3), label: 'AI 수정', config: ai('revise') },
+      { id: 'escalate', type: 'function', position: at(5, 3), label: '사람 확인 필요로', config: status(ids.needsReview) },
       { id: 'human', type: 'human', position: at(6, 3), config: { instructions: '자동 수정 한도에 도달했습니다. 후보를 고치거나 승인하세요.' } },
-      {
-        id: 'reject',
-        type: 'update',
-        position: at(7, 4),
-        label: '미번역으로',
-        config: { statusId: ids.untranslated, addTagIds: [], removeTagIds: [], applyCandidate: false },
-      },
+      { id: 'reject', type: 'function', position: at(7, 4), label: '미번역으로', config: status(ids.untranslated) },
       { id: 'end-rejected', type: 'end', position: at(8, 4), config: {} },
     ],
     edges: [

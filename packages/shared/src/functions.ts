@@ -1,0 +1,129 @@
+import { z } from 'zod';
+
+/**
+ * Function nodes run one function from this registry. Each entry declares its parameters and exits;
+ * the server holds the implementation (apps/server/src/engine/functions). Adding a function means
+ * adding an entry here and one implementation file there.
+ */
+export interface Port {
+  id: string;
+  label: string;
+}
+
+export interface FunctionInfo<P extends z.ZodType = z.ZodType> {
+  label: string;
+  description: string;
+  params: P;
+  /** Exits can depend on the parameters (e.g. a script declares its own). `error` is always added. */
+  ports: (params: z.infer<P>) => Port[];
+  /** Runs outside the instant pass (network, sandbox); the runner dispatches it like an AI call. */
+  async: boolean;
+}
+
+const pass: Port[] = [{ id: 'pass', label: '통과' }, { id: 'fail', label: '실패' }];
+const out: Port[] = [{ id: 'out', label: '다음' }];
+
+export const formatCheckParams = z.object({
+  placeholders: z.boolean().default(true),
+  tags: z.boolean().default(true),
+  newlines: z.boolean().default(true),
+  emptyText: z.boolean().default(true),
+});
+
+export const setStatusParams = z.object({
+  statusId: z.string().optional(),
+  addTagIds: z.array(z.string()).default([]),
+  removeTagIds: z.array(z.string()).default([]),
+  applyCandidate: z.boolean().default(false),
+});
+
+export const addTermsParams = z.object({
+  /** AI node whose "terms" output to add. Empty = the most recent terms output on the line. */
+  fromNodeId: z.string().default(''),
+});
+
+export const httpParams = z.object({
+  connectionId: z.string().default(''),
+  method: z.enum(['GET', 'POST']).default('POST'),
+  path: z.string().default(''),
+  /** JSON body; "{{candidate}}", "{{unit.source}}", "{{outputs.<node>.<field>}}" are replaced per line. */
+  body: z.string().default('{\n  "text": "{{candidate}}"\n}'),
+  /** Where the answer is in the response, e.g. "result.text". Empty = whole body. */
+  resultPath: z.string().default(''),
+  /** candidate: the result becomes a new candidate · verdict: a boolean picks pass/fail · data: just store it. */
+  mode: z.enum(['candidate', 'verdict', 'data']).default('candidate'),
+  timeoutSeconds: z.number().int().min(1).max(300).default(30),
+});
+
+export const scriptParams = z.object({
+  code: z
+    .string()
+    .default(
+      [
+        '// input: { unit, candidate, outputs, visits }',
+        '// 반환: { port?: "out" | 선언한 출구, candidate?: string, data?: object, issues?: string[] }',
+        'export default function run(input) {',
+        '  const text = (input.candidate ?? "").replace(/\\s+$/g, "");',
+        '  return { candidate: text, port: "out" };',
+        '}',
+      ].join('\n'),
+    ),
+  /** Exits the script may return besides "error". */
+  ports: z.array(z.string().trim().min(1)).min(1).default(['out']),
+});
+
+export const FUNCTIONS = {
+  formatCheck: {
+    label: '형식 검사',
+    description: '자리표시자·태그·줄바꿈이 원문과 같은지 검사합니다.',
+    params: formatCheckParams,
+    ports: () => pass,
+    async: false,
+  },
+  glossaryCheck: {
+    label: '용어 준수 검사',
+    description: '원문에 나온 확정 용어의 지정 번역이 후보에 쓰였는지 검사합니다.',
+    params: z.object({}),
+    ports: () => pass,
+    async: false,
+  },
+  setStatus: {
+    label: '상태 변경',
+    description: '상태·태그를 바꾸고, 원하면 현재 후보를 대표 번역으로 적용합니다.',
+    params: setStatusParams,
+    ports: () => out,
+    async: false,
+  },
+  addTerms: {
+    label: '용어 후보 추가',
+    description: 'AI 노드가 뽑은 용어를 용어집에 후보로 추가합니다. 용어집에서 수락해야 문맥에 쓰입니다.',
+    params: addTermsParams,
+    ports: () => out,
+    async: false,
+  },
+  http: {
+    label: 'HTTP 호출',
+    description: '등록한 외부 API(맞춤법·사전 등)를 호출하고 결과를 후보·판정·데이터로 받습니다.',
+    params: httpParams,
+    ports: (params: z.infer<typeof httpParams>) => (params.mode === 'verdict' ? pass : out),
+    async: true,
+  },
+  script: {
+    label: '스크립트',
+    description: '직접 작성한 JavaScript 함수를 격리된 샌드박스에서 실행합니다(네트워크·파일 접근 없음).',
+    params: scriptParams,
+    ports: (params: z.infer<typeof scriptParams>) => params.ports.map((id) => ({ id, label: id })),
+    async: true,
+  },
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+} satisfies Record<string, FunctionInfo<any>>;
+
+export type FunctionName = keyof typeof FUNCTIONS;
+export const FUNCTION_NAMES = Object.keys(FUNCTIONS) as FunctionName[];
+
+export function functionPorts(fn: string, params: unknown): Port[] {
+  const info = FUNCTIONS[fn as FunctionName] as unknown as FunctionInfo | undefined;
+  if (!info) return [{ id: 'error', label: '오류' }];
+  const parsed = info.params.safeParse(params ?? {});
+  return [...info.ports(parsed.success ? parsed.data : info.params.parse({})), { id: 'error', label: '오류' }];
+}

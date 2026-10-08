@@ -34,7 +34,7 @@ export const Route = createFileRoute('/p/$projectId/settings/ai')({
   component: AiSettings,
 });
 
-const CAPABILITY_LABEL: Record<Capability, string> = { generate: '생성', judge: '판정', chat: '채팅' };
+const CAPABILITY_LABEL: Record<Capability, string> = { generate: '생성', judge: '판정', chat: '채팅', tool: '도구' };
 const NONE = '__none';
 const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -198,6 +198,7 @@ function NewConnection({ onClose }: { onClose: () => void }) {
             name: values.name,
             baseUrl: info.transport === 'http' ? values.baseUrl : undefined,
             executable: info.transport === 'cli' ? values.executable || undefined : undefined,
+            headerTemplate: values.kind === 'http' ? values.headerTemplate || undefined : undefined,
             apiKey: info.transport === 'http' && values.apiKey ? values.apiKey : undefined,
           },
         }),
@@ -226,6 +227,7 @@ function NewConnection({ onClose }: { onClose: () => void }) {
                   const next = value as ConnectionKind;
                   field.onChange(next);
                   form.setValue('baseUrl', CONNECTION_KIND_INFO[next].defaultBaseUrl);
+                  form.setValue('headerTemplate', next === 'http' ? 'Authorization: Bearer {key}' : undefined);
                   form.clearErrors();
                 }}
               >
@@ -256,6 +258,13 @@ function NewConnection({ onClose }: { onClose: () => void }) {
               <Input id="conn-url" {...form.register('baseUrl', { setValueAs: (value: string) => (value ? value : undefined) })} aria-invalid={!!form.formState.errors.baseUrl} />
               <FieldError errors={[form.formState.errors.baseUrl]} />
             </Field>
+            {kind === 'http' && (
+              <Field>
+                <FieldLabel htmlFor="conn-header">키를 보내는 헤더</FieldLabel>
+                <Input id="conn-header" className="font-mono text-xs" {...form.register('headerTemplate')} placeholder="Authorization: Bearer {key}" />
+                <FieldDescription>워크플로의 ‘HTTP 호출’ 함수가 쓰는 연결입니다. {'{key}'} 자리에 저장한 키가 들어갑니다.</FieldDescription>
+              </Field>
+            )}
             <Field>
               <FieldLabel htmlFor="conn-key">API 키 (선택)</FieldLabel>
               <Input id="conn-key" type="password" autoComplete="off" {...form.register('apiKey')} />
@@ -292,12 +301,12 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
   const editSchema = connectionInputSchema.omit({ kind: true });
   const form = useForm<z.input<typeof editSchema>, unknown, z.output<typeof editSchema>>({
     resolver: zodResolver(editSchema),
-    defaultValues: { name: connection.name, baseUrl: connection.baseUrl ?? undefined, executable: connection.executable ?? '' },
+    defaultValues: { name: connection.name, baseUrl: connection.baseUrl ?? undefined, executable: connection.executable ?? '', headerTemplate: connection.headerTemplate ?? '' },
   });
 
   const save = useMutation({
     mutationFn: (values: z.output<typeof editSchema>) =>
-      unwrap(client.connections[':id'].$patch({ param: { id: connection.id }, json: { name: values.name, baseUrl: isHttp ? values.baseUrl : undefined, executable: isHttp ? undefined : (values.executable ?? '') } })),
+      unwrap(client.connections[':id'].$patch({ param: { id: connection.id }, json: { name: values.name, baseUrl: isHttp ? values.baseUrl : undefined, executable: isHttp ? undefined : (values.executable ?? ''), headerTemplate: connection.kind === 'http' ? (values.headerTemplate ?? '') : undefined } })),
     onSuccess: () => {
       invalidate();
       toast.success('저장했습니다.');
@@ -369,6 +378,12 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
               <FieldLabel htmlFor="edit-url">주소</FieldLabel>
               <Input id="edit-url" {...form.register('baseUrl', { setValueAs: (value: string) => (value ? value : undefined) })} aria-invalid={!!form.formState.errors.baseUrl} />
               <FieldError errors={[form.formState.errors.baseUrl]} />
+              {connection.kind === 'http' && (
+                <>
+                  <FieldLabel htmlFor="edit-header">키를 보내는 헤더</FieldLabel>
+                  <Input id="edit-header" className="font-mono text-xs" {...form.register('headerTemplate')} placeholder="Authorization: Bearer {key}" />
+                </>
+              )}
             </Field>
           ) : (
             <Field>
@@ -572,7 +587,8 @@ function ProfileForm({ profile, onClose }: { profile?: ProfileRow; onClose: () =
   const navigate = Route.useNavigate();
   const queryClient = useQueryClient();
   const connections = useQuery(q.connections());
-  const connectionList = connections.data ?? [];
+  // HTTP tool connections are for the workflow HTTP function, not for AI profiles.
+  const connectionList = (connections.data ?? []).filter((connection) => connection.kind !== 'http');
   const form = useForm<ProfileFormInput, unknown, ProfileFormOutput>({
     resolver: zodResolver(profileInputSchema),
     defaultValues: profile

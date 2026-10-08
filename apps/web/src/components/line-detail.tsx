@@ -14,7 +14,7 @@ import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { useReportView } from '@/lib/view-context';
 
-const ORIGIN = { ai: 'AI', human: '사람', import: '가져옴' } as const;
+const ORIGIN = { ai: 'AI', human: '사람', import: '가져옴', tool: '도구' } as const;
 const STATE = { queued: '대기', running: '실행 중', waiting: '사람 확인 대기', done: '완료', failed: '실패', cancelled: '취소' } as const;
 
 /** Right-hand pane for one line: source, status, tags, translation editing, all candidates, run history. */
@@ -145,7 +145,7 @@ export function LineDetail({ projectId, unitId, onClose, showScene }: { projectI
                       {item.workflowName}
                     </Link>
                     <span className="text-xs text-muted-foreground">{STATE[item.state]}</span>
-                    {item.data.review && !item.data.review.passed && <span className="truncate text-xs text-amber-600">검수: {item.data.review.issues[0]}</span>}
+                    {!!item.data.issues?.length && <span className="truncate text-xs text-amber-600">{item.data.issues[0]}</span>}
                     {item.error && <span className="truncate text-xs text-destructive">{item.error}</span>}
                   </li>
                 ))}

@@ -152,3 +152,14 @@ export type ImportFile = z.infer<typeof importFileSchema>;
 export type NodeType = z.infer<typeof nodeTypeSchema>;
 export type GraphNodeKind = (typeof GRAPH_NODE_KINDS)[number];
 export type ImportFileInput = z.input<typeof importFileSchema>;
+
+/**
+ * A PATCH schema: every field optional and *without* its default, so a partial update never
+ * overwrites fields the client did not send (zod's .partial() keeps defaults).
+ */
+export function patchOf<T extends z.ZodRawShape>(schema: z.ZodObject<T>): ReturnType<z.ZodObject<T>['partial']> {
+  const shape = Object.fromEntries(
+    Object.entries(schema.shape).map(([key, field]) => [key, (field instanceof z.ZodDefault ? (field.unwrap() as z.ZodType) : (field as z.ZodType)).optional()]),
+  );
+  return z.object(shape) as unknown as ReturnType<z.ZodObject<T>['partial']>;
+}

@@ -1,7 +1,8 @@
 import { tool } from 'ai';
 import { and, asc, count, desc, eq, inArray, like, or } from 'drizzle-orm';
 import { z } from 'zod';
-import { CONNECTION_KIND_INFO, NODE_TYPES, profileInputSchema, workflowDefinitionSchema } from '@tw/shared';
+import { AI_OUTPUTS, AI_PRESETS, CONNECTION_KIND_INFO, FUNCTIONS, NODE_TYPES, profileInputSchema, workflowDefinitionSchema } from '@tw/shared';
+import { z as zod } from 'zod';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
@@ -114,11 +115,21 @@ export function agentTools(db: Db, projectId: string) {
       inputSchema: z.object({}),
       execute: () => ({
         nodeTypes: NODE_TYPES,
-        definitionShape: 'nodes: [{id, type, position:{x,y}, label?, config}], edges: [{id, source, sourceHandle (exit id), target}], settings: {maxVisitsPerNode, concurrency}',
-        aiNodeConfig: '{profileId, instructions, context:{glossary, documents, characters, relationships, precedingLines, previousScenes}, batch:{mode:"unit"|"group"|"count", size}}',
-        conditionData: 'JSON Logic over {visits: {[nodeId]: count}, review?: {passed, issues}, check?: {passed, issues}, unit: {kind, speaker, statusId, tagIds}}. Example: {"<": [{"var": "visits.revise"}, 3]}',
-        rules: 'Exactly one entry node. Every exit except "error" must be connected. One edge per exit. Loops need a condition/review/check/human node to leave them.',
-        connections: db.select({ id: s.connections.id, name: s.connections.name, kind: s.connections.kind }).from(s.connections).all().map((row) => ({ ...row, capabilities: CONNECTION_KIND_INFO[row.kind].capabilities })),
+        definitionShape: 'nodes: [{id, type: entry|ai|function|condition|human|end, position:{x,y}, label?, config}], edges: [{id, source, sourceHandle (exit id), target}], settings: {maxVisitsPerNode, concurrency}',
+        aiNode: {
+          config: '{profileId, instructions, output: candidate|verdict|terms|json, fields (json only): [{name, type, description}], include:{candidate, issues}, context:{glossary, documents, characters, relationships, precedingLines, previousScenes}, batch:{mode:"unit"|"group"|"count", size}}',
+          outputs: AI_OUTPUTS,
+          exits: 'verdict → pass/fail/error; others → out/error',
+          presets: AI_PRESETS,
+        },
+        functionNode: {
+          config: '{fn, params}',
+          functions: Object.fromEntries(Object.entries(FUNCTIONS).map(([name, info]) => [name, { label: info.label, description: info.description, params: zod.toJSONSchema(info.params) }])),
+          scriptContract: 'export default function run(input) where input = {unit, candidate, issues, outputs, visits}; return {port?, candidate?, data?, issues?}. Runs in a sandbox without network.',
+        },
+        conditionData: 'JSON Logic over {visits: {[nodeId]: count}, outputs: {[nodeId]: output}, candidate, issues, unit: {kind, speaker, statusId, tagIds}}. Example: {"<": [{"var": "visits.review"}, 3]} or {"==": [{"var": "outputs.review.passed"}, true]}',
+        rules: 'Exactly one entry node. Every exit except "error" must be connected. One edge per exit. A loop needs a node with two or more exits inside it.',
+        connections: db.select({ id: s.connections.id, name: s.connections.name, kind: s.connections.kind, baseUrl: s.connections.baseUrl }).from(s.connections).all().map((row) => ({ ...row, capabilities: CONNECTION_KIND_INFO[row.kind].capabilities })),
         profiles: db.select({ id: s.profiles.id, name: s.profiles.name, model: s.profiles.model, connectionId: s.profiles.connectionId, instructions: s.profiles.instructions }).from(s.profiles).all(),
         statuses: db.select({ id: s.statuses.id, name: s.statuses.name, kind: s.statuses.kind }).from(s.statuses).where(eq(s.statuses.projectId, projectId)).orderBy(asc(s.statuses.sort)).all(),
         tags: db.select({ id: s.tags.id, name: s.tags.name }).from(s.tags).where(eq(s.tags.projectId, projectId)).all(),
