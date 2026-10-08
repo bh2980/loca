@@ -67,7 +67,22 @@ app.post('/v1/chat/completions', async (c) => {
   const user = text([...body.messages].reverse().find((message) => message.role === 'user'));
   let call: { name: string; args: unknown } | undefined;
   if (last?.role !== 'tool') {
-    if (/인물|캐릭터/.test(user) && tools.has('save_character'))
+    const system = text(body.messages.find((message) => message.role === 'system'));
+    const lineId = /이 대사\(id=([\w-]+)\)/.exec(user)?.[1];
+    const groupId = /\(id=([\w-]+), "/.exec(user)?.[1];
+    const workflowId = /- 워크플로: .*\[id=([\w-]+)\]/.exec(system)?.[1];
+    const nodeId = /- 워크플로 노드: .*\[id=([\w-]+)\]/.exec(system)?.[1];
+    if (lineId && /제안/.test(user) && tools.has('propose_translation'))
+      call = { name: 'propose_translation', args: { unitId: lineId, text: '[모의 제안] 문맥을 반영한 번역', note: '앞 대사의 말투를 이어감' } };
+    else if (groupId && /요약/.test(user) && tools.has('save_group_summary'))
+      call = { name: 'save_group_summary', args: { groupId, description: '[모의 요약] 미라와 조나스가 중계소에서 근무 일지를 확인하고 명령의 출처를 의심한다.' } };
+    else if (workflowId && nodeId && /edit_workflow_node/.test(user) && tools.has('edit_workflow_node'))
+      call = /조건/.test(user)
+        ? { name: 'edit_workflow_node', args: { workflowId, nodeId, field: 'expression', value: { '<': [{ var: 'visits.review' }, 2] }, description: '검수 2회 미만' } }
+        : /스크립트/.test(user)
+          ? { name: 'edit_workflow_node', args: { workflowId, nodeId, field: 'code', value: 'export default function run(input) {\n  return { port: input.candidate ? "ok" : "fail" };\n}' } }
+          : { name: 'edit_workflow_node', args: { workflowId, nodeId, field: 'instructions', value: '[모의 지시문] 원문의 말투와 장면 분위기를 유지해 자연스러운 한국어로 옮기세요.' } };
+    else if (/인물|캐릭터/.test(user) && tools.has('save_character'))
       call = { name: 'save_character', args: { name: 'MIRA', aliases: ['Mira'], profile: '## 미라\n- 전직 통신병\n- 짧고 단정한 반말\n- 조나스와 오랜 동료' } };
     else if (tools.has('project_overview')) call = { name: 'project_overview', args: {} };
   }

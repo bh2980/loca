@@ -7,6 +7,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
+import { AiButton } from '@/components/ai-button';
 import { StatusDot, TagChip } from '@/components/status';
 import { client, unwrap } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
@@ -94,7 +95,17 @@ export function LineDetail({ projectId, unitId, onClose, showScene }: { projectI
           </section>
 
           <section>
-            <h3 className="mb-1 text-xs font-medium text-muted-foreground">대표 번역</h3>
+            <div className="mb-1 flex items-center gap-1">
+              <h3 className="text-xs font-medium text-muted-foreground">대표 번역</h3>
+              <AiButton size="xs" variant="ghost" className="ml-auto" prompt={`이 대사(id=${line.id})의 번역 후보를 앞뒤 문맥·용어·화자에 맞게 제안해줘.`}>
+                AI 제안
+              </AiButton>
+              {line.translation && (
+                <AiButton size="xs" variant="ghost" send={false} prompt={`이 대사(id=${line.id})의 현재 번역을 이렇게 다듬어 후보로 제안해줘: `}>
+                  다듬기
+                </AiButton>
+              )}
+            </div>
             <Textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="번역을 입력하면 사람 후보로 저장되고 대표 번역이 됩니다." className="min-h-24" />
             {dirty && (
               <div className="mt-2 flex justify-end gap-2">

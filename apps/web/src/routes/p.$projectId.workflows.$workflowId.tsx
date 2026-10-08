@@ -32,6 +32,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
+import { workflowEdits } from '@/lib/workflow-edits';
 
 export const Route = createFileRoute('/p/$projectId/workflows/$workflowId')({
   validateSearch: (raw: Record<string, unknown>): { node?: string } => ({ node: typeof raw.node === 'string' ? raw.node : undefined }),
@@ -199,8 +200,29 @@ function WorkflowEditor() {
   const selected = current?.definition.nodes.find((node) => node.id === search.node);
   useReportView('workflow', [
     workflow.data && { kind: '워크플로', id: workflow.data.id, label: `${workflow.data.name} v${workflow.data.version}` },
-    selected && { kind: '워크플로 노드', id: selected.id, label: nodeName(selected) },
+    selected && { kind: '워크플로 노드', id: selected.id, label: `${nodeName(selected)} (${selected.type})`, detail: `저장 전 설정: ${JSON.stringify(selected.config).slice(0, 5000)}` },
   ]);
+
+  // Node edits proposed in the chat land in the draft; bumping the revision remounts the
+  // config pane so its local text state (condition JSON, ports) shows the new values.
+  const [revision, setRevision] = useState(0);
+  useEffect(
+    () =>
+      workflowEdits.register(workflowId, (edit) => {
+        const node = current?.definition.nodes.find((candidate) => candidate.id === edit.nodeId);
+        if (!node) return `노드 "${edit.nodeId}"를 찾을 수 없습니다.`;
+        let next: WorkflowNode;
+        if (edit.field === 'instructions' && (node.type === 'ai' || node.type === 'human')) next = { ...node, config: { ...node.config, instructions: String(edit.value ?? '') } } as WorkflowNode;
+        else if (edit.field === 'expression' && node.type === 'condition') next = { ...node, config: { expression: edit.value, description: edit.description || node.config.description } };
+        else if (edit.field === 'code' && node.type === 'function' && node.config.fn === 'script') next = { ...node, config: { ...node.config, params: { ...node.config.params, code: String(edit.value ?? '') } } };
+        else return '이 노드에는 해당 항목이 없습니다.';
+        setDraft((value) => ({ ...value, definition: { ...value.definition, nodes: value.definition.nodes.map((candidate) => (candidate.id === node.id ? next : candidate)) } }));
+        setRevision((value) => value + 1);
+        select(node.id);
+        return null;
+      }),
+    [workflowId, current, setDraft], // eslint-disable-line react-hooks/exhaustive-deps
+  );
 
   const onNodesChange = (changes: NodeChange<FlowNode>[]) => {
     const moved = changes.filter((change) => change.type === 'position' && change.position);
@@ -375,6 +397,7 @@ function WorkflowEditor() {
         {selected && (
           <div className="w-[360px] shrink-0 border-l bg-background">
             <NodeConfig
+              key={`${selected.id}:${revision}`}
               node={selected}
               issues={issues.filter((issue) => issue.nodeId === selected.id)}
               refs={{

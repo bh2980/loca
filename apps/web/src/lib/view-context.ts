@@ -8,6 +8,8 @@ export interface ViewItem {
   kind: string;
   id: string;
   label: string;
+  /** Extra facts for the agent (e.g. a node's current unsaved config as JSON). */
+  detail?: string;
 }
 
 interface ViewState {

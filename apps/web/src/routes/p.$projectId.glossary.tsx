@@ -3,6 +3,7 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Play, Plus, Search, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
+import { AiButton } from '@/components/ai-button';
 import { Page } from '@/components/page';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
@@ -89,6 +90,11 @@ function Glossary() {
                 onChange={(event) => void navigate({ search: (previous) => ({ ...previous, q: event.target.value.trim() || undefined }), replace: true })}
               />
             </InputGroup>
+            {search.view === 'candidate' && candidates.some((term) => !term.target.trim()) && (
+              <AiButton prompt="용어 후보 중 번역이 비어 있는 것을 search_lines로 원문 용례를 읽고 번역과 메모를 채워 save_terms로 제안해줘. 상태는 후보 그대로 둬.">
+                빈 번역 AI로 채우기
+              </AiButton>
+            )}
             <span className="ml-auto text-sm text-muted-foreground tabular-nums">
               {rows.length.toLocaleString()}개{needle && ` / 전체 ${all.length.toLocaleString()}개`}
             </span>

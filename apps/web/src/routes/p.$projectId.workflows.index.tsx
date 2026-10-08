@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
+import { AiButton } from '@/components/ai-button';
 import { Page } from '@/components/page';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
@@ -25,7 +26,17 @@ function Workflows() {
   const remove = useMutation({ mutationFn: (id: string) => unwrap(client.workflows[':id'].$delete({ param: { id } })) });
 
   return (
-    <Page title="워크플로" actions={<NewWorkflow projectId={projectId} />}>
+    <Page
+      title="워크플로"
+      actions={
+        <>
+          <AiButton send={false} prompt="이런 워크플로를 만들어줘: ">
+            AI로 만들기
+          </AiButton>
+          <NewWorkflow projectId={projectId} />
+        </>
+      }
+    >
       <div className="rounded-lg border">
         <Table>
           <TableHeader>

@@ -17,6 +17,7 @@ import { StatusDot, TagChip } from '@/components/status';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
+import { AiButton } from '@/components/ai-button';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -40,10 +41,13 @@ export interface NodeRefs {
   nodes: WorkflowNode[];
 }
 
-function Field({ label, hint, children }: { label: string; hint?: React.ReactNode; children: React.ReactNode }) {
+function Field({ label, hint, action, children }: { label: string; hint?: React.ReactNode; action?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="space-y-1.5">
-      <Label className="text-xs">{label}</Label>
+      <div className="flex min-h-7 items-center justify-between gap-2">
+        <Label className="text-xs">{label}</Label>
+        {action}
+      </div>
       {children}
       {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
     </div>
@@ -229,7 +233,15 @@ function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRefs; onCh
           </SelectContent>
         </Select>
       </Field>
-      <Field label="지시문 (이 단계에서 할 일)" hint="프로필의 공통 지시문은 뒤에 덧붙습니다.">
+      <Field
+        label="지시문 (이 단계에서 할 일)"
+        hint="프로필의 공통 지시문은 뒤에 덧붙습니다."
+        action={
+          <AiButton size="xs" variant="ghost" prompt={`선택한 AI 노드(id=${node.id}, 출력 ${config.output})의 지시문을 이 워크플로에서의 역할과 출력 형태에 맞게 ${config.instructions.trim() ? '다듬어' : '작성해'} edit_workflow_node로 제안해줘.`}>
+            {config.instructions.trim() ? 'AI로 다듬기' : 'AI로 작성'}
+          </AiButton>
+        }
+      >
         <Textarea value={config.instructions} onChange={(event) => set({ instructions: event.target.value })} className="min-h-32 text-xs" />
       </Field>
       <div className="space-y-2.5">
@@ -469,7 +481,14 @@ function ScriptConfig({ params, projectId, readOnly, set }: { params: Record<str
           }}
         />
       </Field>
-      <Field label="코드 (JavaScript)" hint="격리된 샌드박스에서 실행됩니다. 네트워크·파일 접근이 없고 2초·32MB로 제한됩니다. 외부 호출은 HTTP 함수를 쓰세요.">
+      <Field
+        label="코드 (JavaScript)"
+        action={
+          <AiButton size="xs" variant="ghost" send={false} prompt={`선택한 스크립트 노드의 코드를 작성해 edit_workflow_node로 제안해줘. 출구: ${ports.join(', ')}. 하는 일: `}>
+            AI로 작성
+          </AiButton>
+        }
+        hint="격리된 샌드박스에서 실행됩니다. 네트워크·파일 접근이 없고 2초·32MB로 제한됩니다. 외부 호출은 HTTP 함수를 쓰세요.">
         <Textarea className="min-h-56 font-mono text-xs leading-relaxed" spellCheck={false} value={params.code as string} onChange={(event) => set('code', event.target.value)} />
       </Field>
       {!readOnly && (
@@ -524,7 +543,16 @@ function ConditionEditor({ node, nodes, readOnly, onChange }: { node: ConditionN
 
   return (
     <div className="space-y-4">
-      <Field label="설명">
+      <Field
+        label="설명"
+        action={
+          !readOnly && (
+            <AiButton size="xs" variant="ghost" send={false} prompt="선택한 조건 노드의 조건식을 이렇게 바꿔 edit_workflow_node로 제안해줘: ">
+              말로 조건 쓰기
+            </AiButton>
+          )
+        }
+      >
         <Input value={node.config.description} onChange={(event) => onChange({ ...node, config: { ...node.config, description: event.target.value } })} />
       </Field>
       {!readOnly && (

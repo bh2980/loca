@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useChat } from '@ai-sdk/react';
-import { DefaultChatTransport, lastAssistantMessageIsCompleteWithApprovalResponses, type UIMessage } from 'ai';
+import { DefaultChatTransport, lastAssistantMessageIsCompleteWithApprovalResponses, lastAssistantMessageIsCompleteWithToolCalls, type UIMessage } from 'ai';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation } from '@tanstack/react-router';
 import { ArrowUp, History, Plus, Square, X } from 'lucide-react';
@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import { client, unwrap } from '@/lib/api';
+import { agentRequests, usePendingAgentRequest } from '@/lib/agent';
 import { chatDock } from '@/lib/chat-dock';
 import { q } from '@/lib/queries';
 import { useViewState, type ViewItem } from '@/lib/view-context';
@@ -60,6 +61,11 @@ export function ChatPanel({ projectId }: { projectId: string }) {
   });
 
   const current = sessions.data?.find((session) => session.id === sessionId);
+  // An AI button was pressed with no conversation yet: start one, the request waits for it.
+  const pendingRequest = usePendingAgentRequest();
+  useEffect(() => {
+    if (pendingRequest && sessions.data && !sessionId && !create.isPending) create.mutate();
+  }, [pendingRequest, sessions.data, sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <aside className="flex h-full flex-col bg-sidebar" aria-label="프로젝트 에이전트">
@@ -138,7 +144,7 @@ function ChatBody({ sessionId, initial, profileId, profiles, onProfile }: {
   const viewRef = useRef({ page: view.page, path: location.pathname, items: attached });
   viewRef.current = { page: view.page, path: location.pathname, items: attached };
 
-  const { messages, sendMessage, status, stop, error, addToolApprovalResponse } = useChat({
+  const { messages, sendMessage, status, stop, error, addToolApprovalResponse, addToolOutput } = useChat({
     id: sessionId,
     messages: initial,
     transport: new DefaultChatTransport({
@@ -146,7 +152,7 @@ function ChatBody({ sessionId, initial, profileId, profiles, onProfile }: {
       // The view is read at send time, so it always describes what is on screen right now.
       prepareSendMessagesRequest: ({ messages: all }) => ({ body: { messages: all, view: viewRef.current } }),
     }),
-    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
+    sendAutomaticallyWhen: (options) => lastAssistantMessageIsCompleteWithApprovalResponses(options) || lastAssistantMessageIsCompleteWithToolCalls(options),
   });
 
   const [input, setInput] = useState(() => sessionStorage.getItem(`tw.chat.draft.${sessionId}`) ?? '');
@@ -154,6 +160,23 @@ function ChatBody({ sessionId, initial, profileId, profiles, onProfile }: {
     sessionStorage.setItem(`tw.chat.draft.${sessionId}`, input);
   }, [sessionId, input]);
   const busy = status === 'submitted' || status === 'streaming';
+
+  // Requests from AI buttons elsewhere in the app.
+  const pendingRequest = usePendingAgentRequest();
+  // Taken on the next tick, after the freshly mounted chat has settled (a send during its
+  // own setup is dropped); the cleanup keeps the request queued if this body unmounts first.
+  useEffect(() => {
+    if (!pendingRequest || busy) return;
+    const timer = setTimeout(() => {
+      const request = agentRequests.take();
+      if (!request) return;
+      if (request.send && profileId) {
+        pinned.current = true;
+        void sendMessage({ text: request.text });
+      } else setInput(request.text);
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [pendingRequest, busy, profileId]); // eslint-disable-line react-hooks/exhaustive-deps
   const scroller = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
   useEffect(() => {
@@ -203,7 +226,7 @@ function ChatBody({ sessionId, initial, profileId, profiles, onProfile }: {
                         <ReactMarkdown>{part.text}</ReactMarkdown>
                       </div>
                     );
-                  if (part.type.startsWith('tool-')) return <ToolPart key={index} part={part as never} onDecide={(id, approved) => addToolApprovalResponse({ id, approved })} />;
+                  if (part.type.startsWith('tool-')) return <ToolPart key={index} part={part as never} stale={message.id !== messages.at(-1)?.id} onDecide={(id, approved) => addToolApprovalResponse({ id, approved })} onOutput={(toolCallId, output) => void addToolOutput({ tool: part.type.slice(5) as never, toolCallId, output: output as never })} />;
                   return null;
                 })}
               </div>

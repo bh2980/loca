@@ -16,14 +16,14 @@ import { liveProfileRoutes } from '../services/routes.ts';
 const viewSchema = z.object({
   page: z.string(),
   path: z.string(),
-  items: z.array(z.object({ kind: z.string(), id: z.string(), label: z.string() })).max(20),
+  items: z.array(z.object({ kind: z.string(), id: z.string(), label: z.string(), detail: z.string().max(6000).optional() })).max(20),
 });
 
 const describeView = (view: z.infer<typeof viewSchema>) =>
   [
     '사용자의 현재 화면 (지시어 "이것/이 대사/이 노드"는 여기를 가리킵니다):',
     `- 페이지: ${view.page} (${view.path})`,
-    ...view.items.map((item) => `- ${item.kind}: ${item.label} [id=${item.id}]`),
+    ...view.items.map((item) => `- ${item.kind}: ${item.label} [id=${item.id}]${item.detail ? `\n  ${item.detail}` : ''}`),
   ].join('\n');
 
 export const chatRoutes = new Hono<Env>()
@@ -79,8 +79,9 @@ export const chatRoutes = new Hono<Env>()
     const result = streamText({
       model: ai.chatModel(route),
       system: [AGENT_SYSTEM, live.snapshot.instructions, view && describeView(view)].filter(Boolean).join('\n\n'),
-      messages: await convertToModelMessages(messages),
-      tools: agentTools(db, session.projectId),
+      // An editor proposal left unanswered before the next message is dropped rather than failing the turn.
+      messages: await convertToModelMessages(messages, { ignoreIncompleteToolCalls: true }),
+      tools: agentTools(db, session.projectId, { profileId: session.profileId, model: route.model }),
       stopWhen: stepCountIs(30),
       maxOutputTokens: live.snapshot.maxOutputTokens,
       temperature: live.snapshot.temperature ?? undefined,

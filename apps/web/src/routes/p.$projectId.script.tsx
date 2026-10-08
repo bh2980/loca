@@ -3,6 +3,7 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Network, Play, Search, X } from 'lucide-react';
 import { LinesView, linesSearchSchema, type LinesSearch } from '@/components/lines-view';
+import { AiButton } from '@/components/ai-button';
 import { Page } from '@/components/page';
 import { StatusBar } from '@/components/status';
 import { RunDialog } from '@/components/workflow/run-dialog';
@@ -73,6 +74,9 @@ function Script() {
                 </Button>
               }
             />
+            <AiButton prompt={`이 ${GROUP_KIND[group.kind]}(id=${group.id}, "${group.title}")의 대사를 read_scene으로 끝까지 읽고 요약을 save_group_summary로 제안해줘.`}>
+              AI 요약
+            </AiButton>
             {group.kind === 'scene' && (
               <Button variant="outline" size="sm" asChild>
                 <Link to="/p/$projectId/graph" params={{ projectId }} search={{ scope: 'dialogue', scene: group.id }}>
