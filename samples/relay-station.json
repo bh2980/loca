@@ -1,0 +1,393 @@
+{
+ "format": "translation-workbench/v1",
+ "project": {
+  "name": "중계소 (샘플)",
+  "description": "분기·합류·반복이 있는 작은 샘플 프로젝트",
+  "sourceLanguage": "en",
+  "targetLanguage": "ko"
+ },
+ "groups": [
+  {
+   "key": "arrival",
+   "title": "중계소 도착",
+   "order": 0
+  },
+  {
+   "key": "panel",
+   "title": "차단기 패널",
+   "order": 1
+  },
+  {
+   "key": "logbook",
+   "title": "근무 일지",
+   "order": 2
+  },
+  {
+   "key": "tower",
+   "title": "북쪽 송신탑",
+   "order": 3
+  },
+  {
+   "key": "ending",
+   "title": "새벽",
+   "order": 4
+  },
+  {
+   "key": "ui",
+   "kind": "ui",
+   "title": "메뉴 UI",
+   "order": 5
+  }
+ ],
+ "units": [
+  {
+   "key": "arrival.1",
+   "group": "arrival",
+   "speaker": "MIRA",
+   "source": "The relay station is dark. Someone cut the power, {player}."
+  },
+  {
+   "key": "arrival.2",
+   "group": "arrival",
+   "speaker": "JONAS",
+   "source": "Or it's just old. Nothing out here lasts."
+  },
+  {
+   "key": "arrival.3",
+   "group": "arrival",
+   "speaker": "MIRA",
+   "source": "Check the <b>breaker panel</b>. I will watch the door."
+  },
+  {
+   "key": "panel.1",
+   "group": "panel",
+   "speaker": "JONAS",
+   "source": "The fuses are fine. This was switched off by hand."
+  },
+  {
+   "key": "panel.2",
+   "group": "panel",
+   "speaker": "MIRA",
+   "source": "Then they are still here."
+  },
+  {
+   "key": "logbook.1",
+   "group": "logbook",
+   "speaker": "NARRATOR",
+   "source": "A logbook lies open. The last entry is dated three days ago."
+  },
+  {
+   "key": "logbook.2",
+   "group": "logbook",
+   "speaker": "MIRA",
+   "source": "\"Signal from the north tower again. Ignoring orders.\""
+  },
+  {
+   "key": "logbook.3",
+   "group": "logbook",
+   "speaker": "JONAS",
+   "source": "Ignoring whose orders?"
+  },
+  {
+   "key": "tower.1",
+   "group": "tower",
+   "speaker": "MIRA",
+   "source": "The tower light is blinking. %d short, %d long."
+  },
+  {
+   "key": "tower.2",
+   "group": "tower",
+   "speaker": "JONAS",
+   "source": "That's not a fault. That's a code."
+  },
+  {
+   "key": "tower.3",
+   "group": "tower",
+   "speaker": "MIRA",
+   "source": "Write it down. Every pulse."
+  },
+  {
+   "key": "ending.1",
+   "group": "ending",
+   "speaker": "NARRATOR",
+   "source": "Dawn comes slowly over the ridge."
+  },
+  {
+   "key": "ending.2",
+   "group": "ending",
+   "speaker": "JONAS",
+   "source": "We tell the Directorate nothing.\nAgreed?"
+  },
+  {
+   "key": "ending.3",
+   "group": "ending",
+   "speaker": "MIRA",
+   "source": "Agreed."
+  },
+  {
+   "key": "ui.continue",
+   "group": "ui",
+   "kind": "ui",
+   "source": "Continue"
+  },
+  {
+   "key": "ui.save",
+   "group": "ui",
+   "kind": "ui",
+   "source": "Save & Quit"
+  }
+ ],
+ "graph": {
+  "nodes": [
+   {
+    "key": "n.arrival.1",
+    "kind": "script",
+    "units": [
+     "arrival.1"
+    ]
+   },
+   {
+    "key": "n.arrival.2",
+    "kind": "script",
+    "units": [
+     "arrival.2"
+    ]
+   },
+   {
+    "key": "n.arrival.3",
+    "kind": "script",
+    "units": [
+     "arrival.3"
+    ]
+   },
+   {
+    "key": "n.panel.1",
+    "kind": "script",
+    "units": [
+     "panel.1"
+    ]
+   },
+   {
+    "key": "n.panel.2",
+    "kind": "script",
+    "units": [
+     "panel.2"
+    ]
+   },
+   {
+    "key": "n.logbook.1",
+    "kind": "script",
+    "units": [
+     "logbook.1"
+    ]
+   },
+   {
+    "key": "n.logbook.2",
+    "kind": "script",
+    "units": [
+     "logbook.2"
+    ]
+   },
+   {
+    "key": "n.logbook.3",
+    "kind": "script",
+    "units": [
+     "logbook.3"
+    ]
+   },
+   {
+    "key": "n.tower.1",
+    "kind": "script",
+    "units": [
+     "tower.1"
+    ]
+   },
+   {
+    "key": "n.tower.2",
+    "kind": "script",
+    "units": [
+     "tower.2"
+    ]
+   },
+   {
+    "key": "n.tower.3",
+    "kind": "script",
+    "units": [
+     "tower.3"
+    ]
+   },
+   {
+    "key": "n.ending.1",
+    "kind": "script",
+    "units": [
+     "ending.1"
+    ]
+   },
+   {
+    "key": "n.ending.2",
+    "kind": "script",
+    "units": [
+     "ending.2"
+    ]
+   },
+   {
+    "key": "n.ending.3",
+    "kind": "script",
+    "units": [
+     "ending.3"
+    ]
+   },
+   {
+    "key": "c.choice",
+    "kind": "condition",
+    "label": "ChoiceState: 패널 / 일지"
+   },
+   {
+    "key": "j.join",
+    "kind": "connector"
+   },
+   {
+    "key": "w.signal",
+    "kind": "wait",
+    "label": "WaitForSignal"
+   },
+   {
+    "key": "e.dawn",
+    "kind": "event",
+    "label": "TimeOfDay = dawn"
+   }
+  ],
+  "edges": [
+   {
+    "from": "n.arrival.1",
+    "to": "n.arrival.2"
+   },
+   {
+    "from": "n.arrival.2",
+    "to": "n.arrival.3"
+   },
+   {
+    "from": "n.panel.1",
+    "to": "n.panel.2"
+   },
+   {
+    "from": "n.logbook.1",
+    "to": "n.logbook.2"
+   },
+   {
+    "from": "n.logbook.2",
+    "to": "n.logbook.3"
+   },
+   {
+    "from": "n.tower.1",
+    "to": "n.tower.2"
+   },
+   {
+    "from": "n.tower.2",
+    "to": "n.tower.3"
+   },
+   {
+    "from": "n.ending.1",
+    "to": "n.ending.2"
+   },
+   {
+    "from": "n.ending.2",
+    "to": "n.ending.3"
+   },
+   {
+    "from": "n.arrival.3",
+    "to": "c.choice"
+   },
+   {
+    "from": "c.choice",
+    "to": "n.panel.1",
+    "label": "panel"
+   },
+   {
+    "from": "c.choice",
+    "to": "n.logbook.1",
+    "label": "logbook"
+   },
+   {
+    "from": "n.panel.2",
+    "to": "j.join"
+   },
+   {
+    "from": "n.logbook.3",
+    "to": "j.join"
+   },
+   {
+    "from": "j.join",
+    "to": "n.tower.1"
+   },
+   {
+    "from": "n.tower.3",
+    "to": "w.signal"
+   },
+   {
+    "from": "w.signal",
+    "to": "n.tower.1",
+    "label": "repeat"
+   },
+   {
+    "from": "w.signal",
+    "to": "e.dawn",
+    "label": "decoded"
+   },
+   {
+    "from": "e.dawn",
+    "to": "n.ending.1"
+   }
+  ]
+ },
+ "characters": [
+  {
+   "name": "MIRA",
+   "aliases": [
+    "Mira"
+   ],
+   "profile": "전직 통신병. 침착하고 짧게 말한다. 존댓말을 쓰지 않는다."
+  },
+  {
+   "name": "JONAS",
+   "aliases": [
+    "Jonas"
+   ],
+   "profile": "정비공. 회의적이고 농담이 많다. 미라에게 반말."
+  }
+ ],
+ "relationships": [
+  {
+   "from": "MIRA",
+   "to": "JONAS",
+   "kind": "동료",
+   "description": "오래 함께 근무한 사이. 서로 반말.",
+   "mutual": true
+  }
+ ],
+ "documents": [
+  {
+   "title": "세계관",
+   "kind": "world",
+   "body": "감시 국가 \"Directorate\"가 통신을 통제한다. 중계소는 국경의 무인 시설이다.",
+   "alwaysInclude": true
+  },
+  {
+   "title": "문체",
+   "kind": "style",
+   "body": "대사는 구어체 반말. 내레이션은 \"-다\" 체.",
+   "alwaysInclude": true
+  }
+ ],
+ "terms": [
+  {
+   "source": "Directorate",
+   "target": "총국",
+   "note": "정부 기관 이름"
+  },
+  {
+   "source": "relay station",
+   "target": "중계소"
+  }
+ ]
+}

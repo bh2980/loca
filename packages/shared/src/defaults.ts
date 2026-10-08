@@ -1,0 +1,92 @@
+import type { WorkflowDefinition } from './workflow.ts';
+
+export type StatusKind = 'initial' | 'normal' | 'final';
+
+export const DEFAULT_STATUSES: { key: string; name: string; color: string; kind: StatusKind }[] = [
+  { key: 'untranslated', name: '미번역', color: '#a1a1aa', kind: 'initial' },
+  { key: 'draft', name: 'AI 초벌', color: '#3b82f6', kind: 'normal' },
+  { key: 'needs-review', name: '사람 확인 필요', color: '#f59e0b', kind: 'normal' },
+  { key: 'confirmed', name: '확정', color: '#22c55e', kind: 'final' },
+];
+
+export const STATUS_COLORS = ['#a1a1aa', '#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#ef4444', '#14b8a6', '#22c55e'];
+
+/**
+ * The default translation flow, expressed as an ordinary user workflow:
+ * untranslated → translate → format check → review → confirmed;
+ * failures are revised up to 3 times, then wait for a person.
+ */
+export function translationTemplate(ids: {
+  profileId: string;
+  untranslated: string;
+  draft: string;
+  needsReview: string;
+  confirmed: string;
+}): WorkflowDefinition {
+  const ai = (instructions: string) => ({
+    profileId: ids.profileId,
+    instructions,
+    context: { glossary: true, documents: true, characters: true, relationships: true, precedingLines: 8, previousScenes: 1 },
+    batch: { mode: 'group' as const, size: 30 },
+  });
+  const at = (column: number, row: number) => ({ x: column * 280, y: row * 160 });
+  return {
+    settings: { maxVisitsPerNode: 5, concurrency: 2 },
+    nodes: [
+      { id: 'entry', type: 'entry', position: at(0, 1), config: { statusIds: [ids.untranslated] } },
+      { id: 'translate', type: 'translate', position: at(1, 1), config: ai('') },
+      { id: 'draft', type: 'update', position: at(2, 1), label: 'AI 초벌로', config: { statusId: ids.draft, addTagIds: [], removeTagIds: [], applyCandidate: false } },
+      { id: 'check', type: 'check', position: at(3, 1), config: { placeholders: true, tags: true, newlines: true, emptyText: true } },
+      { id: 'review', type: 'review', position: at(4, 1), config: ai('') },
+      {
+        id: 'confirm',
+        type: 'update',
+        position: at(5, 1),
+        label: '확정',
+        config: { statusId: ids.confirmed, addTagIds: [], removeTagIds: [], applyCandidate: true },
+      },
+      { id: 'end', type: 'end', position: at(6, 1), config: {} },
+      {
+        id: 'retry',
+        type: 'condition',
+        position: at(4, 2),
+        label: '수정 3회 미만?',
+        config: { expression: { '<': [{ var: 'visits.revise' }, 3] }, description: '수정 노드 방문이 3회 미만이면 다시 수정합니다.' },
+      },
+      { id: 'revise', type: 'revise', position: at(3, 3), config: ai('') },
+      {
+        id: 'escalate',
+        type: 'update',
+        position: at(5, 3),
+        label: '사람 확인 필요로',
+        config: { statusId: ids.needsReview, addTagIds: [], removeTagIds: [], applyCandidate: false },
+      },
+      { id: 'human', type: 'human', position: at(6, 3), config: { instructions: '자동 수정 한도에 도달했습니다. 후보를 고치거나 승인하세요.' } },
+      {
+        id: 'reject',
+        type: 'update',
+        position: at(7, 4),
+        label: '미번역으로',
+        config: { statusId: ids.untranslated, addTagIds: [], removeTagIds: [], applyCandidate: false },
+      },
+      { id: 'end-rejected', type: 'end', position: at(8, 4), config: {} },
+    ],
+    edges: [
+      { id: 'e1', source: 'entry', sourceHandle: 'out', target: 'translate' },
+      { id: 'e2', source: 'translate', sourceHandle: 'out', target: 'draft' },
+      { id: 'e3', source: 'draft', sourceHandle: 'out', target: 'check' },
+      { id: 'e4', source: 'check', sourceHandle: 'pass', target: 'review' },
+      { id: 'e5', source: 'check', sourceHandle: 'fail', target: 'retry' },
+      { id: 'e6', source: 'review', sourceHandle: 'pass', target: 'confirm' },
+      { id: 'e7', source: 'review', sourceHandle: 'fail', target: 'retry' },
+      { id: 'e8', source: 'confirm', sourceHandle: 'out', target: 'end' },
+      { id: 'e9', source: 'retry', sourceHandle: 'true', target: 'revise' },
+      { id: 'e10', source: 'retry', sourceHandle: 'false', target: 'escalate' },
+      { id: 'e11', source: 'revise', sourceHandle: 'out', target: 'check' },
+      { id: 'e12', source: 'escalate', sourceHandle: 'out', target: 'human' },
+      { id: 'e13', source: 'human', sourceHandle: 'approved', target: 'confirm' },
+      { id: 'e14', source: 'human', sourceHandle: 'rejected', target: 'reject' },
+      { id: 'e15', source: 'reject', sourceHandle: 'out', target: 'end-rejected' },
+    ],
+  };
+}

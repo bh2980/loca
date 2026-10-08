@@ -1,0 +1,136 @@
+# Translation Workbench — 설계 (v1 재작성)
+
+작성: 2026-10-09. 이전 `.txt` 계획서 8종은 폐기하고 이 문서와 `README.md`가 유일한 기준이다.
+
+## 1. 제품 정체성
+
+게임에서 추출한 **표준 포맷** 원문을 가져와서, 사용자가 직접 정의한 **번역 상태**(예: 미번역 → 초벌 → 검수 통과 → 확정)와
+그 사이를 잇는 **워크플로 노드**(AI 번역·검수·수정, 형식 검사, 조건 분기, 사람 확인, 상태 변경)를 구성해
+번역 작업을 AI로 자동화하는 Windows 로컬 작업실.
+
+- 원문은 읽기 전용 근거다. 번역은 대사별 **후보 여러 개 + 대표 번역 1개**로 관리한다.
+- 실행 모델은 **워크플로 하나**뿐이다. 기본 번역 흐름은 템플릿 워크플로로 제공한다.
+- 사람이 끼어드는 곳은 두 가지뿐이다: 워크플로의 **사람 확인 노드**(검토함), 채팅 에이전트의 **제안 카드**.
+- 원문 그래프 관계는 추출 근거다. 실행 순서·사건 순서로 해석하지 않으며 없는 간선을 만들지 않는다.
+
+### 1.1 문맥이 제품의 핵심
+
+게임 번역은 앞뒤 상황을 모르면 틀린다. 그래서 작업실은 번역에 필요한 문맥을 저장하고, AI 노드가 그것을 불러 쓴다.
+
+- **작품 자료**: 스토리, 게임 세계관, 문체 규칙 같은 문서(마크다운). 문서마다 "항상 문맥에 포함" 여부를 정한다.
+- **인물**: 이름·별칭·프로필·말투. 대사의 화자(`speaker`)와 연결된다.
+- **인물 관계**: 방향·종류(가족/상관/적대…)·설명. 화자와 청자/언급 인물의 관계를 문맥으로 쓴다.
+- **대사 그래프**: 표준 포맷의 원본 노드·간선. 한 대사의 **선행 대사**(그래프상 바로 앞 N개, 분기면 모든 선행 경로)를 문맥으로 쓴다.
+- **장면 그래프**: 대사 그래프에서 **파생**한 장면 간 연결(다른 장면 노드로 가는 간선이 있으면 연결, 파생임을 표시).
+  이전 장면의 제목·요약을 문맥으로 쓴다.
+- **용어집**: 원문에 등장하는 용어의 지정 번역.
+
+AI 노드의 "문맥" 설정에서 위 항목을 켜고 끄며, 실행 기록에는 실제로 넣은 문맥이 그대로 남는다.
+
+## 2. 정보 구조 (shadcn Sidebar 대시보드, 화이트 톤)
+
+```
+[프로젝트 전환]                         상단 바: 브레드크럼 · 검색(⌘K) · 채팅 토글
+─ 대시보드        상태별 분포, 진행 중 실행, 검토 대기 수, 최근 활동
+─ 원문
+   ├ 장면 목록    표(장면·대사 수·상태 분포) → 장면 상세(대사 표 + 우측 대사 편집 Sheet)
+   ├ 장면 그래프  장면 간 파생 연결(Canvas). 장면 선택 → 우측 상세 → 장면 열기 / 대사 그래프로
+   └ 대사 그래프  전체 또는 선택 장면의 원본 노드 그래프(Canvas). 노드 선택 → 우측 상세 → 장면/대사로 이동
+─ 검토함          사람 확인 노드에서 대기 중인 대사. 승인/반려/수정 후 승인
+─ 워크플로        목록 → 편집기(React Flow) → 실행(범위 선택) 
+─ 실행 기록       목록 → 실행 상세(노드별 처리 수, 대사별 경로·입출력·오류)
+─ 용어집          표 + 편집 Sheet
+─ 작품 자료       스토리·세계관 문서(마크다운) · 인물(목록+프로필) · 관계(인물 그래프, React Flow)
+─ 설정
+   ├ 상태·태그    사용자 정의 상태(초기/일반/최종, 색)와 태그
+   ├ AI 연결      OpenAI 호환 API · System One · Codex/Claude/Grok/Antigravity CLI
+   ├ AI 프로필    연결·모델·추론 수준·지시문·한도·대체 경로
+   └ 프로젝트     가져오기(표준 파일) · 내보내기(번역 결과) · 삭제
+[우측 전역 채팅 패널]  어느 화면에서든 열고 닫음. 본문 탐색과 독립.
+```
+
+규칙: 컬렉션은 표(TanStack Table + 가상 스크롤), 상세 편집은 우측 Sheet, 파괴적 동작만 AlertDialog.
+상단 반복 바·중복 뒤로가기·커스텀 모달 금지. "전체" 라벨은 선택 데이터 전체를 뜻한다.
+
+## 3. 사용자 여정과 수용 기준
+
+모든 여정 공통: URL이 화면 상태의 기준이다(TanStack Router search params). 목록 필터·정렬·페이지·선택 대사는 URL에,
+스크롤은 라우터 scroll restoration에, 미저장 초안은 프로젝트별 로컬 저장소에 둔다. Back/Forward는 이전 화면 상태를 그대로 복원한다.
+서버 변경은 SSE 이벤트로 받아 해당 쿼리만 다시 읽는다(전체 상태 폴링 없음). 폴링·SSE 갱신은 방문 기록을 만들지 않는다.
+
+**J1. 프로젝트 시작** — 프로젝트 없음 → "표준 파일 가져오기" → 파일 검증 결과(장면/대사/그래프 수, 오류 위치) 확인 → 생성.
+생성 시 기본 상태 세트와 기본 워크플로 템플릿이 함께 만들어지고 그래프 배치는 백그라운드로 계산된다(진행 표시).
+복구: 스키마 오류는 경로와 함께 표시하고 아무것도 저장하지 않는다.
+
+**J2. 원문 탐색** — 장면 목록(검색·종류·상태 필터) → 장면 상세(대사 표) → 대사 선택 시 우측 Sheet(원문·화자·후보·상태·태그·이력).
+그래프에서: 전체 맞춤 → 확대/이동 → 노드 클릭 → 우측 상세 → "장면에서 보기". Back은 그래프 viewport와 선택을 복원.
+검색(⌘K)은 원문·번역·화자·ID 전체에서 찾고 결과 선택 시 해당 장면/대사로 이동.
+수용: 9,000+ 노드 그래프에서 pan/zoom이 끊기지 않고(Canvas 1개, DOM 노드 수 일정), 체인 간선이 곧게 아래로 내려간다.
+
+**J3. 상태 설계** — 설정 › 상태·태그 → 상태 추가(이름·색·종류) → 순서 변경. 사용 중인 상태 삭제는 이동할 상태를 고르게 한다.
+
+**J4. 워크플로 구성** — 워크플로 목록 → 템플릿에서 새로 만들기 또는 빈 워크플로 → 팔레트에서 노드 추가 → 포트 연결 → 노드 설정(우측 패널).
+저장 전 검증: 진입 노드 1개, 끊긴 필수 포트, 존재하지 않는 프로필/상태, 탈출 조건 없는 순환. 오류는 해당 노드에 표시.
+편집 초안은 이동·새로고침에도 유지되고 저장 시 버전이 1 증가한다.
+
+**J5. 실행** — 워크플로 화면 "실행" → 범위(전체/장면 선택/대사 선택) × 진입 상태 필터 → 대상 수 미리보기 → 시작.
+실행 시작 시 워크플로 정의·프로필을 스냅샷으로 고정한다. 진행은 실행 상세에서 노드별 카운트로 보이고 일시정지/재개/취소 가능.
+수용: 30개 중 검수 통과분은 확정, 실패분은 수정 노드로 돌아가 최대 N회 후 사람 확인으로 간다. 서버 재시작 후 이어서 진행.
+
+**J6. 사람 확인** — 검토함 → 대사별 AI 후보·검수 의견 확인 → 승인 / 반려 / 직접 수정 후 승인. 결정하면 해당 대사만 다음 노드로 진행.
+
+**J7. 채팅 에이전트** — 어느 화면에서든 채팅 패널 열기 → "이 프로젝트 진행 상황 알려줘", "검수 엄격한 프로필 만들어줘",
+"초벌만 하는 워크플로 만들어줘" → 에이전트가 조회 도구로 프로젝트를 읽고 → 변경은 제안 카드(diff)로 제시 → 수락 시 반영.
+패널을 열고 닫거나 세션을 바꿔도 본문 화면·방문 기록은 그대로다. 채팅 지원 연결은 도구 호출 가능한 API 연결뿐이다.
+**화면 하네스**: 각 화면은 지금 보고 있는 것(페이지, 선택한 장면·대사, 클릭한 그래프 노드, 선택한 워크플로 노드)을
+전역 store에 보고한다. 메시지 전송 시 이 정보가 첨부되어 에이전트가 "이 대사/이 노드"를 이해한다. 입력창 위 칩으로 보이고 뺄 수 있다.
+
+## 4. 데이터 모델 (SQLite + Drizzle, 엔티티별 테이블)
+
+| 테이블 | 핵심 컬럼 |
+|---|---|
+| projects | id, name, source_lang, target_lang, created_at |
+| groups | id, project_id, key, kind(scene/document/ui), title, sort |
+| units | id, project_id, group_id, key, sort, speaker, source, kind, meta(json), status_id, translation, selected_candidate_id, locked, version |
+| units_fts | FTS5(source, translation, speaker, key) |
+| candidates | id, unit_id, text, origin(ai/human/import), profile_id, run_id, note, created_at |
+| statuses / tags / unit_tags | 사용자 정의 상태(kind: initial/normal/final, color, sort), 태그 |
+| graph_nodes / graph_edges | 원본 그래프(key, kind, unit_ids, meta) / (from, to, kind, label) |
+| graph_layouts | project_id, hash, status, json(노드 좌표·간선 경로) |
+| terms | source, target, note, aliases(json) |
+| documents | kind(note/character/relationship 등은 별도), title, body(md), version |
+| characters / relationships | 이름·별칭·프로필 / from, to, kind, description |
+| connections | kind, name, base_url, model 목록 캐시 (키는 OS 자격 증명 저장소) |
+| profiles | connection_id, model, effort, instructions, limits, fallbacks(json) |
+| workflows | name, version, definition(json, Zod 검증) |
+| runs / run_items / run_steps | 스냅샷·상태 / 대사별 현재 노드·방문 수·데이터 / 노드 실행 입력·출력·오류·사용량 |
+| chat_sessions / chat_messages / proposals | AI SDK UIMessage 저장 / 제안 operations·상태 |
+
+## 5. 워크플로 노드
+
+| 노드 | 설정 | 출구 |
+|---|---|---|
+| 진입 | 대상 상태 필터 | out |
+| AI 번역 | 프로필, 지시문, 문맥(용어집·작품 자료·화자/관계·선행 대사 N·이전 장면), 묶음(대사별/장면별/N개) | out, error |
+| AI 검수 | 프로필, 기준 | pass, fail, error |
+| AI 수정 | 프로필, 검수 의견 사용 | out, error |
+| 형식 검사 | 태그·플레이스홀더·줄바꿈 보존 | pass, fail |
+| 조건 | JSON Logic 식(방문 횟수·검수 점수·태그 등) | true, false |
+| 상태 변경 | 상태, 태그 추가/제거, 후보를 대표 번역으로 적용 여부 | out |
+| 사람 확인 | 안내 문구 | approved, rejected |
+| 종료 | — | — |
+
+대사 1개 = 실행 항목 1개. AI 호출은 묶음 단위. 대사별 노드 방문 상한(기본 5)을 넘으면 error로 보낸다.
+
+## 6. 기술 스택
+
+- pnpm workspace: `apps/web`, `apps/server`, `packages/shared`(Zod 스키마·타입·표준 포맷), `packages/ai`(모델 호출).
+- 서버: Hono(+ RPC 타입 클라이언트), Zod, Drizzle + better-sqlite3, SSE(hono/streaming), p-queue, p-retry,
+  elkjs(그래프 배치, worker_threads에서 큰 스택으로 실행), json-logic-js, @napi-rs/keyring(Windows 자격 증명 관리자).
+- AI: Vercel AI SDK(OpenAI 호환 / 채팅 에이전트 도구 호출), CLI는 execa로 실행 후 JSON 스키마 검증.
+- 웹: Vite, React 19, TanStack Router/Query/Table/Virtual, shadcn/ui(Tailwind v4), React Flow(@xyflow/react, 워크플로·인물),
+  원문 그래프는 Canvas2D + d3-zoom + flatbush(공간 인덱스). 배치·라우팅은 ELK 결과를 그대로 그린다.
+
+## 7. 범위 밖 (후속 논의)
+
+HTTP/API 노드, 웹 검색, 자동 백업 노드, 다국어 UI. Orwell 추출물 → 표준 포맷 변환기는 별도 도구로 분리한다.

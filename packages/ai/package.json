@@ -1,0 +1,20 @@
+{
+  "name": "@tw/ai",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@ai-sdk/openai-compatible": "^3.0.66",
+    "@tw/shared": "workspace:*",
+    "@typesafe-ai/sdk": "^0.6.0",
+    "ai": "^7.0.134",
+    "execa": "^10.1.0",
+    "p-retry": "^8.0.1",
+    "zod": "^4.6.5"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "name": "@tw/server",
+  "private": true,
+  "type": "module",
+  "exports": { "./app": "./src/app.ts" },
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "tsx src/main.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "db:generate": "drizzle-kit generate"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.4",
+    "@hono/zod-validator": "^0.9.1",
+    "@napi-rs/keyring": "^2.1.0",
+    "@tw/ai": "workspace:*",
+    "@tw/shared": "workspace:*",
+    "ai": "^7.0.134",
+    "better-sqlite3": "^12.11.1",
+    "drizzle-orm": "^0.45.4",
+    "elkjs": "^0.12.0",
+    "hono": "^4.13.13",
+    "json-logic-js": "^2.0.5",
+    "p-queue": "^9.3.3",
+    "tsx": "^4.23.15",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/json-logic-js": "^2.0.8",
+    "drizzle-kit": "^0.31.11"
+  }
+}
