@@ -23,11 +23,11 @@ import { client, unwrap, type InferResponseType } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
-type Tab = 'connections' | 'profiles';
+type Tab = 'connections' | 'tools' | 'profiles';
 
 export const Route = createFileRoute('/p/$projectId/settings/ai')({
   validateSearch: (raw: Record<string, unknown>): { tab?: Tab; conn?: string; profile?: string } => ({
-    tab: raw.tab === 'profiles' ? 'profiles' : undefined,
+    tab: raw.tab === 'profiles' || raw.tab === 'tools' ? raw.tab : undefined,
     conn: typeof raw.conn === 'string' && raw.conn ? raw.conn : undefined,
     profile: typeof raw.profile === 'string' && raw.profile ? raw.profile : undefined,
   }),
@@ -41,17 +41,25 @@ const errorMessage = (error: unknown) => (error instanceof Error ? error.message
 function AiSettings() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
-  const tab: Tab = search.tab ?? 'connections';
+  const connections = useQuery(q.connections());
+  const selectedConnection = search.conn && search.conn !== 'new' ? connections.data?.find((connection) => connection.id === search.conn) : undefined;
+  // A selected connection always opens in the tab that matches its kind.
+  const tab: Tab = search.tab === 'profiles' ? 'profiles' : selectedConnection ? (selectedConnection.kind === 'http' ? 'tools' : 'connections') : (search.tab ?? 'connections');
 
   return (
-    <Page title="AI 연결" description="연결과 프로필은 앱 전체에서 공유되며 모든 프로젝트가 같은 목록을 사용합니다.">
-      <Tabs value={tab} onValueChange={(value) => void navigate({ search: { tab: value === 'profiles' ? 'profiles' : undefined } })} className="gap-3">
+    <Page title="연결·프로필" description="연결과 프로필은 모든 프로젝트가 함께 씁니다.">
+      <Tabs
+        value={tab}
+        onValueChange={(value) => void navigate({ search: (previous) => ({ ...previous, tab: value === 'tools' || value === 'profiles' ? value : undefined, conn: undefined }) })}
+        className="gap-3"
+      >
         <TabsList>
-          <TabsTrigger value="connections">연결</TabsTrigger>
-          <TabsTrigger value="profiles">프로필</TabsTrigger>
+          <TabsTrigger value="connections">AI 연결</TabsTrigger>
+          <TabsTrigger value="tools">도구 연결</TabsTrigger>
+          <TabsTrigger value="profiles">AI 프로필</TabsTrigger>
         </TabsList>
       </Tabs>
-      {tab === 'connections' ? <ConnectionsTab /> : <ProfilesTab />}
+      {tab === 'connections' ? <ConnectionsTab /> : tab === 'tools' ? <ToolsTab /> : <ProfilesTab />}
     </Page>
   );
 }
@@ -122,7 +130,8 @@ function ConnectionsTab() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const connections = useQuery(q.connections());
-  const selected = search.conn && search.conn !== 'new' ? connections.data?.find((connection) => connection.id === search.conn) : undefined;
+  const aiConnections = connections.data?.filter((connection) => connection.kind !== 'http');
+  const selected = search.conn && search.conn !== 'new' ? aiConnections?.find((connection) => connection.id === search.conn) : undefined;
   const close = () => void navigate({ search: (previous) => ({ ...previous, conn: undefined }) });
 
   return (
@@ -130,7 +139,7 @@ function ConnectionsTab() {
       list={
         <>
           <div className="mb-3 flex items-center justify-between">
-            <span className="text-sm text-muted-foreground tabular-nums">{connections.data?.length ?? '–'}개</span>
+            <span className="text-sm text-muted-foreground tabular-nums">{aiConnections?.length ?? '–'}개</span>
             <Button size="sm" onClick={() => void navigate({ search: (previous) => ({ ...previous, conn: 'new' }) })}>
               <Plus />
               연결 추가
@@ -148,7 +157,7 @@ function ConnectionsTab() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {connections.data?.map((connection) => {
+                {aiConnections?.map((connection) => {
                   const info = CONNECTION_KIND_INFO[connection.kind];
                   return (
                     <TableRow key={connection.id} className="cursor-pointer" data-state={search.conn === connection.id ? 'selected' : undefined} onClick={() => void navigate({ search: (previous) => ({ ...previous, conn: connection.id }) })}>
@@ -162,7 +171,7 @@ function ConnectionsTab() {
                     </TableRow>
                   );
                 })}
-                {connections.data?.length === 0 && (
+                {aiConnections?.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
                       연결이 없습니다. 연결 추가로 시작하세요.
@@ -198,7 +207,6 @@ function NewConnection({ onClose }: { onClose: () => void }) {
             name: values.name,
             baseUrl: info.transport === 'http' ? values.baseUrl : undefined,
             executable: info.transport === 'cli' ? values.executable || undefined : undefined,
-            headerTemplate: values.kind === 'http' ? values.headerTemplate || undefined : undefined,
             apiKey: info.transport === 'http' && values.apiKey ? values.apiKey : undefined,
           },
         }),
@@ -227,7 +235,6 @@ function NewConnection({ onClose }: { onClose: () => void }) {
                   const next = value as ConnectionKind;
                   field.onChange(next);
                   form.setValue('baseUrl', CONNECTION_KIND_INFO[next].defaultBaseUrl);
-                  form.setValue('headerTemplate', next === 'http' ? 'Authorization: Bearer {key}' : undefined);
                   form.clearErrors();
                 }}
               >
@@ -235,7 +242,7 @@ function NewConnection({ onClose }: { onClose: () => void }) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {CONNECTION_KINDS.map((value) => (
+                  {CONNECTION_KINDS.filter((value) => value !== 'http').map((value) => (
                     <SelectItem key={value} value={value}>
                       {CONNECTION_KIND_INFO[value].label}
                     </SelectItem>
@@ -258,13 +265,6 @@ function NewConnection({ onClose }: { onClose: () => void }) {
               <Input id="conn-url" {...form.register('baseUrl', { setValueAs: (value: string) => (value ? value : undefined) })} aria-invalid={!!form.formState.errors.baseUrl} />
               <FieldError errors={[form.formState.errors.baseUrl]} />
             </Field>
-            {kind === 'http' && (
-              <Field>
-                <FieldLabel htmlFor="conn-header">키를 보내는 헤더</FieldLabel>
-                <Input id="conn-header" className="font-mono text-xs" {...form.register('headerTemplate')} placeholder="Authorization: Bearer {key}" />
-                <FieldDescription>워크플로의 ‘HTTP 호출’ 함수가 쓰는 연결입니다. {'{key}'} 자리에 저장한 키가 들어갑니다.</FieldDescription>
-              </Field>
-            )}
             <Field>
               <FieldLabel htmlFor="conn-key">API 키 (선택)</FieldLabel>
               <Input id="conn-key" type="password" autoComplete="off" {...form.register('apiKey')} />
@@ -292,6 +292,7 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
   const queryClient = useQueryClient();
   const info = CONNECTION_KIND_INFO[connection.kind];
   const isHttp = info.transport === 'http';
+  const isTool = connection.kind === 'http';
   const invalidate = () => void queryClient.invalidateQueries({ queryKey: ['connections'] });
   const [apiKey, setApiKey] = useState('');
   const [probeResult, setProbeResult] = useState<{ ok: boolean; detail: string } | null>(null);
@@ -365,7 +366,7 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
   return (
     <div>
       <PaneHeader title={connection.name} onClose={onClose} />
-      <p className="mb-4 text-sm text-muted-foreground">{info.label}</p>
+      <p className="mb-4 text-sm text-muted-foreground">{isTool ? '워크플로의 ‘HTTP 호출’ 함수가 이 연결로 외부 API(맞춤법·사전 등)를 부릅니다.' : info.label}</p>
       <form onSubmit={form.handleSubmit((values) => save.mutate(values))}>
         <FieldGroup className="gap-4">
           <Field data-invalid={!!form.formState.errors.name}>
@@ -378,17 +379,18 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
               <FieldLabel htmlFor="edit-url">주소</FieldLabel>
               <Input id="edit-url" {...form.register('baseUrl', { setValueAs: (value: string) => (value ? value : undefined) })} aria-invalid={!!form.formState.errors.baseUrl} />
               <FieldError errors={[form.formState.errors.baseUrl]} />
-              {connection.kind === 'http' && (
-                <>
-                  <FieldLabel htmlFor="edit-header">키를 보내는 헤더</FieldLabel>
-                  <Input id="edit-header" className="font-mono text-xs" {...form.register('headerTemplate')} placeholder="Authorization: Bearer {key}" />
-                </>
-              )}
             </Field>
           ) : (
             <Field>
               <FieldLabel htmlFor="edit-exe">실행 파일 경로</FieldLabel>
               <Input id="edit-exe" {...form.register('executable')} placeholder="비워 두면 PATH에서 찾습니다" />
+            </Field>
+          )}
+          {isTool && (
+            <Field>
+              <FieldLabel htmlFor="edit-header">키를 보내는 헤더</FieldLabel>
+              <Input id="edit-header" className="font-mono text-xs" {...form.register('headerTemplate')} placeholder="Authorization: Bearer {key}" />
+              <FieldDescription>{'{key}'} 자리에 저장한 키가 들어갑니다.</FieldDescription>
             </Field>
           )}
           <Button type="submit" variant="secondary" disabled={save.isPending || !form.formState.isDirty}>
@@ -423,10 +425,12 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
           {probe.isPending && <Spinner />}
           연결 확인
         </Button>
-        <Button variant="outline" size="sm" disabled={loadModels.isPending} onClick={() => loadModels.mutate()}>
-          {loadModels.isPending && <Spinner />}
-          모델 목록
-        </Button>
+        {!isTool && (
+          <Button variant="outline" size="sm" disabled={loadModels.isPending} onClick={() => loadModels.mutate()}>
+            {loadModels.isPending && <Spinner />}
+            모델 목록
+          </Button>
+        )}
         {!isHttp && (
           <>
             <Button variant="outline" size="sm" disabled={loginStatus.isPending} onClick={() => loginStatus.mutate()}>
@@ -447,7 +451,7 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
         </p>
       )}
       {login && <p className="mt-3 text-sm">로그인 상태: {LOGIN_LABEL[login] ?? login}</p>}
-      {models && (
+      {!isTool && models && (
         <div className="mt-3 text-sm">
           {models.list ? (
             <ul className="max-h-48 overflow-auto rounded-md border p-2 font-mono text-xs">
@@ -466,6 +470,129 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
       <Separator className="my-4" />
       <DeleteButton label={`연결 '${connection.name}'`} description="이 연결을 쓰는 프로필이 있으면 삭제되지 않습니다. 저장된 API 키도 함께 삭제됩니다." pending={remove.isPending} onConfirm={() => remove.mutate()} />
     </div>
+  );
+}
+
+/* ----------------------------------------------------------------- tool connections */
+
+const toolFormSchema = connectionFormSchema.extend({ baseUrl: z.string().trim().url() });
+type ToolFormInput = z.input<typeof toolFormSchema>;
+type ToolFormOutput = z.output<typeof toolFormSchema>;
+const DEFAULT_HEADER = 'Authorization: Bearer {key}';
+
+function ToolsTab() {
+  const search = Route.useSearch();
+  const navigate = Route.useNavigate();
+  const connections = useQuery(q.connections());
+  const tools = connections.data?.filter((connection) => connection.kind === 'http');
+  const selected = search.conn && search.conn !== 'new' ? tools?.find((connection) => connection.id === search.conn) : undefined;
+  const close = () => void navigate({ search: (previous) => ({ ...previous, conn: undefined }) });
+
+  return (
+    <Split
+      list={
+        <>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <span className="text-sm text-muted-foreground">
+              <span className="tabular-nums">{tools?.length ?? '–'}개</span> · 워크플로의 ‘HTTP 호출’ 함수가 이 연결로 외부 API(맞춤법·사전 등)를 부릅니다.
+            </span>
+            <Button size="sm" onClick={() => void navigate({ search: (previous) => ({ ...previous, conn: 'new' }) })}>
+              <Plus />
+              도구 연결 추가
+            </Button>
+          </div>
+          <div className="rounded-lg border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>이름</TableHead>
+                  <TableHead>주소</TableHead>
+                  <TableHead>키를 보내는 헤더</TableHead>
+                  <TableHead>키</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {tools?.map((connection) => (
+                  <TableRow key={connection.id} className="cursor-pointer" data-state={search.conn === connection.id ? 'selected' : undefined} onClick={() => void navigate({ search: (previous) => ({ ...previous, conn: connection.id }) })}>
+                    <TableCell className="font-medium">{connection.name}</TableCell>
+                    <TableCell className="max-w-64 truncate font-mono text-xs text-muted-foreground">{connection.baseUrl}</TableCell>
+                    <TableCell className="max-w-56 truncate font-mono text-xs text-muted-foreground">{connection.headerTemplate || '–'}</TableCell>
+                    <TableCell>
+                      <Badge variant={connection.hasKey ? 'default' : 'outline'}>{connection.hasKey ? '저장됨' : '없음'}</Badge>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {tools?.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
+                      도구 연결이 없습니다. 도구 연결 추가로 시작하세요.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </>
+      }
+      pane={search.conn === 'new' ? <NewTool onClose={close} /> : selected ? <ConnectionPane key={selected.id} connection={selected} onClose={close} /> : null}
+    />
+  );
+}
+
+function NewTool({ onClose }: { onClose: () => void }) {
+  const navigate = Route.useNavigate();
+  const queryClient = useQueryClient();
+  const form = useForm<ToolFormInput, unknown, ToolFormOutput>({
+    resolver: zodResolver(toolFormSchema),
+    defaultValues: { kind: 'http', name: '', baseUrl: '', headerTemplate: DEFAULT_HEADER, apiKey: '' },
+  });
+  const errors = form.formState.errors;
+
+  const create = useMutation({
+    mutationFn: (values: ToolFormOutput) =>
+      unwrap(
+        client.connections.$post({
+          json: { kind: 'http', name: values.name, baseUrl: values.baseUrl, headerTemplate: values.headerTemplate || undefined, apiKey: values.apiKey || undefined },
+        }),
+      ),
+    onSuccess: (row) => {
+      void queryClient.invalidateQueries({ queryKey: ['connections'] });
+      toast.success('도구 연결을 추가했습니다.');
+      void navigate({ search: (previous) => ({ ...previous, conn: row.id }) });
+    },
+    onError: (error) => toast.error(errorMessage(error)),
+  });
+
+  return (
+    <form onSubmit={form.handleSubmit((values) => create.mutate(values))}>
+      <PaneHeader title="도구 연결 추가" onClose={onClose} />
+      <FieldGroup className="gap-5">
+        <Field data-invalid={!!errors.name}>
+          <FieldLabel htmlFor="tool-name">이름</FieldLabel>
+          <Input id="tool-name" {...form.register('name')} aria-invalid={!!errors.name} placeholder="예: 맞춤법 검사기" />
+          <FieldError errors={[errors.name]} />
+        </Field>
+        <Field data-invalid={!!errors.baseUrl}>
+          <FieldLabel htmlFor="tool-url">주소</FieldLabel>
+          <Input id="tool-url" {...form.register('baseUrl')} aria-invalid={!!errors.baseUrl} placeholder="https://api.example.com" />
+          <FieldError errors={[errors.baseUrl]} />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="tool-header">키를 보내는 헤더</FieldLabel>
+          <Input id="tool-header" className="font-mono text-xs" {...form.register('headerTemplate')} placeholder={DEFAULT_HEADER} />
+          <FieldDescription>{'{key}'} 자리에 저장한 키가 들어갑니다. 예: X-API-Key: {'{key}'}</FieldDescription>
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="tool-key">API 키 (선택)</FieldLabel>
+          <Input id="tool-key" type="password" autoComplete="off" {...form.register('apiKey')} />
+          <FieldDescription>API 키는 Windows 자격 증명 관리자(OS 키체인)에 저장되며 DB·내보내기에 포함되지 않습니다.</FieldDescription>
+        </Field>
+        <Button type="submit" disabled={create.isPending}>
+          {create.isPending && <Spinner />}
+          추가
+        </Button>
+      </FieldGroup>
+    </form>
   );
 }
 

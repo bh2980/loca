@@ -91,9 +91,10 @@ export const sourceRoutes = new Hono<Env>()
     const where = and(...conditions);
     const total = db.select({ count: count() }).from(s.units).where(where).get()!.count;
     const rows = db
-      .select({ ...unitColumns, groupTitle: s.groups.title })
+      .select({ ...unitColumns, groupTitle: s.groups.title, origin: s.candidates.origin, model: s.candidates.model })
       .from(s.units)
       .innerJoin(s.groups, eq(s.groups.id, s.units.groupId))
+      .leftJoin(s.candidates, eq(s.candidates.id, s.units.candidateId))
       .where(where)
       .orderBy(asc(s.groups.sort), asc(s.units.sort))
       .limit(query.limit)

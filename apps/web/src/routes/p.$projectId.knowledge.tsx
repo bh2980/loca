@@ -6,7 +6,7 @@ import Markdown from 'react-markdown';
 import { toast } from 'sonner';
 import { DOCUMENT_KINDS } from '@tw/shared';
 import { Page } from '@/components/page';
-import { RelationshipGraph } from '@/components/relationship-graph';
+import { PeopleTab } from '@/components/people/people-tab';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -15,7 +15,6 @@ import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { client, unwrap } from '@/lib/api';
@@ -25,7 +24,7 @@ import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { useReportView } from '@/lib/view-context';
 
-type Tab = 'documents' | 'characters' | 'relationships';
+type Tab = 'documents' | 'people';
 interface KnowledgeSearch {
   tab?: Tab;
   doc?: string;
@@ -37,7 +36,7 @@ export const Route = createFileRoute('/p/$projectId/knowledge')({
   validateSearch: (raw: Record<string, unknown>): KnowledgeSearch => {
     const text = (value: unknown) => (typeof value === 'string' && value ? value : undefined);
     return {
-      tab: raw.tab === 'characters' || raw.tab === 'relationships' ? raw.tab : undefined,
+      tab: raw.tab === 'people' || raw.tab === 'characters' || raw.tab === 'relationships' ? 'people' : undefined,
       doc: text(raw.doc),
       char: text(raw.char),
       rel: text(raw.rel),
@@ -54,21 +53,6 @@ interface Doc {
   body: string;
   alwaysInclude: boolean;
 }
-interface Character {
-  id: string;
-  name: string;
-  aliases: string[];
-  profile: string;
-}
-interface Relationship {
-  id: string;
-  fromId: string;
-  toId: string;
-  kind: string;
-  description: string;
-  mutual: boolean;
-}
-
 const fail = (error: Error) => toast.error(error.message);
 
 function Knowledge() {
@@ -79,19 +63,17 @@ function Knowledge() {
   const set = (next: Partial<KnowledgeSearch>, replace = true) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace });
 
   return (
-    <Page title="작품 자료" description="AI가 번역할 때 참고하는 설정 문서, 인물, 인물 관계입니다." flush>
-      <Tabs value={tab} onValueChange={(value) => set({ tab: value === 'documents' ? undefined : (value as Tab) }, false)} className="h-full min-h-0 gap-0">
+    <Page title="작품 자료" description="AI가 번역할 때 참고하는 설정 문서와 인물·관계입니다." flush>
+      <Tabs value={tab} onValueChange={(value) => set({ tab: value === 'documents' ? undefined : (value as Tab), doc: undefined, char: undefined, rel: undefined }, false)} className="h-full min-h-0 gap-0">
         <div className="px-6 py-2">
           <TabsList>
             <TabsTrigger value="documents">문서</TabsTrigger>
-            <TabsTrigger value="characters">인물</TabsTrigger>
-            <TabsTrigger value="relationships">관계</TabsTrigger>
+            <TabsTrigger value="people">인물·관계</TabsTrigger>
           </TabsList>
         </div>
         <div className="min-h-0 flex-1 border-t">
           {tab === 'documents' && <DocumentsTab projectId={projectId} selectedId={search.doc} onSelect={(doc) => set({ doc })} />}
-          {tab === 'characters' && <CharactersTab projectId={projectId} selectedId={search.char} onSelect={(char) => set({ char })} onOpenRelationship={(rel) => set({ tab: 'relationships', rel, char: undefined }, false)} />}
-          {tab === 'relationships' && <RelationshipsTab projectId={projectId} search={search} onSelect={set} />}
+          {tab === 'people' && <PeopleTab projectId={projectId} selection={{ char: search.char, rel: search.rel }} onSelect={(next) => set({ char: next.char, rel: next.rel })} />}
         </div>
       </Tabs>
     </Page>
@@ -292,272 +274,6 @@ function DocumentEditor({ projectId, doc, onDone }: { projectId: string; doc: Do
           취소
         </Button>
         <Button size="sm" disabled={!title.trim() || save.isPending} onClick={() => save.mutate()}>
-          저장
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-/* ───────────────────────────── characters ───────────────────────────── */
-
-function CharactersTab({ projectId, selectedId, onSelect, onOpenRelationship }: { projectId: string; selectedId?: string; onSelect: (id?: string) => void; onOpenRelationship: (relId: string) => void }) {
-  const data = useQuery(q.characters(projectId));
-  const characters = (data.data?.characters ?? []) as Character[];
-  const relationships = (data.data?.relationships ?? []) as Relationship[];
-  const selected = characters.find((character) => character.id === selectedId);
-  useReportView('knowledge-character', [selected && { kind: '인물', id: selected.id, label: selected.name }]);
-
-  const create = useMutation({
-    mutationFn: () => unwrap(client.projects[':projectId'].characters.$post({ param: { projectId }, json: { name: '새 인물', aliases: [], profile: '' } })),
-    onSuccess: (row) => onSelect(row.id),
-    onError: fail,
-  });
-
-  return (
-    <div className="flex h-full min-h-0">
-      <div className="min-w-0 flex-1 overflow-auto">
-        <div className="flex items-center justify-between px-6 py-2">
-          <span className="text-sm text-muted-foreground tabular-nums">{characters.length}명</span>
-          <Button size="sm" variant="outline" disabled={create.isPending} onClick={() => create.mutate()}>
-            <Plus /> 새 인물
-          </Button>
-        </div>
-        <Table className="table-fixed">
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-48">이름</TableHead>
-              <TableHead className="w-56">별칭</TableHead>
-              <TableHead>프로필</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {characters.map((character) => (
-              <TableRow key={character.id} data-state={character.id === selectedId ? 'selected' : undefined} className="cursor-pointer" onClick={() => onSelect(character.id === selectedId ? undefined : character.id)}>
-                <TableCell className="truncate font-medium">{character.name}</TableCell>
-                <TableCell className="truncate text-muted-foreground">{character.aliases.join(', ')}</TableCell>
-                <TableCell className="truncate text-muted-foreground">{character.profile.split('\n').find((line) => line.trim()) ?? ''}</TableCell>
-              </TableRow>
-            ))}
-            {data.data && characters.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={3} className="py-10 text-center text-muted-foreground">
-                  등록된 인물이 없습니다.
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </div>
-      {selected && (
-        <div className="w-[420px] shrink-0 overflow-auto border-l">
-          <CharacterEditor key={selected.id} projectId={projectId} character={selected} characters={characters} relationships={relationships} onClose={() => onSelect(undefined)} onOpenRelationship={onOpenRelationship} />
-        </div>
-      )}
-    </div>
-  );
-}
-
-function CharacterEditor({ projectId, character, characters, relationships, onClose, onOpenRelationship }: { projectId: string; character: Character; characters: Character[]; relationships: Relationship[]; onClose: () => void; onOpenRelationship: (relId: string) => void }) {
-  const [name, setName] = useState(character.name);
-  const [aliases, setAliases] = useState(character.aliases.join(', '));
-  const [profile, setProfile, clearProfile] = useDraft(`char:${character.id}:profile`, character.profile);
-  const parsedAliases = aliases.split(',').map((alias) => alias.trim()).filter(Boolean);
-  const save = useMutation({
-    mutationFn: () => unwrap(client.projects[':projectId'].characters[':id'].$patch({ param: { projectId, id: character.id }, json: { name, aliases: parsedAliases, profile } })),
-    onSuccess: () => {
-      clearProfile();
-      toast.success('저장했습니다.');
-    },
-    onError: fail,
-  });
-  const remove = useMutation({
-    mutationFn: () => unwrap(client.projects[':projectId'].characters[':id'].$delete({ param: { projectId, id: character.id } })),
-    onSuccess: () => {
-      toast.success('인물을 삭제했습니다.');
-      onClose();
-    },
-    onError: fail,
-  });
-  const nameOf = (id: string) => characters.find((item) => item.id === id)?.name ?? '(알 수 없음)';
-  const mine = relationships.filter((relationship) => relationship.fromId === character.id || relationship.toId === character.id);
-
-  return (
-    <div className="space-y-4 p-4">
-      <PaneHeader title="인물 편집" onClose={onClose} />
-      <div className="space-y-1.5">
-        <Label htmlFor="char-name">이름</Label>
-        <Input id="char-name" value={name} onChange={(event) => setName(event.target.value)} />
-      </div>
-      <div className="space-y-1.5">
-        <Label htmlFor="char-aliases">별칭 (쉼표로 구분)</Label>
-        <Input id="char-aliases" value={aliases} onChange={(event) => setAliases(event.target.value)} />
-      </div>
-      <div className="space-y-1.5">
-        <Label htmlFor="char-profile">프로필 (마크다운)</Label>
-        <Textarea id="char-profile" rows={12} value={profile} onChange={(event) => setProfile(event.target.value)} />
-      </div>
-      <div className="flex items-center justify-between">
-        <DeleteButton title="인물을 삭제할까요?" description={`“${character.name}”과(와) 연결된 관계 ${mine.length}개도 함께 삭제될 수 있습니다.`} onConfirm={() => remove.mutate()} />
-        <Button size="sm" disabled={!name.trim() || save.isPending} onClick={() => save.mutate()}>
-          저장
-        </Button>
-      </div>
-      <div className="space-y-2 border-t pt-4">
-        <h3 className="text-sm font-semibold">저장된 관계 {mine.length}개</h3>
-        {mine.length === 0 && <p className="text-sm text-muted-foreground">저장된 관계가 없습니다.</p>}
-        {mine.map((relationship) => (
-          <button key={relationship.id} type="button" onClick={() => onOpenRelationship(relationship.id)} className="block w-full rounded-md border px-3 py-2 text-left text-sm hover:bg-muted/60">
-            {nameOf(relationship.fromId)} {relationship.mutual ? '↔' : '→'} {nameOf(relationship.toId)} <span className="text-muted-foreground">· {relationship.kind}</span>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/* ───────────────────────────── relationships ───────────────────────────── */
-
-function RelationshipsTab({ projectId, search, onSelect }: { projectId: string; search: KnowledgeSearch; onSelect: (next: Partial<KnowledgeSearch>, replace?: boolean) => void }) {
-  const data = useQuery(q.characters(projectId));
-  const characters = (data.data?.characters ?? []) as Character[];
-  const relationships = (data.data?.relationships ?? []) as Relationship[];
-  const creating = search.rel === 'new';
-  const selectedRel = creating ? undefined : relationships.find((relationship) => relationship.id === search.rel);
-  const selectedChar = characters.find((character) => character.id === search.char);
-  const nameOf = (id: string) => characters.find((item) => item.id === id)?.name ?? '(알 수 없음)';
-  const unresolved = relationships.filter((relationship) => !characters.some((c) => c.id === relationship.fromId) || !characters.some((c) => c.id === relationship.toId)).length;
-  useReportView('knowledge-relationship', [
-    selectedRel && { kind: '인물 관계', id: selectedRel.id, label: `${nameOf(selectedRel.fromId)} → ${nameOf(selectedRel.toId)} (${selectedRel.kind})` },
-    selectedChar && { kind: '인물', id: selectedChar.id, label: selectedChar.name },
-  ]);
-
-  return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex flex-wrap items-center gap-3 px-6 py-2">
-        <p className="text-sm text-muted-foreground">
-          저장된 관계만 표시합니다. 대사에서 추정한 관계는 포함하지 않습니다. 인물 {characters.length}명 · 관계 {relationships.length}개
-          {unresolved > 0 && ` (인물을 찾을 수 없어 그리지 못한 관계 ${unresolved}개)`}
-        </p>
-        <Button size="sm" variant="outline" className="ml-auto" disabled={characters.length < 2} onClick={() => onSelect({ rel: 'new', char: undefined })}>
-          <Plus /> 새 관계
-        </Button>
-      </div>
-      <div className="flex min-h-0 flex-1 border-t">
-        <div className="relative min-w-0 flex-1">
-          {data.data && characters.length === 0 ? (
-            <p className="p-8 text-sm text-muted-foreground">인물이 없습니다. 인물 탭에서 먼저 추가하세요.</p>
-          ) : data.data ? (
-            <RelationshipGraph
-              characters={characters}
-              relationships={relationships}
-              selectedCharacterId={search.char}
-              selectedRelationshipId={creating ? undefined : search.rel}
-              onSelectCharacter={(char) => onSelect({ char, rel: undefined })}
-              onSelectRelationship={(rel) => onSelect({ rel, char: undefined })}
-              onClear={() => onSelect({ char: undefined, rel: undefined })}
-            />
-          ) : null}
-        </div>
-        {(creating || selectedRel || selectedChar) && (
-          <div className="w-[400px] shrink-0 overflow-auto border-l">
-            {creating ? (
-              <RelationshipEditor key="new" projectId={projectId} characters={characters} initial={{ fromId: search.char ?? characters[0]?.id ?? '', toId: '', kind: '', description: '', mutual: false }} onDone={(rel) => onSelect({ rel }, true)} />
-            ) : selectedRel ? (
-              <RelationshipEditor key={selectedRel.id} projectId={projectId} characters={characters} relationship={selectedRel} initial={selectedRel} onDone={(rel) => onSelect({ rel })} />
-            ) : selectedChar ? (
-              <div className="space-y-3 p-4">
-                <PaneHeader title={selectedChar.name} onClose={() => onSelect({ char: undefined })} />
-                <p className="line-clamp-4 text-sm text-muted-foreground">{selectedChar.profile || '프로필이 없습니다.'}</p>
-                <div className="flex gap-2">
-                  <Button size="sm" variant="outline" onClick={() => onSelect({ rel: 'new' })}>
-                    <Plus /> 이 인물에서 새 관계
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => onSelect({ tab: 'characters' }, false)}>
-                    인물 편집
-                  </Button>
-                </div>
-                <h3 className="pt-2 text-sm font-semibold">저장된 관계</h3>
-                {relationships
-                  .filter((relationship) => relationship.fromId === selectedChar.id || relationship.toId === selectedChar.id)
-                  .map((relationship) => (
-                    <button key={relationship.id} type="button" onClick={() => onSelect({ rel: relationship.id, char: undefined })} className="block w-full rounded-md border px-3 py-2 text-left text-sm hover:bg-muted/60">
-                      {nameOf(relationship.fromId)} {relationship.mutual ? '↔' : '→'} {nameOf(relationship.toId)} <span className="text-muted-foreground">· {relationship.kind}</span>
-                    </button>
-                  ))}
-              </div>
-            ) : null}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function RelationshipEditor({ projectId, characters, relationship, initial, onDone }: { projectId: string; characters: Character[]; relationship?: Relationship; initial: Omit<Relationship, 'id'>; onDone: (relId?: string) => void }) {
-  const [form, setForm] = useState({ fromId: initial.fromId, toId: initial.toId, kind: initial.kind, description: initial.description, mutual: initial.mutual });
-  const valid = !!form.fromId && !!form.toId && form.fromId !== form.toId && !!form.kind.trim();
-  const save = useMutation({
-    mutationFn: async () => {
-      if (relationship) {
-        await unwrap(client.projects[':projectId'].relationships[':id'].$patch({ param: { projectId, id: relationship.id }, json: form }));
-        return relationship.id;
-      }
-      return (await unwrap(client.projects[':projectId'].relationships.$post({ param: { projectId }, json: form }))).id;
-    },
-    onSuccess: (id) => {
-      toast.success('저장했습니다.');
-      onDone(id);
-    },
-    onError: fail,
-  });
-  const remove = useMutation({
-    mutationFn: () => unwrap(client.projects[':projectId'].relationships[':id'].$delete({ param: { projectId, id: relationship!.id } })),
-    onSuccess: () => {
-      toast.success('관계를 삭제했습니다.');
-      onDone(undefined);
-    },
-    onError: fail,
-  });
-  const picker = (label: string, field: 'fromId' | 'toId') => (
-    <div className="space-y-1.5">
-      <Label>{label}</Label>
-      <Select value={form[field]} onValueChange={(value) => setForm({ ...form, [field]: value })}>
-        <SelectTrigger className="w-full" aria-label={label}>
-          <SelectValue placeholder="인물 선택" />
-        </SelectTrigger>
-        <SelectContent>
-          {characters.map((character) => (
-            <SelectItem key={character.id} value={character.id}>
-              {character.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
-  );
-
-  return (
-    <div className="space-y-4 p-4">
-      <PaneHeader title={relationship ? '관계 편집' : '새 관계'} onClose={() => onDone(undefined)} />
-      {picker('시작 인물', 'fromId')}
-      {picker('대상 인물', 'toId')}
-      {form.fromId && form.fromId === form.toId && <p className="text-sm text-destructive">서로 다른 인물을 고르세요.</p>}
-      <div className="space-y-1.5">
-        <Label htmlFor="rel-kind">관계 종류</Label>
-        <Input id="rel-kind" placeholder="예: 형제, 상사, 연인" value={form.kind} onChange={(event) => setForm({ ...form, kind: event.target.value })} />
-      </div>
-      <div className="space-y-1.5">
-        <Label htmlFor="rel-desc">설명</Label>
-        <Textarea id="rel-desc" rows={5} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
-      </div>
-      <div className="flex items-center gap-2">
-        <Switch id="rel-mutual" checked={form.mutual} onCheckedChange={(mutual) => setForm({ ...form, mutual })} />
-        <Label htmlFor="rel-mutual">쌍방 관계 (양쪽 화살표)</Label>
-      </div>
-      <div className="flex items-center justify-between">
-        {relationship ? <DeleteButton title="관계를 삭제할까요?" description={`${characters.find((c) => c.id === relationship.fromId)?.name} 와(과) ${characters.find((c) => c.id === relationship.toId)?.name} 사이의 “${relationship.kind}” 관계가 삭제됩니다.`} onConfirm={() => remove.mutate()} /> : <span />}
-        <Button size="sm" disabled={!valid || save.isPending} onClick={() => save.mutate()}>
           저장
         </Button>
       </div>

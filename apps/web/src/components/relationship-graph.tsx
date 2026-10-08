@@ -20,13 +20,13 @@ const NODE_WIDTH = 150;
 const NODE_HEIGHT = 44;
 const elk = new ELK();
 
-type PersonNode = Node<{ label: string }, 'person'>;
-type RelationEdge = Edge<{ offset: number; kind: string }, 'relation'>;
+type PersonNode = Node<{ label: string; dim: boolean }, 'person'>;
+type RelationEdge = Edge<{ offset: number; kind: string; dim: boolean; focus: boolean }, 'relation'>;
 
 function PersonNodeView({ data, selected }: NodeProps<PersonNode>) {
   return (
     <div
-      className={cn('flex items-center justify-center rounded-lg border bg-background px-3 text-sm font-medium shadow-xs', selected && 'border-primary ring-2 ring-primary/30')}
+      className={cn('flex items-center justify-center rounded-lg border bg-background px-3 text-sm font-medium shadow-xs transition-opacity', selected && 'border-primary ring-2 ring-primary/30', data.dim && 'opacity-30')}
       style={{ width: NODE_WIDTH, height: NODE_HEIGHT }}
     >
       <span className="truncate">{data.label}</span>
@@ -63,10 +63,10 @@ function FloatingEdge({ id, source, target, markerStart, markerEnd, data, select
   const label = { x: 0.25 * from.x + 0.5 * control.x + 0.25 * to.x, y: 0.25 * from.y + 0.5 * control.y + 0.25 * to.y };
   return (
     <>
-      <BaseEdge id={id} path={path} markerStart={markerStart} markerEnd={markerEnd} interactionWidth={20} style={{ stroke: selected ? 'var(--color-primary)' : '#a1a1aa', strokeWidth: selected ? 2.5 : 1.5 }} />
+      <BaseEdge id={id} path={path} markerStart={markerStart} markerEnd={markerEnd} interactionWidth={20} style={{ stroke: selected || data?.focus ? 'var(--color-primary)' : '#a1a1aa', strokeWidth: selected ? 2.5 : data?.focus ? 2 : 1.5, opacity: data?.dim ? 0.2 : 1 }} />
       <EdgeLabelRenderer>
         <div
-          className={cn('nodrag nopan pointer-events-none absolute rounded border bg-background px-1.5 py-0.5 text-[11px]', selected && 'border-primary text-primary')}
+          className={cn('nodrag nopan pointer-events-none absolute rounded border bg-background px-1.5 py-0.5 text-[11px]', (selected || data?.focus) && 'border-primary text-primary', data?.dim && 'opacity-30')}
           style={{ transform: `translate(-50%, -50%) translate(${label.x}px, ${label.y}px)` }}
         >
           {data?.kind}
@@ -116,18 +116,37 @@ export function RelationshipGraph({ characters, relationships, selectedCharacter
     // layoutKey fully describes the inputs that change the layout.
   }, [layoutKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Emphasis: the selected character (or both ends of the selected relationship) stays full strength.
+  const emphasis = useMemo(() => {
+    const nodeIds = new Set<string>();
+    const edgeIds = new Set<string>();
+    const selectedRelationship = drawable.find((relationship) => relationship.id === selectedRelationshipId);
+    if (selectedRelationship) {
+      nodeIds.add(selectedRelationship.fromId).add(selectedRelationship.toId);
+      edgeIds.add(selectedRelationship.id);
+    } else if (selectedCharacterId) {
+      nodeIds.add(selectedCharacterId);
+      for (const relationship of drawable) {
+        if (relationship.fromId !== selectedCharacterId && relationship.toId !== selectedCharacterId) continue;
+        edgeIds.add(relationship.id);
+        nodeIds.add(relationship.fromId).add(relationship.toId);
+      }
+    }
+    return { active: nodeIds.size > 0, nodeIds, edgeIds };
+  }, [drawable, selectedCharacterId, selectedRelationshipId]);
+
   const nodes = useMemo<PersonNode[]>(
     () =>
       characters.map((character) => ({
         id: character.id,
         type: 'person',
         position: positions?.byId[character.id] ?? { x: 0, y: 0 },
-        data: { label: character.name },
+        data: { label: character.name, dim: emphasis.active && !emphasis.nodeIds.has(character.id) },
         selected: character.id === selectedCharacterId,
         width: NODE_WIDTH,
         height: NODE_HEIGHT,
       })),
-    [characters, positions, selectedCharacterId],
+    [characters, positions, selectedCharacterId, emphasis],
   );
   const edges = useMemo<RelationEdge[]>(() => {
     const seen = new Map<string, number>();
@@ -143,13 +162,13 @@ export function RelationshipGraph({ characters, relationships, selectedCharacter
         type: 'relation',
         source: relationship.fromId,
         target: relationship.toId,
-        data: { offset, kind: relationship.kind },
+        data: { offset, kind: relationship.kind, dim: emphasis.active && !emphasis.edgeIds.has(relationship.id), focus: emphasis.edgeIds.has(relationship.id) },
         markerEnd: marker,
         markerStart: relationship.mutual ? marker : undefined,
         selected: relationship.id === selectedRelationshipId,
       };
     });
-  }, [drawable, selectedRelationshipId]);
+  }, [drawable, selectedRelationshipId, emphasis]);
 
   if (!positions) return <div className="flex h-full items-center justify-center text-sm text-muted-foreground">배치 계산 중…</div>;
   return (

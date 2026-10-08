@@ -12,6 +12,18 @@ import { cn } from '@/lib/utils';
 
 export const PAGE_SIZE = 100;
 
+const ORIGIN_LABEL = { ai: 'AI', human: '사람', tool: '도구', import: '가져옴' } as const;
+
+/** Where the representative translation came from, kept out of the text itself. */
+function OriginBadge({ origin, model }: { origin: keyof typeof ORIGIN_LABEL; model: string | null }) {
+  return (
+    <span className="mt-1 flex w-fit items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+      {ORIGIN_LABEL[origin]}
+      {model && <span className="font-mono">· {model}</span>}
+    </span>
+  );
+}
+
 export interface LinesSearch {
   q?: string;
   status?: string;
@@ -40,7 +52,9 @@ export function LinesView({ projectId, groupId, search, onSearch, showScene }: {
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const selectedRow = useRef<HTMLTableRowElement>(null);
 
-  useEffect(() => selectedRow.current?.scrollIntoView({ block: 'nearest' }), [search.line, lines.data]);
+  useEffect(() => {
+    selectedRow.current?.scrollIntoView({ block: 'nearest' });
+  }, [search.line, lines.data]);
 
   return (
     <div className="flex h-full min-h-0">
@@ -114,7 +128,10 @@ export function LinesView({ projectId, groupId, search, onSearch, showScene }: {
                     {showScene && <TableCell className="truncate text-muted-foreground">{line.groupTitle}</TableCell>}
                     <TableCell className="truncate font-medium">{line.speaker ?? <span className="text-muted-foreground">—</span>}</TableCell>
                     <TableCell className="whitespace-pre-wrap">{line.source}</TableCell>
-                    <TableCell className={cn('whitespace-pre-wrap', !line.translation && 'text-muted-foreground')}>{line.translation ?? '—'}</TableCell>
+                    <TableCell className={cn('whitespace-pre-wrap', !line.translation && 'text-muted-foreground')}>
+                      {line.translation ?? '—'}
+                      {line.translation && line.origin && <OriginBadge origin={line.origin} model={line.model} />}
+                    </TableCell>
                     <TableCell>
                       <div className="flex flex-col items-start gap-1">
                         <StatusBadge status={statusById.get(line.statusId)} />

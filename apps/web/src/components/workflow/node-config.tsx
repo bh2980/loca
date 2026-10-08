@@ -362,7 +362,7 @@ function HttpConfig({ params, refs, set }: { params: Record<string, unknown>; re
   const selected = tools.find((tool) => tool.id === params.connectionId);
   return (
     <>
-      <Field label="HTTP 연결" hint={tools.length ? selected?.baseUrl : '설정 › AI 연결에서 "HTTP API (도구)" 연결을 먼저 추가하세요.'}>
+      <Field label="HTTP 연결" hint={tools.length ? selected?.baseUrl : '설정 › 연결·프로필 › 도구 연결에서 먼저 추가하세요.'}>
         <Select value={(params.connectionId as string) || undefined} onValueChange={(value) => set('connectionId', value)}>
           <SelectTrigger className="w-full">
             <SelectValue placeholder="연결 선택" />
@@ -473,7 +473,9 @@ const hasVerdict = (node: WorkflowNode) =>
 function ConditionEditor({ node, nodes, readOnly, onChange }: { node: ConditionNode; nodes: WorkflowNode[]; readOnly?: boolean; onChange: (node: WorkflowNode) => void }) {
   const [text, setText] = useState(() => JSON.stringify(node.config.expression ?? null, null, 2));
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => setText(JSON.stringify(node.config.expression ?? null, null, 2)), [node.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    setText(JSON.stringify(node.config.expression ?? null, null, 2));
+  }, [node.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const apply = (expression: unknown, description: string) => {
     setText(JSON.stringify(expression, null, 2));

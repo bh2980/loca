@@ -150,7 +150,9 @@ function ChatBody({ sessionId, initial, profileId, profiles, onProfile }: {
   });
 
   const [input, setInput] = useState(() => sessionStorage.getItem(`tw.chat.draft.${sessionId}`) ?? '');
-  useEffect(() => sessionStorage.setItem(`tw.chat.draft.${sessionId}`, input), [sessionId, input]);
+  useEffect(() => {
+    sessionStorage.setItem(`tw.chat.draft.${sessionId}`, input);
+  }, [sessionId, input]);
   const busy = status === 'submitted' || status === 'streaming';
   const scroller = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);

@@ -168,6 +168,11 @@ function WorkflowEditor() {
           errors: issues.filter((issue) => issue.nodeId === node.id && issue.level === 'error').map((issue) => issue.message),
           warnings: issues.filter((issue) => issue.nodeId === node.id && issue.level === 'warning').map((issue) => issue.message),
           live: liveCounts.get(node.id),
+          status: (() => {
+            const statusId = node.type === 'function' && node.config.fn === 'setStatus' ? (node.config.params as { statusId?: string }).statusId : undefined;
+            const status = statusId ? statuses.data?.statuses.find((item) => item.id === statusId) : undefined;
+            return status && { name: status.name, color: status.color };
+          })(),
         },
       })),
     [current?.definition, search.node, issues, liveCounts, statuses.data, profiles.data, connections.data], // eslint-disable-line react-hooks/exhaustive-deps

@@ -48,10 +48,14 @@ export function useReportView(source: string, items: (ViewItem | null | undefine
   const key = JSON.stringify(present);
   useEffect(() => {
     viewStore.set(source, JSON.parse(key) as ViewItem[]);
-    return () => viewStore.set(source, []);
+    return () => {
+      viewStore.set(source, []);
+    };
   }, [source, key]);
 }
 
 export function usePageTitle(page: string) {
-  useEffect(() => viewStore.setPage(page), [page]);
+  useEffect(() => {
+    viewStore.setPage(page);
+  }, [page]);
 }

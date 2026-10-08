@@ -14,7 +14,9 @@ export function useDraft(key: string, saved: string): [string, (value: string) =
     }
   };
   const [draft, setDraftState] = useState<string | null>(read);
-  useEffect(() => setDraftState(read()), [storageKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    setDraftState(read());
+  }, [storageKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const setDraft = useCallback(
     (value: string) => {

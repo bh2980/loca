@@ -1,4 +1,5 @@
-import { useEffect, useImperativeHandle, useMemo, useRef, type Ref } from 'react';
+import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from 'react';
+import { Map as MapIcon, Minimize2 } from 'lucide-react';
 import { select } from 'd3-selection';
 import 'd3-transition';
 import { zoom as d3zoom, zoomIdentity, type ZoomBehavior, type ZoomTransform } from 'd3-zoom';
@@ -75,6 +76,24 @@ export function GraphCanvas({ nodes, regions = [], edges, info, width, height, s
   const transform = useRef<ZoomTransform>(zoomIdentity);
   const behavior = useRef<ZoomBehavior<HTMLCanvasElement, unknown>>(null);
   const frame = useRef(0);
+  const [minimapOpen, setMinimapOpen] = useState(() => {
+    try {
+      return localStorage.getItem('tw.graph.minimap') !== '0';
+    } catch {
+      return true;
+    }
+  });
+  const toggleMinimap = (open: boolean) => {
+    setMinimapOpen(open);
+    try {
+      localStorage.setItem('tw.graph.minimap', open ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+  };
+  useEffect(() => {
+    if (minimapOpen) schedule();
+  }, [minimapOpen]); // eslint-disable-line react-hooks/exhaustive-deps
   const props = useRef({ selectedId, highlight, onViewportChange, onSelect });
   props.current = { selectedId, highlight, onViewportChange, onSelect };
 
@@ -271,7 +290,9 @@ export function GraphCanvas({ nodes, regions = [], edges, info, width, height, s
     schedule();
   }, [width, height]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(schedule, [selectedId, highlight, info]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    schedule();
+  }, [selectedId, highlight, info]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const animateTo = (target: ZoomTransform) => {
     if (behavior.current && canvas.current) select(canvas.current).transition().duration(350).call(behavior.current.transform, target);
@@ -318,9 +339,19 @@ export function GraphCanvas({ nodes, regions = [], edges, info, width, height, s
           else if (event.key === 'Escape') props.current.onSelect(undefined);
         }}
       />
+      {minimapOpen ? (
+        <div className="absolute bottom-3 left-3 rounded-md border bg-background/90 shadow-sm">
+          <button
+            type="button"
+            onClick={() => toggleMinimap(false)}
+            className="absolute -top-2.5 -right-2.5 flex size-5 items-center justify-center rounded-full border bg-background text-muted-foreground shadow-sm hover:text-foreground"
+            aria-label="미니맵 접기"
+          >
+            <Minimize2 className="size-3" />
+          </button>
       <canvas
         ref={minimap}
-        className="absolute bottom-3 left-3 cursor-pointer rounded-md border bg-background/90 shadow-sm"
+        className="block cursor-pointer rounded-md"
         aria-label="미니맵"
         onClick={(event) => {
           const rect = event.currentTarget.getBoundingClientRect();
@@ -330,6 +361,16 @@ export function GraphCanvas({ nodes, regions = [], edges, info, width, height, s
           animateTo(zoomIdentity.translate(width / 2 - x * k, height / 2 - y * k).scale(k));
         }}
       />
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => toggleMinimap(true)}
+          className="absolute bottom-3 left-3 flex items-center gap-1.5 rounded-md border bg-background px-2 py-1 text-xs text-muted-foreground shadow-sm hover:text-foreground"
+        >
+          <MapIcon className="size-3.5" /> 미니맵
+        </button>
+      )}
     </div>
   );
 }

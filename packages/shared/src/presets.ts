@@ -16,7 +16,11 @@ export const AI_PRESETS: Record<string, { label: string; output: AiOutput; instr
     include: { candidate: true, issues: false },
     instructions:
       'Review each candidate translation against its source. Pass it only if meaning, nuance, tone, character voice, ' +
-      'glossary use and formatting are all acceptable. List concrete problems in issues (in the target language); empty when passed.',
+      'glossary use and formatting are all acceptable. ' +
+      'Also read the lines of the batch together as one scene: forms of address, honorifics, speech level and term choices ' +
+      'must stay consistent between lines of the same speaker and relationship. When two lines disagree, fail the line that ' +
+      'breaks the established pattern (not every line) and name the line it conflicts with. ' +
+      'List concrete problems in issues (in the target language); empty when passed.',
   },
   revise: {
     label: 'AI 수정',
