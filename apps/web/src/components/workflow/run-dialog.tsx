@@ -17,6 +17,7 @@ type Mode = 'all' | 'groups' | 'units';
 /**
  * Start a workflow on the whole project, chosen scenes, or picked lines. The count shown is
  * exactly what will run: scope ∩ entry statuses (unless the user chooses to ignore statuses).
+ * Without a selection no scope is preselected: running the whole project is always a deliberate choice.
  */
 export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, unitIds, dirty, disabled, trigger, defaultIgnoreStatus = false }: {
   projectId: string;
@@ -32,8 +33,8 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
 }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const initialMode: Mode = unitIds?.length ? 'units' : groupIds?.length ? 'groups' : 'all';
-  const [mode, setMode] = useState<Mode>(initialMode);
+  const initialMode: Mode | undefined = unitIds?.length ? 'units' : groupIds?.length ? 'groups' : undefined;
+  const [mode, setMode] = useState<Mode | undefined>(initialMode);
   const [picked, setPicked] = useState<Set<string>>(new Set(groupIds));
   const [filter, setFilter] = useState('');
   const [ignoreStatus, setIgnoreStatus] = useState(defaultIgnoreStatus);
@@ -43,10 +44,11 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
   const groups = useQuery({ ...q.groups(projectId), enabled: open && mode === 'groups' });
 
   const scope = mode === 'units' ? { unitIds, ignoreStatus } : mode === 'groups' ? { groupIds: [...picked], ignoreStatus } : {};
+  const ready = mode === 'all' || (mode === 'groups' && picked.size > 0) || mode === 'units';
   const preview = useQuery({
     queryKey: ['units', 'run-preview', workflowId, scope],
     queryFn: () => unwrap(client.workflows[':id'].preview.$post({ param: { id: workflowId! }, json: scope })),
-    enabled: open && Boolean(workflowId) && (mode !== 'groups' || picked.size > 0),
+    enabled: open && Boolean(workflowId) && ready,
   });
   const start = useMutation({
     mutationFn: () => unwrap(client.workflows[':id'].runs.$post({ param: { id: workflowId! }, json: scope })),
@@ -56,7 +58,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
     },
   });
   const visible = useMemo(() => (groups.data ?? []).filter((group) => `${group.title} ${group.key}`.toLowerCase().includes(filter.toLowerCase())), [groups.data, filter]);
-  const count = mode === 'groups' && !picked.size ? 0 : preview.data?.count;
+  const count = !ready ? undefined : preview.data?.count;
   const selectedTotal = mode === 'units' ? unitIds!.length : undefined;
 
   return (
@@ -98,7 +100,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
           </Select>
         )}
 
-        <RadioGroup value={mode} onValueChange={(value) => setMode(value as Mode)} className="gap-2">
+        <RadioGroup value={mode ?? ''} onValueChange={(value) => setMode(value as Mode)} className="gap-2">
           {unitIds?.length ? (
             <label className="flex items-center gap-2 text-sm">
               <RadioGroupItem value="units" /> 선택한 대사 {unitIds.length}개
@@ -143,7 +145,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
           </div>
         )}
 
-        {mode !== 'all' && (
+        {mode && mode !== 'all' && (
           <label className="flex items-start gap-2 text-sm">
             <Checkbox checked={ignoreStatus} onCheckedChange={(checked) => setIgnoreStatus(Boolean(checked))} className="mt-0.5" />
             <span>
@@ -154,7 +156,11 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
         )}
 
         <p className="rounded-md bg-muted/60 px-3 py-2 text-sm">
-          실행할 대사: <b className="tabular-nums">{!workflowId ? '—' : count === undefined ? '…' : `${count.toLocaleString()}개`}</b>
+          실행할 대사: <b className="tabular-nums">{!workflowId || !ready ? '—' : count === undefined ? '…' : `${count.toLocaleString()}개`}</b>
+          {!mode && <span className="text-muted-foreground"> — 실행 범위를 고르세요.</span>}
+          {mode === 'all' && count !== undefined && count > 0 && (
+            <span className="mt-1 block text-amber-700">프로젝트 전체에서 진입 조건에 맞는 대사 모두에 AI를 호출합니다. 비용과 시간을 확인하세요.</span>
+          )}
           {selectedTotal !== undefined && count !== undefined && count < selectedTotal && (
             <span className="text-muted-foreground"> (선택 {selectedTotal}개 중 {selectedTotal - count}개는 진입 상태 조건에 맞지 않음)</span>
           )}

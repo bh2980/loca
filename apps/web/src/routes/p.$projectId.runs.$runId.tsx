@@ -100,17 +100,20 @@ function RunDetail() {
     >
       <div className="flex h-full min-h-0">
         <div className="flex min-w-0 flex-1 flex-col">
-          <div className="space-y-4 px-6 pb-4">
-            <div className="flex items-center gap-4">
-              <Progress value={(finished / data.total) * 100} className="h-2" />
-              <span className="shrink-0 text-sm tabular-nums">
-                {finished}/{data.total}
-              </span>
-              {data.usage && (
-                <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                  호출 {data.usage.steps} · 실패 {data.usage.failed ?? 0} · 토큰 {(data.usage.inputTokens + data.usage.outputTokens).toLocaleString()}
+          <div className="space-y-4 px-6 pt-4 pb-4">
+            <div className="space-y-1.5">
+              <div className="flex flex-wrap items-baseline justify-between gap-x-4 text-sm">
+                <span>
+                  <b className="tabular-nums">{finished.toLocaleString()}</b>
+                  <span className="text-muted-foreground tabular-nums"> / {data.total.toLocaleString()} 대사 처리 · {data.total ? Math.round((finished / data.total) * 100) : 0}%</span>
                 </span>
-              )}
+                {data.usage && (
+                  <span className="text-xs text-muted-foreground tabular-nums">
+                    AI 호출 {data.usage.steps} · 실패 {data.usage.failed ?? 0} · 토큰 {(data.usage.inputTokens + data.usage.outputTokens).toLocaleString()}
+                  </span>
+                )}
+              </div>
+              <Progress value={(finished / data.total) * 100} className="h-1.5" />
             </div>
             {/* Where every line is right now, node by node, in workflow order. */}
             <div className="grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] gap-2">

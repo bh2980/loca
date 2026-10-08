@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowRight, Inbox, Play } from 'lucide-react';
+import { ArrowRight, Inbox, Workflow } from 'lucide-react';
 import { Page } from '@/components/page';
 import { StatusBar, StatusDot } from '@/components/status';
 import { Badge } from '@/components/ui/badge';
@@ -78,9 +78,9 @@ function Dashboard() {
               <CardTitle>실행</CardTitle>
               <CardDescription>{active.length ? `진행 중 ${active.length}개` : '진행 중인 실행이 없습니다.'}</CardDescription>
             </div>
-            <Button asChild size="sm">
+            <Button asChild size="sm" variant="outline">
               <Link to="/p/$projectId/workflows" params={{ projectId }}>
-                <Play /> 워크플로 실행
+                <Workflow /> 워크플로 목록
               </Link>
             </Button>
           </CardHeader>
