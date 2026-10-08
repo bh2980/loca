@@ -25,7 +25,7 @@ function Workflows() {
   const remove = useMutation({ mutationFn: (id: string) => unwrap(client.workflows[':id'].$delete({ param: { id } })) });
 
   return (
-    <Page title="워크플로" description="상태 사이에 거칠 노드를 이어 번역 작업을 자동화합니다." actions={<NewWorkflow projectId={projectId} />}>
+    <Page title="워크플로" actions={<NewWorkflow projectId={projectId} />}>
       <div className="rounded-lg border">
         <Table>
           <TableHeader>
@@ -94,7 +94,7 @@ function NewWorkflow({ projectId }: { projectId: string }) {
   const navigate = Route.useNavigate();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
-  const [from, setFrom] = useState<'template' | 'blank'>('template');
+  const [from, setFrom] = useState<'template' | 'terms' | 'blank'>('template');
   const create = useMutation({
     mutationFn: () => unwrap(client.projects[':projectId'].workflows.$post({ param: { projectId }, json: { name: name.trim(), from } })),
     onSuccess: (workflow) => {
@@ -118,12 +118,19 @@ function NewWorkflow({ projectId }: { projectId: string }) {
             <Label htmlFor="wf-name">이름</Label>
             <Input id="wf-name" value={name} onChange={(event) => setName(event.target.value)} autoFocus />
           </div>
-          <RadioGroup value={from} onValueChange={(value) => setFrom(value as 'template' | 'blank')}>
+          <RadioGroup value={from} onValueChange={(value) => setFrom(value as 'template' | 'terms' | 'blank')}>
             <label className="flex items-start gap-2 text-sm">
               <RadioGroupItem value="template" className="mt-0.5" />
               <span>
                 기본 번역 템플릿
                 <span className="block text-xs text-muted-foreground">번역 → 형식 검사 → 검수 → 확정, 실패는 3회 수정 후 사람 확인</span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2 text-sm">
+              <RadioGroupItem value="terms" className="mt-0.5" />
+              <span>
+                용어 추출 템플릿
+                <span className="block text-xs text-muted-foreground">장면별로 용어를 뽑아 용어집 후보로 추가 (상태는 그대로). 수락 후 번역에 쓰입니다.</span>
               </span>
             </label>
             <label className="flex items-start gap-2 text-sm">

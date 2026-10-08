@@ -16,7 +16,7 @@ function Runs() {
   const runs = useQuery(q.runs(projectId));
 
   return (
-    <Page title="실행 기록" description="워크플로 실행마다 당시의 정의와 프로필을 고정해 보관합니다.">
+    <Page title="실행 기록">
       {runs.data?.length === 0 ? (
         <Empty className="border">
           <EmptyHeader>

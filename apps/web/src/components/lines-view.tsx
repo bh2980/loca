@@ -1,6 +1,10 @@
-import { useEffect, useRef } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, Search } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { ChevronLeft, ChevronRight, Play, Search, X } from 'lucide-react';
+import { toast } from 'sonner';
+import { RunDialog } from '@/components/workflow/run-dialog';
+import { Checkbox } from '@/components/ui/checkbox';
+import { client, unwrap } from '@/lib/api';
 import { LineDetail } from '@/components/line-detail';
 import { StatusBadge, StatusDot, TagChip } from '@/components/status';
 import { Button } from '@/components/ui/button';
@@ -51,6 +55,21 @@ export function LinesView({ projectId, groupId, search, onSearch, showScene }: {
   const total = lines.data?.total ?? 0;
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const selectedRow = useRef<HTMLTableRowElement>(null);
+  // Picked lines (checkboxes) are separate from the line open in the detail pane, and survive paging.
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const pageIds = lines.data?.rows.map((line) => line.id) ?? [];
+  const allOnPage = pageIds.length > 0 && pageIds.every((id) => picked.has(id));
+  const toggle = (ids: string[], on: boolean) =>
+    setPicked((previous) => {
+      const next = new Set(previous);
+      for (const id of ids) if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  const setStatus = useMutation({
+    mutationFn: (statusId: string) => unwrap(client.projects[':projectId'].units.$patch({ param: { projectId }, json: { unitIds: [...picked], statusId } })),
+    onSuccess: () => toast.success(`${picked.size}개 대사의 상태를 바꿨습니다.`),
+  });
 
   useEffect(() => {
     selectedRow.current?.scrollIntoView({ block: 'nearest' });
@@ -59,7 +78,7 @@ export function LinesView({ projectId, groupId, search, onSearch, showScene }: {
   return (
     <div className="flex h-full min-h-0">
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex flex-wrap items-center gap-2 px-6 pb-3">
+        <div className="flex flex-wrap items-center gap-2 px-6 py-3">
           <InputGroup className="w-72">
             <InputGroupAddon>
               <Search />
@@ -103,10 +122,42 @@ export function LinesView({ projectId, groupId, search, onSearch, showScene }: {
             {total.toLocaleString()}개{total > PAGE_SIZE && ` 중 ${(page * PAGE_SIZE + 1).toLocaleString()}–${Math.min(total, (page + 1) * PAGE_SIZE).toLocaleString()}`}
           </span>
         </div>
+        {picked.size > 0 && (
+          <div className="flex flex-wrap items-center gap-2 border-t bg-muted/40 px-6 py-2 text-sm">
+            <span className="font-medium tabular-nums">{picked.size}개 선택</span>
+            <RunDialog
+              projectId={projectId}
+              unitIds={[...picked]}
+              trigger={
+                <Button size="sm">
+                  <Play /> 워크플로 실행
+                </Button>
+              }
+            />
+            <Select value="" onValueChange={(statusId) => setStatus.mutate(statusId)}>
+              <SelectTrigger size="sm" className="w-36 bg-background">
+                <SelectValue placeholder="상태 변경" />
+              </SelectTrigger>
+              <SelectContent>
+                {statuses.data?.statuses.map((status) => (
+                  <SelectItem key={status.id} value={status.id}>
+                    <StatusDot color={status.color} /> {status.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button size="sm" variant="ghost" onClick={() => setPicked(new Set())}>
+              <X /> 선택 해제
+            </Button>
+          </div>
+        )}
         <div className="min-h-0 flex-1 overflow-auto border-t">
           <Table className="min-w-[720px] table-fixed">
             <TableHeader className="sticky top-0 z-10 bg-background">
               <TableRow>
+                <TableHead className="w-10">
+                  <Checkbox aria-label="이 페이지 모두 선택" checked={allOnPage} onCheckedChange={(checked) => toggle(pageIds, Boolean(checked))} />
+                </TableHead>
                 {showScene && <TableHead className="w-40">장면</TableHead>}
                 <TableHead className="w-28">화자</TableHead>
                 <TableHead>원문</TableHead>
@@ -125,6 +176,9 @@ export function LinesView({ projectId, groupId, search, onSearch, showScene }: {
                     className="cursor-pointer align-top"
                     onClick={() => onSearch({ line: selected ? undefined : line.id }, { replace: true })}
                   >
+                    <TableCell onClick={(event) => event.stopPropagation()}>
+                      <Checkbox aria-label={`${line.key} 선택`} checked={picked.has(line.id)} onCheckedChange={(checked) => toggle([line.id], Boolean(checked))} />
+                    </TableCell>
                     {showScene && <TableCell className="truncate text-muted-foreground">{line.groupTitle}</TableCell>}
                     <TableCell className="truncate font-medium">{line.speaker ?? <span className="text-muted-foreground">—</span>}</TableCell>
                     <TableCell className="whitespace-pre-wrap">{line.source}</TableCell>
@@ -143,7 +197,7 @@ export function LinesView({ projectId, groupId, search, onSearch, showScene }: {
               })}
               {lines.data?.rows.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={5} className="py-10 text-center text-muted-foreground">
+                  <TableCell colSpan={6} className="py-10 text-center text-muted-foreground">
                     조건에 맞는 대사가 없습니다.
                   </TableCell>
                 </TableRow>

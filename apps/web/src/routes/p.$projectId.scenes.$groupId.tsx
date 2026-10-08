@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronLeft, Network } from 'lucide-react';
+import { ChevronLeft, Network, Play } from 'lucide-react';
+import { RunDialog } from '@/components/workflow/run-dialog';
 import { LinesView, linesSearchSchema } from '@/components/lines-view';
 import { Page } from '@/components/page';
 import { Button } from '@/components/ui/button';
@@ -22,8 +23,8 @@ function SceneDetail() {
 
   return (
     <Page
-      title={group.data?.title ?? '…'}
-      description={group.data && [GROUP_KIND[group.data.kind], group.data.key, group.data.description].filter(Boolean).join(' · ')}
+      title={group.data?.title ?? '장면'}
+      meta={group.data && [GROUP_KIND[group.data.kind], group.data.key, group.data.description].filter(Boolean).join(' · ')}
       actions={
         <>
           <Button variant="ghost" size="sm" asChild>
@@ -31,6 +32,15 @@ function SceneDetail() {
               <ChevronLeft /> 장면 목록
             </Link>
           </Button>
+          <RunDialog
+            projectId={projectId}
+            groupIds={[groupId]}
+            trigger={
+              <Button size="sm">
+                <Play /> 이 장면 실행
+              </Button>
+            }
+          />
           <Button variant="outline" size="sm" asChild>
             <Link to="/p/$projectId/graph" params={{ projectId }} search={{ scope: 'dialogue', scene: groupId }}>
               <Network /> 대사 그래프에서 보기

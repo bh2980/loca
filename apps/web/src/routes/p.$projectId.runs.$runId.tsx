@@ -67,7 +67,7 @@ function RunDetail() {
   return (
     <Page
       title={`${data.workflowName} v${data.workflowVersion}`}
-      description={`${new Date(data.createdAt).toLocaleString()} 시작 · 프로필 ${data.profiles.map((profile) => `${profile.name}(${profile.models.join(' → ')})`).join(', ') || '없음'}`}
+      meta={`${new Date(data.createdAt).toLocaleString()} 시작 · 프로필 ${data.profiles.map((profile) => `${profile.name}(${profile.models.join(' → ')})`).join(', ') || '없음'}`}
       actions={
         <>
           <Badge variant={data.status === 'running' ? 'default' : 'outline'}>{RUN_STATUS[data.status]}</Badge>

@@ -47,7 +47,7 @@ function AiSettings() {
   const tab: Tab = search.tab === 'profiles' ? 'profiles' : selectedConnection ? (selectedConnection.kind === 'http' ? 'tools' : 'connections') : (search.tab ?? 'connections');
 
   return (
-    <Page title="연결·프로필" description="연결과 프로필은 모든 프로젝트가 함께 씁니다.">
+    <Page title="연결·프로필">
       <Tabs
         value={tab}
         onValueChange={(value) => void navigate({ search: (previous) => ({ ...previous, tab: value === 'tools' || value === 'profiles' ? value : undefined, conn: undefined }) })}

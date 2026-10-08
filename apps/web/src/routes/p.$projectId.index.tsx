@@ -26,7 +26,7 @@ function Dashboard() {
   const active = runs.data?.filter((run) => run.status === 'running' || run.status === 'paused') ?? [];
 
   return (
-    <Page title="개요" description={project.data?.description || undefined}>
+    <Page title="개요">
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>

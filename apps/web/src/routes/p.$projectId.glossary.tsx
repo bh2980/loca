@@ -68,7 +68,7 @@ function Glossary() {
   const select = (id?: string) => void navigate({ search: (previous) => ({ ...previous, term: id }), replace: true });
 
   return (
-    <Page title="용어집" description="확정 용어는 원문에 나올 때 AI 노드의 문맥으로 들어갑니다. 후보는 수락하기 전까지 쓰이지 않습니다.">
+    <Page title="용어집">
       <div className="flex min-h-0 gap-0 rounded-lg border">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2 border-b p-3">

@@ -77,7 +77,6 @@ function GraphPage() {
   return (
     <Page
       title="그래프"
-      description={search.scope === 'scene' ? '장면 사이의 흐름 (대사 그래프에서 파생)' : '원본 대사·제어 노드 그래프'}
       actions={
         <ToggleGroup type="single" variant="outline" size="sm" value={search.scope} onValueChange={(value) => value && void navigate({ search: { scope: value as Scope } })}>
           <ToggleGroupItem value="scene">장면 그래프</ToggleGroupItem>

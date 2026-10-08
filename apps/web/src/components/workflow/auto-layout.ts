@@ -25,7 +25,8 @@ export async function autoLayout(definition: WorkflowDefinition, sizes: Map<stri
         layoutOptions: { 'elk.portConstraints': 'FIXED_ORDER' },
         ports: [
           ...(node.type !== 'entry' ? [{ id: `${node.id}:in`, layoutOptions: { 'elk.port.side': 'WEST' } }] : []),
-          ...nodePorts(node).map((port, index) => ({ id: `${node.id}:${port.id}`, layoutOptions: { 'elk.port.side': 'EAST', 'elk.port.index': String(index) } })),
+          // A condition's false exit leaves from the bottom of its diamond.
+          ...nodePorts(node).map((port, index) => ({ id: `${node.id}:${port.id}`, layoutOptions: { 'elk.port.side': node.type === 'condition' && port.id === 'false' ? 'SOUTH' : 'EAST', 'elk.port.index': String(index) } })),
         ],
       };
     }),

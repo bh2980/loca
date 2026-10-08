@@ -73,7 +73,7 @@ function Reviews() {
     );
 
   return (
-    <Page title="검토함" description={`사람 확인을 기다리는 대사 ${list.length}개`} flush className="border-t-0">
+    <Page title="검토함" meta={`사람 확인을 기다리는 대사 ${list.length}개`} flush>
       <div className="flex h-full min-h-0 border-t">
         <ul className="w-80 shrink-0 overflow-auto border-r">
           {list.map((item) => (

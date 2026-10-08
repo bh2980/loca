@@ -1,4 +1,4 @@
-import { DEFAULT_STATUSES, translationTemplate, type ImportFile } from '@tw/shared';
+import { DEFAULT_STATUSES, termExtractionTemplate, translationTemplate, type ImportFile } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 
@@ -134,6 +134,14 @@ export function importProject(db: Db, file: ImportFile, defaultProfileId = ''): 
           needsReview: statusIds['needs-review'],
           confirmed: statusIds.confirmed,
         }),
+      })
+      .run();
+    tx.insert(s.workflows)
+      .values({
+        projectId,
+        name: '용어 추출',
+        description: '장면별로 고유명사·반복 용어를 뽑아 용어집 후보로 추가합니다. 용어집에서 수락한 뒤 번역을 돌리세요.',
+        definition: termExtractionTemplate({ profileId: defaultProfileId }),
       })
       .run();
   });

@@ -45,7 +45,7 @@ function ProjectForm({ projectId, project }: { projectId: string; project: { nam
   });
 
   return (
-    <Page title="프로젝트" description="이름과 설명, 번역 결과 내보내기, 프로젝트 삭제.">
+    <Page title="프로젝트">
       <div className="max-w-2xl space-y-8">
         <section className="space-y-4">
           <div className="space-y-1.5">

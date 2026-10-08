@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { translationTemplate, validateWorkflow, workflowDefinitionSchema, type WorkflowDefinition } from '@tw/shared';
+import { termExtractionTemplate, translationTemplate, validateWorkflow, workflowDefinitionSchema, type WorkflowDefinition } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -11,7 +11,7 @@ import { runScript } from '../engine/functions/sandbox.ts';
 import { createRun, selectRunUnits } from '../engine/runner.ts';
 import { snapshotProfiles } from '../services/routes.ts';
 
-const scopeSchema = z.object({ groupIds: z.array(z.string()).optional(), unitIds: z.array(z.string()).optional() });
+const scopeSchema = z.object({ groupIds: z.array(z.string()).optional(), unitIds: z.array(z.string()).optional(), ignoreStatus: z.boolean().optional() });
 
 export function workflowIssues(db: Db, projectId: string, definition: WorkflowDefinition) {
   const ids = (rows: { id: string }[]) => new Set(rows.map((row) => row.id));
@@ -62,11 +62,13 @@ export const workflowRoutes = new Hono<Env>()
       })),
     );
   })
-  .post('/projects/:projectId/workflows', validate('json', z.object({ name: z.string().trim().min(1), from: z.enum(['template', 'blank']).default('template') })), (c) => {
+  .post('/projects/:projectId/workflows', validate('json', z.object({ name: z.string().trim().min(1), from: z.enum(['template', 'terms', 'blank']).default('template') })), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     const { name, from } = c.req.valid('json');
-    const definition = from === 'template' ? templateWorkflow(db, projectId) : blankWorkflow(db, projectId);
+    const profile = db.select({ id: s.profiles.id }).from(s.profiles).orderBy(asc(s.profiles.name)).get();
+    const definition =
+      from === 'template' ? templateWorkflow(db, projectId) : from === 'terms' ? termExtractionTemplate({ profileId: profile?.id ?? '' }) : blankWorkflow(db, projectId);
     const row = db.insert(s.workflows).values({ projectId, name, definition }).returning().get();
     events.changed(projectId, 'workflows');
     return c.json(row, 201);

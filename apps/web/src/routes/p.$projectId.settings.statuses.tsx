@@ -144,7 +144,7 @@ function StatusSettings() {
   };
 
   return (
-    <Page title="상태·태그" description="대사의 진행 상태와 분류 태그를 관리합니다. 워크플로의 ‘진입’과 ‘상태 변경’ 노드는 여기 정의한 상태를 사용하므로, 삭제하거나 이름을 바꾸면 해당 워크플로를 확인하세요.">
+    <Page title="상태·태그">
       <div className="max-w-4xl space-y-8">
         <section className="space-y-2">
           <h2 className="text-sm font-semibold">상태</h2>

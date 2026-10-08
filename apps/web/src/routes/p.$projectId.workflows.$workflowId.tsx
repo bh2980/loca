@@ -262,19 +262,20 @@ function WorkflowEditor() {
 
   return (
     <Page
-      title={
+      title={current.name || '워크플로'}
+      meta={
         <span className="flex items-center gap-2">
           <Input
             value={current.name}
             onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))}
-            className="h-8 w-72 border-transparent px-1 text-xl font-semibold shadow-none hover:border-input focus-visible:border-input"
+            className="h-8 w-60 border-transparent px-1 font-medium text-foreground shadow-none hover:border-input focus-visible:border-input"
             aria-label="워크플로 이름"
           />
           <Badge variant="outline">v{workflow.data.version}</Badge>
           {draft && <Badge variant="secondary">저장 안 됨</Badge>}
+          {errorCount > 0 && <span className="truncate text-destructive">오류 {errorCount}개 — 저장한 버전에 오류가 없어야 실행할 수 있습니다.</span>}
         </span>
       }
-      description={errorCount ? `오류 ${errorCount}개를 고쳐야 저장한 버전을 실행할 수 있습니다.` : '대사가 진입 노드에서 출발해 연결을 따라 이동합니다. 출구를 드래그해 연결하세요.'}
       actions={
         <>
           <Button variant="ghost" size="sm" asChild>

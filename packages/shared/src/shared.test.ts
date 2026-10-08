@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { checkFormat } from './format-check.ts';
 import { importFileSchema } from './import-format.ts';
-import { translationTemplate } from './defaults.ts';
+import { termExtractionTemplate, translationTemplate } from './defaults.ts';
 import { nodePorts, validateWorkflow, workflowDefinitionSchema, workflowNodeSchema, type WorkflowDefinition } from './workflow.ts';
 
 const ids = { profileId: 'p', untranslated: 's0', draft: 's1', needsReview: 's2', confirmed: 's3' };
@@ -102,5 +102,13 @@ describe('format check', () => {
   });
   it('does not treat comparisons as tags', () => {
     expect(checkFormat('x < 3 and y > 2', 'x는 3 미만, y는 2 초과', { ...all, newlines: false })).toEqual([]);
+  });
+});
+
+describe('templates', () => {
+  it('term extraction template is valid and only adds candidates', () => {
+    const definition = workflowDefinitionSchema.parse(termExtractionTemplate({ profileId: 'p' }));
+    expect(validateWorkflow(definition, refs).filter((issue) => issue.level === 'error')).toEqual([]);
+    expect(definition.nodes.map((node) => (node.type === 'function' ? node.config.fn : node.type))).toEqual(['entry', 'ai', 'addTerms', 'end']);
   });
 });

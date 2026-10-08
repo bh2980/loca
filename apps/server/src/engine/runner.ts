@@ -440,7 +440,7 @@ export function selectRunUnits(db: Db, projectId: string, definition: WorkflowDe
   const entry = definition.nodes.find((node) => node.type === 'entry');
   const statusIds = entry?.type === 'entry' ? entry.config.statusIds : [];
   const conditions = [eq(s.units.projectId, projectId)];
-  if (statusIds.length) conditions.push(inArray(s.units.statusId, statusIds));
+  if (statusIds.length && !scope.ignoreStatus) conditions.push(inArray(s.units.statusId, statusIds));
   if (scope.groupIds?.length) conditions.push(inArray(s.units.groupId, scope.groupIds));
   if (scope.unitIds?.length) conditions.push(inArray(s.units.id, scope.unitIds));
   return db.select({ id: s.units.id }).from(s.units).where(and(...conditions)).all().map((row) => row.id);

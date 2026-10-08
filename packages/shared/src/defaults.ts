@@ -77,3 +77,40 @@ export function translationTemplate(ids: {
     ],
   };
 }
+
+/**
+ * Glossary preparation: extract recurring names and terms scene by scene and add them as glossary
+ * candidates. Statuses are not touched; candidates reach AI context only after a person accepts them,
+ * which is why extraction runs before translation instead of inside it.
+ */
+export function termExtractionTemplate(ids: { profileId: string }): WorkflowDefinition {
+  return {
+    settings: { maxVisitsPerNode: 5, concurrency: 2 },
+    nodes: [
+      { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: { statusIds: [] } },
+      {
+        id: 'terms',
+        type: 'ai',
+        position: { x: 300, y: 0 },
+        label: AI_PRESETS.terms.label,
+        config: {
+          profileId: ids.profileId,
+          instructions: AI_PRESETS.terms.instructions,
+          output: 'terms',
+          fields: [],
+          include: { candidate: false, issues: false },
+          // The current glossary is in context so the model skips terms that already exist.
+          context: { glossary: true, documents: true, characters: true, relationships: false, precedingLines: 0, previousScenes: 0 },
+          batch: { mode: 'group', size: 60 },
+        },
+      },
+      { id: 'add', type: 'function', position: { x: 600, y: 0 }, label: '용어 후보 추가', config: { fn: 'addTerms', params: { fromNodeId: 'terms' } } },
+      { id: 'end', type: 'end', position: { x: 900, y: 0 }, config: {} },
+    ],
+    edges: [
+      { id: 'e1', source: 'entry', sourceHandle: 'out', target: 'terms' },
+      { id: 'e2', source: 'terms', sourceHandle: 'out', target: 'add' },
+      { id: 'e3', source: 'add', sourceHandle: 'out', target: 'end' },
+    ],
+  };
+}

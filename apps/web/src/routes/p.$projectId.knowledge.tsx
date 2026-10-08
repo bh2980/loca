@@ -63,7 +63,7 @@ function Knowledge() {
   const set = (next: Partial<KnowledgeSearch>, replace = true) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace });
 
   return (
-    <Page title="작품 자료" description="AI가 번역할 때 참고하는 설정 문서와 인물·관계입니다." flush>
+    <Page title="작품 자료" flush>
       <Tabs value={tab} onValueChange={(value) => set({ tab: value === 'documents' ? undefined : (value as Tab), doc: undefined, char: undefined, rel: undefined }, false)} className="h-full min-h-0 gap-0">
         <div className="px-6 py-2">
           <TabsList>
