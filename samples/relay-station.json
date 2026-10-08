@@ -138,123 +138,165 @@
   }
  ],
  "graph": {
+  "nodeTypes": {
+   "ChatMessageState": {
+    "kind": "script",
+    "label": "대화 문장",
+    "description": "대화 메시지를 표시합니다."
+   },
+   "ChoiceState": {
+    "kind": "condition",
+    "label": "선택지 분기",
+    "description": "플레이어 선택에 따라 출력 연결 하나를 고릅니다."
+   },
+   "EmptyState": {
+    "kind": "connector",
+    "label": "통과 연결",
+    "description": "아무 동작 없이 다음 연결로 진행합니다."
+   },
+   "WaitState": {
+    "kind": "wait",
+    "label": "이벤트 대기",
+    "description": "지정한 흐름 이벤트가 올 때까지 기다립니다."
+   },
+   "OnGameEventCallbackState": {
+    "kind": "event",
+    "label": "게임 이벤트 조건",
+    "description": "지정한 게임 이벤트가 발생했는지 확인합니다."
+   },
+   "UnlockToolState": {
+    "kind": "state",
+    "label": "도구 해제",
+    "description": "지정한 도구를 사용할 수 있게 합니다."
+   }
+  },
   "nodes": [
    {
     "key": "n.arrival.1",
-    "kind": "script",
+    "type": "ChatMessageState",
     "units": [
      "arrival.1"
     ]
    },
    {
     "key": "n.arrival.2",
-    "kind": "script",
+    "type": "ChatMessageState",
     "units": [
      "arrival.2"
     ]
    },
    {
     "key": "n.arrival.3",
-    "kind": "script",
+    "type": "ChatMessageState",
     "units": [
      "arrival.3"
     ]
    },
    {
     "key": "n.panel.1",
-    "kind": "script",
+    "type": "ChatMessageState",
     "units": [
      "panel.1"
     ]
    },
    {
     "key": "n.panel.2",
-    "kind": "script",
+    "type": "ChatMessageState",
     "units": [
      "panel.2"
     ]
    },
    {
     "key": "n.logbook.1",
-    "kind": "script",
+    "type": "ChatMessageState",
     "units": [
      "logbook.1"
     ]
    },
    {
     "key": "n.logbook.2",
-    "kind": "script",
+    "type": "ChatMessageState",
     "units": [
      "logbook.2"
     ]
    },
    {
     "key": "n.logbook.3",
-    "kind": "script",
+    "type": "ChatMessageState",
     "units": [
      "logbook.3"
     ]
    },
    {
     "key": "n.tower.1",
-    "kind": "script",
+    "type": "ChatMessageState",
     "units": [
      "tower.1"
     ]
    },
    {
     "key": "n.tower.2",
-    "kind": "script",
+    "type": "ChatMessageState",
     "units": [
      "tower.2"
     ]
    },
    {
     "key": "n.tower.3",
-    "kind": "script",
+    "type": "ChatMessageState",
     "units": [
      "tower.3"
     ]
    },
    {
     "key": "n.ending.1",
-    "kind": "script",
+    "type": "ChatMessageState",
     "units": [
      "ending.1"
     ]
    },
    {
     "key": "n.ending.2",
-    "kind": "script",
+    "type": "ChatMessageState",
     "units": [
      "ending.2"
     ]
    },
    {
     "key": "n.ending.3",
-    "kind": "script",
+    "type": "ChatMessageState",
     "units": [
      "ending.3"
     ]
    },
    {
     "key": "c.choice",
-    "kind": "condition",
-    "label": "ChoiceState: 패널 / 일지"
+    "type": "ChoiceState",
+    "meta": {
+     "options": [
+      "panel",
+      "logbook"
+     ]
+    }
    },
    {
     "key": "j.join",
-    "kind": "connector"
+    "type": "EmptyState"
    },
    {
     "key": "w.signal",
-    "kind": "wait",
-    "label": "WaitForSignal"
+    "type": "WaitState",
+    "meta": {
+     "event": "SignalDecoded"
+    }
    },
    {
     "key": "e.dawn",
-    "kind": "event",
-    "label": "TimeOfDay = dawn"
+    "type": "OnGameEventCallbackState",
+    "meta": {
+     "event": "TimeOfDay",
+     "value": "dawn"
+    }
    }
   ],
   "edges": [

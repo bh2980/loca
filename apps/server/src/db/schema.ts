@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import type { WorkflowDefinition } from '@tw/shared';
+import type { NodeType, WorkflowDefinition } from '@tw/shared';
 
 const id = () => text('id').primaryKey().$defaultFn(() => crypto.randomUUID());
 const createdAt = () => integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date());
@@ -15,6 +15,8 @@ export const projects = sqliteTable('projects', {
   description: text('description').notNull().default(''),
   sourceLanguage: text('source_language').notNull(),
   targetLanguage: text('target_language').notNull(),
+  /** The source graph's node-type dictionary from the standard file. */
+  nodeTypes: json<Record<string, NodeType>>('node_types').notNull().default(sql`'{}'`),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
@@ -107,6 +109,8 @@ export const graphNodes = sqliteTable(
     id: id(),
     projectId: projectId(),
     key: text('key').notNull(),
+    /** Original node class from the game (see projects.nodeTypes). */
+    type: text('type'),
     kind: text('kind').notNull(),
     label: text('label'),
     /** Group of the node's first unit; control nodes without text have none. */

@@ -8,9 +8,15 @@ importers:
 
   .:
     devDependencies:
+      '@hono/node-server':
+        specifier: ^2.1.4
+        version: 2.1.4(hono@4.13.13)
       '@types/node':
         specifier: ^24.0.0
         version: 24.19.1
+      hono:
+        specifier: ^4.13.13
+        version: 4.13.13
       tsx:
         specifier: ^4.23.15
         version: 4.23.15
@@ -126,6 +132,9 @@ importers:
       d3-zoom:
         specifier: ^3.0.0
         version: 3.0.0
+      elkjs:
+        specifier: ^0.12.0
+        version: 0.12.0
       flatbush:
         specifier: ^4.6.2
         version: 4.6.2

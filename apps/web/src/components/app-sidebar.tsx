@@ -1,4 +1,4 @@
-import { Link, useNavigate } from '@tanstack/react-router';
+import { Link, useMatchRoute, useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import {
   BookMarked,
@@ -13,7 +13,6 @@ import {
   Network,
   Plus,
   Settings2,
-  SlidersHorizontal,
   Tags,
   Workflow,
   History,
@@ -44,20 +43,19 @@ interface NavItem {
 }
 
 function NavGroup({ label, items, projectId }: { label?: string; items: NavItem[]; projectId: string }) {
+  const matchRoute = useMatchRoute();
   return (
     <SidebarGroup>
       {label && <SidebarGroupLabel>{label}</SidebarGroupLabel>}
       <SidebarMenu>
         {items.map((item) => (
           <SidebarMenuItem key={item.to}>
-            <Link to={item.to} params={{ projectId }} activeOptions={{ exact: item.exact }}>
-              {({ isActive }) => (
-                <SidebarMenuButton isActive={isActive} tooltip={item.label}>
-                  <item.icon />
-                  <span>{item.label}</span>
-                </SidebarMenuButton>
-              )}
-            </Link>
+            <SidebarMenuButton asChild isActive={Boolean(matchRoute({ to: item.to, params: { projectId }, fuzzy: !item.exact }))} tooltip={item.label}>
+              <Link to={item.to} params={{ projectId }}>
+                <item.icon />
+                <span>{item.label}</span>
+              </Link>
+            </SidebarMenuButton>
             {!!item.badge && <SidebarMenuBadge>{item.badge}</SidebarMenuBadge>}
           </SidebarMenuItem>
         ))}
@@ -154,4 +152,3 @@ export function AppSidebar({ projectId }: { projectId: string }) {
   );
 }
 
-export { SlidersHorizontal };

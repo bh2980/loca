@@ -20,6 +20,7 @@ export interface LayoutEdge {
 }
 export interface NodeInfo {
   id: string;
+  type?: string | null;
   kind: string;
   label: string | null;
   preview: string | null;

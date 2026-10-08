@@ -26,6 +26,7 @@ export function importProject(db: Db, file: ImportFile, defaultProfileId = ''): 
         description: file.project.description,
         sourceLanguage: file.project.sourceLanguage,
         targetLanguage: file.project.targetLanguage,
+        nodeTypes: file.graph?.nodeTypes ?? {},
       })
       .run();
 
@@ -85,7 +86,8 @@ export function importProject(db: Db, file: ImportFile, defaultProfileId = ''): 
           const id = crypto.randomUUID();
           nodeIds.set(node.key, id);
           const ids = node.units.map((key) => unitIds.get(key)!);
-          return { id, projectId, key: node.key, kind: node.kind, label: node.label ?? null, groupId: ids.length ? unitGroup.get(ids[0])! : null, unitIds: ids, meta: node.meta };
+          const kind = node.kind ?? (node.type ? file.graph!.nodeTypes[node.type]?.kind : undefined) ?? (ids.length ? 'script' : 'unknown');
+          return { id, projectId, key: node.key, type: node.type ?? null, kind, label: node.label ?? null, groupId: ids.length ? unitGroup.get(ids[0])! : null, unitIds: ids, meta: node.meta };
         }),
       );
       insertMany(

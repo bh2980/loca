@@ -148,10 +148,12 @@ export function agentTools(db: Db, projectId: string) {
 
     // ── changes (need the user's approval) ───────────────────────
     save_character: tool({
-      description: 'Create a character, or update it when id is given. Profile is markdown: personality, speech style/register, role, translation notes.',
+      description: 'Create a character, or update it when id is given (call list_characters first; creating a name that already exists is refused). Profile is markdown: personality, speech style/register, role, translation notes.',
       inputSchema: characterInput.extend({ id: z.string().optional() }),
       needsApproval: true,
       execute: ({ id, ...input }) => {
+        const existing = !id && characterByName(input.name);
+        if (existing) return { ok: false, error: `같은 이름의 인물이 이미 있습니다. id=${existing.id}로 수정 제안을 다시 하세요.` };
         if (id) db.update(s.characters).set(input).where(and(eq(s.characters.id, id), eq(s.characters.projectId, projectId))).run();
         else id = db.insert(s.characters).values({ ...input, projectId }).returning().get().id;
         changed('knowledge');

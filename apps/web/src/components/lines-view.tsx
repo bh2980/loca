@@ -90,7 +90,7 @@ export function LinesView({ projectId, groupId, search, onSearch, showScene }: {
           </span>
         </div>
         <div className="min-h-0 flex-1 overflow-auto border-t">
-          <Table className="table-fixed">
+          <Table className="min-w-[720px] table-fixed">
             <TableHeader className="sticky top-0 z-10 bg-background">
               <TableRow>
                 {showScene && <TableHead className="w-40">장면</TableHead>}

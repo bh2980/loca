@@ -18,6 +18,16 @@ function write(name: string, file: ImportFileInput) {
   console.log(`${name}: ${file.units.length} lines, ${file.graph?.nodes.length ?? 0} nodes`);
 }
 
+/** A converter ships one entry per original node class: display kind + what it means. */
+const SAMPLE_NODE_TYPES = {
+  ChatMessageState: { kind: 'script', label: '대화 문장', description: '대화 메시지를 표시합니다.' },
+  ChoiceState: { kind: 'condition', label: '선택지 분기', description: '플레이어 선택에 따라 출력 연결 하나를 고릅니다.' },
+  EmptyState: { kind: 'connector', label: '통과 연결', description: '아무 동작 없이 다음 연결로 진행합니다.' },
+  WaitState: { kind: 'wait', label: '이벤트 대기', description: '지정한 흐름 이벤트가 올 때까지 기다립니다.' },
+  OnGameEventCallbackState: { kind: 'event', label: '게임 이벤트 조건', description: '지정한 게임 이벤트가 발생했는지 확인합니다.' },
+  UnlockToolState: { kind: 'state', label: '도구 해제', description: '지정한 도구를 사용할 수 있게 합니다.' },
+} as const;
+
 // ── small curated sample ─────────────────────────────────────────────
 const scenes = [
   { key: 'arrival', title: '중계소 도착', lines: [
@@ -52,14 +62,14 @@ for (const scene of scenes)
   scene.lines.forEach(([speaker, source], index) => {
     const key = `${scene.key}.${index + 1}`;
     units.push({ key, group: scene.key, speaker, source });
-    nodes.push({ key: `n.${key}`, kind: 'script', units: [key] });
+    nodes.push({ key: `n.${key}`, type: 'ChatMessageState', units: [key] });
     if (index > 0) edges.push({ from: `n.${scene.key}.${index}`, to: `n.${key}` });
   });
 nodes.push(
-  { key: 'c.choice', kind: 'condition', label: 'ChoiceState: 패널 / 일지' },
-  { key: 'j.join', kind: 'connector' },
-  { key: 'w.signal', kind: 'wait', label: 'WaitForSignal' },
-  { key: 'e.dawn', kind: 'event', label: 'TimeOfDay = dawn' },
+  { key: 'c.choice', type: 'ChoiceState', meta: { options: ['panel', 'logbook'] } },
+  { key: 'j.join', type: 'EmptyState' },
+  { key: 'w.signal', type: 'WaitState', meta: { event: 'SignalDecoded' } },
+  { key: 'e.dawn', type: 'OnGameEventCallbackState', meta: { event: 'TimeOfDay', value: 'dawn' } },
 );
 edges.push(
   { from: 'n.arrival.3', to: 'c.choice' },
@@ -78,7 +88,7 @@ write('relay-station.json', {
   project: { name: '중계소 (샘플)', description: '분기·합류·반복이 있는 작은 샘플 프로젝트', sourceLanguage: 'en', targetLanguage: 'ko' },
   groups: [...scenes.map((scene, order) => ({ key: scene.key, title: scene.title, order })), { key: 'ui', kind: 'ui', title: '메뉴 UI', order: scenes.length }],
   units: [...units, { key: 'ui.continue', group: 'ui', kind: 'ui', source: 'Continue' }, { key: 'ui.save', group: 'ui', kind: 'ui', source: 'Save & Quit' }],
-  graph: { nodes, edges },
+  graph: { nodeTypes: SAMPLE_NODE_TYPES, nodes, edges },
   characters: [
     { name: 'MIRA', aliases: ['Mira'], profile: '전직 통신병. 침착하고 짧게 말한다. 존댓말을 쓰지 않는다.' },
     { name: 'JONAS', aliases: ['Jonas'], profile: '정비공. 회의적이고 농담이 많다. 미라에게 반말.' },
@@ -113,12 +123,13 @@ function synthetic(target: number): ImportFileInput {
     inScene++;
     const key = `s${scene}.l${inScene}`;
     lines.push({ key, group: `s${scene}`, speaker: speakers[Math.floor(rand() * speakers.length)], source: `Line ${inScene} of scene ${scene + 1}.` });
-    graphNodes.push({ key: `n.${key}`, kind: 'script', units: [key] });
+    graphNodes.push({ key: `n.${key}`, type: 'ChatMessageState', units: [key] });
     return `n.${key}`;
   };
-  const control = (kind: 'condition' | 'wait' | 'event' | 'connector') => {
+  const TYPE = { condition: 'ChoiceState', wait: 'WaitState', event: 'OnGameEventCallbackState', connector: 'EmptyState', state: 'UnlockToolState' } as const;
+  const control = (kind: keyof typeof TYPE) => {
     const key = `${kind}.${graphNodes.length}`;
-    graphNodes.push({ key, kind });
+    graphNodes.push({ key, type: TYPE[kind] });
     return key;
   };
   const link = (from: string, to: string) => graphEdges.push({ from, to });
@@ -154,7 +165,7 @@ function synthetic(target: number): ImportFileInput {
         link(wait, next);
         previous = next;
       } else {
-        const next = rand() < 0.04 ? control('event') : script();
+        const next = rand() < 0.03 ? control('event') : rand() < 0.02 ? control('state') : script();
         link(previous, next);
         previous = next;
       }
@@ -165,14 +176,14 @@ function synthetic(target: number): ImportFileInput {
   while (graphNodes.length < target) {
     const key = `loose.${graphNodes.length}`;
     lines.push({ key, group: 'loose', source: `Loose line ${graphNodes.length}.` });
-    graphNodes.push({ key: `n.${key}`, kind: 'script', units: [key] });
+    graphNodes.push({ key: `n.${key}`, type: 'ChatMessageState', units: [key] });
   }
   return {
     format: 'translation-workbench/v1',
     project: { name: `합성 그래프 ${target.toLocaleString()}노드`, description: '배치·성능 확인용 합성 데이터' },
     groups,
     units: lines,
-    graph: { nodes: graphNodes, edges: graphEdges },
+    graph: { nodeTypes: SAMPLE_NODE_TYPES, nodes: graphNodes, edges: graphEdges },
   };
 }
 write('synthetic-9k.json', synthetic(9000));

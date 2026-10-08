@@ -6,6 +6,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
+import { isContentKind } from '@tw/shared';
 import { KIND_LABEL } from './shapes';
 
 function Neighbour({ items, title, icon: Icon, onSelect }: { items: { id: string; key: string; kind: string; label: string | null; edgeLabel: string | null }[]; title: string; icon: typeof ArrowDownRight; onSelect: (id: string) => void }) {
@@ -39,9 +40,14 @@ export function DialogueNodeDetail({ projectId, nodeId, onSelect, onClose }: { p
     <div className="flex h-full flex-col">
       <div className="flex items-start gap-2 border-b px-4 py-3">
         <div className="min-w-0 flex-1">
-          <p className="text-xs text-muted-foreground">{KIND_LABEL[data.kind] ?? data.kind}</p>
-          <p className="truncate font-medium">{data.label ?? data.key}</p>
-          <p className="truncate font-mono text-xs text-muted-foreground">{data.key}</p>
+          <p className="text-xs text-muted-foreground">
+            {isContentKind(data.kind) ? '콘텐츠' : '이벤트·제어'} · {KIND_LABEL[data.kind] ?? data.kind}
+          </p>
+          <p className="truncate font-medium">{data.label ?? data.typeInfo?.label ?? data.key}</p>
+          <p className="truncate font-mono text-xs text-muted-foreground">
+            {data.key}
+            {data.type && ` · ${data.type}`}
+          </p>
         </div>
         <Button variant="ghost" size="icon" className="size-7" onClick={onClose} aria-label="닫기">
           <X />
@@ -49,6 +55,7 @@ export function DialogueNodeDetail({ projectId, nodeId, onSelect, onClose }: { p
       </div>
       <ScrollArea className="min-h-0 flex-1">
         <div className="space-y-5 p-4">
+          {data.typeInfo?.description && <p className="rounded-md bg-muted/50 px-3 py-2 text-sm">{data.typeInfo.description}</p>}
           {data.group && (
             <Button variant="outline" size="sm" asChild>
               <Link to="/p/$projectId/scenes/$groupId" params={{ projectId, groupId: data.group.id }} search={{ line: data.units[0]?.id }}>

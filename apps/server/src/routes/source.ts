@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, inArray, like, or, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
+import type { NodeType } from '@tw/shared';
 import { found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
@@ -172,13 +173,20 @@ export const sourceRoutes = new Hono<Env>()
         .from(s.groups)
         .where(and(eq(s.groups.projectId, projectId), eq(s.groups.kind, 'scene')))
         .all();
-      return c.json({ status: layout?.status ?? 'missing', error: layout?.error ?? null, layout: layout?.data ?? null, nodes: nodes.map((node) => ({ ...node, kind: 'scene', groupId: node.id, preview: `${node.total}개 대사` })) });
+      return c.json({
+        status: layout?.status ?? 'missing',
+        error: layout?.error ?? null,
+        layout: layout?.data ?? null,
+        nodes: nodes.map((node) => ({ ...node, type: null as string | null, kind: 'scene', groupId: node.id, preview: `${node.total}개 대사` })),
+        nodeTypes: {} as Record<string, NodeType>,
+      });
     }
     // One preview line per node keeps the payload small; details load on selection.
     const nodes = db
       .select({
         id: s.graphNodes.id,
         key: s.graphNodes.key,
+        type: s.graphNodes.type,
         kind: s.graphNodes.kind,
         label: s.graphNodes.label,
         groupId: s.graphNodes.groupId,
@@ -188,7 +196,8 @@ export const sourceRoutes = new Hono<Env>()
       .from(s.graphNodes)
       .where(eq(s.graphNodes.projectId, projectId))
       .all();
-    return c.json({ status: layout?.status ?? 'missing', error: layout?.error ?? null, layout: layout?.data ?? null, nodes });
+    const nodeTypes = db.select({ nodeTypes: s.projects.nodeTypes }).from(s.projects).where(eq(s.projects.id, projectId)).get()?.nodeTypes ?? {};
+    return c.json({ status: layout?.status ?? 'missing', error: layout?.error ?? null, layout: layout?.data ?? null, nodes, nodeTypes });
   })
   /** Recompute stored layouts, e.g. after the layout options changed. The source graph itself is untouched. */
   .post('/projects/:projectId/graph/relayout', (c) => {
@@ -207,9 +216,12 @@ export const sourceRoutes = new Hono<Env>()
         .innerJoin(s.graphNodes, eq(s.graphNodes.id, direction === 'in' ? s.graphEdges.fromId : s.graphEdges.toId))
         .where(eq(direction === 'in' ? s.graphEdges.toId : s.graphEdges.fromId, node.id))
         .all();
+    const project = db.select({ nodeTypes: s.projects.nodeTypes }).from(s.projects).where(eq(s.projects.id, node.projectId)).get();
+    const typeInfo = node.type ? (project?.nodeTypes[node.type] ?? null) : null;
     const group = node.groupId ? db.select({ id: s.groups.id, title: s.groups.title }).from(s.groups).where(eq(s.groups.id, node.groupId)).get() : null;
     return c.json({
       ...node,
+      typeInfo,
       group,
       units: lines.sort((a, b) => order.get(a.id)! - order.get(b.id)!),
       incoming: neighbour('in'),

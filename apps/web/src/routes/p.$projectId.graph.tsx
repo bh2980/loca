@@ -5,6 +5,7 @@ import { Maximize, Minus, Plus, Search } from 'lucide-react';
 import { GraphCanvas, type GraphCanvasHandle, type NodeInfo, type Viewport } from '@/components/graph/graph-canvas';
 import { DialogueNodeDetail, SceneNodeDetail } from '@/components/graph/node-detail';
 import { KIND_LABEL } from '@/components/graph/shapes';
+import { TypeLegend } from '@/components/graph/type-legend';
 import { Page } from '@/components/page';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
@@ -19,6 +20,8 @@ interface GraphSearch {
   scope: Scope;
   node?: string;
   scene?: string;
+  /** Highlight one node type (original class name, or "kind:<kind>"). */
+  type?: string;
 }
 
 export const Route = createFileRoute('/p/$projectId/graph')({
@@ -26,6 +29,7 @@ export const Route = createFileRoute('/p/$projectId/graph')({
     scope: raw.scope === 'dialogue' ? 'dialogue' : 'scene',
     node: typeof raw.node === 'string' ? raw.node : undefined,
     scene: typeof raw.scene === 'string' ? raw.scene : undefined,
+    type: typeof raw.type === 'string' ? raw.type : undefined,
   }),
   component: GraphPage,
 });
@@ -49,11 +53,17 @@ function GraphPage() {
   const canvas = useRef<GraphCanvasHandle>(null);
   const [find, setFind] = useState('');
 
-  const info = useMemo(() => new Map<string, NodeInfo>((graph.data?.nodes ?? []).map((node) => [node.id, node])), [graph.data]);
+  const info = useMemo(() => {
+    const types = graph.data?.nodeTypes ?? {};
+    // Control nodes are labelled by what the game's node class means, not by its raw name.
+    return new Map<string, NodeInfo>((graph.data?.nodes ?? []).map((node) => [node.id, { ...node, label: node.label ?? (node.type ? (types[node.type]?.label ?? node.type) : null) }]));
+  }, [graph.data]);
   const highlight = useMemo(() => {
-    if (search.scope !== 'dialogue' || !search.scene || !graph.data) return undefined;
+    if (!graph.data) return undefined;
+    if (search.type) return new Set(graph.data.nodes.filter((node) => (node.type ?? `kind:${node.kind}`) === search.type).map((node) => node.id));
+    if (search.scope !== 'dialogue' || !search.scene) return undefined;
     return new Set(graph.data.nodes.filter((node) => node.groupId === search.scene).map((node) => node.id));
-  }, [graph.data, search.scope, search.scene]);
+  }, [graph.data, search.scope, search.scene, search.type]);
   const matches = useMemo(() => {
     const text = find.trim().toLowerCase();
     if (!text || !graph.data) return [];
@@ -112,7 +122,8 @@ function GraphPage() {
 
           {layout && (
             <>
-              <div className="absolute top-3 left-3 w-80">
+              <div className="absolute top-3 left-3 flex w-[28rem] items-start gap-2">
+                <div className="min-w-0 flex-1">
                 <InputGroup className="bg-background shadow-sm">
                   <InputGroupAddon>
                     <Search />
@@ -137,6 +148,15 @@ function GraphPage() {
                     ))}
                   </ul>
                 )}
+                </div>
+                {search.scope === 'dialogue' && (
+                  <TypeLegend
+                    nodes={graph.data!.nodes}
+                    nodeTypes={graph.data!.nodeTypes}
+                    active={search.type}
+                    onPick={(type) => void navigate({ search: (previous) => ({ ...previous, type }), replace: true })}
+                  />
+                )}
               </div>
               <div className="absolute right-3 bottom-3 flex flex-col gap-1">
                 <Button size="icon" variant="outline" className="size-8 bg-background" aria-label="확대" onClick={() => canvas.current?.zoomBy(1.4)}>
@@ -151,7 +171,7 @@ function GraphPage() {
               </div>
               <p className="absolute top-3 right-3 rounded-md bg-background/90 px-2 py-1 text-xs text-muted-foreground tabular-nums shadow-sm">
                 노드 {layout.nodes.length.toLocaleString()} · 연결 {layout.edges.length.toLocaleString()}
-                {highlight && ` · 이 장면 ${highlight.size.toLocaleString()}`}
+                {highlight && ` · 강조 ${highlight.size.toLocaleString()}`}
               </p>
             </>
           )}

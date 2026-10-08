@@ -10,6 +10,10 @@ export const IMPORT_FORMAT = 'translation-workbench/v1' as const;
 export const GROUP_KINDS = ['scene', 'document', 'ui'] as const;
 export const UNIT_KINDS = ['dialogue', 'document', 'ui'] as const;
 export const GRAPH_NODE_KINDS = ['script', 'condition', 'wait', 'event', 'state', 'connector', 'unknown'] as const;
+/** Content nodes carry text to translate; control nodes (branches, waits, events…) shape the flow. */
+export const CONTENT_KINDS = new Set<string>(['script', 'scene']);
+export const isContentKind = (kind: string) => CONTENT_KINDS.has(kind);
+
 export const DOCUMENT_KINDS = ['story', 'world', 'style', 'note'] as const;
 
 const key = z.string().min(1).max(512);
@@ -37,10 +41,20 @@ export const importUnitSchema = z.object({
 
 export const importGraphNodeSchema = z.object({
   key,
-  kind: z.enum(GRAPH_NODE_KINDS).default('script'),
+  /** The game's own node class, e.g. "IfElseState". Described once in graph.nodeTypes. */
+  type: z.string().optional(),
+  /** Display category. Defaults to nodeTypes[type].kind, else script (has lines) or unknown. */
+  kind: z.enum(GRAPH_NODE_KINDS).optional(),
   label: z.string().optional(),
   units: z.array(key).default([]),
   meta,
+});
+
+/** What each original node class means, written by the game's converter (not by the workbench). */
+export const nodeTypeSchema = z.object({
+  kind: z.enum(GRAPH_NODE_KINDS),
+  label: z.string().min(1),
+  description: z.string().default(''),
 });
 
 export const importGraphEdgeSchema = z.object({
@@ -89,7 +103,11 @@ export const importFileSchema = z
     groups: z.array(importGroupSchema).min(1),
     units: z.array(importUnitSchema).min(1),
     graph: z
-      .object({ nodes: z.array(importGraphNodeSchema), edges: z.array(importGraphEdgeSchema) })
+      .object({
+        nodeTypes: z.record(z.string(), nodeTypeSchema).default({}),
+        nodes: z.array(importGraphNodeSchema),
+        edges: z.array(importGraphEdgeSchema),
+      })
       .optional(),
     characters: z.array(importCharacterSchema).default([]),
     relationships: z.array(importRelationshipSchema).default([]),
@@ -131,4 +149,6 @@ export const importFileSchema = z
   });
 
 export type ImportFile = z.infer<typeof importFileSchema>;
+export type NodeType = z.infer<typeof nodeTypeSchema>;
+export type GraphNodeKind = (typeof GRAPH_NODE_KINDS)[number];
 export type ImportFileInput = z.input<typeof importFileSchema>;

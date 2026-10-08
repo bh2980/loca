@@ -15,6 +15,13 @@
       "when": 1791494865987,
       "tag": "0001_search",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1791496923910,
+      "tag": "0002_node_types",
+      "breakpoints": true
     }
   ]
 }
