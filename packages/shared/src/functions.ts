@@ -77,7 +77,7 @@ export const scriptParams = z.object({
 export const FUNCTIONS = {
   formatCheck: {
     label: '형식 검사',
-    description: '자리표시자·태그·줄바꿈이 원문과 같은지 검사합니다.',
+    description: '켠 항목(자리표시자·서식 태그·줄바꿈·빈 번역)이 원문과 맞는지 검사합니다. 무엇을 자리표시자·태그로 볼지는 프로젝트 설정의 형식 규칙을 따릅니다.',
     params: formatCheckParams,
     ports: () => pass,
     async: false,

@@ -134,6 +134,10 @@ function WorkflowEditor() {
           return [params.statusId && `→ ${statusName.get(params.statusId as string) ?? '삭제된 상태'}`, params.applyCandidate && '대표 번역 적용'].filter(Boolean).join(' · ') || '변경 없음';
         if (node.config.fn === 'http') return `${(params.method as string) ?? 'POST'} ${connectionName.get(params.connectionId as string) ?? '연결 없음'}/${(params.path as string) ?? ''}`;
         if (node.config.fn === 'script') return `출구: ${((params.ports as string[]) ?? ['out']).join(', ')}`;
+        if (node.config.fn === 'formatCheck') {
+          const checks = [params.placeholders !== false && '자리표시자', params.tags !== false && '서식 태그', params.newlines !== false && '줄바꿈', params.emptyText !== false && '빈 번역'].filter(Boolean);
+          return checks.length ? `검사: ${checks.join('·')}` : '켠 검사 항목 없음 (항상 통과)';
+        }
         return FUNCTIONS[node.config.fn as FunctionName]?.description ?? node.config.fn;
       }
       case 'condition':
