@@ -47,7 +47,7 @@ export function LineDetail({ projectId, unitId, onClose, showScene }: { projectI
         <div className="min-w-0 flex-1">
           <p className="truncate font-mono text-xs text-muted-foreground">{line.key}</p>
           {showScene && (
-            <Link to="/p/$projectId/scenes/$groupId" params={{ projectId, groupId: line.group.id }} search={{ line: line.id }} className="text-sm font-medium hover:underline">
+            <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.group.id, line: line.id }} className="text-sm font-medium hover:underline">
               {line.group.title}
             </Link>
           )}

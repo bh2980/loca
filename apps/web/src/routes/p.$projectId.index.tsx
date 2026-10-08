@@ -32,7 +32,7 @@ function Dashboard() {
           <CardHeader>
             <CardTitle>번역 진행</CardTitle>
             <CardDescription>
-              전체 대사 {total.toLocaleString()}개 · 장면 {project.data?.groupCount.toLocaleString() ?? '–'}개
+              대사 {total.toLocaleString()}개 · 묶음 {project.data?.groupCount.toLocaleString() ?? '–'}개
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -46,7 +46,7 @@ function Dashboard() {
             <ul className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
               {statuses.data?.statuses.map((status) => (
                 <li key={status.id}>
-                  <Link to="/p/$projectId/lines" params={{ projectId }} search={{ status: status.id }} className="flex items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-muted">
+                  <Link to="/p/$projectId/script" params={{ projectId }} search={{ status: status.id }} className="flex items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-muted">
                     <StatusDot color={status.color} />
                     {status.name}
                     <span className="ml-auto tabular-nums text-muted-foreground">{(counts[status.id] ?? 0).toLocaleString()}</span>

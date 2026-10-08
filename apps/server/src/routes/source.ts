@@ -9,6 +9,8 @@ import { computeLayouts } from '../services/layout.ts';
 
 const listQuery = z.object({
   groupId: z.string().optional(),
+  /** Kind of the containing group (scene / document / ui). */
+  kind: z.enum(['scene', 'document', 'ui']).optional(),
   statusId: z.string().optional(),
   tagId: z.string().optional(),
   q: z.string().trim().optional(),
@@ -85,11 +87,12 @@ export const sourceRoutes = new Hono<Env>()
     const query = c.req.valid('query');
     const conditions: SQL[] = [eq(s.units.projectId, projectId)];
     if (query.groupId) conditions.push(eq(s.units.groupId, query.groupId));
+    if (query.kind) conditions.push(eq(s.groups.kind, query.kind));
     if (query.statusId) conditions.push(eq(s.units.statusId, query.statusId));
     if (query.tagId) conditions.push(sql`${s.units.id} in (select unit_id from ${s.unitTags} where tag_id = ${query.tagId})`);
     if (query.q) conditions.push(textFilter(query.q));
     const where = and(...conditions);
-    const total = db.select({ count: count() }).from(s.units).where(where).get()!.count;
+    const total = db.select({ count: count() }).from(s.units).innerJoin(s.groups, eq(s.groups.id, s.units.groupId)).where(where).get()!.count;
     const rows = db
       .select({ ...unitColumns, groupTitle: s.groups.title, origin: s.candidates.origin, model: s.candidates.model })
       .from(s.units)

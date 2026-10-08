@@ -223,7 +223,7 @@ function TermEditor({ projectId, term, onClose }: { projectId: string; term: Ter
         <ul className="max-h-60 space-y-1 overflow-auto">
           {usage.data?.rows.map((row) => (
             <li key={row.id}>
-              <Link to="/p/$projectId/scenes/$groupId" params={{ projectId, groupId: row.groupId }} search={{ line: row.id }} className="block rounded px-2 py-1 text-xs hover:bg-muted">
+              <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: row.groupId, line: row.id }} className="block rounded px-2 py-1 text-xs hover:bg-muted">
                 <span className="text-muted-foreground">{row.groupTitle} · </span>
                 {row.source}
                 {row.translation && <span className="block text-muted-foreground">{row.translation}</span>}

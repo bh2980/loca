@@ -58,7 +58,7 @@ export function DialogueNodeDetail({ projectId, nodeId, onSelect, onClose }: { p
           {data.typeInfo?.description && <p className="rounded-md bg-muted/50 px-3 py-2 text-sm">{data.typeInfo.description}</p>}
           {data.group && (
             <Button variant="outline" size="sm" asChild>
-              <Link to="/p/$projectId/scenes/$groupId" params={{ projectId, groupId: data.group.id }} search={{ line: data.units[0]?.id }}>
+              <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: data.group.id, line: data.units[0]?.id }}>
                 <FileText /> {data.group.title}에서 보기
               </Link>
             </Button>
@@ -112,7 +112,7 @@ export function SceneNodeDetail({ projectId, groupId, onClose }: { projectId: st
         {group.data.description && <p className="text-sm">{group.data.description}</p>}
         <div className="flex flex-col gap-2">
           <Button size="sm" asChild>
-            <Link to="/p/$projectId/scenes/$groupId" params={{ projectId, groupId }}>
+            <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: groupId }}>
               <FileText /> 장면 열기
             </Link>
           </Button>

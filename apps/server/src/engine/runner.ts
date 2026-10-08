@@ -443,6 +443,7 @@ export function selectRunUnits(db: Db, projectId: string, definition: WorkflowDe
   if (statusIds.length && !scope.ignoreStatus) conditions.push(inArray(s.units.statusId, statusIds));
   if (scope.groupIds?.length) conditions.push(inArray(s.units.groupId, scope.groupIds));
   if (scope.unitIds?.length) conditions.push(inArray(s.units.id, scope.unitIds));
+  if (scope.tagIds?.length) conditions.push(inArray(s.units.id, db.select({ id: s.unitTags.unitId }).from(s.unitTags).where(inArray(s.unitTags.tagId, scope.tagIds))));
   return db.select({ id: s.units.id }).from(s.units).where(and(...conditions)).all().map((row) => row.id);
 }
 

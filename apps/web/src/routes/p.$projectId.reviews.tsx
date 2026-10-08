@@ -92,7 +92,7 @@ function Reviews() {
           <div className="min-w-0 flex-1 overflow-auto p-6">
             <div className="mx-auto max-w-3xl space-y-6">
               <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                <Link to="/p/$projectId/scenes/$groupId" params={{ projectId, groupId: current.groupId }} search={{ line: current.unitId }} className="hover:underline">
+                <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: current.groupId, line: current.unitId }} className="hover:underline">
                   {current.groupTitle}
                 </Link>
                 · <span className="font-mono text-xs">{current.key}</span>

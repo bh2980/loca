@@ -9,7 +9,6 @@ import {
   FileText,
   Inbox,
   LayoutDashboard,
-  ListTree,
   Network,
   Plus,
   Settings2,
@@ -113,8 +112,7 @@ export function AppSidebar({ projectId }: { projectId: string }) {
           label="원문"
           projectId={projectId}
           items={[
-            { to: '/p/$projectId/scenes', label: '장면', icon: ListTree },
-            { to: '/p/$projectId/lines', label: '전체 대사', icon: FileText },
+            { to: '/p/$projectId/script', label: '스크립트', icon: FileText },
             { to: '/p/$projectId/graph', label: '그래프', icon: Network },
           ]}
         />

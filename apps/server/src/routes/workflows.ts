@@ -11,7 +11,7 @@ import { runScript } from '../engine/functions/sandbox.ts';
 import { createRun, selectRunUnits } from '../engine/runner.ts';
 import { snapshotProfiles } from '../services/routes.ts';
 
-const scopeSchema = z.object({ groupIds: z.array(z.string()).optional(), unitIds: z.array(z.string()).optional(), ignoreStatus: z.boolean().optional() });
+const scopeSchema = z.object({ groupIds: z.array(z.string()).optional(), unitIds: z.array(z.string()).optional(), tagIds: z.array(z.string()).optional(), ignoreStatus: z.boolean().optional() });
 
 export function workflowIssues(db: Db, projectId: string, definition: WorkflowDefinition) {
   const ids = (rows: { id: string }[]) => new Set(rows.map((row) => row.id));

@@ -40,16 +40,18 @@ export interface LinesSearch {
  * Filterable, server-paginated lines table with the line detail pane beside it.
  * All filter state lives in the URL, so Back/Forward and reload restore it exactly.
  */
-export function LinesView({ projectId, groupId, search, onSearch, showScene }: {
+export function LinesView({ projectId, groupId, kind, search, onSearch, showScene }: {
   projectId: string;
   groupId?: string;
+  /** Only lines in groups of this kind (scene / document / ui). */
+  kind?: 'scene' | 'document' | 'ui';
   search: LinesSearch;
   onSearch: (next: Partial<LinesSearch>, options?: { replace?: boolean }) => void;
   showScene?: boolean;
 }) {
   const statuses = useQuery(q.statuses(projectId));
   const page = search.page ?? 0;
-  const lines = useQuery(q.units(projectId, { groupId, q: search.q, statusId: search.status, tagId: search.tag, offset: page * PAGE_SIZE, limit: PAGE_SIZE }));
+  const lines = useQuery(q.units(projectId, { groupId, kind, q: search.q, statusId: search.status, tagId: search.tag, offset: page * PAGE_SIZE, limit: PAGE_SIZE }));
   const statusById = new Map(statuses.data?.statuses.map((status) => [status.id, status]));
   const tagById = new Map(statuses.data?.tags.map((tag) => [tag.id, tag]));
   const total = lines.data?.total ?? 0;
@@ -69,6 +71,11 @@ export function LinesView({ projectId, groupId, search, onSearch, showScene }: {
   const setStatus = useMutation({
     mutationFn: (statusId: string) => unwrap(client.projects[':projectId'].units.$patch({ param: { projectId }, json: { unitIds: [...picked], statusId } })),
     onSuccess: () => toast.success(`${picked.size}개 대사의 상태를 바꿨습니다.`),
+  });
+  const setTag = useMutation({
+    mutationFn: ({ tagId, add }: { tagId: string; add: boolean }) =>
+      unwrap(client.projects[':projectId'].units.$patch({ param: { projectId }, json: add ? { unitIds: [...picked], addTagIds: [tagId] } : { unitIds: [...picked], removeTagIds: [tagId] } })),
+    onSuccess: (_data, { tagId, add }) => toast.success(`${picked.size}개 대사${add ? '에' : '에서'} #${tagById.get(tagId)?.name} 태그를 ${add ? '붙였습니다' : '뗐습니다'}.`),
   });
 
   useEffect(() => {
@@ -146,6 +153,25 @@ export function LinesView({ projectId, groupId, search, onSearch, showScene }: {
                 ))}
               </SelectContent>
             </Select>
+            {!!statuses.data?.tags.length && (
+              <Select value="" onValueChange={(value) => setTag.mutate({ tagId: value.slice(1), add: value[0] === '+' })}>
+                <SelectTrigger size="sm" className="w-36 bg-background">
+                  <SelectValue placeholder="태그" />
+                </SelectTrigger>
+                <SelectContent>
+                  {statuses.data.tags.map((tag) => (
+                    <SelectItem key={`+${tag.id}`} value={`+${tag.id}`}>
+                      #{tag.name} 붙이기
+                    </SelectItem>
+                  ))}
+                  {statuses.data.tags.map((tag) => (
+                    <SelectItem key={`-${tag.id}`} value={`-${tag.id}`}>
+                      #{tag.name} 떼기
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
             <Button size="sm" variant="ghost" onClick={() => setPicked(new Set())}>
               <X /> 선택 해제
             </Button>
@@ -158,7 +184,7 @@ export function LinesView({ projectId, groupId, search, onSearch, showScene }: {
                 <TableHead className="w-10">
                   <Checkbox aria-label="이 페이지 모두 선택" checked={allOnPage} onCheckedChange={(checked) => toggle(pageIds, Boolean(checked))} />
                 </TableHead>
-                {showScene && <TableHead className="w-40">장면</TableHead>}
+                {showScene && <TableHead className="w-40">묶음</TableHead>}
                 <TableHead className="w-28">화자</TableHead>
                 <TableHead>원문</TableHead>
                 <TableHead>번역</TableHead>

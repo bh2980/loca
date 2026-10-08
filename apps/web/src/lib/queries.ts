@@ -14,7 +14,7 @@ export const q = {
   groups: (projectId: string, query: { kind?: 'scene' | 'document' | 'ui'; q?: string } = {}) =>
     queryOptions({ queryKey: ['units', 'groups', projectId, query], queryFn: () => unwrap(client.projects[':projectId'].groups.$get({ param: { projectId }, query })) }),
   group: (groupId: string) => queryOptions({ queryKey: ['units', 'group', groupId], queryFn: () => unwrap(client.groups[':groupId'].$get({ param: { groupId } })) }),
-  units: (projectId: string, query: { groupId?: string; statusId?: string; tagId?: string; q?: string; offset?: number; limit?: number }) =>
+  units: (projectId: string, query: { groupId?: string; kind?: 'scene' | 'document' | 'ui'; statusId?: string; tagId?: string; q?: string; offset?: number; limit?: number }) =>
     queryOptions({
       queryKey: ['units', 'list', projectId, query],
       queryFn: () =>

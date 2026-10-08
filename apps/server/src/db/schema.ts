@@ -245,6 +245,8 @@ export type RunStatus = 'running' | 'paused' | 'cancelled' | 'completed';
 export interface RunScope {
   groupIds?: string[];
   unitIds?: string[];
+  /** Lines carrying any of these tags. */
+  tagIds?: string[];
   /** Run the picked lines even if their status is not one the entry node accepts. */
   ignoreStatus?: boolean;
 }

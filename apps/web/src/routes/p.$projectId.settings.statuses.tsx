@@ -230,7 +230,12 @@ function StatusSettings() {
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-sm font-semibold">태그</h2>
+          <div>
+            <h2 className="text-sm font-semibold">태그</h2>
+            <p className="text-xs text-muted-foreground">
+              상태와 별개로 대사에 여러 개 붙이는 표시입니다(예: #재검토, #폰트확인). 스크립트에서 골라 붙이거나 상태 변경 노드로 붙이고, 워크플로 실행 범위나 조건에 씁니다.
+            </p>
+          </div>
           <div className="rounded-lg border">
             <Table>
               <TableHeader>

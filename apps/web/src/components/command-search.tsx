@@ -45,7 +45,7 @@ export function CommandSearch({ projectId }: { projectId: string }) {
           {!!scenes.data?.length && (
             <CommandGroup heading="장면">
               {scenes.data.slice(0, 8).map((scene) => (
-                <CommandItem key={scene.id} value={`scene-${scene.id}`} onSelect={() => go(() => void navigate({ to: '/p/$projectId/scenes/$groupId', params: { projectId, groupId: scene.id } }))}>
+                <CommandItem key={scene.id} value={`scene-${scene.id}`} onSelect={() => go(() => void navigate({ to: '/p/$projectId/script', params: { projectId }, search: { group: scene.id } }))}>
                   <ListTree /> <span className="truncate">{scene.title}</span>
                   <span className="ml-auto text-xs text-muted-foreground tabular-nums">{scene.total}줄</span>
                 </CommandItem>
@@ -58,7 +58,7 @@ export function CommandSearch({ projectId }: { projectId: string }) {
                 <CommandItem
                   key={line.id}
                   value={`line-${line.id}`}
-                  onSelect={() => go(() => void navigate({ to: '/p/$projectId/scenes/$groupId', params: { projectId, groupId: line.groupId }, search: { line: line.id } }))}
+                  onSelect={() => go(() => void navigate({ to: '/p/$projectId/script', params: { projectId }, search: { group: line.groupId, line: line.id } }))}
                 >
                   <FileText />
                   <div className="min-w-0">

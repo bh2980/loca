@@ -15,12 +15,10 @@ import { Route as PProjectIdIndexRouteImport } from './routes/p.$projectId.index
 import { Route as PProjectIdGlossaryRouteImport } from './routes/p.$projectId.glossary'
 import { Route as PProjectIdGraphRouteImport } from './routes/p.$projectId.graph'
 import { Route as PProjectIdKnowledgeRouteImport } from './routes/p.$projectId.knowledge'
-import { Route as PProjectIdLinesRouteImport } from './routes/p.$projectId.lines'
 import { Route as PProjectIdReviewsRouteImport } from './routes/p.$projectId.reviews'
+import { Route as PProjectIdScriptRouteImport } from './routes/p.$projectId.script'
 import { Route as PProjectIdRunsIndexRouteImport } from './routes/p.$projectId.runs.index'
 import { Route as PProjectIdRunsRunIdRouteImport } from './routes/p.$projectId.runs.$runId'
-import { Route as PProjectIdScenesIndexRouteImport } from './routes/p.$projectId.scenes.index'
-import { Route as PProjectIdScenesGroupIdRouteImport } from './routes/p.$projectId.scenes.$groupId'
 import { Route as PProjectIdSettingsAiRouteImport } from './routes/p.$projectId.settings.ai'
 import { Route as PProjectIdSettingsProjectRouteImport } from './routes/p.$projectId.settings.project'
 import { Route as PProjectIdSettingsStatusesRouteImport } from './routes/p.$projectId.settings.statuses'
@@ -57,14 +55,14 @@ const PProjectIdKnowledgeRoute = PProjectIdKnowledgeRouteImport.update({
   path: '/knowledge',
   getParentRoute: () => PProjectIdRoute,
 } as any)
-const PProjectIdLinesRoute = PProjectIdLinesRouteImport.update({
-  id: '/lines',
-  path: '/lines',
-  getParentRoute: () => PProjectIdRoute,
-} as any)
 const PProjectIdReviewsRoute = PProjectIdReviewsRouteImport.update({
   id: '/reviews',
   path: '/reviews',
+  getParentRoute: () => PProjectIdRoute,
+} as any)
+const PProjectIdScriptRoute = PProjectIdScriptRouteImport.update({
+  id: '/script',
+  path: '/script',
   getParentRoute: () => PProjectIdRoute,
 } as any)
 const PProjectIdRunsIndexRoute = PProjectIdRunsIndexRouteImport.update({
@@ -75,16 +73,6 @@ const PProjectIdRunsIndexRoute = PProjectIdRunsIndexRouteImport.update({
 const PProjectIdRunsRunIdRoute = PProjectIdRunsRunIdRouteImport.update({
   id: '/runs/$runId',
   path: '/runs/$runId',
-  getParentRoute: () => PProjectIdRoute,
-} as any)
-const PProjectIdScenesIndexRoute = PProjectIdScenesIndexRouteImport.update({
-  id: '/scenes/',
-  path: '/scenes/',
-  getParentRoute: () => PProjectIdRoute,
-} as any)
-const PProjectIdScenesGroupIdRoute = PProjectIdScenesGroupIdRouteImport.update({
-  id: '/scenes/$groupId',
-  path: '/scenes/$groupId',
   getParentRoute: () => PProjectIdRoute,
 } as any)
 const PProjectIdSettingsAiRoute = PProjectIdSettingsAiRouteImport.update({
@@ -123,17 +111,15 @@ export interface FileRoutesByFullPath {
   '/p/$projectId/glossary': typeof PProjectIdGlossaryRoute
   '/p/$projectId/graph': typeof PProjectIdGraphRoute
   '/p/$projectId/knowledge': typeof PProjectIdKnowledgeRoute
-  '/p/$projectId/lines': typeof PProjectIdLinesRoute
   '/p/$projectId/reviews': typeof PProjectIdReviewsRoute
+  '/p/$projectId/script': typeof PProjectIdScriptRoute
   '/p/$projectId/': typeof PProjectIdIndexRoute
   '/p/$projectId/runs/$runId': typeof PProjectIdRunsRunIdRoute
-  '/p/$projectId/scenes/$groupId': typeof PProjectIdScenesGroupIdRoute
   '/p/$projectId/settings/ai': typeof PProjectIdSettingsAiRoute
   '/p/$projectId/settings/project': typeof PProjectIdSettingsProjectRoute
   '/p/$projectId/settings/statuses': typeof PProjectIdSettingsStatusesRoute
   '/p/$projectId/workflows/$workflowId': typeof PProjectIdWorkflowsWorkflowIdRoute
   '/p/$projectId/runs/': typeof PProjectIdRunsIndexRoute
-  '/p/$projectId/scenes/': typeof PProjectIdScenesIndexRoute
   '/p/$projectId/workflows/': typeof PProjectIdWorkflowsIndexRoute
 }
 export interface FileRoutesByTo {
@@ -141,17 +127,15 @@ export interface FileRoutesByTo {
   '/p/$projectId/glossary': typeof PProjectIdGlossaryRoute
   '/p/$projectId/graph': typeof PProjectIdGraphRoute
   '/p/$projectId/knowledge': typeof PProjectIdKnowledgeRoute
-  '/p/$projectId/lines': typeof PProjectIdLinesRoute
   '/p/$projectId/reviews': typeof PProjectIdReviewsRoute
+  '/p/$projectId/script': typeof PProjectIdScriptRoute
   '/p/$projectId': typeof PProjectIdIndexRoute
   '/p/$projectId/runs/$runId': typeof PProjectIdRunsRunIdRoute
-  '/p/$projectId/scenes/$groupId': typeof PProjectIdScenesGroupIdRoute
   '/p/$projectId/settings/ai': typeof PProjectIdSettingsAiRoute
   '/p/$projectId/settings/project': typeof PProjectIdSettingsProjectRoute
   '/p/$projectId/settings/statuses': typeof PProjectIdSettingsStatusesRoute
   '/p/$projectId/workflows/$workflowId': typeof PProjectIdWorkflowsWorkflowIdRoute
   '/p/$projectId/runs': typeof PProjectIdRunsIndexRoute
-  '/p/$projectId/scenes': typeof PProjectIdScenesIndexRoute
   '/p/$projectId/workflows': typeof PProjectIdWorkflowsIndexRoute
 }
 export interface FileRoutesById {
@@ -161,17 +145,15 @@ export interface FileRoutesById {
   '/p/$projectId/glossary': typeof PProjectIdGlossaryRoute
   '/p/$projectId/graph': typeof PProjectIdGraphRoute
   '/p/$projectId/knowledge': typeof PProjectIdKnowledgeRoute
-  '/p/$projectId/lines': typeof PProjectIdLinesRoute
   '/p/$projectId/reviews': typeof PProjectIdReviewsRoute
+  '/p/$projectId/script': typeof PProjectIdScriptRoute
   '/p/$projectId/': typeof PProjectIdIndexRoute
   '/p/$projectId/runs/$runId': typeof PProjectIdRunsRunIdRoute
-  '/p/$projectId/scenes/$groupId': typeof PProjectIdScenesGroupIdRoute
   '/p/$projectId/settings/ai': typeof PProjectIdSettingsAiRoute
   '/p/$projectId/settings/project': typeof PProjectIdSettingsProjectRoute
   '/p/$projectId/settings/statuses': typeof PProjectIdSettingsStatusesRoute
   '/p/$projectId/workflows/$workflowId': typeof PProjectIdWorkflowsWorkflowIdRoute
   '/p/$projectId/runs/': typeof PProjectIdRunsIndexRoute
-  '/p/$projectId/scenes/': typeof PProjectIdScenesIndexRoute
   '/p/$projectId/workflows/': typeof PProjectIdWorkflowsIndexRoute
 }
 export interface FileRouteTypes {
@@ -182,17 +164,15 @@ export interface FileRouteTypes {
     | '/p/$projectId/glossary'
     | '/p/$projectId/graph'
     | '/p/$projectId/knowledge'
-    | '/p/$projectId/lines'
     | '/p/$projectId/reviews'
+    | '/p/$projectId/script'
     | '/p/$projectId/'
     | '/p/$projectId/runs/$runId'
-    | '/p/$projectId/scenes/$groupId'
     | '/p/$projectId/settings/ai'
     | '/p/$projectId/settings/project'
     | '/p/$projectId/settings/statuses'
     | '/p/$projectId/workflows/$workflowId'
     | '/p/$projectId/runs/'
-    | '/p/$projectId/scenes/'
     | '/p/$projectId/workflows/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -200,17 +180,15 @@ export interface FileRouteTypes {
     | '/p/$projectId/glossary'
     | '/p/$projectId/graph'
     | '/p/$projectId/knowledge'
-    | '/p/$projectId/lines'
     | '/p/$projectId/reviews'
+    | '/p/$projectId/script'
     | '/p/$projectId'
     | '/p/$projectId/runs/$runId'
-    | '/p/$projectId/scenes/$groupId'
     | '/p/$projectId/settings/ai'
     | '/p/$projectId/settings/project'
     | '/p/$projectId/settings/statuses'
     | '/p/$projectId/workflows/$workflowId'
     | '/p/$projectId/runs'
-    | '/p/$projectId/scenes'
     | '/p/$projectId/workflows'
   id:
     | '__root__'
@@ -219,17 +197,15 @@ export interface FileRouteTypes {
     | '/p/$projectId/glossary'
     | '/p/$projectId/graph'
     | '/p/$projectId/knowledge'
-    | '/p/$projectId/lines'
     | '/p/$projectId/reviews'
+    | '/p/$projectId/script'
     | '/p/$projectId/'
     | '/p/$projectId/runs/$runId'
-    | '/p/$projectId/scenes/$groupId'
     | '/p/$projectId/settings/ai'
     | '/p/$projectId/settings/project'
     | '/p/$projectId/settings/statuses'
     | '/p/$projectId/workflows/$workflowId'
     | '/p/$projectId/runs/'
-    | '/p/$projectId/scenes/'
     | '/p/$projectId/workflows/'
   fileRoutesById: FileRoutesById
 }
@@ -282,18 +258,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PProjectIdKnowledgeRouteImport
       parentRoute: typeof PProjectIdRoute
     }
-    '/p/$projectId/lines': {
-      id: '/p/$projectId/lines'
-      path: '/lines'
-      fullPath: '/p/$projectId/lines'
-      preLoaderRoute: typeof PProjectIdLinesRouteImport
-      parentRoute: typeof PProjectIdRoute
-    }
     '/p/$projectId/reviews': {
       id: '/p/$projectId/reviews'
       path: '/reviews'
       fullPath: '/p/$projectId/reviews'
       preLoaderRoute: typeof PProjectIdReviewsRouteImport
+      parentRoute: typeof PProjectIdRoute
+    }
+    '/p/$projectId/script': {
+      id: '/p/$projectId/script'
+      path: '/script'
+      fullPath: '/p/$projectId/script'
+      preLoaderRoute: typeof PProjectIdScriptRouteImport
       parentRoute: typeof PProjectIdRoute
     }
     '/p/$projectId/runs/': {
@@ -308,20 +284,6 @@ declare module '@tanstack/react-router' {
       path: '/runs/$runId'
       fullPath: '/p/$projectId/runs/$runId'
       preLoaderRoute: typeof PProjectIdRunsRunIdRouteImport
-      parentRoute: typeof PProjectIdRoute
-    }
-    '/p/$projectId/scenes/': {
-      id: '/p/$projectId/scenes/'
-      path: '/scenes'
-      fullPath: '/p/$projectId/scenes/'
-      preLoaderRoute: typeof PProjectIdScenesIndexRouteImport
-      parentRoute: typeof PProjectIdRoute
-    }
-    '/p/$projectId/scenes/$groupId': {
-      id: '/p/$projectId/scenes/$groupId'
-      path: '/scenes/$groupId'
-      fullPath: '/p/$projectId/scenes/$groupId'
-      preLoaderRoute: typeof PProjectIdScenesGroupIdRouteImport
       parentRoute: typeof PProjectIdRoute
     }
     '/p/$projectId/settings/ai': {
@@ -366,17 +328,15 @@ interface PProjectIdRouteChildren {
   PProjectIdGlossaryRoute: typeof PProjectIdGlossaryRoute
   PProjectIdGraphRoute: typeof PProjectIdGraphRoute
   PProjectIdKnowledgeRoute: typeof PProjectIdKnowledgeRoute
-  PProjectIdLinesRoute: typeof PProjectIdLinesRoute
   PProjectIdReviewsRoute: typeof PProjectIdReviewsRoute
+  PProjectIdScriptRoute: typeof PProjectIdScriptRoute
   PProjectIdIndexRoute: typeof PProjectIdIndexRoute
   PProjectIdRunsRunIdRoute: typeof PProjectIdRunsRunIdRoute
-  PProjectIdScenesGroupIdRoute: typeof PProjectIdScenesGroupIdRoute
   PProjectIdSettingsAiRoute: typeof PProjectIdSettingsAiRoute
   PProjectIdSettingsProjectRoute: typeof PProjectIdSettingsProjectRoute
   PProjectIdSettingsStatusesRoute: typeof PProjectIdSettingsStatusesRoute
   PProjectIdWorkflowsWorkflowIdRoute: typeof PProjectIdWorkflowsWorkflowIdRoute
   PProjectIdRunsIndexRoute: typeof PProjectIdRunsIndexRoute
-  PProjectIdScenesIndexRoute: typeof PProjectIdScenesIndexRoute
   PProjectIdWorkflowsIndexRoute: typeof PProjectIdWorkflowsIndexRoute
 }
 
@@ -384,17 +344,15 @@ const PProjectIdRouteChildren: PProjectIdRouteChildren = {
   PProjectIdGlossaryRoute: PProjectIdGlossaryRoute,
   PProjectIdGraphRoute: PProjectIdGraphRoute,
   PProjectIdKnowledgeRoute: PProjectIdKnowledgeRoute,
-  PProjectIdLinesRoute: PProjectIdLinesRoute,
   PProjectIdReviewsRoute: PProjectIdReviewsRoute,
+  PProjectIdScriptRoute: PProjectIdScriptRoute,
   PProjectIdIndexRoute: PProjectIdIndexRoute,
   PProjectIdRunsRunIdRoute: PProjectIdRunsRunIdRoute,
-  PProjectIdScenesGroupIdRoute: PProjectIdScenesGroupIdRoute,
   PProjectIdSettingsAiRoute: PProjectIdSettingsAiRoute,
   PProjectIdSettingsProjectRoute: PProjectIdSettingsProjectRoute,
   PProjectIdSettingsStatusesRoute: PProjectIdSettingsStatusesRoute,
   PProjectIdWorkflowsWorkflowIdRoute: PProjectIdWorkflowsWorkflowIdRoute,
   PProjectIdRunsIndexRoute: PProjectIdRunsIndexRoute,
-  PProjectIdScenesIndexRoute: PProjectIdScenesIndexRoute,
   PProjectIdWorkflowsIndexRoute: PProjectIdWorkflowsIndexRoute,
 }
 

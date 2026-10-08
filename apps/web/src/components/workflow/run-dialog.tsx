@@ -12,10 +12,10 @@ import { Spinner } from '@/components/ui/spinner';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 
-type Mode = 'all' | 'groups' | 'units';
+type Mode = 'all' | 'groups' | 'units' | 'tags';
 
 /**
- * Start a workflow on the whole project, chosen scenes, or picked lines. The count shown is
+ * Start a workflow on the whole project, chosen groups, tagged lines, or picked lines. The count shown is
  * exactly what will run: scope ∩ entry statuses (unless the user chooses to ignore statuses).
  * Without a selection no scope is preselected: running the whole project is always a deliberate choice.
  */
@@ -36,6 +36,9 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
   const initialMode: Mode | undefined = unitIds?.length ? 'units' : groupIds?.length ? 'groups' : undefined;
   const [mode, setMode] = useState<Mode | undefined>(initialMode);
   const [picked, setPicked] = useState<Set<string>>(new Set(groupIds));
+  const [pickedTags, setPickedTags] = useState<Set<string>>(new Set());
+  const statuses = useQuery({ ...q.statuses(projectId), enabled: open });
+  const tags = statuses.data?.tags ?? [];
   const [filter, setFilter] = useState('');
   const [ignoreStatus, setIgnoreStatus] = useState(defaultIgnoreStatus);
   const workflows = useQuery({ ...q.workflows(projectId), enabled: open && !fixedWorkflowId });
@@ -43,8 +46,9 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
   const workflowId = fixedWorkflowId ?? chosen ?? workflows.data?.find((workflow) => !workflow.errorCount)?.id;
   const groups = useQuery({ ...q.groups(projectId), enabled: open && mode === 'groups' });
 
-  const scope = mode === 'units' ? { unitIds, ignoreStatus } : mode === 'groups' ? { groupIds: [...picked], ignoreStatus } : {};
-  const ready = mode === 'all' || (mode === 'groups' && picked.size > 0) || mode === 'units';
+  const scope =
+    mode === 'units' ? { unitIds, ignoreStatus } : mode === 'groups' ? { groupIds: [...picked], ignoreStatus } : mode === 'tags' ? { tagIds: [...pickedTags], ignoreStatus } : {};
+  const ready = mode === 'all' || mode === 'units' || (mode === 'groups' && picked.size > 0) || (mode === 'tags' && pickedTags.size > 0);
   const preview = useQuery({
     queryKey: ['units', 'run-preview', workflowId, scope],
     queryFn: () => unwrap(client.workflows[':id'].preview.$post({ param: { id: workflowId! }, json: scope })),
@@ -107,8 +111,13 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
             </label>
           ) : null}
           <label className="flex items-center gap-2 text-sm">
-            <RadioGroupItem value="groups" /> 장면 선택{groupIds?.length && mode === 'groups' ? ` (${picked.size}개)` : ''}
+            <RadioGroupItem value="groups" /> 장면·묶음 선택{groupIds?.length && mode === 'groups' ? ` (${picked.size}개)` : ''}
           </label>
+          {tags.length > 0 && (
+            <label className="flex items-center gap-2 text-sm">
+              <RadioGroupItem value="tags" /> 태그가 붙은 대사
+            </label>
+          )}
           <label className="flex items-center gap-2 text-sm">
             <RadioGroupItem value="all" /> 프로젝트 전체
           </label>
@@ -118,7 +127,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
           <div className="rounded-md border">
             <div className="flex items-center gap-2 border-b px-2">
               <Search className="size-4 text-muted-foreground" />
-              <Input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="장면 찾기" className="h-9 border-0 shadow-none focus-visible:ring-0" />
+              <Input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="장면·묶음 찾기" className="h-9 border-0 shadow-none focus-visible:ring-0" />
               <span className="shrink-0 text-xs text-muted-foreground">{picked.size}개 선택</span>
             </div>
             <ul className="max-h-60 overflow-auto p-1">
@@ -142,6 +151,27 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
                 </li>
               ))}
             </ul>
+          </div>
+        )}
+
+        {mode === 'tags' && (
+          <div className="flex flex-wrap gap-2 rounded-md border p-2">
+            {tags.map((tag) => (
+              <label key={tag.id} className="flex items-center gap-1.5 rounded px-2 py-1 text-sm hover:bg-muted">
+                <Checkbox
+                  checked={pickedTags.has(tag.id)}
+                  onCheckedChange={(checked) =>
+                    setPickedTags((previous) => {
+                      const next = new Set(previous);
+                      if (checked) next.add(tag.id);
+                      else next.delete(tag.id);
+                      return next;
+                    })
+                  }
+                />
+                #{tag.name} <span className="text-xs text-muted-foreground tabular-nums">{tag.units}</span>
+              </label>
+            ))}
           </div>
         )}
 
