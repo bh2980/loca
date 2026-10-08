@@ -67,6 +67,13 @@ function RunDetail() {
   return (
     <Page
       title={`${data.workflowName} v${data.workflowVersion}`}
+      back={
+        <Button variant="ghost" size="sm" asChild>
+          <Link to="/p/$projectId/runs" params={{ projectId }}>
+            <ChevronLeft /> 실행 기록
+          </Link>
+        </Button>
+      }
       meta={`${new Date(data.createdAt).toLocaleString()} 시작 · 프로필 ${data.profiles.map((profile) => `${profile.name}(${profile.models.join(' → ')})`).join(', ') || '없음'}`}
       actions={
         <>

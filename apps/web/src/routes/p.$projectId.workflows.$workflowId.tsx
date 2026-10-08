@@ -263,6 +263,13 @@ function WorkflowEditor() {
   return (
     <Page
       title={current.name || '워크플로'}
+      back={
+        <Button variant="ghost" size="sm" asChild>
+          <Link to="/p/$projectId/workflows" params={{ projectId }}>
+            <ChevronLeft /> 워크플로 목록
+          </Link>
+        </Button>
+      }
       meta={
         <span className="flex items-center gap-2">
           <Input
@@ -278,11 +285,6 @@ function WorkflowEditor() {
       }
       actions={
         <>
-          <Button variant="ghost" size="sm" asChild>
-            <Link to="/p/$projectId/workflows" params={{ projectId }}>
-              <ChevronLeft /> 목록
-            </Link>
-          </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm">

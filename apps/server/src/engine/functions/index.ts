@@ -99,7 +99,9 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
       const key = term.source?.trim();
       if (!key || existing.has(key.toLowerCase())) continue;
       existing.add(key.toLowerCase());
-      tx.insert(s.terms).values({ projectId: input.projectId, source: key, target: term.target?.trim() ?? '', note: term.note ?? '', status: 'candidate', origin: `run:${input.runId}` }).run();
+      tx.insert(s.terms)
+        .values({ projectId: input.projectId, source: key, target: term.target?.trim() ?? '', note: term.note ?? '', status: params.autoConfirm ? 'confirmed' : 'candidate', origin: `run:${input.runId}` })
+        .run();
       added++;
     }
     return { port: 'out', output: { added } };

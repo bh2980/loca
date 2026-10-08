@@ -198,7 +198,7 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
     }
     if (node.type === 'ai') {
       if (!refs.profileIds.has(node.config.profileId))
-        error(node.config.profileId ? '삭제된 AI 프로필입니다.' : 'AI 프로필을 선택하세요.', { nodeId: node.id });
+        error(node.config.profileId ? '삭제된 모델 프로필입니다.' : '모델 프로필을 선택하세요.', { nodeId: node.id });
       if (node.config.output === 'json' && !node.config.fields.length) error('자유 형식 출력에는 필드가 하나 이상 필요합니다.', { nodeId: node.id });
     }
     if (node.type === 'entry')

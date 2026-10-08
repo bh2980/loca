@@ -54,9 +54,9 @@ function AiSettings() {
         className="gap-3"
       >
         <TabsList>
-          <TabsTrigger value="connections">AI 연결</TabsTrigger>
           <TabsTrigger value="tools">도구 연결</TabsTrigger>
-          <TabsTrigger value="profiles">AI 프로필</TabsTrigger>
+          <TabsTrigger value="connections">AI 연결</TabsTrigger>
+          <TabsTrigger value="profiles">모델 프로필</TabsTrigger>
         </TabsList>
       </Tabs>
       {tab === 'connections' ? <ConnectionsTab /> : tab === 'tools' ? <ToolsTab /> : <ProfilesTab />}
@@ -650,11 +650,15 @@ function ProfilesTab() {
     <Split
       list={
         <>
+          <p className="mb-3 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+            모델 프로필은 <b className="text-foreground">어떤 모델을 어떻게 부를지</b>(AI 연결·모델·추론 수준·한도·대체 경로·공통 지시문)를 묶어 둔 것입니다. 워크플로의 AI 노드와 에이전트 채팅이 이름으로 골라
+            씁니다. <b className="text-foreground">무엇을 시킬지</b>(번역·검수 지시, 출력 형태, 문맥)는 각 AI 노드에서 정합니다.
+          </p>
           <div className="mb-3 flex items-center justify-between">
             <span className="text-sm text-muted-foreground tabular-nums">{profiles.data?.length ?? '–'}개</span>
             <Button size="sm" disabled={!connections.data?.length} onClick={() => void navigate({ search: (previous) => ({ ...previous, profile: 'new' }) })}>
               <Plus />
-              새 프로필
+              새 모델 프로필
             </Button>
           </div>
           <div className="rounded-lg border">
@@ -777,7 +781,7 @@ function ProfileForm({ profile, onClose }: { profile?: ProfileRow; onClose: () =
 
   return (
     <div>
-      <PaneHeader title={profile ? profile.name : '새 프로필'} onClose={onClose} />
+      <PaneHeader title={profile ? profile.name : '새 모델 프로필'} onClose={onClose} />
       {connection && (
         <p className="mb-4 text-sm text-muted-foreground">
           <UsageBadge kind={connection.kind} />{' '}
@@ -854,9 +858,9 @@ function ProfileForm({ profile, onClose }: { profile?: ProfileRow; onClose: () =
             </Field>
           )}
           <Field>
-            <FieldLabel htmlFor="p-instr">지시문</FieldLabel>
-            <Textarea id="p-instr" rows={5} {...form.register('instructions')} />
-            <FieldDescription>모든 AI 호출에 덧붙습니다.</FieldDescription>
+            <FieldLabel htmlFor="p-instr">공통 지시문 (선택)</FieldLabel>
+            <Textarea id="p-instr" rows={5} {...form.register('instructions')} placeholder="예: 반말 위주의 게임입니다. 고유명사는 용어집을 따르세요." />
+            <FieldDescription>이 프로필로 하는 모든 호출에 덧붙습니다. 단계별 지시는 AI 노드에 씁니다.</FieldDescription>
           </Field>
           <div className="grid grid-cols-2 gap-3">
             <Field data-invalid={!!errors.temperature}>

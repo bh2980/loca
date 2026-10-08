@@ -131,7 +131,7 @@ export function AppSidebar({ projectId }: { projectId: string }) {
           label="문맥"
           projectId={projectId}
           items={[
-            { to: '/p/$projectId/knowledge', label: '작품 자료', icon: BookOpenText },
+            { to: '/p/$projectId/knowledge', label: '자료', icon: BookOpenText },
             { to: '/p/$projectId/glossary', label: '용어집', icon: BookMarked },
           ]}
         />

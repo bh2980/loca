@@ -18,7 +18,7 @@ type Mode = 'all' | 'groups' | 'units';
  * Start a workflow on the whole project, chosen scenes, or picked lines. The count shown is
  * exactly what will run: scope ∩ entry statuses (unless the user chooses to ignore statuses).
  */
-export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, unitIds, dirty, disabled, trigger }: {
+export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, unitIds, dirty, disabled, trigger, defaultIgnoreStatus = false }: {
   projectId: string;
   /** Omit to let the user pick a workflow (when starting from a scene or a line selection). */
   workflowId?: string;
@@ -27,6 +27,8 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
   dirty?: boolean;
   disabled?: boolean;
   trigger?: ReactNode;
+  /** Start with the entry-status check off (re-running lines that are already done). */
+  defaultIgnoreStatus?: boolean;
 }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
@@ -34,7 +36,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
   const [mode, setMode] = useState<Mode>(initialMode);
   const [picked, setPicked] = useState<Set<string>>(new Set(groupIds));
   const [filter, setFilter] = useState('');
-  const [ignoreStatus, setIgnoreStatus] = useState(false);
+  const [ignoreStatus, setIgnoreStatus] = useState(defaultIgnoreStatus);
   const workflows = useQuery({ ...q.workflows(projectId), enabled: open && !fixedWorkflowId });
   const [chosen, setChosen] = useState<string>();
   const workflowId = fixedWorkflowId ?? chosen ?? workflows.data?.find((workflow) => !workflow.errorCount)?.id;

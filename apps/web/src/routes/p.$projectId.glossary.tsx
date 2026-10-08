@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, Link } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Plus, Search, Trash2, X } from 'lucide-react';
+import { Play, Plus, Search, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Page } from '@/components/page';
+import { RunDialog } from '@/components/workflow/run-dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -180,6 +181,8 @@ function TermEditor({ projectId, term, onClose }: { projectId: string; term: Ter
     onError: (error) => toast.error(error.message),
   });
 
+  const usage = useQuery(q.termUsage(projectId, term.id));
+
   return (
     <div className="flex flex-col gap-4 p-4">
       <div className="flex items-center justify-between">
@@ -200,6 +203,35 @@ function TermEditor({ projectId, term, onClose }: { projectId: string; term: Ter
         <Label htmlFor="term-note">메모</Label>
         <Textarea id="term-note" rows={4} value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} />
       </div>
+      <section className="space-y-2 border-t pt-4">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-xs font-medium text-muted-foreground">이 용어가 나오는 대사 {usage.data?.count ?? '…'}개</h3>
+          {!!usage.data?.count && (
+            <RunDialog
+              projectId={projectId}
+              unitIds={usage.data.unitIds}
+              defaultIgnoreStatus
+              trigger={
+                <Button size="sm" variant="outline">
+                  <Play /> 다시 실행
+                </Button>
+              }
+            />
+          )}
+        </div>
+        <p className="text-[11px] text-muted-foreground">번역이나 메모를 바꿨다면 이 대사들을 워크플로로 다시 돌려 새 용어를 반영하세요.</p>
+        <ul className="max-h-60 space-y-1 overflow-auto">
+          {usage.data?.rows.map((row) => (
+            <li key={row.id}>
+              <Link to="/p/$projectId/scenes/$groupId" params={{ projectId, groupId: row.groupId }} search={{ line: row.id }} className="block rounded px-2 py-1 text-xs hover:bg-muted">
+                <span className="text-muted-foreground">{row.groupTitle} · </span>
+                {row.source}
+                {row.translation && <span className="block text-muted-foreground">{row.translation}</span>}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </section>
       <div className="flex items-center justify-between">
         <AlertDialog>
           <AlertDialogTrigger asChild>

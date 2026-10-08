@@ -24,14 +24,16 @@ function SceneDetail() {
   return (
     <Page
       title={group.data?.title ?? '장면'}
+      back={
+        <Button variant="ghost" size="sm" asChild>
+          <Link to="/p/$projectId/scenes" params={{ projectId }}>
+            <ChevronLeft /> 장면 목록
+          </Link>
+        </Button>
+      }
       meta={group.data && [GROUP_KIND[group.data.kind], group.data.key, group.data.description].filter(Boolean).join(' · ')}
       actions={
         <>
-          <Button variant="ghost" size="sm" asChild>
-            <Link to="/p/$projectId/scenes" params={{ projectId }}>
-              <ChevronLeft /> 장면 목록
-            </Link>
-          </Button>
           <RunDialog
             projectId={projectId}
             groupIds={[groupId]}

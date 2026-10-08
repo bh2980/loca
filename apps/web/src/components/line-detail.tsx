@@ -101,7 +101,15 @@ export function LineDetail({ projectId, unitId, onClose, showScene }: { projectI
                 <Button size="sm" variant="ghost" onClick={clearDraft}>
                   되돌리기
                 </Button>
-                <Button size="sm" disabled={patch.isPending} onClick={() => patch.mutate({ translation: draft })}>
+                <Button
+                  size="sm"
+                  disabled={patch.isPending}
+                  onClick={() => {
+                    // Saving the exact text of an existing candidate selects it instead of duplicating it.
+                    const same = line.candidates.find((candidate) => candidate.text === draft);
+                    patch.mutate(same ? { candidateId: same.id } : { translation: draft }, { onSuccess: clearDraft });
+                  }}
+                >
                   <Check /> 저장
                 </Button>
               </div>
@@ -112,19 +120,19 @@ export function LineDetail({ projectId, unitId, onClose, showScene }: { projectI
             <h3 className="mb-2 text-xs font-medium text-muted-foreground">후보 {line.candidates.length}개</h3>
             <ul className="space-y-2">
               {line.candidates.map((candidate) => {
-                const selected = candidate.id === line.candidateId;
+                const current = candidate.text === (line.translation ?? null);
+                const inEditor = dirty && candidate.text === draft;
                 return (
-                  <li key={candidate.id} className={cn('rounded-md border p-2.5 text-sm', selected && 'border-foreground/30 bg-muted/40')}>
+                  <li key={candidate.id} className={cn('rounded-md border p-2.5 text-sm', current && 'border-foreground/30 bg-muted/40')}>
                     <p className="whitespace-pre-wrap">{candidate.text}</p>
                     <div className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground">
                       <Badge variant="outline" className="px-1.5 py-0 text-[11px]">{ORIGIN[candidate.origin]}</Badge>
                       {candidate.model && <span>{candidate.model}</span>}
                       <span>{new Date(candidate.createdAt).toLocaleString()}</span>
-                      {selected ? (
-                        <span className="ml-auto font-medium text-foreground">대표</span>
-                      ) : (
-                        <Button size="sm" variant="ghost" className="ml-auto h-6 px-2 text-xs" onClick={() => patch.mutate({ candidateId: candidate.id })}>
-                          대표로
+                      {current && <span className="ml-auto font-medium text-foreground">현재 번역</span>}
+                      {!current && (
+                        <Button size="sm" variant="ghost" className="ml-auto h-6 px-2 text-xs" disabled={inEditor} onClick={() => setDraft(candidate.text)}>
+                          {inEditor ? '편집기에 있음' : '편집기에 넣기'}
                         </Button>
                       )}
                     </div>
@@ -144,7 +152,7 @@ export function LineDetail({ projectId, unitId, onClose, showScene }: { projectI
                     <Link to="/p/$projectId/runs/$runId" params={{ projectId, runId: item.runId }} className="truncate hover:underline">
                       {item.workflowName}
                     </Link>
-                    <span className="text-xs text-muted-foreground">{STATE[item.state]}</span>
+                    <span className="shrink-0 text-xs whitespace-nowrap text-muted-foreground">{STATE[item.state]}</span>
                     {!!item.data.issues?.length && <span className="truncate text-xs text-amber-600">{item.data.issues[0]}</span>}
                     {item.error && <span className="truncate text-xs text-destructive">{item.error}</span>}
                   </li>

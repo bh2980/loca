@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
+import { mentions } from '../services/context.ts';
 import { z } from 'zod';
 import { DOCUMENT_KINDS, patchOf } from '@tw/shared';
 import { found, validate, type Env } from '../context.ts';
@@ -22,6 +23,22 @@ const byProject = <T extends typeof s.terms | typeof s.documents | typeof s.char
 
 export const knowledgeRoutes = new Hono<Env>()
   .get('/terms', (c) => c.json(c.var.deps.db.select().from(s.terms).where(eq(s.terms.projectId, c.req.param('projectId')!)).orderBy(asc(s.terms.source)).all()))
+  /** Lines whose source mentions the term (whole word, case-insensitive): what to re-run after changing it. */
+  .get('/terms/:id/usage', (c) => {
+    const { db } = c.var.deps;
+    const projectId = c.req.param('projectId')!;
+    const term = found(db.select().from(s.terms).where(byProject(s.terms, c.req.param('id'), projectId)).get(), '용어');
+    const pattern = `%${term.source.replace(/[%_\\]/g, (char) => `\\${char}`)}%`;
+    const rows = db
+      .select({ id: s.units.id, key: s.units.key, groupId: s.units.groupId, groupTitle: s.groups.title, speaker: s.units.speaker, source: s.units.source, translation: s.units.translation })
+      .from(s.units)
+      .innerJoin(s.groups, eq(s.groups.id, s.units.groupId))
+      .where(and(eq(s.units.projectId, projectId), sql`${s.units.source} like ${pattern} escape '\\'`))
+      .orderBy(asc(s.groups.sort), asc(s.units.sort))
+      .all()
+      .filter((row) => mentions(row.source, term.source));
+    return c.json({ count: rows.length, unitIds: rows.map((row) => row.id), rows: rows.slice(0, 100) });
+  })
   .post('/terms', validate('json', termInput), (c) => {
     const projectId = c.req.param('projectId')!;
     const row = c.var.deps.db.insert(s.terms).values({ ...c.req.valid('json'), projectId }).returning().get();

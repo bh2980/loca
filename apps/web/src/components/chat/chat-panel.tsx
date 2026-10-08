@@ -241,13 +241,13 @@ function ChatBody({ sessionId, initial, profileId, profiles, onProfile }: {
               send();
             }
           }}
-          placeholder={profileId ? '메시지 (Enter 전송, Shift+Enter 줄바꿈)' : '먼저 아래에서 채팅용 AI 프로필을 고르세요'}
+          placeholder={profileId ? '메시지 (Enter 전송, Shift+Enter 줄바꿈)' : '먼저 아래에서 채팅용 모델 프로필을 고르세요'}
           className="max-h-48 min-h-16 resize-none border-0 bg-transparent px-1 shadow-none focus-visible:ring-0"
         />
         <div className="flex items-center gap-2">
           <Select value={profileId ?? undefined} onValueChange={(value) => void onProfile(value)}>
             <SelectTrigger size="sm" className="h-7 max-w-52 border-0 bg-muted text-xs shadow-none">
-              <SelectValue placeholder={profiles.length ? 'AI 프로필' : '채팅 가능한 프로필 없음'} />
+              <SelectValue placeholder={profiles.length ? '모델 프로필' : '채팅 가능한 프로필 없음'} />
             </SelectTrigger>
             <SelectContent>
               {profiles.map((profile) => (

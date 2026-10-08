@@ -40,6 +40,8 @@ export const setStatusParams = z.object({
 export const addTermsParams = z.object({
   /** AI node whose "terms" output to add. Empty = the most recent terms output on the line. */
   fromNodeId: z.string().default(''),
+  /** Add straight into the confirmed glossary (used as AI context right away) instead of as candidates. */
+  autoConfirm: z.boolean().default(false),
 });
 
 export const httpParams = z.object({
@@ -96,7 +98,7 @@ export const FUNCTIONS = {
   },
   addTerms: {
     label: '용어 후보 추가',
-    description: 'AI 노드가 뽑은 용어를 용어집에 후보로 추가합니다. 용어집에서 수락해야 문맥에 쓰입니다.',
+    description: 'AI 노드가 뽑은 용어를 용어집에 추가합니다. 기본은 후보(수락 후 문맥에 쓰임), 자동 확정을 켜면 바로 쓰입니다.',
     params: addTermsParams,
     ports: () => out,
     async: false,

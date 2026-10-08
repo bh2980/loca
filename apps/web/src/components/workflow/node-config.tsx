@@ -23,6 +23,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
+import { Link } from '@tanstack/react-router';
 import { client, unwrap } from '@/lib/api';
 import { nodeIcon } from './node-view';
 
@@ -34,7 +35,7 @@ export interface NodeRefs {
   projectId: string;
   statuses: { id: string; name: string; color: string }[];
   tags: { id: string; name: string; color: string }[];
-  profiles: { id: string; name: string; model: string; connectionId: string }[];
+  profiles: { id: string; name: string; model: string; connectionId: string; effort?: string | null; fallbacks?: unknown[]; instructions?: string }[];
   connections: { id: string; name: string; kind: keyof typeof CONNECTION_KIND_INFO; baseUrl: string | null }[];
   nodes: WorkflowNode[];
 }
@@ -191,7 +192,30 @@ function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRefs; onCh
           </div>
         </Field>
       )}
-      <Field label="AI 프로필" hint={config.output === 'verdict' ? '생성형 모델 또는 System One(판정)을 쓸 수 있습니다.' : undefined}>
+      <Field
+        label="모델 프로필"
+        hint={
+          <>
+            {(() => {
+              const profile = refs.profiles.find((item) => item.id === config.profileId);
+              const connection = refs.connections.find((item) => item.id === profile?.connectionId);
+              return profile ? (
+                <span className="block">
+                  {connection?.name ?? '연결 없음'} · {profile.model}
+                  {profile.effort && ` · 추론 ${profile.effort}`}
+                  {!!profile.fallbacks?.length && ` · 대체 ${profile.fallbacks.length}개`}
+                  {profile.instructions && ' · 공통 지시문 있음'}
+                </span>
+              ) : null;
+            })()}
+            어떤 모델을 쓸지는 프로필에서, 무엇을 시킬지는 아래 지시문에서 정합니다.{' '}
+            <Link to="/p/$projectId/settings/ai" params={{ projectId: refs.projectId }} search={{ tab: 'profiles', profile: config.profileId || undefined }} className="underline">
+              프로필 관리
+            </Link>
+            {config.output === 'verdict' && ' · 판정에는 System One도 쓸 수 있습니다.'}
+          </>
+        }
+      >
         <Select value={config.profileId || undefined} onValueChange={(value) => set({ profileId: value })}>
           <SelectTrigger className="w-full">
             <SelectValue placeholder="프로필 선택" />
@@ -205,7 +229,7 @@ function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRefs; onCh
           </SelectContent>
         </Select>
       </Field>
-      <Field label="지시문" hint="이 노드가 할 일. 프로필 지시문은 그 뒤에 덧붙습니다.">
+      <Field label="지시문 (이 단계에서 할 일)" hint="프로필의 공통 지시문은 뒤에 덧붙습니다.">
         <Textarea value={config.instructions} onChange={(event) => set({ instructions: event.target.value })} className="min-h-32 text-xs" />
       </Field>
       <div className="space-y-2.5">
@@ -282,7 +306,8 @@ function FunctionConfig({ node, refs, readOnly, onChange }: { node: FunctionNode
     case 'addTerms': {
       const sources = refs.nodes.filter((other) => other.type === 'ai' && other.config.output === 'terms');
       return (
-        <Field label="용어를 가져올 AI 노드" hint="추가된 용어는 '후보' 상태입니다. 용어집에서 수락해야 다른 번역의 문맥에 쓰입니다. 이미 있는 원문은 건너뜁니다.">
+        <>
+        <Field label="용어를 가져올 AI 노드" hint="이미 용어집에 있는 원문은 건너뜁니다.">
           <Select value={(params.fromNodeId as string) || 'latest'} onValueChange={(value) => set('fromNodeId', value === 'latest' ? '' : value)}>
             <SelectTrigger className="w-full">
               <SelectValue />
@@ -297,6 +322,11 @@ function FunctionConfig({ node, refs, readOnly, onChange }: { node: FunctionNode
             </SelectContent>
           </Select>
         </Field>
+        <ToggleRow label="자동 확정 (수락 없이 바로 용어집에 반영)" checked={params.autoConfirm as boolean} onChange={(value) => set('autoConfirm', value)} />
+        <p className="text-[11px] text-muted-foreground">
+          {params.autoConfirm ? '추가된 용어가 다음 AI 호출부터 문맥에 들어갑니다. 잘못 뽑힌 용어도 그대로 쓰이니 주의하세요.' : '추가된 용어는 ‘후보’입니다. 용어집의 후보 탭에서 수락해야 문맥에 쓰입니다.'}
+        </p>
+        </>
       );
     }
     case 'http':

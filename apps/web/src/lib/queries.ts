@@ -35,6 +35,8 @@ export const q = {
     }),
   graphNode: (nodeId: string) => queryOptions({ queryKey: ['units', 'graph-node', nodeId], queryFn: () => unwrap(client['graph-nodes'][':nodeId'].$get({ param: { nodeId } })) }),
   terms: (projectId: string) => queryOptions({ queryKey: ['terms', projectId], queryFn: () => unwrap(client.projects[':projectId'].terms.$get({ param: { projectId } })) }),
+  termUsage: (projectId: string, id: string) =>
+    queryOptions({ queryKey: ['terms', 'usage', id], queryFn: () => unwrap(client.projects[':projectId'].terms[':id'].usage.$get({ param: { projectId, id } })) }),
   documents: (projectId: string) => queryOptions({ queryKey: ['knowledge', 'documents', projectId], queryFn: () => unwrap(client.projects[':projectId'].documents.$get({ param: { projectId } })) }),
   characters: (projectId: string) =>
     queryOptions({ queryKey: ['knowledge', 'characters', projectId], queryFn: () => unwrap(client.projects[':projectId'].characters.$get({ param: { projectId } })) }),

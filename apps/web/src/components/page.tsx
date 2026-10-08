@@ -6,8 +6,10 @@ import { usePageTitle } from '@/lib/view-context';
  * Page frame. The title is shown once, in the top header; the page itself only gets a thin
  * toolbar when it has page-specific facts (`meta`) or actions, so content keeps the height.
  */
-export function Page({ title, meta, actions, children, className, flush }: {
+export function Page({ title, back, meta, actions, children, className, flush }: {
   title: string;
+  /** "Back to list" link, always at the far left of the toolbar. */
+  back?: ReactNode;
   /** Short page-specific facts shown left of the actions (e.g. error count, run start). */
   meta?: ReactNode;
   actions?: ReactNode;
@@ -17,11 +19,12 @@ export function Page({ title, meta, actions, children, className, flush }: {
   flush?: boolean;
 }) {
   usePageTitle(title);
-  const toolbar = meta || actions;
+  const toolbar = back || meta || actions;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {toolbar && (
         <div className="flex min-h-12 flex-wrap items-center gap-2 border-b px-6 py-2">
+          {back && <div className="-ml-2 shrink-0">{back}</div>}
           <div className="min-w-0 flex-1 truncate text-sm text-muted-foreground">{meta}</div>
           {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
         </div>
