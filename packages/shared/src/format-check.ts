@@ -31,3 +31,8 @@ export function checkFormat(source: string, target: string, options: FormatCheck
     issues.push({ code: 'newline', message: `줄바꿈 수가 다릅니다 (원문 ${newlines(source)}, 번역 ${newlines(target)}).` });
   return issues;
 }
+
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** Whole-word, case-insensitive match that also works next to Hangul or punctuation. */
+export const mentions = (text: string, name: string) =>
+  name.trim().length > 0 && new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(name.trim())}(?![\\p{L}\\p{N}])`, 'iu').test(text);

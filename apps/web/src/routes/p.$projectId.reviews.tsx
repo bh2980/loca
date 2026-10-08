@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Check, Inbox, X } from 'lucide-react';
+import { Check, Inbox } from 'lucide-react';
 import { toast } from 'sonner';
 import { Page } from '@/components/page';
 import { Badge } from '@/components/ui/badge';
@@ -33,10 +33,10 @@ function Reviews() {
   useReportView('review', [current && { kind: '검토 대기 대사', id: current.unitId, label: `${current.key} · ${current.source.slice(0, 40)}` }]);
 
   const decide = useMutation({
-    mutationFn: ({ id, decision, text }: { id: string; decision: 'approved' | 'rejected'; text?: string }) => unwrap(client.reviews[':itemId'].$post({ param: { itemId: id }, json: { decision, text } })),
+    mutationFn: ({ id, decision, text }: { id: string; decision: string; text?: string; label: string }) => unwrap(client.reviews[':itemId'].$post({ param: { itemId: id }, json: { decision, text } })),
     onSuccess: (_data, variables) => {
       clearDraft();
-      toast.success(variables.decision === 'approved' ? '승인했습니다.' : '반려했습니다.');
+      toast.success(`‘${variables.label}’(으)로 보냈습니다.`);
       const next = list[index + 1] ?? list[index - 1];
       void navigate({ search: { item: next?.id }, replace: true });
     },
@@ -44,7 +44,9 @@ function Reviews() {
 
   const original = current?.data.candidateText ?? current?.translation ?? '';
   const edited = draft !== original;
-  const approve = () => current && decide.mutate({ id: current.id, decision: 'approved', text: edited ? draft : undefined });
+  // Any decision carries the edited text: it is stored as a human candidate before the line moves on.
+  const choose = (decision: { id: string; label: string }) => current && decide.mutate({ id: current.id, decision: decision.id, label: decision.label, text: edited ? draft : undefined });
+  const approve = () => current?.decisions[0] && choose(current.decisions[0]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -66,7 +68,9 @@ function Reviews() {
               <Inbox />
             </EmptyMedia>
             <EmptyTitle>검토할 대사가 없습니다</EmptyTitle>
-            <EmptyDescription>워크플로의 ‘사람 확인’ 노드에 도착한 대사가 여기에 모입니다.</EmptyDescription>
+            <EmptyDescription>
+              워크플로가 ‘사람 확인’ 노드에 도착한 대사만 여기에 모입니다. 상태를 ‘사람 확인 필요’로 바꾸는 것만으로는 오지 않습니다. 그런 대사를 검토하려면 ‘사람 검토’ 워크플로를 실행하세요.
+            </EmptyDescription>
           </EmptyHeader>
         </Empty>
       </Page>
@@ -118,16 +122,16 @@ function Reviews() {
                 </section>
               )}
               <section>
-                <h3 className="mb-1 text-xs font-medium text-muted-foreground">번역 (고치면 사람 후보로 저장 후 승인)</h3>
+                <h3 className="mb-1 text-xs font-medium text-muted-foreground">번역 (고치면 사람 후보로 저장한 뒤 고른 결정으로 넘어갑니다)</h3>
                 <Textarea value={draft} onChange={(event) => setDraft(event.target.value)} className="min-h-28 text-base" />
               </section>
               <div className="flex items-center gap-2">
-                <Button onClick={approve} disabled={decide.isPending}>
-                  <Check /> {edited ? '수정해서 승인' : '승인'} <Kbd className="ml-1">⌘↵</Kbd>
-                </Button>
-                <Button variant="outline" onClick={() => decide.mutate({ id: current.id, decision: 'rejected' })} disabled={decide.isPending}>
-                  <X /> 반려
-                </Button>
+                {current.decisions.map((decision, i) => (
+                  <Button key={decision.id} variant={i === 0 ? 'default' : 'outline'} onClick={() => choose(decision)} disabled={decide.isPending}>
+                    {i === 0 && <Check />} {edited ? `수정해서 ${decision.label}` : decision.label}
+                    {i === 0 && <Kbd className="ml-1">⌘↵</Kbd>}
+                  </Button>
+                ))}
                 {edited && (
                   <Button variant="ghost" onClick={clearDraft}>
                     원래대로

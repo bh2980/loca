@@ -36,6 +36,11 @@ export const jsonFieldSchema = z.object({
   description: z.string().default(''),
 });
 
+export const DEFAULT_DECISIONS = [
+  { id: 'approved', label: '승인' },
+  { id: 'rejected', label: '반려' },
+];
+
 const aiConfig = z.object({
   profileId: z.string().default(''),
   instructions: z.string().default(''),
@@ -59,7 +64,15 @@ export const workflowNodeSchema = z.discriminatedUnion('type', [
     // JSON Logic expression evaluated against the line's data (see ConditionData).
     config: z.object({ expression: z.unknown(), description: z.string().default('') }),
   }),
-  z.object({ ...base, type: z.literal('human'), config: z.object({ instructions: z.string().default('') }) }),
+  z.object({
+    ...base,
+    type: z.literal('human'),
+    config: z.object({
+      instructions: z.string().default(''),
+      /** The reviewer's buttons; each is an exit (e.g. 확정 / 재번역 / 보류 → different status nodes). */
+      decisions: z.array(z.object({ id: z.string().min(1), label: z.string() })).min(1).default(DEFAULT_DECISIONS),
+    }),
+  }),
   z.object({ ...base, type: z.literal('end'), config: z.object({}).default({}) }),
 ]);
 
@@ -102,12 +115,15 @@ export const NODE_TYPES: Record<WorkflowNodeType, NodeTypeInfo> = {
   ai: { label: 'AI', description: '프로필·지시문·문맥으로 AI를 호출해 후보·판정·용어·데이터를 받습니다.', hasInput: true },
   function: { label: '함수', description: '형식 검사·상태 변경·HTTP 호출·스크립트 등 정해진 동작을 실행합니다.', hasInput: true },
   condition: { label: '조건', description: '방문 횟수·앞 노드의 출력 등으로 분기합니다.', hasInput: true },
-  human: { label: '사람 확인', description: '검토함에서 사람이 승인하거나 반려할 때까지 기다립니다.', hasInput: true },
+  human: { label: '사람 확인', description: '검토함에서 사람이 고른 결정(예: 승인·반려·보류)의 출구로 나갑니다.', hasInput: true },
   end: { label: '종료', description: '대사의 흐름을 마칩니다.', hasInput: true },
 };
 
 const OUT: Port[] = [{ id: 'out', label: '완료' }];
 const ERROR: Port = { id: 'error', label: '오류' };
+
+/** A human node's buttons (definitions saved before decisions existed have none stored). */
+export const humanDecisions = (node: Extract<WorkflowNode, { type: 'human' }>) => (node.config.decisions?.length ? node.config.decisions : DEFAULT_DECISIONS);
 
 /** The exits of a node, derived from its type and config. */
 export function nodePorts(node: WorkflowNode): Port[] {
@@ -121,7 +137,7 @@ export function nodePorts(node: WorkflowNode): Port[] {
     case 'condition':
       return [{ id: 'true', label: '참' }, { id: 'false', label: '거짓' }];
     case 'human':
-      return [{ id: 'approved', label: '승인' }, { id: 'rejected', label: '반려' }];
+      return humanDecisions(node).map((decision) => ({ id: decision.id, label: decision.label || decision.id }));
     case 'end':
       return [];
   }
@@ -226,6 +242,11 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
         const from = definition.nodes.find((other) => other.id === params.fromNodeId);
         if (from?.type !== 'ai' || from.config.output !== 'terms') error('용어 후보를 내는 AI 노드를 선택하세요.', { nodeId: node.id });
       }
+    }
+    if (node.type === 'human') {
+      const ids = humanDecisions(node).map((decision) => decision.id);
+      if (new Set(ids).size !== ids.length || ids.includes('error')) error('결정 버튼의 id가 겹칩니다.', { nodeId: node.id });
+      if (humanDecisions(node).some((decision) => !decision.label.trim())) error('결정 버튼에 이름을 붙이세요.', { nodeId: node.id });
     }
     if (node.type === 'condition' && (node.config.expression === undefined || node.config.expression === null))
       error('조건식을 입력하세요.', { nodeId: node.id });

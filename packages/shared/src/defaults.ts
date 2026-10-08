@@ -54,7 +54,12 @@ export function translationTemplate(ids: {
       },
       { id: 'revise', type: 'ai', position: at(3, 3), label: 'AI 수정', config: ai('revise') },
       { id: 'escalate', type: 'function', position: at(5, 3), label: '사람 확인 필요로', config: status(ids.needsReview) },
-      { id: 'human', type: 'human', position: at(6, 3), config: { instructions: '자동 수정 한도에 도달했습니다. 후보를 고치거나 승인하세요.' } },
+      {
+        id: 'human',
+        type: 'human',
+        position: at(6, 3),
+        config: { instructions: '자동 수정 한도에 도달했습니다. 후보를 고치거나 승인하세요.', decisions: [{ id: 'approved', label: '승인' }, { id: 'rejected', label: '반려' }] },
+      },
       { id: 'reject', type: 'function', position: at(7, 4), label: '미번역으로', config: status(ids.untranslated) },
       { id: 'end-rejected', type: 'end', position: at(8, 4), config: {} },
     ],
@@ -111,6 +116,46 @@ export function termExtractionTemplate(ids: { profileId: string }): WorkflowDefi
       { id: 'e1', source: 'entry', sourceHandle: 'out', target: 'terms' },
       { id: 'e2', source: 'terms', sourceHandle: 'out', target: 'add' },
       { id: 'e3', source: 'add', sourceHandle: 'out', target: 'end' },
+    ],
+  };
+}
+
+/**
+ * Hand-picked review: lines a person (or another workflow) set to "needs review" wait in the
+ * review inbox, and the reviewer's button decides the next status. Changing a status alone never
+ * puts a line in the inbox; only a run reaching a human node does.
+ */
+export function reviewTemplate(ids: { needsReview: string; confirmed: string; untranslated: string }): WorkflowDefinition {
+  const status = (statusId: string, applyCandidate = false) => ({ fn: 'setStatus', params: { statusId, addTagIds: [], removeTagIds: [], applyCandidate } });
+  return {
+    settings: { maxVisitsPerNode: 5, concurrency: 2 },
+    nodes: [
+      { id: 'entry', type: 'entry', position: { x: 0, y: 180 }, config: { statusIds: [ids.needsReview] } },
+      {
+        id: 'human',
+        type: 'human',
+        position: { x: 300, y: 180 },
+        label: '사람 검토',
+        config: {
+          instructions: '번역을 확인하세요. 고친 내용은 사람 후보로 저장된 뒤 고른 결정으로 넘어갑니다.',
+          decisions: [
+            { id: 'confirm', label: '확정' },
+            { id: 'retranslate', label: '다시 번역' },
+            { id: 'hold', label: '보류' },
+          ],
+        },
+      },
+      { id: 'to-confirmed', type: 'function', position: { x: 620, y: 0 }, label: '확정으로', config: status(ids.confirmed, true) },
+      { id: 'to-untranslated', type: 'function', position: { x: 620, y: 180 }, label: '미번역으로', config: status(ids.untranslated) },
+      { id: 'end', type: 'end', position: { x: 920, y: 180 }, config: {} },
+    ],
+    edges: [
+      { id: 'e1', source: 'entry', sourceHandle: 'out', target: 'human' },
+      { id: 'e2', source: 'human', sourceHandle: 'confirm', target: 'to-confirmed' },
+      { id: 'e3', source: 'human', sourceHandle: 'retranslate', target: 'to-untranslated' },
+      { id: 'e4', source: 'human', sourceHandle: 'hold', target: 'end' },
+      { id: 'e5', source: 'to-confirmed', sourceHandle: 'out', target: 'end' },
+      { id: 'e6', source: 'to-untranslated', sourceHandle: 'out', target: 'end' },
     ],
   };
 }

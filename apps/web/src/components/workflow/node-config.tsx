@@ -6,6 +6,7 @@ import {
   CONNECTION_KIND_INFO,
   FUNCTIONS,
   NODE_TYPES,
+  humanDecisions,
   nodeName,
   type AiOutput,
   type FunctionName,
@@ -31,6 +32,7 @@ import { nodeIcon } from './node-view';
 type AiNode = Extract<WorkflowNode, { type: 'ai' }>;
 type FunctionNode = Extract<WorkflowNode, { type: 'function' }>;
 type ConditionNode = Extract<WorkflowNode, { type: 'condition' }>;
+type HumanNode = Extract<WorkflowNode, { type: 'human' }>;
 
 export interface NodeRefs {
   projectId: string;
@@ -122,9 +124,12 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
           {node.type === 'function' && <FunctionConfig node={node} refs={refs} readOnly={readOnly} onChange={onChange} />}
           {node.type === 'condition' && <ConditionEditor node={node} nodes={refs.nodes} readOnly={readOnly} onChange={onChange} />}
           {node.type === 'human' && (
-            <Field label="검토자에게 보일 안내">
-              <Textarea value={node.config.instructions} onChange={(event) => onChange({ ...node, config: { instructions: event.target.value } })} />
-            </Field>
+            <>
+              <Field label="검토자에게 보일 안내">
+                <Textarea value={node.config.instructions} onChange={(event) => onChange({ ...node, config: { ...node.config, instructions: event.target.value } })} />
+              </Field>
+              <DecisionsEditor node={node} onChange={onChange} />
+            </>
           )}
         </fieldset>
       </ScrollArea>
@@ -508,6 +513,42 @@ function ScriptConfig({ params, projectId, readOnly, set }: { params: Record<str
         </div>
       )}
     </>
+  );
+}
+
+// ── human node ────────────────────────────────────────────────────
+
+/**
+ * The reviewer's buttons. Each one is an exit, so "확정 / 다시 번역 / 보류" can lead to different
+ * status nodes. Ids stay fixed once created so existing connections keep working when renamed.
+ */
+function DecisionsEditor({ node, onChange }: { node: HumanNode; onChange: (node: WorkflowNode) => void }) {
+  const decisions = humanDecisions(node);
+  const set = (next: { id: string; label: string }[]) => onChange({ ...node, config: { ...node.config, decisions: next } });
+  return (
+    <Field label="결정 버튼 (각각 출구가 됩니다)" hint="첫 번째 버튼이 기본 결정(⌘↵)입니다. 출구를 상태 변경 노드에 이어 원하는 라벨로 보내세요.">
+      <div className="space-y-1.5">
+        {decisions.map((decision, index) => (
+          <div key={decision.id} className="flex items-center gap-1.5">
+            <Input className="h-8 text-sm" value={decision.label} onChange={(event) => set(decisions.map((item) => (item.id === decision.id ? { ...item, label: event.target.value } : item)))} />
+            <Button
+              size="icon"
+              variant="ghost"
+              className="size-8 shrink-0"
+              aria-label={`${decision.label} 삭제`}
+              disabled={decisions.length === 1}
+              onClick={() => set(decisions.filter((item) => item.id !== decision.id))}
+            >
+              <X />
+            </Button>
+            {index === 0 && <span className="sr-only">기본</span>}
+          </div>
+        ))}
+        <Button size="sm" variant="outline" onClick={() => set([...decisions, { id: `d-${crypto.randomUUID().slice(0, 6)}`, label: '새 결정' }])}>
+          <Plus /> 버튼 추가
+        </Button>
+      </div>
+    </Field>
   );
 }
 

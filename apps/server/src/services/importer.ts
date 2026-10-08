@@ -1,4 +1,4 @@
-import { DEFAULT_STATUSES, termExtractionTemplate, translationTemplate, type ImportFile } from '@tw/shared';
+import { DEFAULT_STATUSES, reviewTemplate, termExtractionTemplate, translationTemplate, type ImportFile } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 
@@ -142,6 +142,14 @@ export function importProject(db: Db, file: ImportFile, defaultProfileId = ''): 
         name: '용어 추출',
         description: '장면별로 고유명사·반복 용어를 뽑아 용어집 후보로 추가합니다. 용어집에서 수락한 뒤 번역을 돌리세요.',
         definition: termExtractionTemplate({ profileId: defaultProfileId }),
+      })
+      .run();
+    tx.insert(s.workflows)
+      .values({
+        projectId,
+        name: '사람 검토',
+        description: "'사람 확인 필요' 상태의 대사를 검토함으로 보냅니다. 확정 / 다시 번역 / 보류 중 하나를 고릅니다.",
+        definition: reviewTemplate({ needsReview: statusIds['needs-review'], confirmed: statusIds.confirmed, untranslated: statusIds.untranslated }),
       })
       .run();
   });

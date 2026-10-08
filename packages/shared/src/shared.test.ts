@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { checkFormat } from './format-check.ts';
 import { importFileSchema } from './import-format.ts';
-import { termExtractionTemplate, translationTemplate } from './defaults.ts';
+import { reviewTemplate, termExtractionTemplate, translationTemplate } from './defaults.ts';
 import { nodePorts, validateWorkflow, workflowDefinitionSchema, workflowNodeSchema, type WorkflowDefinition } from './workflow.ts';
 
 const ids = { profileId: 'p', untranslated: 's0', draft: 's1', needsReview: 's2', confirmed: 's3' };
@@ -44,6 +44,10 @@ describe('node exits', () => {
     expect(nodePorts(verdict).map((port) => port.id)).toEqual(['pass', 'fail', 'error']);
     const script = workflowNodeSchema.parse({ id: 's', type: 'function', position: { x: 0, y: 0 }, config: { fn: 'script', params: { ports: ['keep', 'retry'] } } });
     expect(nodePorts(script).map((port) => port.id)).toEqual(['keep', 'retry', 'error']);
+    const human = workflowNodeSchema.parse({ id: 'h', type: 'human', position: { x: 0, y: 0 }, config: { decisions: [{ id: 'ok', label: '확정' }, { id: 'hold', label: '보류' }] } });
+    expect(nodePorts(human).map((port) => port.id)).toEqual(['ok', 'hold']);
+    // Definitions saved before decisions existed keep approve / reject.
+    expect(nodePorts({ id: 'h', type: 'human', position: { x: 0, y: 0 }, config: { instructions: '' } } as never).map((port) => port.id)).toEqual(['approved', 'rejected']);
   });
 
   it('flags an http node without a connection and an unknown function', () => {
@@ -110,5 +114,10 @@ describe('templates', () => {
     const definition = workflowDefinitionSchema.parse(termExtractionTemplate({ profileId: 'p' }));
     expect(validateWorkflow(definition, refs).filter((issue) => issue.level === 'error')).toEqual([]);
     expect(definition.nodes.map((node) => (node.type === 'function' ? node.config.fn : node.type))).toEqual(['entry', 'ai', 'addTerms', 'end']);
+  });
+
+  it('review template routes every decision', () => {
+    const definition = workflowDefinitionSchema.parse(reviewTemplate({ needsReview: 's1', confirmed: 's2', untranslated: 's1' }));
+    expect(validateWorkflow(definition, refs).filter((issue) => issue.level === 'error')).toEqual([]);
   });
 });

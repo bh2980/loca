@@ -1,6 +1,8 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { Check, X } from 'lucide-react';
+import { useMemo } from 'react';
+import { Check, CircleAlert, CircleCheck, X } from 'lucide-react';
+import { checkFormat, mentions } from '@tw/shared';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -22,6 +24,7 @@ const STATE = { queued: '대기', running: '실행 중', waiting: '사람 확인
 export function LineDetail({ projectId, unitId, onClose, showScene }: { projectId: string; unitId: string; onClose?: () => void; showScene?: boolean }) {
   const unit = useQuery(q.unit(unitId));
   const statuses = useQuery(q.statuses(projectId));
+  const terms = useQuery(q.terms(projectId));
   const [draft, setDraft, clearDraft] = useDraft(`line:${unitId}`, unit.data?.translation ?? '');
   useReportView('line-detail', [unit.data && { kind: '대사', id: unit.data.id, label: `${unit.data.key} · ${unit.data.source.slice(0, 40)}` }]);
 
@@ -127,6 +130,8 @@ export function LineDetail({ projectId, unitId, onClose, showScene }: { projectI
             )}
           </section>
 
+          <LineChecks projectId={projectId} source={line.source} text={draft} terms={terms.data ?? []} />
+
           <section>
             <h3 className="mb-2 text-xs font-medium text-muted-foreground">후보 {line.candidates.length}개</h3>
             <ul className="space-y-2">
@@ -176,3 +181,56 @@ export function LineDetail({ projectId, unitId, onClose, showScene }: { projectI
     </div>
   );
 }
+
+/** Glossary terms in this line, and whether the translation in the editor keeps them and the source's format. */
+function LineChecks({ projectId, source, text, terms }: { projectId: string; source: string; text: string; terms: { id: string; source: string; target: string; status: 'candidate' | 'confirmed' }[] }) {
+  const used = useMemo(() => terms.filter((term) => mentions(source, term.source)), [terms, source]);
+  const formatIssues = text.trim() ? checkFormat(source, text, { placeholders: true, tags: true, newlines: true, emptyText: true }) : [];
+  const kept = (target: string) => Boolean(target.trim()) && text.toLowerCase().includes(target.toLowerCase());
+  return (
+    <section className="space-y-3">
+      <div>
+        <h3 className="mb-1.5 text-xs font-medium text-muted-foreground">형식 검사 (편집기의 번역 기준)</h3>
+        {!text.trim() ? (
+          <p className="text-sm text-muted-foreground">번역이 없습니다.</p>
+        ) : formatIssues.length ? (
+          <ul className="space-y-1 text-sm text-amber-700">
+            {formatIssues.map((issue) => (
+              <li key={issue.code} className="flex items-start gap-1.5">
+                <CircleAlert className="mt-0.5 size-3.5 shrink-0" /> {issue.message}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="flex items-center gap-1.5 text-sm text-emerald-700">
+            <CircleCheck className="size-3.5" /> 자리표시자·태그·줄바꿈이 원문과 맞습니다.
+          </p>
+        )}
+      </div>
+      <div>
+        <h3 className="mb-1.5 text-xs font-medium text-muted-foreground">이 대사의 용어 {used.length}개</h3>
+        {used.length ? (
+          <ul className="space-y-1 text-sm">
+            {used.map((term) => {
+              const ok = kept(term.target);
+              return (
+                <li key={term.id} className="flex items-center gap-2">
+                  <Link to="/p/$projectId/glossary" params={{ projectId }} search={{ term: term.id, view: term.status === 'candidate' ? 'candidate' : undefined }} className="min-w-0 truncate hover:underline">
+                    <b>{term.source}</b> → {term.target || <span className="text-muted-foreground">(번역 없음)</span>}
+                  </Link>
+                  {term.status === 'candidate' && <Badge variant="outline" className="px-1.5 py-0 text-[11px]">후보</Badge>}
+                  <span className={cn('ml-auto shrink-0 text-xs', !text.trim() || !term.target ? 'text-muted-foreground' : ok ? 'text-emerald-700' : term.status === 'confirmed' ? 'text-amber-700' : 'text-muted-foreground')}>
+                    {!text.trim() || !term.target ? '' : ok ? '번역에 있음' : '번역에 없음'}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <p className="text-sm text-muted-foreground">원문에 나오는 용어가 없습니다.</p>
+        )}
+      </div>
+    </section>
+  );
+}
+

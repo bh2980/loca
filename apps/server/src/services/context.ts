@@ -76,10 +76,8 @@ const graphIndex = (db: Db, projectId: string) => {
 };
 export const forgetProjectContext = (projectId: string) => indexes.delete(projectId);
 
-const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-/** Whole-word, case-insensitive match that also works next to Hangul or punctuation. */
-export const mentions = (text: string, name: string) =>
-  name.trim().length > 0 && new RegExp(`(?<![\\p{L}\\p{N}])${escape(name.trim())}(?![\\p{L}\\p{N}])`, 'iu').test(text);
+export { mentions } from '@tw/shared';
+import { mentions } from '@tw/shared';
 
 export function buildContext(
   db: Db,

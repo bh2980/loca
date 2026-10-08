@@ -1,7 +1,7 @@
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import jsonLogic from 'json-logic-js';
 import * as ai from '@tw/ai';
-import { FUNCTIONS, nodeName, type AiNode, type ConditionData, type FunctionName, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import { FUNCTIONS, humanDecisions, nodeName, type AiNode, type ConditionData, type FunctionName, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import type { ItemData, ItemState } from '../db/schema.ts';
@@ -111,13 +111,15 @@ export class Runner {
   }
 
   /** A person's decision at a human node. Editing records a human candidate first. */
-  decide(itemId: string, decision: 'approved' | 'rejected', text?: string) {
+  decide(itemId: string, decision: string, text?: string) {
     let runId = '';
     this.db.transaction((tx) => {
       const item = tx.select().from(s.runItems).where(eq(s.runItems.id, itemId)).get();
       if (!item || item.state !== 'waiting') throw new Error('이미 처리된 항목입니다.');
       const run = tx.select().from(s.runs).where(eq(s.runs.id, item.runId)).get()!;
       runId = run.id;
+      const node = this.node(run, item.nodeId);
+      if (node?.type !== 'human' || !humanDecisions(node).some((option) => option.id === decision)) throw new Error('이 검토 단계에 없는 결정입니다.');
       const candidate = text?.trim() ? text : undefined;
       this.record(tx, run, item, { port: decision, candidate, output: { decision } }, 'human');
     });
