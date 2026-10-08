@@ -242,7 +242,7 @@ function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRefs; onCh
         label="지시문 (이 단계에서 할 일)"
         hint="프로필의 공통 지시문은 뒤에 덧붙습니다."
         action={
-          <AiButton size="xs" variant="ghost" prompt={`선택한 AI 노드(id=${node.id}, 출력 ${config.output})의 지시문을 이 워크플로에서의 역할과 출력 형태에 맞게 ${config.instructions.trim() ? '다듬어' : '작성해'} edit_workflow_node로 제안해줘.`}>
+          <AiButton size="xs" variant="ghost" prompt={`이 AI 노드의 지시문을 ${config.instructions.trim() ? '다듬어줘' : '작성해줘'}.`}>
             {config.instructions.trim() ? 'AI로 다듬기' : 'AI로 작성'}
           </AiButton>
         }
@@ -310,8 +310,8 @@ function FunctionConfig({ node, refs, readOnly, onChange }: { node: FunctionNode
     case 'formatCheck':
       return (
         <div className="space-y-2.5">
-          <ToggleRow label="자리표시자 ({name}, %s) 보존" checked={params.placeholders as boolean} onChange={(value) => set('placeholders', value)} />
-          <ToggleRow label="서식 태그 보존" checked={params.tags as boolean} onChange={(value) => set('tags', value)} />
+          <ToggleRow label="자리표시자 보존 (프로젝트 설정 › 형식 규칙)" checked={params.placeholders as boolean} onChange={(value) => set('placeholders', value)} />
+          <ToggleRow label="서식 태그 보존 (프로젝트 설정 › 형식 규칙)" checked={params.tags as boolean} onChange={(value) => set('tags', value)} />
           <ToggleRow label="줄바꿈 수 일치" checked={params.newlines as boolean} onChange={(value) => set('newlines', value)} />
           <ToggleRow label="빈 번역 금지" checked={params.emptyText as boolean} onChange={(value) => set('emptyText', value)} />
         </div>
@@ -489,7 +489,7 @@ function ScriptConfig({ params, projectId, readOnly, set }: { params: Record<str
       <Field
         label="코드 (JavaScript)"
         action={
-          <AiButton size="xs" variant="ghost" send={false} prompt={`선택한 스크립트 노드의 코드를 작성해 edit_workflow_node로 제안해줘. 출구: ${ports.join(', ')}. 하는 일: `}>
+          <AiButton size="xs" variant="ghost" send={false} prompt="이 스크립트 노드의 코드를 작성해줘. 하는 일: ">
             AI로 작성
           </AiButton>
         }
@@ -588,7 +588,7 @@ function ConditionEditor({ node, nodes, readOnly, onChange }: { node: ConditionN
         label="설명"
         action={
           !readOnly && (
-            <AiButton size="xs" variant="ghost" send={false} prompt="선택한 조건 노드의 조건식을 이렇게 바꿔 edit_workflow_node로 제안해줘: ">
+            <AiButton size="xs" variant="ghost" send={false} prompt="이 조건 노드의 조건을 이렇게 바꿔줘: ">
               말로 조건 쓰기
             </AiButton>
           )

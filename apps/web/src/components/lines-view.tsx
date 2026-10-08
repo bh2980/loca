@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, Play, Search, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Play, Search, Tags, X } from 'lucide-react';
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuLabel, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { client, unwrap } from '@/lib/api';
+import { announceTrigger } from '@/lib/status-trigger';
 import { LineDetail } from '@/components/line-detail';
 import { StatusBadge, StatusDot, TagChip } from '@/components/status';
 import { Button } from '@/components/ui/button';
@@ -59,6 +61,13 @@ export function LinesView({ projectId, groupId, kind, search, onSearch, showScen
   const selectedRow = useRef<HTMLTableRowElement>(null);
   // Picked lines (checkboxes) are separate from the line open in the detail pane, and survive paging.
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  // Tags of every line seen so far, so the tag menu can show all / some / none for picks on other pages.
+  const knownTags = useRef(new Map<string, string[]>());
+  for (const row of lines.data?.rows ?? []) knownTags.current.set(row.id, row.tagIds);
+  const tagState = (tagId: string): 'all' | 'some' | 'none' => {
+    const flags = [...picked].map((id) => knownTags.current.get(id)?.includes(tagId) ?? false);
+    return flags.every(Boolean) ? 'all' : flags.some(Boolean) ? 'some' : 'none';
+  };
   const pageIds = lines.data?.rows.map((line) => line.id) ?? [];
   const allOnPage = pageIds.length > 0 && pageIds.every((id) => picked.has(id));
   const toggle = (ids: string[], on: boolean) =>
@@ -70,7 +79,10 @@ export function LinesView({ projectId, groupId, kind, search, onSearch, showScen
     });
   const setStatus = useMutation({
     mutationFn: (statusId: string) => unwrap(client.projects[':projectId'].units.$patch({ param: { projectId }, json: { unitIds: [...picked], statusId } })),
-    onSuccess: () => toast.success(`${picked.size}개 대사의 상태를 바꿨습니다.`),
+    onSuccess: (result) => {
+      toast.success(`${picked.size}개 대사의 상태를 바꿨습니다.`);
+      announceTrigger(result.started);
+    },
   });
   const setTag = useMutation({
     mutationFn: ({ tagId, add }: { tagId: string; add: boolean }) =>
@@ -154,23 +166,31 @@ export function LinesView({ projectId, groupId, kind, search, onSearch, showScen
               </SelectContent>
             </Select>
             {!!statuses.data?.tags.length && (
-              <Select value="" onValueChange={(value) => setTag.mutate({ tagId: value.slice(1), add: value[0] === '+' })}>
-                <SelectTrigger size="sm" className="w-36 bg-background">
-                  <SelectValue placeholder="태그" />
-                </SelectTrigger>
-                <SelectContent>
-                  {statuses.data.tags.map((tag) => (
-                    <SelectItem key={`+${tag.id}`} value={`+${tag.id}`}>
-                      #{tag.name} 붙이기
-                    </SelectItem>
-                  ))}
-                  {statuses.data.tags.map((tag) => (
-                    <SelectItem key={`-${tag.id}`} value={`-${tag.id}`}>
-                      #{tag.name} 떼기
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="sm" variant="outline" className="bg-background">
+                    <Tags /> 태그
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-56">
+                  <DropdownMenuLabel className="text-xs text-muted-foreground">선택한 {picked.size}개 대사의 태그</DropdownMenuLabel>
+                  {statuses.data.tags.map((tag) => {
+                    const state = tagState(tag.id);
+                    return (
+                      <DropdownMenuCheckboxItem
+                        key={tag.id}
+                        checked={state === 'all'}
+                        // Keep the menu open so several tags can be toggled in a row.
+                        onSelect={(event) => event.preventDefault()}
+                        onCheckedChange={() => setTag.mutate({ tagId: tag.id, add: state !== 'all' })}
+                      >
+                        <TagChip tag={tag} />
+                        {state === 'some' && <span className="ml-auto text-xs text-muted-foreground">일부</span>}
+                      </DropdownMenuCheckboxItem>
+                    );
+                  })}
+                </DropdownMenuContent>
+              </DropdownMenu>
             )}
             <Button size="sm" variant="ghost" onClick={() => setPicked(new Set())}>
               <X /> 선택 해제

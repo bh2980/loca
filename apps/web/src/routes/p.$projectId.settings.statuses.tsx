@@ -27,6 +27,7 @@ interface StatusRowData {
   color: string;
   kind: Kind;
   units: number;
+  onEnterWorkflowId: string | null;
 }
 interface TagRowData {
   id: string;
@@ -74,6 +75,7 @@ function KindSelect({ value, onChange }: { value: Kind; onChange: (kind: Kind) =
 function StatusSettings() {
   const { projectId } = Route.useParams();
   const data = useQuery(q.statuses(projectId));
+  const workflows = useQuery(q.workflows(projectId));
   const statuses = (data.data?.statuses ?? []) as StatusRowData[];
   const tags = (data.data?.tags ?? []) as TagRowData[];
   const [editing, setEditing] = useState<string | null>(null);
@@ -97,7 +99,7 @@ function StatusSettings() {
     onError: fail,
   });
   const update = useMutation({
-    mutationFn: (variables: { id: string; json: Partial<Pick<StatusRowData, 'name' | 'color' | 'kind'>> }) =>
+    mutationFn: (variables: { id: string; json: Partial<Pick<StatusRowData, 'name' | 'color' | 'kind' | 'onEnterWorkflowId'>> }) =>
       unwrap(client.projects[':projectId'].statuses[':id'].$patch({ param: { projectId, id: variables.id }, json: variables.json })),
     onSuccess: () => {
       setEditing(null);
@@ -147,7 +149,12 @@ function StatusSettings() {
     <Page title="상태·태그">
       <div className="max-w-4xl space-y-8">
         <section className="space-y-2">
-          <h2 className="text-sm font-semibold">상태</h2>
+          <div>
+            <h2 className="text-sm font-semibold">상태</h2>
+            <p className="text-xs text-muted-foreground">
+              ‘이 상태로 바꾸면 실행’을 정하면, 사람이 대사를 그 상태로 바꿀 때 해당 워크플로가 그 대사들로 바로 시작됩니다(예: 사람 확인 필요 → 사람 검토 → 검토함). 워크플로가 바꾼 상태로는 실행되지 않습니다.
+            </p>
+          </div>
           <div className="rounded-lg border">
             <Table>
               <TableHeader>
@@ -155,6 +162,7 @@ function StatusSettings() {
                   <TableHead className="w-20">순서</TableHead>
                   <TableHead>이름</TableHead>
                   <TableHead className="w-32">종류</TableHead>
+                  <TableHead className="w-56">이 상태로 바꾸면 실행</TableHead>
                   <TableHead className="w-24 text-right">대사 수</TableHead>
                   <TableHead className="w-24" />
                 </TableRow>
@@ -182,6 +190,21 @@ function StatusSettings() {
                         </span>
                       </TableCell>
                       <TableCell className="text-muted-foreground">{STATUS_KIND[status.kind]}</TableCell>
+                      <TableCell>
+                        <Select value={status.onEnterWorkflowId ?? 'none'} onValueChange={(value) => update.mutate({ id: status.id, json: { onEnterWorkflowId: value === 'none' ? null : value } })}>
+                          <SelectTrigger size="sm" className="w-full" aria-label={`${status.name}로 바꾸면 실행할 워크플로`}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">없음</SelectItem>
+                            {workflows.data?.map((workflow) => (
+                              <SelectItem key={workflow.id} value={workflow.id}>
+                                {workflow.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </TableCell>
                       <TableCell className="text-right tabular-nums">{status.units.toLocaleString()}</TableCell>
                       <TableCell>
                         <div className="flex justify-end">
@@ -217,6 +240,7 @@ function StatusSettings() {
                   <TableCell>
                     <KindSelect value={adding.kind} onChange={(kind) => setAdding({ ...adding, kind })} />
                   </TableCell>
+                  <TableCell />
                   <TableCell />
                   <TableCell>
                     <Button size="sm" disabled={!adding.name.trim() || create.isPending} onClick={() => create.mutate()}>
@@ -368,6 +392,7 @@ function StatusEditRow({ status, pending, onCancel, onSave }: { status: StatusRo
       <TableCell>
         <KindSelect value={form.kind} onChange={(kind) => setForm({ ...form, kind })} />
       </TableCell>
+      <TableCell />
       <TableCell className="text-right tabular-nums">{status.units.toLocaleString()}</TableCell>
       <TableCell>
         <div className="flex justify-end">

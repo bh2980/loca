@@ -1,3 +1,4 @@
+import { formatRulesSchema } from './format-check.ts';
 import { z } from 'zod';
 
 /**
@@ -99,6 +100,8 @@ export const importFileSchema = z
       description: z.string().default(''),
       sourceLanguage: z.string().min(2).default('en'),
       targetLanguage: z.string().min(2).default('ko'),
+      /** Placeholder / tag families in this game's strings; the extractor knows them best. */
+      formatRules: formatRulesSchema.optional(),
     }),
     groups: z.array(importGroupSchema).min(1),
     units: z.array(importUnitSchema).min(1),

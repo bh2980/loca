@@ -2,7 +2,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { useMemo } from 'react';
 import { Check, CircleAlert, CircleCheck, X } from 'lucide-react';
-import { checkFormat, mentions } from '@tw/shared';
+import { checkFormat, mentions, type FormatRules } from '@tw/shared';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -12,6 +12,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { AiButton } from '@/components/ai-button';
 import { StatusDot, TagChip } from '@/components/status';
 import { client, unwrap } from '@/lib/api';
+import { announceTrigger } from '@/lib/status-trigger';
 import { useDraft } from '@/lib/drafts';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
@@ -25,12 +26,16 @@ export function LineDetail({ projectId, unitId, onClose, showScene }: { projectI
   const unit = useQuery(q.unit(unitId));
   const statuses = useQuery(q.statuses(projectId));
   const terms = useQuery(q.terms(projectId));
+  const project = useQuery(q.project(projectId));
   const [draft, setDraft, clearDraft] = useDraft(`line:${unitId}`, unit.data?.translation ?? '');
   useReportView('line-detail', [unit.data && { kind: '대사', id: unit.data.id, label: `${unit.data.key} · ${unit.data.source.slice(0, 40)}` }]);
 
   const patch = useMutation({
     mutationFn: (json: { translation?: string; candidateId?: string; statusId?: string; tagIds?: string[] }) => unwrap(client.units[':unitId'].$patch({ param: { unitId }, json })),
-    onSuccess: (_data, variables) => variables.translation !== undefined && clearDraft(),
+    onSuccess: (result, variables) => {
+      if (variables.translation !== undefined) clearDraft();
+      announceTrigger(result.started);
+    },
   });
 
   if (!unit.data)
@@ -100,11 +105,11 @@ export function LineDetail({ projectId, unitId, onClose, showScene }: { projectI
           <section>
             <div className="mb-1 flex items-center gap-1">
               <h3 className="text-xs font-medium text-muted-foreground">대표 번역</h3>
-              <AiButton size="xs" variant="ghost" className="ml-auto" prompt={`이 대사(id=${line.id})의 번역 후보를 앞뒤 문맥·용어·화자에 맞게 제안해줘.`}>
+              <AiButton size="xs" variant="ghost" className="ml-auto" prompt="이 대사의 번역 후보를 제안해줘.">
                 AI 제안
               </AiButton>
               {line.translation && (
-                <AiButton size="xs" variant="ghost" send={false} prompt={`이 대사(id=${line.id})의 현재 번역을 이렇게 다듬어 후보로 제안해줘: `}>
+                <AiButton size="xs" variant="ghost" send={false} prompt="이 대사의 번역을 이렇게 다듬어줘: ">
                   다듬기
                 </AiButton>
               )}
@@ -130,7 +135,7 @@ export function LineDetail({ projectId, unitId, onClose, showScene }: { projectI
             )}
           </section>
 
-          <LineChecks projectId={projectId} source={line.source} text={draft} terms={terms.data ?? []} />
+          <LineChecks projectId={projectId} source={line.source} text={draft} terms={terms.data ?? []} rules={project.data?.formatRules} />
 
           <section>
             <h3 className="mb-2 text-xs font-medium text-muted-foreground">후보 {line.candidates.length}개</h3>
@@ -183,9 +188,9 @@ export function LineDetail({ projectId, unitId, onClose, showScene }: { projectI
 }
 
 /** Glossary terms in this line, and whether the translation in the editor keeps them and the source's format. */
-function LineChecks({ projectId, source, text, terms }: { projectId: string; source: string; text: string; terms: { id: string; source: string; target: string; status: 'candidate' | 'confirmed' }[] }) {
+function LineChecks({ projectId, source, text, terms, rules }: { projectId: string; source: string; text: string; terms: { id: string; source: string; target: string; status: 'candidate' | 'confirmed' }[]; rules?: FormatRules }) {
   const used = useMemo(() => terms.filter((term) => mentions(source, term.source)), [terms, source]);
-  const formatIssues = text.trim() ? checkFormat(source, text, { placeholders: true, tags: true, newlines: true, emptyText: true }) : [];
+  const formatIssues = text.trim() ? checkFormat(source, text, { placeholders: true, tags: true, newlines: true, emptyText: true }, rules) : [];
   const kept = (target: string) => Boolean(target.trim()) && text.toLowerCase().includes(target.toLowerCase());
   return (
     <section className="space-y-3">

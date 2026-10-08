@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { importFileSchema, patchOf, STATUS_COLORS } from '@tw/shared';
+import { formatRulesSchema, importFileSchema, patchOf, STATUS_COLORS } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
@@ -9,7 +9,7 @@ import { forgetProjectContext } from '../services/context.ts';
 import { importProject } from '../services/importer.ts';
 import { computeLayouts } from '../services/layout.ts';
 
-const statusInput = z.object({ name: z.string().trim().min(1).max(40), color: z.string().default(STATUS_COLORS[0]), kind: z.enum(['initial', 'normal', 'final']).default('normal') });
+const statusInput = z.object({ name: z.string().trim().min(1).max(40), color: z.string().default(STATUS_COLORS[0]), kind: z.enum(['initial', 'normal', 'final']).default('normal'), onEnterWorkflowId: z.string().nullable().default(null) });
 const tagInput = z.object({ name: z.string().trim().min(1).max(40), color: z.string().default(STATUS_COLORS[2]) });
 
 export const projectRoutes = new Hono<Env>()
@@ -76,7 +76,7 @@ export const projectRoutes = new Hono<Env>()
       .get()!.count;
     return c.json({ ...project, byStatus, groupCount, waiting });
   })
-  .patch('/:projectId', validate('json', z.object({ name: z.string().trim().min(1).optional(), description: z.string().optional() })), (c) => {
+  .patch('/:projectId', validate('json', z.object({ name: z.string().trim().min(1).optional(), description: z.string().optional(), formatRules: formatRulesSchema.optional() })), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     found(db.update(s.projects).set(c.req.valid('json')).where(eq(s.projects.id, projectId)).returning().get(), '프로젝트');
@@ -120,6 +120,7 @@ export const projectRoutes = new Hono<Env>()
         color: s.statuses.color,
         kind: s.statuses.kind,
         sort: s.statuses.sort,
+        onEnterWorkflowId: s.statuses.onEnterWorkflowId,
         units: sql<number>`(select count(*) from units u where u.status_id = "statuses"."id")`,
       })
       .from(s.statuses)

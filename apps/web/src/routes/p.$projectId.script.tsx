@@ -74,7 +74,7 @@ function Script() {
                 </Button>
               }
             />
-            <AiButton prompt={`이 ${GROUP_KIND[group.kind]}(id=${group.id}, "${group.title}")의 대사를 read_scene으로 끝까지 읽고 요약을 save_group_summary로 제안해줘.`}>
+            <AiButton prompt={`이 ${GROUP_KIND[group.kind]}을 끝까지 읽고 요약해줘.`}>
               AI 요약
             </AiButton>
             {group.kind === 'scene' && (

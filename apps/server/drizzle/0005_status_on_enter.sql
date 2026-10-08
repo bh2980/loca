@@ -1,0 +1,1 @@
+ALTER TABLE `statuses` ADD `on_enter_workflow_id` text;

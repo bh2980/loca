@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import type { NodeType, WorkflowDefinition } from '@tw/shared';
+import type { FormatRules, NodeType, WorkflowDefinition } from '@tw/shared';
 
 const id = () => text('id').primaryKey().$defaultFn(() => crypto.randomUUID());
 const createdAt = () => integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date());
@@ -17,6 +17,8 @@ export const projects = sqliteTable('projects', {
   targetLanguage: text('target_language').notNull(),
   /** The source graph's node-type dictionary from the standard file. */
   nodeTypes: json<Record<string, NodeType>>('node_types').notNull().default(sql`'{}'`),
+  /** Which placeholder / tag families the format check looks for (see FORMAT_PRESETS). */
+  formatRules: json<FormatRules>('format_rules').notNull().default(sql`'{"presets":["brace","printf","angleTag"],"custom":[]}'`),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
@@ -28,6 +30,8 @@ export const statuses = sqliteTable('statuses', {
   color: text('color').notNull(),
   kind: text('kind', { enum: ['initial', 'normal', 'final'] }).notNull(),
   sort: integer('sort').notNull(),
+  /** Workflow started when a person moves lines into this status (e.g. "needs review" → review inbox). */
+  onEnterWorkflowId: text('on_enter_workflow_id'),
 });
 
 export const tags = sqliteTable('tags', {

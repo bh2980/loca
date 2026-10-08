@@ -1,5 +1,6 @@
+import { runStatusTrigger } from '../services/status-triggers.ts';
 import { Hono } from 'hono';
-import { and, asc, count, desc, eq, inArray, like, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, like, ne, or, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import type { NodeType } from '@tw/shared';
 import { found, validate, type Env } from '../context.ts';
@@ -111,14 +112,19 @@ export const sourceRoutes = new Hono<Env>()
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     const body = c.req.valid('json');
+    // Only lines whose status actually changes trigger the status's on-enter workflow.
+    const entering = body.statusId
+      ? db.select({ id: s.units.id }).from(s.units).where(and(eq(s.units.projectId, projectId), inArray(s.units.id, body.unitIds), ne(s.units.statusId, body.statusId))).all().map((row) => row.id)
+      : [];
     db.transaction((tx) => {
       if (body.statusId) tx.update(s.units).set({ statusId: body.statusId }).where(and(eq(s.units.projectId, projectId), inArray(s.units.id, body.unitIds))).run();
       if (body.removeTagIds.length) tx.delete(s.unitTags).where(and(inArray(s.unitTags.unitId, body.unitIds), inArray(s.unitTags.tagId, body.removeTagIds))).run();
       if (body.addTagIds.length)
         tx.insert(s.unitTags).values(body.unitIds.flatMap((unitId) => body.addTagIds.map((tagId) => ({ unitId, tagId })))).onConflictDoNothing().run();
     });
+    const started = body.statusId ? runStatusTrigger(db, projectId, body.statusId, entering) : null;
     events.changed(projectId, 'units', 'statuses');
-    return c.json({ ok: true });
+    return c.json({ ok: true, started });
   })
   .get('/units/:unitId', (c) => {
     const { db } = c.var.deps;
@@ -161,8 +167,9 @@ export const sourceRoutes = new Hono<Env>()
         if (body.tagIds.length) tx.insert(s.unitTags).values(body.tagIds.map((tagId) => ({ unitId, tagId }))).run();
       }
     });
+    const started = body.statusId && body.statusId !== unit.statusId ? runStatusTrigger(db, unit.projectId, body.statusId, [unitId]) : null;
     events.changed(unit.projectId, 'units', 'statuses');
-    return c.json({ ok: true });
+    return c.json({ ok: true, started });
   })
 
   // ── graphs ─────────────────────────────────────────────────────────

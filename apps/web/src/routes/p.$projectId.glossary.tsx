@@ -91,7 +91,7 @@ function Glossary() {
               />
             </InputGroup>
             {search.view === 'candidate' && candidates.some((term) => !term.target.trim()) && (
-              <AiButton prompt="용어 후보 중 번역이 비어 있는 것을 search_lines로 원문 용례를 읽고 번역과 메모를 채워 save_terms로 제안해줘. 상태는 후보 그대로 둬.">
+              <AiButton prompt="번역이 비어 있는 용어 후보를 채워줘.">
                 빈 번역 AI로 채우기
               </AiButton>
             )}

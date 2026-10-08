@@ -68,15 +68,15 @@ app.post('/v1/chat/completions', async (c) => {
   let call: { name: string; args: unknown } | undefined;
   if (last?.role !== 'tool') {
     const system = text(body.messages.find((message) => message.role === 'system'));
-    const lineId = /이 대사\(id=([\w-]+)\)/.exec(user)?.[1];
-    const groupId = /\(id=([\w-]+), "/.exec(user)?.[1];
+    const lineId = /- 대사: .*\[id=([\w-]+)\]/.exec(system)?.[1];
+    const groupId = /- (?:장면|문서|UI): .*\[id=([\w-]+)\]/.exec(system)?.[1];
     const workflowId = /- 워크플로: .*\[id=([\w-]+)\]/.exec(system)?.[1];
     const nodeId = /- 워크플로 노드: .*\[id=([\w-]+)\]/.exec(system)?.[1];
-    if (lineId && /제안/.test(user) && tools.has('propose_translation'))
+    if (lineId && /제안|다듬/.test(user) && tools.has('propose_translation'))
       call = { name: 'propose_translation', args: { unitId: lineId, text: '[모의 제안] 문맥을 반영한 번역', note: '앞 대사의 말투를 이어감' } };
     else if (groupId && /요약/.test(user) && tools.has('save_group_summary'))
       call = { name: 'save_group_summary', args: { groupId, description: '[모의 요약] 미라와 조나스가 중계소에서 근무 일지를 확인하고 명령의 출처를 의심한다.' } };
-    else if (workflowId && nodeId && /edit_workflow_node/.test(user) && tools.has('edit_workflow_node'))
+    else if (workflowId && nodeId && /노드/.test(user) && tools.has('edit_workflow_node'))
       call = /조건/.test(user)
         ? { name: 'edit_workflow_node', args: { workflowId, nodeId, field: 'expression', value: { '<': [{ var: 'visits.review' }, 2] }, description: '검수 2회 미만' } }
         : /스크립트/.test(user)

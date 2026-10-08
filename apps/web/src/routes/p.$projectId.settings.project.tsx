@@ -3,6 +3,8 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Download, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
+import type { FormatRules } from '@tw/shared';
+import { FormatRulesSection } from '@/components/format-rules';
 import { Page } from '@/components/page';
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
@@ -23,7 +25,7 @@ function ProjectSettings() {
   return <ProjectForm key={project.data.id} projectId={projectId} project={project.data} />;
 }
 
-function ProjectForm({ projectId, project }: { projectId: string; project: { name: string; description: string | null; sourceLanguage: string; targetLanguage: string } }) {
+function ProjectForm({ projectId, project }: { projectId: string; project: { name: string; description: string | null; sourceLanguage: string; targetLanguage: string; formatRules: FormatRules } }) {
   const navigate = useNavigate();
   const [name, setName] = useState(project.name);
   const [description, setDescription] = useState(project.description ?? '');
@@ -63,6 +65,8 @@ function ProjectForm({ projectId, project }: { projectId: string; project: { nam
             저장
           </Button>
         </section>
+
+        <FormatRulesSection projectId={projectId} rules={project.formatRules} />
 
         <section className="space-y-2 border-t pt-6">
           <h2 className="text-sm font-semibold">번역 결과 내보내기</h2>

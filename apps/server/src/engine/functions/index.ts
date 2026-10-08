@@ -56,10 +56,11 @@ export function lineView(input: FunctionInput) {
 // ── instant functions (run inside the runner's transaction) ──────────
 
 export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknown, input: FunctionInput) => FunctionResult>> = {
-  formatCheck(_tx, raw, input) {
+  formatCheck(tx, raw, input) {
     const params = formatCheckParams.parse(raw);
     const text = candidateOf(input);
-    const issues = text === null ? [NEEDS_CANDIDATE] : checkFormat(input.unit.source, text, params).map((issue) => issue.message);
+    const rules = tx.select({ formatRules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, input.projectId)).get()?.formatRules;
+    const issues = text === null ? [NEEDS_CANDIDATE] : checkFormat(input.unit.source, text, params, rules).map((issue) => issue.message);
     return { port: issues.length ? 'fail' : 'pass', issues, output: { passed: !issues.length, issues } };
   },
 
