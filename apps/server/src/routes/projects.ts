@@ -1,9 +1,8 @@
 import { Hono } from 'hono';
-import { zValidator } from '@hono/zod-validator';
 import { and, asc, count, desc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { importFileSchema, STATUS_COLORS } from '@tw/shared';
-import { badRequest, found, type Env } from '../context.ts';
+import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { forgetProjectContext } from '../services/context.ts';
@@ -31,7 +30,7 @@ export const projectRoutes = new Hono<Env>()
       .all();
     return c.json(rows);
   })
-  .post('/validate', zValidator('json', z.unknown()), (c) => {
+  .post('/validate', validate('json', z.unknown()), (c) => {
     const result = importFileSchema.safeParse(c.req.valid('json'));
     if (!result.success)
       return c.json({ ok: false as const, issues: result.error.issues.slice(0, 50).map((issue) => ({ path: issue.path.join('.'), message: issue.message })) });
@@ -50,7 +49,7 @@ export const projectRoutes = new Hono<Env>()
       },
     });
   })
-  .post('/', zValidator('json', importFileSchema), (c) => {
+  .post('/', validate('json', importFileSchema), (c) => {
     const { db } = c.var.deps;
     const firstProfile = db.select({ id: s.profiles.id }).from(s.profiles).orderBy(asc(s.profiles.name)).limit(1).get();
     const summary = importProject(db, c.req.valid('json'), firstProfile?.id);
@@ -77,7 +76,7 @@ export const projectRoutes = new Hono<Env>()
       .get()!.count;
     return c.json({ ...project, byStatus, groupCount, waiting });
   })
-  .patch('/:projectId', zValidator('json', z.object({ name: z.string().trim().min(1).optional(), description: z.string().optional() })), (c) => {
+  .patch('/:projectId', validate('json', z.object({ name: z.string().trim().min(1).optional(), description: z.string().optional() })), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     found(db.update(s.projects).set(c.req.valid('json')).where(eq(s.projects.id, projectId)).returning().get(), '프로젝트');
@@ -140,7 +139,7 @@ export const projectRoutes = new Hono<Env>()
       .all();
     return c.json({ statuses, tags });
   })
-  .post('/:projectId/statuses', zValidator('json', statusInput), (c) => {
+  .post('/:projectId/statuses', validate('json', statusInput), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     const sort = db.select({ max: sql<number>`coalesce(max(${s.statuses.sort}), -1)` }).from(s.statuses).where(eq(s.statuses.projectId, projectId)).get()!.max + 1;
@@ -148,14 +147,14 @@ export const projectRoutes = new Hono<Env>()
     events.changed(projectId, 'statuses');
     return c.json(row, 201);
   })
-  .patch('/:projectId/statuses/:id', zValidator('json', statusInput.partial()), (c) => {
+  .patch('/:projectId/statuses/:id', validate('json', statusInput.partial()), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     found(db.update(s.statuses).set(c.req.valid('json')).where(and(eq(s.statuses.id, c.req.param('id')), eq(s.statuses.projectId, projectId))).returning().get(), '상태');
     events.changed(projectId, 'statuses', 'units');
     return c.json({ ok: true });
   })
-  .put('/:projectId/statuses/order', zValidator('json', z.object({ ids: z.array(z.string()) })), (c) => {
+  .put('/:projectId/statuses/order', validate('json', z.object({ ids: z.array(z.string()) })), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     db.transaction((tx) => {
@@ -165,7 +164,7 @@ export const projectRoutes = new Hono<Env>()
     return c.json({ ok: true });
   })
   /** Lines in a deleted status move to `moveTo`; workflows that still reference it fail validation. */
-  .delete('/:projectId/statuses/:id', zValidator('json', z.object({ moveTo: z.string() })), (c) => {
+  .delete('/:projectId/statuses/:id', validate('json', z.object({ moveTo: z.string() })), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     const id = c.req.param('id');
@@ -179,14 +178,14 @@ export const projectRoutes = new Hono<Env>()
     events.changed(projectId, 'statuses', 'units', 'workflows');
     return c.json({ ok: true });
   })
-  .post('/:projectId/tags', zValidator('json', tagInput), (c) => {
+  .post('/:projectId/tags', validate('json', tagInput), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     const row = db.insert(s.tags).values({ ...c.req.valid('json'), projectId }).returning().get();
     events.changed(projectId, 'statuses');
     return c.json(row, 201);
   })
-  .patch('/:projectId/tags/:id', zValidator('json', tagInput.partial()), (c) => {
+  .patch('/:projectId/tags/:id', validate('json', tagInput.partial()), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     found(db.update(s.tags).set(c.req.valid('json')).where(and(eq(s.tags.id, c.req.param('id')), eq(s.tags.projectId, projectId))).returning().get(), '태그');

@@ -1,9 +1,8 @@
 import { Hono } from 'hono';
-import { zValidator } from '@hono/zod-validator';
 import { and, asc, count, desc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { isAiNode, translationTemplate, validateWorkflow, workflowDefinitionSchema, type WorkflowDefinition } from '@tw/shared';
-import { badRequest, found, type Env } from '../context.ts';
+import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
@@ -60,7 +59,7 @@ export const workflowRoutes = new Hono<Env>()
       })),
     );
   })
-  .post('/projects/:projectId/workflows', zValidator('json', z.object({ name: z.string().trim().min(1), from: z.enum(['template', 'blank']).default('template') })), (c) => {
+  .post('/projects/:projectId/workflows', validate('json', z.object({ name: z.string().trim().min(1), from: z.enum(['template', 'blank']).default('template') })), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     const { name, from } = c.req.valid('json');
@@ -74,7 +73,7 @@ export const workflowRoutes = new Hono<Env>()
     const workflow = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
     return c.json({ ...workflow, issues: workflowIssues(db, workflow.projectId, workflow.definition) });
   })
-  .put('/workflows/:id', zValidator('json', z.object({ name: z.string().trim().min(1), description: z.string().default(''), definition: workflowDefinitionSchema, version: z.number().int() })), (c) => {
+  .put('/workflows/:id', validate('json', z.object({ name: z.string().trim().min(1), description: z.string().default(''), definition: workflowDefinitionSchema, version: z.number().int() })), (c) => {
     const { db } = c.var.deps;
     const body = c.req.valid('json');
     const current = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
@@ -88,7 +87,7 @@ export const workflowRoutes = new Hono<Env>()
     events.changed(current.projectId, 'workflows');
     return c.json({ ...row, issues: workflowIssues(db, current.projectId, row.definition) });
   })
-  .post('/workflows/:id/validate', zValidator('json', z.object({ definition: workflowDefinitionSchema })), (c) => {
+  .post('/workflows/:id/validate', validate('json', z.object({ definition: workflowDefinitionSchema })), (c) => {
     const { db } = c.var.deps;
     const workflow = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
     return c.json(workflowIssues(db, workflow.projectId, c.req.valid('json').definition));
@@ -100,12 +99,12 @@ export const workflowRoutes = new Hono<Env>()
     events.changed(workflow.projectId, 'workflows');
     return c.json({ ok: true });
   })
-  .post('/workflows/:id/preview', zValidator('json', scopeSchema), (c) => {
+  .post('/workflows/:id/preview', validate('json', scopeSchema), (c) => {
     const { db } = c.var.deps;
     const workflow = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
     return c.json({ count: selectRunUnits(db, workflow.projectId, workflow.definition, c.req.valid('json')).length });
   })
-  .post('/workflows/:id/runs', zValidator('json', scopeSchema), (c) => {
+  .post('/workflows/:id/runs', validate('json', scopeSchema), (c) => {
     const { db } = c.var.deps;
     const workflow = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
     const errors = workflowIssues(db, workflow.projectId, workflow.definition).filter((issue) => issue.level === 'error');
@@ -158,7 +157,7 @@ export const workflowRoutes = new Hono<Env>()
     const { profiles, ...rest } = run;
     return c.json({ ...rest, profiles: Object.values(profiles).map((profile) => ({ id: profile.id, name: profile.name, models: profile.routes.map((route) => route.model) })), nodes, usage });
   })
-  .get('/runs/:id/items', zValidator('query', z.object({ state: z.string().optional(), nodeId: z.string().optional(), offset: z.coerce.number().default(0), limit: z.coerce.number().max(500).default(100) })), (c) => {
+  .get('/runs/:id/items', validate('query', z.object({ state: z.string().optional(), nodeId: z.string().optional(), offset: z.coerce.number().default(0), limit: z.coerce.number().max(500).default(100) })), (c) => {
     const { db } = c.var.deps;
     const { state, nodeId, offset, limit } = c.req.valid('query');
     const conditions = [eq(s.runItems.runId, c.req.param('id'))];
@@ -224,7 +223,7 @@ export const workflowRoutes = new Hono<Env>()
       }),
     );
   })
-  .post('/reviews/:itemId', zValidator('json', z.object({ decision: z.enum(['approved', 'rejected']), text: z.string().optional() })), (c) => {
+  .post('/reviews/:itemId', validate('json', z.object({ decision: z.enum(['approved', 'rejected']), text: z.string().optional() })), (c) => {
     const { decision, text } = c.req.valid('json');
     try {
       c.var.deps.runner.decide(c.req.param('itemId'), decision, text);

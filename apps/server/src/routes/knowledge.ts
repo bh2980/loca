@@ -1,9 +1,8 @@
 import { Hono } from 'hono';
-import { zValidator } from '@hono/zod-validator';
 import { and, asc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { DOCUMENT_KINDS } from '@tw/shared';
-import { found, type Env } from '../context.ts';
+import { found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 
@@ -17,13 +16,13 @@ const byProject = <T extends typeof s.terms | typeof s.documents | typeof s.char
 
 export const knowledgeRoutes = new Hono<Env>()
   .get('/terms', (c) => c.json(c.var.deps.db.select().from(s.terms).where(eq(s.terms.projectId, c.req.param('projectId')!)).orderBy(asc(s.terms.source)).all()))
-  .post('/terms', zValidator('json', termInput), (c) => {
+  .post('/terms', validate('json', termInput), (c) => {
     const projectId = c.req.param('projectId')!;
     const row = c.var.deps.db.insert(s.terms).values({ ...c.req.valid('json'), projectId }).returning().get();
     events.changed(projectId, 'terms');
     return c.json(row, 201);
   })
-  .patch('/terms/:id', zValidator('json', termInput.partial()), (c) => {
+  .patch('/terms/:id', validate('json', termInput.partial()), (c) => {
     const projectId = c.req.param('projectId')!;
     found(c.var.deps.db.update(s.terms).set(c.req.valid('json')).where(byProject(s.terms, c.req.param('id'), projectId)).returning().get(), '용어');
     events.changed(projectId, 'terms');
@@ -37,13 +36,13 @@ export const knowledgeRoutes = new Hono<Env>()
   })
 
   .get('/documents', (c) => c.json(c.var.deps.db.select().from(s.documents).where(eq(s.documents.projectId, c.req.param('projectId')!)).orderBy(asc(s.documents.kind), asc(s.documents.title)).all()))
-  .post('/documents', zValidator('json', documentInput), (c) => {
+  .post('/documents', validate('json', documentInput), (c) => {
     const projectId = c.req.param('projectId')!;
     const row = c.var.deps.db.insert(s.documents).values({ ...c.req.valid('json'), projectId }).returning().get();
     events.changed(projectId, 'knowledge');
     return c.json(row, 201);
   })
-  .patch('/documents/:id', zValidator('json', documentInput.partial()), (c) => {
+  .patch('/documents/:id', validate('json', documentInput.partial()), (c) => {
     const projectId = c.req.param('projectId')!;
     found(c.var.deps.db.update(s.documents).set(c.req.valid('json')).where(byProject(s.documents, c.req.param('id'), projectId)).returning().get(), '문서');
     events.changed(projectId, 'knowledge');
@@ -64,13 +63,13 @@ export const knowledgeRoutes = new Hono<Env>()
       relationships: db.select().from(s.relationships).where(eq(s.relationships.projectId, projectId)).all(),
     });
   })
-  .post('/characters', zValidator('json', characterInput), (c) => {
+  .post('/characters', validate('json', characterInput), (c) => {
     const projectId = c.req.param('projectId')!;
     const row = c.var.deps.db.insert(s.characters).values({ ...c.req.valid('json'), projectId }).returning().get();
     events.changed(projectId, 'knowledge');
     return c.json(row, 201);
   })
-  .patch('/characters/:id', zValidator('json', characterInput.partial()), (c) => {
+  .patch('/characters/:id', validate('json', characterInput.partial()), (c) => {
     const projectId = c.req.param('projectId')!;
     found(c.var.deps.db.update(s.characters).set(c.req.valid('json')).where(byProject(s.characters, c.req.param('id'), projectId)).returning().get(), '인물');
     events.changed(projectId, 'knowledge');
@@ -82,13 +81,13 @@ export const knowledgeRoutes = new Hono<Env>()
     events.changed(projectId, 'knowledge');
     return c.json({ ok: true });
   })
-  .post('/relationships', zValidator('json', relationshipInput), (c) => {
+  .post('/relationships', validate('json', relationshipInput), (c) => {
     const projectId = c.req.param('projectId')!;
     const row = c.var.deps.db.insert(s.relationships).values({ ...c.req.valid('json'), projectId }).returning().get();
     events.changed(projectId, 'knowledge');
     return c.json(row, 201);
   })
-  .patch('/relationships/:id', zValidator('json', relationshipInput.partial()), (c) => {
+  .patch('/relationships/:id', validate('json', relationshipInput.partial()), (c) => {
     const projectId = c.req.param('projectId')!;
     found(c.var.deps.db.update(s.relationships).set(c.req.valid('json')).where(byProject(s.relationships, c.req.param('id'), projectId)).returning().get(), '관계');
     events.changed(projectId, 'knowledge');

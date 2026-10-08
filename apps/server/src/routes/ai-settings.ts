@@ -1,10 +1,9 @@
 import { Hono } from 'hono';
-import { zValidator } from '@hono/zod-validator';
 import { asc, eq, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import * as ai from '@tw/ai';
 import { CONNECTION_KIND_INFO, connectionInputSchema, profileInputSchema } from '@tw/shared';
-import { badRequest, found, type Env } from '../context.ts';
+import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { connectionRoute, liveProfileRoutes } from '../services/routes.ts';
@@ -19,7 +18,7 @@ export const connectionRoutes = new Hono<Env>()
     const rows = db.select().from(s.connections).orderBy(asc(s.connections.name)).all();
     return c.json(rows.map((row) => ({ ...row, hasKey: secrets.get(row.id) !== null })));
   })
-  .post('/', zValidator('json', connectionInputSchema.extend({ apiKey: z.string().optional() })), (c) => {
+  .post('/', validate('json', connectionInputSchema.extend({ apiKey: z.string().optional() })), (c) => {
     const { db, secrets } = c.var.deps;
     const { apiKey, ...input } = c.req.valid('json');
     const info = CONNECTION_KIND_INFO[input.kind];
@@ -32,7 +31,7 @@ export const connectionRoutes = new Hono<Env>()
     events.changed(undefined, 'connections');
     return c.json(row, 201);
   })
-  .patch('/:id', zValidator('json', connectionInputSchema.omit({ kind: true }).partial()), (c) => {
+  .patch('/:id', validate('json', connectionInputSchema.omit({ kind: true }).partial()), (c) => {
     const { db } = c.var.deps;
     const input = c.req.valid('json');
     found(db.update(s.connections).set({ ...input, executable: input.executable === '' ? null : input.executable }).where(eq(s.connections.id, c.req.param('id'))).returning().get(), '연결');
@@ -53,7 +52,7 @@ export const connectionRoutes = new Hono<Env>()
     events.changed(undefined, 'connections');
     return c.json({ ok: true });
   })
-  .put('/:id/key', zValidator('json', z.object({ apiKey: z.string().trim().min(1) })), (c) => {
+  .put('/:id/key', validate('json', z.object({ apiKey: z.string().trim().min(1) })), (c) => {
     const { db, secrets } = c.var.deps;
     found(db.select().from(s.connections).where(eq(s.connections.id, c.req.param('id'))).get(), '연결');
     secrets.set(c.req.param('id'), c.req.valid('json').apiKey);
@@ -107,7 +106,7 @@ export const connectionRoutes = new Hono<Env>()
 
 export const profileRoutes = new Hono<Env>()
   .get('/', (c) => c.json(c.var.deps.db.select().from(s.profiles).orderBy(asc(s.profiles.name)).all()))
-  .post('/', zValidator('json', profileInputSchema), (c) => {
+  .post('/', validate('json', profileInputSchema), (c) => {
     const { db } = c.var.deps;
     const input = c.req.valid('json');
     found(db.select().from(s.connections).where(eq(s.connections.id, input.connectionId)).get(), '연결');
@@ -115,7 +114,7 @@ export const profileRoutes = new Hono<Env>()
     events.changed(undefined, 'profiles');
     return c.json(row, 201);
   })
-  .put('/:id', zValidator('json', profileInputSchema), (c) => {
+  .put('/:id', validate('json', profileInputSchema), (c) => {
     const { db } = c.var.deps;
     found(db.update(s.profiles).set(c.req.valid('json')).where(eq(s.profiles.id, c.req.param('id'))).returning().get(), '프로필');
     events.changed(undefined, 'profiles', 'workflows');
@@ -128,7 +127,7 @@ export const profileRoutes = new Hono<Env>()
     return c.json({ ok: true });
   })
   /** One-off translation with the saved profile. Nothing is written to any project. */
-  .post('/:id/test', zValidator('json', z.object({ source: z.string().min(1), targetLanguage: z.string().default('ko') })), async (c) => {
+  .post('/:id/test', validate('json', z.object({ source: z.string().min(1), targetLanguage: z.string().default('ko') })), async (c) => {
     const { db, secrets } = c.var.deps;
     const live = found(liveProfileRoutes(db, c.req.param('id'), secrets), '프로필');
     const { source, targetLanguage } = c.req.valid('json');

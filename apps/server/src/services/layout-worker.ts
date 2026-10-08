@@ -30,20 +30,41 @@ const OPTIONS = {
   'elk.randomSeed': '1',
 };
 
+const GAP = 400;
+
 async function layout(job: LayoutJob): Promise<LayoutData> {
-  const graph: ElkNode = {
-    id: 'root',
-    layoutOptions: OPTIONS,
-    children: job.nodes.map((node) => ({ id: node.id, width: node.width, height: node.height })),
-    edges: job.edges.map((edge) => ({ id: edge.id, sources: [edge.from], targets: [edge.to] })),
-  };
-  const result = await new ELK().layout(graph);
+  const elk = new ELK();
+  const linked = new Set(job.edges.flatMap((edge) => [edge.from, edge.to]));
+  const connected = job.nodes.filter((node) => linked.has(node.id));
+  const isolated = job.nodes.filter((node) => !linked.has(node.id));
+
+  const main: ElkNode = connected.length
+    ? await elk.layout({
+        id: 'root',
+        layoutOptions: OPTIONS,
+        children: connected.map((node) => ({ id: node.id, width: node.width, height: node.height })),
+        edges: job.edges.map((edge) => ({ id: edge.id, sources: [edge.from], targets: [edge.to] })),
+      })
+    : { id: 'root', width: 0, height: 0, children: [], edges: [] };
+
+  // Lines with no connection at all are packed into their own block beside the flow, so they stay
+  // visible without stretching the flow layout into one enormous row.
+  const loose: ElkNode | undefined = isolated.length
+    ? await elk.layout({
+        id: 'loose',
+        layoutOptions: { 'elk.algorithm': 'rectpacking', 'elk.aspectRatio': '1.0', 'elk.spacing.nodeNode': '24' },
+        children: isolated.map((node) => ({ id: node.id, width: node.width, height: node.height })),
+      })
+    : undefined;
+  const offsetX = connected.length ? (main.width ?? 0) + GAP : 0;
+
   const ends = new Map(job.edges.map((edge) => [edge.id, edge]));
+  const place = (node: ElkNode, dx = 0) => ({ id: node.id, x: (node.x ?? 0) + dx, y: node.y ?? 0, width: node.width ?? 0, height: node.height ?? 0 });
   return {
-    width: result.width ?? 0,
-    height: result.height ?? 0,
-    nodes: (result.children ?? []).map((node) => ({ id: node.id, x: node.x ?? 0, y: node.y ?? 0, width: node.width ?? 0, height: node.height ?? 0 })),
-    edges: (result.edges ?? []).map((edge) => {
+    width: offsetX + (loose?.width ?? 0),
+    height: Math.max(main.height ?? 0, loose?.height ?? 0),
+    nodes: [...(main.children ?? []).map((node) => place(node)), ...(loose?.children ?? []).map((node) => place(node, offsetX))],
+    edges: (main.edges ?? []).map((edge) => {
       const points: number[] = [];
       for (const section of edge.sections ?? []) {
         points.push(section.startPoint.x, section.startPoint.y);
@@ -53,6 +74,9 @@ async function layout(job: LayoutJob): Promise<LayoutData> {
       const original = ends.get(edge.id)!;
       return { id: edge.id, from: original.from, to: original.to, points: points.map((value) => Math.round(value)) };
     }),
+    regions: loose
+      ? [{ label: `연결 없는 노드 ${isolated.length.toLocaleString()}개`, x: offsetX, y: 0, width: loose.width ?? 0, height: loose.height ?? 0 }]
+      : [],
   };
 }
 

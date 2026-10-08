@@ -135,6 +135,8 @@ export interface LayoutData {
   height: number;
   nodes: { id: string; x: number; y: number; width: number; height: number }[];
   edges: { id: string; from: string; to: string; points: number[] }[];
+  /** Labelled areas drawn behind nodes, e.g. the block of unconnected lines. */
+  regions?: { label: string; x: number; y: number; width: number; height: number }[];
 }
 
 export const graphLayouts = sqliteTable(

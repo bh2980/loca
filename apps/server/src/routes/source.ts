@@ -1,10 +1,10 @@
 import { Hono } from 'hono';
-import { zValidator } from '@hono/zod-validator';
 import { and, asc, count, desc, eq, inArray, like, or, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
-import { found, type Env } from '../context.ts';
+import { found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
+import { computeLayouts } from '../services/layout.ts';
 
 const listQuery = z.object({
   groupId: z.string().optional(),
@@ -52,7 +52,7 @@ const unitColumns = {
 };
 
 export const sourceRoutes = new Hono<Env>()
-  .get('/projects/:projectId/groups', zValidator('query', z.object({ kind: z.enum(['scene', 'document', 'ui']).optional(), q: z.string().trim().optional() })), (c) => {
+  .get('/projects/:projectId/groups', validate('query', z.object({ kind: z.enum(['scene', 'document', 'ui']).optional(), q: z.string().trim().optional() })), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     const { kind, q } = c.req.valid('query');
@@ -78,7 +78,7 @@ export const sourceRoutes = new Hono<Env>()
     const { db } = c.var.deps;
     return c.json(found(db.select().from(s.groups).where(eq(s.groups.id, c.req.param('groupId'))).get(), '장면'));
   })
-  .get('/projects/:projectId/units', zValidator('query', listQuery), (c) => {
+  .get('/projects/:projectId/units', validate('query', listQuery), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     const query = c.req.valid('query');
@@ -102,7 +102,7 @@ export const sourceRoutes = new Hono<Env>()
     const tags = Map.groupBy(tagRows, (row) => row.unitId);
     return c.json({ total, rows: rows.map((row) => ({ ...row, tagIds: (tags.get(row.id) ?? []).map((tag) => tag.tagId) })) });
   })
-  .patch('/projects/:projectId/units', zValidator('json', z.object({ unitIds: z.array(z.string()).min(1), statusId: z.string().optional(), addTagIds: z.array(z.string()).default([]), removeTagIds: z.array(z.string()).default([]) })), (c) => {
+  .patch('/projects/:projectId/units', validate('json', z.object({ unitIds: z.array(z.string()).min(1), statusId: z.string().optional(), addTagIds: z.array(z.string()).default([]), removeTagIds: z.array(z.string()).default([]) })), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     const body = c.req.valid('json');
@@ -133,7 +133,7 @@ export const sourceRoutes = new Hono<Env>()
     const nodes = db.select({ id: s.graphNodes.id, key: s.graphNodes.key }).from(s.graphNodes).where(sql`exists (select 1 from json_each(${s.graphNodes.unitIds}) where value = ${unitId})`).all();
     return c.json({ ...unit, group, candidates, tagIds, history, graphNodes: nodes });
   })
-  .patch('/units/:unitId', zValidator('json', unitPatch), (c) => {
+  .patch('/units/:unitId', validate('json', unitPatch), (c) => {
     const { db } = c.var.deps;
     const unitId = c.req.param('unitId');
     const body = c.req.valid('json');
@@ -189,6 +189,11 @@ export const sourceRoutes = new Hono<Env>()
       .where(eq(s.graphNodes.projectId, projectId))
       .all();
     return c.json({ status: layout?.status ?? 'missing', error: layout?.error ?? null, layout: layout?.data ?? null, nodes });
+  })
+  /** Recompute stored layouts, e.g. after the layout options changed. The source graph itself is untouched. */
+  .post('/projects/:projectId/graph/relayout', (c) => {
+    void computeLayouts(c.var.deps.db, c.req.param('projectId'));
+    return c.json({ ok: true }, 202);
   })
   .get('/graph-nodes/:nodeId', (c) => {
     const { db } = c.var.deps;
