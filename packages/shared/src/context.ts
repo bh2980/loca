@@ -1,6 +1,7 @@
 /** What went into an AI call besides the lines, why, and how big it was. Kept with every run step. */
 export const CONTEXT_ITEM_KINDS = {
   term: '용어',
+  cast: '인물 명단',
   preceding: '앞 대사',
   character: '인물',
   relationship: '관계',

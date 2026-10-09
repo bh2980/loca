@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
+import { LISTENER_MIN_CONFIDENCE } from '@tw/shared';
 
 export const PAGE_SIZE = 100;
 
@@ -29,10 +30,35 @@ function OriginBadge({ origin, model }: { origin: keyof typeof ORIGIN_LABEL; mod
   );
 }
 
+const LISTENER_WORDS: Record<string, string> = { group: '여럿', self: '혼잣말' };
+
+/** Who the line is addressed to. AI guesses are faint with their confidence; unsure ones count as unknown. */
+export function ListenerCell({ line }: { line: { listener: string | null; listenerOrigin: 'import' | 'ai' | 'human' | null; listenerConfidence: number | null } }) {
+  const name = line.listener ? (LISTENER_WORDS[line.listener] ?? line.listener) : null;
+  if (line.listenerOrigin === 'ai' && (line.listenerConfidence ?? 0) < LISTENER_MIN_CONFIDENCE)
+    return (
+      <span className="text-amber-700" title={`AI 추정: ${name ?? '모름'} (확신 ${(line.listenerConfidence ?? 0).toFixed(2)})`}>
+        미상
+      </span>
+    );
+  if (!name) return <span className="text-muted-foreground">—</span>;
+  if (line.listenerOrigin === 'ai')
+    return (
+      <span className="text-muted-foreground" title={`AI 추정 (확신 ${(line.listenerConfidence ?? 0).toFixed(2)})`}>
+        {name}
+        <span className="ml-1 text-[10px]">AI</span>
+      </span>
+    );
+  return <span>{name}</span>;
+}
+
 export interface LinesSearch {
   q?: string;
   status?: string;
   tag?: string;
+  speaker?: string;
+  /** A character name, or "-" for lines whose listener is unknown. */
+  listener?: string;
   page?: number;
   line?: string;
   /** The line panel's tab and the AI node whose context it shows ("workflowId:nodeId"). */
@@ -55,7 +81,9 @@ export function LinesView({ projectId, groupId, kind, search, onSearch, showScen
 }) {
   const statuses = useQuery(q.statuses(projectId));
   const page = search.page ?? 0;
-  const lines = useQuery(q.units(projectId, { groupId, kind, q: search.q, statusId: search.status, tagId: search.tag, offset: page * PAGE_SIZE, limit: PAGE_SIZE }));
+  const lines = useQuery(q.units(projectId, { groupId, kind, q: search.q, statusId: search.status, tagId: search.tag, speaker: search.speaker, listener: search.listener, offset: page * PAGE_SIZE, limit: PAGE_SIZE }));
+  const speakers = useQuery(q.speakers(projectId));
+  const people = useQuery(q.characters(projectId));
   const statusById = new Map(statuses.data?.statuses.map((status) => [status.id, status]));
   const tagById = new Map(statuses.data?.tags.map((tag) => [tag.id, tag]));
   const total = lines.data?.total ?? 0;
@@ -117,6 +145,34 @@ export function LinesView({ projectId, groupId, kind, search, onSearch, showScen
               {statuses.data?.statuses.map((status) => (
                 <SelectItem key={status.id} value={status.id}>
                   <StatusDot color={status.color} /> {status.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={search.speaker ?? 'all'} onValueChange={(value) => onSearch({ speaker: value === 'all' ? undefined : value, page: undefined })}>
+            <SelectTrigger className="w-36" aria-label="화자 필터">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">모든 화자</SelectItem>
+              {speakers.data?.filter((row) => row.speaker).map((row) => (
+                <SelectItem key={row.speaker} value={row.speaker!}>
+                  {row.speaker} <span className="text-muted-foreground tabular-nums">{row.lines}</span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={search.listener ?? 'all'} onValueChange={(value) => onSearch({ listener: value === 'all' ? undefined : value, page: undefined })}>
+            <SelectTrigger className="w-36" aria-label="청자 필터">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">모든 청자</SelectItem>
+              <SelectItem value="-">청자 미상</SelectItem>
+              {people.data?.characters.filter((c) => c.status === 'confirmed').map((c) => (
+                <SelectItem key={c.id} value={c.name}>
+                  {c.name}
+                  {c.player && <span className="text-muted-foreground"> · 플레이어</span>}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -205,6 +261,7 @@ export function LinesView({ projectId, groupId, kind, search, onSearch, showScen
                 </TableHead>
                 {showScene && <TableHead className="w-32">묶음</TableHead>}
                 <TableHead className="w-28">화자</TableHead>
+                <TableHead className="w-28">청자</TableHead>
                 <TableHead>원문</TableHead>
                 <TableHead>번역</TableHead>
                 <TableHead className="w-36">상태</TableHead>
@@ -226,6 +283,9 @@ export function LinesView({ projectId, groupId, kind, search, onSearch, showScen
                     </TableCell>
                     {showScene && <TableCell className="truncate text-muted-foreground">{line.groupTitle}</TableCell>}
                     <TableCell className="truncate font-medium">{line.speaker ?? <span className="text-muted-foreground">—</span>}</TableCell>
+                    <TableCell className="truncate">
+                      <ListenerCell line={line} />
+                    </TableCell>
                     <TableCell className="whitespace-pre-wrap">{line.source}</TableCell>
                     <TableCell className={cn('whitespace-pre-wrap', !line.translation && 'text-muted-foreground')}>
                       {line.translation ?? '—'}
@@ -242,7 +302,7 @@ export function LinesView({ projectId, groupId, kind, search, onSearch, showScen
               })}
               {lines.data?.rows.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="py-10 text-center text-muted-foreground">
+                  <TableCell colSpan={7} className="py-10 text-center text-muted-foreground">
                     조건에 맞는 대사가 없습니다.
                   </TableCell>
                 </TableRow>
@@ -286,6 +346,8 @@ export const linesSearchSchema = (raw: Record<string, unknown>): LinesSearch => 
   q: typeof raw.q === 'string' && raw.q ? raw.q : undefined,
   status: typeof raw.status === 'string' ? raw.status : undefined,
   tag: typeof raw.tag === 'string' ? raw.tag : undefined,
+  speaker: typeof raw.speaker === 'string' && raw.speaker ? raw.speaker : undefined,
+  listener: typeof raw.listener === 'string' && raw.listener ? raw.listener : undefined,
   page: typeof raw.page === 'number' && raw.page > 0 ? raw.page : undefined,
   line: typeof raw.line === 'string' ? raw.line : undefined,
   lineTab: raw.lineTab === 'context' ? 'context' : undefined,

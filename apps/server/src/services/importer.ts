@@ -1,4 +1,4 @@
-import { DEFAULT_STATUSES, termExtractionTemplate, translationTemplate, type ImportFile } from '@tw/shared';
+import { DEFAULT_STATUSES, listenerTemplate, termExtractionTemplate, translationTemplate, type ImportFile } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 
@@ -154,6 +154,14 @@ export function importProject(db: Db, file: ImportFile, defaultProfileId = ''): 
         name: '용어 추출',
         description: '장면별로 고유명사·반복 용어를 뽑아 용어집 후보로 추가합니다. 용어집에서 수락한 뒤 번역을 돌리세요.',
         definition: termExtractionTemplate({ profileId: defaultProfileId }),
+      })
+      .run();
+    tx.insert(s.workflows)
+      .values({
+        projectId,
+        name: '청자 추정',
+        description: '장면별로 대사마다 누구에게 하는 말인지 추정해 적습니다. 번역·상태는 바꾸지 않습니다. 말투 규칙은 청자가 정해진 대사에만 쓰입니다.',
+        definition: listenerTemplate({ profileId: defaultProfileId }),
       })
       .run();
   });

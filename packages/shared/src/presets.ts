@@ -30,6 +30,16 @@ export const AI_PRESETS: Record<string, { label: string; output: AiOutput; instr
       'Revise each candidate translation so it resolves every listed issue while keeping what was already correct. ' +
       'Keep every placeholder, rich-text tag and line break exactly.',
   },
+  listener: {
+    label: 'AI 청자 추정',
+    output: 'listener',
+    include: { candidate: false, issues: false },
+    instructions:
+      'For each line, decide who the speaker is addressing, so a Korean translator can pick the right speech level. ' +
+      'Read the whole batch as a scene: who is present, turn-taking, vocatives, questions and answers. ' +
+      'Name the listener exactly as in the cast list (the player character included, even if it never speaks); use "group" for several people, ' +
+      '"self" for thinking aloud, and null when you cannot tell. Give a confidence from 0 to 1; never guess with high confidence.',
+  },
   terms: {
     label: 'AI 용어 추출',
     output: 'terms',

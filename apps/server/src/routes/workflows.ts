@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { termExtractionTemplate, translationTemplate, validateWorkflow, workflowDefinitionSchema, type WorkflowDefinition } from '@tw/shared';
+import { listenerTemplate, termExtractionTemplate, translationTemplate, validateWorkflow, workflowDefinitionSchema, type WorkflowDefinition } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -62,7 +62,7 @@ export const workflowRoutes = new Hono<Env>()
       })),
     );
   })
-  .post('/projects/:projectId/workflows', validate('json', z.object({ name: z.string().trim().min(1), from: z.enum(['template', 'terms', 'blank']).default('template') })), (c) => {
+  .post('/projects/:projectId/workflows', validate('json', z.object({ name: z.string().trim().min(1), from: z.enum(['template', 'terms', 'listener', 'blank']).default('template') })), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     const { name, from } = c.req.valid('json');
@@ -72,7 +72,9 @@ export const workflowRoutes = new Hono<Env>()
         ? templateWorkflow(db, projectId)
         : from === 'terms'
           ? termExtractionTemplate({ profileId: profile?.id ?? '' })
-          : blankWorkflow(db, projectId);
+          : from === 'listener'
+            ? listenerTemplate({ profileId: profile?.id ?? '' })
+            : blankWorkflow(db, projectId);
     const row = db.insert(s.workflows).values({ projectId, name, definition }).returning().get();
     events.changed(projectId, 'workflows');
     return c.json(row, 201);

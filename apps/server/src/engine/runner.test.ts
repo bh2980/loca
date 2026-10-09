@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { AI_PRESETS, importFileSchema, workflowDefinitionSchema } from '@tw/shared';
+import { AI_PRESETS, importFileSchema, listenerTemplate, workflowDefinitionSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
@@ -118,6 +118,38 @@ describe('workflow runner', () => {
     const steps = db.select().from(s.runSteps).where(eq(s.runSteps.runId, runId)).all();
     expect(steps).toHaveLength(1);
     expect(steps[0].ok).toBe(false);
+  });
+});
+
+describe('listener estimation', () => {
+  it('records AI listeners with their confidence and leaves a person\'s choice alone', async () => {
+    const { db, projectId, profileId } = setup(3);
+    const units = db.select().from(s.units).where(eq(s.units.projectId, projectId)).orderBy(s.units.sort).all();
+    db.update(s.units).set({ listener: 'Bob', listenerOrigin: 'human' }).where(eq(s.units.id, units[2].id)).run();
+    db.insert(s.characters).values([{ projectId, name: 'Alice' }, { projectId, name: 'Pat', player: true }]).run();
+    const workflow = db.insert(s.workflows).values({ projectId, name: '청자', definition: listenerTemplate({ profileId }) }).returning().get();
+    const prompts: string[] = [];
+    const runner = new Runner(db, memoryStore(), {
+      judge: async () => {
+        throw new Error('unused');
+      },
+      generate: async (_route, request) => {
+        prompts.push(request.prompt);
+        const input = JSON.parse(request.prompt) as { lines: { id: string }[] };
+        return { object: { listeners: input.lines.map((line, index) => ({ id: line.id, listener: index === 0 ? 'Pat' : null, confidence: index === 0 ? 0.95 : 0.4 })) }, usage: {} } as never;
+      },
+    });
+    createRun(db, { projectId, workflow, profiles: snapshotProfiles(db, [profileId]), scope: {} });
+    await runner.drain();
+
+    // The whole cast goes in, the player marked, even though nobody is named in the lines.
+    expect(JSON.parse(prompts[0]).cast).toEqual([{ name: 'Alice', aliases: [] }, { name: 'Pat', aliases: [], player: true }]);
+    const after = db.select().from(s.units).where(eq(s.units.projectId, projectId)).orderBy(s.units.sort).all();
+    expect(after.map((unit) => [unit.listener, unit.listenerOrigin, unit.listenerConfidence])).toEqual([
+      ['Pat', 'ai', 0.95],
+      [null, 'ai', 0.4],
+      ['Bob', 'human', null],
+    ]);
   });
 });
 

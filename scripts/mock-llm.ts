@@ -46,13 +46,13 @@ app.post('/v1/chat/completions', async (c) => {
       if (pair.evidence.length < 3) pair.evidence.push(line.id);
       pairs.set(key, pair);
     });
-    const levels = ['banmal', 'haeyo', 'hasipsio'] as const;
+    const levels = ['hae', 'haeyo', 'hasipsio', 'haera'] as const;
     const content = {
       overview: { setting: '모의 분석: 대본에 나온 장소', mainConflict: '모의 갈등', plot: `모의 줄거리 (대사 ${lines.length}줄을 읽음)`, evidence: lines.slice(0, 3).map((line) => line.id) },
       characters: cast.map(([name, rows], index) => ({ name, aliases: [], profile: `대사 ${rows.length}줄`, speech: '모의 말투 설명', player: index === cast.length - 1, evidence: rows.slice(0, 3).map((row) => row.id) })),
       relationships: [...pairs.values()].slice(0, 6).map((pair) => ({ from: pair.from, to: pair.to, kind: '아는 사이', description: '모의 관계', changes: [], evidence: pair.evidence })),
       events: [{ title: '모의 사건', summary: '처음 장면의 일', cause: '', outcome: '', participants: cast.slice(0, 2).map(([name]) => name), evidence: lines.slice(0, 2).map((line) => line.id) }],
-      speechRules: [...pairs.values()].map((pair, index) => ({ from: pair.from, to: pair.to, level: levels[index % 3], address: '', note: '모의 규칙', start: null, evidence: pair.evidence })),
+      speechRules: [...pairs.values()].map((pair, index) => ({ from: pair.from, to: pair.to, level: levels[index % 4], address: '', note: '모의 규칙', start: null, evidence: pair.evidence })),
     };
     await new Promise((resolve) => setTimeout(resolve, 1500));
     return c.json({ id: 'mock', object: 'chat.completion', model: 'mock', choices: [{ index: 0, message: { role: 'assistant', content: JSON.stringify(content) }, finish_reason: 'stop' }], usage: { prompt_tokens: Math.ceil(text(last).length / 4), completion_tokens: 500, total_tokens: 0 } });
@@ -62,6 +62,15 @@ app.post('/v1/chat/completions', async (c) => {
     const input = JSON.parse(text(last)) as { lines: { id: string; source: string; candidate?: string }[] };
     // Lines mentioning "orders" never pass review, so they end up waiting for a person.
     const stubborn = (source: string) => /orders/i.test(source);
+    if (system.includes('who the speaker is addressing')) {
+      // The listener is the next different speaker in the batch (else the previous one); the first line of a batch is unsure.
+      const rows = input.lines as { id: string; source: string; speaker?: string }[];
+      const listeners = rows.map((line, index) => {
+        const other = rows.slice(index + 1).find((row) => row.speaker && row.speaker !== line.speaker) ?? rows.slice(0, index).reverse().find((row) => row.speaker && row.speaker !== line.speaker);
+        return { id: line.id, listener: other?.speaker ?? null, confidence: index === 0 ? 0.6 : other ? 0.95 : 0.3 };
+      });
+      return c.json({ id: 'mock', object: 'chat.completion', model: 'mock', choices: [{ index: 0, message: { role: 'assistant', content: JSON.stringify({ listeners }) }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } });
+    }
     if (system.includes('Find proper nouns')) {
       // Capitalised words that are not sentence starts stand in for proper nouns.
       const words = new Set(input.lines.flatMap((line) => [...line.source.matchAll(/(?<=\s)([A-Z][a-z]{3,})/g)].map((match) => match[1])));

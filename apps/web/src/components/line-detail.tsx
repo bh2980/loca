@@ -2,7 +2,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { useMemo } from 'react';
 import { Check, CircleAlert, CircleCheck, X } from 'lucide-react';
-import { checkFormat, mentions, type FormatRules } from '@tw/shared';
+import { checkFormat, KNOWLEDGE_ORIGIN_LABELS, LISTENER_MIN_CONFIDENCE, mentions, type FormatRules } from '@tw/shared';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -51,11 +51,12 @@ export function LineDetail({
   const statuses = useQuery(q.statuses(projectId));
   const terms = useQuery(q.terms(projectId));
   const project = useQuery(q.project(projectId));
+  const people = useQuery(q.characters(projectId));
   const [draft, setDraft, clearDraft] = useDraft(`line:${unitId}`, unit.data?.translation ?? '');
   useReportView('line-detail', [unit.data && { kind: '대사', id: unit.data.id, label: `${unit.data.key} · ${unit.data.source.slice(0, 40)}` }]);
 
   const patch = useMutation({
-    mutationFn: (json: { translation?: string; candidateId?: string; statusId?: string; tagIds?: string[] }) => unwrap(client.units[':unitId'].$patch({ param: { unitId }, json })),
+    mutationFn: (json: { translation?: string; candidateId?: string; statusId?: string; tagIds?: string[]; listener?: string | null }) => unwrap(client.units[':unitId'].$patch({ param: { unitId }, json })),
     onSuccess: (_data, variables) => variables.translation !== undefined && clearDraft(),
   });
 
@@ -111,6 +112,38 @@ export function LineDetail({
             <h3 className="mb-1 text-xs font-medium text-muted-foreground">원문{line.speaker ? ` · ${line.speaker}` : ''}</h3>
             <p className="text-sm whitespace-pre-wrap">{line.source}</p>
           </section>
+
+          {line.kind === 'dialogue' && (
+            <section className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-medium text-muted-foreground">청자</span>
+              <Select value={line.listener ?? '-'} onValueChange={(value) => patch.mutate({ listener: value === '-' ? null : value })}>
+                <SelectTrigger size="sm" className="w-44" aria-label="청자">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="-">미상</SelectItem>
+                  <SelectItem value="group">여럿</SelectItem>
+                  <SelectItem value="self">혼잣말</SelectItem>
+                  {people.data?.characters
+                    .filter((c) => c.status === 'confirmed' || c.name === line.listener)
+                    .map((c) => (
+                      <SelectItem key={c.id} value={c.name}>
+                        {c.name}
+                        {c.player && ' · 플레이어'}
+                      </SelectItem>
+                    ))}
+                  {line.listener && !['group', 'self'].includes(line.listener) && !people.data?.characters.some((c) => c.name === line.listener) && <SelectItem value={line.listener}>{line.listener}</SelectItem>}
+                </SelectContent>
+              </Select>
+              {line.listenerOrigin && (
+                <span className={cn('text-xs', line.listenerOrigin === 'ai' && (line.listenerConfidence ?? 0) < LISTENER_MIN_CONFIDENCE ? 'text-amber-700' : 'text-muted-foreground')}>
+                  {KNOWLEDGE_ORIGIN_LABELS[line.listenerOrigin === 'import' ? 'import' : line.listenerOrigin]}
+                  {line.listenerOrigin === 'ai' &&
+                    ` 추정 · 확신 ${(line.listenerConfidence ?? 0).toFixed(2)}${(line.listenerConfidence ?? 0) < LISTENER_MIN_CONFIDENCE ? ' (낮아서 미상으로 다룸)' : ''}`}
+                </span>
+              )}
+            </section>
+          )}
 
           <section className="flex flex-wrap items-center gap-2">
             <Select value={line.statusId} onValueChange={(statusId) => patch.mutate({ statusId })}>

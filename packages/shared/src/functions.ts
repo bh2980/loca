@@ -44,6 +44,11 @@ export const addTermsParams = z.object({
   autoConfirm: z.boolean().default(false),
 });
 
+export const setListenerParams = z.object({
+  /** AI node whose "listener" output to record. Empty = the most recent listener output on the line. */
+  fromNodeId: z.string().default(''),
+});
+
 export const httpParams = z.object({
   connectionId: z.string().default(''),
   method: z.enum(['GET', 'POST']).default('POST'),
@@ -100,6 +105,13 @@ export const FUNCTIONS = {
     label: '용어 후보 추가',
     description: 'AI 노드가 뽑은 용어를 용어집에 추가합니다. 기본은 후보(수락 후 문맥에 쓰임), 자동 확정을 켜면 바로 쓰입니다.',
     params: addTermsParams,
+    ports: () => out,
+    async: false,
+  },
+  setListener: {
+    label: '청자 기록',
+    description: 'AI 노드가 추정한 청자와 확신도를 대사에 적습니다(출처: AI). 사람이 정한 청자는 바꾸지 않고, 확신도가 낮은 청자는 문맥에서 “미상”으로 다룹니다.',
+    params: setListenerParams,
     ports: () => out,
     async: false,
   },

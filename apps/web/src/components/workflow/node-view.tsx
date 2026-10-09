@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
-import { BookPlus, Braces, CircleDot, Code, Flag, GitFork, Globe, ListChecks, ScanSearch, Sparkles, SpellCheck, Tag } from 'lucide-react';
+import { BookPlus, Braces, CircleDot, Code, Flag, GitFork, Globe, ListChecks, MessageCircleQuestion, ScanSearch, Sparkles, SpellCheck, Tag, UserCheck } from 'lucide-react';
 import { nodeName, nodePorts, type WorkflowNode } from '@tw/shared';
 import { cn } from '@/lib/utils';
 
@@ -11,10 +11,11 @@ const FUNCTION_ICON: Record<string, Icon> = {
   glossaryCheck: SpellCheck,
   setStatus: Tag,
   addTerms: BookPlus,
+  setListener: UserCheck,
   http: Globe,
   script: Code,
 };
-const AI_ICON: Record<string, Icon> = { candidate: Sparkles, verdict: ScanSearch, terms: BookPlus, json: Braces };
+const AI_ICON: Record<string, Icon> = { candidate: Sparkles, verdict: ScanSearch, terms: BookPlus, listener: MessageCircleQuestion, json: Braces };
 
 export function nodeIcon(node: WorkflowNode): Icon {
   switch (node.type) {

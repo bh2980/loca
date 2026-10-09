@@ -9,6 +9,8 @@ export const contextConfigSchema = z.object({
   documents: z.boolean().default(true),
   characters: z.boolean().default(true),
   relationships: z.boolean().default(true),
+  /** Every confirmed character's name, aliases and player flag, so the model can name people not mentioned in the batch. */
+  cast: z.boolean().default(false),
   precedingLines: z.number().int().min(0).max(50).default(8),
   previousScenes: z.number().int().min(0).max(10).default(1),
   /** Show the current translation of preceding lines (off when the existing translation is the answer key). */
@@ -30,6 +32,7 @@ export const AI_OUTPUTS = {
   candidate: { label: '번역 후보', description: '대사마다 새 번역 후보를 만듭니다.' },
   verdict: { label: '판정', description: '통과/실패와 의견을 냅니다.' },
   terms: { label: '용어 후보', description: '원문에서 용어(원문·번역·메모)를 뽑습니다.' },
+  listener: { label: '청자', description: '대사마다 누구에게 하는 말인지와 확신도를 냅니다.' },
   json: { label: '자유 형식', description: '직접 정한 필드를 대사마다 채웁니다.' },
 } as const;
 export type AiOutput = keyof typeof AI_OUTPUTS;
@@ -43,7 +46,7 @@ export const jsonFieldSchema = z.object({
 const aiConfig = z.object({
   profileId: z.string().default(''),
   instructions: z.string().default(''),
-  output: z.enum(['candidate', 'verdict', 'terms', 'json']).default('candidate'),
+  output: z.enum(['candidate', 'verdict', 'terms', 'listener', 'json']).default('candidate'),
   fields: z.array(jsonFieldSchema).default([]),
   /** Also show the model the line's current candidate / the latest failing issues. */
   include: z
@@ -225,6 +228,10 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
       if (node.config.fn === 'addTerms' && params.fromNodeId) {
         const from = definition.nodes.find((other) => other.id === params.fromNodeId);
         if (from?.type !== 'ai' || from.config.output !== 'terms') error('용어 후보를 내는 AI 노드를 선택하세요.', { nodeId: node.id });
+      }
+      if (node.config.fn === 'setListener' && params.fromNodeId) {
+        const from = definition.nodes.find((other) => other.id === params.fromNodeId);
+        if (from?.type !== 'ai' || from.config.output !== 'listener') error('청자를 내는 AI 노드를 선택하세요.', { nodeId: node.id });
       }
     }
     if (node.type === 'condition' && (node.config.expression === undefined || node.config.expression === null))

@@ -112,3 +112,39 @@ export function termExtractionTemplate(ids: { profileId: string }): WorkflowDefi
   };
 }
 
+
+/**
+ * Listener estimation: reads each scene with the whole cast and records who every line is
+ * addressed to, with a confidence. Speech rules apply to a line only when its listener is known.
+ * Translations and statuses are untouched, so it can run on any lines, any number of times.
+ */
+export function listenerTemplate(ids: { profileId: string }): WorkflowDefinition {
+  return {
+    settings: { maxVisitsPerNode: 5, concurrency: 2 },
+    nodes: [
+      { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: { statusIds: [] } },
+      {
+        id: 'listener',
+        type: 'ai',
+        position: { x: 300, y: 0 },
+        label: AI_PRESETS.listener.label,
+        config: {
+          profileId: ids.profileId,
+          instructions: AI_PRESETS.listener.instructions,
+          output: 'listener',
+          fields: [],
+          include: AI_PRESETS.listener.include,
+          context: { ...contextConfigSchema.parse({}), glossary: false, cast: true, precedingLines: 8, previousScenes: 1 },
+          batch: { mode: 'group', size: 80 },
+        },
+      },
+      { id: 'record', type: 'function', position: { x: 600, y: 0 }, label: '청자 기록', config: { fn: 'setListener', params: { fromNodeId: 'listener' } } },
+      { id: 'end', type: 'end', position: { x: 900, y: 0 }, config: {} },
+    ],
+    edges: [
+      { id: 'e1', source: 'entry', sourceHandle: 'out', target: 'listener' },
+      { id: 'e2', source: 'listener', sourceHandle: 'out', target: 'record' },
+      { id: 'e3', source: 'record', sourceHandle: 'out', target: 'end' },
+    ],
+  };
+}

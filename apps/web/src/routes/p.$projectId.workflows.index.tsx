@@ -105,7 +105,7 @@ function NewWorkflow({ projectId }: { projectId: string }) {
   const navigate = Route.useNavigate();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
-  const [from, setFrom] = useState<'template' | 'terms' | 'blank'>('template');
+  const [from, setFrom] = useState<'template' | 'terms' | 'listener' | 'blank'>('template');
   const create = useMutation({
     mutationFn: () => unwrap(client.projects[':projectId'].workflows.$post({ param: { projectId }, json: { name: name.trim(), from } })),
     onSuccess: (workflow) => {
@@ -129,7 +129,7 @@ function NewWorkflow({ projectId }: { projectId: string }) {
             <Label htmlFor="wf-name">이름</Label>
             <Input id="wf-name" value={name} onChange={(event) => setName(event.target.value)} autoFocus />
           </div>
-          <RadioGroup value={from} onValueChange={(value) => setFrom(value as 'template' | 'terms' | 'blank')}>
+          <RadioGroup value={from} onValueChange={(value) => setFrom(value as 'template' | 'terms' | 'listener' | 'blank')}>
             <label className="flex items-start gap-2 text-sm">
               <RadioGroupItem value="template" className="mt-0.5" />
               <span>
@@ -142,6 +142,13 @@ function NewWorkflow({ projectId }: { projectId: string }) {
               <span>
                 용어 추출 템플릿
                 <span className="block text-xs text-muted-foreground">장면별로 용어를 뽑아 용어집 후보로 추가 (상태는 그대로). 수락 후 번역에 쓰입니다.</span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2 text-sm">
+              <RadioGroupItem value="listener" className="mt-0.5" />
+              <span>
+                청자 추정 템플릿
+                <span className="block text-xs text-muted-foreground">장면별로 대사마다 누구에게 하는 말인지와 확신도를 적습니다 (번역·상태는 그대로). 말투 규칙은 청자가 정해진 대사에만 쓰입니다.</span>
               </span>
             </label>
             <label className="flex items-start gap-2 text-sm">

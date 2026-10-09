@@ -14,9 +14,20 @@ export type ListenerOrigin = (typeof LISTENER_ORIGINS)[number];
 /** AI listeners below this confidence count as unknown (experiment sample: 99% right at >= 0.9). */
 export const LISTENER_MIN_CONFIDENCE = 0.9;
 
-export const SPEECH_LEVELS = ['banmal', 'haeyo', 'hasipsio', 'other'] as const;
+/** Korean speech levels: four formal (하십시오·하오·하게·해라) and two informal (해요·해) ones. */
+export const SPEECH_LEVELS = ['hasipsio', 'hao', 'hage', 'haera', 'haeyo', 'hae', 'other'] as const;
 export type SpeechLevel = (typeof SPEECH_LEVELS)[number];
-export const SPEECH_LEVEL_LABELS: Record<SpeechLevel, string> = { banmal: '반말', haeyo: '해요체', hasipsio: '하십시오체', other: '기타' };
+export const SPEECH_LEVEL_LABELS: Record<SpeechLevel, string> = {
+  hasipsio: '하십시오체',
+  hao: '하오체',
+  hage: '하게체',
+  haera: '해라체',
+  haeyo: '해요체',
+  hae: '해체(반말)',
+  other: '기타',
+};
+/** For prompts: the level ids with an example ending each. */
+export const SPEECH_LEVEL_GUIDE = 'hasipsio (하십시오체: 합니다/합니까/하십시오), hao (하오체: 하오/하구려), hage (하게체: 하네/하게/하는가), haera (해라체: 한다/하느냐/해라/하자), haeyo (해요체: 해요), hae (해체·반말: 해/해?/하지), other';
 
 export const relationshipChangeSchema = z.object({
   /** The line key where the change shows. */
@@ -37,7 +48,10 @@ export function speechLevelOf(text: string): Exclude<SpeechLevel, 'other'> | nul
     .trim()
     .replace(/[\s.,!?…~"'”’)\]]+$/u, '');
   if (!/[가-힣]$/u.test(plain)) return null;
-  if (/(습니다|습니까|십시오|니다|니까|시오)$/u.test(plain)) return 'hasipsio';
+  if (/(니다|니까|십시오)$/u.test(plain)) return 'hasipsio';
   if (/요$/u.test(plain)) return 'haeyo';
-  return 'banmal';
+  if (/(구려|시오|소|오)$/u.test(plain)) return 'hao';
+  if (/(는가|던가|게나|세나)$/u.test(plain)) return 'hage';
+  if (/(다|냐|니|거라|라|자)$/u.test(plain)) return 'haera';
+  return 'hae';
 }

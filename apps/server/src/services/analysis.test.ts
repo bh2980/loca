@@ -37,7 +37,7 @@ const draft = (rule: Analysis['speechRules'][number]['level']): Analysis => ({
   events: [{ title: '지각', summary: '', cause: '', outcome: '', participants: ['Bob'], evidence: ['L1'] }],
   speechRules: [
     { from: 'Bob', to: 'Alice', level: rule, address: '선장님', note: '', start: null, evidence: ['L2'] },
-    { from: 'Alice', to: 'Bob', level: 'banmal', address: '', note: '', start: 'L3', evidence: ['L3'] },
+    { from: 'Alice', to: 'Bob', level: 'hae', address: '', note: '', start: 'L3', evidence: ['L3'] },
   ],
 });
 
@@ -66,7 +66,7 @@ describe('work analysis', () => {
 
     const rules = db.select().from(s.speechRules).where(eq(s.speechRules.projectId, projectId)).orderBy(s.speechRules.fromName).all();
     expect(rules.map((rule) => [rule.fromName, rule.level, rule.startKey, rule.status, rule.origin])).toEqual([
-      ['Alice', 'banmal', 'a3', 'candidate', 'ai'],
+      ['Alice', 'hae', 'a3', 'candidate', 'ai'],
       ['Bob', 'hasipsio', null, 'candidate', 'ai'],
     ]);
     const rel = db.select().from(s.relationships).where(eq(s.relationships.projectId, projectId)).get()!;
@@ -80,7 +80,7 @@ describe('work analysis', () => {
     expect((await settle(service, projectId)).status).toBe('completed');
     const after = db.select().from(s.speechRules).where(eq(s.speechRules.projectId, projectId)).orderBy(s.speechRules.fromName, s.speechRules.status).all();
     expect(after.map((rule) => [rule.fromName, rule.level, rule.status])).toEqual([
-      ['Alice', 'banmal', 'confirmed'],
+      ['Alice', 'hae', 'confirmed'],
       ['Bob', 'haeyo', 'candidate'],
     ]);
     expect(db.select().from(s.characters).where(eq(s.characters.projectId, projectId)).all()).toHaveLength(2);

@@ -254,6 +254,7 @@ function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRefs; onCh
         <ToggleRow label="항상 포함 문서 (스토리·세계관·문체)" checked={context.documents} onChange={(value) => set({ context: { ...context, documents: value } })} />
         <ToggleRow label="등장 인물 프로필" checked={context.characters} onChange={(value) => set({ context: { ...context, characters: value } })} />
         <ToggleRow label="인물 관계" checked={context.relationships} onChange={(value) => set({ context: { ...context, relationships: value } })} />
+        <ToggleRow label="인물 명단 (확정된 인물 전체의 이름·별칭·플레이어 여부)" checked={context.cast} onChange={(value) => set({ context: { ...context, cast: value } })} />
         <div className="grid grid-cols-2 gap-3">
           <Field label="선행 대사 수" hint="대사 그래프에서 앞에 오는 대사">
             <Input type="number" min={0} max={50} value={context.precedingLines} onChange={(event) => set({ context: { ...context, precedingLines: Number(event.target.value) } })} />
@@ -345,6 +346,26 @@ function FunctionConfig({ node, refs, readOnly, onChange }: { node: FunctionNode
           {params.autoConfirm ? '추가된 용어가 다음 AI 호출부터 문맥에 들어갑니다. 잘못 뽑힌 용어도 그대로 쓰이니 주의하세요.' : '추가된 용어는 ‘후보’입니다. 용어집의 후보 탭에서 수락해야 문맥에 쓰입니다.'}
         </p>
         </>
+      );
+    }
+    case 'setListener': {
+      const sources = refs.nodes.filter((other) => other.type === 'ai' && other.config.output === 'listener');
+      return (
+        <Field label="청자를 가져올 AI 노드" hint="사람이 정한 청자는 바꾸지 않습니다. 확신도 0.9 미만은 문맥에서 ‘미상’으로 다룹니다.">
+          <Select value={(params.fromNodeId as string) || 'latest'} onValueChange={(value) => set('fromNodeId', value === 'latest' ? '' : value)}>
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="latest">가장 최근 청자 출력</SelectItem>
+              {sources.map((other) => (
+                <SelectItem key={other.id} value={other.id}>
+                  {nodeName(other)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
       );
     }
     case 'http':

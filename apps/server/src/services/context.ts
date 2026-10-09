@@ -30,6 +30,8 @@ export interface BatchContext {
   previousScenes: { title: string; description: string }[];
   documents: { kind: string; title: string; body: string }[];
   characters: { name: string; aliases: string[]; profile: string }[];
+  /** Every confirmed character, for naming people who are not mentioned in the batch. */
+  cast: { name: string; aliases: string[]; player?: true }[];
   relationships: { from: string; to: string; kind: string; description: string; mutual: boolean }[];
   terms: { source: string; target: string; note: string }[];
   /** Per unit id, only for lines whose preceding lines are not already in the batch or shown for an earlier line. */
@@ -162,8 +164,8 @@ export function buildContext(
   const text = batch.map((unit) => `${unit.speaker ?? ''}\n${unit.source}`).join('\n');
   const groupIds = [...new Set(batch.map((unit) => unit.groupId))];
   const sceneRows = db.select().from(groups).where(inArray(groups.id, groupIds)).all();
-  const result: BatchContext = { scene: null, previousScenes: [], documents: [], characters: [], relationships: [], terms: [], preceding: {}, items: [], budget: { limit: config.maxTokens, used: 0 } };
-  const candidates: Record<ContextItemKind, Candidate[]> = { term: [], preceding: [], character: [], relationship: [], scene: [], previousScene: [], document: [] };
+  const result: BatchContext = { scene: null, previousScenes: [], documents: [], characters: [], cast: [], relationships: [], terms: [], preceding: {}, items: [], budget: { limit: config.maxTokens, used: 0 } };
+  const candidates: Record<ContextItemKind, Candidate[]> = { term: [], cast: [], preceding: [], character: [], relationship: [], scene: [], previousScene: [], document: [] };
 
   if (config.glossary) {
     const used = db
@@ -227,6 +229,16 @@ export function buildContext(
           : '대사 그래프상 바로 앞 (한 갈래)';
       candidates.preceding.push({ item: { kind: 'preceding', label: `${unit.key} 앞 ${count}줄`, reason }, payload: preceding, keep: () => (result.preceding[unit.id] = preceding) });
     }
+  }
+
+  if (config.cast) {
+    const cast = db
+      .select({ name: characters.name, aliases: characters.aliases, player: characters.player })
+      .from(characters)
+      .where(and(eq(characters.projectId, projectId), eq(characters.status, 'confirmed')))
+      .all()
+      .map(({ name, aliases, player }) => ({ name, aliases, ...(player ? { player: true as const } : {}) }));
+    if (cast.length) candidates.cast.push({ item: { kind: 'cast', label: `${cast.length}명`, reason: '확정된 인물 전체 (이름·별칭·플레이어 여부)' }, payload: cast, keep: () => (result.cast = cast) });
   }
 
   const allCharacters = config.characters || config.relationships ? db.select().from(characters).where(and(eq(characters.projectId, projectId), eq(characters.status, 'confirmed'))).all() : [];

@@ -1,7 +1,7 @@
 import { and, desc, eq, notInArray } from 'drizzle-orm';
 import { z } from 'zod';
 import * as ai from '@tw/ai';
-import { SPEECH_LEVELS } from '@tw/shared';
+import { SPEECH_LEVEL_GUIDE, SPEECH_LEVELS } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
@@ -52,7 +52,7 @@ Rules:
 - characters: everyone who speaks or is addressed often. "speech" describes how they talk in the source. Mark the player character (the one the player controls or who is addressed as "you" by the game, even if it never speaks) with "player": true.
 - relationships: one per direction that matters; "changes" give the line id ("at") where the relationship changes and why.
 - events: what happened, its cause and its outcome, the people involved; include events that later lines refer back to.
-- speechRules: for every speaker → listener direction with several lines, the Korean speech level the translation should use: "banmal" (반말), "haeyo" (해요체), "hasipsio" (하십시오체) or "other". Decide from the relationship (age, rank, intimacy, hostility) as a Korean translator would. "address" is how the speaker should address the listener in Korean (e.g. "수사관님", "언니"), empty if none. If the level changes at some point (falling out, reconciliation, promotion), give one rule per stretch: "start" is the line id where the new stretch begins (null for the first). Do not mark a single sarcastic or emotional line as a change. "note" says why.
+- speechRules: for every speaker → listener direction with several lines, the Korean speech level the translation should use, one of: ${SPEECH_LEVEL_GUIDE}. Decide from the relationship (age, rank, intimacy, hostility, era and setting) as a Korean translator would; narration-like or written addresses often take 해라체, close friends 해체. "address" is how the speaker should address the listener in Korean (e.g. "수사관님", "언니"), empty if none. If the level changes at some point (falling out, reconciliation, promotion), give one rule per stretch: "start" is the line id where the new stretch begins (null for the first). Do not mark a single sarcastic or emotional line as a change. "note" says why.
 - Keep the whole answer under about 15,000 words.`;
 
 const RETURN = 'Return only JSON with "overview", "characters", "relationships", "events" and "speechRules".';

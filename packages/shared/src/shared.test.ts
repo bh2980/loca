@@ -102,7 +102,7 @@ describe('import format', () => {
       ...base,
       characters: [{ name: 'A' }, { name: 'B', player: true }],
       relationships: [{ from: 'A', to: 'B', kind: 'friend', changes: [{ at: 'u9', change: 'falls out' }] }],
-      speechRules: [{ from: 'A', to: 'B', level: 'haeyo' }, { from: 'A', to: 'B', level: 'banmal', start: 'u9' }],
+      speechRules: [{ from: 'A', to: 'B', level: 'haeyo' }, { from: 'A', to: 'B', level: 'hae', start: 'u9' }],
       events: [{ title: 'Fight', evidence: ['u1', 'u8'] }],
     });
     expect(result.success).toBe(false);
@@ -149,7 +149,10 @@ describe('speech level guess', () => {
   it('reads the last sentence ending and ignores tags and trailing punctuation', () => {
     expect(speechLevelOf('알겠습니다.')).toBe('hasipsio');
     expect(speechLevelOf('<b>정말요?</b>')).toBe('haeyo');
-    expect(speechLevelOf('그만해, {name}!')).toBe('banmal');
+    expect(speechLevelOf('그만해, {name}!')).toBe('hae');
+    expect(speechLevelOf('어서 가거라.')).toBe('haera');
+    expect(speechLevelOf('자네도 왔는가?')).toBe('hage');
+    expect(speechLevelOf('어서 오시오.')).toBe('hao');
     expect(speechLevelOf('OK')).toBeNull();
   });
 });

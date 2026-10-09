@@ -15,6 +15,8 @@ export function outputSchema(node: AiNode): z.ZodType<unknown> {
       return z.object({ results: z.array(z.object({ id: z.string(), passed: z.boolean(), issues: z.array(z.string()) })) });
     case 'terms':
       return z.object({ terms: z.array(z.object({ source: z.string(), target: z.string(), note: z.string() })) });
+    case 'listener':
+      return z.object({ listeners: z.array(z.object({ id: z.string(), listener: z.string().nullable(), confidence: z.number() })) });
     case 'json':
       return z.object({
         results: z.array(z.object({ id: z.string(), ...Object.fromEntries(node.config.fields.map((field) => [field.name, fieldType(field).describe(field.description)])) })),
@@ -26,6 +28,7 @@ const CONTRACT: Record<AiNode['config']['output'], string> = {
   candidate: 'Return one translation per line id in "translations".',
   verdict: 'Return one result per line id in "results": passed, and concrete issues (empty when passed).',
   terms: 'Return the terms found across all lines in "terms" (source, target, note). Return an empty list when there are none.',
+  listener: 'Return one entry per line id in "listeners": listener (a cast name, "group", "self" or null) and confidence (0 to 1).',
   json: 'Return one object per line id in "results" with the requested fields.',
 };
 
@@ -62,6 +65,7 @@ export function buildPrompt(
     scene: context.scene ?? undefined,
     previousScenes: context.previousScenes.length ? context.previousScenes : undefined,
     documents: context.documents.length ? context.documents : undefined,
+    cast: context.cast.length ? context.cast : undefined,
     characters: context.characters.length ? context.characters : undefined,
     relationships: context.relationships.length ? context.relationships : undefined,
     glossary: context.terms.length ? context.terms : undefined,

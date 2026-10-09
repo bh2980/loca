@@ -129,7 +129,7 @@ System One(TypeSafe의 판정 모델 체계. 현재 모델 Jev)은 확률을 돌
 | 관계 변화 | 어느 지점에서·무엇 때문에 바뀌었는지 | [1차: 분석 초안] |
 | 사건 | 제목·요약·원인·진행·결과·관련 인물·일어난 장면·인과 연결 | [1차: 분석 초안, 인과 연결은 계획] |
 | 청자 | 대사마다 누구에게 하는 말인지(인물, 플레이어, 여럿, 혼잣말, 미상). 출처(가져오기/AI/사람)와 AI 확신도 | [1차] |
-| 말투 규칙 | 화자→청자 방향별 구간의 연속. 구간마다 말투(반말/해요체/하십시오체)·호칭·시작 지점·계기 메모. 후보/확정 | [1차: 구간 시작은 대본 순서 기준] |
+| 말투 규칙 | 화자→청자 방향별 구간의 연속. 구간마다 말투(하십시오체·하오체·하게체·해라체·해요체·해체)·호칭·시작 지점·계기 메모. 후보/확정 | [1차: 구간 시작은 대본 순서 기준] |
 | 개요 | 배경·주제·주요 갈등·줄거리 (작품 문서로 표현) | [구현됨: 문서] |
 | 용어 | 원문 → 지정 번역, 후보/확정 | [구현됨] |
 | 용어 의미 | 한 원문이 뜻에 따라 다르게 번역될 때 의미별 번역과 설명("The Hollow" 지명 / "hollow" 일반어). 의미가 하나인 용어는 없음 | [계획] |
@@ -249,7 +249,7 @@ Back/Forward는 이전 화면 상태를 복원한다. 서버 변경은 SSE 토�
 
 **J9. 작품 분석** [1차] — 위에서 아래로: 작품을 먼저 이해하고(분석 초안 → 사람 확정), 그 위에 청자와 말투 규칙을 얹는다.
 1. 문맥 › 자료 › "작품 분석" → 모델 프로필 선택(긴 문맥 모델 권장). 대본 전체(장면·화자·선택지·조건 분기 표시)를 **한 번에** 읽힌다. 모델 문맥 창을 넘으면 장면 경계에서 나눠 앞 결과에 덧붙인다. 프로젝트 단위 백그라운드 작업이며 진행·취소·실패 장면이 보이고(SSE), 번역·상태는 바꾸지 않는다.
-2. 결과는 근거 대사 키가 달린 **초안**: 개요, 인물(별칭·프로필·말투 특징), 관계(변화 지점), 사건(요약·원인·결과·관련 인물), **말투 규칙**(화자→청자, 반말/해요체/하십시오체, 호칭, 바뀌는 지점의 대사 키). 모두 후보(AI)로 저장되고 모델·작업 id가 남는다.
+2. 결과는 근거 대사 키가 달린 **초안**: 개요, 인물(별칭·프로필·말투 특징), 관계(변화 지점), 사건(요약·원인·결과·관련 인물), **말투 규칙**(화자→청자, 여섯 말투 등급 중 하나, 호칭, 바뀌는 지점의 대사 키). 모두 후보(AI)로 저장되고 모델·작업 id가 남는다.
 3. 확인: 자료의 탭(문서·인물·관계·사건·말투 규칙)마다 표 + 우측 상세, 후보/확정/전체 필터. 초안은 "후보 · AI"로 보인다. 상세에서 문장을 고치고, 근거 대사를 열어 보고(스크립트로 이동), 확정/버리기. 여러 개 골라 한 번에 확정. 근거 키가 대본에 없으면 코드가 표시한다.
 4. 다시 분석하면 확정되지 않은 AI 초안만 바뀐다. 사람이 만든 항목·확정 항목은 덮지 않고, 같은 대상의 새 제안은 따로 보인다.
 5. 확정된 지식의 쓰임: 말투 규칙 → 번역 문맥(J10). 인물·개요 → 청자 추정의 참고. 프로필·사건은 기본으로 번역 문맥에 넣지 않는다(2.4).
@@ -315,7 +315,7 @@ System One 연결은 판정 출력에만 쓴다.
 | documents | kind(story/world/style/note), title, body, always_include |
 | characters / relationships | name, aliases, profile, speech(말투 특징), player / from, to, kind, description, mutual, changes(지점·변화·계기) |
 | events | title, summary, cause, outcome, participants |
-| speech_rules | from_name, to_name, level(banmal/haeyo/hasipsio/other), address, note, start_key(구간 시작, 없으면 처음부터) |
+| speech_rules | from_name, to_name, level(hasipsio/hao/hage/haera/haeyo/hae/other), address, note, start_key(구간 시작, 없으면 처음부터) |
 | (지식 공통) | documents·characters·relationships·events·speech_rules 모두 status(candidate/confirmed), origin(human/ai/import), evidence(대사 키 목록), job_id. 후보는 문맥에 들어가지 않는다 |
 | analysis_jobs | profile_id, model, status, parts(완료/전체), usage, error, 시작·끝 |
 | connections | kind(openai/pi/systemone/codex/claude/grok/antigravity/opencode/http), base_url, executable, options(pi 스위치). 키는 OS 자격 증명 저장소 |

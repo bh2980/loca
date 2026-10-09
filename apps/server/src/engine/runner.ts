@@ -385,7 +385,7 @@ export class Runner {
   /** Turn the model's structured answer into one Outcome per line, by output kind. */
   private readAiOutput(node: AiNode, raw: unknown, lines: PromptLine[], profileId: string, model: string): Outcome[] {
     const missing = (what: string): Outcome => ({ port: 'error', error: `모델 응답에 이 대사의 ${what}이(가) 없습니다.` });
-    const value = raw as { translations?: { id: string; text: string }[]; results?: ({ id: string } & Record<string, unknown>)[]; terms?: unknown[] };
+    const value = raw as { translations?: { id: string; text: string }[]; results?: ({ id: string } & Record<string, unknown>)[]; terms?: unknown[]; listeners?: { id: string; listener: unknown; confidence: unknown }[] };
     switch (node.config.output) {
       case 'candidate':
         return lines.map((line) => {
@@ -401,6 +401,13 @@ export class Runner {
       case 'terms':
         // Terms describe the whole batch; every line carries them so a later "add terms" sees them.
         return lines.map(() => ({ port: 'out', output: { terms: value.terms ?? [] } }));
+      case 'listener':
+        return lines.map((line) => {
+          const entry = value.listeners?.find((candidate) => candidate.id === line.id);
+          if (!entry) return missing('청자');
+          const listener = typeof entry.listener === 'string' && entry.listener.trim() ? entry.listener.trim() : null;
+          return { port: 'out', output: { listener, confidence: Math.min(1, Math.max(0, Number(entry.confidence) || 0)) } };
+        });
       case 'json':
         return lines.map((line) => {
           const result = value.results?.find((entry) => entry.id === line.id);
