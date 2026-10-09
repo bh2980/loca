@@ -1,7 +1,7 @@
 import { Check, ChevronRight, CircleAlert, Wrench, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { workflowEdits, type WorkflowNodeEdit } from '@/lib/workflow-edits';
-import ReactMarkdown from 'react-markdown';
+import { Markdown } from './markdown';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Spinner } from '@/components/ui/spinner';
@@ -55,7 +55,7 @@ function ChangePreview({ name, input }: { name: string; input: Record<string, un
   const markdown = (value: unknown) =>
     typeof value === 'string' && value ? (
       <div className="prose-chat max-h-64 overflow-auto rounded-md border bg-muted/30 px-3 py-2">
-        <ReactMarkdown>{value}</ReactMarkdown>
+        <Markdown>{value}</Markdown>
       </div>
     ) : null;
   const action = input.id ? '수정' : '새로 만들기';

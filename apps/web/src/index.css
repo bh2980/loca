@@ -112,4 +112,10 @@
   .prose-chat pre code { @apply bg-transparent p-0; }
   .prose-chat a { @apply underline underline-offset-2; }
   .prose-chat blockquote { @apply border-l-2 pl-3 text-muted-foreground; }
+  .prose-chat table { @apply w-full border-collapse text-xs; }
+  .prose-chat th { @apply bg-muted/60 px-2 py-1 text-left font-medium whitespace-nowrap; }
+  .prose-chat td { @apply border-t px-2 py-1 align-top; }
+  .prose-chat hr { @apply my-3 border-border; }
+  .prose-chat input[type='checkbox'] { @apply mr-1 align-middle; }
+  .prose-chat ul.contains-task-list { @apply list-none pl-1; }
 }

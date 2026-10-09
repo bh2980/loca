@@ -4,7 +4,7 @@ import { DefaultChatTransport, lastAssistantMessageIsCompleteWithApprovalRespons
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation } from '@tanstack/react-router';
 import { ArrowUp, History, Plus, Square, X } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
+import { Markdown } from './markdown';
 import { CONNECTION_KIND_INFO } from '@tw/shared';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -223,7 +223,7 @@ function ChatBody({ sessionId, initial, profileId, profiles, onProfile }: {
                   if (part.type === 'text')
                     return (
                       <div key={index} className="prose-chat">
-                        <ReactMarkdown>{part.text}</ReactMarkdown>
+                        <Markdown>{part.text}</Markdown>
                       </div>
                     );
                   if (part.type.startsWith('tool-')) return <ToolPart key={index} part={part as never} stale={message.id !== messages.at(-1)?.id} onDecide={(id, approved) => addToolApprovalResponse({ id, approved })} onOutput={(toolCallId, output) => void addToolOutput({ tool: part.type.slice(5) as never, toolCallId, output: output as never })} />;
