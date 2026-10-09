@@ -1,0 +1,1 @@
+ALTER TABLE `statuses` DROP COLUMN `on_enter_workflow_id`;

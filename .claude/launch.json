@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "server",
+      "runtimeExecutable": "env",
+      "runtimeArgs": ["WORKBENCH_PORT=4399", "WORKBENCH_SECRETS=memory", "WORKBENCH_DATA_DIR=/Users/bh2980/Desktop/translation_workbench/.claude/worktrees/project-refactor-overhaul-1de489/../../../.tw-smoke", "pnpm", "--filter", "@tw/server", "dev"],
+      "port": 4399
+    },
+    {
+      "name": "web",
+      "runtimeExecutable": "env",
+      "runtimeArgs": ["WORKBENCH_PORT=4399", "pnpm", "--filter", "@tw/web", "dev"],
+      "port": 4318
+    }
+  ]
+}

@@ -1,1 +1,0 @@
-{"name":"@workbench/core","version":"0.1.0","private":true,"type":"module","exports":"./src/engine.ts","dependencies":{"@workbench/contracts":"*","@workbench/providers":"*"}}

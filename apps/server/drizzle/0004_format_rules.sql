@@ -1,0 +1,1 @@
+ALTER TABLE `projects` ADD `format_rules` text DEFAULT '{"presets":["brace","printf","angleTag"],"custom":[]}' NOT NULL;

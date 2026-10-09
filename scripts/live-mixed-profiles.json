@@ -1,8 +1,0 @@
-{
-  "analyze": {"model": "gpt-5.6-luna", "effort": "medium"},
-  "glossary": {"model": "gpt-5.6-luna", "effort": "medium"},
-  "characters": {"model": "gpt-5.6-luna", "effort": "medium"},
-  "translate": {"model": "gpt-5.6-sol", "effort": "medium"},
-  "review": {"connectionId": "grok", "model": "grok-4.7-build-fast", "effort": ""},
-  "recheck": {"model": "gpt-5.6-luna", "effort": "medium"}
-}
