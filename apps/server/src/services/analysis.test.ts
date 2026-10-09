@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { importFileSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { AnalysisService, type Analysis } from './analysis.ts';
+import { AnalysisService, canonicalNames, type Analysis } from './analysis.ts';
 import { importProject } from './importer.ts';
 import { memoryStore } from './secrets.ts';
 import { scriptText } from './script-text.ts';
@@ -98,5 +98,22 @@ describe('work analysis', () => {
     expect(job.status).toBe('failed');
     expect(job.error).toContain('boom');
     expect(db.select().from(s.speechRules).all()).toEqual([]);
+  });
+
+  it('maps an analysis\'s fuller names onto stored speakers, and leaves ambiguous ones alone', () => {
+    const map = canonicalNames(
+      [{ name: 'Mara', aliases: ['CHAR_MARA'] }, { name: 'Iris', aliases: [] }, { name: 'Ivy', aliases: [] }],
+      [
+        { name: 'Mara Holt', aliases: ['Mari'] },
+        { name: 'Iris Vance', aliases: ['Irie'] },
+        { name: 'Vance family', aliases: [] },
+        { name: 'Michael', aliases: [] },
+      ],
+    );
+    expect(map.get('mara holt')).toBe('Mara');
+    expect(map.get('mari')).toBe('Mara');
+    expect(map.get('irie')).toBe('Iris');
+    expect(map.get('vance family')).toBeUndefined();
+    expect(map.get('michael')).toBeUndefined();
   });
 });

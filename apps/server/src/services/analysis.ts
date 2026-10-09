@@ -106,6 +106,11 @@ export class AnalysisService {
 
   private async run(job: Job, profile: s.ProfileSnapshot, parts: string[], keyOf: Map<string, string>, autoConfirm: boolean, signal: AbortSignal) {
     const routes = resolveRoutes(profile, this.secrets);
+    // People a person made or imported (or took over from AI) keep their names: the model must reuse them.
+    const kept = this.db.select().from(s.characters).where(eq(s.characters.projectId, job.projectId)).all().filter((c) => c.origin !== 'ai' || c.reviewed);
+    const cast = kept.length
+      ? `\n\nKNOWN CHARACTERS (names as stored; the script's speaker names). For these people use exactly these names in every field and put other names they go by in "aliases"; only people not listed here get new names:\n${kept.map((c) => `- ${c.name}${c.aliases.length ? ` (also: ${c.aliases.join(', ')})` : ''}`).join('\n')}`
+      : '';
     let merged = null as Analysis | null;
     const usage = { inputTokens: 0, outputTokens: 0 };
     try {
@@ -118,7 +123,7 @@ export class AnalysisService {
           (route) =>
             this.model.generate<Analysis>(route, {
               system: [SYSTEM, profile.instructions].filter(Boolean).join('\n\n'),
-              prompt: `${RETURN}${where}${known}\n\nSCRIPT:\n${part}`,
+              prompt: `${RETURN}${where}${cast}${known}\n\nSCRIPT:\n${part}`,
               schema: analysisSchema,
               maxOutputTokens: profile.maxOutputTokens,
               temperature: profile.temperature ?? undefined,
@@ -214,19 +219,23 @@ export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: A
 
     // Relationships point at characters: a confirmed character with that name wins, else the new draft.
     const existing = tx.select({ id: s.characters.id, name: s.characters.name, aliases: s.characters.aliases }).from(s.characters).where(eq(s.characters.projectId, projectId)).all();
+    // The model may still spell a known person differently ("Mara Holt" for the speaker "Mara"):
+    // such names are mapped onto the stored person everywhere, so rules and relationships meet the lines' speakers.
+    const canonical = canonicalNames(existing, analysis.characters);
+    const canon = (name: string) => canonical.get(name.trim().toLowerCase()) ?? name;
     const idByName = new Map<string, string>();
     for (const c of existing) for (const name of [c.name, ...c.aliases]) idByName.set(name.toLowerCase(), c.id);
     // Kept knowledge (confirmed or made by a person) is not proposed again; changes to it show as new drafts only when they differ.
     const keptNames = new Set(existing.flatMap((c) => [c.name, ...c.aliases].map((name) => name.toLowerCase())));
     for (const c of analysis.characters) {
-      if ([c.name, ...c.aliases].some((name) => keptNames.has(name.toLowerCase()))) continue;
+      if ([c.name, ...c.aliases].some((name) => keptNames.has(name.toLowerCase())) || canon(c.name) !== c.name) continue;
       const row = tx.insert(s.characters).values({ projectId, name: c.name, aliases: c.aliases, profile: c.profile, speech: c.speech, player: c.player, evidence: keys(c.evidence), ...draft }).returning({ id: s.characters.id }).get();
       for (const name of [c.name, ...c.aliases]) if (!idByName.has(name.toLowerCase())) idByName.set(name.toLowerCase(), row.id);
     }
     const keptPairs = new Set(tx.select({ fromId: s.relationships.fromId, toId: s.relationships.toId }).from(s.relationships).where(eq(s.relationships.projectId, projectId)).all().map((r) => `${r.fromId}|${r.toId}`));
     for (const r of analysis.relationships) {
-      const fromId = idByName.get(r.from.toLowerCase());
-      const toId = idByName.get(r.to.toLowerCase());
+      const fromId = idByName.get(canon(r.from).toLowerCase());
+      const toId = idByName.get(canon(r.to).toLowerCase());
       if (!fromId || !toId || keptPairs.has(`${fromId}|${toId}`)) continue;
       const changes = r.changes.flatMap((change) => {
         const at = keyOrNull(change.at);
@@ -234,7 +243,7 @@ export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: A
       });
       tx.insert(s.relationships).values({ projectId, fromId, toId, kind: r.kind, description: r.description, changes, evidence: keys(r.evidence), ...draft }).run();
     }
-    for (const e of analysis.events) tx.insert(s.storyEvents).values({ projectId, title: e.title, summary: e.summary, cause: e.cause, outcome: e.outcome, participants: e.participants, evidence: keys(e.evidence), ...draft }).run();
+    for (const e of analysis.events) tx.insert(s.storyEvents).values({ projectId, title: e.title, summary: e.summary, cause: e.cause, outcome: e.outcome, participants: e.participants.map(canon), evidence: keys(e.evidence), ...draft }).run();
     const keptRules = new Set(tx.select().from(s.speechRules).where(eq(s.speechRules.projectId, projectId)).all().map((r) => `${r.fromName}|${r.toName}|${r.startKey}|${r.level}|${r.address}`.toLowerCase()));
     for (const r of analysis.speechRules)
       if (!keptRules.has(`${r.from}|${r.to}|${keyOrNull(r.start)}|${r.level}|${r.address}`.toLowerCase()))
@@ -250,3 +259,24 @@ export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: A
   };
 }
 
+/**
+ * Lower-cased spellings → a stored person's name, for an analysis's people who are stored people under
+ * another spelling: a shared name or alias, or the stored single-word name as a whole word of theirs
+ * ("Mara" in "Mara Holt"). A word that fits several stored people maps to none.
+ */
+export function canonicalNames(stored: { name: string; aliases: string[] }[], found: { name: string; aliases: string[] }[]) {
+  const byName = new Map<string, string>();
+  for (const person of stored) for (const name of [person.name, ...person.aliases]) byName.set(name.toLowerCase(), person.name);
+  const map = new Map<string, string>(byName);
+  for (const person of found) {
+    const names = [person.name, ...person.aliases].map((name) => name.trim().toLowerCase());
+    let match = names.map((name) => byName.get(name)).find(Boolean);
+    if (!match) {
+      const words = new Set(names.flatMap((name) => name.split(/[\s_.-]+/)));
+      const hits = stored.filter((candidate) => [candidate.name, ...candidate.aliases].some((name) => !/\s/.test(name.trim()) && words.has(name.trim().toLowerCase())));
+      if (hits.length === 1) match = hits[0].name;
+    }
+    if (match) for (const name of names) map.set(name, match);
+  }
+  return map;
+}
