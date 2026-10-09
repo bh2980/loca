@@ -35,7 +35,7 @@ export async function listModels(route: Omit<ResolvedRoute, 'model'>): Promise<s
   if (route.kind === 'http') return null;
   if (route.kind === 'openai') return openaiModels(route);
   if (route.kind === 'systemone') return systemOneModels(route);
-  if (route.kind === 'grok' || route.kind === 'antigravity') return cliModels(route.kind, route.executable);
+  if (route.kind === 'grok' || route.kind === 'antigravity' || route.kind === 'codex' || route.kind === 'claude') return cliModels(route.kind, route.executable);
   return null;
 }
 

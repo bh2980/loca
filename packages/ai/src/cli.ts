@@ -181,10 +181,21 @@ export async function cliVersion(kind: CliKind, executable?: string): Promise<st
 }
 
 /**
- * CLIs that print their model list: `grok models` ("* grok-4.7 (default)" / "- grok-4.6", also when
- * signed out) and `agy models` ("<id>\t<name>"). codex and claude have no such command.
+ * How each CLI reports its models: `grok models` ("* grok-4.7 (default)" / "- grok-4.6", also when
+ * signed out), `agy models` ("<id>\t<name>"), `codex debug models` (JSON catalog; entries with
+ * visibility "list" are the ones its picker offers). claude has no list command; its --help names
+ * the aliases it accepts, which always point at the latest model of each family.
  */
+const MODEL_ARGS: Partial<Record<CliKind, string[]>> = { grok: ['models'], antigravity: ['models'], codex: ['debug', 'models'] };
+const CLAUDE_ALIASES = ['opus', 'sonnet', 'haiku', 'fable'];
 const MODEL_LIST: Partial<Record<CliKind, (stdout: string) => string[]>> = {
+  codex: (stdout) => {
+    const catalog = JSON.parse(stdout) as { models?: { slug?: string; visibility?: string; priority?: number }[] };
+    return (catalog.models ?? [])
+      .filter((model) => model.slug && model.visibility !== 'hide')
+      .sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0))
+      .map((model) => model.slug!);
+  },
   grok: (stdout) => [...stdout.matchAll(/^\s*[*-]\s+(\S+)/gm)].map((match) => match[1]),
   antigravity: (stdout) =>
     stdout
@@ -194,16 +205,22 @@ const MODEL_LIST: Partial<Record<CliKind, (stdout: string) => string[]>> = {
       .filter(Boolean),
 };
 
-export const cliListsModels = (kind: CliKind) => kind in MODEL_LIST;
+export const cliListsModels = (kind: CliKind) => kind in MODEL_LIST || kind === 'claude';
 
 export async function cliModels(kind: CliKind, executable?: string): Promise<string[] | null> {
+  if (kind === 'claude') return CLAUDE_ALIASES;
   const parse = MODEL_LIST[kind];
   if (!parse) return null;
   try {
     // grok exits non-zero when signed out but still prints the list, so the exit code is not trusted.
-    const result = await execa(cliCommand(kind, executable), ['models'], { timeout: 60_000, windowsHide: true, reject: false, stdin: 'ignore' });
+    const result = await execa(cliCommand(kind, executable), MODEL_ARGS[kind]!, { timeout: 60_000, windowsHide: true, reject: false, stdin: 'ignore' });
     if (result.failed && 'code' in result && result.code === 'ENOENT') throw new ModelError('config', `CLI를 찾지 못했습니다: ${cliCommand(kind, executable)}`, false);
-    const models = parse(String(result.stdout));
+    let models: string[] = [];
+    try {
+      models = parse(String(result.stdout));
+    } catch {
+      /* unreadable output, reported below */
+    }
     if (!models.length) throw new ModelError('cli', `모델 목록을 읽지 못했습니다: ${String(result.stderr || result.stdout).trim().slice(0, 160)}`, false);
     return models;
   } catch (error) {
