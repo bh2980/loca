@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { agentSettingsSchema, formatRulesSchema, importFileSchema, patchOf, STATUS_COLORS } from '@tw/shared';
+import { agentSettingsSchema, formatRulesSchema, GRAPH_FLOWS, importFileSchema, importWarnings, patchOf, STATUS_COLORS, summarizeImport } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
@@ -34,20 +34,7 @@ export const projectRoutes = new Hono<Env>()
     const result = importFileSchema.safeParse(c.req.valid('json'));
     if (!result.success)
       return c.json({ ok: false as const, issues: result.error.issues.slice(0, 50).map((issue) => ({ path: issue.path.join('.'), message: issue.message })) });
-    const file = result.data;
-    return c.json({
-      ok: true as const,
-      summary: {
-        name: file.project.name,
-        groups: file.groups.length,
-        units: file.units.length,
-        graphNodes: file.graph?.nodes.length ?? 0,
-        graphEdges: file.graph?.edges.length ?? 0,
-        characters: file.characters.length,
-        documents: file.documents.length,
-        terms: file.terms.length,
-      },
-    });
+    return c.json({ ok: true as const, summary: summarizeImport(result.data), warnings: importWarnings(result.data) });
   })
   .post('/', validate('json', importFileSchema), (c) => {
     const { db } = c.var.deps;
@@ -77,7 +64,7 @@ export const projectRoutes = new Hono<Env>()
       .get()!.count;
     return c.json({ ...project, byStatus, groupCount, reviewCount });
   })
-  .patch('/:projectId', validate('json', z.object({ name: z.string().trim().min(1).optional(), description: z.string().optional(), formatRules: formatRulesSchema.optional(), agentSettings: agentSettingsSchema.optional() })), (c) => {
+  .patch('/:projectId', validate('json', z.object({ name: z.string().trim().min(1).optional(), description: z.string().optional(), formatRules: formatRulesSchema.optional(), agentSettings: agentSettingsSchema.optional(), graphFlow: z.enum(GRAPH_FLOWS).optional() })), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     found(db.update(s.projects).set(c.req.valid('json')).where(eq(s.projects.id, projectId)).returning().get(), '프로젝트');

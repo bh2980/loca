@@ -27,6 +27,7 @@ export function importProject(db: Db, file: ImportFile, defaultProfileId = ''): 
         sourceLanguage: file.project.sourceLanguage,
         targetLanguage: file.project.targetLanguage,
         nodeTypes: file.graph?.nodeTypes ?? {},
+        graphFlow: file.graph?.flow ?? 'partial',
         ...(file.project.formatRules && { formatRules: file.project.formatRules }),
       })
       .run();

@@ -17,7 +17,7 @@ function setup(lines = 30) {
     .returning()
     .get();
   const file = importFileSchema.parse({
-    format: 'translation-workbench/v1',
+    format: 'loca/v1',
     project: { name: 'Test' },
     groups: [{ key: 'g1', title: 'Scene' }],
     units: Array.from({ length: lines }, (_, index) => ({ key: `u${index}`, group: 'g1', source: index === 0 ? 'Hi {name}' : `Line ${index}` })),

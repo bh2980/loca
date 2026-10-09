@@ -4,7 +4,7 @@
     {
       "name": "server",
       "runtimeExecutable": "env",
-      "runtimeArgs": ["WORKBENCH_PORT=4399", "WORKBENCH_SECRETS=memory", "WORKBENCH_DATA_DIR=/Users/bh2980/Desktop/translation_workbench/.claude/worktrees/project-refactor-overhaul-1de489/../../../.tw-smoke", "pnpm", "--filter", "@tw/server", "dev"],
+      "runtimeArgs": ["WORKBENCH_PORT=4399", "WORKBENCH_SECRETS=memory", "WORKBENCH_PI_DIR=/Users/bh2980/Desktop/translation_workbench/.claude/worktrees/project-refactor-overhaul-1de489/../../../.tw-smoke/pi", "WORKBENCH_DATA_DIR=/Users/bh2980/Desktop/translation_workbench/.claude/worktrees/project-refactor-overhaul-1de489/../../../.tw-smoke", "pnpm", "--filter", "@tw/server", "dev"],
       "port": 4399
     },
     {

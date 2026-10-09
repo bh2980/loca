@@ -1,5 +1,5 @@
 {
- "format": "translation-workbench/v1",
+ "format": "loca/v1",
  "project": {
   "name": "중계소 (샘플)",
   "description": "분기·합류·반복이 있는 작은 샘플 프로젝트",
@@ -138,6 +138,7 @@
   }
  ],
  "graph": {
+  "flow": "complete",
   "nodeTypes": {
    "ChatMessageState": {
     "kind": "script",

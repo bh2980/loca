@@ -1,0 +1,1 @@
+ALTER TABLE `projects` ADD `graph_flow` text DEFAULT 'partial' NOT NULL;

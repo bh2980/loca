@@ -9,7 +9,7 @@ import { applyBatch, checkScript, findLines, normalizeBatch, scenesWith, validat
 function setup() {
   const db = openDatabase(':memory:');
   const file = importFileSchema.parse({
-    format: 'translation-workbench/v1',
+    format: 'loca/v1',
     project: { name: 'Test' },
     groups: [
       { key: 'g1', title: 'Call', section: 'Chapter 1' },

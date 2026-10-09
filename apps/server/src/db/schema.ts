@@ -17,6 +17,8 @@ export const projects = sqliteTable('projects', {
   targetLanguage: text('target_language').notNull(),
   /** The source graph's node-type dictionary from the standard file. */
   nodeTypes: json<Record<string, NodeType>>('node_types').notNull().default(sql`'{}'`),
+  /** Whether the source graph is the game's whole flow (see GRAPH_FLOWS). */
+  graphFlow: text('graph_flow', { enum: ['complete', 'partial'] }).notNull().default('partial'),
   /** Which placeholder / tag families the format check looks for (see FORMAT_PRESETS). */
   /** Which agent tools this project's chat (and the CLI) may use. */
   agentSettings: json<AgentSettings>('agent_settings').notNull().default(sql`'{"disabledTools":[]}'`),

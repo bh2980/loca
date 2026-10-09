@@ -13,7 +13,7 @@ description: Build and maintain the glossary of a loca project — find where te
 1. 후보를 찾습니다. 원문에서 반복되는 고유명사(조직·장소·제품·별칭)를 `loca lines --q <단어>`로 용례와 함께 확인합니다.
 2. 용어는 **후보 상태**로 제안합니다. 확정은 사람이 앱에서 합니다.
    ```
-   loca call save_terms @terms.json
+   loca call save_terms @"$W/terms.json"      # W=$(loca workspace new glossary)
    ```
    `terms.json`: `{"terms":[{"source":"Guild","target":"길드","note":"…","status":"candidate"}]}`
 3. 확정 용어가 바뀌면 그 용어가 쓰인 줄을 `loca-review` 순서로 고칩니다.

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { checkFormat } from './format-check.ts';
-import { importFileSchema } from './import-format.ts';
+import { importFileSchema, importWarnings } from './import-format.ts';
 import { termExtractionTemplate, translationTemplate } from './defaults.ts';
 import { nodePorts, validateWorkflow, workflowDefinitionSchema, workflowNodeSchema, type WorkflowDefinition } from './workflow.ts';
 
@@ -67,7 +67,7 @@ describe('node exits', () => {
 
 describe('import format', () => {
   const base = {
-    format: 'translation-workbench/v1',
+    format: 'loca/v1',
     project: { name: 'Demo' },
     groups: [{ key: 'g1', title: 'Scene 1' }],
     units: [{ key: 'u1', group: 'g1', source: 'Hello' }],
@@ -88,6 +88,25 @@ describe('import format', () => {
     expect(result.success).toBe(false);
     const paths = result.error!.issues.map((issue) => issue.path.join('.'));
     expect(paths).toEqual(expect.arrayContaining(['units.0.group', 'graph.nodes.0.units', 'graph.edges.0.to']));
+  });
+
+  it('only takes the current format name and treats a graph as partial unless declared', () => {
+    expect(importFileSchema.safeParse({ ...base, format: 'translation-workbench/v1' }).success).toBe(false);
+    const file = importFileSchema.parse({ ...base, graph: { nodes: [{ key: 'n1', units: ['u1'] }], edges: [] } });
+    expect(file.graph?.flow).toBe('partial');
+  });
+
+  it('warns about lines outside the graph, unknown speakers and empty source', () => {
+    const file = importFileSchema.parse({
+      ...base,
+      units: [
+        { key: 'u1', group: 'g1', speaker: 'Alice', source: 'Hi' },
+        { key: 'u2', group: 'g1', speaker: 'Bob', source: ' ' },
+      ],
+      graph: { nodes: [{ key: 'n1', units: ['u1'] }], edges: [] },
+      characters: [{ name: 'Alice' }],
+    });
+    expect(importWarnings(file).map((warning) => warning.examples)).toEqual([['u2'], ['Bob'], ['u2']]);
   });
 });
 

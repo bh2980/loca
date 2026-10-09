@@ -1,18 +1,20 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import { Command, Option } from 'commander';
 import { hc } from 'hono/client';
 import type { AppType } from '@tw/server/app';
-import { CHECK_KINDS, lineChangeSchema, type LineFilterInput } from '@tw/shared';
+import { CHECK_KINDS, GRAPH_FLOW_LABELS, importFileJsonSchema, importFileSchema, importWarnings, lineChangeSchema, summarizeImport, type LineFilterInput } from '@tw/shared';
 
 /**
  * loca — the workbench from a terminal, for people and for agents with a shell (codex, claude, pi).
  * It talks to the running app's local API, so the screen updates live and nothing touches the
  * database directly. Reading prints results; anything that changes the project becomes a proposal
  * the user accepts in the app. With --json / --jsonl only data goes to stdout; messages go to stderr.
+ * `format` and `workspace` work without the app.
  */
 
 const program = new Command('loca')
-  .description('게임 번역 작업실 loca를 터미널에서 씁니다. 실행 중인 loca 앱에 연결합니다.')
+  .description('게임 번역 작업실 loca를 터미널에서 씁니다. format·workspace 말고는 실행 중인 loca 앱에 연결합니다.')
   .option('--url <url>', 'loca 앱 주소', process.env.LOCA_URL ?? 'http://127.0.0.1:4317')
   .option('-p, --project <이름|id>', '프로젝트 (환경 변수 LOCA_PROJECT). 프로젝트가 하나면 생략 가능')
   .option('--json', '사람용 표 대신 JSON으로 출력')
@@ -341,6 +343,146 @@ program
     if (globals().json) return print(proposal);
     const word = { pending: '대기 중', accepted: '수락되어 반영됨', rejected: '거절됨', failed: '수락했지만 실패' } as const;
     console.log(`${proposal.tool}: ${word[proposal.status]}${proposal.result ? `\n${JSON.stringify(proposal.result)}` : ''}`);
+  });
+
+// ── standard file, without the app ───────────────────────────────────
+
+const format = program.command('format').description('표준 파일(loca/v1) 규격과 검사. 앱이 꺼져 있어도 됩니다');
+
+format
+  .command('schema')
+  .description('표준 파일의 JSON Schema를 출력 (변환기를 만들 때 참고. 파일 사이 참조 검사는 check로)')
+  .action(() => print(importFileJsonSchema()));
+
+format
+  .command('check <파일>')
+  .description('표준 파일 검사: 형식 오류(경로와 함께), 개수 요약, 의도와 다를 수 있는 경고. 오류가 있으면 종료 코드 1')
+  .action((file: string) => {
+    let data: unknown;
+    try {
+      data = JSON.parse(file === '-' ? readFileSync(0, 'utf8') : readFileSync(file, 'utf8'));
+    } catch (error) {
+      throw new CliError(`JSON을 읽지 못했습니다: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    const result = importFileSchema.safeParse(data);
+    if (!result.success) {
+      const issues = result.error.issues.map((issue) => ({ path: issue.path.join('.'), message: issue.message }));
+      if (globals().json) print({ ok: false, issues });
+      else {
+        console.log(`형식 오류 ${issues.length}개:`);
+        for (const issue of issues.slice(0, 50)) console.log(`  ${issue.path || '(파일)'}: ${issue.message}`);
+        if (issues.length > 50) console.log(`  … 외 ${issues.length - 50}개`);
+      }
+      process.exitCode = 1;
+      return;
+    }
+    const summary = summarizeImport(result.data);
+    const warnings = importWarnings(result.data);
+    if (globals().json) return print({ ok: true, summary, warnings });
+    console.log(`형식이 맞습니다: ${summary.name}`);
+    console.log(`  묶음 ${summary.groups} · 대사 ${summary.units} · 인물 ${summary.characters} · 문서 ${summary.documents} · 용어 ${summary.terms}`);
+    console.log(summary.graphFlow ? `  그래프 노드 ${summary.graphNodes} · 연결 ${summary.graphEdges} · 범위: ${GRAPH_FLOW_LABELS[summary.graphFlow]}` : '  그래프 없음: 앞 대사 문맥을 장면 순서로만 찾습니다');
+    for (const warning of warnings) console.log(`  경고  ${warning.message}${warning.examples.length ? ` (예: ${warning.examples.join(', ')})` : ''}`);
+  });
+
+// ── workspace: where agents keep scratch files ───────────────────────
+
+/** LOCA_WORKSPACE, else the nearest existing .loca above here, else .loca at the git repository root, else here. */
+function workspaceRoot(): string {
+  if (process.env.LOCA_WORKSPACE) return path.resolve(process.env.LOCA_WORKSPACE);
+  const upFrom = (marker: string) => {
+    for (let dir = process.cwd(); ; dir = path.dirname(dir)) {
+      if (existsSync(path.join(dir, marker))) return dir;
+      if (path.dirname(dir) === dir) return null;
+    }
+  };
+  return path.join(upFrom('.loca') ?? upFrom('.git') ?? process.cwd(), '.loca');
+}
+
+/** The folder ignores itself, so nothing in it is committed and no .gitignore elsewhere is touched. */
+function ensureWorkspaceRoot(): string {
+  const root = workspaceRoot();
+  mkdirSync(root, { recursive: true });
+  const ignore = path.join(root, '.gitignore');
+  if (!existsSync(ignore)) writeFileSync(ignore, '# loca 작업 폴더: 에이전트의 임시 파일. 커밋하지 않습니다.\n*\n');
+  return root;
+}
+
+const taskName = (name: string) => {
+  if (!/^[\p{L}\p{N}_.-]+$/u.test(name) || name === '.' || name === '..') throw new CliError(`작업 이름에는 글자·숫자·_ . - 만 쓸 수 있습니다: ${name}`);
+  return name;
+};
+
+function folderStats(dir: string): { files: number; bytes: number; modified: number } {
+  let files = 0;
+  let bytes = 0;
+  let modified = statSync(dir).mtimeMs;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      const inner = folderStats(full);
+      files += inner.files;
+      bytes += inner.bytes;
+      modified = Math.max(modified, inner.modified);
+    } else {
+      const stat = statSync(full);
+      files += 1;
+      bytes += stat.size;
+      modified = Math.max(modified, stat.mtimeMs);
+    }
+  }
+  return { files, bytes, modified };
+}
+
+const workspace = program
+  .command('workspace')
+  .description('에이전트가 임시 파일(내보낸 대사, 번역 중인 파일, 분석 결과)을 두는 .loca/ 작업 폴더. git에 올라가지 않습니다');
+
+workspace
+  .command('new <이름>')
+  .description('작업 폴더를 만들고(있으면 그대로) 절대 경로를 출력. 예: W=$(loca workspace new ch1-translate)')
+  .action((name: string) => {
+    const dir = path.join(ensureWorkspaceRoot(), taskName(name));
+    const existed = existsSync(dir);
+    mkdirSync(dir, { recursive: true });
+    log(existed ? `이미 있는 작업 폴더입니다: ${dir}` : `작업 폴더를 만들었습니다: ${dir}`);
+    console.log(dir);
+  });
+
+workspace
+  .command('list')
+  .description('작업 폴더 목록 (파일 수, 크기, 마지막 수정)')
+  .action(() => {
+    const root = workspaceRoot();
+    const tasks = existsSync(root)
+      ? readdirSync(root, { withFileTypes: true })
+          .filter((entry) => entry.isDirectory())
+          .map((entry) => ({ name: entry.name, path: path.join(root, entry.name), ...folderStats(path.join(root, entry.name)) }))
+          .sort((a, b) => b.modified - a.modified)
+      : [];
+    if (globals().json) return print({ root, tasks: tasks.map((task) => ({ ...task, modified: new Date(task.modified).toISOString() })) });
+    log(root);
+    if (!tasks.length) return log('작업 폴더가 없습니다. loca workspace new <이름>으로 만드세요.');
+    for (const task of tasks) console.log(`${task.name.padEnd(28)} 파일 ${String(task.files).padStart(4)} · ${(task.bytes / 1024).toFixed(0).padStart(6)} KB · ${new Date(task.modified).toLocaleString()}`);
+  });
+
+workspace
+  .command('clean [이름...]')
+  .description('작업 폴더 지우기. 이름을 주거나 --all')
+  .option('--all', '모든 작업 폴더')
+  .action((names: string[], options: { all?: boolean }) => {
+    const root = workspaceRoot();
+    if (!names.length && !options.all) throw new CliError('지울 작업 이름을 주거나 --all을 쓰세요. 목록: loca workspace list');
+    const targets = options.all ? (existsSync(root) ? readdirSync(root, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name) : []) : names.map(taskName);
+    for (const name of targets) {
+      const dir = path.join(root, name);
+      if (!existsSync(dir)) {
+        log(`없는 작업 폴더라 건너뜁니다: ${name}`);
+        continue;
+      }
+      rmSync(dir, { recursive: true, force: true });
+      log(`지웠습니다: ${dir}`);
+    }
   });
 
 program.parseAsync().catch((error: unknown) => {

@@ -6,7 +6,7 @@ import { z } from 'zod';
  * shape; the workbench never needs to know the game's internal format.
  * Keys are the extractor's stable ids and are preserved verbatim.
  */
-export const IMPORT_FORMAT = 'translation-workbench/v1' as const;
+export const IMPORT_FORMAT = 'loca/v1' as const;
 
 export const GROUP_KINDS = ['scene', 'document', 'ui'] as const;
 export const UNIT_KINDS = ['dialogue', 'document', 'ui'] as const;
@@ -14,6 +14,16 @@ export const GRAPH_NODE_KINDS = ['script', 'condition', 'wait', 'event', 'state'
 /** Content nodes carry text to translate; control nodes (branches, waits, events…) shape the flow. */
 export const CONTENT_KINDS = new Set<string>(['script', 'scene']);
 export const isContentKind = (kind: string) => CONTENT_KINDS.has(kind);
+
+/**
+ * Whether the graph is the game's whole execution flow. Only a complete graph lets "neither scene
+ * reaches the other" mean "never in the same playthrough"; in a partial one it means "order unknown".
+ */
+export const GRAPH_FLOWS = ['complete', 'partial'] as const;
+export const GRAPH_FLOW_LABELS: Record<(typeof GRAPH_FLOWS)[number], string> = {
+  complete: '게임 흐름 전체',
+  partial: '일부 (순서가 빠진 곳이 있음)',
+};
 
 export const DOCUMENT_KINDS = ['story', 'world', 'style', 'note'] as const;
 
@@ -114,6 +124,8 @@ export const importFileSchema = z
     units: z.array(importUnitSchema).min(1),
     graph: z
       .object({
+        /** Declared by the converter; partial unless every branch, condition and jump is in the graph. */
+        flow: z.enum(GRAPH_FLOWS).default('partial'),
         nodeTypes: z.record(z.string(), nodeTypeSchema).default({}),
         nodes: z.array(importGraphNodeSchema),
         edges: z.array(importGraphEdgeSchema),
@@ -162,6 +174,46 @@ export const importFileSchema = z
   });
 
 export type ImportFile = z.infer<typeof importFileSchema>;
+export type GraphFlow = (typeof GRAPH_FLOWS)[number];
+
+/** The standard file as JSON Schema, for converter authors (`loca format schema`). Cross-reference checks are not expressible there. */
+export const importFileJsonSchema = () => z.toJSONSchema(importFileSchema, { io: 'input', unrepresentable: 'any' });
+
+/** Counts for a validated file, shown before import (app and `loca format check`). */
+export function summarizeImport(file: ImportFile) {
+  return {
+    name: file.project.name,
+    groups: file.groups.length,
+    units: file.units.length,
+    graphNodes: file.graph?.nodes.length ?? 0,
+    graphEdges: file.graph?.edges.length ?? 0,
+    graphFlow: file.graph ? file.graph.flow : null,
+    characters: file.characters.length,
+    documents: file.documents.length,
+    terms: file.terms.length,
+  };
+}
+
+/**
+ * Valid but probably not what the converter meant. Not errors: some games really have these.
+ * Each warning carries a few example keys so the converter's author can look them up.
+ */
+export function importWarnings(file: ImportFile): { message: string; examples: string[] }[] {
+  const warnings: { message: string; examples: string[] }[] = [];
+  if (file.graph) {
+    const placed = new Set(file.graph.nodes.flatMap((node) => node.units));
+    const loose = file.units.filter((unit) => unit.kind === 'dialogue' && !placed.has(unit.key));
+    if (loose.length) warnings.push({ message: `그래프 노드에 들어가지 않은 대사(kind dialogue) ${loose.length}개: 앞 대사 문맥을 장면 순서로만 찾습니다`, examples: loose.slice(0, 5).map((unit) => unit.key) });
+  }
+  if (file.characters.length) {
+    const names = new Set(file.characters.flatMap((character) => [character.name, ...character.aliases]));
+    const unknown = [...new Set(file.units.flatMap((unit) => (unit.speaker && !names.has(unit.speaker) ? [unit.speaker] : [])))];
+    if (unknown.length) warnings.push({ message: `인물 목록에 없는 화자 ${unknown.length}명: 프로필·관계가 문맥에 붙지 않습니다`, examples: unknown.slice(0, 5) });
+  }
+  const empty = file.units.filter((unit) => !unit.source.trim());
+  if (empty.length) warnings.push({ message: `원문이 빈 대사 ${empty.length}개`, examples: empty.slice(0, 5).map((unit) => unit.key) });
+  return warnings;
+}
 export type NodeType = z.infer<typeof nodeTypeSchema>;
 export type GraphNodeKind = (typeof GRAPH_NODE_KINDS)[number];
 export type ImportFileInput = z.input<typeof importFileSchema>;

@@ -54,25 +54,31 @@ pnpm mock-llm
 pnpm loca projects
 pnpm loca lines --speaker "Alice" --all
 pnpm loca check terms
-pnpm loca export --section "Chapter 1" --untranslated --context 4 --terms -o ch1.jsonl
-pnpm loca import ch1.out.jsonl --dry-run
-pnpm loca import ch1.out.jsonl          # 제안 1건 → 앱에서 수락하면 반영
+W=$(pnpm --silent loca workspace new ch1)     # .loca/ch1 작업 폴더 (git에 안 올라감)
+pnpm loca export --section "Chapter 1" --untranslated --context 4 --terms -o "$W/ch1.jsonl"
+pnpm loca import "$W/ch1.out.jsonl" --dry-run
+pnpm loca import "$W/ch1.out.jsonl"     # 제안 1건 → 앱에서 수락하면 반영
 ```
+
+앱 없이 되는 명령: `loca format schema`(표준 파일 JSON Schema), `loca format check <파일>`(형식 오류·요약·경고),
+`loca workspace new|list|clean`(에이전트 임시 파일을 두는 `.loca/`. 가장 가까운 `.loca`, 없으면 git 저장소 루트, 없으면 현재 폴더에 만들고 스스로 git에서 빠집니다. `LOCA_WORKSPACE`로 바꿀 수 있음).
 
 어디서나 `loca`로 쓰려면 `apps/cli`에서 `npm link`. 앱 주소는 `LOCA_URL`, 프로젝트는 `--project` 또는 `LOCA_PROJECT`. 에이전트용 사용법은 [`skills/`](skills/README.md).
 
-## 표준 포맷 (`translation-workbench/v1`)
+## 표준 포맷 (`loca/v1`)
 
 게임별 추출기/변환기가 만드는 JSON입니다. 작업실은 게임 내부 구조를 몰라도 됩니다. 스키마의 기준은
-[packages/shared/src/import-format.ts](packages/shared/src/import-format.ts)이고, 가져오기 화면이 위반 위치를 경로로 알려 줍니다.
+[packages/shared/src/import-format.ts](packages/shared/src/import-format.ts)이고, 가져오기 화면과 `loca format check`가 위반 위치를 경로로 알려 줍니다.
+변환기를 만드는 절차는 [`skills/loca-import-format`](skills/loca-import-format/SKILL.md).
 
 ```jsonc
 {
-  "format": "translation-workbench/v1",
+  "format": "loca/v1",
   "project": { "name": "…", "sourceLanguage": "en", "targetLanguage": "ko" },
   "groups": [{ "key": "scene-1", "kind": "scene", "title": "…" }],          // scene | document | ui
   "units":  [{ "key": "scene-1.3", "group": "scene-1", "speaker": "MIRA", "source": "…" }],
   "graph": {
+    "flow": "partial",   // complete: 분기·조건·장면 이동이 그래프에 빠짐없이 있음 / partial(기본): 그 밖
     // 원본 노드 클래스마다 표시 범주(kind)와 의미를 한 번 선언합니다.
     "nodeTypes": { "IfElseState": { "kind": "condition", "label": "조건 분기", "description": "…" } },
     "nodes": [{ "key": "n1", "type": "ChatMessageState", "units": ["scene-1.3"] }, { "key": "n2", "type": "IfElseState" }],
