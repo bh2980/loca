@@ -14,6 +14,8 @@ export interface GraphRelationship {
   toId: string;
   kind: string;
   mutual: boolean;
+  /** Drawn dashed: a candidate not yet used as context. */
+  dashed?: boolean;
 }
 
 const NODE_WIDTH = 150;
@@ -21,7 +23,7 @@ const NODE_HEIGHT = 44;
 const elk = new ELK();
 
 type PersonNode = Node<{ label: string; dim: boolean }, 'person'>;
-type RelationEdge = Edge<{ offset: number; kind: string; dim: boolean; focus: boolean }, 'relation'>;
+type RelationEdge = Edge<{ offset: number; kind: string; dim: boolean; focus: boolean; dashed?: boolean }, 'relation'>;
 
 function PersonNodeView({ data, selected }: NodeProps<PersonNode>) {
   return (
@@ -63,7 +65,7 @@ function FloatingEdge({ id, source, target, markerStart, markerEnd, data, select
   const label = { x: 0.25 * from.x + 0.5 * control.x + 0.25 * to.x, y: 0.25 * from.y + 0.5 * control.y + 0.25 * to.y };
   return (
     <>
-      <BaseEdge id={id} path={path} markerStart={markerStart} markerEnd={markerEnd} interactionWidth={20} style={{ stroke: selected || data?.focus ? 'var(--color-primary)' : '#a1a1aa', strokeWidth: selected ? 2.5 : data?.focus ? 2 : 1.5, opacity: data?.dim ? 0.2 : 1 }} />
+      <BaseEdge id={id} path={path} markerStart={markerStart} markerEnd={markerEnd} interactionWidth={20} style={{ stroke: selected || data?.focus ? 'var(--color-primary)' : '#a1a1aa', strokeWidth: selected ? 2.5 : data?.focus ? 2 : 1.5, opacity: data?.dim ? 0.2 : 1, strokeDasharray: data?.dashed ? '5 4' : undefined }} />
       <EdgeLabelRenderer>
         <div
           className={cn('nodrag nopan pointer-events-none absolute rounded border bg-background px-1.5 py-0.5 text-[11px]', (selected || data?.focus) && 'border-primary text-primary', data?.dim && 'opacity-30')}
@@ -162,7 +164,7 @@ export function RelationshipGraph({ characters, relationships, selectedCharacter
         type: 'relation',
         source: relationship.fromId,
         target: relationship.toId,
-        data: { offset, kind: relationship.kind, dim: emphasis.active && !emphasis.edgeIds.has(relationship.id), focus: emphasis.edgeIds.has(relationship.id) },
+        data: { offset, kind: relationship.kind, dashed: relationship.dashed, dim: emphasis.active && !emphasis.edgeIds.has(relationship.id), focus: emphasis.edgeIds.has(relationship.id) },
         markerEnd: marker,
         markerStart: relationship.mutual ? marker : undefined,
         selected: relationship.id === selectedRelationshipId,

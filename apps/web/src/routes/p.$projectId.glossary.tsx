@@ -13,17 +13,19 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/in
 import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
-import { TrustBadge } from '@/components/knowledge/draft-editor';
-import { TRUST_LABELS, TRUST_LEVELS, trustOf, type Trust } from '@tw/shared';
+import { candidateRow, KnowledgeFilters, matches, SourceBadge } from '@/components/knowledge/draft-editor';
+import { isSettled, KNOWLEDGE_SOURCES, type KnowledgeSource } from '@tw/shared';
 import { Textarea } from '@/components/ui/textarea';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
+import { cn } from '@/lib/utils';
 import { useReportView } from '@/lib/view-context';
 
 export const Route = createFileRoute('/p/$projectId/glossary')({
-  validateSearch: (raw: Record<string, unknown>): { q?: string; term?: string; trust?: Trust } => ({
+  validateSearch: (raw: Record<string, unknown>): { q?: string; term?: string; source?: KnowledgeSource; state?: 'confirmed' | 'candidate' } => ({
     q: typeof raw.q === 'string' && raw.q ? raw.q : undefined,
-    trust: typeof raw.trust === 'string' && (TRUST_LEVELS as readonly string[]).includes(raw.trust) ? (raw.trust as Trust) : undefined,
+    source: typeof raw.source === 'string' && (KNOWLEDGE_SOURCES as readonly string[]).includes(raw.source) ? (raw.source as KnowledgeSource) : undefined,
+    state: raw.state === 'confirmed' || raw.state === 'candidate' ? raw.state : undefined,
     term: typeof raw.term === 'string' && raw.term ? raw.term : undefined,
   }),
   component: Glossary,
@@ -48,9 +50,9 @@ function Glossary() {
   const [draft, setDraft] = useState({ source: '', target: '', note: '' });
 
   // AI terms (a workflow's "add terms") show as AI 후보 or, when auto-confirmed, AI until a person promotes them.
-  const trust = (term: Term) => trustOf(term);
-  const unofficial = (terms.data ?? []).filter((term) => trust(term) !== 'official');
-  const all = (terms.data ?? []).filter((term) => !search.trust || trust(term) === search.trust);
+  const asDraft = (term: Term) => ({ ...term, evidence: [] });
+  const unofficial = (terms.data ?? []).filter((term) => !isSettled(term));
+  const all = (terms.data ?? []).filter((term) => matches(asDraft(term), search.source, search.state));
   const decide = useMutation({
     mutationFn: ({ ids, accept }: { ids: string[]; accept: boolean }) => unwrap(client.projects[':projectId'].drafts.$post({ param: { projectId }, json: { kind: 'terms', ids, action: accept ? 'confirm' : 'discard' } })),
     onSuccess: ({ changed }, { accept }) => toast.success(accept ? `${changed}개를 정식 용어로 올렸습니다.` : `${changed}개 AI 용어를 버렸습니다.`),
@@ -76,16 +78,13 @@ function Glossary() {
       <div className="flex min-h-0 gap-0 rounded-lg border">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2 border-b p-3">
-            <ToggleGroup type="single" variant="outline" size="sm" value={search.trust ?? 'all'} onValueChange={(value) => value && void navigate({ search: (previous) => ({ ...previous, trust: value === 'all' ? undefined : (value as Trust), term: undefined }) })}>
-              <ToggleGroupItem value="all">전체</ToggleGroupItem>
-              {TRUST_LEVELS.map((level) => (
-                <ToggleGroupItem key={level} value={level}>
-                  {TRUST_LABELS[level]}
-                </ToggleGroupItem>
-              ))}
-            </ToggleGroup>
+            <KnowledgeFilters
+              source={search.source}
+              status={search.state}
+              onChange={(next) => void navigate({ search: (previous) => ({ ...previous, ...('source' in next && { source: next.source }), ...('status' in next && { state: next.status }), term: undefined }), replace: true })}
+            />
             {unofficial.length > 0 && (
-              <Button size="sm" variant="outline" onClick={() => decide.mutate({ ids: unofficial.filter((term) => !search.trust || trust(term) === search.trust).map((term) => term.id), accept: true })}>
+              <Button size="sm" variant="outline" onClick={() => decide.mutate({ ids: all.filter((term) => !isSettled(term)).map((term) => term.id), accept: true })}>
                 보이는 AI 용어 모두 정식으로
               </Button>
             )}
@@ -114,11 +113,11 @@ function Glossary() {
                 <TableHead className="w-1/4">원문</TableHead>
                 <TableHead className="w-1/4">번역</TableHead>
                 <TableHead>메모</TableHead>
-                <TableHead className="w-56">신뢰</TableHead>
+                <TableHead className="w-56">출처</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {!search.trust && (
+              {!search.source && !search.state && (
               <TableRow className="bg-muted/30 hover:bg-muted/30">
                 {(['source', 'target', 'note'] as const).map((field) => (
                   <TableCell key={field}>
@@ -139,16 +138,16 @@ function Glossary() {
               </TableRow>
               )}
               {rows.map((term) => (
-                <TableRow key={term.id} data-state={term.id === search.term ? 'selected' : undefined} className="cursor-pointer" onClick={() => select(term.id === search.term ? undefined : term.id)}>
+                <TableRow key={term.id} data-state={term.id === search.term ? 'selected' : undefined} className={cn('cursor-pointer', candidateRow(asDraft(term)))} onClick={() => select(term.id === search.term ? undefined : term.id)}>
                   <TableCell className="font-medium">{term.source}</TableCell>
                   <TableCell>{term.target || <span className="text-muted-foreground">—</span>}</TableCell>
                   <TableCell className="truncate text-muted-foreground">{term.note}</TableCell>
                   <TableCell onClick={(event) => event.stopPropagation()}>
-                    {trust(term) === 'official' ? (
-                      <TrustBadge row={{ ...term, evidence: [] }} />
+                    {isSettled(term) ? (
+                      <SourceBadge row={asDraft(term)} />
                     ) : (
                       <div className="flex items-center gap-1">
-                        <TrustBadge row={{ ...term, evidence: [] }} />
+                        <SourceBadge row={asDraft(term)} />
                         <Button size="sm" variant="outline" className="h-7" onClick={() => decide.mutate({ ids: [term.id], accept: true })}>
                           정식으로
                         </Button>
@@ -163,7 +162,7 @@ function Glossary() {
               {terms.data && rows.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={4} className="py-10 text-center text-muted-foreground">
-                    {needle ? '조건에 맞는 용어가 없습니다.' : search.trust ? `${TRUST_LABELS[search.trust]}인 용어가 없습니다. 워크플로의 ‘용어 후보 추가’ 함수가 AI 용어를 모읍니다.` : '아직 용어가 없습니다. 위에서 추가하세요.'}
+                    {needle ? '조건에 맞는 용어가 없습니다.' : search.source || search.state ? '조건에 맞는 용어가 없습니다. 워크플로의 ‘용어 후보 추가’ 함수가 AI 용어를 모읍니다.' : '아직 용어가 없습니다. 위에서 추가하세요.'}
                   </TableCell>
                 </TableRow>
               )}

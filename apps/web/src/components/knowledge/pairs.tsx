@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { ChevronRight, Plus, X } from 'lucide-react';
-import { SPEECH_LEVEL_LABELS, TRUST_LEVELS, trustOf, type SpeechLevel, type Trust } from '@tw/shared';
-import { DraftEditor, fail, TrustBadge, type KindSpec, type Row } from '@/components/knowledge/draft-editor';
+import { isSettled, SPEECH_LEVEL_LABELS, sourceOf, type SpeechLevel } from '@tw/shared';
+import { candidateRow, DraftEditor, fail, matches, SourceBadge, type Draft, type KindSpec, type Row, type SourceFilter, type StatusFilter } from '@/components/knowledge/draft-editor';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -49,16 +49,25 @@ export function buildPairs(characters: { id: string; name: string; aliases: stri
   return [...pairs.values()].sort((a, b) => a.from.localeCompare(b.from) || a.to.localeCompare(b.to));
 }
 
-/** The least trusted item decides a pair's trust: one unchecked AI rule makes the pair "AI". */
-export const pairTrust = (pair: Pair): Trust => {
-  const levels = [pair.relationship, ...pair.rules].filter(Boolean).map((row) => trustOf(row!));
-  return TRUST_LEVELS.find((level) => levels.includes(level)) ?? 'official';
+/** A pair is AI's if any of its items is, a candidate if any item is; what the table and graph show for it. */
+export const pairSummary = (pair: Pair): Draft => {
+  const rows = [pair.relationship, ...pair.rules].filter(Boolean) as Row[];
+  return {
+    id: pair.key,
+    status: rows.some((row) => row.status === 'candidate') ? 'candidate' : 'confirmed',
+    origin: rows.some((row) => sourceOf(row) === 'ai') ? 'ai' : 'human',
+    reviewed: false,
+    evidence: [],
+  };
 };
+/** Pairs with any item matching the filters. */
+export const pairMatches = (pair: Pair, source: SourceFilter, status: StatusFilter) => [pair.relationship, ...pair.rules].some((row) => row && matches(row, source, status));
+export const pairSettled = (pair: Pair) => [pair.relationship, ...pair.rules].every((row) => !row || isSettled(row));
 export const pairItems = (pair: Pair) => [...(pair.relationship ? [{ kind: 'relationships' as const, row: pair.relationship }] : []), ...pair.rules.map((row) => ({ kind: 'speechRules' as const, row }))];
 const levelsText = (rules: Row[]) => rules.map((rule) => SPEECH_LEVEL_LABELS[rule.level as SpeechLevel]).join(' → ');
 
 export function PairTable({ pairs, selected, checked, onCheck, onOpen }: { pairs: Pair[]; selected?: string; checked: Set<string>; onCheck: (keys: string[], on: boolean) => void; onOpen: (key: string) => void }) {
-  const open = pairs.filter((pair) => pairTrust(pair) !== 'official').map((pair) => pair.key);
+  const open = pairs.filter((pair) => !pairSettled(pair)).map((pair) => pair.key);
   return (
     <Table>
       <TableHeader>
@@ -69,24 +78,25 @@ export function PairTable({ pairs, selected, checked, onCheck, onOpen }: { pairs
           <TableHead>화자 → 청자</TableHead>
           <TableHead>관계</TableHead>
           <TableHead>말투</TableHead>
-          <TableHead className="w-24">신뢰</TableHead>
+          <TableHead className="w-24">출처</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {pairs.map((pair) => {
-          const trust = pairTrust(pair);
-          const worst = [pair.relationship, ...pair.rules].find((row) => row && trustOf(row) === trust);
+          const summary = pairSummary(pair);
           return (
-            <TableRow key={pair.key} data-state={pair.key === selected ? 'selected' : undefined} className="cursor-pointer" onClick={() => onOpen(pair.key)}>
+            <TableRow key={pair.key} data-state={pair.key === selected ? 'selected' : undefined} className={cn('cursor-pointer', candidateRow(summary))} onClick={() => onOpen(pair.key)}>
               <TableCell className="pl-6" onClick={(event) => event.stopPropagation()}>
-                {trust !== 'official' && <Checkbox aria-label={`${pair.from} → ${pair.to} 선택`} checked={checked.has(pair.key)} onCheckedChange={(value) => onCheck([pair.key], Boolean(value))} />}
+                {!pairSettled(pair) && <Checkbox aria-label={`${pair.from} → ${pair.to} 선택`} checked={checked.has(pair.key)} onCheckedChange={(value) => onCheck([pair.key], Boolean(value))} />}
               </TableCell>
               <TableCell className="font-medium">
                 {pair.from} → {pair.to}
               </TableCell>
               <TableCell className="max-w-60 truncate">{pair.relationship ? String(pair.relationship.kind) : <span className="text-muted-foreground">—</span>}</TableCell>
               <TableCell>{pair.rules.length ? levelsText(pair.rules) : <span className="text-muted-foreground">—</span>}</TableCell>
-              <TableCell>{worst && <TrustBadge row={worst} />}</TableCell>
+              <TableCell>
+                <SourceBadge row={summary} />
+              </TableCell>
             </TableRow>
           );
         })}
@@ -130,7 +140,12 @@ export function PairDetail({ projectId, pair, relationships, speechRules, charac
           <section className="space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-semibold">관계 <span className="font-normal text-muted-foreground">· 이야기 속 사실</span></h3>
-              {pair.relationship && <TrustBadge row={pair.relationship} />}
+              {pair.relationship && (
+                <span className="flex items-center gap-1.5">
+                  <SourceBadge row={pair.relationship} />
+                  {pair.relationship.status === 'candidate' && <span className="border-b border-dashed border-amber-500 text-xs text-amber-800">후보</span>}
+                </span>
+              )}
             </div>
             {pair.relationship ? (
               <DraftEditor
@@ -161,13 +176,13 @@ export function PairDetail({ projectId, pair, relationships, speechRules, charac
               {pair.rules.map((rule) => {
                 const open = openRule === rule.id;
                 return (
-                  <li key={rule.id} className="rounded-md border">
+                  <li key={rule.id} className={cn('rounded-md border', rule.status === 'candidate' && 'border-dashed border-amber-500')}>
                     <button type="button" className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm" onClick={() => setOpenRule(open ? undefined : rule.id)} aria-expanded={open}>
                       <ChevronRight className={cn('size-4 shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')} />
                       <span className="font-medium">{SPEECH_LEVEL_LABELS[rule.level as SpeechLevel]}</span>
                       {rule.address ? <span className="text-muted-foreground">호칭 “{String(rule.address)}”</span> : null}
                       <span className="ml-auto shrink-0 text-xs text-muted-foreground">{rule.startKey ? `${String(rule.startKey)}부터` : '처음부터'}</span>
-                      <TrustBadge row={rule} />
+                      <SourceBadge row={rule} />
                     </button>
                     {open && (
                       <div className="border-t p-3">

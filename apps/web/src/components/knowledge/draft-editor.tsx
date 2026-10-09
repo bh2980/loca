@@ -3,7 +3,7 @@ import { Link } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Check, Play, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { DOCUMENT_KINDS, KNOWLEDGE_ORIGIN_LABELS, SPEECH_FIX_WORKFLOW, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, TRUST_LABELS, trustOf, type KnowledgeOrigin, type SpeechLevel } from '@tw/shared';
+import { DOCUMENT_KINDS, KNOWLEDGE_ORIGIN_LABELS, SPEECH_FIX_WORKFLOW, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, sourceOf, type KnowledgeOrigin, type KnowledgeSource, type SpeechLevel } from '@tw/shared';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
@@ -13,7 +13,9 @@ import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
+import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { useDraft } from '@/lib/drafts';
 import { DOCUMENT_KIND } from '@/lib/labels';
 import { q } from '@/lib/queries';
@@ -53,22 +55,46 @@ export interface KindSpec {
 export const fail = (error: Error) => toast.error(error.message);
 export const text = (value: unknown) => (typeof value === 'string' ? value : '');
 
-/** AI 후보 (not used), AI (used, nobody checked) or nothing for official knowledge. */
-export function TrustBadge({ row }: { row: Draft }) {
-  const trust = trustOf(row);
-  if (trust === 'candidate')
+/** AI (added by AI, nobody took it over) or 정식; candidates are shown with a dashed edge, not a badge. */
+export function SourceBadge({ row }: { row: Draft }) {
+  if (sourceOf(row) === 'ai')
     return (
-      <Badge variant="outline" className="border-amber-300 text-amber-800">
-        {TRUST_LABELS.candidate}
+      <Badge variant="outline" className="text-muted-foreground" title="AI가 넣었고 아직 사람이 고치거나 정식으로 올리지 않았습니다.">
+        {SOURCE_LABELS.ai}
       </Badge>
     );
-  if (trust === 'ai')
-    return (
-      <Badge variant="outline" className="text-muted-foreground" title="AI가 넣고 자동 확정했습니다. 아직 사람이 보지 않았습니다.">
-        {TRUST_LABELS.ai}
-      </Badge>
-    );
-  return <span className="text-xs text-muted-foreground">{row.origin === 'import' ? KNOWLEDGE_ORIGIN_LABELS.import : TRUST_LABELS.official}</span>;
+  return <span className="text-xs text-muted-foreground">{row.origin === 'import' ? KNOWLEDGE_ORIGIN_LABELS.import : SOURCE_LABELS.official}</span>;
+}
+
+/** A candidate row: dashed left edge (not used as context until confirmed). */
+export const candidateRow = (row: Draft) => (row.status === 'candidate' ? '[&>td:first-child]:border-l-2 [&>td:first-child]:border-dashed [&>td:first-child]:border-l-amber-500' : undefined);
+
+export type SourceFilter = KnowledgeSource | undefined;
+export type StatusFilter = 'confirmed' | 'candidate' | undefined;
+export const matches = (row: Draft, source: SourceFilter, status: StatusFilter) => (!source || sourceOf(row) === source) && (!status || row.status === status);
+
+/** 출처 (AI / 정식) and 상태 (확정 / 후보), filtered separately. */
+export function KnowledgeFilters({ source, status, onChange }: { source: SourceFilter; status: StatusFilter; onChange: (next: { source?: SourceFilter; status?: StatusFilter }) => void }) {
+  return (
+    <div className="flex items-center gap-2">
+      <ToggleGroup type="single" variant="outline" size="sm" value={source ?? 'all'} onValueChange={(value) => value && onChange({ source: value === 'all' ? undefined : (value as KnowledgeSource) })} aria-label="출처">
+        <ToggleGroupItem value="all">전체</ToggleGroupItem>
+        {KNOWLEDGE_SOURCES.map((value) => (
+          <ToggleGroupItem key={value} value={value}>
+            {SOURCE_LABELS[value]}
+          </ToggleGroupItem>
+        ))}
+      </ToggleGroup>
+      <Separator orientation="vertical" className="h-5" />
+      <ToggleGroup type="single" variant="outline" size="sm" value={status ?? 'all'} onValueChange={(value) => value && onChange({ status: value === 'all' ? undefined : (value as StatusFilter) })} aria-label="상태">
+        <ToggleGroupItem value="all">전체</ToggleGroupItem>
+        <ToggleGroupItem value="confirmed">{KNOWLEDGE_STATUS_LABELS.confirmed}</ToggleGroupItem>
+        <ToggleGroupItem value="candidate">
+          <span className="border-b border-dashed border-amber-500">{KNOWLEDGE_STATUS_LABELS.candidate}</span>
+        </ToggleGroupItem>
+      </ToggleGroup>
+    </div>
+  );
 }
 
 export function DiscardButton({ count, onConfirm }: { count: number; onConfirm: () => void }) {
@@ -121,7 +147,7 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
     onError: fail,
   });
   const remove = useMutation({ mutationFn: () => spec.remove(row.id), onSuccess: onClose, onError: fail });
-  const official = trustOf(row) === 'official';
+  const official = isSettled(row);
 
   const body = (
     <div className={cn('flex flex-col gap-4', !embedded && 'p-4')}>
@@ -186,7 +212,10 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
       <div className="flex items-center justify-between gap-2 border-b px-4 py-2">
         <div className="min-w-0">
           <h2 className="truncate text-sm font-semibold">{spec.label(row)}</h2>
-          <TrustBadge row={row} />
+          <span className="flex items-center gap-1.5">
+            <SourceBadge row={row} />
+            {row.status === 'candidate' && <span className="border-b border-dashed border-amber-500 text-xs text-amber-800">후보 · 아직 문맥에 쓰이지 않음</span>}
+          </span>
         </div>
         {onClose && (
           <Button variant="ghost" size="icon" className="size-7" onClick={onClose} aria-label="닫기">

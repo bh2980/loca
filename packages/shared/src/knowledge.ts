@@ -9,17 +9,16 @@ export const KNOWLEDGE_STATUS_LABELS: Record<KnowledgeStatus, string> = { candid
 export const KNOWLEDGE_ORIGIN_LABELS: Record<KnowledgeOrigin, string> = { human: '사람', ai: 'AI', import: '가져오기' };
 
 /**
- * How far to trust an item, from its status, origin and review: an AI candidate (not used), an AI
- * item confirmed automatically that nobody has looked at (used, marked), or official knowledge
- * (made or imported by a person, or an AI item a person edited or promoted).
+ * Two separate facts about an item: where it stands (확정 used as context / 후보 waiting) and whose
+ * it is — AI's (added by AI, nobody has edited or promoted it) or official (a person's, imported,
+ * or AI's that a person took over). Auto-confirmed analysis gives confirmed AI items.
  */
-export const TRUST_LEVELS = ['candidate', 'ai', 'official'] as const;
-export type Trust = (typeof TRUST_LEVELS)[number];
-export const TRUST_LABELS: Record<Trust, string> = { candidate: 'AI 후보', ai: 'AI', official: '정식' };
-export function trustOf(item: { status: KnowledgeStatus; origin: KnowledgeOrigin; reviewed: boolean }): Trust {
-  if (item.status === 'candidate') return 'candidate';
-  return item.origin === 'ai' && !item.reviewed ? 'ai' : 'official';
-}
+export const KNOWLEDGE_SOURCES = ['ai', 'official'] as const;
+export type KnowledgeSource = (typeof KNOWLEDGE_SOURCES)[number];
+export const SOURCE_LABELS: Record<KnowledgeSource, string> = { ai: 'AI', official: '정식' };
+export const sourceOf = (item: { origin: KnowledgeOrigin; reviewed: boolean }): KnowledgeSource => (item.origin === 'ai' && !item.reviewed ? 'ai' : 'official');
+/** Nothing left to decide: confirmed and official. Everything else can be promoted or discarded. */
+export const isSettled = (item: { status: KnowledgeStatus; origin: KnowledgeOrigin; reviewed: boolean }) => item.status === 'confirmed' && sourceOf(item) === 'official';
 
 /** Where a line's listener came from. A person's choice always wins over the AI's. */
 export const LISTENER_ORIGINS = ['import', 'ai', 'human'] as const;

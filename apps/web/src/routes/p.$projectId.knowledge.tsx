@@ -3,12 +3,12 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Check, Network, Plus, Table2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { DOCUMENT_KINDS, SPEECH_LEVEL_LABELS, TRUST_LABELS, TRUST_LEVELS, trustOf, type SpeechLevel, type Trust } from '@tw/shared';
+import { DOCUMENT_KINDS, isSettled, KNOWLEDGE_SOURCES, SPEECH_LEVEL_LABELS, type KnowledgeSource, type SpeechLevel } from '@tw/shared';
 import { Page } from '@/components/page';
 import { RelationshipGraph } from '@/components/relationship-graph';
 import { JobStatus, StartAnalysis } from '@/components/knowledge/analysis-controls';
-import { DiscardButton, DraftEditor, fail, KINDS, RelationshipChanges, RuleLines, text, TrustBadge, type Kind, type KindSpec, type Row } from '@/components/knowledge/draft-editor';
-import { buildPairs, PairDetail, pairItems, PairTable, pairTrust, type Pair } from '@/components/knowledge/pairs';
+import { candidateRow, DiscardButton, DraftEditor, fail, KINDS, KnowledgeFilters, matches, RelationshipChanges, RuleLines, SourceBadge, text, type Kind, type KindSpec, type Row } from '@/components/knowledge/draft-editor';
+import { buildPairs, PairDetail, pairItems, pairMatches, pairSummary, PairTable, type Pair } from '@/components/knowledge/pairs';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -25,11 +25,12 @@ import { useReportView } from '@/lib/view-context';
 /** Page tabs. Relationships and speech rules share 인물·관계 because both describe speaker → listener pairs. */
 const TABS = { documents: '문서', people: '인물·관계', events: '사건' } as const;
 type Tab = keyof typeof TABS;
-type TrustView = Trust | 'all';
 interface KnowledgeSearch {
   tab?: Tab;
-  /** Trust filter: AI 후보 / AI / 정식. */
-  trust?: Trust;
+  /** 출처 filter: AI / 정식. */
+  source?: KnowledgeSource;
+  /** 상태 filter: 확정 / 후보. */
+  state?: 'confirmed' | 'candidate';
   /** Selected item id, or a pair key ("from→to") in 인물·관계 › 관계. */
   item?: string;
   /** Inside 인물·관계: people instead of pairs. */
@@ -41,7 +42,8 @@ interface KnowledgeSearch {
 export const Route = createFileRoute('/p/$projectId/knowledge')({
   validateSearch: (raw: Record<string, unknown>): KnowledgeSearch => ({
     tab: typeof raw.tab === 'string' && raw.tab in TABS ? (raw.tab as Tab) : undefined,
-    trust: typeof raw.trust === 'string' && (TRUST_LEVELS as readonly string[]).includes(raw.trust) ? (raw.trust as Trust) : undefined,
+    source: typeof raw.source === 'string' && (KNOWLEDGE_SOURCES as readonly string[]).includes(raw.source) ? (raw.source as KnowledgeSource) : undefined,
+    state: raw.state === 'confirmed' || raw.state === 'candidate' ? raw.state : undefined,
     item: typeof raw.item === 'string' && raw.item ? raw.item : undefined,
     view: raw.view === 'characters' ? 'characters' : undefined,
     display: raw.display === 'table' ? 'table' : undefined,
@@ -61,7 +63,6 @@ function Knowledge() {
   const tab: Tab = search.tab ?? 'documents';
   const pairsView = tab === 'people' && search.view !== 'characters';
   const graph = pairsView && search.display !== 'table';
-  const view: TrustView = search.trust ?? 'all';
   const set = (next: Partial<KnowledgeSearch>, replace = true) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace });
 
   const documents = useQuery(q.documents(projectId));
@@ -180,9 +181,9 @@ function Knowledge() {
   };
 
   const characters = people.data?.characters ?? [];
-  const shown = (row: Row) => view === 'all' || trustOf(row) === view;
+  const shown = (row: Row) => matches(row, search.source, search.state);
   const pairs = useMemo(() => buildPairs(characters, specs.relationships.rows, specs.speechRules.rows), [characters, specs.relationships.rows, specs.speechRules.rows]);
-  const visiblePairs = pairs.filter((pair) => view === 'all' || pairTrust(pair) === view);
+  const visiblePairs = pairs.filter((pair) => pairMatches(pair, search.source, search.state));
   // A link may name a relationship or rule id; it opens the pair holding it.
   const pair = pairsView ? pairs.find((candidate) => candidate.key === search.item || pairItems(candidate).some((item) => item.row.id === search.item)) : undefined;
 
@@ -190,10 +191,10 @@ function Knowledge() {
   const spec = specs[tableKind];
   const rows = spec.rows.filter(shown);
   const selected = !pairsView ? spec.rows.find((row) => row.id === search.item) : undefined;
-  const unofficial = (kind: Kind) => specs[kind].rows.filter((row) => trustOf(row) !== 'official').length;
+  const unofficial = (kind: Kind) => specs[kind].rows.filter((row) => !isSettled(row)).length;
   const tabCount = (tab: Tab) => (tab === 'people' ? unofficial('characters') + unofficial('relationships') + unofficial('speechRules') : unofficial(tab));
   useReportView('knowledge', [
-    selected && { kind: KINDS[tableKind], id: selected.id, label: spec.label(selected), detail: trustOf(selected) !== 'official' ? `${TRUST_LABELS[trustOf(selected)]} (정식 아님)` : undefined },
+    selected && { kind: KINDS[tableKind], id: selected.id, label: spec.label(selected), detail: !isSettled(selected) ? `${selected.status === 'candidate' ? '후보' : '확정'} · AI가 넣은 항목` : undefined },
     pair && { kind: '관계·말투', id: pair.key, label: `${pair.from} → ${pair.to}` },
   ]);
 
@@ -212,15 +213,15 @@ function Knowledge() {
   });
   // Bulk actions over the checked rows (pairs expand to their relationship and rules).
   const checkedItems = (): { kind: Kind; ids: string[] }[] => {
-    if (!pairsView) return [{ kind: tableKind, ids: rows.filter((row) => checked.has(row.id) && trustOf(row) !== 'official').map((row) => row.id) }];
-    const items = visiblePairs.filter((candidate) => checked.has(candidate.key)).flatMap(pairItems).filter((item) => trustOf(item.row) !== 'official');
+    if (!pairsView) return [{ kind: tableKind, ids: rows.filter((row) => checked.has(row.id) && !isSettled(row)).map((row) => row.id) }];
+    const items = visiblePairs.filter((candidate) => checked.has(candidate.key)).flatMap(pairItems).filter((item) => !isSettled(item.row));
     return (['relationships', 'speechRules'] as const).map((kind) => ({ kind, ids: items.filter((item) => item.kind === kind).map((item) => item.row.id) }));
   };
   const checkedCount = checkedItems().reduce((sum, item) => sum + item.ids.length, 0);
 
   const create = useMutation({
     mutationFn: () => spec.create!(),
-    onSuccess: (row) => set({ item: row.id, trust: undefined }),
+    onSuccess: (row) => set({ item: row.id, source: undefined, state: undefined }),
     onError: fail,
   });
   // Pair-specific creation: a relationship between the pair's people, a speech rule for its names.
@@ -232,7 +233,7 @@ function Knowledge() {
     () =>
       visiblePairs
         .filter((candidate) => candidate.fromId && candidate.toId)
-        .map((candidate) => ({ id: candidate.key, fromId: candidate.fromId!, toId: candidate.toId!, kind: candidate.relationship ? String(candidate.relationship.kind) : '', mutual: false })),
+        .map((candidate) => ({ id: candidate.key, fromId: candidate.fromId!, toId: candidate.toId!, kind: candidate.relationship ? String(candidate.relationship.kind) : '', mutual: false, dashed: pairSummary(candidate).status === 'candidate' })),
     [visiblePairs],
   );
 
@@ -246,7 +247,7 @@ function Knowledge() {
                 {(Object.keys(TABS) as Tab[]).map((tab) => (
                   <TabsTrigger key={tab} value={tab}>
                     {TABS[tab]}
-                    {tabCount(tab) > 0 && <span className="ml-1 rounded bg-muted px-1 text-[11px] text-muted-foreground tabular-nums" title="정식이 아닌 AI 항목">{tabCount(tab)}</span>}
+                    {tabCount(tab) > 0 && <span className="ml-1 rounded bg-muted px-1 text-[11px] text-muted-foreground tabular-nums" title="정식이 아니거나 후보인 항목">{tabCount(tab)}</span>}
                   </TabsTrigger>
                 ))}
               </TabsList>
@@ -267,14 +268,7 @@ function Knowledge() {
                 </ToggleGroupItem>
               </ToggleGroup>
             )}
-            <ToggleGroup type="single" variant="outline" size="sm" value={view} onValueChange={(value) => value && set({ trust: value === 'all' ? undefined : (value as Trust), item: undefined })}>
-              <ToggleGroupItem value="all">전체</ToggleGroupItem>
-              {TRUST_LEVELS.map((level) => (
-                <ToggleGroupItem key={level} value={level}>
-                  {TRUST_LABELS[level]}
-                </ToggleGroupItem>
-              ))}
-            </ToggleGroup>
+            <KnowledgeFilters source={search.source} status={search.state} onChange={(next) => set({ ...('source' in next && { source: next.source }), ...('status' in next && { state: next.status }), item: undefined })} />
             <div className="ml-auto flex items-center gap-2">
               {checkedCount > 0 && (
                 <>
@@ -320,21 +314,21 @@ function Knowledge() {
                       <TableHead className="w-10 pl-6">
                         <Checkbox
                           aria-label="정식이 아닌 항목 모두 선택"
-                          checked={rows.some((row) => trustOf(row) !== 'official') && rows.filter((row) => trustOf(row) !== 'official').every((row) => checked.has(row.id))}
-                          onCheckedChange={(value) => setChecked(new Set(value ? rows.filter((row) => trustOf(row) !== 'official').map((row) => row.id) : []))}
+                          checked={rows.some((row) => !isSettled(row)) && rows.filter((row) => !isSettled(row)).every((row) => checked.has(row.id))}
+                          onCheckedChange={(value) => setChecked(new Set(value ? rows.filter((row) => !isSettled(row)).map((row) => row.id) : []))}
                         />
                       </TableHead>
                       {spec.columns.map((column) => (
                         <TableHead key={column.head}>{column.head}</TableHead>
                       ))}
-                      <TableHead className="w-24">신뢰</TableHead>
+                      <TableHead className="w-24">출처</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {rows.map((row) => (
-                      <TableRow key={row.id} data-state={row.id === search.item ? 'selected' : undefined} className="cursor-pointer" onClick={() => set({ item: row.id === search.item ? undefined : row.id })}>
+                      <TableRow key={row.id} data-state={row.id === search.item ? 'selected' : undefined} className={cn('cursor-pointer', candidateRow(row))} onClick={() => set({ item: row.id === search.item ? undefined : row.id })}>
                         <TableCell className="pl-6" onClick={(event) => event.stopPropagation()}>
-                          {trustOf(row) !== 'official' && (
+                          {!isSettled(row) && (
                             <Checkbox
                               aria-label={`${spec.label(row)} 선택`}
                               checked={checked.has(row.id)}
@@ -348,14 +342,14 @@ function Knowledge() {
                           </TableCell>
                         ))}
                         <TableCell>
-                          <TrustBadge row={row} />
+                          <SourceBadge row={row} />
                         </TableCell>
                       </TableRow>
                     ))}
                     {rows.length === 0 && (
                       <TableRow>
                         <TableCell colSpan={spec.columns.length + 2} className="py-12 text-center text-muted-foreground">
-                          {view === 'all' ? `${KINDS[tableKind]} 항목이 없습니다. “추가”로 직접 만들거나 “작품 분석”으로 초안을 받으세요.` : `${TRUST_LABELS[view]}인 ${KINDS[tableKind]} 항목이 없습니다.`}
+                          {!search.source && !search.state ? `${KINDS[tableKind]} 항목이 없습니다. “추가”로 직접 만들거나 “작품 분석”으로 초안을 받으세요.` : `조건에 맞는 ${KINDS[tableKind]} 항목이 없습니다.`}
                         </TableCell>
                       </TableRow>
                     )}
