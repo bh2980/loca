@@ -3,9 +3,10 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Check, Network, Play, Plus, Sparkles, Square, Table2, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { DOCUMENT_KINDS, KNOWLEDGE_ORIGIN_LABELS, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, type KnowledgeOrigin, type SpeechLevel } from '@tw/shared';
+import { DOCUMENT_KINDS, KNOWLEDGE_ORIGIN_LABELS, SPEECH_FIX_WORKFLOW, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, type KnowledgeOrigin, type SpeechLevel } from '@tw/shared';
 import { Page } from '@/components/page';
 import { RelationshipGraph } from '@/components/relationship-graph';
+import { RunDialog } from '@/components/workflow/run-dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -198,6 +199,7 @@ function Knowledge() {
       ],
       label: (row) => `${text(row.fromName)} → ${text(row.toName)}`,
       save: (id, json) => unwrap(api['speech-rules'][':id'].$patch({ ...param(id), json: json as never })),
+      extra: (row) => <RuleLines projectId={projectId} ruleId={row.id} candidate={row.status === 'candidate'} />,
       create: () => unwrap(api['speech-rules'].$post({ param: { projectId }, json: { fromName: '화자', toName: '청자', level: 'haeyo' } as never })),
       remove: (id) => unwrap(api['speech-rules'][':id'].$delete(param(id))),
     },
@@ -530,6 +532,52 @@ function Evidence({ projectId, keys }: { projectId: string; keys: string[] }) {
   );
 }
 
+/** Lines the rule governs and what their translations end in; after fixing the rule, re-run just these. */
+function RuleLines({ projectId, ruleId, candidate }: { projectId: string; ruleId: string; candidate: boolean }) {
+  const lines = useQuery(q.ruleLines(projectId, ruleId));
+  const levels = Object.entries(lines.data?.levels ?? {}).sort((a, b) => b[1] - a[1]);
+  return (
+    <section className="space-y-2 border-t pt-4">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-xs font-medium text-muted-foreground">{candidate ? '확정하면 적용될' : '이 규칙이 적용되는'} 대사 {lines.data?.count ?? '…'}개</h3>
+        {!!lines.data?.count && !candidate && (
+          <RunDialog
+            projectId={projectId}
+            unitIds={lines.data.unitIds}
+            defaultIgnoreStatus
+            preferWorkflow={SPEECH_FIX_WORKFLOW}
+            trigger={
+              <Button size="sm" variant="outline">
+                <Play /> 다시 실행
+              </Button>
+            }
+          />
+        )}
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        청자가 정해진 이 쌍의 대사(같은 쌍의 다음 구간 전까지)입니다. 규칙을 고쳤다면 “{SPEECH_FIX_WORKFLOW}”로 이 대사들의 어미·호칭만 다시 맞추세요.
+      </p>
+      {levels.length > 0 && (
+        <p className="text-xs">
+          지금 번역의 말투(어미 추정):{' '}
+          {levels.map(([level, count]) => `${level === 'unknown' ? '판단 불가·번역 없음' : SPEECH_LEVEL_LABELS[level as SpeechLevel]} ${count}`).join(' · ')}
+        </p>
+      )}
+      <ul className="max-h-60 space-y-1 overflow-auto">
+        {lines.data?.rows.map((line) => (
+          <li key={line.id}>
+            <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.groupId, line: line.id }} className="block rounded px-2 py-1 text-xs hover:bg-muted">
+              <span className="text-muted-foreground">{line.groupTitle} · </span>
+              {line.source}
+              {line.translation && <span className="block text-muted-foreground">{line.translation}</span>}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function RelationshipChanges({ projectId, changes }: { projectId: string; changes: { at: string; change: string; cause: string }[] }) {
   const lines = useQuery(q.linesByKeys(projectId, changes.map((change) => change.at)));
   if (!changes.length) return null;
@@ -588,9 +636,10 @@ function StartAnalysis({ projectId }: { projectId: string }) {
   const profiles = useQuery(q.profiles());
   const jobs = useQuery(q.analysisJobs(projectId));
   const [profileId, setProfileId] = useState<string>();
+  const [autoConfirm, setAutoConfirm] = useState(true);
   const [open, setOpen] = useState(false);
   const start = useMutation({
-    mutationFn: () => unwrap(client.projects[':projectId'].analysis.$post({ param: { projectId }, json: { profileId: profileId! } })),
+    mutationFn: () => unwrap(client.projects[':projectId'].analysis.$post({ param: { projectId }, json: { profileId: profileId!, autoConfirm } })),
     onSuccess: () => {
       setOpen(false);
       toast.success('작품 분석을 시작했습니다. 끝나면 초안이 여기에 들어옵니다.');
@@ -611,7 +660,7 @@ function StartAnalysis({ projectId }: { projectId: string }) {
           <h3 className="text-sm font-semibold">작품 분석</h3>
           <p className="text-xs text-muted-foreground">
             모델이 대본 전체를 한 번에 읽고 개요·인물·관계·사건·말투 규칙 초안을 근거와 함께 만듭니다. 번역과 상태는 바뀌지 않습니다. 긴 문맥 모델을 권장하고, 출력 한도가 작으면 답이 잘릴 수 있습니다.
-            {hasDrafts && ' 다시 분석하면 확정하지 않은 AI 초안이 새 초안으로 바뀝니다.'}
+            {hasDrafts && ' 다시 분석하면 사람이 고치거나 확정하지 않은 AI 항목이 새 결과로 바뀝니다.'}
           </p>
         </div>
         <Select value={profileId} onValueChange={setProfileId}>
@@ -626,6 +675,15 @@ function StartAnalysis({ projectId }: { projectId: string }) {
             ))}
           </SelectContent>
         </Select>
+        <div className="space-y-1">
+          <div className="flex items-center justify-between">
+            <Label htmlFor="auto-confirm">자동 확정</Label>
+            <Switch id="auto-confirm" checked={autoConfirm} onCheckedChange={setAutoConfirm} />
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            {autoConfirm ? '결과가 바로 번역 문맥에 쓰입니다. 틀린 것을 발견하면 고치고 그 규칙의 대사만 다시 실행하세요.' : '결과가 후보로 들어오고, 확정한 것만 번역 문맥에 쓰입니다.'}
+          </p>
+        </div>
         <Button className="w-full" disabled={!profileId || start.isPending} onClick={() => start.mutate()}>
           <Play /> 시작
         </Button>

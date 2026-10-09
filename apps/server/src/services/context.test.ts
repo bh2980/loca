@@ -74,4 +74,28 @@ describe('context builder', () => {
     expect(tight.budget.used).toBeLessThanOrEqual(tight.budget.limit);
     expect(tight.items.map((item) => item.kind)).toEqual(full.items.map((item) => item.kind));
   });
+
+  it('gives each line its known listener and the confirmed rule of its stretch', () => {
+    const { db, projectId, unit } = setup();
+    const set = (key: string, listener: string, listenerOrigin: 'ai' | 'human', listenerConfidence: number | null = null) =>
+      db.update(s.units).set({ listener, listenerOrigin, listenerConfidence }).where(eq(s.units.id, unit(key).id)).run();
+    set('arrival.1', 'Jonas', 'human');
+    set('arrival.3', 'JONAS', 'ai', 0.95);
+    set('tower.1', 'JONAS', 'ai', 0.95);
+    set('panel.2', 'JONAS', 'ai', 0.5);
+    db.insert(s.speechRules)
+      .values([
+        { projectId, fromName: 'Mira', toName: 'Jonas', level: 'haeyo', address: '조나스 씨' },
+        { projectId, fromName: 'MIRA', toName: 'JONAS', level: 'hae', startKey: 'tower.1', note: '화해 후' },
+        { projectId, fromName: 'MIRA', toName: 'JONAS', level: 'hasipsio', status: 'candidate' },
+      ])
+      .run();
+    const lines = ['arrival.1', 'arrival.3', 'panel.2', 'tower.1'].map(unit);
+    const context = buildContext(db, projectId, lines, config());
+    // Aliases resolve to the same pair; the later stretch starts at tower.1; candidates and unsure AI listeners are ignored.
+    expect(context.speech[unit('arrival.1').id]).toEqual({ listener: 'Jonas', rule: '해요체, 호칭 "조나스 씨"', byOrder: true });
+    expect(context.speech[unit('arrival.3').id]?.rule).toBe('해요체, 호칭 "조나스 씨"');
+    expect(context.speech[unit('panel.2').id]).toBeUndefined();
+    expect(context.speech[unit('tower.1').id]).toEqual({ listener: 'JONAS', rule: '해체(반말)', note: '화해 후', byOrder: true });
+  });
 });

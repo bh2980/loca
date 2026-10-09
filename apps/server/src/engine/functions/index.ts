@@ -14,6 +14,7 @@ import type { Db } from '../../db/index.ts';
 import * as s from '../../db/schema.ts';
 import type { SecretStore } from '../../services/secrets.ts';
 import { runScript } from './sandbox.ts';
+import { speechMismatch, speechRuleIndex } from '../../services/speech.ts';
 
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 type Unit = typeof s.units.$inferSelect;
@@ -72,6 +73,15 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     const issues = terms
       .filter((term) => term.target.trim() && mentions(input.unit.source, term.source) && !text.toLowerCase().includes(term.target.toLowerCase()))
       .map((term) => `용어 "${term.source}"은(는) "${term.target}"(으)로 옮겨야 합니다.`);
+    return { port: issues.length ? 'fail' : 'pass', issues, output: { passed: !issues.length, issues } };
+  },
+
+  speechCheck(tx, _raw, input) {
+    const text = candidateOf(input);
+    if (text === null) return { port: 'fail', issues: [NEEDS_CANDIDATE], output: { passed: false, issues: [NEEDS_CANDIDATE] } };
+    const found = speechRuleIndex(tx as unknown as Db, input.projectId).resolve([input.unit]).get(input.unit.key);
+    const issue = found ? speechMismatch(found.rule, text) : null;
+    const issues = issue ? [issue] : [];
     return { port: issues.length ? 'fail' : 'pass', issues, output: { passed: !issues.length, issues } };
   },
 

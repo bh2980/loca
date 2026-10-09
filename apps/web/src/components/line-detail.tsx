@@ -2,7 +2,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { useMemo } from 'react';
 import { Check, CircleAlert, CircleCheck, X } from 'lucide-react';
-import { checkFormat, KNOWLEDGE_ORIGIN_LABELS, LISTENER_MIN_CONFIDENCE, mentions, type FormatRules } from '@tw/shared';
+import { checkFormat, KNOWLEDGE_ORIGIN_LABELS, LISTENER_MIN_CONFIDENCE, mentions, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatRules, type SpeechLevel } from '@tw/shared';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -206,7 +206,7 @@ export function LineDetail({
             )}
           </section>
 
-          <LineChecks projectId={projectId} source={line.source} text={draft} terms={terms.data ?? []} rules={project.data?.formatRules} />
+          <LineChecks projectId={projectId} source={line.source} text={draft} terms={terms.data ?? []} rules={project.data?.formatRules} speech={line.speech} />
 
           <section>
             <h3 className="mb-2 text-xs font-medium text-muted-foreground">후보 {line.candidates.length}개</h3>
@@ -260,12 +260,26 @@ export function LineDetail({
 }
 
 /** Glossary terms in this line, and whether the translation in the editor keeps them and the source's format. */
-export function LineChecks({ projectId, source, text, terms, rules }: { projectId: string; source: string; text: string; terms: { id: string; source: string; target: string; status: 'candidate' | 'confirmed' }[]; rules?: FormatRules }) {
+export function LineChecks({ projectId, source, text, terms, rules, speech }: { projectId: string; source: string; text: string; terms: { id: string; source: string; target: string; status: 'candidate' | 'confirmed' }[]; rules?: FormatRules; speech?: { listener: string; ruleId: string; rule: string; level: SpeechLevel; byOrder: boolean } | null }) {
   const used = useMemo(() => terms.filter((term) => mentions(source, term.source)), [terms, source]);
   const formatIssues = text.trim() ? checkFormat(source, text, { placeholders: true, tags: true, newlines: true, emptyText: true }, rules) : [];
   const kept = (target: string) => Boolean(target.trim()) && text.toLowerCase().includes(target.toLowerCase());
+  const guessed = text.trim() ? speechLevelOf(text) : null;
   return (
     <section className="space-y-3">
+      {speech && (
+        <div>
+          <h3 className="mb-1.5 text-xs font-medium text-muted-foreground">말투 규칙 (→ {speech.listener}{speech.byOrder ? ', 구간은 대본 순서 기준' : ''})</h3>
+          <div className="flex items-center gap-2 text-sm">
+            <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'speechRules', item: speech.ruleId }} className="min-w-0 truncate hover:underline">
+              {speech.rule}
+            </Link>
+            <span className={cn('ml-auto shrink-0 text-xs', !guessed || speech.level === 'other' ? 'text-muted-foreground' : guessed === speech.level ? 'text-emerald-700' : 'text-amber-700')}>
+              {!guessed || speech.level === 'other' ? '' : guessed === speech.level ? '맞음 (어미 추정)' : `번역은 ${SPEECH_LEVEL_LABELS[guessed]} (어미 추정)`}
+            </span>
+          </div>
+        </div>
+      )}
       <div>
         <h3 className="mb-1.5 text-xs font-medium text-muted-foreground">형식 검사 (편집기의 번역 기준)</h3>
         {!text.trim() ? (

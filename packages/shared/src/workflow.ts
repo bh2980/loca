@@ -9,6 +9,8 @@ export const contextConfigSchema = z.object({
   documents: z.boolean().default(true),
   characters: z.boolean().default(true),
   relationships: z.boolean().default(true),
+  /** Each line's listener and the confirmed speech rule for that speaker → listener pair. */
+  speech: z.boolean().default(true),
   /** Every confirmed character's name, aliases and player flag, so the model can name people not mentioned in the batch. */
   cast: z.boolean().default(false),
   precedingLines: z.number().int().min(0).max(50).default(8),

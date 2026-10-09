@@ -30,6 +30,15 @@ export const AI_PRESETS: Record<string, { label: string; output: AiOutput; instr
       'Revise each candidate translation so it resolves every listed issue while keeping what was already correct. ' +
       'Keep every placeholder, rich-text tag and line break exactly.',
   },
+  speechFix: {
+    label: 'AI 말투 맞추기',
+    output: 'candidate',
+    include: { candidate: true, issues: false },
+    instructions:
+      'Each line has a current translation ("candidate") and, where known, its listener and a confirmed speechRule. ' +
+      'Change only the sentence endings, honorifics and forms of address so the line follows its speechRule; keep the meaning, word choice and everything else as it is. ' +
+      'If a line already follows its rule, or has no rule, return its candidate unchanged. Keep every placeholder, rich-text tag and line break exactly.',
+  },
   listener: {
     label: 'AI 청자 추정',
     output: 'listener',

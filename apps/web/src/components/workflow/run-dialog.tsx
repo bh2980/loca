@@ -19,7 +19,7 @@ type Mode = 'all' | 'groups' | 'units' | 'tags';
  * exactly what will run: scope ∩ entry statuses (unless the user chooses to ignore statuses).
  * Without a selection no scope is preselected: running the whole project is always a deliberate choice.
  */
-export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, unitIds, dirty, disabled, trigger, defaultIgnoreStatus = false }: {
+export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, unitIds, dirty, disabled, trigger, defaultIgnoreStatus = false, preferWorkflow }: {
   projectId: string;
   /** Omit to let the user pick a workflow (when starting from a scene or a line selection). */
   workflowId?: string;
@@ -30,6 +30,8 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
   trigger?: ReactNode;
   /** Start with the entry-status check off (re-running lines that are already done). */
   defaultIgnoreStatus?: boolean;
+  /** Preselect the workflow with this name when it exists (e.g. "말투만 고치기"). */
+  preferWorkflow?: string;
 }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
@@ -43,7 +45,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
   const [ignoreStatus, setIgnoreStatus] = useState(defaultIgnoreStatus);
   const workflows = useQuery({ ...q.workflows(projectId), enabled: open && !fixedWorkflowId });
   const [chosen, setChosen] = useState<string>();
-  const workflowId = fixedWorkflowId ?? chosen ?? workflows.data?.find((workflow) => !workflow.errorCount)?.id;
+  const workflowId = fixedWorkflowId ?? chosen ?? (preferWorkflow && workflows.data?.find((workflow) => workflow.name === preferWorkflow && !workflow.errorCount)?.id) ?? workflows.data?.find((workflow) => !workflow.errorCount)?.id;
   const groups = useQuery({ ...q.groups(projectId), enabled: open && mode === 'groups' });
 
   const scope =

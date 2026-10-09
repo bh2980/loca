@@ -61,9 +61,10 @@ type Job = typeof s.analysisJobs.$inferSelect;
 
 /**
  * Work analysis (작품 분석): a long-context model reads the whole script and drafts the overview,
- * characters, relationships, events and speech rules. Drafts are stored as AI candidates; they
- * reach translation context only after a person confirms them. Re-running replaces the previous
- * unconfirmed AI drafts and never touches confirmed or human-made knowledge.
+ * characters, relationships, events and speech rules. With auto-confirm (the default) they are
+ * stored confirmed and used as context right away, since nobody reviews hundreds of drafts; a
+ * wrong item is fixed later and its lines re-run. Without it they are candidates. Either way the
+ * origin stays "ai"; re-running replaces only AI items no person has edited or confirmed.
  */
 export class AnalysisService {
   private aborts = new Map<string, AbortController>();
@@ -81,7 +82,7 @@ export class AnalysisService {
     return this.db.select().from(s.analysisJobs).where(eq(s.analysisJobs.projectId, projectId)).orderBy(desc(s.analysisJobs.createdAt)).limit(10).all();
   }
 
-  start(projectId: string, profileId: string): Job {
+  start(projectId: string, profileId: string, autoConfirm = true): Job {
     if (this.db.select().from(s.analysisJobs).where(and(eq(s.analysisJobs.projectId, projectId), eq(s.analysisJobs.status, 'running'))).get()) throw new Error('이미 진행 중인 작품 분석이 있습니다.');
     const profile = snapshotProfiles(this.db, [profileId])[profileId];
     if (!profile) throw new Error('모델 프로필을 찾을 수 없습니다.');
@@ -93,7 +94,7 @@ export class AnalysisService {
     const abort = new AbortController();
     this.aborts.set(job.id, abort);
     events.changed(projectId, 'analysis');
-    void this.run(job, profile, parts, keyOf, abort.signal).finally(() => this.aborts.delete(job.id));
+    void this.run(job, profile, parts, keyOf, autoConfirm, abort.signal).finally(() => this.aborts.delete(job.id));
     return job;
   }
 
@@ -103,7 +104,7 @@ export class AnalysisService {
     if (job) events.changed(job.projectId, 'analysis');
   }
 
-  private async run(job: Job, profile: s.ProfileSnapshot, parts: string[], keyOf: Map<string, string>, signal: AbortSignal) {
+  private async run(job: Job, profile: s.ProfileSnapshot, parts: string[], keyOf: Map<string, string>, autoConfirm: boolean, signal: AbortSignal) {
     const routes = resolveRoutes(profile, this.secrets);
     let merged = null as Analysis | null;
     const usage = { inputTokens: 0, outputTokens: 0 };
@@ -134,7 +135,7 @@ export class AnalysisService {
         events.changed(job.projectId, 'analysis');
       }
       if (signal.aborted || !merged) return;
-      const counts = saveDrafts(this.db, job.projectId, job.id, merged, keyOf);
+      const counts = saveDrafts(this.db, job.projectId, job.id, merged, keyOf, autoConfirm);
       this.db.update(s.analysisJobs).set({ status: 'completed', result: counts, usage, finishedAt: new Date() }).where(eq(s.analysisJobs.id, job.id)).run();
       events.changed(job.projectId, 'analysis', 'knowledge');
     } catch (error) {
@@ -181,8 +182,11 @@ export function mergeAnalysis(base: Analysis, next: Analysis): Analysis {
   };
 }
 
-/** Replaces the previous unconfirmed AI drafts with this analysis. Evidence ids that are not lines are dropped and counted. */
-export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: Analysis, keyOf: Map<string, string>): Record<string, number> {
+/**
+ * Replaces the previous AI items nobody has touched with this analysis, as confirmed (auto-confirm)
+ * or as candidates. Evidence ids that are not lines are dropped and counted.
+ */
+export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: Analysis, keyOf: Map<string, string>, autoConfirm = false): Record<string, number> {
   let invalidEvidence = 0;
   const keys = (list: string[]) =>
     list.flatMap((id) => {
@@ -191,11 +195,11 @@ export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: A
       return key ? [key] : [];
     });
   const keyOrNull = (id: string | null) => (id ? (keyOf.get(id.trim()) ?? null) : null);
-  const draft = { status: 'candidate' as const, origin: 'ai' as const, jobId };
+  const draft = { status: autoConfirm ? ('confirmed' as const) : ('candidate' as const), origin: 'ai' as const, jobId };
 
   db.transaction((tx) => {
     const stale = (table: typeof s.documents | typeof s.characters | typeof s.relationships | typeof s.storyEvents | typeof s.speechRules) =>
-      and(eq(table.projectId, projectId), eq(table.status, 'candidate'), eq(table.origin, 'ai'));
+      and(eq(table.projectId, projectId), eq(table.origin, 'ai'), eq(table.reviewed, false));
     tx.delete(s.relationships).where(stale(s.relationships)).run();
     // A draft character that a kept relationship points to stays (deleting it would take the relationship with it).
     const kept = tx.select({ fromId: s.relationships.fromId, toId: s.relationships.toId }).from(s.relationships).where(eq(s.relationships.projectId, projectId)).all().flatMap((r) => [r.fromId, r.toId]);

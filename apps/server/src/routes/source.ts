@@ -6,6 +6,7 @@ import { found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { computeLayouts } from '../services/layout.ts';
+import { describeRule, speechRuleIndex } from '../services/speech.ts';
 
 const listQuery = z.object({
   groupId: z.string().optional(),
@@ -194,7 +195,9 @@ export const sourceRoutes = new Hono<Env>()
       .limit(20)
       .all();
     const nodes = db.select({ id: s.graphNodes.id, key: s.graphNodes.key }).from(s.graphNodes).where(sql`exists (select 1 from json_each(${s.graphNodes.unitIds}) where value = ${unitId})`).all();
-    return c.json({ ...unit, group, candidates, tagIds, history, graphNodes: nodes });
+    const resolved = speechRuleIndex(db, unit.projectId).resolve([unit]).get(unit.key);
+    const speech = resolved ? { listener: resolved.listener, ruleId: resolved.rule.id, rule: describeRule(resolved.rule), level: resolved.rule.level, byOrder: resolved.byOrder } : null;
+    return c.json({ ...unit, group, candidates, tagIds, history, graphNodes: nodes, speech });
   })
   .patch('/units/:unitId', validate('json', unitPatch), (c) => {
     const { db } = c.var.deps;

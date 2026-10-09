@@ -44,6 +44,8 @@ export const q = {
   storyEvents: (projectId: string) => queryOptions({ queryKey: ['knowledge', 'events', projectId], queryFn: () => unwrap(client.projects[':projectId'].events.$get({ param: { projectId } })) }),
   speechRules: (projectId: string) =>
     queryOptions({ queryKey: ['knowledge', 'speech-rules', projectId], queryFn: () => unwrap(client.projects[':projectId']['speech-rules'].$get({ param: { projectId } })) }),
+  ruleLines: (projectId: string, id: string) =>
+    queryOptions({ queryKey: ['units', 'rule-lines', id], queryFn: () => unwrap(client.projects[':projectId']['speech-rules'][':id'].lines.$get({ param: { projectId, id } })) }),
   analysisJobs: (projectId: string) => queryOptions({ queryKey: ['analysis', projectId], queryFn: () => unwrap(client.projects[':projectId'].analysis.$get({ param: { projectId } })) }),
   /** Lines cited as evidence, by key. */
   linesByKeys: (projectId: string, keys: string[]) =>

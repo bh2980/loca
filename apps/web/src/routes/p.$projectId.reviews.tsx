@@ -188,7 +188,7 @@ function ReviewItem({ projectId, item, position, statuses, onDone }: {
           </div>
         </div>
 
-        <LineChecks projectId={projectId} source={item.source} text={draft} terms={terms.data ?? []} rules={project.data?.formatRules} />
+        <LineChecks projectId={projectId} source={item.source} text={draft} terms={terms.data ?? []} rules={project.data?.formatRules} speech={unit.data?.speech} />
 
         {!!unit.data?.candidates.length && (
           <section>

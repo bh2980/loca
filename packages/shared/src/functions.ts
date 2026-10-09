@@ -94,6 +94,13 @@ export const FUNCTIONS = {
     ports: () => pass,
     async: false,
   },
+  speechCheck: {
+    label: '말투 규칙 검사',
+    description: '화자→청자의 확정 말투 규칙과 번역 끝 어미(추정)가 맞는지 검사합니다. 청자를 모르거나 규칙이 없으면 통과합니다.',
+    params: z.object({}),
+    ports: () => pass,
+    async: false,
+  },
   setStatus: {
     label: '상태 변경',
     description: '상태·태그를 바꾸고, 원하면 현재 후보를 대표 번역으로 적용합니다.',

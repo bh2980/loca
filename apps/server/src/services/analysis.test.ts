@@ -54,7 +54,7 @@ describe('work analysis', () => {
     expect(keyOf.get('L3')).toBe('a3');
   });
 
-  it('stores drafts as AI candidates with line keys, and a rerun replaces only unconfirmed drafts', async () => {
+  it('stores drafts as confirmed AI items with line keys, and a rerun replaces only what nobody touched', async () => {
     const { db, projectId, profileId } = setup();
     let level: Analysis['speechRules'][number]['level'] = 'hasipsio';
     const service = new AnalysisService(db, memoryStore(), { generate: async () => ({ object: draft(level), usage: { inputTokens: 10, outputTokens: 5 } }) as never });
@@ -66,17 +66,17 @@ describe('work analysis', () => {
 
     const rules = db.select().from(s.speechRules).where(eq(s.speechRules.projectId, projectId)).orderBy(s.speechRules.fromName).all();
     expect(rules.map((rule) => [rule.fromName, rule.level, rule.startKey, rule.status, rule.origin])).toEqual([
-      ['Alice', 'hae', 'a3', 'candidate', 'ai'],
-      ['Bob', 'hasipsio', null, 'candidate', 'ai'],
+      ['Alice', 'hae', 'a3', 'confirmed', 'ai'],
+      ['Bob', 'hasipsio', null, 'confirmed', 'ai'],
     ]);
     const rel = db.select().from(s.relationships).where(eq(s.relationships.projectId, projectId)).get()!;
     expect(rel.changes).toEqual([{ at: 'a3', change: '긴장', cause: '지각' }]);
     expect(rel.evidence).toEqual(['a2']);
 
-    // A person confirms one rule; the rerun keeps it and replaces the rest.
-    db.update(s.speechRules).set({ status: 'confirmed' }).where(eq(s.speechRules.fromName, 'Alice')).run();
+    // A person reviews one rule; the rerun keeps it, replaces the rest, and does not propose the kept one again.
+    db.update(s.speechRules).set({ reviewed: true }).where(eq(s.speechRules.fromName, 'Alice')).run();
     level = 'haeyo';
-    service.start(projectId, profileId);
+    service.start(projectId, profileId, false);
     expect((await settle(service, projectId)).status).toBe('completed');
     const after = db.select().from(s.speechRules).where(eq(s.speechRules.projectId, projectId)).orderBy(s.speechRules.fromName, s.speechRules.status).all();
     expect(after.map((rule) => [rule.fromName, rule.level, rule.status])).toEqual([

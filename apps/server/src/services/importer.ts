@@ -1,4 +1,4 @@
-import { DEFAULT_STATUSES, listenerTemplate, termExtractionTemplate, translationTemplate, type ImportFile } from '@tw/shared';
+import { DEFAULT_STATUSES, listenerTemplate, SPEECH_FIX_WORKFLOW, speechFixTemplate, termExtractionTemplate, translationTemplate, type ImportFile } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 
@@ -162,6 +162,14 @@ export function importProject(db: Db, file: ImportFile, defaultProfileId = ''): 
         name: '청자 추정',
         description: '장면별로 대사마다 누구에게 하는 말인지 추정해 적습니다. 번역·상태는 바꾸지 않습니다. 말투 규칙은 청자가 정해진 대사에만 쓰입니다.',
         definition: listenerTemplate({ profileId: defaultProfileId }),
+      })
+      .run();
+    tx.insert(s.workflows)
+      .values({
+        projectId,
+        name: SPEECH_FIX_WORKFLOW,
+        description: '말투 규칙이나 청자를 고친 뒤, 해당 대사의 현재 번역에서 어미·호칭만 확정 규칙에 맞춥니다. 뜻과 다른 표현은 그대로 두고 상태도 바꾸지 않습니다.',
+        definition: speechFixTemplate({ profileId: defaultProfileId }),
       })
       .run();
   });

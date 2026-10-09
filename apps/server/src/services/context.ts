@@ -2,6 +2,7 @@ import { and, desc, eq, inArray, lt } from 'drizzle-orm';
 import { CONTEXT_PRIORITY, contextConfigSchema, estimateTokens, mentions, type ContextConfig, type ContextItem, type ContextItemKind } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import { characters, documents, graphEdges, graphNodes, groups, relationships, terms, units } from '../db/schema.ts';
+import { describeRule, knownListener, speechRuleIndex } from './speech.ts';
 import { deriveSceneEdges } from './scene-graph.ts';
 
 export { mentions } from '@tw/shared';
@@ -30,6 +31,8 @@ export interface BatchContext {
   previousScenes: { title: string; description: string }[];
   documents: { kind: string; title: string; body: string }[];
   characters: { name: string; aliases: string[]; profile: string }[];
+  /** Per unit id: who the line is addressed to and the confirmed speech rule for that pair. */
+  speech: Record<string, { listener: string; rule?: string; note?: string; byOrder?: true }>;
   /** Every confirmed character, for naming people who are not mentioned in the batch. */
   cast: { name: string; aliases: string[]; player?: true }[];
   relationships: { from: string; to: string; kind: string; description: string; mutual: boolean }[];
@@ -164,8 +167,8 @@ export function buildContext(
   const text = batch.map((unit) => `${unit.speaker ?? ''}\n${unit.source}`).join('\n');
   const groupIds = [...new Set(batch.map((unit) => unit.groupId))];
   const sceneRows = db.select().from(groups).where(inArray(groups.id, groupIds)).all();
-  const result: BatchContext = { scene: null, previousScenes: [], documents: [], characters: [], cast: [], relationships: [], terms: [], preceding: {}, items: [], budget: { limit: config.maxTokens, used: 0 } };
-  const candidates: Record<ContextItemKind, Candidate[]> = { term: [], cast: [], preceding: [], character: [], relationship: [], scene: [], previousScene: [], document: [] };
+  const result: BatchContext = { scene: null, previousScenes: [], documents: [], characters: [], cast: [], relationships: [], terms: [], speech: {}, preceding: {}, items: [], budget: { limit: config.maxTokens, used: 0 } };
+  const candidates: Record<ContextItemKind, Candidate[]> = { term: [], speech: [], cast: [], preceding: [], character: [], relationship: [], scene: [], previousScene: [], document: [] };
 
   if (config.glossary) {
     const used = db
@@ -228,6 +231,26 @@ export function buildContext(
           ? `대사 그래프상 앞. 갈래 ${preceding.branches.length + preceding.moreBranches}개가 합쳐지는 곳이라 갈래별로 나눔${preceding.moreBranches ? ` (${preceding.moreBranches}개 생략)` : ''}`
           : '대사 그래프상 바로 앞 (한 갈래)';
       candidates.preceding.push({ item: { kind: 'preceding', label: `${unit.key} 앞 ${count}줄`, reason }, payload: preceding, keep: () => (result.preceding[unit.id] = preceding) });
+    }
+  }
+
+  if (config.speech) {
+    const lines = db
+      .select({ id: units.id, key: units.key, speaker: units.speaker, listener: units.listener, listenerOrigin: units.listenerOrigin, listenerConfidence: units.listenerConfidence })
+      .from(units)
+      .where(inArray(units.id, batch.map((unit) => unit.id)))
+      .all();
+    const rules = speechRuleIndex(db, projectId).resolve(lines);
+    for (const line of lines) {
+      const listener = knownListener(line);
+      if (!listener) continue;
+      const found = rules.get(line.key);
+      const entry = { listener, ...(found && { rule: describeRule(found.rule), ...(found.rule.note && { note: found.rule.note }), ...(found.byOrder && { byOrder: true as const }) }) };
+      candidates.speech.push({
+        item: { kind: 'speech', label: `${line.key}: ${line.speaker ?? '?'} → ${listener}${found ? ` · ${describeRule(found.rule)}` : ''}`, reason: found ? `확정 말투 규칙${found.byOrder ? ' (구간은 대본 순서 기준)' : ''}` : '청자만 (이 쌍의 확정 규칙 없음)' },
+        payload: entry,
+        keep: () => (result.speech[line.id] = entry),
+      });
     }
   }
 

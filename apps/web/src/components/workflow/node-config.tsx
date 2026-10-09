@@ -254,6 +254,7 @@ function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRefs; onCh
         <ToggleRow label="항상 포함 문서 (스토리·세계관·문체)" checked={context.documents} onChange={(value) => set({ context: { ...context, documents: value } })} />
         <ToggleRow label="등장 인물 프로필" checked={context.characters} onChange={(value) => set({ context: { ...context, characters: value } })} />
         <ToggleRow label="인물 관계" checked={context.relationships} onChange={(value) => set({ context: { ...context, relationships: value } })} />
+        <ToggleRow label="청자·말투 규칙 (대사마다 청자와 그 쌍의 확정 말투 규칙)" checked={context.speech} onChange={(value) => set({ context: { ...context, speech: value } })} />
         <ToggleRow label="인물 명단 (확정된 인물 전체의 이름·별칭·플레이어 여부)" checked={context.cast} onChange={(value) => set({ context: { ...context, cast: value } })} />
         <div className="grid grid-cols-2 gap-3">
           <Field label="선행 대사 수" hint="대사 그래프에서 앞에 오는 대사">

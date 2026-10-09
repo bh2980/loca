@@ -148,3 +148,42 @@ export function listenerTemplate(ids: { profileId: string }): WorkflowDefinition
     ],
   };
 }
+
+/**
+ * After a speech rule or a listener is corrected: re-fit only the speech level and forms of address
+ * of the current translations, so the rest of the wording does not drift as a full re-translation would.
+ * The fitted text becomes the representative translation; the status stays as it was.
+ */
+export function speechFixTemplate(ids: { profileId: string }): WorkflowDefinition {
+  return {
+    settings: { maxVisitsPerNode: 5, concurrency: 2 },
+    nodes: [
+      { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: { statusIds: [] } },
+      {
+        id: 'fit',
+        type: 'ai',
+        position: { x: 300, y: 0 },
+        label: AI_PRESETS.speechFix.label,
+        config: {
+          profileId: ids.profileId,
+          instructions: AI_PRESETS.speechFix.instructions,
+          output: 'candidate',
+          fields: [],
+          include: AI_PRESETS.speechFix.include,
+          context: { ...contextConfigSchema.parse({}), speech: true, documents: false, characters: false, relationships: false, glossary: false, precedingLines: 4, previousScenes: 0 },
+          batch: { mode: 'group', size: 40 },
+        },
+      },
+      { id: 'apply', type: 'function', position: { x: 600, y: 0 }, label: '번역에 적용', config: { fn: 'setStatus', params: { applyCandidate: true } } },
+      { id: 'end', type: 'end', position: { x: 900, y: 0 }, config: {} },
+    ],
+    edges: [
+      { id: 'e1', source: 'entry', sourceHandle: 'out', target: 'fit' },
+      { id: 'e2', source: 'fit', sourceHandle: 'out', target: 'apply' },
+      { id: 'e3', source: 'apply', sourceHandle: 'out', target: 'end' },
+    ],
+  };
+}
+
+/** The workflow that a speech rule's "re-run affected lines" picks first. */
+export const SPEECH_FIX_WORKFLOW = '말투만 고치기';

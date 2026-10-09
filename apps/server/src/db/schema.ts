@@ -17,6 +17,8 @@ const knowledge = () => ({
   origin: text('origin', { enum: KNOWLEDGE_ORIGINS }).notNull().default('human'),
   evidence: json<string[]>('evidence').notNull().default(sql`'[]'`),
   jobId: text('job_id'),
+  /** A person edited or confirmed this AI item: a new analysis leaves it alone. */
+  reviewed: integer('reviewed', { mode: 'boolean' }).notNull().default(false),
 });
 
 export const projects = sqliteTable('projects', {
