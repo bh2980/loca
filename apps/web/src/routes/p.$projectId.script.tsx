@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
+import type { PanelImperativeHandle } from 'react-resizable-panels';
 import { useQuery } from '@tanstack/react-query';
-import { Network, Play, Search, X } from 'lucide-react';
+import { Network, PanelLeftClose, PanelLeftOpen, Play, Search, X } from 'lucide-react';
 import { LinesView, linesSearchSchema, type LinesSearch } from '@/components/lines-view';
 import { AiButton } from '@/components/ai-button';
 import { Page } from '@/components/page';
@@ -66,6 +67,9 @@ function Script() {
   const statuses = useQuery(q.statuses(projectId));
   const group = groups.data?.find((item) => item.id === search.group);
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  // The group list folds away for more room; its size (including folded) is remembered with the layout.
+  const listPanel = useRef<PanelImperativeHandle>(null);
+  const [listHidden, setListHidden] = useState(false);
   const setSearch = (next: Partial<ScriptSearch>, replace = false) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace });
   const openGroup = (id: string | undefined) => setSearch({ group: id, page: undefined, line: undefined });
   useReportView('script', [group && { kind: GROUP_KIND[group.kind], id: group.id, label: group.title }]);
@@ -82,7 +86,22 @@ function Script() {
         ) : undefined
       }
       actions={
-        group && (
+        <>
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-pressed={!listHidden}
+            onClick={() => {
+              const panel = listPanel.current;
+              if (!panel) return;
+              if (panel.isCollapsed()) panel.expand();
+              else panel.collapse();
+              setListHidden(panel.isCollapsed());
+            }}
+          >
+            {listHidden ? <PanelLeftOpen /> : <PanelLeftClose />} 묶음 목록
+          </Button>
+          {group && (
           <>
             <RunDialog
               projectId={projectId}
@@ -104,12 +123,23 @@ function Script() {
               </Button>
             )}
           </>
-        )
+          )}
+        </>
       }
       flush
     >
       <ResizablePanelGroup orientation="horizontal" defaultLayout={readLayout(projectId)} onLayoutChanged={(layout) => saveLayout(projectId, layout)} className="h-full min-h-0">
-        <ResizablePanel id="groups" defaultSize={320} minSize={220} maxSize="60%" className="flex flex-col">
+        <ResizablePanel
+          id="groups"
+          panelRef={listPanel}
+          defaultSize={320}
+          minSize={220}
+          maxSize="60%"
+          collapsible
+          collapsedSize={0}
+          onResize={() => setListHidden(Boolean(listPanel.current?.isCollapsed()))}
+          className="flex flex-col"
+        >
           <div className="space-y-2 border-b p-3">
             <ToggleGroup
               type="single"

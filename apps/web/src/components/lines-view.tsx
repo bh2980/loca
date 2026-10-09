@@ -194,13 +194,13 @@ export function LinesView({ projectId, groupId, kind, search, onSearch, showScen
           </div>
         )}
         <div className="min-h-0 flex-1 overflow-auto border-t">
-          <Table className="min-w-[720px] table-fixed">
+          <Table className="min-w-[640px] table-fixed">
             <TableHeader className="sticky top-0 z-10 bg-background">
               <TableRow>
                 <TableHead className="w-10">
                   <Checkbox aria-label="이 페이지 모두 선택" checked={allOnPage} onCheckedChange={(checked) => toggle(pageIds, Boolean(checked))} />
                 </TableHead>
-                {showScene && <TableHead className="w-40">묶음</TableHead>}
+                {showScene && <TableHead className="w-32">묶음</TableHead>}
                 <TableHead className="w-28">화자</TableHead>
                 <TableHead>원문</TableHead>
                 <TableHead>번역</TableHead>
