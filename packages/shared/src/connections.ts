@@ -7,7 +7,8 @@ export type ConnectionKind = (typeof CONNECTION_KINDS)[number];
 /**
  * generate: structured generation (translate / revise / review nodes)
  * judge:    typed decision only (review nodes)
- * chat:     tool-calling conversation (project chat agent)
+ * chat:     multi-turn conversation with the workbench tools (project chat agent). API connections call the
+ *           tools natively; agent CLIs resume their own session each turn and request tools in their answer
  * tool:     an API key (credential) for the workflow "HTTP 호출" function; the address lives in the node
  */
 export type Capability = 'generate' | 'judge' | 'chat' | 'tool';
@@ -46,12 +47,12 @@ export const CONNECTION_KIND_INFO: Record<ConnectionKind, ConnectionKindInfo> = 
     needsKey: true,
     efforts: [],
   },
-  codex: { label: 'Codex CLI', transport: 'cli', capabilities: ['generate'], needsKey: false, efforts: ['minimal', 'low', 'medium', 'high', 'xhigh'] },
-  claude: { label: 'Claude Code CLI', transport: 'cli', capabilities: ['generate'], needsKey: false, efforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
-  grok: { label: 'Grok CLI', transport: 'cli', capabilities: ['generate'], needsKey: false, efforts: [] },
-  antigravity: { label: 'Antigravity CLI', transport: 'cli', capabilities: ['generate'], needsKey: false, efforts: [] },
+  codex: { label: 'Codex CLI', transport: 'cli', capabilities: ['generate', 'chat'], needsKey: false, efforts: ['minimal', 'low', 'medium', 'high', 'xhigh'] },
+  claude: { label: 'Claude Code CLI', transport: 'cli', capabilities: ['generate', 'chat'], needsKey: false, efforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
+  grok: { label: 'Grok CLI', transport: 'cli', capabilities: ['generate', 'chat'], needsKey: false, efforts: [] },
+  antigravity: { label: 'Antigravity CLI', transport: 'cli', capabilities: ['generate', 'chat'], needsKey: false, efforts: [] },
   // opencode's own free models (opencode/…) are only served through its CLI; opencode Go models too.
-  opencode: { label: 'opencode CLI', transport: 'cli', capabilities: ['generate'], needsKey: false, efforts: [] },
+  opencode: { label: 'opencode CLI', transport: 'cli', capabilities: ['generate', 'chat'], needsKey: false, efforts: [] },
   http: { label: 'API 키', transport: 'http', capabilities: ['tool'], needsKey: true, efforts: [] },
 };
 

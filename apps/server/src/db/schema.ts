@@ -460,6 +460,8 @@ export const chatSessions = sqliteTable('chat_sessions', {
   title: text('title').notNull(),
   profileId: text('profile_id'),
   messages: json<unknown[]>('messages').notNull().default(sql`'[]'`),
+  /** An agent CLI's own session for this chat (resumed each turn), and when it last took a turn. */
+  agentSession: json<{ kind: string; model: string; id: string; lastTurnAt: number }>('agent_session'),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });

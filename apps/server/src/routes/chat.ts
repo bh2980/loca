@@ -3,12 +3,14 @@ import { convertToModelMessages, stepCountIs, streamText, type UIMessage } from 
 import { and, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import * as ai from '@tw/ai';
+import { CONNECTION_KIND_INFO } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { AGENT_SYSTEM, agentTools } from '../services/agent-tools.ts';
 import { liveProfileRoutes } from '../services/routes.ts';
 import { closePiChat, piChatResponse } from '../services/pi-chat.ts';
+import { cliChatResponse } from '../services/cli-chat.ts';
 
 /** pi cannot pause a tool call for a card, so change tools there record a proposal instead. */
 const PI_NOTE = `이 대화에서 프로젝트를 바꾸는 도구(save_*, propose_translation)는 바로 실행되지 않고 '제안'으로 올라갑니다. 사용자가 채팅 패널의 카드에서 수락하면 반영되고, 결과는 다음 메시지 앞에 알려 드립니다. 제안한 뒤에는 무엇을 왜 제안했는지 짧게 설명하고 기다리세요. 워크플로 노드 편집(edit_workflow_node)은 이 대화에서 쓸 수 없습니다.`;
@@ -70,7 +72,7 @@ export const chatRoutes = new Hono<Env>()
     if (!session.profileId) badRequest('대화에 사용할 AI 프로필을 선택하세요.');
     const live = found(liveProfileRoutes(db, session.profileId!, secrets), 'AI 프로필');
     const route = live.routes[0];
-    if (!route || (route.kind !== 'openai' && route.kind !== 'pi')) badRequest('채팅은 OpenAI 호환 API 또는 pi 프로필에서만 쓸 수 있습니다.');
+    if (!route || !CONNECTION_KIND_INFO[route.kind].capabilities.includes('chat')) badRequest('이 프로필의 연결은 채팅을 지원하지 않습니다(System One은 판정 전용).');
     const messages = c.req.valid('json').messages as UIMessage[];
 
     const firstUser = messages.find((message) => message.role === 'user');
@@ -81,6 +83,18 @@ export const chatRoutes = new Hono<Env>()
     }
 
     const view = c.req.valid('json').view;
+    if ((ai.CHAT_CLI_KINDS as string[]).includes(route.kind)) {
+      return cliChatResponse({
+        db,
+        chat: session,
+        route,
+        system: [AGENT_SYSTEM, live.snapshot.instructions].filter(Boolean).join('\n\n'),
+        view: view ? describeView(view) : null,
+        messages,
+        timeoutMs: live.snapshot.timeoutSeconds * 1000,
+        signal: c.req.raw.signal,
+      });
+    }
     if (route.kind === 'pi') {
       try {
         return await piChatResponse({

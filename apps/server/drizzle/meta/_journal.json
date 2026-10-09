@@ -120,6 +120,13 @@
       "when": 1791583584167,
       "tag": "0016_http_url_in_node",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1791584917891,
+      "tag": "0017_chat_agent_session",
+      "breakpoints": true
     }
   ]
 }
