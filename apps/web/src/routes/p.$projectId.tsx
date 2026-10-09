@@ -57,7 +57,7 @@ function ProjectLayout() {
       <AppSidebar projectId={projectId} />
       <SidebarInset className="min-w-0 overflow-hidden">
         <ResizablePanelGroup orientation="horizontal" defaultLayout={layout.defaultLayout} onLayoutChanged={layout.onLayoutChanged}>
-          <ResizablePanel id="main" minSize="420px" className="flex min-w-0 flex-col">
+          <ResizablePanel id="main" minSize="320px" className="flex min-w-0 flex-col">
             <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
               <SidebarTrigger />
               <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
@@ -82,8 +82,8 @@ function ProjectLayout() {
           </ResizablePanel>
           {chatOpen && (
             <>
-              <ResizableHandle />
-              <ResizablePanel id="chat" defaultSize="400px" minSize="320px" maxSize="720px" className="min-w-0">
+              <ResizableHandle withHandle />
+              <ResizablePanel id="chat" defaultSize="400px" minSize="300px" maxSize="75%" className="min-w-0">
                 <ChatPanel projectId={projectId} />
               </ResizablePanel>
             </>

@@ -86,7 +86,8 @@ app.post('/v1/chat/completions', async (c) => {
       call = { name: 'save_character', args: { name: 'MIRA', aliases: ['Mira'], profile: '## 미라\n- 전직 통신병\n- 짧고 단정한 반말\n- 조나스와 오랜 동료' } };
     else if (tools.has('project_overview')) call = { name: 'project_overview', args: {} };
   }
-  const reply = last?.role === 'tool' ? '도구 결과를 확인했습니다. (모의 응답)' : `"${user.slice(0, 40)}"에 대한 모의 응답입니다.`;
+  const table = '## 모의 현황\n\n| 항목 | 내용 |\n|---|---|\n| 프로젝트 | 모의 프로젝트 |\n| 대사 | 8,157개 |\n\n- [x] 표 렌더링\n- [ ] ~~취소선~~';
+  const reply = /표/.test(user) ? table : last?.role === 'tool' ? '도구 결과를 확인했습니다. (모의 응답)' : `"${user.slice(0, 40)}"에 대한 모의 응답입니다.`;
 
   return streamSSE(c, async (stream) => {
     const chunk = (delta: unknown, finish: string | null = null) =>
