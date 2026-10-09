@@ -11,6 +11,10 @@ export const contextConfigSchema = z.object({
   relationships: z.boolean().default(true),
   precedingLines: z.number().int().min(0).max(50).default(8),
   previousScenes: z.number().int().min(0).max(10).default(1),
+  /** Show the current translation of preceding lines (off when the existing translation is the answer key). */
+  precedingTranslations: z.boolean().default(true),
+  /** Estimated token cap for everything besides the lines themselves; what does not fit is dropped and recorded. */
+  maxTokens: z.number().int().min(500).max(200_000).default(12_000),
 });
 
 export const batchConfigSchema = z.object({

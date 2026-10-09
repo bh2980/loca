@@ -3,7 +3,7 @@ import path from 'node:path';
 import { Command, Option } from 'commander';
 import { hc } from 'hono/client';
 import type { AppType } from '@tw/server/app';
-import { CHECK_KINDS, GRAPH_FLOW_LABELS, importFileJsonSchema, importFileSchema, importWarnings, lineChangeSchema, summarizeImport, type LineFilterInput } from '@tw/shared';
+import { CHECK_KINDS, CONTEXT_ITEM_KINDS, GRAPH_FLOW_LABELS, importFileJsonSchema, importFileSchema, importWarnings, lineChangeSchema, summarizeImport, type LineFilterInput } from '@tw/shared';
 
 /**
  * loca — the workbench from a terminal, for people and for agents with a shell (codex, claude, pi).
@@ -310,6 +310,38 @@ program
     for (const entry of report.warnings.slice(0, 20)) console.log(`  경고  ${entry.key}: ${entry.issues.join(' / ')}`);
     if (report.proposalId) console.log(`\n제안을 올렸습니다 (${report.proposalId}). loca 앱 채팅 패널에서 수락하면 한 번에 반영됩니다.`);
     else if (!options.dryRun) console.log('\n올릴 변경이 없어 제안을 만들지 않았습니다.');
+  });
+
+program
+  .command('context <키>')
+  .description('AI 노드가 이 대사를 번역할 때 보낼 문맥: 앞 대사(갈래별), 넣은 것과 이유, 상한 때문에 뺀 것. 모델은 부르지 않습니다')
+  .option('-n, --node <id>', 'AI 노드 id (없으면 번역 후보를 만드는 첫 노드)')
+  .option('-w, --workflow <id>', '같은 노드 id가 여러 워크플로에 있을 때 워크플로 id')
+  .option('--prompt', '실제 프롬프트 전체도 출력')
+  .action(async (key: string, options: { workflow?: string; node?: string; prompt?: boolean }) => {
+    const data = await unwrap(
+      api().projects[':projectId'].lines[':key']['ai-context'].$get({ param: { projectId: await projectId(), key }, query: { workflowId: options.workflow, nodeId: options.node } }),
+    );
+    if (globals().json) return print(data);
+    if (!data || !('batch' in data) || !data.picked) throw new CliError('AI 노드가 있는 워크플로가 없습니다.');
+    const { workflowId, nodeId } = data.picked;
+    const picked = data.choices.find((choice) => choice.workflowId === workflowId && choice.nodeId === nodeId)!;
+    const others = data.choices.filter((choice) => choice !== picked);
+    console.log(`${picked.workflowName} › ${picked.nodeName}${others.length ? `   (다른 노드: ${others.map((choice) => `${choice.nodeName} -n ${choice.nodeId}`).join(', ')})` : ''}`);
+    console.log(`묶음: 장면 안 ${data.batch.keys.length}줄 (${data.batch.mode}) · 문맥 약 ${data.budget.used} / 상한 ${data.budget.limit} 토큰 · 프롬프트 전체 약 ${data.promptTokens} 토큰 (추정)`);
+    const show = (lines: { speaker: string | null; source: string }[]) => lines.map((line) => `    ${line.speaker ? `${line.speaker}: ` : ''}${short(line.source, 100)}`).join('\n');
+    if (!data.preceding) console.log(data.precedingLines === 0 ? '\n앞 대사: 이 노드는 넣지 않도록 설정됨' : '\n앞 대사: 같은 묶음 안에 있거나 묶음의 더 앞 대사에 이미 붙음');
+    else {
+      if (data.preceding.lines.length) console.log(`\n앞 대사:\n${show(data.preceding.lines)}`);
+      if (data.preceding.branches.length) {
+        console.log('\n갈래가 합쳐지는 곳 (플레이어는 이 중 한 갈래를 거쳐 옴):');
+        for (const branch of data.preceding.branches) console.log(`  [${branch.label}]\n${show(branch.lines)}`);
+        if (data.preceding.moreBranches) console.log(`  … 갈래 ${data.preceding.moreBranches}개 더 (넣지 않음)`);
+      }
+    }
+    console.log('\n묶음에 넣는 문맥:');
+    for (const item of data.items) console.log(`  ${item.included ? '✓' : '✗'} ${CONTEXT_ITEM_KINDS[item.kind].padEnd(6)} ${short(item.label, 40).padEnd(40)} ~${String(item.tokens).padStart(5)}  ${item.included ? item.reason : '상한 초과로 뺌'}`);
+    if (options.prompt) console.log(`\n── 프롬프트 ──\n${data.system}\n\n${data.prompt}`);
   });
 
 program

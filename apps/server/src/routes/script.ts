@@ -5,6 +5,7 @@ import { batchChangeSchema, lineFilterSchema } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { agentCatalog, jsonSchemaOf } from '../services/agent-catalog.ts';
+import { previewContext } from '../services/context-preview.ts';
 import { propose, proposedText } from '../services/proposals.ts';
 import { checkScript, exportLines, findLines, firstAppearance, lineContext, normalizeBatch, runStats, sceneStats, scenesWith, validateBatch } from '../services/script-query.ts';
 
@@ -29,6 +30,10 @@ export const scriptRoutes = new Hono<Env>()
   )
   .get('/projects/:projectId/lines/:key/context', validate('query', z.object({ around: z.coerce.number().int().min(0).max(50).default(5) })), (c) =>
     c.json(found(lineContext(c.var.deps.db, c.req.param('projectId'), c.req.param('key'), c.req.valid('query').around), '대사')),
+  )
+  /** What an AI node would send for this line (no model call). */
+  .get('/projects/:projectId/lines/:key/ai-context', validate('query', z.object({ workflowId: z.string().optional(), nodeId: z.string().optional() })), (c) =>
+    c.json(found(previewContext(c.var.deps.db, c.req.param('projectId'), c.req.param('key'), c.req.valid('query')), '대사')),
   )
   .post(
     '/projects/:projectId/checks/:kind{terms|consistency|format|length}',

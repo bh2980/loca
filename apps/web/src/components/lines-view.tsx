@@ -35,6 +35,9 @@ export interface LinesSearch {
   tag?: string;
   page?: number;
   line?: string;
+  /** The line panel's tab and the AI node whose context it shows ("workflowId:nodeId"). */
+  lineTab?: 'context';
+  aiNode?: string;
 }
 
 /**
@@ -263,7 +266,16 @@ export function LinesView({ projectId, groupId, kind, search, onSearch, showScen
       </div>
       {search.line && (
         <div className="w-[400px] shrink-0 border-l">
-          <LineDetail projectId={projectId} unitId={search.line} onClose={() => onSearch({ line: undefined }, { replace: true })} showScene={showScene} />
+          <LineDetail
+            projectId={projectId}
+            unitId={search.line}
+            onClose={() => onSearch({ line: undefined }, { replace: true })}
+            showScene={showScene}
+            tab={search.lineTab ?? 'edit'}
+            onTab={(tab) => onSearch({ lineTab: tab === 'context' ? 'context' : undefined }, { replace: true })}
+            aiNode={search.aiNode}
+            onAiNode={(aiNode) => onSearch({ aiNode }, { replace: true })}
+          />
         </div>
       )}
     </div>
@@ -276,4 +288,6 @@ export const linesSearchSchema = (raw: Record<string, unknown>): LinesSearch => 
   tag: typeof raw.tag === 'string' ? raw.tag : undefined,
   page: typeof raw.page === 'number' && raw.page > 0 ? raw.page : undefined,
   line: typeof raw.line === 'string' ? raw.line : undefined,
+  lineTab: raw.lineTab === 'context' ? 'context' : undefined,
+  aiNode: typeof raw.aiNode === 'string' && raw.aiNode.includes(':') ? raw.aiNode : undefined,
 });

@@ -14,6 +14,9 @@ loca check length --kind ui --ratio 1.5   # 원문보다 1.5배 넘게 긴 UI �
 ```
 범위는 `lines`와 같은 필터로 좁힙니다(`--section`, `--speaker`, `--group`, `--status`, `--tag`). 많으면 `--jsonl`로 작업 폴더(`W=$(loca workspace new review)`)의 파일에 받아 읽습니다.
 
+## 번역이 문맥 탓인지 볼 때
+`loca context <키>`는 워크플로의 AI 노드가 그 대사를 번역할 때 보내는 문맥을 보여 줍니다(앞 대사·갈래, 넣은 항목과 이유, 상한 때문에 뺀 것). `-n <노드 id>`로 다른 노드, `--prompt`로 프롬프트 전문. 모델은 부르지 않습니다.
+
 ## 고치기
 1. 문제 줄의 키를 모아 내보냅니다: `loca export --key <키> <키> ... --context 3 --terms -o "$W/fix.jsonl"`
    (키가 많으면 `--section` 등 필터로 내보낸 뒤 해당 줄만 고칩니다.)

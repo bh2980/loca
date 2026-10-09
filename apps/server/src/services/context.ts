@@ -1,14 +1,28 @@
 import { and, desc, eq, inArray, lt } from 'drizzle-orm';
-import type { ContextConfig } from '@tw/shared';
+import { CONTEXT_PRIORITY, contextConfigSchema, estimateTokens, mentions, type ContextConfig, type ContextItem, type ContextItemKind } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import { characters, documents, graphEdges, graphNodes, groups, relationships, terms, units } from '../db/schema.ts';
 import { deriveSceneEdges } from './scene-graph.ts';
+
+export { mentions } from '@tw/shared';
 
 export interface LineContext {
   key: string;
   speaker: string | null;
   source: string;
-  translation: string | null;
+  translation?: string | null;
+}
+
+/**
+ * What came before a line. `lines` is the single path right before it (oldest first). Where
+ * several paths join, the player came through only one of them: each is a branch of its own,
+ * never mixed into one conversation.
+ */
+export interface Preceding {
+  lines: LineContext[];
+  branches: { label: string; lines: LineContext[] }[];
+  /** Paths that join here beyond the ones shown. */
+  moreBranches: number;
 }
 
 export interface BatchContext {
@@ -18,20 +32,37 @@ export interface BatchContext {
   characters: { name: string; aliases: string[]; profile: string }[];
   relationships: { from: string; to: string; kind: string; description: string; mutual: boolean }[];
   terms: { source: string; target: string; note: string }[];
-  /** Per unit id: lines that come right before it in the dialogue graph (or scene order), oldest first. */
-  preceding: Record<string, LineContext[]>;
+  /** Per unit id, only for lines whose preceding lines are not already in the batch or shown for an earlier line. */
+  preceding: Record<string, Preceding>;
+  /** Everything considered, in fill order, with what was dropped for the cap. */
+  items: ContextItem[];
+  budget: { limit: number; used: number };
+}
+
+const MAX_BRANCHES = 4;
+
+interface Incoming {
+  from: string;
+  label: string | null;
+}
+
+/** Unit ids before a unit, nearest first; branches where paths join. */
+interface PrecedingIds {
+  lines: string[];
+  branches: { labels: string[]; units: string[] }[];
+  moreBranches: number;
 }
 
 /** The source graph never changes after import, so its adjacency is built once per project. */
 class GraphIndex {
   nodeOfUnit = new Map<string, { nodeId: string; position: number }>();
   unitsOfNode = new Map<string, string[]>();
-  incoming = new Map<string, string[]>();
+  incoming = new Map<string, Incoming[]>();
   previousScenes = new Map<string, string[]>();
 
   constructor(db: Db, projectId: string) {
     const nodes = db.select({ id: graphNodes.id, groupId: graphNodes.groupId, unitIds: graphNodes.unitIds }).from(graphNodes).where(eq(graphNodes.projectId, projectId)).all();
-    const edges = db.select({ fromId: graphEdges.fromId, toId: graphEdges.toId }).from(graphEdges).where(eq(graphEdges.projectId, projectId)).all();
+    const edges = db.select({ fromId: graphEdges.fromId, toId: graphEdges.toId, label: graphEdges.label }).from(graphEdges).where(eq(graphEdges.projectId, projectId)).all();
     for (const node of nodes) {
       this.unitsOfNode.set(node.id, node.unitIds);
       node.unitIds.forEach((unitId, position) => {
@@ -40,8 +71,9 @@ class GraphIndex {
     }
     for (const edge of edges) {
       const list = this.incoming.get(edge.toId);
-      if (list) list.push(edge.fromId);
-      else this.incoming.set(edge.toId, [edge.fromId]);
+      const entry = { from: edge.fromId, label: edge.label };
+      if (list) list.push(entry);
+      else this.incoming.set(edge.toId, [entry]);
     }
     const scenes = new Set(db.select({ id: groups.id }).from(groups).where(and(eq(groups.projectId, projectId), eq(groups.kind, 'scene'))).all().map((group) => group.id));
     const sceneNodes = nodes.map((node) => ({ id: node.id, groupId: node.groupId && scenes.has(node.groupId) ? node.groupId : null }));
@@ -52,21 +84,54 @@ class GraphIndex {
     }
   }
 
-  /** Nearest-first walk backwards. Every branch that leads here counts as "before". */
-  precedingUnitIds(unitId: string, limit: number): string[] | null {
+  /**
+   * Walks back from `from` while there is exactly one way in, collecting lines nearest first.
+   * Stops at the limit, at a start node, at a node already walked, or where paths join.
+   */
+  private walk(from: string, limit: number, seen: Set<string>, units: string[], labels: string[]): Incoming[] {
+    let current = from;
+    for (;;) {
+      const ways = this.incoming.get(current) ?? [];
+      if (units.length >= limit || ways.length !== 1) return ways;
+      const [way] = ways;
+      if (seen.has(way.from)) return [];
+      seen.add(way.from);
+      if (way.label) labels.push(way.label);
+      units.push(...[...(this.unitsOfNode.get(way.from) ?? [])].reverse());
+      current = way.from;
+    }
+  }
+
+  precedingUnitIds(unitId: string, limit: number): PrecedingIds | null {
     const start = this.nodeOfUnit.get(unitId);
     if (!start) return null;
-    const result = this.unitsOfNode.get(start.nodeId)!.slice(0, start.position).reverse();
+    const lines = this.unitsOfNode.get(start.nodeId)!.slice(0, start.position).reverse();
     const seen = new Set([start.nodeId]);
-    const queue = [...(this.incoming.get(start.nodeId) ?? [])];
-    while (queue.length && result.length < limit && seen.size < 2000) {
-      const nodeId = queue.shift()!;
-      if (seen.has(nodeId)) continue;
-      seen.add(nodeId);
-      result.push(...[...(this.unitsOfNode.get(nodeId) ?? [])].reverse());
-      queue.push(...(this.incoming.get(nodeId) ?? []));
+    const joining = this.walk(start.nodeId, limit, seen, lines, []);
+    if (lines.length >= limit || joining.length < 2) return { lines: lines.slice(0, limit), branches: [], moreBranches: 0 };
+    // Paths join here: follow each one on its own, splitting again where they join further back.
+    // A loop back into this line is one of the paths (the player may have come round again).
+    const room = limit - lines.length;
+    const branches: PrecedingIds['branches'] = [];
+    let moreBranches = 0;
+    const open = [{ ways: joining, labels: [] as string[], units: [] as string[], seen }];
+    while (open.length) {
+      const path = open.shift()!;
+      const fresh = path.ways.filter((way) => !path.seen.has(way.from));
+      if (!fresh.length && path.units.length) branches.push({ labels: path.labels, units: path.units });
+      for (const way of fresh) {
+        if (branches.length + open.length >= MAX_BRANCHES) {
+          moreBranches += 1;
+          continue;
+        }
+        const next = { labels: way.label ? [...path.labels, way.label] : [...path.labels], units: [...path.units, ...[...(this.unitsOfNode.get(way.from) ?? [])].reverse()], seen: new Set([...path.seen, way.from]) };
+        const rest = this.walk(way.from, room, next.seen, next.units, next.labels);
+        if (next.units.length < room && rest.length > 1) open.push({ ...next, ways: rest });
+        else branches.push({ labels: next.labels, units: next.units.slice(0, room) });
+      }
     }
-    return result.slice(0, limit);
+    // Labels were collected walking backwards; show them in story order.
+    return { lines, branches: branches.map((branch) => ({ labels: [...branch.labels].reverse(), units: branch.units })), moreBranches };
   }
 }
 
@@ -78,87 +143,142 @@ const graphIndex = (db: Db, projectId: string) => {
 };
 export const forgetProjectContext = (projectId: string) => indexes.delete(projectId);
 
-export { mentions } from '@tw/shared';
-import { mentions } from '@tw/shared';
+/** A candidate piece of context and how to keep it if it fits. */
+interface Candidate {
+  item: Omit<ContextItem, 'tokens' | 'included'>;
+  payload: unknown;
+  keep: () => void;
+}
 
 export function buildContext(
   db: Db,
   projectId: string,
-  batch: { id: string; groupId: string; sort: number; speaker: string | null; source: string }[],
-  config: ContextConfig,
+  batch: { id: string; key: string; groupId: string; sort: number; speaker: string | null; source: string }[],
+  stored: Partial<ContextConfig>,
 ): BatchContext {
+  // Saved workflows may predate a setting; the schema fills its default.
+  const config = contextConfigSchema.parse(stored ?? {});
   const index = graphIndex(db, projectId);
   const text = batch.map((unit) => `${unit.speaker ?? ''}\n${unit.source}`).join('\n');
   const groupIds = [...new Set(batch.map((unit) => unit.groupId))];
   const sceneRows = db.select().from(groups).where(inArray(groups.id, groupIds)).all();
-  const scene = sceneRows.length === 1 ? { title: sceneRows[0].title, description: sceneRows[0].description } : null;
+  const result: BatchContext = { scene: null, previousScenes: [], documents: [], characters: [], relationships: [], terms: [], preceding: {}, items: [], budget: { limit: config.maxTokens, used: 0 } };
+  const candidates: Record<ContextItemKind, Candidate[]> = { term: [], preceding: [], character: [], relationship: [], scene: [], previousScene: [], document: [] };
 
-  let previousScenes: BatchContext['previousScenes'] = [];
-  if (config.previousScenes > 0) {
-    const ids = [...new Set(groupIds.flatMap((id) => index.previousScenes.get(id) ?? []))].filter((id) => !groupIds.includes(id)).slice(0, config.previousScenes);
-    if (ids.length) previousScenes = db.select({ title: groups.title, description: groups.description }).from(groups).where(inArray(groups.id, ids)).all();
+  if (config.glossary) {
+    const used = db
+      .select({ source: terms.source, target: terms.target, note: terms.note })
+      .from(terms)
+      .where(and(eq(terms.projectId, projectId), eq(terms.status, 'confirmed')))
+      .all()
+      .filter((term) => mentions(text, term.source));
+    for (const term of used) candidates.term.push({ item: { kind: 'term', label: `${term.source} → ${term.target}`, reason: '원문에 나오는 확정 용어' }, payload: term, keep: () => result.terms.push(term) });
   }
 
-  const preceding: BatchContext['preceding'] = {};
   if (config.precedingLines > 0) {
-    const wanted = new Map<string, string[]>();
+    const batchKeys = new Set(batch.map((unit) => unit.key));
+    const shown = new Set<string>();
+    const wanted = new Map<string, { ids: PrecedingIds; fromGraph: boolean }>();
     for (const unit of batch) {
       const fromGraph = index.precedingUnitIds(unit.id, config.precedingLines);
       const ids =
         fromGraph ??
-        db
-          .select({ id: units.id })
-          .from(units)
-          .where(and(eq(units.groupId, unit.groupId), lt(units.sort, unit.sort)))
-          .orderBy(desc(units.sort))
-          .limit(config.precedingLines)
-          .all()
-          .map((row) => row.id);
-      wanted.set(unit.id, ids);
+        ({
+          lines: db
+            .select({ id: units.id })
+            .from(units)
+            .where(and(eq(units.groupId, unit.groupId), lt(units.sort, unit.sort)))
+            .orderBy(desc(units.sort))
+            .limit(config.precedingLines)
+            .all()
+            .map((row) => row.id),
+          branches: [],
+          moreBranches: 0,
+        } satisfies PrecedingIds);
+      wanted.set(unit.id, { ids, fromGraph: Boolean(fromGraph) });
     }
-    const all = [...new Set([...wanted.values()].flat())];
-    const lines = new Map(
+    const all = [...new Set([...wanted.values()].flatMap(({ ids }) => [...ids.lines, ...ids.branches.flatMap((branch) => branch.units)]))];
+    const rows = new Map(
       all.length
         ? db.select({ id: units.id, key: units.key, speaker: units.speaker, source: units.source, translation: units.translation }).from(units).where(inArray(units.id, all)).all().map((row) => [row.id, row])
         : [],
     );
-    for (const [unitId, ids] of wanted)
-      preceding[unitId] = ids
-        .map((id) => lines.get(id))
-        .filter((line) => line !== undefined)
-        .map(({ key, speaker, source, translation }) => ({ key, speaker, source, translation }))
+    // Oldest first; lines in the batch are visible in order, and a line shown once is not repeated.
+    const lineOf = (ids: string[]) =>
+      ids
+        .map((id) => rows.get(id))
+        .filter((row) => row !== undefined && !batchKeys.has(row.key) && !shown.has(row.key))
+        .map((row) => ({ key: row!.key, speaker: row!.speaker, source: row!.source, ...(config.precedingTranslations && { translation: row!.translation }) }))
         .reverse();
+    for (const unit of batch) {
+      const { ids, fromGraph } = wanted.get(unit.id)!;
+      const preceding: Preceding = {
+        lines: lineOf(ids.lines),
+        branches: ids.branches.map((branch, at) => ({ label: branch.labels.join(' › ') || `갈래 ${at + 1}`, lines: lineOf(branch.units) })).filter((branch) => branch.lines.length),
+        moreBranches: ids.moreBranches,
+      };
+      if (!preceding.lines.length && !preceding.branches.length) continue;
+      for (const line of [...preceding.lines, ...preceding.branches.flatMap((branch) => branch.lines)]) shown.add(line.key);
+      const count = preceding.lines.length + preceding.branches.reduce((sum, branch) => sum + branch.lines.length, 0);
+      const reason = !fromGraph
+        ? '대사 그래프에 없어 장면 순서로 찾음'
+        : preceding.branches.length
+          ? `대사 그래프상 앞. 갈래 ${preceding.branches.length + preceding.moreBranches}개가 합쳐지는 곳이라 갈래별로 나눔${preceding.moreBranches ? ` (${preceding.moreBranches}개 생략)` : ''}`
+          : '대사 그래프상 바로 앞 (한 갈래)';
+      candidates.preceding.push({ item: { kind: 'preceding', label: `${unit.key} 앞 ${count}줄`, reason }, payload: preceding, keep: () => (result.preceding[unit.id] = preceding) });
+    }
   }
 
   const allCharacters = config.characters || config.relationships ? db.select().from(characters).where(eq(characters.projectId, projectId)).all() : [];
   const present = allCharacters.filter((character) => [character.name, ...character.aliases].some((name) => mentions(text, name)));
-  const presentIds = new Set(present.map((character) => character.id));
-  const nameOf = new Map(allCharacters.map((character) => [character.id, character.name]));
-  const rels = config.relationships
-    ? db
-        .select()
-        .from(relationships)
-        .where(eq(relationships.projectId, projectId))
-        .all()
-        .filter((rel) => presentIds.has(rel.fromId) && presentIds.has(rel.toId))
-    : [];
+  if (config.characters)
+    for (const { name, aliases, profile } of present) {
+      const entry = { name, aliases, profile };
+      const via = [name, ...aliases].find((alias) => mentions(text, alias));
+      candidates.character.push({ item: { kind: 'character', label: name, reason: `화자·원문에 이름이 나옴: ${via}` }, payload: entry, keep: () => result.characters.push(entry) });
+    }
+  if (config.relationships) {
+    const presentIds = new Set(present.map((character) => character.id));
+    const nameOf = new Map(allCharacters.map((character) => [character.id, character.name]));
+    const rels = db
+      .select()
+      .from(relationships)
+      .where(eq(relationships.projectId, projectId))
+      .all()
+      .filter((rel) => presentIds.has(rel.fromId) && presentIds.has(rel.toId));
+    for (const rel of rels) {
+      const entry = { from: nameOf.get(rel.fromId)!, to: nameOf.get(rel.toId)!, kind: rel.kind, description: rel.description, mutual: rel.mutual };
+      candidates.relationship.push({ item: { kind: 'relationship', label: `${entry.from} → ${entry.to}: ${entry.kind}`, reason: '이 묶음에 나오는 두 인물 사이' }, payload: entry, keep: () => result.relationships.push(entry) });
+    }
+  }
 
-  return {
-    scene,
-    previousScenes,
-    preceding,
-    documents: config.documents
-      ? db.select({ kind: documents.kind, title: documents.title, body: documents.body }).from(documents).where(and(eq(documents.projectId, projectId), eq(documents.alwaysInclude, true))).all()
-      : [],
-    characters: config.characters ? present.map(({ name, aliases, profile }) => ({ name, aliases, profile })) : [],
-    relationships: rels.map((rel) => ({ from: nameOf.get(rel.fromId)!, to: nameOf.get(rel.toId)!, kind: rel.kind, description: rel.description, mutual: rel.mutual })),
-    terms: config.glossary
-      ? db
-          .select({ source: terms.source, target: terms.target, note: terms.note })
-          .from(terms)
-          .where(and(eq(terms.projectId, projectId), eq(terms.status, 'confirmed')))
-          .all()
-          .filter((term) => mentions(text, term.source))
-      : [],
-  };
+  if (sceneRows.length === 1) {
+    const scene = { title: sceneRows[0].title, description: sceneRows[0].description };
+    candidates.scene.push({ item: { kind: 'scene', label: scene.title, reason: '이 묶음의 장면' }, payload: scene, keep: () => (result.scene = scene) });
+  }
+
+  if (config.previousScenes > 0) {
+    const ids = [...new Set(groupIds.flatMap((id) => index.previousScenes.get(id) ?? []))].filter((id) => !groupIds.includes(id)).slice(0, config.previousScenes);
+    const rows = ids.length ? db.select({ title: groups.title, description: groups.description }).from(groups).where(inArray(groups.id, ids)).all() : [];
+    for (const scene of rows)
+      candidates.previousScene.push({ item: { kind: 'previousScene', label: scene.title, reason: '대사 그래프에서 파생한 장면 연결상 바로 앞' }, payload: scene, keep: () => result.previousScenes.push(scene) });
+  }
+
+  if (config.documents) {
+    const rows = db.select({ kind: documents.kind, title: documents.title, body: documents.body }).from(documents).where(and(eq(documents.projectId, projectId), eq(documents.alwaysInclude, true))).all();
+    for (const doc of rows) candidates.document.push({ item: { kind: 'document', label: doc.title, reason: '‘항상 포함’으로 설정된 문서 (전문)' }, payload: doc, keep: () => result.documents.push(doc) });
+  }
+
+  // Fill in priority order; whatever does not fit is dropped and recorded, never silently lost.
+  for (const kind of CONTEXT_PRIORITY)
+    for (const candidate of candidates[kind]) {
+      const tokens = estimateTokens(candidate.payload);
+      const included = result.budget.used + tokens <= result.budget.limit;
+      if (included) {
+        result.budget.used += tokens;
+        candidate.keep();
+      }
+      result.items.push({ ...candidate.item, tokens, included });
+    }
+  return result;
 }

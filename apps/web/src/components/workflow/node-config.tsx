@@ -4,6 +4,7 @@ import { Play, Plus, Trash2, X } from 'lucide-react';
 import {
   AI_OUTPUTS,
   CONNECTION_KIND_INFO,
+  contextConfigSchema,
   FUNCTIONS,
   NODE_TYPES,
   nodeName,
@@ -138,6 +139,8 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
 
 function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRefs; onChange: (node: WorkflowNode) => void }) {
   const config = node.config;
+  // Saved workflows may predate a context setting; show its default.
+  const context = contextConfigSchema.parse(config.context ?? {});
   const set = (patch: Partial<AiNode['config']>) => onChange({ ...node, config: { ...config, ...patch } });
   const kindOf = (profileId: string) => refs.connections.find((connection) => connection.id === refs.profiles.find((profile) => profile.id === profileId)?.connectionId)?.kind;
   const usable = refs.profiles.filter((profile) => {
@@ -247,18 +250,26 @@ function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRefs; onCh
       <Separator />
       <div className="space-y-2.5">
         <p className="text-xs font-medium">문맥</p>
-        <ToggleRow label="용어집 (확정 용어 중 원문에 나온 것)" checked={config.context.glossary} onChange={(value) => set({ context: { ...config.context, glossary: value } })} />
-        <ToggleRow label="항상 포함 문서 (스토리·세계관·문체)" checked={config.context.documents} onChange={(value) => set({ context: { ...config.context, documents: value } })} />
-        <ToggleRow label="등장 인물 프로필" checked={config.context.characters} onChange={(value) => set({ context: { ...config.context, characters: value } })} />
-        <ToggleRow label="인물 관계" checked={config.context.relationships} onChange={(value) => set({ context: { ...config.context, relationships: value } })} />
+        <ToggleRow label="용어집 (확정 용어 중 원문에 나온 것)" checked={context.glossary} onChange={(value) => set({ context: { ...context, glossary: value } })} />
+        <ToggleRow label="항상 포함 문서 (스토리·세계관·문체)" checked={context.documents} onChange={(value) => set({ context: { ...context, documents: value } })} />
+        <ToggleRow label="등장 인물 프로필" checked={context.characters} onChange={(value) => set({ context: { ...context, characters: value } })} />
+        <ToggleRow label="인물 관계" checked={context.relationships} onChange={(value) => set({ context: { ...context, relationships: value } })} />
         <div className="grid grid-cols-2 gap-3">
           <Field label="선행 대사 수" hint="대사 그래프에서 앞에 오는 대사">
-            <Input type="number" min={0} max={50} value={config.context.precedingLines} onChange={(event) => set({ context: { ...config.context, precedingLines: Number(event.target.value) } })} />
+            <Input type="number" min={0} max={50} value={context.precedingLines} onChange={(event) => set({ context: { ...context, precedingLines: Number(event.target.value) } })} />
           </Field>
           <Field label="이전 장면 수" hint="장면 그래프에서 앞선 장면">
-            <Input type="number" min={0} max={10} value={config.context.previousScenes} onChange={(event) => set({ context: { ...config.context, previousScenes: Number(event.target.value) } })} />
+            <Input type="number" min={0} max={10} value={context.previousScenes} onChange={(event) => set({ context: { ...context, previousScenes: Number(event.target.value) } })} />
           </Field>
         </div>
+        <ToggleRow
+          label="선행 대사의 현재 번역도 보내기 (말투 맞추기에 도움. 기존 번역이 정답인 실험에서는 끄기)"
+          checked={context.precedingTranslations}
+          onChange={(value) => set({ context: { ...context, precedingTranslations: value } })}
+        />
+        <Field label="문맥 상한 (토큰, 추정)" hint="대사 말고 넣는 문맥의 합. 넘치면 문서 → 이전 장면 → 장면 → 관계 → 인물 → 선행 대사 → 용어 순으로 빼고 실행 기록에 남깁니다">
+          <Input type="number" min={500} max={200000} step={500} value={context.maxTokens} onChange={(event) => set({ context: { ...context, maxTokens: Number(event.target.value) } })} />
+        </Field>
       </div>
       <Separator />
       <div className="grid grid-cols-2 gap-3">

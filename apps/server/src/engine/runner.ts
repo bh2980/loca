@@ -325,6 +325,7 @@ export class Runner {
     if (!profile) return this.failBatch(run, batch, step, 'AI 프로필이 실행 스냅샷에 없습니다.');
 
     const context = buildContext(this.db, run.projectId, unitRows, node.config.context);
+    step.context = context.items;
     const { system, prompt } = buildPrompt(node, profile.instructions, { source: project.sourceLanguage, target: project.targetLanguage }, context, lines);
     const routes = resolveRoutes(profile, this.secrets);
     const request = { system, prompt, maxOutputTokens: profile.maxOutputTokens, temperature: profile.temperature ?? undefined, timeoutMs: profile.timeoutSeconds * 1000, signal };

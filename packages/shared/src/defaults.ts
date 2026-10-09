@@ -1,5 +1,5 @@
 import { AI_PRESETS } from './presets.ts';
-import type { WorkflowDefinition } from './workflow.ts';
+import { contextConfigSchema, type WorkflowDefinition } from './workflow.ts';
 
 export type StatusKind = 'initial' | 'normal' | 'final';
 
@@ -32,7 +32,7 @@ export function translationTemplate(ids: {
     output: AI_PRESETS[preset].output,
     fields: [],
     include: AI_PRESETS[preset].include,
-    context: { glossary: true, documents: true, characters: true, relationships: true, precedingLines: 8, previousScenes: 1 },
+    context: contextConfigSchema.parse({}),
     batch: { mode: 'group' as const, size: 30 },
   });
   const status = (statusId: string, applyCandidate = false) => ({ fn: 'setStatus', params: { statusId, addTagIds: [], removeTagIds: [], applyCandidate } });
@@ -97,7 +97,7 @@ export function termExtractionTemplate(ids: { profileId: string }): WorkflowDefi
           fields: [],
           include: { candidate: false, issues: false },
           // The current glossary is in context so the model skips terms that already exist.
-          context: { glossary: true, documents: true, characters: true, relationships: false, precedingLines: 0, previousScenes: 0 },
+          context: { ...contextConfigSchema.parse({}), relationships: false, precedingLines: 0, previousScenes: 0 },
           batch: { mode: 'group', size: 60 },
         },
       },

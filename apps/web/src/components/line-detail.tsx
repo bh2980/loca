@@ -8,8 +8,10 @@ import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { AiButton } from '@/components/ai-button';
+import { AiContextPanel } from '@/components/ai-context';
 import { StatusDot, TagChip } from '@/components/status';
 import { client, unwrap } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
@@ -20,8 +22,31 @@ import { useReportView } from '@/lib/view-context';
 const ORIGIN = { ai: 'AI', human: '사람', import: '가져옴', tool: '도구' } as const;
 const STATE = { queued: '대기', running: '실행 중', done: '완료', failed: '실패', cancelled: '취소' } as const;
 
-/** Right-hand pane for one line: source, status, tags, translation editing, all candidates, run history. */
-export function LineDetail({ projectId, unitId, onClose, showScene }: { projectId: string; unitId: string; onClose?: () => void; showScene?: boolean }) {
+export type LineTab = 'edit' | 'context';
+
+/**
+ * Right-hand pane for one line: source, status, tags, translation editing, all candidates, run
+ * history; and the AI context an AI node would send for it. The host keeps tab and node in its URL.
+ */
+export function LineDetail({
+  projectId,
+  unitId,
+  onClose,
+  showScene,
+  tab = 'edit',
+  onTab,
+  aiNode,
+  onAiNode,
+}: {
+  projectId: string;
+  unitId: string;
+  onClose?: () => void;
+  showScene?: boolean;
+  tab?: LineTab;
+  onTab?: (tab: LineTab) => void;
+  aiNode?: string;
+  onAiNode?: (value: string) => void;
+}) {
   const unit = useQuery(q.unit(unitId));
   const statuses = useQuery(q.statuses(projectId));
   const terms = useQuery(q.terms(projectId));
@@ -63,7 +88,24 @@ export function LineDetail({ projectId, unitId, onClose, showScene }: { projectI
           </Button>
         )}
       </div>
+      {onTab && (
+        <Tabs value={tab} onValueChange={(value) => onTab(value as LineTab)} className="border-b px-4 py-2">
+          <TabsList className="h-8">
+            <TabsTrigger value="edit" className="text-xs">
+              번역
+            </TabsTrigger>
+            <TabsTrigger value="context" className="text-xs">
+              AI 문맥
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      )}
       <ScrollArea className="min-h-0 flex-1">
+        {tab === 'context' && onAiNode ? (
+          <div className="p-4">
+            <AiContextPanel projectId={projectId} unitKey={line.key} aiNode={aiNode} onAiNode={onAiNode} />
+          </div>
+        ) : (
         <div className="space-y-5 p-4">
           <section>
             <h3 className="mb-1 text-xs font-medium text-muted-foreground">원문{line.speaker ? ` · ${line.speaker}` : ''}</h3>
@@ -178,6 +220,7 @@ export function LineDetail({ projectId, unitId, onClose, showScene }: { projectI
             </section>
           )}
         </div>
+        )}
       </ScrollArea>
     </div>
   );

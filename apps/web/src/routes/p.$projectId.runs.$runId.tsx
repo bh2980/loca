@@ -2,6 +2,7 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, Pause, Play, Square } from 'lucide-react';
 import { nodeName as nameOf, type WorkflowNode } from '@tw/shared';
+import { ContextItemList } from '@/components/ai-context';
 import { LineDetail } from '@/components/line-detail';
 import { Page } from '@/components/page';
 import { nodeIcon } from '@/components/workflow/node-view';
@@ -25,6 +26,8 @@ interface RunSearch {
   page?: number;
   line?: string;
   view?: 'items' | 'steps';
+  lineTab?: 'context';
+  aiNode?: string;
 }
 
 export const Route = createFileRoute('/p/$projectId/runs/$runId')({
@@ -34,6 +37,8 @@ export const Route = createFileRoute('/p/$projectId/runs/$runId')({
     page: typeof raw.page === 'number' && raw.page > 0 ? raw.page : undefined,
     line: typeof raw.line === 'string' ? raw.line : undefined,
     view: raw.view === 'steps' ? 'steps' : undefined,
+    lineTab: raw.lineTab === 'context' ? 'context' : undefined,
+    aiNode: typeof raw.aiNode === 'string' && raw.aiNode.includes(':') ? raw.aiNode : undefined,
   }),
   component: RunDetail,
 });
@@ -223,6 +228,17 @@ function RunDetail() {
                         {Array.isArray(step.attempts) && step.attempts.length > 1 && (
                           <p className="text-xs text-muted-foreground">시도: {(step.attempts as { model: string; ok: boolean; error?: string }[]).map((attempt) => `${attempt.model} ${attempt.ok ? '성공' : `실패(${attempt.error})`}`).join(' → ')}</p>
                         )}
+                        {Array.isArray(step.context) && (
+                          <details>
+                            <summary className="cursor-pointer text-xs text-muted-foreground">
+                              넣은 문맥 {step.context.filter((item) => item.included).length}개
+                              {step.context.some((item) => !item.included) && ` · 상한 초과로 뺀 것 ${step.context.filter((item) => !item.included).length}개`}
+                            </summary>
+                            <div className="mt-2">
+                              <ContextItemList items={step.context} />
+                            </div>
+                          </details>
+                        )}
                         {step.prompt && (
                           <details>
                             <summary className="cursor-pointer text-xs text-muted-foreground">보낸 프롬프트(문맥 포함)</summary>
@@ -259,7 +275,16 @@ function RunDetail() {
         </div>
         {search.line && (
           <div className="w-[400px] shrink-0 border-l">
-            <LineDetail projectId={projectId} unitId={search.line} onClose={() => setSearch({ line: undefined }, true)} showScene />
+            <LineDetail
+              projectId={projectId}
+              unitId={search.line}
+              onClose={() => setSearch({ line: undefined }, true)}
+              showScene
+              tab={search.lineTab ?? 'edit'}
+              onTab={(tab) => setSearch({ lineTab: tab === 'context' ? 'context' : undefined }, true)}
+              aiNode={search.aiNode}
+              onAiNode={(aiNode) => setSearch({ aiNode }, true)}
+            />
           </div>
         )}
       </div>

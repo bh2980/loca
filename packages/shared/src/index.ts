@@ -7,3 +7,4 @@ export * from './functions.ts';
 export * from './presets.ts';
 export * from './agent.ts';
 export * from './script.ts';
+export * from './context.ts';

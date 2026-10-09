@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import type { AgentSettings, FormatRules, NodeType, PiOptions, WorkflowDefinition } from '@tw/shared';
+import type { AgentSettings, ContextItem, FormatRules, NodeType, PiOptions, WorkflowDefinition } from '@tw/shared';
 
 const id = () => text('id').primaryKey().$defaultFn(() => crypto.randomUUID());
 const createdAt = () => integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date());
@@ -333,6 +333,8 @@ export const runSteps = sqliteTable(
     ok: integer('ok', { mode: 'boolean' }).notNull(),
     model: text('model'),
     prompt: text('prompt'),
+    /** What went into the prompt besides the lines, why, and what was dropped for the cap. */
+    context: json<ContextItem[]>('context'),
     output: json<unknown>('output'),
     error: text('error'),
     attempts: json<unknown[]>('attempts'),
