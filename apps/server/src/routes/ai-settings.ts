@@ -8,7 +8,7 @@ import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { connectionRoute, liveProfileRoutes } from '../services/routes.ts';
 
-type CliKind = 'codex' | 'claude' | 'grok' | 'antigravity';
+type CliKind = 'codex' | 'claude' | 'grok' | 'antigravity' | 'opencode';
 const isCli = (kind: string): kind is CliKind => CONNECTION_KIND_INFO[kind as keyof typeof CONNECTION_KIND_INFO]?.transport === 'cli';
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 

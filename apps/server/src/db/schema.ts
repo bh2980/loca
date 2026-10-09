@@ -213,7 +213,7 @@ export const relationships = sqliteTable('relationships', {
 /** App-wide: connections and profiles are shared by every project. Secrets live in the OS keyring. */
 export const connections = sqliteTable('connections', {
   id: id(),
-  kind: text('kind', { enum: ['openai', 'pi', 'systemone', 'codex', 'claude', 'grok', 'antigravity', 'http'] }).notNull(),
+  kind: text('kind', { enum: ['openai', 'pi', 'systemone', 'codex', 'claude', 'grok', 'antigravity', 'opencode', 'http'] }).notNull(),
   name: text('name').notNull(),
   baseUrl: text('base_url'),
   executable: text('executable'),

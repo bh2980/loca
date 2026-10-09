@@ -277,7 +277,7 @@ System One 연결은 판정 출력에만 쓴다.
 | terms | source, target, note, aliases, status(candidate/confirmed), origin |
 | documents | kind(story/world/style/note), title, body, always_include |
 | characters / relationships | name, aliases, profile / from, to, kind, description, mutual |
-| connections | kind(openai/pi/systemone/codex/claude/grok/antigravity/http), base_url, executable, options(pi 스위치). 키는 OS 자격 증명 저장소 |
+| connections | kind(openai/pi/systemone/codex/claude/grok/antigravity/opencode/http), base_url, executable, options(pi 스위치). 키는 OS 자격 증명 저장소 |
 | profiles | connection_id, model, effort, instructions, temperature, 한도, fallbacks |
 | workflows | name, version, definition(Zod 검증) |
 | runs / run_items / run_steps | 스냅샷·상태 / 대사별 현재 노드·데이터 / 노드 실행 입력·출력·프롬프트·문맥 항목·오류·사용량 |
@@ -313,6 +313,7 @@ System One 연결은 판정 출력에만 쓴다.
 | 2026-10 | 실험 조건에 AI 전체 분석(A)과 정답 문맥(O)을 넣고 O를 먼저 본다 | 문맥이 병목인지, 자동 분석이 쓸 만한지를 기능 개발 전에 안다 |
 | 2026-10 | 합류 지점의 앞 대사는 멈추지 않고 갈래별로 나눠 넣음 | 멈추면 앞 대사가 너무 많이 사라지고, 섞으면 없는 대화를 만든다 |
 | 2026-10 | 문맥 상한 기본값 약 12,000토큰 | 지금 워크플로의 결과를 거의 바꾸지 않으면서 폭주만 막는다 |
+| 2026-10 | opencode CLI 연결 추가 | opencode의 무료 모델은 CLI로만 쓸 수 있다. 스키마 옵션이 없어 스키마를 프롬프트에 넣고 답의 JSON을 해석한다 |
 
 ## 11. 범위 밖
 

@@ -7,9 +7,9 @@ import type { ConnectionKind } from '@tw/shared';
 import { ModelError } from './errors.ts';
 import type { GenerateRequest, GenerateResult, ResolvedRoute, Usage } from './types.ts';
 
-type CliKind = Extract<ConnectionKind, 'codex' | 'claude' | 'grok' | 'antigravity'>;
+type CliKind = Extract<ConnectionKind, 'codex' | 'claude' | 'grok' | 'antigravity' | 'opencode'>;
 
-const COMMAND: Record<CliKind, string> = { codex: 'codex', claude: 'claude', grok: 'grok', antigravity: 'agy' };
+const COMMAND: Record<CliKind, string> = { codex: 'codex', claude: 'claude', grok: 'grok', antigravity: 'agy', opencode: 'opencode' };
 
 export const cliCommand = (kind: CliKind, executable?: string) => executable?.trim() || COMMAND[kind];
 
@@ -63,6 +63,10 @@ function args(kind: CliKind, route: ResolvedRoute, schema: object, files: Files,
         '--json-schema', files.schema, '--sandbox', '--disable-slash-commands', '--print-timeout', `${Math.ceil(timeoutMs / 1000)}s`,
         ...(effort ? ['--effort', effort] : []),
       ];
+    case 'opencode':
+      // One non-interactive turn with the read-only plan agent in an empty folder; the prompt
+      // comes on stdin. opencode has no schema flag, so the schema is in the prompt (cliGenerate).
+      return ['run', '--format', 'json', '--model', route.model, '--agent', 'plan'];
   }
 }
 
@@ -88,6 +92,13 @@ function usageOf(raw: unknown): Usage {
   };
 }
 
+/** JSON somewhere in a model's text answer: a fenced block, else the outermost braces. */
+function parseLooseJson(text: string): unknown {
+  const fenced = /```(?:json)?\s*\n([\s\S]*?)\n```/.exec(text)?.[1];
+  const candidate = fenced ?? text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1);
+  return parseJson(candidate || text);
+}
+
 /** Each CLI wraps the model's answer in its own terminal envelope; progress events are never results. */
 function unwrap(kind: CliKind, stdout: string): { data: unknown; usage: Usage } {
   const lines = stdout.split(/\r?\n/).filter(Boolean);
@@ -98,6 +109,18 @@ function unwrap(kind: CliKind, stdout: string): { data: unknown; usage: Usage } 
       return [];
     }
   });
+  // opencode streams parts; the answer is the text parts, an error event means the turn failed.
+  if (kind === 'opencode') {
+    const failure = events.map(record).find((event) => event?.type === 'error');
+    if (failure) throw new ModelError('cli', `CLI가 실패를 반환했습니다: ${JSON.stringify(failure.error ?? failure.part ?? failure).slice(0, 300)}`, false);
+    const text = events
+      .map(record)
+      .filter((event) => event?.type === 'text')
+      .map((event) => String(record(event?.part)?.text ?? ''))
+      .join('');
+    if (!text.trim()) throw new ModelError('cli', 'CLI가 최종 결과를 반환하지 않았습니다.', false);
+    return { data: parseLooseJson(text), usage: {} };
+  }
   let envelope = record(events.length === 1 ? events[0] : undefined);
   // agy streams events and ends with {"event":"result","result":{status, structured_output, usage, error}}.
   if (kind === 'antigravity') envelope = record(record(events.findLast((event) => record(event)?.event === 'result'))?.result) ?? envelope;
@@ -128,7 +151,9 @@ export async function cliGenerate<T>(route: ResolvedRoute, request: GenerateRequ
   const schema = z.toJSONSchema(request.schema, { target: 'draft-7' });
   const dir = await mkdtemp(path.join(tmpdir(), 'tw-call-'));
   const files: Files = { dir, schema: path.join(dir, 'schema.json'), prompt: path.join(dir, 'prompt.txt'), result: path.join(dir, 'result.json') };
-  const prompt = `${PREAMBLE}\n\n${request.system}\n\n${request.prompt}`;
+  const prompt =
+    `${PREAMBLE}\n\n${request.system}\n\n${request.prompt}` +
+    (kind === 'opencode' ? `\n\nAnswer with one JSON value that follows this JSON Schema, and nothing else:\n${JSON.stringify(schema)}` : '');
   try {
     await Promise.all([writeFile(files.schema, JSON.stringify(schema)), writeFile(files.prompt, prompt)]);
     const result = await execa(cliCommand(kind, route.executable), args(kind, route, schema, files, request.timeoutMs), {
@@ -188,11 +213,11 @@ export async function cliVersion(kind: CliKind, executable?: string): Promise<st
 
 /**
  * How each CLI reports its models: `grok models` ("* grok-4.7 (default)" / "- grok-4.6", also when
- * signed out), `agy models` ("<id>\t<name>"), `codex debug models` (JSON catalog; entries with
+ * signed out), `agy models` ("<id>\t<name>"), `opencode models` ("<provider>/<model>" per line), `codex debug models` (JSON catalog; entries with
  * visibility "list" are the ones its picker offers). claude has no list command; its --help names
  * the aliases it accepts, which always point at the latest model of each family.
  */
-const MODEL_ARGS: Partial<Record<CliKind, string[]>> = { grok: ['models'], antigravity: ['models'], codex: ['debug', 'models'] };
+const MODEL_ARGS: Partial<Record<CliKind, string[]>> = { grok: ['models'], antigravity: ['models'], opencode: ['models'], codex: ['debug', 'models'] };
 const CLAUDE_ALIASES = ['opus', 'sonnet', 'haiku', 'fable'];
 const MODEL_LIST: Partial<Record<CliKind, (stdout: string) => string[]>> = {
   codex: (stdout) => {
@@ -203,6 +228,7 @@ const MODEL_LIST: Partial<Record<CliKind, (stdout: string) => string[]>> = {
       .map((model) => model.slug!);
   },
   grok: (stdout) => [...stdout.matchAll(/^\s*[*-]\s+(\S+)/gm)].map((match) => match[1]),
+  opencode: (stdout) => [...stdout.matchAll(/^([\w.-]+\/[\w.:#-]+)\s*$/gm)].map((match) => match[1]),
   antigravity: (stdout) =>
     stdout
       .split(/\r?\n/)
@@ -241,6 +267,7 @@ export const LOGIN_COMMANDS: Record<CliKind, string[]> = {
   claude: ['auth', 'login'],
   grok: ['login'],
   antigravity: [],
+  opencode: ['auth', 'login'],
 };
 
 export async function openLoginTerminal(kind: CliKind, executable?: string): Promise<void> {

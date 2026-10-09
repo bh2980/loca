@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { piOptionsSchema } from './agent.ts';
 
-export const CONNECTION_KINDS = ['openai', 'pi', 'systemone', 'codex', 'claude', 'grok', 'antigravity', 'http'] as const;
+export const CONNECTION_KINDS = ['openai', 'pi', 'systemone', 'codex', 'claude', 'grok', 'antigravity', 'opencode', 'http'] as const;
 export type ConnectionKind = (typeof CONNECTION_KINDS)[number];
 
 /**
@@ -50,6 +50,8 @@ export const CONNECTION_KIND_INFO: Record<ConnectionKind, ConnectionKindInfo> = 
   claude: { label: 'Claude Code CLI', transport: 'cli', capabilities: ['generate'], needsKey: false, efforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
   grok: { label: 'Grok CLI', transport: 'cli', capabilities: ['generate'], needsKey: false, efforts: [] },
   antigravity: { label: 'Antigravity CLI', transport: 'cli', capabilities: ['generate'], needsKey: false, efforts: [] },
+  // opencode's own free models (opencode/…) are only served through its CLI; opencode Go models too.
+  opencode: { label: 'opencode CLI', transport: 'cli', capabilities: ['generate'], needsKey: false, efforts: [] },
   http: { label: 'HTTP API (도구)', transport: 'http', capabilities: ['tool'], needsKey: false, efforts: [] },
 };
 

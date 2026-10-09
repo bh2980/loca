@@ -35,7 +35,7 @@ pnpm dev
 ## 시작하기
 
 1. 첫 화면에서 **표준 파일 가져오기** → `samples/relay-station.json` (작은 예시)
-2. 설정 › AI 연결·프로필 → 연결 추가(OpenAI 호환 API, System One, Codex/Claude/Grok/Antigravity CLI) → 프로필 만들기
+2. 설정 › AI 연결·프로필 → 연결 추가(OpenAI 호환 API, System One, Codex/Claude/Grok/Antigravity/opencode CLI) → 프로필 만들기. opencode CLI로는 opencode의 무료 모델(`opencode/…`)과 opencode Go 모델을 쓸 수 있습니다
 3. 워크플로 → 기본 번역 → AI 노드에 프로필 지정 → 저장 → 실행
 4. 실행 기록에서 진행을 보고, 검토함에서 ‘사람 확인 필요’ 같은 검토 상태의 대사를 고치고 다음 상태로 옮김
 5. 우측 **에이전트**(⌘I)에게 "대본을 읽고 인물 프로필을 만들어줘"처럼 요청 → 제안 카드 수락
