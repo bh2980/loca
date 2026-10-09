@@ -226,8 +226,10 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
         for (const id of [...(params.addTagIds as string[]), ...(params.removeTagIds as string[])])
           if (!refs.tagIds.has(id)) error('삭제된 태그가 있습니다.', { nodeId: node.id });
       }
-      if (node.config.fn === 'http' && !refs.toolConnectionIds.has(params.connectionId as string))
-        error(params.connectionId ? '삭제된 도구 연결입니다.' : '호출할 HTTP 연결을 선택하세요.', { nodeId: node.id });
+      if (node.config.fn === 'http') {
+        if (!/^https?:\/\//.test(String(params.url).trim())) error('HTTP 호출할 주소(https://…)를 입력하세요.', { nodeId: node.id });
+        if (params.connectionId && !refs.toolConnectionIds.has(params.connectionId as string)) error('삭제된 API 키입니다.', { nodeId: node.id });
+      }
       if (node.config.fn === 'addTerms' && params.fromNodeId) {
         const from = definition.nodes.find((other) => other.id === params.fromNodeId);
         if (from?.type !== 'ai' || from.config.output !== 'terms') error('용어 후보를 내는 AI 노드를 선택하세요.', { nodeId: node.id });

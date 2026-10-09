@@ -58,9 +58,9 @@ function AiSettings() {
         className="gap-3"
       >
         <TabsList>
-          <TabsTrigger value="tools">도구 연결</TabsTrigger>
           <TabsTrigger value="connections">AI 연결</TabsTrigger>
           <TabsTrigger value="profiles">모델 프로필</TabsTrigger>
+          <TabsTrigger value="tools">API 키</TabsTrigger>
           <TabsTrigger value="agent">에이전트</TabsTrigger>
         </TabsList>
       </Tabs>
@@ -383,7 +383,7 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
             <Input id="edit-name" {...form.register('name')} aria-invalid={!!form.formState.errors.name} />
             <FieldError errors={[form.formState.errors.name]} />
           </Field>
-          {isHttp ? (
+          {isTool ? null : isHttp ? (
             <Field data-invalid={!!form.formState.errors.baseUrl}>
               <FieldLabel htmlFor="edit-url">주소</FieldLabel>
               <Input id="edit-url" {...form.register('baseUrl', { setValueAs: (value: string) => (value ? value : undefined) })} aria-invalid={!!form.formState.errors.baseUrl} />
@@ -494,7 +494,7 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
 
 /* ----------------------------------------------------------------- tool connections */
 
-const toolFormSchema = connectionFormSchema.extend({ baseUrl: z.string().trim().url() });
+const toolFormSchema = connectionFormSchema;
 type ToolFormInput = z.input<typeof toolFormSchema>;
 type ToolFormOutput = z.output<typeof toolFormSchema>;
 const DEFAULT_HEADER = 'Authorization: Bearer {key}';
@@ -513,11 +513,11 @@ function ToolsTab() {
         <>
           <div className="mb-3 flex items-center justify-between gap-3">
             <span className="text-sm text-muted-foreground">
-              <span className="tabular-nums">{tools?.length ?? '–'}개</span> · 워크플로의 ‘HTTP 호출’ 함수가 이 연결로 외부 API(맞춤법·사전 등)를 부릅니다.
+              <span className="tabular-nums">{tools?.length ?? '–'}개</span> · 워크플로의 ‘HTTP 호출’ 노드가 키가 필요한 API를 부를 때 고릅니다. 주소는 노드에 적고, 키는 여기에만 둡니다.
             </span>
             <Button size="sm" onClick={() => void navigate({ search: (previous) => ({ ...previous, conn: 'new' }) })}>
               <Plus />
-              도구 연결 추가
+              API 키 추가
             </Button>
           </div>
           <div className="rounded-lg border">
@@ -525,7 +525,6 @@ function ToolsTab() {
               <TableHeader>
                 <TableRow>
                   <TableHead>이름</TableHead>
-                  <TableHead>주소</TableHead>
                   <TableHead>키를 보내는 헤더</TableHead>
                   <TableHead>키</TableHead>
                 </TableRow>
@@ -534,7 +533,6 @@ function ToolsTab() {
                 {tools?.map((connection) => (
                   <TableRow key={connection.id} className="cursor-pointer" data-state={search.conn === connection.id ? 'selected' : undefined} onClick={() => void navigate({ search: (previous) => ({ ...previous, conn: connection.id }) })}>
                     <TableCell className="font-medium">{connection.name}</TableCell>
-                    <TableCell className="max-w-64 truncate font-mono text-xs text-muted-foreground">{connection.baseUrl}</TableCell>
                     <TableCell className="max-w-56 truncate font-mono text-xs text-muted-foreground">{connection.headerTemplate || '–'}</TableCell>
                     <TableCell>
                       <Badge variant={connection.hasKey ? 'default' : 'outline'}>{connection.hasKey ? '저장됨' : '없음'}</Badge>
@@ -543,8 +541,8 @@ function ToolsTab() {
                 ))}
                 {tools?.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
-                      도구 연결이 없습니다. 도구 연결 추가로 시작하세요.
+                    <TableCell colSpan={3} className="h-24 text-center text-muted-foreground">
+                      API 키가 없습니다. 공개 API는 키 없이 노드에 주소만 적으면 됩니다.
                     </TableCell>
                   </TableRow>
                 )}
@@ -563,7 +561,7 @@ function NewTool({ onClose }: { onClose: () => void }) {
   const queryClient = useQueryClient();
   const form = useForm<ToolFormInput, unknown, ToolFormOutput>({
     resolver: zodResolver(toolFormSchema),
-    defaultValues: { kind: 'http', name: '', baseUrl: '', headerTemplate: DEFAULT_HEADER, apiKey: '' },
+    defaultValues: { kind: 'http', name: '', headerTemplate: DEFAULT_HEADER, apiKey: '' },
   });
   const errors = form.formState.errors;
 
@@ -571,12 +569,12 @@ function NewTool({ onClose }: { onClose: () => void }) {
     mutationFn: (values: ToolFormOutput) =>
       unwrap(
         client.connections.$post({
-          json: { kind: 'http', name: values.name, baseUrl: values.baseUrl, headerTemplate: values.headerTemplate || undefined, apiKey: values.apiKey || undefined },
+          json: { kind: 'http', name: values.name, headerTemplate: values.headerTemplate || undefined, apiKey: values.apiKey || undefined },
         }),
       ),
     onSuccess: (row) => {
       void queryClient.invalidateQueries({ queryKey: ['connections'] });
-      toast.success('도구 연결을 추가했습니다.');
+      toast.success('API 키를 추가했습니다.');
       void navigate({ search: (previous) => ({ ...previous, conn: row.id }) });
     },
     onError: (error) => toast.error(errorMessage(error)),
@@ -584,17 +582,12 @@ function NewTool({ onClose }: { onClose: () => void }) {
 
   return (
     <form onSubmit={form.handleSubmit((values) => create.mutate(values))}>
-      <PaneHeader title="도구 연결 추가" onClose={onClose} />
+      <PaneHeader title="API 키 추가" onClose={onClose} />
       <FieldGroup className="gap-5">
         <Field data-invalid={!!errors.name}>
           <FieldLabel htmlFor="tool-name">이름</FieldLabel>
-          <Input id="tool-name" {...form.register('name')} aria-invalid={!!errors.name} placeholder="예: 맞춤법 검사기" />
+          <Input id="tool-name" {...form.register('name')} aria-invalid={!!errors.name} placeholder="예: 맞춤법 검사기 키" />
           <FieldError errors={[errors.name]} />
-        </Field>
-        <Field data-invalid={!!errors.baseUrl}>
-          <FieldLabel htmlFor="tool-url">주소</FieldLabel>
-          <Input id="tool-url" {...form.register('baseUrl')} aria-invalid={!!errors.baseUrl} placeholder="https://api.example.com" />
-          <FieldError errors={[errors.baseUrl]} />
         </Field>
         <Field>
           <FieldLabel htmlFor="tool-header">키를 보내는 헤더</FieldLabel>
@@ -602,7 +595,7 @@ function NewTool({ onClose }: { onClose: () => void }) {
           <FieldDescription>{'{key}'} 자리에 저장한 키가 들어갑니다. 예: X-API-Key: {'{key}'}</FieldDescription>
         </Field>
         <Field>
-          <FieldLabel htmlFor="tool-key">API 키 (선택)</FieldLabel>
+          <FieldLabel htmlFor="tool-key">API 키</FieldLabel>
           <Input id="tool-key" type="password" autoComplete="off" {...form.register('apiKey')} />
           <FieldDescription>API 키는 Windows 자격 증명 관리자(OS 키체인)에 저장되며 DB·내보내기에 포함되지 않습니다.</FieldDescription>
         </Field>

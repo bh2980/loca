@@ -213,7 +213,7 @@ describe('function nodes', () => {
     const port = (server.address() as { port: number }).port;
 
     const { db, projectId, profileId } = setup(3);
-    const tool = db.insert(s.connections).values({ kind: 'http', name: 'speller', baseUrl: `http://127.0.0.1:${port}`, headerTemplate: 'X-Key: {key}' }).returning().get();
+    const tool = db.insert(s.connections).values({ kind: 'http', name: 'speller', headerTemplate: 'X-Key: {key}' }).returning().get();
     const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).all();
     const confirmed = statuses.find((status) => status.kind === 'final')!;
     const definition = workflowDefinitionSchema.parse({
@@ -233,7 +233,7 @@ describe('function nodes', () => {
             },
           },
         },
-        { id: 'http', type: 'function', position: { x: 0, y: 0 }, config: { fn: 'http', params: { connectionId: tool.id, body: '{ "text": "{{candidate}}" }', resultPath: 'result.text' } } },
+        { id: 'http', type: 'function', position: { x: 0, y: 0 }, config: { fn: 'http', params: { url: `http://127.0.0.1:${port}/spell`, connectionId: tool.id, body: '{ "text": "{{candidate}}" }', resultPath: 'result.text' } } },
         { id: 'confirm', type: 'function', position: { x: 0, y: 0 }, config: { fn: 'setStatus', params: { statusId: confirmed.id, applyCandidate: true } } },
         { id: 'end', type: 'end', position: { x: 0, y: 0 } },
       ],

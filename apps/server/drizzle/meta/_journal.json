@@ -113,6 +113,13 @@
       "when": 1791578596430,
       "tag": "0015_term_trust",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1791583584167,
+      "tag": "0016_http_url_in_node",
+      "breakpoints": true
     }
   ]
 }

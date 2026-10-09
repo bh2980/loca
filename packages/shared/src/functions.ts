@@ -57,9 +57,11 @@ export const setListenerParams = z.object({
 });
 
 export const httpParams = z.object({
+  /** Full address, e.g. "https://api.example.com/spell?lang=ko"; "{{unit.key}}"-style values are filled in (URL-encoded). */
+  url: z.string().default(''),
+  /** An API key (credential) whose header goes with the request; empty for public APIs. */
   connectionId: z.string().default(''),
   method: z.enum(['GET', 'POST']).default('POST'),
-  path: z.string().default(''),
   /** JSON body; "{{candidate}}", "{{unit.source}}", "{{outputs.<node>.<field>}}" are replaced per line. */
   body: z.string().default('{\n  "text": "{{candidate}}"\n}'),
   /** Where the answer is in the response, e.g. "result.text". Empty = whole body. */
@@ -138,7 +140,7 @@ export const FUNCTIONS = {
   },
   http: {
     label: 'HTTP 호출',
-    description: '등록한 외부 API(맞춤법·사전 등)를 호출하고 결과를 후보·판정·데이터로 받습니다.',
+    description: '외부 API(맞춤법·사전 등)를 주소로 호출하고 결과를 후보·판정·데이터로 받습니다. 키가 필요하면 설정의 API 키를 고릅니다.',
     params: httpParams,
     ports: (params: z.infer<typeof httpParams>) => (params.mode === 'verdict' ? pass : out),
     async: true,

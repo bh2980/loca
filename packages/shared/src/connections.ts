@@ -8,7 +8,7 @@ export type ConnectionKind = (typeof CONNECTION_KINDS)[number];
  * generate: structured generation (translate / revise / review nodes)
  * judge:    typed decision only (review nodes)
  * chat:     tool-calling conversation (project chat agent)
- * tool:     plain HTTP API called by the workflow "HTTP 호출" function (spell checkers, dictionaries…)
+ * tool:     an API key (credential) for the workflow "HTTP 호출" function; the address lives in the node
  */
 export type Capability = 'generate' | 'judge' | 'chat' | 'tool';
 
@@ -52,7 +52,7 @@ export const CONNECTION_KIND_INFO: Record<ConnectionKind, ConnectionKindInfo> = 
   antigravity: { label: 'Antigravity CLI', transport: 'cli', capabilities: ['generate'], needsKey: false, efforts: [] },
   // opencode's own free models (opencode/…) are only served through its CLI; opencode Go models too.
   opencode: { label: 'opencode CLI', transport: 'cli', capabilities: ['generate'], needsKey: false, efforts: [] },
-  http: { label: 'HTTP API (도구)', transport: 'http', capabilities: ['tool'], needsKey: false, efforts: [] },
+  http: { label: 'API 키', transport: 'http', capabilities: ['tool'], needsKey: true, efforts: [] },
 };
 
 export const connectionInputSchema = z.object({

@@ -237,13 +237,14 @@ export async function runAsyncFunction(
 
   if (fn === 'http') {
     const params = httpParams.parse(raw);
-    const connection = deps.db.select().from(s.connections).where(eq(s.connections.id, params.connectionId)).get();
-    if (!connection?.baseUrl) throw new Error('HTTP 연결을 찾을 수 없습니다.');
     const view = lineView(input);
-    const url = `${connection.baseUrl.replace(/\/+$/, '')}/${render(params.path, view, false).replace(/^\/+/, '')}`;
+    const url = render(params.url.trim(), view, false);
+    if (!/^https?:\/\//.test(url)) throw new Error('HTTP 호출 주소가 http(s)://로 시작하지 않습니다.');
     const headers: Record<string, string> = { Accept: 'application/json' };
-    const key = deps.secrets.get(connection.id);
-    if (key && connection.headerTemplate) {
+    const connection = params.connectionId ? deps.db.select().from(s.connections).where(eq(s.connections.id, params.connectionId)).get() : undefined;
+    if (params.connectionId && !connection) throw new Error('고른 API 키를 찾을 수 없습니다.');
+    const key = connection ? deps.secrets.get(connection.id) : undefined;
+    if (connection && key && connection.headerTemplate) {
       const [name, ...rest] = connection.headerTemplate.split(':');
       headers[name.trim()] = rest.join(':').trim().replace('{key}', key);
     }

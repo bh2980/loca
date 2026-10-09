@@ -455,20 +455,6 @@ function HttpConfig({ params, refs, set }: { params: Record<string, unknown>; re
   const selected = tools.find((tool) => tool.id === params.connectionId);
   return (
     <>
-      <Field label="HTTP 연결" hint={tools.length ? selected?.baseUrl : '설정 › 연결·프로필 › 도구 연결에서 먼저 추가하세요.'}>
-        <Select value={(params.connectionId as string) || undefined} onValueChange={(value) => set('connectionId', value)}>
-          <SelectTrigger className="w-full">
-            <SelectValue placeholder="연결 선택" />
-          </SelectTrigger>
-          <SelectContent>
-            {tools.map((tool) => (
-              <SelectItem key={tool.id} value={tool.id}>
-                {tool.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </Field>
       <div className="grid grid-cols-[6rem_1fr] gap-2">
         <Field label="메서드">
           <Select value={params.method as string} onValueChange={(value) => set('method', value)}>
@@ -481,10 +467,26 @@ function HttpConfig({ params, refs, set }: { params: Record<string, unknown>; re
             </SelectContent>
           </Select>
         </Field>
-        <Field label="경로">
-          <Input className="font-mono text-xs" value={params.path as string} placeholder="spell/check" onChange={(event) => set('path', event.target.value)} />
+        <Field label="주소">
+          <Input className="font-mono text-xs" value={params.url as string} placeholder="https://api.example.com/spell" onChange={(event) => set('url', event.target.value)} />
         </Field>
       </div>
+      <p className="-mt-2 text-[11px] text-muted-foreground">주소에도 {'{{unit.key}}'} 같은 값을 넣을 수 있습니다(자동으로 URL 인코딩).</p>
+      <Field label="API 키 (선택)" hint={tools.length ? (selected ? '설정의 헤더 형식으로 키를 붙여 보냅니다' : '키가 필요 없는 공개 API면 비워 둡니다') : '키가 필요한 API면 설정 › 연결·프로필 › API 키에서 먼저 추가하세요.'}>
+        <Select value={(params.connectionId as string) || 'none'} onValueChange={(value) => set('connectionId', value === 'none' ? '' : value)}>
+          <SelectTrigger className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">키 없음</SelectItem>
+            {tools.map((tool) => (
+              <SelectItem key={tool.id} value={tool.id}>
+                {tool.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </Field>
       {params.method === 'POST' && (
         <Field label="요청 본문 (JSON)" hint={`대사마다 바뀌는 값: ${PLACEHOLDERS}`}>
           <Textarea className="min-h-28 font-mono text-xs" spellCheck={false} value={params.body as string} onChange={(event) => set('body', event.target.value)} />
