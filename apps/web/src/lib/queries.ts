@@ -54,7 +54,7 @@ export const q = {
       placeholderData: keepPreviousData,
     }),
   runSteps: (id: string) => queryOptions({ queryKey: ['runs', 'steps', id], queryFn: () => unwrap(client.runs[':id'].steps.$get({ param: { id } })) }),
-  reviews: (projectId: string) => queryOptions({ queryKey: ['reviews', projectId], queryFn: () => unwrap(client.projects[':projectId'].reviews.$get({ param: { projectId } })) }),
+  reviews: (projectId: string) => queryOptions({ queryKey: ['units', 'reviews', projectId], queryFn: () => unwrap(client.projects[':projectId'].reviews.$get({ param: { projectId } })) }),
   chatSessions: (projectId: string) => queryOptions({ queryKey: ['chat', projectId], queryFn: () => unwrap(client.projects[':projectId'].chat.$get({ param: { projectId } })) }),
   chatSession: (sessionId: string) =>
     queryOptions({ queryKey: ['chat', 'session', sessionId], queryFn: () => unwrap(client.chat[':sessionId'].$get({ param: { sessionId } })), staleTime: Infinity }),

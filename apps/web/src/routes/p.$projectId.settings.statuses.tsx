@@ -10,6 +10,7 @@ import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescript
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { client, unwrap } from '@/lib/api';
 import { STATUS_KIND } from '@/lib/labels';
@@ -27,7 +28,7 @@ interface StatusRowData {
   color: string;
   kind: Kind;
   units: number;
-  onEnterWorkflowId: string | null;
+  inReview: boolean;
 }
 interface TagRowData {
   id: string;
@@ -75,7 +76,6 @@ function KindSelect({ value, onChange }: { value: Kind; onChange: (kind: Kind) =
 function StatusSettings() {
   const { projectId } = Route.useParams();
   const data = useQuery(q.statuses(projectId));
-  const workflows = useQuery(q.workflows(projectId));
   const statuses = (data.data?.statuses ?? []) as StatusRowData[];
   const tags = (data.data?.tags ?? []) as TagRowData[];
   const [editing, setEditing] = useState<string | null>(null);
@@ -99,7 +99,7 @@ function StatusSettings() {
     onError: fail,
   });
   const update = useMutation({
-    mutationFn: (variables: { id: string; json: Partial<Pick<StatusRowData, 'name' | 'color' | 'kind' | 'onEnterWorkflowId'>> }) =>
+    mutationFn: (variables: { id: string; json: Partial<Pick<StatusRowData, 'name' | 'color' | 'kind' | 'inReview'>> }) =>
       unwrap(client.projects[':projectId'].statuses[':id'].$patch({ param: { projectId, id: variables.id }, json: variables.json })),
     onSuccess: () => {
       setEditing(null);
@@ -152,7 +152,7 @@ function StatusSettings() {
           <div>
             <h2 className="text-sm font-semibold">상태</h2>
             <p className="text-xs text-muted-foreground">
-              ‘이 상태로 바꾸면 실행’을 정하면, 사람이 대사를 그 상태로 바꿀 때 해당 워크플로가 그 대사들로 바로 시작됩니다(예: 사람 확인 필요 → 사람 검토 → 검토함). 워크플로가 바꾼 상태로는 실행되지 않습니다.
+              ‘검토함에 표시’를 켠 상태의 대사는 사람이 바꾸든 워크플로가 바꾸든 검토함에 모입니다. 검토함에서는 다른 상태 중 하나를 골라 옮기는 것으로 결정합니다.
             </p>
           </div>
           <div className="rounded-lg border">
@@ -162,7 +162,7 @@ function StatusSettings() {
                   <TableHead className="w-20">순서</TableHead>
                   <TableHead>이름</TableHead>
                   <TableHead className="w-32">종류</TableHead>
-                  <TableHead className="w-56">이 상태로 바꾸면 실행</TableHead>
+                  <TableHead className="w-28">검토함에 표시</TableHead>
                   <TableHead className="w-24 text-right">대사 수</TableHead>
                   <TableHead className="w-24" />
                 </TableRow>
@@ -191,19 +191,7 @@ function StatusSettings() {
                       </TableCell>
                       <TableCell className="text-muted-foreground">{STATUS_KIND[status.kind]}</TableCell>
                       <TableCell>
-                        <Select value={status.onEnterWorkflowId ?? 'none'} onValueChange={(value) => update.mutate({ id: status.id, json: { onEnterWorkflowId: value === 'none' ? null : value } })}>
-                          <SelectTrigger size="sm" className="w-full" aria-label={`${status.name}로 바꾸면 실행할 워크플로`}>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="none">없음</SelectItem>
-                            {workflows.data?.map((workflow) => (
-                              <SelectItem key={workflow.id} value={workflow.id}>
-                                {workflow.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <Switch checked={status.inReview} onCheckedChange={(inReview) => update.mutate({ id: status.id, json: { inReview } })} aria-label={`${status.name} 검토함에 표시`} />
                       </TableCell>
                       <TableCell className="text-right tabular-nums">{status.units.toLocaleString()}</TableCell>
                       <TableCell>

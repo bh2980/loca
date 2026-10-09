@@ -1,5 +1,4 @@
-import { DEFAULT_STATUSES, reviewTemplate, termExtractionTemplate, translationTemplate, type ImportFile } from '@tw/shared';
-import { eq } from 'drizzle-orm';
+import { DEFAULT_STATUSES, termExtractionTemplate, translationTemplate, type ImportFile } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 
@@ -36,7 +35,7 @@ export function importProject(db: Db, file: ImportFile, defaultProfileId = ''): 
     insertMany(
       tx,
       s.statuses,
-      DEFAULT_STATUSES.map((status, sort) => ({ id: statusIds[status.key], projectId, name: status.name, color: status.color, kind: status.kind, sort })),
+      DEFAULT_STATUSES.map((status, sort) => ({ id: statusIds[status.key], projectId, name: status.name, color: status.color, kind: status.kind, inReview: status.inReview, sort })),
     );
 
     const groupIds = new Map<string, string>();
@@ -128,7 +127,7 @@ export function importProject(db: Db, file: ImportFile, defaultProfileId = ''): 
       .values({
         projectId,
         name: '기본 번역',
-        description: '번역 → 형식 검사 → 검수 → 확정. 실패는 3회까지 수정 후 사람 확인.',
+        description: '번역 → 형식 검사 → 검수 → 확정. 실패는 3회까지 수정 후 사람 확인 필요(검토함)로.',
         definition: translationTemplate({
           profileId: defaultProfileId,
           untranslated: statusIds.untranslated,
@@ -146,17 +145,6 @@ export function importProject(db: Db, file: ImportFile, defaultProfileId = ''): 
         definition: termExtractionTemplate({ profileId: defaultProfileId }),
       })
       .run();
-    const review = tx.insert(s.workflows)
-      .values({
-        projectId,
-        name: '사람 검토',
-        description: "'사람 확인 필요' 상태의 대사를 검토함으로 보냅니다. 확정 / 다시 번역 / 보류 중 하나를 고릅니다.",
-        definition: reviewTemplate({ needsReview: statusIds['needs-review'], confirmed: statusIds.confirmed, untranslated: statusIds.untranslated }),
-      })
-      .returning({ id: s.workflows.id })
-      .get();
-    // Moving a line to "needs review" by hand sends it to the review inbox.
-    tx.update(s.statuses).set({ onEnterWorkflowId: review.id }).where(eq(s.statuses.id, statusIds['needs-review'])).run();
   });
   return {
     projectId,

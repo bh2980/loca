@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { humanDecisions, reviewTemplate, termExtractionTemplate, translationTemplate, validateWorkflow, workflowDefinitionSchema, type WorkflowDefinition } from '@tw/shared';
+import { termExtractionTemplate, translationTemplate, validateWorkflow, workflowDefinitionSchema, type WorkflowDefinition } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -44,17 +44,9 @@ function templateWorkflow(db: Db, projectId: string): WorkflowDefinition {
     profileId: profile?.id ?? '',
     untranslated: initial.id,
     draft: middle[0]?.id ?? initial.id,
-    needsReview: middle[1]?.id ?? middle[0]?.id ?? initial.id,
+    needsReview: statuses.find((status) => status.inReview)?.id ?? middle[1]?.id ?? middle[0]?.id ?? initial.id,
     confirmed: final.id,
   });
-}
-
-function reviewWorkflow(db: Db, projectId: string): WorkflowDefinition {
-  const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).orderBy(asc(s.statuses.sort)).all();
-  const initial = statuses.find((status) => status.kind === 'initial') ?? statuses[0];
-  const final = statuses.find((status) => status.kind === 'final') ?? statuses.at(-1)!;
-  const middle = statuses.filter((status) => status.kind === 'normal');
-  return reviewTemplate({ needsReview: middle.at(-1)?.id ?? initial.id, confirmed: final.id, untranslated: initial.id });
 }
 
 export const workflowRoutes = new Hono<Env>()
@@ -70,7 +62,7 @@ export const workflowRoutes = new Hono<Env>()
       })),
     );
   })
-  .post('/projects/:projectId/workflows', validate('json', z.object({ name: z.string().trim().min(1), from: z.enum(['template', 'terms', 'review', 'blank']).default('template') })), (c) => {
+  .post('/projects/:projectId/workflows', validate('json', z.object({ name: z.string().trim().min(1), from: z.enum(['template', 'terms', 'blank']).default('template') })), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     const { name, from } = c.req.valid('json');
@@ -80,9 +72,7 @@ export const workflowRoutes = new Hono<Env>()
         ? templateWorkflow(db, projectId)
         : from === 'terms'
           ? termExtractionTemplate({ profileId: profile?.id ?? '' })
-          : from === 'review'
-            ? reviewWorkflow(db, projectId)
-            : blankWorkflow(db, projectId);
+          : blankWorkflow(db, projectId);
     const row = db.insert(s.workflows).values({ projectId, name, definition }).returning().get();
     events.changed(projectId, 'workflows');
     return c.json(row, 201);
@@ -223,55 +213,5 @@ export const workflowRoutes = new Hono<Env>()
     const id = c.req.param('id');
     const action = c.req.param('action') as 'pause' | 'resume' | 'cancel';
     runner[action](id);
-    return c.json({ ok: true });
-  })
-
-  // ── human review inbox ─────────────────────────────────────────────
-  .get('/projects/:projectId/reviews', (c) => {
-    const { db } = c.var.deps;
-    const rows = db
-      .select({
-        id: s.runItems.id,
-        runId: s.runs.id,
-        workflowName: s.runs.workflowName,
-        definition: s.runs.definition,
-        nodeId: s.runItems.nodeId,
-        data: s.runItems.data,
-        updatedAt: s.runItems.updatedAt,
-        unitId: s.units.id,
-        key: s.units.key,
-        speaker: s.units.speaker,
-        source: s.units.source,
-        translation: s.units.translation,
-        groupId: s.units.groupId,
-        groupTitle: s.groups.title,
-      })
-      .from(s.runItems)
-      .innerJoin(s.runs, eq(s.runs.id, s.runItems.runId))
-      .innerJoin(s.units, eq(s.units.id, s.runItems.unitId))
-      .innerJoin(s.groups, eq(s.groups.id, s.units.groupId))
-      .where(and(eq(s.runs.projectId, c.req.param('projectId')), eq(s.runItems.state, 'waiting')))
-      .orderBy(asc(s.groups.sort), asc(s.units.sort))
-      .limit(500)
-      .all();
-    return c.json(
-      rows.map(({ definition, ...row }) => {
-        const node = definition.nodes.find((candidate) => candidate.id === row.nodeId);
-        return {
-          ...row,
-          instructions: node?.type === 'human' ? node.config.instructions : '',
-          decisions: node?.type === 'human' ? humanDecisions(node) : [],
-          nodeLabel: node?.label ?? '사람 확인',
-        };
-      }),
-    );
-  })
-  .post('/reviews/:itemId', validate('json', z.object({ decision: z.string().min(1), text: z.string().optional() })), (c) => {
-    const { decision, text } = c.req.valid('json');
-    try {
-      c.var.deps.runner.decide(c.req.param('itemId'), decision, text);
-    } catch (error) {
-      badRequest(error instanceof Error ? error.message : String(error));
-    }
     return c.json({ ok: true });
   });

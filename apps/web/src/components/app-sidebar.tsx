@@ -122,7 +122,7 @@ export function AppSidebar({ projectId }: { projectId: string }) {
           items={[
             { to: '/p/$projectId/workflows', label: '워크플로', icon: Workflow },
             { to: '/p/$projectId/runs', label: '실행 기록', icon: History },
-            { to: '/p/$projectId/reviews', label: '검토함', icon: Inbox, badge: project.data?.waiting },
+            { to: '/p/$projectId/reviews', label: '검토함', icon: Inbox, badge: project.data?.reviewCount },
           ]}
         />
         <NavGroup

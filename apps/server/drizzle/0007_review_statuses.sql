@@ -1,0 +1,1 @@
+ALTER TABLE `statuses` ADD `in_review` integer DEFAULT false NOT NULL;

@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
-import { BookPlus, Braces, CircleDot, Code, Flag, GitFork, Globe, ListChecks, ScanSearch, Sparkles, SpellCheck, Tag, UserCheck } from 'lucide-react';
+import { BookPlus, Braces, CircleDot, Code, Flag, GitFork, Globe, ListChecks, ScanSearch, Sparkles, SpellCheck, Tag } from 'lucide-react';
 import { nodeName, nodePorts, type WorkflowNode } from '@tw/shared';
 import { cn } from '@/lib/utils';
 
@@ -26,8 +26,6 @@ export function nodeIcon(node: WorkflowNode): Icon {
       return FUNCTION_ICON[node.config.fn] ?? Code;
     case 'condition':
       return GitFork;
-    case 'human':
-      return UserCheck;
     case 'end':
       return Flag;
   }
@@ -45,7 +43,7 @@ export type FlowNode = Node<
     warnings: string[];
     /** Target status of a status-change node, shown in that status's colour. */
     status?: { name: string; color: string };
-    live?: { queued: number; running: number; waiting: number; failed: number };
+    live?: { queued: number; running: number; failed: number };
   },
   'workflow'
 >;
@@ -57,12 +55,11 @@ function Badges({ errors, warnings }: { errors: string[]; warnings: string[] }) 
 }
 
 function Live({ live }: { live?: FlowNode['data']['live'] }) {
-  if (!live || live.queued + live.running + live.waiting + live.failed === 0) return null;
+  if (!live || live.queued + live.running + live.failed === 0) return null;
   return (
     <div className="flex gap-2 border-t px-3 py-1 text-[11px] tabular-nums">
       {live.running > 0 && <span className="text-blue-600">처리 {live.running}</span>}
       {live.queued > 0 && <span className="text-muted-foreground">대기 {live.queued}</span>}
-      {live.waiting > 0 && <span className="text-orange-600">사람 {live.waiting}</span>}
       {live.failed > 0 && <span className="text-destructive">실패 {live.failed}</span>}
     </div>
   );
@@ -86,7 +83,7 @@ function Exits({ ports }: { ports: { id: string; label: string }[] }) {
 /**
  * Flowchart shapes so node families differ by silhouette, not only colour:
  * terminals are pills, AI calls rounded cards, functions square boxes, status changes tags,
- * conditions diamonds (true → right, false → down), human checks dashed cards.
+ * conditions diamonds (true → right, false → down).
  */
 export const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected }: NodeProps<FlowNode>) {
   const { node, summary, errors, warnings, status, live } = data;
@@ -148,20 +145,18 @@ export const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected 
   }
 
   const ai = node.type === 'ai';
-  const human = node.type === 'human';
   return (
     <div
       className={cn(
         'w-56 bg-background text-left shadow-xs',
         ai && 'rounded-2xl border border-violet-200',
         node.type === 'function' && 'rounded-none border border-sky-300 border-l-4 border-l-sky-500',
-        human && 'rounded-lg border-2 border-dashed border-orange-300',
         ring,
       )}
     >
       {inputHandle}
-      <div className={cn('flex items-center gap-2 border-b px-3 py-2', ai && 'rounded-t-2xl border-violet-100 bg-gradient-to-r from-violet-50 to-white', node.type === 'function' && 'border-sky-100 bg-sky-50/60', human && 'border-dashed border-orange-200')}>
-        <Icon className={cn('size-4 shrink-0', ai ? 'text-violet-600' : human ? 'text-orange-600' : 'text-sky-600')} />
+      <div className={cn('flex items-center gap-2 border-b px-3 py-2', ai && 'rounded-t-2xl border-violet-100 bg-gradient-to-r from-violet-50 to-white', node.type === 'function' && 'border-sky-100 bg-sky-50/60')}>
+        <Icon className={cn('size-4 shrink-0', ai ? 'text-violet-600' : 'text-sky-600')} />
         <span className={cn('truncate text-sm font-medium', node.type === 'function' && 'font-mono text-[13px]')}>{nodeName(node)}</span>
         <span className="ml-auto" />
         <Badges errors={errors} warnings={warnings} />

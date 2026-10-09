@@ -60,11 +60,11 @@ function Dashboard() {
         <Card>
           <CardHeader>
             <CardTitle>검토함</CardTitle>
-            <CardDescription>워크플로의 사람 확인 노드에서 기다리는 대사</CardDescription>
+            <CardDescription>‘검토함에 표시’가 켜진 상태의 대사</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <p className="text-3xl font-semibold tabular-nums">{project.data?.waiting ?? 0}</p>
-            <Button asChild variant="outline" size="sm" disabled={!project.data?.waiting}>
+            <p className="text-3xl font-semibold tabular-nums">{project.data?.reviewCount ?? 0}</p>
+            <Button asChild variant="outline" size="sm" disabled={!project.data?.reviewCount}>
               <Link to="/p/$projectId/reviews" params={{ projectId }}>
                 <Inbox /> 검토하러 가기
               </Link>

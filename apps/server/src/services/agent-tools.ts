@@ -141,7 +141,7 @@ export function agentTools(db: Db, projectId: string, author: { profileId: strin
       inputSchema: z.object({}),
       execute: () => ({
         nodeTypes: NODE_TYPES,
-        definitionShape: 'nodes: [{id, type: entry|ai|function|condition|human|end, position:{x,y}, label?, config}], edges: [{id, source, sourceHandle (exit id), target}], settings: {maxVisitsPerNode, concurrency}',
+        definitionShape: 'nodes: [{id, type: entry|ai|function|condition|end, position:{x,y}, label?, config}], edges: [{id, source, sourceHandle (exit id), target}], settings: {maxVisitsPerNode, concurrency}',
         aiNode: {
           config: '{profileId, instructions, output: candidate|verdict|terms|json, fields (json only): [{name, type, description}], include:{candidate, issues}, context:{glossary, documents, characters, relationships, precedingLines, previousScenes}, batch:{mode:"unit"|"group"|"count", size}}',
           outputs: AI_OUTPUTS,
@@ -290,7 +290,7 @@ export function agentTools(db: Db, projectId: string, author: { profileId: strin
     // unsaved changes, so the proposal goes into its draft and the user saves as usual.
     edit_workflow_node: tool({
       description:
-        'Propose a change to ONE node of the workflow open in the editor. field: "instructions" (AI or human node, plain text), "expression" (condition node, a JSON Logic object), "code" (function node with fn=script, JavaScript). Read harness_reference first for the condition data model and script contract. The user applies it to the editor and saves.',
+        'Propose a change to ONE node of the workflow open in the editor. field: "instructions" (AI node, plain text), "expression" (condition node, a JSON Logic object), "code" (function node with fn=script, JavaScript). Read harness_reference first for the condition data model and script contract. The user applies it to the editor and saves.',
       inputSchema: z.object({
         workflowId: z.string(),
         nodeId: z.string(),
@@ -319,7 +319,7 @@ export const AGENT_SYSTEM = `당신은 게임 번역 작업실(Translation Workb
 작업실 개념:
 - 원문은 장면(scene/document/ui 그룹)과 대사(line)로 구성되고, 대사 그래프와 장면 그래프가 있습니다.
 - 대사마다 사용자 정의 상태(미번역 → … → 확정)와 태그가 있습니다.
-- 워크플로는 진입·AI 번역/검수/수정·형식 검사·조건·상태 변경·사람 확인 노드를 이어 번역을 자동화합니다.
+- 워크플로는 진입·AI 번역/검수/수정·형식 검사·조건·상태 변경 노드를 이어 번역을 자동화합니다. 사람 검토가 필요하면 '검토함에 표시'가 켜진 상태(예: 사람 확인 필요)로 바꾸고 끝냅니다. 검토함은 그 상태의 대사를 모두 보여 줍니다.
 - AI 노드는 용어집, 항상 포함 문서(스토리·세계관·문체), 등장 인물 프로필·관계, 선행 대사, 이전 장면을 문맥으로 받습니다.
 
 일하는 방식:

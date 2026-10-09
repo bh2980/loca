@@ -30,8 +30,8 @@ export const statuses = sqliteTable('statuses', {
   color: text('color').notNull(),
   kind: text('kind', { enum: ['initial', 'normal', 'final'] }).notNull(),
   sort: integer('sort').notNull(),
-  /** Workflow started when a person moves lines into this status (e.g. "needs review" → review inbox). */
-  onEnterWorkflowId: text('on_enter_workflow_id'),
+  /** Lines in this status are listed in the review inbox, however they got there. */
+  inReview: integer('in_review', { mode: 'boolean' }).notNull().default(false),
 });
 
 export const tags = sqliteTable('tags', {
@@ -284,7 +284,7 @@ export const runs = sqliteTable(
   (t) => [index('runs_project').on(t.projectId, t.createdAt)],
 );
 
-export type ItemState = 'queued' | 'running' | 'waiting' | 'done' | 'failed' | 'cancelled';
+export type ItemState = 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
 export interface ItemData {
   /** The line's current candidate in this run (set by AI, HTTP, script or a person). */
   candidateId?: string;
@@ -304,7 +304,7 @@ export const runItems = sqliteTable(
     runId: text('run_id').notNull().references(() => runs.id, { onDelete: 'cascade' }),
     unitId: text('unit_id').notNull().references(() => units.id, { onDelete: 'cascade' }),
     nodeId: text('node_id').notNull(),
-    state: text('state', { enum: ['queued', 'running', 'waiting', 'done', 'failed', 'cancelled'] }).notNull(),
+    state: text('state', { enum: ['queued', 'running', 'done', 'failed', 'cancelled'] }).notNull(),
     visits: json<Record<string, number>>('visits').notNull(),
     data: json<ItemData>('data').notNull(),
     error: text('error'),

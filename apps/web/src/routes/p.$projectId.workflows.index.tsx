@@ -105,7 +105,7 @@ function NewWorkflow({ projectId }: { projectId: string }) {
   const navigate = Route.useNavigate();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
-  const [from, setFrom] = useState<'template' | 'terms' | 'review' | 'blank'>('template');
+  const [from, setFrom] = useState<'template' | 'terms' | 'blank'>('template');
   const create = useMutation({
     mutationFn: () => unwrap(client.projects[':projectId'].workflows.$post({ param: { projectId }, json: { name: name.trim(), from } })),
     onSuccess: (workflow) => {
@@ -129,12 +129,12 @@ function NewWorkflow({ projectId }: { projectId: string }) {
             <Label htmlFor="wf-name">이름</Label>
             <Input id="wf-name" value={name} onChange={(event) => setName(event.target.value)} autoFocus />
           </div>
-          <RadioGroup value={from} onValueChange={(value) => setFrom(value as 'template' | 'terms' | 'review' | 'blank')}>
+          <RadioGroup value={from} onValueChange={(value) => setFrom(value as 'template' | 'terms' | 'blank')}>
             <label className="flex items-start gap-2 text-sm">
               <RadioGroupItem value="template" className="mt-0.5" />
               <span>
                 기본 번역 템플릿
-                <span className="block text-xs text-muted-foreground">번역 → 형식 검사 → 검수 → 확정, 실패는 3회 수정 후 사람 확인</span>
+                <span className="block text-xs text-muted-foreground">번역 → 형식 검사 → 검수 → 확정, 실패는 3회 수정 후 ‘사람 확인 필요’(검토함)로</span>
               </span>
             </label>
             <label className="flex items-start gap-2 text-sm">
@@ -142,13 +142,6 @@ function NewWorkflow({ projectId }: { projectId: string }) {
               <span>
                 용어 추출 템플릿
                 <span className="block text-xs text-muted-foreground">장면별로 용어를 뽑아 용어집 후보로 추가 (상태는 그대로). 수락 후 번역에 쓰입니다.</span>
-              </span>
-            </label>
-            <label className="flex items-start gap-2 text-sm">
-              <RadioGroupItem value="review" className="mt-0.5" />
-              <span>
-                사람 검토 템플릿
-                <span className="block text-xs text-muted-foreground">‘사람 확인 필요’ 상태의 대사를 검토함으로 보내고, 확정 / 다시 번역 / 보류 버튼으로 다음 상태를 정합니다.</span>
               </span>
             </label>
             <label className="flex items-start gap-2 text-sm">

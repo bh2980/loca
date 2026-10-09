@@ -3,11 +3,12 @@ import type { WorkflowDefinition } from './workflow.ts';
 
 export type StatusKind = 'initial' | 'normal' | 'final';
 
-export const DEFAULT_STATUSES: { key: string; name: string; color: string; kind: StatusKind }[] = [
-  { key: 'untranslated', name: '미번역', color: '#a1a1aa', kind: 'initial' },
-  { key: 'draft', name: 'AI 초벌', color: '#3b82f6', kind: 'normal' },
-  { key: 'needs-review', name: '사람 확인 필요', color: '#f59e0b', kind: 'normal' },
-  { key: 'confirmed', name: '확정', color: '#22c55e', kind: 'final' },
+/** `inReview`: lines in this status are listed in the review inbox, however they got there. */
+export const DEFAULT_STATUSES: { key: string; name: string; color: string; kind: StatusKind; inReview: boolean }[] = [
+  { key: 'untranslated', name: '미번역', color: '#a1a1aa', kind: 'initial', inReview: false },
+  { key: 'draft', name: 'AI 초벌', color: '#3b82f6', kind: 'normal', inReview: false },
+  { key: 'needs-review', name: '사람 확인 필요', color: '#f59e0b', kind: 'normal', inReview: true },
+  { key: 'confirmed', name: '확정', color: '#22c55e', kind: 'final', inReview: false },
 ];
 
 export const STATUS_COLORS = ['#a1a1aa', '#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#ef4444', '#14b8a6', '#22c55e'];
@@ -15,7 +16,8 @@ export const STATUS_COLORS = ['#a1a1aa', '#3b82f6', '#8b5cf6', '#ec4899', '#f59e
 /**
  * The default translation flow, expressed as an ordinary user workflow:
  * untranslated → translate → format check → review → confirmed;
- * a failing line is revised while review has run fewer than 3 times, then waits for a person.
+ * a failing line is revised while review has run fewer than 3 times, then is set to "needs review",
+ * a status shown in the review inbox. People take it from there; the run itself ends.
  */
 export function translationTemplate(ids: {
   profileId: string;
@@ -54,14 +56,7 @@ export function translationTemplate(ids: {
       },
       { id: 'revise', type: 'ai', position: at(3, 3), label: 'AI 수정', config: ai('revise') },
       { id: 'escalate', type: 'function', position: at(5, 3), label: '사람 확인 필요로', config: status(ids.needsReview) },
-      {
-        id: 'human',
-        type: 'human',
-        position: at(6, 3),
-        config: { instructions: '자동 수정 한도에 도달했습니다. 후보를 고치거나 승인하세요.', decisions: [{ id: 'approved', label: '승인' }, { id: 'rejected', label: '반려' }] },
-      },
-      { id: 'reject', type: 'function', position: at(7, 4), label: '미번역으로', config: status(ids.untranslated) },
-      { id: 'end-rejected', type: 'end', position: at(8, 4), config: {} },
+      { id: 'end-review', type: 'end', position: at(6, 3), label: '검토함으로', config: {} },
     ],
     edges: [
       { id: 'e1', source: 'entry', sourceHandle: 'out', target: 'translate' },
@@ -75,10 +70,7 @@ export function translationTemplate(ids: {
       { id: 'e9', source: 'retry', sourceHandle: 'true', target: 'revise' },
       { id: 'e10', source: 'retry', sourceHandle: 'false', target: 'escalate' },
       { id: 'e11', source: 'revise', sourceHandle: 'out', target: 'check' },
-      { id: 'e12', source: 'escalate', sourceHandle: 'out', target: 'human' },
-      { id: 'e13', source: 'human', sourceHandle: 'approved', target: 'confirm' },
-      { id: 'e14', source: 'human', sourceHandle: 'rejected', target: 'reject' },
-      { id: 'e15', source: 'reject', sourceHandle: 'out', target: 'end-rejected' },
+      { id: 'e12', source: 'escalate', sourceHandle: 'out', target: 'end-review' },
     ],
   };
 }
@@ -120,42 +112,3 @@ export function termExtractionTemplate(ids: { profileId: string }): WorkflowDefi
   };
 }
 
-/**
- * Hand-picked review: lines a person (or another workflow) set to "needs review" wait in the
- * review inbox, and the reviewer's button decides the next status. Changing a status alone never
- * puts a line in the inbox; only a run reaching a human node does.
- */
-export function reviewTemplate(ids: { needsReview: string; confirmed: string; untranslated: string }): WorkflowDefinition {
-  const status = (statusId: string, applyCandidate = false) => ({ fn: 'setStatus', params: { statusId, addTagIds: [], removeTagIds: [], applyCandidate } });
-  return {
-    settings: { maxVisitsPerNode: 5, concurrency: 2 },
-    nodes: [
-      { id: 'entry', type: 'entry', position: { x: 0, y: 180 }, config: { statusIds: [ids.needsReview] } },
-      {
-        id: 'human',
-        type: 'human',
-        position: { x: 300, y: 180 },
-        label: '사람 검토',
-        config: {
-          instructions: '번역을 확인하세요. 고친 내용은 사람 후보로 저장된 뒤 고른 결정으로 넘어갑니다.',
-          decisions: [
-            { id: 'confirm', label: '확정' },
-            { id: 'retranslate', label: '다시 번역' },
-            { id: 'hold', label: '보류' },
-          ],
-        },
-      },
-      { id: 'to-confirmed', type: 'function', position: { x: 620, y: 0 }, label: '확정으로', config: status(ids.confirmed, true) },
-      { id: 'to-untranslated', type: 'function', position: { x: 620, y: 180 }, label: '미번역으로', config: status(ids.untranslated) },
-      { id: 'end', type: 'end', position: { x: 920, y: 180 }, config: {} },
-    ],
-    edges: [
-      { id: 'e1', source: 'entry', sourceHandle: 'out', target: 'human' },
-      { id: 'e2', source: 'human', sourceHandle: 'confirm', target: 'to-confirmed' },
-      { id: 'e3', source: 'human', sourceHandle: 'retranslate', target: 'to-untranslated' },
-      { id: 'e4', source: 'human', sourceHandle: 'hold', target: 'end' },
-      { id: 'e5', source: 'to-confirmed', sourceHandle: 'out', target: 'end' },
-      { id: 'e6', source: 'to-untranslated', sourceHandle: 'out', target: 'end' },
-    ],
-  };
-}

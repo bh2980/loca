@@ -6,7 +6,6 @@ import { toast } from 'sonner';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { client, unwrap } from '@/lib/api';
-import { announceTrigger } from '@/lib/status-trigger';
 import { LineDetail } from '@/components/line-detail';
 import { StatusBadge, StatusDot, TagChip } from '@/components/status';
 import { Button } from '@/components/ui/button';
@@ -79,10 +78,7 @@ export function LinesView({ projectId, groupId, kind, search, onSearch, showScen
     });
   const setStatus = useMutation({
     mutationFn: (statusId: string) => unwrap(client.projects[':projectId'].units.$patch({ param: { projectId }, json: { unitIds: [...picked], statusId } })),
-    onSuccess: (result) => {
-      toast.success(`${picked.size}개 대사의 상태를 바꿨습니다.`);
-      announceTrigger(result.started);
-    },
+    onSuccess: () => toast.success(`${picked.size}개 대사의 상태를 바꿨습니다.`),
   });
   const setTag = useMutation({
     mutationFn: ({ tagId, add }: { tagId: string; add: boolean }) =>

@@ -12,14 +12,13 @@ import { Textarea } from '@/components/ui/textarea';
 import { AiButton } from '@/components/ai-button';
 import { StatusDot, TagChip } from '@/components/status';
 import { client, unwrap } from '@/lib/api';
-import { announceTrigger } from '@/lib/status-trigger';
 import { useDraft } from '@/lib/drafts';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { useReportView } from '@/lib/view-context';
 
 const ORIGIN = { ai: 'AI', human: '사람', import: '가져옴', tool: '도구' } as const;
-const STATE = { queued: '대기', running: '실행 중', waiting: '사람 확인 대기', done: '완료', failed: '실패', cancelled: '취소' } as const;
+const STATE = { queued: '대기', running: '실행 중', done: '완료', failed: '실패', cancelled: '취소' } as const;
 
 /** Right-hand pane for one line: source, status, tags, translation editing, all candidates, run history. */
 export function LineDetail({ projectId, unitId, onClose, showScene }: { projectId: string; unitId: string; onClose?: () => void; showScene?: boolean }) {
@@ -32,10 +31,7 @@ export function LineDetail({ projectId, unitId, onClose, showScene }: { projectI
 
   const patch = useMutation({
     mutationFn: (json: { translation?: string; candidateId?: string; statusId?: string; tagIds?: string[] }) => unwrap(client.units[':unitId'].$patch({ param: { unitId }, json })),
-    onSuccess: (result, variables) => {
-      if (variables.translation !== undefined) clearDraft();
-      announceTrigger(result.started);
-    },
+    onSuccess: (_data, variables) => variables.translation !== undefined && clearDraft(),
   });
 
   if (!unit.data)
@@ -188,7 +184,7 @@ export function LineDetail({ projectId, unitId, onClose, showScene }: { projectI
 }
 
 /** Glossary terms in this line, and whether the translation in the editor keeps them and the source's format. */
-function LineChecks({ projectId, source, text, terms, rules }: { projectId: string; source: string; text: string; terms: { id: string; source: string; target: string; status: 'candidate' | 'confirmed' }[]; rules?: FormatRules }) {
+export function LineChecks({ projectId, source, text, terms, rules }: { projectId: string; source: string; text: string; terms: { id: string; source: string; target: string; status: 'candidate' | 'confirmed' }[]; rules?: FormatRules }) {
   const used = useMemo(() => terms.filter((term) => mentions(source, term.source)), [terms, source]);
   const formatIssues = text.trim() ? checkFormat(source, text, { placeholders: true, tags: true, newlines: true, emptyText: true }, rules) : [];
   const kept = (target: string) => Boolean(target.trim()) && text.toLowerCase().includes(target.toLowerCase());

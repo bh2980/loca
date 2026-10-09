@@ -1,6 +1,5 @@
-import { runStatusTrigger } from '../services/status-triggers.ts';
 import { Hono } from 'hono';
-import { and, asc, count, desc, eq, inArray, like, ne, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, like, or, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import type { NodeType } from '@tw/shared';
 import { found, validate, type Env } from '../context.ts';
@@ -112,19 +111,44 @@ export const sourceRoutes = new Hono<Env>()
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     const body = c.req.valid('json');
-    // Only lines whose status actually changes trigger the status's on-enter workflow.
-    const entering = body.statusId
-      ? db.select({ id: s.units.id }).from(s.units).where(and(eq(s.units.projectId, projectId), inArray(s.units.id, body.unitIds), ne(s.units.statusId, body.statusId))).all().map((row) => row.id)
-      : [];
     db.transaction((tx) => {
       if (body.statusId) tx.update(s.units).set({ statusId: body.statusId }).where(and(eq(s.units.projectId, projectId), inArray(s.units.id, body.unitIds))).run();
       if (body.removeTagIds.length) tx.delete(s.unitTags).where(and(inArray(s.unitTags.unitId, body.unitIds), inArray(s.unitTags.tagId, body.removeTagIds))).run();
       if (body.addTagIds.length)
         tx.insert(s.unitTags).values(body.unitIds.flatMap((unitId) => body.addTagIds.map((tagId) => ({ unitId, tagId })))).onConflictDoNothing().run();
     });
-    const started = body.statusId ? runStatusTrigger(db, projectId, body.statusId, entering) : null;
     events.changed(projectId, 'units', 'statuses');
-    return c.json({ ok: true, started });
+    return c.json({ ok: true });
+  })
+  /**
+   * Review inbox: every line whose status is marked "in review", however it got there (a person,
+   * a workflow's status change, the import). With the last run's issues as the reason, if any.
+   */
+  .get('/projects/:projectId/reviews', (c) => {
+    const { db } = c.var.deps;
+    const projectId = c.req.param('projectId');
+    const where = and(eq(s.units.projectId, projectId), eq(s.statuses.inReview, true));
+    const total = db.select({ count: count() }).from(s.units).innerJoin(s.statuses, eq(s.statuses.id, s.units.statusId)).where(where).get()!.count;
+    const rows = db
+      .select({ ...unitColumns, groupTitle: s.groups.title, statusName: s.statuses.name })
+      .from(s.units)
+      .innerJoin(s.statuses, eq(s.statuses.id, s.units.statusId))
+      .innerJoin(s.groups, eq(s.groups.id, s.units.groupId))
+      .where(where)
+      .orderBy(asc(s.groups.sort), asc(s.units.sort))
+      .limit(500)
+      .all();
+    const latest = new Map<string, { workflowName: string; runId: string; issues: string[] }>();
+    if (rows.length)
+      for (const item of db
+        .select({ unitId: s.runItems.unitId, runId: s.runs.id, workflowName: s.runs.workflowName, data: s.runItems.data })
+        .from(s.runItems)
+        .innerJoin(s.runs, eq(s.runs.id, s.runItems.runId))
+        .where(inArray(s.runItems.unitId, rows.map((row) => row.id)))
+        .orderBy(desc(s.runs.createdAt))
+        .all())
+        if (!latest.has(item.unitId)) latest.set(item.unitId, { workflowName: item.workflowName, runId: item.runId, issues: item.data.issues ?? [] });
+    return c.json({ total, rows: rows.map((row) => ({ ...row, lastRun: latest.get(row.id) ?? null })) });
   })
   .get('/units/:unitId', (c) => {
     const { db } = c.var.deps;
@@ -167,9 +191,8 @@ export const sourceRoutes = new Hono<Env>()
         if (body.tagIds.length) tx.insert(s.unitTags).values(body.tagIds.map((tagId) => ({ unitId, tagId }))).run();
       }
     });
-    const started = body.statusId && body.statusId !== unit.statusId ? runStatusTrigger(db, unit.projectId, body.statusId, [unitId]) : null;
     events.changed(unit.projectId, 'units', 'statuses');
-    return c.json({ ok: true, started });
+    return c.json({ ok: true });
   })
 
   // ── graphs ─────────────────────────────────────────────────────────

@@ -142,17 +142,15 @@ function WorkflowEditor() {
       }
       case 'condition':
         return node.config.description || '조건식';
-      case 'human':
-        return node.config.instructions || '검토함에서 승인/반려';
       default:
         return '';
     }
   };
 
   const liveCounts = useMemo(() => {
-    const counts = new Map<string, { queued: number; running: number; waiting: number; failed: number }>();
+    const counts = new Map<string, { queued: number; running: number; failed: number }>();
     for (const row of live.data?.nodes ?? []) {
-      const entry = counts.get(row.nodeId) ?? { queued: 0, running: 0, waiting: 0, failed: 0 };
+      const entry = counts.get(row.nodeId) ?? { queued: 0, running: 0, failed: 0 };
       if (row.state in entry) entry[row.state as keyof typeof entry] += row.count;
       counts.set(row.nodeId, entry);
     }
@@ -216,7 +214,7 @@ function WorkflowEditor() {
         const node = current?.definition.nodes.find((candidate) => candidate.id === edit.nodeId);
         if (!node) return `노드 "${edit.nodeId}"를 찾을 수 없습니다.`;
         let next: WorkflowNode;
-        if (edit.field === 'instructions' && (node.type === 'ai' || node.type === 'human')) next = { ...node, config: { ...node.config, instructions: String(edit.value ?? '') } } as WorkflowNode;
+        if (edit.field === 'instructions' && node.type === 'ai') next = { ...node, config: { ...node.config, instructions: String(edit.value ?? '') } } as WorkflowNode;
         else if (edit.field === 'expression' && node.type === 'condition') next = { ...node, config: { expression: edit.value, description: edit.description || node.config.description } };
         else if (edit.field === 'code' && node.type === 'function' && node.config.fn === 'script') next = { ...node, config: { ...node.config, params: { ...node.config.params, code: String(edit.value ?? '') } } };
         else return '이 노드에는 해당 항목이 없습니다.';
@@ -348,7 +346,6 @@ function WorkflowEditor() {
               <DropdownMenuSeparator />
               <DropdownMenuLabel className="text-xs text-muted-foreground">흐름</DropdownMenuLabel>
               <PaletteItem icon={nodeIcon({ type: 'condition' } as WorkflowNode)} title="조건" description="방문 횟수·앞 노드 출력으로 분기합니다." onSelect={() => addNode({ type: 'condition', config: { expression: true, description: '' } }, 'condition')} />
-              <PaletteItem icon={nodeIcon({ type: 'human' } as WorkflowNode)} title="사람 확인" description="검토함에서 승인/반려를 기다립니다." onSelect={() => addNode({ type: 'human', config: {} }, 'human')} />
               <PaletteItem icon={nodeIcon({ type: 'end' } as WorkflowNode)} title="종료" description="대사의 흐름을 마칩니다." onSelect={() => addNode({ type: 'end', config: {} }, 'end')} />
               {!hasEntry && <PaletteItem icon={nodeIcon({ type: 'entry' } as WorkflowNode)} title="진입" description="대사가 흐름에 들어오는 곳" onSelect={() => addNode({ type: 'entry', config: {} }, 'entry')} />}
             </DropdownMenuContent>

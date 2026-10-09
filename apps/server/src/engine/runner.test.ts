@@ -67,7 +67,7 @@ function fakeModel(): ModelPort & { calls: string[] } {
 }
 
 describe('workflow runner', () => {
-  it('confirms passing lines, revises failures, then waits for a person', async () => {
+  it('confirms passing lines, revises failures, then hands the rest to the review status', async () => {
     const { db, projectId, workflow, profileId } = setup();
     const model = fakeModel();
     const runner = new Runner(db, memoryStore(), model);
@@ -79,11 +79,11 @@ describe('workflow runner', () => {
     const statuses = new Map(db.select().from(s.statuses).all().map((status) => [status.id, status.name]));
     const units = new Map(db.select().from(s.units).all().map((unit) => [unit.id, unit]));
     const byState = Map.groupBy(items, (item) => item.state);
-    expect(byState.get('waiting')?.length).toBe(3);
-    expect(byState.get('done')?.length).toBe(27);
+    expect(byState.get('done')?.length).toBe(30);
+    const escalated = items.filter((item) => item.nodeId === 'end-review');
+    expect(escalated).toHaveLength(3);
 
-    for (const item of byState.get('waiting')!) {
-      expect(item.nodeId).toBe('human');
+    for (const item of escalated) {
       // Review ran three times and failed each time; the condition allows two revisions in between.
       expect(item.visits.review).toBe(3);
       expect(item.visits.revise).toBe(2);
@@ -98,16 +98,6 @@ describe('workflow runner', () => {
     // Batches are per scene (size 30), so each pass over 30 lines is one call.
     expect(model.calls.filter((call) => call === 'translate')).toHaveLength(1);
 
-    // Approving a waiting line with an edit confirms that text.
-    const waiting = byState.get('waiting')![0];
-    runner.decide(waiting.id, 'approved', '사람이 고친 번역');
-    await runner.drain();
-    const unit = db.select().from(s.units).where(eq(s.units.id, waiting.unitId)).get()!;
-    expect(unit.translation).toBe('사람이 고친 번역');
-    expect(statuses.get(unit.statusId)).toBe('확정');
-
-    for (const item of db.select().from(s.runItems).where(eq(s.runItems.state, 'waiting')).all()) runner.decide(item.id, 'rejected');
-    await runner.drain();
     expect(db.select().from(s.runs).where(eq(s.runs.id, runId)).get()!.status).toBe('completed');
   });
 

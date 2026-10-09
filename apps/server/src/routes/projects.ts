@@ -9,7 +9,7 @@ import { forgetProjectContext } from '../services/context.ts';
 import { importProject } from '../services/importer.ts';
 import { computeLayouts } from '../services/layout.ts';
 
-const statusInput = z.object({ name: z.string().trim().min(1).max(40), color: z.string().default(STATUS_COLORS[0]), kind: z.enum(['initial', 'normal', 'final']).default('normal'), onEnterWorkflowId: z.string().nullable().default(null) });
+const statusInput = z.object({ name: z.string().trim().min(1).max(40), color: z.string().default(STATUS_COLORS[0]), kind: z.enum(['initial', 'normal', 'final']).default('normal'), inReview: z.boolean().default(false) });
 const tagInput = z.object({ name: z.string().trim().min(1).max(40), color: z.string().default(STATUS_COLORS[2]) });
 
 export const projectRoutes = new Hono<Env>()
@@ -68,13 +68,14 @@ export const projectRoutes = new Hono<Env>()
       .groupBy(s.units.statusId)
       .all();
     const groupCount = db.select({ count: count() }).from(s.groups).where(eq(s.groups.projectId, projectId)).get()!.count;
-    const waiting = db
+    // Lines in review-inbox statuses.
+    const reviewCount = db
       .select({ count: count() })
-      .from(s.runItems)
-      .innerJoin(s.runs, eq(s.runs.id, s.runItems.runId))
-      .where(and(eq(s.runs.projectId, projectId), eq(s.runItems.state, 'waiting')))
+      .from(s.units)
+      .innerJoin(s.statuses, eq(s.statuses.id, s.units.statusId))
+      .where(and(eq(s.units.projectId, projectId), eq(s.statuses.inReview, true)))
       .get()!.count;
-    return c.json({ ...project, byStatus, groupCount, waiting });
+    return c.json({ ...project, byStatus, groupCount, reviewCount });
   })
   .patch('/:projectId', validate('json', z.object({ name: z.string().trim().min(1).optional(), description: z.string().optional(), formatRules: formatRulesSchema.optional() })), (c) => {
     const { db } = c.var.deps;
@@ -120,7 +121,7 @@ export const projectRoutes = new Hono<Env>()
         color: s.statuses.color,
         kind: s.statuses.kind,
         sort: s.statuses.sort,
-        onEnterWorkflowId: s.statuses.onEnterWorkflowId,
+        inReview: s.statuses.inReview,
         units: sql<number>`(select count(*) from units u where u.status_id = "statuses"."id")`,
       })
       .from(s.statuses)
