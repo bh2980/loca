@@ -62,7 +62,7 @@ export const sourceRoutes = new Hono<Env>()
     const conditions = [eq(s.groups.projectId, projectId)];
     if (kind) conditions.push(eq(s.groups.kind, kind));
     if (q) conditions.push(or(like(s.groups.title, `%${q}%`), like(s.groups.key, `%${q}%`))!);
-    const rows = db.select({ id: s.groups.id, key: s.groups.key, kind: s.groups.kind, title: s.groups.title, description: s.groups.description, sort: s.groups.sort }).from(s.groups).where(and(...conditions)).orderBy(asc(s.groups.sort)).all();
+    const rows = db.select({ id: s.groups.id, key: s.groups.key, kind: s.groups.kind, title: s.groups.title, description: s.groups.description, section: s.groups.section, sort: s.groups.sort }).from(s.groups).where(and(...conditions)).orderBy(asc(s.groups.sort)).all();
     const counts = db
       .select({ groupId: s.units.groupId, statusId: s.units.statusId, count: count() })
       .from(s.units)

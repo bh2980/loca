@@ -1,7 +1,7 @@
 import pRetry from 'p-retry';
 import type { LanguageModel } from 'ai';
 import { CONNECTION_KIND_INFO } from '@tw/shared';
-import { cliGenerate, cliVersion } from './cli.ts';
+import { cliGenerate, cliModels, cliVersion } from './cli.ts';
 import { ModelError, toModelError } from './errors.ts';
 import { openaiChatModel, openaiGenerate, openaiModels } from './openai.ts';
 import { systemOneJudge, systemOneModels } from './systemone.ts';
@@ -35,6 +35,7 @@ export async function listModels(route: Omit<ResolvedRoute, 'model'>): Promise<s
   if (route.kind === 'http') return null;
   if (route.kind === 'openai') return openaiModels(route);
   if (route.kind === 'systemone') return systemOneModels(route);
+  if (route.kind === 'grok' || route.kind === 'antigravity' || route.kind === 'codex' || route.kind === 'claude') return cliModels(route.kind, route.executable);
   return null;
 }
 

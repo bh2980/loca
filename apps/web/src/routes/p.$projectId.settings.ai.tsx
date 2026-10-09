@@ -462,7 +462,7 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
           ) : models.detail ? (
             <p className="text-destructive">{models.detail}</p>
           ) : (
-            <p className="text-muted-foreground">CLI는 모델 목록을 제공하지 않습니다.</p>
+            <p className="text-muted-foreground">이 연결은 모델 목록을 제공하지 않습니다. 모델 이름을 직접 입력하세요.</p>
           )}
         </div>
       )}
