@@ -11,7 +11,6 @@ import { Button } from '@/components/ui/button';
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { GROUP_KIND } from '@/lib/labels';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
@@ -152,19 +151,6 @@ function Script() {
               onBlur={(event) => event.currentTarget.value.trim() !== (search.gq ?? '') && setSearch({ gq: event.currentTarget.value.trim() || undefined }, true)}
             />
           </InputGroup>
-          <Select value={search.kind ?? 'all'} onValueChange={(value) => setSearch({ kind: value === 'all' ? undefined : (value as Kind) }, true)}>
-            <SelectTrigger className="w-32" aria-label="종류 필터">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">모든 종류</SelectItem>
-              {(Object.keys(GROUP_KIND) as Kind[]).map((kind) => (
-                <SelectItem key={kind} value={kind}>
-                  {GROUP_KIND[kind]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
           {picked.size > 0 && (
             <div className="ml-auto flex items-center gap-2 text-sm">
               <span className="font-medium tabular-nums">{picked.size}개 선택</span>
@@ -191,6 +177,8 @@ function Script() {
               statuses={statuses.data?.statuses ?? []}
               picked={picked}
               expandAll={Boolean(search.gq)}
+              kind={search.kind}
+              onKind={(kind) => setSearch({ kind }, true)}
               onOpen={openGroup}
               onPick={(ids, on) =>
                 setPicked((previous) => {

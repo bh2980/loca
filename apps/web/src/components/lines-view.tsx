@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
+import { HeaderFilter } from '@/components/header-filter';
 import { LISTENER_MIN_CONFIDENCE } from '@tw/shared';
 
 export const PAGE_SIZE = 100;
@@ -136,62 +137,6 @@ export function LinesView({ projectId, groupId, kind, search, onSearch, showScen
               onBlur={(event) => event.currentTarget.value.trim() !== (search.q ?? '') && onSearch({ q: event.currentTarget.value.trim() || undefined, page: undefined })}
             />
           </InputGroup>
-          <Select value={search.status ?? 'all'} onValueChange={(value) => onSearch({ status: value === 'all' ? undefined : value, page: undefined })}>
-            <SelectTrigger className="w-44" aria-label="상태 필터">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">모든 상태</SelectItem>
-              {statuses.data?.statuses.map((status) => (
-                <SelectItem key={status.id} value={status.id}>
-                  <StatusDot color={status.color} /> {status.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={search.speaker ?? 'all'} onValueChange={(value) => onSearch({ speaker: value === 'all' ? undefined : value, page: undefined })}>
-            <SelectTrigger className="w-36" aria-label="화자 필터">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">모든 화자</SelectItem>
-              {speakers.data?.filter((row) => row.speaker).map((row) => (
-                <SelectItem key={row.speaker} value={row.speaker!}>
-                  {row.speaker} <span className="text-muted-foreground tabular-nums">{row.lines}</span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={search.listener ?? 'all'} onValueChange={(value) => onSearch({ listener: value === 'all' ? undefined : value, page: undefined })}>
-            <SelectTrigger className="w-36" aria-label="청자 필터">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">모든 청자</SelectItem>
-              <SelectItem value="-">청자 미상</SelectItem>
-              {people.data?.characters.filter((c) => c.status === 'confirmed').map((c) => (
-                <SelectItem key={c.id} value={c.name}>
-                  {c.name}
-                  {c.player && <span className="text-muted-foreground"> · 플레이어</span>}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {!!statuses.data?.tags.length && (
-            <Select value={search.tag ?? 'all'} onValueChange={(value) => onSearch({ tag: value === 'all' ? undefined : value, page: undefined })}>
-              <SelectTrigger className="w-36" aria-label="태그 필터">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">모든 태그</SelectItem>
-                {statuses.data.tags.map((tag) => (
-                  <SelectItem key={tag.id} value={tag.id}>
-                    #{tag.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
           <span className="ml-auto text-sm text-muted-foreground tabular-nums">
             {total.toLocaleString()}개{total > PAGE_SIZE && ` 중 ${(page * PAGE_SIZE + 1).toLocaleString()}–${Math.min(total, (page + 1) * PAGE_SIZE).toLocaleString()}`}
           </span>
@@ -260,11 +205,36 @@ export function LinesView({ projectId, groupId, kind, search, onSearch, showScen
                   <Checkbox aria-label="이 페이지 모두 선택" checked={allOnPage} onCheckedChange={(checked) => toggle(pageIds, Boolean(checked))} />
                 </TableHead>
                 {showScene && <TableHead className="w-32">묶음</TableHead>}
-                <TableHead className="w-28">화자</TableHead>
-                <TableHead className="w-28">청자</TableHead>
+                <TableHead className="w-28">
+                  <HeaderFilter
+                    label="화자"
+                    value={search.speaker}
+                    onChange={(speaker) => onSearch({ speaker, page: undefined })}
+                    options={(speakers.data ?? []).filter((row) => row.speaker).map((row) => ({ value: row.speaker!, label: row.speaker, hint: row.lines }))}
+                  />
+                </TableHead>
+                <TableHead className="w-28">
+                  <HeaderFilter
+                    label="청자"
+                    value={search.listener}
+                    onChange={(listener) => onSearch({ listener, page: undefined })}
+                    options={[
+                      { value: '-', label: '미상', keywords: '미상 unknown' },
+                      ...(people.data?.characters ?? []).filter((c) => c.status === 'confirmed').map((c) => ({ value: c.name, label: c.name, hint: c.player ? '플레이어' : undefined })),
+                    ]}
+                  />
+                </TableHead>
                 <TableHead>원문</TableHead>
                 <TableHead>번역</TableHead>
-                <TableHead className="w-36">상태</TableHead>
+                <TableHead className="w-36">
+                  <HeaderFilter
+                    label="상태"
+                    value={search.status}
+                    onChange={(status) => onSearch({ status, page: undefined })}
+                    options={(statuses.data?.statuses ?? []).map((status) => ({ value: status.id, keywords: status.name, label: <><StatusDot color={status.color} /> {status.name}</> }))}
+                    groups={[{ heading: '태그', value: search.tag, onChange: (tag) => onSearch({ tag, page: undefined }), options: (statuses.data?.tags ?? []).map((tag) => ({ value: tag.id, keywords: tag.name, label: `#${tag.name}` })) }]}
+                  />
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

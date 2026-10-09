@@ -2,6 +2,7 @@ import { Fragment, useMemo, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { StatusBar } from '@/components/status';
 import { Checkbox } from '@/components/ui/checkbox';
+import { HeaderFilter } from '@/components/header-filter';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { GROUP_KIND } from '@/lib/labels';
 import { cn } from '@/lib/utils';
@@ -43,7 +44,7 @@ export function sectionsOf(groups: GroupRow[]) {
  * Every group of the script in one full-width table, filed under the sections the import gave
  * them (chapters, a document's source). A row opens the group's lines; checkboxes pick groups to run.
  */
-export function GroupTable({ projectId, groups, statuses, picked, onPick, onOpen, expandAll }: {
+export function GroupTable({ projectId, groups, statuses, picked, onPick, onOpen, expandAll, kind, onKind }: {
   projectId: string;
   groups: GroupRow[];
   statuses: { id: string; name: string; color: string }[];
@@ -52,6 +53,8 @@ export function GroupTable({ projectId, groups, statuses, picked, onPick, onOpen
   onOpen: (id: string) => void;
   /** While searching every section is shown open. */
   expandAll: boolean;
+  kind?: GroupRow['kind'];
+  onKind: (kind: GroupRow['kind'] | undefined) => void;
 }) {
   const sections = useMemo(() => sectionsOf(groups), [groups]);
   const [folded, setFoldedState] = useState<Set<string>>(() => new Set(readFolded(projectId)));
@@ -78,7 +81,9 @@ export function GroupTable({ projectId, groups, statuses, picked, onPick, onOpen
             <Checkbox aria-label="모든 묶음 선택" checked={pickedAll ? true : picked.size ? 'indeterminate' : false} onCheckedChange={(checked) => onPick(allIds, Boolean(checked))} />
           </TableHead>
           <TableHead>제목</TableHead>
-          <TableHead className="w-20">종류</TableHead>
+          <TableHead className="w-20">
+            <HeaderFilter label="종류" value={kind} onChange={(value) => onKind(value as GroupRow['kind'] | undefined)} options={(Object.keys(GROUP_KIND) as GroupRow['kind'][]).map((value) => ({ value, label: GROUP_KIND[value] }))} />
+          </TableHead>
           <TableHead className="w-20 text-right">대사</TableHead>
           <TableHead className="w-48">진행</TableHead>
           <TableHead className="w-24 text-right">청자 미상</TableHead>

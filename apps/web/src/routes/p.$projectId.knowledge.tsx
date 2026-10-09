@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Check, Network, Play, Plus, Sparkles, Square, Table2, Trash2, X } from 'lucide-react';
+import { Check, Network, Play, Plus, Sparkles, Square, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { DOCUMENT_KINDS, KNOWLEDGE_ORIGIN_LABELS, SPEECH_FIX_WORKFLOW, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, type KnowledgeOrigin, type SpeechLevel } from '@tw/shared';
 import { Page } from '@/components/page';
@@ -31,20 +31,25 @@ import { useReportView } from '@/lib/view-context';
 const KINDS = { documents: '문서', characters: '인물', relationships: '관계', events: '사건', speechRules: '말투 규칙' } as const;
 type Kind = keyof typeof KINDS;
 type StatusView = 'candidate' | 'confirmed' | 'all';
+/** Page tabs; people, relationships and speech rules share one tab because they describe the same pairs. */
+const TABS = { documents: '문서', people: '인물·관계', events: '사건' } as const;
+type Tab = keyof typeof TABS;
+const PEOPLE_VIEWS = { graph: '그래프', characters: '인물', relationships: '관계', speechRules: '말투 규칙' } as const;
+type PeopleView = keyof typeof PEOPLE_VIEWS;
 interface KnowledgeSearch {
-  tab?: Kind;
+  tab?: Tab;
   status?: Exclude<StatusView, 'all'>;
   item?: string;
-  /** Relationships drawn as a graph instead of a table. */
-  view?: 'graph';
+  /** Inside 인물·관계: the graph (default) or one of its tables. */
+  view?: Exclude<PeopleView, 'graph'>;
 }
 
 export const Route = createFileRoute('/p/$projectId/knowledge')({
   validateSearch: (raw: Record<string, unknown>): KnowledgeSearch => ({
-    tab: typeof raw.tab === 'string' && raw.tab in KINDS ? (raw.tab as Kind) : undefined,
+    tab: typeof raw.tab === 'string' && raw.tab in TABS ? (raw.tab as Tab) : undefined,
     status: raw.status === 'confirmed' || raw.status === 'candidate' ? raw.status : undefined,
     item: typeof raw.item === 'string' && raw.item ? raw.item : undefined,
-    view: raw.view === 'graph' ? 'graph' : undefined,
+    view: typeof raw.view === 'string' && raw.view in PEOPLE_VIEWS && raw.view !== 'graph' ? (raw.view as KnowledgeSearch['view']) : undefined,
   }),
   component: Knowledge,
 });
@@ -86,7 +91,9 @@ function Knowledge() {
   const { projectId } = Route.useParams();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
-  const tab = search.tab ?? 'documents';
+  const tab: Tab = search.tab ?? 'documents';
+  const peopleView: PeopleView = search.view ?? 'graph';
+  const graph = tab === 'people' && peopleView === 'graph';
   const view: StatusView = search.status ?? 'all';
   const set = (next: Partial<KnowledgeSearch>, replace = true) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace });
 
@@ -205,16 +212,20 @@ function Knowledge() {
     },
   };
 
-  const spec = specs[tab];
-  const rows = spec.rows.filter((row) => view === 'all' || row.status === view);
+  // The table shown; in the graph the selection may be a person, a relationship or a speech rule.
+  const tableKind: Kind = tab === 'people' ? (peopleView === 'graph' ? 'relationships' : peopleView) : tab;
+  const kind: Kind = graph ? ((['characters', 'relationships', 'speechRules'] as const).find((candidate) => specs[candidate].rows.some((row) => row.id === search.item)) ?? 'relationships') : tableKind;
+  const spec = specs[kind];
+  const rows = specs[tableKind].rows.filter((row) => view === 'all' || row.status === view);
   const candidates = (kind: Kind) => specs[kind].rows.filter((row) => row.status === 'candidate').length;
+  const tabCandidates = (tab: Tab) => (tab === 'people' ? candidates('characters') + candidates('relationships') + candidates('speechRules') : candidates(tab));
   const selected = spec.rows.find((row) => row.id === search.item);
-  useReportView('analysis', [selected && { kind: KINDS[tab], id: selected.id, label: spec.label(selected), detail: selected.status === 'candidate' ? 'AI 초안 (확정 전)' : undefined }]);
+  useReportView('analysis', [selected && { kind: KINDS[kind], id: selected.id, label: spec.label(selected), detail: selected.status === 'candidate' ? 'AI 초안 (확정 전)' : undefined }]);
 
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const visibleChecked = rows.filter((row) => checked.has(row.id) && row.status === 'candidate').map((row) => row.id);
   const decide = useMutation({
-    mutationFn: ({ ids, action }: { ids: string[]; action: 'confirm' | 'discard' }) => unwrap(api.drafts.$post({ param: { projectId }, json: { kind: tab, ids, action } })),
+    mutationFn: ({ ids, action }: { ids: string[]; action: 'confirm' | 'discard' }) => unwrap(api.drafts.$post({ param: { projectId }, json: { kind: ids.length === 1 && ids[0] === search.item ? kind : tableKind, ids, action } })),
     onSuccess: ({ changed }, { action }) => {
       setChecked(new Set());
       toast.success(action === 'confirm' ? `${changed}개를 확정했습니다.` : `${changed}개 초안을 버렸습니다.`);
@@ -223,43 +234,60 @@ function Knowledge() {
   });
 
   const create = useMutation({
-    mutationFn: () => spec.create!(),
+    mutationFn: () => specs[tableKind].create!(),
     onSuccess: (row) => set({ item: row.id, status: undefined }),
     onError: fail,
   });
   const characters = people.data?.characters ?? [];
-  const graph = tab === 'relationships' && search.view === 'graph';
+  // Graph edges: each relationship labelled with that direction's speech level, plus pairs that only have a speech rule.
+  const edges = useMemo(() => {
+    const idOf = new Map(characters.flatMap((c) => [c.name, ...c.aliases].map((name) => [name.toLowerCase(), c.id] as const)));
+    const rulesOf = Map.groupBy(
+      (rules.data ?? []).filter((rule) => view === 'all' || rule.status === view),
+      (rule) => `${idOf.get(rule.fromName.toLowerCase())}|${idOf.get(rule.toName.toLowerCase())}`,
+    );
+    const levels = (key: string) => (rulesOf.get(key) ?? []).map((rule) => SPEECH_LEVEL_LABELS[rule.level]).join('→');
+    const rels = specs.relationships.rows.filter((row) => view === 'all' || row.status === view) as unknown as { id: string; fromId: string; toId: string; kind: string; mutual: boolean }[];
+    const seen = new Set(rels.map((rel) => `${rel.fromId}|${rel.toId}`));
+    return [
+      ...rels.map((rel) => ({ ...rel, kind: [rel.kind, levels(`${rel.fromId}|${rel.toId}`)].filter(Boolean).join(' · ') })),
+      ...[...rulesOf.entries()]
+        .filter(([key]) => !seen.has(key) && !key.includes('undefined'))
+        .map(([key, list]) => ({ id: list[0].id, fromId: key.split('|')[0], toId: key.split('|')[1], kind: levels(key), mutual: false })),
+    ];
+  }, [characters, rules.data, specs.relationships.rows, view]);
 
   return (
     <Page title="자료" flush meta={<JobStatus projectId={projectId} />} actions={<StartAnalysis projectId={projectId} />}>
       <div className="flex h-full min-h-0">
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <div className="flex flex-wrap items-center gap-2 border-b px-6 py-2">
-            <Tabs className="max-w-full overflow-x-auto" value={tab} onValueChange={(value) => set({ tab: value as Kind, item: undefined }, false)}>
+            <Tabs value={tab} onValueChange={(value) => set({ tab: value as Tab, item: undefined, view: undefined }, false)}>
               <TabsList>
-                {(Object.keys(KINDS) as Kind[]).map((kind) => (
-                  <TabsTrigger key={kind} value={kind}>
-                    {KINDS[kind]}
-                    {candidates(kind) > 0 && <span className="ml-1 rounded bg-amber-100 px-1 text-[11px] text-amber-800 tabular-nums">{candidates(kind)}</span>}
+                {(Object.keys(TABS) as Tab[]).map((tab) => (
+                  <TabsTrigger key={tab} value={tab}>
+                    {TABS[tab]}
+                    {tabCandidates(tab) > 0 && <span className="ml-1 rounded bg-amber-100 px-1 text-[11px] text-amber-800 tabular-nums">{tabCandidates(tab)}</span>}
                   </TabsTrigger>
                 ))}
               </TabsList>
             </Tabs>
+            {tab === 'people' && (
+              <ToggleGroup type="single" variant="outline" size="sm" value={peopleView} onValueChange={(value) => value && set({ view: value === 'graph' ? undefined : (value as KnowledgeSearch['view']), item: undefined }, false)}>
+                {(Object.keys(PEOPLE_VIEWS) as PeopleView[]).map((value) => (
+                  <ToggleGroupItem key={value} value={value} className="px-3">
+                    {value === 'graph' && <Network />}
+                    {PEOPLE_VIEWS[value]}
+                    {value !== 'graph' && candidates(value) > 0 && <span className="ml-1 rounded bg-amber-100 px-1 text-[11px] text-amber-800 tabular-nums">{candidates(value)}</span>}
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
+            )}
             <ToggleGroup type="single" variant="outline" size="sm" value={view} onValueChange={(value) => value && set({ status: value === 'all' ? undefined : (value as KnowledgeSearch['status']), item: undefined })}>
               <ToggleGroupItem value="all">전체</ToggleGroupItem>
               <ToggleGroupItem value="candidate">후보</ToggleGroupItem>
               <ToggleGroupItem value="confirmed">확정</ToggleGroupItem>
             </ToggleGroup>
-            {tab === 'relationships' && (
-              <ToggleGroup type="single" variant="outline" size="sm" value={search.view ?? 'table'} onValueChange={(value) => value && set({ view: value === 'graph' ? 'graph' : undefined })}>
-                <ToggleGroupItem value="table" aria-label="표로 보기">
-                  <Table2 />
-                </ToggleGroupItem>
-                <ToggleGroupItem value="graph" aria-label="그래프로 보기">
-                  <Network />
-                </ToggleGroupItem>
-              </ToggleGroup>
-            )}
             <div className="ml-auto flex items-center gap-2">
               {visibleChecked.length > 0 && (
                 <>
@@ -270,18 +298,21 @@ function Knowledge() {
                   <DiscardButton count={visibleChecked.length} onConfirm={() => decide.mutate({ ids: visibleChecked, action: 'discard' })} />
                 </>
               )}
-              <Button size="sm" variant="outline" disabled={!spec.create || create.isPending} title={spec.create ? undefined : '인물이 둘 이상 있어야 관계를 만들 수 있습니다'} onClick={() => create.mutate()}>
-                <Plus /> 추가
-              </Button>
+              {!graph && (
+                <Button size="sm" variant="outline" disabled={!specs[tableKind].create || create.isPending} title={specs[tableKind].create ? undefined : '인물이 둘 이상 있어야 관계를 만들 수 있습니다'} onClick={() => create.mutate()}>
+                  <Plus /> 추가
+                </Button>
+              )}
             </div>
           </div>
           {graph ? (
             <div className="min-h-0 flex-1">
               <RelationshipGraph
                 characters={characters}
-                relationships={rows as never}
-                selectedRelationshipId={search.item}
-                onSelectCharacter={(id) => set({ tab: 'characters', item: id, view: undefined }, false)}
+                relationships={edges}
+                selectedCharacterId={kind === 'characters' ? search.item : undefined}
+                selectedRelationshipId={kind !== 'characters' ? search.item : undefined}
+                onSelectCharacter={(id) => set({ item: id })}
                 onSelectRelationship={(id) => set({ item: id })}
                 onClear={() => set({ item: undefined })}
               />
@@ -329,7 +360,7 @@ function Knowledge() {
                 {rows.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={spec.columns.length + 2} className="py-12 text-center text-muted-foreground">
-                      {view === 'candidate' ? `검토할 ${KINDS[tab]} 초안이 없습니다. 위의 “작품 분석”으로 대본 전체를 읽혀 초안을 만드세요.` : `${KINDS[tab]} 항목이 없습니다. “추가”로 직접 만들거나 “작품 분석”으로 초안을 받으세요.`}
+                      {view === 'candidate' ? `검토할 ${KINDS[tableKind]} 초안이 없습니다. 위의 “작품 분석”으로 대본 전체를 읽혀 초안을 만드세요.` : `${KINDS[tableKind]} 항목이 없습니다. “추가”로 직접 만들거나 “작품 분석”으로 초안을 받으세요.`}
                     </TableCell>
                   </TableRow>
                 )}
@@ -340,7 +371,7 @@ function Knowledge() {
         </div>
         {selected && (
           <div className="w-[420px] shrink-0 border-l">
-            <DraftEditor key={selected.id} projectId={projectId} kind={tab} spec={spec} row={selected} characters={characters} onClose={() => set({ item: undefined })} onDecide={(action) => decide.mutate({ ids: [selected.id], action })} />
+            <DraftEditor key={selected.id} projectId={projectId} kind={kind} spec={spec} row={selected} characters={characters} onClose={() => set({ item: undefined })} onDecide={(action) => decide.mutate({ ids: [selected.id], action })} />
           </div>
         )}
       </div>
