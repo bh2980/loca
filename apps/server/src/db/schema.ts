@@ -193,8 +193,11 @@ export const terms = sqliteTable('terms', {
   note: text('note').notNull().default(''),
   /** Candidates (e.g. extracted by a workflow) are not used as context until a person confirms them. */
   status: text('status', { enum: ['candidate', 'confirmed'] }).notNull().default('confirmed'),
-  /** Where a candidate came from, e.g. "run:<id>". */
-  origin: text('origin'),
+  origin: text('origin', { enum: KNOWLEDGE_ORIGINS }).notNull().default('human'),
+  /** The workflow run that added it, for AI terms. */
+  runId: text('run_id'),
+  /** A person edited or promoted this AI term. */
+  reviewed: integer('reviewed', { mode: 'boolean' }).notNull().default(false),
   updatedAt: updatedAt(),
 });
 

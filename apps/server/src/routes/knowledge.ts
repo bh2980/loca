@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, or, sql } from 'drizzle-orm';
 import { mentions } from '../services/context.ts';
 import { z } from 'zod';
 import { DOCUMENT_KINDS, KNOWLEDGE_STATUSES, patchOf, relationshipChangeSchema, SPEECH_LEVELS } from '@tw/shared';
@@ -34,7 +34,7 @@ export const speechRuleInput = z.object({
 });
 
 /** Tables whose rows a person confirms or discards as drafts. */
-const DRAFT_TABLES = { documents: s.documents, characters: s.characters, relationships: s.relationships, events: s.storyEvents, speechRules: s.speechRules } as const;
+const DRAFT_TABLES = { documents: s.documents, characters: s.characters, relationships: s.relationships, events: s.storyEvents, speechRules: s.speechRules, terms: s.terms } as const;
 export const draftKinds = Object.keys(DRAFT_TABLES) as (keyof typeof DRAFT_TABLES)[];
 
 type ProjectTable = typeof s.terms | (typeof DRAFT_TABLES)[keyof typeof DRAFT_TABLES];
@@ -66,7 +66,7 @@ export const knowledgeRoutes = new Hono<Env>()
   })
   .patch('/terms/:id', validate('json', patchOf(termInput)), (c) => {
     const projectId = c.req.param('projectId')!;
-    found(c.var.deps.db.update(s.terms).set(c.req.valid('json')).where(byProject(s.terms, c.req.param('id'), projectId)).returning().get(), '용어');
+    found(c.var.deps.db.update(s.terms).set({ ...c.req.valid('json'), reviewed: true }).where(byProject(s.terms, c.req.param('id'), projectId)).returning().get(), '용어');
     events.changed(projectId, 'terms');
     return c.json({ ok: true });
   })
@@ -180,7 +180,7 @@ export const knowledgeRoutes = new Hono<Env>()
     events.changed(projectId, 'knowledge');
     return c.json({ ok: true });
   })
-  /** Confirm or discard several drafts at once. Discarding deletes them; confirmed rows are never discarded this way. */
+  /** Make several AI items official (confirmed and reviewed) or discard them; official knowledge is never touched here. */
   /** The lines a speech rule governs (its pair, its stretch), with the speech levels their translations end in. */
   .get('/speech-rules/:id/lines', (c) => c.json(found(ruleLines(c.var.deps.db, c.req.param('projectId')!, c.req.param('id')) ?? undefined, '말투 규칙')))
   /** Work analysis jobs, newest first. */
@@ -203,7 +203,8 @@ export const knowledgeRoutes = new Hono<Env>()
       const projectId = c.req.param('projectId')!;
       const { kind, ids, action } = c.req.valid('json');
       const table = DRAFT_TABLES[kind];
-      const where = and(eq(table.projectId, projectId), inArray(table.id, ids), eq(table.status, 'candidate'));
+      // Anything not yet official: AI candidates and AI items confirmed automatically.
+      const where = and(eq(table.projectId, projectId), inArray(table.id, ids), or(eq(table.status, 'candidate'), and(eq(table.origin, 'ai'), eq(table.reviewed, false))));
       const { db } = c.var.deps;
       const changed = db.transaction((tx) => {
         if (action === 'discard') return tx.delete(table).where(where).run().changes;

@@ -195,7 +195,7 @@ AI는 대본에서 **근거 달린 주장**을 뽑는다. 예: "Bob은 Carol을 
    ├ 실행 기록    목록 → 실행 상세(노드별 처리 수, 대사별 경로·입출력·오류)
    └ 검토함       ‘검토함에 표시’ 상태의 대사
 ─ 문맥
-   ├ 자료         문서 · 인물·관계(그래프 | 인물 | 관계 | 말투 규칙 표, 그래프 화살표에 관계·말투) · 사건. 표 + 우측 상세, 후보/확정 필터, 작품 분석 시작
+   ├ 자료         문서 · 인물·관계([관계 | 인물] × [그래프 | 표]. 관계는 화자→청자 쌍: 상세에 ① 관계 ② 말투 규칙 구간) · 사건. 신뢰 필터(AI 후보 / AI / 정식), 정식으로 올리기·버리기, 작품 분석 시작
    └ 용어집       표 + 편집
 ─ 설정
    ├ 상태·태그    사용자 정의 상태(초기/일반/최종, 색, 검토함 표시)와 태그
@@ -317,7 +317,7 @@ System One 연결은 판정 출력에만 쓴다.
 | characters / relationships | name, aliases, profile, speech(말투 특징), player / from, to, kind, description, mutual, changes(지점·변화·계기) |
 | events | title, summary, cause, outcome, participants |
 | speech_rules | from_name, to_name, level(hasipsio/hao/hage/haera/haeyo/hae/other), address, note, start_key(구간 시작, 없으면 처음부터) |
-| (지식 공통) | documents·characters·relationships·events·speech_rules 모두 status(candidate/confirmed), origin(human/ai/import), evidence(대사 키 목록), job_id. 후보는 문맥에 들어가지 않는다 |
+| (지식 공통) | documents·characters·relationships·events·speech_rules 모두 status(candidate/confirmed), origin(human/ai/import), reviewed, evidence(대사 키 목록), job_id. terms도 status·origin·reviewed·run_id. 신뢰 = AI 후보(candidate, 문맥에 안 씀) / AI(origin ai·미검토, 문맥에 씀) / 정식(사람·가져오기, 또는 사람이 고치거나 올린 AI 항목) |
 | analysis_jobs | profile_id, model, status, parts(완료/전체), usage, error, 시작·끝 |
 | connections | kind(openai/pi/systemone/codex/claude/grok/antigravity/opencode/http), base_url, executable, options(pi 스위치). 키는 OS 자격 증명 저장소 |
 | profiles | connection_id, model, effort, instructions, temperature, 한도, fallbacks |
@@ -358,6 +358,8 @@ System One 연결은 판정 출력에만 쓴다.
 | 2026-10 | 작품 분석 → 청자 → 말투 규칙 순으로 위에서 아래로 만든다 | 보통 기존 번역이 없어 말투 규칙 초안은 작품 이해에서 나와야 한다 |
 | 2026-10 | AI 분석 초안은 별도 공간이 아니라 기존 지식 표(자료)에 | 정보가 두 곳에 생기지 않게. 용어집과 같은 후보/확정 방식 |
 | 2026-10 | 작품 분석은 자동 확정이 기본, 대신 "고치고 영향받은 줄만 다시"를 둔다 | 사람이 초안을 다 확인하지 않는다. 틀린 것을 발견했을 때 적은 비용으로 바로잡는 편이 현실적 |
+| 2026-10 | AI가 넣은 것과 정식 자료를 태그가 아닌 신뢰 단계(AI 후보 / AI / 정식)로 구분, 용어집도 같게 | 자동 확정이어도 나중에 AI 것만 골라 보고 올리거나 버릴 수 있어야 한다. 태그는 사람이 지울 수 있어 출처 기록으로 부적합 |
+| 2026-10 | 관계와 말투 규칙은 따로 저장하고 화자→청자 쌍 하나로 보여 준다 | 관계는 이야기 속 사실, 말투 규칙은 번역 결정(구간)이라 성격이 다르지만 같은 쌍을 설명한다 |
 | 2026-10 | 말투 등급은 여섯(하십시오·하오·하게·해라·해요·해) | 반말 하나로는 해라체 서술·옛 말투를 구분하지 못한다 |
 | 2026-10 | 번역기에는 청자 + 확정 말투 규칙 + 지칭만 기본으로 넣고, 서사 분석은 사람용 자료로 둠 | 실험: 구체적 규칙은 큰 효과, 서술형 말투·태도·프로필 묶음은 효과 없거나 해로움 |
 | 2026-10 | 말투 분석은 긴 문맥 모델로 대본 전체를 한 번에, 넘칠 때만 구간별 | Gemini 한 번(5분)과 구간별(27분)의 주장 정확도가 같음(33 vs 31/50 뒷받침) |

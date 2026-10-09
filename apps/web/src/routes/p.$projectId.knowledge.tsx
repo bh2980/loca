@@ -1,100 +1,67 @@
-import { useMemo, useState, type ReactNode } from 'react';
-import { createFileRoute, Link } from '@tanstack/react-router';
+import { useMemo, useState } from 'react';
+import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Check, Network, Play, Plus, Sparkles, Square, Trash2, X } from 'lucide-react';
+import { Check, Network, Plus, Table2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { DOCUMENT_KINDS, KNOWLEDGE_ORIGIN_LABELS, SPEECH_FIX_WORKFLOW, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, type KnowledgeOrigin, type SpeechLevel } from '@tw/shared';
+import { DOCUMENT_KINDS, SPEECH_LEVEL_LABELS, TRUST_LABELS, TRUST_LEVELS, trustOf, type SpeechLevel, type Trust } from '@tw/shared';
 import { Page } from '@/components/page';
 import { RelationshipGraph } from '@/components/relationship-graph';
-import { RunDialog } from '@/components/workflow/run-dialog';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { JobStatus, StartAnalysis } from '@/components/knowledge/analysis-controls';
+import { DiscardButton, DraftEditor, fail, KINDS, RelationshipChanges, RuleLines, text, TrustBadge, type Kind, type KindSpec, type Row } from '@/components/knowledge/draft-editor';
+import { buildPairs, PairDetail, pairItems, PairTable, pairTrust, type Pair } from '@/components/knowledge/pairs';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Textarea } from '@/components/ui/textarea';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { client, unwrap } from '@/lib/api';
-import { useDraft } from '@/lib/drafts';
 import { DOCUMENT_KIND } from '@/lib/labels';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { useReportView } from '@/lib/view-context';
 
-const KINDS = { documents: '문서', characters: '인물', relationships: '관계', events: '사건', speechRules: '말투 규칙' } as const;
-type Kind = keyof typeof KINDS;
-type StatusView = 'candidate' | 'confirmed' | 'all';
-/** Page tabs; people, relationships and speech rules share one tab because they describe the same pairs. */
+/** Page tabs. Relationships and speech rules share 인물·관계 because both describe speaker → listener pairs. */
 const TABS = { documents: '문서', people: '인물·관계', events: '사건' } as const;
 type Tab = keyof typeof TABS;
-const PEOPLE_VIEWS = { graph: '그래프', characters: '인물', relationships: '관계', speechRules: '말투 규칙' } as const;
-type PeopleView = keyof typeof PEOPLE_VIEWS;
+type TrustView = Trust | 'all';
 interface KnowledgeSearch {
   tab?: Tab;
-  status?: Exclude<StatusView, 'all'>;
+  /** Trust filter: AI 후보 / AI / 정식. */
+  trust?: Trust;
+  /** Selected item id, or a pair key ("from→to") in 인물·관계 › 관계. */
   item?: string;
-  /** Inside 인물·관계: the graph (default) or one of its tables. */
-  view?: Exclude<PeopleView, 'graph'>;
+  /** Inside 인물·관계: people instead of pairs. */
+  view?: 'characters';
+  /** Pairs as a table instead of the graph. */
+  display?: 'table';
 }
 
 export const Route = createFileRoute('/p/$projectId/knowledge')({
   validateSearch: (raw: Record<string, unknown>): KnowledgeSearch => ({
     tab: typeof raw.tab === 'string' && raw.tab in TABS ? (raw.tab as Tab) : undefined,
-    status: raw.status === 'confirmed' || raw.status === 'candidate' ? raw.status : undefined,
+    trust: typeof raw.trust === 'string' && (TRUST_LEVELS as readonly string[]).includes(raw.trust) ? (raw.trust as Trust) : undefined,
     item: typeof raw.item === 'string' && raw.item ? raw.item : undefined,
-    view: typeof raw.view === 'string' && raw.view in PEOPLE_VIEWS && raw.view !== 'graph' ? (raw.view as KnowledgeSearch['view']) : undefined,
+    view: raw.view === 'characters' ? 'characters' : undefined,
+    display: raw.display === 'table' ? 'table' : undefined,
   }),
   component: Knowledge,
 });
 
-/** Fields every draft row has, whatever its kind. */
-interface Draft {
-  id: string;
-  status: 'candidate' | 'confirmed';
-  origin: KnowledgeOrigin;
-  evidence: string[];
-}
-type Value = string | boolean | string[] | null;
-interface Field {
-  name: string;
-  label: string;
-  type: 'text' | 'long' | 'list' | 'bool' | 'level' | 'key' | 'docKind' | 'character';
-}
-interface KindSpec {
-  rows: (Draft & Record<string, unknown>)[];
-  columns: { head: string; cell: (row: Draft & Record<string, unknown>) => ReactNode; className?: string }[];
-  fields: Field[];
-  label: (row: Draft & Record<string, unknown>) => string;
-  save: (id: string, json: Record<string, Value>) => Promise<unknown>;
-  /** Creates an empty item (a person's, confirmed) and returns its id; absent when it cannot be made yet. */
-  create?: () => Promise<{ id: string }>;
-  remove: (id: string) => Promise<unknown>;
-  /** Shown under the fields (read-only facts such as relationship changes). */
-  extra?: (row: Draft & Record<string, unknown>) => ReactNode;
-}
-
-const fail = (error: Error) => toast.error(error.message);
-const text = (value: unknown) => (typeof value === 'string' ? value : '');
-
 /**
- * The work's knowledge, one table per kind with a detail pane. "작품 분석" reads the whole script
- * and adds AI drafts here as candidates; only confirmed knowledge reaches AI context.
+ * The work's knowledge: documents, people with their speaker → listener pairs (relationship +
+ * speech rules), and events. "작품 분석" fills it; every item shows whether it is an AI candidate,
+ * AI-confirmed (used, unchecked) or official, and AI items can be promoted or discarded in bulk.
  */
 function Knowledge() {
   const { projectId } = Route.useParams();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const tab: Tab = search.tab ?? 'documents';
-  const peopleView: PeopleView = search.view ?? 'graph';
-  const graph = tab === 'people' && peopleView === 'graph';
-  const view: StatusView = search.status ?? 'all';
+  const pairsView = tab === 'people' && search.view !== 'characters';
+  const graph = pairsView && search.display !== 'table';
+  const view: TrustView = search.trust ?? 'all';
   const set = (next: Partial<KnowledgeSearch>, replace = true) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace });
 
   const documents = useQuery(q.documents(projectId));
@@ -212,94 +179,114 @@ function Knowledge() {
     },
   };
 
-  // The table shown; in the graph the selection may be a person, a relationship or a speech rule.
-  const tableKind: Kind = tab === 'people' ? (peopleView === 'graph' ? 'relationships' : peopleView) : tab;
-  const kind: Kind = graph ? ((['characters', 'relationships', 'speechRules'] as const).find((candidate) => specs[candidate].rows.some((row) => row.id === search.item)) ?? 'relationships') : tableKind;
-  const spec = specs[kind];
-  const rows = specs[tableKind].rows.filter((row) => view === 'all' || row.status === view);
-  const candidates = (kind: Kind) => specs[kind].rows.filter((row) => row.status === 'candidate').length;
-  const tabCandidates = (tab: Tab) => (tab === 'people' ? candidates('characters') + candidates('relationships') + candidates('speechRules') : candidates(tab));
-  const selected = spec.rows.find((row) => row.id === search.item);
-  useReportView('analysis', [selected && { kind: KINDS[kind], id: selected.id, label: spec.label(selected), detail: selected.status === 'candidate' ? 'AI 초안 (확정 전)' : undefined }]);
+  const characters = people.data?.characters ?? [];
+  const shown = (row: Row) => view === 'all' || trustOf(row) === view;
+  const pairs = useMemo(() => buildPairs(characters, specs.relationships.rows, specs.speechRules.rows), [characters, specs.relationships.rows, specs.speechRules.rows]);
+  const visiblePairs = pairs.filter((pair) => view === 'all' || pairTrust(pair) === view);
+  // A link may name a relationship or rule id; it opens the pair holding it.
+  const pair = pairsView ? pairs.find((candidate) => candidate.key === search.item || pairItems(candidate).some((item) => item.row.id === search.item)) : undefined;
+
+  const tableKind: Kind = tab === 'people' ? 'characters' : tab;
+  const spec = specs[tableKind];
+  const rows = spec.rows.filter(shown);
+  const selected = !pairsView ? spec.rows.find((row) => row.id === search.item) : undefined;
+  const unofficial = (kind: Kind) => specs[kind].rows.filter((row) => trustOf(row) !== 'official').length;
+  const tabCount = (tab: Tab) => (tab === 'people' ? unofficial('characters') + unofficial('relationships') + unofficial('speechRules') : unofficial(tab));
+  useReportView('knowledge', [
+    selected && { kind: KINDS[tableKind], id: selected.id, label: spec.label(selected), detail: trustOf(selected) !== 'official' ? `${TRUST_LABELS[trustOf(selected)]} (정식 아님)` : undefined },
+    pair && { kind: '관계·말투', id: pair.key, label: `${pair.from} → ${pair.to}` },
+  ]);
 
   const [checked, setChecked] = useState<Set<string>>(new Set());
-  const visibleChecked = rows.filter((row) => checked.has(row.id) && row.status === 'candidate').map((row) => row.id);
   const decide = useMutation({
-    mutationFn: ({ ids, action }: { ids: string[]; action: 'confirm' | 'discard' }) => unwrap(api.drafts.$post({ param: { projectId }, json: { kind: ids.length === 1 && ids[0] === search.item ? kind : tableKind, ids, action } })),
-    onSuccess: ({ changed }, { action }) => {
+    mutationFn: async ({ items, action }: { items: { kind: Kind; ids: string[] }[]; action: 'confirm' | 'discard' }) => {
+      let changed = 0;
+      for (const { kind, ids } of items) if (ids.length) changed += (await unwrap(api.drafts.$post({ param: { projectId }, json: { kind, ids, action } }))).changed;
+      return changed;
+    },
+    onSuccess: (changed, { action }) => {
       setChecked(new Set());
-      toast.success(action === 'confirm' ? `${changed}개를 확정했습니다.` : `${changed}개 초안을 버렸습니다.`);
+      toast.success(action === 'confirm' ? `${changed}개를 정식으로 올렸습니다.` : `${changed}개 AI 항목을 버렸습니다.`);
     },
     onError: fail,
   });
+  // Bulk actions over the checked rows (pairs expand to their relationship and rules).
+  const checkedItems = (): { kind: Kind; ids: string[] }[] => {
+    if (!pairsView) return [{ kind: tableKind, ids: rows.filter((row) => checked.has(row.id) && trustOf(row) !== 'official').map((row) => row.id) }];
+    const items = visiblePairs.filter((candidate) => checked.has(candidate.key)).flatMap(pairItems).filter((item) => trustOf(item.row) !== 'official');
+    return (['relationships', 'speechRules'] as const).map((kind) => ({ kind, ids: items.filter((item) => item.kind === kind).map((item) => item.row.id) }));
+  };
+  const checkedCount = checkedItems().reduce((sum, item) => sum + item.ids.length, 0);
 
   const create = useMutation({
-    mutationFn: () => specs[tableKind].create!(),
-    onSuccess: (row) => set({ item: row.id, status: undefined }),
+    mutationFn: () => spec.create!(),
+    onSuccess: (row) => set({ item: row.id, trust: undefined }),
     onError: fail,
   });
-  const characters = people.data?.characters ?? [];
-  // Graph edges: each relationship labelled with that direction's speech level, plus pairs that only have a speech rule.
-  const edges = useMemo(() => {
-    const idOf = new Map(characters.flatMap((c) => [c.name, ...c.aliases].map((name) => [name.toLowerCase(), c.id] as const)));
-    const rulesOf = Map.groupBy(
-      (rules.data ?? []).filter((rule) => view === 'all' || rule.status === view),
-      (rule) => `${idOf.get(rule.fromName.toLowerCase())}|${idOf.get(rule.toName.toLowerCase())}`,
-    );
-    const levels = (key: string) => (rulesOf.get(key) ?? []).map((rule) => SPEECH_LEVEL_LABELS[rule.level]).join('→');
-    const rels = specs.relationships.rows.filter((row) => view === 'all' || row.status === view) as unknown as { id: string; fromId: string; toId: string; kind: string; mutual: boolean }[];
-    const seen = new Set(rels.map((rel) => `${rel.fromId}|${rel.toId}`));
-    return [
-      ...rels.map((rel) => ({ ...rel, kind: [rel.kind, levels(`${rel.fromId}|${rel.toId}`)].filter(Boolean).join(' · ') })),
-      ...[...rulesOf.entries()]
-        .filter(([key]) => !seen.has(key) && !key.includes('undefined'))
-        .map(([key, list]) => ({ id: list[0].id, fromId: key.split('|')[0], toId: key.split('|')[1], kind: levels(key), mutual: false })),
-    ];
-  }, [characters, rules.data, specs.relationships.rows, view]);
+  // Pair-specific creation: a relationship between the pair's people, a speech rule for its names.
+  const pairSpecs = (pair: Pair) => ({
+    relationships: { ...specs.relationships, create: pair.fromId && pair.toId ? () => unwrap(api.relationships.$post({ param: { projectId }, json: { fromId: pair.fromId!, toId: pair.toId!, kind: '관계' } as never })) : undefined },
+    speechRules: { ...specs.speechRules, create: () => unwrap(api['speech-rules'].$post({ param: { projectId }, json: { fromName: pair.from, toName: pair.to, level: 'haeyo' } as never })) },
+  });
+  const edges = useMemo(
+    () =>
+      visiblePairs
+        .filter((candidate) => candidate.fromId && candidate.toId)
+        .map((candidate) => ({ id: candidate.key, fromId: candidate.fromId!, toId: candidate.toId!, kind: candidate.relationship ? String(candidate.relationship.kind) : '', mutual: false })),
+    [visiblePairs],
+  );
 
   return (
     <Page title="자료" flush meta={<JobStatus projectId={projectId} />} actions={<StartAnalysis projectId={projectId} />}>
       <div className="flex h-full min-h-0">
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <div className="flex flex-wrap items-center gap-2 border-b px-6 py-2">
-            <Tabs value={tab} onValueChange={(value) => set({ tab: value as Tab, item: undefined, view: undefined }, false)}>
+            <Tabs value={tab} onValueChange={(value) => { setChecked(new Set()); set({ tab: value as Tab, item: undefined, view: undefined, display: undefined }, false); }}>
               <TabsList>
                 {(Object.keys(TABS) as Tab[]).map((tab) => (
                   <TabsTrigger key={tab} value={tab}>
                     {TABS[tab]}
-                    {tabCandidates(tab) > 0 && <span className="ml-1 rounded bg-amber-100 px-1 text-[11px] text-amber-800 tabular-nums">{tabCandidates(tab)}</span>}
+                    {tabCount(tab) > 0 && <span className="ml-1 rounded bg-muted px-1 text-[11px] text-muted-foreground tabular-nums" title="정식이 아닌 AI 항목">{tabCount(tab)}</span>}
                   </TabsTrigger>
                 ))}
               </TabsList>
             </Tabs>
             {tab === 'people' && (
-              <ToggleGroup type="single" variant="outline" size="sm" value={peopleView} onValueChange={(value) => value && set({ view: value === 'graph' ? undefined : (value as KnowledgeSearch['view']), item: undefined }, false)}>
-                {(Object.keys(PEOPLE_VIEWS) as PeopleView[]).map((value) => (
-                  <ToggleGroupItem key={value} value={value} className="px-3">
-                    {value === 'graph' && <Network />}
-                    {PEOPLE_VIEWS[value]}
-                    {value !== 'graph' && candidates(value) > 0 && <span className="ml-1 rounded bg-amber-100 px-1 text-[11px] text-amber-800 tabular-nums">{candidates(value)}</span>}
-                  </ToggleGroupItem>
-                ))}
+              <ToggleGroup type="single" variant="outline" size="sm" value={search.view ?? 'pairs'} onValueChange={(value) => value && (setChecked(new Set()), set({ view: value === 'characters' ? 'characters' : undefined, item: undefined }, false))}>
+                <ToggleGroupItem value="pairs" className="px-3">관계</ToggleGroupItem>
+                <ToggleGroupItem value="characters" className="px-3">인물</ToggleGroupItem>
               </ToggleGroup>
             )}
-            <ToggleGroup type="single" variant="outline" size="sm" value={view} onValueChange={(value) => value && set({ status: value === 'all' ? undefined : (value as KnowledgeSearch['status']), item: undefined })}>
+            {pairsView && (
+              <ToggleGroup type="single" variant="outline" size="sm" value={search.display ?? 'graph'} onValueChange={(value) => value && set({ display: value === 'table' ? 'table' : undefined })}>
+                <ToggleGroupItem value="graph" aria-label="그래프로 보기">
+                  <Network />
+                </ToggleGroupItem>
+                <ToggleGroupItem value="table" aria-label="표로 보기">
+                  <Table2 />
+                </ToggleGroupItem>
+              </ToggleGroup>
+            )}
+            <ToggleGroup type="single" variant="outline" size="sm" value={view} onValueChange={(value) => value && set({ trust: value === 'all' ? undefined : (value as Trust), item: undefined })}>
               <ToggleGroupItem value="all">전체</ToggleGroupItem>
-              <ToggleGroupItem value="candidate">후보</ToggleGroupItem>
-              <ToggleGroupItem value="confirmed">확정</ToggleGroupItem>
+              {TRUST_LEVELS.map((level) => (
+                <ToggleGroupItem key={level} value={level}>
+                  {TRUST_LABELS[level]}
+                </ToggleGroupItem>
+              ))}
             </ToggleGroup>
             <div className="ml-auto flex items-center gap-2">
-              {visibleChecked.length > 0 && (
+              {checkedCount > 0 && (
                 <>
-                  <span className="text-sm text-muted-foreground tabular-nums">{visibleChecked.length}개 선택</span>
-                  <Button size="sm" variant="outline" disabled={decide.isPending} onClick={() => decide.mutate({ ids: visibleChecked, action: 'confirm' })}>
-                    <Check /> 확정
+                  <span className="text-sm text-muted-foreground tabular-nums">{checkedCount}개 선택</span>
+                  <Button size="sm" variant="outline" disabled={decide.isPending} onClick={() => decide.mutate({ items: checkedItems(), action: 'confirm' })}>
+                    <Check /> 정식으로
                   </Button>
-                  <DiscardButton count={visibleChecked.length} onConfirm={() => decide.mutate({ ids: visibleChecked, action: 'discard' })} />
+                  <DiscardButton count={checkedCount} onConfirm={() => decide.mutate({ items: checkedItems(), action: 'discard' })} />
                 </>
               )}
-              {!graph && (
-                <Button size="sm" variant="outline" disabled={!specs[tableKind].create || create.isPending} title={specs[tableKind].create ? undefined : '인물이 둘 이상 있어야 관계를 만들 수 있습니다'} onClick={() => create.mutate()}>
+              {!pairsView && (
+                <Button size="sm" variant="outline" disabled={!spec.create || create.isPending} onClick={() => create.mutate()}>
                   <Plus /> 추가
                 </Button>
               )}
@@ -310,415 +297,102 @@ function Knowledge() {
               <RelationshipGraph
                 characters={characters}
                 relationships={edges}
-                selectedCharacterId={kind === 'characters' ? search.item : undefined}
-                selectedRelationshipId={kind !== 'characters' ? search.item : undefined}
-                onSelectCharacter={(id) => set({ item: id })}
-                onSelectRelationship={(id) => set({ item: id })}
+                selectedRelationshipId={pair?.key}
+                onSelectCharacter={(id) => set({ view: 'characters', item: id }, false)}
+                onSelectRelationship={(key) => set({ item: key })}
                 onClear={() => set({ item: undefined })}
               />
             </div>
           ) : (
-          <ScrollArea className="min-h-0 flex-1">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-10 pl-6">
-                    <Checkbox
-                      aria-label="모든 후보 선택"
-                      checked={rows.some((row) => row.status === 'candidate') && rows.filter((row) => row.status === 'candidate').every((row) => checked.has(row.id))}
-                      onCheckedChange={(value) => setChecked(new Set(value ? rows.filter((row) => row.status === 'candidate').map((row) => row.id) : []))}
-                    />
-                  </TableHead>
-                  {spec.columns.map((column) => (
-                    <TableHead key={column.head}>{column.head}</TableHead>
-                  ))}
-                  <TableHead className="w-28">상태</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((row) => (
-                  <TableRow key={row.id} data-state={row.id === search.item ? 'selected' : undefined} className="cursor-pointer" onClick={() => set({ item: row.id === search.item ? undefined : row.id })}>
-                    <TableCell className="pl-6" onClick={(event) => event.stopPropagation()}>
-                      {row.status === 'candidate' && (
+            <ScrollArea className="min-h-0 flex-1">
+              {pairsView ? (
+                <PairTable
+                  pairs={visiblePairs}
+                  selected={pair?.key}
+                  checked={checked}
+                  onCheck={(keys, on) => setChecked((previous) => { const next = new Set(previous); for (const key of keys) if (on) next.add(key); else next.delete(key); return next; })}
+                  onOpen={(key) => set({ item: key === pair?.key ? undefined : key })}
+                />
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-10 pl-6">
                         <Checkbox
-                          aria-label={`${spec.label(row)} 선택`}
-                          checked={checked.has(row.id)}
-                          onCheckedChange={(value) => setChecked((previous) => { const next = new Set(previous); if (value) next.add(row.id); else next.delete(row.id); return next; })}
+                          aria-label="정식이 아닌 항목 모두 선택"
+                          checked={rows.some((row) => trustOf(row) !== 'official') && rows.filter((row) => trustOf(row) !== 'official').every((row) => checked.has(row.id))}
+                          onCheckedChange={(value) => setChecked(new Set(value ? rows.filter((row) => trustOf(row) !== 'official').map((row) => row.id) : []))}
                         />
-                      )}
-                    </TableCell>
-                    {spec.columns.map((column) => (
-                      <TableCell key={column.head} className={cn('max-w-80', column.className)}>
-                        {column.cell(row)}
-                      </TableCell>
+                      </TableHead>
+                      {spec.columns.map((column) => (
+                        <TableHead key={column.head}>{column.head}</TableHead>
+                      ))}
+                      <TableHead className="w-24">신뢰</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {rows.map((row) => (
+                      <TableRow key={row.id} data-state={row.id === search.item ? 'selected' : undefined} className="cursor-pointer" onClick={() => set({ item: row.id === search.item ? undefined : row.id })}>
+                        <TableCell className="pl-6" onClick={(event) => event.stopPropagation()}>
+                          {trustOf(row) !== 'official' && (
+                            <Checkbox
+                              aria-label={`${spec.label(row)} 선택`}
+                              checked={checked.has(row.id)}
+                              onCheckedChange={(value) => setChecked((previous) => { const next = new Set(previous); if (value) next.add(row.id); else next.delete(row.id); return next; })}
+                            />
+                          )}
+                        </TableCell>
+                        {spec.columns.map((column) => (
+                          <TableCell key={column.head} className={cn('max-w-80', column.className)}>
+                            {column.cell(row)}
+                          </TableCell>
+                        ))}
+                        <TableCell>
+                          <TrustBadge row={row} />
+                        </TableCell>
+                      </TableRow>
                     ))}
-                    <TableCell>
-                      <StatusBadge row={row} />
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {rows.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={spec.columns.length + 2} className="py-12 text-center text-muted-foreground">
-                      {view === 'candidate' ? `검토할 ${KINDS[tableKind]} 초안이 없습니다. 위의 “작품 분석”으로 대본 전체를 읽혀 초안을 만드세요.` : `${KINDS[tableKind]} 항목이 없습니다. “추가”로 직접 만들거나 “작품 분석”으로 초안을 받으세요.`}
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </ScrollArea>
+                    {rows.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={spec.columns.length + 2} className="py-12 text-center text-muted-foreground">
+                          {view === 'all' ? `${KINDS[tableKind]} 항목이 없습니다. “추가”로 직접 만들거나 “작품 분석”으로 초안을 받으세요.` : `${TRUST_LABELS[view]}인 ${KINDS[tableKind]} 항목이 없습니다.`}
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              )}
+            </ScrollArea>
           )}
         </div>
         {selected && (
           <div className="w-[420px] shrink-0 border-l">
-            <DraftEditor key={selected.id} projectId={projectId} kind={kind} spec={spec} row={selected} characters={characters} onClose={() => set({ item: undefined })} onDecide={(action) => decide.mutate({ ids: [selected.id], action })} />
+            <DraftEditor
+              key={selected.id}
+              projectId={projectId}
+              kind={tableKind}
+              spec={spec}
+              row={selected}
+              characters={characters}
+              onClose={() => set({ item: undefined })}
+              onDecide={(action) => decide.mutate({ items: [{ kind: tableKind, ids: [selected.id] }], action })}
+            />
+          </div>
+        )}
+        {pair && (
+          <div className="w-[440px] shrink-0 border-l">
+            <PairDetail
+              key={pair.key}
+              projectId={projectId}
+              pair={pair}
+              {...pairSpecs(pair)}
+              characters={characters}
+              onClose={() => set({ item: undefined })}
+              onDecide={(kind, ids, action) => decide.mutate({ items: [{ kind, ids }], action })}
+            />
           </div>
         )}
       </div>
     </Page>
-  );
-}
-
-function StatusBadge({ row }: { row: Draft }) {
-  return row.status === 'candidate' ? (
-    <Badge variant="outline" className="border-amber-300 text-amber-800">
-      후보 · {KNOWLEDGE_ORIGIN_LABELS[row.origin]}
-    </Badge>
-  ) : (
-    <span className="text-xs text-muted-foreground">확정 · {KNOWLEDGE_ORIGIN_LABELS[row.origin]}</span>
-  );
-}
-
-function DiscardButton({ count, onConfirm }: { count: number; onConfirm: () => void }) {
-  return (
-    <AlertDialog>
-      <AlertDialogTrigger asChild>
-        <Button size="sm" variant="ghost" className="text-destructive">
-          <Trash2 /> 버리기
-        </Button>
-      </AlertDialogTrigger>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>초안 {count}개를 버릴까요?</AlertDialogTitle>
-          <AlertDialogDescription>후보 상태인 초안만 지워집니다. 다시 분석하면 다시 제안될 수 있습니다.</AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>취소</AlertDialogCancel>
-          <AlertDialogAction onClick={onConfirm}>버리기</AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-  );
-}
-
-/** Right pane: edit the draft (unsaved edits survive navigation), see its evidence, confirm or discard it. */
-function DraftEditor({ projectId, kind, spec, row, characters, onClose, onDecide }: { projectId: string; kind: Kind; spec: KindSpec; row: Draft & Record<string, unknown>; characters: { id: string; name: string }[]; onClose: () => void; onDecide: (action: 'confirm' | 'discard') => void }) {
-  const saved = JSON.stringify(Object.fromEntries(spec.fields.map((field) => [field.name, row[field.name] ?? null])));
-  const [draft, setDraft, clear] = useDraft(`knowledge.${kind}.${row.id}`, saved);
-  const form = JSON.parse(draft) as Record<string, Value>;
-  const dirty = draft !== saved;
-  const update = (name: string, value: Value) => setDraft(JSON.stringify({ ...form, [name]: value }));
-  const save = useMutation({
-    mutationFn: () => spec.save(row.id, form),
-    onSuccess: () => {
-      clear();
-      toast.success('저장했습니다.');
-    },
-    onError: fail,
-  });
-  const remove = useMutation({ mutationFn: () => spec.remove(row.id), onSuccess: onClose, onError: fail });
-
-  return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center justify-between gap-2 border-b px-4 py-2">
-        <div className="min-w-0">
-          <h2 className="truncate text-sm font-semibold">{spec.label(row)}</h2>
-          <StatusBadge row={row} />
-        </div>
-        <Button variant="ghost" size="icon" className="size-7" onClick={onClose} aria-label="닫기">
-          <X />
-        </Button>
-      </div>
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="flex flex-col gap-4 p-4">
-          {spec.fields.map((field) => (
-            <FieldInput key={field.name} field={field} value={form[field.name]} characters={characters} onChange={(value) => update(field.name, value)} />
-          ))}
-          {spec.extra?.(row)}
-          <Evidence projectId={projectId} keys={row.evidence} />
-        </div>
-      </ScrollArea>
-      <div className="flex items-center gap-2 border-t p-3">
-        {row.status === 'candidate' ? (
-          <>
-            <Button size="sm" variant="ghost" className="text-destructive" onClick={() => onDecide('discard')}>
-              <Trash2 /> 버리기
-            </Button>
-            <div className="ml-auto flex gap-2">
-              <Button size="sm" variant="outline" disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
-                저장
-              </Button>
-              <Button size="sm" disabled={dirty} title={dirty ? '먼저 저장하세요' : undefined} onClick={() => onDecide('confirm')}>
-                <Check /> 확정
-              </Button>
-            </div>
-          </>
-        ) : (
-          <>
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button size="sm" variant="ghost" className="text-destructive">
-                  <Trash2 /> 삭제
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>확정된 항목을 삭제할까요?</AlertDialogTitle>
-                  <AlertDialogDescription>“{spec.label(row)}”이(가) 사라지고 더 이상 AI 문맥에 쓰이지 않습니다.</AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>취소</AlertDialogCancel>
-                  <AlertDialogAction onClick={() => remove.mutate()}>삭제</AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-            <Button size="sm" className="ml-auto" disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
-              저장
-            </Button>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function FieldInput({ field, value, characters, onChange }: { field: Field; value: Value; characters: { id: string; name: string }[]; onChange: (value: Value) => void }) {
-  const id = `field-${field.name}`;
-  if (field.type === 'bool')
-    return (
-      <div className="flex items-center justify-between">
-        <Label htmlFor={id}>{field.label}</Label>
-        <Switch id={id} checked={Boolean(value)} onCheckedChange={onChange} />
-      </div>
-    );
-  return (
-    <div className="space-y-1.5">
-      <Label htmlFor={id}>{field.label}</Label>
-      {field.type === 'long' ? (
-        <Textarea id={id} rows={field.name === 'body' ? 16 : 4} className={field.name === 'body' ? 'font-mono text-xs' : undefined} value={text(value)} onChange={(event) => onChange(event.target.value)} />
-      ) : field.type === 'docKind' || field.type === 'character' ? (
-        <Select value={text(value)} onValueChange={onChange}>
-          <SelectTrigger id={id} className="w-full">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {(field.type === 'docKind' ? DOCUMENT_KINDS.map((kind) => ({ id: kind, name: DOCUMENT_KIND[kind] })) : characters).map((option) => (
-              <SelectItem key={option.id} value={option.id}>
-                {option.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      ) : field.type === 'list' ? (
-        <Input id={id} value={(value as string[] | null)?.join(', ') ?? ''} onChange={(event) => onChange(event.target.value.split(',').map((part) => part.trim()).filter(Boolean))} />
-      ) : field.type === 'level' ? (
-        <Select value={text(value)} onValueChange={onChange}>
-          <SelectTrigger id={id} className="w-full">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {SPEECH_LEVELS.map((level) => (
-              <SelectItem key={level} value={level}>
-                {SPEECH_LEVEL_LABELS[level]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      ) : (
-        <Input id={id} className={field.type === 'key' ? 'font-mono text-xs' : undefined} value={text(value)} onChange={(event) => onChange(field.type === 'key' ? event.target.value.trim() || null : event.target.value)} />
-      )}
-    </div>
-  );
-}
-
-/** The lines a draft cites, opening in the script. Keys that are not lines were already dropped by the server. */
-function Evidence({ projectId, keys }: { projectId: string; keys: string[] }) {
-  const lines = useQuery(q.linesByKeys(projectId, keys.slice(0, 50)));
-  return (
-    <section className="space-y-2 border-t pt-4">
-      <h3 className="text-xs font-medium text-muted-foreground">근거 대사 {keys.length}개</h3>
-      {keys.length === 0 && <p className="text-xs text-muted-foreground">근거로 든 대사가 없습니다.</p>}
-      <ul className="space-y-1">
-        {lines.data?.map((line) => (
-          <li key={line.id}>
-            <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.groupId, line: line.id }} className="block rounded px-2 py-1 text-xs hover:bg-muted">
-              <span className="text-muted-foreground">{line.groupTitle} · </span>
-              {line.speaker && <span className="font-medium">{line.speaker}: </span>}
-              {line.source}
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-/** Lines the rule governs and what their translations end in; after fixing the rule, re-run just these. */
-function RuleLines({ projectId, ruleId, candidate }: { projectId: string; ruleId: string; candidate: boolean }) {
-  const lines = useQuery(q.ruleLines(projectId, ruleId));
-  const levels = Object.entries(lines.data?.levels ?? {}).sort((a, b) => b[1] - a[1]);
-  return (
-    <section className="space-y-2 border-t pt-4">
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="text-xs font-medium text-muted-foreground">{candidate ? '확정하면 적용될' : '이 규칙이 적용되는'} 대사 {lines.data?.count ?? '…'}개</h3>
-        {!!lines.data?.count && !candidate && (
-          <RunDialog
-            projectId={projectId}
-            unitIds={lines.data.unitIds}
-            defaultIgnoreStatus
-            preferWorkflow={SPEECH_FIX_WORKFLOW}
-            trigger={
-              <Button size="sm" variant="outline">
-                <Play /> 다시 실행
-              </Button>
-            }
-          />
-        )}
-      </div>
-      <p className="text-[11px] text-muted-foreground">
-        청자가 정해진 이 쌍의 대사(같은 쌍의 다음 구간 전까지)입니다. 규칙을 고쳤다면 “{SPEECH_FIX_WORKFLOW}”로 이 대사들의 어미·호칭만 다시 맞추세요.
-      </p>
-      {levels.length > 0 && (
-        <p className="text-xs">
-          지금 번역의 말투(어미 추정):{' '}
-          {levels.map(([level, count]) => `${level === 'unknown' ? '판단 불가·번역 없음' : SPEECH_LEVEL_LABELS[level as SpeechLevel]} ${count}`).join(' · ')}
-        </p>
-      )}
-      <ul className="max-h-60 space-y-1 overflow-auto">
-        {lines.data?.rows.map((line) => (
-          <li key={line.id}>
-            <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.groupId, line: line.id }} className="block rounded px-2 py-1 text-xs hover:bg-muted">
-              <span className="text-muted-foreground">{line.groupTitle} · </span>
-              {line.source}
-              {line.translation && <span className="block text-muted-foreground">{line.translation}</span>}
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-function RelationshipChanges({ projectId, changes }: { projectId: string; changes: { at: string; change: string; cause: string }[] }) {
-  const lines = useQuery(q.linesByKeys(projectId, changes.map((change) => change.at)));
-  if (!changes.length) return null;
-  const byKey = new Map(lines.data?.map((line) => [line.key, line]));
-  return (
-    <section className="space-y-2">
-      <h3 className="text-xs font-medium text-muted-foreground">관계 변화</h3>
-      <ul className="space-y-2">
-        {changes.map((change) => {
-          const line = byKey.get(change.at);
-          return (
-            <li key={`${change.at}-${change.change}`} className="rounded border p-2 text-xs">
-              <p>{change.change}</p>
-              {change.cause && <p className="text-muted-foreground">계기: {change.cause}</p>}
-              {line && (
-                <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.groupId, line: line.id }} className="mt-1 block text-muted-foreground hover:underline">
-                  {line.speaker && `${line.speaker}: `}
-                  {line.source}
-                </Link>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-    </section>
-  );
-}
-
-function JobStatus({ projectId }: { projectId: string }) {
-  const jobs = useQuery(q.analysisJobs(projectId));
-  const cancel = useMutation({ mutationFn: (jobId: string) => unwrap(client.projects[':projectId'].analysis[':jobId'].cancel.$post({ param: { projectId, jobId } })), onError: fail });
-  const job = jobs.data?.[0];
-  if (!job) return <span>작품 분석을 돌리면 대본 전체를 읽고 아래 다섯 가지 초안을 만듭니다.</span>;
-  const when = new Date(job.finishedAt ?? job.createdAt).toLocaleString();
-  if (job.status === 'running')
-    return (
-      <span className="flex items-center gap-2">
-        <Sparkles className="size-4 animate-pulse" /> 대본 전체를 읽는 중 · {job.model} · {job.partsDone}/{job.partsTotal} 부분
-        <Button size="sm" variant="ghost" className="h-7" onClick={() => cancel.mutate(job.id)}>
-          <Square /> 중단
-        </Button>
-      </span>
-    );
-  if (job.status === 'failed') return <span className="text-destructive">분석 실패 ({when}): {job.error}</span>;
-  if (job.status === 'cancelled') return <span>분석을 중단했습니다 ({when}).</span>;
-  const result = job.result ?? {};
-  const total = ['documents', 'characters', 'relationships', 'events', 'speechRules'].reduce((sum, kind) => sum + (result[kind] ?? 0), 0);
-  return (
-    <span>
-      마지막 분석 {when} · {job.model} · 초안 {total}개{result.invalidEvidence ? ` · 대본에 없는 근거 ${result.invalidEvidence}개 제외` : ''}
-    </span>
-  );
-}
-
-function StartAnalysis({ projectId }: { projectId: string }) {
-  const profiles = useQuery(q.profiles());
-  const jobs = useQuery(q.analysisJobs(projectId));
-  const [profileId, setProfileId] = useState<string>();
-  const [autoConfirm, setAutoConfirm] = useState(true);
-  const [open, setOpen] = useState(false);
-  const start = useMutation({
-    mutationFn: () => unwrap(client.projects[':projectId'].analysis.$post({ param: { projectId }, json: { profileId: profileId!, autoConfirm } })),
-    onSuccess: () => {
-      setOpen(false);
-      toast.success('작품 분석을 시작했습니다. 끝나면 초안이 여기에 들어옵니다.');
-    },
-    onError: fail,
-  });
-  const running = jobs.data?.[0]?.status === 'running';
-  const hasDrafts = (jobs.data ?? []).some((job) => job.status === 'completed');
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button size="sm" disabled={running}>
-          <Sparkles /> {hasDrafts ? '작품 다시 분석' : '작품 분석'}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-80 space-y-3">
-        <div className="space-y-1">
-          <h3 className="text-sm font-semibold">작품 분석</h3>
-          <p className="text-xs text-muted-foreground">
-            모델이 대본 전체를 한 번에 읽고 개요·인물·관계·사건·말투 규칙 초안을 근거와 함께 만듭니다. 번역과 상태는 바뀌지 않습니다. 긴 문맥 모델을 권장하고, 출력 한도가 작으면 답이 잘릴 수 있습니다.
-            {hasDrafts && ' 다시 분석하면 사람이 고치거나 확정하지 않은 AI 항목이 새 결과로 바뀝니다.'}
-          </p>
-        </div>
-        <Select value={profileId} onValueChange={setProfileId}>
-          <SelectTrigger className="w-full" aria-label="모델 프로필">
-            <SelectValue placeholder="모델 프로필 선택" />
-          </SelectTrigger>
-          <SelectContent>
-            {profiles.data?.map((profile) => (
-              <SelectItem key={profile.id} value={profile.id}>
-                {profile.name} · {profile.model} · 출력 {profile.maxOutputTokens.toLocaleString()}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <div className="space-y-1">
-          <div className="flex items-center justify-between">
-            <Label htmlFor="auto-confirm">자동 확정</Label>
-            <Switch id="auto-confirm" checked={autoConfirm} onCheckedChange={setAutoConfirm} />
-          </div>
-          <p className="text-[11px] text-muted-foreground">
-            {autoConfirm ? '결과가 바로 번역 문맥에 쓰입니다. 틀린 것을 발견하면 고치고 그 규칙의 대사만 다시 실행하세요.' : '결과가 후보로 들어오고, 확정한 것만 번역 문맥에 쓰입니다.'}
-          </p>
-        </div>
-        <Button className="w-full" disabled={!profileId || start.isPending} onClick={() => start.mutate()}>
-          <Play /> 시작
-        </Button>
-      </PopoverContent>
-    </Popover>
   );
 }

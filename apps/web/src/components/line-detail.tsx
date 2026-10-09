@@ -271,7 +271,7 @@ export function LineChecks({ projectId, source, text, terms, rules, speech }: { 
         <div>
           <h3 className="mb-1.5 text-xs font-medium text-muted-foreground">말투 규칙 (→ {speech.listener}{speech.byOrder ? ', 구간은 대본 순서 기준' : ''})</h3>
           <div className="flex items-center gap-2 text-sm">
-            <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', view: 'speechRules', item: speech.ruleId }} className="min-w-0 truncate hover:underline">
+            <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', item: speech.ruleId }} className="min-w-0 truncate hover:underline">
               {speech.rule}
             </Link>
             <span className={cn('ml-auto shrink-0 text-xs', !guessed || speech.level === 'other' ? 'text-muted-foreground' : guessed === speech.level ? 'text-emerald-700' : 'text-amber-700')}>
@@ -306,7 +306,7 @@ export function LineChecks({ projectId, source, text, terms, rules, speech }: { 
               const ok = kept(term.target);
               return (
                 <li key={term.id} className="flex items-center gap-2">
-                  <Link to="/p/$projectId/glossary" params={{ projectId }} search={{ term: term.id, view: term.status === 'candidate' ? 'candidate' : undefined }} className="min-w-0 truncate hover:underline">
+                  <Link to="/p/$projectId/glossary" params={{ projectId }} search={{ term: term.id }} className="min-w-0 truncate hover:underline">
                     <b>{term.source}</b> → {term.target || <span className="text-muted-foreground">(번역 없음)</span>}
                   </Link>
                   {term.status === 'candidate' && <Badge variant="outline" className="px-1.5 py-0 text-[11px]">후보</Badge>}
