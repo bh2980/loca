@@ -44,6 +44,13 @@ export const addTermsParams = z.object({
   autoConfirm: z.boolean().default(false),
 });
 
+export const applyKnowledgeParams = z.object({
+  /** AI node whose "knowledge" output to apply. Empty = the most recent one on the line. */
+  fromNodeId: z.string().default(''),
+  /** New items are used as context right away (still marked AI) instead of waiting as candidates. */
+  autoConfirm: z.boolean().default(true),
+});
+
 export const setListenerParams = z.object({
   /** AI node whose "listener" output to record. Empty = the most recent listener output on the line. */
   fromNodeId: z.string().default(''),
@@ -112,6 +119,13 @@ export const FUNCTIONS = {
     label: '용어 후보 추가',
     description: 'AI 노드가 뽑은 용어를 용어집에 추가합니다. 기본은 후보(수락 후 문맥에 쓰임), 자동 확정을 켜면 바로 쓰입니다.',
     params: addTermsParams,
+    ports: () => out,
+    async: false,
+  },
+  applyKnowledge: {
+    label: '자료 반영',
+    description: 'AI 노드가 찾은 새 인물·관계 변화·사건·말투 구간을 자료에 넣습니다(출처: AI). 정식 자료는 바꾸지 않고, 다르게 보는 내용은 “AI 후보” 변경 제안으로 남깁니다.',
+    params: applyKnowledgeParams,
     ports: () => out,
     async: false,
   },

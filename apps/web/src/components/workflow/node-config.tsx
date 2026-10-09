@@ -349,6 +349,29 @@ function FunctionConfig({ node, refs, readOnly, onChange }: { node: FunctionNode
         </>
       );
     }
+    case 'applyKnowledge': {
+      const sources = refs.nodes.filter((other) => other.type === 'ai' && other.config.output === 'knowledge');
+      return (
+        <>
+          <Field label="자료 변경을 가져올 AI 노드" hint="정식 자료는 바꾸지 않습니다. 다른 의견은 후보로 남깁니다.">
+            <Select value={(params.fromNodeId as string) || 'latest'} onValueChange={(value) => set('fromNodeId', value === 'latest' ? '' : value)}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="latest">가장 최근 자료 변경 출력</SelectItem>
+                {sources.map((other) => (
+                  <SelectItem key={other.id} value={other.id}>
+                    {nodeName(other)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+          <ToggleRow label="자동 확정 (새 항목을 바로 문맥에 씀, AI 표시는 유지)" checked={params.autoConfirm as boolean} onChange={(value) => set('autoConfirm', value)} />
+        </>
+      );
+    }
     case 'setListener': {
       const sources = refs.nodes.filter((other) => other.type === 'ai' && other.config.output === 'listener');
       return (

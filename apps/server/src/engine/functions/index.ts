@@ -2,6 +2,7 @@ import { and, eq } from 'drizzle-orm';
 import { get } from 'es-toolkit/compat';
 import {
   addTermsParams,
+  applyKnowledgeParams,
   checkFormat,
   formatCheckParams,
   httpParams,
@@ -15,6 +16,7 @@ import * as s from '../../db/schema.ts';
 import type { SecretStore } from '../../services/secrets.ts';
 import { runScript } from './sandbox.ts';
 import { speechMismatch, speechRuleIndex } from '../../services/speech.ts';
+import type { KnowledgeOutput } from '../prompts.ts';
 
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 type Unit = typeof s.units.$inferSelect;
@@ -117,6 +119,81 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
       added++;
     }
     return { port: 'out', output: { added } };
+  },
+
+  applyKnowledge(tx, raw, input) {
+    const params = applyKnowledgeParams.parse(raw);
+    const outputs = Object.entries(input.item.data.outputs ?? {});
+    const source = params.fromNodeId ? input.item.data.outputs?.[params.fromNodeId] : outputs.reverse().find(([, output]) => 'knowledge' in output)?.[1];
+    const found = (source?.knowledge ?? null) as KnowledgeOutput | null;
+    if (!found) return { port: 'out', output: { added: 0, proposed: 0, reason: '자료 변경 출력이 없습니다.' } };
+    const projectId = input.projectId;
+    const status = params.autoConfirm ? ('confirmed' as const) : ('candidate' as const);
+    const ai = { origin: 'ai' as const, status };
+    const lower = (value: string) => value.trim().toLowerCase();
+    let added = 0;
+    let proposed = 0;
+
+    // The batch's lines all carry the same change set; every insert checks first, so applying it again adds nothing.
+    const people = tx.select().from(s.characters).where(eq(s.characters.projectId, projectId)).all();
+    const idOf = new Map(people.flatMap((c) => [c.name, ...c.aliases].map((name) => [lower(name), c.id] as const)));
+    for (const person of found.characters) {
+      if ([person.name, ...person.aliases].some((name) => idOf.has(lower(name)))) continue;
+      const row = tx.insert(s.characters).values({ projectId, name: person.name, aliases: person.aliases, profile: person.profile, evidence: [input.unit.key], ...ai }).returning({ id: s.characters.id }).get();
+      for (const name of [person.name, ...person.aliases]) idOf.set(lower(name), row.id);
+      added++;
+    }
+
+    const rels = tx.select().from(s.relationships).where(eq(s.relationships.projectId, projectId)).all();
+    for (const rel of found.relationships) {
+      const fromId = idOf.get(lower(rel.from));
+      const toId = idOf.get(lower(rel.to));
+      if (!fromId || !toId) continue;
+      const change = rel.change && rel.at ? { at: rel.at, change: rel.change, cause: '' } : null;
+      const same = rels.filter((existing) => existing.fromId === fromId && existing.toId === toId);
+      if (!same.length) {
+        rels.push(tx.insert(s.relationships).values({ projectId, fromId, toId, kind: rel.kind, description: rel.description, changes: change ? [change] : [], evidence: change ? [change.at] : [], ...ai }).returning().get());
+        added++;
+        continue;
+      }
+      if (!change || same.some((existing) => existing.changes.some((known) => known.at === change.at))) continue;
+      const open = same.find((existing) => existing.origin === 'ai' && !existing.reviewed);
+      if (open) {
+        // An unchecked AI relationship just gains the change.
+        tx.update(s.relationships).set({ changes: [...open.changes, change], evidence: [...open.evidence, change.at] }).where(eq(s.relationships.id, open.id)).run();
+        open.changes = [...open.changes, change];
+        added++;
+      } else {
+        // Official knowledge is never edited by AI: the change waits as a candidate beside it.
+        rels.push(tx.insert(s.relationships).values({ projectId, fromId, toId, kind: rel.kind, description: `변경 제안: ${rel.change}`, changes: [change], evidence: [change.at], origin: 'ai', status: 'candidate' }).returning().get());
+        proposed++;
+      }
+    }
+
+    const titles = new Set(tx.select({ title: s.storyEvents.title }).from(s.storyEvents).where(eq(s.storyEvents.projectId, projectId)).all().map((row) => lower(row.title)));
+    for (const event of found.events) {
+      if (titles.has(lower(event.title))) continue;
+      titles.add(lower(event.title));
+      tx.insert(s.storyEvents).values({ projectId, title: event.title, summary: event.summary, outcome: event.outcome, participants: event.participants, evidence: event.evidence, ...ai }).run();
+      added++;
+    }
+
+    const rules = tx.select().from(s.speechRules).where(eq(s.speechRules.projectId, projectId)).all();
+    for (const rule of found.speechRules) {
+      const pair = rules.filter((existing) => lower(existing.fromName) === lower(rule.from) && lower(existing.toName) === lower(rule.to));
+      if (pair.some((existing) => existing.startKey === rule.start && existing.level === rule.level)) continue;
+      // A different level for a stretch a person already decided is a proposal, not a new rule.
+      const disagrees = pair.some((existing) => existing.startKey === rule.start && (existing.origin !== 'ai' || existing.reviewed));
+      rules.push(
+        tx.insert(s.speechRules)
+          .values({ projectId, fromName: rule.from, toName: rule.to, level: rule.level, address: rule.address, note: rule.note, startKey: rule.start, evidence: rule.start ? [rule.start] : [input.unit.key], origin: 'ai', status: disagrees ? 'candidate' : status })
+          .returning()
+          .get(),
+      );
+      if (disagrees) proposed++;
+      else added++;
+    }
+    return { port: 'out', output: { added, proposed } };
   },
 
   setListener(tx, raw, input) {

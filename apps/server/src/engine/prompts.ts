@@ -1,10 +1,19 @@
 import { z } from 'zod';
-import type { AiNode, JsonField } from '@tw/shared';
+import { SPEECH_LEVEL_GUIDE, SPEECH_LEVELS, type AiNode, type JsonField } from '@tw/shared';
 import type { BatchContext, LineContext } from '../services/context.ts';
 
 const hasBranches = (context: BatchContext) => Object.values(context.preceding).some((preceding) => preceding.branches.length > 0);
 
 const fieldType = (field: JsonField) => (field.type === 'number' ? z.number() : field.type === 'boolean' ? z.boolean() : z.string());
+
+/** What a "knowledge" AI node returns for a batch; line ids are the prompt's ("1", "2"…). */
+export const knowledgeOutputSchema = z.object({
+  characters: z.array(z.object({ name: z.string(), aliases: z.array(z.string()), profile: z.string() })),
+  relationships: z.array(z.object({ from: z.string(), to: z.string(), kind: z.string(), description: z.string(), change: z.string().nullable(), at: z.string().nullable() })),
+  events: z.array(z.object({ title: z.string(), summary: z.string(), outcome: z.string(), participants: z.array(z.string()), evidence: z.array(z.string()) })),
+  speechRules: z.array(z.object({ from: z.string(), to: z.string(), level: z.enum(SPEECH_LEVELS), address: z.string(), note: z.string(), start: z.string().nullable() })),
+});
+export type KnowledgeOutput = z.infer<typeof knowledgeOutputSchema>;
 
 /** The structured answer an AI node must return, by output kind. Every per-line entry carries the line id. */
 export function outputSchema(node: AiNode): z.ZodType<unknown> {
@@ -15,6 +24,8 @@ export function outputSchema(node: AiNode): z.ZodType<unknown> {
       return z.object({ results: z.array(z.object({ id: z.string(), passed: z.boolean(), issues: z.array(z.string()) })) });
     case 'terms':
       return z.object({ terms: z.array(z.object({ source: z.string(), target: z.string(), note: z.string() })) });
+    case 'knowledge':
+      return knowledgeOutputSchema;
     case 'listener':
       return z.object({ listeners: z.array(z.object({ id: z.string(), listener: z.string().nullable(), confidence: z.number() })) });
     case 'json':
@@ -28,6 +39,7 @@ const CONTRACT: Record<AiNode['config']['output'], string> = {
   candidate: 'Return one translation per line id in "translations".',
   verdict: 'Return one result per line id in "results": passed, and concrete issues (empty when passed).',
   terms: 'Return the terms found across all lines in "terms" (source, target, note). Return an empty list when there are none.',
+  knowledge: `Return what these lines add in "characters", "relationships" (with "change" and the line id "at" where it shows), "events" (with evidence line ids) and "speechRules" (level is one of: ${SPEECH_LEVEL_GUIDE}; "start" is the line id where the new level begins). Empty lists when nothing is new.`,
   listener: 'Return one entry per line id in "listeners": listener (a cast name, "group", "self" or null) and confidence (0 to 1).',
   json: 'Return one object per line id in "results" with the requested fields.',
 };

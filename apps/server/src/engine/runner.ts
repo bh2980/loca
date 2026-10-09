@@ -10,7 +10,7 @@ import { buildContext } from '../services/context.ts';
 import { resolveRoutes } from '../services/routes.ts';
 import type { SecretStore } from '../services/secrets.ts';
 import { runAsyncFunction, syncFunctions, type FunctionInput, type FunctionResult } from './functions/index.ts';
-import { buildPrompt, outputSchema, type PromptLine } from './prompts.ts';
+import { buildPrompt, outputSchema, type KnowledgeOutput, type PromptLine } from './prompts.ts';
 
 export interface ModelPort {
   generate: typeof ai.generate;
@@ -401,6 +401,19 @@ export class Runner {
       case 'terms':
         // Terms describe the whole batch; every line carries them so a later "add terms" sees them.
         return lines.map(() => ({ port: 'out', output: { terms: value.terms ?? [] } }));
+      case 'knowledge': {
+        // Like terms, the change set describes the whole batch; line ids become line keys so it outlives the prompt.
+        const keyOf = new Map(lines.map((line) => [line.id, line.key]));
+        const known = (id: string | null | undefined) => (id ? (keyOf.get(id) ?? null) : null);
+        const found = raw as KnowledgeOutput;
+        const knowledge = {
+          characters: found.characters ?? [],
+          relationships: (found.relationships ?? []).map((rel) => ({ ...rel, at: known(rel.at) })),
+          events: (found.events ?? []).map((event) => ({ ...event, evidence: event.evidence.flatMap((id) => (keyOf.get(id) ? [keyOf.get(id)!] : [])) })),
+          speechRules: (found.speechRules ?? []).map((rule) => ({ ...rule, start: known(rule.start) })),
+        };
+        return lines.map(() => ({ port: 'out', output: { knowledge } }));
+      }
       case 'listener':
         return lines.map((line) => {
           const entry = value.listeners?.find((candidate) => candidate.id === line.id);

@@ -1,4 +1,4 @@
-import { DEFAULT_STATUSES, listenerTemplate, SPEECH_FIX_WORKFLOW, speechFixTemplate, termExtractionTemplate, translationTemplate, type ImportFile } from '@tw/shared';
+import { DEFAULT_STATUSES, knowledgeTemplate, listenerTemplate, SPEECH_FIX_WORKFLOW, speechFixTemplate, termExtractionTemplate, translationTemplate, type ImportFile } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 
@@ -162,6 +162,14 @@ export function importProject(db: Db, file: ImportFile, defaultProfileId = ''): 
         name: '청자 추정',
         description: '장면별로 대사마다 누구에게 하는 말인지 추정해 적습니다. 번역·상태는 바꾸지 않습니다. 말투 규칙은 청자가 정해진 대사에만 쓰입니다.',
         definition: listenerTemplate({ profileId: defaultProfileId }),
+      })
+      .run();
+    tx.insert(s.workflows)
+      .values({
+        projectId,
+        name: '자료 갱신',
+        description: '장면을 순서대로 읽으며 새 인물·관계 변화·사건·말투가 바뀌는 지점을 자료에 AI 항목으로 넣습니다. 정식 자료는 바꾸지 않고 다른 의견은 후보로 남깁니다. 번역·상태는 그대로입니다.',
+        definition: knowledgeTemplate({ profileId: defaultProfileId }),
       })
       .run();
     tx.insert(s.workflows)

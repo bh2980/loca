@@ -62,6 +62,12 @@ app.post('/v1/chat/completions', async (c) => {
     const input = JSON.parse(text(last)) as { lines: { id: string; source: string; candidate?: string }[] };
     // Lines mentioning "orders" never pass review, so they end up waiting for a person.
     const stubborn = (source: string) => /orders/i.test(source);
+    if (system.includes('Report only what the scene adds')) {
+      // One event per scene, named after its first line; nothing else is new.
+      const first = input.lines[0];
+      const content = { characters: [], relationships: [], speechRules: [], events: first ? [{ title: `모의 사건: ${first.source.slice(0, 30)}`, summary: '모의 요약', outcome: '', participants: [], evidence: [first.id] }] : [] };
+      return c.json({ id: 'mock', object: 'chat.completion', model: 'mock', choices: [{ index: 0, message: { role: 'assistant', content: JSON.stringify(content) }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } });
+    }
     if (system.includes('who the speaker is addressing')) {
       // The listener is the next different speaker in the batch (else the previous one); the first line of a batch is unsure.
       const rows = input.lines as { id: string; source: string; speaker?: string }[];

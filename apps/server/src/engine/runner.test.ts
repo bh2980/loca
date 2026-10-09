@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { AI_PRESETS, importFileSchema, listenerTemplate, workflowDefinitionSchema } from '@tw/shared';
+import { AI_PRESETS, importFileSchema, knowledgeTemplate, listenerTemplate, workflowDefinitionSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
@@ -149,6 +149,48 @@ describe('listener estimation', () => {
       ['Pat', 'ai', 0.95],
       [null, 'ai', 0.4],
       ['Bob', 'human', null],
+    ]);
+  });
+});
+
+describe('knowledge updates', () => {
+  it('adds what a scene reveals as AI items, never edits official knowledge, and stays idempotent', async () => {
+    const { db, projectId, profileId } = setup(3);
+    const [alice] = db.insert(s.characters).values([{ projectId, name: 'Alice' }, { projectId, name: 'Bob' }]).returning().all();
+    const bob = db.select().from(s.characters).where(eq(s.characters.name, 'Bob')).get()!;
+    db.insert(s.relationships).values({ projectId, fromId: alice.id, toId: bob.id, kind: 'friend' }).run();
+    db.insert(s.speechRules).values({ projectId, fromName: 'Alice', toName: 'Bob', level: 'hae' }).run();
+    const workflow = db.insert(s.workflows).values({ projectId, name: '자료', definition: knowledgeTemplate({ profileId }) }).returning().get();
+    const runner = new Runner(db, memoryStore(), {
+      judge: async () => {
+        throw new Error('unused');
+      },
+      generate: async () =>
+        ({
+          object: {
+            characters: [{ name: 'Carol', aliases: [], profile: 'new' }, { name: 'alice', aliases: [], profile: 'dup' }],
+            relationships: [{ from: 'Alice', to: 'Bob', kind: 'friend', description: '', change: 'falls out', at: '2' }],
+            events: [{ title: 'Fight', summary: '', outcome: '', participants: ['Alice'], evidence: ['1'] }],
+            speechRules: [{ from: 'Alice', to: 'Bob', level: 'haeyo', address: '', note: '', start: null }, { from: 'Alice', to: 'Bob', level: 'hasipsio', address: '', note: '', start: '3' }],
+          },
+          usage: {},
+        }) as never,
+    });
+    createRun(db, { projectId, workflow, profiles: snapshotProfiles(db, [profileId]), scope: {} });
+    await runner.drain();
+
+    const people = db.select().from(s.characters).where(eq(s.characters.projectId, projectId)).all();
+    expect(people.map((c) => [c.name, c.origin, c.status])).toEqual([['Alice', 'human', 'confirmed'], ['Bob', 'human', 'confirmed'], ['Carol', 'ai', 'confirmed']]);
+    // The official relationship keeps its form; the change waits beside it as a candidate.
+    const rels = db.select().from(s.relationships).where(eq(s.relationships.projectId, projectId)).all();
+    expect(rels.map((r) => [r.origin, r.status, r.changes.map((c) => c.at)])).toEqual([['human', 'confirmed', []], ['ai', 'candidate', ['u1']]]);
+    expect(db.select().from(s.storyEvents).all().map((e) => [e.title, e.evidence])).toEqual([['Fight', ['u0']]]);
+    // A different level for the stretch a person decided is a proposal; a new stretch is a new AI rule.
+    const rules = db.select().from(s.speechRules).where(eq(s.speechRules.projectId, projectId)).all();
+    expect(rules.map((r) => [r.level, r.startKey, r.origin, r.status])).toEqual([
+      ['hae', null, 'human', 'confirmed'],
+      ['haeyo', null, 'ai', 'candidate'],
+      ['hasipsio', 'u2', 'ai', 'confirmed'],
     ]);
   });
 });

@@ -35,6 +35,7 @@ export const AI_OUTPUTS = {
   verdict: { label: '판정', description: '통과/실패와 의견을 냅니다.' },
   terms: { label: '용어 후보', description: '원문에서 용어(원문·번역·메모)를 뽑습니다.' },
   listener: { label: '청자', description: '대사마다 누구에게 하는 말인지와 확신도를 냅니다.' },
+  knowledge: { label: '자료 변경', description: '이 대사들에서 새로 드러난 인물·관계 변화·사건·말투 변화를 냅니다.' },
   json: { label: '자유 형식', description: '직접 정한 필드를 대사마다 채웁니다.' },
 } as const;
 export type AiOutput = keyof typeof AI_OUTPUTS;
@@ -48,7 +49,7 @@ export const jsonFieldSchema = z.object({
 const aiConfig = z.object({
   profileId: z.string().default(''),
   instructions: z.string().default(''),
-  output: z.enum(['candidate', 'verdict', 'terms', 'listener', 'json']).default('candidate'),
+  output: z.enum(['candidate', 'verdict', 'terms', 'listener', 'knowledge', 'json']).default('candidate'),
   fields: z.array(jsonFieldSchema).default([]),
   /** Also show the model the line's current candidate / the latest failing issues. */
   include: z
@@ -230,6 +231,10 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
       if (node.config.fn === 'addTerms' && params.fromNodeId) {
         const from = definition.nodes.find((other) => other.id === params.fromNodeId);
         if (from?.type !== 'ai' || from.config.output !== 'terms') error('용어 후보를 내는 AI 노드를 선택하세요.', { nodeId: node.id });
+      }
+      if (node.config.fn === 'applyKnowledge' && params.fromNodeId) {
+        const from = definition.nodes.find((other) => other.id === params.fromNodeId);
+        if (from?.type !== 'ai' || from.config.output !== 'knowledge') error('자료 변경을 내는 AI 노드를 선택하세요.', { nodeId: node.id });
       }
       if (node.config.fn === 'setListener' && params.fromNodeId) {
         const from = definition.nodes.find((other) => other.id === params.fromNodeId);

@@ -187,3 +187,39 @@ export function speechFixTemplate(ids: { profileId: string }): WorkflowDefinitio
 
 /** The workflow that a speech rule's "re-run affected lines" picks first. */
 export const SPEECH_FIX_WORKFLOW = '말투만 고치기';
+
+/**
+ * Keeps 자료 growing with the script: each scene is read against what is already known and new
+ * people, relationship changes, events and speech-level changes are added as AI items. Official
+ * knowledge is never changed; disagreements become AI candidates. Translations are untouched.
+ */
+export function knowledgeTemplate(ids: { profileId: string }): WorkflowDefinition {
+  return {
+    settings: { maxVisitsPerNode: 5, concurrency: 1 },
+    nodes: [
+      { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: { statusIds: [] } },
+      {
+        id: 'find',
+        type: 'ai',
+        position: { x: 300, y: 0 },
+        label: AI_PRESETS.knowledge.label,
+        config: {
+          profileId: ids.profileId,
+          instructions: AI_PRESETS.knowledge.instructions,
+          output: 'knowledge',
+          fields: [],
+          include: AI_PRESETS.knowledge.include,
+          context: { ...contextConfigSchema.parse({}), glossary: false, cast: true, speech: true, precedingLines: 8, previousScenes: 1 },
+          batch: { mode: 'group', size: 120 },
+        },
+      },
+      { id: 'apply', type: 'function', position: { x: 600, y: 0 }, label: '자료 반영', config: { fn: 'applyKnowledge', params: { fromNodeId: 'find', autoConfirm: true } } },
+      { id: 'end', type: 'end', position: { x: 900, y: 0 }, config: {} },
+    ],
+    edges: [
+      { id: 'e1', source: 'entry', sourceHandle: 'out', target: 'find' },
+      { id: 'e2', source: 'find', sourceHandle: 'out', target: 'apply' },
+      { id: 'e3', source: 'apply', sourceHandle: 'out', target: 'end' },
+    ],
+  };
+}
