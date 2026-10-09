@@ -472,7 +472,7 @@ function HttpConfig({ params, refs, set }: { params: Record<string, unknown>; re
         </Field>
       </div>
       <p className="-mt-2 text-[11px] text-muted-foreground">주소에도 {'{{unit.key}}'} 같은 값을 넣을 수 있습니다(자동으로 URL 인코딩).</p>
-      <Field label="API 키 (선택)" hint={tools.length ? (selected ? '설정의 헤더 형식으로 키를 붙여 보냅니다' : '키가 필요 없는 공개 API면 비워 둡니다') : '키가 필요한 API면 설정 › 연결·프로필 › API 키에서 먼저 추가하세요.'}>
+      <Field label="API 키 (선택)" hint={tools.length ? (selected ? '설정의 헤더 형식으로 키를 붙여 보냅니다' : '키가 필요 없는 공개 API면 비워 둡니다') : '키가 필요한 API면 설정 › API 키에서 먼저 추가하세요.'}>
         <Select value={(params.connectionId as string) || 'none'} onValueChange={(value) => set('connectionId', value === 'none' ? '' : value)}>
           <SelectTrigger className="w-full">
             <SelectValue />

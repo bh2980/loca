@@ -40,7 +40,7 @@ const errorMessage = (error: unknown) => (error instanceof Error ? error.message
 
 /**
  * Everything about AI on one page: connections with the model profiles under each (what nodes and
- * the work analysis pick), API keys for HTTP nodes, and which tools the chat agent may use.
+ * the work analysis pick), and which tools the chat agent may use. API keys for HTTP nodes have their own page.
  * The pane on the right edits the selected connection, profile or key ("conn" / "profile" in the URL).
  */
 function AiSettings() {
@@ -51,7 +51,6 @@ function AiSettings() {
   const open = (next: { conn?: string; profile?: string }) => void navigate({ search: (previous) => ({ ...previous, conn: next.conn, profile: next.profile }) });
   const close = () => open({});
   const aiConnections = connections.data?.filter((connection) => connection.kind !== 'http') ?? [];
-  const keys = connections.data?.filter((connection) => connection.kind === 'http') ?? [];
   const byConnection = Map.groupBy(profiles.data ?? [], (profile) => profile.connectionId);
   const orphans = (profiles.data ?? []).filter((profile) => !connections.data?.some((connection) => connection.id === profile.connectionId));
   const selectedConnection = search.conn && !search.conn.startsWith('new') ? connections.data?.find((connection) => connection.id === search.conn) : undefined;
@@ -61,8 +60,6 @@ function AiSettings() {
   const pane =
     search.conn === 'new' ? (
       <NewConnection onClose={close} />
-    ) : search.conn === 'new-key' ? (
-      <NewTool onClose={close} />
     ) : selectedConnection ? (
       <ConnectionPane key={selectedConnection.id} connection={selectedConnection} onClose={close} />
     ) : search.profile?.startsWith('new') ? (
@@ -145,47 +142,6 @@ function AiSettings() {
                       <TableRow>
                         <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
                           연결이 없습니다. “연결 추가”로 시작하세요.
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-            </section>
-
-            <section className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-sm font-semibold">API 키</h2>
-                  <p className="text-xs text-muted-foreground">워크플로의 ‘HTTP 호출’ 노드가 키가 필요한 API를 부를 때 고릅니다. 주소는 노드에 적고, 키는 여기(OS 키체인)에만 둡니다.</p>
-                </div>
-                <Button size="sm" variant="outline" className="shrink-0" onClick={() => open({ conn: 'new-key' })}>
-                  <Plus /> API 키 추가
-                </Button>
-              </div>
-              <div className="rounded-lg border">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>이름</TableHead>
-                      <TableHead>키를 보내는 헤더</TableHead>
-                      <TableHead>키</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {keys.map((connection) => (
-                      <TableRow key={connection.id} className="cursor-pointer" data-state={search.conn === connection.id ? 'selected' : undefined} onClick={() => open({ conn: connection.id })}>
-                        <TableCell className="font-medium">{connection.name}</TableCell>
-                        <TableCell className="max-w-56 truncate font-mono text-xs text-muted-foreground">{connection.headerTemplate || '–'}</TableCell>
-                        <TableCell>
-                          <Badge variant={connection.hasKey ? 'default' : 'outline'}>{connection.hasKey ? '저장됨' : '없음'}</Badge>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                    {keys.length === 0 && (
-                      <TableRow>
-                        <TableCell colSpan={3} className="h-16 text-center text-muted-foreground">
-                          API 키가 없습니다. 공개 API는 키 없이 노드에 주소만 적으면 됩니다.
                         </TableCell>
                       </TableRow>
                     )}
@@ -571,62 +527,6 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
 
 /* ----------------------------------------------------------------- tool connections */
 
-const toolFormSchema = connectionFormSchema;
-type ToolFormInput = z.input<typeof toolFormSchema>;
-type ToolFormOutput = z.output<typeof toolFormSchema>;
-const DEFAULT_HEADER = 'Authorization: Bearer {key}';
-
-function NewTool({ onClose }: { onClose: () => void }) {
-  const navigate = Route.useNavigate();
-  const queryClient = useQueryClient();
-  const form = useForm<ToolFormInput, unknown, ToolFormOutput>({
-    resolver: zodResolver(toolFormSchema),
-    defaultValues: { kind: 'http', name: '', headerTemplate: DEFAULT_HEADER, apiKey: '' },
-  });
-  const errors = form.formState.errors;
-
-  const create = useMutation({
-    mutationFn: (values: ToolFormOutput) =>
-      unwrap(
-        client.connections.$post({
-          json: { kind: 'http', name: values.name, headerTemplate: values.headerTemplate || undefined, apiKey: values.apiKey || undefined },
-        }),
-      ),
-    onSuccess: (row) => {
-      void queryClient.invalidateQueries({ queryKey: ['connections'] });
-      toast.success('API 키를 추가했습니다.');
-      void navigate({ search: (previous) => ({ ...previous, conn: row.id }) });
-    },
-    onError: (error) => toast.error(errorMessage(error)),
-  });
-
-  return (
-    <form onSubmit={form.handleSubmit((values) => create.mutate(values))}>
-      <PaneHeader title="API 키 추가" onClose={onClose} />
-      <FieldGroup className="gap-5">
-        <Field data-invalid={!!errors.name}>
-          <FieldLabel htmlFor="tool-name">이름</FieldLabel>
-          <Input id="tool-name" {...form.register('name')} aria-invalid={!!errors.name} placeholder="예: 맞춤법 검사기 키" />
-          <FieldError errors={[errors.name]} />
-        </Field>
-        <Field>
-          <FieldLabel htmlFor="tool-header">키를 보내는 헤더</FieldLabel>
-          <Input id="tool-header" className="font-mono text-xs" {...form.register('headerTemplate')} placeholder={DEFAULT_HEADER} />
-          <FieldDescription>{'{key}'} 자리에 저장한 키가 들어갑니다. 예: X-API-Key: {'{key}'}</FieldDescription>
-        </Field>
-        <Field>
-          <FieldLabel htmlFor="tool-key">API 키</FieldLabel>
-          <Input id="tool-key" type="password" autoComplete="off" {...form.register('apiKey')} />
-          <FieldDescription>API 키는 Windows 자격 증명 관리자(OS 키체인)에 저장되며 DB·내보내기에 포함되지 않습니다.</FieldDescription>
-        </Field>
-        <Button type="submit" disabled={create.isPending}>
-          {create.isPending && <Spinner />}
-          추가
-        </Button>
-      </FieldGroup>
-    </form>
-  );
-}
 
 /* ------------------------------------------------------------------- profiles */
 
