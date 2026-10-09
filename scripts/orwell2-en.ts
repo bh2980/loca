@@ -14,6 +14,8 @@
  *   - chapter lines outside any conversation (profile updates, bookmarks, objectives, mail and
  *     ticker text set by event states) stay in their chapter group, which becomes a UI group:
  *     as a scene it would sit between every pair of conversations;
+ *   - groups get a section for the script list: the chapter for conversations and event text,
+ *     the source ("insider_davidspc", "website_beholder") for documents;
  *   - groups left without lines are dropped. Graph nodes and edges are kept as they are.
  *
  * Usage: pnpm tsx scripts/orwell2-en.ts <orwell2-data folder>
@@ -79,6 +81,7 @@ for (const conversation of conversations) {
     kind: 'scene',
     title: info?.title ?? conversation.context?._stateName ?? key,
     description: '',
+    section: chapter,
     order: (chapterOrder.get(chapter) ?? 99) * 100_000 + (info?.scene_review_rank ?? 0),
     meta: { chapter, state_id: conversation.state_id, object_key: conversation.object_key, speakers: info?.speakers ?? [] },
   });
@@ -86,12 +89,14 @@ for (const conversation of conversations) {
     if (!groupOfNode.has(nodeKey)) groupOfNode.set(nodeKey, key);
 }
 
+// Documents are filed under their source: "insider_davidspc_folder_x" → "insider_davidspc".
+const withSection = (group: File['groups'][number]) => (group.kind === 'document' ? { ...group, section: group.title.split('_').slice(0, 2).join('_') } : group);
 // Chapter lines outside conversations are event text; their chapter group is kept as a UI group.
 const used = new Set(english.map((unit) => unit.group));
 const groups = [
   ...base.groups
     .filter((group) => used.has(group.key))
-    .map((group) => (group.kind === 'scene' ? { ...group, kind: 'ui' as const, title: `${group.title} · 이벤트 문구`, order: (group.order ?? 0) * 100_000 - 1 } : group)),
+    .map((group) => (group.kind === 'scene' ? { ...group, kind: 'ui' as const, title: `${group.title} · 이벤트 문구`, section: group.title, order: (group.order ?? 0) * 100_000 - 1 } : withSection(group))),
   ...newGroups,
 ];
 const groupKeys = new Set(groups.map((group) => group.key));

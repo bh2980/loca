@@ -53,8 +53,25 @@ export async function openaiModels(route: Omit<ResolvedRoute, 'model'>): Promise
   }).catch((error) => {
     throw toModelError(error);
   });
+  const url = `${route.baseUrl.replace(/\/+$/, '')}/models`;
   if (response.status === 401 || response.status === 403) throw new ModelError('auth', '인증에 실패했습니다. API 키를 확인하세요.', false);
+  if (response.status === 404)
+    throw new ModelError('config', `${url} 이 없습니다(HTTP 404). API 주소가 맞는지 확인하세요. OpenAI 호환 API는 보통 …/v1 로 끝납니다.`, false);
   if (!response.ok) throw new ModelError('network', `모델 목록 요청이 실패했습니다 (HTTP ${response.status}).`);
-  const body = (await response.json()) as { data?: { id?: unknown }[] };
+  // A web page instead of JSON almost always means the address is the site, not its API.
+  const text = await response.text();
+  let body: { data?: { id?: unknown }[] };
+  try {
+    body = JSON.parse(text) as typeof body;
+  } catch {
+    const html = /^\s*</.test(text);
+    throw new ModelError(
+      'config',
+      html
+        ? `${url} 에서 API 응답(JSON)이 아니라 웹 페이지(HTML)가 왔습니다. 기본 주소에 사이트 주소가 아니라 API 주소를 넣으세요. OpenAI 호환 API는 보통 https://…/v1 처럼 끝납니다.`
+        : `${url} 의 응답이 JSON이 아닙니다: ${text.slice(0, 120)}`,
+      false,
+    );
+  }
   return (body.data ?? []).map((item) => item.id).filter((id): id is string => typeof id === 'string').sort();
 }

@@ -50,6 +50,8 @@ export const groups = sqliteTable(
     kind: text('kind', { enum: ['scene', 'document', 'ui'] }).notNull(),
     title: text('title').notNull(),
     description: text('description').notNull().default(''),
+    /** Display folder in the script list, e.g. a chapter or a document's source. */
+    section: text('section'),
     sort: integer('sort').notNull(),
     meta: json<Record<string, unknown>>('meta'),
   },

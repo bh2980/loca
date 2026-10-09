@@ -45,7 +45,7 @@ export function importProject(db: Db, file: ImportFile, defaultProfileId = ''): 
       file.groups.map((group, index) => {
         const id = crypto.randomUUID();
         groupIds.set(group.key, id);
-        return { id, projectId, key: group.key, kind: group.kind, title: group.title, description: group.description ?? '', sort: group.order ?? index, meta: group.meta };
+        return { id, projectId, key: group.key, kind: group.kind, title: group.title, description: group.description ?? '', section: group.section ?? null, sort: group.order ?? index, meta: group.meta };
       }),
     );
 

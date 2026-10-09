@@ -5,6 +5,8 @@ import { Network, Play, Search, X } from 'lucide-react';
 import { LinesView, linesSearchSchema, type LinesSearch } from '@/components/lines-view';
 import { AiButton } from '@/components/ai-button';
 import { Page } from '@/components/page';
+import { GroupList } from '@/components/script/group-list';
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { StatusBar } from '@/components/status';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { Button } from '@/components/ui/button';
@@ -23,6 +25,23 @@ interface ScriptSearch extends LinesSearch {
   kind?: Kind;
   /** Filter for the group list. */
   gq?: string;
+}
+
+/** The list's width is a per-browser preference. */
+const layoutKey = (projectId: string) => `tw.script.layout.${projectId}`;
+function readLayout(projectId: string) {
+  try {
+    return JSON.parse(localStorage.getItem(layoutKey(projectId)) ?? 'null') ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+function saveLayout(projectId: string, layout: unknown) {
+  try {
+    localStorage.setItem(layoutKey(projectId), JSON.stringify(layout));
+  } catch {
+    /* private mode */
+  }
 }
 
 export const Route = createFileRoute('/p/$projectId/script')({
@@ -89,8 +108,8 @@ function Script() {
       }
       flush
     >
-      <div className="flex h-full min-h-0">
-        <aside className="flex w-72 shrink-0 flex-col border-r">
+      <ResizablePanelGroup orientation="horizontal" defaultLayout={readLayout(projectId)} onLayoutChanged={(layout) => saveLayout(projectId, layout)} className="h-full min-h-0">
+        <ResizablePanel id="groups" defaultSize={320} minSize={220} maxSize="60%" className="flex flex-col">
           <div className="space-y-2 border-b p-3">
             <ToggleGroup
               type="single"
@@ -138,45 +157,38 @@ function Script() {
               </Button>
             </div>
           )}
-          <ul className="min-h-0 flex-1 overflow-auto p-1.5">
-            <li>
-              <button
-                onClick={() => openGroup(undefined)}
-                className={cn('flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted', !search.group && 'bg-muted font-medium')}
-              >
-                {search.kind ? `모든 ${GROUP_KIND[search.kind]}` : '전체 스크립트'}
-                <span className="ml-auto text-xs text-muted-foreground tabular-nums">{visibleTotal.toLocaleString()}</span>
-              </button>
-            </li>
-            {groups.data?.map((item) => (
-              <li key={item.id} className={cn('flex items-start gap-2 rounded-md px-2 py-1.5 hover:bg-muted', item.id === search.group && 'bg-muted')}>
-                <Checkbox
-                  className="mt-0.5"
-                  aria-label={`${item.title} 선택`}
-                  checked={picked.has(item.id)}
-                  onCheckedChange={(checked) =>
-                    setPicked((previous) => {
-                      const next = new Set(previous);
-                      if (checked) next.add(item.id);
-                      else next.delete(item.id);
-                      return next;
-                    })
-                  }
-                />
-                <button onClick={() => openGroup(item.id)} className="min-w-0 flex-1 text-left">
-                  <span className="flex items-baseline gap-2 text-sm">
-                    <span className={cn('truncate', item.id === search.group && 'font-medium')}>{item.title}</span>
-                    {!search.kind && item.kind !== 'scene' && <span className="shrink-0 text-[10px] text-muted-foreground">{GROUP_KIND[item.kind]}</span>}
-                    <span className="ml-auto shrink-0 text-xs text-muted-foreground tabular-nums">{item.total}</span>
-                  </span>
-                  <StatusBar statuses={statuses.data?.statuses ?? []} counts={item.statuses} className="mt-1 h-1" />
-                </button>
-              </li>
-            ))}
-            {groups.data?.length === 0 && <li className="px-2 py-4 text-sm text-muted-foreground">맞는 묶음이 없습니다.</li>}
-          </ul>
-        </aside>
-        <div className="min-w-0 flex-1">
+          <div className="min-h-0 flex-1 overflow-auto">
+            <button
+              onClick={() => openGroup(undefined)}
+              className={cn('mx-1.5 mt-1.5 flex w-[calc(100%-0.75rem)] items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted', !search.group && 'bg-muted font-medium')}
+            >
+              {search.kind ? `모든 ${GROUP_KIND[search.kind]}` : '전체 스크립트'}
+              <span className="ml-auto text-xs text-muted-foreground tabular-nums">{visibleTotal.toLocaleString()}</span>
+            </button>
+            {groups.data && (
+              <GroupList
+                projectId={projectId}
+                groups={groups.data}
+                statuses={statuses.data?.statuses ?? []}
+                current={search.group}
+                picked={picked}
+                expandAll={Boolean(search.gq)}
+                onOpen={openGroup}
+                onPick={(ids, on) =>
+                  setPicked((previous) => {
+                    const next = new Set(previous);
+                    for (const id of ids) if (on) next.add(id);
+                    else next.delete(id);
+                    return next;
+                  })
+                }
+              />
+            )}
+            {groups.data?.length === 0 && <p className="px-4 py-4 text-sm text-muted-foreground">맞는 묶음이 없습니다.</p>}
+          </div>
+        </ResizablePanel>
+        <ResizableHandle />
+        <ResizablePanel id="lines" className="min-w-0">
           <LinesView
             projectId={projectId}
             groupId={search.group}
@@ -185,8 +197,8 @@ function Script() {
             showScene={!search.group}
             onSearch={(next, options) => setSearch(next, options?.replace)}
           />
-        </div>
-      </div>
+        </ResizablePanel>
+      </ResizablePanelGroup>
     </Page>
   );
 }

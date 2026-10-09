@@ -25,6 +25,8 @@ export const importGroupSchema = z.object({
   kind: z.enum(GROUP_KINDS).default('scene'),
   title: z.string().min(1),
   description: z.string().optional(),
+  /** Folder the script list shows this group under, e.g. a chapter or where a document is found. */
+  section: z.string().optional(),
   order: z.number().int().optional(),
   meta,
 });
