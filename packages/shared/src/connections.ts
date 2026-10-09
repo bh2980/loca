@@ -42,7 +42,7 @@ export const CONNECTION_KIND_INFO: Record<ConnectionKind, ConnectionKindInfo> = 
     label: 'System One (TypeSafe)',
     transport: 'http',
     capabilities: ['judge'],
-    defaultBaseUrl: 'https://api.typesafe.ai/v1',
+    defaultBaseUrl: 'https://api.typesafe.ai',
     needsKey: true,
     efforts: [],
   },

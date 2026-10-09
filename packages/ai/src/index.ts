@@ -5,8 +5,8 @@ import { cliGenerate, cliModels, cliVersion } from './cli.ts';
 import { ModelError, toModelError } from './errors.ts';
 import { openaiChatModel, openaiGenerate, openaiModels } from './openai.ts';
 import { piGenerate, piModelsWith, piProbe } from './pi.ts';
-import { systemOneJudge, systemOneModels } from './systemone.ts';
-import type { GenerateRequest, GenerateResult, JudgeRequest, JudgeResult, ResolvedRoute } from './types.ts';
+import { systemOneAsk, systemOneJudge, systemOneModels } from './systemone.ts';
+import type { AskRequest, AskResult, GenerateRequest, GenerateResult, JudgeRequest, JudgeResult, ResolvedRoute } from './types.ts';
 
 export * from './types.ts';
 export { ModelError } from './errors.ts';
@@ -25,6 +25,12 @@ export function generate<T>(route: ResolvedRoute, request: GenerateRequest<T>): 
 export function judge(route: ResolvedRoute, request: JudgeRequest): Promise<JudgeResult> {
   if (route.kind !== 'systemone') throw new ModelError('config', '판정 전용 연결이 아닙니다.', false);
   return systemOneJudge(route, request);
+}
+
+/** Typed questions (yes/no, choice, score) for a judgment model; System One only. */
+export function ask(route: ResolvedRoute, request: AskRequest): Promise<AskResult> {
+  if (route.kind !== 'systemone') throw new ModelError('config', '판정 전용 연결이 아닙니다.', false);
+  return systemOneAsk(route, request);
 }
 
 export function chatModel(route: ResolvedRoute): LanguageModel {

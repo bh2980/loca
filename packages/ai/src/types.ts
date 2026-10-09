@@ -46,3 +46,26 @@ export interface JudgeResult {
   confidence: number;
   usage: Usage;
 }
+
+/** A typed question for a judgment model (System One). */
+export type AskQuestion =
+  | { type: 'noul'; instructions: string }
+  | { type: 'choice'; instructions?: string; criteria: Record<string, string> }
+  | { type: 'score'; instructions?: string; criteria: string[] };
+
+export interface AskRequest {
+  state: unknown;
+  questions: Record<string, AskQuestion>;
+  timeoutMs: number;
+  signal?: AbortSignal;
+}
+
+export type AskAnswer =
+  | { type: 'noul'; /** Probability of yes. */ yes: number }
+  | { type: 'choice'; choice: string; confidence: number; probabilities: Record<string, number> }
+  | { type: 'score'; /** Expected score. */ score: number; confidence: number; probabilities: Record<string, number> };
+
+export interface AskResult {
+  answers: Record<string, AskAnswer>;
+  usage: Usage;
+}
