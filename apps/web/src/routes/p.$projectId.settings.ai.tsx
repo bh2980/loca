@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useState, type ReactNode } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -21,17 +21,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Separator } from '@/components/ui/separator';
 import { Spinner } from '@/components/ui/spinner';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { client, unwrap, type InferResponseType } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
-type Tab = 'connections' | 'tools' | 'profiles' | 'agent';
-
 export const Route = createFileRoute('/p/$projectId/settings/ai')({
-  validateSearch: (raw: Record<string, unknown>): { tab?: Tab; conn?: string; profile?: string } => ({
-    tab: raw.tab === 'profiles' || raw.tab === 'tools' || raw.tab === 'agent' ? raw.tab : undefined,
+  validateSearch: (raw: Record<string, unknown>): { conn?: string; profile?: string } => ({
     conn: typeof raw.conn === 'string' && raw.conn ? raw.conn : undefined,
     profile: typeof raw.profile === 'string' && raw.profile ? raw.profile : undefined,
   }),
@@ -42,29 +38,172 @@ const CAPABILITY_LABEL: Record<Capability, string> = { generate: '생성', judge
 const NONE = '__none';
 const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
+/**
+ * Everything about AI on one page: connections with the model profiles under each (what nodes and
+ * the work analysis pick), API keys for HTTP nodes, and which tools the chat agent may use.
+ * The pane on the right edits the selected connection, profile or key ("conn" / "profile" in the URL).
+ */
 function AiSettings() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const connections = useQuery(q.connections());
-  const selectedConnection = search.conn && search.conn !== 'new' ? connections.data?.find((connection) => connection.id === search.conn) : undefined;
-  // A selected connection always opens in the tab that matches its kind.
-  const tab: Tab = search.tab === 'profiles' || search.tab === 'agent' ? search.tab : selectedConnection ? (selectedConnection.kind === 'http' ? 'tools' : 'connections') : (search.tab ?? 'connections');
+  const profiles = useQuery(q.profiles());
+  const open = (next: { conn?: string; profile?: string }) => void navigate({ search: (previous) => ({ ...previous, conn: next.conn, profile: next.profile }) });
+  const close = () => open({});
+  const aiConnections = connections.data?.filter((connection) => connection.kind !== 'http') ?? [];
+  const keys = connections.data?.filter((connection) => connection.kind === 'http') ?? [];
+  const byConnection = Map.groupBy(profiles.data ?? [], (profile) => profile.connectionId);
+  const orphans = (profiles.data ?? []).filter((profile) => !connections.data?.some((connection) => connection.id === profile.connectionId));
+  const selectedConnection = search.conn && !search.conn.startsWith('new') ? connections.data?.find((connection) => connection.id === search.conn) : undefined;
+  const selectedProfile = search.profile && !search.profile.startsWith('new') ? profiles.data?.find((profile) => profile.id === search.profile) : undefined;
+  const newProfileFor = search.profile?.startsWith('new') ? search.profile.slice(4) || undefined : undefined;
+
+  const pane =
+    search.conn === 'new' ? (
+      <NewConnection onClose={close} />
+    ) : search.conn === 'new-key' ? (
+      <NewTool onClose={close} />
+    ) : selectedConnection ? (
+      <ConnectionPane key={selectedConnection.id} connection={selectedConnection} onClose={close} />
+    ) : search.profile?.startsWith('new') ? (
+      <ProfileForm key={search.profile} connectionId={newProfileFor} onClose={close} />
+    ) : selectedProfile ? (
+      <ProfileForm key={selectedProfile.id} profile={selectedProfile} onClose={close} />
+    ) : null;
+
+  const profileRow = (profile: ProfileRow, indent: boolean) => (
+    <TableRow key={profile.id} className="cursor-pointer" data-state={search.profile === profile.id ? 'selected' : undefined} onClick={() => open({ profile: profile.id })}>
+      <TableCell className={cn('font-medium', indent && 'pl-9')}>{profile.name}</TableCell>
+      <TableCell className="font-mono text-xs">{profile.model}</TableCell>
+      <TableCell className="text-muted-foreground">
+        {[profile.effort, `출력 ${profile.maxOutputTokens.toLocaleString()}`, profile.fallbacks.length ? `대체 ${profile.fallbacks.length}` : null].filter(Boolean).join(' · ')}
+      </TableCell>
+      <TableCell />
+    </TableRow>
+  );
 
   return (
-    <Page title="연결·프로필">
-      <Tabs
-        value={tab}
-        onValueChange={(value) => void navigate({ search: (previous) => ({ ...previous, tab: value === 'tools' || value === 'profiles' || value === 'agent' ? value : undefined, conn: undefined }) })}
-        className="gap-3"
-      >
-        <TabsList>
-          <TabsTrigger value="connections">AI 연결</TabsTrigger>
-          <TabsTrigger value="profiles">모델 프로필</TabsTrigger>
-          <TabsTrigger value="tools">API 키</TabsTrigger>
-          <TabsTrigger value="agent">에이전트</TabsTrigger>
-        </TabsList>
-      </Tabs>
-      {tab === 'connections' ? <ConnectionsTab /> : tab === 'tools' ? <ToolsTab /> : tab === 'agent' ? <AgentTab /> : <ProfilesTab />}
+    <Page title="AI">
+      <Split
+        pane={pane}
+        list={
+          <div className="space-y-8">
+            <section className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-semibold">연결과 모델 프로필</h2>
+                  <p className="text-xs text-muted-foreground">연결은 AI를 부르는 통로(API·CLI·pi), 프로필은 그 아래에서 모델과 조건(출력 한도·제한 시간·대체 모델·공통 지시문)을 묶은 것입니다. 워크플로의 AI 노드와 작품 분석은 프로필을 고릅니다.</p>
+                </div>
+                <Button size="sm" className="shrink-0" onClick={() => open({ conn: 'new' })}>
+                  <Plus /> 연결 추가
+                </Button>
+              </div>
+              <div className="rounded-lg border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>이름</TableHead>
+                      <TableHead>모델 / 종류</TableHead>
+                      <TableHead>설정</TableHead>
+                      <TableHead className="w-24" />
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {aiConnections.map((connection) => {
+                      const info = CONNECTION_KIND_INFO[connection.kind];
+                      return (
+                        <Fragment key={connection.id}>
+                          <TableRow className="cursor-pointer bg-muted/40 hover:bg-muted/60" data-state={search.conn === connection.id ? 'selected' : undefined} onClick={() => open({ conn: connection.id })}>
+                            <TableCell className="font-semibold">{connection.name}</TableCell>
+                            <TableCell className="text-muted-foreground">{info.label}</TableCell>
+                            <TableCell>
+                              <div className="flex flex-wrap items-center gap-1.5">
+                              <span className="font-mono text-xs text-muted-foreground">{info.transport === 'http' ? connection.baseUrl : info.transport === 'cli' ? (connection.executable ?? 'PATH') : ''}</span>
+                              {info.transport === 'http' && <Badge variant={connection.hasKey ? 'default' : 'outline'}>{connection.hasKey ? '키 저장됨' : '키 없음'}</Badge>}
+                              <CapabilityBadges kind={connection.kind} />
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-right" onClick={(event) => event.stopPropagation()}>
+                              <Button size="sm" variant="ghost" className="h-7 px-2" title="이 연결로 모델 프로필 추가" onClick={() => open({ profile: `new:${connection.id}` })}>
+                                <Plus /> 프로필
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                          {(byConnection.get(connection.id) ?? []).map((profile) => profileRow(profile, true))}
+                          {!byConnection.get(connection.id)?.length && (
+                            <TableRow>
+                              <TableCell colSpan={4} className="pl-9 text-xs text-muted-foreground">
+                                이 연결로 만든 프로필이 없습니다.
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </Fragment>
+                      );
+                    })}
+                    {orphans.map((profile) => profileRow(profile, false))}
+                    {aiConnections.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
+                          연결이 없습니다. “연결 추가”로 시작하세요.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </section>
+
+            <section className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-semibold">API 키</h2>
+                  <p className="text-xs text-muted-foreground">워크플로의 ‘HTTP 호출’ 노드가 키가 필요한 API를 부를 때 고릅니다. 주소는 노드에 적고, 키는 여기(OS 키체인)에만 둡니다.</p>
+                </div>
+                <Button size="sm" variant="outline" className="shrink-0" onClick={() => open({ conn: 'new-key' })}>
+                  <Plus /> API 키 추가
+                </Button>
+              </div>
+              <div className="rounded-lg border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>이름</TableHead>
+                      <TableHead>키를 보내는 헤더</TableHead>
+                      <TableHead>키</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {keys.map((connection) => (
+                      <TableRow key={connection.id} className="cursor-pointer" data-state={search.conn === connection.id ? 'selected' : undefined} onClick={() => open({ conn: connection.id })}>
+                        <TableCell className="font-medium">{connection.name}</TableCell>
+                        <TableCell className="max-w-56 truncate font-mono text-xs text-muted-foreground">{connection.headerTemplate || '–'}</TableCell>
+                        <TableCell>
+                          <Badge variant={connection.hasKey ? 'default' : 'outline'}>{connection.hasKey ? '저장됨' : '없음'}</Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {keys.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={3} className="h-16 text-center text-muted-foreground">
+                          API 키가 없습니다. 공개 API는 키 없이 노드에 주소만 적으면 됩니다.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </section>
+
+            <section className="space-y-3">
+              <div>
+                <h2 className="text-sm font-semibold">채팅 도구</h2>
+                <p className="text-xs text-muted-foreground">오른쪽 채팅 패널의 AI와 터미널의 loca CLI가 쓸 수 있는 도구를 켜고 끕니다.</p>
+              </div>
+              <AgentTab />
+            </section>
+          </div>
+        }
+      />
     </Page>
   );
 }
@@ -72,7 +211,7 @@ function AiSettings() {
 /** Table on the left, detail/form pane on the right. */
 function Split({ list, pane }: { list: ReactNode; pane: ReactNode | null }) {
   return (
-    <div className="mt-3 flex items-start gap-4">
+    <div className="flex items-start gap-4">
       <div className="min-w-0 flex-1">{list}</div>
       {pane && <aside className="sticky top-0 w-[28rem] shrink-0 rounded-lg border bg-background p-4">{pane}</aside>}
     </div>
@@ -128,68 +267,6 @@ function CapabilityBadges({ kind }: { kind: ConnectionKind }) {
         </Badge>
       ))}
     </div>
-  );
-}
-
-function ConnectionsTab() {
-  const search = Route.useSearch();
-  const navigate = Route.useNavigate();
-  const connections = useQuery(q.connections());
-  const aiConnections = connections.data?.filter((connection) => connection.kind !== 'http');
-  const selected = search.conn && search.conn !== 'new' ? aiConnections?.find((connection) => connection.id === search.conn) : undefined;
-  const close = () => void navigate({ search: (previous) => ({ ...previous, conn: undefined }) });
-
-  return (
-    <Split
-      list={
-        <>
-          <div className="mb-3 flex items-center justify-between">
-            <span className="text-sm text-muted-foreground tabular-nums">{aiConnections?.length ?? '–'}개</span>
-            <Button size="sm" onClick={() => void navigate({ search: (previous) => ({ ...previous, conn: 'new' }) })}>
-              <Plus />
-              연결 추가
-            </Button>
-          </div>
-          <div className="rounded-lg border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>이름</TableHead>
-                  <TableHead>종류</TableHead>
-                  <TableHead>주소 / 실행 파일</TableHead>
-                  <TableHead>키</TableHead>
-                  <TableHead>기능</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {aiConnections?.map((connection) => {
-                  const info = CONNECTION_KIND_INFO[connection.kind];
-                  return (
-                    <TableRow key={connection.id} className="cursor-pointer" data-state={search.conn === connection.id ? 'selected' : undefined} onClick={() => void navigate({ search: (previous) => ({ ...previous, conn: connection.id }) })}>
-                      <TableCell className="font-medium">{connection.name}</TableCell>
-                      <TableCell className="text-muted-foreground">{info.label}</TableCell>
-                      <TableCell className="max-w-64 truncate font-mono text-xs text-muted-foreground">{info.transport === 'http' ? connection.baseUrl : (connection.executable ?? 'PATH')}</TableCell>
-                      <TableCell>{info.transport === 'http' ? <Badge variant={connection.hasKey ? 'default' : 'outline'}>{connection.hasKey ? '저장됨' : '없음'}</Badge> : <span className="text-muted-foreground">–</span>}</TableCell>
-                      <TableCell>
-                        <CapabilityBadges kind={connection.kind} />
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-                {aiConnections?.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
-                      연결이 없습니다. 연결 추가로 시작하세요.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </>
-      }
-      pane={search.conn === 'new' ? <NewConnection onClose={close} /> : selected ? <ConnectionPane key={selected.id} connection={selected} onClose={close} /> : null}
-    />
   );
 }
 
@@ -499,63 +576,6 @@ type ToolFormInput = z.input<typeof toolFormSchema>;
 type ToolFormOutput = z.output<typeof toolFormSchema>;
 const DEFAULT_HEADER = 'Authorization: Bearer {key}';
 
-function ToolsTab() {
-  const search = Route.useSearch();
-  const navigate = Route.useNavigate();
-  const connections = useQuery(q.connections());
-  const tools = connections.data?.filter((connection) => connection.kind === 'http');
-  const selected = search.conn && search.conn !== 'new' ? tools?.find((connection) => connection.id === search.conn) : undefined;
-  const close = () => void navigate({ search: (previous) => ({ ...previous, conn: undefined }) });
-
-  return (
-    <Split
-      list={
-        <>
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <span className="text-sm text-muted-foreground">
-              <span className="tabular-nums">{tools?.length ?? '–'}개</span> · 워크플로의 ‘HTTP 호출’ 노드가 키가 필요한 API를 부를 때 고릅니다. 주소는 노드에 적고, 키는 여기에만 둡니다.
-            </span>
-            <Button size="sm" onClick={() => void navigate({ search: (previous) => ({ ...previous, conn: 'new' }) })}>
-              <Plus />
-              API 키 추가
-            </Button>
-          </div>
-          <div className="rounded-lg border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>이름</TableHead>
-                  <TableHead>키를 보내는 헤더</TableHead>
-                  <TableHead>키</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {tools?.map((connection) => (
-                  <TableRow key={connection.id} className="cursor-pointer" data-state={search.conn === connection.id ? 'selected' : undefined} onClick={() => void navigate({ search: (previous) => ({ ...previous, conn: connection.id }) })}>
-                    <TableCell className="font-medium">{connection.name}</TableCell>
-                    <TableCell className="max-w-56 truncate font-mono text-xs text-muted-foreground">{connection.headerTemplate || '–'}</TableCell>
-                    <TableCell>
-                      <Badge variant={connection.hasKey ? 'default' : 'outline'}>{connection.hasKey ? '저장됨' : '없음'}</Badge>
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {tools?.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={3} className="h-24 text-center text-muted-foreground">
-                      API 키가 없습니다. 공개 API는 키 없이 노드에 주소만 적으면 됩니다.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </>
-      }
-      pane={search.conn === 'new' ? <NewTool onClose={close} /> : selected ? <ConnectionPane key={selected.id} connection={selected} onClose={close} /> : null}
-    />
-  );
-}
-
 function NewTool({ onClose }: { onClose: () => void }) {
   const navigate = Route.useNavigate();
   const queryClient = useQueryClient();
@@ -693,74 +713,6 @@ function ModelPicker({ connectionId, value, onChange, id }: { connectionId: stri
   );
 }
 
-function ProfilesTab() {
-  const search = Route.useSearch();
-  const navigate = Route.useNavigate();
-  const profiles = useQuery(q.profiles());
-  const connections = useQuery(q.connections());
-  const connectionById = new Map(connections.data?.map((connection) => [connection.id, connection]));
-  const selected = search.profile && search.profile !== 'new' ? profiles.data?.find((profile) => profile.id === search.profile) : undefined;
-  const close = () => void navigate({ search: (previous) => ({ ...previous, profile: undefined }) });
-
-  return (
-    <Split
-      list={
-        <>
-          <p className="mb-3 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-            모델 프로필은 <b className="text-foreground">어떤 모델을 어떻게 부를지</b>(AI 연결·모델·추론 수준·한도·대체 경로·공통 지시문)를 묶어 둔 것입니다. 워크플로의 AI 노드와 에이전트 채팅이 이름으로 골라
-            씁니다. <b className="text-foreground">무엇을 시킬지</b>(번역·검수 지시, 출력 형태, 문맥)는 각 AI 노드에서 정합니다.
-          </p>
-          <div className="mb-3 flex items-center justify-between">
-            <span className="text-sm text-muted-foreground tabular-nums">{profiles.data?.length ?? '–'}개</span>
-            <Button size="sm" disabled={!connections.data?.length} onClick={() => void navigate({ search: (previous) => ({ ...previous, profile: 'new' }) })}>
-              <Plus />
-              새 모델 프로필
-            </Button>
-          </div>
-          <div className="rounded-lg border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>이름</TableHead>
-                  <TableHead>연결</TableHead>
-                  <TableHead>모델</TableHead>
-                  <TableHead>추론 수준</TableHead>
-                  <TableHead className="text-right">대체 경로</TableHead>
-                  <TableHead>용도</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {profiles.data?.map((profile) => {
-                  const connection = connectionById.get(profile.connectionId);
-                  const info = connection ? CONNECTION_KIND_INFO[connection.kind] : undefined;
-                  return (
-                    <TableRow key={profile.id} className="cursor-pointer" data-state={search.profile === profile.id ? 'selected' : undefined} onClick={() => void navigate({ search: (previous) => ({ ...previous, profile: profile.id }) })}>
-                      <TableCell className="font-medium">{profile.name}</TableCell>
-                      <TableCell className="text-muted-foreground">{connection?.name ?? '(삭제됨)'}</TableCell>
-                      <TableCell className="font-mono text-xs">{profile.model}</TableCell>
-                      <TableCell className="text-muted-foreground">{profile.effort ?? '–'}</TableCell>
-                      <TableCell className="text-right tabular-nums">{profile.fallbacks.length}</TableCell>
-                      <TableCell>{info && <UsageBadge kind={connection!.kind} />}</TableCell>
-                    </TableRow>
-                  );
-                })}
-                {profiles.data?.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
-                      {connections.data?.length ? '프로필이 없습니다.' : '먼저 연결을 추가하세요.'}
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </>
-      }
-      pane={search.profile === 'new' ? <ProfileForm key="new" onClose={close} /> : selected ? <ProfileForm key={selected.id} profile={selected} onClose={close} /> : null}
-    />
-  );
-}
-
 function UsageBadge({ kind }: { kind: ConnectionKind }) {
   const capabilities = CONNECTION_KIND_INFO[kind].capabilities;
   if (capabilities.includes('chat')) return <Badge>채팅·생성</Badge>;
@@ -770,7 +722,7 @@ function UsageBadge({ kind }: { kind: ConnectionKind }) {
 
 type ProfileRow = InferResponseType<typeof client.profiles.$get>[number];
 
-function ProfileForm({ profile, onClose }: { profile?: ProfileRow; onClose: () => void }) {
+function ProfileForm({ profile, connectionId: initialConnection, onClose }: { profile?: ProfileRow; connectionId?: string; onClose: () => void }) {
   const navigate = Route.useNavigate();
   const queryClient = useQueryClient();
   const connections = useQuery(q.connections());
@@ -792,7 +744,7 @@ function ProfileForm({ profile, onClose }: { profile?: ProfileRow; onClose: () =
           maxAttempts: profile.maxAttempts,
           fallbacks: profile.fallbacks.map((route) => ({ connectionId: route.connectionId, model: route.model, effort: route.effort })),
         }
-      : { name: '', description: '', connectionId: '', model: '', instructions: '', maxOutputTokens: 8000, timeoutSeconds: 300, maxAttempts: 2, fallbacks: [] },
+      : { name: '', description: '', connectionId: initialConnection ?? '', model: '', instructions: '', maxOutputTokens: 8000, timeoutSeconds: 300, maxAttempts: 2, fallbacks: [] },
   });
   const fallbacks = useFieldArray({ control: form.control, name: 'fallbacks' });
   const connectionId = useWatch({ control: form.control, name: 'connectionId' });
