@@ -92,6 +92,11 @@ function usageOf(raw: unknown): Usage {
   };
 }
 
+/** CLIs report an exhausted plan or rate limit only in their text; treat it like HTTP 429 so fallbacks can take over. */
+const QUOTA = /quota|RESOURCE_EXHAUSTED|rate.?limit|usage limit|too many requests|\b429\b/i;
+const cliFailure = (detail: string) =>
+  QUOTA.test(detail) ? new ModelError('rate-limit', `CLI 사용량 한도에 도달했습니다. ${detail}`) : new ModelError('cli', `CLI가 실패를 반환했습니다: ${detail}`, false);
+
 /** JSON somewhere in a model's text answer: a fenced block, else the outermost braces. */
 function parseLooseJson(text: string): unknown {
   const fenced = /```(?:json)?\s*\n([\s\S]*?)\n```/.exec(text)?.[1];
@@ -112,7 +117,7 @@ function unwrap(kind: CliKind, stdout: string): { data: unknown; usage: Usage } 
   // opencode streams parts; the answer is the text parts, an error event means the turn failed.
   if (kind === 'opencode') {
     const failure = events.map(record).find((event) => event?.type === 'error');
-    if (failure) throw new ModelError('cli', `CLI가 실패를 반환했습니다: ${JSON.stringify(failure.error ?? failure.part ?? failure).slice(0, 300)}`, false);
+    if (failure) throw cliFailure(JSON.stringify(failure.error ?? failure.part ?? failure).slice(0, 300));
     const text = events
       .map(record)
       .filter((event) => event?.type === 'text')
@@ -133,7 +138,7 @@ function unwrap(kind: CliKind, stdout: string): { data: unknown; usage: Usage } 
   }
   if (!envelope) throw new ModelError('cli', 'CLI가 최종 결과를 반환하지 않았습니다.', false);
   if (envelope.is_error === true || envelope.type === 'error' || envelope.status === 'ERROR' || String(envelope.subtype ?? '').startsWith('error'))
-    throw new ModelError('cli', `CLI가 실패를 반환했습니다: ${String(envelope.result ?? envelope.error ?? '').slice(0, 300)}`, false);
+    throw cliFailure(String(envelope.result ?? envelope.error ?? '').slice(0, 300));
   const stop = String(envelope.stopReason ?? '').toLowerCase();
   if (/max_?tokens|length|truncat/.test(stop)) throw new ModelError('invalid-output', '응답이 길이 제한에 걸려 잘렸습니다.', false);
   const data =
@@ -192,6 +197,7 @@ export async function cliGenerate<T>(route: ResolvedRoute, request: GenerateRequ
       if (error.timedOut) throw new ModelError('timeout', 'CLI 호출이 제한 시간을 초과했습니다.');
       if (error.code === 'ENOENT') throw new ModelError('config', `CLI를 찾지 못했습니다: ${cliCommand(kind, route.executable)}`, false);
       const detail = (error.stderr || error.stdout || '').toString().trim().split('\n').slice(-3).join(' ').slice(0, 400);
+      if (QUOTA.test(detail)) throw new ModelError('rate-limit', `CLI 사용량 한도에 도달했습니다. ${detail}`);
       throw new ModelError('cli', `CLI가 실패했습니다 (exit ${error.exitCode}). ${detail}`, false);
     }
     throw new ModelError('unknown', error instanceof Error ? error.message : String(error), false);
