@@ -71,4 +71,23 @@ describe('script queries', () => {
     expect(found).toHaveLength(1);
     expect(found[0].variants).toHaveLength(2);
   });
+
+  it('filters by listener, checks translations against speech rules, and takes listener changes from a batch', () => {
+    const { db, projectId } = setup();
+    db.update(s.units).set({ listener: 'Bob Stone', listenerOrigin: 'import', translation: '밥, 여기야.' }).where(eq(s.units.key, 'a')).run();
+    db.update(s.units).set({ listener: 'CHAR_ALICE', listenerOrigin: 'ai', listenerConfidence: 0.5, translation: '앨리스한테 물어봐요.' }).where(eq(s.units.key, 'b')).run();
+    db.insert(s.speechRules).values({ projectId, fromName: 'Alice Grey', toName: 'Bob Stone', level: 'haeyo' }).run();
+
+    // Names resolve through aliases; an unsure AI listener counts as unknown.
+    expect(findLines(db, projectId, filter({ listeners: ['Bob'] })).rows.map((row) => [row.key, row.listener])).toEqual([['a', 'Bob Stone']]);
+    expect(findLines(db, projectId, filter({ listeners: ['-'] })).rows.map((row) => row.key)).toEqual(['b', 'c']);
+    expect(checkScript(db, projectId, 'speech', filter({}))).toEqual([expect.objectContaining({ key: 'a', rule: '해요체', listener: 'Bob Stone' })]);
+
+    const batch = batchChangeSchema.parse({ changes: [{ key: 'b', listener: 'Alice Grey' }, { key: 'a', listener: 'Bob Stone' }] });
+    const { batch: normalized, unchanged } = normalizeBatch(db, projectId, batch);
+    expect(unchanged).toEqual(['a']);
+    applyBatch(db, projectId, normalized);
+    const b = db.select().from(s.units).where(eq(s.units.key, 'b')).get()!;
+    expect([b.listener, b.listenerOrigin]).toEqual(['Alice Grey', 'human']);
+  });
 });

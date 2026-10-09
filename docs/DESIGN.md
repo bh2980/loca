@@ -301,6 +301,7 @@ System One 연결은 판정 출력에만 쓴다.
 - **워크플로 실행 제안**: 에이전트는 실행을 제안할 수 있고 수락해야 시작된다.
 - **loca CLI**: 실행 중인 앱의 로컬 API를 부른다(DB를 직접 건드리지 않아 화면이 갱신된다). `context <키>`(AI 노드가 보낼 문맥 미리보기)가 있고, `format schema|check`(표준 파일 규격·검사)와 `workspace new|list|clean`(에이전트 임시 파일을 두는 `.loca/`, 스스로 git에서 빠짐)은 앱 없이 동작한다 [구현됨]. 읽기는 바로 답하고, 쓰기(가져오기·변경 도구)는 **제안 1건**이 된다. 배치 가져오기는 대사별 rev(updatedAt)로 충돌을 검사하고 수락 시점에 다시 확인해 그사이 바뀐 줄은 건너뛴다. 명령은 `README.md`와 `loca --help`.
 - CLI와 채팅 도구는 같은 서버 기능(`services/script-query.ts`)을 쓴다. `skills/`는 CLI 명령과 함께 고친다.
+- 청자·말투: `loca lines --listener <이름|->`, `loca check speech`, `loca export`의 `listener`·`speechRule`, import 줄의 `listener`(수락하면 사람이 정한 청자). 도구 `list_speech_rules`·`list_events`·`save_speech_rule`·`save_event`, `read_line`의 청자·말투 규칙, `list_characters`의 말투 특징·플레이어·상태·출처. 에이전트가 기존 자료를 고치면 그 항목은 정식이 된다(수락 카드를 거치므로). [1차]
 
 ## 8. 데이터 모델 [구현됨] (SQLite + Drizzle)
 

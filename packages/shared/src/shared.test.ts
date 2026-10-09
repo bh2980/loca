@@ -151,6 +151,7 @@ describe('speech level guess', () => {
     expect(speechLevelOf('<b>정말요?</b>')).toBe('haeyo');
     expect(speechLevelOf('그만해, {name}!')).toBe('hae');
     expect(speechLevelOf('어서 가거라.')).toBe('haera');
+    expect(speechLevelOf('아냐')).toBe('hae');
     expect(speechLevelOf('자네도 왔는가?')).toBe('hage');
     expect(speechLevelOf('어서 오시오.')).toBe('hao');
     expect(speechLevelOf('OK')).toBeNull();

@@ -82,6 +82,7 @@ function readJsonArg(value: string | undefined): unknown {
 interface FilterOptions {
   q?: string;
   speaker?: string[];
+  listener?: string[];
   mentions?: string[];
   group?: string[];
   section?: string[];
@@ -100,6 +101,7 @@ function withFilters(command: Command) {
   return command
     .option('-q, --q <글자>', '원문·번역·화자·키에 들어 있는 글자')
     .option('-s, --speaker <names...>', '이 인물이 하는 대사 (이름·별칭·화자 키)')
+    .option('-l, --listener <names...>', '이 인물에게 하는 대사 (청자). "-"는 청자 미상')
     .option('-m, --mentions <names...>', '이 인물을 언급하는 대사 ({ALIAS} 포함)')
     .option('-g, --group <groups...>', '장면·묶음')
     .option('--section <sections...>', '구역(장·출처)')
@@ -118,6 +120,7 @@ function filterFrom(options: FilterOptions): LineFilterInput {
   return {
     q: options.q,
     speakers: options.speaker,
+    listeners: options.listener,
     mentions: options.mentions,
     groups: options.group,
     sections: options.section,
@@ -161,7 +164,7 @@ withFilters(program.command('lines').description('대사 찾기. 필터를 조�
     log(`대사 ${total.toLocaleString()}개 중 ${rows.length.toLocaleString()}개`);
     if (options.jsonl) return printJsonl(rows);
     if (globals().json) return print({ total, rows });
-    for (const row of rows) console.log(`${row.key}  [${row.status}] ${row.speaker ?? '—'}: ${short(row.source)}${row.translation ? `\n    → ${short(row.translation)}` : ''}`);
+    for (const row of rows) console.log(`${row.key}  [${row.status}] ${row.speaker ?? '—'}${row.listener ? ` → ${row.listener}` : ''}: ${short(row.source)}${row.translation ? `\n    → ${short(row.translation)}` : ''}`);
   });
 
 program
@@ -203,7 +206,7 @@ program
     if (!context) throw new CliError(`대사를 찾을 수 없습니다: ${key}`);
     if (globals().json) return print(context);
     for (const row of context.before) console.log(`  ${row.speaker ?? '—'}: ${short(row.source)}`);
-    console.log(`▶ ${context.line.speaker ?? '—'}: ${context.line.source}${context.line.translation ? `\n  → ${context.line.translation}` : ''}`);
+    console.log(`▶ ${context.line.speaker ?? '—'}${context.line.listener ? ` → ${context.line.listener}` : ''}: ${context.line.source}${context.line.translation ? `\n  → ${context.line.translation}` : ''}`);
     for (const row of context.after) console.log(`  ${row.speaker ?? '—'}: ${short(row.source)}`);
     if (context.graph) {
       const show = (label: string, list: typeof context.graph.incoming) =>
@@ -223,7 +226,7 @@ withFilters(
   .action(async (kind: string, options: FilterOptions & { ratio: string; jsonl?: boolean }) => {
     if (!(kind in CHECK_KINDS)) throw new CliError(`점검 종류는 ${Object.keys(CHECK_KINDS).join(', ')} 중 하나입니다.`);
     const items = (await unwrap(
-      api().projects[':projectId'].checks[':kind{terms|consistency|format|length}'].$post({
+      api().projects[':projectId'].checks[':kind{terms|consistency|format|length|speech}'].$post({
         param: { projectId: await projectId(), kind: kind as 'terms' },
         json: { filter: filterFrom(options), ratio: Number(options.ratio) },
       }),
@@ -236,7 +239,8 @@ withFilters(
         console.log(`"${short(String(item.source))}"`);
         for (const variant of item.variants as { translation: string; keys: string[] }[]) console.log(`    → ${short(variant.translation)}  (${variant.keys.length}곳: ${variant.keys.slice(0, 3).join(', ')}${variant.keys.length > 3 ? '…' : ''})`);
       } else {
-        const detail = kind === 'terms' ? `"${item.term}" → "${item.expected}"` : kind === 'format' ? (item.issues as string[]).join(' / ') : `×${item.ratio}`;
+        const detail =
+          kind === 'terms' ? `"${item.term}" → "${item.expected}"` : kind === 'format' ? (item.issues as string[]).join(' / ') : kind === 'speech' ? `${item.speaker} → ${item.listener}: ${item.rule} · ${item.issue}` : `×${item.ratio}`;
         console.log(`${item.key}  ${detail}\n    ${short(String(item.source))}\n    → ${short(String(item.translation))}`);
       }
     }

@@ -1,8 +1,9 @@
 import { and, asc, count, desc, eq, gte, inArray, like, or, sql, type SQL } from 'drizzle-orm';
-import { checkFormat, mentions, type BatchChange, type CheckKind, type LineFilter } from '@tw/shared';
+import { checkFormat, LISTENER_MIN_CONFIDENCE, mentions, type BatchChange, type CheckKind, type LineFilter } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
+import { describeRule, knownListener, speechMismatch, speechRuleIndex } from './speech.ts';
 
 /**
  * Reading and batch-changing the script, shared by the CLI routes and the chat's tools so both
@@ -19,6 +20,8 @@ export interface LineRow {
   group: { key: string; title: string; kind: string; section: string | null };
   kind: string;
   speaker: string | null;
+  /** Known listener (an unsure AI guess counts as unknown). */
+  listener: string | null;
   source: string;
   translation: string | null;
   status: string;
@@ -52,6 +55,11 @@ export function findLines(db: Db, projectId: string, filter: LineFilter): { tota
   const where: SQL[] = [eq(s.units.projectId, projectId)];
   if (filter.q) where.push(or(like(s.units.source, `%${filter.q}%`), like(s.units.translation, `%${filter.q}%`), like(s.units.speaker, `%${filter.q}%`), like(s.units.key, `%${filter.q}%`))!);
   if (filter.speakers?.length) where.push(inArray(s.units.speaker, filter.speakers.flatMap(namesOf)));
+  if (filter.listeners?.length) {
+    const sure = sql`(${s.units.listener} is not null and (${s.units.listenerOrigin} is not 'ai' or ${s.units.listenerConfidence} >= ${LISTENER_MIN_CONFIDENCE}))`;
+    const names = filter.listeners.filter((name) => name !== '-').flatMap(namesOf);
+    where.push(or(...(names.length ? [and(inArray(s.units.listener, names), sure)!] : []), ...(filter.listeners.includes('-') ? [sql`not ${sure}`] : []))!);
+  }
   if (filter.groups?.length) where.push(or(inArray(s.groups.key, filter.groups), inArray(s.groups.id, filter.groups), inArray(s.groups.title, filter.groups))!);
   if (filter.sections?.length) where.push(inArray(s.groups.section, filter.sections));
   if (filter.groupKind) where.push(eq(s.groups.kind, filter.groupKind));
@@ -95,6 +103,7 @@ export function findLines(db: Db, projectId: string, filter: LineFilter): { tota
       group,
       kind: unit.kind,
       speaker: unit.speaker,
+      listener: knownListener(unit),
       source: unit.source,
       translation: unit.translation,
       status: statusName.get(unit.statusId) ?? unit.statusId,
@@ -199,6 +208,14 @@ export function checkScript(db: Db, projectId: string, kind: CheckKind, filter: 
       return issues.length ? [{ key: line.key, group: line.group.title, source: line.source, translation: line.translation, issues: issues.map((issue) => issue.message) }] : [];
     });
   }
+  if (kind === 'speech') {
+    const rules = speechRuleIndex(db, projectId).resolve(lines.map((line) => ({ key: line.key, speaker: line.speaker, listener: line.listener, listenerOrigin: 'human' as const, listenerConfidence: null })));
+    return lines.flatMap((line) => {
+      const found = rules.get(line.key);
+      const issue = found ? speechMismatch(found.rule, line.translation) : null;
+      return issue ? [{ key: line.key, group: line.group.title, speaker: line.speaker, listener: found!.listener, rule: describeRule(found!.rule), source: line.source, translation: line.translation, issue }] : [];
+    });
+  }
   const ratio = options.ratio ?? 1.5;
   return lines
     .filter((line) => line.translation!.length > line.source.length * ratio)
@@ -268,6 +285,8 @@ export function exportLines(db: Db, projectId: string, filter: LineFilter, optio
   const terms = options.terms ? db.select().from(s.terms).where(and(eq(s.terms.projectId, projectId), eq(s.terms.status, 'confirmed'))).all() : [];
   const groupLines = new Map<string, { id: string; speaker: string | null; source: string; translation: string | null }[]>();
   const units = new Map(db.select({ id: s.units.id, groupId: s.units.groupId }).from(s.units).where(inArray(s.units.id, lines.map((line) => line.id))).all().map((row) => [row.id, row.groupId]));
+  // The confirmed speech rule of each line's speaker → listener pair, as the translator must follow it.
+  const rules = speechRuleIndex(db, projectId).resolve(lines.map((line) => ({ key: line.key, speaker: line.speaker, listener: line.listener, listenerOrigin: 'human' as const, listenerConfidence: null })));
   return lines.map((line) => {
     let before: { speaker: string | null; source: string; translation: string | null }[] = [];
     if (options.before > 0) {
@@ -279,7 +298,22 @@ export function exportLines(db: Db, projectId: string, filter: LineFilter, optio
       before = siblings.slice(Math.max(0, index - options.before), index).map(({ speaker, source, translation }) => ({ speaker, source, translation }));
     }
     const used = terms.filter((term) => mentions(line.source, term.source)).map((term) => ({ source: term.source, target: term.target, note: term.note }));
-    return { key: line.key, rev: line.rev, group: line.group.title, section: line.group.section, speaker: line.speaker, source: line.source, translation: line.translation, status: line.status, tags: line.tags, ...(options.before > 0 ? { before } : {}), ...(options.terms ? { terms: used } : {}) };
+    const rule = rules.get(line.key);
+    return {
+      key: line.key,
+      rev: line.rev,
+      group: line.group.title,
+      section: line.group.section,
+      speaker: line.speaker,
+      ...(line.listener ? { listener: line.listener } : {}),
+      ...(rule ? { speechRule: describeRule(rule.rule) } : {}),
+      source: line.source,
+      translation: line.translation,
+      status: line.status,
+      tags: line.tags,
+      ...(options.before > 0 ? { before } : {}),
+      ...(options.terms ? { terms: used } : {}),
+    };
   });
 }
 
@@ -297,7 +331,8 @@ export function normalizeBatch(db: Db, projectId: string, batch: BatchChange): {
     const next = { ...change };
     if (next.translation !== undefined && next.translation === (unit.translation ?? '')) delete next.translation;
     if (next.status && statusId(next.status) === unit.statusId) delete next.status;
-    if (next.translation === undefined && !next.status && !next.addTags.length && !next.removeTags.length) {
+    if (next.listener !== undefined && next.listener === unit.listener) delete next.listener;
+    if (next.translation === undefined && next.listener === undefined && !next.status && !next.addTags.length && !next.removeTags.length) {
       unchanged.push(change.key);
       return [];
     }
@@ -332,7 +367,7 @@ export function validateBatch(db: Db, projectId: string, batch: BatchChange): Ba
     else if (change.rev !== undefined && change.rev !== unit.updatedAt.getTime()) report.conflicts.push({ key: change.key, reason: '읽은 뒤에 다른 곳에서 바뀌었습니다.' });
     else if (change.status && !statusId(change.status)) report.errors.push({ key: change.key, reason: `없는 상태입니다: ${change.status}` });
     else if ([...change.addTags, ...change.removeTags].some((tag) => !tagId(tag))) report.errors.push({ key: change.key, reason: '없는 태그가 있습니다.' });
-    else if (change.translation === undefined && !change.status && !change.addTags.length && !change.removeTags.length) report.errors.push({ key: change.key, reason: '바꿀 내용이 없습니다.' });
+    else if (change.translation === undefined && change.listener === undefined && !change.status && !change.addTags.length && !change.removeTags.length) report.errors.push({ key: change.key, reason: '바꿀 내용이 없습니다.' });
     else {
       report.changes++;
       if (change.translation !== undefined) {
@@ -375,6 +410,8 @@ export function applyBatch(db: Db, projectId: string, batch: BatchChange) {
         patch.candidateId = candidate.id;
       }
       if (change.status) patch.statusId = statusId(change.status)!;
+      // Accepting a proposal is a person's decision about the listener.
+      if (change.listener !== undefined) Object.assign(patch, { listener: change.listener, listenerOrigin: 'human', listenerConfidence: null });
       if (Object.keys(patch).length) tx.update(s.units).set(patch).where(eq(s.units.id, unit.id)).run();
       const remove = change.removeTags.map((tag) => tagId(tag)!).filter(Boolean);
       if (remove.length) tx.delete(s.unitTags).where(and(eq(s.unitTags.unitId, unit.id), inArray(s.unitTags.tagId, remove))).run();

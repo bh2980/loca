@@ -36,7 +36,7 @@ export const scriptRoutes = new Hono<Env>()
     c.json(found(previewContext(c.var.deps.db, c.req.param('projectId'), c.req.param('key'), c.req.valid('query')), '대사')),
   )
   .post(
-    '/projects/:projectId/checks/:kind{terms|consistency|format|length}',
+    '/projects/:projectId/checks/:kind{terms|consistency|format|length|speech}',
     validate('json', z.object({ filter: lineFilterSchema.default({ offset: 0, limit: 200 }), ratio: z.number().min(1).max(5).optional() })),
     (c) => {
       const { filter, ratio } = c.req.valid('json');

@@ -1,12 +1,13 @@
 import { tool } from 'ai';
 import { and, asc, count, desc, eq, inArray, like, or } from 'drizzle-orm';
 import { z } from 'zod';
-import { AI_OUTPUTS, AI_PRESETS, batchChangeSchema, CONNECTION_KIND_INFO, FUNCTIONS, lineFilterSchema, NODE_TYPES, profileInputSchema, workflowDefinitionSchema } from '@tw/shared';
+import { AI_OUTPUTS, AI_PRESETS, batchChangeSchema, CONNECTION_KIND_INFO, FUNCTIONS, lineFilterSchema, NODE_TYPES, profileInputSchema, sourceOf, workflowDefinitionSchema } from '@tw/shared';
 import { z as zod } from 'zod';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
-import { characterInput, documentInput, relationshipInput, termInput } from '../routes/knowledge.ts';
+import { characterInput, documentInput, eventInput, relationshipInput, speechRuleInput, termInput } from '../routes/knowledge.ts';
+import { describeRule, knownListener, speechRuleIndex } from './speech.ts';
 import { workflowIssues } from '../routes/workflows.ts';
 import { mentions } from './context.ts';
 import { createRun, selectRunUnits } from '../engine/runner.ts';
@@ -76,7 +77,7 @@ export function agentTools(db: Db, projectId: string, author: { profileId: strin
       },
     }),
     read_line: tool({
-      description: 'One line by id or key with what a translator needs: its group, the 6 lines before and 3 after, its candidates, confirmed glossary terms it mentions, and the speaker\'s character profile.',
+      description: 'One line by id or key with what a translator needs: its group, the 6 lines before and 3 after, its candidates, confirmed glossary terms it mentions, the speaker\'s character profile, and its listener with the confirmed speech rule for that pair.',
       inputSchema: z.object({ unitId: z.string().optional(), key: z.string().optional() }),
       execute: ({ unitId, key }) => {
         const unit = db
@@ -89,8 +90,10 @@ export function agentTools(db: Db, projectId: string, author: { profileId: strin
         const around = db.select({ id: s.units.id, sort: s.units.sort, speaker: s.units.speaker, source: s.units.source, translation: s.units.translation }).from(s.units).where(eq(s.units.groupId, unit.groupId)).orderBy(asc(s.units.sort)).all();
         const index = around.findIndex((row) => row.id === unit.id);
         const terms = db.select({ source: s.terms.source, target: s.terms.target, note: s.terms.note }).from(s.terms).where(and(eq(s.terms.projectId, projectId), eq(s.terms.status, 'confirmed'))).all();
+        const rule = speechRuleIndex(db, projectId).resolve([unit]).get(unit.key);
         return {
-          line: { id: unit.id, key: unit.key, kind: unit.kind, speaker: unit.speaker, source: unit.source, translation: unit.translation },
+          line: { id: unit.id, key: unit.key, kind: unit.kind, speaker: unit.speaker, listener: knownListener(unit), source: unit.source, translation: unit.translation },
+          speechRule: rule ? { rule: describeRule(rule.rule), note: rule.rule.note, byScriptOrder: rule.byOrder } : null,
           group,
           before: around.slice(Math.max(0, index - 6), index),
           after: around.slice(index + 1, index + 4),
@@ -102,7 +105,7 @@ export function agentTools(db: Db, projectId: string, author: { profileId: strin
     }),
     find_lines: tool({
       description:
-        'Find lines with any combination of filters: q (text), speakers (character name/alias/speaker key — all their lines), mentions (lines that mention a character, incl. {ALIAS} placeholders), groups (scene/group key, id or title), sections (chapter/folder), groupKind, kind, statuses, tags, translated, keys. Returns total and one page with each line\'s key and rev; page with offset until total. Prefer one broad call over many small ones.',
+        'Find lines with any combination of filters: q (text), speakers (character name/alias/speaker key — all their lines), listeners (lines addressed to them; "-" = listener unknown), mentions (lines that mention a character, incl. {ALIAS} placeholders), groups (scene/group key, id or title), sections (chapter/folder), groupKind, kind, statuses, tags, translated, keys. Returns total and one page with each line\'s key and rev; page with offset until total. Prefer one broad call over many small ones.',
       inputSchema: lineFilterSchema,
       execute: (filter) => findLines(db, projectId, filter),
     }),
@@ -118,8 +121,8 @@ export function agentTools(db: Db, projectId: string, author: { profileId: strin
     }),
     check_script: tool({
       description:
-        'Find problems across many lines at once. kind: terms (confirmed glossary term not used in the translation), consistency (same source, different translations), format (placeholders/tags/line breaks per the project format rules), length (translation longer than ratio × source; good for UI strings). filter narrows the lines.',
-      inputSchema: z.object({ kind: z.enum(['terms', 'consistency', 'format', 'length']), filter: lineFilterSchema.default({ offset: 0, limit: 200 }), ratio: z.number().min(1).max(5).optional(), limit: z.number().int().min(1).max(500).default(100) }),
+        'Find problems across many lines at once. kind: terms (confirmed glossary term not used in the translation), consistency (same source, different translations), format (placeholders/tags/line breaks per the project format rules), length (translation longer than ratio × source; good for UI strings), speech (translation ending does not match the confirmed speech rule of the speaker → listener pair; a guess from the ending). filter narrows the lines.',
+      inputSchema: z.object({ kind: z.enum(['terms', 'consistency', 'format', 'length', 'speech']), filter: lineFilterSchema.default({ offset: 0, limit: 200 }), ratio: z.number().min(1).max(5).optional(), limit: z.number().int().min(1).max(500).default(100) }),
       execute: ({ kind, filter, ratio, limit }) => {
         const found = checkScript(db, projectId, kind, filter, { ratio });
         return { total: found.length, items: found.slice(0, limit) };
@@ -137,16 +140,46 @@ export function agentTools(db: Db, projectId: string, author: { profileId: strin
         db.select({ speaker: s.units.speaker, lines: count() }).from(s.units).where(eq(s.units.projectId, projectId)).groupBy(s.units.speaker).orderBy(desc(count())).limit(300).all(),
     }),
     list_characters: tool({
-      description: 'Stored characters with profiles, and their relationships.',
+      description:
+        'Stored characters (profile, how they speak, whether they are the player character) and their relationships (with changes). Each item says its status (confirmed = used as AI context, candidate = not yet) and source (ai = added by AI and not yet taken over by a person, official).',
       inputSchema: z.object({}),
       execute: () => {
         const characters = db.select().from(s.characters).where(eq(s.characters.projectId, projectId)).all();
         const names = new Map(characters.map((character) => [character.id, character.name]));
         return {
-          characters: characters.map(({ id, name, aliases, profile }) => ({ id, name, aliases, profile })),
-          relationships: db.select().from(s.relationships).where(eq(s.relationships.projectId, projectId)).all().map((rel) => ({ id: rel.id, from: names.get(rel.fromId), to: names.get(rel.toId), kind: rel.kind, description: rel.description, mutual: rel.mutual })),
+          characters: characters.map(({ id, name, aliases, profile, speech, player, status, origin, reviewed }) => ({ id, name, aliases, profile, speech, player, status, source: sourceOf({ origin, reviewed }) })),
+          relationships: db
+            .select()
+            .from(s.relationships)
+            .where(eq(s.relationships.projectId, projectId))
+            .all()
+            .map((rel) => ({ id: rel.id, from: names.get(rel.fromId), to: names.get(rel.toId), kind: rel.kind, description: rel.description, mutual: rel.mutual, changes: rel.changes, status: rel.status, source: sourceOf(rel) })),
         };
       },
+    }),
+    list_speech_rules: tool({
+      description:
+        'Korean speech rules per speaker → listener direction: level (hasipsio 하십시오체, hao 하오체, hage 하게체, haera 해라체, haeyo 해요체, hae 해체/반말, other), form of address, and startKey (the rule applies from that line on; null = from the beginning; several rules for a pair are stretches in script order). Only confirmed rules reach translation prompts.',
+      inputSchema: z.object({ speaker: z.string().optional(), listener: z.string().optional() }),
+      execute: ({ speaker, listener }) =>
+        db
+          .select()
+          .from(s.speechRules)
+          .where(eq(s.speechRules.projectId, projectId))
+          .all()
+          .filter((rule) => (!speaker || rule.fromName.toLowerCase() === speaker.toLowerCase()) && (!listener || rule.toName.toLowerCase() === listener.toLowerCase()))
+          .map(({ id, fromName, toName, level, address, note, startKey, status, origin, reviewed, evidence }) => ({ id, from: fromName, to: toName, level, address, note, startKey, status, source: sourceOf({ origin, reviewed }), evidence })),
+    }),
+    list_events: tool({
+      description: 'Stored story events: summary, cause, outcome, participants and the lines that show them, with status and source.',
+      inputSchema: z.object({}),
+      execute: () =>
+        db
+          .select()
+          .from(s.storyEvents)
+          .where(eq(s.storyEvents.projectId, projectId))
+          .all()
+          .map(({ id, title, summary, cause, outcome, participants, evidence, status, origin, reviewed }) => ({ id, title, summary, cause, outcome, participants, evidence, status, source: sourceOf({ origin, reviewed }) })),
     }),
     read_documents: tool({
       description: 'Story, world-building, style and note documents (full text).',
@@ -207,13 +240,13 @@ export function agentTools(db: Db, projectId: string, author: { profileId: strin
 
     // ── changes (need the user's approval) ───────────────────────
     save_character: tool({
-      description: 'Create a character, or update it when id is given (call list_characters first; creating a name that already exists is refused). Profile is markdown: personality, speech style/register, role, translation notes.',
+      description: 'Create a character, or update it when id is given (call list_characters first; creating a name that already exists is refused). Profile is markdown: personality, role, translation notes; speech is how they talk in the source; player marks the player character (who may be addressed without speaking). Korean speech levels belong in save_speech_rule.',
       inputSchema: characterInput.extend({ id: z.string().optional() }),
       needsApproval: true,
       execute: ({ id, ...input }) => {
         const existing = !id && characterByName(input.name);
         if (existing) return { ok: false, error: `같은 이름의 인물이 이미 있습니다. id=${existing.id}로 수정 제안을 다시 하세요.` };
-        if (id) db.update(s.characters).set(input).where(and(eq(s.characters.id, id), eq(s.characters.projectId, projectId))).run();
+        if (id) db.update(s.characters).set({ ...input, reviewed: true }).where(and(eq(s.characters.id, id), eq(s.characters.projectId, projectId))).run();
         else id = db.insert(s.characters).values({ ...input, projectId }).returning().get().id;
         changed('knowledge');
         return { ok: true, id };
@@ -227,8 +260,31 @@ export function agentTools(db: Db, projectId: string, author: { profileId: strin
         const a = characterByName(from), b = characterByName(to);
         if (!a || !b) return { ok: false, error: `인물을 먼저 만들어야 합니다: ${!a ? from : to}` };
         const values = { ...input, fromId: a.id, toId: b.id };
-        if (id) db.update(s.relationships).set(values).where(and(eq(s.relationships.id, id), eq(s.relationships.projectId, projectId))).run();
+        if (id) db.update(s.relationships).set({ ...values, reviewed: true }).where(and(eq(s.relationships.id, id), eq(s.relationships.projectId, projectId))).run();
         else id = db.insert(s.relationships).values({ ...values, projectId }).returning().get().id;
+        changed('knowledge');
+        return { ok: true, id };
+      },
+    }),
+    save_speech_rule: tool({
+      description:
+        'Create a Korean speech rule for one speaker → listener direction (call list_speech_rules first), or update it when id is given. A new stretch for a pair that changes (falling out, reconciliation) is a new rule with startKey = the first line of the stretch. Use names as stored (character name or alias).',
+      inputSchema: speechRuleInput.extend({ id: z.string().optional() }),
+      needsApproval: true,
+      execute: ({ id, ...input }) => {
+        if (id) db.update(s.speechRules).set({ ...input, reviewed: true }).where(and(eq(s.speechRules.id, id), eq(s.speechRules.projectId, projectId))).run();
+        else id = db.insert(s.speechRules).values({ ...input, projectId }).returning().get().id;
+        changed('knowledge');
+        return { ok: true, id };
+      },
+    }),
+    save_event: tool({
+      description: 'Create a story event (call list_events first), or update it when id is given. evidence are the line keys that show it.',
+      inputSchema: eventInput.extend({ id: z.string().optional() }),
+      needsApproval: true,
+      execute: ({ id, ...input }) => {
+        if (id) db.update(s.storyEvents).set({ ...input, reviewed: true }).where(and(eq(s.storyEvents.id, id), eq(s.storyEvents.projectId, projectId))).run();
+        else id = db.insert(s.storyEvents).values({ ...input, projectId }).returning().get().id;
         changed('knowledge');
         return { ok: true, id };
       },
@@ -238,7 +294,7 @@ export function agentTools(db: Db, projectId: string, author: { profileId: strin
       inputSchema: documentInput.extend({ id: z.string().optional() }),
       needsApproval: true,
       execute: ({ id, ...input }) => {
-        if (id) db.update(s.documents).set(input).where(and(eq(s.documents.id, id), eq(s.documents.projectId, projectId))).run();
+        if (id) db.update(s.documents).set({ ...input, reviewed: true }).where(and(eq(s.documents.id, id), eq(s.documents.projectId, projectId))).run();
         else id = db.insert(s.documents).values({ ...input, projectId }).returning().get().id;
         changed('knowledge');
         return { ok: true, id };
@@ -251,7 +307,7 @@ export function agentTools(db: Db, projectId: string, author: { profileId: strin
       execute: ({ terms }) => {
         db.transaction((tx) => {
           for (const { id, ...term } of terms) {
-            if (id) tx.update(s.terms).set(term).where(and(eq(s.terms.id, id), eq(s.terms.projectId, projectId))).run();
+            if (id) tx.update(s.terms).set({ ...term, reviewed: true }).where(and(eq(s.terms.id, id), eq(s.terms.projectId, projectId))).run();
             else tx.insert(s.terms).values({ ...term, projectId }).run();
           }
         });

@@ -64,6 +64,7 @@ export function speechLevelOf(text: string): Exclude<SpeechLevel, 'other'> | nul
   if (/요$/u.test(plain)) return 'haeyo';
   if (/(구려|시오|소|오)$/u.test(plain)) return 'hao';
   if (/(는가|던가|게나|세나)$/u.test(plain)) return 'hage';
-  if (/(다|냐|니|거라|라|자)$/u.test(plain)) return 'haera';
+  // "-냐/-니" questions are 해라체 ("가냐?"), but "아냐/아니" is 해체: only the unambiguous endings count.
+  if (/(다|느냐|거라|어라|아라|자)$/u.test(plain)) return 'haera';
   return 'hae';
 }

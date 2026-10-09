@@ -5,8 +5,8 @@ import { z } from 'zod';
  * in-app chat (API or pi) and to the CLI.
  */
 export const AGENT_TOOL_GROUPS = {
-  read: { label: '읽기', description: '대본·장면·대사·인물·용어·문서·워크플로·실행 기록을 읽습니다.' },
-  change: { label: '변경 제안', description: '인물·관계·문서·용어·번역 후보·장면 요약·상태·프로필·워크플로를 만들거나 고칩니다. 항상 수락 카드를 거칩니다.' },
+  read: { label: '읽기', description: '대본·장면·대사·인물·말투 규칙·사건·용어·문서·워크플로·실행 기록을 읽습니다.' },
+  change: { label: '변경 제안', description: '인물·관계·말투 규칙·사건·문서·용어·번역 후보·장면 요약·상태·프로필·워크플로를 만들거나 고칩니다. 항상 수락 카드를 거칩니다.' },
   run: { label: '워크플로 실행', description: '워크플로 실행을 제안합니다. 수락하면 시작되고 AI 비용이 듭니다.' },
   web: { label: '웹 검색', description: '인터넷을 검색하고 페이지를 읽습니다(기본: 키 없는 Exa).' },
   editor: { label: '편집기 연동', description: '열려 있는 워크플로 편집기의 노드를 고칩니다(API 채팅만).' },
@@ -25,6 +25,8 @@ export const AGENT_TOOLS: Record<string, { group: AgentToolGroup; label: string 
   script_stats: { group: 'read', label: '진행·실행 통계' },
   list_speakers: { group: 'read', label: '화자 목록 조회' },
   list_characters: { group: 'read', label: '인물 조회' },
+  list_speech_rules: { group: 'read', label: '말투 규칙 조회' },
+  list_events: { group: 'read', label: '사건 조회' },
   read_documents: { group: 'read', label: '참조 문서 읽기' },
   list_terms: { group: 'read', label: '용어집 조회' },
   harness_reference: { group: 'read', label: '워크플로 구조 확인' },
@@ -32,6 +34,8 @@ export const AGENT_TOOLS: Record<string, { group: AgentToolGroup; label: string 
   read_run: { group: 'read', label: '실행 기록 읽기' },
   save_character: { group: 'change', label: '인물 저장' },
   save_relationship: { group: 'change', label: '관계 저장' },
+  save_speech_rule: { group: 'change', label: '말투 규칙 저장' },
+  save_event: { group: 'change', label: '사건 저장' },
   save_document: { group: 'change', label: '참조 문서 저장' },
   save_terms: { group: 'change', label: '용어 저장' },
   propose_translation: { group: 'change', label: '번역 후보 추가' },

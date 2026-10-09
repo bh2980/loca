@@ -53,7 +53,9 @@ pnpm mock-llm
 ```bash
 pnpm loca projects
 pnpm loca lines --speaker "Alice" --all
+pnpm loca lines --speaker "Alice" --listener "Bob"   # Alice가 Bob에게 한 말 (--listener - 는 청자 미상)
 pnpm loca check terms
+pnpm loca check speech               # 화자→청자 말투 규칙과 어미가 다른 번역 (추정)
 pnpm loca context tower.1                # AI 노드가 이 대사에 보낼 문맥 (모델 호출 없음)
 W=$(pnpm --silent loca workspace new ch1)     # .loca/ch1 작업 폴더 (git에 안 올라감)
 pnpm loca export --section "Chapter 1" --untranslated --context 4 --terms -o "$W/ch1.jsonl"
