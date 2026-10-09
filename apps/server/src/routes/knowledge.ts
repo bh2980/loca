@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { mentions } from '../services/context.ts';
 import { z } from 'zod';
-import { DOCUMENT_KINDS, patchOf } from '@tw/shared';
+import { DOCUMENT_KINDS, KNOWLEDGE_STATUSES, patchOf, relationshipChangeSchema, SPEECH_LEVELS } from '@tw/shared';
 import { found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
@@ -14,12 +14,30 @@ export const termInput = z.object({
   /** candidate = proposed (not used as context yet), confirmed = used by AI nodes. */
   status: z.enum(['candidate', 'confirmed']).default('confirmed'),
 });
-export const documentInput = z.object({ kind: z.enum(DOCUMENT_KINDS).default('note'), title: z.string().trim().min(1), body: z.string().default(''), alwaysInclude: z.boolean().default(false) });
-export const characterInput = z.object({ name: z.string().trim().min(1), aliases: z.array(z.string().trim().min(1)).default([]), profile: z.string().default('') });
-export const relationshipInput = z.object({ fromId: z.string(), toId: z.string(), kind: z.string().trim().min(1), description: z.string().default(''), mutual: z.boolean().default(false) });
+/** Editing a draft keeps it a candidate; confirming is a separate, explicit step. */
+const status = z.enum(KNOWLEDGE_STATUSES).default('confirmed');
+const evidence = z.array(z.string().min(1)).default([]);
+export const documentInput = z.object({ kind: z.enum(DOCUMENT_KINDS).default('note'), title: z.string().trim().min(1), body: z.string().default(''), alwaysInclude: z.boolean().default(false), status });
+export const characterInput = z.object({ name: z.string().trim().min(1), aliases: z.array(z.string().trim().min(1)).default([]), profile: z.string().default(''), speech: z.string().default(''), player: z.boolean().default(false), status });
+export const relationshipInput = z.object({ fromId: z.string(), toId: z.string(), kind: z.string().trim().min(1), description: z.string().default(''), mutual: z.boolean().default(false), changes: z.array(relationshipChangeSchema).default([]), status });
+export const eventInput = z.object({ title: z.string().trim().min(1), summary: z.string().default(''), cause: z.string().default(''), outcome: z.string().default(''), participants: z.array(z.string().trim().min(1)).default([]), evidence, status });
+export const speechRuleInput = z.object({
+  fromName: z.string().trim().min(1),
+  toName: z.string().trim().min(1),
+  level: z.enum(SPEECH_LEVELS),
+  address: z.string().default(''),
+  note: z.string().default(''),
+  startKey: z.string().trim().min(1).nullable().default(null),
+  evidence,
+  status,
+});
 
-const byProject = <T extends typeof s.terms | typeof s.documents | typeof s.characters | typeof s.relationships>(table: T, id: string, projectId: string) =>
-  and(eq(table.id, id), eq(table.projectId, projectId));
+/** Tables whose rows a person confirms or discards as drafts. */
+const DRAFT_TABLES = { documents: s.documents, characters: s.characters, relationships: s.relationships, events: s.storyEvents, speechRules: s.speechRules } as const;
+export const draftKinds = Object.keys(DRAFT_TABLES) as (keyof typeof DRAFT_TABLES)[];
+
+type ProjectTable = typeof s.terms | (typeof DRAFT_TABLES)[keyof typeof DRAFT_TABLES];
+const byProject = <T extends ProjectTable>(table: T, id: string, projectId: string) => and(eq(table.id, id), eq(table.projectId, projectId));
 
 export const knowledgeRoutes = new Hono<Env>()
   .get('/terms', (c) => c.json(c.var.deps.db.select().from(s.terms).where(eq(s.terms.projectId, c.req.param('projectId')!)).orderBy(asc(s.terms.source)).all()))
@@ -121,4 +139,60 @@ export const knowledgeRoutes = new Hono<Env>()
     c.var.deps.db.delete(s.relationships).where(byProject(s.relationships, c.req.param('id'), projectId)).run();
     events.changed(projectId, 'knowledge');
     return c.json({ ok: true });
-  });
+  })
+  .get('/events', (c) => c.json(c.var.deps.db.select().from(s.storyEvents).where(eq(s.storyEvents.projectId, c.req.param('projectId')!)).all()))
+  .post('/events', validate('json', eventInput), (c) => {
+    const projectId = c.req.param('projectId')!;
+    const row = c.var.deps.db.insert(s.storyEvents).values({ ...c.req.valid('json'), projectId }).returning().get();
+    events.changed(projectId, 'knowledge');
+    return c.json(row, 201);
+  })
+  .patch('/events/:id', validate('json', patchOf(eventInput)), (c) => {
+    const projectId = c.req.param('projectId')!;
+    found(c.var.deps.db.update(s.storyEvents).set(c.req.valid('json')).where(byProject(s.storyEvents, c.req.param('id'), projectId)).returning().get(), '사건');
+    events.changed(projectId, 'knowledge');
+    return c.json({ ok: true });
+  })
+  .delete('/events/:id', (c) => {
+    const projectId = c.req.param('projectId')!;
+    c.var.deps.db.delete(s.storyEvents).where(byProject(s.storyEvents, c.req.param('id'), projectId)).run();
+    events.changed(projectId, 'knowledge');
+    return c.json({ ok: true });
+  })
+
+  .get('/speech-rules', (c) => c.json(c.var.deps.db.select().from(s.speechRules).where(eq(s.speechRules.projectId, c.req.param('projectId')!)).all()))
+  .post('/speech-rules', validate('json', speechRuleInput), (c) => {
+    const projectId = c.req.param('projectId')!;
+    const row = c.var.deps.db.insert(s.speechRules).values({ ...c.req.valid('json'), projectId }).returning().get();
+    events.changed(projectId, 'knowledge');
+    return c.json(row, 201);
+  })
+  .patch('/speech-rules/:id', validate('json', patchOf(speechRuleInput)), (c) => {
+    const projectId = c.req.param('projectId')!;
+    found(c.var.deps.db.update(s.speechRules).set(c.req.valid('json')).where(byProject(s.speechRules, c.req.param('id'), projectId)).returning().get(), '말투 규칙');
+    events.changed(projectId, 'knowledge');
+    return c.json({ ok: true });
+  })
+  .delete('/speech-rules/:id', (c) => {
+    const projectId = c.req.param('projectId')!;
+    c.var.deps.db.delete(s.speechRules).where(byProject(s.speechRules, c.req.param('id'), projectId)).run();
+    events.changed(projectId, 'knowledge');
+    return c.json({ ok: true });
+  })
+  /** Confirm or discard several drafts at once. Discarding deletes them; confirmed rows are never discarded this way. */
+  .post(
+    '/drafts',
+    validate('json', z.object({ kind: z.enum(draftKinds as [keyof typeof DRAFT_TABLES, ...(keyof typeof DRAFT_TABLES)[]]), ids: z.array(z.string()).min(1), action: z.enum(['confirm', 'discard']) })),
+    (c) => {
+      const projectId = c.req.param('projectId')!;
+      const { kind, ids, action } = c.req.valid('json');
+      const table = DRAFT_TABLES[kind];
+      const where = and(eq(table.projectId, projectId), inArray(table.id, ids), eq(table.status, 'candidate'));
+      const changed =
+        action === 'confirm'
+          ? c.var.deps.db.update(table).set({ status: 'confirmed' }).where(where).run().changes
+          : c.var.deps.db.delete(table).where(where).run().changes;
+      events.changed(projectId, 'knowledge');
+      return c.json({ changed });
+    },
+  );

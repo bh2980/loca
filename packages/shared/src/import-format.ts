@@ -1,5 +1,6 @@
 import { formatRulesSchema } from './format-check.ts';
 import { z } from 'zod';
+import { relationshipChangeSchema, SPEECH_LEVELS } from './knowledge.ts';
 
 /**
  * Standard project file. Game-specific extractors convert their output into this
@@ -47,6 +48,8 @@ export const importUnitSchema = z.object({
   order: z.number().int().optional(),
   kind: z.enum(UNIT_KINDS).default('dialogue'),
   speaker: z.string().optional(),
+  /** Who the line is addressed to (a character name), when the game data knows it. */
+  listener: z.string().optional(),
   source: z.string(),
   translation: z.string().optional(),
   meta,
@@ -86,6 +89,10 @@ export const importCharacterSchema = z.object({
   name: z.string().min(1),
   aliases: z.array(z.string()).default([]),
   profile: z.string().default(''),
+  /** How the character talks in the source. */
+  speech: z.string().default(''),
+  /** The player character (e.g. a silent protagonist that lines are addressed to). */
+  player: z.boolean().default(false),
 });
 
 export const importRelationshipSchema = z.object({
@@ -94,6 +101,26 @@ export const importRelationshipSchema = z.object({
   kind: z.string().min(1),
   description: z.string().default(''),
   mutual: z.boolean().default(false),
+  changes: z.array(relationshipChangeSchema).default([]),
+});
+
+export const importEventSchema = z.object({
+  title: z.string().min(1),
+  summary: z.string().default(''),
+  cause: z.string().default(''),
+  outcome: z.string().default(''),
+  participants: z.array(z.string()).default([]),
+  evidence: z.array(key).default([]),
+});
+
+export const importSpeechRuleSchema = z.object({
+  from: z.string().min(1),
+  to: z.string().min(1),
+  level: z.enum(SPEECH_LEVELS),
+  address: z.string().default(''),
+  note: z.string().default(''),
+  /** The rule applies from this line on; omitted = from the beginning. */
+  start: key.optional(),
 });
 
 export const importDocumentSchema = z.object({
@@ -135,6 +162,8 @@ export const importFileSchema = z
     relationships: z.array(importRelationshipSchema).default([]),
     documents: z.array(importDocumentSchema).default([]),
     terms: z.array(importTermSchema).default([]),
+    events: z.array(importEventSchema).default([]),
+    speechRules: z.array(importSpeechRuleSchema).default([]),
   })
   .superRefine((file, ctx) => {
     const issue = (path: (string | number)[], message: string) => ctx.addIssue({ code: 'custom', path, message });
@@ -170,7 +199,18 @@ export const importFileSchema = z
     file.relationships.forEach((rel, index) => {
       if (!names.has(rel.from)) issue(['relationships', index, 'from'], `없는 인물: ${rel.from}`);
       if (!names.has(rel.to)) issue(['relationships', index, 'to'], `없는 인물: ${rel.to}`);
+      rel.changes.forEach((change, at) => {
+        if (!units.has(change.at)) issue(['relationships', index, 'changes', at, 'at'], `없는 unit: ${change.at}`);
+      });
     });
+    file.speechRules.forEach((rule, index) => {
+      if (rule.start && !units.has(rule.start)) issue(['speechRules', index, 'start'], `없는 unit: ${rule.start}`);
+    });
+    file.events.forEach((event, index) =>
+      event.evidence.forEach((ref, at) => {
+        if (!units.has(ref)) issue(['events', index, 'evidence', at], `없는 unit: ${ref}`);
+      }),
+    );
   });
 
 export type ImportFile = z.infer<typeof importFileSchema>;
@@ -191,6 +231,9 @@ export function summarizeImport(file: ImportFile) {
     characters: file.characters.length,
     documents: file.documents.length,
     terms: file.terms.length,
+    events: file.events.length,
+    speechRules: file.speechRules.length,
+    listeners: file.units.filter((unit) => unit.listener).length,
   };
 }
 

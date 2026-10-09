@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import type { AgentSettings, ContextItem, FormatRules, NodeType, PiOptions, WorkflowDefinition } from '@tw/shared';
+import { KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, LISTENER_ORIGINS, SPEECH_LEVELS, type AgentSettings, type ContextItem, type FormatRules, type NodeType, type PiOptions, type RelationshipChange, type WorkflowDefinition } from '@tw/shared';
 
 const id = () => text('id').primaryKey().$defaultFn(() => crypto.randomUUID());
 const createdAt = () => integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date());
@@ -8,6 +8,16 @@ const updatedAt = () =>
   integer('updated_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()).$onUpdateFn(() => new Date());
 const json = <T>(name: string) => text(name, { mode: 'json' }).$type<T>();
 const projectId = () => text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' });
+/**
+ * Shared by every knowledge table. AI drafts land as candidates and are not used as context until
+ * a person confirms them; evidence is the line keys a draft cites; jobId is the analysis that wrote it.
+ */
+const knowledge = () => ({
+  status: text('status', { enum: KNOWLEDGE_STATUSES }).notNull().default('confirmed'),
+  origin: text('origin', { enum: KNOWLEDGE_ORIGINS }).notNull().default('human'),
+  evidence: json<string[]>('evidence').notNull().default(sql`'[]'`),
+  jobId: text('job_id'),
+});
 
 export const projects = sqliteTable('projects', {
   id: id(),
@@ -72,6 +82,11 @@ export const units = sqliteTable(
     sort: integer('sort').notNull(),
     kind: text('kind', { enum: ['dialogue', 'document', 'ui'] }).notNull(),
     speaker: text('speaker'),
+    /** Who the line is addressed to: a character name, or null when unknown. */
+    listener: text('listener'),
+    listenerOrigin: text('listener_origin', { enum: LISTENER_ORIGINS }),
+    /** The AI's confidence (0..1) for an AI-set listener; below the threshold it counts as unknown. */
+    listenerConfidence: real('listener_confidence'),
     source: text('source').notNull(),
     /** The representative translation. Candidates hold every version. */
     translation: text('translation'),
@@ -188,6 +203,7 @@ export const documents = sqliteTable('documents', {
   title: text('title').notNull(),
   body: text('body').notNull().default(''),
   alwaysInclude: integer('always_include', { mode: 'boolean' }).notNull().default(false),
+  ...knowledge(),
   updatedAt: updatedAt(),
 });
 
@@ -197,6 +213,11 @@ export const characters = sqliteTable('characters', {
   name: text('name').notNull(),
   aliases: json<string[]>('aliases').notNull().default(sql`'[]'`),
   profile: text('profile').notNull().default(''),
+  /** How the character talks (observed in the source), not the Korean rule. */
+  speech: text('speech').notNull().default(''),
+  /** The player character: may be addressed even if it never speaks. */
+  player: integer('player', { mode: 'boolean' }).notNull().default(false),
+  ...knowledge(),
   updatedAt: updatedAt(),
 });
 
@@ -208,7 +229,67 @@ export const relationships = sqliteTable('relationships', {
   kind: text('kind').notNull(),
   description: text('description').notNull().default(''),
   mutual: integer('mutual', { mode: 'boolean' }).notNull().default(false),
+  /** Where and why the relationship changed, in script order. */
+  changes: json<RelationshipChange[]>('changes').notNull().default(sql`'[]'`),
+  ...knowledge(),
 });
+
+export const storyEvents = sqliteTable('story_events', {
+  id: id(),
+  projectId: projectId(),
+  title: text('title').notNull(),
+  summary: text('summary').notNull().default(''),
+  cause: text('cause').notNull().default(''),
+  outcome: text('outcome').notNull().default(''),
+  /** Character names. */
+  participants: json<string[]>('participants').notNull().default(sql`'[]'`),
+  ...knowledge(),
+  updatedAt: updatedAt(),
+});
+
+/**
+ * A Korean speech rule for one speaker → listener direction. Several rules for the same pair are
+ * intervals: each applies from its start line (null = from the beginning) until the next one.
+ */
+export const speechRules = sqliteTable(
+  'speech_rules',
+  {
+    id: id(),
+    projectId: projectId(),
+    fromName: text('from_name').notNull(),
+    toName: text('to_name').notNull(),
+    level: text('level', { enum: SPEECH_LEVELS }).notNull(),
+    /** How the speaker addresses the listener in Korean, e.g. "수사관님". */
+    address: text('address').notNull().default(''),
+    note: text('note').notNull().default(''),
+    startKey: text('start_key'),
+    ...knowledge(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index('speech_rules_pair').on(t.projectId, t.fromName, t.toName)],
+);
+
+export type AnalysisStatus = 'running' | 'completed' | 'failed' | 'cancelled';
+/** A whole-script analysis (work analysis): one per run, its drafts carry its id. */
+export const analysisJobs = sqliteTable(
+  'analysis_jobs',
+  {
+    id: id(),
+    projectId: projectId(),
+    profileId: text('profile_id'),
+    model: text('model'),
+    status: text('status', { enum: ['running', 'completed', 'failed', 'cancelled'] }).notNull(),
+    partsDone: integer('parts_done').notNull().default(0),
+    partsTotal: integer('parts_total').notNull().default(1),
+    usage: json<{ inputTokens?: number; outputTokens?: number }>('usage'),
+    /** Counts of drafts written, by kind. */
+    result: json<Record<string, number>>('result'),
+    error: text('error'),
+    createdAt: createdAt(),
+    finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),
+  },
+  (t) => [index('analysis_jobs_project').on(t.projectId, t.createdAt)],
+);
 
 /** App-wide: connections and profiles are shared by every project. Secrets live in the OS keyring. */
 export const connections = sqliteTable('connections', {

@@ -69,6 +69,8 @@ export function importProject(db: Db, file: ImportFile, defaultProfileId = ''): 
         sort: unit.order ?? index,
         kind: unit.kind,
         speaker: unit.speaker ?? null,
+        listener: unit.listener ?? null,
+        listenerOrigin: unit.listener ? 'import' : null,
         source: unit.source,
         translation: unit.translation ?? null,
         candidateId,
@@ -106,7 +108,7 @@ export function importProject(db: Db, file: ImportFile, defaultProfileId = ''): 
       file.characters.map((character) => {
         const id = crypto.randomUUID();
         for (const name of [character.name, ...character.aliases]) characterIds.set(name, id);
-        return { id, projectId, name: character.name, aliases: character.aliases, profile: character.profile };
+        return { id, projectId, name: character.name, aliases: character.aliases, profile: character.profile, speech: character.speech, player: character.player, origin: 'import' as const };
       }),
     );
     insertMany(
@@ -119,9 +121,17 @@ export function importProject(db: Db, file: ImportFile, defaultProfileId = ''): 
         kind: rel.kind,
         description: rel.description,
         mutual: rel.mutual,
+        changes: rel.changes,
+        origin: 'import' as const,
       })),
     );
-    insertMany(tx, s.documents, file.documents.map((doc) => ({ projectId, ...doc })));
+    insertMany(tx, s.documents, file.documents.map((doc) => ({ projectId, ...doc, origin: 'import' as const })));
+    insertMany(tx, s.storyEvents, file.events.map((event) => ({ projectId, ...event, origin: 'import' as const })));
+    insertMany(
+      tx,
+      s.speechRules,
+      file.speechRules.map((rule) => ({ projectId, fromName: rule.from, toName: rule.to, level: rule.level, address: rule.address, note: rule.note, startKey: rule.start ?? null, origin: 'import' as const })),
+    );
     insertMany(tx, s.terms, file.terms.map((term) => ({ projectId, ...term })));
 
     tx.insert(s.workflows)

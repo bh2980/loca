@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { checkFormat } from './format-check.ts';
 import { importFileSchema, importWarnings } from './import-format.ts';
+import { speechLevelOf } from './knowledge.ts';
 import { termExtractionTemplate, translationTemplate } from './defaults.ts';
 import { nodePorts, validateWorkflow, workflowDefinitionSchema, workflowNodeSchema, type WorkflowDefinition } from './workflow.ts';
 
@@ -96,6 +97,18 @@ describe('import format', () => {
     expect(file.graph?.flow).toBe('partial');
   });
 
+  it('checks the line keys that speech rules, relationship changes and events point to', () => {
+    const result = importFileSchema.safeParse({
+      ...base,
+      characters: [{ name: 'A' }, { name: 'B', player: true }],
+      relationships: [{ from: 'A', to: 'B', kind: 'friend', changes: [{ at: 'u9', change: 'falls out' }] }],
+      speechRules: [{ from: 'A', to: 'B', level: 'haeyo' }, { from: 'A', to: 'B', level: 'banmal', start: 'u9' }],
+      events: [{ title: 'Fight', evidence: ['u1', 'u8'] }],
+    });
+    expect(result.success).toBe(false);
+    expect(result.error!.issues.map((issue) => issue.path.join('.'))).toEqual(['relationships.0.changes.0.at', 'speechRules.1.start', 'events.0.evidence.1']);
+  });
+
   it('warns about lines outside the graph, unknown speakers and empty source', () => {
     const file = importFileSchema.parse({
       ...base,
@@ -129,5 +142,14 @@ describe('templates', () => {
     const definition = workflowDefinitionSchema.parse(termExtractionTemplate({ profileId: 'p' }));
     expect(validateWorkflow(definition, refs).filter((issue) => issue.level === 'error')).toEqual([]);
     expect(definition.nodes.map((node) => (node.type === 'function' ? node.config.fn : node.type))).toEqual(['entry', 'ai', 'addTerms', 'end']);
+  });
+});
+
+describe('speech level guess', () => {
+  it('reads the last sentence ending and ignores tags and trailing punctuation', () => {
+    expect(speechLevelOf('알겠습니다.')).toBe('hasipsio');
+    expect(speechLevelOf('<b>정말요?</b>')).toBe('haeyo');
+    expect(speechLevelOf('그만해, {name}!')).toBe('banmal');
+    expect(speechLevelOf('OK')).toBeNull();
   });
 });

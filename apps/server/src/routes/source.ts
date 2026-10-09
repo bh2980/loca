@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, inArray, like, or, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
-import type { NodeType } from '@tw/shared';
+import { LISTENER_MIN_CONFIDENCE, type NodeType } from '@tw/shared';
 import { found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
@@ -14,6 +14,9 @@ const listQuery = z.object({
   statusId: z.string().optional(),
   tagId: z.string().optional(),
   q: z.string().trim().optional(),
+  speaker: z.string().optional(),
+  /** A character name, or "-" for lines whose listener is unknown (none, or an unsure AI guess). */
+  listener: z.string().optional(),
   offset: z.coerce.number().int().min(0).default(0),
   limit: z.coerce.number().int().min(1).max(500).default(100),
 });
@@ -24,7 +27,12 @@ const unitPatch = z.object({
   candidateId: z.string().optional(),
   statusId: z.string().optional(),
   tagIds: z.array(z.string()).optional(),
+  /** A person's choice of listener (null = unknown); it replaces any AI or imported listener. */
+  listener: z.string().trim().min(1).nullable().optional(),
 });
+
+/** The listener counts only when it is not an unsure AI guess. */
+const knownListener = sql`(${s.units.listener} is not null and (${s.units.listenerOrigin} is not 'ai' or ${s.units.listenerConfidence} >= ${LISTENER_MIN_CONFIDENCE}))`;
 
 /** Trigram FTS needs 3+ characters; shorter queries fall back to LIKE over the same columns. */
 function textFilter(q: string): SQL {
@@ -48,6 +56,9 @@ const unitColumns = {
   sort: s.units.sort,
   kind: s.units.kind,
   speaker: s.units.speaker,
+  listener: s.units.listener,
+  listenerOrigin: s.units.listenerOrigin,
+  listenerConfidence: s.units.listenerConfidence,
   source: s.units.source,
   translation: s.units.translation,
   statusId: s.units.statusId,
@@ -91,6 +102,9 @@ export const sourceRoutes = new Hono<Env>()
     if (query.statusId) conditions.push(eq(s.units.statusId, query.statusId));
     if (query.tagId) conditions.push(sql`${s.units.id} in (select unit_id from ${s.unitTags} where tag_id = ${query.tagId})`);
     if (query.q) conditions.push(textFilter(query.q));
+    if (query.speaker) conditions.push(eq(s.units.speaker, query.speaker));
+    if (query.listener === '-') conditions.push(sql`not ${knownListener}`);
+    else if (query.listener) conditions.push(and(eq(s.units.listener, query.listener), knownListener)!);
     const where = and(...conditions);
     const total = db.select({ count: count() }).from(s.units).innerJoin(s.groups, eq(s.groups.id, s.units.groupId)).where(where).get()!.count;
     const rows = db
@@ -185,6 +199,7 @@ export const sourceRoutes = new Hono<Env>()
         patch.candidateId = candidate.id;
       }
       if (body.statusId) patch.statusId = body.statusId;
+      if (body.listener !== undefined) Object.assign(patch, { listener: body.listener, listenerOrigin: 'human', listenerConfidence: null });
       if (Object.keys(patch).length) tx.update(s.units).set(patch).where(eq(s.units.id, unitId)).run();
       if (body.tagIds) {
         tx.delete(s.unitTags).where(eq(s.unitTags.unitId, unitId)).run();

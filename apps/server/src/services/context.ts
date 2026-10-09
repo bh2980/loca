@@ -229,7 +229,7 @@ export function buildContext(
     }
   }
 
-  const allCharacters = config.characters || config.relationships ? db.select().from(characters).where(eq(characters.projectId, projectId)).all() : [];
+  const allCharacters = config.characters || config.relationships ? db.select().from(characters).where(and(eq(characters.projectId, projectId), eq(characters.status, 'confirmed'))).all() : [];
   const present = allCharacters.filter((character) => [character.name, ...character.aliases].some((name) => mentions(text, name)));
   if (config.characters)
     for (const { name, aliases, profile } of present) {
@@ -243,7 +243,7 @@ export function buildContext(
     const rels = db
       .select()
       .from(relationships)
-      .where(eq(relationships.projectId, projectId))
+      .where(and(eq(relationships.projectId, projectId), eq(relationships.status, 'confirmed')))
       .all()
       .filter((rel) => presentIds.has(rel.fromId) && presentIds.has(rel.toId));
     for (const rel of rels) {
@@ -265,7 +265,7 @@ export function buildContext(
   }
 
   if (config.documents) {
-    const rows = db.select({ kind: documents.kind, title: documents.title, body: documents.body }).from(documents).where(and(eq(documents.projectId, projectId), eq(documents.alwaysInclude, true))).all();
+    const rows = db.select({ kind: documents.kind, title: documents.title, body: documents.body }).from(documents).where(and(eq(documents.projectId, projectId), eq(documents.alwaysInclude, true), eq(documents.status, 'confirmed'))).all();
     for (const doc of rows) candidates.document.push({ item: { kind: 'document', label: doc.title, reason: '‘항상 포함’으로 설정된 문서 (전문)' }, payload: doc, keep: () => result.documents.push(doc) });
   }
 
