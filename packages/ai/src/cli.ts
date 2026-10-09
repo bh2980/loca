@@ -54,9 +54,11 @@ function args(kind: CliKind, route: ResolvedRoute, schema: object, files: Files,
         ...(effort ? ['--reasoning-effort', effort] : []),
       ];
     case 'antigravity':
+      // agy 1.3: --print takes the prompt as its value, so the prompt goes in on stdin as one
+      // stream-json message instead (no command-line length limit on Windows).
       return [
-        '--print', '--model', route.model, '--json-schema', files.schema, '--output-format', 'json',
-        '--mode', 'plan', '--sandbox', '--disable-slash-commands', '--print-timeout', `${Math.ceil(timeoutMs / 1000)}s`,
+        '--print=', '--input-format', 'stream-json', '--output-format', 'stream-json', '--model', route.model,
+        '--json-schema', files.schema, '--sandbox', '--disable-slash-commands', '--print-timeout', `${Math.ceil(timeoutMs / 1000)}s`,
         ...(effort ? ['--effort', effort] : []),
       ];
   }
@@ -95,6 +97,8 @@ function unwrap(kind: CliKind, stdout: string): { data: unknown; usage: Usage } 
     }
   });
   let envelope = record(events.length === 1 ? events[0] : undefined);
+  // agy streams events and ends with {"event":"result","result":{status, structured_output, usage, error}}.
+  if (kind === 'antigravity') envelope = record(record(events.findLast((event) => record(event)?.event === 'result'))?.result) ?? envelope;
   if (!envelope) {
     try {
       envelope = record(parseJson(stdout));
@@ -103,7 +107,7 @@ function unwrap(kind: CliKind, stdout: string): { data: unknown; usage: Usage } 
     }
   }
   if (!envelope) throw new ModelError('cli', 'CLI가 최종 결과를 반환하지 않았습니다.', false);
-  if (envelope.is_error === true || envelope.type === 'error' || String(envelope.subtype ?? '').startsWith('error'))
+  if (envelope.is_error === true || envelope.type === 'error' || envelope.status === 'ERROR' || String(envelope.subtype ?? '').startsWith('error'))
     throw new ModelError('cli', `CLI가 실패를 반환했습니다: ${String(envelope.result ?? envelope.error ?? '').slice(0, 300)}`, false);
   const stop = String(envelope.stopReason ?? '').toLowerCase();
   if (/max_?tokens|length|truncat/.test(stop)) throw new ModelError('invalid-output', '응답이 길이 제한에 걸려 잘렸습니다.', false);
@@ -112,7 +116,7 @@ function unwrap(kind: CliKind, stdout: string): { data: unknown; usage: Usage } 
     envelope.structuredOutput ??
     (typeof envelope.result === 'string' ? parseJson(envelope.result) : envelope.result) ??
     (typeof envelope.text === 'string' ? parseJson(envelope.text) : undefined) ??
-    (kind === 'antigravity' ? envelope : undefined);
+    (typeof envelope.response === 'string' ? parseJson(envelope.response) : undefined);
   if (data === undefined) throw new ModelError('cli', 'CLI 응답에서 결과를 찾지 못했습니다.', false);
   return { data, usage: usageOf(envelope.usage) };
 }
@@ -127,7 +131,7 @@ export async function cliGenerate<T>(route: ResolvedRoute, request: GenerateRequ
     await Promise.all([writeFile(files.schema, JSON.stringify(schema)), writeFile(files.prompt, prompt)]);
     const result = await execa(cliCommand(kind, route.executable), args(kind, route, schema, files, request.timeoutMs), {
       cwd: dir,
-      input: kind === 'grok' ? undefined : prompt,
+      input: kind === 'grok' ? undefined : kind === 'antigravity' ? `${JSON.stringify({ event: 'user', message: { role: 'user', content: prompt } })}\n` : prompt,
       timeout: request.timeoutMs,
       cancelSignal: request.signal,
       maxBuffer: 16 * 1024 * 1024,
