@@ -121,6 +121,20 @@ export const sourceRoutes = new Hono<Env>()
     const tags = Map.groupBy(tagRows, (row) => row.unitId);
     return c.json({ total, rows: rows.map((row) => ({ ...row, tagIds: (tags.get(row.id) ?? []).map((tag) => tag.tagId) })) });
   })
+  /** Lines by key, in script order: evidence cited by knowledge drafts. */
+  .post('/projects/:projectId/units/by-keys', validate('json', z.object({ keys: z.array(z.string()).max(500) })), (c) => {
+    const keys = c.req.valid('json').keys;
+    if (!keys.length) return c.json([]);
+    return c.json(
+      c.var.deps.db
+        .select({ ...unitColumns, groupTitle: s.groups.title })
+        .from(s.units)
+        .innerJoin(s.groups, eq(s.groups.id, s.units.groupId))
+        .where(and(eq(s.units.projectId, c.req.param('projectId')), inArray(s.units.key, keys)))
+        .orderBy(asc(s.groups.sort), asc(s.units.sort))
+        .all(),
+    );
+  })
   .patch('/projects/:projectId/units', validate('json', z.object({ unitIds: z.array(z.string()).min(1), statusId: z.string().optional(), addTagIds: z.array(z.string()).default([]), removeTagIds: z.array(z.string()).default([]) })), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');

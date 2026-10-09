@@ -40,6 +40,17 @@ export const q = {
   documents: (projectId: string) => queryOptions({ queryKey: ['knowledge', 'documents', projectId], queryFn: () => unwrap(client.projects[':projectId'].documents.$get({ param: { projectId } })) }),
   characters: (projectId: string) =>
     queryOptions({ queryKey: ['knowledge', 'characters', projectId], queryFn: () => unwrap(client.projects[':projectId'].characters.$get({ param: { projectId } })) }),
+  storyEvents: (projectId: string) => queryOptions({ queryKey: ['knowledge', 'events', projectId], queryFn: () => unwrap(client.projects[':projectId'].events.$get({ param: { projectId } })) }),
+  speechRules: (projectId: string) =>
+    queryOptions({ queryKey: ['knowledge', 'speech-rules', projectId], queryFn: () => unwrap(client.projects[':projectId']['speech-rules'].$get({ param: { projectId } })) }),
+  analysisJobs: (projectId: string) => queryOptions({ queryKey: ['analysis', projectId], queryFn: () => unwrap(client.projects[':projectId'].analysis.$get({ param: { projectId } })) }),
+  /** Lines cited as evidence, by key. */
+  linesByKeys: (projectId: string, keys: string[]) =>
+    queryOptions({
+      queryKey: ['units', 'by-keys', projectId, keys],
+      queryFn: () => unwrap(client.projects[':projectId'].units['by-keys'].$post({ param: { projectId }, json: { keys } })),
+      enabled: keys.length > 0,
+    }),
   connections: () => queryOptions({ queryKey: ['connections'], queryFn: () => unwrap(client.connections.$get()) }),
   profiles: () => queryOptions({ queryKey: ['profiles'], queryFn: () => unwrap(client.profiles.$get()) }),
   workflows: (projectId: string) =>
