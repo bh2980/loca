@@ -180,6 +180,38 @@ export async function cliVersion(kind: CliKind, executable?: string): Promise<st
   }
 }
 
+/**
+ * CLIs that print their model list: `grok models` ("* grok-4.7 (default)" / "- grok-4.6", also when
+ * signed out) and `agy models` ("<id>\t<name>"). codex and claude have no such command.
+ */
+const MODEL_LIST: Partial<Record<CliKind, (stdout: string) => string[]>> = {
+  grok: (stdout) => [...stdout.matchAll(/^\s*[*-]\s+(\S+)/gm)].map((match) => match[1]),
+  antigravity: (stdout) =>
+    stdout
+      .split(/\r?\n/)
+      .filter((line) => line.includes('\t'))
+      .map((line) => line.split('\t')[0].trim())
+      .filter(Boolean),
+};
+
+export const cliListsModels = (kind: CliKind) => kind in MODEL_LIST;
+
+export async function cliModels(kind: CliKind, executable?: string): Promise<string[] | null> {
+  const parse = MODEL_LIST[kind];
+  if (!parse) return null;
+  try {
+    // grok exits non-zero when signed out but still prints the list, so the exit code is not trusted.
+    const result = await execa(cliCommand(kind, executable), ['models'], { timeout: 60_000, windowsHide: true, reject: false, stdin: 'ignore' });
+    if (result.failed && 'code' in result && result.code === 'ENOENT') throw new ModelError('config', `CLI를 찾지 못했습니다: ${cliCommand(kind, executable)}`, false);
+    const models = parse(String(result.stdout));
+    if (!models.length) throw new ModelError('cli', `모델 목록을 읽지 못했습니다: ${String(result.stderr || result.stdout).trim().slice(0, 160)}`, false);
+    return models;
+  } catch (error) {
+    if (error instanceof ModelError) throw error;
+    throw new ModelError('cli', '모델 목록을 확인하지 못했습니다.', false);
+  }
+}
+
 /** The CLI owns its login. We only open the official interactive flow in a terminal window. */
 export const LOGIN_COMMANDS: Record<CliKind, string[]> = {
   codex: ['login'],
