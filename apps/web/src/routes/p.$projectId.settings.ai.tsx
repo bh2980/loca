@@ -3,7 +3,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Controller, useFieldArray, useForm, useWatch } from 'react-hook-form';
-import { Plus, Trash2, X } from 'lucide-react';
+import { Check, ChevronsUpDown, Plus, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { z } from 'zod';
 import { CONNECTION_KIND_INFO, CONNECTION_KINDS, connectionInputSchema, profileInputSchema, type Capability, type ConnectionKind } from '@tw/shared';
@@ -11,8 +11,10 @@ import { Page } from '@/components/page';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { Spinner } from '@/components/ui/spinner';
@@ -614,27 +616,71 @@ function useModels(connectionId: string | undefined) {
   });
 }
 
+/**
+ * Model name with search over the connection's model list (APIs can list hundreds). A name that
+ * is not in the list can still be used: the typed text is offered as its own option.
+ */
 function ModelPicker({ connectionId, value, onChange, id }: { connectionId: string | undefined; value: string; onChange: (value: string) => void; id?: string }) {
   const models = useModels(connectionId);
-  const list = models.data?.models;
-  if (list && list.length) {
-    const options = list.includes(value) || !value ? list : [value, ...list];
-    return (
-      <Select value={value || undefined} onValueChange={onChange}>
-        <SelectTrigger id={id} className="w-full">
-          <SelectValue placeholder="모델 선택" />
-        </SelectTrigger>
-        <SelectContent>
-          {options.map((model) => (
-            <SelectItem key={model} value={model}>
-              {model}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    );
-  }
-  return <Input id={id} value={value} onChange={(event) => onChange(event.target.value)} placeholder="모델 이름" />;
+  const list = models.data?.models ?? [];
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const typed = query.trim();
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setQuery('');
+      }}
+    >
+      <PopoverTrigger asChild>
+        <Button id={id} type="button" variant="outline" role="combobox" aria-expanded={open} className="w-full justify-between font-normal">
+          <span className={cn('truncate', !value && 'text-muted-foreground')}>{value || '모델 선택 또는 입력'}</span>
+          <ChevronsUpDown className="opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-(--radix-popover-trigger-width) min-w-64 p-0" align="start">
+        <Command>
+          <CommandInput value={query} onValueChange={setQuery} placeholder={list.length ? `모델 ${list.length}개에서 찾기` : '모델 이름 입력'} />
+          <CommandList>
+            <CommandEmpty>{models.isPending && connectionId ? '모델 목록을 불러오는 중…' : '목록에 없는 모델입니다.'}</CommandEmpty>
+            {typed && !list.includes(typed) && (
+              <CommandGroup heading="직접 입력">
+                <CommandItem
+                  value={`__typed__${typed}`}
+                  onSelect={() => {
+                    onChange(typed);
+                    setOpen(false);
+                  }}
+                >
+                  “{typed}” 사용
+                </CommandItem>
+              </CommandGroup>
+            )}
+            {list.length > 0 && (
+              <CommandGroup heading={models.data && 'detail' in models.data && models.data.detail ? undefined : '이 연결의 모델'}>
+                {list.map((model) => (
+                  <CommandItem
+                    key={model}
+                    value={model}
+                    onSelect={() => {
+                      onChange(model);
+                      setOpen(false);
+                    }}
+                  >
+                    <Check className={cn('size-4', model === value ? 'opacity-100' : 'opacity-0')} />
+                    {model}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            )}
+          </CommandList>
+          {models.data && !models.data.ok && <p className="border-t px-3 py-2 text-xs text-muted-foreground">모델 목록을 못 불러왔습니다: {models.data.detail}</p>}
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 function ProfilesTab() {
