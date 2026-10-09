@@ -3,7 +3,7 @@ import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { mentions } from '../services/context.ts';
 import { z } from 'zod';
 import { DOCUMENT_KINDS, KNOWLEDGE_STATUSES, patchOf, relationshipChangeSchema, SPEECH_LEVELS } from '@tw/shared';
-import { found, validate, type Env } from '../context.ts';
+import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 
@@ -180,6 +180,19 @@ export const knowledgeRoutes = new Hono<Env>()
     return c.json({ ok: true });
   })
   /** Confirm or discard several drafts at once. Discarding deletes them; confirmed rows are never discarded this way. */
+  /** Work analysis jobs, newest first. */
+  .get('/analysis', (c) => c.json(c.var.deps.analysis.list(c.req.param('projectId')!)))
+  .post('/analysis', validate('json', z.object({ profileId: z.string().min(1) })), (c) => {
+    try {
+      return c.json(c.var.deps.analysis.start(c.req.param('projectId')!, c.req.valid('json').profileId), 201);
+    } catch (error) {
+      return badRequest(error instanceof Error ? error.message : String(error));
+    }
+  })
+  .post('/analysis/:jobId/cancel', (c) => {
+    c.var.deps.analysis.cancel(c.req.param('jobId'));
+    return c.json({ ok: true });
+  })
   .post(
     '/drafts',
     validate('json', z.object({ kind: z.enum(draftKinds as [keyof typeof DRAFT_TABLES, ...(keyof typeof DRAFT_TABLES)[]]), ids: z.array(z.string()).min(1), action: z.enum(['confirm', 'discard']) })),
@@ -188,10 +201,16 @@ export const knowledgeRoutes = new Hono<Env>()
       const { kind, ids, action } = c.req.valid('json');
       const table = DRAFT_TABLES[kind];
       const where = and(eq(table.projectId, projectId), inArray(table.id, ids), eq(table.status, 'candidate'));
-      const changed =
-        action === 'confirm'
-          ? c.var.deps.db.update(table).set({ status: 'confirmed' }).where(where).run().changes
-          : c.var.deps.db.delete(table).where(where).run().changes;
+      const { db } = c.var.deps;
+      const changed = db.transaction((tx) => {
+        if (action === 'discard') return tx.delete(table).where(where).run().changes;
+        // A confirmed relationship needs confirmed people at both ends.
+        if (kind === 'relationships') {
+          const ends = tx.select({ fromId: s.relationships.fromId, toId: s.relationships.toId }).from(s.relationships).where(where).all().flatMap((r) => [r.fromId, r.toId]);
+          if (ends.length) tx.update(s.characters).set({ status: 'confirmed' }).where(and(eq(s.characters.projectId, projectId), inArray(s.characters.id, ends))).run();
+        }
+        return tx.update(table).set({ status: 'confirmed' }).where(where).run().changes;
+      });
       events.changed(projectId, 'knowledge');
       return c.json({ changed });
     },

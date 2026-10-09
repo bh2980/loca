@@ -32,6 +32,32 @@ app.post('/v1/chat/completions', async (c) => {
   const system = body.messages.filter((message) => message.role === 'system').map(text).join('\n');
   const last = body.messages.at(-1);
 
+  if (body.response_format && system.includes('complete script of a game')) {
+    // Work analysis: speakers become characters; each speaker → the next different speaker gets a rule.
+    const lines = [...text(last).matchAll(/^\s*(L\d+) ([^:\[]+?): /gm)].map((match) => ({ id: match[1], speaker: match[2].trim() })).filter((line) => line.speaker !== '-');
+    const counts = Map.groupBy(lines, (line) => line.speaker);
+    const cast = [...counts.entries()].sort((a, b) => b[1].length - a[1].length).slice(0, 8);
+    const pairs = new Map<string, { from: string; to: string; evidence: string[] }>();
+    lines.forEach((line, index) => {
+      const next = lines.slice(index + 1).find((other) => other.speaker !== line.speaker);
+      if (!next || !cast.some(([name]) => name === line.speaker) || !cast.some(([name]) => name === next.speaker)) return;
+      const key = `${line.speaker}|${next.speaker}`;
+      const pair = pairs.get(key) ?? { from: line.speaker, to: next.speaker, evidence: [] };
+      if (pair.evidence.length < 3) pair.evidence.push(line.id);
+      pairs.set(key, pair);
+    });
+    const levels = ['banmal', 'haeyo', 'hasipsio'] as const;
+    const content = {
+      overview: { setting: '모의 분석: 대본에 나온 장소', mainConflict: '모의 갈등', plot: `모의 줄거리 (대사 ${lines.length}줄을 읽음)`, evidence: lines.slice(0, 3).map((line) => line.id) },
+      characters: cast.map(([name, rows], index) => ({ name, aliases: [], profile: `대사 ${rows.length}줄`, speech: '모의 말투 설명', player: index === cast.length - 1, evidence: rows.slice(0, 3).map((row) => row.id) })),
+      relationships: [...pairs.values()].slice(0, 6).map((pair) => ({ from: pair.from, to: pair.to, kind: '아는 사이', description: '모의 관계', changes: [], evidence: pair.evidence })),
+      events: [{ title: '모의 사건', summary: '처음 장면의 일', cause: '', outcome: '', participants: cast.slice(0, 2).map(([name]) => name), evidence: lines.slice(0, 2).map((line) => line.id) }],
+      speechRules: [...pairs.values()].map((pair, index) => ({ from: pair.from, to: pair.to, level: levels[index % 3], address: '', note: '모의 규칙', start: null, evidence: pair.evidence })),
+    };
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    return c.json({ id: 'mock', object: 'chat.completion', model: 'mock', choices: [{ index: 0, message: { role: 'assistant', content: JSON.stringify(content) }, finish_reason: 'stop' }], usage: { prompt_tokens: Math.ceil(text(last).length / 4), completion_tokens: 500, total_tokens: 0 } });
+  }
+
   if (body.response_format) {
     const input = JSON.parse(text(last)) as { lines: { id: string; source: string; candidate?: string }[] };
     // Lines mentioning "orders" never pass review, so they end up waiting for a person.

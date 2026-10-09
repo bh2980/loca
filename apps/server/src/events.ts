@@ -14,7 +14,8 @@ export type Topic =
   | 'runs'
   | 'reviews'
   | 'chat'
-  | 'proposals';
+  | 'proposals'
+  | 'analysis';
 
 export interface ChangeEvent {
   projectId?: string;

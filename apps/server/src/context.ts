@@ -4,12 +4,14 @@ import { zValidator } from '@hono/zod-validator';
 import type { z } from 'zod';
 import type { Db } from './db/index.ts';
 import type { Runner } from './engine/runner.ts';
+import type { AnalysisService } from './services/analysis.ts';
 import type { SecretStore } from './services/secrets.ts';
 
 export interface Deps {
   db: Db;
   secrets: SecretStore;
   runner: Runner;
+  analysis: AnalysisService;
 }
 
 export type Env = { Variables: { deps: Deps } };
