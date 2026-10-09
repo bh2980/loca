@@ -1,4 +1,4 @@
-# Translation Workbench
+# loca — 게임 번역 작업실
 
 게임에서 추출한 원문을 가져와, 사용자가 정의한 **번역 상태**와 그 사이의 **워크플로 노드**로
 AI 번역·검수·수정·사람 확인을 자동화하는 Windows 로컬 작업실입니다.
@@ -45,6 +45,21 @@ pnpm dev
 ```bash
 pnpm mock-llm
 ```
+
+## loca CLI
+
+앱이 켜져 있을 때 터미널에서 대본을 찾고, 점검하고, 파일로 번역을 주고받습니다.
+
+```bash
+pnpm loca projects
+pnpm loca lines --speaker "Alice" --all
+pnpm loca check terms
+pnpm loca export --section "Chapter 1" --untranslated --context 4 --terms -o ch1.jsonl
+pnpm loca import ch1.out.jsonl --dry-run
+pnpm loca import ch1.out.jsonl          # 제안 1건 → 앱에서 수락하면 반영
+```
+
+어디서나 `loca`로 쓰려면 `apps/cli`에서 `npm link`. 앱 주소는 `LOCA_URL`, 프로젝트는 `--project` 또는 `LOCA_PROJECT`. 에이전트용 사용법은 [`skills/`](skills/README.md).
 
 ## 표준 포맷 (`translation-workbench/v1`)
 

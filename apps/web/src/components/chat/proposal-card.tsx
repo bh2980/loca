@@ -24,6 +24,7 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
     onError: (error) => toast.error(error.message),
   });
   const failure = proposal.status === 'failed' ? String((proposal.result as { error?: string } | null)?.error ?? '') : '';
+  const skipped = proposal.status === 'accepted' ? ((proposal.result as { skipped?: unknown[] } | null)?.skipped?.length ?? 0) : 0;
   return (
     <div className="overflow-hidden rounded-lg border bg-background text-sm">
       <div className="flex items-center gap-2 border-b bg-muted/40 px-3 py-1.5 text-xs font-medium">
@@ -34,6 +35,7 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
             <span className={proposal.status === 'accepted' ? 'text-emerald-600' : proposal.status === 'failed' ? 'text-destructive' : 'text-muted-foreground'}>
               {STATUS[proposal.status]}
               {failure && ` · ${failure}`}
+              {skipped > 0 && ` · 그사이 바뀐 ${skipped}개는 건너뜀`}
             </span>
           )}
           {decide.isPending && <Spinner className="size-3" />}

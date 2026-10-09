@@ -101,6 +101,13 @@ AI 노드의 "문맥" 설정에서 위 항목을 켜고 끄며, 실행 기록에
 - 용어집 후보 탭 "빈 번역 AI로 채우기" → save_terms 카드(상태는 후보 유지)
 - 스크립트의 묶음 "AI 요약" → save_group_summary 카드 → 수락하면 묶음 설명이 되어 AI 번역 노드의 장면 문맥으로 쓰인다. 요약은 이 버튼으로만 만든다.
 
+**J8. loca CLI** — 터미널(사람, 또는 쉘을 쓰는 에이전트: codex·claude·pi)에서 실행 중인 loca 앱의 로컬 API를 부른다. DB를 직접 건드리지 않아 화면이 그대로 갱신된다.
+- 읽기: `lines`(필터 조합: 화자·언급 인물·묶음·구역·종류·상태·태그·번역 여부·키, `--all`로 끝까지), `speakers`, `first`, `scenes --with`, `line <키> --around`, `check terms|consistency|format|length`, `stats groups|sections|runs`, `tools`.
+- 배치: `export`(문맥·용어 포함 JSONL, 줄마다 key와 rev) → 에이전트가 파일에서 번역 → `import`(검사: 없는 키·충돌·형식·용어; 바뀌지 않은 줄은 빠짐) → **제안 1건** → 앱에서 수락하면 한 트랜잭션으로 반영. 수락 시점에도 rev를 다시 확인해 그사이 바뀐 줄은 건너뛴다(덮어쓰지 않음). rev는 대사의 updatedAt(ms).
+- `call <도구> <JSON|@파일|->`로 모든 에이전트 도구를 부른다. 변경 도구는 제안으로 올라간다. 에이전트 도구 설정을 따른다.
+- `--json`/`--jsonl`이면 stdout에는 데이터만, 안내는 stderr.
+- `skills/`(loca-translate·review·glossary·characters)가 에이전트에게 명령 순서를 알려 준다. 앱 채팅의 도구(find_lines·check_script·script_stats·line_context·scenes_with·propose_changes)도 같은 서버 기능을 쓴다.
+
 ## 4. 데이터 모델 (SQLite + Drizzle, 엔티티별 테이블)
 
 | 테이블 | 핵심 컬럼 |

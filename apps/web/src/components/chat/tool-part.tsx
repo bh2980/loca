@@ -77,6 +77,34 @@ export function ChangePreview({ name, input }: { name: string; input: Record<str
         </dl>
       );
     }
+    case 'propose_changes': {
+      const changes = (input.changes as { key: string; translation?: string; status?: string; addTags?: string[]; removeTags?: string[] }[] | undefined) ?? [];
+      const translations = changes.filter((change) => change.translation !== undefined).length;
+      const statuses = changes.filter((change) => change.status).length;
+      const tagged = changes.filter((change) => change.addTags?.length || change.removeTags?.length).length;
+      return (
+        <div className="space-y-2">
+          <p>
+            대사 <b>{changes.length}</b>개 · 번역 {translations} · 상태 {statuses} · 태그 {tagged}
+          </p>
+          <ul className="max-h-56 space-y-1 overflow-auto">
+            {changes.slice(0, 50).map((change) => (
+              <li key={change.key} className="rounded border px-2 py-1">
+                <span className="font-mono text-[11px] text-muted-foreground">{change.key}</span>
+                {change.translation !== undefined && <span className="block">{change.translation}</span>}
+                {(change.status || change.addTags?.length || change.removeTags?.length) && (
+                  <span className="block text-muted-foreground">
+                    {[change.status && `→ ${change.status}`, ...(change.addTags ?? []).map((tag) => `+#${tag}`), ...(change.removeTags ?? []).map((tag) => `−#${tag}`)].filter(Boolean).join(' ')}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+          {changes.length > 50 && <p className="text-muted-foreground">외 {changes.length - 50}개</p>}
+          <p className="text-muted-foreground">수락하면 한 번에 반영됩니다. 그사이 다른 곳에서 바뀐 대사는 덮어쓰지 않고 건너뜁니다.</p>
+        </div>
+      );
+    }
     case 'start_run': {
       const count = (key: string) => ((input[key] as unknown[] | undefined) ?? []).length;
       const scope = [count('groupIds') && `장면·묶음 ${count('groupIds')}개`, count('unitIds') && `대사 ${count('unitIds')}개`, count('tagIds') && `태그 ${count('tagIds')}개`].filter(Boolean).join(', ') || '진입 조건에 맞는 모든 대사';
@@ -121,7 +149,7 @@ export function ToolPart({ part, stale, onDecide, onOutput, proposal }: {
 }) {
   const name = part.type.slice('tool-'.length);
   const label = LABEL[name] ?? name;
-  const isChange = name.startsWith('save_') || name === 'propose_translation' || name === 'start_run';
+  const isChange = name.startsWith('save_') || name.startsWith('propose_') || name === 'start_run';
   if (proposal) return <ProposalCard proposal={proposal} />;
 
   if (name === 'edit_workflow_node' && part.input && (part.state === 'input-available' || part.state === 'output-available')) {

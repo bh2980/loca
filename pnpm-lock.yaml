@@ -27,6 +27,24 @@ importers:
         specifier: ^5.0.3
         version: 5.0.3(@types/node@24.19.1)(vite@8.3.4(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.0))
 
+  apps/cli:
+    dependencies:
+      '@tw/server':
+        specifier: workspace:*
+        version: link:../server
+      '@tw/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      commander:
+        specifier: 14.0.1
+        version: 14.0.1
+      hono:
+        specifier: ^4.13.13
+        version: 4.13.13
+      tsx:
+        specifier: ^4.23.15
+        version: 4.23.15
+
   apps/server:
     dependencies:
       '@hono/node-server':
@@ -2514,6 +2532,10 @@ packages:
 
   comma-separated-tokens@2.0.3:
     resolution: {integrity: sha512-Fu4hJdvzeylCfQPp9SGWidpzrMs7tTrlu6Vb8XGaRGck8QSNZJJp538Wrb60Lax4fPwR64ViY468OIUTbRlGZg==}
+
+  commander@14.0.1:
+    resolution: {integrity: sha512-2JkV3gUZUVrbNA+1sjBOYLsMZ5cEEl8GTFP2a4AVz5hvasAMCQ1D2l2le/cX+pV4N6ZU17zjUahLpIXRrnWL8A==}
+    engines: {node: '>=20'}
 
   content-disposition@1.1.0:
     resolution: {integrity: sha512-5jRCH9Z/+DRP7rkvY83B+yGIGX96OYdJmzngqnw2SBSxqCFPd0w2km3s5iawpGX8krnwSGmF0FW5Nhr0Hfai3g==}
@@ -6517,6 +6539,8 @@ snapshots:
       - '@types/react-dom'
 
   comma-separated-tokens@2.0.3: {}
+
+  commander@14.0.1: {}
 
   content-disposition@1.1.0:
     optional: true

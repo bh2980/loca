@@ -27,7 +27,7 @@ if (existsSync(config.webDist)) {
 }
 
 const server = serve({ fetch: app.fetch, hostname: '127.0.0.1', port: config.port }, (info) => {
-  console.log(`Translation Workbench → http://127.0.0.1:${info.port}  (data: ${config.dataDir})`);
+  console.log(`loca → http://127.0.0.1:${info.port}  (data: ${config.dataDir})`);
 });
 
 const shutdown = async () => {

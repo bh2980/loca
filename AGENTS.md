@@ -10,3 +10,4 @@
 - UI: shadcn/ui components and tokens only, white neutral theme, color reserved for meaning. Collections are tables; details open in a right-hand pane, not modals (AlertDialog only for destructive confirmation). The project chat is a global right-docked panel and every page reports its selection via `useReportView`.
 - After `shadcn add`, replace any `from "cn"` import with `@/lib/utils` and remove the `cn` package it adds.
 - Never run real AI jobs or modify user translations as part of verification without authorization; use the mock LLM and an isolated `WORKBENCH_DATA_DIR`.
+- The `loca` CLI (apps/cli) and the chat tools share the server's script service (`services/script-query.ts`). Anything that changes the project from the CLI or a pi chat becomes a proposal the user accepts in the app; never add a CLI path that writes directly. Keep `skills/` in step with CLI commands.

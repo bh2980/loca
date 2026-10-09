@@ -1,0 +1,349 @@
+import { readFileSync, writeFileSync } from 'node:fs';
+import { Command, Option } from 'commander';
+import { hc } from 'hono/client';
+import type { AppType } from '@tw/server/app';
+import { CHECK_KINDS, lineChangeSchema, type LineFilterInput } from '@tw/shared';
+
+/**
+ * loca — the workbench from a terminal, for people and for agents with a shell (codex, claude, pi).
+ * It talks to the running app's local API, so the screen updates live and nothing touches the
+ * database directly. Reading prints results; anything that changes the project becomes a proposal
+ * the user accepts in the app. With --json / --jsonl only data goes to stdout; messages go to stderr.
+ */
+
+const program = new Command('loca')
+  .description('게임 번역 작업실 loca를 터미널에서 씁니다. 실행 중인 loca 앱에 연결합니다.')
+  .option('--url <url>', 'loca 앱 주소', process.env.LOCA_URL ?? 'http://127.0.0.1:4317')
+  .option('-p, --project <이름|id>', '프로젝트 (환경 변수 LOCA_PROJECT). 프로젝트가 하나면 생략 가능')
+  .option('--json', '사람용 표 대신 JSON으로 출력')
+  .showHelpAfterError();
+
+const globals = () => program.opts<{ url: string; project?: string; json?: boolean }>();
+const api = () => hc<AppType>(globals().url.replace(/\/+$/, '')).api;
+const log = (...parts: unknown[]) => console.error(...parts);
+
+class CliError extends Error {}
+
+async function unwrap<T extends Response & { json(): Promise<unknown> }>(request: Promise<T>): Promise<Awaited<ReturnType<T['json']>>> {
+  let response: T;
+  try {
+    response = await request;
+  } catch {
+    throw new CliError(`loca 앱(${globals().url})에 연결하지 못했습니다. 앱이 켜져 있는지 확인하세요.`);
+  }
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as { error?: string };
+    throw new CliError(body.error ?? `요청이 실패했습니다 (HTTP ${response.status}).`);
+  }
+  return (await response.json()) as Awaited<ReturnType<T['json']>>;
+}
+
+let cachedProject: string | null = null;
+async function projectId(): Promise<string> {
+  if (cachedProject) return cachedProject;
+  const wanted = globals().project ?? process.env.LOCA_PROJECT;
+  const projects = await unwrap(api().cli.projects.$get());
+  if (!projects.length) throw new CliError('프로젝트가 없습니다. 앱에서 표준 파일을 먼저 가져오세요.');
+  const match = wanted
+    ? (projects.find((project) => project.id === wanted) ??
+      projects.find((project) => project.name.toLowerCase() === wanted.toLowerCase()) ??
+      projects.find((project) => project.name.toLowerCase().includes(wanted.toLowerCase())))
+    : projects.length === 1
+      ? projects[0]
+      : undefined;
+  if (!match) throw new CliError(`프로젝트를 골라 주세요 (--project 또는 LOCA_PROJECT):\n${projects.map((project) => `  ${project.name}  (${project.id})`).join('\n')}`);
+  return (cachedProject = match.id);
+}
+
+const print = (value: unknown) => console.log(JSON.stringify(value, null, 2));
+const printJsonl = (rows: unknown[]) => {
+  for (const row of rows) process.stdout.write(`${JSON.stringify(row)}\n`);
+};
+const short = (text: string | null | undefined, length = 80) => {
+  const flat = (text ?? '').replace(/\s+/g, ' ').trim();
+  return flat.length > length ? `${flat.slice(0, length - 1)}…` : flat;
+};
+
+/** JSON from an argument: literal JSON, @path to a file, or - for stdin (no shell quoting needed). */
+function readJsonArg(value: string | undefined): unknown {
+  if (value === undefined) return {};
+  const text = value === '-' ? readFileSync(0, 'utf8') : value.startsWith('@') ? readFileSync(value.slice(1), 'utf8') : value;
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new CliError('JSON을 읽지 못했습니다. 직접 쓰기 어려우면 @파일 또는 - (표준 입력)으로 넘기세요.');
+  }
+}
+
+// ── line filters ─────────────────────────────────────────────────────
+
+interface FilterOptions {
+  q?: string;
+  speaker?: string[];
+  mentions?: string[];
+  group?: string[];
+  section?: string[];
+  kind?: 'dialogue' | 'document' | 'ui';
+  groupKind?: 'scene' | 'document' | 'ui';
+  status?: string[];
+  tag?: string[];
+  translated?: boolean;
+  untranslated?: boolean;
+  key?: string[];
+  limit?: string;
+  offset?: string;
+}
+
+function withFilters(command: Command) {
+  return command
+    .option('-q, --q <글자>', '원문·번역·화자·키에 들어 있는 글자')
+    .option('-s, --speaker <names...>', '이 인물이 하는 대사 (이름·별칭·화자 키)')
+    .option('-m, --mentions <names...>', '이 인물을 언급하는 대사 ({ALIAS} 포함)')
+    .option('-g, --group <groups...>', '장면·묶음')
+    .option('--section <sections...>', '구역(장·출처)')
+    .addOption(new Option('--kind <종류>', '대사 종류').choices(['dialogue', 'document', 'ui']))
+    .addOption(new Option('--group-kind <종류>', '묶음 종류').choices(['scene', 'document', 'ui']))
+    .option('--status <statuses...>', '상태 이름')
+    .option('--tag <tags...>', '태그 이름')
+    .option('--translated', '번역이 있는 대사만')
+    .option('--untranslated', '번역이 없는 대사만')
+    .option('--key <keys...>', '대사 키')
+    .option('--limit <n>', '한 번에 가져올 수 (최대 1000)')
+    .option('--offset <n>', '건너뛸 수');
+}
+
+function filterFrom(options: FilterOptions): LineFilterInput {
+  return {
+    q: options.q,
+    speakers: options.speaker,
+    mentions: options.mentions,
+    groups: options.group,
+    sections: options.section,
+    kind: options.kind,
+    groupKind: options.groupKind,
+    statuses: options.status,
+    tags: options.tag,
+    translated: options.translated ? true : options.untranslated ? false : undefined,
+    keys: options.key,
+    limit: options.limit ? Number(options.limit) : undefined,
+    offset: options.offset ? Number(options.offset) : undefined,
+  };
+}
+
+// ── commands ─────────────────────────────────────────────────────────
+
+program
+  .command('projects')
+  .description('프로젝트 목록')
+  .action(async () => {
+    const projects = await unwrap(api().cli.projects.$get());
+    if (globals().json) return print(projects);
+    for (const project of projects) console.log(`${project.name}  (${project.id})`);
+  });
+
+withFilters(program.command('lines').description('대사 찾기. 필터를 조합하고 --all이면 끝까지 읽습니다'))
+  .option('--all', '모든 페이지를 읽기')
+  .option('--jsonl', '한 줄에 하나씩 JSON으로 출력')
+  .action(async (options: FilterOptions & { all?: boolean; jsonl?: boolean }) => {
+    const id = await projectId();
+    const filter = filterFrom(options);
+    const rows = [];
+    let total = 0;
+    for (let offset = filter.offset ?? 0; ; ) {
+      const page = await unwrap(api().projects[':projectId'].lines.find.$post({ param: { projectId: id }, json: { ...filter, offset } }));
+      total = page.total;
+      rows.push(...page.rows);
+      offset += page.rows.length;
+      if (!options.all || !page.rows.length || offset >= total) break;
+    }
+    log(`대사 ${total.toLocaleString()}개 중 ${rows.length.toLocaleString()}개`);
+    if (options.jsonl) return printJsonl(rows);
+    if (globals().json) return print({ total, rows });
+    for (const row of rows) console.log(`${row.key}  [${row.status}] ${row.speaker ?? '—'}: ${short(row.source)}${row.translation ? `\n    → ${short(row.translation)}` : ''}`);
+  });
+
+program
+  .command('speakers')
+  .description('화자 목록과 대사 수 (저장된 인물과 연결된 이름 포함)')
+  .action(async () => {
+    const rows = await unwrap(api().projects[':projectId'].speakers.$get({ param: { projectId: await projectId() } }));
+    if (globals().json) return print(rows);
+    for (const row of rows) console.log(`${String(row.lines).padStart(6)}  ${row.speaker ?? '(화자 없음)'}${row.character && row.character !== row.speaker ? `  = ${row.character}` : ''}`);
+  });
+
+program
+  .command('first <이름>')
+  .description('인물이 처음 말하는 대사와 장면')
+  .action(async (name: string) => {
+    const row = await unwrap(api().projects[':projectId'].speakers[':name'].first.$get({ param: { projectId: await projectId(), name } }));
+    if (!row) throw new CliError(`${name}의 대사가 없습니다.`);
+    if (globals().json) return print(row);
+    console.log(`${row.group.title} (${row.group.section ?? '구역 없음'})\n${row.key}  ${row.speaker}: ${row.source}`);
+  });
+
+program
+  .command('scenes')
+  .description('여러 인물이 함께 나오는 장면')
+  .requiredOption('-w, --with <names...>', '함께 나와야 하는 인물들')
+  .action(async (options: { with: string[] }) => {
+    const rows = await unwrap(api().projects[':projectId'].scenes.with.$post({ param: { projectId: await projectId() }, json: { speakers: options.with } }));
+    if (globals().json) return print(rows);
+    log(`장면 ${rows.length}개`);
+    for (const row of rows) console.log(`${row.title}  (${row.key})  ${Object.entries(row.lines).map(([speaker, lines]) => `${speaker} ${lines}`).join(', ')}`);
+  });
+
+program
+  .command('line <키>')
+  .description('대사 하나와 앞뒤 대사, 대사 그래프의 분기')
+  .option('-a, --around <n>', '앞뒤로 볼 대사 수', '5')
+  .action(async (key: string, options: { around: string }) => {
+    const context = await unwrap(api().projects[':projectId'].lines[':key'].context.$get({ param: { projectId: await projectId(), key }, query: { around: options.around } }));
+    if (!context) throw new CliError(`대사를 찾을 수 없습니다: ${key}`);
+    if (globals().json) return print(context);
+    for (const row of context.before) console.log(`  ${row.speaker ?? '—'}: ${short(row.source)}`);
+    console.log(`▶ ${context.line.speaker ?? '—'}: ${context.line.source}${context.line.translation ? `\n  → ${context.line.translation}` : ''}`);
+    for (const row of context.after) console.log(`  ${row.speaker ?? '—'}: ${short(row.source)}`);
+    if (context.graph) {
+      const show = (label: string, list: typeof context.graph.incoming) =>
+        list.length && console.log(`${label}: ${list.map((item) => `${item.label ?? item.type ?? item.kind}${item.edge ? ` [${item.edge}]` : ''}${item.firstLine ? ` "${short(item.firstLine.source, 40)}"` : ''}`).join(' | ')}`);
+      show('들어오는 곳', context.graph.incoming);
+      show('나가는 곳', context.graph.outgoing);
+    }
+  });
+
+withFilters(
+  program
+    .command('check <종류>')
+    .description(`번역 점검: ${Object.entries(CHECK_KINDS).map(([kind, label]) => `${kind}(${label})`).join(', ')}`),
+)
+  .option('--ratio <배수>', 'length: 원문보다 몇 배 길면 걸지', '1.5')
+  .option('--jsonl', '한 줄에 하나씩 JSON으로 출력')
+  .action(async (kind: string, options: FilterOptions & { ratio: string; jsonl?: boolean }) => {
+    if (!(kind in CHECK_KINDS)) throw new CliError(`점검 종류는 ${Object.keys(CHECK_KINDS).join(', ')} 중 하나입니다.`);
+    const items = (await unwrap(
+      api().projects[':projectId'].checks[':kind{terms|consistency|format|length}'].$post({
+        param: { projectId: await projectId(), kind: kind as 'terms' },
+        json: { filter: filterFrom(options), ratio: Number(options.ratio) },
+      }),
+    )) as Record<string, unknown>[];
+    log(`${CHECK_KINDS[kind as keyof typeof CHECK_KINDS]} ${items.length}건`);
+    if (options.jsonl) return printJsonl(items);
+    if (globals().json) return print(items);
+    for (const item of items) {
+      if (kind === 'consistency') {
+        console.log(`"${short(String(item.source))}"`);
+        for (const variant of item.variants as { translation: string; keys: string[] }[]) console.log(`    → ${short(variant.translation)}  (${variant.keys.length}곳: ${variant.keys.slice(0, 3).join(', ')}${variant.keys.length > 3 ? '…' : ''})`);
+      } else {
+        const detail = kind === 'terms' ? `"${item.term}" → "${item.expected}"` : kind === 'format' ? (item.issues as string[]).join(' / ') : `×${item.ratio}`;
+        console.log(`${item.key}  ${detail}\n    ${short(String(item.source))}\n    → ${short(String(item.translation))}`);
+      }
+    }
+  });
+
+program
+  .command('stats <대상>')
+  .description('진행 상황: groups(묶음별), sections(구역별), runs(최근 실행)')
+  .option('--since <시간>', 'runs: 몇 시간 전부터', '24')
+  .action(async (of: string, options: { since: string }) => {
+    if (!['groups', 'sections', 'runs'].includes(of)) throw new CliError('대상은 groups, sections, runs 중 하나입니다.');
+    const data = await unwrap(api().projects[':projectId'].stats[':of{groups|sections|runs}'].$get({ param: { projectId: await projectId(), of: of as 'runs' }, query: { sinceHours: options.since } }));
+    if (globals().json) return print(data);
+    if (of === 'runs') {
+      const runs = data as { runs: { workflow: string; status: string; lines: number; calls: number; failedCalls: number; inputTokens: number; outputTokens: number; createdAt: string }[]; failingNodes: { workflow: string; node: string; failedLines: number }[] };
+      for (const run of runs.runs)
+        console.log(`${new Date(run.createdAt).toLocaleString()}  ${run.workflow} [${run.status}] 대사 ${run.lines}, 호출 ${run.calls}(실패 ${run.failedCalls}), 토큰 ${(run.inputTokens + run.outputTokens).toLocaleString()}`);
+      if (runs.failingNodes.length) console.log(`\n실패가 많은 노드:\n${runs.failingNodes.map((node) => `  ${node.workflow} › ${node.node}: ${node.failedLines}줄`).join('\n')}`);
+      return;
+    }
+    for (const row of data as { lines: number; translated: number; untranslated: number; [key: string]: unknown }[])
+      console.log(`${String(row.untranslated).padStart(6)} 미번역 / ${String(row.lines).padStart(6)}  ${row.group ?? row.section}`);
+  });
+
+withFilters(program.command('export').description('번역할 대사를 JSONL로 내보내기 (key와 rev 포함). 번역해서 import로 돌려보냅니다'))
+  .option('-c, --context <n>', '대사마다 앞 대사 몇 줄을 문맥으로 붙일지', '0')
+  .option('-t, --terms', '대사에 나오는 확정 용어를 붙이기')
+  .option('-o, --out <파일>', '저장할 파일 (없으면 표준 출력)')
+  .action(async (options: FilterOptions & { context: string; terms?: boolean; out?: string }) => {
+    const rows = await unwrap(
+      api().projects[':projectId'].export.$post({ param: { projectId: await projectId() }, json: { filter: filterFrom(options), before: Number(options.context), terms: Boolean(options.terms), all: !options.limit } }),
+    );
+    const text = rows.map((row) => JSON.stringify(row)).join('\n') + (rows.length ? '\n' : '');
+    if (options.out) {
+      writeFileSync(options.out, text);
+      log(`대사 ${rows.length.toLocaleString()}개를 ${options.out}에 저장했습니다.`);
+    } else process.stdout.write(text);
+  });
+
+program
+  .command('import <파일>')
+  .description('JSONL(줄마다 key·rev와 바꿀 translation/status/addTags/removeTags)을 검사하고 제안 하나로 올리기. 앱에서 수락해야 반영됩니다')
+  .option('--dry-run', '검사만 하고 제안은 올리지 않기')
+  .addOption(new Option('--origin <누가>', '번역한 쪽').choices(['ai', 'human']).default('ai'))
+  .option('--model <이름>', '번역한 모델 이름 (후보에 기록)')
+  .action(async (file: string, options: { dryRun?: boolean; origin: 'ai' | 'human'; model?: string }) => {
+    const text = file === '-' ? readFileSync(0, 'utf8') : readFileSync(file, 'utf8');
+    const changes = text
+      .split(/\r?\n/)
+      .map((line, index) => ({ line, index }))
+      .filter(({ line }) => line.trim())
+      .map(({ line, index }) => {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(line);
+        } catch {
+          throw new CliError(`${index + 1}번째 줄이 JSON이 아닙니다.`);
+        }
+        const change = lineChangeSchema.safeParse(parsed);
+        if (!change.success) throw new CliError(`${index + 1}번째 줄: ${change.error.issues[0]?.path.join('.')} ${change.error.issues[0]?.message}`);
+        return change.data;
+      });
+    if (!changes.length) throw new CliError('바꿀 줄이 없습니다.');
+    const report = await unwrap(
+      api().projects[':projectId'].import.$post({ param: { projectId: await projectId() }, json: { changes, origin: options.origin, model: options.model, dryRun: Boolean(options.dryRun) } }),
+    );
+    if (globals().json) return print(report);
+    console.log(`줄 ${report.total} · 바뀔 줄 ${report.changes} · 그대로 ${report.unchanged ?? 0} · 충돌 ${report.conflicts.length} · 오류 ${report.errors.length} · 경고 ${report.warnings.length}`);
+    for (const entry of report.errors.slice(0, 20)) console.log(`  오류  ${entry.key}: ${entry.reason}`);
+    for (const entry of report.conflicts.slice(0, 20)) console.log(`  충돌  ${entry.key}: ${entry.reason}`);
+    for (const entry of report.warnings.slice(0, 20)) console.log(`  경고  ${entry.key}: ${entry.issues.join(' / ')}`);
+    if (report.proposalId) console.log(`\n제안을 올렸습니다 (${report.proposalId}). loca 앱 채팅 패널에서 수락하면 한 번에 반영됩니다.`);
+    else if (!options.dryRun) console.log('\n올릴 변경이 없어 제안을 만들지 않았습니다.');
+  });
+
+program
+  .command('tools')
+  .description('에이전트 도구 목록 (call로 부를 수 있음)')
+  .action(async () => {
+    const tools = await unwrap(api().projects[':projectId'].tools.$get({ param: { projectId: await projectId() } }));
+    if (globals().json) return print(tools);
+    for (const tool of tools) console.log(`${tool.name}${tool.changes ? ' (변경 → 제안)' : ''}\n    ${short(tool.description, 140)}`);
+  });
+
+program
+  .command('call <도구> [입력]')
+  .description('에이전트 도구를 직접 호출. 입력은 JSON, @파일, 또는 - (표준 입력). 변경 도구는 제안으로 올라갑니다')
+  .action(async (name: string, input: string | undefined) => {
+    const result = await unwrap(
+      api().projects[':projectId'].tools[':name'].$post({ param: { projectId: await projectId(), name }, json: readJsonArg(input) as Record<string, unknown> }),
+    );
+    if (result.proposed) {
+      log(result.message);
+      return print({ proposalId: result.proposalId });
+    }
+    print(result.result);
+  });
+
+program
+  .command('proposal <id>')
+  .description('제안이 수락·거절됐는지 보기')
+  .action(async (id: string) => {
+    const proposal = await unwrap(api().projects[':projectId'].proposals[':id'].$get({ param: { projectId: await projectId(), id } }));
+    if (globals().json) return print(proposal);
+    const word = { pending: '대기 중', accepted: '수락되어 반영됨', rejected: '거절됨', failed: '수락했지만 실패' } as const;
+    console.log(`${proposal.tool}: ${word[proposal.status]}${proposal.result ? `\n${JSON.stringify(proposal.result)}` : ''}`);
+  });
+
+program.parseAsync().catch((error: unknown) => {
+  log(error instanceof CliError ? error.message : error instanceof Error ? (error.stack ?? error.message) : String(error));
+  process.exit(1);
+});

@@ -11,6 +11,7 @@ import { projectRoutes } from './routes/projects.ts';
 import { sourceRoutes } from './routes/source.ts';
 import { workflowRoutes } from './routes/workflows.ts';
 import { proposalRoutes } from './routes/proposals.ts';
+import { scriptRoutes } from './routes/script.ts';
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 
@@ -37,6 +38,7 @@ export function createApp(deps: Deps) {
     .route('/', workflowRoutes)
     .route('/', chatRoutes)
     .route('/', proposalRoutes)
+    .route('/', scriptRoutes)
     .route('/connections', connectionRoutes)
     .route('/profiles', profileRoutes);
 
