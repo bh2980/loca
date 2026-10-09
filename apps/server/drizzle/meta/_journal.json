@@ -64,6 +64,13 @@
       "when": 1791507080271,
       "tag": "0008_group_section",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1791508492760,
+      "tag": "0009_proposals",
+      "breakpoints": true
     }
   ]
 }

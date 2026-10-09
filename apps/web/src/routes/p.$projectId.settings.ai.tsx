@@ -183,6 +183,7 @@ function ConnectionsTab() {
               </TableBody>
             </Table>
           </div>
+          <McpInfo />
         </>
       }
       pane={search.conn === 'new' ? <NewConnection onClose={close} /> : selected ? <ConnectionPane key={selected.id} connection={selected} onClose={close} /> : null}
@@ -273,6 +274,10 @@ function NewConnection({ onClose }: { onClose: () => void }) {
               <FieldDescription>API 키는 Windows 자격 증명 관리자(OS 키체인)에 저장되며 DB·내보내기에 포함되지 않습니다.</FieldDescription>
             </Field>
           </>
+        ) : info.transport === 'sdk' ? (
+          <p className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+            pi는 작업실 서버 안에서 돌고, 로그인은 pi가 관리합니다. 터미널에서 <code>pi</code>를 실행해 <code>/login</code>으로 구독(OAuth)이나 API 키를 연결하면, 여기서 그 모델들을 고를 수 있습니다. 모델 이름은 “공급자/모델” 형식입니다.
+          </p>
         ) : (
           <Field>
             <FieldLabel htmlFor="conn-exe">실행 파일 경로 (선택)</FieldLabel>
@@ -382,6 +387,10 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
               <Input id="edit-url" {...form.register('baseUrl', { setValueAs: (value: string) => (value ? value : undefined) })} aria-invalid={!!form.formState.errors.baseUrl} />
               <FieldError errors={[form.formState.errors.baseUrl]} />
             </Field>
+          ) : info.transport === 'sdk' ? (
+            <p className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+              pi는 작업실 서버 안에서 돌고, 로그인은 pi가 관리합니다. 터미널에서 <code>pi</code>를 실행해 <code>/login</code>으로 구독(OAuth)이나 API 키를 연결하면, 여기서 그 모델들을 고를 수 있습니다. 모델 이름은 “공급자/모델” 형식입니다.
+            </p>
           ) : (
             <Field>
               <FieldLabel htmlFor="edit-exe">실행 파일 경로</FieldLabel>
@@ -433,7 +442,7 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
             모델 목록
           </Button>
         )}
-        {!isHttp && (
+        {info.transport === 'cli' && (
           <>
             <Button variant="outline" size="sm" disabled={loginStatus.isPending} onClick={() => loginStatus.mutate()}>
               로그인 상태
@@ -1059,5 +1068,48 @@ function ProfileTest({ profileId }: { profileId: string }) {
           ))}
       </div>
     </>
+  );
+}
+
+/**
+ * The project's agent tools over MCP for agents running outside the app. Reading runs at once;
+ * changes arrive as proposals in the chat panel.
+ */
+function McpInfo() {
+  const { projectId } = Route.useParams();
+  const url = `${window.location.origin}/api/projects/${projectId}/mcp`;
+  const commands = [
+    { label: 'Claude Code', text: `claude mcp add --transport http workbench ${url}` },
+    { label: 'Codex', text: `codex mcp add workbench --url ${url}` },
+  ];
+  const copy = (text: string) => {
+    void navigator.clipboard.writeText(text).then(
+      () => toast.success('복사했습니다.'),
+      () => toast.error('복사하지 못했습니다.'),
+    );
+  };
+  return (
+    <section className="mt-6 space-y-2 rounded-lg border p-4">
+      <h2 className="text-sm font-semibold">외부 에이전트 연결 (MCP)</h2>
+      <p className="text-xs text-muted-foreground">
+        이 프로젝트의 에이전트 도구(대본·용어·인물 읽기, 프로필·문서·번역 제안)를 MCP로 열어 둡니다. Claude Code·Codex 같은 에이전트에 연결하면 그쪽에서 대본을 읽고, 바꾸자는 내용은 이 작업실 채팅
+        패널에 수락/거절 카드로 올라옵니다. 이 컴퓨터(localhost)에서만 접속됩니다.
+      </p>
+      <div className="flex items-center gap-2">
+        <code className="min-w-0 flex-1 truncate rounded bg-muted px-2 py-1 text-xs">{url}</code>
+        <Button size="sm" variant="outline" onClick={() => copy(url)}>
+          주소 복사
+        </Button>
+      </div>
+      {commands.map((command) => (
+        <div key={command.label} className="flex items-center gap-2">
+          <span className="w-24 shrink-0 text-xs text-muted-foreground">{command.label}</span>
+          <code className="min-w-0 flex-1 truncate rounded bg-muted px-2 py-1 text-xs">{command.text}</code>
+          <Button size="sm" variant="ghost" onClick={() => copy(command.text)}>
+            복사
+          </Button>
+        </div>
+      ))}
+    </section>
   );
 }

@@ -4,6 +4,7 @@ import { CONNECTION_KIND_INFO } from '@tw/shared';
 import { cliGenerate, cliModels, cliVersion } from './cli.ts';
 import { ModelError, toModelError } from './errors.ts';
 import { openaiChatModel, openaiGenerate, openaiModels } from './openai.ts';
+import { piGenerate, piModels, piProbe } from './pi.ts';
 import { systemOneJudge, systemOneModels } from './systemone.ts';
 import type { GenerateRequest, GenerateResult, JudgeRequest, JudgeResult, ResolvedRoute } from './types.ts';
 
@@ -11,11 +12,13 @@ export * from './types.ts';
 export { ModelError } from './errors.ts';
 export { cliLoginStatus, cliVersion, openLoginTerminal, LOGIN_COMMANDS } from './cli.ts';
 export { openaiProviderOptions } from './openai.ts';
+export { createPiChatSession, piModel, piRuntime, resetPiRuntime, type PiSession, type PiToolSpec } from './pi.ts';
 
 export function generate<T>(route: ResolvedRoute, request: GenerateRequest<T>): Promise<GenerateResult<T>> {
   if (route.kind === 'openai') return openaiGenerate(route, request);
   if (route.kind === 'systemone') throw new ModelError('config', 'System One은 판정(검수)에만 사용할 수 있습니다.', false);
   if (route.kind === 'http') throw new ModelError('config', 'HTTP 도구 연결은 AI 노드에 쓸 수 없습니다.', false);
+  if (route.kind === 'pi') return piGenerate(route, request);
   return cliGenerate(route, request);
 }
 
@@ -27,6 +30,7 @@ export function judge(route: ResolvedRoute, request: JudgeRequest): Promise<Judg
 export function chatModel(route: ResolvedRoute): LanguageModel {
   if (!CONNECTION_KIND_INFO[route.kind].capabilities.includes('chat'))
     throw new ModelError('config', '이 연결은 채팅(도구 호출)을 지원하지 않습니다.', false);
+  if (route.kind === 'pi') throw new ModelError('config', 'pi 채팅은 서버의 pi 세션으로 처리합니다.', false);
   return openaiChatModel(route);
 }
 
@@ -35,6 +39,7 @@ export async function listModels(route: Omit<ResolvedRoute, 'model'>): Promise<s
   if (route.kind === 'http') return null;
   if (route.kind === 'openai') return openaiModels(route);
   if (route.kind === 'systemone') return systemOneModels(route);
+  if (route.kind === 'pi') return piModels();
   if (route.kind === 'grok' || route.kind === 'antigravity' || route.kind === 'codex' || route.kind === 'claude') return cliModels(route.kind, route.executable);
   return null;
 }
@@ -47,6 +52,7 @@ export async function probe(route: Omit<ResolvedRoute, 'model'>): Promise<string
     });
     return `서버가 응답했습니다 (HTTP ${response.status}).`;
   }
+  if (route.kind === 'pi') return piProbe();
   if (route.kind === 'openai' || route.kind === 'systemone') {
     const models = await listModels(route);
     return `모델 ${models?.length ?? 0}개를 확인했습니다.`;

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const CONNECTION_KINDS = ['openai', 'systemone', 'codex', 'claude', 'grok', 'antigravity', 'http'] as const;
+export const CONNECTION_KINDS = ['openai', 'pi', 'systemone', 'codex', 'claude', 'grok', 'antigravity', 'http'] as const;
 export type ConnectionKind = (typeof CONNECTION_KINDS)[number];
 
 /**
@@ -13,7 +13,8 @@ export type Capability = 'generate' | 'judge' | 'chat' | 'tool';
 
 export interface ConnectionKindInfo {
   label: string;
-  transport: 'http' | 'cli';
+  /** sdk: runs in the server process with its own credentials (pi). */
+  transport: 'http' | 'cli' | 'sdk';
   capabilities: Capability[];
   defaultBaseUrl?: string;
   needsKey: boolean;
@@ -28,6 +29,13 @@ export const CONNECTION_KIND_INFO: Record<ConnectionKind, ConnectionKindInfo> = 
     defaultBaseUrl: 'https://api.openai.com/v1',
     needsKey: true,
     efforts: ['minimal', 'low', 'medium', 'high'],
+  },
+  pi: {
+    label: 'pi (구독·API 로그인)',
+    transport: 'sdk',
+    capabilities: ['generate', 'chat'],
+    needsKey: false,
+    efforts: ['minimal', 'low', 'medium', 'high', 'xhigh'],
   },
   systemone: {
     label: 'System One (TypeSafe)',

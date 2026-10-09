@@ -1,6 +1,7 @@
 import { Check, ChevronRight, CircleAlert, Wrench, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { workflowEdits, type WorkflowNodeEdit } from '@/lib/workflow-edits';
+import { ProposalCard, type Proposal } from './proposal-card';
 import { Markdown } from './markdown';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -18,7 +19,7 @@ interface Part {
   approval?: { id: string; approved?: boolean };
 }
 
-const LABEL: Record<string, string> = {
+export const LABEL: Record<string, string> = {
   project_overview: '프로젝트 개요 조회',
   list_scenes: '장면 목록 조회',
   read_scene: '장면 읽기',
@@ -41,10 +42,11 @@ const LABEL: Record<string, string> = {
   propose_translation: '번역 후보 추가',
   save_group_summary: '장면 요약 저장',
   edit_workflow_node: '워크플로 노드 수정',
+  start_run: '워크플로 실행',
 };
 
 /** A readable preview of what an approval-gated tool would change. */
-function ChangePreview({ name, input }: { name: string; input: Record<string, unknown> }) {
+export function ChangePreview({ name, input }: { name: string; input: Record<string, unknown> }) {
   const field = (label: string, value: unknown) =>
     value === undefined || value === '' ? null : (
       <div className="grid grid-cols-[5rem_1fr] gap-2">
@@ -98,6 +100,18 @@ function ChangePreview({ name, input }: { name: string; input: Record<string, un
         </dl>
       );
     }
+    case 'start_run': {
+      const count = (key: string) => ((input[key] as unknown[] | undefined) ?? []).length;
+      const scope = [count('groupIds') && `장면·묶음 ${count('groupIds')}개`, count('unitIds') && `대사 ${count('unitIds')}개`, count('tagIds') && `태그 ${count('tagIds')}개`].filter(Boolean).join(', ') || '진입 조건에 맞는 모든 대사';
+      return (
+        <dl className="space-y-1">
+          {field('워크플로', input.workflowId)}
+          {field('범위', scope)}
+          {field('상태 조건', input.ignoreStatus ? '무시하고 실행' : '진입 상태에 맞는 대사만')}
+          <p className="text-muted-foreground">수락하면 바로 실행이 시작되고 AI 호출 비용이 듭니다.</p>
+        </dl>
+      );
+    }
     case 'propose_translation':
       return <dl className="space-y-1">{field('번역', input.text)}{field('메모', input.note)}</dl>;
     case 'save_group_summary':
@@ -118,8 +132,10 @@ function ChangePreview({ name, input }: { name: string; input: Record<string, un
   }
 }
 
-export function ToolPart({ part, stale, onDecide, onOutput }: {
+export function ToolPart({ part, stale, onDecide, onOutput, proposal }: {
   part: Part;
+  /** For pi chats: the stored proposal a change tool produced (decided with its own buttons). */
+  proposal?: Proposal;
   /** Not in the latest reply: an unanswered proposal can no longer be applied. */
   stale?: boolean;
   onDecide: (approvalId: string, approved: boolean) => void;
@@ -128,7 +144,8 @@ export function ToolPart({ part, stale, onDecide, onOutput }: {
 }) {
   const name = part.type.slice('tool-'.length);
   const label = LABEL[name] ?? name;
-  const isChange = name.startsWith('save_') || name === 'propose_translation';
+  const isChange = name.startsWith('save_') || name === 'propose_translation' || name === 'start_run';
+  if (proposal) return <ProposalCard proposal={proposal} />;
 
   if (name === 'edit_workflow_node' && part.input && (part.state === 'input-available' || part.state === 'output-available')) {
     const output = part.output as { applied?: boolean } | undefined;

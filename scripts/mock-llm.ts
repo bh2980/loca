@@ -63,6 +63,7 @@ app.post('/v1/chat/completions', async (c) => {
   }
 
   // Chat agent turn.
+  if (process.env.MOCK_DEBUG) console.log('roles', body.messages.map((message) => message.role).join(','));
   const tools = new Set(body.tools?.map((tool) => tool.function.name));
   const user = text([...body.messages].reverse().find((message) => message.role === 'user'));
   let call: { name: string; args: unknown } | undefined;

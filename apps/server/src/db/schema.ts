@@ -209,7 +209,7 @@ export const relationships = sqliteTable('relationships', {
 /** App-wide: connections and profiles are shared by every project. Secrets live in the OS keyring. */
 export const connections = sqliteTable('connections', {
   id: id(),
-  kind: text('kind', { enum: ['openai', 'systemone', 'codex', 'claude', 'grok', 'antigravity', 'http'] }).notNull(),
+  kind: text('kind', { enum: ['openai', 'pi', 'systemone', 'codex', 'claude', 'grok', 'antigravity', 'http'] }).notNull(),
   name: text('name').notNull(),
   baseUrl: text('base_url'),
   executable: text('executable'),
@@ -336,6 +336,28 @@ export const runSteps = sqliteTable(
     finishedAt: integer('finished_at', { mode: 'timestamp_ms' }).notNull(),
   },
   (t) => [index('run_steps_run').on(t.runId, t.startedAt)],
+);
+
+/**
+ * A change an agent asked for outside the AI SDK approval flow (pi chat, MCP clients). Nothing is
+ * applied until a person accepts it in the chat panel; then the same tool runs with this input.
+ */
+export const proposals = sqliteTable(
+  'proposals',
+  {
+    id: id(),
+    projectId: projectId(),
+    /** Chat session that produced it; null for external agents over MCP. */
+    sessionId: text('session_id'),
+    source: text('source', { enum: ['pi', 'mcp'] }).notNull(),
+    tool: text('tool').notNull(),
+    input: json<Record<string, unknown>>('input').notNull(),
+    status: text('status', { enum: ['pending', 'accepted', 'rejected', 'failed'] }).notNull().default('pending'),
+    result: json<unknown>('result'),
+    createdAt: createdAt(),
+    decidedAt: integer('decided_at', { mode: 'timestamp_ms' }),
+  },
+  (t) => [index('proposals_project').on(t.projectId, t.status)],
 );
 
 export const chatSessions = sqliteTable('chat_sessions', {

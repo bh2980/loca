@@ -9,6 +9,8 @@ import { events } from '../events.ts';
 import { characterInput, documentInput, relationshipInput, termInput } from '../routes/knowledge.ts';
 import { workflowIssues } from '../routes/workflows.ts';
 import { mentions } from './context.ts';
+import { createRun, selectRunUnits } from '../engine/runner.ts';
+import { snapshotProfiles } from './routes.ts';
 
 const page = { offset: z.number().int().min(0).default(0), limit: z.number().int().min(1).max(200).default(50) };
 
@@ -97,16 +99,33 @@ export function agentTools(db: Db, projectId: string, author: { profileId: strin
       },
     }),
     search_lines: tool({
-      description: 'Find lines whose source, translation, speaker or key contains the text.',
-      inputSchema: z.object({ q: z.string().min(1), limit: z.number().int().max(100).default(30) }),
-      execute: ({ q, limit }) =>
-        db
-          .select({ key: s.units.key, scene: s.groups.title, speaker: s.units.speaker, source: s.units.source, translation: s.units.translation })
-          .from(s.units)
-          .innerJoin(s.groups, eq(s.groups.id, s.units.groupId))
-          .where(and(eq(s.units.projectId, projectId), or(like(s.units.source, `%${q}%`), like(s.units.translation, `%${q}%`), like(s.units.speaker, `%${q}%`), like(s.units.key, `%${q}%`))))
-          .limit(limit)
-          .all(),
+      description:
+        'Find lines. q: text in source, translation, speaker or key. speaker: everything one character says, by speaker key or a stored character name/alias (e.g. "Alice" or "CHAR_ALICE"). Page with offset until you have read them all (total is returned).',
+      inputSchema: z.object({ q: z.string().optional(), speaker: z.string().optional(), offset: z.number().int().min(0).default(0), limit: z.number().int().min(1).max(200).default(100) }),
+      execute: ({ q, speaker, offset, limit }) => {
+        if (!q?.trim() && !speaker?.trim()) return { error: 'q 또는 speaker 중 하나는 있어야 합니다.' };
+        // A character name resolves to every alias it is stored with, since lines carry the game's speaker key.
+        const character = speaker ? characterByName(speaker.trim()) : undefined;
+        const speakers = speaker ? [...new Set([speaker.trim(), ...(character ? [character.name, ...character.aliases] : [])])] : [];
+        const where = and(
+          eq(s.units.projectId, projectId),
+          speakers.length ? inArray(s.units.speaker, speakers) : undefined,
+          q?.trim() ? or(like(s.units.source, `%${q}%`), like(s.units.translation, `%${q}%`), like(s.units.speaker, `%${q}%`), like(s.units.key, `%${q}%`)) : undefined,
+        );
+        return {
+          total: db.select({ count: count() }).from(s.units).where(where).get()!.count,
+          speakers: speakers.length ? speakers : undefined,
+          lines: db
+            .select({ id: s.units.id, key: s.units.key, scene: s.groups.title, speaker: s.units.speaker, source: s.units.source, translation: s.units.translation })
+            .from(s.units)
+            .innerJoin(s.groups, eq(s.groups.id, s.units.groupId))
+            .where(where)
+            .orderBy(asc(s.groups.sort), asc(s.units.sort))
+            .limit(limit)
+            .offset(offset)
+            .all(),
+        };
+      },
     }),
     list_speakers: tool({
       description: 'Every distinct speaker with how many lines they have. Useful before writing character profiles.',
@@ -299,6 +318,28 @@ export function agentTools(db: Db, projectId: string, author: { profileId: strin
         description: z.string().default('').describe('For expression: the condition in plain words, shown on the node.'),
       }),
     }),
+    start_run: tool({
+      description:
+        'Start a workflow run (AI calls cost money/quota, so the user approves it first). Scope: groupIds (scenes/groups), unitIds (lines), tagIds (lines with any of these tags); none = every line the entry node accepts. ignoreStatus also runs lines whose status the entry does not accept. Read project_overview for workflow ids; tell the user how many lines it will run.',
+      inputSchema: z.object({
+        workflowId: z.string(),
+        groupIds: z.array(z.string()).optional(),
+        unitIds: z.array(z.string()).optional(),
+        tagIds: z.array(z.string()).optional(),
+        ignoreStatus: z.boolean().optional(),
+      }),
+      needsApproval: true,
+      execute: ({ workflowId, ...scope }) => {
+        const workflow = db.select().from(s.workflows).where(and(eq(s.workflows.id, workflowId), eq(s.workflows.projectId, projectId))).get();
+        if (!workflow) return { ok: false, error: '워크플로를 찾을 수 없습니다.' };
+        const errors = workflowIssues(db, projectId, workflow.definition).filter((issue) => issue.level === 'error');
+        if (errors.length) return { ok: false, error: `워크플로에 오류가 있습니다: ${errors[0].message}` };
+        if (!selectRunUnits(db, projectId, workflow.definition, scope).length) return { ok: false, error: '조건에 맞는 대사가 없습니다.' };
+        const profileIds = [...new Set(workflow.definition.nodes.flatMap((node) => (node.type === 'ai' ? [node.config.profileId] : [])))];
+        const run = createRun(db, { projectId, workflow, profiles: snapshotProfiles(db, profileIds), scope });
+        return { ok: true, ...run, workflow: workflow.name };
+      },
+    }),
     save_status: tool({
       description: 'Create a translation status (initial / normal / final) or a tag.',
       inputSchema: z.object({ type: z.enum(['status', 'tag']), name: z.string().min(1), color: z.string().default('#8b5cf6'), kind: z.enum(['initial', 'normal', 'final']).default('normal') }),
@@ -324,11 +365,13 @@ export const AGENT_SYSTEM = `당신은 게임 번역 작업실(Translation Workb
 
 일하는 방식:
 - 먼저 조회 도구로 실제 데이터를 읽고, 읽은 내용에 근거해 답합니다. 추측한 사실을 사실처럼 쓰지 않습니다.
-- 대본 전체를 읽어야 하면 list_scenes와 read_scene을 offset으로 끝까지 넘기며 읽습니다.
+- 대본 전체를 읽어야 하면 list_scenes와 read_scene을 offset으로 끝까지 넘기며 읽습니다. 한 인물의 대사를 모두 읽을 때는 search_lines에 speaker를 주고 total에 닿을 때까지 offset을 넘깁니다(화자는 CHAR_ALICE 같은 게임 키이고, 저장된 인물의 이름·별칭으로도 찾습니다).
+- 도구를 쓴 뒤에는 반드시 사용자에게 결과나 다음 단계를 글로 알립니다. 아무 말 없이 차례를 끝내지 않습니다.
 - 프로젝트를 바꾸는 도구(save_*)는 사용자가 승인해야 실행됩니다. 승인 전에 무엇을 왜 바꾸는지 한두 문장으로 설명하고, 한 번에 검토할 수 있는 크기로 제안합니다.
 - 워크플로나 프로필을 만들기 전에는 harness_reference를 읽습니다.
 - 대사 번역을 제안할 때는 read_line으로 앞뒤 대사·용어·화자 프로필을 읽고 propose_translation으로 후보를 추가합니다. 확정 용어는 반드시 지킵니다.
 - 편집기에 열린 워크플로의 노드(지시문·조건식·스크립트 코드)를 바꿀 때는 save_workflow가 아니라 edit_workflow_node를 씁니다. 화면 정보의 노드 설정이 저장 전 최신 상태입니다.
+- 워크플로 실행은 사용자가 요청할 때만 start_run으로 제안합니다. 실행 전에 대상 대사 수와 범위를 알려 주고, 결과는 read_run으로 확인합니다.
 - 장면 요약은 사용자가 요청할 때만 read_scene으로 끝까지 읽은 뒤 save_group_summary로 제안합니다.
 - 번역이 빈 용어 후보를 채울 때는 search_lines로 원문 용례를 읽고 save_terms로 번역·메모만 채웁니다(상태는 후보 그대로).
 - 사용자가 "이 대사/이 노드/이 장면"이라고 하면 아래 화면 정보의 id를 씁니다.

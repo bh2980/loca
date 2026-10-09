@@ -13,7 +13,8 @@ export type Topic =
   | 'workflows'
   | 'runs'
   | 'reviews'
-  | 'chat';
+  | 'chat'
+  | 'proposals';
 
 export interface ChangeEvent {
   projectId?: string;
