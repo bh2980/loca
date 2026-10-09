@@ -8,6 +8,8 @@ import { toast } from 'sonner';
 import { z } from 'zod';
 import { CONNECTION_KIND_INFO, CONNECTION_KINDS, connectionInputSchema, profileInputSchema, type Capability, type ConnectionKind } from '@tw/shared';
 import { Page } from '@/components/page';
+import { AgentTab } from '@/components/settings/agent-tab';
+import { PiOptionsPanel } from '@/components/settings/pi-options';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -25,11 +27,11 @@ import { client, unwrap, type InferResponseType } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
-type Tab = 'connections' | 'tools' | 'profiles';
+type Tab = 'connections' | 'tools' | 'profiles' | 'agent';
 
 export const Route = createFileRoute('/p/$projectId/settings/ai')({
   validateSearch: (raw: Record<string, unknown>): { tab?: Tab; conn?: string; profile?: string } => ({
-    tab: raw.tab === 'profiles' || raw.tab === 'tools' ? raw.tab : undefined,
+    tab: raw.tab === 'profiles' || raw.tab === 'tools' || raw.tab === 'agent' ? raw.tab : undefined,
     conn: typeof raw.conn === 'string' && raw.conn ? raw.conn : undefined,
     profile: typeof raw.profile === 'string' && raw.profile ? raw.profile : undefined,
   }),
@@ -46,22 +48,23 @@ function AiSettings() {
   const connections = useQuery(q.connections());
   const selectedConnection = search.conn && search.conn !== 'new' ? connections.data?.find((connection) => connection.id === search.conn) : undefined;
   // A selected connection always opens in the tab that matches its kind.
-  const tab: Tab = search.tab === 'profiles' ? 'profiles' : selectedConnection ? (selectedConnection.kind === 'http' ? 'tools' : 'connections') : (search.tab ?? 'connections');
+  const tab: Tab = search.tab === 'profiles' || search.tab === 'agent' ? search.tab : selectedConnection ? (selectedConnection.kind === 'http' ? 'tools' : 'connections') : (search.tab ?? 'connections');
 
   return (
     <Page title="연결·프로필">
       <Tabs
         value={tab}
-        onValueChange={(value) => void navigate({ search: (previous) => ({ ...previous, tab: value === 'tools' || value === 'profiles' ? value : undefined, conn: undefined }) })}
+        onValueChange={(value) => void navigate({ search: (previous) => ({ ...previous, tab: value === 'tools' || value === 'profiles' || value === 'agent' ? value : undefined, conn: undefined }) })}
         className="gap-3"
       >
         <TabsList>
           <TabsTrigger value="tools">도구 연결</TabsTrigger>
           <TabsTrigger value="connections">AI 연결</TabsTrigger>
           <TabsTrigger value="profiles">모델 프로필</TabsTrigger>
+          <TabsTrigger value="agent">에이전트</TabsTrigger>
         </TabsList>
       </Tabs>
-      {tab === 'connections' ? <ConnectionsTab /> : tab === 'tools' ? <ToolsTab /> : <ProfilesTab />}
+      {tab === 'connections' ? <ConnectionsTab /> : tab === 'tools' ? <ToolsTab /> : tab === 'agent' ? <AgentTab /> : <ProfilesTab />}
     </Page>
   );
 }
@@ -183,7 +186,6 @@ function ConnectionsTab() {
               </TableBody>
             </Table>
           </div>
-          <McpInfo />
         </>
       }
       pane={search.conn === 'new' ? <NewConnection onClose={close} /> : selected ? <ConnectionPane key={selected.id} connection={selected} onClose={close} /> : null}
@@ -453,6 +455,12 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
           </>
         )}
       </div>
+      {connection.kind === 'pi' && (
+        <>
+          <Separator className="my-4" />
+          <PiOptionsPanel connectionId={connection.id} options={connection.options} />
+        </>
+      )}
       {probeResult && (
         <p className={cn('mt-3 rounded-md border p-2 text-sm break-words', probeResult.ok ? 'text-foreground' : 'border-destructive/40 text-destructive')}>
           <Badge variant={probeResult.ok ? 'default' : 'destructive'} className="mr-2">
@@ -1071,45 +1079,3 @@ function ProfileTest({ profileId }: { profileId: string }) {
   );
 }
 
-/**
- * The project's agent tools over MCP for agents running outside the app. Reading runs at once;
- * changes arrive as proposals in the chat panel.
- */
-function McpInfo() {
-  const { projectId } = Route.useParams();
-  const url = `${window.location.origin}/api/projects/${projectId}/mcp`;
-  const commands = [
-    { label: 'Claude Code', text: `claude mcp add --transport http workbench ${url}` },
-    { label: 'Codex', text: `codex mcp add workbench --url ${url}` },
-  ];
-  const copy = (text: string) => {
-    void navigator.clipboard.writeText(text).then(
-      () => toast.success('복사했습니다.'),
-      () => toast.error('복사하지 못했습니다.'),
-    );
-  };
-  return (
-    <section className="mt-6 space-y-2 rounded-lg border p-4">
-      <h2 className="text-sm font-semibold">외부 에이전트 연결 (MCP)</h2>
-      <p className="text-xs text-muted-foreground">
-        이 프로젝트의 에이전트 도구(대본·용어·인물 읽기, 프로필·문서·번역 제안)를 MCP로 열어 둡니다. Claude Code·Codex 같은 에이전트에 연결하면 그쪽에서 대본을 읽고, 바꾸자는 내용은 이 작업실 채팅
-        패널에 수락/거절 카드로 올라옵니다. 이 컴퓨터(localhost)에서만 접속됩니다.
-      </p>
-      <div className="flex items-center gap-2">
-        <code className="min-w-0 flex-1 truncate rounded bg-muted px-2 py-1 text-xs">{url}</code>
-        <Button size="sm" variant="outline" onClick={() => copy(url)}>
-          주소 복사
-        </Button>
-      </div>
-      {commands.map((command) => (
-        <div key={command.label} className="flex items-center gap-2">
-          <span className="w-24 shrink-0 text-xs text-muted-foreground">{command.label}</span>
-          <code className="min-w-0 flex-1 truncate rounded bg-muted px-2 py-1 text-xs">{command.text}</code>
-          <Button size="sm" variant="ghost" onClick={() => copy(command.text)}>
-            복사
-          </Button>
-        </div>
-      ))}
-    </section>
-  );
-}

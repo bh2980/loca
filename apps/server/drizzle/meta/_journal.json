@@ -71,6 +71,13 @@
       "when": 1791508492760,
       "tag": "0009_proposals",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1791536781214,
+      "tag": "0010_agent_settings",
+      "breakpoints": true
     }
   ]
 }

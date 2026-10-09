@@ -1,15 +1,7 @@
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
-import {
-  createAgentSession,
-  createExtensionRuntime,
-  defineTool,
-  ModelRuntime,
-  SessionManager,
-  SettingsManager,
-  type AgentSession,
-  type ResourceLoader,
-} from '@earendil-works/pi-coding-agent';
+import { createAgentSession, DefaultResourceLoader, defineTool, ModelRuntime, SessionManager, SettingsManager, type AgentSession } from '@earendil-works/pi-coding-agent';
+import { PI_BUILTIN_TOOLS, piOptionsSchema, type PiOptions } from '@tw/shared';
 import { Type } from 'typebox';
 import { z } from 'zod';
 import { ModelError } from './errors.ts';
@@ -95,7 +87,7 @@ export async function piGenerate<T>(route: ResolvedRoute, request: GenerateReque
   return { object: parsed.data, usage: { inputTokens: message.usage.input, outputTokens: message.usage.output } };
 }
 
-// ── chat ────────────────────────────────────────────────────────────
+// ── sessions with the user's pi setup ─────────────────────────────
 
 export type { AgentSession as PiSession };
 
@@ -108,34 +100,39 @@ export interface PiToolSpec {
   execute: (input: Record<string, unknown>, signal?: AbortSignal) => Promise<{ text: string; details?: unknown }>;
 }
 
+const BUILTIN = Object.keys(PI_BUILTIN_TOOLS) as (keyof typeof PI_BUILTIN_TOOLS)[];
+const agentDir = () => piDir ?? path.join(homedir(), '.pi', 'agent');
+
 /**
- * A pi agent session that only knows the workbench: pi's own coding tools (files, shell) are off,
- * no extensions, skills or context files are loaded, and the system prompt is ours.
+ * A pi session shaped by the connection's switches: the user's packages/extensions (minus any
+ * switched off), only the pi file/shell tools they turned on, skills/prompt templates/AGENTS.md
+ * only on request. Our system prompt replaces pi's coding prompt; the workbench tools are added.
  */
-export async function createPiChatSession(options: { model: string; effort?: string; system: string; tools: PiToolSpec[] }): Promise<AgentSession> {
-  const { runtime: rt, model } = await piModel(options.model);
-  const system = options.system;
-  const resourceLoader: ResourceLoader = {
-    getExtensions: () => ({ extensions: [], errors: [], runtime: createExtensionRuntime() }),
-    getSkills: () => ({ skills: [], diagnostics: [] }),
-    getPrompts: () => ({ prompts: [], diagnostics: [] }),
-    getThemes: () => ({ themes: [], diagnostics: [] }),
-    getAgentsFiles: () => ({ agentsFiles: [] }),
-    getSystemPrompt: () => system,
-    getSystemPromptSource: () => undefined,
-    getAppendSystemPrompt: () => [],
-    getAppendSystemPromptSources: () => [],
-    extendResources: () => {},
-    reload: async () => {},
-  };
-  const cwd = tmpdir();
+async function openSession(options: { piOptions: PiOptions; model?: string; effort?: string; system: string; tools: PiToolSpec[]; start?: boolean }) {
+  const pi = options.piOptions;
+  const rt = await piRuntime();
+  const cwd = pi.cwd.trim() || tmpdir();
+  const disabled = new Set(pi.disabledExtensions);
+  const resourceLoader = new DefaultResourceLoader({
+    cwd,
+    agentDir: agentDir(),
+    noExtensions: !pi.extensions,
+    extensionsOverride: (base) => ({ ...base, extensions: base.extensions.filter((extension) => !disabled.has(extension.path)) }),
+    noSkills: !pi.skills,
+    noPromptTemplates: !pi.promptTemplates,
+    noContextFiles: !pi.contextFiles,
+    noThemes: true,
+    systemPrompt: options.system,
+  });
+  await resourceLoader.reload();
+  const model = options.model ? (await piModel(options.model)).model : undefined;
   const { session } = await createAgentSession({
     cwd,
     model,
     thinkingLevel: options.effort && THINKING.has(options.effort) ? (options.effort as never) : 'off',
     modelRuntime: rt,
     resourceLoader,
-    noTools: 'builtin',
+    excludeTools: BUILTIN.filter((name) => !pi.builtinTools.includes(name)),
     customTools: options.tools.map((tool) =>
       defineTool({
         name: tool.name,
@@ -151,5 +148,44 @@ export async function createPiChatSession(options: { model: string; effort?: str
     sessionManager: SessionManager.inMemory(cwd),
     settingsManager: SettingsManager.inMemory({ retry: { enabled: true, maxRetries: 2 } }),
   });
-  return session;
+  // Extensions start on session_start (web access, MCP servers, routers…). There is no terminal UI here.
+  if (pi.extensions && options.start !== false) await session.bindExtensions({ mode: 'print' as never, onError: () => {} });
+  return { session, resourceLoader, runtime: rt };
+}
+
+export async function createPiChatSession(options: { piOptions?: PiOptions; model: string; effort?: string; system: string; tools: PiToolSpec[] }): Promise<AgentSession> {
+  return (await openSession({ ...options, piOptions: options.piOptions ?? piOptionsSchema.parse({}) })).session;
+}
+
+/** What the connection would load, for the settings page: extensions, skills, prompt templates, context files. */
+export async function piResources(piOptions?: PiOptions) {
+  const options = { ...(piOptions ?? piOptionsSchema.parse({})), extensions: true, skills: true, promptTemplates: true, contextFiles: true, disabledExtensions: [] };
+  // Listing only loads extension modules; their session_start handlers do not run.
+  const { session, resourceLoader } = await openSession({ piOptions: options, system: '', tools: [], start: false });
+  try {
+    const extensions = resourceLoader.getExtensions();
+    return {
+      extensions: extensions.extensions
+        .filter((extension) => !extension.hidden)
+        .map((extension) => ({ path: extension.path, source: extension.sourceInfo.source, tools: [...extension.tools.keys()] })),
+      errors: extensions.errors.map((error) => String((error as { error?: unknown }).error ?? error)),
+      skills: resourceLoader.getSkills().skills.map((skill) => ({ name: skill.name, description: skill.description })),
+      prompts: resourceLoader.getPrompts().prompts.map((prompt) => ({ name: (prompt as { name: string }).name })),
+      contextFiles: resourceLoader.getAgentsFiles().agentsFiles.map((file) => (file as { path: string }).path),
+      builtinTools: BUILTIN,
+    };
+  } finally {
+    session.dispose();
+  }
+}
+
+/** Models, including providers that extensions register (routers, extra accounts…) when extensions are on. */
+export async function piModelsWith(piOptions?: PiOptions): Promise<string[]> {
+  if (!piOptions?.extensions) return piModels();
+  const { session, runtime: rt } = await openSession({ piOptions, system: '', tools: [], start: false });
+  try {
+    return (await rt.getAvailable()).map((model) => `${model.provider}/${model.id}`).sort();
+  } finally {
+    session.dispose();
+  }
 }

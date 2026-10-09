@@ -73,6 +73,17 @@ export const connectionRoutes = new Hono<Env>()
       return c.json({ ok: false as const, detail: message(error) });
     }
   })
+  /** What a pi connection can load (extensions, skills…), for its switches on the settings page. */
+  .get('/:id/pi-resources', async (c) => {
+    const { db, secrets } = c.var.deps;
+    const route = found(connectionRoute(db, c.req.param('id'), secrets), '연결');
+    if (route.kind !== 'pi') badRequest('pi 연결이 아닙니다.');
+    try {
+      return c.json({ ok: true as const, ...(await ai.piResources(route.piOptions)) });
+    } catch (error) {
+      return c.json({ ok: false as const, detail: message(error) });
+    }
+  })
   .get('/:id/models', async (c) => {
     const { db, secrets } = c.var.deps;
     const route = found(connectionRoute(db, c.req.param('id'), secrets), '연결');

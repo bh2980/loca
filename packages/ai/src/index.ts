@@ -4,7 +4,7 @@ import { CONNECTION_KIND_INFO } from '@tw/shared';
 import { cliGenerate, cliModels, cliVersion } from './cli.ts';
 import { ModelError, toModelError } from './errors.ts';
 import { openaiChatModel, openaiGenerate, openaiModels } from './openai.ts';
-import { piGenerate, piModels, piProbe } from './pi.ts';
+import { piGenerate, piModelsWith, piProbe } from './pi.ts';
 import { systemOneJudge, systemOneModels } from './systemone.ts';
 import type { GenerateRequest, GenerateResult, JudgeRequest, JudgeResult, ResolvedRoute } from './types.ts';
 
@@ -12,7 +12,7 @@ export * from './types.ts';
 export { ModelError } from './errors.ts';
 export { cliLoginStatus, cliVersion, openLoginTerminal, LOGIN_COMMANDS } from './cli.ts';
 export { openaiProviderOptions } from './openai.ts';
-export { createPiChatSession, piModel, piRuntime, resetPiRuntime, type PiSession, type PiToolSpec } from './pi.ts';
+export { createPiChatSession, piModel, piModelsWith, piResources, piRuntime, resetPiRuntime, type PiSession, type PiToolSpec } from './pi.ts';
 
 export function generate<T>(route: ResolvedRoute, request: GenerateRequest<T>): Promise<GenerateResult<T>> {
   if (route.kind === 'openai') return openaiGenerate(route, request);
@@ -39,7 +39,7 @@ export async function listModels(route: Omit<ResolvedRoute, 'model'>): Promise<s
   if (route.kind === 'http') return null;
   if (route.kind === 'openai') return openaiModels(route);
   if (route.kind === 'systemone') return systemOneModels(route);
-  if (route.kind === 'pi') return piModels();
+  if (route.kind === 'pi') return piModelsWith(route.piOptions);
   if (route.kind === 'grok' || route.kind === 'antigravity' || route.kind === 'codex' || route.kind === 'claude') return cliModels(route.kind, route.executable);
   return null;
 }

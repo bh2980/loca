@@ -15,6 +15,8 @@ import { propose, proposedText } from './proposals.ts';
 interface Live {
   pi: ai.PiSession;
   model: string;
+  /** The connection switches the session was built with; a change rebuilds it. */
+  options: string;
   /** Proposal ids whose decision the agent has already been told. */
   reported: Set<string>;
   /** Earlier conversation to hand over once, when the session had to be (re)created. */
@@ -59,7 +61,8 @@ export async function piChatResponse(input: {
 }): Promise<Response> {
   const { db, chat, route, messages } = input;
   let live = sessions.get(chat.id);
-  if (live && live.model !== route.model) {
+  const options = JSON.stringify(route.piOptions ?? null);
+  if (live && (live.model !== route.model || live.options !== options)) {
     live.pi.dispose();
     live = undefined;
   }
@@ -78,7 +81,13 @@ export async function piChatResponse(input: {
         return { text: JSON.stringify(result).slice(0, 40_000), details: result };
       },
     }));
-    live = { pi: await ai.createPiChatSession({ model: route.model, effort: route.effort, system: input.system, tools }), model: route.model, reported: new Set(), handover: transcript(messages) };
+    live = {
+      pi: await ai.createPiChatSession({ piOptions: route.piOptions, model: route.model, effort: route.effort, system: input.system, tools }),
+      model: route.model,
+      options,
+      reported: new Set(),
+      handover: transcript(messages),
+    };
     sessions.set(chat.id, live);
   }
   const current = live;

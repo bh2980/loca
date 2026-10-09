@@ -1,3 +1,4 @@
+import { AGENT_TOOLS } from '@tw/shared';
 import { Check, ChevronRight, CircleAlert, Wrench, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { workflowEdits, type WorkflowNodeEdit } from '@/lib/workflow-edits';
@@ -19,31 +20,7 @@ interface Part {
   approval?: { id: string; approved?: boolean };
 }
 
-export const LABEL: Record<string, string> = {
-  project_overview: '프로젝트 개요 조회',
-  list_scenes: '장면 목록 조회',
-  read_scene: '장면 읽기',
-  search_lines: '대사 검색',
-  list_speakers: '화자 목록 조회',
-  list_characters: '인물 조회',
-  read_documents: '참조 문서 읽기',
-  list_terms: '용어집 조회',
-  harness_reference: '워크플로 구조 확인',
-  read_workflow: '워크플로 읽기',
-  read_run: '실행 기록 읽기',
-  save_character: '인물 저장',
-  save_relationship: '관계 저장',
-  save_document: '참조 문서 저장',
-  save_terms: '용어 저장',
-  save_profile: 'AI 프로필 저장',
-  save_workflow: '워크플로 저장',
-  save_status: '상태·태그 만들기',
-  read_line: '대사 읽기',
-  propose_translation: '번역 후보 추가',
-  save_group_summary: '장면 요약 저장',
-  edit_workflow_node: '워크플로 노드 수정',
-  start_run: '워크플로 실행',
-};
+export const LABEL: Record<string, string> = Object.fromEntries(Object.entries(AGENT_TOOLS).map(([name, info]) => [name, info.label]));
 
 /** A readable preview of what an approval-gated tool would change. */
 export function ChangePreview({ name, input }: { name: string; input: Record<string, unknown> }) {

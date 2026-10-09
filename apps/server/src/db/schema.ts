@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import type { FormatRules, NodeType, WorkflowDefinition } from '@tw/shared';
+import type { AgentSettings, FormatRules, NodeType, PiOptions, WorkflowDefinition } from '@tw/shared';
 
 const id = () => text('id').primaryKey().$defaultFn(() => crypto.randomUUID());
 const createdAt = () => integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date());
@@ -18,6 +18,8 @@ export const projects = sqliteTable('projects', {
   /** The source graph's node-type dictionary from the standard file. */
   nodeTypes: json<Record<string, NodeType>>('node_types').notNull().default(sql`'{}'`),
   /** Which placeholder / tag families the format check looks for (see FORMAT_PRESETS). */
+  /** Which agent tools this project's chat and MCP clients may use. */
+  agentSettings: json<AgentSettings>('agent_settings').notNull().default(sql`'{"disabledTools":[]}'`),
   formatRules: json<FormatRules>('format_rules').notNull().default(sql`'{"presets":["brace","printf","angleTag"],"custom":[]}'`),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
@@ -215,6 +217,8 @@ export const connections = sqliteTable('connections', {
   executable: text('executable'),
   headerTemplate: text('header_template'),
   createdAt: createdAt(),
+  /** pi connections: packages, extensions and built-in tools to load (see piOptionsSchema). */
+  options: json<PiOptions>('options'),
 });
 
 export interface FallbackRoute {
@@ -266,7 +270,7 @@ export interface ProfileSnapshot {
   maxOutputTokens: number;
   timeoutSeconds: number;
   maxAttempts: number;
-  routes: { connectionId: string; kind: string; baseUrl: string | null; executable: string | null; model: string; effort: string | null }[];
+  routes: { connectionId: string; kind: string; baseUrl: string | null; executable: string | null; model: string; effort: string | null; piOptions?: PiOptions | null }[];
 }
 
 export const runs = sqliteTable(

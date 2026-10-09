@@ -9,6 +9,8 @@ export interface ResolvedRoute {
   apiKey?: string;
   model: string;
   effort?: string;
+  /** pi connections: what to load besides the workbench tools. */
+  piOptions?: import('@tw/shared').PiOptions;
 }
 
 export interface Usage {

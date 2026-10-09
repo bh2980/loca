@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { piOptionsSchema } from './agent.ts';
 
 export const CONNECTION_KINDS = ['openai', 'pi', 'systemone', 'codex', 'claude', 'grok', 'antigravity', 'http'] as const;
 export type ConnectionKind = (typeof CONNECTION_KINDS)[number];
@@ -60,6 +61,8 @@ export const connectionInputSchema = z.object({
   executable: z.string().trim().optional(),
   /** HTTP tools: how the stored key is sent, e.g. "Authorization: Bearer {key}" or "X-API-Key: {key}". */
   headerTemplate: z.string().trim().optional(),
+  /** pi connections only. */
+  options: piOptionsSchema.optional(),
 });
 export type ConnectionInput = z.infer<typeof connectionInputSchema>;
 
