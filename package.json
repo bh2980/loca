@@ -14,7 +14,8 @@
     "test": "vitest run",
     "db:generate": "pnpm --filter @tw/server db:generate",
     "samples": "tsx scripts/make-samples.ts",
-    "mock-llm": "tsx scripts/mock-llm.ts"
+    "mock-llm": "tsx scripts/mock-llm.ts",
+    "orwell2:en": "tsx scripts/orwell2-en.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

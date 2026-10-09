@@ -44,8 +44,12 @@ export function sceneJob(db: Db, projectId: string): LayoutJob {
   const nodes = db.select({ id: graphNodes.id, groupId: graphNodes.groupId }).from(graphNodes).where(eq(graphNodes.projectId, projectId)).all();
   const edges = db.select({ fromId: graphEdges.fromId, toId: graphEdges.toId }).from(graphEdges).where(eq(graphEdges.projectId, projectId)).all();
   const sceneIds = db.select({ id: groups.id }).from(groups).where(and(eq(groups.projectId, projectId), eq(groups.kind, 'scene'))).all();
-  const derived = deriveSceneEdges(nodes, edges);
   const scenes = new Set(sceneIds.map((group) => group.id));
+  // Document / UI nodes are passed through like control nodes, never treated as an endpoint.
+  const derived = deriveSceneEdges(
+    nodes.map((node) => ({ id: node.id, groupId: node.groupId && scenes.has(node.groupId) ? node.groupId : null })),
+    edges,
+  );
   return {
     nodes: sceneIds.map((group) => ({ id: group.id, width: SCENE_SIZE[0], height: SCENE_SIZE[1] })),
     edges: derived

@@ -43,7 +43,9 @@ class GraphIndex {
       if (list) list.push(edge.fromId);
       else this.incoming.set(edge.toId, [edge.fromId]);
     }
-    for (const edge of deriveSceneEdges(nodes, edges)) {
+    const scenes = new Set(db.select({ id: groups.id }).from(groups).where(and(eq(groups.projectId, projectId), eq(groups.kind, 'scene'))).all().map((group) => group.id));
+    const sceneNodes = nodes.map((node) => ({ id: node.id, groupId: node.groupId && scenes.has(node.groupId) ? node.groupId : null }));
+    for (const edge of deriveSceneEdges(sceneNodes, edges)) {
       const list = this.previousScenes.get(edge.to);
       if (list) list.push(edge.from);
       else this.previousScenes.set(edge.to, [edge.from]);

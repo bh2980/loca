@@ -104,7 +104,7 @@ AI 노드의 "문맥" 설정에서 위 항목을 켜고 끄며, 실행 기록에
 | units_fts | FTS5(source, translation, speaker, key) |
 | candidates | id, unit_id, text, origin(ai/human/import), profile_id, run_id, note, created_at |
 | statuses / tags / unit_tags | 사용자 정의 상태(kind: initial/normal/final, color, sort), 태그 |
-| graph_nodes / graph_edges | 원본 그래프(key, kind, unit_ids, meta) / (from, to, kind, label) |
+| graph_nodes / graph_edges | 원본 그래프(key, kind, unit_ids, group_id, meta) / (from, to, kind, label). 노드의 group_id는 입력 파일의 node.group(대사가 없는 컨테이너 노드가 속한 장면), 없으면 첫 대사의 묶음. 장면 연결은 장면 묶음 노드 사이를 장면이 아닌 노드(조건·대기·문서·UI)만 거쳐 이어지는 경로에서 파생한다. |
 | graph_layouts | project_id, hash, status, json(노드 좌표·간선 경로) |
 | terms | source, target, note, aliases(json) |
 | documents | kind(note/character/relationship 등은 별도), title, body(md), version |

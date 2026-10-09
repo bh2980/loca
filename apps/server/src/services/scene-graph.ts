@@ -1,7 +1,8 @@
 /**
  * Scene-level connections are derived, never extracted: scene A → scene B exists when some
- * dialogue node of A reaches a node of B through control nodes only (conditions, waits, …)
- * that belong to no scene. Edges inside one scene are not scene connections.
+ * dialogue node of A reaches a node of B through nodes that belong to no scene (conditions,
+ * waits, documents, UI…). Edges inside one scene are not scene connections. Callers pass
+ * groupId only for scene groups.
  */
 export interface DerivedSceneEdge {
   from: string;
