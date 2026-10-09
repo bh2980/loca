@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
 import { Spinner } from '@/components/ui/spinner';
+import { Switch } from '@/components/ui/switch';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { useSize } from '@/hooks/use-size';
 import { q } from '@/lib/queries';
@@ -22,6 +23,8 @@ interface GraphSearch {
   scene?: string;
   /** Highlight one node type (original class name, or "kind:<kind>"). */
   type?: string;
+  /** Also draw scene links hidden by the simplification (reachable through other scenes). */
+  links?: 'all';
 }
 
 export const Route = createFileRoute('/p/$projectId/graph')({
@@ -30,6 +33,7 @@ export const Route = createFileRoute('/p/$projectId/graph')({
     node: typeof raw.node === 'string' ? raw.node : undefined,
     scene: typeof raw.scene === 'string' ? raw.scene : undefined,
     type: typeof raw.type === 'string' ? raw.type : undefined,
+    links: raw.links === 'all' ? 'all' : undefined,
   }),
   component: GraphPage,
 });
@@ -73,6 +77,18 @@ function GraphPage() {
   const key = viewportKey(projectId, search.scope, search.scene);
   const select = (id: string | undefined) => void navigate({ search: (previous) => ({ ...previous, node: id }), replace: true });
   const layout = graph.data?.layout;
+  const hidden = search.scope === 'scene' ? (layout?.hiddenEdges ?? []) : [];
+  // Hidden links are drawn as straight lines between the laid-out boxes (bottom centre → top centre).
+  const edges = useMemo(() => {
+    if (!layout || search.links !== 'all' || !hidden.length) return layout?.edges ?? [];
+    const box = new Map(layout.nodes.map((node) => [node.id, node]));
+    const extra = hidden.flatMap((edge, i) => {
+      const a = box.get(edge.from);
+      const b = box.get(edge.to);
+      return a && b ? [{ id: `h${i}`, from: edge.from, to: edge.to, points: [a.x + a.width / 2, a.y + a.height, b.x + b.width / 2, b.y] }] : [];
+    });
+    return [...layout.edges, ...extra];
+  }, [layout, hidden, search.links]);
 
   return (
     <Page
@@ -93,7 +109,7 @@ function GraphPage() {
               handle={canvas}
               nodes={layout.nodes}
               regions={layout.regions}
-              edges={layout.edges}
+              edges={edges}
               info={info}
               width={size.width}
               height={size.height}
@@ -169,9 +185,18 @@ function GraphPage() {
                 </Button>
               </div>
               <p className="absolute top-3 right-3 rounded-md bg-background/90 px-2 py-1 text-xs text-muted-foreground tabular-nums shadow-sm">
-                노드 {layout.nodes.length.toLocaleString()} · 연결 {layout.edges.length.toLocaleString()}
+                노드 {layout.nodes.length.toLocaleString()} · 연결 {edges.length.toLocaleString()}
                 {highlight && ` · 강조 ${highlight.size.toLocaleString()}`}
               </p>
+              {hidden.length > 0 && (
+                <label className="absolute top-11 right-3 flex items-center gap-2 rounded-md bg-background/90 px-2 py-1 text-xs text-muted-foreground shadow-sm">
+                  <Switch
+                    checked={search.links === 'all'}
+                    onCheckedChange={(on) => void navigate({ search: (previous) => ({ ...previous, links: on ? 'all' : undefined }), replace: true })}
+                  />
+                  다른 장면을 거쳐도 이어지는 연결 {hidden.length.toLocaleString()}개 {search.links === 'all' ? '표시 중' : '숨김'}
+                </label>
+              )}
             </>
           )}
         </div>

@@ -48,6 +48,11 @@ export const importGraphNodeSchema = z.object({
   kind: z.enum(GRAPH_NODE_KINDS).optional(),
   label: z.string().optional(),
   units: z.array(key).default([]),
+  /**
+   * The group (scene) this node belongs to when it has no lines of its own, e.g. a conversation's
+   * container state whose connections lead to other conversations. Defaults to its first line's group.
+   */
+  group: key.optional(),
   meta,
 });
 
@@ -139,6 +144,9 @@ export const importFileSchema = z
           if (!units.has(unit)) issue(['graph', 'nodes', index, 'units'], `없는 unit: ${unit}`);
         }),
       );
+      file.graph.nodes.forEach((node, index) => {
+        if (node.group && !groups.has(node.group)) issue(['graph', 'nodes', index, 'group'], `없는 group: ${node.group}`);
+      });
       file.graph.edges.forEach((edge, index) => {
         if (!nodes.has(edge.from)) issue(['graph', 'edges', index, 'from'], `없는 node: ${edge.from}`);
         if (!nodes.has(edge.to)) issue(['graph', 'edges', index, 'to'], `없는 node: ${edge.to}`);

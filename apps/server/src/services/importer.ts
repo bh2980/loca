@@ -88,7 +88,7 @@ export function importProject(db: Db, file: ImportFile, defaultProfileId = ''): 
           nodeIds.set(node.key, id);
           const ids = node.units.map((key) => unitIds.get(key)!);
           const kind = node.kind ?? (node.type ? file.graph!.nodeTypes[node.type]?.kind : undefined) ?? (ids.length ? 'script' : 'unknown');
-          return { id, projectId, key: node.key, type: node.type ?? null, kind, label: node.label ?? null, groupId: ids.length ? unitGroup.get(ids[0])! : null, unitIds: ids, meta: node.meta };
+          return { id, projectId, key: node.key, type: node.type ?? null, kind, label: node.label ?? null, groupId: node.group ? groupIds.get(node.group)! : ids.length ? unitGroup.get(ids[0])! : null, unitIds: ids, meta: node.meta };
         }),
       );
       insertMany(

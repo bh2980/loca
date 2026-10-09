@@ -145,6 +145,8 @@ export interface LayoutData {
   edges: { id: string; from: string; to: string; points: number[] }[];
   /** Labelled areas drawn behind nodes, e.g. the block of unconnected lines. */
   regions?: { label: string; x: number; y: number; width: number; height: number }[];
+  /** Scene links left out of the drawing because another path already connects them (see reduceSceneEdges). */
+  hiddenEdges?: { from: string; to: string }[];
 }
 
 export const graphLayouts = sqliteTable(

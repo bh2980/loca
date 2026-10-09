@@ -4,7 +4,7 @@ import type { Db } from '../db/index.ts';
 import { graphEdges, graphLayouts, graphNodes, groups, type LayoutData } from '../db/schema.ts';
 import { events } from '../events.ts';
 import type { LayoutJob } from './layout-worker.ts';
-import { deriveSceneEdges } from './scene-graph.ts';
+import { deriveSceneEdges, reduceSceneEdges } from './scene-graph.ts';
 
 const NODE_SIZE: Record<string, [number, number]> = {
   script: [260, 76],
@@ -40,17 +40,21 @@ function save(db: Db, projectId: string, scope: 'dialogue' | 'scene', value: Par
     .run();
 }
 
-export function sceneJob(db: Db, projectId: string): LayoutJob {
+export function sceneJob(db: Db, projectId: string): LayoutJob & { hidden: { from: string; to: string }[] } {
   const nodes = db.select({ id: graphNodes.id, groupId: graphNodes.groupId }).from(graphNodes).where(eq(graphNodes.projectId, projectId)).all();
   const edges = db.select({ fromId: graphEdges.fromId, toId: graphEdges.toId }).from(graphEdges).where(eq(graphEdges.projectId, projectId)).all();
   const sceneIds = db.select({ id: groups.id }).from(groups).where(and(eq(groups.projectId, projectId), eq(groups.kind, 'scene'))).all();
-  const derived = deriveSceneEdges(nodes, edges);
   const scenes = new Set(sceneIds.map((group) => group.id));
+  // Document / UI nodes are passed through like control nodes, never treated as an endpoint.
+  const derived = deriveSceneEdges(
+    nodes.map((node) => ({ id: node.id, groupId: node.groupId && scenes.has(node.groupId) ? node.groupId : null })),
+    edges,
+  );
+  const { kept, hidden } = reduceSceneEdges(derived.filter((edge) => scenes.has(edge.from) && scenes.has(edge.to)));
   return {
     nodes: sceneIds.map((group) => ({ id: group.id, width: SCENE_SIZE[0], height: SCENE_SIZE[1] })),
-    edges: derived
-      .filter((edge) => scenes.has(edge.from) && scenes.has(edge.to))
-      .map((edge, index) => ({ id: `s${index}`, from: edge.from, to: edge.to })),
+    edges: kept.map((edge, index) => ({ id: `s${index}`, from: edge.from, to: edge.to })),
+    hidden: hidden.map(({ from, to }) => ({ from, to })),
   };
 }
 
@@ -72,8 +76,9 @@ export async function computeLayouts(db: Db, projectId: string): Promise<void> {
     save(db, projectId, scope, { status: 'pending', data: null, error: null });
     events.changed(projectId, 'graph');
     try {
-      const job = build(db, projectId);
-      const data = job.nodes.length ? await runWorker(job) : { width: 0, height: 0, nodes: [], edges: [] };
+      const { hidden, ...job }: LayoutJob & { hidden?: { from: string; to: string }[] } = build(db, projectId);
+      const data: LayoutData = job.nodes.length ? await runWorker(job) : { width: 0, height: 0, nodes: [], edges: [] };
+      if (hidden?.length) data.hiddenEdges = hidden;
       save(db, projectId, scope, { status: 'ready', data, error: null });
     } catch (error) {
       save(db, projectId, scope, { status: 'failed', error: error instanceof Error ? error.message : String(error) });

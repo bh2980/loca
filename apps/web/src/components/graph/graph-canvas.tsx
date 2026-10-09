@@ -99,10 +99,12 @@ export function GraphCanvas({ nodes, regions = [], edges, info, width, height, s
 
   const index = useMemo(() => {
     const byId = new Map(nodes.map((node) => [node.id, node]));
-    const nodeIndex = new Flatbush(Math.max(1, nodes.length));
-    for (const node of nodes) nodeIndex.add(node.x, node.y, node.x + node.width, node.y + node.height);
-    nodeIndex.finish();
-    const edgeIndex = new Flatbush(Math.max(1, edges.length));
+    // Flatbush needs exactly as many items as it was sized for, so an empty list gets no index
+    // (a scene graph whose scenes share no dialogue edges has nodes but zero edges).
+    const nodeIndex = nodes.length ? new Flatbush(nodes.length) : null;
+    for (const node of nodes) nodeIndex!.add(node.x, node.y, node.x + node.width, node.y + node.height);
+    nodeIndex?.finish();
+    const edgeIndex = edges.length ? new Flatbush(edges.length) : null;
     for (const edge of edges) {
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
       for (let i = 0; i < edge.points.length; i += 2) {
@@ -112,9 +114,9 @@ export function GraphCanvas({ nodes, regions = [], edges, info, width, height, s
         maxY = Math.max(maxY, edge.points[i + 1]);
       }
       if (!edge.points.length) minX = minY = maxX = maxY = 0;
-      edgeIndex.add(minX, minY, maxX, maxY);
+      edgeIndex!.add(minX, minY, maxX, maxY);
     }
-    edgeIndex.finish();
+    edgeIndex?.finish();
     const bounds = nodes.reduce(
       (box, node) => ({ minX: Math.min(box.minX, node.x), minY: Math.min(box.minY, node.y), maxX: Math.max(box.maxX, node.x + node.width), maxY: Math.max(box.maxY, node.y + node.height) }),
       { minX: 0, minY: 0, maxX: 1, maxY: 1 },
@@ -178,7 +180,7 @@ export function GraphCanvas({ nodes, regions = [], edges, info, width, height, s
     // Edges first, so nodes sit on top of their lines.
     context.lineWidth = Math.max(1, 1.2 / t.k) ;
     context.lineJoin = 'round';
-    const visibleEdges = index.edgeIndex.search(view.minX, view.minY, view.maxX, view.maxY);
+    const visibleEdges = (index.edgeIndex?.search(view.minX, view.minY, view.maxX, view.maxY) ?? []);
     context.strokeStyle = edgeColor;
     context.globalAlpha = dimmed ? 0.35 : 1;
     context.beginPath();
@@ -198,7 +200,7 @@ export function GraphCanvas({ nodes, regions = [], edges, info, width, height, s
       for (const key of selectedEdges) arrowHead(context, edges[Number(key)].points, 9, selectColor, 1);
     }
 
-    const visible = index.nodeIndex.search(view.minX, view.minY, view.maxX, view.maxY);
+    const visible = (index.nodeIndex?.search(view.minX, view.minY, view.maxX, view.maxY) ?? []);
     const detailed = t.k >= 0.22;
     for (const i of visible) {
       const node = nodes[i];
@@ -313,7 +315,7 @@ export function GraphCanvas({ nodes, regions = [], edges, info, width, height, s
     const rect = canvas.current!.getBoundingClientRect();
     const t = transform.current;
     const x = (clientX - rect.left - t.x) / t.k, y = (clientY - rect.top - t.y) / t.k;
-    const found = index.nodeIndex.search(x, y, x, y);
+    const found = (index.nodeIndex?.search(x, y, x, y) ?? []);
     return found.length ? nodes[found[found.length - 1]].id : undefined;
   };
 
