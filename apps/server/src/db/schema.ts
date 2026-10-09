@@ -18,7 +18,7 @@ export const projects = sqliteTable('projects', {
   /** The source graph's node-type dictionary from the standard file. */
   nodeTypes: json<Record<string, NodeType>>('node_types').notNull().default(sql`'{}'`),
   /** Which placeholder / tag families the format check looks for (see FORMAT_PRESETS). */
-  /** Which agent tools this project's chat and MCP clients may use. */
+  /** Which agent tools this project's chat (and the CLI) may use. */
   agentSettings: json<AgentSettings>('agent_settings').notNull().default(sql`'{"disabledTools":[]}'`),
   formatRules: json<FormatRules>('format_rules').notNull().default(sql`'{"presets":["brace","printf","angleTag"],"custom":[]}'`),
   createdAt: createdAt(),
@@ -343,7 +343,7 @@ export const runSteps = sqliteTable(
 );
 
 /**
- * A change an agent asked for outside the AI SDK approval flow (pi chat, MCP clients). Nothing is
+ * A change an agent asked for outside the AI SDK approval flow (pi chat, the CLI). Nothing is
  * applied until a person accepts it in the chat panel; then the same tool runs with this input.
  */
 export const proposals = sqliteTable(
@@ -351,9 +351,9 @@ export const proposals = sqliteTable(
   {
     id: id(),
     projectId: projectId(),
-    /** Chat session that produced it; null for external agents over MCP. */
+    /** Chat session that produced it; null for changes sent from the CLI. */
     sessionId: text('session_id'),
-    source: text('source', { enum: ['pi', 'mcp'] }).notNull(),
+    source: text('source', { enum: ['pi', 'cli'] }).notNull(),
     tool: text('tool').notNull(),
     input: json<Record<string, unknown>>('input').notNull(),
     status: text('status', { enum: ['pending', 'accepted', 'rejected', 'failed'] }).notNull().default('pending'),

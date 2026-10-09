@@ -318,7 +318,7 @@ function ChatBody({ projectId, sessionId, initial, profileId, profiles, onProfil
   );
 }
 
-/** Changes sent by agents outside the app (MCP clients), waiting for a decision. */
+/** Changes sent from the CLI (by a person or an agent using it), waiting for a decision. */
 function ExternalProposals({ projectId }: { projectId: string }) {
   const proposals = useQuery(q.proposals(projectId));
   const pending = (proposals.data ?? []).filter((proposal) => proposal.status === 'pending');
@@ -328,7 +328,7 @@ function ExternalProposals({ projectId }: { projectId: string }) {
     <div className="max-h-[45%] shrink-0 overflow-y-auto border-b bg-background">
       <button className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium" onClick={() => setOpen(!open)} aria-expanded={open}>
         <ChevronRight className={cn('size-4 text-muted-foreground transition-transform', open && 'rotate-90')} />
-        외부 에이전트(MCP)의 제안 {pending.length}개
+        CLI에서 온 제안 {pending.length}개
       </button>
       {open && (
         <div className="space-y-2 px-3 pb-3">

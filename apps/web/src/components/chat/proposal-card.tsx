@@ -12,12 +12,12 @@ export interface Proposal {
   input: Record<string, unknown>;
   status: 'pending' | 'accepted' | 'rejected' | 'failed';
   result: unknown;
-  source: 'pi' | 'mcp';
+  source: 'pi' | 'cli';
 }
 
 const STATUS = { accepted: '적용됨', rejected: '거절함', failed: '실패' } as const;
 
-/** A change an agent proposed (pi chat or MCP). Accepting runs it now; nothing changes before that. */
+/** A change an agent proposed (pi chat or the CLI). Accepting runs it now; nothing changes before that. */
 export function ProposalCard({ proposal }: { proposal: Proposal }) {
   const decide = useMutation({
     mutationFn: (action: 'accept' | 'reject') => unwrap(client.proposals[':id'][':action{accept|reject}'].$post({ param: { id: proposal.id, action } })),
@@ -28,7 +28,7 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
     <div className="overflow-hidden rounded-lg border bg-background text-sm">
       <div className="flex items-center gap-2 border-b bg-muted/40 px-3 py-1.5 text-xs font-medium">
         <Wrench className="size-3.5 text-muted-foreground" /> {LABEL[proposal.tool] ?? proposal.tool}
-        {proposal.source === 'mcp' && <span className="font-normal text-muted-foreground">· 외부 에이전트(MCP)</span>}
+        {proposal.source === 'cli' && <span className="font-normal text-muted-foreground">· CLI</span>}
         <span className="ml-auto">
           {proposal.status !== 'pending' && (
             <span className={proposal.status === 'accepted' ? 'text-emerald-600' : proposal.status === 'failed' ? 'text-destructive' : 'text-muted-foreground'}>

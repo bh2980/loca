@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 /**
  * The project agent's tools, as the settings page lists them. The same switches apply to the
- * in-app chat (API or pi) and to external agents over MCP.
+ * in-app chat (API or pi) and to the CLI.
  */
 export const AGENT_TOOL_GROUPS = {
   read: { label: '읽기', description: '대본·장면·대사·인물·용어·문서·워크플로·실행 기록을 읽습니다.' },
@@ -42,7 +42,7 @@ export const AGENT_TOOLS: Record<string, { group: AgentToolGroup; label: string 
 };
 
 export const agentSettingsSchema = z.object({
-  /** Tool names switched off for this project's agent (chat and MCP). */
+  /** Tool names switched off for this project's agent (chat and CLI). */
   disabledTools: z.array(z.string()).default([]),
 });
 export type AgentSettings = z.infer<typeof agentSettingsSchema>;

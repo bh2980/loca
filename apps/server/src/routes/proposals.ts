@@ -5,7 +5,7 @@ import { badRequest, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { decideProposal } from '../services/proposals.ts';
 
-/** Changes proposed by pi chat sessions and external MCP agents, decided in the chat panel. */
+/** Changes proposed by pi chat sessions and the CLI, decided in the chat panel. */
 export const proposalRoutes = new Hono<Env>()
   .get('/projects/:projectId/proposals', validate('query', z.object({ session: z.string().optional() })), (c) => {
     const { db } = c.var.deps;

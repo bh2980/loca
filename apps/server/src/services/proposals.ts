@@ -4,7 +4,7 @@ import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { agentCatalog } from './agent-catalog.ts';
 
-export function propose(db: Db, input: { projectId: string; sessionId: string | null; source: 'pi' | 'mcp'; tool: string; input: Record<string, unknown> }) {
+export function propose(db: Db, input: { projectId: string; sessionId: string | null; source: 'pi' | 'cli'; tool: string; input: Record<string, unknown> }) {
   const row = db.insert(s.proposals).values(input).returning().get();
   events.changed(input.projectId, 'proposals');
   return row;

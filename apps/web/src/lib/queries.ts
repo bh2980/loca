@@ -55,7 +55,7 @@ export const q = {
     }),
   runSteps: (id: string) => queryOptions({ queryKey: ['runs', 'steps', id], queryFn: () => unwrap(client.runs[':id'].steps.$get({ param: { id } })) }),
   reviews: (projectId: string) => queryOptions({ queryKey: ['units', 'reviews', projectId], queryFn: () => unwrap(client.projects[':projectId'].reviews.$get({ param: { projectId } })) }),
-  /** Proposals of one pi chat, or (no session) those sent by external agents over MCP. */
+  /** Proposals of one pi chat, or (no session) those sent from the CLI. */
   proposals: (projectId: string, session?: string) =>
     queryOptions({
       queryKey: ['proposals', projectId, session ?? 'external'],
