@@ -41,8 +41,10 @@ function args(kind: CliKind, route: ResolvedRoute, schema: object, files: Files,
     case 'claude':
       return [
         '--print', '--safe-mode', '--model', route.model, '--json-schema', JSON.stringify(schema),
+        // --tools '' removes the built-in tools; a blanket --disallowedTools would also block the
+        // structured-output tool that --json-schema answers through.
         '--output-format', 'json', '--input-format', 'text', '--no-session-persistence', '--max-turns', '1',
-        '--tools', '', '--disallowedTools', '*', '--permission-mode', 'dontAsk', '--no-chrome',
+        '--tools', '', '--permission-mode', 'dontAsk', '--no-chrome',
         '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}',
         ...(effort ? ['--effort', effort] : []),
       ];
