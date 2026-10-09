@@ -195,7 +195,7 @@ export const SPEECH_FIX_WORKFLOW = '말투만 고치기';
  */
 export function knowledgeTemplate(ids: { profileId: string }): WorkflowDefinition {
   return {
-    settings: { maxVisitsPerNode: 5, concurrency: 1 },
+    settings: { maxVisitsPerNode: 5, concurrency: 2 },
     nodes: [
       { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: { statusIds: [] } },
       {
