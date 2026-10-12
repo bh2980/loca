@@ -9,6 +9,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { ChipInput, joinList, splitList } from '@/components/chip-input';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -40,7 +41,10 @@ export type Value = string | boolean | string[] | null;
 export interface Field {
   name: string;
   label: string;
-  type: 'text' | 'long' | 'list' | 'bool' | 'level' | 'key' | 'docKind' | 'character';
+  /** 'chips' is several values kept as one comma-separated string (forms of address); 'list' an array. */
+  type: 'text' | 'long' | 'list' | 'chips' | 'bool' | 'level' | 'key' | 'docKind' | 'character';
+  /** Values offered while typing a 'list' or 'chips' field. */
+  suggestions?: string[];
 }
 export interface KindSpec {
   rows: Row[];
@@ -305,7 +309,9 @@ export function FieldInput({ field, value, characters, onChange }: { field: Fiel
           </SelectContent>
         </Select>
       ) : field.type === 'list' ? (
-        <Input id={id} value={(value as string[] | null)?.join(', ') ?? ''} onChange={(event) => onChange(event.target.value.split(',').map((part) => part.trim()).filter(Boolean))} />
+        <ChipInput id={id} value={(value as string[] | null) ?? []} onChange={onChange} suggestions={field.suggestions} placeholder="쉼표나 Enter로 추가" />
+      ) : field.type === 'chips' ? (
+        <ChipInput id={id} value={splitList(value)} onChange={(chips) => onChange(joinList(chips))} suggestions={field.suggestions} placeholder="쉼표나 Enter로 추가" />
       ) : field.type === 'level' ? (
         <Select value={text(value)} onValueChange={onChange}>
           <SelectTrigger id={id} className="w-full">

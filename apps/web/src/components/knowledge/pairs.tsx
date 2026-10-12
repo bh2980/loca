@@ -9,6 +9,7 @@ import { candidateRow, DraftEditor, fail, matches, metaColumns, SourceBadge, typ
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { splitList } from '@/components/chip-input';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
@@ -193,7 +194,7 @@ export function PairDetail({ projectId, pair, relationships, speechRules, charac
                         <span className="block truncate text-xs text-muted-foreground">{startLabel(rule)}</span>
                         <span className="flex items-center gap-2">
                           <span className="font-medium">{SPEECH_LEVEL_LABELS[rule.level as SpeechLevel]}</span>
-                          {rule.address ? <span className="truncate text-muted-foreground">호칭 “{String(rule.address)}”</span> : null}
+                          {rule.address ? <span className="truncate text-muted-foreground">호칭 {splitList(rule.address).map((form) => `“${form}”`).join(' · ')}</span> : null}
                           {review && <ReviewBadge reasons={review} />}
                         </span>
                       </span>

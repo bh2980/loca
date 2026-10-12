@@ -241,7 +241,11 @@ export function speechRuleIndex(db: Db, projectId: string) {
 }
 
 /** How a rule reads in a prompt or a check. */
-export const describeRule = (rule: Rule) => [SPEECH_LEVEL_LABELS[rule.level], rule.address && `호칭 "${rule.address}"`].filter(Boolean).join(', ');
+/** "하게체, 호칭 "행크 경위님" 또는 "경위님"": the level and every form of address (kept comma-separated). */
+export const describeRule = (rule: Rule) => {
+  const forms = rule.address.split(',').map((form) => form.trim()).filter(Boolean);
+  return [SPEECH_LEVEL_LABELS[rule.level], forms.length && `호칭 ${forms.map((form) => `"${form}"`).join(' 또는 ')}`].filter(Boolean).join(', ');
+};
 
 /** "해요체", "해체": the level name without its 반말 hint. */
 const levelName = (level: SpeechLevel) => SPEECH_LEVEL_LABELS[level].replace(/\(.*\)/u, '');
