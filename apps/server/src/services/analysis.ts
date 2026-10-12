@@ -1,4 +1,4 @@
-import { and, desc, eq, notInArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, ne, notInArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import * as ai from '@tw/ai';
 import { SPEECH_LEVEL_GUIDE, SPEECH_LEVELS } from '@tw/shared';
@@ -8,6 +8,7 @@ import { events } from '../events.ts';
 import type { ModelPort } from '../engine/runner.ts';
 import { resolveRoutes, snapshotProfiles } from './routes.ts';
 import { packBlocks, scriptText } from './script-text.ts';
+import { knownListener } from './speech.ts';
 import type { SecretStore } from './secrets.ts';
 
 /**
@@ -39,6 +40,8 @@ export const analysisSchema = z.object({
   speechRules: z
     .array(z.object({ from: z.string().min(1), to: z.string().min(1), level: z.enum(SPEECH_LEVELS), address: z.string().default(''), note: z.string().default(''), start: z.string().nullable().default(null), evidence: ids }))
     .default([]),
+  /** Per scene, whom each speaker mostly addresses: lines inherit it unless their listener is known. */
+  sceneListeners: z.array(z.object({ scene: z.string().min(1), speaker: z.string().min(1), listener: z.string().nullable(), confidence: z.number().min(0).max(1).default(0.5) })).default([]),
 });
 export type Analysis = z.infer<typeof analysisSchema>;
 
@@ -53,9 +56,10 @@ Rules:
 - relationships: one per direction that matters; "changes" give the line id ("at") where the relationship changes and why.
 - events: what happened, its cause and its outcome, the people involved; include events that later lines refer back to.
 - speechRules: for every speaker → listener direction with several lines, the Korean speech level the translation should use, one of: ${SPEECH_LEVEL_GUIDE}. Decide from the relationship (age, rank, intimacy, hostility, era and setting) as a Korean translator would; narration-like or written addresses often take 해라체, close friends 해체. "address" is how the speaker should address the listener in Korean (e.g. "수사관님", "언니"), empty if none. If the level changes at some point (falling out, reconciliation, promotion), give one rule per stretch: "start" is the line id where the new stretch begins (null for the first). Do not mark a single sarcastic or emotional line as a change. "note" says why.
+- sceneListeners: for each scene and each speaker in it, whom that speaker mostly addresses there ("scene" is the key in [brackets]; "listener" a character name, "group", "self", or null when you cannot tell) and your confidence from 0 to 1. Give a high confidence only when nearly every line of that speaker in the scene addresses that listener; mixed or unclear → lower. Skip scenes with a single obvious speaker talking to nobody in particular.
 - Keep the whole answer under about 15,000 words.`;
 
-const RETURN = 'Return only JSON with "overview", "characters", "relationships", "events" and "speechRules".';
+const RETURN = 'Return only JSON with "overview", "characters", "relationships", "events", "speechRules" and "sceneListeners".';
 
 type Job = typeof s.analysisJobs.$inferSelect;
 
@@ -163,35 +167,84 @@ function summarize(analysis: Analysis) {
 }
 
 const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+const namesOf = (c: { name: string; aliases: string[] }) => [c.name, ...c.aliases];
 
-/** Adds a later part's findings: same-named characters, relationships and rules are extended, not duplicated. */
+/** A rule a later part contradicts (same pair and start, another level or address): kept as a candidate. */
+export type MergedRule = Analysis['speechRules'][number] & { conflict?: true };
+
+/**
+ * Adds a later part's findings. A person is the same when any of their names or aliases match; the
+ * later part's relationship and rule names are mapped onto the merged person first, so "Holt" and
+ * "Mara Holt" do not become two. A rule that disagrees with an earlier one for the same pair and
+ * start is kept and marked as a conflict, never dropped silently. Events with the same title merge.
+ */
 export function mergeAnalysis(base: Analysis, next: Analysis): Analysis {
-  const characters = [...base.characters];
+  const characters = base.characters.map((c) => ({ ...c, aliases: [...c.aliases], evidence: [...c.evidence] }));
+  const personOf = (name: string) => characters.find((c) => namesOf(c).some((known) => same(known, name)));
   for (const c of next.characters) {
-    const existing = characters.find((old) => [old.name, ...old.aliases].some((name) => same(name, c.name)));
-    if (!existing) characters.push(c);
-    else Object.assign(existing, { aliases: [...new Set([...existing.aliases, ...c.aliases])], profile: existing.profile || c.profile, speech: existing.speech || c.speech, player: existing.player || c.player, evidence: [...existing.evidence, ...c.evidence] });
+    const existing = characters.find((old) => namesOf(old).some((name) => namesOf(c).some((other) => same(name, other))));
+    if (!existing) characters.push({ ...c });
+    else
+      Object.assign(existing, {
+        aliases: [...new Set([...existing.aliases, ...namesOf(c).filter((name) => !same(name, existing.name))])],
+        profile: existing.profile || c.profile,
+        speech: existing.speech || c.speech,
+        player: existing.player || c.player,
+        evidence: [...existing.evidence, ...c.evidence],
+      });
   }
-  const relationships = [...base.relationships];
+  const canon = (name: string) => personOf(name)?.name ?? name;
+  const relationships = base.relationships.map((r) => ({ ...r, changes: [...r.changes], evidence: [...r.evidence] }));
   for (const r of next.relationships) {
-    const existing = relationships.find((old) => same(old.from, r.from) && same(old.to, r.to));
-    if (!existing) relationships.push(r);
-    else Object.assign(existing, { changes: [...existing.changes, ...r.changes], evidence: [...existing.evidence, ...r.evidence] });
+    const from = canon(r.from);
+    const to = canon(r.to);
+    const existing = relationships.find((old) => same(canon(old.from), from) && same(canon(old.to), to));
+    if (!existing) relationships.push({ ...r, from, to });
+    else Object.assign(existing, { description: existing.description || r.description, changes: [...existing.changes, ...r.changes], evidence: [...existing.evidence, ...r.evidence] });
   }
-  const speechRules = [...base.speechRules];
-  for (const r of next.speechRules) if (!speechRules.some((old) => same(old.from, r.from) && same(old.to, r.to) && old.start === r.start)) speechRules.push(r);
+  const speechRules: MergedRule[] = [...base.speechRules];
+  for (const r of next.speechRules) {
+    const rule = { ...r, from: canon(r.from), to: canon(r.to) };
+    const samePlace = speechRules.filter((old) => same(canon(old.from), rule.from) && same(canon(old.to), rule.to) && old.start === rule.start);
+    if (!samePlace.length) speechRules.push(rule);
+    else if (!samePlace.some((old) => old.level === rule.level && same(old.address, rule.address))) speechRules.push({ ...rule, conflict: true });
+  }
+  const events = base.events.map((e) => ({ ...e, evidence: [...e.evidence] }));
+  for (const e of next.events) {
+    const existing = events.find((old) => same(old.title, e.title));
+    if (!existing) events.push(e);
+    else Object.assign(existing, { summary: existing.summary || e.summary, outcome: existing.outcome || e.outcome, participants: [...new Set([...existing.participants, ...e.participants])], evidence: [...existing.evidence, ...e.evidence] });
+  }
+  const join = (a: string, b: string) => (a && b && !same(a, b) ? `${a}\n\n${b}` : a || b);
   return {
-    overview: { ...base.overview, plot: [base.overview.plot, next.overview.plot].filter(Boolean).join('\n\n'), evidence: [...base.overview.evidence, ...next.overview.evidence] },
+    overview: {
+      setting: join(base.overview.setting, next.overview.setting),
+      mainConflict: join(base.overview.mainConflict, next.overview.mainConflict),
+      plot: join(base.overview.plot, next.overview.plot),
+      evidence: [...base.overview.evidence, ...next.overview.evidence],
+    },
     characters,
     relationships,
-    events: [...base.events, ...next.events],
+    events,
     speechRules,
+    sceneListeners: [...base.sceneListeners, ...next.sceneListeners],
   };
 }
 
+/** Speaker → listener pairs covering this share of dialogue lines are "main pairs": their rules wait for a person. */
+export const MAIN_PAIR_SHARE = 0.8;
+
+type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
+type Stored = typeof s.documents | typeof s.characters | typeof s.relationships | typeof s.storyEvents | typeof s.speechRules;
+
 /**
- * Replaces the previous AI items nobody has touched with this analysis, as confirmed (auto-confirm)
- * or as candidates. Evidence ids that are not lines are dropped and counted.
+ * Stores an analysis. Items earlier analyses wrote that no person has touched are replaced; items a
+ * person made, edited, confirmed or rejected stay, and a rejected item is not proposed again.
+ * With auto-confirm, items are stored confirmed, except speech rules that need a person: rules of
+ * the main pairs (the speaker → listener pairs that cover MAIN_PAIR_SHARE of dialogue lines),
+ * rules that contradict another part of the analysis, and rules whose evidence lines are not the
+ * rule's speaker's. Scene listeners fill lines whose listener nobody set. Evidence ids that are not
+ * lines are dropped and counted.
  */
 export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: Analysis, keyOf: Map<string, string>, autoConfirm = false): Record<string, number> {
   let invalidEvidence = 0;
@@ -202,11 +255,15 @@ export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: A
       return key ? [key] : [];
     });
   const keyOrNull = (id: string | null) => (id ? (keyOf.get(id.trim()) ?? null) : null);
-  const draft = { status: autoConfirm ? ('confirmed' as const) : ('candidate' as const), origin: 'ai' as const, jobId };
+  const status = autoConfirm ? ('confirmed' as const) : ('candidate' as const);
+  const draft = { status, origin: 'ai' as const, jobId };
+  const counts = { listeners: 0, rulesForReview: 0 };
 
   db.transaction((tx) => {
-    const stale = (table: typeof s.documents | typeof s.characters | typeof s.relationships | typeof s.storyEvents | typeof s.speechRules) =>
-      and(eq(table.projectId, projectId), eq(table.origin, 'ai'), eq(table.reviewed, false));
+    // Only what earlier analyses wrote and nobody touched is replaced; workflow-made items and rejected ones stay.
+    const analysisJobs = tx.select({ id: s.analysisJobs.id }).from(s.analysisJobs).where(eq(s.analysisJobs.projectId, projectId)).all().map((job) => job.id);
+    const stale = (table: Stored) =>
+      and(eq(table.projectId, projectId), eq(table.origin, 'ai'), eq(table.reviewed, false), ne(table.status, 'rejected'), analysisJobs.length ? inArray(table.jobId, analysisJobs) : sql`0`);
     tx.delete(s.relationships).where(stale(s.relationships)).run();
     // A draft character that a kept relationship points to stays (deleting it would take the relationship with it).
     const kept = tx.select({ fromId: s.relationships.fromId, toId: s.relationships.toId }).from(s.relationships).where(eq(s.relationships.projectId, projectId)).all().flatMap((r) => [r.fromId, r.toId]);
@@ -217,39 +274,75 @@ export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: A
 
     const { overview } = analysis;
     const body = [overview.setting && `## 배경\n${overview.setting}`, overview.mainConflict && `## 주요 갈등\n${overview.mainConflict}`, overview.plot && `## 줄거리\n${overview.plot}`].filter(Boolean).join('\n\n');
-    if (body) tx.insert(s.documents).values({ projectId, kind: 'story', title: '작품 개요 (AI 분석)', body, evidence: keys(overview.evidence), ...draft }).run();
+    const title = '작품 개요 (AI 분석)';
+    const documentRejected = tx.select({ id: s.documents.id }).from(s.documents).where(and(eq(s.documents.projectId, projectId), eq(s.documents.title, title), eq(s.documents.status, 'rejected'), eq(s.documents.body, body))).get();
+    if (body && !documentRejected) tx.insert(s.documents).values({ projectId, kind: 'story', title, body, evidence: keys(overview.evidence), ...draft }).run();
 
-    // Relationships point at characters: a confirmed character with that name wins, else the new draft.
-    const existing = tx.select({ id: s.characters.id, name: s.characters.name, aliases: s.characters.aliases }).from(s.characters).where(eq(s.characters.projectId, projectId)).all();
+    // People: a stored person (any status) keeps their name; rejected ones are not proposed again but nothing new points at them.
+    const stored = tx.select({ id: s.characters.id, name: s.characters.name, aliases: s.characters.aliases, status: s.characters.status }).from(s.characters).where(eq(s.characters.projectId, projectId)).all();
+    const live = stored.filter((c) => c.status !== 'rejected');
     // The model may still spell a known person differently ("Mara Holt" for the speaker "Mara"):
     // such names are mapped onto the stored person everywhere, so rules and relationships meet the lines' speakers.
-    const canonical = canonicalNames(existing, analysis.characters);
+    const canonical = canonicalNames(live, analysis.characters);
     const canon = (name: string) => canonical.get(name.trim().toLowerCase()) ?? name;
     const idByName = new Map<string, string>();
-    for (const c of existing) for (const name of [c.name, ...c.aliases]) idByName.set(name.toLowerCase(), c.id);
-    // Kept knowledge (confirmed or made by a person) is not proposed again; changes to it show as new drafts only when they differ.
-    const keptNames = new Set(existing.flatMap((c) => [c.name, ...c.aliases].map((name) => name.toLowerCase())));
+    for (const c of live) for (const name of namesOf(c)) idByName.set(name.toLowerCase(), c.id);
+    const knownNames = new Set(stored.flatMap((c) => namesOf(c).map((name) => name.toLowerCase())));
     for (const c of analysis.characters) {
-      if ([c.name, ...c.aliases].some((name) => keptNames.has(name.toLowerCase())) || canon(c.name) !== c.name) continue;
+      if (namesOf(c).some((name) => knownNames.has(name.toLowerCase())) || canon(c.name) !== c.name) continue;
       const row = tx.insert(s.characters).values({ projectId, name: c.name, aliases: c.aliases, profile: c.profile, speech: c.speech, player: c.player, evidence: keys(c.evidence), ...draft }).returning({ id: s.characters.id }).get();
-      for (const name of [c.name, ...c.aliases]) if (!idByName.has(name.toLowerCase())) idByName.set(name.toLowerCase(), row.id);
+      for (const name of namesOf(c)) if (!idByName.has(name.toLowerCase())) idByName.set(name.toLowerCase(), row.id);
     }
-    const keptPairs = new Set(tx.select({ fromId: s.relationships.fromId, toId: s.relationships.toId }).from(s.relationships).where(eq(s.relationships.projectId, projectId)).all().map((r) => `${r.fromId}|${r.toId}`));
+
+    const pairsTaken = new Set(tx.select({ fromId: s.relationships.fromId, toId: s.relationships.toId, kind: s.relationships.kind }).from(s.relationships).where(eq(s.relationships.projectId, projectId)).all().map((r) => `${r.fromId}|${r.toId}`));
     for (const r of analysis.relationships) {
       const fromId = idByName.get(canon(r.from).toLowerCase());
       const toId = idByName.get(canon(r.to).toLowerCase());
-      if (!fromId || !toId || keptPairs.has(`${fromId}|${toId}`)) continue;
+      if (!fromId || !toId || pairsTaken.has(`${fromId}|${toId}`)) continue;
+      pairsTaken.add(`${fromId}|${toId}`);
       const changes = r.changes.flatMap((change) => {
         const at = keyOrNull(change.at);
         return at ? [{ at, change: change.change, cause: change.cause }] : [];
       });
       tx.insert(s.relationships).values({ projectId, fromId, toId, kind: r.kind, description: r.description, changes, evidence: keys(r.evidence), ...draft }).run();
     }
-    for (const e of analysis.events) tx.insert(s.storyEvents).values({ projectId, title: e.title, summary: e.summary, cause: e.cause, outcome: e.outcome, participants: e.participants.map(canon), evidence: keys(e.evidence), ...draft }).run();
-    const keptRules = new Set(tx.select().from(s.speechRules).where(eq(s.speechRules.projectId, projectId)).all().map((r) => `${r.fromName}|${r.toName}|${r.startKey}|${r.level}|${r.address}`.toLowerCase()));
-    for (const r of analysis.speechRules)
-      if (!keptRules.has(`${r.from}|${r.to}|${keyOrNull(r.start)}|${r.level}|${r.address}`.toLowerCase()))
-        tx.insert(s.speechRules).values({ projectId, fromName: r.from, toName: r.to, level: r.level, address: r.address, note: r.note, startKey: keyOrNull(r.start), evidence: keys(r.evidence), ...draft }).run();
+
+    const eventTitles = new Set(tx.select({ title: s.storyEvents.title }).from(s.storyEvents).where(eq(s.storyEvents.projectId, projectId)).all().map((e) => e.title.toLowerCase()));
+    for (const e of analysis.events) {
+      if (eventTitles.has(e.title.toLowerCase())) continue;
+      eventTitles.add(e.title.toLowerCase());
+      tx.insert(s.storyEvents).values({ projectId, title: e.title, summary: e.summary, cause: e.cause, outcome: e.outcome, participants: e.participants.map(canon), evidence: keys(e.evidence), ...draft }).run();
+    }
+
+    // Scene listeners first: the main pairs below are counted on the listeners lines end up with.
+    counts.listeners = applySceneListeners(tx, projectId, analysis.sceneListeners, live, canon);
+    const main = mainPairs(tx, projectId, live);
+    const person = personKey(live);
+
+    const speakerOf = new Map(tx.select({ key: s.units.key, speaker: s.units.speaker }).from(s.units).where(eq(s.units.projectId, projectId)).all().map((unit) => [unit.key, unit.speaker]));
+    const existingRules = tx.select().from(s.speechRules).where(eq(s.speechRules.projectId, projectId)).all();
+    const ruleKey = (from: string, to: string, start: string | null, level: string, address: string) => `${person(from)}|${person(to)}|${start}|${level}|${address}`.toLowerCase();
+    const taken = new Set(existingRules.map((r) => ruleKey(r.fromName, r.toName, r.startKey, r.level, r.address)));
+    for (const r of analysis.speechRules as MergedRule[]) {
+      const from = canon(r.from);
+      const to = canon(r.to);
+      const start = keyOrNull(r.start);
+      const key = ruleKey(from, to, start, r.level, r.address);
+      if (taken.has(key)) continue;
+      taken.add(key);
+      const evidence = keys(r.evidence);
+      // Evidence lines should be the rule's speaker talking; mostly someone else's means the rule is doubtful.
+      const foreign = evidence.filter((line) => person(speakerOf.get(line) ?? '') !== person(from)).length;
+      const reasons = [
+        r.conflict && '다른 부분의 분석과 엇갈림',
+        evidence.length && foreign * 2 > evidence.length && '근거 대사의 화자가 다름',
+        main.has(`${person(from)}|${person(to)}`) && '대사가 많은 주요 쌍',
+      ].filter(Boolean) as string[];
+      const needsPerson = autoConfirm && reasons.length > 0;
+      if (needsPerson) counts.rulesForReview += 1;
+      const note = needsPerson ? [r.note, `확인 필요: ${reasons.join(', ')}`].filter(Boolean).join(' / ') : r.note;
+      tx.insert(s.speechRules).values({ projectId, fromName: from, toName: to, level: r.level, address: r.address, note, startKey: start, evidence, ...draft, status: needsPerson ? 'candidate' : status }).run();
+    }
   });
   return {
     documents: analysis.overview.plot || analysis.overview.setting ? 1 : 0,
@@ -257,8 +350,76 @@ export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: A
     relationships: analysis.relationships.length,
     events: analysis.events.length,
     speechRules: analysis.speechRules.length,
+    listeners: counts.listeners,
+    rulesForReview: counts.rulesForReview,
     invalidEvidence,
   };
+}
+
+/** Lower-cased stored person name for any of their names or aliases (else the name itself). */
+function personKey(people: { name: string; aliases: string[] }[]) {
+  const map = new Map<string, string>();
+  for (const p of people) for (const name of namesOf(p)) map.set(name.trim().toLowerCase(), p.name.trim().toLowerCase());
+  return (name: string) => map.get(name.trim().toLowerCase()) ?? name.trim().toLowerCase();
+}
+
+/**
+ * Fills, per scene, the listener of a speaker's lines from the analysis, for dialogue lines whose
+ * listener nobody set (no listener, or an AI one with lower confidence). Imported and human
+ * listeners are never touched. Returns the number of lines changed.
+ */
+function applySceneListeners(tx: Tx, projectId: string, entries: Analysis['sceneListeners'], people: { name: string; aliases: string[] }[], canon: (name: string) => string) {
+  if (!entries.length) return 0;
+  const person = personKey(people);
+  const groupByKey = new Map(tx.select({ id: s.groups.id, key: s.groups.key }).from(s.groups).where(eq(s.groups.projectId, projectId)).all().map((group) => [group.key, group.id]));
+  const wanted = new Map<string, { listener: string | null; confidence: number }>();
+  for (const entry of entries) {
+    const groupId = groupByKey.get(entry.scene.trim());
+    if (!groupId) continue;
+    const listener = entry.listener && !['group', 'self'].includes(entry.listener) ? canon(entry.listener) : entry.listener;
+    wanted.set(`${groupId}|${person(canon(entry.speaker))}`, { listener, confidence: Math.min(1, Math.max(0, entry.confidence)) });
+  }
+  let changed = 0;
+  const lines = tx
+    .select({ id: s.units.id, groupId: s.units.groupId, speaker: s.units.speaker, listener: s.units.listener, origin: s.units.listenerOrigin, confidence: s.units.listenerConfidence })
+    .from(s.units)
+    .where(and(eq(s.units.projectId, projectId), eq(s.units.kind, 'dialogue')))
+    .all();
+  for (const line of lines) {
+    if (!line.speaker || line.origin === 'import' || line.origin === 'human') continue;
+    const found = wanted.get(`${line.groupId}|${person(line.speaker)}`);
+    if (!found || found.listener === null) continue;
+    if (line.listener && line.origin === 'ai' && (line.confidence ?? 0) >= found.confidence) continue;
+    tx.update(s.units).set({ listener: found.listener, listenerOrigin: 'ai', listenerConfidence: found.confidence }).where(eq(s.units.id, line.id)).run();
+    changed += 1;
+  }
+  return changed;
+}
+
+/** The speaker → listener pairs (stored-person keys) that together cover MAIN_PAIR_SHARE of dialogue lines with a known listener. */
+export function mainPairs(tx: Tx | Db, projectId: string, people: { name: string; aliases: string[] }[]) {
+  const person = personKey(people);
+  const lines = tx
+    .select({ speaker: s.units.speaker, listener: s.units.listener, origin: s.units.listenerOrigin, confidence: s.units.listenerConfidence })
+    .from(s.units)
+    .where(and(eq(s.units.projectId, projectId), eq(s.units.kind, 'dialogue')))
+    .all();
+  const counts = new Map<string, number>();
+  for (const line of lines) {
+    const listener = knownListener({ listener: line.listener, listenerOrigin: line.origin, listenerConfidence: line.confidence });
+    if (!line.speaker || !listener || listener === 'group' || listener === 'self') continue;
+    const key = `${person(line.speaker)}|${person(listener)}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const total = [...counts.values()].reduce((sum, count) => sum + count, 0);
+  const main = new Set<string>();
+  let covered = 0;
+  for (const [key, count] of [...counts].sort((a, b) => b[1] - a[1])) {
+    if (covered >= total * MAIN_PAIR_SHARE) break;
+    main.add(key);
+    covered += count;
+  }
+  return main;
 }
 
 /**

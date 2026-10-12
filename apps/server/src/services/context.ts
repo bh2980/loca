@@ -1,8 +1,8 @@
 import { and, desc, eq, inArray, lt } from 'drizzle-orm';
-import { CONTEXT_PRIORITY, contextConfigSchema, estimateTokens, mentions, type ContextConfig, type ContextItem, type ContextItemKind } from '@tw/shared';
+import { CONTEXT_PRIORITY, contextConfigSchema, estimateTokens, mentions, termMatcher, type ContextConfig, type ContextItem, type ContextItemKind } from '@tw/shared';
 import type { Db } from '../db/index.ts';
-import { graphEdges, graphNodes, groups, units } from '../db/schema.ts';
-import { describeRule, knowledgeOf, knownListener, speechRuleIndex } from './speech.ts';
+import { documents as documentsTable, graphEdges, graphNodes, groups, units } from '../db/schema.ts';
+import { cachedKnowledge, describeRule, knowledgeOf, knownListener, speechRuleIndex } from './speech.ts';
 import { deriveSceneEdges } from './scene-graph.ts';
 
 export { mentions } from '@tw/shared';
@@ -37,6 +37,15 @@ export interface BatchContext {
   /** Every confirmed character, for naming people who are not mentioned in the batch. */
   cast: { name: string; aliases: string[]; player?: true }[];
   relationships: { from: string; to: string; kind: string; description: string; mutual: boolean }[];
+  /**
+   * Unreviewed AI items (origin "ai", no person has confirmed or edited them), kept apart from the facts above
+   * so the model does not take a guess for a settled fact.
+   */
+  aiNotes: {
+    characters: { name: string; aliases: string[]; profile: string }[];
+    relationships: { from: string; to: string; kind: string; description: string; mutual: boolean }[];
+    documents: { kind: string; title: string; body: string }[];
+  };
   terms: { source: string; target: string; note: string }[];
   /** Per unit id, only for lines whose preceding lines are not already in the batch or shown for an earlier line. */
   preceding: Record<string, Preceding>;
@@ -46,6 +55,34 @@ export interface BatchContext {
 }
 
 const MAX_BRANCHES = 4;
+
+/**
+ * Words that name nobody in particular. An AI-made profile often lists them as aliases ("Player" aka "you"),
+ * and they would pull that character into nearly every batch. A character's own name is not filtered.
+ */
+const GENERIC_ALIASES = new Set([
+  'you', 'your', 'yours', 'yourself', 'i', 'me', 'my', 'mine', 'myself', 'he', 'him', 'his', 'she', 'her', 'hers', 'they', 'them', 'their', 'we', 'us', 'our',
+  'it', 'its', 'one', 'sir', 'madam', 'ma\'am', 'miss', 'mister', 'mr', 'mrs', 'ms', 'boss', 'chief', 'man', 'woman', 'guy', 'girl', 'boy', 'kid', 'child', 'dude', 'buddy',
+  'friend', 'stranger', 'everyone', 'everybody', 'someone', 'somebody', 'anyone', 'anybody', 'nobody', 'player', 'user', 'hero', 'protagonist', 'narrator', 'speaker', 'listener',
+]);
+const MIN_ALIAS_LENGTH = 3;
+
+/** Whether an alias may trigger character matching: not a common word and at least three characters. */
+export const usableAlias = (alias: string) => {
+  const word = alias.trim().toLowerCase();
+  return word.length >= MIN_ALIAS_LENGTH && !GENERIC_ALIASES.has(word);
+};
+
+const matchers = new WeakMap<object, ReturnType<typeof termMatcher<{ name: string; aliases: string[] }>>>();
+/** The confirmed-character matcher with generic aliases left out; cached with the (read-only, cached) rows. */
+function mentionMatcher<T extends { name: string; aliases: string[] }>(rows: T[]) {
+  let matcher = matchers.get(rows);
+  if (!matcher) matchers.set(rows, (matcher = termMatcher(rows, (character) => [character.name, ...character.aliases.filter(usableAlias)])));
+  return matcher as ReturnType<typeof termMatcher<T>>;
+}
+
+/** An AI item no person has looked at yet. */
+const unverified = (row: { origin: string; reviewed: boolean }) => row.origin === 'ai' && !row.reviewed;
 
 interface Incoming {
   from: string;
@@ -169,7 +206,7 @@ export function buildContext(
   const text = batch.map((unit) => `${unit.speaker ?? ''}\n${unit.source}`).join('\n');
   const groupIds = [...new Set(batch.map((unit) => unit.groupId))];
   const sceneRows = db.select().from(groups).where(inArray(groups.id, groupIds)).all();
-  const result: BatchContext = { scenes: Object.fromEntries(sceneRows.map((row) => [row.id, { title: row.title }])), previousScenes: [], documents: [], characters: [], cast: [], relationships: [], terms: [], speech: {}, preceding: {}, items: [], budget: { limit: config.maxTokens, used: 0 } };
+  const result: BatchContext = { scenes: Object.fromEntries(sceneRows.map((row) => [row.id, { title: row.title }])), previousScenes: [], documents: [], characters: [], cast: [], relationships: [], aiNotes: { characters: [], relationships: [], documents: [] }, terms: [], speech: {}, preceding: {}, items: [], budget: { limit: config.maxTokens, used: 0 } };
   const candidates: Record<ContextItemKind, Candidate[]> = { term: [], speech: [], cast: [], preceding: [], character: [], relationship: [], scene: [], previousScene: [], document: [] };
 
   if (config.glossary) {
@@ -258,12 +295,18 @@ export function buildContext(
 
   const confirmedCast = config.characters || config.relationships ? knowledge.characters() : null;
   const allCharacters = confirmedCast?.rows ?? [];
-  const present = confirmedCast?.matcher.find(text) ?? [];
+  const present = confirmedCast ? mentionMatcher(confirmedCast.rows).find(text) : [];
   if (config.characters)
-    for (const { name, aliases, profile } of present) {
+    for (const character of present) {
+      const { name, aliases, profile } = character;
       const entry = { name, aliases, profile };
-      const via = [name, ...aliases].find((alias) => mentions(text, alias));
-      candidates.character.push({ item: { kind: 'character', label: name, reason: `화자·원문에 이름이 나옴: ${via}` }, payload: entry, keep: () => result.characters.push(entry) });
+      const via = [name, ...aliases.filter(usableAlias)].find((alias) => mentions(text, alias));
+      const ai = unverified(character);
+      candidates.character.push({
+        item: { kind: 'character', label: ai ? `${name} (AI 추론)` : name, reason: `화자·원문에 이름이 나옴: ${via}${ai ? ' · 확인 안 된 AI 항목이라 사실과 따로 전달' : ''}` },
+        payload: entry,
+        keep: () => (ai ? result.aiNotes.characters : result.characters).push(entry),
+      });
     }
   if (config.relationships) {
     const presentIds = new Set(present.map((character) => character.id));
@@ -271,7 +314,12 @@ export function buildContext(
     const rels = knowledge.relationships().filter((rel) => presentIds.has(rel.fromId) && presentIds.has(rel.toId));
     for (const rel of rels) {
       const entry = { from: nameOf.get(rel.fromId)!, to: nameOf.get(rel.toId)!, kind: rel.kind, description: rel.description, mutual: rel.mutual };
-      candidates.relationship.push({ item: { kind: 'relationship', label: `${entry.from} → ${entry.to}: ${entry.kind}`, reason: '이 묶음에 나오는 두 인물 사이' }, payload: entry, keep: () => result.relationships.push(entry) });
+      const ai = unverified(rel);
+      candidates.relationship.push({
+        item: { kind: 'relationship', label: `${entry.from} → ${entry.to}: ${entry.kind}${ai ? ' (AI 추론)' : ''}`, reason: `이 묶음에 나오는 두 인물 사이${ai ? ' · 확인 안 된 AI 항목이라 사실과 따로 전달' : ''}` },
+        payload: entry,
+        keep: () => (ai ? result.aiNotes.relationships : result.relationships).push(entry),
+      });
     }
   }
 
@@ -291,8 +339,21 @@ export function buildContext(
   }
 
   if (config.documents) {
-    const rows = knowledge.alwaysDocuments();
-    for (const doc of rows) candidates.document.push({ item: { kind: 'document', label: doc.title, reason: '‘항상 포함’으로 설정된 문서 (전문)' }, payload: doc, keep: () => result.documents.push(doc) });
+    const rows = cachedKnowledge(db, projectId, 'alwaysDocumentsWithOrigin', ['documents'], () =>
+      db
+        .select({ kind: documentsTable.kind, title: documentsTable.title, body: documentsTable.body, origin: documentsTable.origin, reviewed: documentsTable.reviewed })
+        .from(documentsTable)
+        .where(and(eq(documentsTable.projectId, projectId), eq(documentsTable.alwaysInclude, true), eq(documentsTable.status, 'confirmed')))
+        .all(),
+    );
+    for (const { origin, reviewed, ...doc } of rows) {
+      const ai = unverified({ origin, reviewed });
+      candidates.document.push({
+        item: { kind: 'document', label: ai ? `${doc.title} (AI 추론)` : doc.title, reason: `‘항상 포함’으로 설정된 문서 (전문)${ai ? ' · 확인 안 된 AI 항목이라 사실과 따로 전달' : ''}` },
+        payload: doc,
+        keep: () => (ai ? result.aiNotes.documents : result.documents).push(doc),
+      });
+    }
   }
 
   // Fill in priority order; whatever does not fit is dropped and recorded, never silently lost.

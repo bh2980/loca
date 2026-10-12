@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, ne, sql } from 'drizzle-orm';
 import { batchConfigSchema, CONNECTION_KIND_INFO, estimateTokens, LISTENER_MIN_CONFIDENCE, nodeName, type AiNode, type WorkflowDefinition } from '@tw/shared';
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
@@ -6,7 +6,9 @@ import * as s from '../db/schema.ts';
 import { packGroups } from '../engine/batches.ts';
 import { buildPrompt } from '../engine/prompts.ts';
 import { planRun, selectRunUnits } from '../engine/runner.ts';
+import { mainPairs } from './analysis.ts';
 import { buildContext } from './context.ts';
+import { speechRuleIndex } from './speech.ts';
 
 /** Prompts built per node to estimate request size; more would only slow the preview down. */
 const SAMPLE = 8;
@@ -108,6 +110,14 @@ export function preflight(db: Db, workflow: typeof s.workflows.$inferSelect, sco
   }
   if (dialogue.length && unknownListener / dialogue.length > 0.2) warnings.push(`대사 ${dialogue.length.toLocaleString()}줄 중 ${unknownListener.toLocaleString()}줄은 청자를 모릅니다. 말투 규칙이 적용되지 않습니다.`);
   if (!rules.some((row) => row.status === 'confirmed')) warnings.push('확정된 말투 규칙이 없습니다. 작품 분석으로 먼저 만들 수 있습니다.');
+  // Main pairs (most of the dialogue) need a rule a person has seen: a wrong one spoils hundreds of lines.
+  const people = db.select({ name: s.characters.name, aliases: s.characters.aliases }).from(s.characters).where(and(eq(s.characters.projectId, projectId), ne(s.characters.status, 'rejected'))).all();
+  const main = mainPairs(db, projectId, people);
+  const index = speechRuleIndex(db, projectId);
+  const covered = new Set(db.select({ from: s.speechRules.fromName, to: s.speechRules.toName }).from(s.speechRules).where(and(eq(s.speechRules.projectId, projectId), eq(s.speechRules.status, 'confirmed'))).all().map((rule) => `${index.norm(rule.from)}|${index.norm(rule.to)}`));
+  const waiting = db.select({ count: sql<number>`count(*)` }).from(s.speechRules).where(and(eq(s.speechRules.projectId, projectId), eq(s.speechRules.status, 'candidate'))).get()!.count;
+  const missing = [...main].filter((pair) => !covered.has(pair)).length;
+  if (missing) warnings.push(`대사가 많은 화자→청자 쌍 ${main.size}개 중 ${missing}개는 확정된 말투 규칙이 없습니다.${waiting ? ` 확인을 기다리는 후보 규칙 ${waiting}개가 있습니다(자료 › 인물·관계).` : ''}`);
 
   return {
     lines: { total: units.length, translated: units.filter((unit) => unit.translation).length, untranslated: units.filter((unit) => !unit.translation).length },
@@ -121,6 +131,7 @@ export function preflight(db: Db, workflow: typeof s.workflows.$inferSelect, sco
     knowledge: {
       analysis: analysis ? { finishedAt: analysis.finishedAt, model: analysis.model } : null,
       speechRules: Object.fromEntries(rules.map((row) => [row.status, row.count])),
+      mainPairs: { total: main.size, withoutConfirmedRule: missing },
       unknownListenerLines: unknownListener,
       dialogueLines: dialogue.length,
     },

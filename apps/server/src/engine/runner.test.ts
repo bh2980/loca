@@ -154,6 +154,80 @@ describe('listener estimation', () => {
   });
 });
 
+describe('listener template', () => {
+  it('sends only dialogue lines without a known listener to the model and never overwrites an import listener', async () => {
+    const lines = [
+      // [kind, listener, origin, confidence]
+      ['dialogue', 'Bob', 'import', null],
+      ['dialogue', 'Bob', 'human', null],
+      ['dialogue', 'Bob', 'ai', 0.95],
+      ['dialogue', 'Bob', 'ai', 0.5],
+      ['dialogue', null, null, null],
+      ['ui', null, null, null],
+      ['document', null, null, null],
+      ['dialogue', null, null, null],
+    ] as const;
+    const db = openDatabase(':memory:');
+    const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1' }).returning().get();
+    const profile = db.insert(s.profiles).values({ name: 'fake', connectionId: connection.id, model: 'm', maxOutputTokens: 1000, timeoutSeconds: 30, maxAttempts: 1 }).returning().get();
+    const file = importFileSchema.parse({
+      format: 'loca/v1',
+      project: { name: 'Test' },
+      groups: [{ key: 'g1', title: 'Scene' }],
+      units: lines.map(([kind, listener], index) => ({ key: `u${index}`, group: 'g1', source: `Line ${index}`, kind, ...(listener && { listener }) })),
+    });
+    const { projectId } = importProject(db, file, profile.id);
+    const rows = db.select().from(s.units).where(eq(s.units.projectId, projectId)).orderBy(s.units.sort).all();
+    // Importing marks every given listener "import"; set the other origins as the later lines would have them.
+    rows.forEach((row, index) => {
+      const [, listener, origin, confidence] = lines[index];
+      if (listener) db.update(s.units).set({ listenerOrigin: origin, listenerConfidence: confidence }).where(eq(s.units.id, row.id)).run();
+    });
+    const workflow = db.insert(s.workflows).values({ projectId, name: '청자', definition: listenerTemplate({ profileId: profile.id }) }).returning().get();
+    const sent: string[] = [];
+    const runner = new Runner(db, memoryStore(), {
+      judge: async () => {
+        throw new Error('unused');
+      },
+      generate: async (_route, request) => {
+        const entries = promptEntries(request.prompt) as { id: string; source: string }[];
+        sent.push(...entries.map((entry) => entry.source));
+        return { object: { listeners: entries.map((entry) => ({ id: entry.id, listener: 'Zed', confidence: 0.95 })) }, usage: {} } as never;
+      },
+    });
+    createRun(db, { projectId, workflow, profiles: snapshotProfiles(db, [profile.id]), scope: { ignoreStatus: true } });
+    await runner.drain();
+
+    // Import, person, confident AI and non-dialogue lines are skipped; the unsure AI guess and the two blank dialogue lines are asked.
+    expect(sent.sort()).toEqual(['Line 3', 'Line 4', 'Line 7']);
+    const after = db.select().from(s.units).where(eq(s.units.projectId, projectId)).orderBy(s.units.sort).all();
+    expect(after.map((unit) => [unit.listener, unit.listenerOrigin])).toEqual([
+      ['Bob', 'import'],
+      ['Bob', 'human'],
+      ['Bob', 'ai'],
+      ['Zed', 'ai'],
+      ['Zed', 'ai'],
+      [null, null],
+      [null, null],
+      ['Zed', 'ai'],
+    ]);
+  });
+
+  it('setListener alone skips import listeners and non-dialogue lines', async () => {
+    const { syncFunctions } = await import('./functions/index.ts');
+    const record = (unit: Record<string, unknown>) => {
+      const updates: unknown[] = [];
+      const tx = { update: () => ({ set: (values: unknown) => ({ where: () => ({ run: () => updates.push(values) }) }) }) };
+      const input = { unit, item: { data: { outputs: { n: { listener: 'Zed', confidence: 0.99 } } }, visits: {} } };
+      const result = syncFunctions.setListener!(tx as never, { fromNodeId: 'n' }, input as never);
+      return { updates, result };
+    };
+    expect(record({ kind: 'dialogue', listener: 'Bob', listenerOrigin: 'import' }).updates).toEqual([]);
+    expect(record({ kind: 'ui', listener: null, listenerOrigin: null }).updates).toEqual([]);
+    expect(record({ kind: 'dialogue', listener: null, listenerOrigin: null }).updates).toHaveLength(1);
+  });
+});
+
 describe('knowledge updates', () => {
   it('adds what a scene reveals as AI items, never edits official knowledge, and stays idempotent', async () => {
     const { db, projectId, profileId } = setup(3);

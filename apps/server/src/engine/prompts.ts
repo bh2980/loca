@@ -4,6 +4,8 @@ import type { BatchContext, LineContext } from '../services/context.ts';
 
 const hasBranches = (context: BatchContext) => Object.values(context.preceding).some((preceding) => preceding.branches.length > 0);
 
+const hasAiNotes = (context: BatchContext) => Object.values(context.aiNotes).some((list) => list.length > 0);
+
 const fieldType = (field: JsonField) => (field.type === 'number' ? z.number() : field.type === 'boolean' ? z.boolean() : z.string());
 
 /** What a "knowledge" AI node returns for a batch; line ids are the prompt's ("1", "2"…). */
@@ -81,6 +83,7 @@ export function buildPrompt(
     node.config.instructions.trim(),
     CONTRACT[node.config.output],
     'Story notes, character profiles and preceding lines are context only.',
+    hasAiNotes(context) ? '"aiNotes" are AI inferences nobody has verified: unverified guesses, not facts. Use one only when the lines themselves agree with it, and never let it override the lines, the glossary or a speech rule.' : '',
     Object.values(context.speech).some((entry) => entry.rule)
       ? 'A line\'s "speechRule" is the confirmed Korean speech level and form of address for its speaker toward its "listener": follow it unless the line plainly addresses someone else or is a quote.'
       : '',
@@ -129,6 +132,7 @@ export function buildPrompt(
     glossary: context.terms.length ? context.terms : undefined,
     characters: context.characters.length ? context.characters : undefined,
     relationships: context.relationships.length ? context.relationships : undefined,
+    aiNotes: hasAiNotes(context) ? { ...(context.aiNotes.characters.length && { characters: context.aiNotes.characters }), ...(context.aiNotes.relationships.length && { relationships: context.aiNotes.relationships }), ...(context.aiNotes.documents.length && { documents: context.aiNotes.documents }) } : undefined,
     previousScenes: context.previousScenes.length ? context.previousScenes : undefined,
     scenes,
   };

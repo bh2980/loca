@@ -1,5 +1,5 @@
 import { and, asc, eq } from 'drizzle-orm';
-import { LISTENER_MIN_CONFIDENCE, SPEECH_LEVEL_LABELS, speechLevelOf, termMatcher, type SpeechLevel } from '@tw/shared';
+import { LISTENER_MIN_CONFIDENCE, SPEECH_LEVEL_LABELS, politenessOfLevel, speechLevelOf, termMatcher, type Politeness, type SpeechLevel } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 
@@ -195,12 +195,24 @@ export function speechRuleIndex(db: Db, projectId: string) {
 /** How a rule reads in a prompt or a check. */
 export const describeRule = (rule: Rule) => [SPEECH_LEVEL_LABELS[rule.level], rule.address && `호칭 "${rule.address}"`].filter(Boolean).join(', ');
 
-/** Does the translation end in the rule's level? Null when the level cannot be guessed from the text. */
+/** "해요체", "해체": the level name without its 반말 hint. */
+const levelName = (level: SpeechLevel) => SPEECH_LEVEL_LABELS[level].replace(/\(.*\)/u, '');
+const politenessLabel = (level: SpeechLevel, politeness: Politeness) => `${politeness === 'polite' ? '존댓말' : '반말'}(${levelName(level)})`;
+
+/**
+ * Does the translation end on the rule's side of 존댓말/반말? Only those two axes are compared:
+ * speakers mix neighbouring levels (해체 with "-다", 해요체 with 하십시오체). Null when the ending
+ * cannot be guessed from the text.
+ */
 export function speechMismatch(rule: Rule, translation: string | null): string | null {
   if (!translation || rule.level === 'other') return null;
+  const wanted = politenessOfLevel(rule.level);
   const guessed = speechLevelOf(translation);
-  if (!guessed || guessed === rule.level) return null;
-  return `말투 규칙은 ${SPEECH_LEVEL_LABELS[rule.level]}인데 번역은 ${SPEECH_LEVEL_LABELS[guessed]}로 끝납니다(어미로 추정).`;
+  const actual = politenessOfLevel(guessed);
+  if (!wanted || !guessed || !actual || wanted === actual) return null;
+  // "-ㅂ시다/읍시다" (let's) is also how a 반말 speaker proposes things in official translations.
+  if (wanted === 'plain' && guessed === 'hasipsio' && /시다[\s.,!?…~"'”’)\]]*$/u.test(translation.replace(/<[^>]+>|\{[^}]*\}/g, '').trim())) return null;
+  return `말투 규칙은 ${politenessLabel(rule.level, wanted)}인데 번역은 ${politenessLabel(guessed, actual)}로 끝납니다(어미로 추정).`;
 }
 
 /** The lines a rule governs now: its speaker → listener pair, within its stretch. For "affected lines → re-run". */

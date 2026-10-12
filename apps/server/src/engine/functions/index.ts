@@ -203,8 +203,10 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     const outputs = Object.entries(input.item.data.outputs ?? {});
     const source = params.fromNodeId ? input.item.data.outputs?.[params.fromNodeId] : outputs.reverse().find(([, output]) => 'confidence' in output && 'listener' in output)?.[1];
     if (!source || !('listener' in source)) return { port: 'out', output: { recorded: false, reason: '청자 출력이 없습니다.' } };
-    // A person's choice is never overwritten by the AI.
+    // Only dialogue has a listener; what the import or a person set is never overwritten by the AI.
+    if (input.unit.kind !== 'dialogue') return { port: 'out', output: { recorded: false, reason: '대사가 아니라 청자가 필요 없습니다.' } };
     if (input.unit.listenerOrigin === 'human') return { port: 'out', output: { recorded: false, reason: '사람이 정한 청자가 있습니다.' } };
+    if (input.unit.listenerOrigin === 'import' && input.unit.listener) return { port: 'out', output: { recorded: false, reason: '가져온 청자가 있습니다.' } };
     const listener = typeof source.listener === 'string' ? source.listener : null;
     const confidence = typeof source.confidence === 'number' ? source.confidence : 0;
     tx.update(s.units).set({ listener, listenerOrigin: 'ai', listenerConfidence: confidence }).where(eq(s.units.id, input.unit.id)).run();

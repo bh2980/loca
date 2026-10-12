@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { checkFormat } from './format-check.ts';
 import { importFileSchema, importWarnings } from './import-format.ts';
-import { speechLevelOf } from './knowledge.ts';
+import { politenessOf, speechLevelOf } from './knowledge.ts';
 import { termExtractionTemplate, translationTemplate } from './defaults.ts';
 import { nodePorts, validateWorkflow, workflowDefinitionSchema, workflowNodeSchema, type WorkflowDefinition } from './workflow.ts';
 
@@ -155,5 +155,29 @@ describe('speech level guess', () => {
     expect(speechLevelOf('자네도 왔는가?')).toBe('hage');
     expect(speechLevelOf('어서 오시오.')).toBe('hao');
     expect(speechLevelOf('OK')).toBeNull();
+  });
+
+  it.each([
+    // [text, level]
+    ['그렇죠?', 'haeyo'], ['이리 오시죠', 'haeyo'], ['누구시죠', 'haeyo'], ['그렇지요.', 'haeyo'],
+    ['갑시다', 'hasipsio'], ['조사를 시작합시다', 'hasipsio'], ['앉읍시다.', 'hasipsio'], ['합니까?', 'hasipsio'],
+    ['네.', null], ['예, 수사관님.', null], ['수사관님!', null], ['응', null], ['예', null],
+    ['주소.', null], ['라디오', null], ['용의자.', null], ['아버지', null], ['한국어', null], ['그러니까', null],
+    ['그랬던가?', 'hae'], ['뭐하는가?', 'hage'],
+    ['안산다', 'haera'], ['저녁먹는다!', 'haera'], ['같이 가자.', 'haera'], ['가자', 'haera'],
+    ['괜찮아', 'hae'], ['그래, 맞지', 'hae'],
+  ] as const)('guesses %j as %s', (text, level) => {
+    expect(speechLevelOf(text)).toBe(level);
+  });
+
+  it('maps levels to the polite/plain axis and null when unsure', () => {
+    expect(politenessOf('알겠습니다.')).toBe('polite');
+    expect(politenessOf('정말요?')).toBe('polite');
+    expect(politenessOf('어서 오시오.')).toBe('polite');
+    expect(politenessOf('알았어.')).toBe('plain');
+    expect(politenessOf('안산다')).toBe('plain');
+    expect(politenessOf('자네도 왔는가?')).toBe('plain');
+    expect(politenessOf('네.')).toBeNull();
+    expect(politenessOf('OK')).toBeNull();
   });
 });

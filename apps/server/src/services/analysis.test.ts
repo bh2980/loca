@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { importFileSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { AnalysisService, canonicalNames, type Analysis } from './analysis.ts';
+import { AnalysisService, canonicalNames, mergeAnalysis, saveDrafts, type Analysis, type MergedRule } from './analysis.ts';
 import { importProject } from './importer.ts';
 import { memoryStore } from './secrets.ts';
 import { scriptText } from './script-text.ts';
@@ -39,6 +39,7 @@ const draft = (rule: Analysis['speechRules'][number]['level']): Analysis => ({
     { from: 'Bob', to: 'Alice', level: rule, address: '선장님', note: '', start: null, evidence: ['L2'] },
     { from: 'Alice', to: 'Bob', level: 'hae', address: '', note: '', start: 'L3', evidence: ['L3'] },
   ],
+  sceneListeners: [],
 });
 
 async function settle(service: AnalysisService, projectId: string) {
@@ -115,5 +116,55 @@ describe('work analysis', () => {
     expect(map.get('irie')).toBe('Iris');
     expect(map.get('vance family')).toBeUndefined();
     expect(map.get('michael')).toBeUndefined();
+  });
+
+  it('fills scene listeners without touching imported ones, and holds main-pair rules for a person', () => {
+    const { db, projectId } = setup();
+    db.update(s.units).set({ listener: 'Captain', listenerOrigin: 'import' }).where(eq(s.units.key, 'a3')).run();
+    const { keyOf } = scriptText(db, projectId);
+    const analysis = { ...draft('hasipsio'), sceneListeners: [{ scene: 'g1', speaker: 'Alice', listener: 'Bob', confidence: 0.95 }, { scene: 'g1', speaker: 'Bob', listener: 'Alice', confidence: 0.95 }] };
+    const counts = saveDrafts(db, projectId, 'job', analysis, keyOf, true);
+    const lines = new Map(db.select().from(s.units).where(eq(s.units.projectId, projectId)).all().map((unit) => [unit.key, unit]));
+    expect(lines.get('a1')).toMatchObject({ listener: 'Bob', listenerOrigin: 'ai', listenerConfidence: 0.95 });
+    expect(lines.get('a2')).toMatchObject({ listener: 'Alice', listenerOrigin: 'ai' });
+    expect(lines.get('a3')).toMatchObject({ listener: 'Captain', listenerOrigin: 'import' });
+    expect(counts.listeners).toBe(2);
+    // Alice→Bob and Bob→Alice are the only pairs, so both are main pairs: their rules wait for a person.
+    const bob = db.select().from(s.speechRules).where(eq(s.speechRules.fromName, 'Bob')).get()!;
+    expect(bob.status).toBe('candidate');
+    expect(bob.note).toContain('주요 쌍');
+    expect(counts.rulesForReview).toBeGreaterThan(0);
+  });
+
+  it('does not propose a rejected rule again, and doubts a rule whose evidence is someone else talking', () => {
+    const { db, projectId } = setup();
+    const { keyOf } = scriptText(db, projectId);
+    saveDrafts(db, projectId, 'job1', draft('hasipsio'), keyOf, true);
+    db.update(s.speechRules).set({ status: 'rejected', reviewed: true }).where(eq(s.speechRules.fromName, 'Bob')).run();
+    db.insert(s.analysisJobs).values({ id: 'job1', projectId, status: 'completed' }).run();
+    // Same rule again, plus one citing Alice's lines as Bob's speech.
+    const again = { ...draft('hasipsio'), speechRules: [...draft('hasipsio').speechRules, { from: 'Bob', to: 'Alice', level: 'hae' as const, address: '', note: '', start: 'L3', evidence: ['L1', 'L3'] }] };
+    saveDrafts(db, projectId, 'job2', again, keyOf, true);
+    const bob = db.select().from(s.speechRules).where(eq(s.speechRules.fromName, 'Bob')).all();
+    expect(bob.filter((rule) => rule.level === 'hasipsio').map((rule) => rule.status)).toEqual(['rejected']);
+    const doubtful = bob.find((rule) => rule.level === 'hae')!;
+    expect(doubtful.status).toBe('candidate');
+    expect(doubtful.note).toContain('근거 대사의 화자가 다름');
+  });
+
+  it('merges parts: one person across aliases, rules on that person, contradictions kept as conflicts', () => {
+    const first: Analysis = { ...draft('hae'), characters: [{ name: 'Mara Holt', aliases: ['Holt'], profile: '', speech: '', player: false, evidence: [] }], speechRules: [{ from: 'Mara Holt', to: 'Bob', level: 'hae', address: '', note: '', start: null, evidence: [] }], relationships: [], events: [{ title: '습격', summary: '', cause: '', outcome: '', participants: [], evidence: ['L1'] }] };
+    const second: Analysis = { ...draft('hae'), characters: [{ name: 'Holt', aliases: ['Mara'], profile: '형사', speech: '', player: false, evidence: [] }], speechRules: [{ from: 'Holt', to: 'Bob', level: 'haeyo', address: '', note: '', start: null, evidence: [] }], relationships: [], events: [{ title: '습격', summary: '', cause: '', outcome: '', participants: [], evidence: ['L2'] }] };
+    const merged = mergeAnalysis(first, second);
+    expect(merged.characters).toHaveLength(1);
+    expect(merged.characters[0]).toMatchObject({ name: 'Mara Holt', profile: '형사' });
+    expect(merged.characters[0].aliases).toEqual(expect.arrayContaining(['Holt', 'Mara']));
+    const rules = merged.speechRules as MergedRule[];
+    expect(rules.map((rule) => [rule.from, rule.level, rule.conflict ?? false])).toEqual([
+      ['Mara Holt', 'hae', false],
+      ['Mara Holt', 'haeyo', true],
+    ]);
+    expect(merged.events).toHaveLength(1);
+    expect(merged.events[0].evidence).toEqual(['L1', 'L2']);
   });
 });

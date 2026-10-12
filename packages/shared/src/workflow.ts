@@ -3,12 +3,17 @@ import Graph from 'graphology';
 import { FUNCTIONS, functionPorts, type FunctionName, type Port } from './functions.ts';
 import { stronglyConnectedComponents } from 'graphology-components';
 
-/** What an AI node pulls into its prompt. Every field maps to stored project data. */
+/**
+ * What an AI node pulls into its prompt. Every field maps to stored project data.
+ * Defaults follow the experiments (docs/DESIGN.md 2.4): a known listener with a confirmed speech rule,
+ * glossary, preceding lines and the scene description help; character profiles, relationship bundles
+ * and documents did nothing or hurt, so they are opt-in per node.
+ */
 export const contextConfigSchema = z.object({
   glossary: z.boolean().default(true),
-  documents: z.boolean().default(true),
-  characters: z.boolean().default(true),
-  relationships: z.boolean().default(true),
+  documents: z.boolean().default(false),
+  characters: z.boolean().default(false),
+  relationships: z.boolean().default(false),
   /** Each line's listener and the confirmed speech rule for that speaker → listener pair. */
   speech: z.boolean().default(true),
   /** Every confirmed character's name, aliases and player flag, so the model can name people not mentioned in the batch. */
@@ -156,6 +161,11 @@ export interface ConditionData {
   candidate: string | null;
   issues: string[];
   unit: { kind: string; speaker: string | null; statusId: string; tagIds: string[] };
+  /**
+   * The line needs no listener estimate: its listener came from the import or a person, or is an AI guess
+   * at or above the confidence threshold, or the line is not dialogue.
+   */
+  listenerKnown: boolean;
 }
 
 export interface WorkflowIssue {

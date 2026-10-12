@@ -62,12 +62,13 @@ describe('context builder', () => {
   it('fills in priority order and records what the cap dropped', () => {
     const { db, projectId, unit } = setup();
     db.insert(s.documents).values({ projectId, kind: 'world', title: '긴 설정집', body: '설정 '.repeat(3000), alwaysInclude: true }).run();
-    const full = buildContext(db, projectId, [unit('ending.2')], config({ maxTokens: 200_000 }));
+    const full = buildContext(db, projectId, [unit('ending.2')], config({ documents: true, characters: true, maxTokens: 200_000 }));
     expect(full.documents.map((doc) => doc.title)).toContain('긴 설정집');
     const big = full.items.find((item) => item.label === '긴 설정집')!;
     const rest = full.items.filter((item) => item !== big).reduce((sum, item) => sum + item.tokens, 0);
-    const tight = buildContext(db, projectId, [unit('ending.2')], config({ maxTokens: Math.max(500, rest) }));
+    const tight = buildContext(db, projectId, [unit('ending.2')], config({ documents: true, characters: true, maxTokens: Math.max(500, rest) }));
     expect(tight.terms.map((term) => term.source)).toEqual(['Directorate']);
+    expect(full.characters.length).toBeGreaterThan(0);
     expect(tight.characters.length).toBe(full.characters.length);
     expect(tight.documents.map((doc) => doc.title)).not.toContain('긴 설정집');
     expect(tight.items.find((item) => item.label === '긴 설정집')?.included).toBe(false);
@@ -97,5 +98,52 @@ describe('context builder', () => {
     expect(context.speech[unit('arrival.3').id]?.rule).toBe('해요체, 호칭 "조나스 씨"');
     expect(context.speech[unit('panel.2').id]).toBeUndefined();
     expect(context.speech[unit('tower.1').id]).toEqual({ listener: 'JONAS', rule: '해체(반말)', note: '화해 후', byOrder: true });
+  });
+
+  it('defaults the translation context to listener/speech, glossary, preceding lines and scene text only', () => {
+    const defaults = contextConfigSchema.parse({});
+    expect(defaults).toMatchObject({ speech: true, glossary: true, precedingLines: 8, cast: false, characters: false, relationships: false, documents: false });
+    const { db, projectId, unit } = setup();
+    db.insert(s.documents).values({ projectId, kind: 'world', title: '설정집', body: '설정', alwaysInclude: true }).run();
+    const context = buildContext(db, projectId, ['arrival.1', 'panel.1', 'tower.1'].map(unit), defaults);
+    expect(context.characters).toEqual([]);
+    expect(context.relationships).toEqual([]);
+    expect(context.documents).toEqual([]);
+    expect(context.aiNotes).toEqual({ characters: [], relationships: [], documents: [] });
+    expect(context.items.some((item) => ['character', 'relationship', 'document'].includes(item.kind))).toBe(false);
+  });
+
+  it('sends unreviewed AI characters, relationships and documents apart from the facts', () => {
+    const { db, projectId, unit } = setup();
+    const ai = db.insert(s.characters).values({ projectId, name: 'Ghost Rider', origin: 'ai', reviewed: false, profile: '추측' }).returning().get();
+    const checked = db.insert(s.characters).values({ projectId, name: 'Vera', origin: 'ai', reviewed: true, profile: '확인함' }).returning().get();
+    db.insert(s.relationships).values([
+      { projectId, fromId: ai.id, toId: checked.id, kind: 'guess', origin: 'ai', reviewed: false },
+      { projectId, fromId: ai.id, toId: checked.id, kind: 'fact', origin: 'human' },
+    ]).run();
+    db.insert(s.documents).values([
+      { projectId, kind: 'world', title: 'AI 설정', body: 'x', alwaysInclude: true, origin: 'ai', reviewed: false },
+      { projectId, kind: 'world', title: '사람 설정', body: 'y', alwaysInclude: true },
+    ]).run();
+    const batch = [{ ...unit('arrival.1'), source: `${unit('arrival.1').source} Ghost Rider meets Vera.` }];
+    const context = buildContext(db, projectId, batch, config({ characters: true, relationships: true, documents: true }));
+    expect(context.characters.map((c) => c.name)).toContain('Vera');
+    expect(context.characters.map((c) => c.name)).not.toContain('Ghost Rider');
+    expect(context.aiNotes.characters.map((c) => c.name)).toEqual(['Ghost Rider']);
+    expect(context.relationships.map((r) => r.kind)).toEqual(['fact']);
+    expect(context.aiNotes.relationships.map((r) => r.kind)).toEqual(['guess']);
+    expect(context.documents.map((d) => d.title)).toContain('사람 설정');
+    expect(context.documents.map((d) => d.title)).not.toContain('AI 설정');
+    expect(context.aiNotes.documents.map((d) => d.title)).toEqual(['AI 설정']);
+  });
+
+  it('does not match a character through a generic alias, only through its name or a real alias', () => {
+    const { db, projectId, unit } = setup();
+    db.insert(s.characters).values({ projectId, name: 'Pat', aliases: ['you', 'Sir', 'me', 'Pj', 'Patty'], player: true }).run();
+    const run = (source: string) => buildContext(db, projectId, [{ ...unit('arrival.1'), speaker: null, source }], config({ characters: true })).characters.map((c) => c.name);
+    expect(run('Thank you, sir. Give me a hand.')).not.toContain('Pat');
+    expect(run('Pj is here')).not.toContain('Pat');
+    expect(run('Pat is here')).toContain('Pat');
+    expect(run('Patty is here')).toContain('Pat');
   });
 });

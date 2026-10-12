@@ -49,7 +49,7 @@ describe('knowledge snapshot cache', () => {
     expect(knowledgeOf(db, projectId).relationships()[0].kind).toBe('friend');
     db.update(s.relationships).set({ kind: 'rival' }).where(eq(s.relationships.id, rel.id)).run();
     expect(knowledgeOf(db, projectId).relationships()[0].kind).toBe('rival');
-    const context = buildContext(db, projectId, db.select().from(s.units).all().slice(0, 1), contextConfigSchema.parse({}));
+    const context = buildContext(db, projectId, db.select().from(s.units).all().slice(0, 1), contextConfigSchema.parse({ characters: true, relationships: true }));
     expect(context.relationships.map((r) => r.kind)).toEqual(['rival']);
   });
 

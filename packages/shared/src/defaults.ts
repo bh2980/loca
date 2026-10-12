@@ -97,7 +97,7 @@ export function termExtractionTemplate(ids: { profileId: string }): WorkflowDefi
           fields: [],
           include: { candidate: false, issues: false },
           // The current glossary is in context so the model skips terms that already exist.
-          context: { ...contextConfigSchema.parse({}), relationships: false, precedingLines: 0, previousScenes: 0 },
+          context: { ...contextConfigSchema.parse({}), characters: true, documents: true, relationships: false, precedingLines: 0, previousScenes: 0 },
           batch: { mode: 'group', size: 60, maxTokens: 6_000 },
         },
       },
@@ -114,9 +114,10 @@ export function termExtractionTemplate(ids: { profileId: string }): WorkflowDefi
 
 
 /**
- * Listener estimation: reads each scene with the whole cast and records who every line is
- * addressed to, with a confidence. Speech rules apply to a line only when its listener is known.
- * Translations and statuses are untouched, so it can run on any lines, any number of times.
+ * Listener estimation: the work analysis (or the import) already gave most lines a listener, so lines
+ * whose listener is known (import, person, confident AI guess) and lines that are not dialogue go
+ * straight to the end. Only the rest are read scene by scene with the whole cast and get a listener
+ * with a confidence. Translations and statuses are untouched, so it can run on any lines, any number of times.
  */
 export function listenerTemplate(ids: { profileId: string }): WorkflowDefinition {
   return {
@@ -124,9 +125,16 @@ export function listenerTemplate(ids: { profileId: string }): WorkflowDefinition
     nodes: [
       { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: { statusIds: [] } },
       {
+        id: 'needs',
+        type: 'condition',
+        position: { x: 300, y: 0 },
+        label: '청자가 이미 있나?',
+        config: { expression: { var: 'listenerKnown' }, description: '가져오기·사람·확신 높은 AI 청자가 있거나 대사가 아니면 건너뜁니다.' },
+      },
+      {
         id: 'listener',
         type: 'ai',
-        position: { x: 300, y: 0 },
+        position: { x: 600, y: 0 },
         label: AI_PRESETS.listener.label,
         config: {
           profileId: ids.profileId,
@@ -134,17 +142,19 @@ export function listenerTemplate(ids: { profileId: string }): WorkflowDefinition
           output: 'listener',
           fields: [],
           include: AI_PRESETS.listener.include,
-          context: { ...contextConfigSchema.parse({}), glossary: false, cast: true, precedingLines: 8, previousScenes: 1 },
+          context: { ...contextConfigSchema.parse({}), glossary: false, cast: true, characters: true, relationships: true, documents: true, precedingLines: 8, previousScenes: 1 },
           batch: { mode: 'group', size: 80, maxTokens: 6_000 },
         },
       },
-      { id: 'record', type: 'function', position: { x: 600, y: 0 }, label: '청자 기록', config: { fn: 'setListener', params: { fromNodeId: 'listener' } } },
-      { id: 'end', type: 'end', position: { x: 900, y: 0 }, config: {} },
+      { id: 'record', type: 'function', position: { x: 900, y: 0 }, label: '청자 기록', config: { fn: 'setListener', params: { fromNodeId: 'listener' } } },
+      { id: 'end', type: 'end', position: { x: 1200, y: 0 }, config: {} },
     ],
     edges: [
-      { id: 'e1', source: 'entry', sourceHandle: 'out', target: 'listener' },
-      { id: 'e2', source: 'listener', sourceHandle: 'out', target: 'record' },
-      { id: 'e3', source: 'record', sourceHandle: 'out', target: 'end' },
+      { id: 'e1', source: 'entry', sourceHandle: 'out', target: 'needs' },
+      { id: 'e2', source: 'needs', sourceHandle: 'true', target: 'end' },
+      { id: 'e3', source: 'needs', sourceHandle: 'false', target: 'listener' },
+      { id: 'e4', source: 'listener', sourceHandle: 'out', target: 'record' },
+      { id: 'e5', source: 'record', sourceHandle: 'out', target: 'end' },
     ],
   };
 }
@@ -209,7 +219,7 @@ export function knowledgeTemplate(ids: { profileId: string }): WorkflowDefinitio
           output: 'knowledge',
           fields: [],
           include: AI_PRESETS.knowledge.include,
-          context: { ...contextConfigSchema.parse({}), glossary: false, cast: true, speech: true, precedingLines: 8, previousScenes: 1 },
+          context: { ...contextConfigSchema.parse({}), glossary: false, cast: true, characters: true, relationships: true, documents: true, speech: true, precedingLines: 8, previousScenes: 1 },
           batch: { mode: 'group', size: 120, maxTokens: 6_000 },
         },
       },

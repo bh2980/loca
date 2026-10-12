@@ -52,9 +52,18 @@ export const relationshipChangeSchema = z.object({
 });
 export type RelationshipChange = z.infer<typeof relationshipChangeSchema>;
 
+/** Final consonant index of a Hangul syllable (0 = none, 4 = ㄴ, 17 = ㅂ, 18 = ㅄ, 20 = ㅆ, 25 = ㅌ). */
+const finalOf = (syllable: string | undefined) => {
+  const code = syllable?.charCodeAt(0) ?? 0;
+  return code >= 0xac00 && code <= 0xd7a3 ? (code - 0xac00) % 28 : -1;
+};
+
 /**
  * The Korean speech level a translation ends in, guessed from its last sentence ending.
- * A heuristic (labelled "추정" wherever it is shown): fragments and quotes may be misread.
+ * A heuristic (labelled "추정" wherever it is shown) that answers null when unsure: very short
+ * answers ("네", "응"), noun fragments ("주소.", "용의자.", "수사관님!") and endings that are also
+ * common word endings are not guessed. Compare lines with `politenessOf`, not this level, when a
+ * speaker may mix neighbouring levels.
  */
 export function speechLevelOf(text: string): Exclude<SpeechLevel, 'other'> | null {
   const plain = text
@@ -63,11 +72,33 @@ export function speechLevelOf(text: string): Exclude<SpeechLevel, 'other'> | nul
     .trim()
     .replace(/[\s.,!?…~"'”’)\]]+$/u, '');
   if (!/[가-힣]$/u.test(plain)) return null;
-  if (/(니다|니까|십시오)$/u.test(plain)) return 'hasipsio';
-  if (/요$/u.test(plain)) return 'haeyo';
-  if (/(구려|시오|소|오)$/u.test(plain)) return 'hao';
-  if (/(는가|던가|게나|세나)$/u.test(plain)) return 'hage';
-  // "-냐/-니" questions are 해라체 ("가냐?"), but "아냐/아니" is 해체: only the unambiguous endings count.
-  if (/(다|느냐|거라|어라|아라|자)$/u.test(plain)) return 'haera';
-  return 'hae';
+  const before = plain.at(-2);
+  const multiWord = /\s/u.test(plain);
+  // 니다/니까/ㅂ시다 only after a syllable ending in ㅂ ("합니다", "갑시다"), not "그러니까".
+  if (/(니다|니까)$/u.test(plain) && finalOf(plain.at(-3)) === 17) return 'hasipsio';
+  if (/십시오$/u.test(plain) || (/시다$/u.test(plain) && finalOf(plain.at(-3)) === 17) || /읍시다$/u.test(plain)) return 'hasipsio';
+  if (/(요|죠)$/u.test(plain)) return 'haeyo';
+  if (/(구려|시오|하오|이오)$/u.test(plain) || (/소$/u.test(plain) && [20, 18].includes(finalOf(before)))) return 'hao';
+  if (/던가$/u.test(plain)) return 'hae'; // "그랬던가?": musing aloud, not 하게체
+  if (/(는가|게나|세나)$/u.test(plain)) return 'hage';
+  // 해라체. "-다" counts only after a verbal stem (ㄴ/ㅆ/ㅄ/ㅌ, 하·이·되); "바다" or "사다" are not guessed.
+  if (/(느냐|거라|어라|아라|여라|해라|워라|와라)$/u.test(plain)) return 'haera';
+  if (/다$/u.test(plain)) return [4, 20, 18, 25].includes(finalOf(before)) || (before !== undefined && '하이되'.includes(before)) ? 'haera' : null;
+  if (/자$/u.test(plain)) return multiWord || finalOf(before) > 0 || (before !== undefined && '하가보오서나타'.includes(before)) ? 'haera' : null;
+  // 해체. Strong endings are verbal; weak ones are also common noun endings ("아버지") so a one-word line is not guessed.
+  if (/(국|영|단|언|용)어$/u.test(plain)) return null;
+  if (/(해|아|어|여|워|와|줘|봐|써|잖아|거든|는데|은데|구나|군|냐)$/u.test(plain)) return plain.length >= 2 ? 'hae' : null;
+  if (multiWord && /(지|야|네|나|니|라|까|래|게|걸|데)$/u.test(plain)) return 'hae';
+  return null;
 }
+
+export type Politeness = 'polite' | 'plain';
+const POLITE_LEVELS: readonly SpeechLevel[] = ['hasipsio', 'hao', 'haeyo'];
+const PLAIN_LEVELS: readonly SpeechLevel[] = ['hae', 'haera', 'hage'];
+
+/** The two-axis view of a speech level: 존댓말 (하십시오·하오·해요) or 반말 (해·해라·하게). Null for other/unknown. */
+export const politenessOfLevel = (level: SpeechLevel | null): Politeness | null =>
+  level && POLITE_LEVELS.includes(level) ? 'polite' : level && PLAIN_LEVELS.includes(level) ? 'plain' : null;
+
+/** Whether the text ends politely or plainly; speakers mix neighbouring levels, so this is the reliable axis. */
+export const politenessOf = (text: string): Politeness | null => politenessOfLevel(speechLevelOf(text));

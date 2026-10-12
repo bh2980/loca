@@ -12,6 +12,7 @@ const context: BatchContext = {
   scenes: { g1: { title: 'Scene' } },
   previousScenes: [],
   documents: [],
+  aiNotes: { characters: [], relationships: [], documents: [] },
   characters: [],
   speech: {},
   cast: [],

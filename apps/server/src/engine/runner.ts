@@ -10,6 +10,7 @@ import type { ItemData, ItemState } from '../db/schema.ts';
 import { events, type Topic } from '../events.ts';
 import { buildContext } from '../services/context.ts';
 import { resolveRoutes } from '../services/routes.ts';
+import { knownListener } from '../services/speech.ts';
 import type { SecretStore } from '../services/secrets.ts';
 import { runAsyncFunction, syncFunctions, type FunctionInput, type FunctionResult } from './functions/index.ts';
 import { packGroups, planBatches } from './batches.ts';
@@ -487,6 +488,7 @@ export class Runner {
           candidate: item.data.candidateText ?? unit.translation,
           issues: item.data.issues ?? [],
           unit: { kind: unit.kind, speaker: unit.speaker, statusId: unit.statusId, tagIds },
+          listenerKnown: unit.kind !== 'dialogue' || knownListener(unit) !== null,
         };
         try {
           return this.route(tx, run, item, jsonLogic.apply(node.config.expression as jsonLogic.RulesLogic, data) ? 'true' : 'false');

@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { and, asc, eq, inArray, or, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, ne, or, sql } from 'drizzle-orm';
 import { mentions } from '../services/context.ts';
 import { z } from 'zod';
 import { DOCUMENT_KINDS, KNOWLEDGE_STATUSES, patchOf, relationshipChangeSchema, SPEECH_LEVELS } from '@tw/shared';
@@ -78,7 +78,7 @@ export const knowledgeRoutes = new Hono<Env>()
     return c.json({ ok: true });
   })
 
-  .get('/documents', (c) => c.json(c.var.deps.db.select().from(s.documents).where(eq(s.documents.projectId, c.req.param('projectId')!)).orderBy(asc(s.documents.kind), asc(s.documents.title)).all()))
+  .get('/documents', (c) => c.json(c.var.deps.db.select().from(s.documents).where(and(eq(s.documents.projectId, c.req.param('projectId')!), ne(s.documents.status, 'rejected'))).orderBy(asc(s.documents.kind), asc(s.documents.title)).all()))
   .post('/documents', validate('json', documentInput), (c) => {
     const projectId = c.req.param('projectId')!;
     const row = c.var.deps.db.insert(s.documents).values({ ...c.req.valid('json'), projectId }).returning().get();
@@ -102,8 +102,8 @@ export const knowledgeRoutes = new Hono<Env>()
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId')!;
     return c.json({
-      characters: db.select().from(s.characters).where(eq(s.characters.projectId, projectId)).orderBy(asc(s.characters.name)).all(),
-      relationships: db.select().from(s.relationships).where(eq(s.relationships.projectId, projectId)).all(),
+      characters: db.select().from(s.characters).where(and(eq(s.characters.projectId, projectId), ne(s.characters.status, 'rejected'))).orderBy(asc(s.characters.name)).all(),
+      relationships: db.select().from(s.relationships).where(and(eq(s.relationships.projectId, projectId), ne(s.relationships.status, 'rejected'))).all(),
     });
   })
   .post('/characters', validate('json', characterInput), (c) => {
@@ -142,7 +142,7 @@ export const knowledgeRoutes = new Hono<Env>()
     events.changed(projectId, 'knowledge');
     return c.json({ ok: true });
   })
-  .get('/events', (c) => c.json(c.var.deps.db.select().from(s.storyEvents).where(eq(s.storyEvents.projectId, c.req.param('projectId')!)).all()))
+  .get('/events', (c) => c.json(c.var.deps.db.select().from(s.storyEvents).where(and(eq(s.storyEvents.projectId, c.req.param('projectId')!), ne(s.storyEvents.status, 'rejected'))).all()))
   .post('/events', validate('json', eventInput), (c) => {
     const projectId = c.req.param('projectId')!;
     const row = c.var.deps.db.insert(s.storyEvents).values({ ...c.req.valid('json'), projectId }).returning().get();
@@ -162,7 +162,7 @@ export const knowledgeRoutes = new Hono<Env>()
     return c.json({ ok: true });
   })
 
-  .get('/speech-rules', (c) => c.json(c.var.deps.db.select().from(s.speechRules).where(eq(s.speechRules.projectId, c.req.param('projectId')!)).all()))
+  .get('/speech-rules', (c) => c.json(c.var.deps.db.select().from(s.speechRules).where(and(eq(s.speechRules.projectId, c.req.param('projectId')!), ne(s.speechRules.status, 'rejected'))).all()))
   .post('/speech-rules', validate('json', speechRuleInput), (c) => {
     const projectId = c.req.param('projectId')!;
     const row = c.var.deps.db.insert(s.speechRules).values({ ...c.req.valid('json'), projectId }).returning().get();
@@ -212,7 +212,8 @@ export const knowledgeRoutes = new Hono<Env>()
         let total = 0;
         eachChunk(ids, (slice) => {
           if (action === 'discard') {
-            total += tx.delete(table).where(where(slice)).run().changes;
+            // Kept as rejected: a later analysis must not propose the same item again.
+            total += tx.update(table).set({ status: 'rejected', reviewed: true }).where(where(slice)).run().changes;
             return;
           }
           // A confirmed relationship needs confirmed people at both ends.
