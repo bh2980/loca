@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Play, Plus, ScanSearch, Sparkles, CircleStop, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { DataTable, type ColumnDef } from '@/components/data-table';
@@ -77,10 +77,24 @@ function Glossary() {
   // AI terms (a workflow's "add terms") show as AI 후보 or, when auto-confirmed, AI until a person promotes them.
   const asDraft = (term: Term) => ({ ...term, evidence: [] });
   const all = (terms.data ?? []).filter((term) => matches(asDraft(term), search.source, search.state));
+  const queryClient = useQueryClient();
   const decide = useMutation({
     mutationFn: ({ ids, accept }: { ids: string[]; accept: boolean }) => unwrap(client.projects[':projectId'].drafts.$post({ param: { projectId }, json: { kind: 'terms', ids, action: accept ? 'confirm' : 'discard' } })),
+    // The table changes at once; the server's terms event brings the saved rows, and a failure puts them back.
+    onMutate: async ({ ids, accept }) => {
+      const key = q.terms(projectId).queryKey;
+      await queryClient.cancelQueries({ queryKey: key });
+      const before = queryClient.getQueryData(key);
+      const picked = new Set(ids);
+      // Discarded terms leave the list (the server does not send rejected ones); confirmed ones become official.
+      queryClient.setQueryData(key, (list) => (accept ? list?.map((term) => (picked.has(term.id) ? { ...term, status: 'confirmed' as const, reviewed: true } : term)) : list?.filter((term) => !picked.has(term.id))));
+      return { before };
+    },
     onSuccess: ({ changed }, { accept }) => toast.success(accept ? `${changed}개를 정식 용어로 올렸습니다.` : `${changed}개 후보를 버렸습니다.`),
-    onError: (error) => toast.error(error.message),
+    onError: (error, _vars, context) => {
+      if (context?.before) queryClient.setQueryData(q.terms(projectId).queryKey, context.before);
+      toast.error(error.message);
+    },
   });
   const needle = search.q?.toLowerCase();
   const filtered = needle ? all.filter((term) => [term.source, term.target, term.note].some((text) => text.toLowerCase().includes(needle))) : all;
