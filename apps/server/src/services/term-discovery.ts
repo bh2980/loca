@@ -2,9 +2,9 @@
  * Glossary candidates found by code across the whole script, before any translation (DESIGN 3.1,
  * step 1). People validate the glossary anyway, so this favours not missing a term over precision:
  *
- * - Capitalized phrases ("Freedom Plaza", "Bank of Orwell") and acronyms ("NSA"). A single word
+ * - Capitalized phrases ("Harbor Gate", "Bank of Westmere") and acronyms ("NSA"). A single word
  *   counts as a name only when it is capitalized where a sentence does not start more often than it
- *   appears in lower case ("Thought" in Orwell yes, "Mall" / "mall" no).
+ *   appears in lower case (a coined "Thought" yes, "Mall" / "mall" no).
  * - Character names and aliases are included, so their Korean form is fixed once.
  * - Placeholders ({CHAR_NINA}, %s) and tags are ignored.
  *
@@ -21,7 +21,7 @@ export interface DiscoveredTerm {
   examples: string[];
 }
 
-/** Lower-case words that can sit inside a name ("Bank of Orwell", "Children of the Night"). */
+/** Lower-case words that can sit inside a name ("Bank of Westmere", "Children of the Night"). */
 const CONNECTORS = new Set(['of', 'de', 'von', 'van', 'la', 'le', 'du', 'del', 'da']);
 const STRIP = /\{[^}]*\}|<[^>]*>|%\d*\$?[sdif]|\[[^\]]*\]/g;
 const WORD = /[A-Za-z][A-Za-z'’-]*[A-Za-z]|[A-Za-z]/g;

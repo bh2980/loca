@@ -28,7 +28,7 @@ interface Files {
 }
 
 /**
- * Codex features that add tools or instructions a translation call never uses. Measured on Orwell
+ * Codex features that add tools or instructions a translation call never uses. Measured on real game
  * translation batches (codex 0.162, gpt-6.1-sol): these plus our own model instructions cut each
  * request from about 15k to 9k input tokens with the same answers. Set through -c, which older
  * versions ignore for names they do not know (--disable would fail on them).

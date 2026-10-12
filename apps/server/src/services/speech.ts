@@ -145,7 +145,8 @@ export function knowledgeOf(db: Db, projectId: string) {
 }
 
 /** The dialogue graph's "certainly passed" order; rule intervals are picked by it (DESIGN 3.2). */
-const graphOrder = (db: Db, projectId: string) => cachedKnowledge(db, projectId, 'graphOrder', ['order'], () => buildGraphOrder(db, projectId));
+/** The project's dialogue-graph order, built once and kept while the script order is unchanged. */
+export const graphOrder = (db: Db, projectId: string) => cachedKnowledge(db, projectId, 'graphOrder', ['order'], () => buildGraphOrder(db, projectId));
 
 /** Script order of every line (scene order, then line order): rule intervals fall back to it for lines outside the graph. */
 function scriptOrder(db: Db, projectId: string) {

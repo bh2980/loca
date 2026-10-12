@@ -409,24 +409,26 @@ function Knowledge() {
   );
 }
 
-type TimelineEvent = Row & { at?: { seq: number; section: string | null; scene: string; key: string } | null };
+type TimelineEvent = Row & { at?: { seq: number; section: string | null; scene: string; key: string } | null; route?: { block: number; lane: number } | null; lanes?: number };
 
 /**
- * Events in script order, by section: each sits where its earliest evidence line is. Events whose
+ * Events in script order, by section (the file's chapter / act / day, when it has them): each sits
+ * where its earliest evidence line is. Events on routes the dialogue graph keeps apart (neither
+ * leads to the other) stand side by side in lanes until the routes meet again. Events whose
  * evidence names no line of the script go last ("위치 모름"); nothing is placed by guess.
  */
 function EventTimeline({ events, selected, onOpen }: { events: Row[]; selected?: string; onOpen: (id: string) => void }) {
   const placed = (events as TimelineEvent[]).filter((event) => event.at).sort((a, b) => a.at!.seq - b.at!.seq);
   const sections = [...Map.groupBy(placed, (event) => event.at!.section ?? '').entries()];
   const unplaced = (events as TimelineEvent[]).filter((event) => !event.at);
-  const item = (event: TimelineEvent) => (
+  const item = (event: TimelineEvent, dot = true) => (
     <li key={event.id}>
       <button
         type="button"
         onClick={() => onOpen(event.id)}
         className={cn('relative w-full rounded-md border bg-background px-3 py-2 text-left hover:bg-muted/40', event.id === selected && 'border-primary ring-1 ring-primary/30', candidateRow(event))}
       >
-        <span className="absolute top-3.5 -left-[21px] size-2.5 rounded-full border-2 border-background bg-muted-foreground" />
+        {dot && <span className="absolute top-3.5 -left-[21px] size-2.5 rounded-full border-2 border-background bg-muted-foreground" />}
         <span className="flex items-baseline gap-2">
           <span className="font-medium">{text(event.title)}</span>
           {event.at && <span className="truncate text-xs text-muted-foreground">{event.at.scene}</span>}
@@ -440,18 +442,38 @@ function EventTimeline({ events, selected, onOpen }: { events: Row[]; selected?:
     </li>
   );
   if (!events.length) return <p className="px-6 py-12 text-center text-sm text-muted-foreground">사건이 없습니다. “작품 분석”으로 초안을 받거나 표에서 추가하세요.</p>;
+  // Within a section: runs of one lane, and branch blocks drawn as columns.
+  const runs = (list: TimelineEvent[]) => [...Map.groupBy(list, (event) => (event.lanes ?? 1) > 1 ? `b${event.route!.block}` : `s${event.id}`).values()];
+  const titled = sections.length > 1 || sections.some(([section]) => section);
   return (
     <div className="space-y-6 px-6 py-4">
       {sections.map(([section, list]) => (
         <section key={section}>
-          <h3 className="mb-2 text-sm font-semibold">{section || '구역 없음'}</h3>
-          <ol className="ml-2 space-y-2 border-l pl-4">{list.map(item)}</ol>
+          {titled && <h3 className="mb-2 text-sm font-semibold">{section || '구역 없음'}</h3>}
+          <ol className="ml-2 space-y-2 border-l pl-4">
+            {runs(list).map((run) =>
+              (run[0].lanes ?? 1) > 1 ? (
+                <li key={run[0].id} className="space-y-1">
+                  <p className="text-xs text-muted-foreground">갈래 {run[0].lanes}개 · 대사 그래프에서 서로 닿지 않는 길</p>
+                  <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${run[0].lanes}, minmax(0, 1fr))` }}>
+                    {Array.from({ length: run[0].lanes! }, (_, lane) => (
+                      <ol key={lane} className="space-y-2 rounded-md border border-dashed p-2">
+                        {run.filter((event) => event.route!.lane === lane).map((event) => item(event, false))}
+                      </ol>
+                    ))}
+                  </div>
+                </li>
+              ) : (
+                run.map((event) => item(event))
+              ),
+            )}
+          </ol>
         </section>
       ))}
       {unplaced.length > 0 && (
         <section>
           <h3 className="mb-2 text-sm font-semibold">위치 모름 <span className="font-normal text-muted-foreground">근거 대사가 대본에 없음</span></h3>
-          <ol className="ml-2 space-y-2 border-l pl-4">{unplaced.map(item)}</ol>
+          <ol className="ml-2 space-y-2 border-l pl-4">{unplaced.map((event) => item(event))}</ol>
         </section>
       )}
     </div>

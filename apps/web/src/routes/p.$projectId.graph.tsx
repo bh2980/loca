@@ -23,7 +23,7 @@ interface GraphSearch {
   scope: Scope;
   node?: string;
   scene?: string;
-  /** Dialogue graph section (장·Day); "all" draws the whole graph on one sheet. Absent = the first section. */
+  /** Dialogue graph section (chapter, act, day…); "all" draws the whole graph on one sheet. Absent = the first section. */
   section?: string;
   /** Highlight one node type (original class name, or "kind:<kind>"). */
   type?: string;

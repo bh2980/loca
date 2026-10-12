@@ -27,7 +27,7 @@ describe('discoverTerms', () => {
   });
 
   it('keeps acronyms and joins names across "of"', () => {
-    expect(found('The NSA called.', 'Ask the NSA.', 'He works at Bank of Orwell.', 'Rob the Bank of Orwell.')).toEqual(['Bank of Orwell', 'NSA']);
+    expect(found('The NSA called.', 'Ask the NSA.', 'He works at Bank of Westmere.', 'Rob the Bank of Westmere.')).toEqual(['Bank of Westmere', 'NSA']);
   });
 
   it('adds character names even when the text never spells them out', () => {

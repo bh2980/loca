@@ -24,7 +24,9 @@ const NODE_HEIGHT = 44;
 const elk = new ELK();
 
 type PersonNode = Node<{ label: string; dim: boolean }, 'person'>;
-type RelationEdge = Edge<{ offset: number; kind: string; dim: boolean; focus: boolean; dashed?: boolean; showLabel: boolean }, 'relation'>;
+/** A line's label: one row per relationship it stands for (two when the pair goes both ways). */
+type LabelRow = { id: string; text: string; selected: boolean };
+type RelationEdge = Edge<{ offset: number; rows: LabelRow[]; dim: boolean; focus: boolean; dashed?: boolean; showLabel: boolean; onPick: (id: string) => void }, 'relation'>;
 
 function PersonNodeView({ data, selected }: NodeProps<PersonNode>) {
   return (
@@ -71,10 +73,14 @@ function FloatingEdge({ id, source, target, markerStart, markerEnd, data, select
       {(selected || data?.showLabel) && (
         <EdgeLabelRenderer>
           <div
-            className={cn('nodrag nopan pointer-events-none absolute rounded border bg-background px-1.5 py-0.5 text-[11px]', (selected || data?.focus) && 'border-primary text-primary', data?.dim && 'opacity-30')}
-            style={{ transform: `translate(-50%, -50%) translate(${label.x}px, ${label.y}px)` }}
+            className={cn('nodrag nopan absolute flex flex-col rounded border bg-background text-[11px] shadow-xs', (selected || data?.focus) && 'border-primary', data?.dim && 'opacity-30')}
+            style={{ transform: `translate(-50%, -50%) translate(${label.x}px, ${label.y}px)`, pointerEvents: 'all' }}
           >
-            {data?.kind}
+            {data?.rows.map((row) => (
+              <button key={row.id} type="button" className={cn('px-1.5 py-0.5 text-left whitespace-nowrap hover:bg-muted', row.selected ? 'font-medium text-primary' : (selected || data.focus) && 'text-primary')} onClick={() => data.onPick(row.id)}>
+                {row.text}
+              </button>
+            ))}
           </div>
         </EdgeLabelRenderer>
       )}
@@ -178,26 +184,38 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
   const [flowNodes, setFlowNodes] = useState(nodes);
   useEffect(() => setFlowNodes(nodes), [nodes]);
   const edges = useMemo<RelationEdge[]>(() => {
-    const seen = new Map<string, number>();
-    return drawable.map((relationship) => {
-      const pair = [relationship.fromId, relationship.toId].sort().join('|');
-      const index = seen.get(pair) ?? 0;
-      seen.set(pair, index + 1);
-      // Alternate sides so reversed duplicates do not overlap: 0, +40, -40, +80…
-      const offset = index === 0 ? 0 : (index % 2 ? 1 : -1) * Math.ceil(index / 2) * 40;
-      const marker = { type: MarkerType.ArrowClosed, color: '#71717a' };
-      return {
-        id: relationship.id,
-        type: 'relation',
-        source: relationship.fromId,
-        target: relationship.toId,
-        data: { offset, kind: relationship.kind, dashed: relationship.dashed, dim: emphasis.active && !emphasis.edgeIds.has(relationship.id), focus: emphasis.edgeIds.has(relationship.id), showLabel: emphasis.labelled.has(relationship.id) },
-        markerEnd: marker,
-        markerStart: relationship.mutual ? marker : undefined,
-        selected: relationship.id === selectedRelationshipId,
-      };
-    });
-  }, [drawable, selectedRelationshipId, emphasis]);
+    const marker = { type: MarkerType.ArrowClosed, color: '#71717a' };
+    const result: RelationEdge[] = [];
+    for (const list of Map.groupBy(drawable, (relationship) => [relationship.fromId, relationship.toId].sort().join('|')).values()) {
+      // One relationship each way: one line, arrows at both ends, both names in its label.
+      const [first, second] = list;
+      const pairs = list.length === 2 && first.fromId === second.toId && first.toId === second.fromId ? [[first, second]] : list.map((relationship) => [relationship]);
+      pairs.forEach((members, index) => {
+        const [head] = members;
+        const ids = members.map((relationship) => relationship.id);
+        const offset = index === 0 ? 0 : (index % 2 ? 1 : -1) * Math.ceil(index / 2) * 40;
+        result.push({
+          id: ids.join('+'),
+          type: 'relation',
+          source: head.fromId,
+          target: head.toId,
+          data: {
+            offset,
+            rows: members.map((relationship, at) => ({ id: relationship.id, text: members.length > 1 ? `${at === 0 ? '→' : '←'} ${relationship.kind}` : relationship.kind, selected: relationship.id === selectedRelationshipId })),
+            dashed: members.every((relationship) => relationship.dashed),
+            dim: emphasis.active && !ids.some((id) => emphasis.edgeIds.has(id)),
+            focus: ids.some((id) => emphasis.edgeIds.has(id)),
+            showLabel: ids.some((id) => emphasis.labelled.has(id)),
+            onPick: onSelectRelationship,
+          },
+          markerEnd: marker,
+          markerStart: members.length > 1 || head.mutual ? marker : undefined,
+          selected: ids.some((id) => id === selectedRelationshipId),
+        });
+      });
+    }
+    return result;
+  }, [drawable, selectedRelationshipId, emphasis, onSelectRelationship]);
 
   if (!positions) return <div className="flex h-full items-center justify-center text-sm text-muted-foreground">배치 계산 중…</div>;
   return (
@@ -218,7 +236,7 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
       nodesConnectable={false}
       elementsSelectable
       onNodeClick={(_event, node) => onSelectCharacter(node.id)}
-      onEdgeClick={(_event, edge) => onSelectRelationship(edge.id)}
+      onEdgeClick={(_event, edge) => onSelectRelationship(edge.id.split('+')[0])}
       onPaneClick={onClear}
       proOptions={{ hideAttribution: true }}
     >

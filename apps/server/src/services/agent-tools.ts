@@ -128,7 +128,7 @@ export function agentTools(db: Db, projectId: string, author: { profileId: strin
         q: z.string().optional(),
         around: z.number().int().min(0).max(5).default(0),
         mode: z.enum(['mark', 'only']).default('mark'),
-        label: z.string().max(80).describe('A few words for the user on what this view shows, e.g. "Juliet ↔ Josef 대화".'),
+        label: z.string().max(80).describe('A few words for the user on what this view shows, e.g. "Mira ↔ Jonas 대화".'),
       }),
       execute: async ({ mode, label, ...pick }) => {
         const { nodeIds, unknown, scenes } = pickNodes(db, projectId, pick);

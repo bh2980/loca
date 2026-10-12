@@ -32,7 +32,7 @@ export const LISTENER_MIN_CONFIDENCE = 0.9;
 /**
  * Listeners that are not one person: everyone present, an unspecified audience (broadcasts,
  * notices, posts), and the speaker themself (thinking aloud). Speech rules can name them as the
- * listener too ("Udemwe → group"). A listener nobody could tell is null (an AI null = looked, unsure).
+ * listener too ("Mira → group"). A listener nobody could tell is null (an AI null = looked, unsure).
  */
 export const SPECIAL_LISTENERS = { group: '여럿', public: '불특정 다수', self: '혼잣말' } as const;
 export type SpecialListener = keyof typeof SPECIAL_LISTENERS;

@@ -200,8 +200,8 @@ export const graphLayouts = sqliteTable(
 );
 
 /**
- * A set of dialogue-graph nodes an agent picked for the user ("show me where Juliet talks to
- * Josef"): highlighted in the graph (`mark=<id>`) or laid out on their own (section "view:<id>").
+ * A set of dialogue-graph nodes an agent picked for the user ("show me where Mira talks to
+ * Jonas"): highlighted in the graph (`mark=<id>`) or laid out on their own (section "view:<id>").
  * The id is a hash of the node ids, so asking for the same set again reuses it.
  */
 export const graphViews = sqliteTable('graph_views', {

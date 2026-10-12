@@ -7,7 +7,8 @@ import { badRequest, found, validate, type Env } from '../context.ts';
 import { eachChunk, inChunks } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
-import { ruleLines } from '../services/speech.ts';
+import { graphOrder, ruleLines } from '../services/speech.ts';
+import { withRoutes } from '../services/event-routes.ts';
 import { discoverAndSave, SUGGEST_BATCH } from '../services/terms.ts';
 
 export const termInput = z.object({
@@ -172,12 +173,11 @@ export const knowledgeRoutes = new Hono<Env>()
         db.select({ key: s.units.key, seq: s.units.seq, section: s.groups.section, scene: s.groups.title }).from(s.units).innerJoin(s.groups, eq(s.groups.id, s.units.groupId)).where(and(eq(s.units.projectId, projectId), inArray(s.units.key, slice))).all(),
       ).map((line) => [line.key, line]),
     );
-    return c.json(
-      events.map((event) => {
-        const first = event.evidence.flatMap((key) => lines.get(key) ?? []).sort((a, b) => a.seq - b.seq)[0];
-        return { ...event, at: first ? { seq: first.seq, section: first.section, scene: first.scene, key: first.key } : null };
-      }),
-    );
+    const placed = events.map((event) => {
+      const first = event.evidence.flatMap((key) => lines.get(key) ?? []).sort((a, b) => a.seq - b.seq)[0];
+      return { ...event, at: first ? { seq: first.seq, section: first.section, scene: first.scene, key: first.key } : null };
+    });
+    return c.json(withRoutes(graphOrder(db, projectId), placed));
   })
   .post('/events', validate('json', eventInput), (c) => {
     const projectId = c.req.param('projectId')!;
@@ -267,3 +267,4 @@ export const knowledgeRoutes = new Hono<Env>()
       return c.json({ changed });
     },
   );
+

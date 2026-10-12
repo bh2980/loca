@@ -21,7 +21,7 @@ export interface LayoutJob {
  */
 export interface SceneSource {
   scenes: string[];
-  /** Section (장·Day) of each scene, in the order of `scenes`. */
+  /** Section (chapter, act, day…) of each scene, in the order of `scenes`. */
   sections: (string | null)[];
   nodes: { id: string; groupId: string | null }[];
   edges: { fromId: string; toId: string }[];
