@@ -37,7 +37,8 @@ interface KnowledgeSearch {
   /** Inside 인물·관계 shown as tables: people instead of pairs. */
   view?: 'characters';
   /** 인물·관계 as tables instead of the graph; 사건 as a timeline instead of the table. */
-  display?: 'table' | 'timeline';
+  /** '표' instead of the picture (relationship graph / event flow), which is the default for both. */
+  display?: 'table';
 }
 
 export const Route = createFileRoute('/p/$projectId/knowledge')({
@@ -47,7 +48,7 @@ export const Route = createFileRoute('/p/$projectId/knowledge')({
     state: raw.state === 'confirmed' || raw.state === 'candidate' ? raw.state : undefined,
     item: typeof raw.item === 'string' && raw.item ? raw.item : undefined,
     view: raw.view === 'characters' ? 'characters' : undefined,
-    display: raw.display === 'table' || raw.display === 'timeline' ? raw.display : undefined,
+    display: raw.display === 'table' ? 'table' : undefined,
   }),
   component: Knowledge,
 });
@@ -65,7 +66,7 @@ function Knowledge() {
   // 인물·관계 is one graph (people and their relationships) or two tables (pairs / people).
   const graph = tab === 'people' && search.display !== 'table';
   const pairsView = tab === 'people' && !graph && search.view !== 'characters';
-  const timeline = tab === 'events' && search.display === 'timeline';
+  const timeline = tab === 'events' && search.display !== 'table';
   const set = (next: Partial<KnowledgeSearch>, replace = true) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace });
 
   const documents = useQuery(q.documents(projectId));
@@ -309,8 +310,8 @@ function Knowledge() {
               value={graph ? 'graph' : 'table'}
               onChange={(value) => set({ display: value === 'table' ? 'table' : undefined, view: undefined, item: undefined }, false)}
               items={[
-                { value: 'graph', label: '그래프로 보기', icon: <Network /> },
-                { value: 'table', label: '표로 보기', icon: <Table2 /> },
+                { value: 'graph', label: '그래프', icon: <Network /> },
+                { value: 'table', label: '표', icon: <Table2 /> },
               ]}
             />
           )}
@@ -320,7 +321,7 @@ function Knowledge() {
               value={search.view ?? 'pairs'}
               onChange={(value) => set({ view: value === 'characters' ? 'characters' : undefined, item: undefined }, false)}
               items={[
-                { value: 'pairs', label: '관계 (화자 → 청자)', icon: <ArrowLeftRight /> },
+                { value: 'pairs', label: '관계', icon: <ArrowLeftRight /> },
                 { value: 'characters', label: '인물', icon: <Users /> },
               ]}
             />
@@ -329,10 +330,10 @@ function Knowledge() {
             <ViewSwitch
               label="보기"
               value={timeline ? 'timeline' : 'table'}
-              onChange={(value) => set({ display: value === 'timeline' ? 'timeline' : undefined })}
+              onChange={(value) => set({ display: value === 'table' ? 'table' : undefined })}
               items={[
-                { value: 'table', label: '표로 보기', icon: <Table2 /> },
-                { value: 'timeline', label: '타임라인으로 보기', icon: <GanttChart /> },
+                { value: 'timeline', label: '흐름', icon: <GanttChart /> },
+                { value: 'table', label: '표', icon: <Table2 /> },
               ]}
             />
           )}
@@ -392,19 +393,15 @@ function Knowledge() {
   );
 }
 
-/** A view switch (graph | table, table | timeline): icon items, each named by a tooltip. */
+/** A view switch (그래프 | 표, 흐름 | 표): the picture first, labelled in words. */
 function ViewSwitch({ label, value, onChange, items }: { label: string; value: string; onChange: (value: string) => void; items: { value: string; label: string; icon: ReactNode }[] }) {
   return (
     <ToggleGroup type="single" variant="outline" size="sm" value={value} onValueChange={(next) => next && onChange(next)} aria-label={label}>
       {items.map((item) => (
-        <Tooltip key={item.value}>
-          <TooltipTrigger asChild>
-            <ToggleGroupItem value={item.value} aria-label={item.label}>
-              {item.icon}
-            </ToggleGroupItem>
-          </TooltipTrigger>
-          <TooltipContent>{item.label}</TooltipContent>
-        </Tooltip>
+        <ToggleGroupItem key={item.value} value={item.value} className="gap-1.5 px-2.5">
+          {item.icon}
+          {item.label}
+        </ToggleGroupItem>
       ))}
     </ToggleGroup>
   );
