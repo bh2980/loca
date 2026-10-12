@@ -143,9 +143,10 @@ function AlertDialogMedia({
   )
 }
 
+// AlertDialog is used only to confirm destructive actions (AGENTS.md), so its action is destructive by default.
 function AlertDialogAction({
   className,
-  variant = "default",
+  variant = "destructive",
   size = "default",
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Action> &

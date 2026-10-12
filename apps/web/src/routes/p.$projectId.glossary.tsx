@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Play, Plus, ScanSearch, Search, Sparkles, Square, Trash2, X } from 'lucide-react';
+import { Check, Play, Plus, ScanSearch, Search, Sparkles, Square, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Page } from '@/components/page';
 import { RunDialog } from '@/components/workflow/run-dialog';
@@ -13,7 +13,6 @@ import { Input } from '@/components/ui/input';
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
 import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { candidateRow, KnowledgeFilters, matches, SourceBadge } from '@/components/knowledge/draft-editor';
 import { isSettled, KNOWLEDGE_SOURCES, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus } from '@tw/shared';
 import { Textarea } from '@/components/ui/textarea';
@@ -22,6 +21,8 @@ import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { useReportView } from '@/lib/view-context';
 import { SplitPane } from '@/components/split-pane';
+import { PaneHeader } from '@/components/pane-header';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 export const Route = createFileRoute('/p/$projectId/glossary')({
   validateSearch: (raw: Record<string, unknown>): { q?: string; term?: string; source?: KnowledgeSource; state?: 'confirmed' | 'candidate' } => ({
@@ -121,7 +122,7 @@ function Glossary() {
             {/* A term without a Korean form cannot be official: it would put an empty target in every prompt. */}
             {all.some((term) => !isSettled(term) && term.target.trim()) && (
               <Button size="sm" variant="outline" onClick={() => decide.mutate({ ids: all.filter((term) => !isSettled(term) && term.target.trim()).map((term) => term.id), accept: true })}>
-                번역 있는 후보 모두 정식으로 ({all.filter((term) => !isSettled(term) && term.target.trim()).length.toLocaleString()})
+                <Check /> 번역 있는 후보 모두 정식으로 ({all.filter((term) => !isSettled(term) && term.target.trim()).length.toLocaleString()})
               </Button>
             )}
             <InputGroup className="w-64">
@@ -201,10 +202,10 @@ function Glossary() {
                       <div className="flex items-center gap-1">
                         <SourceBadge row={asDraft(term)} />
                         <Button size="sm" variant="outline" className="h-7" disabled={!term.target.trim()} title={term.target.trim() ? undefined : '번역을 채운 뒤 정식으로 올릴 수 있습니다.'} onClick={() => decide.mutate({ ids: [term.id], accept: true })}>
-                          정식으로
+                          <Check /> 정식으로
                         </Button>
-                        <Button size="sm" variant="ghost" className="h-7" onClick={() => decide.mutate({ ids: [term.id], accept: false })}>
-                          버리기
+                        <Button size="sm" variant="ghost" className="h-7 text-destructive" onClick={() => decide.mutate({ ids: [term.id], accept: false })}>
+                          <Trash2 /> 버리기
                         </Button>
                       </div>
                     )}
@@ -246,13 +247,10 @@ function TermEditor({ projectId, term, onClose }: { projectId: string; term: Ter
   const usage = useQuery(q.termUsage(projectId, term.id));
 
   return (
-    <div className="flex flex-col gap-4 p-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold">용어 편집</h2>
-        <Button variant="ghost" size="icon" className="size-7" onClick={onClose} aria-label="닫기">
-          <X />
-        </Button>
-      </div>
+    <div className="flex h-full min-h-0 flex-col">
+      <PaneHeader kicker="용어" title={term.source} subtitle={<SourceBadge row={{ ...term, evidence: [] }} />} onClose={onClose} />
+      <ScrollArea className="min-h-0 flex-1">
+      <div className="flex flex-col gap-4 p-4">
       <div className="space-y-1.5">
         <Label htmlFor="term-source">원문</Label>
         <Input id="term-source" value={form.source} onChange={(event) => setForm({ ...form, source: event.target.value })} />
@@ -295,10 +293,12 @@ function TermEditor({ projectId, term, onClose }: { projectId: string; term: Ter
         </ul>
       </section>
       <Examples projectId={projectId} keys={term.examples} />
-      <div className="flex items-center justify-between">
+      </div>
+      </ScrollArea>
+      <div className="flex shrink-0 items-center justify-between border-t px-4 py-3">
         <AlertDialog>
           <AlertDialogTrigger asChild>
-            <Button variant="outline" size="sm" className="text-destructive">
+            <Button variant="ghost" size="sm" className="text-destructive">
               <Trash2 /> 삭제
             </Button>
           </AlertDialogTrigger>

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { ChevronRight, Plus, X } from 'lucide-react';
+import { ChevronRight, Plus } from 'lucide-react';
 import { isSettled, listenerLabel, SPEECH_LEVEL_LABELS, sourceOf, type SpeechLevel } from '@tw/shared';
 import { candidateRow, DraftEditor, fail, matches, SourceBadge, type Draft, type KindSpec, type Row, type SourceFilter, type StatusFilter } from '@/components/knowledge/draft-editor';
 import { Badge } from '@/components/ui/badge';
@@ -9,6 +9,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
+import { PaneHeader } from '@/components/pane-header';
 
 /**
  * One speaker → listener direction: the relationship (a fact of the story) and the speech rules
@@ -142,14 +143,7 @@ export function PairDetail({ projectId, pair, relationships, speechRules, charac
   const addRule = useMutation({ mutationFn: () => speechRules.create!(), onSuccess: (row) => setOpenRule(row.id), onError: fail });
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center justify-between gap-2 border-b px-4 py-2">
-        <h2 className="truncate text-sm font-semibold">
-          {pair.from} → {listenerLabel(pair.to)}
-        </h2>
-        <Button variant="ghost" size="icon" className="size-7" onClick={onClose} aria-label="닫기">
-          <X />
-        </Button>
-      </div>
+      <PaneHeader kicker="관계·말투" title={`${pair.from} → ${listenerLabel(pair.to)}`} onClose={onClose} />
       <ScrollArea className="min-h-0 flex-1">
         <div className="space-y-6 p-4">
           <section className="space-y-3">

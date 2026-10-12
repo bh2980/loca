@@ -28,6 +28,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Link } from '@tanstack/react-router';
 import { client, unwrap } from '@/lib/api';
 import { nodeIcon } from './node-view';
+import { PaneHeader } from '@/components/pane-header';
 
 type AiNode = Extract<WorkflowNode, { type: 'ai' }>;
 type FunctionNode = Extract<WorkflowNode, { type: 'function' }>;
@@ -79,16 +80,7 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-start gap-2 border-b px-4 py-3">
-        <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium">{nodeName(node)}</p>
-          <p className="text-xs text-muted-foreground">{description}</p>
-        </div>
-        <Button variant="ghost" size="icon" className="size-7" onClick={onClose} aria-label="닫기">
-          <X />
-        </Button>
-      </div>
+      <PaneHeader icon={<Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />} title={nodeName(node)} subtitle={description} onClose={onClose} />
       <ScrollArea className="min-h-0 flex-1">
         <fieldset disabled={readOnly} className="space-y-5 p-4">
           {issues.length > 0 && (

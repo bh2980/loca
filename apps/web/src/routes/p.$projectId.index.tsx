@@ -3,12 +3,11 @@ import { useQuery } from '@tanstack/react-query';
 import { ArrowRight, History, Inbox, Workflow } from 'lucide-react';
 import { Page } from '@/components/page';
 import { StatusBar, StatusDot } from '@/components/status';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { q } from '@/lib/queries';
-import { RUN_STATUS } from '@/lib/labels';
+import { JobStatusBadge } from '@/components/job-status';
 
 export const Route = createFileRoute('/p/$projectId/')({ component: Dashboard });
 
@@ -103,7 +102,7 @@ function Dashboard() {
                   <li key={run.id}>
                     <Link to="/p/$projectId/runs/$runId" params={{ projectId, runId: run.id }} className="flex items-center gap-4 py-2.5 text-sm hover:bg-muted/40">
                       <span className="w-40 truncate font-medium">{run.workflowName}</span>
-                      <Badge variant={run.status === 'running' ? 'default' : 'outline'}>{RUN_STATUS[run.status]}</Badge>
+                      <JobStatusBadge status={run.status} />
                       <Progress value={(finished / run.total) * 100} className="h-1.5 flex-1" />
                       <span className="w-24 text-right tabular-nums text-muted-foreground">
                         {finished}/{run.total}

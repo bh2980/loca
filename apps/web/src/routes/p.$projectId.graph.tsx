@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Maximize, Minus, Plus, Search, X } from 'lucide-react';
+import { Maximize, Minus, Plus, Search } from 'lucide-react';
 import { GraphCanvas, type GraphCanvasHandle, type NodeInfo, type Viewport } from '@/components/graph/graph-canvas';
 import { DialogueNodeDetail, SceneNodeDetail } from '@/components/graph/node-detail';
 import { KIND_LABEL } from '@/components/graph/shapes';
@@ -18,6 +18,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { useSize } from '@/hooks/use-size';
 import { q } from '@/lib/queries';
 import { SplitPane } from '@/components/split-pane';
+import { PaneHeader } from '@/components/pane-header';
 
 type Scope = 'scene' | 'dialogue';
 interface GraphSearch {
@@ -183,12 +184,7 @@ function GraphPage() {
             <div className="h-full bg-background">
               {search.scope === 'scene' && hubs.has(search.node) ? (
                 <aside className="flex h-full flex-col text-sm">
-                  <div className="flex items-start gap-2 border-b px-4 py-3">
-                    <h2 className="min-w-0 flex-1 truncate text-sm font-medium">연결점</h2>
-                    <Button size="icon" variant="ghost" className="size-7" aria-label="닫기" onClick={() => select(undefined)}>
-                      <X />
-                    </Button>
-                  </div>
+                  <PaneHeader kicker="장면 그래프" title="연결점" onClose={() => select(undefined)} />
                   <p className="px-4 py-3 text-muted-foreground">
                     장면에 속하지 않는 노드 {hubs.get(search.node)!.nodes.toLocaleString()}개가 장면 {hubs.get(search.node)!.scenes.toLocaleString()}개를 잇습니다. 대사 그래프에서 파생한 연결입니다.
                   </p>
@@ -354,15 +350,7 @@ function GraphPage() {
 function ChainDetail({ title, nodes, onPick, onClose }: { title: string; nodes: NodeInfo[]; onPick: (id: string) => void; onClose: () => void }) {
   return (
     <aside className="flex h-full flex-col text-sm">
-      <div className="flex items-start gap-2 border-b px-4 py-3">
-        <div className="min-w-0 flex-1">
-          <p className="text-xs text-muted-foreground">한 길로만 이어지는 노드를 한 덩어리로 접었습니다</p>
-          <h2 className="truncate text-sm font-medium">{title}</h2>
-        </div>
-        <Button size="icon" variant="ghost" className="size-7" aria-label="닫기" onClick={onClose}>
-          <X />
-        </Button>
-      </div>
+      <PaneHeader kicker="한 길로만 이어지는 노드를 한 덩어리로 접었습니다" title={title} onClose={onClose} />
       <ScrollArea className="min-h-0 flex-1">
         <ol className="divide-y">
           {nodes.map((node) => (

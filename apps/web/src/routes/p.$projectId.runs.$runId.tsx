@@ -15,11 +15,12 @@ import { Progress } from '@/components/ui/progress';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { client, unwrap } from '@/lib/api';
-import { ITEM_STATE, RUN_STATUS } from '@/lib/labels';
+import { ITEM_STATE } from '@/lib/labels';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { useReportView } from '@/lib/view-context';
 import { SplitPane } from '@/components/split-pane';
+import { JobStatusBadge } from '@/components/job-status';
 
 type State = keyof typeof ITEM_STATE;
 interface RunSearch {
@@ -84,7 +85,7 @@ function RunDetail() {
       meta={`${new Date(data.createdAt).toLocaleString()} 시작 · 프로필 ${data.profiles.map((profile) => `${profile.name}(${profile.models.join(' → ')})`).join(', ') || '없음'}`}
       actions={
         <>
-          <Badge variant={data.status === 'running' ? 'default' : 'outline'}>{RUN_STATUS[data.status]}</Badge>
+          <JobStatusBadge status={data.status} />
           {data.status === 'running' && (
             <Button size="sm" variant="outline" onClick={() => control.mutate('pause')}>
               <Pause /> 일시정지

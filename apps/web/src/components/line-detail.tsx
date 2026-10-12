@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { useMemo } from 'react';
-import { Check, CircleAlert, CircleCheck, X } from 'lucide-react';
+import { Check, CircleAlert, CircleCheck } from 'lucide-react';
 import { checkFormat, isSpecialListener, KNOWLEDGE_ORIGIN_LABELS, LISTENER_MIN_CONFIDENCE, listenerLabel, mentions, SPECIAL_LISTENERS, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatRules, type KnowledgeStatus, type SpeechLevel } from '@tw/shared';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -18,6 +18,7 @@ import { useDraft } from '@/lib/drafts';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { useReportView } from '@/lib/view-context';
+import { PaneHeader } from '@/components/pane-header';
 
 const ORIGIN = { ai: 'AI', human: '사람', import: '가져옴', tool: '도구' } as const;
 const STATE = { queued: '대기', running: '실행 중', done: '완료', failed: '실패', cancelled: '취소' } as const;
@@ -74,21 +75,20 @@ export function LineDetail({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-start gap-2 border-b px-4 py-3">
-        <div className="min-w-0 flex-1">
-          <p className="truncate font-mono text-xs text-muted-foreground">{line.key}</p>
-          {showScene && (
-            <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.group.id, line: line.id }} className="text-sm font-medium hover:underline">
+      <PaneHeader
+        kicker="대사"
+        title={
+          showScene ? (
+            <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.group.id, line: line.id }} className="hover:underline">
               {line.group.title}
             </Link>
-          )}
-        </div>
-        {onClose && (
-          <Button variant="ghost" size="icon" className="size-7" onClick={onClose} aria-label="상세 닫기">
-            <X />
-          </Button>
-        )}
-      </div>
+          ) : (
+            line.group.title
+          )
+        }
+        subtitle={<span className="font-mono">{line.key}</span>}
+        onClose={onClose}
+      />
       {onTab && (
         <Tabs value={tab} onValueChange={(value) => onTab(value as LineTab)} className="border-b px-4 py-2">
           <TabsList className="h-8">

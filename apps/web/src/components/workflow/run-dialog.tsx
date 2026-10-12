@@ -9,6 +9,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -161,16 +162,21 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
         </RadioGroup>
 
         {mode === 'groups' && (
-          <div className="rounded-md border">
-            <div className="flex items-center gap-2 border-b px-2">
-              <Search className="size-4 text-muted-foreground" />
-              <Input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="장면·묶음 찾기" className="h-9 border-0 shadow-none focus-visible:ring-0" />
-              <span className="shrink-0 text-xs text-muted-foreground">{picked.size}개 선택</span>
-            </div>
+          <div className="min-w-0 space-y-2">
+            <InputGroup>
+              <InputGroupAddon>
+                <Search />
+              </InputGroupAddon>
+              <InputGroupInput value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="장면·묶음 찾기" />
+              <InputGroupAddon align="inline-end" className="text-xs tabular-nums">
+                {picked.size}개 선택
+              </InputGroupAddon>
+            </InputGroup>
+            <div className="rounded-md border">
             <ul className="max-h-60 overflow-auto p-1">
               {visible.map((group) => (
                 <li key={group.id}>
-                  <label className="flex items-center gap-2 rounded px-2 py-1 text-sm hover:bg-muted">
+                  <label className="flex min-w-0 items-center gap-2 rounded px-2 py-1 text-sm hover:bg-muted">
                     <Checkbox
                       checked={picked.has(group.id)}
                       onCheckedChange={(checked) =>
@@ -182,12 +188,13 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
                         })
                       }
                     />
-                    <span className="truncate">{group.title}</span>
-                    <span className="ml-auto text-xs text-muted-foreground tabular-nums">{group.total}</span>
+                    <span className="min-w-0 flex-1 truncate">{group.title}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{group.total}</span>
                   </label>
                 </li>
               ))}
             </ul>
+            </div>
           </div>
         )}
 

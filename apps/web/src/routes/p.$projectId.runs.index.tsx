@@ -1,17 +1,18 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { X } from 'lucide-react';
 import { Page } from '@/components/page';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Progress } from '@/components/ui/progress';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { Spinner } from '@/components/ui/spinner';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ITEM_STATE, RUN_STATUS } from '@/lib/labels';
+import { ITEM_STATE } from '@/lib/labels';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { SplitPane } from '@/components/split-pane';
+import { PaneHeader } from '@/components/pane-header';
+import { JobStatusBadge } from '@/components/job-status';
 
 interface RunsSearch {
   /** The run or job whose AI requests the right-hand pane shows. */
@@ -24,7 +25,6 @@ export const Route = createFileRoute('/p/$projectId/runs/')({
 });
 
 const JOB_KIND = { run: '워크플로', analysis: '자료', terms: '용어집', chat: '채팅' } as const;
-const JOB_STATUS = { running: '실행 중', completed: '완료', failed: '실패', cancelled: '취소됨' } as const;
 type Stats = { calls: number | null; inputTokens: number; outputTokens: number };
 
 const seconds = (from: Date | string, to: Date | string | null) => {
@@ -55,7 +55,7 @@ function Runs() {
         kind: 'run' as const,
         title: run.workflowName,
         sub: `v${run.workflowVersion}`,
-        status: <Badge variant={run.status === 'running' ? 'default' : 'outline'}>{RUN_STATUS[run.status]}</Badge>,
+        status: <JobStatusBadge status={run.status} />,
         error: run.status === 'paused' ? run.notice : null,
         progress: { done: finished, total: run.total, unit: '줄' },
         result: Object.entries(run.states)
@@ -70,7 +70,7 @@ function Runs() {
       kind: job.kind,
       title: job.title,
       sub: job.profile ?? '',
-      status: <Badge variant={job.status === 'running' ? 'default' : 'outline'}>{JOB_STATUS[job.status]}</Badge>,
+      status: <JobStatusBadge status={job.status} />,
       error: job.error,
       progress: job.total != null && job.done != null ? { done: job.done, total: job.total, unit: job.kind === 'analysis' ? '부분' : '개' } : null,
       result: seconds(job.createdAt, job.finishedAt),
@@ -163,38 +163,38 @@ function JobCalls({ projectId, job, onClose }: { projectId: string; job: { id: s
   const calls = useQuery(q.aiCalls(projectId, undefined, job.id));
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-start gap-2 border-b px-4 py-3">
-        <div className="min-w-0 flex-1">
-          <p className="text-xs text-muted-foreground">{JOB_KIND[job.kind]}</p>
-          <p className="truncate font-medium">{job.title}</p>
-          <p className="text-xs text-muted-foreground tabular-nums">AI 호출 · 입력/출력 {tokens(job.stats)}</p>
-        </div>
-        {job.kind === 'run' && (
-          <Button asChild size="sm" variant="outline">
-            <Link to="/p/$projectId/runs/$runId" params={{ projectId, runId: job.id }}>
-              실행 상세
-            </Link>
-          </Button>
-        )}
-        {job.kind === 'analysis' && (
-          <Button asChild size="sm" variant="outline">
-            <Link to="/p/$projectId/knowledge" params={{ projectId }}>
-              자료 보기
-            </Link>
-          </Button>
-        )}
-        {job.kind === 'terms' && (
-          <Button asChild size="sm" variant="outline">
-            <Link to="/p/$projectId/glossary" params={{ projectId }}>
-              용어집 보기
-            </Link>
-          </Button>
-        )}
-        <Button size="icon" variant="ghost" className="size-8" aria-label="닫기" onClick={onClose}>
-          <X />
-        </Button>
-      </div>
-      <div className="min-h-0 flex-1 overflow-auto">
+      <PaneHeader
+        kicker={JOB_KIND[job.kind]}
+        title={job.title}
+        subtitle={<span className="tabular-nums">AI 호출 · 입력/출력 {tokens(job.stats)}</span>}
+        actions={
+          <>
+            {job.kind === 'run' && (
+              <Button asChild size="sm" variant="outline">
+                <Link to="/p/$projectId/runs/$runId" params={{ projectId, runId: job.id }}>
+                  실행 상세
+                </Link>
+              </Button>
+            )}
+            {job.kind === 'analysis' && (
+              <Button asChild size="sm" variant="outline">
+                <Link to="/p/$projectId/knowledge" params={{ projectId }}>
+                  자료 보기
+                </Link>
+              </Button>
+            )}
+            {job.kind === 'terms' && (
+              <Button asChild size="sm" variant="outline">
+                <Link to="/p/$projectId/glossary" params={{ projectId }}>
+                  용어집 보기
+                </Link>
+              </Button>
+            )}
+          </>
+        }
+        onClose={onClose}
+      />
+      <ScrollArea className="min-h-0 flex-1">
         {calls.data?.calls.length === 0 ? (
           <p className="px-4 py-6 text-sm text-muted-foreground">이 작업의 AI 호출 기록이 없습니다. 호출 기록이 생기기 전에 돈 작업은 합계만 남아 있습니다.</p>
         ) : (
@@ -223,7 +223,7 @@ function JobCalls({ projectId, job, onClose }: { projectId: string; job: { id: s
           </ul>
         )}
         {calls.data && calls.data.calls.length >= 200 && <p className="px-4 py-2 text-xs text-muted-foreground">최근 200건만 보여 줍니다.</p>}
-      </div>
+      </ScrollArea>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { type ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Check, Play, Trash2, X } from 'lucide-react';
+import { Check, Play, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { DOCUMENT_KINDS, KNOWLEDGE_ORIGIN_LABELS, SPEECH_FIX_WORKFLOW, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, sourceOf, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type SpeechLevel } from '@tw/shared';
 import { RunDialog } from '@/components/workflow/run-dialog';
@@ -20,6 +20,7 @@ import { useDraft } from '@/lib/drafts';
 import { DOCUMENT_KIND } from '@/lib/labels';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
+import { PaneHeader } from '@/components/pane-header';
 
 export const KINDS = { documents: '문서', characters: '인물', relationships: '관계', events: '사건', speechRules: '말투 규칙' } as const;
 export type Kind = keyof typeof KINDS;
@@ -209,20 +210,17 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
     );
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center justify-between gap-2 border-b px-4 py-2">
-        <div className="min-w-0">
-          <h2 className="truncate text-sm font-semibold">{spec.label(row)}</h2>
+      <PaneHeader
+        kicker={KINDS[kind]}
+        title={spec.label(row)}
+        subtitle={
           <span className="flex items-center gap-1.5">
             <SourceBadge row={row} />
-            {row.status === 'candidate' && <span className="border-b border-dashed border-amber-500 text-xs text-amber-800">후보 · 아직 문맥에 쓰이지 않음</span>}
+            {row.status === 'candidate' && <span>후보 · 아직 문맥에 쓰이지 않음</span>}
           </span>
-        </div>
-        {onClose && (
-          <Button variant="ghost" size="icon" className="size-7" onClick={onClose} aria-label="닫기">
-            <X />
-          </Button>
-        )}
-      </div>
+        }
+        onClose={onClose}
+      />
       <ScrollArea className="min-h-0 flex-1">{body}</ScrollArea>
       {footer}
     </div>

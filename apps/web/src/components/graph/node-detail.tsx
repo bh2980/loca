@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { ArrowDownRight, ArrowUpLeft, FileText, Network, X } from 'lucide-react';
+import { ArrowDownRight, ArrowUpLeft, FileText, Network } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -8,6 +8,7 @@ import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { isContentKind } from '@tw/shared';
 import { KIND_LABEL } from './shapes';
+import { PaneHeader } from '@/components/pane-header';
 
 function Neighbour({ items, title, icon: Icon, onSelect }: { items: { id: string; key: string; kind: string; label: string | null; edgeLabel: string | null }[]; title: string; icon: typeof ArrowDownRight; onSelect: (id: string) => void }) {
   return (
@@ -38,21 +39,17 @@ export function DialogueNodeDetail({ projectId, nodeId, onSelect, onClose }: { p
   const data = node.data;
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-start gap-2 border-b px-4 py-3">
-        <div className="min-w-0 flex-1">
-          <p className="text-xs text-muted-foreground">
-            {isContentKind(data.kind) ? '콘텐츠' : '이벤트·제어'} · {KIND_LABEL[data.kind] ?? data.kind}
-          </p>
-          <p className="truncate font-medium">{data.label ?? data.typeInfo?.label ?? data.key}</p>
-          <p className="truncate font-mono text-xs text-muted-foreground">
+      <PaneHeader
+        kicker={`${isContentKind(data.kind) ? '콘텐츠' : '이벤트·제어'} · ${KIND_LABEL[data.kind] ?? data.kind}`}
+        title={data.label ?? data.typeInfo?.label ?? data.key}
+        subtitle={
+          <span className="truncate font-mono">
             {data.key}
             {data.type && ` · ${data.type}`}
-          </p>
-        </div>
-        <Button variant="ghost" size="icon" className="size-7" onClick={onClose} aria-label="닫기">
-          <X />
-        </Button>
-      </div>
+          </span>
+        }
+        onClose={onClose}
+      />
       <ScrollArea className="min-h-0 flex-1">
         <div className="space-y-5 p-4">
           {data.typeInfo?.description && <p className="rounded-md bg-muted/50 px-3 py-2 text-sm">{data.typeInfo.description}</p>}
@@ -98,16 +95,7 @@ export function SceneNodeDetail({ projectId, groupId, onClose }: { projectId: st
   if (!group.data) return <Skeleton className="m-4 h-24" />;
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-start gap-2 border-b px-4 py-3">
-        <div className="min-w-0 flex-1">
-          <p className="text-xs text-muted-foreground">장면</p>
-          <p className="truncate font-medium">{group.data.title}</p>
-          <p className="truncate font-mono text-xs text-muted-foreground">{group.data.key}</p>
-        </div>
-        <Button variant="ghost" size="icon" className="size-7" onClick={onClose} aria-label="닫기">
-          <X />
-        </Button>
-      </div>
+      <PaneHeader kicker="장면" title={group.data.title} subtitle={<span className="font-mono">{group.data.key}</span>} onClose={onClose} />
       <div className="space-y-3 p-4">
         {group.data.description && <p className="text-sm">{group.data.description}</p>}
         <div className="flex flex-col gap-2">
