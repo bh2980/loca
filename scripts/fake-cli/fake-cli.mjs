@@ -158,6 +158,9 @@ export async function main(kind) {
         fail('error: agy expects a stream-json user message on stdin');
       }
     } else prompt = stdin;
+    // Codex: the system part comes as a model instructions file (-c model_instructions_file="…").
+    const instructions = kind === 'codex' && argv.find((arg) => arg.startsWith('model_instructions_file='));
+    if (instructions) prompt = `${readFileSync(JSON.parse(instructions.slice('model_instructions_file='.length)), 'utf8')}\n\n${prompt}`;
   }
   if (!prompt?.trim()) fail('error: empty prompt');
   if (!flag(argv, '--model')) fail('error: --model is required');

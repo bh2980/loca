@@ -23,7 +23,17 @@ interface Files {
   schema: string;
   prompt: string;
   result: string;
+  /** Codex: our instructions in place of its coding-agent base instructions. */
+  instructions: string;
 }
+
+/**
+ * Codex features that add tools or instructions a translation call never uses. Measured on Orwell
+ * translation batches (codex 0.162, gpt-6.1-sol): these plus our own model instructions cut each
+ * request from about 15k to 9k input tokens with the same answers. Set through -c, which older
+ * versions ignore for names they do not know (--disable would fail on them).
+ */
+const CODEX_UNUSED_FEATURES = ['hooks', 'shell_tool', 'multi_agent', 'plugins', 'apps', 'browser_use', 'browser_use_external', 'computer_use', 'code_mode_host', 'goals', 'image_generation', 'view_image', 'sleep_tool', 'unified_exec', 'tool_suggest', 'skill_search', 'in_app_browser', 'workspace_dependencies', 'worktrees', 'collaboration_modes'];
 
 function args(kind: CliKind, route: ResolvedRoute, schema: object, files: Files, timeoutMs: number): string[] {
   const effort = route.effort;
@@ -34,7 +44,9 @@ function args(kind: CliKind, route: ResolvedRoute, schema: object, files: Files,
         '--ignore-user-config', '--color', 'never', '--json', '--cd', files.dir,
         '--output-schema', files.schema, '--output-last-message', files.result,
         '-c', 'approval_policy="never"', '-c', 'web_search="disabled"',
-        '-c', 'features.hooks=false', '-c', 'features.shell_tool=false', '-c', 'features.multi_agent=false',
+        ...CODEX_UNUSED_FEATURES.flatMap((feature) => ['-c', `features.${feature}=false`]),
+        // The key was renamed once; an unknown one is ignored.
+        '-c', `model_instructions_file=${JSON.stringify(files.instructions)}`, '-c', `experimental_instructions_file=${JSON.stringify(files.instructions)}`,
         ...(effort ? ['-c', `model_reasoning_effort=${JSON.stringify(effort)}`] : []),
         '-',
       ];
@@ -188,12 +200,14 @@ export async function cliGenerate<T>(route: ResolvedRoute, request: GenerateRequ
   const kind = route.kind as CliKind;
   const schema = z.toJSONSchema(request.schema, { target: 'draft-7' });
   const dir = await mkdtemp(path.join(tmpdir(), 'tw-call-'));
-  const files: Files = { dir, schema: path.join(dir, 'schema.json'), prompt: path.join(dir, 'prompt.txt'), result: path.join(dir, 'result.json') };
+  const files: Files = { dir, schema: path.join(dir, 'schema.json'), prompt: path.join(dir, 'prompt.txt'), result: path.join(dir, 'result.json'), instructions: path.join(dir, 'instructions.md') };
+  const instructions = `${PREAMBLE}\n\n${request.system}`;
+  // Codex reads the instructions from their own file; the others get them ahead of the task.
   const prompt =
-    `${PREAMBLE}\n\n${request.system}\n\n${request.prompt}` +
+    (kind === 'codex' ? request.prompt : `${instructions}\n\n${request.prompt}`) +
     (kind === 'opencode' ? `\n\nAnswer with one JSON value that follows this JSON Schema, and nothing else:\n${JSON.stringify(schema)}` : '');
   try {
-    await Promise.all([writeFile(files.schema, JSON.stringify(schema)), writeFile(files.prompt, prompt)]);
+    await Promise.all([writeFile(files.schema, JSON.stringify(schema)), writeFile(files.prompt, prompt), ...(kind === 'codex' ? [writeFile(files.instructions, instructions)] : [])]);
     const result = await execa(cliCommand(kind, route.executable), args(kind, route, schema, files, request.timeoutMs), {
       cwd: dir,
       input: kind === 'grok' ? undefined : kind === 'antigravity' ? `${JSON.stringify({ event: 'user', message: { role: 'user', content: prompt } })}\n` : prompt,
