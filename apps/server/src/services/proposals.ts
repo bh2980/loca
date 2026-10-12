@@ -4,7 +4,8 @@ import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { agentCatalog } from './agent-catalog.ts';
 
-export function propose(db: Db, input: { projectId: string; sessionId: string | null; source: 'pi' | 'cli'; tool: string; input: Record<string, unknown> }) {
+/** Stores a proposal; callers check it first with prepareProposal (proposal-check.ts). */
+export function propose(db: Db, input: { projectId: string; sessionId: string | null; source: 'pi' | 'cli'; tool: string; input: Record<string, unknown>; report?: s.ProposalReport | null }) {
   const row = db.insert(s.proposals).values(input).returning().get();
   events.changed(input.projectId, 'proposals');
   return row;
@@ -18,6 +19,10 @@ const PREVIEW_CHANGES = 50;
  * the first lines, and accepting still runs the stored input.
  */
 export function listedProposal(proposal: typeof s.proposals.$inferSelect) {
+  // The check's report can name every line too (a warning per line): first entries plus counts.
+  const report = proposal.report;
+  if (report && (report.dropped.length > PREVIEW_CHANGES || report.warnings.length > PREVIEW_CHANGES))
+    proposal = { ...proposal, report: { dropped: report.dropped.slice(0, PREVIEW_CHANGES), warnings: report.warnings.slice(0, PREVIEW_CHANGES), counts: { dropped: report.dropped.length, warnings: report.warnings.length } } as s.ProposalReport };
   const changes = (proposal.input as { changes?: { translation?: string; status?: string; addTags?: string[]; removeTags?: string[] }[] }).changes;
   if (!Array.isArray(changes) || changes.length <= PREVIEW_CHANGES) return proposal;
   const counts = {

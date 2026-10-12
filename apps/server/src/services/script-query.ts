@@ -331,7 +331,11 @@ export function exportLines(db: Db, projectId: string, filter: LineFilter, optio
  * Drop parts of a change that would not change anything (same translation, same status), so a
  * file edited from an export only proposes what was actually edited. Lines left empty are reported.
  */
-export function normalizeBatch(db: Db, projectId: string, batch: BatchChange): { batch: BatchChange; unchanged: string[] } {
+/**
+ * Drops what would not change a line. With `fillRev`, a change without a rev gets the line's
+ * current one, so a line edited before the proposal is accepted counts as a conflict.
+ */
+export function normalizeBatch(db: Db, projectId: string, batch: BatchChange, options: { fillRev?: boolean } = {}): { batch: BatchChange; unchanged: string[] } {
   const { statusId } = lookups(db, projectId);
   const units = unitsByKey(db, projectId, batch.changes.map((change) => change.key));
   const unchanged: string[] = [];
@@ -339,6 +343,7 @@ export function normalizeBatch(db: Db, projectId: string, batch: BatchChange): {
     const unit = units.get(change.key);
     if (!unit) return [change];
     const next = { ...change };
+    if (options.fillRev && next.rev === undefined) next.rev = unit.updatedAt.getTime();
     if (next.translation !== undefined && next.translation === (unit.translation ?? '')) delete next.translation;
     if (next.status && statusId(next.status) === unit.statusId) delete next.status;
     if (next.listener !== undefined && next.listener === unit.listener) delete next.listener;

@@ -13,6 +13,8 @@ export interface Proposal {
   status: 'pending' | 'accepted' | 'rejected' | 'failed';
   result: unknown;
   source: 'pi' | 'cli';
+  /** What the check left out when the proposal was made, and warnings about what it kept (first entries; counts when trimmed). */
+  report?: { dropped: { key: string; reason: string }[]; warnings: { key: string; issues: string[] }[]; counts?: { dropped: number; warnings: number } } | null;
 }
 
 const STATUS = { accepted: '적용됨', rejected: '거절함', failed: '실패' } as const;
@@ -35,7 +37,7 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
             <span className={proposal.status === 'accepted' ? 'text-emerald-600' : proposal.status === 'failed' ? 'text-destructive' : 'text-muted-foreground'}>
               {STATUS[proposal.status]}
               {failure && ` · ${failure}`}
-              {skipped > 0 && ` · 그사이 바뀐 ${skipped}개는 건너뜀`}
+              {skipped > 0 && ` · ${skipped.toLocaleString()}개는 건너뜀(그사이 바뀌었거나 바꿀 수 없음)`}
             </span>
           )}
           {decide.isPending && <Spinner className="size-3" />}
@@ -43,6 +45,7 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
       </div>
       <div className="px-3 py-2 text-xs">
         <ChangePreview name={proposal.tool} input={proposal.input} />
+        {proposal.report && <ProposalReport report={proposal.report} />}
       </div>
       {proposal.status === 'pending' && (
         <div className="flex justify-end gap-2 border-t px-3 py-2">
@@ -53,6 +56,28 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
             <Check /> 수락
           </Button>
         </div>
+      )}
+    </div>
+  );
+}
+
+/** The check made when the proposal was created: lines it left out and warnings about the rest. */
+function ProposalReport({ report }: { report: NonNullable<Proposal['report']> }) {
+  const dropped = report.counts?.dropped ?? report.dropped.length;
+  const warnings = report.counts?.warnings ?? report.warnings.length;
+  return (
+    <div className="mt-2 space-y-1 border-t pt-2 text-muted-foreground">
+      {dropped > 0 && (
+        <p>
+          제안할 때 뺀 줄 {dropped.toLocaleString()}개: {report.dropped.slice(0, 3).map((entry) => `${entry.key} ${entry.reason}`).join(' · ')}
+          {dropped > 3 && ' …'}
+        </p>
+      )}
+      {warnings > 0 && (
+        <p className="text-amber-700 dark:text-amber-400">
+          경고 {warnings.toLocaleString()}개: {report.warnings.slice(0, 3).map((entry) => `${entry.key} ${entry.issues[0]}`).join(' · ')}
+          {warnings > 3 && ' …'}
+        </p>
       )}
     </div>
   );

@@ -5,6 +5,7 @@ import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { agentCatalog, jsonSchemaOf } from './agent-catalog.ts';
+import { prepareProposal, reportText } from './proposal-check.ts';
 import { propose, proposedText } from './proposals.ts';
 
 /**
@@ -74,8 +75,10 @@ export async function piChatResponse(input: {
       parameters: jsonSchemaOf(tool.schema),
       execute: async (args) => {
         if (tool.changes) {
-          const proposal = propose(db, { projectId: chat.projectId, sessionId: chat.id, source: 'pi', tool: tool.name, input: args });
-          return { text: proposedText(proposal.id), details: { proposalId: proposal.id } };
+          const prepared = prepareProposal(db, chat.projectId, tool.name, args);
+          if (!prepared.ok) return { text: `제안을 만들지 않았습니다: ${prepared.error}`, details: { error: prepared.error } };
+          const proposal = propose(db, { projectId: chat.projectId, sessionId: chat.id, source: 'pi', tool: tool.name, input: prepared.input, report: prepared.report });
+          return { text: proposedText(proposal.id) + reportText(prepared.report), details: { proposalId: proposal.id } };
         }
         const result = await tool.run(args);
         return { text: JSON.stringify(result).slice(0, 40_000), details: result };

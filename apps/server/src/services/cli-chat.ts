@@ -5,6 +5,7 @@ import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { agentCatalog, jsonSchemaOf, type CatalogTool } from './agent-catalog.ts';
+import { prepareProposal, reportText } from './proposal-check.ts';
 import { decisionsSince, propose, proposedText } from './proposals.ts';
 
 /**
@@ -125,10 +126,11 @@ export async function cliChatResponse(input: {
             if (!tool) throw new Error(`알 수 없는 도구입니다: ${call.tool}`);
             let output: unknown;
             if (tool.changes) {
-              tool.schema.parse(call.input);
-              const proposal = propose(db, { projectId: chat.projectId, sessionId: chat.id, source: 'cli', tool: tool.name, input: call.input });
+              const prepared = prepareProposal(db, chat.projectId, tool.name, tool.schema.parse(call.input) as Record<string, unknown>);
+              if (!prepared.ok) throw new Error(`제안을 만들지 않았습니다: ${prepared.error}`);
+              const proposal = propose(db, { projectId: chat.projectId, sessionId: chat.id, source: 'cli', tool: tool.name, input: prepared.input, report: prepared.report });
               output = { proposalId: proposal.id };
-              results.push(`${call.tool}: ${proposedText(proposal.id)}`);
+              results.push(`${call.tool}: ${proposedText(proposal.id)}${reportText(prepared.report)}`);
             } else {
               output = await tool.run(call.input);
               results.push(`${call.tool}: ${JSON.stringify(output).slice(0, RESULT_LIMIT)}`);

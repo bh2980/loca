@@ -247,8 +247,9 @@ export function agentTools(db: Db, projectId: string, author: { profileId: strin
       execute: ({ id, ...input }) => {
         const existing = !id && characterByName(input.name);
         if (existing) return { ok: false, error: `같은 이름의 인물이 이미 있습니다. id=${existing.id}로 수정 제안을 다시 하세요.` };
-        if (id) db.update(s.characters).set({ ...input, reviewed: true }).where(and(eq(s.characters.id, id), eq(s.characters.projectId, projectId))).run();
-        else id = db.insert(s.characters).values({ ...input, projectId }).returning().get().id;
+        if (id) {
+          if (!db.update(s.characters).set({ ...input, reviewed: true }).where(and(eq(s.characters.id, id), eq(s.characters.projectId, projectId))).run().changes) return { ok: false, error: '없는 인물입니다.' };
+        } else id = db.insert(s.characters).values({ ...input, projectId }).returning().get().id;
         changed('knowledge');
         return { ok: true, id };
       },
@@ -261,8 +262,9 @@ export function agentTools(db: Db, projectId: string, author: { profileId: strin
         const a = characterByName(from), b = characterByName(to);
         if (!a || !b) return { ok: false, error: `인물을 먼저 만들어야 합니다: ${!a ? from : to}` };
         const values = { ...input, fromId: a.id, toId: b.id };
-        if (id) db.update(s.relationships).set({ ...values, reviewed: true }).where(and(eq(s.relationships.id, id), eq(s.relationships.projectId, projectId))).run();
-        else id = db.insert(s.relationships).values({ ...values, projectId }).returning().get().id;
+        if (id) {
+          if (!db.update(s.relationships).set({ ...values, reviewed: true }).where(and(eq(s.relationships.id, id), eq(s.relationships.projectId, projectId))).run().changes) return { ok: false, error: '없는 관계입니다.' };
+        } else id = db.insert(s.relationships).values({ ...values, projectId }).returning().get().id;
         changed('knowledge');
         return { ok: true, id };
       },
@@ -273,8 +275,9 @@ export function agentTools(db: Db, projectId: string, author: { profileId: strin
       inputSchema: speechRuleInput.extend({ id: z.string().optional() }),
       needsApproval: true,
       execute: ({ id, ...input }) => {
-        if (id) db.update(s.speechRules).set({ ...input, reviewed: true }).where(and(eq(s.speechRules.id, id), eq(s.speechRules.projectId, projectId))).run();
-        else id = db.insert(s.speechRules).values({ ...input, projectId }).returning().get().id;
+        if (id) {
+          if (!db.update(s.speechRules).set({ ...input, reviewed: true }).where(and(eq(s.speechRules.id, id), eq(s.speechRules.projectId, projectId))).run().changes) return { ok: false, error: '없는 말투 규칙입니다.' };
+        } else id = db.insert(s.speechRules).values({ ...input, projectId }).returning().get().id;
         changed('knowledge');
         return { ok: true, id };
       },
@@ -284,8 +287,9 @@ export function agentTools(db: Db, projectId: string, author: { profileId: strin
       inputSchema: eventInput.extend({ id: z.string().optional() }),
       needsApproval: true,
       execute: ({ id, ...input }) => {
-        if (id) db.update(s.storyEvents).set({ ...input, reviewed: true }).where(and(eq(s.storyEvents.id, id), eq(s.storyEvents.projectId, projectId))).run();
-        else id = db.insert(s.storyEvents).values({ ...input, projectId }).returning().get().id;
+        if (id) {
+          if (!db.update(s.storyEvents).set({ ...input, reviewed: true }).where(and(eq(s.storyEvents.id, id), eq(s.storyEvents.projectId, projectId))).run().changes) return { ok: false, error: '없는 사건입니다.' };
+        } else id = db.insert(s.storyEvents).values({ ...input, projectId }).returning().get().id;
         changed('knowledge');
         return { ok: true, id };
       },
@@ -295,8 +299,9 @@ export function agentTools(db: Db, projectId: string, author: { profileId: strin
       inputSchema: documentInput.extend({ id: z.string().optional() }),
       needsApproval: true,
       execute: ({ id, ...input }) => {
-        if (id) db.update(s.documents).set({ ...input, reviewed: true }).where(and(eq(s.documents.id, id), eq(s.documents.projectId, projectId))).run();
-        else id = db.insert(s.documents).values({ ...input, projectId }).returning().get().id;
+        if (id) {
+          if (!db.update(s.documents).set({ ...input, reviewed: true }).where(and(eq(s.documents.id, id), eq(s.documents.projectId, projectId))).run().changes) return { ok: false, error: '없는 문서입니다.' };
+        } else id = db.insert(s.documents).values({ ...input, projectId }).returning().get().id;
         changed('knowledge');
         return { ok: true, id };
       },
@@ -306,14 +311,16 @@ export function agentTools(db: Db, projectId: string, author: { profileId: strin
       inputSchema: z.object({ terms: z.array(termInput.extend({ id: z.string().optional() })).min(1).max(200) }),
       needsApproval: true,
       execute: ({ terms }) => {
+        const missing: string[] = [];
         db.transaction((tx) => {
           for (const { id, ...term } of terms) {
-            if (id) tx.update(s.terms).set({ ...term, reviewed: true }).where(and(eq(s.terms.id, id), eq(s.terms.projectId, projectId))).run();
-            else tx.insert(s.terms).values({ ...term, projectId }).run();
+            if (id) {
+              if (!tx.update(s.terms).set({ ...term, reviewed: true }).where(and(eq(s.terms.id, id), eq(s.terms.projectId, projectId))).run().changes) missing.push(id);
+            } else tx.insert(s.terms).values({ ...term, projectId }).run();
           }
         });
         changed('terms');
-        return { ok: true, count: terms.length };
+        return { ok: true, count: terms.length - missing.length, ...(missing.length && { skipped: missing.map((id) => ({ id, reason: '없는 용어' })) }) };
       },
     }),
     save_profile: tool({
@@ -322,8 +329,9 @@ export function agentTools(db: Db, projectId: string, author: { profileId: strin
       needsApproval: true,
       execute: ({ id, ...input }) => {
         if (!db.select().from(s.connections).where(eq(s.connections.id, input.connectionId)).get()) return { ok: false, error: '없는 연결입니다.' };
-        if (id) db.update(s.profiles).set(input).where(eq(s.profiles.id, id)).run();
-        else id = db.insert(s.profiles).values(input).returning().get().id;
+        if (id) {
+          if (!db.update(s.profiles).set(input).where(eq(s.profiles.id, id)).run().changes) return { ok: false, error: '없는 프로필입니다.' };
+        } else id = db.insert(s.profiles).values(input).returning().get().id;
         events.changed(undefined, 'profiles');
         return { ok: true, id };
       },
@@ -408,9 +416,11 @@ export function agentTools(db: Db, projectId: string, author: { profileId: strin
       execute: (raw) => {
         const { batch } = normalizeBatch(db, projectId, raw);
         if (!batch.changes.length) return { ok: true, applied: 0, skipped: [], note: '바뀌는 내용이 없습니다.' };
+        // Like `loca import`: the lines that cannot change are skipped and reported, the rest applied.
         const report = validateBatch(db, projectId, batch);
-        if (report.errors.length) return { ok: false, error: `${report.errors.length}개 줄에 오류가 있습니다: ${report.errors[0].key} ${report.errors[0].reason}` };
-        return applyBatch(db, projectId, batch);
+        const bad = new Map([...report.errors, ...report.conflicts].map((entry) => [entry.key, entry.reason]));
+        const result = applyBatch(db, projectId, { ...batch, changes: batch.changes.filter((change) => !bad.has(change.key)) });
+        return { ...result, skipped: [...[...bad].map(([key, reason]) => ({ key, reason })), ...result.skipped] };
       },
     }),
     save_status: tool({

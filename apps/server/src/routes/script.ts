@@ -6,6 +6,7 @@ import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { agentCatalog, jsonSchemaOf } from '../services/agent-catalog.ts';
 import { previewContext } from '../services/context-preview.ts';
+import { prepareProposal, reportText } from '../services/proposal-check.ts';
 import { propose, proposedText } from '../services/proposals.ts';
 import { checkScript, exportLines, findLines, firstAppearance, lineContext, normalizeBatch, runStats, sceneStats, scenesWith, validateBatch } from '../services/script-query.ts';
 
@@ -61,7 +62,7 @@ export const scriptRoutes = new Hono<Env>()
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     const { dryRun, ...raw } = c.req.valid('json');
-    const { batch, unchanged } = normalizeBatch(db, projectId, raw);
+    const { batch, unchanged } = normalizeBatch(db, projectId, raw, { fillRev: true });
     if (!batch.changes.length) return c.json({ total: raw.changes.length, unchanged: unchanged.length, changes: 0, conflicts: [], errors: [], warnings: [], proposalId: null });
     const report = { ...validateBatch(db, projectId, batch), total: raw.changes.length, unchanged: unchanged.length };
     if (dryRun) return c.json({ ...report, proposalId: null });
@@ -69,7 +70,8 @@ export const scriptRoutes = new Hono<Env>()
     const bad = new Set([...report.errors, ...report.conflicts].map((entry) => entry.key));
     const changes = batch.changes.filter((change) => !bad.has(change.key));
     if (!changes.length) return c.json({ ...report, proposalId: null });
-    const proposal = propose(db, { projectId, sessionId: null, source: 'cli', tool: 'propose_changes', input: { ...batch, changes } });
+    const dropped = [...report.errors, ...report.conflicts];
+    const proposal = propose(db, { projectId, sessionId: null, source: 'cli', tool: 'propose_changes', input: { ...batch, changes }, report: dropped.length || report.warnings.length ? { dropped, warnings: report.warnings } : null });
     return c.json({ ...report, proposalId: proposal.id });
   })
   /** Every agent tool, for `loca tools` / `loca call`. Change tools return a proposal instead of running. */
@@ -85,8 +87,10 @@ export const scriptRoutes = new Hono<Env>()
     const parsed = tool.schema.safeParse(input);
     if (!parsed.success) return badRequest(`입력이 맞지 않습니다: ${parsed.error.issues.map((issue) => `${issue.path.join('.')} ${issue.message}`).join('; ')}`);
     if (tool.changes) {
-      const proposal = propose(db, { projectId, sessionId: null, source: 'cli', tool: tool.name, input: parsed.data as Record<string, unknown> });
-      return c.json({ proposed: true, proposalId: proposal.id, message: proposedText(proposal.id) });
+      const prepared = prepareProposal(db, projectId, tool.name, parsed.data as Record<string, unknown>);
+      if (!prepared.ok) return badRequest(prepared.error);
+      const proposal = propose(db, { projectId, sessionId: null, source: 'cli', tool: tool.name, input: prepared.input, report: prepared.report });
+      return c.json({ proposed: true, proposalId: proposal.id, message: proposedText(proposal.id) + reportText(prepared.report), report: prepared.report });
     }
     return c.json({ proposed: false, result: await tool.run(parsed.data) });
   })

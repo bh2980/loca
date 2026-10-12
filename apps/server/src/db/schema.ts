@@ -483,6 +483,12 @@ export const runSteps = sqliteTable(
  * A change an agent asked for outside the AI SDK approval flow (pi chat, the CLI). Nothing is
  * applied until a person accepts it in the chat panel; then the same tool runs with this input.
  */
+/** Lines a batch proposal left out (errors, conflicts) and warnings about the ones it kept. */
+export interface ProposalReport {
+  dropped: { key: string; reason: string }[];
+  warnings: { key: string; issues: string[] }[];
+}
+
 export const proposals = sqliteTable(
   'proposals',
   {
@@ -493,6 +499,8 @@ export const proposals = sqliteTable(
     source: text('source', { enum: ['pi', 'cli'] }).notNull(),
     tool: text('tool').notNull(),
     input: json<Record<string, unknown>>('input').notNull(),
+    /** What the check at proposing time left out or warns about (see proposal-check.ts). */
+    report: json<ProposalReport>('report'),
     status: text('status', { enum: ['pending', 'accepted', 'rejected', 'failed'] }).notNull().default('pending'),
     result: json<unknown>('result'),
     createdAt: createdAt(),
