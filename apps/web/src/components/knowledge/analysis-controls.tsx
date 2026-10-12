@@ -97,7 +97,7 @@ export function StartAnalysis({ projectId }: { projectId: string }) {
           </div>
           <p className="text-[11px] text-muted-foreground">
             {autoConfirm
-              ? '결과가 바로 번역 문맥에 쓰입니다. 다만 대사가 많은 주요 쌍, 엇갈리거나 근거가 맞지 않는 말투 규칙은 후보로 남아 확인을 기다립니다.'
+              ? '결과가 바로 번역 문맥에 쓰입니다. 대사가 많은 주요 쌍, 엇갈리거나 근거가 맞지 않는 말투 규칙에는 "확인 권장" 표시가 붙습니다.'
               : '결과가 후보로 들어오고, 확정한 것만 번역 문맥에 쓰입니다.'}
           </p>
         </div>
