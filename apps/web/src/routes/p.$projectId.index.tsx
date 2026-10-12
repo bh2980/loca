@@ -5,7 +5,7 @@ import { Page } from '@/components/page';
 import { StatusBar, StatusDot } from '@/components/status';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { q } from '@/lib/queries';
 import { RUN_STATUS } from '@/lib/labels';
@@ -76,26 +76,24 @@ function Dashboard() {
         </Card>
 
         <Card className="lg:col-span-3">
-          <CardHeader className="flex-row items-start justify-between">
-            <div>
-              <CardTitle>실행</CardTitle>
-              <CardDescription>
-                {active.length ? `진행 중 ${active.length}개` : '진행 중인 실행이 없습니다.'}
-                {pending.length > 0 && ` · AI 호출 진행 중 ${pending.length}건 (${[...new Set(pending.map((call) => call.label))].slice(0, 3).join(', ')})`}
-              </CardDescription>
-            </div>
-            <div className="flex gap-2">
-            <Button asChild size="sm" variant="outline">
-              <Link to="/p/$projectId/runs" params={{ projectId }} search={{ view: 'calls' }}>
-                <History /> 모든 AI 호출
-              </Link>
-            </Button>
-            <Button asChild size="sm" variant="outline">
-              <Link to="/p/$projectId/workflows" params={{ projectId }}>
-                <Workflow /> 워크플로 목록
-              </Link>
-            </Button>
-            </div>
+          <CardHeader>
+            <CardTitle>실행</CardTitle>
+            <CardDescription>
+              {active.length ? `진행 중 ${active.length}개` : '진행 중인 실행이 없습니다.'}
+              {pending.length > 0 && ` · AI 호출 진행 중 ${pending.length}건 (${[...new Set(pending.map((call) => call.label))].slice(0, 3).join(', ')})`}
+            </CardDescription>
+            <CardAction className="flex gap-2">
+              <Button asChild size="sm" variant="outline">
+                <Link to="/p/$projectId/runs" params={{ projectId }} search={pending.length ? { view: 'calls' } : {}}>
+                  <History /> 실행 기록
+                </Link>
+              </Button>
+              <Button asChild size="sm" variant="outline">
+                <Link to="/p/$projectId/workflows" params={{ projectId }}>
+                  <Workflow /> 워크플로 목록
+                </Link>
+              </Button>
+            </CardAction>
           </CardHeader>
           <CardContent>
             <ul className="divide-y">

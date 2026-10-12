@@ -36,7 +36,7 @@ function Runs() {
       <Tabs value={search.view ?? 'runs'} onValueChange={(value) => void navigate({ search: value === 'calls' ? { view: 'calls' } : {} })} className="mb-4">
         <TabsList>
           <TabsTrigger value="runs">워크플로 실행</TabsTrigger>
-          <TabsTrigger value="calls">모든 AI 호출</TabsTrigger>
+          <TabsTrigger value="calls">AI 호출</TabsTrigger>
         </TabsList>
       </Tabs>
       {search.view === 'calls' ? <Calls /> : <RunList />}
