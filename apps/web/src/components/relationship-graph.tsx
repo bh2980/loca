@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { applyNodeChanges, BaseEdge, Background, Controls, EdgeLabelRenderer, Handle, MarkerType, Panel, Position, ReactFlow, useInternalNode, type Edge, type EdgeProps, type InternalNode, type Node, type NodeChange, type NodeProps } from '@xyflow/react';
+import { BaseEdge, Background, Controls, EdgeLabelRenderer, Handle, MarkerType, Panel, Position, ReactFlow, useInternalNode, type Edge, type EdgeProps, type InternalNode, type Node, type NodeChange, type NodeProps } from '@xyflow/react';
 import { Button } from '@/components/ui/button';
 import ELK from 'elkjs/lib/elk.bundled.js';
 import '@xyflow/react/dist/style.css';
@@ -185,9 +185,11 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
       })),
     [characters, positions, placed, selectedCharacterId, emphasis],
   );
-  // React Flow moves a dragged node through these changes; the drop is kept in `placed`.
-  const [flowNodes, setFlowNodes] = useState(nodes);
-  useEffect(() => setFlowNodes(nodes), [nodes]);
+  // Where nodes are while being dragged, on top of the memoized nodes: emphasis or selection changing
+  // mid-drag must not put a node back where it was. The drop is kept in `placed`.
+  const [moving, setMoving] = useState<Record<string, { x: number; y: number }>>({});
+  const [dragging, setDragging] = useState(false);
+  const flowNodes = useMemo(() => nodes.map((node) => (moving[node.id] ? { ...node, position: moving[node.id] } : node)), [nodes, moving]);
   const edges = useMemo<RelationEdge[]>(() => {
     const marker = { type: MarkerType.ArrowClosed, color: '#71717a' };
     const result: RelationEdge[] = [];
@@ -228,10 +230,18 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
       key={positions.key}
       nodes={flowNodes}
       edges={edges}
-      onNodesChange={(changes: NodeChange<PersonNode>[]) => setFlowNodes((current) => applyNodeChanges(changes, current))}
-      onNodeDragStop={(_event, _node, dragged) => place({ ...placed, ...Object.fromEntries(dragged.map((node) => [node.id, node.position])) })}
-      onNodeMouseEnter={(_event, node) => setHovered(node.id)}
-      onNodeMouseLeave={() => setHovered(null)}
+      onNodesChange={(changes: NodeChange<PersonNode>[]) => {
+        const moved = changes.flatMap((change) => (change.type === 'position' && change.position ? [[change.id, change.position] as const] : []));
+        if (moved.length) setMoving((current) => ({ ...current, ...Object.fromEntries(moved) }));
+      }}
+      onNodeDragStart={() => setDragging(true)}
+      onNodeDragStop={(_event, _node, dragged) => {
+        place({ ...placed, ...Object.fromEntries(dragged.map((node) => [node.id, node.position])) });
+        setMoving({});
+        setDragging(false);
+      }}
+      onNodeMouseEnter={(_event, node) => !dragging && setHovered(node.id)}
+      onNodeMouseLeave={() => !dragging && setHovered(null)}
       nodeTypes={nodeTypes}
       edgeTypes={edgeTypes}
       fitView
