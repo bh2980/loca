@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { and, asc, count, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { knowledgeTemplate, listenerTemplate, nodeProfileIds, speechFixTemplate, termExtractionTemplate, translationTemplate, validateWorkflow, workflowDefinitionSchema, type WorkflowDefinition } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
@@ -158,7 +158,9 @@ export const workflowRoutes = new Hono<Env>()
     const projectId = c.req.param('projectId');
     const { kind, status, ref, limit } = c.req.valid('query');
     const where = and(eq(s.aiCalls.projectId, projectId), kind ? eq(s.aiCalls.kind, kind) : undefined, status ? eq(s.aiCalls.status, status) : undefined, ref ? eq(s.aiCalls.refId, ref) : undefined);
-    const calls = db.select().from(s.aiCalls).where(where).orderBy(desc(s.aiCalls.startedAt)).limit(limit).all();
+    // What was sent can be a whole script; it is fetched one call at a time (below), not listed.
+    const { request: _request, ...listed } = getTableColumns(s.aiCalls);
+    const calls = db.select({ ...listed, hasRequest: sql<boolean>`${s.aiCalls.request} is not null` }).from(s.aiCalls).where(where).orderBy(desc(s.aiCalls.startedAt)).limit(limit).all();
     const profiles = new Map(db.select({ id: s.profiles.id, name: s.profiles.name }).from(s.profiles).all().map((profile) => [profile.id, profile.name]));
     const totals = db
       .select({
@@ -173,7 +175,28 @@ export const workflowRoutes = new Hono<Env>()
       .where(eq(s.aiCalls.projectId, projectId))
       .groupBy(s.aiCalls.kind)
       .all();
-    return c.json({ calls: calls.map((call) => ({ ...call, profileName: call.profileId ? (profiles.get(call.profileId) ?? null) : null })), totals });
+    return c.json({ calls: calls.map((call) => ({ ...call, hasRequest: Boolean(call.hasRequest), profileName: call.profileId ? (profiles.get(call.profileId) ?? null) : null })), totals });
+  })
+  /** What one model request sent (system prompt, then the prompt), when it was kept. */
+  .get('/projects/:projectId/ai-calls/:id/request', (c) => {
+    const row = found(c.var.deps.db.select({ request: s.aiCalls.request }).from(s.aiCalls).where(and(eq(s.aiCalls.id, c.req.param('id')), eq(s.aiCalls.projectId, c.req.param('projectId')))).get(), 'AI 호출');
+    return c.json({ request: row.request });
+  })
+  /**
+   * How fast a model has answered before, for "보통 약 N분": the median seconds per 1,000 input tokens
+   * over finished requests of this kind with this model, across every project.
+   */
+  .get('/ai-calls/pace', validate('query', z.object({ model: z.string().min(1), kind: z.enum(s.AI_CALL_KINDS) })), (c) => {
+    const { model, kind } = c.req.valid('query');
+    const rows = c.var.deps.db
+      .select({ input: s.aiCalls.inputTokens, started: s.aiCalls.startedAt, finished: s.aiCalls.finishedAt })
+      .from(s.aiCalls)
+      .where(and(eq(s.aiCalls.model, model), eq(s.aiCalls.kind, kind), eq(s.aiCalls.status, 'ok'), sql`${s.aiCalls.inputTokens} > 0`, sql`${s.aiCalls.finishedAt} is not null`))
+      .orderBy(desc(s.aiCalls.startedAt))
+      .limit(50)
+      .all();
+    const rates = rows.map((row) => (row.finished!.getTime() - row.started.getTime()) / 1000 / (row.input! / 1000)).sort((a, b) => a - b);
+    return c.json({ samples: rates.length, secondsPer1k: rates.length ? rates[Math.floor(rates.length / 2)] : null });
   })
   /**
    * AI jobs that are not workflow runs (work analysis, glossary fill), for 실행 기록 to list beside

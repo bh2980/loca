@@ -10,6 +10,8 @@ export interface CallMeta {
   refId?: string | null;
   label: string;
   profileId?: string | null;
+  /** What was sent, kept so the record can show it (work analysis, glossary fills). */
+  request?: string;
 }
 
 const usageOf = (usage: ai.Usage | undefined) => ({
@@ -23,7 +25,7 @@ const usageOf = (usage: ai.Usage | undefined) => ({
 export function startCall(db: Db, meta: CallMeta, route: Pick<ai.ResolvedRoute, 'kind' | 'model'>) {
   const id = crypto.randomUUID();
   db.insert(s.aiCalls)
-    .values({ id, projectId: meta.projectId, kind: meta.kind, refId: meta.refId ?? null, label: meta.label, profileId: meta.profileId ?? null, connectionKind: route.kind, model: route.model, startedAt: new Date() })
+    .values({ id, projectId: meta.projectId, kind: meta.kind, refId: meta.refId ?? null, label: meta.label, profileId: meta.profileId ?? null, connectionKind: route.kind, model: route.model, request: meta.request ?? null, startedAt: new Date() })
     .run();
   events.changed(meta.projectId ?? undefined, 'calls');
   let done = false;

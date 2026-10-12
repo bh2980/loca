@@ -15,7 +15,7 @@ export const q = {
     queryOptions({ queryKey: ['units', 'groups', projectId, query], queryFn: () => unwrap(client.projects[':projectId'].groups.$get({ param: { projectId }, query })) }),
   group: (groupId: string) => queryOptions({ queryKey: ['units', 'group', groupId], queryFn: () => unwrap(client.groups[':groupId'].$get({ param: { groupId } })) }),
   speakers: (projectId: string) => queryOptions({ queryKey: ['units', 'speakers', projectId], queryFn: () => unwrap(client.projects[':projectId'].speakers.$get({ param: { projectId } })) }),
-  units: (projectId: string, query: { groupId?: string; kind?: 'scene' | 'document' | 'ui'; statusId?: string; tagId?: string; q?: string; speaker?: string; listener?: string; review?: '1'; remaining?: '1'; offset?: number; limit?: number }) =>
+  units: (projectId: string, query: { groupId?: string; kind?: 'scene' | 'document' | 'ui'; statusId?: string; tagId?: string; q?: string; speaker?: string; listener?: string; review?: '1'; remaining?: '1'; focus?: string; offset?: number; limit?: number }) =>
     queryOptions({
       queryKey: ['units', 'list', projectId, query],
       queryFn: () =>
@@ -72,6 +72,12 @@ export const q = {
   /** The project's AI log (every model request); `kind` narrows it to one source. */
   aiCalls: (projectId: string, kind?: 'run' | 'analysis' | 'terms' | 'test' | 'chat', ref?: string) =>
     queryOptions({ queryKey: ['calls', projectId, kind ?? '', ref ?? ''], queryFn: () => unwrap(client.projects[':projectId']['ai-calls'].$get({ param: { projectId }, query: { ...(kind && { kind }), ...(ref && { ref }) } })) }),
+  /** What one model request sent (kept for work analysis and glossary fills). */
+  aiCallRequest: (projectId: string, id: string) =>
+    queryOptions({ queryKey: ['calls', 'request', id], queryFn: () => unwrap(client.projects[':projectId']['ai-calls'][':id'].request.$get({ param: { projectId, id } })), staleTime: Infinity }),
+  /** How fast this model has answered this kind of request before (seconds per 1,000 input tokens). */
+  aiPace: (model: string, kind: 'analysis' | 'terms' | 'run' | 'chat' | 'test') =>
+    queryOptions({ queryKey: ['calls', 'pace', model, kind], queryFn: () => unwrap(client['ai-calls'].pace.$get({ query: { model, kind } })) }),
   /** Work analyses and glossary fills, for 실행 기록 beside the runs. */
   jobs: (projectId: string) => queryOptions({ queryKey: ['runs', projectId, 'jobs'], queryFn: () => unwrap(client.projects[':projectId'].jobs.$get({ param: { projectId } })) }),
   runs: (projectId: string) => queryOptions({ queryKey: ['runs', projectId], queryFn: () => unwrap(client.projects[':projectId'].runs.$get({ param: { projectId } })) }),

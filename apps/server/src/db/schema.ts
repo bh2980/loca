@@ -243,6 +243,8 @@ export const aiCalls = sqliteTable(
     cachedInputTokens: integer('cached_input_tokens'),
     outputTokens: integer('output_tokens'),
     costUsd: real('cost_usd'),
+    /** What was sent (system prompt and prompt), for work analysis and glossary fills; runs keep theirs in run steps. */
+    request: text('request'),
     startedAt: integer('started_at', { mode: 'timestamp_ms' }).notNull(),
     finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),
   },
@@ -361,6 +363,8 @@ export const analysisJobs = sqliteTable(
     result: json<Record<string, number>>('result'),
     /** Per part: a hash of its script text and the model's answer, so a failed job can be resumed. */
     parts: json<{ hash: string; answer: unknown }[]>('parts'),
+    /** What the analysis reads: lines, scenes and an estimate of the tokens sent (UTF-8 bytes / 4). */
+    input: json<{ lines: number; scenes: number; tokens: number }>('input'),
     error: text('error'),
     createdAt: createdAt(),
     finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),

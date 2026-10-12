@@ -117,7 +117,8 @@ export class AnalysisService {
       ? this.db.select().from(s.analysisJobs).where(and(eq(s.analysisJobs.projectId, projectId), inArray(s.analysisJobs.status, ['failed', 'cancelled']))).orderBy(desc(s.analysisJobs.createdAt)).limit(1).get()
       : undefined;
     const reused = new Map((previous?.parts ?? []).map((part) => [part.hash, part.answer]));
-    const job = this.db.insert(s.analysisJobs).values({ projectId, profileId, model: profile.routes[0]?.model ?? null, status: 'running', partsTotal: parts.length }).returning().get();
+    const input = { lines: keyOf.size, scenes: blocks.length, tokens: Math.round(Buffer.byteLength(parts.join('\n\n')) / 4) };
+    const job = this.db.insert(s.analysisJobs).values({ projectId, profileId, model: profile.routes[0]?.model ?? null, status: 'running', partsTotal: parts.length, input }).returning().get();
     const abort = new AbortController();
     this.aborts.set(job.id, abort);
     events.changed(projectId, 'runs', 'analysis');
@@ -159,14 +160,16 @@ export class AnalysisService {
         }
         const known: string = merged ? `\n\nALREADY KNOWN from earlier parts (reuse these names; return only what this part adds or changes):\n${summarize(merged)}` : '';
         const where = queue.length > 1 ? `\nThis is part ${index + 1} of ${queue.length} of the script, in order.` : '';
+        const system = [SYSTEM, profile.instructions].filter(Boolean).join('\n\n');
+        const prompt = `${RETURN}${where}${cast}${known}\n\nSCRIPT:\n${part}`;
         const result = await ai
           .withFallback(
             routes,
             profile.maxAttempts,
             (route) =>
-              logged(this.db, { projectId: job.projectId, kind: 'analysis', refId: job.id, label: `작품 분석 ${index + 1}/${queue.length}`, profileId: profile.id }, route, () => this.model.generate<Analysis>(route, {
-                system: [SYSTEM, profile.instructions].filter(Boolean).join('\n\n'),
-                prompt: `${RETURN}${where}${cast}${known}\n\nSCRIPT:\n${part}`,
+              logged(this.db, { projectId: job.projectId, kind: 'analysis', refId: job.id, label: `작품 분석 ${index + 1}/${queue.length}`, profileId: profile.id, request: `${system}\n\n---\n\n${prompt}` }, route, () => this.model.generate<Analysis>(route, {
+                system,
+                prompt,
                 schema: analysisSchema,
                 maxOutputTokens: profile.maxOutputTokens,
                 temperature: profile.temperature ?? undefined,

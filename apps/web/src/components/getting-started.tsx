@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { hasAnalysis, StartAnalysis } from '@/components/knowledge/analysis-controls';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { Button } from '@/components/ui/button';
-import { Elapsed, JobProgress } from '@/components/job-progress';
+import { AnalysisSteps } from '@/components/job-progress';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
@@ -75,20 +75,20 @@ export function GettingStarted({ projectId }: { projectId: string }) {
       done: analysed,
       action: (primary) => <StartAnalysis projectId={projectId} variant={primary ? 'default' : 'outline'} />,
       progress: reading && (
-        <div className="mt-2 space-y-1.5">
-          <JobProgress done={reading.partsDone} total={reading.partsTotal} running />
-          <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
-            <span>
-              대본을 읽는 중 · {reading.model} · <Elapsed since={reading.createdAt} /> 경과
-              {reading.partsTotal > 1 && ` · ${reading.partsDone}/${reading.partsTotal} 부분`}
-            </span>
-            <Link to="/p/$projectId/runs" params={{ projectId }} search={{ job: reading.id }} className="underline underline-offset-2 hover:text-foreground">
-              실행 기록에서 보기
-            </Link>
-            <Button variant="ghost" size="inline" onClick={() => cancel.mutate(reading.id)} disabled={cancel.isPending}>
-              <CircleStop /> 중단
-            </Button>
-          </p>
+        <div className="mt-3">
+          <AnalysisSteps
+            job={reading}
+            actions={
+              <>
+                <Link to="/p/$projectId/runs" params={{ projectId }} search={{ job: reading.id }} className="text-muted-foreground underline underline-offset-2 hover:text-foreground">
+                  실행 기록에서 보기
+                </Link>
+                <Button variant="ghost" size="inline" onClick={() => cancel.mutate(reading.id)} disabled={cancel.isPending}>
+                  <CircleStop /> 중단
+                </Button>
+              </>
+            }
+          />
         </div>
       ),
     },

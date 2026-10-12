@@ -93,9 +93,23 @@ export function LineList({
 }) {
   const statuses = useQuery(q.statuses(projectId));
   const page = search.page ?? 0;
+  // Lines picked here (click, keys); any other line in the URL arrived from elsewhere (a link).
+  const pickedHere = useRef<string | undefined>(undefined);
+  // A line that arrives from a link may sit on any page: the server opens the page that holds it,
+  // then the URL takes that page (replace), so paging and Back keep working from there.
+  const [focusing, setFocusing] = useState<string | undefined>(() => search.line);
+  useEffect(() => {
+    if (search.line && search.line !== pickedHere.current) setFocusing(search.line);
+  }, [search.line]);
   const lines = useQuery(
-    q.units(projectId, { groupId, kind, review: review ? '1' : undefined, remaining: search.remaining ? '1' : undefined, q: search.q, statusId: search.status, tagId: search.tag, speaker: search.speaker, listener: search.listener, offset: page * PAGE_SIZE, limit: PAGE_SIZE }),
+    q.units(projectId, { groupId, kind, review: review ? '1' : undefined, remaining: search.remaining ? '1' : undefined, q: search.q, statusId: search.status, tagId: search.tag, speaker: search.speaker, listener: search.listener, focus: focusing, offset: page * PAGE_SIZE, limit: PAGE_SIZE }),
   );
+  useEffect(() => {
+    if (!focusing || !lines.data || lines.isPlaceholderData) return;
+    const held = Math.floor(lines.data.offset / PAGE_SIZE);
+    setFocusing(undefined);
+    if (held !== page) onSearch({ page: held || undefined }, { replace: true });
+  }, [focusing, lines.data, lines.isPlaceholderData]); // eslint-disable-line react-hooks/exhaustive-deps
   const statusList = useMemo(() => statuses.data?.statuses ?? [], [statuses.data]);
   const statusById = new Map(statusList.map((status) => [status.id, status]));
   const tagById = new Map(statuses.data?.tags.map((tag) => [tag.id, tag]));
@@ -136,8 +150,6 @@ export function LineList({
     onSuccess: (_data, { tagId, add }) => toast.success(`${picked.size}개 대사${add ? '에' : '에서'} #${tagById.get(tagId)?.name} 태그를 ${add ? '붙였습니다' : '뗐습니다'}.`),
   });
 
-  // Lines picked here (click, keys); any other line in the URL arrived from elsewhere (a link).
-  const pickedHere = useRef<string | undefined>(undefined);
   // Moving past the end of a page opens the next page and lands on its first (or last) line.
   const landing = useRef<'first' | 'last' | null>(null);
   useEffect(() => {
