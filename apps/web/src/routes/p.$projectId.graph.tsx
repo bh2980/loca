@@ -77,6 +77,8 @@ function GraphPage() {
   const key = viewportKey(projectId, search.scope, search.scene);
   const select = (id: string | undefined) => void navigate({ search: (previous) => ({ ...previous, node: id }), replace: true });
   const layout = graph.data?.layout;
+  const hubs = useMemo(() => new Map((search.scope === 'scene' ? (layout?.hubs ?? []) : []).map((hub) => [hub.id, hub])), [layout, search.scope]);
+  const looseEdges = search.scope === 'dialogue' ? layout?.looseEdges : undefined;
   const hidden = search.scope === 'scene' ? (layout?.hiddenEdges ?? []) : [];
   // Hidden links are drawn as straight lines between the laid-out boxes (bottom centre → top centre).
   const edges = useMemo(() => {
@@ -110,6 +112,8 @@ function GraphPage() {
               nodes={layout.nodes}
               regions={layout.regions}
               edges={edges}
+              looseEdges={looseEdges}
+              hubs={hubs}
               info={info}
               width={size.width}
               height={size.height}
@@ -185,9 +189,21 @@ function GraphPage() {
                 </Button>
               </div>
               <p className="absolute top-3 right-3 rounded-md bg-background/90 px-2 py-1 text-xs text-muted-foreground tabular-nums shadow-sm">
-                노드 {layout.nodes.length.toLocaleString()} · 연결 {edges.length.toLocaleString()}
+                {search.scope === 'scene'
+                  ? `장면 ${(layout.nodes.length - hubs.size).toLocaleString()}${hubs.size ? ` · 연결점 ${hubs.size.toLocaleString()}` : ''} · 연결 ${edges.length.toLocaleString()}`
+                  : `노드 ${layout.nodes.length.toLocaleString()} · 연결 ${(edges.length + (looseEdges?.length ?? 0)).toLocaleString()}`}
                 {highlight && ` · 강조 ${highlight.size.toLocaleString()}`}
               </p>
+              {search.scope === 'dialogue' && !!looseEdges?.length && (
+                <p className="absolute top-11 right-3 rounded-md bg-background/90 px-2 py-1 text-xs text-muted-foreground shadow-sm">
+                  직선: 허브 연결(배치에서 제외) {looseEdges.length.toLocaleString()}개
+                </p>
+              )}
+              {search.scope === 'scene' && hubs.size > 0 && (
+                <p className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-md bg-background/90 px-2 py-1 text-xs text-muted-foreground shadow-sm">
+                  연결점: 장면에 속하지 않으면서 여러 장면을 잇는 노드 묶음 (대사 그래프에서 파생)
+                </p>
+              )}
               {hidden.length > 0 && (
                 <label className="absolute top-11 right-3 flex items-center gap-2 rounded-md bg-background/90 px-2 py-1 text-xs text-muted-foreground shadow-sm">
                   <Switch
@@ -202,7 +218,19 @@ function GraphPage() {
         </div>
         {search.node && (
           <div className="w-[380px] shrink-0 border-l bg-background">
-            {search.scope === 'scene' ? (
+            {search.scope === 'scene' && hubs.has(search.node) ? (
+              <aside className="flex h-full flex-col gap-2 p-4 text-sm">
+                <div className="flex items-center justify-between">
+                  <h2 className="font-medium">연결점</h2>
+                  <Button size="sm" variant="ghost" onClick={() => select(undefined)}>
+                    닫기
+                  </Button>
+                </div>
+                <p className="text-muted-foreground">
+                  장면에 속하지 않는 노드 {hubs.get(search.node)!.nodes.toLocaleString()}개가 장면 {hubs.get(search.node)!.scenes.toLocaleString()}개를 잇습니다. 대사 그래프에서 파생한 연결입니다.
+                </p>
+              </aside>
+            ) : search.scope === 'scene' ? (
               <SceneNodeDetail projectId={projectId} groupId={search.node} onClose={() => select(undefined)} />
             ) : (
               <DialogueNodeDetail
