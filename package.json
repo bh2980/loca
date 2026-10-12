@@ -12,6 +12,8 @@
     "start": "pnpm --filter @tw/server start",
     "typecheck": "pnpm -r typecheck",
     "test": "vitest run",
+    "budget": "tsx scripts/budget.ts",
+    "verify": "pnpm -r exec tsc --noEmit -p . && vitest run && pnpm budget",
     "db:generate": "pnpm --filter @tw/server db:generate",
     "samples": "tsx scripts/make-samples.ts",
     "mock-llm": "tsx scripts/mock-llm.ts",

@@ -104,6 +104,56 @@ export function checkFormat(source: string, target: string, options: FormatCheck
 }
 
 const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const wordRegExp = (name: string) => new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(name)}(?![\\p{L}\\p{N}])`, 'iu');
+const compiled = new Map<string, RegExp>();
+const compiledFor = (name: string) => {
+  let re = compiled.get(name);
+  if (!re) {
+    if (compiled.size > 5000) compiled.clear();
+    compiled.set(name, (re = wordRegExp(name)));
+  }
+  return re;
+};
 /** Whole-word, case-insensitive match that also works next to Hangul or punctuation. */
-export const mentions = (text: string, name: string) =>
-  name.trim().length > 0 && new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(name.trim())}(?![\\p{L}\\p{N}])`, 'iu').test(text);
+export const mentions = (text: string, name: string) => name.trim().length > 0 && compiledFor(name.trim()).test(text);
+
+/** A non-ASCII character that case-folds or case-maps: lowercasing is then not a safe stand-in for the `iu` regex. */
+const EXOTIC_CASE = /(?![\x00-\x7f])[\p{Changes_When_Casemapped}\p{Changes_When_Casefolded}]/u;
+
+export interface TermMatcher<T> {
+  /** The items with a name mentioned in the text (same rules as `mentions`), in their original order. */
+  find(text: string): T[];
+  has(text: string): boolean;
+}
+
+/**
+ * Compiles names once for many texts. Each name keeps one lazily built regex (exactly `mentions`)
+ * behind a cheap lowercase `includes` prefilter, which is skipped for texts or names with exotic
+ * case folding so it can never hide a match.
+ */
+export function termMatcher<T>(items: readonly T[], namesOf: (item: T) => string | readonly string[]): TermMatcher<T> {
+  const entries = items.map((item) => {
+    const raw = namesOf(item);
+    const names = (typeof raw === 'string' ? [raw] : raw).map((name) => name.trim()).filter(Boolean);
+    return {
+      item,
+      names: names.map((name) => ({ name, needle: EXOTIC_CASE.test(name) ? null : name.toLowerCase(), re: null as RegExp | null })),
+    };
+  });
+  const hit = (text: string, lower: string | null, entry: (typeof entries)[number]) =>
+    entry.names.some((candidate) => {
+      if (lower !== null && candidate.needle !== null && !lower.includes(candidate.needle)) return false;
+      return (candidate.re ??= wordRegExp(candidate.name)).test(text);
+    });
+  const lowered = (text: string) => (EXOTIC_CASE.test(text) ? null : text.toLowerCase());
+  return {
+    find(text) {
+      const lower = lowered(text);
+      return entries.filter((entry) => hit(text, lower, entry)).map((entry) => entry.item);
+    },
+    has(text) {
+      const lower = lowered(text);
+      return entries.some((entry) => hit(text, lower, entry));
+    },
+  };
+}

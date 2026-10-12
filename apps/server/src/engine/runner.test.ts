@@ -6,6 +6,7 @@ import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
 import { snapshotProfiles } from '../services/routes.ts';
 import { memoryStore } from '../services/secrets.ts';
+import { promptEntries } from './prompts.ts';
 import { createRun, Runner, type ModelPort } from './runner.ts';
 
 function setup(lines = 30) {
@@ -37,7 +38,7 @@ function fakeModel(): ModelPort & { calls: string[] } {
       throw new Error('unused');
     },
     generate: async (_route, request) => {
-      const input = JSON.parse(request.prompt) as { lines: { id: string; source: string; candidate?: string }[] };
+      const input = { lines: promptEntries(request.prompt) as { id: string; source: string; candidate?: string }[] };
       const kind = request.system.includes('Review each') ? 'review' : request.system.includes('Revise each') ? 'revise' : request.system.includes('Find proper nouns') ? 'terms' : 'translate';
       if (kind === 'terms') return { object: { terms: [{ source: 'Directorate', target: '총국', note: '기관' }, { source: 'Line', target: '줄', note: '' }] }, usage: {} } as never;
       calls.push(kind);
@@ -135,7 +136,7 @@ describe('listener estimation', () => {
       },
       generate: async (_route, request) => {
         prompts.push(request.prompt);
-        const input = JSON.parse(request.prompt) as { lines: { id: string }[] };
+        const input = { lines: promptEntries(request.prompt) as { id: string }[] };
         return { object: { listeners: input.lines.map((line, index) => ({ id: line.id, listener: index === 0 ? 'Pat' : null, confidence: index === 0 ? 0.95 : 0.4 })) }, usage: {} } as never;
       },
     });

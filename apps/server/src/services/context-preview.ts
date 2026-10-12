@@ -1,14 +1,15 @@
-import { and, asc, eq } from 'drizzle-orm';
-import { contextConfigSchema, estimateTokens, nodeName, type AiNode } from '@tw/shared';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { batchConfigSchema, contextConfigSchema, estimateTokens, nodeName, type AiNode } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
+import { planBatches } from '../engine/batches.ts';
 import { buildPrompt } from '../engine/prompts.ts';
 import { buildContext } from './context.ts';
 
 /**
  * What an AI node would send for a line, built exactly as a run builds it but without calling a
- * model. The batch is the one the runner forms inside the line's scene; a run's scope and entry
- * statuses can make it smaller, and "count" batches can cross scenes.
+ * model. The batch is the one the runner forms when the whole script is in scope; a run's scope,
+ * entry statuses and the lines still waiting at the node change which lines share it.
  */
 export function previewContext(db: Db, projectId: string, unitKey: string, pick: { workflowId?: string; nodeId?: string }) {
   const unit = db.select().from(s.units).where(and(eq(s.units.projectId, projectId), eq(s.units.key, unitKey))).get();
@@ -24,23 +25,27 @@ export function previewContext(db: Db, projectId: string, unitKey: string, pick:
   if (!picked) return { unitKey, choices: list, picked: null };
   const node = picked.node;
 
-  const { mode, size } = node.config.batch;
-  let batch = [unit];
-  if (mode !== 'unit') {
-    const scene = db.select().from(s.units).where(eq(s.units.groupId, unit.groupId)).orderBy(asc(s.units.sort)).all();
-    const at = scene.findIndex((row) => row.id === unit.id);
-    batch = scene.slice(Math.floor(at / size) * size, Math.floor(at / size) * size + size);
-  }
+  // The batch the runner would form when the whole script is in scope (same planning rule).
+  const config = batchConfigSchema.parse(node.config.batch ?? {});
+  const all = db
+    .select({ id: s.units.id, groupId: s.units.groupId, sort: s.units.sort, groupSort: s.groups.sort, tokens: sql<number>`(length(cast(${s.units.source} as blob)) + 3) / 4` })
+    .from(s.units)
+    .innerJoin(s.groups, eq(s.groups.id, s.units.groupId))
+    .where(eq(s.units.projectId, projectId))
+    .all();
+  const ids = planBatches(all, config).find((batch) => batch.some((row) => row.id === unit.id))?.map((row) => row.id) ?? [unit.id];
+  const rows = new Map(db.select().from(s.units).where(inArray(s.units.id, ids)).all().map((row) => [row.id, row]));
+  const batch = ids.map((id) => rows.get(id)!);
   const project = db.select().from(s.projects).where(eq(s.projects.id, projectId)).get()!;
   const profile = node.config.profileId ? db.select().from(s.profiles).where(eq(s.profiles.id, node.config.profileId)).get() : undefined;
   const context = buildContext(db, projectId, batch, node.config.context);
-  const lines = batch.map((row, index) => ({ id: String(index + 1), unitId: row.id, key: row.key, speaker: row.speaker, source: row.source, candidate: row.translation ?? undefined }));
+  const lines = batch.map((row, index) => ({ id: String(index + 1), unitId: row.id, groupId: row.groupId, key: row.key, speaker: row.speaker, source: row.source, candidate: row.translation ?? undefined }));
   const { system, prompt } = buildPrompt(node, profile?.instructions ?? '', { source: project.sourceLanguage, target: project.targetLanguage }, context, lines);
   return {
     unitKey,
     choices: list,
     picked: { workflowId: picked.workflowId, nodeId: picked.nodeId },
-    batch: { mode, size, keys: batch.map((row) => row.key) },
+    batch: { mode: config.mode, size: config.size, keys: batch.map((row) => row.key) },
     precedingLines: contextConfigSchema.parse(node.config.context ?? {}).precedingLines,
     /** This line's own preceding lines; empty when the lines before it are in the batch or shown for an earlier line. */
     preceding: context.preceding[unit.id] ?? null,

@@ -1,8 +1,8 @@
 import { and, desc, eq, inArray, lt } from 'drizzle-orm';
 import { CONTEXT_PRIORITY, contextConfigSchema, estimateTokens, mentions, type ContextConfig, type ContextItem, type ContextItemKind } from '@tw/shared';
 import type { Db } from '../db/index.ts';
-import { characters, documents, graphEdges, graphNodes, groups, relationships, terms, units } from '../db/schema.ts';
-import { describeRule, knownListener, speechRuleIndex } from './speech.ts';
+import { graphEdges, graphNodes, groups, units } from '../db/schema.ts';
+import { describeRule, knowledgeOf, knownListener, speechRuleIndex } from './speech.ts';
 import { deriveSceneEdges } from './scene-graph.ts';
 
 export { mentions } from '@tw/shared';
@@ -27,7 +27,8 @@ export interface Preceding {
 }
 
 export interface BatchContext {
-  scene: { title: string; description: string } | null;
+  /** Per group id in the batch: its title always, its description when the budget kept it. A batch can span several scenes. */
+  scenes: Record<string, { title: string; description?: string }>;
   previousScenes: { title: string; description: string }[];
   documents: { kind: string; title: string; body: string }[];
   characters: { name: string; aliases: string[]; profile: string }[];
@@ -164,19 +165,15 @@ export function buildContext(
   // Saved workflows may predate a setting; the schema fills its default.
   const config = contextConfigSchema.parse(stored ?? {});
   const index = graphIndex(db, projectId);
+  const knowledge = knowledgeOf(db, projectId);
   const text = batch.map((unit) => `${unit.speaker ?? ''}\n${unit.source}`).join('\n');
   const groupIds = [...new Set(batch.map((unit) => unit.groupId))];
   const sceneRows = db.select().from(groups).where(inArray(groups.id, groupIds)).all();
-  const result: BatchContext = { scene: null, previousScenes: [], documents: [], characters: [], cast: [], relationships: [], terms: [], speech: {}, preceding: {}, items: [], budget: { limit: config.maxTokens, used: 0 } };
+  const result: BatchContext = { scenes: Object.fromEntries(sceneRows.map((row) => [row.id, { title: row.title }])), previousScenes: [], documents: [], characters: [], cast: [], relationships: [], terms: [], speech: {}, preceding: {}, items: [], budget: { limit: config.maxTokens, used: 0 } };
   const candidates: Record<ContextItemKind, Candidate[]> = { term: [], speech: [], cast: [], preceding: [], character: [], relationship: [], scene: [], previousScene: [], document: [] };
 
   if (config.glossary) {
-    const used = db
-      .select({ source: terms.source, target: terms.target, note: terms.note })
-      .from(terms)
-      .where(and(eq(terms.projectId, projectId), eq(terms.status, 'confirmed')))
-      .all()
-      .filter((term) => mentions(text, term.source));
+    const used = knowledge.terms().matcher.find(text).map(({ source, target, note }) => ({ source, target, note }));
     for (const term of used) candidates.term.push({ item: { kind: 'term', label: `${term.source} → ${term.target}`, reason: '원문에 나오는 확정 용어' }, payload: term, keep: () => result.terms.push(term) });
   }
 
@@ -255,17 +252,13 @@ export function buildContext(
   }
 
   if (config.cast) {
-    const cast = db
-      .select({ name: characters.name, aliases: characters.aliases, player: characters.player })
-      .from(characters)
-      .where(and(eq(characters.projectId, projectId), eq(characters.status, 'confirmed')))
-      .all()
-      .map(({ name, aliases, player }) => ({ name, aliases, ...(player ? { player: true as const } : {}) }));
+    const cast = knowledge.characters().rows.map(({ name, aliases, player }) => ({ name, aliases, ...(player ? { player: true as const } : {}) }));
     if (cast.length) candidates.cast.push({ item: { kind: 'cast', label: `${cast.length}명`, reason: '확정된 인물 전체 (이름·별칭·플레이어 여부)' }, payload: cast, keep: () => (result.cast = cast) });
   }
 
-  const allCharacters = config.characters || config.relationships ? db.select().from(characters).where(and(eq(characters.projectId, projectId), eq(characters.status, 'confirmed'))).all() : [];
-  const present = allCharacters.filter((character) => [character.name, ...character.aliases].some((name) => mentions(text, name)));
+  const confirmedCast = config.characters || config.relationships ? knowledge.characters() : null;
+  const allCharacters = confirmedCast?.rows ?? [];
+  const present = confirmedCast?.matcher.find(text) ?? [];
   if (config.characters)
     for (const { name, aliases, profile } of present) {
       const entry = { name, aliases, profile };
@@ -275,22 +268,20 @@ export function buildContext(
   if (config.relationships) {
     const presentIds = new Set(present.map((character) => character.id));
     const nameOf = new Map(allCharacters.map((character) => [character.id, character.name]));
-    const rels = db
-      .select()
-      .from(relationships)
-      .where(and(eq(relationships.projectId, projectId), eq(relationships.status, 'confirmed')))
-      .all()
-      .filter((rel) => presentIds.has(rel.fromId) && presentIds.has(rel.toId));
+    const rels = knowledge.relationships().filter((rel) => presentIds.has(rel.fromId) && presentIds.has(rel.toId));
     for (const rel of rels) {
       const entry = { from: nameOf.get(rel.fromId)!, to: nameOf.get(rel.toId)!, kind: rel.kind, description: rel.description, mutual: rel.mutual };
       candidates.relationship.push({ item: { kind: 'relationship', label: `${entry.from} → ${entry.to}: ${entry.kind}`, reason: '이 묶음에 나오는 두 인물 사이' }, payload: entry, keep: () => result.relationships.push(entry) });
     }
   }
 
-  if (sceneRows.length === 1) {
-    const scene = { title: sceneRows[0].title, description: sceneRows[0].description };
-    candidates.scene.push({ item: { kind: 'scene', label: scene.title, reason: '이 묶음의 장면' }, payload: scene, keep: () => (result.scene = scene) });
-  }
+  for (const row of sceneRows)
+    if (row.description.trim())
+      candidates.scene.push({
+        item: { kind: 'scene', label: row.title, reason: sceneRows.length > 1 ? '이 묶음에 든 장면 (설명)' : '이 묶음의 장면 (설명)' },
+        payload: row.description,
+        keep: () => (result.scenes[row.id] = { title: row.title, description: row.description }),
+      });
 
   if (config.previousScenes > 0) {
     const ids = [...new Set(groupIds.flatMap((id) => index.previousScenes.get(id) ?? []))].filter((id) => !groupIds.includes(id)).slice(0, config.previousScenes);
@@ -300,7 +291,7 @@ export function buildContext(
   }
 
   if (config.documents) {
-    const rows = db.select({ kind: documents.kind, title: documents.title, body: documents.body }).from(documents).where(and(eq(documents.projectId, projectId), eq(documents.alwaysInclude, true), eq(documents.status, 'confirmed'))).all();
+    const rows = knowledge.alwaysDocuments();
     for (const doc of rows) candidates.document.push({ item: { kind: 'document', label: doc.title, reason: '‘항상 포함’으로 설정된 문서 (전문)' }, payload: doc, keep: () => result.documents.push(doc) });
   }
 

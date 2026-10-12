@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, inArray, notInArray, sql } from 'drizzle-orm';
 import jsonLogic from 'json-logic-js';
 import * as ai from '@tw/ai';
-import { FUNCTIONS, nodeName, type AiNode, type ConditionData, type FunctionName, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import { batchConfigSchema, FUNCTIONS, nodeName, type AiNode, type ConditionData, type FunctionName, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
 import { inChunks, inList } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -11,7 +11,8 @@ import { buildContext } from '../services/context.ts';
 import { resolveRoutes } from '../services/routes.ts';
 import type { SecretStore } from '../services/secrets.ts';
 import { runAsyncFunction, syncFunctions, type FunctionInput, type FunctionResult } from './functions/index.ts';
-import { buildPrompt, outputSchema, type KnowledgeOutput, type PromptLine } from './prompts.ts';
+import { planBatches } from './batches.ts';
+import { buildPrompt, outputSchema, PER_LINE_OUTPUTS, type KnowledgeOutput, type PromptLine } from './prompts.ts';
 
 export interface ModelPort {
   generate: typeof ai.generate;
@@ -24,8 +25,10 @@ type Unit = typeof s.units.$inferSelect;
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 type StepRecord = Omit<typeof s.runSteps.$inferInsert, 'ok' | 'finishedAt'>;
 /** A queued line waiting at a slow node, with its script position for batching. */
-type Waiting = { id: string; unitId: string; nodeId: string; groupId: string; groupSort: number; sort: number };
+type Waiting = { id: string; unitId: string; nodeId: string; groupId: string; groupSort: number; sort: number; tokens: number; since: Date };
 
+/** A partial batch waits this long for more lines from upstream before it is sent anyway. */
+const GATHER_MS = 5_000;
 /** Lines passed through instant nodes per tick; the rest wait for the next tick, so a tick never blocks for long. */
 const SETTLE_PER_TICK = 2_000;
 /**
@@ -47,6 +50,17 @@ const usageColumns = (usage: ai.Usage) => ({
   reasoningTokens: usage.reasoningTokens,
   costUsd: usage.costUsd,
 });
+/**
+ * How many times a line goes back to its node's queue after a call left it out or failed
+ * transiently. It then rides in a later batch with other lines: on an agent CLI every request
+ * carries a large fixed overhead, so asking again for one or two lines alone would cost far more.
+ */
+const MAX_REREQUESTS = 2;
+/** Failures worth trying again later; anything else ends the lines through `error`. */
+const TRANSIENT = new Set(['rate-limit', 'network', 'timeout']);
+/** How many times a malformed answer for several lines is retried as halves. */
+const MAX_SPLITS = 2;
+const MISSING_WHAT: Record<AiNode['config']['output'], string> = { candidate: '번역', verdict: '판정', listener: '청자', json: '결과', terms: '용어', knowledge: '자료' };
 const attemptsOf = (error: unknown): ai.Attempt[] => ((error as { attempts?: ai.Attempt[] }).attempts ?? []);
 
 /** A node's result for one line: the exit to take plus what it produced. */
@@ -160,7 +174,8 @@ export class Runner {
     const stopping = failure?.code ? STOPPING_CODES[failure.code] : undefined;
     if (stopping) return this.halt(runId, `${stopping}로 멈췄습니다: ${failure!.message}`);
     const max = run.definition.settings.maxConsecutiveFailures ?? 3;
-    const recent = this.db.select({ ok: s.runSteps.ok }).from(s.runSteps).where(eq(s.runSteps.runId, runId)).orderBy(desc(s.runSteps.finishedAt)).limit(max).all();
+    // Insertion order, not finished_at: calls that end in the same millisecond must not swap places.
+    const recent = this.db.select({ ok: s.runSteps.ok }).from(s.runSteps).where(eq(s.runSteps.runId, runId)).orderBy(desc(sql`rowid`)).limit(max).all();
     if (recent.length === max && recent.every((step) => !step.ok))
       return this.halt(runId, `호출이 ${max}번 연달아 실패해서 멈췄습니다.${failure ? ` 마지막 오류: ${failure.message}` : ''}`);
     if (!run.limits?.maxCalls && !run.limits?.maxInputTokens) return;
@@ -219,7 +234,50 @@ export class Runner {
     tx.update(s.runItems).set({ nodeId, state, visits, data: { ...item.data, path }, error: message }).where(eq(s.runItems.id, item.id)).run();
   }
 
+  /** Lines still queued or running, per node. */
+  private openByNode(runId: string) {
+    const rows = this.db
+      .select({ nodeId: s.runItems.nodeId, count: sql<number>`count(*)` })
+      .from(s.runItems)
+      .where(and(eq(s.runItems.runId, runId), inArray(s.runItems.state, ['queued', 'running'])))
+      .groupBy(s.runItems.nodeId)
+      .all();
+    return new Map(rows.map((row) => [row.nodeId, row.count]));
+  }
+
+  private upstreams = new Map<string, Map<string, Set<string>>>();
+  /** For each node, every node that can reach it through the run's frozen edges. */
+  private upstream(run: Run) {
+    const known = this.upstreams.get(run.id);
+    if (known) return known;
+    const into = Map.groupBy(run.definition.edges, (edge) => edge.target);
+    const result = new Map<string, Set<string>>();
+    for (const node of run.definition.nodes) {
+      const seen = new Set<string>();
+      const stack = [node.id];
+      while (stack.length)
+        for (const edge of into.get(stack.pop()!) ?? []) {
+          if (seen.has(edge.source)) continue;
+          seen.add(edge.source);
+          stack.push(edge.source);
+        }
+      result.set(node.id, seen);
+    }
+    this.upstreams.set(run.id, result);
+    return result;
+  }
+
   /** Queued lines at instant nodes (anything not slow, unknown nodes included so they fail visibly). */
+  /** Sends a line back to the queue of the node it is at, or out through `error` once it has been back too often. */
+  private retryLater(tx: Tx, run: Run, item: Item, reason: string) {
+    const count = (item.data.retries?.[item.nodeId] ?? 0) + 1;
+    if (count > MAX_REREQUESTS) return this.route(tx, run, item, 'error', `${reason} (다시 시도 ${MAX_REREQUESTS}번 뒤)`);
+    tx.update(s.runItems)
+      .set({ state: 'queued', data: { ...item.data, retries: { ...item.data.retries, [item.nodeId]: count } }, error: reason })
+      .where(eq(s.runItems.id, item.id))
+      .run();
+  }
+
   private queuedInstant(run: Run, slowIds: string[], limit: number) {
     const conditions = [eq(s.runItems.runId, run.id), eq(s.runItems.state, 'queued')];
     if (slowIds.length) conditions.push(notInArray(s.runItems.nodeId, slowIds));
@@ -230,7 +288,17 @@ export class Runner {
   private waiting(run: Run, slowIds: string[]): Waiting[] {
     if (!slowIds.length) return [];
     return this.db
-      .select({ id: s.runItems.id, unitId: s.runItems.unitId, nodeId: s.runItems.nodeId, groupId: s.units.groupId, groupSort: s.groups.sort, sort: s.units.sort })
+      .select({
+        id: s.runItems.id,
+        unitId: s.runItems.unitId,
+        nodeId: s.runItems.nodeId,
+        groupId: s.units.groupId,
+        groupSort: s.groups.sort,
+        sort: s.units.sort,
+        // estimateTokens without loading the text: UTF-8 bytes / 4.
+        tokens: sql<number>`(length(cast(${s.units.source} as blob)) + 3) / 4`,
+        since: s.runItems.updatedAt,
+      })
       .from(s.runItems)
       .innerJoin(s.units, eq(s.units.id, s.runItems.unitId))
       .innerJoin(s.groups, eq(s.groups.id, s.units.groupId))
@@ -280,15 +348,35 @@ export class Runner {
       return false;
     }
 
+    // Full batches go first. A partial one (the last of a node) waits for more lines while upstream
+    // nodes can still send some, unless it has waited GATHER_MS or nothing else is running.
+    const open = this.openByNode(run.id);
+    const upstream = this.upstream(run);
+    const partials: { node: WorkflowNode; batch: Waiting[] }[] = [];
+    const send = (node: WorkflowNode, batch: Waiting[]) => {
+      if ((this.inflight.get(run.id)?.size ?? 0) >= limit) return false;
+      this.dispatch(run, node, batch);
+      changed = true;
+      return true;
+    };
     for (const [nodeId, lines] of Map.groupBy(waiting, (line) => line.nodeId)) {
       const node = this.node(run, nodeId);
       if (!node) continue;
-      const batches = node.type === 'ai' ? this.batches(node, lines) : lines.map((line) => [line]);
-      for (const batch of batches) {
-        if ((this.inflight.get(run.id)?.size ?? 0) >= limit) break;
-        this.dispatch(run, node, batch);
-        changed = true;
+      const config = node.type === 'ai' ? batchConfigSchema.parse(node.config.batch ?? {}) : null;
+      const batches = config ? planBatches(lines, config) : lines.map((line) => [line]);
+      for (const [index, batch] of batches.entries()) {
+        const last = index === batches.length - 1;
+        const full = !config || config.mode === 'unit' || batch.length >= config.size || (config.mode === 'group' && batch.reduce((sum, line) => sum + line.tokens, 0) >= config.maxTokens);
+        if (last && !full) partials.push({ node, batch });
+        else if (!send(node, batch)) break;
       }
+    }
+    const now = Date.now();
+    const idle = (this.inflight.get(run.id)?.size ?? 0) === 0;
+    for (const { node, batch } of partials) {
+      const feeding = [...(upstream.get(node.id) ?? [])].some((id) => id !== node.id && (open.get(id) ?? 0) > 0);
+      const stale = batch.some((line) => now - line.since.getTime() >= GATHER_MS);
+      if (idle || !feeding || stale) send(node, batch);
     }
     if (changed) this.notify(run.id);
     return true;
@@ -344,15 +432,6 @@ export class Runner {
     }
   }
 
-  /** `lines` arrive in script order. "group" keeps a scene's lines together, cut at the batch size. */
-  private batches(node: AiNode, lines: Waiting[]): Waiting[][] {
-    const { mode, size } = node.config.batch;
-    const chunk = (list: Waiting[]) => Array.from({ length: Math.ceil(list.length / size) }, (_, index) => list.slice(index * size, (index + 1) * size));
-    if (mode === 'unit') return lines.map((line) => [line]);
-    if (mode === 'count') return chunk(lines);
-    return [...Map.groupBy(lines, (line) => line.groupId).values()].flatMap(chunk);
-  }
-
   private dispatch(run: Run, node: WorkflowNode, lines: Waiting[]) {
     const ids = lines.map((line) => line.id);
     const byId = new Map(this.db.select().from(s.runItems).where(inArray(s.runItems.id, ids)).all().map((item) => [item.id, item]));
@@ -389,97 +468,136 @@ export class Runner {
   }
 
   private async executeAi(run: Run, node: AiNode, batch: Item[], signal: AbortSignal) {
-    const startedAt = new Date();
-    const project = this.db.select().from(s.projects).where(eq(s.projects.id, run.projectId)).get()!;
-    const unitRows = this.db.select().from(s.units).where(inArray(s.units.id, batch.map((item) => item.unitId))).orderBy(asc(s.units.sort)).all();
-    const unitById = new Map(unitRows.map((unit) => [unit.id, unit]));
-    const lines: PromptLine[] = batch.map((item, index) => {
-      const unit = unitById.get(item.unitId)!;
-      return {
-        id: String(index + 1),
-        unitId: unit.id,
-        key: unit.key,
-        speaker: unit.speaker,
-        source: unit.source,
-        candidate: item.data.candidateText ?? unit.translation ?? undefined,
-        issues: item.data.issues,
-      };
-    });
     const profile = run.profiles[node.config.profileId];
-    const step: StepRecord = { runId: run.id, nodeId: node.id, unitIds: batch.map((item) => item.unitId), startedAt };
-    if (!profile) return this.failBatch(run, batch, step, new Error('AI 프로필이 실행 스냅샷에 없습니다.'));
+    if (!profile) return this.failBatch(run, batch, { runId: run.id, nodeId: node.id, unitIds: batch.map((item) => item.unitId), startedAt: new Date() }, new Error('AI 프로필이 실행 스냅샷에 없습니다.'));
+    const routes = resolveRoutes(profile, this.secrets);
+    if (routes[0]?.kind === 'systemone') return this.judgeLines(run, node, batch, profile, routes, signal);
+    await this.callLines(run, node, profile, routes, batch, signal, 0);
+  }
 
-    const context = buildContext(this.db, run.projectId, unitRows, node.config.context);
+  /** The lines of `items` as the prompt numbers them, in batch (script) order. */
+  private promptLines(items: Item[]) {
+    const units = new Map(this.db.select().from(s.units).where(inArray(s.units.id, items.map((item) => item.unitId))).all().map((unit) => [unit.id, unit]));
+    const rows = items.map((item) => units.get(item.unitId)!);
+    const lines: PromptLine[] = items.map((item, index) => {
+      const unit = units.get(item.unitId)!;
+      return { id: String(index + 1), unitId: unit.id, groupId: unit.groupId, key: unit.key, speaker: unit.speaker, source: unit.source, candidate: item.data.candidateText ?? unit.translation ?? undefined, issues: item.data.issues };
+    });
+    return { rows, lines };
+  }
+
+  /** Lines this call did not finish go back to the queue when the run was paused meanwhile. */
+  private stillRunning(runId: string, items: Item[]) {
+    const status = this.db.select({ status: s.runs.status }).from(s.runs).where(eq(s.runs.id, runId)).get()?.status;
+    if (status === 'running') return true;
+    if (status === 'paused')
+      this.db.update(s.runItems).set({ state: 'queued' }).where(and(inArray(s.runItems.id, items.map((item) => item.id)), eq(s.runItems.state, 'running'))).run();
+    return false;
+  }
+
+  /**
+   * One model request for `items`. Lines a per-line answer left out (or answered empty) go back to
+   * the node's queue for a later batch (see MAX_REREQUESTS); answered lines move on at once. A
+   * malformed answer for several lines is retried right away as two halves, MAX_SPLITS levels deep,
+   * so one bad line does not fail a whole batch. Every request is recorded as its own step.
+   */
+  private async callLines(run: Run, node: AiNode, profile: s.ProfileSnapshot, routes: ai.ResolvedRoute[], items: Item[], signal: AbortSignal, depth: number): Promise<void> {
+    const project = this.db.select().from(s.projects).where(eq(s.projects.id, run.projectId)).get()!;
+    const { rows, lines } = this.promptLines(items);
+    const round = Math.max(0, ...items.map((item) => item.data.retries?.[node.id] ?? 0));
+    const step: StepRecord = { runId: run.id, nodeId: node.id, unitIds: items.map((item) => item.unitId), startedAt: new Date(), round };
+    const context = buildContext(this.db, run.projectId, rows, node.config.context);
     step.context = context.items;
     const { system, prompt } = buildPrompt(node, profile.instructions, { source: project.sourceLanguage, target: project.targetLanguage }, context, lines);
-    const routes = resolveRoutes(profile, this.secrets);
-    const request = { system, prompt, maxOutputTokens: profile.maxOutputTokens, temperature: profile.temperature ?? undefined, timeoutMs: profile.timeoutSeconds * 1000, signal };
-    const fullPrompt = `${system}\n\n${prompt}`;
+    const perLine = PER_LINE_OUTPUTS.has(node.config.output);
+    const request = { system, prompt, schema: outputSchema(node, perLine ? lines.map((line) => line.id) : undefined), maxOutputTokens: profile.maxOutputTokens, temperature: profile.temperature ?? undefined, timeoutMs: profile.timeoutSeconds * 1000, signal };
+    step.prompt = `${system}\n\n${prompt}`;
 
     try {
-      let outcomes: Outcome[];
-      let model = routes[0]?.model;
-      let attempts: ai.Attempt[] = [];
-      let usage: ai.Usage = {};
-      let raw: unknown;
-      const judged: ai.Usage[] = [];
-
-      if (routes[0]?.kind === 'systemone') {
-        // A judge model answers one line at a time and only supports verdicts.
-        if (node.config.output !== 'verdict') throw new Error('System One 프로필은 출력 형태가 "판정"인 AI 노드에서만 쓸 수 있습니다.');
-        outcomes = [];
-        for (const line of lines) {
-          const outcome = await ai.withFallback(
-            routes,
-            profile.maxAttempts,
-            (route) =>
-              this.model.judge(route, {
-                state: { source: line.source, translation: line.candidate ?? '', speaker: line.speaker, context: { scene: context.scene, characters: context.characters, glossary: context.terms } },
-                instructions: [node.config.instructions, profile.instructions].filter(Boolean).join('\n') || 'Is this translation acceptable as is?',
-                timeoutMs: request.timeoutMs,
-                signal,
-              }),
-            signal,
-          );
-          attempts = [...attempts, ...outcome.attempts];
-          judged.push(outcome.result.usage);
-          const issues = outcome.result.passed ? [] : ['System One이 수정 필요로 판정했습니다.'];
-          outcomes.push({ port: outcome.result.passed ? 'pass' : 'fail', issues, output: { passed: outcome.result.passed, issues, confidence: outcome.result.confidence } });
-        }
-        raw = outcomes;
-        usage = stepUsage(attempts, judged.reduce(ai.addUsage, {}));
-      } else {
-        const result = await ai.withFallback(routes, profile.maxAttempts, (route) => this.model.generate(route, { ...request, schema: outputSchema(node) }), signal);
-        model = result.route.model;
-        attempts = result.attempts;
-        usage = stepUsage(result.attempts, result.result.usage);
-        raw = result.result.object;
-        outcomes = this.readAiOutput(node, raw, lines, profile.id, model);
-      }
-
+      const result = await ai.withFallback(routes, profile.maxAttempts, (route) => this.model.generate(route, request), signal);
+      const raw = result.result.object;
+      const outcomes = this.readAiOutput(node, raw, lines, profile.id, result.route.model);
+      const answered = outcomes.filter(Boolean).length;
       this.db.transaction((tx) => {
-        batch.forEach((item, index) => this.record(tx, run, item, outcomes[index]));
+        items.forEach((item, index) => {
+          const outcome = outcomes[index];
+          if (outcome) this.record(tx, run, item, outcome);
+          else this.retryLater(tx, run, item, `모델 응답에 이 대사의 ${MISSING_WHAT[node.config.output]}이(가) 없습니다.`);
+        });
         tx.insert(s.runSteps)
-          .values({ ...step, ok: true, model, prompt: routes[0]?.kind === 'systemone' ? null : fullPrompt, output: raw, attempts, ...usageColumns(usage), finishedAt: new Date() })
+          .values({ ...step, ok: true, model: result.route.model, output: raw, attempts: result.attempts, returnedLines: perLine ? answered : null, ...usageColumns(stepUsage(result.attempts, result.result.usage)), finishedAt: new Date() })
           .run();
       });
       this.notify(run.id);
       this.guard(run.id);
     } catch (error) {
       if (signal.aborted) return;
-      this.failBatch(run, batch, { ...step, prompt: fullPrompt, attempts: attemptsOf(error) }, error);
+      const malformed = (error as { code?: string }).code === 'invalid-output';
+      if (!(malformed && items.length > 1 && depth < MAX_SPLITS)) return this.failBatch(run, items, { ...step, attempts: attemptsOf(error) }, error);
+      // Record the failed request, then try each half on its own.
+      const message = error instanceof Error ? error.message : String(error);
+      this.db.insert(s.runSteps).values({ ...step, ok: false, error: `${message} (반으로 나눠 다시 보냄)`, attempts: attemptsOf(error), ...usageColumns(stepUsage(attemptsOf(error), (error as { usage?: ai.Usage }).usage)), finishedAt: new Date() }).run();
+      this.guard(run.id, { code: 'invalid-output', message });
+      const half = Math.ceil(items.length / 2);
+      for (const part of [items.slice(0, half), items.slice(half)]) {
+        if (!this.stillRunning(run.id, part)) return;
+        await this.callLines(run, node, profile, routes, part, signal, depth + 1);
+      }
     }
   }
 
-  /** Turn the model's structured answer into one Outcome per line, by output kind. */
-  private readAiOutput(node: AiNode, raw: unknown, lines: PromptLine[], profileId: string, model: string): Outcome[] {
-    const missing = (what: string): Outcome => ({ port: 'error', error: `모델 응답에 이 대사의 ${what}이(가) 없습니다.` });
+  /** A judge model (System One) answers one line at a time and only supports verdicts. */
+  private async judgeLines(run: Run, node: AiNode, batch: Item[], profile: s.ProfileSnapshot, routes: ai.ResolvedRoute[], signal: AbortSignal) {
+    const step: StepRecord = { runId: run.id, nodeId: node.id, unitIds: batch.map((item) => item.unitId), startedAt: new Date() };
+    if (node.config.output !== 'verdict') return this.failBatch(run, batch, step, new Error('System One 프로필은 출력 형태가 "판정"인 AI 노드에서만 쓸 수 있습니다.'));
+    const { rows, lines } = this.promptLines(batch);
+    const context = buildContext(this.db, run.projectId, rows, node.config.context);
+    step.context = context.items;
+    try {
+      const outcomes: Outcome[] = [];
+      let attempts: ai.Attempt[] = [];
+      const judged: ai.Usage[] = [];
+      for (const line of lines) {
+        const outcome = await ai.withFallback(
+          routes,
+          profile.maxAttempts,
+          (route) =>
+            this.model.judge(route, {
+              state: { source: line.source, translation: line.candidate ?? '', speaker: line.speaker, context: { scene: context.scenes[line.groupId] ?? null, characters: context.characters, glossary: context.terms } },
+              instructions: [node.config.instructions, profile.instructions].filter(Boolean).join('\n') || 'Is this translation acceptable as is?',
+              timeoutMs: profile.timeoutSeconds * 1000,
+              signal,
+            }),
+          signal,
+        );
+        attempts = [...attempts, ...outcome.attempts];
+        judged.push(outcome.result.usage);
+        const issues = outcome.result.passed ? [] : ['System One이 수정 필요로 판정했습니다.'];
+        outcomes.push({ port: outcome.result.passed ? 'pass' : 'fail', issues, output: { passed: outcome.result.passed, issues, confidence: outcome.result.confidence } });
+      }
+      this.db.transaction((tx) => {
+        batch.forEach((item, index) => this.record(tx, run, item, outcomes[index]));
+        tx.insert(s.runSteps)
+          .values({ ...step, ok: true, model: routes[0]?.model, prompt: null, output: outcomes, attempts, returnedLines: outcomes.length, ...usageColumns(stepUsage(attempts, judged.reduce(ai.addUsage, {}))), finishedAt: new Date() })
+          .run();
+      });
+      this.notify(run.id);
+      this.guard(run.id);
+    } catch (error) {
+      if (signal.aborted) return;
+      this.failBatch(run, batch, { ...step, attempts: attemptsOf(error) }, error);
+    }
+  }
+
+  /** Turn the model's structured answer into one Outcome per line, by output kind. Null: the answer left the line out. */
+  private readAiOutput(node: AiNode, raw: unknown, lines: PromptLine[], profileId: string, model: string): (Outcome | null)[] {
+    const missing = (_what: string) => null;
     const value = raw as { translations?: { id: string; text: string }[]; results?: ({ id: string } & Record<string, unknown>)[]; terms?: unknown[]; listeners?: { id: string; listener: unknown; confidence: unknown }[] };
     switch (node.config.output) {
       case 'candidate':
         return lines.map((line) => {
           const text = value.translations?.find((entry) => entry.id === line.id)?.text;
-          return text === undefined ? missing('번역') : { port: 'out', candidate: text, origin: 'ai', profileId, model, output: { text } };
+          return text === undefined || !text.trim() ? missing('번역') : { port: 'out', candidate: text, origin: 'ai', profileId, model, output: { text } };
         });
       case 'verdict':
         return lines.map((line) => {
@@ -524,8 +642,10 @@ export class Runner {
   private failBatch(run: Run, batch: Item[], step: StepRecord, error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     const usage = stepUsage(attemptsOf(error), (error as { usage?: ai.Usage }).usage);
+    const transient = TRANSIENT.has((error as { code?: string }).code ?? '');
     this.db.transaction((tx) => {
-      for (const item of batch) this.route(tx, run, item, 'error', message);
+      // A rate limit or a dropped connection is not the lines' fault: they wait for a later batch.
+      for (const item of batch) transient ? this.retryLater(tx, run, item, message) : this.route(tx, run, item, 'error', message);
       tx.insert(s.runSteps).values({ ...step, ok: false, error: message, ...usageColumns(usage), finishedAt: new Date() }).run();
     });
     this.notify(run.id);

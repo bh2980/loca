@@ -258,7 +258,9 @@ export function respond(request: MockRequest, options: MockOptions, rand: () => 
     body = result.body;
     lines = result.count;
   } else {
-    rows = (JSON.parse(request.user) as { lines: Row[] }).lines;
+    // The server groups a batch's lines by scene; older prompts listed them flat.
+    const input = JSON.parse(request.user) as { lines?: Row[]; scenes?: { lines: Row[] }[] };
+    rows = input.scenes ? input.scenes.flatMap((scene) => scene.lines) : (input.lines ?? []);
     lines = rows.length;
     const result = structured(kind, request.system, rows, request.schema);
     body = result.body;

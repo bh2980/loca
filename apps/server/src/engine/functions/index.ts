@@ -15,7 +15,7 @@ import type { Db } from '../../db/index.ts';
 import * as s from '../../db/schema.ts';
 import type { SecretStore } from '../../services/secrets.ts';
 import { runScript } from './sandbox.ts';
-import { speechMismatch, speechRuleIndex } from '../../services/speech.ts';
+import { knowledgeOf, speechMismatch, speechRuleIndex } from '../../services/speech.ts';
 import type { KnowledgeOutput } from '../prompts.ts';
 
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
@@ -43,8 +43,6 @@ export interface FunctionInput {
 
 const NEEDS_CANDIDATE = '검사할 번역 후보가 없습니다.';
 const candidateOf = (input: FunctionInput) => input.item.data.candidateText ?? input.unit.translation ?? null;
-const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const mentions = (text: string, term: string) => new RegExp(`(?<![\\p{L}\\p{N}])${escape(term)}(?![\\p{L}\\p{N}])`, 'iu').test(text);
 
 /** What a script or HTTP template can see about a line. */
 export function lineView(input: FunctionInput) {
@@ -71,9 +69,10 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
   glossaryCheck(tx, _raw, input) {
     const text = candidateOf(input);
     if (text === null) return { port: 'fail', issues: [NEEDS_CANDIDATE], output: { passed: false, issues: [NEEDS_CANDIDATE] } };
-    const terms = tx.select().from(s.terms).where(and(eq(s.terms.projectId, input.projectId), eq(s.terms.status, 'confirmed'))).all();
-    const issues = terms
-      .filter((term) => term.target.trim() && mentions(input.unit.source, term.source) && !text.toLowerCase().includes(term.target.toLowerCase()))
+    const issues = knowledgeOf(tx as unknown as Db, input.projectId)
+      .glossary()
+      .matcher.find(input.unit.source)
+      .filter((term) => !text.toLowerCase().includes(term.target.toLowerCase()))
       .map((term) => `용어 "${term.source}"은(는) "${term.target}"(으)로 옮겨야 합니다.`);
     return { port: issues.length ? 'fail' : 'pass', issues, output: { passed: !issues.length, issues } };
   },
@@ -107,7 +106,8 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     const outputs = Object.entries(input.item.data.outputs ?? {});
     const source = params.fromNodeId ? input.item.data.outputs?.[params.fromNodeId] : outputs.reverse().find(([, output]) => Array.isArray(output.terms))?.[1];
     const found = (Array.isArray(source?.terms) ? source.terms : []) as { source?: string; target?: string; note?: string }[];
-    const existing = new Set(tx.select({ source: s.terms.source }).from(s.terms).where(eq(s.terms.projectId, input.projectId)).all().map((term) => term.source.toLowerCase()));
+    // Candidates count too, so the whole table is read; cached until a term is written (including by this node).
+    const existing = new Set(knowledgeOf(tx as unknown as Db, input.projectId).allTermSources().map((source) => source.toLowerCase()));
     let added = 0;
     for (const term of found) {
       const key = term.source?.trim();
@@ -135,7 +135,9 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     let proposed = 0;
 
     // The batch's lines all carry the same change set; every insert checks first, so applying it again adds nothing.
-    const people = tx.select().from(s.characters).where(eq(s.characters.projectId, projectId)).all();
+    // Read from the snapshot (fresh: every write bumps its version) but copied, since this node edits what it reads.
+    const know = knowledgeOf(tx as unknown as Db, projectId);
+    const people = know.allCharacters();
     const idOf = new Map(people.flatMap((c) => [c.name, ...c.aliases].map((name) => [lower(name), c.id] as const)));
     for (const person of found.characters) {
       if ([person.name, ...person.aliases].some((name) => idOf.has(lower(name)))) continue;
@@ -144,7 +146,7 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
       added++;
     }
 
-    const rels = tx.select().from(s.relationships).where(eq(s.relationships.projectId, projectId)).all();
+    const rels = know.allRelationships().map((rel) => ({ ...rel }));
     for (const rel of found.relationships) {
       const fromId = idOf.get(lower(rel.from));
       const toId = idOf.get(lower(rel.to));
@@ -170,7 +172,7 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
       }
     }
 
-    const titles = new Set(tx.select({ title: s.storyEvents.title }).from(s.storyEvents).where(eq(s.storyEvents.projectId, projectId)).all().map((row) => lower(row.title)));
+    const titles = new Set(know.eventTitles().map(lower));
     for (const event of found.events) {
       if (titles.has(lower(event.title))) continue;
       titles.add(lower(event.title));
@@ -178,7 +180,7 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
       added++;
     }
 
-    const rules = tx.select().from(s.speechRules).where(eq(s.speechRules.projectId, projectId)).all();
+    const rules = [...know.allSpeechRules()];
     for (const rule of found.speechRules) {
       const pair = rules.filter((existing) => lower(existing.fromName) === lower(rule.from) && lower(existing.toName) === lower(rule.to));
       if (pair.some((existing) => existing.startKey === rule.start && existing.level === rule.level)) continue;

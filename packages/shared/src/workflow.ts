@@ -21,9 +21,14 @@ export const contextConfigSchema = z.object({
   maxTokens: z.number().int().min(500).max(200_000).default(12_000),
 });
 
+/** How lines become model requests; see planBatches (apps/server/src/engine/batches.ts). */
 export const batchConfigSchema = z.object({
+  /** group: consecutive scenes share a request, scenes kept whole when they fit; count: fixed size across scenes; unit: one line each. */
   mode: z.enum(['unit', 'group', 'count']).default('group'),
-  size: z.number().int().min(1).max(200).default(30),
+  /** Most lines in one request. */
+  size: z.number().int().min(1).max(200).default(60),
+  /** Most estimated tokens of line text in one request ("group"); context is capped separately. */
+  maxTokens: z.number().int().min(500).max(100_000).default(6_000),
 });
 
 const position = z.object({ x: z.number(), y: z.number() });

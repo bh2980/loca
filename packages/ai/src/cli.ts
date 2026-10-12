@@ -206,9 +206,20 @@ export async function cliGenerate<T>(route: ResolvedRoute, request: GenerateRequ
       if (error.isCanceled) throw new ModelError('cancelled', '작업이 취소되었습니다.');
       if (error.timedOut) throw new ModelError('timeout', 'CLI 호출이 제한 시간을 초과했습니다.');
       if (error.code === 'ENOENT') throw new ModelError('config', `CLI를 찾지 못했습니다: ${cliCommand(kind, route.executable)}`, false);
-      const detail = (error.stderr || error.stdout || '').toString().trim().split('\n').slice(-3).join(' ').slice(0, 400);
-      if (QUOTA.test(detail)) throw new ModelError('rate-limit', `CLI 사용량 한도에 도달했습니다. ${detail}`);
-      throw new ModelError('cli', `CLI가 실패했습니다 (exit ${error.exitCode}). ${detail}`, false);
+      // A CLI that exits non-zero often still printed its envelope on stdout: its own error, and usage.
+      const stdout = (error.stdout ?? '').toString();
+      let usage: Usage | undefined;
+      try {
+        usage = unwrap(kind, stdout).usage;
+      } catch (failure) {
+        // Only an envelope that reported something is the CLI's own answer; otherwise fall back to the exit.
+        if (failure instanceof ModelError && failure.usage && Object.keys(failure.usage).length) throw failure;
+      }
+      const output = `${(error.stderr ?? '').toString()}\n${stdout}`;
+      const detail = (error.stderr || stdout || '').toString().trim().split('\n').slice(-3).join(' ').slice(0, 400);
+      // The whole output is searched: a pretty-printed envelope can push the reason far from the last lines.
+      if (QUOTA.test(output)) throw new ModelError('rate-limit', `CLI 사용량 한도에 도달했습니다. ${detail}`, undefined, usage);
+      throw new ModelError('cli', `CLI가 실패했습니다 (exit ${error.exitCode}). ${detail}`, false, usage);
     }
     throw new ModelError('unknown', error instanceof Error ? error.message : String(error), false);
   } finally {

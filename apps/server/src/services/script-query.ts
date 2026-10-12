@@ -4,7 +4,7 @@ import type { Db } from '../db/index.ts';
 import { inChunks, inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
-import { describeRule, knownListener, speechMismatch, speechRuleIndex } from './speech.ts';
+import { describeRule, knowledgeOf, knownListener, speechMismatch, speechRuleIndex } from './speech.ts';
 
 /**
  * Reading and batch-changing the script, shared by the CLI routes and the chat's tools so both
@@ -188,10 +188,11 @@ export function firstAppearance(db: Db, projectId: string, speaker: string) {
 export function checkScript(db: Db, projectId: string, kind: CheckKind, filter: LineFilter, options: { ratio?: number } = {}) {
   const lines = allLines(db, projectId, { ...filter, translated: true });
   if (kind === 'terms') {
-    const terms = db.select().from(s.terms).where(and(eq(s.terms.projectId, projectId), eq(s.terms.status, 'confirmed'))).all().filter((term) => term.target.trim());
+    const { matcher } = knowledgeOf(db, projectId).glossary();
     return lines.flatMap((line) =>
-      terms
-        .filter((term) => mentions(line.source, term.source) && !line.translation!.toLowerCase().includes(term.target.toLowerCase()))
+      matcher
+        .find(line.source)
+        .filter((term) => !line.translation!.toLowerCase().includes(term.target.toLowerCase()))
         .map((term) => ({ key: line.key, group: line.group.title, source: line.source, translation: line.translation, term: term.source, expected: term.target })),
     );
   }
@@ -288,7 +289,7 @@ function unitsByKey(db: Pick<Db, 'select'>, projectId: string, keys: string[]) {
 /** Lines plus what a translator needs, one object per line (written as JSONL by the CLI). */
 export function exportLines(db: Db, projectId: string, filter: LineFilter, options: { before: number; terms: boolean; all: boolean }) {
   const lines = options.all ? allLines(db, projectId, filter) : findLines(db, projectId, filter).rows;
-  const terms = options.terms ? db.select().from(s.terms).where(and(eq(s.terms.projectId, projectId), eq(s.terms.status, 'confirmed'))).all() : [];
+  const terms = options.terms ? knowledgeOf(db, projectId).terms() : null;
   const groupLines = new Map<string, { id: string; speaker: string | null; source: string; translation: string | null }[]>();
   const units = new Map(inChunks(lines.map((line) => line.id), (slice) => db.select({ id: s.units.id, groupId: s.units.groupId }).from(s.units).where(inArray(s.units.id, slice)).all()).map((row) => [row.id, row.groupId]));
   // The confirmed speech rule of each line's speaker → listener pair, as the translator must follow it.
@@ -303,7 +304,7 @@ export function exportLines(db: Db, projectId: string, filter: LineFilter, optio
       const index = siblings.findIndex((row) => row.id === line.id);
       before = siblings.slice(Math.max(0, index - options.before), index).map(({ speaker, source, translation }) => ({ speaker, source, translation }));
     }
-    const used = terms.filter((term) => mentions(line.source, term.source)).map((term) => ({ source: term.source, target: term.target, note: term.note }));
+    const used = (terms?.matcher.find(line.source) ?? []).map((term) => ({ source: term.source, target: term.target, note: term.note }));
     const rule = rules.get(line.key);
     return {
       key: line.key,
@@ -363,7 +364,7 @@ export function validateBatch(db: Db, projectId: string, batch: BatchChange): Ba
   const { statusId, tagId } = lookups(db, projectId);
   const units = unitsByKey(db, projectId, batch.changes.map((change) => change.key));
   const rules = db.select({ rules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, projectId)).get()?.rules;
-  const terms = db.select().from(s.terms).where(and(eq(s.terms.projectId, projectId), eq(s.terms.status, 'confirmed'))).all().filter((term) => term.target.trim());
+  const { matcher } = knowledgeOf(db, projectId).glossary();
   const report: BatchReport = { total: batch.changes.length, changes: 0, conflicts: [], errors: [], warnings: [] };
   const seen = new Set<string>();
   for (const change of batch.changes) {
@@ -379,7 +380,7 @@ export function validateBatch(db: Db, projectId: string, batch: BatchChange): Ba
       if (change.translation !== undefined) {
         const issues = [
           ...checkFormat(unit.source, change.translation, { placeholders: true, tags: true, newlines: true, emptyText: true }, rules).map((issue) => issue.message),
-          ...terms.filter((term) => mentions(unit.source, term.source) && !change.translation!.toLowerCase().includes(term.target.toLowerCase())).map((term) => `용어 "${term.source}" → "${term.target}"가 번역에 없습니다.`),
+          ...matcher.find(unit.source).filter((term) => !change.translation!.toLowerCase().includes(term.target.toLowerCase())).map((term) => `용어 "${term.source}" → "${term.target}"가 번역에 없습니다.`),
         ];
         if (issues.length) report.warnings.push({ key: change.key, issues });
       }

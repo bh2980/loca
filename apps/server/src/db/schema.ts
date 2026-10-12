@@ -401,6 +401,8 @@ export interface ItemData {
   outputs?: Record<string, Record<string, unknown>>;
   /** Nodes and exits taken, for display. */
   path: { nodeId: string; port: string; at: number }[];
+  /** Times the line went back to a node's queue because a call left it out or failed transiently, by node id. */
+  retries?: Record<string, number>;
 }
 
 export const runItems = sqliteTable(
@@ -443,6 +445,10 @@ export const runSteps = sqliteTable(
     reasoningTokens: integer('reasoning_tokens'),
     /** USD the connection reported; never estimated. */
     costUsd: real('cost_usd'),
+    /** Lines a per-line answer covered (non-empty); the request is `unitIds`. */
+    returnedLines: integer('returned_lines'),
+    /** 0 for a batch's first request, n for the n-th request for the lines it left out. */
+    round: integer('round').notNull().default(0),
     startedAt: integer('started_at', { mode: 'timestamp_ms' }).notNull(),
     finishedAt: integer('finished_at', { mode: 'timestamp_ms' }).notNull(),
   },

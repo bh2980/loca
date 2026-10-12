@@ -33,7 +33,7 @@ export function translationTemplate(ids: {
     fields: [],
     include: AI_PRESETS[preset].include,
     context: contextConfigSchema.parse({}),
-    batch: { mode: 'group' as const, size: 30 },
+    batch: { mode: 'group' as const, size: 60, maxTokens: 6_000 },
   });
   const status = (statusId: string, applyCandidate = false) => ({ fn: 'setStatus', params: { statusId, addTagIds: [], removeTagIds: [], applyCandidate } });
   const at = (column: number, row: number) => ({ x: column * 300, y: row * 180 });
@@ -98,7 +98,7 @@ export function termExtractionTemplate(ids: { profileId: string }): WorkflowDefi
           include: { candidate: false, issues: false },
           // The current glossary is in context so the model skips terms that already exist.
           context: { ...contextConfigSchema.parse({}), relationships: false, precedingLines: 0, previousScenes: 0 },
-          batch: { mode: 'group', size: 60 },
+          batch: { mode: 'group', size: 60, maxTokens: 6_000 },
         },
       },
       { id: 'add', type: 'function', position: { x: 600, y: 0 }, label: '용어 후보 추가', config: { fn: 'addTerms', params: { fromNodeId: 'terms' } } },
@@ -135,7 +135,7 @@ export function listenerTemplate(ids: { profileId: string }): WorkflowDefinition
           fields: [],
           include: AI_PRESETS.listener.include,
           context: { ...contextConfigSchema.parse({}), glossary: false, cast: true, precedingLines: 8, previousScenes: 1 },
-          batch: { mode: 'group', size: 80 },
+          batch: { mode: 'group', size: 80, maxTokens: 6_000 },
         },
       },
       { id: 'record', type: 'function', position: { x: 600, y: 0 }, label: '청자 기록', config: { fn: 'setListener', params: { fromNodeId: 'listener' } } },
@@ -171,7 +171,7 @@ export function speechFixTemplate(ids: { profileId: string }): WorkflowDefinitio
           fields: [],
           include: AI_PRESETS.speechFix.include,
           context: { ...contextConfigSchema.parse({}), speech: true, documents: false, characters: false, relationships: false, glossary: false, precedingLines: 4, previousScenes: 0 },
-          batch: { mode: 'group', size: 40 },
+          batch: { mode: 'group', size: 40, maxTokens: 6_000 },
         },
       },
       { id: 'apply', type: 'function', position: { x: 600, y: 0 }, label: '번역에 적용', config: { fn: 'setStatus', params: { applyCandidate: true } } },
@@ -210,7 +210,7 @@ export function knowledgeTemplate(ids: { profileId: string }): WorkflowDefinitio
           fields: [],
           include: AI_PRESETS.knowledge.include,
           context: { ...contextConfigSchema.parse({}), glossary: false, cast: true, speech: true, precedingLines: 8, previousScenes: 1 },
-          batch: { mode: 'group', size: 120 },
+          batch: { mode: 'group', size: 120, maxTokens: 6_000 },
         },
       },
       { id: 'apply', type: 'function', position: { x: 600, y: 0 }, label: '자료 반영', config: { fn: 'applyKnowledge', params: { fromNodeId: 'find', autoConfirm: true } } },

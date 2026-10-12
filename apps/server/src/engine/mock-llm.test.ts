@@ -9,7 +9,7 @@ import { buildPrompt, knowledgeOutputSchema, outputSchema, type PromptLine } fro
 /** Regression net: the mock LLM must keep answering in the shape the server's schemas demand. */
 
 const context: BatchContext = {
-  scene: { title: 'Scene', description: '' },
+  scenes: { g1: { title: 'Scene' } },
   previousScenes: [],
   documents: [],
   characters: [],
@@ -26,7 +26,7 @@ const lines: PromptLine[] = [
   ['JONAS', 'Ignoring whose orders?'],
   ['MIRA', 'Ask the Directorate about it.'],
   ['JONAS', 'Fine.'],
-].map(([speaker, source], index) => ({ id: String(index + 1), unitId: `u${index}`, key: `k${index}`, speaker, source, candidate: `[KO] ${source}` }));
+].map(([speaker, source], index) => ({ id: String(index + 1), unitId: `u${index}`, groupId: 'g1', key: `k${index}`, speaker, source, candidate: `[KO] ${source}` }));
 
 const node = (output: AiNode['config']['output'], extra: Partial<AiNode['config']> = {}) =>
   workflowNodeSchema.parse({ id: 'n', type: 'ai', position: { x: 0, y: 0 }, config: { output, ...extra } }) as AiNode;
@@ -113,7 +113,7 @@ describe('profiles and faults', () => {
   });
 
   it('drops, duplicates and empties entries', () => {
-    const many = Array.from({ length: 40 }, (_, index): PromptLine => ({ id: String(index + 1), unitId: `u${index}`, key: `k${index}`, speaker: 'MIRA', source: `Line ${index}` }));
+    const many = Array.from({ length: 40 }, (_, index): PromptLine => ({ id: String(index + 1), unitId: `u${index}`, groupId: 'g1', key: `k${index}`, speaker: 'MIRA', source: `Line ${index}` }));
     const ids = (options: Partial<MockOptions>) => (JSON.parse(ask(node('candidate'), options, many).content) as { translations: { id: string; text: string }[] }).translations;
     expect(ids({ dropRate: 1 })).toHaveLength(0);
     const dup = ids({ dupRate: 1 });

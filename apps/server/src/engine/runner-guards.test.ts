@@ -7,6 +7,7 @@ import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
 import { snapshotProfiles } from '../services/routes.ts';
 import { memoryStore } from '../services/secrets.ts';
+import { promptEntries } from './prompts.ts';
 import { createRun, Runner, type ModelPort } from './runner.ts';
 
 /** A project of `scenes` scenes; scene i has `size(i)` lines. Scene keys sort opposite to script order. */
@@ -27,17 +28,20 @@ function setup(scenes: number, size: (scene: number) => number) {
   return { db, workflow, start };
 }
 
-/** Translates and passes everything; `fail` decides which calls throw. Records each call's first line. */
-function model(fail: (call: number) => Error | null = () => null): ModelPort & { firsts: string[] } {
+/** Translates and passes everything; `fail` decides which calls throw. Records each call's lines. */
+function model(fail: (call: number) => Error | null = () => null): ModelPort & { firsts: string[]; calls: string[][] } {
   const firsts: string[] = [];
+  const calls: string[][] = [];
   return {
     firsts,
+    calls,
     judge: async () => {
       throw new Error('unused');
     },
     generate: async (_route, request) => {
-      const input = JSON.parse(request.prompt) as { lines: { id: string; source: string }[] };
+      const input = { lines: promptEntries(request.prompt) as { id: string; source: string }[] };
       firsts.push(input.lines[0].source);
+      calls.push(input.lines.map((line) => line.source));
       const error = fail(firsts.length);
       if (error) throw error;
       const usage = { inputTokens: 100, cachedInputTokens: 60, outputTokens: 20, reasoningTokens: 5, costUsd: 0.01 };
@@ -53,7 +57,7 @@ describe('runner at scale', () => {
   it('finishes a run over more lines than SQLite binds in one statement', async () => {
     const { db, workflow } = setup(34, () => 1_000);
     // Large batches keep the test fast; the point is the 40,000 queued items.
-    const definition = { ...workflow.definition, nodes: workflow.definition.nodes.map((node) => (node.type === 'ai' ? { ...node, config: { ...node.config, batch: { mode: 'count' as const, size: 200 } } } : node)) };
+    const definition = { ...workflow.definition, nodes: workflow.definition.nodes.map((node) => (node.type === 'ai' ? { ...node, config: { ...node.config, batch: { mode: 'count' as const, size: 200, maxTokens: 6_000 } } } : node)) };
     db.update(s.workflows).set({ definition }).where(eq(s.workflows.id, workflow.id)).run();
     const runId = createRun(db, { projectId: workflow.projectId, workflow: { ...workflow, definition }, profiles: snapshotProfiles(db, Object.values(definition.nodes).flatMap((node) => (node.type === 'ai' ? [node.config.profileId] : []))), scope: { ignoreStatus: true } }).runId;
     const runner = new Runner(db, memoryStore(), model());
@@ -64,13 +68,14 @@ describe('runner at scale', () => {
     expect(states.every((item) => item.state === 'done')).toBe(true);
   }, 60_000);
 
-  it('sends scenes in script order, not by internal id', async () => {
+  it('sends scenes in script order, not by internal id, and packs short scenes together', async () => {
     const { db, start } = setup(12, () => 2);
     start();
     const fake = model();
     await new Runner(db, memoryStore(), fake).drain();
-    const scenes = [...new Set(fake.firsts.map((first) => Number(first.slice(1, first.indexOf(' ')))))];
-    expect(scenes.slice(0, 12)).toEqual([...Array(12).keys()]);
+    const scenes = (sources: string[]) => sources.map((source) => Number(source.slice(1, source.indexOf(' '))));
+    // 24 lines in 2-line scenes fit one 30-line request, in script order.
+    expect(scenes(fake.calls[0])).toEqual([...Array(12).keys()].flatMap((scene) => [scene, scene]));
   });
 });
 
@@ -88,7 +93,7 @@ describe('runner guards', () => {
   });
 
   it('pauses after the configured number of failures in a row', async () => {
-    const { db, start } = setup(20, () => 3);
+    const { db, start } = setup(200, () => 3);
     const runId = start();
     const fake = model(() => new ai.ModelError('invalid-output', '응답 형식이 맞지 않습니다.', false));
     await new Runner(db, memoryStore(), fake).drain();
@@ -99,7 +104,7 @@ describe('runner guards', () => {
   });
 
   it('pauses at the call cap and resumes on request, clearing the notice', async () => {
-    const { db, start } = setup(20, () => 3);
+    const { db, start } = setup(200, () => 3);
     const runId = start({ maxCalls: 4 });
     const runner = new Runner(db, memoryStore(), model());
     await runner.drain();
@@ -135,5 +140,57 @@ describe('runner guards', () => {
     expect(runOf(db, broken)).toMatchObject({ status: 'paused' });
     expect(runOf(db, broken).notice).toContain('실행기 오류');
     expect(runOf(db, healthy).status).toBe('completed');
+  });
+});
+
+describe('incomplete answers', () => {
+  it('asks again only for the lines an answer left out, then moves every line on', async () => {
+    const { db, start } = setup(1, () => 10);
+    const runId = start();
+    let call = 0;
+    const fake: ModelPort = {
+      judge: async () => {
+        throw new Error('unused');
+      },
+      generate: async (_route, request) => {
+        call++;
+        const input = { lines: promptEntries(request.prompt) as { id: string; source: string }[] };
+        const review = request.system.includes('Review each');
+        // The first translate request drops its last three lines.
+        const kept = !review && call === 1 ? input.lines.slice(0, -3) : input.lines;
+        if (review) return { object: { results: kept.map((line) => ({ id: line.id, passed: true, issues: [] })) }, usage: {} } as never;
+        return { object: { translations: kept.map((line) => ({ id: line.id, text: `[ko] ${line.source}` })) }, usage: {} } as never;
+      },
+    };
+    await new Runner(db, memoryStore(), fake).drain();
+    const items = db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all();
+    expect(items.every((item) => item.state === 'done')).toBe(true);
+    const steps = db.select().from(s.runSteps).where(eq(s.runSteps.runId, runId)).all();
+    const rerequest = steps.find((step) => step.round === 1)!;
+    expect(rerequest.unitIds).toHaveLength(3);
+    expect(steps.find((step) => step.round === 0 && step.returnedLines === 7)).toBeTruthy();
+  });
+
+  it('splits a malformed answer for many lines into halves instead of failing them all', async () => {
+    const { db, start } = setup(1, () => 8);
+    const runId = start();
+    const fake: ModelPort = {
+      judge: async () => {
+        throw new Error('unused');
+      },
+      generate: async (_route, request) => {
+        const input = { lines: promptEntries(request.prompt) as { id: string; source: string }[] };
+        // Any request that contains line 5 comes back malformed.
+        if (input.lines.some((line) => line.source.endsWith('L5'))) throw new ai.ModelError('invalid-output', 'bad JSON', false, { inputTokens: 10 });
+        const review = request.system.includes('Review each');
+        if (review) return { object: { results: input.lines.map((line) => ({ id: line.id, passed: true, issues: [] })) }, usage: {} } as never;
+        return { object: { translations: input.lines.map((line) => ({ id: line.id, text: `[ko] ${line.source}` })) }, usage: {} } as never;
+      },
+    };
+    await new Runner(db, memoryStore(), fake).drain();
+    const items = db.select({ state: s.runItems.state }).from(s.runItems).where(eq(s.runItems.runId, runId)).all();
+    // 8 lines → 4+4 → 2+2: only the 2-line part that holds L5 fails.
+    expect(items.filter((item) => item.state === 'failed')).toHaveLength(2);
+    expect(items.filter((item) => item.state === 'done')).toHaveLength(6);
   });
 });

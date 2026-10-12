@@ -1,0 +1,114 @@
+{
+  "size": 9000,
+  "scenarios": {
+    "translate-cli": {
+      "linesInScope": 9040,
+      "status": "completed",
+      "notice": null,
+      "calls": 462,
+      "failedCalls": 0,
+      "callsByNode": {
+        "AI 번역": 183,
+        "AI 검수": 230,
+        "AI 수정": 49
+      },
+      "callsPer100Lines": 5.11,
+      "linesPerCallMean": 49.99,
+      "smallCallShare": 0.015,
+      "inputTokens": 11811540,
+      "inputPerLine": 1306.6,
+      "cachedInputTokens": 4620000,
+      "fixedOverheadShare": 0.782,
+      "outputTokens": 360968,
+      "failedLines": 0,
+      "failedLineShare": 0,
+      "wallSeconds": 6.5
+    },
+    "translate-faulty": {
+      "linesInScope": 9040,
+      "status": "completed",
+      "notice": null,
+      "calls": 607,
+      "failedCalls": 41,
+      "callsByNode": {
+        "AI 번역": 247,
+        "AI 검수": 296,
+        "AI 수정": 64
+      },
+      "callsPer100Lines": 6.71,
+      "linesPerCallMean": 42.82,
+      "smallCallShare": 0.129,
+      "inputTokens": 14922566,
+      "inputPerLine": 1650.7,
+      "cachedInputTokens": 5870000,
+      "fixedOverheadShare": 0.814,
+      "outputTokens": 367217,
+      "failedLines": 37,
+      "failedLineShare": 0.0041,
+      "wallSeconds": 7.2
+    },
+    "listener-cli": {
+      "linesInScope": 9040,
+      "status": "completed",
+      "notice": null,
+      "calls": 139,
+      "failedCalls": 0,
+      "callsByNode": {
+        "AI 청자 추정": 139
+      },
+      "callsPer100Lines": 1.54,
+      "linesPerCallMean": 65.04,
+      "smallCallShare": 0.007,
+      "inputTokens": 3304146,
+      "inputPerLine": 365.5,
+      "cachedInputTokens": 1390000,
+      "fixedOverheadShare": 0.841,
+      "outputTokens": 113065,
+      "failedLines": 0,
+      "failedLineShare": 0,
+      "wallSeconds": 2
+    },
+    "terms-cli": {
+      "linesInScope": 9040,
+      "status": "completed",
+      "notice": null,
+      "calls": 183,
+      "failedCalls": 0,
+      "callsByNode": {
+        "AI 용어 추출": 183
+      },
+      "callsPer100Lines": 2.02,
+      "linesPerCallMean": 49.4,
+      "smallCallShare": 0.022,
+      "inputTokens": 3975113,
+      "inputPerLine": 439.7,
+      "cachedInputTokens": 1830000,
+      "fixedOverheadShare": 0.921,
+      "outputTokens": 30627,
+      "failedLines": 0,
+      "failedLineShare": 0,
+      "wallSeconds": 2.4
+    },
+    "knowledge-cli": {
+      "linesInScope": 9040,
+      "status": "completed",
+      "notice": null,
+      "calls": 94,
+      "failedCalls": 0,
+      "callsByNode": {
+        "AI 자료 변경 찾기": 94
+      },
+      "callsPer100Lines": 1.04,
+      "linesPerCallMean": 96.17,
+      "smallCallShare": 0.011,
+      "inputTokens": 2356821,
+      "inputPerLine": 260.7,
+      "cachedInputTokens": 940000,
+      "fixedOverheadShare": 0.798,
+      "outputTokens": 4228,
+      "failedLines": 0,
+      "failedLineShare": 0,
+      "wallSeconds": 2
+    }
+  }
+}
