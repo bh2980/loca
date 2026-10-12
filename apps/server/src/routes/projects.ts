@@ -7,7 +7,7 @@ import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { forgetProjectContext } from '../services/context.ts';
 import { importProject } from '../services/importer.ts';
-import { computeLayouts } from '../services/layout.ts';
+import { cancelLayout, computeLayouts } from '../services/layout.ts';
 
 const statusInput = z.object({ name: z.string().trim().min(1).max(40), color: z.string().default(STATUS_COLORS[0]), kind: z.enum(['initial', 'normal', 'final']).default('normal'), inReview: z.boolean().default(false) });
 const tagInput = z.object({ name: z.string().trim().min(1).max(40), color: z.string().default(STATUS_COLORS[2]) });
@@ -76,6 +76,7 @@ export const projectRoutes = new Hono<Env>()
     const projectId = c.req.param('projectId');
     const active = db.select({ id: s.runs.id }).from(s.runs).where(and(eq(s.runs.projectId, projectId), eq(s.runs.status, 'running'))).all();
     for (const run of active) c.var.deps.runner.cancel(run.id);
+    cancelLayout(projectId);
     db.delete(s.projects).where(eq(s.projects.id, projectId)).run();
     forgetProjectContext(projectId);
     events.changed(undefined, 'projects');

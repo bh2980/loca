@@ -2,12 +2,15 @@
  * Writes standard-format sample projects.
  *   samples/relay-station.json   small curated story: branch, join, loop, characters, documents, glossary
  *   samples/synthetic-9k.json    ~9,000-node synthetic script graph for layout/performance checks (not committed)
- * Usage: pnpm samples
+ *   samples/realistic-<n>k.json  short scenes, hubs, characters, terms, documents, listeners, translations (not committed)
+ * Usage: pnpm samples                                        relay-station + synthetic-9k
+ *        pnpm samples -- --profile realistic --size 9000     only realistic-9k.json (also 50000)
  */
 import { writeFileSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { importFileSchema, type ImportFileInput } from '../packages/shared/src/index.ts';
+import { realistic } from './realistic-sample.ts';
 
 const out = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../samples');
 mkdirSync(out, { recursive: true });
@@ -16,6 +19,21 @@ function write(name: string, file: ImportFileInput) {
   importFileSchema.parse(file); // never ship a sample the importer would reject
   writeFileSync(path.join(out, name), JSON.stringify(file, null, 1));
   console.log(`${name}: ${file.units.length} lines, ${file.graph?.nodes.length ?? 0} nodes`);
+}
+
+const flag = (name: string) => {
+  const args = process.argv.slice(2);
+  const at = args.findIndex((arg) => arg === `--${name}` || arg.startsWith(`--${name}=`));
+  return at < 0 ? undefined : args[at].includes('=') ? args[at].split('=')[1] : args[at + 1];
+};
+if (flag('profile') !== undefined) {
+  if (flag('profile') !== 'realistic') throw new Error(`unknown --profile "${flag('profile')}" (known: realistic)`);
+  const size = Number(flag('size') ?? 9000);
+  if (!Number.isInteger(size) || size < 100) throw new Error(`--size must be an integer of at least 100, got "${flag('size')}"`);
+  const { file, report } = realistic(size);
+  write(`realistic-${size % 1000 === 0 ? `${size / 1000}k` : size}.json`, file);
+  console.log(report);
+  process.exit(0);
 }
 
 /** A converter ships one entry per original node class: display kind + what it means. */

@@ -94,7 +94,9 @@ export class AnalysisService {
     const abort = new AbortController();
     this.aborts.set(job.id, abort);
     events.changed(projectId, 'analysis');
-    void this.run(job, profile, parts, keyOf, autoConfirm, abort.signal).finally(() => this.aborts.delete(job.id));
+    this.run(job, profile, parts, keyOf, autoConfirm, abort.signal)
+      .catch((error) => console.error('analysis job failed', error))
+      .finally(() => this.aborts.delete(job.id));
     return job;
   }
 

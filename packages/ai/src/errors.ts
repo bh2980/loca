@@ -1,5 +1,6 @@
-import { APICallError } from 'ai';
+import { APICallError, NoObjectGeneratedError, type LanguageModelUsage } from 'ai';
 import { APIConnectionError, APIError } from '@typesafe-ai/sdk';
+import type { Usage } from './types.ts';
 
 export type ModelErrorCode =
   | 'auth'
@@ -18,15 +19,33 @@ export class ModelError extends Error {
     readonly code: ModelErrorCode,
     message: string,
     readonly transient = code === 'rate-limit' || code === 'network' || code === 'timeout',
+    /** What the call used before it failed, when the connection reported it. */
+    readonly usage?: Usage,
   ) {
     super(message);
     this.name = 'ModelError';
   }
 }
 
+/** AI SDK 7 `LanguageModelUsage` → `Usage`. */
+export function readAiSdkUsage(usage: LanguageModelUsage | undefined): Usage {
+  const result: Usage = {
+    inputTokens: usage?.inputTokens,
+    cachedInputTokens: usage?.inputTokenDetails?.cacheReadTokens,
+    outputTokens: usage?.outputTokens,
+    reasoningTokens: usage?.outputTokenDetails?.reasoningTokens,
+  };
+  for (const key of Object.keys(result) as (keyof Usage)[]) if (result[key] === undefined) delete result[key];
+  return result;
+}
+
 export function toModelError(error: unknown, signal?: AbortSignal): ModelError {
   if (error instanceof ModelError) return error;
   if (signal?.aborted) return new ModelError('cancelled', '작업이 취소되었습니다.');
+  if (NoObjectGeneratedError.isInstance(error)) {
+    const usage = readAiSdkUsage(error.usage);
+    return new ModelError('invalid-output', `모델이 형식에 맞는 결과를 만들지 못했습니다 (finishReason: ${error.finishReason ?? 'unknown'}). ${error.message}`.slice(0, 400), false, usage);
+  }
   if (APICallError.isInstance(error)) {
     const status = error.statusCode ?? 0;
     if (status === 401 || status === 403) return new ModelError('auth', `인증에 실패했습니다 (HTTP ${status}). API 키를 확인하세요.`);

@@ -3,13 +3,70 @@
  *   pnpm mock-llm            → http://127.0.0.1:4398/v1   (model id: mock)
  * Workflows: translations are "[KO] <source>"; review fails a line once (lines ending in "?"), revise fixes it.
  * Chat: asks for tools the way a real model would (overview, then a character proposal when asked about 인물).
+ * Every structured answer matches the server's zod schemas (checked by apps/server/src/engine/mock-llm.test.ts).
+ *
+ * Cost and failure profiles (environment variables; every one can also be sent per request as an
+ * `x-mock-<name>` header, e.g. `x-mock-drop-rate: 0.1`, so one process serves several tests):
+ *   MOCK_FIXED_TOKENS   added to prompt_tokens per request (agent CLIs add 13k-29k of their own)
+ *   MOCK_CACHED_TOKENS  reported as prompt_tokens_details.cached_tokens (inside prompt_tokens)
+ *   MOCK_LATENCY_MS     base latency + up to 25% jitter (default 400ms, 1500ms for work analysis)
+ *   MOCK_DROP_RATE      fraction of per-line entries left out of the answer
+ *   MOCK_DUP_RATE       fraction of entries that repeat the previous entry's id
+ *   MOCK_EMPTY_RATE     fraction of translations with empty text
+ *   MOCK_BAD_JSON_RATE  fraction of answers that are not valid JSON
+ *   MOCK_429_RATE       fraction of requests answered 429 with a Retry-After header
+ *   MOCK_TRUNCATE_RATE  fraction of answers cut short with finish_reason "length"
+ *   MOCK_SEED           seed of the PRNG, so a run is reproducible (default 1)
+ *   MOCK_PROFILE        presets, comma separated; explicit variables win
+ *     cli-like  fixed 20000, cached 10000, latency 2000ms
+ *     faulty    drop 0.05, 429 0.03, bad JSON 0.02, truncate 0.01
+ * Usage is always token-like: prompt_tokens = fixed + ceil(chars/4), completion_tokens = ceil(chars/4).
+ * GET /__stats → requests, by kind, input/cached/output tokens, lines-per-request histogram; POST /__reset clears it.
  */
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
+import { envGetter, hashString, headerGetter, makeRand, resolveOptions, respond, usageFor, type Usage } from './mock-llm-core.ts';
 
 const port = Number(process.env.MOCK_LLM_PORT ?? 4398);
 const app = new Hono();
+
+const envOptions = resolveOptions(envGetter(process.env));
+const random = makeRand(envOptions.seed);
+/** Process settings, overridden by `x-mock-*` headers of one request. */
+const requestOptions = (headers: Headers) => resolveOptions(headerGetter(headers), envOptions);
+
+const stats = {
+  requests: 0,
+  rejected429: 0,
+  byKind: {} as Record<string, number>,
+  inputTokens: 0,
+  cachedTokens: 0,
+  outputTokens: 0,
+  linesPerRequest: {} as Record<string, number>,
+  record(kind: string, status: number, lines: number, usage: Usage) {
+    this.requests++;
+    this.byKind[kind] = (this.byKind[kind] ?? 0) + 1;
+    if (status === 429) {
+      this.rejected429++;
+      return;
+    }
+    this.inputTokens += usage.prompt_tokens;
+    this.cachedTokens += usage.prompt_tokens_details.cached_tokens;
+    this.outputTokens += usage.completion_tokens;
+    if (lines > 0) this.linesPerRequest[lines] = (this.linesPerRequest[lines] ?? 0) + 1;
+  },
+  reset() {
+    this.requests = this.rejected429 = this.inputTokens = this.cachedTokens = this.outputTokens = 0;
+    this.byKind = {};
+    this.linesPerRequest = {};
+  },
+};
+app.get('/__stats', (c) => c.json({ requests: stats.requests, rejected429: stats.rejected429, byKind: stats.byKind, inputTokens: stats.inputTokens, cachedTokens: stats.cachedTokens, outputTokens: stats.outputTokens, linesPerRequest: stats.linesPerRequest }));
+app.post('/__reset', (c) => {
+  stats.reset();
+  return c.json({ ok: true });
+});
 
 interface Message {
   role: string;
@@ -32,74 +89,23 @@ app.post('/v1/chat/completions', async (c) => {
   const system = body.messages.filter((message) => message.role === 'system').map(text).join('\n');
   const last = body.messages.at(-1);
 
-  if (body.response_format && system.includes('complete script of a game')) {
-    // Work analysis: speakers become characters; each speaker → the next different speaker gets a rule.
-    const lines = [...text(last).matchAll(/^\s*(L\d+) ([^:\[]+?): /gm)].map((match) => ({ id: match[1], speaker: match[2].trim() })).filter((line) => line.speaker !== '-');
-    const counts = Map.groupBy(lines, (line) => line.speaker);
-    const cast = [...counts.entries()].sort((a, b) => b[1].length - a[1].length).slice(0, 8);
-    const pairs = new Map<string, { from: string; to: string; evidence: string[] }>();
-    lines.forEach((line, index) => {
-      const next = lines.slice(index + 1).find((other) => other.speaker !== line.speaker);
-      if (!next || !cast.some(([name]) => name === line.speaker) || !cast.some(([name]) => name === next.speaker)) return;
-      const key = `${line.speaker}|${next.speaker}`;
-      const pair = pairs.get(key) ?? { from: line.speaker, to: next.speaker, evidence: [] };
-      if (pair.evidence.length < 3) pair.evidence.push(line.id);
-      pairs.set(key, pair);
-    });
-    const levels = ['hae', 'haeyo', 'hasipsio', 'haera'] as const;
-    const content = {
-      overview: { setting: '모의 분석: 대본에 나온 장소', mainConflict: '모의 갈등', plot: `모의 줄거리 (대사 ${lines.length}줄을 읽음)`, evidence: lines.slice(0, 3).map((line) => line.id) },
-      characters: cast.map(([name, rows], index) => ({ name, aliases: [], profile: `대사 ${rows.length}줄`, speech: '모의 말투 설명', player: index === cast.length - 1, evidence: rows.slice(0, 3).map((row) => row.id) })),
-      relationships: [...pairs.values()].slice(0, 6).map((pair) => ({ from: pair.from, to: pair.to, kind: '아는 사이', description: '모의 관계', changes: [], evidence: pair.evidence })),
-      events: [{ title: '모의 사건', summary: '처음 장면의 일', cause: '', outcome: '', participants: cast.slice(0, 2).map(([name]) => name), evidence: lines.slice(0, 2).map((line) => line.id) }],
-      speechRules: [...pairs.values()].map((pair, index) => ({ from: pair.from, to: pair.to, level: levels[index % 4], address: '', note: '모의 규칙', start: null, evidence: pair.evidence })),
-    };
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    return c.json({ id: 'mock', object: 'chat.completion', model: 'mock', choices: [{ index: 0, message: { role: 'assistant', content: JSON.stringify(content) }, finish_reason: 'stop' }], usage: { prompt_tokens: Math.ceil(text(last).length / 4), completion_tokens: 500, total_tokens: 0 } });
-  }
-
   if (body.response_format) {
-    const input = JSON.parse(text(last)) as { lines: { id: string; source: string; candidate?: string }[] };
-    // Lines mentioning "orders" never pass review, so they end up waiting for a person.
-    const stubborn = (source: string) => /orders/i.test(source);
-    if (system.includes('Report only what the scene adds')) {
-      // One event per scene, named after its first line; nothing else is new.
-      const first = input.lines[0];
-      const content = { characters: [], relationships: [], speechRules: [], events: first ? [{ title: `모의 사건: ${first.source.slice(0, 30)}`, summary: '모의 요약', outcome: '', participants: [], evidence: [first.id] }] : [] };
-      return c.json({ id: 'mock', object: 'chat.completion', model: 'mock', choices: [{ index: 0, message: { role: 'assistant', content: JSON.stringify(content) }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } });
+    const options = requestOptions(c.req.raw.headers);
+    const schema = (body.response_format as { json_schema?: { schema?: unknown } }).json_schema?.schema;
+    const rand = c.req.header('x-mock-seed') ? makeRand(options.seed ^ hashString(system + text(last))) : random;
+    const outcome = respond({ system, user: text(last), schema }, options, rand);
+    stats.record(outcome.kind, outcome.status, outcome.lines, outcome.usage);
+    await new Promise((resolve) => setTimeout(resolve, outcome.delayMs));
+    if (outcome.status === 429) {
+      c.header('Retry-After', String(outcome.retryAfterSeconds ?? 1));
+      return c.json(JSON.parse(outcome.content), 429);
     }
-    if (system.includes('who the speaker is addressing')) {
-      // The listener is the next different speaker in the batch (else the previous one); the first line of a batch is unsure.
-      const rows = input.lines as { id: string; source: string; speaker?: string }[];
-      const listeners = rows.map((line, index) => {
-        const other = rows.slice(index + 1).find((row) => row.speaker && row.speaker !== line.speaker) ?? rows.slice(0, index).reverse().find((row) => row.speaker && row.speaker !== line.speaker);
-        return { id: line.id, listener: other?.speaker ?? null, confidence: index === 0 ? 0.6 : other ? 0.95 : 0.3 };
-      });
-      return c.json({ id: 'mock', object: 'chat.completion', model: 'mock', choices: [{ index: 0, message: { role: 'assistant', content: JSON.stringify({ listeners }) }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } });
-    }
-    if (system.includes('Find proper nouns')) {
-      // Capitalised words that are not sentence starts stand in for proper nouns.
-      const words = new Set(input.lines.flatMap((line) => [...line.source.matchAll(/(?<=\s)([A-Z][a-z]{3,})/g)].map((match) => match[1])));
-      const terms = [...words].map((source) => ({ source, target: `[${source}]`, note: '모의 추출' }));
-      return c.json({ id: 'mock', object: 'chat.completion', model: 'mock', choices: [{ index: 0, message: { role: 'assistant', content: JSON.stringify({ terms }) }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } });
-    }
-    const kind = system.includes('Review each') ? 'review' : system.includes('Revise each') ? 'revise' : 'translate';
-    const content =
-      kind === 'review'
-        ? {
-            results: input.lines.map((line) => {
-              const failed = stubborn(line.source) || (line.source.trim().endsWith('?') && line.candidate?.startsWith('[KO]'));
-              return { id: line.id, passed: !failed, issues: failed ? [stubborn(line.source) ? '“orders”의 대상(누구의 명령인지)이 번역에서 모호합니다.' : '의문문 어조가 자연스럽지 않습니다.'] : [] };
-            }),
-          }
-        : { translations: input.lines.map((line) => ({ id: line.id, text: kind === 'revise' ? `[KO✓] ${line.source}` : `[KO] ${line.source}` })) };
-    await new Promise((resolve) => setTimeout(resolve, 400));
     return c.json({
       id: 'mock',
       object: 'chat.completion',
       model: 'mock',
-      choices: [{ index: 0, message: { role: 'assistant', content: JSON.stringify(content) }, finish_reason: 'stop' }],
-      usage: { prompt_tokens: system.length + text(last).length, completion_tokens: JSON.stringify(content).length, total_tokens: 0 },
+      choices: [{ index: 0, message: { role: 'assistant', content: outcome.content }, finish_reason: outcome.finishReason }],
+      usage: outcome.usage,
     });
   }
 
@@ -131,6 +137,9 @@ app.post('/v1/chat/completions', async (c) => {
   const table = '## 모의 현황\n\n| 항목 | 내용 |\n|---|---|\n| 프로젝트 | 모의 프로젝트 |\n| 대사 | 8,157개 |\n\n- [x] 표 렌더링\n- [ ] ~~취소선~~';
   const reply = /표/.test(user) ? table : last?.role === 'tool' ? '도구 결과를 확인했습니다. (모의 응답)' : `"${user.slice(0, 40)}"에 대한 모의 응답입니다.`;
 
+  const options = requestOptions(c.req.raw.headers);
+  const usage = usageFor(body.messages.map((message) => text(message)).join('').length + JSON.stringify(body.tools ?? []).length, (call ? JSON.stringify(call.args) : reply).length, options);
+  stats.record('chat', 200, 0, usage);
   return streamSSE(c, async (stream) => {
     const chunk = (delta: unknown, finish: string | null = null) =>
       stream.writeSSE({ data: JSON.stringify({ id: 'mock', object: 'chat.completion.chunk', model: 'mock', choices: [{ index: 0, delta, finish_reason: finish }] }) });
@@ -146,7 +155,7 @@ app.post('/v1/chat/completions', async (c) => {
       }
       await chunk({}, 'stop');
     }
-    await stream.writeSSE({ data: JSON.stringify({ id: 'mock', object: 'chat.completion.chunk', model: 'mock', choices: [], usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 } }) });
+    await stream.writeSSE({ data: JSON.stringify({ id: 'mock', object: 'chat.completion.chunk', model: 'mock', choices: [], usage }) });
     await stream.writeSSE({ data: '[DONE]' });
   });
 });

@@ -5,7 +5,7 @@ import { execa, ExecaError } from 'execa';
 import { z } from 'zod';
 import type { ConnectionKind } from '@tw/shared';
 import { ModelError } from './errors.ts';
-import type { GenerateRequest, GenerateResult, ResolvedRoute, Usage } from './types.ts';
+import { addUsage, readUsage, type GenerateRequest, type GenerateResult, type ResolvedRoute, type Usage } from './types.ts';
 
 type CliKind = Extract<ConnectionKind, 'codex' | 'claude' | 'grok' | 'antigravity' | 'opencode'>;
 
@@ -73,39 +73,40 @@ function args(kind: CliKind, route: ResolvedRoute, schema: object, files: Files,
 const record = (value: unknown) =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 
-function parseJson(text: string): unknown {
+function parseJson(text: string, usage?: Usage): unknown {
   const clean = text.replace(/^﻿/, '').trim();
   const fenced = /^```(?:json)?\s*\n([\s\S]*?)\n```$/.exec(clean);
   try {
     return JSON.parse(fenced?.[1] ?? clean);
   } catch {
-    throw new ModelError('invalid-output', '모델 응답이 JSON이 아닙니다.', false);
+    throw new ModelError('invalid-output', '모델 응답이 JSON이 아닙니다.', false, usage);
   }
-}
-
-function usageOf(raw: unknown): Usage {
-  const usage = record(raw);
-  const num = (...values: unknown[]) => values.find((value): value is number => typeof value === 'number');
-  return {
-    inputTokens: num(usage?.input_tokens, usage?.inputTokens, usage?.prompt_tokens),
-    outputTokens: num(usage?.output_tokens, usage?.outputTokens, usage?.completion_tokens),
-  };
 }
 
 /** CLIs report an exhausted plan or rate limit only in their text; treat it like HTTP 429 so fallbacks can take over. */
 const QUOTA = /quota|RESOURCE_EXHAUSTED|rate.?limit|usage limit|too many requests|\b429\b/i;
-const cliFailure = (detail: string) =>
-  QUOTA.test(detail) ? new ModelError('rate-limit', `CLI 사용량 한도에 도달했습니다. ${detail}`) : new ModelError('cli', `CLI가 실패를 반환했습니다: ${detail}`, false);
+const cliFailure = (detail: string, usage?: Usage) =>
+  QUOTA.test(detail) ? new ModelError('rate-limit', `CLI 사용량 한도에 도달했습니다. ${detail}`, undefined, usage) : new ModelError('cli', `CLI가 실패를 반환했습니다: ${detail}`, false, usage);
 
 /** JSON somewhere in a model's text answer: a fenced block, else the outermost braces. */
-function parseLooseJson(text: string): unknown {
+function parseLooseJson(text: string, usage?: Usage): unknown {
   const fenced = /```(?:json)?\s*\n([\s\S]*?)\n```/.exec(text)?.[1];
   const candidate = fenced ?? text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1);
-  return parseJson(candidate || text);
+  return parseJson(candidate || text, usage);
+}
+
+/** opencode prints one `step_finish` per model step; tokens and cost are summed over them (cache is outside `input`). */
+export function opencodeUsage(events: unknown[]): Usage {
+  let total: Usage = {};
+  for (const event of events.map(record)) {
+    const part = record(event?.part);
+    if (event?.type === 'step_finish' && part) total = addUsage(total, readUsage(part.tokens, part.cost));
+  }
+  return total;
 }
 
 /** Each CLI wraps the model's answer in its own terminal envelope; progress events are never results. */
-function unwrap(kind: CliKind, stdout: string): { data: unknown; usage: Usage } {
+export function unwrap(kind: CliKind, stdout: string): { data: unknown; usage: Usage } {
   const lines = stdout.split(/\r?\n/).filter(Boolean);
   const events = lines.flatMap((line) => {
     try {
@@ -116,15 +117,16 @@ function unwrap(kind: CliKind, stdout: string): { data: unknown; usage: Usage } 
   });
   // opencode streams parts; the answer is the text parts, an error event means the turn failed.
   if (kind === 'opencode') {
+    const usage = opencodeUsage(events);
     const failure = events.map(record).find((event) => event?.type === 'error');
-    if (failure) throw cliFailure(JSON.stringify(failure.error ?? failure.part ?? failure).slice(0, 300));
+    if (failure) throw cliFailure(JSON.stringify(failure.error ?? failure.part ?? failure).slice(0, 300), usage);
     const text = events
       .map(record)
       .filter((event) => event?.type === 'text')
       .map((event) => String(record(event?.part)?.text ?? ''))
       .join('');
-    if (!text.trim()) throw new ModelError('cli', 'CLI가 최종 결과를 반환하지 않았습니다.', false);
-    return { data: parseLooseJson(text), usage: {} };
+    if (!text.trim()) throw new ModelError('cli', 'CLI가 최종 결과를 반환하지 않았습니다.', false, usage);
+    return { data: parseLooseJson(text, usage), usage };
   }
   let envelope = record(events.length === 1 ? events[0] : undefined);
   // agy streams events and ends with {"event":"result","result":{status, structured_output, usage, error}}.
@@ -133,22 +135,49 @@ function unwrap(kind: CliKind, stdout: string): { data: unknown; usage: Usage } 
     try {
       envelope = record(parseJson(stdout));
     } catch {
-      envelope = record(events.findLast((event) => record(event)?.type === 'result' || record(event)?.stopReason));
+      envelope = record(events.findLast((event) => record(event)?.type === 'result' || record(event)?.stopReason || record(event)?.stop_reason));
     }
   }
   if (!envelope) throw new ModelError('cli', 'CLI가 최종 결과를 반환하지 않았습니다.', false);
+  const usage = readUsage(envelope.usage, envelope.total_cost_usd);
   if (envelope.is_error === true || envelope.type === 'error' || envelope.status === 'ERROR' || String(envelope.subtype ?? '').startsWith('error'))
-    throw cliFailure(String(envelope.result ?? envelope.error ?? '').slice(0, 300));
-  const stop = String(envelope.stopReason ?? '').toLowerCase();
-  if (/max_?tokens|length|truncat/.test(stop)) throw new ModelError('invalid-output', '응답이 길이 제한에 걸려 잘렸습니다.', false);
+    throw cliFailure(String(envelope.result ?? envelope.error ?? '').slice(0, 300), usage);
+  const stop = String(envelope.stopReason ?? envelope.stop_reason ?? '').toLowerCase();
+  if (/max_?tokens|length|truncat/.test(stop)) throw new ModelError('invalid-output', '응답이 길이 제한에 걸려 잘렸습니다.', false, usage);
   const data =
     envelope.structured_output ??
     envelope.structuredOutput ??
-    (typeof envelope.result === 'string' ? parseJson(envelope.result) : envelope.result) ??
-    (typeof envelope.text === 'string' ? parseJson(envelope.text) : undefined) ??
-    (typeof envelope.response === 'string' ? parseJson(envelope.response) : undefined);
-  if (data === undefined) throw new ModelError('cli', 'CLI 응답에서 결과를 찾지 못했습니다.', false);
-  return { data, usage: usageOf(envelope.usage) };
+    (typeof envelope.result === 'string' ? parseJson(envelope.result, usage) : envelope.result) ??
+    (typeof envelope.text === 'string' ? parseJson(envelope.text, usage) : undefined) ??
+    (typeof envelope.response === 'string' ? parseJson(envelope.response, usage) : undefined);
+  if (data === undefined) throw new ModelError('cli', 'CLI 응답에서 결과를 찾지 못했습니다.', false, usage);
+  return { data, usage };
+}
+
+/** Codex prints JSONL events on stdout; the answer itself is the `--output-last-message` file. */
+function readCodex(stdout: string, lastMessage: string): { data: unknown; usage: Usage } {
+  const events = stdout.split(/\r?\n/).flatMap((line) => {
+    try {
+      return [record(JSON.parse(line))];
+    } catch {
+      return [];
+    }
+  });
+  const usage = readUsage(events.findLast((event) => event?.type === 'turn.completed')?.usage);
+  if (events.some((event) => event?.type === 'turn.failed' || event?.type === 'error'))
+    throw new ModelError('cli', 'Codex가 실패 이벤트를 반환했습니다.', false, usage);
+  return { data: parseJson(lastMessage, usage), usage };
+}
+
+/**
+ * The model's answer from a CLI's stdout (and Codex's last-message file), checked against the
+ * schema. Whenever the CLI got as far as an answer, a failure carries the usage it reported.
+ */
+export function readCliOutput<T>(kind: CliKind, stdout: string, schema: z.ZodType<T>, lastMessage = ''): GenerateResult<T> {
+  const { data, usage } = kind === 'codex' ? readCodex(stdout, lastMessage) : unwrap(kind, stdout);
+  const parsed = schema.safeParse(data);
+  if (!parsed.success) throw new ModelError('invalid-output', `응답 형식이 맞지 않습니다: ${parsed.error.issues[0]?.message ?? ''}`, false, usage);
+  return { object: parsed.data, usage };
 }
 
 export async function cliGenerate<T>(route: ResolvedRoute, request: GenerateRequest<T>): Promise<GenerateResult<T>> {
@@ -170,26 +199,7 @@ export async function cliGenerate<T>(route: ResolvedRoute, request: GenerateRequ
       forceKillAfterDelay: 3000,
       windowsHide: true,
     });
-    let data: unknown;
-    let usage: Usage = {};
-    if (kind === 'codex') {
-      const events = result.stdout.split(/\r?\n/).flatMap((line) => {
-        try {
-          return [record(JSON.parse(line))];
-        } catch {
-          return [];
-        }
-      });
-      if (events.some((event) => event?.type === 'turn.failed' || event?.type === 'error'))
-        throw new ModelError('cli', 'Codex가 실패 이벤트를 반환했습니다.', false);
-      data = parseJson(await readFile(files.result, 'utf8').catch(() => ''));
-      usage = usageOf(events.findLast((event) => event?.type === 'turn.completed')?.usage);
-    } else {
-      ({ data, usage } = unwrap(kind, result.stdout));
-    }
-    const parsed = request.schema.safeParse(data);
-    if (!parsed.success) throw new ModelError('invalid-output', `응답 형식이 맞지 않습니다: ${parsed.error.issues[0]?.message ?? ''}`, false);
-    return { object: parsed.data, usage };
+    return readCliOutput(kind, result.stdout, request.schema, kind === 'codex' ? await readFile(files.result, 'utf8').catch(() => '') : '');
   } catch (error) {
     if (error instanceof ModelError) throw error;
     if (error instanceof ExecaError) {

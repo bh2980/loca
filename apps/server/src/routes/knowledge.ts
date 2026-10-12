@@ -4,6 +4,7 @@ import { mentions } from '../services/context.ts';
 import { z } from 'zod';
 import { DOCUMENT_KINDS, KNOWLEDGE_STATUSES, patchOf, relationshipChangeSchema, SPEECH_LEVELS } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
+import { eachChunk } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { ruleLines } from '../services/speech.ts';
@@ -204,16 +205,26 @@ export const knowledgeRoutes = new Hono<Env>()
       const { kind, ids, action } = c.req.valid('json');
       const table = DRAFT_TABLES[kind];
       // Anything not yet official: AI candidates and AI items confirmed automatically.
-      const where = and(eq(table.projectId, projectId), inArray(table.id, ids), or(eq(table.status, 'candidate'), and(eq(table.origin, 'ai'), eq(table.reviewed, false))));
+      const where = (slice: string[]) => and(eq(table.projectId, projectId), inArray(table.id, slice), or(eq(table.status, 'candidate'), and(eq(table.origin, 'ai'), eq(table.reviewed, false))));
       const { db } = c.var.deps;
+      // Chunked inside the one transaction: a bulk action can cover thousands of drafts.
       const changed = db.transaction((tx) => {
-        if (action === 'discard') return tx.delete(table).where(where).run().changes;
-        // A confirmed relationship needs confirmed people at both ends.
-        if (kind === 'relationships') {
-          const ends = tx.select({ fromId: s.relationships.fromId, toId: s.relationships.toId }).from(s.relationships).where(where).all().flatMap((r) => [r.fromId, r.toId]);
-          if (ends.length) tx.update(s.characters).set({ status: 'confirmed' }).where(and(eq(s.characters.projectId, projectId), inArray(s.characters.id, ends))).run();
-        }
-        return tx.update(table).set({ status: 'confirmed', reviewed: true }).where(where).run().changes;
+        let total = 0;
+        eachChunk(ids, (slice) => {
+          if (action === 'discard') {
+            total += tx.delete(table).where(where(slice)).run().changes;
+            return;
+          }
+          // A confirmed relationship needs confirmed people at both ends.
+          if (kind === 'relationships') {
+            const ends = tx.select({ fromId: s.relationships.fromId, toId: s.relationships.toId }).from(s.relationships).where(where(slice)).all().flatMap((r) => [r.fromId, r.toId]);
+            eachChunk(ends, (people) => {
+              tx.update(s.characters).set({ status: 'confirmed' }).where(and(eq(s.characters.projectId, projectId), inArray(s.characters.id, people))).run();
+            });
+          }
+          total += tx.update(table).set({ status: 'confirmed', reviewed: true }).where(where(slice)).run().changes;
+        }, 2_000);
+        return total;
       });
       events.changed(projectId, 'knowledge');
       return c.json({ changed });

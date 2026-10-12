@@ -23,11 +23,12 @@ export function createApp(deps: Deps) {
     })
     .get('/events', (c) =>
       streamSSE(c, async (stream) => {
-        const send = (event: ChangeEvent) => void stream.writeSSE({ event: 'change', data: JSON.stringify(event) });
+        // The client may be gone before the write: that is not an error worth crashing for.
+        const send = (event: ChangeEvent) => void stream.writeSSE({ event: 'change', data: JSON.stringify(event) }).catch(() => {});
         events.on('change', send);
         stream.onAbort(() => void events.off('change', send));
         while (!stream.aborted) {
-          await stream.writeSSE({ event: 'ping', data: '' });
+          await stream.writeSSE({ event: 'ping', data: '' }).catch(() => stream.abort());
           await stream.sleep(20_000);
         }
       }),

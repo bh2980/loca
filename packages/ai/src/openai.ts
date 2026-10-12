@@ -1,6 +1,6 @@
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { generateText, Output, type LanguageModel } from 'ai';
-import { ModelError, toModelError } from './errors.ts';
+import { ModelError, readAiSdkUsage, toModelError } from './errors.ts';
 import type { GenerateRequest, GenerateResult, ResolvedRoute } from './types.ts';
 
 const PROVIDER = 'workbench';
@@ -38,7 +38,7 @@ export async function openaiGenerate<T>(route: ResolvedRoute, request: GenerateR
     });
     return {
       object: result.output as T,
-      usage: { inputTokens: result.usage.inputTokens, outputTokens: result.usage.outputTokens },
+      usage: readAiSdkUsage(result.usage),
     };
   } catch (error) {
     throw toModelError(error, request.signal);

@@ -1,6 +1,7 @@
 import { and, asc, count, desc, eq, gte, inArray, like, or, sql, type SQL } from 'drizzle-orm';
 import { checkFormat, LISTENER_MIN_CONFIDENCE, mentions, type BatchChange, type CheckKind, type LineFilter } from '@tw/shared';
 import type { Db } from '../db/index.ts';
+import { inChunks, inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { describeRule, knownListener, speechMismatch, speechRuleIndex } from './speech.ts';
@@ -54,21 +55,21 @@ export function findLines(db: Db, projectId: string, filter: LineFilter): { tota
   const { namesOf, statusId, tagId, statuses, tags } = lookups(db, projectId);
   const where: SQL[] = [eq(s.units.projectId, projectId)];
   if (filter.q) where.push(or(like(s.units.source, `%${filter.q}%`), like(s.units.translation, `%${filter.q}%`), like(s.units.speaker, `%${filter.q}%`), like(s.units.key, `%${filter.q}%`))!);
-  if (filter.speakers?.length) where.push(inArray(s.units.speaker, filter.speakers.flatMap(namesOf)));
+  if (filter.speakers?.length) where.push(inList(s.units.speaker, filter.speakers.flatMap(namesOf)));
   if (filter.listeners?.length) {
     const sure = sql`(${s.units.listener} is not null and (${s.units.listenerOrigin} is not 'ai' or ${s.units.listenerConfidence} >= ${LISTENER_MIN_CONFIDENCE}))`;
     const names = filter.listeners.filter((name) => name !== '-').flatMap(namesOf);
     where.push(or(...(names.length ? [and(inArray(s.units.listener, names), sure)!] : []), ...(filter.listeners.includes('-') ? [sql`not ${sure}`] : []))!);
   }
-  if (filter.groups?.length) where.push(or(inArray(s.groups.key, filter.groups), inArray(s.groups.id, filter.groups), inArray(s.groups.title, filter.groups))!);
-  if (filter.sections?.length) where.push(inArray(s.groups.section, filter.sections));
+  if (filter.groups?.length) where.push(or(inList(s.groups.key, filter.groups), inList(s.groups.id, filter.groups), inList(s.groups.title, filter.groups))!);
+  if (filter.sections?.length) where.push(inList(s.groups.section, filter.sections));
   if (filter.groupKind) where.push(eq(s.groups.kind, filter.groupKind));
   if (filter.kind) where.push(eq(s.units.kind, filter.kind));
-  if (filter.statuses?.length) where.push(inArray(s.units.statusId, filter.statuses.map((value) => statusId(value) ?? value)));
+  if (filter.statuses?.length) where.push(inList(s.units.statusId, filter.statuses.map((value) => statusId(value) ?? value)));
   if (filter.tags?.length)
-    where.push(inArray(s.units.id, db.select({ id: s.unitTags.unitId }).from(s.unitTags).where(inArray(s.unitTags.tagId, filter.tags.map((value) => tagId(value) ?? value)))));
+    where.push(inArray(s.units.id, db.select({ id: s.unitTags.unitId }).from(s.unitTags).where(inList(s.unitTags.tagId, filter.tags.map((value) => tagId(value) ?? value)))));
   if (filter.translated !== undefined) where.push(filter.translated ? sql`${s.units.translation} is not null and ${s.units.translation} != ''` : sql`(${s.units.translation} is null or ${s.units.translation} = '')`);
-  if (filter.keys?.length) where.push(inArray(s.units.key, filter.keys));
+  if (filter.keys?.length) where.push(inList(s.units.key, filter.keys));
 
   // Mentions need whole-word matching (and {ALIAS} placeholders), so they are checked in code
   // over a LIKE pre-filter; everything else pages in SQL.
@@ -91,7 +92,7 @@ export function findLines(db: Db, projectId: string, filter: LineFilter): { tota
     page = base.limit(filter.limit).offset(filter.offset).all();
   }
   const ids = page.map(({ unit }) => unit.id);
-  const tagRows = ids.length ? db.select().from(s.unitTags).where(inArray(s.unitTags.unitId, ids)).all() : [];
+  const tagRows = inChunks(ids, (slice) => db.select().from(s.unitTags).where(inArray(s.unitTags.unitId, slice)).all());
   const tagName = new Map(tags.map((tag) => [tag.id, tag.name]));
   const statusName = new Map(statuses.map((status) => [status.id, status.name]));
   return {
@@ -135,7 +136,7 @@ export function scenesWith(db: Db, projectId: string, speakers: string[]) {
   const byGroup = Map.groupBy(rows, (row) => row.groupId);
   const matching = [...byGroup].filter(([, list]) => sets.every((set) => list.some((row) => row.speaker && set.has(row.speaker))));
   if (!matching.length) return [];
-  const groups = db.select().from(s.groups).where(inArray(s.groups.id, matching.map(([id]) => id))).orderBy(asc(s.groups.sort)).all();
+  const groups = inChunks(matching.map(([id]) => id), (slice) => db.select().from(s.groups).where(inArray(s.groups.id, slice)).all()).sort((a, b) => a.sort - b.sort);
   return groups.map((group) => ({
     key: group.key,
     title: group.title,
@@ -253,13 +254,13 @@ export function runStats(db: Db, projectId: string, since: Date) {
   const steps = db
     .select({ runId: s.runSteps.runId, calls: count(), failed: sql<number>`sum(case when ${s.runSteps.ok} then 0 else 1 end)`, input: sql<number>`sum(coalesce(${s.runSteps.inputTokens}, 0))`, output: sql<number>`sum(coalesce(${s.runSteps.outputTokens}, 0))` })
     .from(s.runSteps)
-    .where(inArray(s.runSteps.runId, ids))
+    .where(inList(s.runSteps.runId, ids))
     .groupBy(s.runSteps.runId)
     .all();
   const failing = db
     .select({ runId: s.runItems.runId, nodeId: s.runItems.nodeId, failed: count() })
     .from(s.runItems)
-    .where(and(inArray(s.runItems.runId, ids), eq(s.runItems.state, 'failed')))
+    .where(and(inList(s.runItems.runId, ids), eq(s.runItems.state, 'failed')))
     .groupBy(s.runItems.runId, s.runItems.nodeId)
     .all();
   const nodeName = (runId: string, nodeId: string) => {
@@ -279,12 +280,17 @@ export function runStats(db: Db, projectId: string, since: Date) {
 
 // ── export / batch change ───────────────────────────────────────────
 
+/** Units of a project by key, for batch changes of any size. */
+function unitsByKey(db: Pick<Db, 'select'>, projectId: string, keys: string[]) {
+  return new Map(inChunks(keys, (slice) => db.select().from(s.units).where(and(eq(s.units.projectId, projectId), inArray(s.units.key, slice))).all()).map((unit) => [unit.key, unit]));
+}
+
 /** Lines plus what a translator needs, one object per line (written as JSONL by the CLI). */
 export function exportLines(db: Db, projectId: string, filter: LineFilter, options: { before: number; terms: boolean; all: boolean }) {
   const lines = options.all ? allLines(db, projectId, filter) : findLines(db, projectId, filter).rows;
   const terms = options.terms ? db.select().from(s.terms).where(and(eq(s.terms.projectId, projectId), eq(s.terms.status, 'confirmed'))).all() : [];
   const groupLines = new Map<string, { id: string; speaker: string | null; source: string; translation: string | null }[]>();
-  const units = new Map(db.select({ id: s.units.id, groupId: s.units.groupId }).from(s.units).where(inArray(s.units.id, lines.map((line) => line.id))).all().map((row) => [row.id, row.groupId]));
+  const units = new Map(inChunks(lines.map((line) => line.id), (slice) => db.select({ id: s.units.id, groupId: s.units.groupId }).from(s.units).where(inArray(s.units.id, slice)).all()).map((row) => [row.id, row.groupId]));
   // The confirmed speech rule of each line's speaker → listener pair, as the translator must follow it.
   const rules = speechRuleIndex(db, projectId).resolve(lines.map((line) => ({ key: line.key, speaker: line.speaker, listener: line.listener, listenerOrigin: 'human' as const, listenerConfidence: null })));
   return lines.map((line) => {
@@ -323,7 +329,7 @@ export function exportLines(db: Db, projectId: string, filter: LineFilter, optio
  */
 export function normalizeBatch(db: Db, projectId: string, batch: BatchChange): { batch: BatchChange; unchanged: string[] } {
   const { statusId } = lookups(db, projectId);
-  const units = new Map(db.select().from(s.units).where(and(eq(s.units.projectId, projectId), inArray(s.units.key, batch.changes.map((change) => change.key)))).all().map((unit) => [unit.key, unit]));
+  const units = unitsByKey(db, projectId, batch.changes.map((change) => change.key));
   const unchanged: string[] = [];
   const changes = batch.changes.flatMap((change) => {
     const unit = units.get(change.key);
@@ -355,7 +361,7 @@ export interface BatchReport {
 /** Validate a batch without writing: unknown keys, stale revs, unknown statuses/tags, and format/glossary problems in new translations. */
 export function validateBatch(db: Db, projectId: string, batch: BatchChange): BatchReport {
   const { statusId, tagId } = lookups(db, projectId);
-  const units = new Map(db.select().from(s.units).where(and(eq(s.units.projectId, projectId), inArray(s.units.key, batch.changes.map((change) => change.key)))).all().map((unit) => [unit.key, unit]));
+  const units = unitsByKey(db, projectId, batch.changes.map((change) => change.key));
   const rules = db.select({ rules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, projectId)).get()?.rules;
   const terms = db.select().from(s.terms).where(and(eq(s.terms.projectId, projectId), eq(s.terms.status, 'confirmed'))).all().filter((term) => term.target.trim());
   const report: BatchReport = { total: batch.changes.length, changes: 0, conflicts: [], errors: [], warnings: [] };
@@ -392,7 +398,7 @@ export function applyBatch(db: Db, projectId: string, batch: BatchChange) {
   const applied: string[] = [];
   const skipped: { key: string; reason: string }[] = [];
   db.transaction((tx) => {
-    const units = new Map(tx.select().from(s.units).where(and(eq(s.units.projectId, projectId), inArray(s.units.key, batch.changes.map((change) => change.key)))).all().map((unit) => [unit.key, unit]));
+    const units = unitsByKey(tx, projectId, batch.changes.map((change) => change.key));
     for (const change of batch.changes) {
       const unit = units.get(change.key);
       if (!unit) {

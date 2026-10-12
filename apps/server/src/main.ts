@@ -12,6 +12,14 @@ import { AnalysisService } from './services/analysis.ts';
 import { computeLayouts } from './services/layout.ts';
 import { keyringStore, memoryStore } from './services/secrets.ts';
 
+// A stray rejected promise (a client that vanished, a failed background job) must not take the server down.
+process.on('unhandledRejection', (reason) => console.error('unhandled rejection', reason));
+// After an uncaught exception Node's state is unreliable: log and exit.
+process.on('uncaughtException', (error) => {
+  console.error('uncaught exception', error);
+  process.exit(1);
+});
+
 const db = openDatabase(path.join(config.dataDir, 'workbench.sqlite'));
 const secrets = process.env.WORKBENCH_SECRETS === 'memory' ? memoryStore() : keyringStore;
 const runner = new Runner(db, secrets);
@@ -32,9 +40,14 @@ const server = serve({ fetch: app.fetch, hostname: '127.0.0.1', port: config.por
 });
 
 const shutdown = async () => {
-  await runner.stop();
-  server.close();
+  try {
+    await runner.stop();
+    server.close();
+  } catch (error) {
+    console.error('shutdown failed', error);
+  }
   process.exit(0);
 };
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
+process.on('SIGINT', () => void shutdown());
+process.on('SIGTERM', () => void shutdown());
+

@@ -3,6 +3,7 @@ import { and, asc, count, desc, eq, inArray, like, or, sql, type SQL } from 'dri
 import { z } from 'zod';
 import { LISTENER_MIN_CONFIDENCE, type NodeType } from '@tw/shared';
 import { found, validate, type Env } from '../context.ts';
+import { eachChunk } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { computeLayouts } from '../services/layout.ts';
@@ -151,10 +152,15 @@ export const sourceRoutes = new Hono<Env>()
     const projectId = c.req.param('projectId');
     const body = c.req.valid('json');
     db.transaction((tx) => {
-      if (body.statusId) tx.update(s.units).set({ statusId: body.statusId }).where(and(eq(s.units.projectId, projectId), inArray(s.units.id, body.unitIds))).run();
-      if (body.removeTagIds.length) tx.delete(s.unitTags).where(and(inArray(s.unitTags.unitId, body.unitIds), inArray(s.unitTags.tagId, body.removeTagIds))).run();
+      // Chunked: a selection can be a whole project, and SQLite caps bound variables per statement.
+      eachChunk(body.unitIds, (slice) => {
+        if (body.statusId) tx.update(s.units).set({ statusId: body.statusId }).where(and(eq(s.units.projectId, projectId), inArray(s.units.id, slice))).run();
+        if (body.removeTagIds.length) tx.delete(s.unitTags).where(and(inArray(s.unitTags.unitId, slice), inArray(s.unitTags.tagId, body.removeTagIds))).run();
+      });
       if (body.addTagIds.length)
-        tx.insert(s.unitTags).values(body.unitIds.flatMap((unitId) => body.addTagIds.map((tagId) => ({ unitId, tagId })))).onConflictDoNothing().run();
+        eachChunk(body.unitIds, (slice) => {
+          tx.insert(s.unitTags).values(slice.flatMap((unitId) => body.addTagIds.map((tagId) => ({ unitId, tagId })))).onConflictDoNothing().run();
+        }, Math.max(1, Math.floor(30_000 / (body.addTagIds.length * 2))));
     });
     events.changed(projectId, 'units', 'statuses');
     return c.json({ ok: true });

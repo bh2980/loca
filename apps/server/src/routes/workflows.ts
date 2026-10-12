@@ -111,14 +111,15 @@ export const workflowRoutes = new Hono<Env>()
     const workflow = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
     return c.json({ count: selectRunUnits(db, workflow.projectId, workflow.definition, c.req.valid('json')).length });
   })
-  .post('/workflows/:id/runs', validate('json', scopeSchema), (c) => {
+  .post('/workflows/:id/runs', validate('json', scopeSchema.extend({ limits: z.object({ maxCalls: z.number().int().min(1).optional(), maxInputTokens: z.number().int().min(1).optional() }).optional() })), (c) => {
     const { db } = c.var.deps;
     const workflow = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
     const errors = workflowIssues(db, workflow.projectId, workflow.definition).filter((issue) => issue.level === 'error');
     if (errors.length) badRequest(`워크플로에 오류가 ${errors.length}개 있습니다: ${errors[0].message}`);
     const profileIds = [...new Set(workflow.definition.nodes.flatMap((node) => (node.type === 'ai' ? [node.config.profileId] : [])))];
     try {
-      return c.json(createRun(db, { projectId: workflow.projectId, workflow, profiles: snapshotProfiles(db, profileIds), scope: c.req.valid('json') }), 201);
+      const { limits, ...scope } = c.req.valid('json');
+      return c.json(createRun(db, { projectId: workflow.projectId, workflow, profiles: snapshotProfiles(db, profileIds), scope, limits }), 201);
     } catch (error) {
       return badRequest(error instanceof Error ? error.message : String(error));
     }
@@ -148,7 +149,7 @@ export const workflowRoutes = new Hono<Env>()
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     const runs = db
-      .select({ id: s.runs.id, workflowId: s.runs.workflowId, workflowName: s.runs.workflowName, workflowVersion: s.runs.workflowVersion, status: s.runs.status, total: s.runs.total, createdAt: s.runs.createdAt, finishedAt: s.runs.finishedAt })
+      .select({ id: s.runs.id, workflowId: s.runs.workflowId, workflowName: s.runs.workflowName, workflowVersion: s.runs.workflowVersion, status: s.runs.status, notice: s.runs.notice, total: s.runs.total, createdAt: s.runs.createdAt, finishedAt: s.runs.finishedAt })
       .from(s.runs)
       .where(eq(s.runs.projectId, projectId))
       .orderBy(desc(s.runs.createdAt))
@@ -176,7 +177,7 @@ export const workflowRoutes = new Hono<Env>()
       .groupBy(s.runItems.nodeId, s.runItems.state)
       .all();
     const usage = db
-      .select({ steps: count(), failed: sql<number>`sum(case when ${s.runSteps.ok} then 0 else 1 end)`, inputTokens: sql<number>`coalesce(sum(${s.runSteps.inputTokens}), 0)`, outputTokens: sql<number>`coalesce(sum(${s.runSteps.outputTokens}), 0)` })
+      .select({ steps: count(), failed: sql<number>`sum(case when ${s.runSteps.ok} then 0 else 1 end)`, inputTokens: sql<number>`coalesce(sum(${s.runSteps.inputTokens}), 0)`, outputTokens: sql<number>`coalesce(sum(${s.runSteps.outputTokens}), 0)`, cachedInputTokens: sql<number>`coalesce(sum(${s.runSteps.cachedInputTokens}), 0)`, reasoningTokens: sql<number>`coalesce(sum(${s.runSteps.reasoningTokens}), 0)`, costUsd: sql<number | null>`sum(${s.runSteps.costUsd})` })
       .from(s.runSteps)
       .where(eq(s.runSteps.runId, run.id))
       .get();

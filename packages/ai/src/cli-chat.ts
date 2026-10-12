@@ -4,9 +4,9 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { execa, ExecaError } from 'execa';
 import type { ConnectionKind } from '@tw/shared';
-import { cliCommand } from './cli.ts';
+import { cliCommand, opencodeUsage } from './cli.ts';
 import { ModelError } from './errors.ts';
-import type { ResolvedRoute, Usage } from './types.ts';
+import { readUsage, type ResolvedRoute, type Usage } from './types.ts';
 
 /**
  * One turn of a multi-turn conversation with an agent CLI. Every CLI here keeps its own session
@@ -51,11 +51,7 @@ const lines = (stdout: string) =>
       return [];
     }
   });
-const num = (value: unknown) => (typeof value === 'number' ? value : undefined);
-const usageOf = (raw: unknown): Usage => {
-  const usage = (raw ?? {}) as Record<string, unknown>;
-  return { inputTokens: num(usage.input_tokens) ?? num(usage.inputTokens), outputTokens: num(usage.output_tokens) ?? num(usage.outputTokens) };
-};
+const usageOf = (raw: unknown, cost?: unknown): Usage => readUsage(raw, cost);
 const QUOTA = /quota|RESOURCE_EXHAUSTED|rate.?limit|usage limit|too many requests|\b429\b/i;
 const failure = (detail: string) => (QUOTA.test(detail) ? new ModelError('rate-limit', `CLI 사용량 한도에 도달했습니다. ${detail}`) : new ModelError('cli', `CLI가 실패를 반환했습니다: ${detail}`, false));
 
@@ -124,7 +120,7 @@ export function readCliChat(kind: ChatCliKind, stdout: string, fallbackId: strin
     }
     if (!whole) throw failure(stdout.slice(-300) || '응답이 없습니다.');
     if (whole.is_error) throw failure(String(whole.result ?? whole.subtype ?? '오류').slice(0, 300));
-    return { sessionId: String(whole.session_id ?? whole.sessionId ?? fallbackId), text: String(whole.result ?? whole.text ?? ''), usage: usageOf(whole.usage) };
+    return { sessionId: String(whole.session_id ?? whole.sessionId ?? fallbackId), text: String(whole.result ?? whole.text ?? ''), usage: usageOf(whole.usage, whole.total_cost_usd) };
   }
   if (kind === 'codex') {
     const thread = events.find((event) => event.type === 'thread.started');
@@ -148,7 +144,7 @@ export function readCliChat(kind: ChatCliKind, stdout: string, fallbackId: strin
   const parts = events.map((event) => event.part as Record<string, unknown> | undefined);
   const sessionId = String(events.map((event) => event.sessionID ?? (event.part as Record<string, unknown> | undefined)?.sessionID).find(Boolean) ?? fallbackId);
   const text = parts.flatMap((part) => (part?.type === 'text' && typeof part.text === 'string' ? [part.text] : [])).join('');
-  return { sessionId, text, usage: {} };
+  return { sessionId, text, usage: opencodeUsage(events) };
 }
 
 /** Runs one turn in an empty working folder, so the agent sees no files of ours. */

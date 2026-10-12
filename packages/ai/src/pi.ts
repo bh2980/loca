@@ -5,7 +5,7 @@ import { PI_BUILTIN_TOOLS, piOptionsSchema, type PiOptions } from '@tw/shared';
 import { Type } from 'typebox';
 import { z } from 'zod';
 import { ModelError } from './errors.ts';
-import type { GenerateRequest, GenerateResult, ResolvedRoute } from './types.ts';
+import type { GenerateRequest, GenerateResult, ResolvedRoute, Usage } from './types.ts';
 
 /**
  * pi (the coding agent) used as a library. Credentials are pi's own: whatever the user signed in
@@ -51,13 +51,21 @@ export async function piProbe(): Promise<string> {
 
 const THINKING = new Set(['minimal', 'low', 'medium', 'high', 'xhigh']);
 
-function parseJson(text: string): unknown {
+/** pi counts cache outside `input`. Its `cost.total` comes from pi's price catalog, so it is not reported cost. */
+const piUsage = (usage: { input: number; output: number; cacheRead: number; cacheWrite: number; reasoning?: number }): Usage => ({
+  inputTokens: usage.input + usage.cacheRead + usage.cacheWrite,
+  cachedInputTokens: usage.cacheRead,
+  outputTokens: usage.output,
+  ...(usage.reasoning === undefined ? {} : { reasoningTokens: usage.reasoning }),
+});
+
+function parseJson(text: string, usage?: Usage): unknown {
   const clean = text.trim();
   const fenced = /```(?:json)?\s*\n([\s\S]*?)\n```/.exec(clean);
   try {
     return JSON.parse(fenced?.[1] ?? clean);
   } catch {
-    throw new ModelError('invalid-output', '모델 응답이 JSON이 아닙니다.', false);
+    throw new ModelError('invalid-output', '모델 응답이 JSON이 아닙니다.', false, usage);
   }
 }
 
@@ -78,13 +86,14 @@ export async function piGenerate<T>(route: ResolvedRoute, request: GenerateReque
       ...(route.effort && THINKING.has(route.effort) ? { reasoning: route.effort as never } : {}),
     },
   );
-  if (message.stopReason === 'aborted') throw new ModelError(request.signal?.aborted ? 'cancelled' : 'timeout', '호출이 중단되었습니다.');
-  if (message.stopReason === 'error') throw new ModelError('network', message.errorMessage ?? 'pi 호출이 실패했습니다.');
-  if (message.stopReason === 'length') throw new ModelError('invalid-output', '응답이 길이 제한에 걸려 잘렸습니다.', false);
+  const usage = piUsage(message.usage);
+  if (message.stopReason === 'aborted') throw new ModelError(request.signal?.aborted ? 'cancelled' : 'timeout', '호출이 중단되었습니다.', undefined, usage);
+  if (message.stopReason === 'error') throw new ModelError('network', message.errorMessage ?? 'pi 호출이 실패했습니다.', undefined, usage);
+  if (message.stopReason === 'length') throw new ModelError('invalid-output', '응답이 길이 제한에 걸려 잘렸습니다.', false, usage);
   const text = message.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('');
-  const parsed = request.schema.safeParse(parseJson(text));
-  if (!parsed.success) throw new ModelError('invalid-output', `응답 형식이 맞지 않습니다: ${parsed.error.issues[0]?.message ?? ''}`, false);
-  return { object: parsed.data, usage: { inputTokens: message.usage.input, outputTokens: message.usage.output } };
+  const parsed = request.schema.safeParse(parseJson(text, usage));
+  if (!parsed.success) throw new ModelError('invalid-output', `응답 형식이 맞지 않습니다: ${parsed.error.issues[0]?.message ?? ''}`, false, usage);
+  return { object: parsed.data, usage };
 }
 
 // ── sessions with the user's pi setup ─────────────────────────────

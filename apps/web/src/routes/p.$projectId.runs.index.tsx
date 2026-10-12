@@ -49,6 +49,11 @@ function Runs() {
                     </TableCell>
                     <TableCell>
                       <Badge variant={run.status === 'running' ? 'default' : 'outline'}>{RUN_STATUS[run.status]}</Badge>
+                      {run.status === 'paused' && run.notice && (
+                        <p className="mt-1 max-w-56 truncate text-xs text-destructive" title={run.notice}>
+                          {run.notice}
+                        </p>
+                      )}
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-3">

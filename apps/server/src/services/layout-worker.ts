@@ -1,10 +1,45 @@
 import { parentPort, workerData } from 'node:worker_threads';
 import ELK, { type ElkNode } from 'elkjs/lib/elk.bundled.js';
 import type { LayoutData } from '../db/schema.ts';
+import { deriveSceneEdges, reduceSceneEdges } from './scene-graph.ts';
 
 export interface LayoutJob {
   nodes: { id: string; width: number; height: number }[];
   edges: { id: string; from: string; to: string }[];
+}
+
+/**
+ * The raw dialogue graph for the scene layout. Deriving scene links (and dropping the ones also
+ * reachable through another scene) can take minutes on graphs with hubs, so it happens here, off
+ * the server's event loop.
+ */
+export interface SceneSource {
+  scenes: string[];
+  nodes: { id: string; groupId: string | null }[];
+  edges: { fromId: string; toId: string }[];
+  size: [number, number];
+}
+
+export type WorkerJob = { kind: 'layout'; job: LayoutJob } | { kind: 'scenes'; source: SceneSource };
+
+function sceneLayoutJob(source: SceneSource): LayoutJob & { hidden: { from: string; to: string }[] } {
+  const scenes = new Set(source.scenes);
+  // Document / UI nodes are passed through like control nodes, never treated as an endpoint.
+  const derived = deriveSceneEdges(source.nodes, source.edges);
+  const { kept, hidden } = reduceSceneEdges(derived.filter((edge) => scenes.has(edge.from) && scenes.has(edge.to)));
+  return {
+    nodes: source.scenes.map((id) => ({ id, width: source.size[0], height: source.size[1] })),
+    edges: kept.map((edge, index) => ({ id: `s${index}`, from: edge.from, to: edge.to })),
+    hidden: hidden.map(({ from, to }) => ({ from, to })),
+  };
+}
+
+async function run(work: WorkerJob): Promise<LayoutData> {
+  if (work.kind === 'layout') return layout(work.job);
+  const { hidden, ...job } = sceneLayoutJob(work.source);
+  const data = await layout(job);
+  if (hidden.length) data.hiddenEdges = hidden;
+  return data;
 }
 
 /**
@@ -80,7 +115,7 @@ async function layout(job: LayoutJob): Promise<LayoutData> {
   };
 }
 
-layout(workerData as LayoutJob).then(
+run(workerData as WorkerJob).then(
   (data) => parentPort!.postMessage({ ok: true, data }),
   (error: unknown) => parentPort!.postMessage({ ok: false, error: error instanceof Error ? error.message : String(error) }),
 );

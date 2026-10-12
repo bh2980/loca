@@ -1,11 +1,12 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, Pause, Play, Square } from 'lucide-react';
+import { ChevronLeft, ChevronRight, OctagonAlert, Pause, Play, Square } from 'lucide-react';
 import { nodeName as nameOf, type WorkflowNode } from '@tw/shared';
 import { ContextItemList } from '@/components/ai-context';
 import { LineDetail } from '@/components/line-detail';
 import { Page } from '@/components/page';
 import { nodeIcon } from '@/components/workflow/node-view';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -106,6 +107,13 @@ function RunDetail() {
       <div className="flex h-full min-h-0">
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="space-y-4 px-6 pt-4 pb-4">
+            {data.status === 'paused' && data.notice && (
+              <Alert variant="destructive">
+                <OctagonAlert />
+                <AlertTitle>실행이 멈췄습니다</AlertTitle>
+                <AlertDescription>{data.notice} 원인을 확인한 뒤 위의 재개 버튼으로 이어서 실행할 수 있습니다.</AlertDescription>
+              </Alert>
+            )}
             <div className="space-y-1.5">
               <div className="flex flex-wrap items-baseline justify-between gap-x-4 text-sm">
                 <span>
@@ -114,7 +122,11 @@ function RunDetail() {
                 </span>
                 {data.usage && (
                   <span className="text-xs text-muted-foreground tabular-nums">
-                    AI 호출 {data.usage.steps} · 실패 {data.usage.failed ?? 0} · 토큰 {(data.usage.inputTokens + data.usage.outputTokens).toLocaleString()}
+                    AI 호출 {data.usage.steps} · 실패 {data.usage.failed ?? 0} · 입력 {data.usage.inputTokens.toLocaleString()}
+                    {data.usage.cachedInputTokens > 0 && ` (캐시 ${data.usage.cachedInputTokens.toLocaleString()})`} · 출력 {data.usage.outputTokens.toLocaleString()}
+                    {data.usage.costUsd != null && ` · 보고된 비용 $${data.usage.costUsd.toFixed(4)}`}
+                    {data.limits?.maxCalls != null && ` · 호출 상한 ${data.limits.maxCalls.toLocaleString()}회`}
+                    {data.limits?.maxInputTokens != null && ` · 입력 상한 ${data.limits.maxInputTokens.toLocaleString()}`}
                   </span>
                 )}
               </div>
@@ -220,7 +232,8 @@ function RunDetail() {
                         <span className="text-muted-foreground">{step.model ?? ''}</span>
                         <span className="ml-auto text-xs text-muted-foreground tabular-nums">
                           {((new Date(step.finishedAt).getTime() - new Date(step.startedAt).getTime()) / 1000).toFixed(1)}s
-                          {step.inputTokens != null && ` · ${step.inputTokens}+${step.outputTokens} tok`}
+                          {step.inputTokens != null && ` · 입력 ${step.inputTokens.toLocaleString()}${step.cachedInputTokens ? `(캐시 ${step.cachedInputTokens.toLocaleString()})` : ''} · 출력 ${(step.outputTokens ?? 0).toLocaleString()}`}
+                          {step.costUsd != null && ` · $${step.costUsd.toFixed(4)}`}
                         </span>
                       </CollapsibleTrigger>
                       <CollapsibleContent className="mt-2 space-y-2 pl-7">

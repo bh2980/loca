@@ -12,3 +12,4 @@ coverage/
 *.log
 .DS_Store
 samples/synthetic-*.json
+samples/realistic-*.json

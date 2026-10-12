@@ -6,7 +6,7 @@ import { ModelError, toModelError } from './errors.ts';
 import { openaiChatModel, openaiGenerate, openaiModels } from './openai.ts';
 import { piGenerate, piModelsWith, piProbe } from './pi.ts';
 import { systemOneAsk, systemOneJudge, systemOneModels } from './systemone.ts';
-import type { AskRequest, AskResult, GenerateRequest, GenerateResult, JudgeRequest, JudgeResult, ResolvedRoute } from './types.ts';
+import type { AskRequest, AskResult, GenerateRequest, GenerateResult, JudgeRequest, JudgeResult, ResolvedRoute, Usage } from './types.ts';
 
 export * from './types.ts';
 export { ModelError } from './errors.ts';
@@ -73,6 +73,8 @@ export interface Attempt {
   ok: boolean;
   error?: string;
   code?: string;
+  /** What this attempt used, when the connection reported it (also for failed attempts). */
+  usage?: Usage;
 }
 
 /**
@@ -97,10 +99,11 @@ export async function withFallback<R>(
         shouldRetry: ({ error }) => toModelError(error, signal).transient,
         onFailedAttempt: ({ error }) => {
           const failure = toModelError(error, signal);
-          attempts.push({ route: index, model: route.model, ok: false, error: failure.message, code: failure.code });
+          attempts.push({ route: index, model: route.model, ok: false, error: failure.message, code: failure.code, ...(failure.usage ? { usage: failure.usage } : {}) });
         },
       });
-      attempts.push({ route: index, model: route.model, ok: true });
+      const usage = (result as { usage?: Usage } | null)?.usage;
+      attempts.push({ route: index, model: route.model, ok: true, ...(usage ? { usage } : {}) });
       return { result, route, attempts };
     } catch (error) {
       last = toModelError(error, signal);

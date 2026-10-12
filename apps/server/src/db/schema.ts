@@ -286,7 +286,7 @@ export const analysisJobs = sqliteTable(
     status: text('status', { enum: ['running', 'completed', 'failed', 'cancelled'] }).notNull(),
     partsDone: integer('parts_done').notNull().default(0),
     partsTotal: integer('parts_total').notNull().default(1),
-    usage: json<{ inputTokens?: number; outputTokens?: number }>('usage'),
+    usage: json<{ inputTokens?: number; cachedInputTokens?: number; outputTokens?: number; reasoningTokens?: number; costUsd?: number }>('usage'),
     /** Counts of drafts written, by kind. */
     result: json<Record<string, number>>('result'),
     error: text('error'),
@@ -374,11 +374,21 @@ export const runs = sqliteTable(
     scope: json<RunScope>('scope').notNull(),
     status: text('status', { enum: ['running', 'paused', 'cancelled', 'completed'] }).notNull(),
     total: integer('total').notNull(),
+    /** Caps the person set when starting; the run pauses when one is reached. */
+    limits: json<RunLimits>('limits'),
+    /** Why the runner paused the run on its own (a guard, an error); cleared on resume. */
+    notice: text('notice'),
     createdAt: createdAt(),
     finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),
   },
   (t) => [index('runs_project').on(t.projectId, t.createdAt)],
 );
+
+export interface RunLimits {
+  maxCalls?: number;
+  /** All input tokens, cached included, as the connections reported them. */
+  maxInputTokens?: number;
+}
 
 export type ItemState = 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
 export interface ItemData {
@@ -424,8 +434,15 @@ export const runSteps = sqliteTable(
     output: json<unknown>('output'),
     error: text('error'),
     attempts: json<unknown[]>('attempts'),
+    /** Usage of every attempt of this call (failed ones included), as the connections reported it. */
     inputTokens: integer('input_tokens'),
+    /** The part of `inputTokens` read from the provider's prompt cache. */
+    cachedInputTokens: integer('cached_input_tokens'),
     outputTokens: integer('output_tokens'),
+    /** The reasoning part of `outputTokens`. */
+    reasoningTokens: integer('reasoning_tokens'),
+    /** USD the connection reported; never estimated. */
+    costUsd: real('cost_usd'),
     startedAt: integer('started_at', { mode: 'timestamp_ms' }).notNull(),
     finishedAt: integer('finished_at', { mode: 'timestamp_ms' }).notNull(),
   },

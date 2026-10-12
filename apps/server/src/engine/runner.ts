@@ -1,7 +1,8 @@
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, notInArray, sql } from 'drizzle-orm';
 import jsonLogic from 'json-logic-js';
 import * as ai from '@tw/ai';
 import { FUNCTIONS, nodeName, type AiNode, type ConditionData, type FunctionName, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import { inChunks, inList } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import type { ItemData, ItemState } from '../db/schema.ts';
@@ -22,6 +23,31 @@ type Item = typeof s.runItems.$inferSelect;
 type Unit = typeof s.units.$inferSelect;
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 type StepRecord = Omit<typeof s.runSteps.$inferInsert, 'ok' | 'finishedAt'>;
+/** A queued line waiting at a slow node, with its script position for batching. */
+type Waiting = { id: string; unitId: string; nodeId: string; groupId: string; groupSort: number; sort: number };
+
+/** Lines passed through instant nodes per tick; the rest wait for the next tick, so a tick never blocks for long. */
+const SETTLE_PER_TICK = 2_000;
+/**
+ * Failures that will not go away by trying the next batch: the run pauses at the first one. A rate
+ * limit is not among them: an API's limit passes with time, and an exhausted subscription fails
+ * every call at once, which the consecutive-failure guard catches within a few calls.
+ */
+const STOPPING_CODES: Record<string, string> = { auth: '인증 오류', config: '연결 설정 오류' };
+
+/** Usage of a call: every attempt that reported some, failed retries included. */
+function stepUsage(attempts: ai.Attempt[], fallback: ai.Usage = {}): ai.Usage {
+  const reported = attempts.flatMap((attempt) => (attempt.usage ? [attempt.usage] : []));
+  return reported.length ? reported.reduce(ai.addUsage, {}) : fallback;
+}
+const usageColumns = (usage: ai.Usage) => ({
+  inputTokens: usage.inputTokens,
+  cachedInputTokens: usage.cachedInputTokens,
+  outputTokens: usage.outputTokens,
+  reasoningTokens: usage.reasoningTokens,
+  costUsd: usage.costUsd,
+});
+const attemptsOf = (error: unknown): ai.Attempt[] => ((error as { attempts?: ai.Attempt[] }).attempts ?? []);
 
 /** A node's result for one line: the exit to take plus what it produced. */
 interface Outcome extends FunctionResult {
@@ -81,7 +107,15 @@ export class Runner {
     this.ticking = true;
     try {
       let active = false;
-      for (const run of this.db.select().from(s.runs).where(eq(s.runs.status, 'running')).all()) active = this.advance(run) || active;
+      for (const run of this.db.select().from(s.runs).where(eq(s.runs.status, 'running')).all()) {
+        // One run's failure (a database error, a bad definition) pauses that run; the others go on.
+        try {
+          active = this.advance(run) || active;
+        } catch (error) {
+          console.error(`[runner] run ${run.id}:`, error);
+          this.halt(run.id, `실행기 오류로 멈췄습니다: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
       return active;
     } finally {
       this.ticking = false;
@@ -94,7 +128,7 @@ export class Runner {
   }
 
   resume(runId: string) {
-    this.db.update(s.runs).set({ status: 'running' }).where(and(eq(s.runs.id, runId), eq(s.runs.status, 'paused'))).run();
+    this.db.update(s.runs).set({ status: 'running', notice: null }).where(and(eq(s.runs.id, runId), eq(s.runs.status, 'paused'))).run();
     this.notify(runId);
   }
 
@@ -108,6 +142,32 @@ export class Runner {
         .run();
     });
     this.notify(runId);
+  }
+
+  /** Pauses a run on the runner's own decision, saying why. Calls already sent finish and are recorded. */
+  private halt(runId: string, notice: string) {
+    this.db.update(s.runs).set({ status: 'paused', notice }).where(and(eq(s.runs.id, runId), eq(s.runs.status, 'running'))).run();
+    this.notify(runId);
+  }
+
+  /**
+   * Checks the run's guards after a call: a failure that retrying cannot fix, too many failures
+   * in a row, or a cap the person set. Any of them pauses the run before more is spent.
+   */
+  private guard(runId: string, failure?: { code?: string; message: string }) {
+    const run = this.db.select({ status: s.runs.status, definition: s.runs.definition, limits: s.runs.limits }).from(s.runs).where(eq(s.runs.id, runId)).get();
+    if (run?.status !== 'running') return;
+    const stopping = failure?.code ? STOPPING_CODES[failure.code] : undefined;
+    if (stopping) return this.halt(runId, `${stopping}로 멈췄습니다: ${failure!.message}`);
+    const max = run.definition.settings.maxConsecutiveFailures ?? 3;
+    const recent = this.db.select({ ok: s.runSteps.ok }).from(s.runSteps).where(eq(s.runSteps.runId, runId)).orderBy(desc(s.runSteps.finishedAt)).limit(max).all();
+    if (recent.length === max && recent.every((step) => !step.ok))
+      return this.halt(runId, `호출이 ${max}번 연달아 실패해서 멈췄습니다.${failure ? ` 마지막 오류: ${failure.message}` : ''}`);
+    if (!run.limits?.maxCalls && !run.limits?.maxInputTokens) return;
+    const used = this.db.select({ calls: sql<number>`count(*)`, input: sql<number>`coalesce(sum(${s.runSteps.inputTokens}), 0)` }).from(s.runSteps).where(eq(s.runSteps.runId, runId)).get()!;
+    if (run.limits.maxCalls && used.calls >= run.limits.maxCalls) return this.halt(runId, `호출 상한(${run.limits.maxCalls.toLocaleString()}회)에 도달해서 멈췄습니다.`);
+    if (run.limits.maxInputTokens && used.input >= run.limits.maxInputTokens)
+      return this.halt(runId, `입력 토큰 상한(${run.limits.maxInputTokens.toLocaleString()})에 도달해서 멈췄습니다.`);
   }
 
   private notify(runId: string) {
@@ -159,26 +219,54 @@ export class Runner {
     tx.update(s.runItems).set({ nodeId, state, visits, data: { ...item.data, path }, error: message }).where(eq(s.runItems.id, item.id)).run();
   }
 
-  private queued(run: Run) {
-    return this.db.select().from(s.runItems).where(and(eq(s.runItems.runId, run.id), eq(s.runItems.state, 'queued'))).all();
+  /** Queued lines at instant nodes (anything not slow, unknown nodes included so they fail visibly). */
+  private queuedInstant(run: Run, slowIds: string[], limit: number) {
+    const conditions = [eq(s.runItems.runId, run.id), eq(s.runItems.state, 'queued')];
+    if (slowIds.length) conditions.push(notInArray(s.runItems.nodeId, slowIds));
+    return this.db.select().from(s.runItems).where(and(...conditions)).limit(limit).all();
+  }
+
+  /** Queued lines at slow nodes, light rows in script order (scene order, then line order). */
+  private waiting(run: Run, slowIds: string[]): Waiting[] {
+    if (!slowIds.length) return [];
+    return this.db
+      .select({ id: s.runItems.id, unitId: s.runItems.unitId, nodeId: s.runItems.nodeId, groupId: s.units.groupId, groupSort: s.groups.sort, sort: s.units.sort })
+      .from(s.runItems)
+      .innerJoin(s.units, eq(s.units.id, s.runItems.unitId))
+      .innerJoin(s.groups, eq(s.groups.id, s.units.groupId))
+      .where(and(eq(s.runItems.runId, run.id), eq(s.runItems.state, 'queued'), inArray(s.runItems.nodeId, slowIds)))
+      .orderBy(asc(s.groups.sort), asc(s.units.groupId), asc(s.units.sort))
+      .all();
   }
 
   private advance(run: Run): boolean {
-    // Instant nodes settle first, possibly several hops, before slow work is handed out.
+    const slowIds = run.definition.nodes.filter(isAsync).map((node) => node.id);
+    // Instant nodes settle first, possibly several hops, before slow work is handed out; a bounded
+    // number per tick so a 50,000-line run never holds the event loop.
     let changed = false;
-    for (let round = 0; round < 50; round++) {
-      const sync = this.queued(run).filter((item) => {
-        const node = this.node(run, item.nodeId);
-        return !node || !isAsync(node);
-      });
-      if (!sync.length) break;
-      this.settle(run, sync);
+    let settled = 0;
+    while (settled < SETTLE_PER_TICK) {
+      const instant = this.queuedInstant(run, slowIds, SETTLE_PER_TICK - settled);
+      if (!instant.length) break;
+      this.settle(run, instant);
+      settled += instant.length;
       changed = true;
     }
+    if (settled >= SETTLE_PER_TICK) {
+      this.notify(run.id);
+      return true;
+    }
 
-    const queued = this.queued(run);
-    if (!queued.length) {
-      if (this.inflight.get(run.id)?.size) return true;
+    const limit = run.definition.settings.concurrency;
+    const busy = this.inflight.get(run.id)?.size ?? 0;
+    if (busy >= limit) {
+      if (changed) this.notify(run.id);
+      return true;
+    }
+
+    const waiting = this.waiting(run, slowIds);
+    if (!waiting.length) {
+      if (busy) return true;
       const open = this.db
         .select({ id: s.runItems.id })
         .from(s.runItems)
@@ -192,11 +280,10 @@ export class Runner {
       return false;
     }
 
-    const limit = run.definition.settings.concurrency;
-    for (const [nodeId, items] of Map.groupBy(queued, (item) => item.nodeId)) {
+    for (const [nodeId, lines] of Map.groupBy(waiting, (line) => line.nodeId)) {
       const node = this.node(run, nodeId);
       if (!node) continue;
-      const batches = node.type === 'ai' ? this.batches(node, items) : items.map((item) => [item]);
+      const batches = node.type === 'ai' ? this.batches(node, lines) : lines.map((line) => [line]);
       for (const batch of batches) {
         if ((this.inflight.get(run.id)?.size ?? 0) >= limit) break;
         this.dispatch(run, node, batch);
@@ -209,8 +296,8 @@ export class Runner {
 
   private settle(run: Run, items: Item[]) {
     this.db.transaction((tx) => {
-      const unitRows = new Map(tx.select().from(s.units).where(inArray(s.units.id, items.map((item) => item.unitId))).all().map((unit) => [unit.id, unit]));
-      const tagRows = Map.groupBy(tx.select().from(s.unitTags).where(inArray(s.unitTags.unitId, [...unitRows.keys()])).all(), (row) => row.unitId);
+      const unitRows = new Map(inChunks(items.map((item) => item.unitId), (ids) => tx.select().from(s.units).where(inArray(s.units.id, ids)).all()).map((unit) => [unit.id, unit]));
+      const tagRows = Map.groupBy(inChunks([...unitRows.keys()], (ids) => tx.select().from(s.unitTags).where(inArray(s.unitTags.unitId, ids)).all()), (row) => row.unitId);
       for (const item of items) {
         const node = this.node(run, item.nodeId);
         const unit = unitRows.get(item.unitId);
@@ -257,23 +344,20 @@ export class Runner {
     }
   }
 
-  private batches(node: AiNode, items: Item[]): Item[][] {
-    const unitRows = new Map(
-      this.db.select({ id: s.units.id, groupId: s.units.groupId, sort: s.units.sort }).from(s.units).where(inArray(s.units.id, items.map((item) => item.unitId))).all().map((unit) => [unit.id, unit]),
-    );
-    const ordered = [...items].sort((a, b) => {
-      const ua = unitRows.get(a.unitId)!, ub = unitRows.get(b.unitId)!;
-      return ua.groupId.localeCompare(ub.groupId) || ua.sort - ub.sort;
-    });
+  /** `lines` arrive in script order. "group" keeps a scene's lines together, cut at the batch size. */
+  private batches(node: AiNode, lines: Waiting[]): Waiting[][] {
     const { mode, size } = node.config.batch;
-    const chunk = (list: Item[]) => Array.from({ length: Math.ceil(list.length / size) }, (_, index) => list.slice(index * size, (index + 1) * size));
-    if (mode === 'unit') return ordered.map((item) => [item]);
-    if (mode === 'count') return chunk(ordered);
-    return [...Map.groupBy(ordered, (item) => unitRows.get(item.unitId)!.groupId).values()].flatMap(chunk);
+    const chunk = (list: Waiting[]) => Array.from({ length: Math.ceil(list.length / size) }, (_, index) => list.slice(index * size, (index + 1) * size));
+    if (mode === 'unit') return lines.map((line) => [line]);
+    if (mode === 'count') return chunk(lines);
+    return [...Map.groupBy(lines, (line) => line.groupId).values()].flatMap(chunk);
   }
 
-  private dispatch(run: Run, node: WorkflowNode, batch: Item[]) {
-    this.db.update(s.runItems).set({ state: 'running' }).where(inArray(s.runItems.id, batch.map((item) => item.id))).run();
+  private dispatch(run: Run, node: WorkflowNode, lines: Waiting[]) {
+    const ids = lines.map((line) => line.id);
+    const byId = new Map(this.db.select().from(s.runItems).where(inArray(s.runItems.id, ids)).all().map((item) => [item.id, item]));
+    const batch = ids.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : []));
+    this.db.update(s.runItems).set({ state: 'running' }).where(inArray(s.runItems.id, ids)).run();
     let controller = this.aborts.get(run.id);
     if (!controller || controller.signal.aborted) this.aborts.set(run.id, (controller = new AbortController()));
     const set = this.inflight.get(run.id) ?? new Set();
@@ -287,7 +371,7 @@ export class Runner {
     const startedAt = new Date();
     const unit = this.db.select().from(s.units).where(eq(s.units.id, item.unitId)).get();
     const step: StepRecord = { runId: run.id, nodeId: node.id, unitIds: [item.unitId], startedAt };
-    if (!unit) return this.failBatch(run, [item], step, '원문이 없습니다.');
+    if (!unit) return this.failBatch(run, [item], step, new Error('원문이 없습니다.'));
     const tagIds = this.db.select({ tagId: s.unitTags.tagId }).from(s.unitTags).where(eq(s.unitTags.unitId, unit.id)).all().map((row) => row.tagId);
     const input: FunctionInput = { unit, item, tagIds, projectId: run.projectId, runId: run.id };
     try {
@@ -297,9 +381,10 @@ export class Runner {
         tx.insert(s.runSteps).values({ ...step, ok: true, output: outcome, finishedAt: new Date() }).run();
       });
       this.notify(run.id);
+      this.guard(run.id);
     } catch (error) {
       if (signal.aborted) return;
-      this.failBatch(run, [item], step, error instanceof Error ? error.message : String(error));
+      this.failBatch(run, [item], step, error);
     }
   }
 
@@ -322,7 +407,7 @@ export class Runner {
     });
     const profile = run.profiles[node.config.profileId];
     const step: StepRecord = { runId: run.id, nodeId: node.id, unitIds: batch.map((item) => item.unitId), startedAt };
-    if (!profile) return this.failBatch(run, batch, step, 'AI 프로필이 실행 스냅샷에 없습니다.');
+    if (!profile) return this.failBatch(run, batch, step, new Error('AI 프로필이 실행 스냅샷에 없습니다.'));
 
     const context = buildContext(this.db, run.projectId, unitRows, node.config.context);
     step.context = context.items;
@@ -337,6 +422,7 @@ export class Runner {
       let attempts: ai.Attempt[] = [];
       let usage: ai.Usage = {};
       let raw: unknown;
+      const judged: ai.Usage[] = [];
 
       if (routes[0]?.kind === 'systemone') {
         // A judge model answers one line at a time and only supports verdicts.
@@ -356,15 +442,17 @@ export class Runner {
             signal,
           );
           attempts = [...attempts, ...outcome.attempts];
+          judged.push(outcome.result.usage);
           const issues = outcome.result.passed ? [] : ['System One이 수정 필요로 판정했습니다.'];
           outcomes.push({ port: outcome.result.passed ? 'pass' : 'fail', issues, output: { passed: outcome.result.passed, issues, confidence: outcome.result.confidence } });
         }
         raw = outcomes;
+        usage = stepUsage(attempts, judged.reduce(ai.addUsage, {}));
       } else {
         const result = await ai.withFallback(routes, profile.maxAttempts, (route) => this.model.generate(route, { ...request, schema: outputSchema(node) }), signal);
         model = result.route.model;
         attempts = result.attempts;
-        usage = result.result.usage;
+        usage = stepUsage(result.attempts, result.result.usage);
         raw = result.result.object;
         outcomes = this.readAiOutput(node, raw, lines, profile.id, model);
       }
@@ -372,13 +460,14 @@ export class Runner {
       this.db.transaction((tx) => {
         batch.forEach((item, index) => this.record(tx, run, item, outcomes[index]));
         tx.insert(s.runSteps)
-          .values({ ...step, ok: true, model, prompt: routes[0]?.kind === 'systemone' ? null : fullPrompt, output: raw, attempts, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, finishedAt: new Date() })
+          .values({ ...step, ok: true, model, prompt: routes[0]?.kind === 'systemone' ? null : fullPrompt, output: raw, attempts, ...usageColumns(usage), finishedAt: new Date() })
           .run();
       });
       this.notify(run.id);
+      this.guard(run.id);
     } catch (error) {
       if (signal.aborted) return;
-      this.failBatch(run, batch, { ...step, prompt: fullPrompt, attempts: (error as { attempts?: unknown[] }).attempts ?? [] }, error instanceof Error ? error.message : String(error));
+      this.failBatch(run, batch, { ...step, prompt: fullPrompt, attempts: attemptsOf(error) }, error);
     }
   }
 
@@ -431,12 +520,16 @@ export class Runner {
     }
   }
 
-  private failBatch(run: Run, batch: Item[], step: StepRecord, message: string) {
+  /** Every line of a failed call leaves through `error`; the call is recorded with whatever usage the connection reported. */
+  private failBatch(run: Run, batch: Item[], step: StepRecord, error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    const usage = stepUsage(attemptsOf(error), (error as { usage?: ai.Usage }).usage);
     this.db.transaction((tx) => {
       for (const item of batch) this.route(tx, run, item, 'error', message);
-      tx.insert(s.runSteps).values({ ...step, ok: false, error: message, finishedAt: new Date() }).run();
+      tx.insert(s.runSteps).values({ ...step, ok: false, error: message, ...usageColumns(usage), finishedAt: new Date() }).run();
     });
     this.notify(run.id);
+    this.guard(run.id, { code: (error as { code?: string }).code, message });
   }
 }
 
@@ -446,13 +539,14 @@ export function selectRunUnits(db: Db, projectId: string, definition: WorkflowDe
   const statusIds = entry?.type === 'entry' ? entry.config.statusIds : [];
   const conditions = [eq(s.units.projectId, projectId)];
   if (statusIds.length && !scope.ignoreStatus) conditions.push(inArray(s.units.statusId, statusIds));
-  if (scope.groupIds?.length) conditions.push(inArray(s.units.groupId, scope.groupIds));
-  if (scope.unitIds?.length) conditions.push(inArray(s.units.id, scope.unitIds));
-  if (scope.tagIds?.length) conditions.push(inArray(s.units.id, db.select({ id: s.unitTags.unitId }).from(s.unitTags).where(inArray(s.unitTags.tagId, scope.tagIds))));
+  // A scope can name every line of a large project; long lists travel as one JSON parameter.
+  if (scope.groupIds?.length) conditions.push(inList(s.units.groupId, scope.groupIds));
+  if (scope.unitIds?.length) conditions.push(inList(s.units.id, scope.unitIds));
+  if (scope.tagIds?.length) conditions.push(inArray(s.units.id, db.select({ id: s.unitTags.unitId }).from(s.unitTags).where(inList(s.unitTags.tagId, scope.tagIds))));
   return db.select({ id: s.units.id }).from(s.units).where(and(...conditions)).all().map((row) => row.id);
 }
 
-export function createRun(db: Db, input: { projectId: string; workflow: typeof s.workflows.$inferSelect; profiles: Record<string, s.ProfileSnapshot>; scope: s.RunScope }) {
+export function createRun(db: Db, input: { projectId: string; workflow: typeof s.workflows.$inferSelect; profiles: Record<string, s.ProfileSnapshot>; scope: s.RunScope; limits?: s.RunLimits }) {
   const entry = input.workflow.definition.nodes.find((node) => node.type === 'entry');
   if (!entry) throw new Error('진입 노드가 없습니다.');
   const unitIds = selectRunUnits(db, input.projectId, input.workflow.definition, input.scope);
@@ -471,6 +565,7 @@ export function createRun(db: Db, input: { projectId: string; workflow: typeof s
         scope: input.scope,
         status: 'running',
         total: unitIds.length,
+        limits: input.limits ?? null,
       })
       .run();
     const rows = unitIds.map((unitId) => ({ runId, unitId, nodeId: entry.id, state: 'queued' as const, visits: { [entry.id]: 1 }, data: { path: [], outputs: {} } as ItemData }));

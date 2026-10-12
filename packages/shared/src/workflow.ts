@@ -86,8 +86,10 @@ export const workflowDefinitionSchema = z.object({
     .object({
       maxVisitsPerNode: z.number().int().min(1).max(50).default(5),
       concurrency: z.number().int().min(1).max(8).default(2),
+      /** The run pauses after this many model or function calls in a row fail. */
+      maxConsecutiveFailures: z.number().int().min(1).max(50).default(3),
     })
-    .default({ maxVisitsPerNode: 5, concurrency: 2 }),
+    .default({ maxVisitsPerNode: 5, concurrency: 2, maxConsecutiveFailures: 3 }),
 });
 
 export type ContextConfig = z.infer<typeof contextConfigSchema>;

@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { AI_OUTPUTS, AI_PRESETS, batchChangeSchema, CONNECTION_KIND_INFO, FUNCTIONS, lineFilterSchema, NODE_TYPES, profileInputSchema, sourceOf, workflowDefinitionSchema } from '@tw/shared';
 import { z as zod } from 'zod';
 import type { Db } from '../db/index.ts';
+import { inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { characterInput, documentInput, eventInput, relationshipInput, speechRuleInput, termInput } from '../routes/knowledge.ts';
@@ -184,7 +185,7 @@ export function agentTools(db: Db, projectId: string, author: { profileId: strin
     read_documents: tool({
       description: 'Story, world-building, style and note documents (full text).',
       inputSchema: z.object({ ids: z.array(z.string()).optional() }),
-      execute: ({ ids }) => db.select().from(s.documents).where(and(eq(s.documents.projectId, projectId), ids?.length ? inArray(s.documents.id, ids) : undefined)).all(),
+      execute: ({ ids }) => db.select().from(s.documents).where(and(eq(s.documents.projectId, projectId), ids?.length ? inList(s.documents.id, ids) : undefined)).all(),
     }),
     list_terms: tool({
       description: 'Glossary entries, optionally filtered.',
@@ -196,7 +197,7 @@ export function agentTools(db: Db, projectId: string, author: { profileId: strin
       inputSchema: z.object({}),
       execute: () => ({
         nodeTypes: NODE_TYPES,
-        definitionShape: 'nodes: [{id, type: entry|ai|function|condition|end, position:{x,y}, label?, config}], edges: [{id, source, sourceHandle (exit id), target}], settings: {maxVisitsPerNode, concurrency}',
+        definitionShape: 'nodes: [{id, type: entry|ai|function|condition|end, position:{x,y}, label?, config}], edges: [{id, source, sourceHandle (exit id), target}], settings: {maxVisitsPerNode, concurrency, maxConsecutiveFailures}',
         aiNode: {
           config: '{profileId, instructions, output: candidate|verdict|terms|json, fields (json only): [{name, type, description}], include:{candidate, issues}, context:{glossary, documents, characters, relationships, precedingLines, previousScenes}, batch:{mode:"unit"|"group"|"count", size}}',
           outputs: AI_OUTPUTS,

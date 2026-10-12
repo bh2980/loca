@@ -4,7 +4,7 @@ import { batchChangeSchema, importFileSchema, lineFilterSchema } from '@tw/share
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from './importer.ts';
-import { applyBatch, checkScript, findLines, normalizeBatch, scenesWith, validateBatch } from './script-query.ts';
+import { applyBatch, checkScript, exportLines, findLines, normalizeBatch, scenesWith, validateBatch } from './script-query.ts';
 
 function setup() {
   const db = openDatabase(':memory:');
@@ -89,5 +89,45 @@ describe('script queries', () => {
     applyBatch(db, projectId, normalized);
     const b = db.select().from(s.units).where(eq(s.units.key, 'b')).get()!;
     expect([b.listener, b.listenerOrigin]).toEqual(['Alice Grey', 'human']);
+  });
+});
+
+describe('projects with tens of thousands of lines', () => {
+  /** Bulk-insert `count` lines into the first scene of a project, 400 rows per statement. */
+  function fill(count: number) {
+    const { db, projectId } = setup();
+    const group = db.select().from(s.groups).limit(1).get()!;
+    const status = db.select().from(s.units).limit(1).get()!.statusId;
+    for (let start = 0; start < count; start += 400) {
+      db.insert(s.units)
+        .values(Array.from({ length: Math.min(400, count - start) }, (_, offset) => ({ projectId, groupId: group.id, key: `bulk${start + offset}`, sort: 1000 + start + offset, kind: 'dialogue' as const, speaker: 'CHAR_BOB', source: `Line ${start + offset}`, statusId: status })))
+        .run();
+    }
+    return { db, projectId };
+  }
+
+  it('exports 40,000 lines without hitting the bound-variable limit', () => {
+    const { db, projectId } = fill(40_000);
+    const started = performance.now();
+    const rows = exportLines(db, projectId, filter({ limit: 100 }), { before: 0, terms: false, all: true });
+    console.log(`exportLines(40k): ${Math.round(performance.now() - started)} ms`);
+    expect(rows).toHaveLength(40_003);
+  }, 60_000);
+
+  it('normalizes and validates 6,000 keys', () => {
+    const { db, projectId } = fill(6_000);
+    // Built directly: the schema caps one request at 5,000, but callers may merge several.
+    const batch = { origin: 'human' as const, changes: Array.from({ length: 6_000 }, (_, index) => ({ key: `bulk${index}`, translation: `번역 ${index}`, addTags: [], removeTags: [], note: '' })) };
+    const normalized = normalizeBatch(db, projectId, batch);
+    expect(normalized.batch.changes).toHaveLength(6_000);
+    const report = validateBatch(db, projectId, batch);
+    expect(report.errors).toEqual([]);
+    expect(report.changes).toBe(6_000);
+  }, 60_000);
+
+  it('filters by thousands of keys', () => {
+    const { db, projectId } = fill(3_000);
+    const keys = Array.from({ length: 3_000 }, (_, index) => `bulk${index}`);
+    expect(findLines(db, projectId, filter({ keys, limit: 10 })).total).toBe(3_000);
   });
 });

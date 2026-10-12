@@ -38,7 +38,7 @@ export function translationTemplate(ids: {
   const status = (statusId: string, applyCandidate = false) => ({ fn: 'setStatus', params: { statusId, addTagIds: [], removeTagIds: [], applyCandidate } });
   const at = (column: number, row: number) => ({ x: column * 300, y: row * 180 });
   return {
-    settings: { maxVisitsPerNode: 5, concurrency: 2 },
+    settings: { maxVisitsPerNode: 5, concurrency: 2, maxConsecutiveFailures: 3 },
     nodes: [
       { id: 'entry', type: 'entry', position: at(0, 1), config: { statusIds: [ids.untranslated] } },
       { id: 'translate', type: 'ai', position: at(1, 1), label: 'AI 번역', config: ai('translate') },
@@ -82,7 +82,7 @@ export function translationTemplate(ids: {
  */
 export function termExtractionTemplate(ids: { profileId: string }): WorkflowDefinition {
   return {
-    settings: { maxVisitsPerNode: 5, concurrency: 2 },
+    settings: { maxVisitsPerNode: 5, concurrency: 2, maxConsecutiveFailures: 3 },
     nodes: [
       { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: { statusIds: [] } },
       {
@@ -120,7 +120,7 @@ export function termExtractionTemplate(ids: { profileId: string }): WorkflowDefi
  */
 export function listenerTemplate(ids: { profileId: string }): WorkflowDefinition {
   return {
-    settings: { maxVisitsPerNode: 5, concurrency: 2 },
+    settings: { maxVisitsPerNode: 5, concurrency: 2, maxConsecutiveFailures: 3 },
     nodes: [
       { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: { statusIds: [] } },
       {
@@ -156,7 +156,7 @@ export function listenerTemplate(ids: { profileId: string }): WorkflowDefinition
  */
 export function speechFixTemplate(ids: { profileId: string }): WorkflowDefinition {
   return {
-    settings: { maxVisitsPerNode: 5, concurrency: 2 },
+    settings: { maxVisitsPerNode: 5, concurrency: 2, maxConsecutiveFailures: 3 },
     nodes: [
       { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: { statusIds: [] } },
       {
@@ -195,7 +195,7 @@ export const SPEECH_FIX_WORKFLOW = '말투만 고치기';
  */
 export function knowledgeTemplate(ids: { profileId: string }): WorkflowDefinition {
   return {
-    settings: { maxVisitsPerNode: 5, concurrency: 2 },
+    settings: { maxVisitsPerNode: 5, concurrency: 2, maxConsecutiveFailures: 3 },
     nodes: [
       { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: { statusIds: [] } },
       {

@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import { LISTENER_MIN_CONFIDENCE, SPEECH_LEVEL_LABELS, speechLevelOf, type SpeechLevel } from '@tw/shared';
 import type { Db } from '../db/index.ts';
+import { inChunks } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 
 type Rule = typeof s.speechRules.$inferSelect;
@@ -22,12 +23,14 @@ export function knownListener(line: Pick<LineLike, 'listener' | 'listenerOrigin'
 /** Script order of every line (scene order, then line order): rule intervals are picked by it, ignoring branches. */
 function scriptOrder(db: Db, projectId: string, keys: string[]) {
   if (!keys.length) return new Map<string, number>();
-  const rows = db
-    .select({ key: s.units.key, groupSort: s.groups.sort, sort: s.units.sort })
-    .from(s.units)
-    .innerJoin(s.groups, eq(s.groups.id, s.units.groupId))
-    .where(and(eq(s.units.projectId, projectId), inArray(s.units.key, keys)))
-    .all();
+  const rows = inChunks(keys, (slice) =>
+    db
+      .select({ key: s.units.key, groupSort: s.groups.sort, sort: s.units.sort })
+      .from(s.units)
+      .innerJoin(s.groups, eq(s.groups.id, s.units.groupId))
+      .where(and(eq(s.units.projectId, projectId), inArray(s.units.key, slice)))
+      .all(),
+  );
   // Group sort dominates; unit sort stays far below a group step.
   return new Map(rows.map((row) => [row.key, row.groupSort * 1_000_000 + row.sort]));
 }
