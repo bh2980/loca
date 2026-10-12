@@ -132,7 +132,7 @@ describe('work analysis', () => {
     // Alice→Bob and Bob→Alice are the only pairs, so both are main pairs: their rules wait for a person.
     const bob = db.select().from(s.speechRules).where(eq(s.speechRules.fromName, 'Bob')).get()!;
     expect(bob.status).toBe('candidate');
-    expect(bob.note).toContain('주요 쌍');
+    expect(bob.review).toContain('주요 쌍');
     expect(counts.rulesForReview).toBeGreaterThan(0);
   });
 
@@ -149,7 +149,7 @@ describe('work analysis', () => {
     expect(bob.filter((rule) => rule.level === 'hasipsio').map((rule) => rule.status)).toEqual(['rejected']);
     const doubtful = bob.find((rule) => rule.level === 'hae')!;
     expect(doubtful.status).toBe('candidate');
-    expect(doubtful.note).toContain('근거 대사의 화자가 다름');
+    expect(doubtful.review).toContain('근거 대사의 화자가 다름');
   });
 
   it('merges parts: one person across aliases, rules on that person, contradictions kept as conflicts', () => {
@@ -167,4 +167,46 @@ describe('work analysis', () => {
     expect(merged.events).toHaveLength(1);
     expect(merged.events[0].evidence).toEqual(['L1', 'L2']);
   });
+
+  it('resumes a failed analysis: unchanged parts reuse their answers, only the rest is read again', async () => {
+    const db = openDatabase(':memory:');
+    const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1' }).returning().get();
+    const profile = db.insert(s.profiles).values({ name: 'fake', connectionId: connection.id, model: 'm', maxOutputTokens: 1000, timeoutSeconds: 30, maxAttempts: 1 }).returning().get();
+    const file = importFileSchema.parse({
+      format: 'loca/v1',
+      project: { name: 'Two parts' },
+      groups: [{ key: 'g1', title: 'One' }, { key: 'g2', title: 'Two' }],
+      units: [
+        { key: 'a1', group: 'g1', speaker: 'Alice', source: 'A line long enough to fill the first part on its own.' },
+        { key: 'b1', group: 'g2', speaker: 'Bob', source: 'Another line long enough to need a second part.' },
+      ],
+    });
+    const { projectId } = importProject(db, file);
+    let calls = 0;
+    let failSecond = true;
+    const empty: Analysis = { overview: { setting: '', mainConflict: '', plot: '', evidence: [] }, characters: [], relationships: [], events: [], speechRules: [], sceneListeners: [] };
+    const service = new AnalysisService(
+      db,
+      memoryStore(),
+      {
+        generate: async () => {
+          calls += 1;
+          if (calls === 2 && failSecond) throw new Error('quota');
+          return { object: empty, usage: {} } as never;
+        },
+      },
+      5,
+    );
+    service.start(projectId, profile.id);
+    expect((await settle(service, projectId)).status).toBe('failed');
+    expect(calls).toBe(2);
+    failSecond = false;
+    service.start(projectId, profile.id, true, true);
+    const job = await settle(service, projectId);
+    expect(job.status).toBe('completed');
+    // Part 1 came from the failed job; only part 2 was read again.
+    expect(calls).toBe(3);
+    expect(job.partsTotal).toBe(2);
+  });
 });
+

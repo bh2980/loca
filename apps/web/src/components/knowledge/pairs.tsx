@@ -3,6 +3,7 @@ import { useMutation } from '@tanstack/react-query';
 import { ChevronRight, Plus, X } from 'lucide-react';
 import { isSettled, SPEECH_LEVEL_LABELS, sourceOf, type SpeechLevel } from '@tw/shared';
 import { candidateRow, DraftEditor, fail, matches, SourceBadge, type Draft, type KindSpec, type Row, type SourceFilter, type StatusFilter } from '@/components/knowledge/draft-editor';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -64,6 +65,12 @@ export const pairSummary = (pair: Pair): Draft => {
 export const pairMatches = (pair: Pair, source: SourceFilter, status: StatusFilter) => [pair.relationship, ...pair.rules].some((row) => row && matches(row, source, status));
 export const pairSettled = (pair: Pair) => [pair.relationship, ...pair.rules].every((row) => !row || isSettled(row));
 export const pairItems = (pair: Pair) => [...(pair.relationship ? [{ kind: 'relationships' as const, row: pair.relationship }] : []), ...pair.rules.map((row) => ({ kind: 'speechRules' as const, row }))];
+const reviewOf = (rule: Row) => (typeof rule.review === 'string' && rule.review ? rule.review : null);
+const ReviewBadge = ({ reasons }: { reasons: string }) => (
+  <Badge variant="outline" className="border-amber-500 text-amber-800" title={reasons}>
+    확인 필요
+  </Badge>
+);
 const levelsText = (rules: Row[]) => rules.map((rule) => SPEECH_LEVEL_LABELS[rule.level as SpeechLevel]).join(' → ');
 
 export function PairTable({ pairs, selected, checked, onCheck, onOpen }: { pairs: Pair[]; selected?: string; checked: Set<string>; onCheck: (keys: string[], on: boolean) => void; onOpen: (key: string) => void }) {
@@ -91,6 +98,14 @@ export function PairTable({ pairs, selected, checked, onCheck, onOpen }: { pairs
               </TableCell>
               <TableCell className="font-medium">
                 {pair.from} → {pair.to}
+                {(() => {
+                  const reasons = pair.rules.map(reviewOf).filter((reason): reason is string => reason !== null);
+                  return reasons.length ? (
+                    <span className="ml-2 align-middle">
+                      <ReviewBadge reasons={reasons.join('\n')} />
+                    </span>
+                  ) : null;
+                })()}
               </TableCell>
               <TableCell className="max-w-60 truncate">{pair.relationship ? String(pair.relationship.kind) : <span className="text-muted-foreground">—</span>}</TableCell>
               <TableCell>{pair.rules.length ? levelsText(pair.rules) : <span className="text-muted-foreground">—</span>}</TableCell>
@@ -175,15 +190,18 @@ export function PairDetail({ projectId, pair, relationships, speechRules, charac
             <ul className="space-y-2">
               {pair.rules.map((rule) => {
                 const open = openRule === rule.id;
+                const review = reviewOf(rule);
                 return (
                   <li key={rule.id} className={cn('rounded-md border', rule.status === 'candidate' && 'border-dashed border-amber-500')}>
                     <button type="button" className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm" onClick={() => setOpenRule(open ? undefined : rule.id)} aria-expanded={open}>
                       <ChevronRight className={cn('size-4 shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')} />
                       <span className="font-medium">{SPEECH_LEVEL_LABELS[rule.level as SpeechLevel]}</span>
+                      {review && <ReviewBadge reasons={review} />}
                       {rule.address ? <span className="text-muted-foreground">호칭 “{String(rule.address)}”</span> : null}
                       <span className="ml-auto shrink-0 text-xs text-muted-foreground">{rule.startKey ? `${String(rule.startKey)}부터` : '처음부터'}</span>
                       <SourceBadge row={rule} />
                     </button>
+                    {review && <p className="px-3 pb-2 pl-9 text-xs text-muted-foreground">확인 필요: {review}</p>}
                     {open && (
                       <div className="border-t p-3">
                         <DraftEditor embedded projectId={projectId} kind="speechRules" spec={speechRules} row={rule} characters={characters} onDecide={(action) => onDecide('speechRules', [rule.id], action)} />

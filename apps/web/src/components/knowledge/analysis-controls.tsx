@@ -34,7 +34,10 @@ export function JobStatus({ projectId }: { projectId: string }) {
   const total = ['documents', 'characters', 'relationships', 'events', 'speechRules'].reduce((sum, kind) => sum + (result[kind] ?? 0), 0);
   return (
     <span>
-      마지막 분석 {when} · {job.model} · 초안 {total}개{result.invalidEvidence ? ` · 대본에 없는 근거 ${result.invalidEvidence}개 제외` : ''}
+      마지막 분석 {when} · {job.model} · 초안 {total}개
+      {result.rulesForReview ? ` · 확인 필요한 말투 규칙 ${result.rulesForReview}개` : ''}
+      {result.listeners ? ` · 청자 ${result.listeners.toLocaleString()}줄 채움` : ''}
+      {result.invalidEvidence ? ` · 대본에 없는 근거 ${result.invalidEvidence}개 제외` : ''}
     </span>
   );
 }
@@ -45,9 +48,13 @@ export function StartAnalysis({ projectId }: { projectId: string }) {
   const jobs = useQuery(q.analysisJobs(projectId));
   const [profileId, setProfileId] = useState<string>();
   const [autoConfirm, setAutoConfirm] = useState(true);
+  const [resume, setResume] = useState(true);
   const [open, setOpen] = useState(false);
+  // A failed or stopped analysis that finished some parts can be continued from where it stopped.
+  const last = jobs.data?.[0];
+  const resumable = last && (last.status === 'failed' || last.status === 'cancelled') && last.partsDone > 0 ? last : undefined;
   const start = useMutation({
-    mutationFn: () => unwrap(client.projects[':projectId'].analysis.$post({ param: { projectId }, json: { profileId: profileId!, autoConfirm } })),
+    mutationFn: () => unwrap(client.projects[':projectId'].analysis.$post({ param: { projectId }, json: { profileId: profileId!, autoConfirm, resume: Boolean(resumable) && resume } })),
     onSuccess: () => {
       setOpen(false);
       toast.success('작품 분석을 시작했습니다. 끝나면 초안이 여기에 들어옵니다.');
@@ -89,9 +96,22 @@ export function StartAnalysis({ projectId }: { projectId: string }) {
             <Switch id="auto-confirm" checked={autoConfirm} onCheckedChange={setAutoConfirm} />
           </div>
           <p className="text-[11px] text-muted-foreground">
-            {autoConfirm ? '결과가 바로 번역 문맥에 쓰입니다. 틀린 것을 발견하면 고치고 그 규칙의 대사만 다시 실행하세요.' : '결과가 후보로 들어오고, 확정한 것만 번역 문맥에 쓰입니다.'}
+            {autoConfirm
+              ? '결과가 바로 번역 문맥에 쓰입니다. 다만 대사가 많은 주요 쌍, 엇갈리거나 근거가 맞지 않는 말투 규칙은 후보로 남아 확인을 기다립니다.'
+              : '결과가 후보로 들어오고, 확정한 것만 번역 문맥에 쓰입니다.'}
           </p>
         </div>
+        {resumable && (
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="resume-analysis">이어서 분석</Label>
+              <Switch id="resume-analysis" checked={resume} onCheckedChange={setResume} />
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              지난 분석이 {resumable.partsTotal}부분 중 {resumable.partsDone}부분을 마쳤습니다. 그 뒤로 대본이 바뀌지 않은 부분은 다시 읽지 않습니다.
+            </p>
+          </div>
+        )}
         <Button className="w-full" disabled={!profileId || start.isPending} onClick={() => start.mutate()}>
           <Play /> 시작
         </Button>

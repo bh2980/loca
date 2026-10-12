@@ -171,7 +171,7 @@ export const knowledgeRoutes = new Hono<Env>()
   })
   .patch('/speech-rules/:id', validate('json', patchOf(speechRuleInput)), (c) => {
     const projectId = c.req.param('projectId')!;
-    found(c.var.deps.db.update(s.speechRules).set({ ...c.req.valid('json'), reviewed: true }).where(byProject(s.speechRules, c.req.param('id'), projectId)).returning().get(), '말투 규칙');
+    found(c.var.deps.db.update(s.speechRules).set({ ...c.req.valid('json'), reviewed: true, review: null }).where(byProject(s.speechRules, c.req.param('id'), projectId)).returning().get(), '말투 규칙');
     events.changed(projectId, 'knowledge');
     return c.json({ ok: true });
   })
@@ -186,9 +186,9 @@ export const knowledgeRoutes = new Hono<Env>()
   .get('/speech-rules/:id/lines', (c) => c.json(found(ruleLines(c.var.deps.db, c.req.param('projectId')!, c.req.param('id')) ?? undefined, '말투 규칙')))
   /** Work analysis jobs, newest first. */
   .get('/analysis', (c) => c.json(c.var.deps.analysis.list(c.req.param('projectId')!)))
-  .post('/analysis', validate('json', z.object({ profileId: z.string().min(1), autoConfirm: z.boolean().default(true) })), (c) => {
+  .post('/analysis', validate('json', z.object({ profileId: z.string().min(1), autoConfirm: z.boolean().default(true), resume: z.boolean().default(false) })), (c) => {
     try {
-      return c.json(c.var.deps.analysis.start(c.req.param('projectId')!, c.req.valid('json').profileId, c.req.valid('json').autoConfirm), 201);
+      return c.json(c.var.deps.analysis.start(c.req.param('projectId')!, c.req.valid('json').profileId, c.req.valid('json').autoConfirm, c.req.valid('json').resume), 201);
     } catch (error) {
       return badRequest(error instanceof Error ? error.message : String(error));
     }
@@ -213,7 +213,7 @@ export const knowledgeRoutes = new Hono<Env>()
         eachChunk(ids, (slice) => {
           if (action === 'discard') {
             // Kept as rejected: a later analysis must not propose the same item again.
-            total += tx.update(table).set({ status: 'rejected', reviewed: true }).where(where(slice)).run().changes;
+            total += tx.update(table).set({ status: 'rejected', reviewed: true, ...(kind === 'speechRules' ? { review: null } : {}) }).where(where(slice)).run().changes;
             return;
           }
           // A confirmed relationship needs confirmed people at both ends.
@@ -223,7 +223,7 @@ export const knowledgeRoutes = new Hono<Env>()
               tx.update(s.characters).set({ status: 'confirmed' }).where(and(eq(s.characters.projectId, projectId), inArray(s.characters.id, people))).run();
             });
           }
-          total += tx.update(table).set({ status: 'confirmed', reviewed: true }).where(where(slice)).run().changes;
+          total += tx.update(table).set({ status: 'confirmed', reviewed: true, ...(kind === 'speechRules' ? { review: null } : {}) }).where(where(slice)).run().changes;
         }, 2_000);
         return total;
       });

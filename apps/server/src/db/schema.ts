@@ -277,6 +277,8 @@ export const speechRules = sqliteTable(
     /** How the speaker addresses the listener in Korean, e.g. "수사관님". */
     address: text('address').notNull().default(''),
     note: text('note').notNull().default(''),
+    /** Why an AI rule waits for a person (main pair, conflict, evidence…); cleared when a person decides. */
+    review: text('review'),
     startKey: text('start_key'),
     ...knowledge(),
     updatedAt: updatedAt(),
@@ -299,6 +301,8 @@ export const analysisJobs = sqliteTable(
     usage: json<{ inputTokens?: number; cachedInputTokens?: number; outputTokens?: number; reasoningTokens?: number; costUsd?: number }>('usage'),
     /** Counts of drafts written, by kind. */
     result: json<Record<string, number>>('result'),
+    /** Per part: a hash of its script text and the model's answer, so a failed job can be resumed. */
+    parts: json<{ hash: string; answer: unknown }[]>('parts'),
     error: text('error'),
     createdAt: createdAt(),
     finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),

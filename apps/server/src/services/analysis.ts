@@ -1,7 +1,8 @@
+import { createHash } from 'node:crypto';
 import { and, desc, eq, inArray, ne, notInArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import * as ai from '@tw/ai';
-import { SPEECH_LEVEL_GUIDE, SPEECH_LEVELS } from '@tw/shared';
+import { SPEECH_LEVEL_GUIDE, SPEECH_LEVEL_LABELS, SPEECH_LEVELS } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
@@ -77,6 +78,8 @@ export class AnalysisService {
     private db: Db,
     private secrets: SecretStore,
     private model: Pick<ModelPort, 'generate'> = { generate: ai.generate },
+    /** Estimated tokens per part; tests pass a small value to get several parts. */
+    private partTokens = ANALYSIS_PART_TOKENS,
   ) {
     // A restart cuts off any job in flight.
     db.update(s.analysisJobs).set({ status: 'failed', error: '서버가 다시 시작되어 중단되었습니다.', finishedAt: new Date() }).where(eq(s.analysisJobs.status, 'running')).run();
@@ -86,19 +89,27 @@ export class AnalysisService {
     return this.db.select().from(s.analysisJobs).where(eq(s.analysisJobs.projectId, projectId)).orderBy(desc(s.analysisJobs.createdAt)).limit(10).all();
   }
 
-  start(projectId: string, profileId: string, autoConfirm = true): Job {
+  /**
+   * Starts an analysis. With `resume`, parts whose script text is unchanged since the latest
+   * unfinished (failed or cancelled) job reuse that job's answers, so only the rest is read again.
+   */
+  start(projectId: string, profileId: string, autoConfirm = true, resume = false): Job {
     if (this.db.select().from(s.analysisJobs).where(and(eq(s.analysisJobs.projectId, projectId), eq(s.analysisJobs.status, 'running'))).get()) throw new Error('이미 진행 중인 작품 분석이 있습니다.');
     const profile = snapshotProfiles(this.db, [profileId])[profileId];
     if (!profile) throw new Error('모델 프로필을 찾을 수 없습니다.');
     if (profile.routes[0]?.kind === 'systemone') throw new Error('System One 프로필은 판정 전용이라 작품 분석에 쓸 수 없습니다.');
     const { blocks, keyOf } = scriptText(this.db, projectId);
     if (!blocks.length) throw new Error('분석할 대본이 없습니다.');
-    const parts = packBlocks(blocks, ANALYSIS_PART_TOKENS);
+    const parts = packBlocks(blocks, this.partTokens);
+    const previous = resume
+      ? this.db.select().from(s.analysisJobs).where(and(eq(s.analysisJobs.projectId, projectId), inArray(s.analysisJobs.status, ['failed', 'cancelled']))).orderBy(desc(s.analysisJobs.createdAt)).limit(1).get()
+      : undefined;
+    const reused = new Map((previous?.parts ?? []).map((part) => [part.hash, part.answer]));
     const job = this.db.insert(s.analysisJobs).values({ projectId, profileId, model: profile.routes[0]?.model ?? null, status: 'running', partsTotal: parts.length }).returning().get();
     const abort = new AbortController();
     this.aborts.set(job.id, abort);
     events.changed(projectId, 'analysis');
-    this.run(job, profile, parts, keyOf, autoConfirm, abort.signal)
+    this.run(job, profile, parts, keyOf, autoConfirm, abort.signal, reused)
       .catch((error) => console.error('analysis job failed', error))
       .finally(() => this.aborts.delete(job.id));
     return job;
@@ -110,7 +121,7 @@ export class AnalysisService {
     if (job) events.changed(job.projectId, 'analysis');
   }
 
-  private async run(job: Job, profile: s.ProfileSnapshot, parts: string[], keyOf: Map<string, string>, autoConfirm: boolean, signal: AbortSignal) {
+  private async run(job: Job, profile: s.ProfileSnapshot, parts: string[], keyOf: Map<string, string>, autoConfirm: boolean, signal: AbortSignal, reused = new Map<string, unknown>()) {
     const routes = resolveRoutes(profile, this.secrets);
     // People a person made or imported (or took over from AI) keep their names: the model must reuse them.
     const kept = this.db.select().from(s.characters).where(eq(s.characters.projectId, job.projectId)).all().filter((c) => c.origin !== 'ai' || c.reviewed);
@@ -119,8 +130,18 @@ export class AnalysisService {
       : '';
     let merged = null as Analysis | null;
     const usage = { inputTokens: 0, outputTokens: 0 };
+    const answers: { hash: string; answer: unknown }[] = [];
     try {
       for (const [index, part] of parts.entries()) {
+        const hash = createHash('sha256').update(part).digest('hex');
+        const kept = reused.get(hash);
+        const parsed = kept ? analysisSchema.safeParse(kept) : null;
+        if (parsed?.success) {
+          answers.push({ hash, answer: kept });
+          merged = merged ? mergeAnalysis(merged, parsed.data) : parsed.data;
+          this.db.update(s.analysisJobs).set({ partsDone: index + 1, parts: answers }).where(eq(s.analysisJobs.id, job.id)).run();
+          continue;
+        }
         const known: string = merged ? `\n\nALREADY KNOWN from earlier parts (reuse these names; return only what this part adds or changes):\n${summarize(merged)}` : '';
         const where = parts.length > 1 ? `\nThis is part ${index + 1} of ${parts.length} of the script, in order.` : '';
         const result = await ai.withFallback(
@@ -142,7 +163,8 @@ export class AnalysisService {
         usage.outputTokens += result.result.usage.outputTokens ?? 0;
         merged = merged ? mergeAnalysis(merged, result.result.object) : result.result.object;
         if (signal.aborted) return;
-        this.db.update(s.analysisJobs).set({ partsDone: index + 1, usage }).where(eq(s.analysisJobs.id, job.id)).run();
+        answers.push({ hash, answer: result.result.object });
+        this.db.update(s.analysisJobs).set({ partsDone: index + 1, usage, parts: answers }).where(eq(s.analysisJobs.id, job.id)).run();
         events.changed(job.projectId, 'analysis');
       }
       if (signal.aborted || !merged) return;
@@ -333,15 +355,19 @@ export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: A
       const evidence = keys(r.evidence);
       // Evidence lines should be the rule's speaker talking; mostly someone else's means the rule is doubtful.
       const foreign = evidence.filter((line) => person(speakerOf.get(line) ?? '') !== person(from)).length;
+      // An official rule (imported, a person's) for the same pair and stretch that says otherwise.
+      const official = existingRules.find((old) => (old.origin !== 'ai' || old.reviewed) && old.status === 'confirmed' && person(old.fromName) === person(from) && person(old.toName) === person(to) && old.startKey === start);
       const reasons = [
+        official && official.level !== r.level && `정식 규칙(${SPEECH_LEVEL_LABELS[official.level]})과 다름`,
         r.conflict && '다른 부분의 분석과 엇갈림',
         evidence.length && foreign * 2 > evidence.length && '근거 대사의 화자가 다름',
         main.has(`${person(from)}|${person(to)}`) && '대사가 많은 주요 쌍',
       ].filter(Boolean) as string[];
       const needsPerson = autoConfirm && reasons.length > 0;
       if (needsPerson) counts.rulesForReview += 1;
-      const note = needsPerson ? [r.note, `확인 필요: ${reasons.join(', ')}`].filter(Boolean).join(' / ') : r.note;
-      tx.insert(s.speechRules).values({ projectId, fromName: from, toName: to, level: r.level, address: r.address, note, startKey: start, evidence, ...draft, status: needsPerson ? 'candidate' : status }).run();
+      tx.insert(s.speechRules)
+        .values({ projectId, fromName: from, toName: to, level: r.level, address: r.address, note: r.note, review: needsPerson ? reasons.join(', ') : null, startKey: start, evidence, ...draft, status: needsPerson ? 'candidate' : status })
+        .run();
     }
   });
   return {
