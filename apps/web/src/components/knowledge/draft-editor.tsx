@@ -3,7 +3,7 @@ import { Link } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Check, Play, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { DOCUMENT_KINDS, KNOWLEDGE_ORIGIN_LABELS, SPEECH_FIX_WORKFLOW, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, sourceOf, type KnowledgeOrigin, type KnowledgeSource, type SpeechLevel } from '@tw/shared';
+import { DOCUMENT_KINDS, KNOWLEDGE_ORIGIN_LABELS, SPEECH_FIX_WORKFLOW, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, sourceOf, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type SpeechLevel } from '@tw/shared';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
@@ -27,7 +27,7 @@ export type Kind = keyof typeof KINDS;
 /** Fields every knowledge row has, whatever its kind. */
 export interface Draft {
   id: string;
-  status: 'candidate' | 'confirmed';
+  status: KnowledgeStatus;
   origin: KnowledgeOrigin;
   reviewed: boolean;
   evidence: string[];
@@ -63,7 +63,7 @@ export function SourceBadge({ row }: { row: Draft }) {
         {SOURCE_LABELS.ai}
       </Badge>
     );
-  return <span className="text-xs text-muted-foreground">{row.origin === 'import' ? KNOWLEDGE_ORIGIN_LABELS.import : SOURCE_LABELS.official}</span>;
+  return <span className="text-xs text-muted-foreground">{row.origin === 'import' || row.origin === 'script' ? KNOWLEDGE_ORIGIN_LABELS[row.origin] : SOURCE_LABELS.official}</span>;
 }
 
 /** A candidate row: dashed left edge (not used as context until confirmed). */

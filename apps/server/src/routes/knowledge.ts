@@ -8,6 +8,7 @@ import { eachChunk } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { ruleLines } from '../services/speech.ts';
+import { discoverAndSave, SUGGEST_BATCH } from '../services/terms.ts';
 
 export const termInput = z.object({
   source: z.string().trim().min(1),
@@ -42,7 +43,25 @@ type ProjectTable = typeof s.terms | (typeof DRAFT_TABLES)[keyof typeof DRAFT_TA
 const byProject = <T extends ProjectTable>(table: T, id: string, projectId: string) => and(eq(table.id, id), eq(table.projectId, projectId));
 
 export const knowledgeRoutes = new Hono<Env>()
-  .get('/terms', (c) => c.json(c.var.deps.db.select().from(s.terms).where(eq(s.terms.projectId, c.req.param('projectId')!)).orderBy(asc(s.terms.source)).all()))
+  // Rejected terms stay stored so "대본에서 찾기" does not propose them again, but are not listed.
+  .get('/terms', (c) => c.json(c.var.deps.db.select().from(s.terms).where(and(eq(s.terms.projectId, c.req.param('projectId')!), ne(s.terms.status, 'rejected'))).orderBy(asc(s.terms.source)).all()))
+  .post('/terms/discover', (c) => c.json(discoverAndSave(c.var.deps.db, c.req.param('projectId')!)))
+  .get('/terms/suggest', (c) => {
+    const projectId = c.req.param('projectId')!;
+    const pending = c.var.deps.terms.pending(projectId).length;
+    return c.json({ state: c.var.deps.terms.state(projectId), pending, calls: Math.ceil(pending / SUGGEST_BATCH), batch: SUGGEST_BATCH });
+  })
+  .post('/terms/suggest', validate('json', z.object({ profileId: z.string().min(1) })), (c) => {
+    try {
+      return c.json(c.var.deps.terms.start(c.req.param('projectId')!, c.req.valid('json').profileId));
+    } catch (error) {
+      return badRequest(error instanceof Error ? error.message : String(error));
+    }
+  })
+  .post('/terms/suggest/cancel', (c) => {
+    c.var.deps.terms.cancel(c.req.param('projectId')!);
+    return c.json({ ok: true });
+  })
   /** Lines whose source mentions the term (whole word, case-insensitive): what to re-run after changing it. */
   .get('/terms/:id/usage', (c) => {
     const { db } = c.var.deps;

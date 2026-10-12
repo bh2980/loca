@@ -14,7 +14,7 @@ import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { candidateRow, KnowledgeFilters, matches, SourceBadge } from '@/components/knowledge/draft-editor';
-import { isSettled, KNOWLEDGE_SOURCES, type KnowledgeSource } from '@tw/shared';
+import { isSettled, KNOWLEDGE_SOURCES, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus } from '@tw/shared';
 import { Textarea } from '@/components/ui/textarea';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
@@ -36,8 +36,8 @@ interface Term {
   source: string;
   target: string;
   note: string;
-  status: 'candidate' | 'confirmed';
-  origin: 'human' | 'ai' | 'import';
+  status: KnowledgeStatus;
+  origin: KnowledgeOrigin;
   reviewed: boolean;
   evidence?: string[];
 }

@@ -9,6 +9,7 @@ import { openDatabase } from './db/index.ts';
 import * as s from './db/schema.ts';
 import { Runner } from './engine/runner.ts';
 import { AnalysisService } from './services/analysis.ts';
+import { TermService } from './services/terms.ts';
 import { computeLayouts } from './services/layout.ts';
 import { keyringStore, memoryStore } from './services/secrets.ts';
 
@@ -28,7 +29,7 @@ runner.start();
 // Layouts interrupted by a restart are recomputed.
 for (const layout of db.select().from(s.graphLayouts).where(eq(s.graphLayouts.status, 'pending')).all()) void computeLayouts(db, layout.projectId);
 
-const app = createApp({ db, secrets, runner, analysis: new AnalysisService(db, secrets) });
+const app = createApp({ db, secrets, runner, analysis: new AnalysisService(db, secrets), terms: new TermService(db, secrets) });
 if (existsSync(config.webDist)) {
   const root = path.relative(process.cwd(), config.webDist);
   app.use('/*', serveStatic({ root }));

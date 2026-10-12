@@ -5,11 +5,12 @@ import { z } from 'zod';
  * A discarded AI item stays as "rejected" so a later analysis does not propose it again.
  */
 export const KNOWLEDGE_STATUSES = ['candidate', 'confirmed', 'rejected'] as const;
-export const KNOWLEDGE_ORIGINS = ['human', 'ai', 'import'] as const;
+/** "script": found in the script by code (glossary candidates), not written by AI or a person. */
+export const KNOWLEDGE_ORIGINS = ['human', 'ai', 'import', 'script'] as const;
 export type KnowledgeStatus = (typeof KNOWLEDGE_STATUSES)[number];
 export type KnowledgeOrigin = (typeof KNOWLEDGE_ORIGINS)[number];
 export const KNOWLEDGE_STATUS_LABELS: Record<KnowledgeStatus, string> = { candidate: '후보', confirmed: '확정', rejected: '버림' };
-export const KNOWLEDGE_ORIGIN_LABELS: Record<KnowledgeOrigin, string> = { human: '사람', ai: 'AI', import: '가져오기' };
+export const KNOWLEDGE_ORIGIN_LABELS: Record<KnowledgeOrigin, string> = { human: '사람', ai: 'AI', import: '가져오기', script: '대본에서 찾음' };
 
 /**
  * Two separate facts about an item: where it stands (확정 used as context / 후보 waiting) and whose
