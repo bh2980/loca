@@ -142,7 +142,8 @@ export const sourceRoutes = new Hono<Env>()
     if (query.tagId) conditions.push(sql`${s.units.id} in (select unit_id from ${s.unitTags} where tag_id = ${query.tagId})`);
     if (query.q) conditions.push(textFilter(query.q));
     if (query.speaker) conditions.push(eq(s.units.speaker, query.speaker));
-    if (query.listener === '-') conditions.push(sql`not ${knownListener}`);
+    // Unknown listener: dialogue only (narration has no listener), as the home page counts it.
+    if (query.listener === '-') conditions.push(and(eq(s.units.kind, 'dialogue'), sql`not ${knownListener}`)!);
     else if (query.listener) conditions.push(and(eq(s.units.listener, query.listener), knownListener)!);
     if (query.review) conditions.push(sql`${s.units.statusId} in (select id from ${s.statuses} where ${s.statuses.projectId} = ${projectId} and ${s.statuses.inReview} = 1)`);
     if (query.remaining) conditions.push(sql`${s.units.statusId} in (select id from ${s.statuses} where ${s.statuses.projectId} = ${projectId} and ${s.statuses.kind} != 'final')`);
@@ -235,7 +236,11 @@ export const sourceRoutes = new Hono<Env>()
     const nodes = db.select({ id: s.graphNodes.id, key: s.graphNodes.key }).from(s.graphNodes).where(sql`exists (select 1 from json_each(${s.graphNodes.unitIds}) where value = ${unitId})`).all();
     const resolved = speechRuleIndex(db, unit.projectId).resolve([unit]).get(unit.key);
     const speech = resolved ? { listener: resolved.listener, ruleId: resolved.rule.id, rule: describeRule(resolved.rule), level: resolved.rule.level, byOrder: resolved.byOrder, routeDependent: !!resolved.routeDependent } : null;
-    return c.json({ ...unit, group, candidates, tagIds, history, graphNodes: nodes, speech });
+    // The lines around it in its scene, for a list that shows it out of place (filtered or across scenes).
+    const near = { id: s.units.id, key: s.units.key, kind: s.units.kind, speaker: s.units.speaker, source: s.units.source, translation: s.units.translation };
+    const before = db.select(near).from(s.units).where(and(eq(s.units.groupId, unit.groupId), sql`${s.units.seq} < ${unit.seq}`)).orderBy(desc(s.units.seq)).limit(2).all().reverse();
+    const after = db.select(near).from(s.units).where(and(eq(s.units.groupId, unit.groupId), sql`${s.units.seq} > ${unit.seq}`)).orderBy(asc(s.units.seq)).limit(2).all();
+    return c.json({ ...unit, group, candidates, tagIds, history, graphNodes: nodes, speech, around: { before, after } });
   })
   .patch('/units/:unitId', validate('json', unitPatch), (c) => {
     const { db } = c.var.deps;

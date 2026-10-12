@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Check, CircleAlert, ListChecks, MoreHorizontal, PanelRightOpen, Play, Tags, X } from 'lucide-react';
+import { Check, CircleAlert, ListChecks, ListFilter, MoreHorizontal, PanelRightOpen, Play, Tags, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { checkFormat, LISTENER_MIN_CONFIDENCE, listenerLabel, mentions, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
 import { BulkBar } from '@/components/data-table';
@@ -12,7 +12,8 @@ import { TranslationEditor } from '@/components/translation-editor';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Input } from '@/components/ui/input';
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -79,6 +80,7 @@ export function LineList({
   heading,
   actions,
   menu,
+  onOpenScene,
 }: {
   projectId: string;
   groupId?: string;
@@ -90,6 +92,8 @@ export function LineList({
   actions?: ReactNode;
   /** Extra items for the "더 보기" menu (what this group can do besides translating). */
   menu?: ReactNode;
+  /** Opens a line in its own scene, without this list's filters. */
+  onOpenScene?: (groupId: string, lineId: string) => void;
 }) {
   const statuses = useQuery(q.statuses(projectId));
   const page = search.page ?? 0;
@@ -116,6 +120,10 @@ export function LineList({
   const rows = lines.data?.rows;
   const total = lines.data?.total ?? 0;
   const showScene = !groupId;
+  const filtered = Boolean(search.status || search.tag || search.speaker || search.listener || search.q || search.remaining || review);
+  // A line shown away from its neighbours (filtered, or across scenes) brings its surroundings along.
+  const outOfPlace = showScene || filtered;
+  const speakers = useQuery(q.speakers(projectId));
   // Bumped whenever the picked line's editor should take the focus; 0 = just looking.
   const [focusTick, setFocusTick] = useState(0);
   const setEditing = (edit: boolean) => setFocusTick((tick) => (edit ? tick + 1 : 0));
@@ -280,6 +288,13 @@ export function LineList({
           {search.remaining && <Check />} 남은 줄만
         </Button>
         <SearchInput value={search.q} onChange={(value) => onSearch({ q: value, page: undefined })} placeholder="찾기" className="w-44" />
+        <LineFilters
+          statuses={statusList}
+          tags={statuses.data?.tags ?? []}
+          speakers={(speakers.data ?? []).flatMap((row) => (row.speaker ? [{ name: row.speaker, lines: row.lines }] : []))}
+          search={search}
+          onSearch={(next) => onSearch({ ...next, page: undefined })}
+        />
         {chips.map((chip) => (
           <Button key={chip.key} variant="secondary" onClick={() => onSearch({ ...chip.clear, page: undefined })} aria-label={`${chip.label} 필터 지우기`}>
             {chip.label} <X />
@@ -298,13 +313,24 @@ export function LineList({
           <p className="px-4 py-16 text-center text-sm text-muted-foreground">{review ? '검토할 대사가 없습니다.' : search.remaining ? '남은 줄이 없습니다. 모두 최종 상태입니다.' : '맞는 대사가 없습니다.'}</p>
         ) : (
           <ul>
-            {rows.map((line) => {
+            {rows.map((line, index) => {
               const selected = line.id === search.line;
+              const newScene = showScene && rows[index - 1]?.groupId !== line.groupId;
               const status = statusById.get(line.statusId);
               const who = listenerText(line);
               return (
+                <Fragment key={line.id}>
+                {newScene && (
+                  <li className="sticky top-0 z-10 flex items-center gap-2 border-b bg-muted/80 px-4 py-1 text-xs text-muted-foreground backdrop-blur">
+                    <span className="truncate font-medium text-foreground">{line.groupTitle}</span>
+                    {onOpenScene && (
+                      <Button variant="ghost" size="inline" className="ml-auto" onClick={() => onOpenScene(line.groupId, line.id)}>
+                        장면 열기
+                      </Button>
+                    )}
+                  </li>
+                )}
                 <li
-                  key={line.id}
                   ref={selected ? selectedRow : undefined}
                   onClick={() => !selected && select(line.id, true)}
                   className={cn('flex gap-3 border-b px-4 transition-colors', selected ? 'bg-muted/60 py-3 shadow-[inset_2px_0_0_var(--primary)]' : 'cursor-pointer py-2.5 hover:bg-muted/40')}
@@ -317,9 +343,9 @@ export function LineList({
                       <p className="mb-0.5 flex min-w-0 gap-1 text-xs text-muted-foreground">
                         <span className="truncate">{line.speaker ?? '지문'}</span>
                         {selected && line.kind === 'dialogue' && <span className={cn('truncate', who.unknown && 'text-warning')}>→ {who.text}</span>}
-                        {showScene && <span className="ml-auto truncate pl-2">{line.groupTitle}</span>}
                       </p>
                       <p className={cn('break-words whitespace-pre-wrap', selected ? 'text-base' : 'text-sm')}>{line.source}</p>
+                      {selected && outOfPlace && <Surroundings unitId={line.id} />}
                     </div>
                     <div className="min-w-0">
                       {selected ? (
@@ -351,6 +377,7 @@ export function LineList({
                     </div>
                   </div>
                 </li>
+                </Fragment>
               );
             })}
           </ul>
@@ -455,3 +482,103 @@ function LineHints({ projectId, line, onDetail }: { projectId: string; line: { i
     </div>
   );
 }
+
+/**
+ * Filters the list by status, tag, speaker or listener. Each choice goes into the URL and shows as
+ * a removable chip next to the search, like filters that arrive from a link.
+ */
+function LineFilters({ statuses, tags, speakers, search, onSearch }: {
+  statuses: { id: string; name: string; color: string }[];
+  tags: { id: string; name: string }[];
+  speakers: { name: string; lines: number }[];
+  search: LinesSearch;
+  onSearch: (next: Partial<LinesSearch>) => void;
+}) {
+  const [needle, setNeedle] = useState('');
+  const shown = speakers.filter((speaker) => !needle || speaker.name.toLowerCase().includes(needle.toLowerCase())).slice(0, 40);
+  return (
+    <DropdownMenu onOpenChange={(open) => !open && setNeedle('')}>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline">
+          <ListFilter /> 필터
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-48">
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>상태</DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="max-h-80 overflow-y-auto">
+            {statuses.map((status) => (
+              <DropdownMenuCheckboxItem key={status.id} checked={search.status === status.id} onCheckedChange={(on) => onSearch({ status: on ? status.id : undefined })}>
+                <StatusDot color={status.color} /> {status.name}
+              </DropdownMenuCheckboxItem>
+            ))}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger disabled={!tags.length}>태그</DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="max-h-80 overflow-y-auto">
+            {tags.map((tag) => (
+              <DropdownMenuCheckboxItem key={tag.id} checked={search.tag === tag.id} onCheckedChange={(on) => onSearch({ tag: on ? tag.id : undefined })}>
+                #{tag.name}
+              </DropdownMenuCheckboxItem>
+            ))}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>화자</DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="w-56">
+            <Input value={needle} onChange={(event) => setNeedle(event.target.value)} onKeyDown={(event) => event.stopPropagation()} placeholder="이름 찾기" className="mb-1" aria-label="화자 찾기" />
+            <div className="max-h-72 overflow-y-auto">
+              {shown.map((speaker) => (
+                <DropdownMenuCheckboxItem key={speaker.name} checked={search.speaker === speaker.name} onCheckedChange={(on) => onSearch({ speaker: on ? speaker.name : undefined })}>
+                  <span className="min-w-0 flex-1 truncate">{speaker.name}</span>
+                  <span className="text-xs text-muted-foreground tabular-nums">{speaker.lines.toLocaleString()}</span>
+                </DropdownMenuCheckboxItem>
+              ))}
+            </div>
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>청자</DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="max-h-80 w-56 overflow-y-auto">
+            <DropdownMenuCheckboxItem checked={search.listener === '-'} onCheckedChange={(on) => onSearch({ listener: on ? '-' : undefined })}>
+              청자 미상 (대사만)
+            </DropdownMenuCheckboxItem>
+            {speakers.slice(0, 40).map((speaker) => (
+              <DropdownMenuCheckboxItem key={speaker.name} checked={search.listener === speaker.name} onCheckedChange={(on) => onSearch({ listener: on ? speaker.name : undefined })}>
+                {speaker.name}에게
+              </DropdownMenuCheckboxItem>
+            ))}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** The two lines before and after a line in its scene, for a list that shows it away from them. */
+function Surroundings({ unitId }: { unitId: string }) {
+  const unit = useQuery(q.unit(unitId));
+  const around = unit.data?.around;
+  if (!around || (!around.before.length && !around.after.length)) return null;
+  const row = (line: (typeof around.before)[number]) => (
+    <li key={line.id} className="flex min-w-0 gap-1.5">
+      <span className="shrink-0">{line.speaker ?? '지문'}</span>
+      <span className="truncate text-foreground/70">{line.source}</span>
+    </li>
+  );
+  return (
+    <div className="mt-2 rounded-md border bg-muted/30 px-2.5 py-1.5 text-xs text-muted-foreground">
+      <p className="mb-0.5">{unit.data?.group.title} · 앞뒤 대사</p>
+      <ul className="space-y-0.5">
+        {around.before.map(row)}
+        <li className="flex gap-1.5 font-medium text-foreground">
+          <span>▸</span>
+          <span>이 대사</span>
+        </li>
+        {around.after.map(row)}
+      </ul>
+    </div>
+  );
+}
+

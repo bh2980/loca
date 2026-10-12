@@ -144,6 +144,7 @@ function Script() {
             kind={search.group ? undefined : search.kind}
             search={search}
             onSearch={onSearch}
+            onOpenScene={(groupId, line) => void navigate({ search: { group: groupId, line } })}
             heading={heading}
             actions={
               <RunDialog
