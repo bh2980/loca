@@ -352,15 +352,15 @@ export function RuleLines({ projectId, ruleId, candidate }: { projectId: string;
     <PaneSection
       title={`${candidate ? '확정하면 적용될' : '이 규칙이 적용되는'} 대사 ${lines.data?.count ?? '…'}개`}
       actions={
-        !!lines.data?.count && !candidate ? (
+        lines.data?.translatedIds.length && !candidate ? (
           <RunDialog
             projectId={projectId}
-            unitIds={lines.data.unitIds}
+            unitIds={lines.data.translatedIds}
             defaultIgnoreStatus
             preferWorkflow={SPEECH_FIX_WORKFLOW}
             trigger={
-              <Button variant="ghost">
-                <Play /> 다시 실행
+              <Button variant="ghost" title={`“${SPEECH_FIX_WORKFLOW}” 워크플로로 번역된 줄의 어미·호칭만 이 규칙에 맞춥니다`}>
+                <Play /> 번역된 {lines.data.translatedIds.length.toLocaleString()}줄 말투 맞추기
               </Button>
             }
           />
@@ -369,7 +369,9 @@ export function RuleLines({ projectId, ruleId, candidate }: { projectId: string;
     >
       <div className="space-y-2">
       <p className="text-xs text-muted-foreground">
-        청자가 정해진 이 쌍의 대사(대사 그래프에서 이 구간 시작을 반드시 거친 뒤, 다음 구간 전까지. 루트에 따라 다르면 대본 순서 기준)입니다. 규칙을 고쳤다면 “{SPEECH_FIX_WORKFLOW}”로 이 대사들의 어미·호칭만 다시 맞추세요.
+        {lines.data && !lines.data.translatedIds.length
+          ? '아직 번역된 줄이 없습니다. 이 줄들을 번역할 때 이 규칙이 들어갑니다.'
+          : `규칙을 고쳤다면 “말투 맞추기”로 이미 번역된 줄의 어미·호칭만 다시 맞춥니다. 뜻과 표현은 그대로 둡니다.`}
       </p>
       {!!lines.data?.routeDependent && (
         <p className="text-xs text-warning">

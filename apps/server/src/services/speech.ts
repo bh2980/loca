@@ -287,5 +287,7 @@ export function ruleLines(db: Db, projectId: string, ruleId: string) {
   }
   // Of these, lines whose stretch depends on the route (picked by script order).
   const routeDependent = rows.filter((line) => uncertain.has(line.key)).length;
-  return { count: rows.length, routeDependent, unitIds: rows.map((line) => line.id), levels, rows: rows.slice(0, 100).map(({ listenerOrigin: _o, listenerConfidence: _c, ...line }) => line) };
+  // Only translated lines have endings to fix; untranslated ones get the rule when they are translated.
+  const translatedIds = rows.filter((line) => line.translation?.trim()).map((line) => line.id);
+  return { count: rows.length, routeDependent, unitIds: rows.map((line) => line.id), translatedIds, levels, rows: rows.slice(0, 100).map(({ listenerOrigin: _o, listenerConfidence: _c, ...line }) => line) };
 }
