@@ -301,7 +301,7 @@ export function mergeAnalysis(base: Analysis, next: Analysis): Analysis {
 export const MAIN_PAIR_SHARE = 0.8;
 
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
-type Stored = typeof s.documents | typeof s.characters | typeof s.relationships | typeof s.storyEvents | typeof s.speechRules;
+type Stored = typeof s.documents | typeof s.characters | typeof s.relationships | typeof s.storyEvents | typeof s.speechRules | typeof s.terms;
 
 /**
  * Stores an analysis. Items earlier analyses wrote that no person has touched are replaced; items a
@@ -337,7 +337,7 @@ export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: A
     tx.delete(s.documents).where(stale(s.documents)).run();
     tx.delete(s.storyEvents).where(stale(s.storyEvents)).run();
     tx.delete(s.speechRules).where(stale(s.speechRules)).run();
-    tx.delete(s.terms).where(and(eq(s.terms.projectId, projectId), eq(s.terms.origin, 'ai'), eq(s.terms.reviewed, false), eq(s.terms.status, 'candidate'), analysisJobs.length ? inArray(s.terms.jobId, analysisJobs) : sql`0`)).run();
+    tx.delete(s.terms).where(stale(s.terms)).run();
 
     const { overview } = analysis;
     const body = [overview.setting && `## 배경\n${overview.setting}`, overview.mainConflict && `## 주요 갈등\n${overview.mainConflict}`, overview.plot && `## 줄거리\n${overview.plot}`].filter(Boolean).join('\n\n');
@@ -392,8 +392,9 @@ export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: A
       tx.insert(s.storyEvents).values({ projectId, title: e.title, summary: e.summary, cause: e.cause, outcome: e.outcome, participants: e.participants.map(canon), evidence: keys(e.evidence), ...draft }).run();
     }
 
-    // Terms are always candidates (a person confirms the Korean form before it reaches translation).
-    // A term already in the glossary keeps what it has; the analysis only fills its empty form and note.
+    // Terms follow the auto-confirm switch like the rest, except one without a Korean form: it stays a
+    // candidate (an empty target would reach every prompt). A term already in the glossary keeps what it
+    // has; the analysis only fills its empty form and note.
     const glossary = new Map(tx.select({ id: s.terms.id, source: s.terms.source, target: s.terms.target, note: s.terms.note, status: s.terms.status, examples: s.terms.examples }).from(s.terms).where(eq(s.terms.projectId, projectId)).all().map((t) => [t.source.toLowerCase(), t]));
     for (const t of analysis.terms) {
       const note = [TERM_KIND_LABELS[t.kind], t.meaning].filter(Boolean).join(' · ');
@@ -405,7 +406,7 @@ export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: A
         if (Object.keys(fill).length) tx.update(s.terms).set(fill).where(eq(s.terms.id, known.id)).run();
         continue;
       }
-      const row = tx.insert(s.terms).values({ projectId, source: t.source.trim(), target: t.target.trim(), note, status: 'candidate', origin: 'ai', jobId, examples }).returning({ id: s.terms.id, source: s.terms.source, target: s.terms.target, note: s.terms.note, status: s.terms.status, examples: s.terms.examples }).get();
+      const row = tx.insert(s.terms).values({ projectId, source: t.source.trim(), target: t.target.trim(), note, status: autoConfirm && t.target.trim() ? 'confirmed' : 'candidate', origin: 'ai', jobId, examples }).returning({ id: s.terms.id, source: s.terms.source, target: s.terms.target, note: s.terms.note, status: s.terms.status, examples: s.terms.examples }).get();
       glossary.set(row.source.toLowerCase(), row);
       counts.terms += 1;
     }

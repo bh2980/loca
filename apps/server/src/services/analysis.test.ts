@@ -175,7 +175,7 @@ describe('work analysis', () => {
     expect(ai.review).toContain('정식 규칙');
   });
 
-  it('proposes terms as glossary candidates, fills only empty forms of terms already there, and replaces its own untouched ones on a rerun', () => {
+  it('adds terms under the auto-confirm switch, fills only empty forms of terms already there, and replaces its own untouched ones on a rerun', () => {
     const { db, projectId } = setup();
     const keyOf = scriptText(db, projectId).keyOf;
     db.insert(s.terms).values({ projectId, source: 'Alice', target: '', note: '', status: 'candidate', origin: 'script' }).run();
@@ -183,13 +183,16 @@ describe('work analysis', () => {
     const counts = saveDrafts(db, projectId, 'job1', analysis, keyOf, true);
     expect(counts.terms).toBe(1);
     const boss = db.select().from(s.terms).where(eq(s.terms.source, 'boss')).get()!;
-    expect(boss).toMatchObject({ target: '선장님', note: '호칭·직함 · 선원들이 선장을 부르는 말', status: 'candidate', origin: 'ai', jobId: 'job1', examples: ['a2'] });
+    expect(boss).toMatchObject({ target: '선장님', note: '호칭·직함 · 선원들이 선장을 부르는 말', status: 'confirmed', origin: 'ai', jobId: 'job1', examples: ['a2'] });
     // The term found in the script before keeps its own entry and gains the analysis's form.
     expect(db.select().from(s.terms).where(eq(s.terms.projectId, projectId)).all().filter((t) => t.source.toLowerCase() === 'alice')).toEqual([expect.objectContaining({ source: 'Alice', target: '앨리스', origin: 'script' })]);
     // A rerun replaces the earlier analysis's untouched term instead of adding a second one.
     db.insert(s.analysisJobs).values([{ id: 'job1', projectId, status: 'completed' }, { id: 'job2', projectId, status: 'completed' }]).run();
     saveDrafts(db, projectId, 'job2', analysis, keyOf, true);
     expect(db.select().from(s.terms).where(eq(s.terms.source, 'boss')).all().map((t) => t.jobId)).toEqual(['job2']);
+    // With the switch off, a rerun replaces it as a candidate.
+    saveDrafts(db, projectId, 'job3', analysis, keyOf, false);
+    expect(db.select().from(s.terms).where(eq(s.terms.source, 'boss')).all().map((t) => [t.jobId, t.status])).toEqual([['job3', 'candidate']]);
   });
 
   it('merges parts: one person across aliases, rules on that person, contradictions kept as conflicts', () => {
