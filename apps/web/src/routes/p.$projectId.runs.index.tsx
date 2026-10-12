@@ -173,7 +173,11 @@ function RunList() {
 }
 
 const count = (value: number | null | undefined) => (value == null ? '—' : value.toLocaleString());
-const seconds = (from: Date | string, to: Date | string | null) => (to ? `${((new Date(to).getTime() - new Date(from).getTime()) / 1000).toFixed(1)}초` : '');
+const seconds = (from: Date | string, to: Date | string | null) => {
+  if (!to) return '';
+  const total = (new Date(to).getTime() - new Date(from).getTime()) / 1000;
+  return total < 60 ? `${total.toFixed(1)}초` : `${Math.floor(total / 60)}분 ${Math.round(total % 60)}초`;
+};
 
 /** Every model request of the project, newest first: what it was for, which model, tokens, time. */
 function Calls() {
