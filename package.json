@@ -13,12 +13,13 @@
     "typecheck": "pnpm -r typecheck",
     "test": "vitest run",
     "budget": "tsx scripts/budget.ts",
-    "verify": "pnpm -r exec tsc --noEmit -p . && vitest run && pnpm budget",
+    "verify": "pnpm -r exec tsc --noEmit -p . && pnpm ui-rules && vitest run && pnpm budget",
     "db:generate": "pnpm --filter @tw/server db:generate",
     "samples": "tsx scripts/make-samples.ts",
     "mock-llm": "tsx scripts/mock-llm.ts",
     "orwell2:en": "tsx scripts/orwell2-en.ts",
-    "loca": "node apps/cli/bin/loca.mjs"
+    "loca": "node apps/cli/bin/loca.mjs",
+    "ui-rules": "tsx scripts/ui-rules.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

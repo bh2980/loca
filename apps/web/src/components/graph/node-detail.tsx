@@ -19,10 +19,10 @@ function Neighbour({ items, title, icon: Icon, onSelect }: { items: { id: string
       <ul className="space-y-1">
         {items.map((item) => (
           <li key={item.id}>
-            <button className="w-full truncate rounded px-2 py-1 text-left text-sm hover:bg-muted" onClick={() => onSelect(item.id)}>
+            <Button variant="ghost" size="row" className="block truncate" onClick={() => onSelect(item.id)}>
               <span className="text-muted-foreground">{KIND_LABEL[item.kind] ?? item.kind}</span> {item.label ?? item.key}
               {item.edgeLabel && <span className="ml-1 text-xs text-muted-foreground">[{item.edgeLabel}]</span>}
-            </button>
+            </Button>
           </li>
         ))}
         {!items.length && <li className="px-2 text-sm text-muted-foreground">없음</li>}
@@ -54,7 +54,7 @@ export function DialogueNodeDetail({ projectId, nodeId, onSelect, onClose }: { p
         <div className="space-y-5 p-4">
           {data.typeInfo?.description && <p className="rounded-md bg-muted/50 px-3 py-2 text-sm">{data.typeInfo.description}</p>}
           {data.group && (
-            <Button variant="outline" size="sm" asChild>
+            <Button variant="outline" asChild>
               <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: data.group.id, line: data.units[0]?.id }}>
                 <FileText /> {data.group.title}에서 보기
               </Link>
@@ -79,7 +79,7 @@ export function DialogueNodeDetail({ projectId, nodeId, onSelect, onClose }: { p
           {data.meta && Object.keys(data.meta).length > 0 && (
             <section>
               <h3 className="mb-1.5 text-xs font-medium text-muted-foreground">원본 메타데이터</h3>
-              <pre className="overflow-x-auto rounded-md bg-muted/50 p-2 text-[11px]">{JSON.stringify(data.meta, null, 2)}</pre>
+              <pre className="overflow-x-auto rounded-md bg-muted/50 p-2 text-xs">{JSON.stringify(data.meta, null, 2)}</pre>
             </section>
           )}
         </div>
@@ -99,12 +99,12 @@ export function SceneNodeDetail({ projectId, groupId, onClose }: { projectId: st
       <div className="space-y-3 p-4">
         {group.data.description && <p className="text-sm">{group.data.description}</p>}
         <div className="flex flex-col gap-2">
-          <Button size="sm" asChild>
+          <Button asChild>
             <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: groupId }}>
               <FileText /> 장면 열기
             </Link>
           </Button>
-          <Button size="sm" variant="outline" asChild>
+          <Button variant="outline" asChild>
             <Link to="/p/$projectId/graph" params={{ projectId }} search={{ scope: 'dialogue', scene: groupId }}>
               <Network /> 대사 그래프에서 보기
             </Link>

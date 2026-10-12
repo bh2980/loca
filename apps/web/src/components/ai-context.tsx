@@ -38,7 +38,7 @@ export function ContextItemList({ items, budget }: { items: ContextItem[]; budge
                       {item.label}
                     </span>
                     {!item.included && (
-                      <Badge variant="outline" className="px-1.5 py-0 text-[10px] text-warning">
+                      <Badge variant="outline" className="px-1.5 py-0 text-xs text-warning">
                         상한 초과로 뺌
                       </Badge>
                     )}
@@ -131,7 +131,7 @@ export function AiContextPanel({ projectId, unitKey, aiNode, onAiNode }: { proje
                 <p className="text-xs text-warning">갈래가 합쳐지는 곳입니다. 플레이어는 이 중 한 갈래를 거쳐 왔습니다.</p>
                 {data.preceding.branches.map((branch) => (
                   <div key={branch.label}>
-                    <Badge variant="outline" className="mb-1 px-1.5 py-0 text-[11px]">
+                    <Badge variant="outline" className="mb-1 px-1.5 py-0 text-xs">
                       {branch.label}
                     </Badge>
                     <Lines lines={branch.lines} />
@@ -154,7 +154,7 @@ export function AiContextPanel({ projectId, unitKey, aiNode, onAiNode }: { proje
         <ChevronRight className="size-3.5 transition-transform group-data-[state=open]:rotate-90" />
         실제 프롬프트</CollapsibleTrigger>
       <CollapsibleContent>
-        <pre className="mt-1 max-h-96 overflow-auto rounded bg-muted/50 p-2 text-[11px] whitespace-pre-wrap">{`${data.system}\n\n${data.prompt}`}</pre>
+        <pre className="mt-1 max-h-96 overflow-auto rounded bg-muted/50 p-2 text-xs whitespace-pre-wrap">{`${data.system}\n\n${data.prompt}`}</pre>
       </CollapsibleContent>
       </Collapsible>
     </div>

@@ -94,6 +94,31 @@
   body {
     @apply bg-background text-foreground antialiased;
   }
+  /* Every native scrollbar looks like shadcn's ScrollArea: a thin rounded thumb in the border colour,
+     no track, a little darker on hover. One rule instead of wrapping each scrolling box. */
+  /* Chromium ignores the ::-webkit rules when the standard properties are set, so those are only for others. */
+  @supports not selector(::-webkit-scrollbar) {
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 9999px;
+    background: var(--border) padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--muted-foreground) padding-box;
+  }
 }
 
 /* Compact markdown for chat replies and document bodies. */

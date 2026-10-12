@@ -1,23 +1,31 @@
 import { useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { ArrowDown, ArrowUp, Check, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { STATUS_COLORS } from '@tw/shared';
+import { DataTable, type ColumnDef } from '@/components/data-table';
+import { DetailPane, FieldRow, PaneSection } from '@/components/detail-pane';
 import { Page } from '@/components/page';
+import { SplitPane } from '@/components/split-pane';
 import { StatusDot } from '@/components/status';
-import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { Toolbar } from '@/components/toolbar';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { client, unwrap } from '@/lib/api';
 import { STATUS_KIND } from '@/lib/labels';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
+type StatusSearch = { status?: string; tag?: string };
+const param = (value: unknown) => (typeof value === 'string' && value ? value : undefined);
+
 export const Route = createFileRoute('/p/$projectId/settings/statuses')({
+  validateSearch: (raw: Record<string, unknown>): StatusSearch => ({ status: param(raw.status), tag: param(raw.tag) }),
   component: StatusSettings,
 });
 
@@ -36,54 +44,45 @@ interface TagRowData {
   color: string;
   units: number;
 }
+type StatusForm = { name: string; color: string; kind: Kind; inReview: boolean };
 
 function Swatches({ value, onChange }: { value: string; onChange: (color: string) => void }) {
   return (
-    <div className="flex gap-1" role="radiogroup" aria-label="색상">
+    <div className="flex flex-wrap gap-1" role="radiogroup" aria-label="색상">
       {STATUS_COLORS.map((color) => (
-        <button
+        <Button
           key={color}
           type="button"
+          variant="ghost"
+          size="icon"
           role="radio"
           aria-checked={value === color}
           aria-label={color}
           onClick={() => onChange(color)}
-          className={cn('size-5 rounded-full border-2 border-transparent', value === color && 'ring-2 ring-offset-1 ring-foreground/60')}
-          style={{ backgroundColor: color }}
-        />
+          className={cn(value === color && 'bg-muted ring-1 ring-foreground/40')}
+        >
+          <StatusDot color={color} className="size-4" />
+        </Button>
       ))}
     </div>
   );
 }
 
-function KindSelect({ value, onChange }: { value: Kind; onChange: (kind: Kind) => void }) {
-  return (
-    <Select value={value} onValueChange={(next) => onChange(next as Kind)}>
-      <SelectTrigger className="w-28" aria-label="종류">
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        {(Object.keys(STATUS_KIND) as Kind[]).map((kind) => (
-          <SelectItem key={kind} value={kind}>
-            {STATUS_KIND[kind]}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  );
-}
-
 function StatusSettings() {
   const { projectId } = Route.useParams();
+  const search = Route.useSearch();
+  const navigate = Route.useNavigate();
   const data = useQuery(q.statuses(projectId));
-  const statuses = (data.data?.statuses ?? []) as StatusRowData[];
-  const tags = (data.data?.tags ?? []) as TagRowData[];
-  const [editing, setEditing] = useState<string | null>(null);
-  const [adding, setAdding] = useState({ name: '', color: STATUS_COLORS[1] as string, kind: 'normal' as Kind });
+  const statuses = data.data ? (data.data.statuses as StatusRowData[]) : undefined;
+  const tags = data.data ? (data.data.tags as TagRowData[]) : undefined;
   const [removing, setRemoving] = useState<StatusRowData | null>(null);
   const [moveTo, setMoveTo] = useState<string>('');
-  const [newTag, setNewTag] = useState({ name: '', color: STATUS_COLORS[2] as string });
-  const [editingTag, setEditingTag] = useState<string | null>(null);
+
+  /** Only one of the two panes is open at a time; the selection lives in the URL. */
+  const open = (next: StatusSearch) => void navigate({ search: next, replace: true });
+  const close = () => open({});
+  const selectedStatus = search.status && search.status !== 'new' ? statuses?.find((status) => status.id === search.status) : undefined;
+  const selectedTag = search.tag && search.tag !== 'new' ? tags?.find((tag) => tag.id === search.tag) : undefined;
 
   const fail = (error: Error) => toast.error(error.message);
   const reorder = useMutation({
@@ -91,20 +90,17 @@ function StatusSettings() {
     onError: fail,
   });
   const create = useMutation({
-    mutationFn: () => unwrap(client.projects[':projectId'].statuses.$post({ param: { projectId }, json: adding })),
+    mutationFn: (json: StatusForm) => unwrap(client.projects[':projectId'].statuses.$post({ param: { projectId }, json })),
     onSuccess: () => {
-      setAdding({ ...adding, name: '' });
+      close();
       toast.success('상태를 추가했습니다.');
     },
     onError: fail,
   });
   const update = useMutation({
-    mutationFn: (variables: { id: string; json: Partial<Pick<StatusRowData, 'name' | 'color' | 'kind' | 'inReview'>> }) =>
+    mutationFn: (variables: { id: string; json: Partial<StatusForm> }) =>
       unwrap(client.projects[':projectId'].statuses[':id'].$patch({ param: { projectId, id: variables.id }, json: variables.json })),
-    onSuccess: () => {
-      setEditing(null);
-      toast.success('저장했습니다.');
-    },
+    onSuccess: () => toast.success('저장했습니다.'),
     onError: fail,
   });
   const remove = useMutation({
@@ -112,14 +108,15 @@ function StatusSettings() {
       unwrap(client.projects[':projectId'].statuses[':id'].$delete({ param: { projectId, id: variables.id }, json: { moveTo: variables.moveTo } })),
     onSuccess: () => {
       setRemoving(null);
+      close();
       toast.success('상태를 삭제하고 대사를 옮겼습니다.');
     },
     onError: fail,
   });
   const createTag = useMutation({
-    mutationFn: () => unwrap(client.projects[':projectId'].tags.$post({ param: { projectId }, json: newTag })),
+    mutationFn: (json: { name: string; color: string }) => unwrap(client.projects[':projectId'].tags.$post({ param: { projectId }, json })),
     onSuccess: () => {
-      setNewTag({ ...newTag, name: '' });
+      close();
       toast.success('태그를 추가했습니다.');
     },
     onError: fail,
@@ -127,187 +124,125 @@ function StatusSettings() {
   const updateTag = useMutation({
     mutationFn: (variables: { id: string; json: { name?: string; color?: string } }) =>
       unwrap(client.projects[':projectId'].tags[':id'].$patch({ param: { projectId, id: variables.id }, json: variables.json })),
-    onSuccess: () => {
-      setEditingTag(null);
-      toast.success('저장했습니다.');
-    },
+    onSuccess: () => toast.success('저장했습니다.'),
     onError: fail,
   });
   const removeTag = useMutation({
     mutationFn: (id: string) => unwrap(client.projects[':projectId'].tags[':id'].$delete({ param: { projectId, id } })),
-    onSuccess: () => toast.success('태그를 삭제했습니다.'),
+    onSuccess: () => {
+      close();
+      toast.success('태그를 삭제했습니다.');
+    },
     onError: fail,
   });
 
-  const move = (index: number, delta: number) => {
-    const ids = statuses.map((status) => status.id);
+  const move = (status: StatusRowData, delta: number) => {
+    if (!statuses) return;
+    const ids = statuses.map((item) => item.id);
+    const index = ids.indexOf(status.id);
     [ids[index], ids[index + delta]] = [ids[index + delta], ids[index]];
     reorder.mutate(ids);
   };
 
+  const statusColumns: ColumnDef<StatusRowData, unknown>[] = [
+    { id: 'order', header: '순서', meta: { width: 56, className: 'text-muted-foreground tabular-nums' }, cell: ({ row }) => row.index + 1 },
+    {
+      id: 'name',
+      header: '이름',
+      cell: ({ row }) => (
+        <span className="inline-flex items-center gap-2 font-medium">
+          <StatusDot color={row.original.color} className="size-2.5" />
+          {row.original.name}
+        </span>
+      ),
+    },
+    { id: 'kind', header: '종류', meta: { width: 112, className: 'text-muted-foreground' }, cell: ({ row }) => STATUS_KIND[row.original.kind] },
+    { id: 'review', header: '검토함에 표시', meta: { width: 120 }, cell: ({ row }) => (row.original.inReview ? '표시' : <span className="text-muted-foreground">–</span>) },
+    { id: 'units', header: '대사 수', meta: { width: 96, align: 'end' }, cell: ({ row }) => row.original.units.toLocaleString() },
+  ];
+  const tagColumns: ColumnDef<TagRowData, unknown>[] = [
+    {
+      id: 'name',
+      header: '이름',
+      cell: ({ row }) => (
+        <span className="inline-flex items-center gap-2 font-medium">
+          <StatusDot color={row.original.color} className="size-2.5" />#{row.original.name}
+        </span>
+      ),
+    },
+    { id: 'units', header: '대사 수', meta: { width: 96, align: 'end' }, cell: ({ row }) => row.original.units.toLocaleString() },
+  ];
+
+  const pane =
+    search.status === 'new' ? (
+      <StatusPane key="new" pending={create.isPending} onClose={close} onSave={(json) => create.mutate(json)} />
+    ) : selectedStatus ? (
+      <StatusPane
+        key={selectedStatus.id}
+        status={selectedStatus}
+        index={statuses!.indexOf(selectedStatus)}
+        count={statuses!.length}
+        pending={update.isPending}
+        reordering={reorder.isPending}
+        onClose={close}
+        onSave={(json) => update.mutate({ id: selectedStatus.id, json })}
+        onMove={(delta) => move(selectedStatus, delta)}
+        onDelete={() => {
+          setRemoving(selectedStatus);
+          setMoveTo('');
+        }}
+      />
+    ) : search.tag === 'new' ? (
+      <TagPane key="new" pending={createTag.isPending} onClose={close} onSave={(json) => createTag.mutate(json)} />
+    ) : selectedTag ? (
+      <TagPane key={selectedTag.id} tag={selectedTag} pending={updateTag.isPending} onClose={close} onSave={(json) => updateTag.mutate({ id: selectedTag.id, json })} onDelete={() => removeTag.mutate(selectedTag.id)} />
+    ) : null;
+
   return (
-    <Page title="상태·태그">
-      <div className="max-w-4xl space-y-8">
-        <section className="space-y-2">
-          <div>
-            <h2 className="text-sm font-semibold">상태</h2>
-            <p className="text-xs text-muted-foreground">
-              ‘검토함에 표시’를 켠 상태의 대사는 사람이 바꾸든 워크플로가 바꾸든 검토함에 모입니다. 검토함에서는 다른 상태 중 하나를 골라 옮기는 것으로 결정합니다.
-            </p>
-          </div>
-          <div className="rounded-lg border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-20">순서</TableHead>
-                  <TableHead>이름</TableHead>
-                  <TableHead className="w-32">종류</TableHead>
-                  <TableHead className="w-28">검토함에 표시</TableHead>
-                  <TableHead className="w-24 text-right">대사 수</TableHead>
-                  <TableHead className="w-24" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {statuses.map((status, index) =>
-                  editing === status.id ? (
-                    <StatusEditRow key={status.id} status={status} pending={update.isPending} onCancel={() => setEditing(null)} onSave={(json) => update.mutate({ id: status.id, json })} />
-                  ) : (
-                    <TableRow key={status.id}>
-                      <TableCell>
-                        <div className="flex">
-                          <Button variant="ghost" size="icon" className="size-7" disabled={index === 0 || reorder.isPending} onClick={() => move(index, -1)} aria-label={`${status.name} 위로`}>
-                            <ArrowUp />
-                          </Button>
-                          <Button variant="ghost" size="icon" className="size-7" disabled={index === statuses.length - 1 || reorder.isPending} onClick={() => move(index, 1)} aria-label={`${status.name} 아래로`}>
-                            <ArrowDown />
-                          </Button>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <span className="inline-flex items-center gap-2 font-medium">
-                          <StatusDot color={status.color} className="size-2.5" />
-                          {status.name}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">{STATUS_KIND[status.kind]}</TableCell>
-                      <TableCell>
-                        <Switch checked={status.inReview} onCheckedChange={(inReview) => update.mutate({ id: status.id, json: { inReview } })} aria-label={`${status.name} 검토함에 표시`} />
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">{status.units.toLocaleString()}</TableCell>
-                      <TableCell>
-                        <div className="flex justify-end">
-                          <Button variant="ghost" size="icon" className="size-7" onClick={() => setEditing(status.id)} aria-label={`${status.name} 편집`}>
-                            <Pencil />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-7 text-destructive"
-                            disabled={statuses.length < 2}
-                            onClick={() => {
-                              setRemoving(status);
-                              setMoveTo('');
-                            }}
-                            aria-label={`${status.name} 삭제`}
-                          >
-                            <Trash2 />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ),
-                )}
-                <TableRow className="bg-muted/30 hover:bg-muted/30">
-                  <TableCell />
-                  <TableCell>
-                    <div className="flex items-center gap-3">
-                      <Input className="w-44" aria-label="새 상태 이름" placeholder="새 상태 이름" value={adding.name} onChange={(event) => setAdding({ ...adding, name: event.target.value })} onKeyDown={(event) => event.key === 'Enter' && adding.name.trim() && create.mutate()} />
-                      <Swatches value={adding.color} onChange={(color) => setAdding({ ...adding, color })} />
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <KindSelect value={adding.kind} onChange={(kind) => setAdding({ ...adding, kind })} />
-                  </TableCell>
-                  <TableCell />
-                  <TableCell />
-                  <TableCell>
-                    <Button size="sm" disabled={!adding.name.trim() || create.isPending} onClick={() => create.mutate()}>
-                      <Plus /> 추가
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
-          </div>
-        </section>
+    <Page title="상태·태그" flush>
+      <SplitPane id="settings-statuses" defaultWidth="384px" className="h-full" pane={pane}>
+        <div className="min-h-0 flex-1 overflow-auto">
+          <Toolbar
+            count={statuses ? `${statuses.length}개` : undefined}
+            actions={
+              <Button variant="outline" onClick={() => open({ status: 'new' })}>
+                <Plus /> 추가
+              </Button>
+            }
+          >
+            <div>
+              <h2 className="text-sm font-semibold">상태</h2>
+              <p className="text-xs text-muted-foreground">‘검토함에 표시’를 켠 상태의 대사는 사람이 바꾸든 워크플로가 바꾸든 검토함에 모입니다. 검토함에서는 다른 상태 중 하나를 골라 옮기는 것으로 결정합니다.</p>
+            </div>
+          </Toolbar>
+          <DataTable
+            className="flex-none"
+            columns={statusColumns}
+            rows={statuses}
+            rowId={(row) => row.id}
+            selected={search.status}
+            empty="상태가 없습니다."
+            onRowClick={(row) => open({ status: row.id })}
+          />
+          <Toolbar
+            className="mt-8 border-t"
+            count={tags ? `${tags.length}개` : undefined}
+            actions={
+              <Button variant="outline" onClick={() => open({ tag: 'new' })}>
+                <Plus /> 추가
+              </Button>
+            }
+          >
+            <div>
+              <h2 className="text-sm font-semibold">태그</h2>
+              <p className="text-xs text-muted-foreground">상태와 별개로 대사에 여러 개 붙이는 표시입니다(예: #재검토, #폰트확인). 스크립트에서 골라 붙이거나 상태 변경 노드로 붙이고, 워크플로 실행 범위나 조건에 씁니다.</p>
+            </div>
+          </Toolbar>
+          <DataTable className="flex-none" columns={tagColumns} rows={tags} rowId={(row) => row.id} selected={search.tag} empty="태그가 없습니다." onRowClick={(row) => open({ tag: row.id })} />
+        </div>
+      </SplitPane>
 
-        <section className="space-y-2">
-          <div>
-            <h2 className="text-sm font-semibold">태그</h2>
-            <p className="text-xs text-muted-foreground">
-              상태와 별개로 대사에 여러 개 붙이는 표시입니다(예: #재검토, #폰트확인). 스크립트에서 골라 붙이거나 상태 변경 노드로 붙이고, 워크플로 실행 범위나 조건에 씁니다.
-            </p>
-          </div>
-          <div className="rounded-lg border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>이름</TableHead>
-                  <TableHead className="w-24 text-right">대사 수</TableHead>
-                  <TableHead className="w-24" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {tags.map((tag) =>
-                  editingTag === tag.id ? (
-                    <TagEditRow key={tag.id} tag={tag} pending={updateTag.isPending} onCancel={() => setEditingTag(null)} onSave={(json) => updateTag.mutate({ id: tag.id, json })} />
-                  ) : (
-                    <TableRow key={tag.id}>
-                      <TableCell>
-                        <span className="inline-flex items-center gap-2 font-medium">
-                          <StatusDot color={tag.color} className="size-2.5" />#{tag.name}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">{tag.units.toLocaleString()}</TableCell>
-                      <TableCell>
-                        <div className="flex justify-end">
-                          <Button variant="ghost" size="icon" className="size-7" onClick={() => setEditingTag(tag.id)} aria-label={`${tag.name} 편집`}>
-                            <Pencil />
-                          </Button>
-                          <TagDeleteButton tag={tag} onConfirm={() => removeTag.mutate(tag.id)} />
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ),
-                )}
-                {data.data && tags.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={3} className="py-12 text-center text-muted-foreground">
-                      태그가 없습니다.
-                    </TableCell>
-                  </TableRow>
-                )}
-                <TableRow className="bg-muted/30 hover:bg-muted/30">
-                  <TableCell>
-                    <div className="flex items-center gap-3">
-                      <Input className="w-44" aria-label="새 태그 이름" placeholder="새 태그 이름" value={newTag.name} onChange={(event) => setNewTag({ ...newTag, name: event.target.value })} onKeyDown={(event) => event.key === 'Enter' && newTag.name.trim() && createTag.mutate()} />
-                      <Swatches value={newTag.color} onChange={(color) => setNewTag({ ...newTag, color })} />
-                    </div>
-                  </TableCell>
-                  <TableCell />
-                  <TableCell>
-                    <Button size="sm" disabled={!newTag.name.trim() || createTag.isPending} onClick={() => createTag.mutate()}>
-                      <Plus /> 추가
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
-          </div>
-        </section>
-      </div>
-
-      <AlertDialog open={!!removing} onOpenChange={(open) => !open && setRemoving(null)}>
+      <AlertDialog open={!!removing} onOpenChange={(next) => !next && setRemoving(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>“{removing?.name}” 상태를 삭제할까요?</AlertDialogTitle>
@@ -320,7 +255,7 @@ function StatusSettings() {
               <SelectValue placeholder="대사를 옮길 상태 선택" />
             </SelectTrigger>
             <SelectContent>
-              {statuses
+              {(statuses ?? [])
                 .filter((status) => status.id !== removing?.id)
                 .map((status) => (
                   <SelectItem key={status.id} value={status.id}>
@@ -341,82 +276,145 @@ function StatusSettings() {
   );
 }
 
-function TagDeleteButton({ tag, onConfirm }: { tag: TagRowData; onConfirm: () => void }) {
-  const [open, setOpen] = useState(false);
+/** Add or edit one status: its fields are a draft until saved; the order buttons act at once. */
+function StatusPane({
+  status,
+  index = 0,
+  count = 0,
+  pending,
+  reordering,
+  onClose,
+  onSave,
+  onMove,
+  onDelete,
+}: {
+  status?: StatusRowData;
+  index?: number;
+  count?: number;
+  pending: boolean;
+  reordering?: boolean;
+  onClose: () => void;
+  onSave: (form: StatusForm) => void;
+  onMove?: (delta: number) => void;
+  onDelete?: () => void;
+}) {
+  const [form, setForm] = useState<StatusForm>({ name: status?.name ?? '', color: status?.color ?? STATUS_COLORS[1], kind: status?.kind ?? 'normal', inReview: status?.inReview ?? false });
+  const dirty = !status || form.name !== status.name || form.color !== status.color || form.kind !== status.kind || form.inReview !== status.inReview;
   return (
-    <>
-      <Button variant="ghost" size="icon" className="size-7 text-destructive" onClick={() => setOpen(true)} aria-label={`${tag.name} 삭제`}>
-        <Trash2 />
-      </Button>
-      <AlertDialog open={open} onOpenChange={setOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>“#{tag.name}” 태그를 삭제할까요?</AlertDialogTitle>
-            <AlertDialogDescription>대사 {tag.units.toLocaleString()}개에서 이 태그가 제거됩니다. 이 태그를 쓰는 워크플로 노드는 수정해야 합니다.</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>취소</AlertDialogCancel>
-            <Button variant="destructive" onClick={onConfirm}>
-              삭제
+    <DetailPane
+      kicker="상태"
+      title={status ? status.name : '상태 추가'}
+      subtitle={status ? `대사 ${status.units.toLocaleString()}개` : undefined}
+      onClose={onClose}
+      footer={
+        <>
+          <Button disabled={!form.name.trim() || !dirty || pending} onClick={() => onSave(form)}>
+            {status ? '저장' : '추가'}
+          </Button>
+          {onDelete && (
+            <Button variant="outline" className="text-destructive" disabled={count < 2} onClick={onDelete}>
+              <Trash2 /> 삭제
             </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
+          )}
+        </>
+      }
+    >
+      <PaneSection title="설정">
+        <FieldGroup className="gap-4">
+          <Field>
+            <FieldLabel htmlFor="status-name">이름</FieldLabel>
+            <Input id="status-name" value={form.name} placeholder="새 상태 이름" onChange={(event) => setForm({ ...form, name: event.target.value })} />
+          </Field>
+          <Field>
+            <FieldLabel>색상</FieldLabel>
+            <Swatches value={form.color} onChange={(color) => setForm({ ...form, color })} />
+          </Field>
+          <Field>
+            <FieldLabel>종류</FieldLabel>
+            <Select value={form.kind} onValueChange={(kind) => setForm({ ...form, kind: kind as Kind })}>
+              <SelectTrigger className="w-full" aria-label="종류">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(Object.keys(STATUS_KIND) as Kind[]).map((kind) => (
+                  <SelectItem key={kind} value={kind}>
+                    {STATUS_KIND[kind]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field orientation="horizontal">
+            <FieldLabel htmlFor="status-review">검토함에 표시</FieldLabel>
+            <Switch id="status-review" checked={form.inReview} onCheckedChange={(inReview) => setForm({ ...form, inReview })} />
+          </Field>
+          <FieldDescription>켜면 이 상태의 대사가 검토함에 모입니다.</FieldDescription>
+        </FieldGroup>
+      </PaneSection>
+      {status && onMove && (
+        <PaneSection title="순서">
+          <FieldRow label={`${index + 1} / ${count}`}>
+            <Button variant="outline" size="icon" disabled={index === 0 || reordering} onClick={() => onMove(-1)} aria-label={`${status.name} 위로`}>
+              <ArrowUp />
+            </Button>
+            <Button variant="outline" size="icon" disabled={index === count - 1 || reordering} onClick={() => onMove(1)} aria-label={`${status.name} 아래로`}>
+              <ArrowDown />
+            </Button>
+          </FieldRow>
+        </PaneSection>
+      )}
+    </DetailPane>
   );
 }
 
-function StatusEditRow({ status, pending, onCancel, onSave }: { status: StatusRowData; pending: boolean; onCancel: () => void; onSave: (json: { name: string; color: string; kind: Kind }) => void }) {
-  const [form, setForm] = useState({ name: status.name, color: status.color, kind: status.kind });
+function TagPane({ tag, pending, onClose, onSave, onDelete }: { tag?: TagRowData; pending: boolean; onClose: () => void; onSave: (form: { name: string; color: string }) => void; onDelete?: () => void }) {
+  const [form, setForm] = useState({ name: tag?.name ?? '', color: tag?.color ?? STATUS_COLORS[2] });
+  const dirty = !tag || form.name !== tag.name || form.color !== tag.color;
   return (
-    <TableRow className="bg-muted/30 hover:bg-muted/30">
-      <TableCell />
-      <TableCell>
-        <div className="flex items-center gap-3">
-          <Input className="w-44" aria-label="상태 이름" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
-          <Swatches value={form.color} onChange={(color) => setForm({ ...form, color })} />
-        </div>
-      </TableCell>
-      <TableCell>
-        <KindSelect value={form.kind} onChange={(kind) => setForm({ ...form, kind })} />
-      </TableCell>
-      <TableCell />
-      <TableCell className="text-right tabular-nums">{status.units.toLocaleString()}</TableCell>
-      <TableCell>
-        <div className="flex justify-end">
-          <Button variant="ghost" size="icon" className="size-7" disabled={!form.name.trim() || pending} onClick={() => onSave(form)} aria-label="저장">
-            <Check />
+    <DetailPane
+      kicker="태그"
+      title={tag ? `#${tag.name}` : '태그 추가'}
+      subtitle={tag ? `대사 ${tag.units.toLocaleString()}개` : undefined}
+      onClose={onClose}
+      footer={
+        <>
+          <Button disabled={!form.name.trim() || !dirty || pending} onClick={() => onSave(form)}>
+            {tag ? '저장' : '추가'}
           </Button>
-          <Button variant="ghost" size="icon" className="size-7" onClick={onCancel} aria-label="취소">
-            <X />
-          </Button>
-        </div>
-      </TableCell>
-    </TableRow>
-  );
-}
-
-function TagEditRow({ tag, pending, onCancel, onSave }: { tag: TagRowData; pending: boolean; onCancel: () => void; onSave: (json: { name: string; color: string }) => void }) {
-  const [form, setForm] = useState({ name: tag.name, color: tag.color });
-  return (
-    <TableRow className="bg-muted/30 hover:bg-muted/30">
-      <TableCell>
-        <div className="flex items-center gap-3">
-          <Input className="w-44" aria-label="태그 이름" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
-          <Swatches value={form.color} onChange={(color) => setForm({ ...form, color })} />
-        </div>
-      </TableCell>
-      <TableCell className="text-right tabular-nums">{tag.units.toLocaleString()}</TableCell>
-      <TableCell>
-        <div className="flex justify-end">
-          <Button variant="ghost" size="icon" className="size-7" disabled={!form.name.trim() || pending} onClick={() => onSave(form)} aria-label="저장">
-            <Check />
-          </Button>
-          <Button variant="ghost" size="icon" className="size-7" onClick={onCancel} aria-label="취소">
-            <X />
-          </Button>
-        </div>
-      </TableCell>
-    </TableRow>
+          {tag && onDelete && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="outline" className="text-destructive">
+                  <Trash2 /> 삭제
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>“#{tag.name}” 태그를 삭제할까요?</AlertDialogTitle>
+                  <AlertDialogDescription>대사 {tag.units.toLocaleString()}개에서 이 태그가 제거됩니다. 이 태그를 쓰는 워크플로 노드는 수정해야 합니다.</AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>취소</AlertDialogCancel>
+                  <AlertDialogAction onClick={onDelete}>삭제</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+        </>
+      }
+    >
+      <PaneSection title="설정">
+        <FieldGroup className="gap-4">
+          <Field>
+            <FieldLabel htmlFor="tag-name">이름</FieldLabel>
+            <Input id="tag-name" value={form.name} placeholder="새 태그 이름" onChange={(event) => setForm({ ...form, name: event.target.value })} />
+          </Field>
+          <Field>
+            <FieldLabel>색상</FieldLabel>
+            <Swatches value={form.color} onChange={(color) => setForm({ ...form, color })} />
+          </Field>
+        </FieldGroup>
+      </PaneSection>
+    </DetailPane>
   );
 }

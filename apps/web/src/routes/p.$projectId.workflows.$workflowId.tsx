@@ -12,7 +12,9 @@ import {
   type Connection,
   type Edge,
   type EdgeChange,
+  type Node,
   type NodeChange,
+  type ReactFlowInstance,
   applyNodeChanges,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -300,7 +302,7 @@ function WorkflowEditor() {
     const sizes = new Map(flow.getNodes().map((node) => [node.id, { width: node.measured?.width ?? 224, height: node.measured?.height ?? 120 }]));
     const next = await autoLayout(current.definition, sizes);
     setDraft((value) => ({ ...value, definition: next }));
-    requestAnimationFrame(() => void flow.fitView({ padding: 0.15, duration: 300 }));
+    requestAnimationFrame(() => fitReadable(flow, 300));
   };
 
   if (!workflow.data || !current)
@@ -317,7 +319,7 @@ function WorkflowEditor() {
     <Page
       title={current.name || '워크플로'}
       back={
-        <Button variant="ghost" size="sm" asChild>
+        <Button variant="ghost" asChild>
           <Link to="/p/$projectId/workflows" params={{ projectId }}>
             <ChevronLeft /> 워크플로 목록
           </Link>
@@ -340,7 +342,7 @@ function WorkflowEditor() {
         <>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm">
+              <Button variant="outline">
                 <Plus /> 노드 추가
               </Button>
             </DropdownMenuTrigger>
@@ -380,19 +382,19 @@ function WorkflowEditor() {
             </DropdownMenuContent>
           </DropdownMenu>
           {edgeId && current?.definition.edges.some((edge) => edge.id === edgeId) && (
-            <Button variant="ghost" size="sm" className="text-destructive" onClick={() => removeEdges([edgeId])}>
+            <Button variant="ghost" className="text-destructive" onClick={() => removeEdges([edgeId])}>
               <Trash2 /> 선 삭제
             </Button>
           )}
-          <Button variant="outline" size="sm" onClick={() => void arrange()}>
+          <Button variant="outline" onClick={() => void arrange()}>
             <LayoutGrid /> 자동 정렬
           </Button>
           {draft && (
-            <Button variant="ghost" size="sm" onClick={discard}>
+            <Button variant="ghost" onClick={discard}>
               <RotateCcw /> 되돌리기
             </Button>
           )}
-          <Button variant="outline" size="sm" disabled={!draft || stale || save.isPending} onClick={() => save.mutate()}>
+          <Button variant="outline" disabled={!draft || stale || save.isPending} onClick={() => save.mutate()}>
             <Save /> 저장
           </Button>
           <RunDialog projectId={projectId} workflowId={workflowId} disabled={(workflow.data.issues ?? []).some((issue) => issue.level === 'error')} dirty={Boolean(draft)} />
@@ -403,7 +405,7 @@ function WorkflowEditor() {
       {stale && (
         <div className="flex items-center gap-3 border-b bg-warning/10 px-6 py-2 text-sm text-warning">
           다른 곳에서 v{workflow.data.version}을 저장했습니다. 이 편집은 v{draft!.baseVersion} 기준입니다.
-          <Button size="sm" variant="outline" onClick={discard}>
+          <Button variant="outline" onClick={discard}>
             편집 버리고 최신 불러오기
           </Button>
         </div>
@@ -457,8 +459,7 @@ function WorkflowEditor() {
             onNodeClick={(_event, node) => (select(node.id), setEdgeId(undefined))}
             onEdgeClick={(_event, edge) => setEdgeId(edge.id)}
             onPaneClick={() => (select(undefined), setEdgeId(undefined))}
-            fitView
-            fitViewOptions={{ padding: 0.15 }}
+            onInit={(instance) => fitReadable(instance)}
             minZoom={0.2}
             deleteKeyCode={['Backspace', 'Delete']}
             proOptions={{ hideAttribution: true }}
@@ -470,6 +471,23 @@ function WorkflowEditor() {
       </SplitPane>
     </Page>
   );
+}
+
+const READABLE_ZOOM = 0.7;
+
+/**
+ * Fit the whole workflow, but never zoom out so far that node names stop being readable. When it
+ * does not fit at that zoom, show it from the left edge (where the entry is) and let the user pan.
+ */
+function fitReadable<N extends Node>(flow: ReactFlowInstance<N, Edge>, duration = 0) {
+  const nodes = flow.getNodes();
+  if (!nodes.length) return;
+  void flow.fitView({ padding: 0.1, maxZoom: 1, minZoom: READABLE_ZOOM, duration }).then(() => {
+    const { zoom, y } = flow.getViewport();
+    if (zoom > READABLE_ZOOM + 0.001) return;
+    const bounds = flow.getNodesBounds(nodes);
+    void flow.setViewport({ x: 32 - bounds.x * zoom, y, zoom }, { duration });
+  });
 }
 
 function PaletteItem({ icon: Icon, title, description, onSelect }: { icon: typeof Plus; title: string; description: string; onSelect: () => void }) {

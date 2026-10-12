@@ -1,36 +1,47 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, ChevronLeft, ChevronRight, ChevronsUpDown, List, Network, Play, Search, X } from 'lucide-react';
-import { LinesView, linesSearchSchema, type LinesSearch } from '@/components/lines-view';
-import { AiButton } from '@/components/ai-button';
+import { useDefaultLayout } from 'react-resizable-panels';
+import { ChevronLeft, ChevronRight, Network, PanelLeftClose, PanelLeftOpen, Play, Sparkles } from 'lucide-react';
 import { Page } from '@/components/page';
-import { GroupTable } from '@/components/script/group-table';
+import { GroupList, type GroupRow } from '@/components/script/group-list';
+import { LineList, linesSearchSchema, type LinesSearch } from '@/components/script/line-list';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { Button } from '@/components/ui/button';
-import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
-import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
+import { askAgent } from '@/lib/agent';
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { GROUP_KIND } from '@/lib/labels';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 
-type Kind = keyof typeof GROUP_KIND;
+type Kind = GroupRow['kind'];
 interface ScriptSearch extends LinesSearch {
-  /** Group whose lines are open; none = the group list (or every line with `view=lines`). */
+  /** Group whose lines are shown; none = every line (of `kind`, if set). */
   group?: string;
-  /** Every line of the project in one table instead of the group list. */
-  view?: 'lines';
-  /** Group list filters, kept while a group is open so Back and prev/next follow the same list. */
+  /** Only lines waiting in the review inbox. */
+  review?: true;
+  /** The group list's own filters, kept while lines change. */
   kind?: Kind;
   gq?: string;
 }
 
+/** Whether the group list is shown is a per-tab convenience (sessionStorage), like folded sections. */
+const LIST_KEY = 'tw.script.list';
+const readListOpen = () => {
+  try {
+    return sessionStorage.getItem(LIST_KEY) !== '0';
+  } catch {
+    return true;
+  }
+};
+
 export const Route = createFileRoute('/p/$projectId/script')({
   validateSearch: (raw: Record<string, unknown>): ScriptSearch => ({
     ...linesSearchSchema(raw),
-    group: typeof raw.group === 'string' ? raw.group : undefined,
-    view: raw.view === 'lines' ? 'lines' : undefined,
+    group: typeof raw.group === 'string' && raw.group ? raw.group : undefined,
+    review: raw.review === true || raw.review === 'true' ? true : undefined,
     kind: typeof raw.kind === 'string' && raw.kind in GROUP_KIND ? (raw.kind as Kind) : undefined,
     gq: typeof raw.gq === 'string' && raw.gq ? raw.gq : undefined,
   }),
@@ -38,197 +49,132 @@ export const Route = createFileRoute('/p/$projectId/script')({
 });
 
 /**
- * The script: first every group (scenes, documents, UI) in one table by section, then one group's
- * lines with its neighbours a click away. Kind is a column and a filter, not a separate list.
+ * The translation screen. Left: the script's groups by section, with "모든 대사" and "검토함" on
+ * top. Center: the chosen lines, translated in place. Right: the picked line's details.
  */
 function Script() {
   const { projectId } = Route.useParams();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
+  const project = useQuery(q.project(projectId));
   const groups = useQuery(q.groups(projectId, { kind: search.kind, q: search.gq }));
   const statuses = useQuery(q.statuses(projectId));
   const ordered = [...(groups.data ?? [])].sort((a, b) => a.sort - b.sort);
   const index = ordered.findIndex((item) => item.id === search.group);
   const group = index >= 0 ? ordered[index] : undefined;
-  const [picked, setPicked] = useState<Set<string>>(new Set());
-  const setSearch = (next: Partial<ScriptSearch>, replace = false) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace });
-  const openGroup = (id: string | undefined) => setSearch({ group: id, view: undefined, page: undefined, line: undefined, q: undefined, status: undefined, tag: undefined, speaker: undefined, listener: undefined });
-  const toList = () => openGroup(undefined);
+  const finalIds = new Set(statuses.data?.statuses.filter((status) => status.kind === 'final').map((status) => status.id));
+  const lineTotal = project.data?.byStatus.reduce((sum, row) => sum + row.count, 0) ?? 0;
+  const done = group ? Object.entries(group.statuses).reduce((sum, [id, n]) => sum + (finalIds.has(id) ? n : 0), 0) : 0;
+  const [listOpen, setListOpen] = useState(() => readListOpen());
+  // The list's width is dragged by its edge and remembered, like every right-hand pane.
+  const layout = useDefaultLayout({ id: 'tw-script-groups', panelIds: listOpen ? ['groups', 'lines'] : ['lines'], storage: localStorage });
+  const toggleList = () =>
+    setListOpen((open) => {
+      try {
+        sessionStorage.setItem(LIST_KEY, open ? '0' : '1');
+      } catch {
+        /* private mode */
+      }
+      return !open;
+    });
   useReportView('script', [group && { kind: GROUP_KIND[group.kind], id: group.id, label: group.title }]);
 
-  if (search.group)
-    return (
-      <Page
-        title="스크립트"
-        back={
-          <Button variant="ghost" size="sm" onClick={toList}>
-            <ArrowLeft /> 묶음 목록
+  const onSearch = useCallback((next: Partial<ScriptSearch>, options?: { replace?: boolean }) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace: options?.replace }), [navigate]);
+  const openGroup = (id: string | undefined) => void navigate({ search: (previous) => ({ gq: previous.gq, remaining: previous.remaining, group: id }) });
+
+  const heading = (
+    <span className="flex min-w-0 items-center gap-1">
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button variant="ghost" size="icon" onClick={toggleList} aria-label={listOpen ? '장면 목록 접기' : '장면 목록 펴기'}>
+            {listOpen ? <PanelLeftClose /> : <PanelLeftOpen />}
           </Button>
-        }
-        meta={
-          <span className="flex min-w-0 items-center gap-1">
-            <Button variant="ghost" size="icon" className="size-7" disabled={index <= 0} aria-label="이전 묶음" onClick={() => openGroup(ordered[index - 1]?.id)}>
-              <ChevronLeft />
-            </Button>
-            <GroupSwitcher groups={ordered} current={group} onPick={openGroup} />
-            <Button variant="ghost" size="icon" className="size-7" disabled={index < 0 || index >= ordered.length - 1} aria-label="다음 묶음" onClick={() => openGroup(ordered[index + 1]?.id)}>
-              <ChevronRight />
-            </Button>
-            {group && <span className="truncate">{[GROUP_KIND[group.kind], group.section, group.description].filter(Boolean).join(' · ')}</span>}
+        </TooltipTrigger>
+        <TooltipContent>{listOpen ? '장면 목록 접기' : '장면 목록 펴기'}</TooltipContent>
+      </Tooltip>
+      {search.group ? (
+        <>
+          <Button variant="ghost" size="icon" disabled={index <= 0} aria-label="이전 장면" onClick={() => openGroup(ordered[index - 1]?.id)}>
+            <ChevronLeft />
+          </Button>
+          <span className="max-w-72 truncate text-sm font-semibold" title={group?.title}>
+            {group?.title ?? '…'}
           </span>
-        }
-        actions={
-          group && (
-            <>
-              <RunDialog
-                projectId={projectId}
-                groupIds={[group.id]}
-                trigger={
-                  <Button size="sm">
-                    <Play /> 이 {GROUP_KIND[group.kind]} 실행
-                  </Button>
-                }
-              />
-              <AiButton prompt={`이 ${GROUP_KIND[group.kind]}을 끝까지 읽고 요약해줘.`}>AI 요약</AiButton>
-              {group.kind === 'scene' && (
-                <Button variant="outline" size="sm" asChild>
-                  <Link to="/p/$projectId/graph" params={{ projectId }} search={{ scope: 'dialogue', scene: group.id }}>
-                    <Network /> 대사 그래프
-                  </Link>
-                </Button>
-              )}
-            </>
-          )
-        }
-        flush
-      >
-        <LinesView projectId={projectId} groupId={search.group} search={search} onSearch={(next, options) => setSearch(next, options?.replace)} />
-      </Page>
-    );
-
-  if (search.view === 'lines')
-    return (
-      <Page
-        title="스크립트"
-        back={
-          <Button variant="ghost" size="sm" onClick={toList}>
-            <ArrowLeft /> 묶음 목록
+          <Button variant="ghost" size="icon" disabled={index < 0 || index >= ordered.length - 1} aria-label="다음 장면" onClick={() => openGroup(ordered[index + 1]?.id)}>
+            <ChevronRight />
           </Button>
-        }
-        meta={<span>모든 대사{search.kind ? ` · ${GROUP_KIND[search.kind]}만` : ''}</span>}
-        flush
-      >
-        <LinesView projectId={projectId} kind={search.kind} search={search} showScene onSearch={(next, options) => setSearch(next, options?.replace)} />
-      </Page>
-    );
+          {group && (
+            <span className="text-xs whitespace-nowrap text-muted-foreground tabular-nums">
+              {done}/{group.total} 완료
+            </span>
+          )}
+        </>
+      ) : (
+        <span className="px-1 text-sm font-semibold">{search.review ? '검토함' : '모든 대사'}</span>
+      )}
+    </span>
+  );
 
-  const lineTotal = ordered.reduce((sum, item) => sum + item.total, 0);
   return (
-    <Page
-      title="스크립트"
-      meta={
-        <span className="tabular-nums">
-          묶음 {ordered.length.toLocaleString()}개 · 대사 {lineTotal.toLocaleString()}개
-        </span>
-      }
-      actions={
-        <Button variant="outline" size="sm" onClick={() => setSearch({ view: 'lines', page: undefined, line: undefined })}>
-          <List /> 모든 대사 보기
-        </Button>
-      }
-      flush
-    >
-      <div className="flex h-full min-h-0 flex-col">
-        <div className="flex flex-wrap items-center gap-2 border-b px-6 py-2">
-          <InputGroup className="w-72">
-            <InputGroupAddon>
-              <Search />
-            </InputGroupAddon>
-            <InputGroupInput
-              defaultValue={search.gq}
-              placeholder="묶음 제목·키로 찾기"
-              onKeyDown={(event) => event.key === 'Enter' && setSearch({ gq: event.currentTarget.value.trim() || undefined }, true)}
-              onBlur={(event) => event.currentTarget.value.trim() !== (search.gq ?? '') && setSearch({ gq: event.currentTarget.value.trim() || undefined }, true)}
-            />
-          </InputGroup>
-          {picked.size > 0 && (
-            <div className="ml-auto flex items-center gap-2 text-sm">
-              <span className="font-medium tabular-nums">{picked.size}개 선택</span>
+    <Page title="번역" flush>
+      <ResizablePanelGroup orientation="horizontal" defaultLayout={layout.defaultLayout} onLayoutChanged={layout.onLayoutChanged} className="h-full min-h-0">
+        {listOpen && (
+          <>
+            <ResizablePanel id="groups" defaultSize="300px" minSize="200px" maxSize="50%" className="min-w-0">
+              <GroupList
+                projectId={projectId}
+                groups={groups.data && ordered}
+                finalIds={finalIds}
+                scope={{ group: search.group, review: search.review }}
+                lineTotal={lineTotal}
+                reviewCount={project.data?.reviewCount ?? 0}
+                gq={search.gq}
+                onFilter={(gq) => onSearch({ gq }, { replace: true })}
+              />
+            </ResizablePanel>
+            <ResizableHandle withHandle />
+          </>
+        )}
+        <ResizablePanel id="lines" minSize="480px" className="flex min-w-0 flex-col">
+          <LineList
+            key={`${search.group ?? ''}:${search.review ?? ''}`}
+            projectId={projectId}
+            groupId={search.group}
+            review={search.review}
+            kind={search.group ? undefined : search.kind}
+            search={search}
+            onSearch={onSearch}
+            heading={heading}
+            actions={
               <RunDialog
                 projectId={projectId}
-                groupIds={[...picked]}
+                groupIds={group ? [group.id] : undefined}
                 trigger={
-                  <Button size="sm">
-                    <Play /> 실행
+                  <Button variant="outline">
+                    <Play /> AI 실행
                   </Button>
                 }
               />
-              <Button size="icon" variant="ghost" className="size-8" aria-label="선택 해제" onClick={() => setPicked(new Set())}>
-                <X />
-              </Button>
-            </div>
-          )}
-        </div>
-        <div className="min-h-0 flex-1 overflow-auto">
-          {groups.data && (
-            <GroupTable
-              projectId={projectId}
-              groups={ordered}
-              statuses={statuses.data?.statuses ?? []}
-              picked={picked}
-              expandAll={Boolean(search.gq)}
-              kind={search.kind}
-              onKind={(kind) => setSearch({ kind }, true)}
-              onOpen={openGroup}
-              onPick={(ids, on) =>
-                setPicked((previous) => {
-                  const next = new Set(previous);
-                  for (const id of ids) if (on) next.add(id);
-                  else next.delete(id);
-                  return next;
-                })
-              }
-            />
-          )}
-          {groups.data?.length === 0 && <p className="px-6 py-8 text-sm text-muted-foreground">맞는 묶음이 없습니다.</p>}
-        </div>
-      </div>
+            }
+            menu={
+              group && (
+                <>
+                  <DropdownMenuItem onSelect={() => askAgent(`이 ${GROUP_KIND[group.kind]}을 끝까지 읽고 요약해줘.`, { send: true })}>
+                    <Sparkles /> AI로 장면 요약
+                  </DropdownMenuItem>
+                  {group.kind === 'scene' && (
+                    <DropdownMenuItem asChild>
+                      <Link to="/p/$projectId/graph" params={{ projectId }} search={{ scope: 'dialogue', scene: group.id }}>
+                        <Network /> 대사 그래프에서 보기
+                      </Link>
+                    </DropdownMenuItem>
+                  )}
+                </>
+              )
+            }
+          />
+        </ResizablePanel>
+      </ResizablePanelGroup>
     </Page>
-  );
-}
-
-/** Jump to any group of the current list by title, without going back to it. */
-function GroupSwitcher({ groups, current, onPick }: { groups: { id: string; title: string; section: string | null; kind: Kind }[]; current?: { id: string; title: string }; onPick: (id: string) => void }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button variant="ghost" size="sm" className="max-w-80 min-w-0 justify-between font-medium text-foreground" aria-label="묶음 바꾸기">
-          <span className="truncate">{current?.title ?? '묶음'}</span>
-          <ChevronsUpDown className="opacity-50" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-96 p-0">
-        <Command>
-          <CommandInput placeholder="묶음 찾기" />
-          <CommandList>
-            <CommandEmpty>맞는 묶음이 없습니다.</CommandEmpty>
-            {groups.map((group) => (
-              <CommandItem
-                key={group.id}
-                value={`${group.title} ${group.section ?? ''} ${group.id}`}
-                onSelect={() => {
-                  setOpen(false);
-                  onPick(group.id);
-                }}
-              >
-                <span className="truncate">{group.title}</span>
-                <span className="ml-auto shrink-0 text-xs text-muted-foreground">{[group.section, GROUP_KIND[group.kind]].filter(Boolean).join(' · ')}</span>
-              </CommandItem>
-            ))}
-          </CommandList>
-        </Command>
-      </PopoverContent>
-    </Popover>
   );
 }

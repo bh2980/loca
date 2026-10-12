@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useChat } from '@ai-sdk/react';
-import { DefaultChatTransport, lastAssistantMessageIsCompleteWithApprovalResponses, lastAssistantMessageIsCompleteWithToolCalls, type UIMessage } from 'ai';
+import type { UIMessage } from 'ai';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation } from '@tanstack/react-router';
-import { ArrowUp, ChevronRight, History, Plus, Square, X } from 'lucide-react';
+import { ArrowUp, ChevronRight, History, Plus, Square, Trash2, X } from 'lucide-react';
 import { Markdown } from './markdown';
 import { CONNECTION_KIND_INFO } from '@tw/shared';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -14,6 +15,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { client, unwrap } from '@/lib/api';
 import { agentRequests, usePendingAgentRequest } from '@/lib/agent';
 import { chatDock } from '@/lib/chat-dock';
+import { chatFor, dropChat } from '@/lib/chat-store';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { useViewState, type ViewItem } from '@/lib/view-context';
@@ -62,6 +64,17 @@ export function ChatPanel({ projectId }: { projectId: string }) {
     },
   });
 
+  const [deleting, setDeleting] = useState<{ id: string; title: string } | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const remove = useMutation({
+    mutationFn: (id: string) => unwrap(client.chat[':sessionId'].$delete({ param: { sessionId: id } })),
+    onSuccess: (_data, id) => {
+      dropChat(id);
+      if (id === sessionId) setSessionId(null);
+      void queryClient.invalidateQueries({ queryKey: ['chat', projectId] });
+    },
+  });
+
   const current = sessions.data?.find((session) => session.id === sessionId);
   // An AI button was pressed with no conversation yet: start one, the request waits for it.
   const pendingRequest = usePendingAgentRequest();
@@ -72,9 +85,9 @@ export function ChatPanel({ projectId }: { projectId: string }) {
   return (
     <aside className="flex h-full flex-col bg-sidebar" aria-label="프로젝트 에이전트">
       <div className="flex h-12 shrink-0 items-center gap-1 border-b px-2">
-        <DropdownMenu>
+        <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="sm" className="min-w-0 flex-1 justify-start">
+            <Button variant="ghost" className="min-w-0 flex-1 justify-start">
               <History className="text-muted-foreground" />
               <span className="truncate">{current?.title ?? '대화 없음'}</span>
             </Button>
@@ -82,8 +95,22 @@ export function ChatPanel({ projectId }: { projectId: string }) {
           <DropdownMenuContent align="start" className="w-72">
             <DropdownMenuLabel className="text-xs text-muted-foreground">이 프로젝트의 대화</DropdownMenuLabel>
             {sessions.data?.map((session) => (
-              <DropdownMenuItem key={session.id} onSelect={() => setSessionId(session.id)}>
-                <span className="truncate">{session.title}</span>
+              <DropdownMenuItem key={session.id} onSelect={() => setSessionId(session.id)} className={cn('group/session pr-1', session.id === sessionId && 'font-medium')}>
+                <span className="min-w-0 flex-1 truncate">{session.title}</span>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className="text-muted-foreground opacity-0 group-hover/session:opacity-100 group-focus/session:opacity-100 hover:text-destructive"
+                  aria-label={`${session.title} 삭제`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setMenuOpen(false);
+                    setDeleting({ id: session.id, title: session.title });
+                  }}
+                  onPointerDown={(event) => event.stopPropagation()}
+                >
+                  <Trash2 />
+                </Button>
               </DropdownMenuItem>
             ))}
             {!sessions.data?.length && <p className="px-2 py-1.5 text-sm text-muted-foreground">아직 대화가 없습니다.</p>}
@@ -93,20 +120,34 @@ export function ChatPanel({ projectId }: { projectId: string }) {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        <Button variant="ghost" size="icon" className="size-8" aria-label="새 대화" onClick={() => create.mutate()}>
+        <Button variant="ghost" size="icon" aria-label="새 대화" onClick={() => create.mutate()}>
           <Plus />
         </Button>
-        <Button variant="ghost" size="icon" className="size-8" aria-label="채팅 닫기" onClick={() => chatDock.set(false)}>
+        <Button variant="ghost" size="icon" aria-label="채팅 닫기" onClick={() => chatDock.set(false)}>
           <X />
         </Button>
       </div>
+      <AlertDialog open={Boolean(deleting)} onOpenChange={(open) => !open && setDeleting(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>대화를 삭제할까요?</AlertDialogTitle>
+            <AlertDialogDescription>‘{deleting?.title}’의 메시지가 모두 지워집니다. 이 대화에서 이미 수락한 변경은 그대로 남습니다.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>취소</AlertDialogCancel>
+            <AlertDialogAction onClick={() => deleting && remove.mutate(deleting.id)}>
+              삭제
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <ExternalProposals projectId={projectId} />
       {current ? (
         <Conversation key={current.id} projectId={projectId} sessionId={current.id} profileId={current.profileId} profiles={chatProfiles} />
       ) : (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center text-sm text-muted-foreground">
           <p>프로젝트의 원문·자료·워크플로를 읽고 인물 프로필이나 참조 문서, 프로필·워크플로를 제안하는 에이전트입니다.</p>
-          <Button size="sm" onClick={() => create.mutate()} disabled={create.isPending}>
+          <Button onClick={() => create.mutate()} disabled={create.isPending}>
             <Plus /> 새 대화 시작
           </Button>
         </div>
@@ -149,16 +190,16 @@ function ChatBody({ projectId, sessionId, initial, profileId, profiles, onProfil
   const viewRef = useRef({ page: view.page, path: location.pathname, items: attached });
   viewRef.current = { page: view.page, path: location.pathname, items: attached };
 
-  const { messages, sendMessage, status, stop, error, addToolApprovalResponse, addToolOutput } = useChat({
-    id: sessionId,
-    messages: initial,
-    transport: new DefaultChatTransport({
-      api: `/api/chat/${sessionId}/stream`,
-      // The view is read at send time, so it always describes what is on screen right now.
-      prepareSendMessagesRequest: ({ messages: all }) => ({ body: { messages: all, view: viewRef.current } }),
-    }),
-    sendAutomaticallyWhen: (options) => lastAssistantMessageIsCompleteWithApprovalResponses(options) || lastAssistantMessageIsCompleteWithToolCalls(options),
-  });
+  // The conversation outlives this panel: closing it mid-reply keeps the reply coming in.
+  const stored = chatFor(sessionId, initial);
+  stored.view.current = viewRef.current;
+  const { messages, sendMessage, setMessages, status, stop, error, addToolApprovalResponse, addToolOutput } = useChat({ chat: stored.chat });
+  // A reply this window is not streaming (sent before a reload, or from another window) is saved
+  // by the server when it ends; the saved conversation then catches up here.
+  useEffect(() => {
+    if (status !== 'ready' || initial.length <= messages.length) return;
+    if (messages.every((message, i) => initial[i]?.id === message.id)) setMessages(initial);
+  }, [initial]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [input, setInput] = useState(() => sessionStorage.getItem(`tw.chat.draft.${sessionId}`) ?? '');
   useEffect(() => {
@@ -218,9 +259,9 @@ function ChatBody({ projectId, sessionId, initial, profileId, profiles, onProfil
           <div className="space-y-2 pt-6 text-sm text-muted-foreground">
             <p className="font-medium text-foreground">무엇을 도와드릴까요?</p>
             {['대본을 끝까지 읽고 주요 인물 프로필을 만들어줘', '지금 진행 상황을 요약해줘', '검수를 더 엄격하게 하는 워크플로를 제안해줘'].map((example) => (
-              <button key={example} className="block w-full rounded-md border bg-background px-3 py-2 text-left text-foreground hover:bg-muted" onClick={() => setInput(example)}>
+              <Button key={example} variant="outline" size="row" className="px-3 py-2" onClick={() => setInput(example)}>
                 {example}
-              </button>
+              </Button>
             ))}
           </div>
         )}
@@ -250,10 +291,15 @@ function ChatBody({ projectId, sessionId, initial, profileId, profiles, onProfil
               <Spinner /> {status === 'submitted' ? '생각하는 중…' : '작업 중… (도구로 자료를 읽거나 답을 쓰고 있습니다)'}
             </p>
           )}
+          {!busy && !error && lastMessage?.role === 'user' && (
+            <p className="flex items-center gap-2 px-1 text-sm text-muted-foreground">
+              <Spinner className="size-3.5" /> 답을 기다리는 중입니다. 새로고침 전에 보낸 질문이면 답이 끝나는 대로 여기에 나타납니다.
+            </p>
+          )}
           {stalled && (
             <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
               <span className="text-muted-foreground">{finishReason === 'length' ? '출력 한도(모델 프로필의 최대 출력)에 걸려 멈췄습니다.' : '에이전트가 결과를 말하지 않고 멈췄습니다.'}</span>
-              <Button size="sm" variant="outline" className="ml-auto" disabled={!profileId} onClick={() => void sendMessage({ text: '계속해줘' })}>
+              <Button variant="outline" className="ml-auto" disabled={!profileId} onClick={() => void sendMessage({ text: '계속해줘' })}>
                 계속
               </Button>
             </div>
@@ -269,9 +315,9 @@ function ChatBody({ projectId, sessionId, initial, profileId, profiles, onProfil
               <span key={`${item.kind}:${item.id}`} className="inline-flex max-w-full items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-xs">
                 <span className="text-muted-foreground">{item.kind}</span>
                 <span className="truncate">{item.label}</span>
-                <button aria-label={`${item.label} 첨부 빼기`} className="text-muted-foreground hover:text-foreground" onClick={() => setExcluded((set) => new Set(set).add(`${item.kind}:${item.id}`))}>
-                  <X className="size-3" />
-                </button>
+                <Button variant="ghost" size="icon-xs" aria-label={`${item.label} 첨부 빼기`} className="text-muted-foreground" onClick={() => setExcluded((set) => new Set(set).add(`${item.kind}:${item.id}`))}>
+                  <X />
+                </Button>
               </span>
             ))}
           </div>
@@ -303,11 +349,11 @@ function ChatBody({ projectId, sessionId, initial, profileId, profiles, onProfil
           </Select>
           <div className="ml-auto">
             {busy ? (
-              <Button size="icon" variant="secondary" className="size-7" aria-label="중지" onClick={() => void stop()}>
+              <Button size="icon" variant="secondary" aria-label="중지" onClick={() => void stop()}>
                 <Square className="size-3" />
               </Button>
             ) : (
-              <Button size="icon" className="size-7" aria-label="보내기" disabled={!input.trim() || !profileId} onClick={send}>
+              <Button size="icon" aria-label="보내기" disabled={!input.trim() || !profileId} onClick={send}>
                 <ArrowUp />
               </Button>
             )}
@@ -326,10 +372,10 @@ function ExternalProposals({ projectId }: { projectId: string }) {
   if (!pending.length) return null;
   return (
     <div className="max-h-[45%] shrink-0 overflow-y-auto border-b bg-background">
-      <button className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium" onClick={() => setOpen(!open)} aria-expanded={open}>
-        <ChevronRight className={cn('size-4 text-muted-foreground transition-transform', open && 'rotate-90')} />
+      <Button variant="ghost" size="row" className="rounded-none px-3 py-2 font-medium" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <ChevronRight className={cn('text-muted-foreground transition-transform', open && 'rotate-90')} />
         CLI에서 온 제안 {pending.length}개
-      </button>
+      </Button>
       {open && (
         <div className="space-y-2 px-3 pb-3">
           {pending.map((proposal) => (

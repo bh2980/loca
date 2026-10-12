@@ -1,29 +1,29 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Check, GanttChart, Network, Plus, Table2 } from 'lucide-react';
+import { ArrowLeftRight, GanttChart, Network, Plus, Table2, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { DOCUMENT_KINDS, isSettled, KNOWLEDGE_SOURCES, listenerLabel, SPEECH_LEVEL_LABELS, type KnowledgeSource, type SpeechLevel } from '@tw/shared';
 import { Page } from '@/components/page';
 import { RelationshipGraph } from '@/components/relationship-graph';
-import { JobStatus, StartAnalysis } from '@/components/knowledge/analysis-controls';
-import { candidateRow, DiscardButton, DraftEditor, fail, KINDS, KnowledgeFilters, matches, RelationshipChanges, RuleLines, SourceBadge, text, type Kind, type KindSpec, type Row } from '@/components/knowledge/draft-editor';
+import { hasAnalysis, JobStatus, StartAnalysis } from '@/components/knowledge/analysis-controls';
+import { BulkDecide, DraftEditor, fail, KINDS, KnowledgeFilters, KnowledgeTable, matches, RelationshipChanges, RuleLines, SourceBadge, text, type Kind, type KindSpec, type Row } from '@/components/knowledge/draft-editor';
 import { SplitPane } from '@/components/split-pane';
+import { Toolbar } from '@/components/toolbar';
 import { buildPairs, PairDetail, pairItems, pairMatches, pairSummary, PairTable, type Pair } from '@/components/knowledge/pairs';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Skeleton } from '@/components/ui/skeleton';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { EventFlow, type FlowEvent } from '@/components/knowledge/event-flow';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { client, unwrap } from '@/lib/api';
 import { DOCUMENT_KIND } from '@/lib/labels';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { useReportView } from '@/lib/view-context';
 
-/** Page tabs. Relationships and speech rules share 인물·관계 because both describe speaker → listener pairs. */
+/** Tabs (the top bar's section tabs link to them). Relationships and speech rules share 인물·관계 because both describe speaker → listener pairs. */
 const TABS = { documents: '문서', people: '인물·관계', events: '사건' } as const;
 type Tab = keyof typeof TABS;
 interface KnowledgeSearch {
@@ -37,7 +37,8 @@ interface KnowledgeSearch {
   /** Inside 인물·관계 shown as tables: people instead of pairs. */
   view?: 'characters';
   /** 인물·관계 as tables instead of the graph; 사건 as a timeline instead of the table. */
-  display?: 'table' | 'timeline';
+  /** '표' instead of the picture (relationship graph / event flow), which is the default for both. */
+  display?: 'table';
 }
 
 export const Route = createFileRoute('/p/$projectId/knowledge')({
@@ -47,7 +48,7 @@ export const Route = createFileRoute('/p/$projectId/knowledge')({
     state: raw.state === 'confirmed' || raw.state === 'candidate' ? raw.state : undefined,
     item: typeof raw.item === 'string' && raw.item ? raw.item : undefined,
     view: raw.view === 'characters' ? 'characters' : undefined,
-    display: raw.display === 'table' || raw.display === 'timeline' ? raw.display : undefined,
+    display: raw.display === 'table' ? 'table' : undefined,
   }),
   component: Knowledge,
 });
@@ -65,7 +66,7 @@ function Knowledge() {
   // 인물·관계 is one graph (people and their relationships) or two tables (pairs / people).
   const graph = tab === 'people' && search.display !== 'table';
   const pairsView = tab === 'people' && !graph && search.view !== 'characters';
-  const timeline = tab === 'events' && search.display === 'timeline';
+  const timeline = tab === 'events' && search.display !== 'table';
   const set = (next: Partial<KnowledgeSearch>, replace = true) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace });
 
   const documents = useQuery(q.documents(projectId));
@@ -80,9 +81,9 @@ function Knowledge() {
     documents: {
       rows: (documents.data ?? []) as KindSpec['rows'],
       columns: [
-        { head: '제목', cell: (row) => text(row.title), className: 'font-medium' },
-        { head: '종류', cell: (row) => DOCUMENT_KIND[row.kind as (typeof DOCUMENT_KINDS)[number]] },
-        { head: '항상 포함', cell: (row) => (row.alwaysInclude ? <Badge variant="secondary">항상 포함</Badge> : null) },
+        { head: '제목', cell: (row) => text(row.title), className: 'font-medium', width: 240 },
+        { head: '종류', cell: (row) => DOCUMENT_KIND[row.kind as (typeof DOCUMENT_KINDS)[number]], width: 96 },
+        { head: '항상 포함', cell: (row) => (row.alwaysInclude ? <Badge variant="outline">항상 포함</Badge> : null), width: 104 },
         { head: '내용', cell: (row) => <span className="line-clamp-1 text-muted-foreground">{text(row.body).replace(/[#*_>`]+/g, '').replace(/\s+/g, ' ')}</span> },
       ],
       fields: [
@@ -99,8 +100,8 @@ function Knowledge() {
     characters: {
       rows: (people.data?.characters ?? []) as KindSpec['rows'],
       columns: [
-        { head: '이름', cell: (row) => <span className="font-medium">{text(row.name)}{row.player ? <Badge variant="outline" className="ml-2">플레이어</Badge> : null}</span> },
-        { head: '별칭', cell: (row) => (row.aliases as string[]).join(', ') },
+        { head: '이름', cell: (row) => <span className="font-medium">{text(row.name)}{row.player ? <Badge variant="outline" className="ml-2">플레이어</Badge> : null}</span>, width: 220 },
+        { head: '별칭', cell: (row) => (row.aliases as string[]).join(', '), width: 180 },
         { head: '프로필', cell: (row) => <span className="line-clamp-1 text-muted-foreground">{text(row.profile)}</span> },
       ],
       fields: [
@@ -118,9 +119,9 @@ function Knowledge() {
     relationships: {
       rows: (people.data?.relationships ?? []) as KindSpec['rows'],
       columns: [
-        { head: '인물', cell: (row) => `${nameOf.get(text(row.fromId)) ?? '?'} → ${nameOf.get(text(row.toId)) ?? '?'}`, className: 'font-medium' },
-        { head: '관계', cell: (row) => text(row.kind) },
-        { head: '변화', cell: (row) => ((row.changes as unknown[]).length ? `${(row.changes as unknown[]).length}번` : '—'), className: 'tabular-nums' },
+        { head: '인물', cell: (row) => `${nameOf.get(text(row.fromId)) ?? '?'} → ${nameOf.get(text(row.toId)) ?? '?'}`, className: 'font-medium', width: 240 },
+        { head: '관계', cell: (row) => text(row.kind), width: 160 },
+        { head: '변화', cell: (row) => ((row.changes as unknown[]).length ? `${(row.changes as unknown[]).length}번` : '—'), className: 'tabular-nums', width: 80 },
         { head: '설명', cell: (row) => <span className="line-clamp-1 text-muted-foreground">{text(row.description)}</span> },
       ],
       fields: [
@@ -142,8 +143,8 @@ function Knowledge() {
     events: {
       rows: (storyEvents.data ?? []) as KindSpec['rows'],
       columns: [
-        { head: '사건', cell: (row) => text(row.title), className: 'font-medium' },
-        { head: '관련 인물', cell: (row) => (row.participants as string[]).join(', ') },
+        { head: '사건', cell: (row) => text(row.title), className: 'font-medium', width: 260 },
+        { head: '관련 인물', cell: (row) => (row.participants as string[]).join(', '), width: 200 },
         { head: '결과', cell: (row) => <span className="line-clamp-1 text-muted-foreground">{text(row.outcome)}</span> },
       ],
       fields: [
@@ -161,10 +162,10 @@ function Knowledge() {
     speechRules: {
       rows: [...(rules.data ?? [])].sort((a, b) => a.fromName.localeCompare(b.fromName) || a.toName.localeCompare(b.toName)) as KindSpec['rows'],
       columns: [
-        { head: '화자 → 청자', cell: (row) => `${text(row.fromName)} → ${listenerLabel(text(row.toName))}`, className: 'font-medium' },
-        { head: '말투', cell: (row) => SPEECH_LEVEL_LABELS[row.level as SpeechLevel] },
-        { head: '호칭', cell: (row) => text(row.address) || '—' },
-        { head: '시작', cell: (row) => (row.startKey ? <span className="font-mono text-xs">{text(row.startKey)}</span> : '처음부터') },
+        { head: '화자 → 청자', cell: (row) => `${text(row.fromName)} → ${listenerLabel(text(row.toName))}`, className: 'font-medium', width: 240 },
+        { head: '말투', cell: (row) => SPEECH_LEVEL_LABELS[row.level as SpeechLevel], width: 96 },
+        { head: '호칭', cell: (row) => text(row.address) || '—', width: 120 },
+        { head: '시작', cell: (row) => (row.startKey ? <span className="font-mono text-xs">{text(row.startKey)}</span> : '처음부터'), width: 120 },
         { head: '이유', cell: (row) => <span className="line-clamp-1 text-muted-foreground">{text(row.note)}</span> },
       ],
       fields: [
@@ -195,13 +196,22 @@ function Knowledge() {
   const rows = spec.rows.filter(shown);
   const selected = !pairsView ? spec.rows.find((row) => row.id === search.item) : undefined;
   const unofficial = (kind: Kind) => specs[kind].rows.filter((row) => !isSettled(row)).length;
-  const tabCount = (tab: Tab) => (tab === 'people' ? unofficial('characters') + unofficial('relationships') + unofficial('speechRules') : unofficial(tab));
+  const unofficialHere = tab === 'people' ? unofficial('characters') + unofficial('relationships') + unofficial('speechRules') : unofficial(tab);
   useReportView('knowledge', [
     selected && { kind: KINDS[tableKind], id: selected.id, label: spec.label(selected), detail: !isSettled(selected) ? `${selected.status === 'candidate' ? '후보' : '확정'} · AI가 넣은 항목` : undefined },
     pair && { kind: '관계·말투', id: pair.key, label: `${pair.from} → ${pair.to}` },
   ]);
 
   const [checked, setChecked] = useState<Set<string>>(new Set());
+  // Picks belong to one list: leave it and they go.
+  useEffect(() => setChecked(new Set()), [tab, search.display, search.view]);
+  const pick = (ids: string[], on: boolean) =>
+    setChecked((previous) => {
+      const next = new Set(previous);
+      for (const id of ids) if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
   const decide = useMutation({
     mutationFn: async ({ items, action }: { items: { kind: Kind; ids: string[] }[]; action: 'confirm' | 'discard' }) => {
       let changed = 0;
@@ -240,8 +250,18 @@ function Knowledge() {
     [visiblePairs],
   );
 
+  const jobs = useQuery(q.analysisJobs(projectId));
+  const analysed = hasAnalysis(jobs.data);
+  const pending = tab === 'documents' ? documents.isPending : tab === 'events' ? storyEvents.isPending : people.isPending || rules.isPending;
+  const filters = { source: search.source, status: search.state, onChange: (next: { source?: KnowledgeSource; status?: 'confirmed' | 'candidate' }) => set({ ...('source' in next && { source: next.source }), ...('status' in next && { state: next.status }), item: undefined }) };
+  const filtered = Boolean(search.source || search.state);
+  const bulk = <BulkDecide picked={checked.size} actionable={checkedCount} pending={decide.isPending} onConfirm={() => decide.mutate({ items: checkedItems(), action: 'confirm' })} onDiscard={() => decide.mutate({ items: checkedItems(), action: 'discard' })} />;
+  const total = graph ? `인물 ${characters.length.toLocaleString()}명 · 관계 ${visiblePairs.length.toLocaleString()}쌍` : pairsView ? `${visiblePairs.length.toLocaleString()}쌍` : `${rows.length.toLocaleString()}${tab === 'people' ? '명' : '개'}`;
+  const count = pending ? undefined : `${total}${unofficialHere > 0 ? ` · 확인 필요 ${unofficialHere.toLocaleString()}` : ''}`;
+  const empty = filtered ? `조건에 맞는 ${KINDS[tableKind]} 항목이 없습니다.` : `${KINDS[tableKind]} 항목이 없습니다. “추가”로 직접 만들거나 “작품 분석”으로 초안을 받으세요.`;
+
   return (
-    <Page title="자료" flush meta={<JobStatus projectId={projectId} />} actions={<StartAnalysis projectId={projectId} />}>
+    <Page title="자료" flush>
       <SplitPane
         id="knowledge"
         defaultWidth="440px"
@@ -271,64 +291,62 @@ function Knowledge() {
           ) : null
         }
       >
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          <div className="flex flex-wrap items-center gap-2 border-b px-6 py-2">
-            <Tabs value={tab} onValueChange={(value) => { setChecked(new Set()); set({ tab: value as Tab, item: undefined, view: undefined, display: undefined }, false); }}>
-              <TabsList>
-                {(Object.keys(TABS) as Tab[]).map((tab) => (
-                  <TabsTrigger key={tab} value={tab}>
-                    {TABS[tab]}
-                    {tabCount(tab) > 0 && <span className="ml-1 rounded bg-muted px-1 text-[11px] text-muted-foreground tabular-nums" title="정식이 아니거나 후보인 항목">{tabCount(tab)}</span>}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </Tabs>
-            {tab === 'people' && !graph && (
-              <ToggleGroup type="single" variant="outline" size="sm" value={search.view ?? 'pairs'} onValueChange={(value) => value && (setChecked(new Set()), set({ view: value === 'characters' ? 'characters' : undefined, item: undefined }, false))}>
-                <ToggleGroupItem value="pairs" className="px-3">관계</ToggleGroupItem>
-                <ToggleGroupItem value="characters" className="px-3">인물</ToggleGroupItem>
-              </ToggleGroup>
-            )}
-            {tab === 'events' && (
-              <ToggleGroup type="single" variant="outline" size="sm" value={search.display ?? 'table'} onValueChange={(value) => value && set({ display: value === 'timeline' ? 'timeline' : undefined })}>
-                <ToggleGroupItem value="table" aria-label="표로 보기">
-                  <Table2 />
-                </ToggleGroupItem>
-                <ToggleGroupItem value="timeline" aria-label="타임라인으로 보기">
-                  <GanttChart />
-                </ToggleGroupItem>
-              </ToggleGroup>
-            )}
-            {tab === 'people' && (
-              <ToggleGroup type="single" variant="outline" size="sm" value={search.display ?? 'graph'} onValueChange={(value) => value && (setChecked(new Set()), set({ display: value === 'table' ? 'table' : undefined, view: undefined }))}>
-                <ToggleGroupItem value="graph" aria-label="그래프로 보기">
-                  <Network />
-                </ToggleGroupItem>
-                <ToggleGroupItem value="table" aria-label="표로 보기">
-                  <Table2 />
-                </ToggleGroupItem>
-              </ToggleGroup>
-            )}
-            <KnowledgeFilters source={search.source} status={search.state} onChange={(next) => set({ ...('source' in next && { source: next.source }), ...('status' in next && { state: next.status }), item: undefined })} />
-            <div className="ml-auto flex items-center gap-2">
-              {checkedCount > 0 && (
-                <>
-                  <span className="text-sm text-muted-foreground tabular-nums">{checkedCount}개 선택</span>
-                  <Button size="sm" variant="outline" disabled={decide.isPending} onClick={() => decide.mutate({ items: checkedItems(), action: 'confirm' })}>
-                    <Check /> 정식으로
-                  </Button>
-                  <DiscardButton count={checkedCount} onConfirm={() => decide.mutate({ items: checkedItems(), action: 'discard' })} />
-                </>
-              )}
+        <Toolbar
+          count={count}
+          actions={
+            <>
+              <StartAnalysis projectId={projectId} variant={analysed ? 'outline' : 'default'} />
               {!pairsView && (
-                <Button size="sm" disabled={!spec.create || create.isPending} onClick={() => create.mutate()}>
+                <Button variant={analysed ? 'default' : 'outline'} disabled={!spec.create || create.isPending} onClick={() => create.mutate()}>
                   <Plus /> 추가
                 </Button>
               )}
-            </div>
+            </>
+          }
+        >
+          {tab === 'people' && (
+            <ViewSwitch
+              label="보기"
+              value={graph ? 'graph' : 'table'}
+              onChange={(value) => set({ display: value === 'table' ? 'table' : undefined, view: undefined, item: undefined }, false)}
+              items={[
+                { value: 'graph', label: '그래프', icon: <Network /> },
+                { value: 'table', label: '표', icon: <Table2 /> },
+              ]}
+            />
+          )}
+          {tab === 'people' && !graph && (
+            <ViewSwitch
+              label="표 종류"
+              value={search.view ?? 'pairs'}
+              onChange={(value) => set({ view: value === 'characters' ? 'characters' : undefined, item: undefined }, false)}
+              items={[
+                { value: 'pairs', label: '관계', icon: <ArrowLeftRight /> },
+                { value: 'characters', label: '인물', icon: <Users /> },
+              ]}
+            />
+          )}
+          {tab === 'events' && (
+            <ViewSwitch
+              label="보기"
+              value={timeline ? 'timeline' : 'table'}
+              onChange={(value) => set({ display: value === 'table' ? 'table' : undefined })}
+              items={[
+                { value: 'timeline', label: '흐름', icon: <GanttChart /> },
+                { value: 'table', label: '표', icon: <Table2 /> },
+              ]}
+            />
+          )}
+          {(graph || timeline) && <KnowledgeFilters source={search.source} status={search.state} onChange={filters.onChange} />}
+          <div className="min-w-0 truncate text-xs text-muted-foreground">
+            <JobStatus projectId={projectId} />
           </div>
-          {graph ? (
-            <div className="min-h-0 flex-1">
+        </Toolbar>
+        {graph ? (
+          <div className="min-h-0 flex-1">
+            {people.isPending ? (
+              <Skeleton className="m-4 h-64" />
+            ) : (
               <RelationshipGraph
                 storageKey={`tw.relationships.${projectId}`}
                 characters={characters}
@@ -339,145 +357,62 @@ function Knowledge() {
                 onSelectRelationship={(key) => set({ item: key })}
                 onClear={() => set({ item: undefined })}
               />
-            </div>
-          ) : (
-            <ScrollArea className="min-h-0 flex-1">
-              {timeline ? (
-                <EventTimeline events={rows} selected={search.item} onOpen={(id) => set({ item: id === search.item ? undefined : id })} />
-              ) : pairsView ? (
-                <PairTable
-                  pairs={visiblePairs}
-                  selected={pair?.key}
-                  checked={checked}
-                  onCheck={(keys, on) => setChecked((previous) => { const next = new Set(previous); for (const key of keys) if (on) next.add(key); else next.delete(key); return next; })}
-                  onOpen={(key) => set({ item: key === pair?.key ? undefined : key })}
-                />
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-10 pl-6">
-                        <Checkbox
-                          aria-label="정식이 아닌 항목 모두 선택"
-                          checked={rows.some((row) => !isSettled(row)) && rows.filter((row) => !isSettled(row)).every((row) => checked.has(row.id))}
-                          onCheckedChange={(value) => setChecked(new Set(value ? rows.filter((row) => !isSettled(row)).map((row) => row.id) : []))}
-                        />
-                      </TableHead>
-                      {spec.columns.map((column) => (
-                        <TableHead key={column.head}>{column.head}</TableHead>
-                      ))}
-                      <TableHead className="w-24">출처</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {rows.map((row) => (
-                      <TableRow key={row.id} data-state={row.id === search.item ? 'selected' : undefined} className={cn('cursor-pointer', candidateRow(row))} onClick={() => set({ item: row.id === search.item ? undefined : row.id })}>
-                        <TableCell className="pl-6" onClick={(event) => event.stopPropagation()}>
-                          {!isSettled(row) && (
-                            <Checkbox
-                              aria-label={`${spec.label(row)} 선택`}
-                              checked={checked.has(row.id)}
-                              onCheckedChange={(value) => setChecked((previous) => { const next = new Set(previous); if (value) next.add(row.id); else next.delete(row.id); return next; })}
-                            />
-                          )}
-                        </TableCell>
-                        {spec.columns.map((column) => (
-                          <TableCell key={column.head} className={cn('max-w-80', column.className)}>
-                            {column.cell(row)}
-                          </TableCell>
-                        ))}
-                        <TableCell>
-                          <SourceBadge row={row} />
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                    {rows.length === 0 && (
-                      <TableRow>
-                        <TableCell colSpan={spec.columns.length + 2} className="py-12 text-center text-muted-foreground">
-                          {!search.source && !search.state ? `${KINDS[tableKind]} 항목이 없습니다. “추가”로 직접 만들거나 “작품 분석”으로 초안을 받으세요.` : `조건에 맞는 ${KINDS[tableKind]} 항목이 없습니다.`}
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              )}
-            </ScrollArea>
-          )}
-        </div>
+            )}
+          </div>
+        ) : timeline ? (
+          <div className="min-h-0 flex-1">
+            {pending ? (
+              <Skeleton className="m-4 h-40" />
+            ) : (
+              <EventFlow
+                projectId={projectId}
+                events={rows.map((row) => ({ ...(row as unknown as FlowEvent), title: text(row.title), summary: text(row.summary), participants: row.participants as string[] }))}
+                selected={search.item}
+                onOpen={(id) => set({ item: id })}
+                badge={(event) => <SourceBadge row={rows.find((row) => row.id === event.id)!} />}
+              />
+            )}
+          </div>
+        ) : pairsView ? (
+          <PairTable
+            pairs={pending ? undefined : visiblePairs}
+            loading={pending}
+            selected={pair?.key}
+            picked={checked}
+            onPick={pick}
+            onOpen={(key) => set({ item: key === pair?.key ? undefined : key })}
+            bulk={bulk}
+            filters={filters}
+          />
+        ) : (
+          <KnowledgeTable
+            spec={spec}
+            rows={pending ? undefined : rows}
+            loading={pending}
+            selected={search.item}
+            onOpen={(id) => set({ item: id === search.item ? undefined : id })}
+            picked={checked}
+            onPick={pick}
+            bulk={bulk}
+            empty={empty}
+            filters={filters}
+          />
+        )}
       </SplitPane>
     </Page>
   );
 }
 
-type TimelineEvent = Row & { at?: { seq: number; section: string | null; scene: string; key: string } | null; route?: { block: number; lane: number } | null; lanes?: number };
-
-/**
- * Events in script order, by section (the file's chapter / act / day, when it has them): each sits
- * where its earliest evidence line is. Events down different ways of the same choice or condition
- * stand in lanes (side by side up to three, stacked beyond) until the routes meet again. Events whose
- * evidence names no line of the script go last ("위치 모름"); nothing is placed by guess.
- */
-function EventTimeline({ events, selected, onOpen }: { events: Row[]; selected?: string; onOpen: (id: string) => void }) {
-  const placed = (events as TimelineEvent[]).filter((event) => event.at).sort((a, b) => a.at!.seq - b.at!.seq);
-  const sections = [...Map.groupBy(placed, (event) => event.at!.section ?? '').entries()];
-  const unplaced = (events as TimelineEvent[]).filter((event) => !event.at);
-  const item = (event: TimelineEvent, dot = true) => (
-    <li key={event.id}>
-      <button
-        type="button"
-        onClick={() => onOpen(event.id)}
-        className={cn('relative w-full rounded-md border bg-background px-3 py-2 text-left hover:bg-muted/40', event.id === selected && 'border-primary ring-1 ring-primary/30', candidateRow(event))}
-      >
-        {dot && <span className="absolute top-3.5 -left-[21px] size-2.5 rounded-full border-2 border-background bg-muted-foreground" />}
-        <span className="flex items-baseline gap-2">
-          <span className="font-medium">{text(event.title)}</span>
-          {event.at && <span className="truncate text-xs text-muted-foreground">{event.at.scene}</span>}
-          <span className="ml-auto shrink-0">
-            <SourceBadge row={event} />
-          </span>
-        </span>
-        {text(event.summary) && <span className="mt-0.5 line-clamp-2 block text-sm text-muted-foreground">{text(event.summary)}</span>}
-        {(event.participants as string[]).length > 0 && <span className="mt-1 block text-xs text-muted-foreground">{(event.participants as string[]).join(' · ')}</span>}
-      </button>
-    </li>
-  );
-  if (!events.length) return <p className="px-6 py-12 text-center text-sm text-muted-foreground">사건이 없습니다. “작품 분석”으로 초안을 받거나 표에서 추가하세요.</p>;
-  // Within a section: runs of one lane, and branch blocks drawn as columns.
-  const runs = (list: TimelineEvent[]) => [...Map.groupBy(list, (event) => (event.lanes ?? 1) > 1 ? `b${event.route!.block}` : `s${event.id}`).values()];
-  const titled = sections.length > 1 || sections.some(([section]) => section);
+/** A view switch (그래프 | 표, 흐름 | 표): the picture first, labelled in words. */
+function ViewSwitch({ label, value, onChange, items }: { label: string; value: string; onChange: (value: string) => void; items: { value: string; label: string; icon: ReactNode }[] }) {
   return (
-    <div className="space-y-6 px-6 py-4">
-      {sections.map(([section, list]) => (
-        <section key={section}>
-          {titled && <h3 className="mb-2 text-sm font-semibold">{section || '구역 없음'}</h3>}
-          <ol className="ml-2 space-y-2 border-l pl-4">
-            {runs(list).map((run) =>
-              (run[0].lanes ?? 1) > 1 ? (
-                <li key={run[0].id} className="space-y-1">
-                  <p className="text-xs text-muted-foreground">갈래 {run[0].lanes}개 · 같은 선택지·조건에서 갈라진 길</p>
-                  {/* Up to three ways side by side; more would leave each too narrow to read, so they stack. */}
-                  <div className={run[0].lanes! <= 3 ? 'grid gap-2' : 'space-y-2'} style={run[0].lanes! <= 3 ? { gridTemplateColumns: `repeat(${run[0].lanes}, minmax(0, 1fr))` } : undefined}>
-                    {Array.from({ length: run[0].lanes! }, (_, lane) => (
-                      <ol key={lane} className="space-y-2 rounded-md border border-dashed p-2">
-                        <li className="text-xs text-muted-foreground">갈래 {lane + 1}</li>
-                        {run.filter((event) => event.route!.lane === lane).map((event) => item(event, false))}
-                      </ol>
-                    ))}
-                  </div>
-                </li>
-              ) : (
-                run.map((event) => item(event))
-              ),
-            )}
-          </ol>
-        </section>
+    <ToggleGroup type="single" variant="outline" size="sm" value={value} onValueChange={(next) => next && onChange(next)} aria-label={label}>
+      {items.map((item) => (
+        <ToggleGroupItem key={item.value} value={item.value} className="gap-1.5 px-2.5">
+          {item.icon}
+          {item.label}
+        </ToggleGroupItem>
       ))}
-      {unplaced.length > 0 && (
-        <section>
-          <h3 className="mb-2 text-sm font-semibold">위치 모름 <span className="font-normal text-muted-foreground">근거 대사가 대본에 없음</span></h3>
-          <ol className="ml-2 space-y-2 border-l pl-4">{unplaced.map((event) => item(event))}</ol>
-        </section>
-      )}
-    </div>
+    </ToggleGroup>
   );
 }

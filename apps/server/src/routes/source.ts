@@ -21,6 +21,10 @@ const listQuery = z.object({
   speaker: z.string().optional(),
   /** A character name, or "-" for lines whose listener is unknown (none, or an unsure AI guess). */
   listener: z.string().optional(),
+  /** Only lines whose status is shown in the review inbox. */
+  review: z.enum(['1']).optional(),
+  /** Only lines not yet in a final status. */
+  remaining: z.enum(['1']).optional(),
   offset: z.coerce.number().int().min(0).default(0),
   limit: z.coerce.number().int().min(1).max(500).default(100),
 });
@@ -138,6 +142,8 @@ export const sourceRoutes = new Hono<Env>()
     if (query.speaker) conditions.push(eq(s.units.speaker, query.speaker));
     if (query.listener === '-') conditions.push(sql`not ${knownListener}`);
     else if (query.listener) conditions.push(and(eq(s.units.listener, query.listener), knownListener)!);
+    if (query.review) conditions.push(sql`${s.units.statusId} in (select id from ${s.statuses} where ${s.statuses.projectId} = ${projectId} and ${s.statuses.inReview} = 1)`);
+    if (query.remaining) conditions.push(sql`${s.units.statusId} in (select id from ${s.statuses} where ${s.statuses.projectId} = ${projectId} and ${s.statuses.kind} != 'final')`);
     const where = and(...conditions);
     // The groups table is only needed for the kind filter; without it the count is one index range.
     const counted = db.select({ count: count() }).from(s.units);
@@ -152,9 +158,21 @@ export const sourceRoutes = new Hono<Env>()
       .limit(query.limit)
       .offset(query.offset)
       .all();
-    const tagRows = rows.length ? db.select().from(s.unitTags).where(inArray(s.unitTags.unitId, rows.map((row) => row.id))).all() : [];
+    const ids = rows.map((row) => row.id);
+    const tagRows = ids.length ? db.select().from(s.unitTags).where(inArray(s.unitTags.unitId, ids)).all() : [];
     const tags = Map.groupBy(tagRows, (row) => row.unitId);
-    return c.json({ total, rows: rows.map((row) => ({ ...row, tagIds: (tags.get(row.id) ?? []).map((tag) => tag.tagId) })) });
+    // What the latest run said about each line (a reviewer's reason to look), newest run first.
+    const lastRun = new Map<string, { runId: string; workflowName: string; issues: string[] }>();
+    if (ids.length)
+      for (const item of db
+        .select({ unitId: s.runItems.unitId, runId: s.runs.id, workflowName: s.runs.workflowName, data: s.runItems.data })
+        .from(s.runItems)
+        .innerJoin(s.runs, eq(s.runs.id, s.runItems.runId))
+        .where(inArray(s.runItems.unitId, ids))
+        .orderBy(desc(s.runs.createdAt))
+        .all())
+        if (!lastRun.has(item.unitId)) lastRun.set(item.unitId, { runId: item.runId, workflowName: item.workflowName, issues: item.data.issues ?? [] });
+    return c.json({ total, rows: rows.map((row) => ({ ...row, tagIds: (tags.get(row.id) ?? []).map((tag) => tag.tagId), lastRun: lastRun.get(row.id) ?? null })) });
   })
   /** Lines by key, in script order: evidence cited by knowledge drafts. */
   .post('/projects/:projectId/units/by-keys', validate('json', z.object({ keys: z.array(z.string()).max(500) })), (c) => {
@@ -187,36 +205,6 @@ export const sourceRoutes = new Hono<Env>()
     });
     events.changed(projectId, 'units', 'statuses');
     return c.json({ ok: true });
-  })
-  /**
-   * Review inbox: every line whose status is marked "in review", however it got there (a person,
-   * a workflow's status change, the import). With the last run's issues as the reason, if any.
-   */
-  .get('/projects/:projectId/reviews', (c) => {
-    const { db } = c.var.deps;
-    const projectId = c.req.param('projectId');
-    const where = and(eq(s.units.projectId, projectId), eq(s.statuses.inReview, true));
-    const total = db.select({ count: count() }).from(s.units).innerJoin(s.statuses, eq(s.statuses.id, s.units.statusId)).where(where).get()!.count;
-    const rows = db
-      .select({ ...unitColumns, groupTitle: s.groups.title, statusName: s.statuses.name })
-      .from(s.units)
-      .innerJoin(s.statuses, eq(s.statuses.id, s.units.statusId))
-      .innerJoin(s.groups, eq(s.groups.id, s.units.groupId))
-      .where(where)
-      .orderBy(asc(s.units.seq))
-      .limit(500)
-      .all();
-    const latest = new Map<string, { workflowName: string; runId: string; issues: string[] }>();
-    if (rows.length)
-      for (const item of db
-        .select({ unitId: s.runItems.unitId, runId: s.runs.id, workflowName: s.runs.workflowName, data: s.runItems.data })
-        .from(s.runItems)
-        .innerJoin(s.runs, eq(s.runs.id, s.runItems.runId))
-        .where(inArray(s.runItems.unitId, rows.map((row) => row.id)))
-        .orderBy(desc(s.runs.createdAt))
-        .all())
-        if (!latest.has(item.unitId)) latest.set(item.unitId, { workflowName: item.workflowName, runId: item.runId, issues: item.data.issues ?? [] });
-    return c.json({ total, rows: rows.map((row) => ({ ...row, lastRun: latest.get(row.id) ?? null })) });
   })
   .get('/units/:unitId', (c) => {
     const { db } = c.var.deps;

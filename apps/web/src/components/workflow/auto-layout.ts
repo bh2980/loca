@@ -15,6 +15,10 @@ export async function autoLayout(definition: WorkflowDefinition, sizes: Map<stri
       'elk.layered.spacing.nodeNodeBetweenLayers': '96',
       'elk.portConstraints': 'FIXED_ORDER',
       'elk.layered.nodePlacement.strategy': 'BRANDES_KOEPF',
+      // Keep the drawn order (entry first, main path before retry loops) and route loops back around.
+      'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
+      'elk.layered.feedbackEdges': 'true',
+      'elk.layered.spacing.edgeNodeBetweenLayers': '24',
     },
     children: definition.nodes.map((node) => {
       const size = sizes.get(node.id) ?? { width: 224, height: 120 };

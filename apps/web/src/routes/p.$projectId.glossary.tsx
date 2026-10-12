@@ -1,28 +1,28 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Check, Play, Plus, ScanSearch, Search, Sparkles, Square, Trash2 } from 'lucide-react';
+import { Check, Play, Plus, ScanSearch, Sparkles, Square, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { DataTable, type ColumnDef } from '@/components/data-table';
+import { DetailPane, PaneSection } from '@/components/detail-pane';
+import { HeaderFilter } from '@/components/header-filter';
 import { Page } from '@/components/page';
+import { SplitPane } from '@/components/split-pane';
+import { SearchInput, Toolbar } from '@/components/toolbar';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
-import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
 import { Label } from '@/components/ui/label';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { candidateRow, KnowledgeFilters, matches, SourceBadge } from '@/components/knowledge/draft-editor';
-import { isSettled, KNOWLEDGE_SOURCES, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus } from '@tw/shared';
 import { Textarea } from '@/components/ui/textarea';
+import { matches, SourceBadge } from '@/components/knowledge/draft-editor';
+import { isSettled, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus } from '@tw/shared';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
-import { cn } from '@/lib/utils';
 import { useReportView } from '@/lib/view-context';
-import { SplitPane } from '@/components/split-pane';
-import { PaneHeader } from '@/components/pane-header';
-import { ScrollArea } from '@/components/ui/scroll-area';
 
 export const Route = createFileRoute('/p/$projectId/glossary')({
   validateSearch: (raw: Record<string, unknown>): { q?: string; term?: string; source?: KnowledgeSource; state?: 'confirmed' | 'candidate' } => ({
@@ -52,7 +52,7 @@ function Glossary() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const terms = useQuery(q.terms(projectId));
-  const [draft, setDraft] = useState({ source: '', target: '', note: '' });
+  const [picked, setPicked] = useState<Set<string>>(new Set());
   const suggest = useQuery(q.termSuggest(projectId));
   const fill = suggest.data?.state;
   const discover = useMutation({
@@ -85,151 +85,185 @@ function Glossary() {
   const filtered = needle ? all.filter((term) => [term.source, term.target, term.note].some((text) => text.toLowerCase().includes(needle))) : all;
   // Candidates first, the most frequent on top; settled terms follow by source.
   const rows = [...filtered].sort((a, b) => Number(isSettled(a)) - Number(isSettled(b)) || (!isSettled(a) ? (b.lines ?? -1) - (a.lines ?? -1) : 0));
-  const selected = all.find((term) => term.id === search.term);
+  const creating = search.term === NEW_TERM;
+  const selected = creating ? undefined : all.find((term) => term.id === search.term);
   useReportView('glossary-term', [selected && { kind: '용어', id: selected.id, label: `${selected.source} → ${selected.target}` }]);
 
-  const create = useMutation({
-    mutationFn: () => unwrap(client.projects[':projectId'].terms.$post({ param: { projectId }, json: draft })),
-    onSuccess: () => {
-      setDraft({ source: '', target: '', note: '' });
-      toast.success('용어를 추가했습니다.');
-    },
-    onError: (error) => toast.error(error.message),
-  });
   const select = (id?: string) => void navigate({ search: (previous) => ({ ...previous, term: id }), replace: true });
+  const setFilter = (next: { source?: KnowledgeSource | undefined; state?: 'confirmed' | 'candidate' | undefined }) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace: true });
+
+  // Picked candidates: a term without a Korean form cannot be official (it would put an empty target in every prompt).
+  const pickedTerms = rows.filter((term) => picked.has(term.id));
+  const promotable = pickedTerms.filter((term) => !isSettled(term) && term.target.trim());
+  const discardable = pickedTerms.filter((term) => !isSettled(term));
+  const afterBulk = { onSuccess: () => setPicked(new Set()) };
+
+  const columns: ColumnDef<Term, unknown>[] = [
+    { id: 'source', header: '원문', cell: ({ row }) => <span className="font-medium">{row.original.source}</span> },
+    { id: 'target', header: '번역', cell: ({ row }) => row.original.target || <span className="text-muted-foreground">—</span> },
+    { id: 'lines', header: '줄 수', meta: { width: 72, align: 'end' }, cell: ({ row }) => row.original.lines ?? <span className="text-muted-foreground">—</span> },
+    { id: 'note', header: '메모', meta: { className: 'text-muted-foreground' }, cell: ({ row }) => row.original.note },
+    {
+      id: 'origin',
+      header: () => (
+        <HeaderFilter label="출처" value={search.source} options={KNOWLEDGE_SOURCES.map((value) => ({ value, label: SOURCE_LABELS[value] }))} onChange={(source) => setFilter({ source: source as KnowledgeSource | undefined })} />
+      ),
+      meta: { width: 96 },
+      cell: ({ row }) => <SourceBadge row={asDraft(row.original)} />,
+    },
+    {
+      id: 'state',
+      header: () => (
+        <HeaderFilter
+          label="상태"
+          value={search.state}
+          options={(['confirmed', 'candidate'] as const).map((value) => ({ value, label: KNOWLEDGE_STATUS_LABELS[value] }))}
+          onChange={(state) => setFilter({ state: state as 'confirmed' | 'candidate' | undefined })}
+        />
+      ),
+      meta: { width: 88 },
+      cell: ({ row }) => (isSettled(row.original) ? <span className="text-xs text-muted-foreground">{KNOWLEDGE_STATUS_LABELS.confirmed}</span> : <Badge variant="outline">후보</Badge>),
+    },
+  ];
 
   return (
-    <Page title="용어집">
+    <Page title="용어집" flush>
       <SplitPane
         id="glossary"
         defaultWidth="380px"
-        className="min-h-0 rounded-lg border"
+        className="h-full"
         pane={
-          selected && (
-            <div className="h-full">
-              <TermEditor key={selected.id} projectId={projectId} term={selected} onClose={() => select(undefined)} />
-            </div>
+          creating ? (
+            <NewTermPane key="new" projectId={projectId} onClose={() => select(undefined)} onCreated={(id) => select(id)} />
+          ) : (
+            selected && (
+              <TermEditor
+                key={selected.id}
+                projectId={projectId}
+                term={selected}
+                onClose={() => select(undefined)}
+                onDecide={(accept) => decide.mutate({ ids: [selected.id], accept }, { onSuccess: () => !accept && select(undefined) })}
+                deciding={decide.isPending}
+              />
+            )
           )
         }
       >
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2 border-b p-3">
-            <KnowledgeFilters
-              source={search.source}
-              status={search.state}
-              onChange={(next) => void navigate({ search: (previous) => ({ ...previous, ...('source' in next && { source: next.source }), ...('status' in next && { state: next.status }), term: undefined }), replace: true })}
-            />
-            {/* A term without a Korean form cannot be official: it would put an empty target in every prompt. */}
-            {all.some((term) => !isSettled(term) && term.target.trim()) && (
-              <Button size="sm" variant="outline" onClick={() => decide.mutate({ ids: all.filter((term) => !isSettled(term) && term.target.trim()).map((term) => term.id), accept: true })}>
-                <Check /> 번역 있는 후보 모두 정식으로 ({all.filter((term) => !isSettled(term) && term.target.trim()).length.toLocaleString()})
-              </Button>
-            )}
-            <InputGroup className="w-64">
-              <InputGroupAddon>
-                <Search />
-              </InputGroupAddon>
-              <InputGroupInput
-                defaultValue={search.q}
-                placeholder="원문·번역·메모 검색"
-                onChange={(event) => void navigate({ search: (previous) => ({ ...previous, q: event.target.value.trim() || undefined }), replace: true })}
-              />
-            </InputGroup>
-            <Button size="sm" variant="outline" disabled={discover.isPending} onClick={() => discover.mutate()}>
-              <ScanSearch /> 대본에서 찾기
-            </Button>
-            {fill?.running ? (
-              <span className="flex items-center gap-2 text-sm tabular-nums">
-                <Sparkles className="size-4 animate-pulse" /> 용어 번역 채우는 중 {fill.done.toLocaleString()}/{fill.total.toLocaleString()}
-                <Button size="sm" variant="ghost" className="h-7" disabled={cancelFill.isPending} onClick={() => cancelFill.mutate()}>
-                  <Square /> 중단
-                </Button>
-              </span>
-            ) : (
-              <>
-                {!!suggest.data?.pending && <FillDialog projectId={projectId} pending={suggest.data.pending} calls={suggest.data.calls} batch={suggest.data.batch} />}
-                {fill && (fill.error ? <span className="text-sm text-muted-foreground">용어 번역 채우기 실패: {fill.error}</span> : fill.done > 0 && <span className="text-sm text-muted-foreground tabular-nums">{fill.done.toLocaleString()}개 채움</span>)}
-              </>
-            )}
-            <span className="ml-auto text-sm text-muted-foreground tabular-nums">
-              {rows.length.toLocaleString()}개{needle && ` / 전체 ${all.length.toLocaleString()}개`}
-            </span>
-          </div>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-1/4">원문</TableHead>
-                <TableHead className="w-1/4">번역</TableHead>
-                <TableHead className="w-20 text-right">등장</TableHead>
-                <TableHead>메모</TableHead>
-                <TableHead className="w-56">출처</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {!search.source && !search.state && (
-              <TableRow className="bg-muted/30 hover:bg-muted/30">
-                {(['source', 'target', 'note'] as const).map((field) => (
-                  <Fragment key={field}>
-                    {field === 'note' && <TableCell />}
-                  <TableCell>
-                    <Input
-                      aria-label={{ source: '새 용어 원문', target: '새 용어 번역', note: '새 용어 메모' }[field]}
-                      placeholder={{ source: '원문', target: '번역', note: '메모 (선택)' }[field]}
-                      value={draft[field]}
-                      onChange={(event) => setDraft({ ...draft, [field]: event.target.value })}
-                      onKeyDown={(event) => event.key === 'Enter' && draft.source.trim() && create.mutate()}
-                    />
-                  </TableCell>
-                  </Fragment>
-                ))}
-                <TableCell>
-                  <Button size="sm" disabled={!draft.source.trim() || create.isPending} onClick={() => create.mutate()}>
-                    <Plus /> 용어 추가
+        <Toolbar
+          count={terms.data && `${rows.length.toLocaleString()}개${needle ? ` / 전체 ${all.length.toLocaleString()}개` : ''}`}
+          actions={
+            <>
+              {fill?.running ? (
+                <span className="flex items-center gap-2 text-sm tabular-nums">
+                  <Sparkles className="size-4 animate-pulse" /> 용어 번역 채우는 중 {fill.done.toLocaleString()}/{fill.total.toLocaleString()}
+                  <Button variant="ghost" disabled={cancelFill.isPending} onClick={() => cancelFill.mutate()}>
+                    <Square /> 중단
                   </Button>
-                </TableCell>
-              </TableRow>
+                </span>
+              ) : (
+                <>
+                  {fill && (fill.error ? <span className="text-xs text-muted-foreground">용어 번역 채우기 실패: {fill.error}</span> : fill.done > 0 && <span className="text-xs text-muted-foreground tabular-nums">{fill.done.toLocaleString()}개 채움</span>)}
+                  {!!suggest.data?.pending && <FillDialog projectId={projectId} pending={suggest.data.pending} calls={suggest.data.calls} batch={suggest.data.batch} />}
+                </>
               )}
-              {rows.map((term) => (
-                <TableRow key={term.id} data-state={term.id === search.term ? 'selected' : undefined} className={cn('cursor-pointer', candidateRow(asDraft(term)))} onClick={() => select(term.id === search.term ? undefined : term.id)}>
-                  <TableCell className="font-medium">{term.source}</TableCell>
-                  <TableCell>{term.target || <span className="text-muted-foreground">—</span>}</TableCell>
-                  <TableCell className="text-right tabular-nums">{term.lines ?? <span className="text-muted-foreground">—</span>}</TableCell>
-                  <TableCell className="truncate text-muted-foreground">{term.note}</TableCell>
-                  <TableCell onClick={(event) => event.stopPropagation()}>
-                    {isSettled(term) ? (
-                      <SourceBadge row={asDraft(term)} />
-                    ) : (
-                      <div className="flex items-center gap-1">
-                        <SourceBadge row={asDraft(term)} />
-                        <Button size="sm" variant="outline" className="h-7" disabled={!term.target.trim()} title={term.target.trim() ? undefined : '번역을 채운 뒤 정식으로 올릴 수 있습니다.'} onClick={() => decide.mutate({ ids: [term.id], accept: true })}>
-                          <Check /> 정식으로
-                        </Button>
-                        <Button size="sm" variant="ghost" className="h-7 text-destructive" onClick={() => decide.mutate({ ids: [term.id], accept: false })}>
-                          <Trash2 /> 버리기
-                        </Button>
-                      </div>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
-              {terms.data && rows.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={5} className="py-12 text-center text-muted-foreground">
-                    {needle ? '조건에 맞는 용어가 없습니다.' : search.source || search.state ? '조건에 맞는 용어가 없습니다. 워크플로의 ‘용어 후보 추가’ 함수가 AI 용어를 모읍니다.' : '아직 용어가 없습니다. ‘대본에서 찾기’로 후보를 찾거나 위에서 직접 추가하세요.'}
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </div>
+              <Button variant="outline" disabled={discover.isPending} onClick={() => discover.mutate()}>
+                <ScanSearch /> 대본에서 찾기
+              </Button>
+              <Button onClick={() => select(NEW_TERM)}>
+                <Plus /> 용어 추가
+              </Button>
+            </>
+          }
+        >
+          <SearchInput value={search.q} placeholder="원문·번역·메모 검색" onChange={(value) => void navigate({ search: (previous) => ({ ...previous, q: value }), replace: true })} />
+        </Toolbar>
+        <DataTable
+          columns={columns}
+          rows={terms.data && rows}
+          rowId={(term) => term.id}
+          loading={terms.isLoading}
+          empty={needle || search.source || search.state ? '조건에 맞는 용어가 없습니다.' : '아직 용어가 없습니다. ‘대본에서 찾기’로 후보를 찾거나 ‘용어 추가’로 직접 넣으세요.'}
+          selected={selected?.id}
+          onRowClick={(term) => select(term.id === search.term ? undefined : term.id)}
+          picked={picked}
+          onPick={(ids, on) =>
+            setPicked((previous) => {
+              const next = new Set(previous);
+              for (const id of ids) if (on) next.add(id);
+              else next.delete(id);
+              return next;
+            })
+          }
+          bulk={
+            <>
+              <Button variant="outline" disabled={promotable.length === 0 || decide.isPending} title={promotable.length < discardable.length ? '번역이 빈 후보는 번역을 채운 뒤 정식으로 올릴 수 있습니다.' : undefined} onClick={() => decide.mutate({ ids: promotable.map((term) => term.id), accept: true }, afterBulk)}>
+                <Check /> 정식으로 올리기 ({promotable.length.toLocaleString()})
+              </Button>
+              <Button variant="ghost" className="text-destructive" disabled={discardable.length === 0 || decide.isPending} onClick={() => decide.mutate({ ids: discardable.map((term) => term.id), accept: false }, afterBulk)}>
+                <Trash2 /> 버리기 ({discardable.length.toLocaleString()})
+              </Button>
+            </>
+          }
+        />
       </SplitPane>
     </Page>
   );
 }
 
-function TermEditor({ projectId, term, onClose }: { projectId: string; term: Term; onClose: () => void }) {
+/** `?term=new` opens the pane for a term that does not exist yet. */
+const NEW_TERM = 'new';
+
+/** The three editable fields of a term, shared by the new-term and edit panes. */
+function TermFields({ form, onChange }: { form: { source: string; target: string; note: string }; onChange: (form: { source: string; target: string; note: string }) => void }) {
+  return (
+    <div className="space-y-4">
+      <div className="space-y-1.5">
+        <Label htmlFor="term-source">원문</Label>
+        <Input id="term-source" value={form.source} onChange={(event) => onChange({ ...form, source: event.target.value })} />
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="term-target">번역</Label>
+        <Input id="term-target" value={form.target} onChange={(event) => onChange({ ...form, target: event.target.value })} />
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="term-note">메모</Label>
+        <Textarea id="term-note" rows={4} value={form.note} placeholder="선택" onChange={(event) => onChange({ ...form, note: event.target.value })} />
+      </div>
+    </div>
+  );
+}
+
+function NewTermPane({ projectId, onClose, onCreated }: { projectId: string; onClose: () => void; onCreated: (id: string) => void }) {
+  const [form, setForm] = useState({ source: '', target: '', note: '' });
+  const create = useMutation({
+    mutationFn: () => unwrap(client.projects[':projectId'].terms.$post({ param: { projectId }, json: form })),
+    onSuccess: (created) => {
+      toast.success('용어를 추가했습니다.');
+      if (created && typeof created === 'object' && 'id' in created && typeof created.id === 'string') onCreated(created.id);
+      else onClose();
+    },
+    onError: (error) => toast.error(error.message),
+  });
+  return (
+    <DetailPane
+      kicker="용어"
+      title="새 용어"
+      onClose={onClose}
+      footer={
+        <Button className="ml-auto" disabled={!form.source.trim() || create.isPending} onClick={() => create.mutate()}>
+          <Plus /> 추가
+        </Button>
+      }
+    >
+      <TermFields form={form} onChange={setForm} />
+    </DetailPane>
+  );
+}
+
+function TermEditor({ projectId, term, onClose, onDecide, deciding }: { projectId: string; term: Term; onClose: () => void; onDecide: (accept: boolean) => void; deciding: boolean }) {
   const [form, setForm] = useState({ source: term.source, target: term.target, note: term.note });
   const dirty = form.source !== term.source || form.target !== term.target || form.note !== term.note;
+  const candidate = !isSettled(term);
   const save = useMutation({
     mutationFn: () => unwrap(client.projects[':projectId'].terms[':id'].$patch({ param: { projectId, id: term.id }, json: form })),
     onSuccess: () => toast.success('저장했습니다.'),
@@ -247,39 +281,70 @@ function TermEditor({ projectId, term, onClose }: { projectId: string; term: Ter
   const usage = useQuery(q.termUsage(projectId, term.id));
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <PaneHeader kicker="용어" title={term.source} subtitle={<SourceBadge row={{ ...term, evidence: [] }} />} onClose={onClose} />
-      <ScrollArea className="min-h-0 flex-1">
-      <div className="flex flex-col gap-4 p-4">
-      <div className="space-y-1.5">
-        <Label htmlFor="term-source">원문</Label>
-        <Input id="term-source" value={form.source} onChange={(event) => setForm({ ...form, source: event.target.value })} />
-      </div>
-      <div className="space-y-1.5">
-        <Label htmlFor="term-target">번역</Label>
-        <Input id="term-target" value={form.target} onChange={(event) => setForm({ ...form, target: event.target.value })} />
-      </div>
-      <div className="space-y-1.5">
-        <Label htmlFor="term-note">메모</Label>
-        <Textarea id="term-note" rows={4} value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} />
-      </div>
-      <section className="space-y-2 border-t pt-4">
-        <div className="flex items-center justify-between gap-2">
-          <h3 className="text-xs font-medium text-muted-foreground">이 용어가 나오는 대사 {usage.data?.count ?? '…'}개</h3>
-          {!!usage.data?.count && (
+    <DetailPane
+      kicker="용어"
+      title={term.source}
+      subtitle={
+        <span className="flex items-center gap-2">
+          <SourceBadge row={{ ...term, evidence: [] }} />
+          {candidate && <span>후보 · 아직 문맥에 쓰이지 않음</span>}
+        </span>
+      }
+      onClose={onClose}
+      footer={
+        <>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="ghost" className="text-destructive">
+                <Trash2 /> 삭제
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>용어를 삭제할까요?</AlertDialogTitle>
+                <AlertDialogDescription>“{term.source}” 용어가 용어집에서 사라집니다. 이미 번역된 대사는 바뀌지 않습니다.</AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>취소</AlertDialogCancel>
+                <AlertDialogAction onClick={() => remove.mutate()}>삭제</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+          {candidate && (
+            <>
+              <Button variant="ghost" className="text-destructive" disabled={deciding} onClick={() => onDecide(false)}>
+                버리기
+              </Button>
+              <Button variant="outline" disabled={deciding || dirty || !term.target.trim()} title={term.target.trim() ? (dirty ? '먼저 저장하세요.' : undefined) : '번역을 채운 뒤 정식으로 올릴 수 있습니다.'} onClick={() => onDecide(true)}>
+                <Check /> 정식으로 올리기
+              </Button>
+            </>
+          )}
+          <Button className="ml-auto" disabled={!dirty || !form.source.trim() || save.isPending} onClick={() => save.mutate()}>
+            저장
+          </Button>
+        </>
+      }
+    >
+      <TermFields form={form} onChange={setForm} />
+      <PaneSection
+        title={`이 용어가 나오는 대사 ${usage.data?.count ?? '…'}개`}
+        actions={
+          !!usage.data?.count && (
             <RunDialog
               projectId={projectId}
               unitIds={usage.data.unitIds}
               defaultIgnoreStatus
               trigger={
-                <Button size="sm" variant="outline">
+                <Button variant="outline">
                   <Play /> 다시 실행
                 </Button>
               }
             />
-          )}
-        </div>
-        <p className="text-[11px] text-muted-foreground">번역이나 메모를 바꿨다면 이 대사들을 워크플로로 다시 돌려 새 용어를 반영하세요.</p>
+          )
+        }
+      >
+        <p className="mb-2 text-xs text-muted-foreground">번역이나 메모를 바꿨다면 이 대사들을 워크플로로 다시 돌려 새 용어를 반영하세요.</p>
         <ul className="max-h-60 space-y-1 overflow-auto">
           {usage.data?.rows.map((row) => (
             <li key={row.id}>
@@ -291,33 +356,9 @@ function TermEditor({ projectId, term, onClose }: { projectId: string; term: Ter
             </li>
           ))}
         </ul>
-      </section>
+      </PaneSection>
       <Examples projectId={projectId} keys={term.examples} />
-      </div>
-      </ScrollArea>
-      <div className="flex shrink-0 items-center justify-between border-t px-4 py-3">
-        <AlertDialog>
-          <AlertDialogTrigger asChild>
-            <Button variant="ghost" size="sm" className="text-destructive">
-              <Trash2 /> 삭제
-            </Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>용어를 삭제할까요?</AlertDialogTitle>
-              <AlertDialogDescription>“{term.source}” 용어가 용어집에서 사라집니다. 이미 번역된 대사는 바뀌지 않습니다.</AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>취소</AlertDialogCancel>
-              <AlertDialogAction onClick={() => remove.mutate()}>삭제</AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-        <Button size="sm" disabled={!dirty || !form.source.trim() || save.isPending} onClick={() => save.mutate()}>
-          저장
-        </Button>
-      </div>
-    </div>
+    </DetailPane>
   );
 }
 
@@ -326,8 +367,7 @@ function Examples({ projectId, keys }: { projectId: string; keys: string[] }) {
   const shown = keys.slice(0, 3);
   const lines = useQuery(q.linesByKeys(projectId, shown));
   return (
-    <section className="space-y-2 border-t pt-4">
-      <h3 className="text-xs font-medium text-muted-foreground">등장 예문</h3>
+    <PaneSection title="등장 예문">
       {shown.length === 0 && <p className="text-xs text-muted-foreground">예문이 없습니다. ‘대본에서 찾기’로 다시 찾으면 채워집니다.</p>}
       <ul className="space-y-1">
         {lines.data?.map((line) => (
@@ -341,7 +381,7 @@ function Examples({ projectId, keys }: { projectId: string; keys: string[] }) {
           </li>
         ))}
       </ul>
-    </section>
+    </PaneSection>
   );
 }
 
@@ -361,7 +401,7 @@ function FillDialog({ projectId, pending, calls, batch }: { projectId: string; p
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button size="sm" variant="outline">
+        <Button variant="outline">
           <Sparkles /> 빈 번역 AI로 채우기
         </Button>
       </DialogTrigger>

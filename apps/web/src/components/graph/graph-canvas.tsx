@@ -1,3 +1,4 @@
+import { Button } from '@/components/ui/button';
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from 'react';
 import { Map as MapIcon, Minimize2 } from 'lucide-react';
 import { select } from 'd3-selection';
@@ -5,6 +6,9 @@ import 'd3-transition';
 import { zoom as d3zoom, zoomIdentity, type ZoomBehavior, type ZoomTransform } from 'd3-zoom';
 import Flatbush from 'flatbush';
 import { drawShape } from './shapes';
+
+/** Below this zoom node labels are unreadable, so they are not drawn. */
+const DETAIL_K = 0.22;
 
 export interface LayoutNode {
   id: string;
@@ -161,6 +165,12 @@ export function GraphCanvas({ nodes, regions = [], edges, looseEdges, hubs, info
     return { byId, nodeIndex, edgeIndex, bounds, adjacent, segments, looseByNode };
   }, [nodes, edges, looseEdges]);
 
+  // How many nodes each region holds, for the zoomed-out overview.
+  const regionCounts = useMemo(
+    () => regions.map((region) => nodes.reduce((sum, node) => sum + (node.x >= region.x && node.y >= region.y && node.x <= region.x + region.width && node.y <= region.y + region.height ? 1 : 0), 0)),
+    [regions, nodes],
+  );
+
   const fitTransform = (box = index.bounds) => {
     const w = box.maxX - box.minX, h = box.maxY - box.minY;
     const k = Math.min(MAX_K, Math.max(MIN_K, Math.min((width - PAD * 2) / w, (height - PAD * 2) / h)));
@@ -193,22 +203,34 @@ export function GraphCanvas({ nodes, regions = [], edges, looseEdges, hubs, info
     const dimmed = focus && focus.size > 0;
     const selectedEdges = selected ? index.adjacent.get(selected) : undefined;
 
-    for (const region of regions) {
+    const detailed = t.k >= DETAIL_K;
+    // Zoomed out, nodes are too small to read: each region becomes a card with its name and size,
+    // and a click zooms into it. Zoomed in, regions are dashed frames with a small label.
+    const overviewMode = !detailed && regions.length > 1;
+    regions.forEach((region) => {
       context.save();
-      context.setLineDash([8 / t.k, 6 / t.k]);
-      context.strokeStyle = '#d4d4d8';
-      context.lineWidth = 1 / t.k;
-      context.strokeRect(region.x - 24, region.y - 24, region.width + 48, region.height + 48);
-      context.setLineDash([]);
+      if (overviewMode) {
+        context.fillStyle = 'rgba(244, 244, 245, 0.9)';
+        context.strokeStyle = '#d4d4d8';
+        context.lineWidth = 1 / t.k;
+        context.fillRect(region.x - 24, region.y - 24, region.width + 48, region.height + 48);
+        context.strokeRect(region.x - 24, region.y - 24, region.width + 48, region.height + 48);
+      } else {
+        context.setLineDash([8 / t.k, 6 / t.k]);
+        context.strokeStyle = '#d4d4d8';
+        context.lineWidth = 1 / t.k;
+        context.strokeRect(region.x - 24, region.y - 24, region.width + 48, region.height + 48);
+        context.setLineDash([]);
+      }
       context.fillStyle = '#71717a';
       context.font = `${13 / Math.max(t.k, 0.05)}px Pretendard, system-ui, sans-serif`;
       // Labels keep their screen size, so zoomed out they are cut to the region's width instead of running into the next one.
       const room = region.width + 48;
       let label = region.label;
       while (label.length > 1 && context.measureText(label).width > room) label = `${label.slice(0, -2)}…`;
-      context.fillText(label, region.x - 24, region.y - 24 - 8 / t.k);
+      if (!overviewMode) context.fillText(label, region.x - 24, region.y - 24 - 8 / t.k);
       context.restore();
-    }
+    });
 
     // Loose (hub) edges lie beneath everything else, in a single pass.
     const segments = index.segments;
@@ -256,13 +278,12 @@ export function GraphCanvas({ nodes, regions = [], edges, looseEdges, hubs, info
     }
 
     const visible = (index.nodeIndex?.search(view.minX, view.minY, view.maxX, view.maxY) ?? []);
-    const detailed = t.k >= 0.22;
     for (const i of visible) {
       const node = nodes[i];
       const meta = info.get(node.id);
       const isSelected = node.id === selected;
       const faded = dimmed && !focus!.has(node.id) && !isSelected;
-      context.globalAlpha = faded ? 0.25 : 1;
+      context.globalAlpha = faded || overviewMode ? 0.25 : 1;
       const hub = props.current.hubs?.get(node.id);
       if (hub) {
         drawHub(context, node, hub, { selected: isSelected, selectColor, detailed, k: t.k, style });
@@ -272,6 +293,21 @@ export function GraphCanvas({ nodes, regions = [], edges, looseEdges, hubs, info
       if (detailed && meta) drawLabel(context, meta, node);
     }
     context.globalAlpha = 1;
+    if (overviewMode)
+      regions.forEach((region, i) => {
+        const cx = region.x + region.width / 2, cy = region.y + region.height / 2;
+        const size = 15 / t.k;
+        context.textAlign = 'center';
+        context.fillStyle = '#18181b';
+        context.font = `600 ${size}px Pretendard, system-ui, sans-serif`;
+        let label = region.label;
+        while (label.length > 1 && context.measureText(label).width > region.width + 40) label = `${label.slice(0, -2)}…`;
+        context.fillText(label, cx, cy);
+        context.fillStyle = '#71717a';
+        context.font = `${12 / t.k}px Pretendard, system-ui, sans-serif`;
+        context.fillText(`노드 ${regionCounts[i].toLocaleString()}개 · 눌러서 확대`, cx, cy + size * 1.4);
+        context.textAlign = 'start';
+      });
     drawMinimap();
   };
 
@@ -371,6 +407,13 @@ export function GraphCanvas({ nodes, regions = [], edges, looseEdges, hubs, info
     },
   }));
 
+  const regionAt = (clientX: number, clientY: number) => {
+    const rect = canvas.current!.getBoundingClientRect();
+    const t = transform.current;
+    const x = (clientX - rect.left - t.x) / t.k, y = (clientY - rect.top - t.y) / t.k;
+    return regions.find((region) => x >= region.x - 24 && y >= region.y - 24 && x <= region.x + region.width + 24 && y <= region.y + region.height + 24);
+  };
+
   const hit = (clientX: number, clientY: number) => {
     const rect = canvas.current!.getBoundingClientRect();
     const t = transform.current;
@@ -388,7 +431,11 @@ export function GraphCanvas({ nodes, regions = [], edges, looseEdges, hubs, info
         tabIndex={0}
         role="img"
         aria-label={`그래프: 노드 ${nodes.length.toLocaleString()}개, 연결 ${edges.length.toLocaleString()}개`}
-        onClick={(event) => props.current.onSelect(hit(event.clientX, event.clientY))}
+        onClick={(event) => {
+          const region = transform.current.k < DETAIL_K && regions.length > 1 ? regionAt(event.clientX, event.clientY) : undefined;
+          if (region) animateTo(fitTransform({ minX: region.x - 24, minY: region.y - 24, maxX: region.x + region.width + 24, maxY: region.y + region.height + 24 }));
+          else props.current.onSelect(hit(event.clientX, event.clientY));
+        }}
         onKeyDown={(event) => {
           const step = 80;
           const moves: Record<string, [number, number]> = { ArrowUp: [0, step], ArrowDown: [0, -step], ArrowLeft: [step, 0], ArrowRight: [-step, 0] };
@@ -403,14 +450,9 @@ export function GraphCanvas({ nodes, regions = [], edges, looseEdges, hubs, info
       />
       {minimapOpen ? (
         <div className="absolute bottom-3 left-3 rounded-md border bg-background/90 shadow-sm">
-          <button
-            type="button"
-            onClick={() => toggleMinimap(false)}
-            className="absolute -top-2.5 -right-2.5 flex size-5 items-center justify-center rounded-full border bg-background text-muted-foreground shadow-sm hover:text-foreground"
-            aria-label="미니맵 접기"
-          >
-            <Minimize2 className="size-3" />
-          </button>
+          <Button variant="outline" size="icon-xs" onClick={() => toggleMinimap(false)} className="absolute -top-2.5 -right-2.5 rounded-full text-muted-foreground" aria-label="미니맵 접기">
+            <Minimize2 />
+          </Button>
       <canvas
         ref={minimap}
         className="block cursor-pointer rounded-md"
@@ -425,13 +467,9 @@ export function GraphCanvas({ nodes, regions = [], edges, looseEdges, hubs, info
       />
         </div>
       ) : (
-        <button
-          type="button"
-          onClick={() => toggleMinimap(true)}
-          className="absolute bottom-3 left-3 flex items-center gap-1.5 rounded-md border bg-background px-2 py-1 text-xs text-muted-foreground shadow-sm hover:text-foreground"
-        >
-          <MapIcon className="size-3.5" /> 미니맵
-        </button>
+        <Button variant="outline" onClick={() => toggleMinimap(true)} className="absolute bottom-3 left-3 text-muted-foreground shadow-sm">
+          <MapIcon /> 미니맵
+        </Button>
       )}
     </div>
   );

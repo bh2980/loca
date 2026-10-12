@@ -10,17 +10,16 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { useDraft } from '@/lib/drafts';
 import { DOCUMENT_KIND } from '@/lib/labels';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
-import { PaneHeader } from '@/components/pane-header';
+import { DataTable, type ColumnDef } from '@/components/data-table';
+import { DetailPane, PaneSection } from '@/components/detail-pane';
+import { HeaderFilter, type FilterOption } from '@/components/header-filter';
 
 export const KINDS = { documents: '문서', characters: '인물', relationships: '관계', events: '사건', speechRules: '말투 규칙' } as const;
 export type Kind = keyof typeof KINDS;
@@ -32,6 +31,8 @@ export interface Draft {
   origin: KnowledgeOrigin;
   reviewed: boolean;
   evidence: string[];
+  /** The work analysis that put it in, if any. */
+  jobId?: string | null;
 }
 export type Row = Draft & Record<string, unknown>;
 export type Value = string | boolean | string[] | null;
@@ -42,7 +43,7 @@ export interface Field {
 }
 export interface KindSpec {
   rows: Row[];
-  columns: { head: string; cell: (row: Row) => ReactNode; className?: string }[];
+  columns: { head: string; cell: (row: Row) => ReactNode; className?: string; /** Fixed px width; columns without one share the rest. */ width?: number }[];
   fields: Field[];
   label: (row: Row) => string;
   save: (id: string, json: Record<string, Value>) => Promise<unknown>;
@@ -58,51 +59,100 @@ export const text = (value: unknown) => (typeof value === 'string' ? value : '')
 
 /** AI (added by AI, nobody took it over) or 정식; candidates are shown with a dashed edge, not a badge. */
 export function SourceBadge({ row }: { row: Draft }) {
-  if (sourceOf(row) === 'ai')
+  const source = sourceOf(row);
+  if (source !== 'official')
     return (
-      <Badge variant="outline" className="text-muted-foreground" title="AI가 넣었고 아직 사람이 고치거나 정식으로 올리지 않았습니다.">
-        {SOURCE_LABELS.ai}
+      <Badge variant="outline" className="text-muted-foreground" title={`AI가 넣었고(${SOURCE_LABELS[source]}) 아직 사람이 고치거나 정식으로 올리지 않았습니다.`}>
+        AI
       </Badge>
     );
   return <span className="text-xs text-muted-foreground">{row.origin === 'import' || row.origin === 'script' ? KNOWLEDGE_ORIGIN_LABELS[row.origin] : SOURCE_LABELS.official}</span>;
 }
 
 /** A candidate row: dashed left edge (not used as context until confirmed). */
-export const candidateRow = (row: Draft) => (row.status === 'candidate' ? '[&>td:first-child]:border-l-2 [&>td:first-child]:border-dashed [&>td:first-child]:border-l-amber-500' : undefined);
+export const candidateRow = (row: Draft) => (row.status === 'candidate' ? '[&>td:first-child]:border-l-2 [&>td:first-child]:border-dashed [&>td:first-child]:border-l-warning' : undefined);
 
 export type SourceFilter = KnowledgeSource | undefined;
 export type StatusFilter = 'confirmed' | 'candidate' | undefined;
 export const matches = (row: Draft, source: SourceFilter, status: StatusFilter) => (!source || sourceOf(row) === source) && (!status || row.status === status);
 
-/** 출처 (AI / 정식) and 상태 (확정 / 후보), filtered separately. */
+export const sourceOptions: FilterOption[] = KNOWLEDGE_SOURCES.map((value) => ({ value, label: SOURCE_LABELS[value] }));
+export const statusOptions: FilterOption[] = [
+  { value: 'confirmed', label: KNOWLEDGE_STATUS_LABELS.confirmed },
+  { value: 'candidate', label: KNOWLEDGE_STATUS_LABELS.candidate },
+];
+
+/** 상태 cell: 확정 (used as context) or 후보 (not yet). */
+export function StateCell({ row }: { row: Draft }) {
+  return row.status === 'candidate' ? <span className="text-warning">{KNOWLEDGE_STATUS_LABELS.candidate}</span> : <span className="text-muted-foreground">{KNOWLEDGE_STATUS_LABELS.confirmed}</span>;
+}
+
+/** 출처 and 상태 as the last two columns of a table; both filter through their header. */
+export function metaColumns<T>(draftOf: (row: T) => Draft, filters: { source: SourceFilter; status: StatusFilter; onChange: (next: { source?: SourceFilter; status?: StatusFilter }) => void }): ColumnDef<T, unknown>[] {
+  return [
+    {
+      id: 'source',
+      meta: { width: 88 },
+      header: () => <HeaderFilter label="출처" value={filters.source} options={sourceOptions} onChange={(value) => filters.onChange({ source: value as SourceFilter })} />,
+      cell: ({ row }) => <SourceBadge row={draftOf(row.original)} />,
+    },
+    {
+      id: 'state',
+      meta: { width: 80 },
+      header: () => <HeaderFilter label="상태" value={filters.status} options={statusOptions} onChange={(value) => filters.onChange({ status: value as StatusFilter })} />,
+      cell: ({ row }) => <StateCell row={draftOf(row.original)} />,
+    },
+  ];
+}
+
+/** 출처 and 상태 filters for displays without a table header (graph, timeline), in the toolbar. */
 export function KnowledgeFilters({ source, status, onChange }: { source: SourceFilter; status: StatusFilter; onChange: (next: { source?: SourceFilter; status?: StatusFilter }) => void }) {
   return (
-    <div className="flex items-center gap-2">
-      <ToggleGroup type="single" variant="outline" size="sm" value={source ?? 'all'} onValueChange={(value) => value && onChange({ source: value === 'all' ? undefined : (value as KnowledgeSource) })} aria-label="출처">
-        <ToggleGroupItem value="all">전체</ToggleGroupItem>
-        {KNOWLEDGE_SOURCES.map((value) => (
-          <ToggleGroupItem key={value} value={value}>
-            {SOURCE_LABELS[value]}
-          </ToggleGroupItem>
-        ))}
-      </ToggleGroup>
-      <Separator orientation="vertical" className="h-5" />
-      <ToggleGroup type="single" variant="outline" size="sm" value={status ?? 'all'} onValueChange={(value) => value && onChange({ status: value === 'all' ? undefined : (value as StatusFilter) })} aria-label="상태">
-        <ToggleGroupItem value="all">전체</ToggleGroupItem>
-        <ToggleGroupItem value="confirmed">{KNOWLEDGE_STATUS_LABELS.confirmed}</ToggleGroupItem>
-        <ToggleGroupItem value="candidate">
-          <span className="border-b border-dashed border-warning">{KNOWLEDGE_STATUS_LABELS.candidate}</span>
-        </ToggleGroupItem>
-      </ToggleGroup>
+    <div className="flex items-center gap-3 text-xs text-muted-foreground">
+      <HeaderFilter label="출처" value={source} options={sourceOptions} onChange={(value) => onChange({ source: value as SourceFilter })} />
+      <HeaderFilter label="상태" value={status} options={statusOptions} onChange={(value) => onChange({ status: value as StatusFilter })} />
     </div>
   );
 }
 
-export function DiscardButton({ count, onConfirm }: { count: number; onConfirm: () => void }) {
+/** The bar for picked AI items: make them official or throw them away. Official items among the picks are skipped. */
+export function BulkDecide({ picked, actionable, pending, onConfirm, onDiscard }: { picked: number; actionable: number; pending: boolean; onConfirm: () => void; onDiscard: () => void }) {
+  return (
+    <>
+      <Button disabled={actionable === 0 || pending} onClick={onConfirm}>
+        <Check /> 정식으로 올리기
+      </Button>
+      <DiscardButton count={actionable} disabled={actionable === 0} onConfirm={onDiscard} />
+      {picked > actionable && <span className="text-xs text-muted-foreground">정식 항목 {picked - actionable}개는 건너뜁니다</span>}
+    </>
+  );
+}
+
+/** The table of one knowledge kind (documents, people, events) with 출처 and 상태 columns. */
+export function KnowledgeTable({ spec, rows, loading, selected, onOpen, picked, onPick, bulk, empty, filters }: {
+  spec: KindSpec;
+  rows: Row[] | undefined;
+  loading: boolean;
+  selected?: string;
+  onOpen: (id: string) => void;
+  picked: Set<string>;
+  onPick: (ids: string[], on: boolean) => void;
+  bulk: ReactNode;
+  empty: ReactNode;
+  filters: Parameters<typeof metaColumns>[1];
+}) {
+  const columns: ColumnDef<Row, unknown>[] = [
+    ...spec.columns.map((column): ColumnDef<Row, unknown> => ({ id: column.head, header: column.head, meta: { width: column.width, className: column.className }, cell: ({ row }) => column.cell(row.original) })),
+    ...metaColumns<Row>((row) => row, filters),
+  ];
+  return <DataTable columns={columns} rows={rows} loading={loading} rowId={(row) => row.id} selected={selected} onRowClick={(row) => onOpen(row.id)} rowClassName={candidateRow} picked={picked} onPick={onPick} bulk={bulk} empty={empty} />;
+}
+
+export function DiscardButton({ count, onConfirm, disabled }: { count: number; onConfirm: () => void; disabled?: boolean }) {
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <Button size="sm" variant="ghost" className="text-destructive">
+        <Button variant="ghost" className="text-destructive" disabled={disabled}>
           <Trash2 /> 버리기
         </Button>
       </AlertDialogTrigger>
@@ -151,79 +201,76 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
   const official = isSettled(row);
 
   const body = (
-    <div className={cn('flex flex-col gap-4', !embedded && 'p-4')}>
-      {spec.fields.map((field) => (
-        <FieldInput key={field.name} field={field} value={form[field.name]} characters={characters} onChange={(value) => update(field.name, value)} />
-      ))}
+    <>
+      <PaneSection title="내용">
+        <div className="flex flex-col gap-4">
+          {spec.fields.map((field) => (
+            <FieldInput key={field.name} field={field} value={form[field.name]} characters={characters} onChange={(value) => update(field.name, value)} />
+          ))}
+        </div>
+      </PaneSection>
       {spec.extra?.(row)}
       <Evidence projectId={projectId} keys={row.evidence} />
-    </div>
+    </>
   );
-  const footer = (
-    <div className={cn('flex items-center gap-2', embedded ? 'pt-1' : 'border-t p-3')}>
-      {!official ? (
-        <>
-          <Button size="sm" variant="ghost" className="text-destructive" onClick={() => onDecide('discard')}>
-            <Trash2 /> 버리기
+  const actions = !official ? (
+    <>
+      <Button variant="ghost" className="text-destructive" onClick={() => onDecide('discard')}>
+        <Trash2 /> 버리기
+      </Button>
+      <Button variant="outline" className="ml-auto" disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
+        저장
+      </Button>
+      <Button disabled={dirty} title={dirty ? '먼저 저장하세요' : 'AI가 넣은 그대로 정식 자료로 올립니다'} onClick={() => onDecide('confirm')}>
+        <Check /> 정식으로 올리기
+      </Button>
+    </>
+  ) : (
+    <>
+      <AlertDialog>
+        <AlertDialogTrigger asChild>
+          <Button variant="ghost" className="text-destructive">
+            <Trash2 /> 삭제
           </Button>
-          <div className="ml-auto flex gap-2">
-            <Button size="sm" variant="outline" disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
-              저장
-            </Button>
-            <Button size="sm" disabled={dirty} title={dirty ? '먼저 저장하세요' : 'AI가 넣은 그대로 정식 자료로 올립니다'} onClick={() => onDecide('confirm')}>
-              <Check /> 정식으로
-            </Button>
-          </div>
-        </>
-      ) : (
-        <>
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button size="sm" variant="ghost" className="text-destructive">
-                <Trash2 /> 삭제
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>정식 항목을 삭제할까요?</AlertDialogTitle>
-                <AlertDialogDescription>“{spec.label(row)}”이(가) 사라지고 더 이상 AI 문맥에 쓰이지 않습니다.</AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>취소</AlertDialogCancel>
-                <AlertDialogAction onClick={() => remove.mutate()}>삭제</AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-          <Button size="sm" className="ml-auto" disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
-            저장
-          </Button>
-        </>
-      )}
-    </div>
+        </AlertDialogTrigger>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>정식 항목을 삭제할까요?</AlertDialogTitle>
+            <AlertDialogDescription>“{spec.label(row)}”이(가) 사라지고 더 이상 AI 문맥에 쓰이지 않습니다.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>취소</AlertDialogCancel>
+            <AlertDialogAction onClick={() => remove.mutate()}>삭제</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <Button className="ml-auto" disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
+        저장
+      </Button>
+    </>
   );
   if (embedded)
     return (
-      <div className="space-y-3">
+      <div className="space-y-6">
         {body}
-        {footer}
+        <div className="flex flex-wrap items-center gap-2">{actions}</div>
       </div>
     );
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <PaneHeader
-        kicker={KINDS[kind]}
-        title={spec.label(row)}
-        subtitle={
-          <span className="flex items-center gap-1.5">
-            <SourceBadge row={row} />
-            {row.status === 'candidate' && <span>후보 · 아직 문맥에 쓰이지 않음</span>}
-          </span>
-        }
-        onClose={onClose}
-      />
-      <ScrollArea className="min-h-0 flex-1">{body}</ScrollArea>
-      {footer}
-    </div>
+    <DetailPane
+      kicker={KINDS[kind]}
+      title={spec.label(row)}
+      subtitle={
+        <span className="flex items-center gap-1.5">
+          <SourceBadge row={row} />
+          {row.status === 'candidate' && <span>후보 · 아직 문맥에 쓰이지 않음</span>}
+        </span>
+      }
+      onClose={onClose}
+      footer={actions}
+    >
+      {body}
+    </DetailPane>
   );
 }
 
@@ -280,8 +327,7 @@ export function FieldInput({ field, value, characters, onChange }: { field: Fiel
 export function Evidence({ projectId, keys }: { projectId: string; keys: string[] }) {
   const lines = useQuery(q.linesByKeys(projectId, keys.slice(0, 50)));
   return (
-    <section className="space-y-2 border-t pt-4">
-      <h3 className="text-xs font-medium text-muted-foreground">근거 대사 {keys.length}개</h3>
+    <PaneSection title={`근거 대사 ${keys.length}개`}>
       {keys.length === 0 && <p className="text-xs text-muted-foreground">근거로 든 대사가 없습니다.</p>}
       <ul className="space-y-1">
         {lines.data?.map((line) => (
@@ -294,7 +340,7 @@ export function Evidence({ projectId, keys }: { projectId: string; keys: string[
           </li>
         ))}
       </ul>
-    </section>
+    </PaneSection>
   );
 }
 
@@ -303,24 +349,26 @@ export function RuleLines({ projectId, ruleId, candidate }: { projectId: string;
   const lines = useQuery(q.ruleLines(projectId, ruleId));
   const levels = Object.entries(lines.data?.levels ?? {}).sort((a, b) => b[1] - a[1]);
   return (
-    <section className="space-y-2 border-t pt-4">
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="text-xs font-medium text-muted-foreground">{candidate ? '확정하면 적용될' : '이 규칙이 적용되는'} 대사 {lines.data?.count ?? '…'}개</h3>
-        {!!lines.data?.count && !candidate && (
+    <PaneSection
+      title={`${candidate ? '확정하면 적용될' : '이 규칙이 적용되는'} 대사 ${lines.data?.count ?? '…'}개`}
+      actions={
+        !!lines.data?.count && !candidate ? (
           <RunDialog
             projectId={projectId}
             unitIds={lines.data.unitIds}
             defaultIgnoreStatus
             preferWorkflow={SPEECH_FIX_WORKFLOW}
             trigger={
-              <Button size="sm" variant="outline">
+              <Button variant="ghost">
                 <Play /> 다시 실행
               </Button>
             }
           />
-        )}
-      </div>
-      <p className="text-[11px] text-muted-foreground">
+        ) : undefined
+      }
+    >
+      <div className="space-y-2">
+      <p className="text-xs text-muted-foreground">
         청자가 정해진 이 쌍의 대사(대사 그래프에서 이 구간 시작을 반드시 거친 뒤, 다음 구간 전까지. 루트에 따라 다르면 대본 순서 기준)입니다. 규칙을 고쳤다면 “{SPEECH_FIX_WORKFLOW}”로 이 대사들의 어미·호칭만 다시 맞추세요.
       </p>
       {!!lines.data?.routeDependent && (
@@ -345,7 +393,8 @@ export function RuleLines({ projectId, ruleId, candidate }: { projectId: string;
           </li>
         ))}
       </ul>
-    </section>
+      </div>
+    </PaneSection>
   );
 }
 
@@ -354,8 +403,7 @@ export function RelationshipChanges({ projectId, changes }: { projectId: string;
   if (!changes.length) return null;
   const byKey = new Map(lines.data?.map((line) => [line.key, line]));
   return (
-    <section className="space-y-2">
-      <h3 className="text-xs font-medium text-muted-foreground">관계 변화</h3>
+    <PaneSection title="관계 변화">
       <ul className="space-y-2">
         {changes.map((change) => {
           const line = byKey.get(change.at);
@@ -373,6 +421,6 @@ export function RelationshipChanges({ projectId, changes }: { projectId: string;
           );
         })}
       </ul>
-    </section>
+    </PaneSection>
   );
 }

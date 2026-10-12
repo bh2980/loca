@@ -262,8 +262,10 @@ function GraphPage() {
                   <ul className="mt-1 max-h-72 overflow-auto rounded-md border bg-popover p-1 text-sm shadow-md">
                     {matches.map((node) => (
                       <li key={node.id}>
-                        <button
-                          className="w-full truncate rounded px-2 py-1 text-left hover:bg-muted"
+                        <Button
+                          variant="ghost"
+                          size="row"
+                          className="block truncate"
                           onClick={() => {
                             select(node.id);
                             canvas.current?.focus(shown(node.id));
@@ -271,7 +273,7 @@ function GraphPage() {
                           }}
                         >
                           <span className="text-xs text-muted-foreground">{KIND_LABEL[node.kind] ?? node.kind}</span> {node.preview ?? node.label ?? node.key}
-                        </button>
+                        </Button>
                       </li>
                     ))}
                   </ul>
@@ -287,13 +289,13 @@ function GraphPage() {
                 )}
               </div>
               <div className="absolute right-3 bottom-3 flex flex-col gap-1">
-                <Button size="icon" variant="outline" className="size-8 bg-background" aria-label="확대" onClick={() => canvas.current?.zoomBy(1.4)}>
+                <Button size="icon" variant="outline" className="bg-background" aria-label="확대" onClick={() => canvas.current?.zoomBy(1.4)}>
                   <Plus />
                 </Button>
-                <Button size="icon" variant="outline" className="size-8 bg-background" aria-label="축소" onClick={() => canvas.current?.zoomBy(0.7)}>
+                <Button size="icon" variant="outline" className="bg-background" aria-label="축소" onClick={() => canvas.current?.zoomBy(0.7)}>
                   <Minus />
                 </Button>
-                <Button size="icon" variant="outline" className="size-8 bg-background" aria-label="전체 맞춤" onClick={() => canvas.current?.fit()}>
+                <Button size="icon" variant="outline" className="bg-background" aria-label="전체 맞춤" onClick={() => canvas.current?.fit()}>
                   <Maximize />
                 </Button>
               </div>
@@ -310,11 +312,11 @@ function GraphPage() {
                     강조{mark.data.label ? ` "${mark.data.label}"` : ''} · 이 화면 {layout.nodes.filter((node) => highlight?.has(node.id)).length.toLocaleString()} / {mark.data.nodeIds.length.toLocaleString()}개
                   </span>
                   {mark.data.section && mark.data.section !== chosen && (
-                    <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => void navigate({ search: (previous) => ({ ...previous, section: mark.data.section!, node: undefined }) })}>
+                    <Button variant="ghost" onClick={() => void navigate({ search: (previous) => ({ ...previous, section: mark.data.section!, node: undefined }) })}>
                       가장 많은 구역으로
                     </Button>
                   )}
-                  <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => void navigate({ search: (previous) => ({ ...previous, mark: undefined }), replace: true })}>
+                  <Button variant="ghost" onClick={() => void navigate({ search: (previous) => ({ ...previous, mark: undefined }), replace: true })}>
                     강조 해제
                   </Button>
                 </div>
@@ -355,7 +357,7 @@ function ChainDetail({ title, nodes, onPick, onClose }: { title: string; nodes: 
         <ol className="divide-y">
           {nodes.map((node) => (
             <li key={node.id}>
-              <Button variant="ghost" className="h-auto w-full justify-start rounded-none px-4 py-2 text-left font-normal whitespace-normal" onClick={() => onPick(node.id)}>
+              <Button variant="ghost" size="row" className="rounded-none px-4 py-2" onClick={() => onPick(node.id)}>
                 <span className="w-14 shrink-0 text-xs text-muted-foreground">{KIND_LABEL[node.kind] ?? node.kind}</span>
                 <span className="min-w-0 flex-1 line-clamp-2">{node.preview ?? node.label ?? node.key}</span>
               </Button>

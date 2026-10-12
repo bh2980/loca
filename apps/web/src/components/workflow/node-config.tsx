@@ -51,7 +51,7 @@ function Field({ label, hint, action, children }: { label: string; hint?: React.
         {action}
       </div>
       {children}
-      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
+      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
     </div>
   );
 }
@@ -118,7 +118,7 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
       </ScrollArea>
       {!readOnly && node.type !== 'entry' && (
         <div className="border-t p-3">
-          <Button variant="ghost" size="sm" className="text-destructive" onClick={onDelete}>
+          <Button variant="ghost" className="text-destructive" onClick={onDelete}>
             <Trash2 /> 노드 삭제
           </Button>
         </div>
@@ -179,12 +179,12 @@ function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRefs; onCh
                   </SelectContent>
                 </Select>
                 <Input className="h-8 flex-1 text-xs" value={field.description} placeholder="설명 (AI에게 보임)" onChange={(event) => setField(index, { description: event.target.value })} />
-                <Button size="icon" variant="ghost" className="size-7 text-destructive" aria-label="필드 삭제" onClick={() => set({ fields: config.fields.filter((_, i) => i !== index) })}>
+                <Button size="icon" variant="ghost" className="text-destructive" aria-label="필드 삭제" onClick={() => set({ fields: config.fields.filter((_, i) => i !== index) })}>
                   <Trash2 />
                 </Button>
               </div>
             ))}
-            <Button size="sm" variant="outline" onClick={() => set({ fields: [...config.fields, { name: `field${config.fields.length + 1}`, type: 'string', description: '' }] })}>
+            <Button variant="outline" onClick={() => set({ fields: [...config.fields, { name: `field${config.fields.length + 1}`, type: 'string', description: '' }] })}>
               <Plus /> 필드 추가
             </Button>
           </div>
@@ -207,7 +207,7 @@ function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRefs; onCh
               ) : null;
             })()}
             어떤 모델을 쓸지는 프로필에서, 무엇을 시킬지는 아래 지시문에서 정합니다.{' '}
-            <Link to="/p/$projectId/settings/ai" params={{ projectId: refs.projectId }} search={{ profile: config.profileId || undefined }} className="underline">
+            <Link to="/p/$projectId/settings/profiles" params={{ projectId: refs.projectId }} search={{ profile: config.profileId || undefined }} className="underline">
               프로필 관리
             </Link>
             {config.output === 'verdict' && ' · 판정에는 System One도 쓸 수 있습니다.'}
@@ -247,13 +247,13 @@ function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRefs; onCh
                     ))}
                 </SelectContent>
               </Select>
-              <Button size="icon" variant="ghost" className="size-8 shrink-0" aria-label="프로필 빼기" onClick={() => set({ extraProfileIds: extras.filter((_, i) => i !== index) })}>
+              <Button size="icon" variant="ghost" className="shrink-0" aria-label="프로필 빼기" onClick={() => set({ extraProfileIds: extras.filter((_, i) => i !== index) })}>
                 <X />
               </Button>
             </div>
           ))}
           {usable.some((profile) => profile.id !== config.profileId && !extras.includes(profile.id)) && (
-            <Button size="sm" variant="outline" onClick={() => set({ extraProfileIds: [...extras, ''] })} disabled={extras.includes('')}>
+            <Button variant="outline" onClick={() => set({ extraProfileIds: [...extras, ''] })} disabled={extras.includes('')}>
               <Plus /> 함께 나눌 프로필
             </Button>
           )}
@@ -263,7 +263,7 @@ function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRefs; onCh
         label="지시문 (이 단계에서 할 일)"
         hint="프로필의 공통 지시문은 뒤에 덧붙습니다."
         action={
-          <AiButton size="xs" variant="ghost" prompt={`이 AI 노드의 지시문을 ${config.instructions.trim() ? '다듬어줘' : '작성해줘'}.`}>
+          <AiButton variant="ghost" prompt={`이 AI 노드의 지시문을 ${config.instructions.trim() ? '다듬어줘' : '작성해줘'}.`}>
             {config.instructions.trim() ? 'AI로 다듬기' : 'AI로 작성'}
           </AiButton>
         }
@@ -371,7 +371,7 @@ function FunctionConfig({ node, refs, readOnly, onChange }: { node: FunctionNode
           </Select>
         </Field>
         <ToggleRow label="자동 확정 (수락 없이 바로 용어집에 반영)" checked={params.autoConfirm as boolean} onChange={(value) => set('autoConfirm', value)} />
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           {params.autoConfirm ? '추가된 용어가 다음 AI 호출부터 문맥에 들어갑니다. 잘못 뽑힌 용어도 그대로 쓰이니 주의하세요.' : '추가된 용어는 ‘후보’입니다. 용어집의 후보 탭에서 수락해야 문맥에 쓰입니다.'}
         </p>
         </>
@@ -453,10 +453,10 @@ function SetStatusConfig({ params, refs, set, setMany }: { params: Record<string
             {refs.tags.map((tag) => {
               const on = add.includes(tag.id), off = remove.includes(tag.id);
               return (
-                <button
+                <Button
                   key={tag.id}
-                  type="button"
-                  className="rounded border px-1.5 py-0.5 text-xs"
+                  variant={on || off ? 'secondary' : 'outline'}
+                  aria-pressed={on || off}
                   onClick={() =>
                     setMany({
                       addTagIds: on ? add.filter((id) => id !== tag.id) : off ? add : [...add, tag.id],
@@ -466,7 +466,7 @@ function SetStatusConfig({ params, refs, set, setMany }: { params: Record<string
                 >
                   {on ? '+ ' : off ? '− ' : ''}
                   <TagChip tag={tag} />
-                </button>
+                </Button>
               );
             })}
           </div>
@@ -499,7 +499,7 @@ function HttpConfig({ params, refs, set }: { params: Record<string, unknown>; re
           <Input className="font-mono text-xs" value={params.url as string} placeholder="https://api.example.com/spell" onChange={(event) => set('url', event.target.value)} />
         </Field>
       </div>
-      <p className="-mt-2 text-[11px] text-muted-foreground">주소에도 {'{{unit.key}}'} 같은 값을 넣을 수 있습니다(자동으로 URL 인코딩).</p>
+      <p className="-mt-2 text-xs text-muted-foreground">주소에도 {'{{unit.key}}'} 같은 값을 넣을 수 있습니다(자동으로 URL 인코딩).</p>
       <Field label="API 키 (선택)" hint={tools.length ? (selected ? '설정의 헤더 형식으로 키를 붙여 보냅니다' : '키가 필요 없는 공개 API면 비워 둡니다') : '키가 필요한 API면 설정 › API 키에서 먼저 추가하세요.'}>
         <Select value={(params.connectionId as string) || 'none'} onValueChange={(value) => set('connectionId', value === 'none' ? '' : value)}>
           <SelectTrigger className="w-full">
@@ -565,7 +565,7 @@ function ScriptConfig({ params, projectId, readOnly, set }: { params: Record<str
       <Field
         label="코드 (JavaScript)"
         action={
-          <AiButton size="xs" variant="ghost" send={false} prompt="이 스크립트 노드의 코드를 작성해줘. 하는 일: ">
+          <AiButton variant="ghost" send={false} prompt="이 스크립트 노드의 코드를 작성해줘. 하는 일: ">
             AI로 작성
           </AiButton>
         }
@@ -574,11 +574,11 @@ function ScriptConfig({ params, projectId, readOnly, set }: { params: Record<str
       </Field>
       {!readOnly && (
         <div className="space-y-2">
-          <Button size="sm" variant="outline" disabled={test.isPending} onClick={() => test.mutate()}>
+          <Button variant="outline" disabled={test.isPending} onClick={() => test.mutate()}>
             <Play /> 첫 대사로 시험 실행
           </Button>
           {test.data && (
-            <pre className="max-h-64 overflow-auto rounded-md bg-muted/50 p-2 text-[11px]">
+            <pre className="max-h-64 overflow-auto rounded-md bg-muted/50 p-2 text-xs">
               {test.data.ok
                 ? `출구: ${test.data.port}${test.data.validPort ? '' : ' (선언하지 않은 출구!)'}  ·  ${test.data.ms}ms\n${JSON.stringify(test.data.result, null, 2)}`
                 : `오류: ${test.data.error}`}
@@ -628,7 +628,7 @@ function ConditionEditor({ node, nodes, readOnly, onChange }: { node: ConditionN
         label="설명"
         action={
           !readOnly && (
-            <AiButton size="xs" variant="ghost" send={false} prompt="이 조건 노드의 조건을 이렇게 바꿔줘: ">
+            <AiButton variant="ghost" send={false} prompt="이 조건 노드의 조건을 이렇게 바꿔줘: ">
               말로 조건 쓰기
             </AiButton>
           )
@@ -655,11 +655,11 @@ function ConditionEditor({ node, nodes, readOnly, onChange }: { node: ConditionN
             방문
             <Input type="number" min={1} className="h-8 w-14" value={limit} onChange={(event) => setLimit(Number(event.target.value))} />
             회 미만
-            <Button size="sm" variant="secondary" disabled={!target} onClick={() => apply({ '<': [{ var: `visits.${target}` }, limit] }, `'${label(target)}' 방문이 ${limit}회 미만`)}>
+            <Button variant="secondary" disabled={!target} onClick={() => apply({ '<': [{ var: `visits.${target}` }, limit] }, `'${label(target)}' 방문이 ${limit}회 미만`)}>
               적용
             </Button>
           </div>
-          <p className="text-[11px] text-muted-foreground">예: 'AI 검수' 방문 3회 미만 → 거짓 출구를 사람 확인에 연결하면 "검수 3번 불통이면 사람 검토".</p>
+          <p className="text-xs text-muted-foreground">예: 'AI 검수' 방문 3회 미만 → 거짓 출구를 사람 확인에 연결하면 "검수 3번 불통이면 사람 검토".</p>
           {verdicts.length > 0 && (
             <div className="flex flex-wrap items-center gap-1.5 text-sm">
               <Select value={passNode} onValueChange={setPassNode}>
@@ -675,12 +675,12 @@ function ConditionEditor({ node, nodes, readOnly, onChange }: { node: ConditionN
                 </SelectContent>
               </Select>
               을(를) 통과했음
-              <Button size="sm" variant="secondary" onClick={() => apply({ '==': [{ var: `outputs.${passNode}.passed` }, true] }, `'${label(passNode)}' 통과`)}>
+              <Button variant="secondary" onClick={() => apply({ '==': [{ var: `outputs.${passNode}.passed` }, true] }, `'${label(passNode)}' 통과`)}>
                 적용
               </Button>
             </div>
           )}
-          <Button size="sm" variant="outline" onClick={() => apply({ '==': [{ var: 'unit.kind' }, 'ui'] }, 'UI 문자열')}>
+          <Button variant="outline" onClick={() => apply({ '==': [{ var: 'unit.kind' }, 'ui'] }, 'UI 문자열')}>
             UI 문자열인가
           </Button>
         </div>

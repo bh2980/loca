@@ -34,7 +34,7 @@ export function CommandSearch({ projectId }: { projectId: string }) {
 
   return (
     <>
-      <Button variant="outline" size="sm" className="w-56 justify-start text-muted-foreground" onClick={() => setOpen(true)}>
+      <Button variant="outline" className="w-56 justify-start text-muted-foreground" onClick={() => setOpen(true)}>
         <Search /> 원문·번역·화자·ID 검색
         <Kbd className="ml-auto">⌘K</Kbd>
       </Button>

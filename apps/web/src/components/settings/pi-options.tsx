@@ -107,7 +107,7 @@ export function PiOptionsPanel({ connectionId, options }: { connectionId: string
                 checked={draft.builtinTools.includes(tool)}
                 onCheckedChange={(checked) => update({ builtinTools: checked ? [...draft.builtinTools, tool] : draft.builtinTools.filter((item) => item !== tool) })}
               />
-              {PI_BUILTIN_TOOLS[tool]} <code className="text-[11px] text-muted-foreground">{tool}</code>
+              {PI_BUILTIN_TOOLS[tool]} <code className="text-xs text-muted-foreground">{tool}</code>
             </label>
           ))}
         </div>
@@ -119,7 +119,7 @@ export function PiOptionsPanel({ connectionId, options }: { connectionId: string
         {draft.builtinTools.length > 0 || draft.contextFiles ? (
           <div className="mt-2 space-y-1">
             <p className="text-xs">작업 폴더</p>
-            <Input className="h-8 font-mono text-xs" value={draft.cwd} placeholder="비워 두면 임시 폴더" onChange={(event) => update({ cwd: event.target.value })} />
+            <Input className="font-mono text-xs" value={draft.cwd} placeholder="비워 두면 임시 폴더" onChange={(event) => update({ cwd: event.target.value })} />
           </div>
         ) : null}
       </section>
@@ -131,11 +131,11 @@ export function PiOptionsPanel({ connectionId, options }: { connectionId: string
       </section>
 
       <div className="flex gap-2">
-        <Button size="sm" disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
+        <Button disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
           {save.isPending && <Spinner />} 저장
         </Button>
         {dirty && (
-          <Button size="sm" variant="ghost" onClick={() => setDraft(saved)}>
+          <Button variant="ghost" onClick={() => setDraft(saved)}>
             되돌리기
           </Button>
         )}

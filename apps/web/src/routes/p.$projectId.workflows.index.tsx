@@ -1,9 +1,13 @@
 import { useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Plus, Trash2 } from 'lucide-react';
+import { Play, Plus, Trash2 } from 'lucide-react';
 import { AiButton } from '@/components/ai-button';
+import { DataTable, type ColumnDef } from '@/components/data-table';
+import { JobStatusBadge } from '@/components/job-status';
 import { Page } from '@/components/page';
+import { Toolbar } from '@/components/toolbar';
+import { RunDialog } from '@/components/workflow/run-dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -11,10 +15,9 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogT
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Skeleton } from '@/components/ui/skeleton';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
-import { RUN_STATUS } from '@/lib/labels';
 
 export const Route = createFileRoute('/p/$projectId/workflows/')({ component: Workflows });
 
@@ -24,78 +27,111 @@ function Workflows() {
   const workflows = useQuery(q.workflows(projectId));
   const runs = useQuery(q.runs(projectId));
   const remove = useMutation({ mutationFn: (id: string) => unwrap(client.workflows[':id'].$delete({ param: { id } })) });
+  type Workflow = NonNullable<typeof workflows.data>[number];
+
+  const columns: ColumnDef<Workflow, unknown>[] = [
+    {
+      id: 'name',
+      header: '이름',
+      cell: ({ row }) => (
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <Link to="/p/$projectId/workflows/$workflowId" params={{ projectId, workflowId: row.original.id }} className="truncate font-medium hover:underline" onClick={(event) => event.stopPropagation()}>
+              {row.original.name}
+            </Link>
+            {row.original.errorCount > 0 && <Badge variant="destructive">오류 {row.original.errorCount}</Badge>}
+          </div>
+          {row.original.description && <p className="truncate text-xs text-muted-foreground">{row.original.description}</p>}
+        </div>
+      ),
+    },
+    { id: 'nodes', header: '노드', meta: { width: 64, align: 'end' }, cell: ({ row }) => row.original.nodeCount },
+    { id: 'version', header: '버전', meta: { width: 64, className: 'text-muted-foreground' }, cell: ({ row }) => `v${row.original.version}` },
+    {
+      id: 'last',
+      header: '최근 실행',
+      meta: { width: 220 },
+      cell: ({ row }) => {
+        const last = runs.data?.find((run) => run.workflowId === row.original.id);
+        if (!runs.data) return <Skeleton className="h-4 w-24" />;
+        if (!last) return <span className="text-muted-foreground">—</span>;
+        return (
+          <Link to="/p/$projectId/runs/$runId" params={{ projectId, runId: last.id }} className="flex items-center gap-2 hover:underline" onClick={(event) => event.stopPropagation()}>
+            <JobStatusBadge status={last.status} />
+            <span className="truncate text-xs text-muted-foreground">{new Date(last.createdAt).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
+          </Link>
+        );
+      },
+    },
+    {
+      id: 'run',
+      header: () => <span className="sr-only">실행</span>,
+      meta: { width: 88, className: 'py-1.5' },
+      cell: ({ row }) => (
+        <div onClick={(event) => event.stopPropagation()}>
+          <RunDialog
+            projectId={projectId}
+            workflowId={row.original.id}
+            disabled={row.original.errorCount > 0}
+            trigger={
+              <Button variant="ghost" disabled={row.original.errorCount > 0}>
+                <Play /> 실행
+              </Button>
+            }
+          />
+        </div>
+      ),
+    },
+    {
+      id: 'delete',
+      header: () => <span className="sr-only">삭제</span>,
+      meta: { width: 48, className: 'py-1.5' },
+      cell: ({ row }) => (
+        <div onClick={(event) => event.stopPropagation()}>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="ghost" size="icon" className="text-muted-foreground opacity-0 group-hover/row:opacity-100 hover:text-destructive focus-visible:opacity-100" aria-label={`${row.original.name} 삭제`}>
+                <Trash2 />
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>‘{row.original.name}’을 삭제할까요?</AlertDialogTitle>
+                <AlertDialogDescription>지난 실행 기록은 그대로 남습니다(실행 당시 정의를 따로 보관합니다).</AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>취소</AlertDialogCancel>
+                <AlertDialogAction onClick={() => remove.mutate(row.original.id)}>삭제</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
+      ),
+    },
+  ];
 
   return (
-    <Page
-      title="워크플로"
-      actions={
-        <>
-          <AiButton send={false} prompt="이런 워크플로를 만들어줘: ">
-            AI로 만들기
-          </AiButton>
-          <NewWorkflow projectId={projectId} />
-        </>
-      }
-    >
-      <div className="rounded-lg border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>이름</TableHead>
-              <TableHead className="w-20">버전</TableHead>
-              <TableHead className="w-20 text-right">노드</TableHead>
-              <TableHead className="w-28">검사</TableHead>
-              <TableHead className="w-48">최근 실행</TableHead>
-              <TableHead className="w-12" />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {workflows.data?.map((workflow) => {
-              const last = runs.data?.find((run) => run.workflowId === workflow.id);
-              return (
-                <TableRow key={workflow.id} className="cursor-pointer" onClick={() => void navigate({ to: '/p/$projectId/workflows/$workflowId', params: { projectId, workflowId: workflow.id } })}>
-                  <TableCell>
-                    <Link to="/p/$projectId/workflows/$workflowId" params={{ projectId, workflowId: workflow.id }} className="font-medium hover:underline" onClick={(event) => event.stopPropagation()}>
-                      {workflow.name}
-                    </Link>
-                    {workflow.description && <p className="truncate text-xs text-muted-foreground">{workflow.description}</p>}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">v{workflow.version}</TableCell>
-                  <TableCell className="text-right tabular-nums">{workflow.nodeCount}</TableCell>
-                  <TableCell>{workflow.errorCount ? <Badge variant="destructive">오류 {workflow.errorCount}</Badge> : <Badge variant="outline">실행 가능</Badge>}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {last ? (
-                      <Link to="/p/$projectId/runs/$runId" params={{ projectId, runId: last.id }} className="hover:underline" onClick={(event) => event.stopPropagation()}>
-                        {RUN_STATUS[last.status]} · {new Date(last.createdAt).toLocaleString()}
-                      </Link>
-                    ) : (
-                      '—'
-                    )}
-                  </TableCell>
-                  <TableCell onClick={(event) => event.stopPropagation()}>
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button variant="ghost" size="icon" className="size-7 text-destructive" aria-label={`${workflow.name} 삭제`}>
-                          <Trash2 />
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>‘{workflow.name}’을 삭제할까요?</AlertDialogTitle>
-                          <AlertDialogDescription>지난 실행 기록은 그대로 남습니다(실행 당시 정의를 따로 보관합니다).</AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>취소</AlertDialogCancel>
-                          <AlertDialogAction onClick={() => remove.mutate(workflow.id)}>삭제</AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
+    <Page title="워크플로" flush>
+      <div className="flex h-full min-h-0 flex-col">
+        <Toolbar
+          count={workflows.data && `${workflows.data.length.toLocaleString()}개`}
+          actions={
+            <>
+              <AiButton send={false} prompt="이런 워크플로를 만들어줘: ">
+                AI로 만들기
+              </AiButton>
+              <NewWorkflow projectId={projectId} />
+            </>
+          }
+        />
+        <DataTable
+          columns={columns}
+          rows={workflows.data}
+          rowId={(workflow) => workflow.id}
+          loading={workflows.isLoading}
+          empty="아직 워크플로가 없습니다. ‘새 워크플로’나 ‘AI로 만들기’로 시작하세요."
+          onRowClick={(workflow) => void navigate({ to: '/p/$projectId/workflows/$workflowId', params: { projectId, workflowId: workflow.id } })}
+        />
       </div>
     </Page>
   );
@@ -116,7 +152,7 @@ function NewWorkflow({ projectId }: { projectId: string }) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button size="sm">
+        <Button>
           <Plus /> 새 워크플로
         </Button>
       </DialogTrigger>

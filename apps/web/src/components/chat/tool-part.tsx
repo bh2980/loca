@@ -94,7 +94,7 @@ export function ChangePreview({ name, input }: { name: string; input: Record<str
           <ul className="max-h-56 space-y-1 overflow-auto">
             {changes.slice(0, 50).map((change) => (
               <li key={change.key} className="rounded border px-2 py-1">
-                <span className="font-mono text-[11px] text-muted-foreground">{change.key}</span>
+                <span className="font-mono text-xs text-muted-foreground">{change.key}</span>
                 {change.translation !== undefined && <span className="block">{change.translation}</span>}
                 {(change.status || change.addTags?.length || change.removeTags?.length) && (
                   <span className="block text-muted-foreground">
@@ -132,7 +132,7 @@ export function ChangePreview({ name, input }: { name: string; input: Record<str
           {field('노드', input.nodeId)}
           {field('항목', { instructions: '지시문', expression: '조건식', code: '스크립트 코드' }[input.field as string])}
           {field('설명', input.description)}
-          <pre className="max-h-64 overflow-auto rounded-md border bg-muted/30 p-2 text-[11px] whitespace-pre-wrap">{value}</pre>
+          <pre className="max-h-64 overflow-auto rounded-md border bg-muted/30 p-2 text-xs whitespace-pre-wrap">{value}</pre>
         </dl>
       );
     }
@@ -173,11 +173,11 @@ export function ToolPart({ part, stale, onDecide, onOutput, proposal }: {
         </div>
         {part.state === 'input-available' && !stale && (
           <div className="flex justify-end gap-2 border-t px-3 py-2">
-            <Button size="sm" variant="outline" onClick={() => onOutput(part.toolCallId, { applied: false, reason: '사용자가 거절했습니다.' })}>
+            <Button variant="outline" onClick={() => onOutput(part.toolCallId, { applied: false, reason: '사용자가 거절했습니다.' })}>
               <X /> 거절
             </Button>
             <Button
-              size="sm"
+             
               onClick={() => {
                 const error = workflowEdits.apply(part.input as unknown as WorkflowNodeEdit);
                 if (error) toast.error(error);
@@ -209,10 +209,10 @@ export function ToolPart({ part, stale, onDecide, onOutput, proposal }: {
         <div className="px-3 py-2 text-xs">{part.input && <ChangePreview name={name} input={part.input} />}</div>
         {!decided && part.approval && (
           <div className="flex justify-end gap-2 border-t px-3 py-2">
-            <Button size="sm" variant="outline" onClick={() => onDecide(part.approval!.id, false)}>
+            <Button variant="outline" onClick={() => onDecide(part.approval!.id, false)}>
               <X /> 거절
             </Button>
-            <Button size="sm" onClick={() => onDecide(part.approval!.id, true)}>
+            <Button onClick={() => onDecide(part.approval!.id, true)}>
               <Check /> 수락
             </Button>
           </div>
@@ -232,7 +232,7 @@ export function ToolPart({ part, stale, onDecide, onOutput, proposal }: {
         <ChevronRight className="size-3 transition-transform group-data-[state=open]:rotate-90" />
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <pre className="mt-1 max-h-48 overflow-auto rounded-md bg-muted/50 p-2 text-[11px]">
+        <pre className="mt-1 max-h-48 overflow-auto rounded-md bg-muted/50 p-2 text-xs">
           {part.state === 'output-error' ? part.errorText : JSON.stringify(part.output ?? part.input, null, 1)?.slice(0, 4000)}
         </pre>
       </CollapsibleContent>
@@ -258,7 +258,7 @@ function GraphViewLink({ output }: { output: GraphViewOutput }) {
       <span className="min-w-0 flex-1 truncate">
         {output.label} · 노드 {output.nodes.toLocaleString()}개 {only ? '따로 그림' : '강조'}
       </span>
-      <Button size="sm" variant="outline" className="h-7" disabled={!projectId} onClick={() => void navigate({ to: output.open.to, params: { projectId: projectId! }, search: output.open.search as never })}>
+      <Button variant="outline" disabled={!projectId} onClick={() => void navigate({ to: output.open.to, params: { projectId: projectId! }, search: output.open.search as never })}>
         그래프에서 보기
       </Button>
     </div>

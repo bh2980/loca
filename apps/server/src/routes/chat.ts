@@ -84,6 +84,10 @@ export const chatRoutes = new Hono<Env>()
       events.changed(session.projectId, 'chat');
     }
 
+    // Kept before the reply starts: if the turn is cut off (the page closed, the connection dropped),
+    // the question is not lost; the reply replaces this when it ends.
+    db.update(s.chatSessions).set({ messages }).where(eq(s.chatSessions.id, session.id)).run();
+
     const view = c.req.valid('json').view;
     if ((ai.CHAT_CLI_KINDS as string[]).includes(route.kind)) {
       return cliChatResponse({

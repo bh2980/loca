@@ -17,10 +17,15 @@ export const KNOWLEDGE_ORIGIN_LABELS: Record<KnowledgeOrigin, string> = { human:
  * it is — AI's (added by AI, nobody has edited or promoted it) or official (a person's, imported,
  * or AI's that a person took over). Auto-confirmed analysis gives confirmed AI items.
  */
-export const KNOWLEDGE_SOURCES = ['ai', 'official'] as const;
+/**
+ * Where an item stands: put in by the work analysis (it carries the analysis job), put in by AI
+ * elsewhere (a workflow node, the chat), or official (a person wrote, edited or confirmed it, or it
+ * came with the import). The two AI kinds differ a lot in grain, so they are told apart.
+ */
+export const KNOWLEDGE_SOURCES = ['analysis', 'ai', 'official'] as const;
 export type KnowledgeSource = (typeof KNOWLEDGE_SOURCES)[number];
-export const SOURCE_LABELS: Record<KnowledgeSource, string> = { ai: 'AI', official: '정식' };
-export const sourceOf = (item: { origin: KnowledgeOrigin; reviewed: boolean }): KnowledgeSource => (item.origin === 'ai' && !item.reviewed ? 'ai' : 'official');
+export const SOURCE_LABELS: Record<KnowledgeSource, string> = { analysis: '작품 분석', ai: '워크플로·채팅', official: '정식' };
+export const sourceOf = (item: { origin: KnowledgeOrigin; reviewed: boolean; jobId?: string | null }): KnowledgeSource => (item.origin === 'ai' && !item.reviewed ? (item.jobId ? 'analysis' : 'ai') : 'official');
 /** Nothing left to decide: confirmed and official. Everything else can be promoted or discarded. */
 export const isSettled = (item: { status: KnowledgeStatus; origin: KnowledgeOrigin; reviewed: boolean }) => item.status === 'confirmed' && sourceOf(item) === 'official';
 
