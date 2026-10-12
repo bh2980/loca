@@ -1,4 +1,5 @@
 import { createUIMessageStream, createUIMessageStreamResponse, type UIMessage } from 'ai';
+import { readToEnd } from './chat-turns.ts';
 import { eq } from 'drizzle-orm';
 import * as ai from '@tw/ai';
 import { logged } from './ai-calls.ts';
@@ -87,6 +88,8 @@ export async function cliChatResponse(input: {
   messages: UIMessage[];
   timeoutMs: number;
   signal: AbortSignal;
+  /** Called once the reply has been read to its end (see readToEnd). */
+  onEnd: () => void;
   /** The CLI call; tests pass a fake. */
   turn?: CliTurn;
 }): Promise<Response> {
@@ -161,5 +164,5 @@ export async function cliChatResponse(input: {
     },
     onError: (error) => (error instanceof Error ? error.message : String(error)),
   });
-  return createUIMessageStreamResponse({ stream });
+  return createUIMessageStreamResponse({ stream, ...readToEnd(input.onEnd) });
 }

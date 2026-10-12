@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import {
@@ -18,7 +18,7 @@ import {
   applyNodeChanges,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { ChevronLeft, LayoutGrid, Plus, RotateCcw, Save, Trash2 } from 'lucide-react';
+import { ChevronLeft, LayoutGrid, Pencil, Plus, RotateCcw, Save, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AI_OUTPUTS, AI_PRESETS, FUNCTIONS, FUNCTION_NAMES, nodeName, nodeProfileIds, workflowNodeSchema, type FunctionName, type WorkflowDefinition, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
 import { Page } from '@/components/page';
@@ -39,6 +39,41 @@ import { SplitPane } from '@/components/split-pane';
 
 /** When the workflow was last saved: 10. 13. 오전 06:16. Runs keep their own copy of what they ran. */
 const savedAt = (at: string) => new Date(at).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+/**
+ * The workflow's name reads as a title; the pencil turns it into an ordinary field (Enter or
+ * leaving keeps it, Esc puts it back). The rename is part of the unsaved edit like any other.
+ */
+function NameField({ name, onRename }: { name: string; onRename: (name: string) => void }) {
+  const [editing, setEditing] = useState<string | null>(null);
+  // Esc closes the field, and the blur that follows must not keep what was typed.
+  const cancelled = useRef(false);
+  const done = (keep: boolean) => {
+    if (!keep) cancelled.current = true;
+    if (keep && !cancelled.current && editing?.trim() && editing.trim() !== name) onRename(editing.trim());
+    setEditing(null);
+  };
+  if (editing !== null)
+    return (
+      <Input
+        autoFocus
+        value={editing}
+        onChange={(event) => setEditing(event.target.value)}
+        onBlur={() => done(true)}
+        onKeyDown={(event) => (event.key === 'Enter' ? done(true) : event.key === 'Escape' && done(false))}
+        className="h-8 w-60"
+        aria-label="워크플로 이름"
+      />
+    );
+  return (
+    <span className="flex min-w-0 items-center gap-0.5">
+      <span className="truncate font-medium text-foreground">{name}</span>
+      <Button variant="ghost" size="icon-xs" aria-label="이름 바꾸기" onClick={() => ((cancelled.current = false), setEditing(name))}>
+        <Pencil />
+      </Button>
+    </span>
+  );
+}
 
 export const Route = createFileRoute('/p/$projectId/workflows/$workflowId')({
   validateSearch: (raw: Record<string, unknown>): { node?: string } => ({ node: typeof raw.node === 'string' ? raw.node : undefined }),
@@ -330,12 +365,7 @@ function WorkflowEditor() {
       }
       meta={
         <span className="flex items-center gap-2">
-          <Input
-            value={current.name}
-            onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))}
-            className="h-8 w-auto min-w-24 max-w-80 field-sizing-content border-transparent px-1 font-medium text-foreground shadow-none hover:border-input focus-visible:border-input"
-            aria-label="워크플로 이름"
-          />
+          <NameField name={current.name} onRename={(name) => setDraft((value) => ({ ...value, name }))} />
           {draft ? <Badge variant="secondary">저장 안 됨</Badge> : <span className="text-xs text-muted-foreground">{savedAt(workflow.data.updatedAt)} 저장</span>}
           {errorCount > 0 && <span className="truncate text-destructive">오류 {errorCount}개 — 저장한 버전에 오류가 없어야 실행할 수 있습니다.</span>}
         </span>

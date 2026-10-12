@@ -27,7 +27,9 @@ export function startCall(db: Db, meta: CallMeta, route: Pick<ai.ResolvedRoute, 
   db.insert(s.aiCalls)
     .values({ id, projectId: meta.projectId, kind: meta.kind, refId: meta.refId ?? null, label: meta.label, profileId: meta.profileId ?? null, connectionKind: route.kind, model: route.model, request: meta.request ?? null, startedAt: new Date() })
     .run();
-  events.changed(meta.projectId ?? undefined, 'calls');
+  // A chat's panel shows its turn's current step (see GET /chat/:sessionId).
+  const topics = meta.kind === 'chat' ? (['calls', 'chat'] as const) : (['calls'] as const);
+  events.changed(meta.projectId ?? undefined, ...topics);
   let done = false;
   // Idempotent: a stream can report an error and then an abort for the same request.
   return (outcome: { usage?: ai.Usage; error?: unknown }) => {
@@ -38,7 +40,7 @@ export function startCall(db: Db, meta: CallMeta, route: Pick<ai.ResolvedRoute, 
       .set({ status: error === null ? 'ok' : 'failed', error, ...usageOf(outcome.usage ?? (outcome.error as { usage?: ai.Usage } | undefined)?.usage), finishedAt: new Date() })
       .where(eq(s.aiCalls.id, id))
       .run();
-    events.changed(meta.projectId ?? undefined, 'calls');
+    events.changed(meta.projectId ?? undefined, ...topics);
   };
 }
 
