@@ -94,7 +94,7 @@ export function GroupList({
   const picking = picked.size > 0;
 
   return (
-    <div className="flex h-full min-h-0 flex-col border-r bg-sidebar/40">
+    <div className="flex h-full min-h-0 flex-col bg-sidebar/40">
       <div className="space-y-1 border-b p-2">
         <ScopeLink projectId={projectId} scope={{}} active={!scope.group && !scope.review} icon={<Rows3 />} label="모든 대사" count={lineTotal} />
         <ScopeLink projectId={projectId} scope={{ review: true }} active={Boolean(scope.review)} icon={<Inbox />} label="검토함" count={reviewCount} highlight={reviewCount > 0} />

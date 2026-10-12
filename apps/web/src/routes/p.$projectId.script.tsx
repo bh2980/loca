@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
+import { useDefaultLayout } from 'react-resizable-panels';
 import { ChevronLeft, ChevronRight, Network, PanelLeftClose, PanelLeftOpen, Play, X } from 'lucide-react';
 import { AiButton } from '@/components/ai-button';
 import { Page } from '@/components/page';
@@ -8,6 +9,7 @@ import { GroupList, type GroupRow } from '@/components/script/group-list';
 import { LineList, linesSearchSchema, type LinesSearch } from '@/components/script/line-list';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { Button } from '@/components/ui/button';
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { GROUP_KIND } from '@/lib/labels';
 import { q } from '@/lib/queries';
@@ -62,6 +64,8 @@ function Script() {
   const lineTotal = project.data?.byStatus.reduce((sum, row) => sum + row.count, 0) ?? 0;
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [listOpen, setListOpen] = useState(() => readListOpen());
+  // The list's width is dragged by its edge and remembered, like every right-hand pane.
+  const layout = useDefaultLayout({ id: 'tw-script-groups', panelIds: listOpen ? ['groups', 'lines'] : ['lines'], storage: localStorage });
   const toggleList = () =>
     setListOpen((open) => {
       try {
@@ -142,47 +146,52 @@ function Script() {
 
   return (
     <Page title="번역" flush>
-      <div className="flex h-full min-h-0">
-        <div className={listOpen ? 'w-64 shrink-0' : 'hidden'}>
-          <GroupList
-            projectId={projectId}
-            groups={groups.data && ordered}
-            statuses={statuses.data?.statuses ?? []}
-            scope={{ group: search.group, review: search.review }}
-            lineTotal={lineTotal}
-            reviewCount={project.data?.reviewCount ?? 0}
-            gq={search.gq}
-            kind={search.kind}
-            onFilter={(next) => onSearch(next, { replace: true })}
-            picked={picked}
-            onPick={(ids, on) =>
-              setPicked((previous) => {
-                const next = new Set(previous);
-                for (const id of ids) if (on) next.add(id);
-                else next.delete(id);
-                return next;
-              })
-            }
-            bulk={
-              <>
-                <span className="font-medium tabular-nums">묶음 {picked.size}개</span>
-                <RunDialog
-                  projectId={projectId}
-                  groupIds={[...picked]}
-                  trigger={
-                    <Button>
-                      <Play /> 실행
+      <ResizablePanelGroup orientation="horizontal" defaultLayout={layout.defaultLayout} onLayoutChanged={layout.onLayoutChanged} className="h-full min-h-0">
+        {listOpen && (
+          <>
+            <ResizablePanel id="groups" defaultSize="340px" minSize="220px" maxSize="50%" className="min-w-0">
+              <GroupList
+                projectId={projectId}
+                groups={groups.data && ordered}
+                statuses={statuses.data?.statuses ?? []}
+                scope={{ group: search.group, review: search.review }}
+                lineTotal={lineTotal}
+                reviewCount={project.data?.reviewCount ?? 0}
+                gq={search.gq}
+                kind={search.kind}
+                onFilter={(next) => onSearch(next, { replace: true })}
+                picked={picked}
+                onPick={(ids, on) =>
+                  setPicked((previous) => {
+                    const next = new Set(previous);
+                    for (const id of ids) if (on) next.add(id);
+                    else next.delete(id);
+                    return next;
+                  })
+                }
+                bulk={
+                  <>
+                    <span className="font-medium tabular-nums">묶음 {picked.size}개</span>
+                    <RunDialog
+                      projectId={projectId}
+                      groupIds={[...picked]}
+                      trigger={
+                        <Button>
+                          <Play /> 실행
+                        </Button>
+                      }
+                    />
+                    <Button variant="ghost" size="icon" className="ml-auto" aria-label="선택 해제" onClick={() => setPicked(new Set())}>
+                      <X />
                     </Button>
-                  }
-                />
-                <Button variant="ghost" size="icon" className="ml-auto" aria-label="선택 해제" onClick={() => setPicked(new Set())}>
-                  <X />
-                </Button>
-              </>
-            }
-          />
-        </div>
-        <div className="flex min-w-0 flex-1 flex-col">
+                  </>
+                }
+              />
+            </ResizablePanel>
+            <ResizableHandle withHandle />
+          </>
+        )}
+        <ResizablePanel id="lines" minSize="480px" className="flex min-w-0 flex-col">
           <LineList
             key={`${search.group ?? ''}:${search.review ?? ''}`}
             projectId={projectId}
@@ -194,8 +203,8 @@ function Script() {
             heading={heading}
             actions={actions}
           />
-        </div>
-      </div>
+        </ResizablePanel>
+      </ResizablePanelGroup>
     </Page>
   );
 }
