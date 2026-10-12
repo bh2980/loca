@@ -94,11 +94,12 @@ export function usageFor(promptChars: number, completionChars: number, options: 
   return { prompt_tokens: prompt, completion_tokens: completion, total_tokens: prompt + completion, prompt_tokens_details: { cached_tokens: Math.min(options.cachedTokens, prompt) } };
 }
 
-export type MockKind = 'analysis' | 'candidate' | 'revise' | 'verdict' | 'terms' | 'listener' | 'knowledge' | 'json';
+export type MockKind = 'analysis' | 'candidate' | 'revise' | 'verdict' | 'terms' | 'glossary' | 'listener' | 'knowledge' | 'json';
 
 /** Which answer the prompt asks for. The server's CONTRACT sentence names the output; instructions tell translate from revise. */
 export function detectKind(system: string): MockKind {
   if (system.includes('complete script of a game')) return 'analysis';
+  if (system.includes('Korean localization glossary')) return 'glossary';
   if (system.includes('"relationships" (with "change"')) return 'knowledge';
   if (system.includes('in "listeners"')) return 'listener';
   if (system.includes('in "terms"')) return 'terms';
@@ -165,7 +166,7 @@ function jsonRows(rows: Row[], schema: unknown) {
 /** Lines mentioning "orders" never pass review, so they end up waiting for a person. */
 const stubborn = (source: string) => /orders/i.test(source);
 
-function structured(kind: Exclude<MockKind, 'analysis'>, system: string, rows: Row[], schema: unknown): { body: unknown; entries?: { key: string; textKey?: string } } {
+function structured(kind: Exclude<MockKind, 'analysis' | 'glossary'>, system: string, rows: Row[], schema: unknown): { body: unknown; entries?: { key: string; textKey?: string } } {
   switch (kind) {
     case 'candidate':
     case 'revise':
@@ -257,6 +258,16 @@ export function respond(request: MockRequest, options: MockOptions, rand: () => 
     const result = analysis(request.user);
     body = result.body;
     lines = result.count;
+  } else if (kind === 'glossary') {
+    // "빈 번역 AI로 채우기": every candidate gets a form, except phrases opening with an ordinary word.
+    const input = JSON.parse(request.user) as { candidates: { source: string }[] };
+    lines = input.candidates.length;
+    body = {
+      terms: input.candidates.map(({ source }) => {
+        const isTerm = !/^(This|Thank|That|Dear)\b/.test(source);
+        return { source, isTerm, target: isTerm ? `[KO] ${source}` : '', note: isTerm ? '모의 용어' : '' };
+      }),
+    };
   } else {
     // The server groups a batch's lines by scene; older prompts listed them flat.
     const input = JSON.parse(request.user) as { lines?: Row[]; scenes?: { lines: Row[] }[] };
