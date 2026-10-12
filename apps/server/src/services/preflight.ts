@@ -89,6 +89,7 @@ export function preflight(db: Db, workflow: typeof s.workflows.$inferSelect, sco
     max: sum((e) => e.requests.max * perRequest(e))!,
   };
 
+  const unmeasured = estimates.some((estimate) => estimate.connection && estimate.overheadTokens === null);
   const dialogue = units.filter((unit) => unit.kind === 'dialogue');
   const unknownListener = dialogue.filter((unit) => !unit.listener || (unit.listenerOrigin === 'ai' && (unit.listenerConfidence ?? 0) < LISTENER_MIN_CONFIDENCE)).length;
   const rules = db.select({ status: s.speechRules.status, count: sql<number>`count(*)` }).from(s.speechRules).where(eq(s.speechRules.projectId, projectId)).groupBy(s.speechRules.status).all();
@@ -124,8 +125,15 @@ export function preflight(db: Db, workflow: typeof s.workflows.$inferSelect, sco
       dialogueLines: dialogue.length,
     },
     warnings,
-    /** Caps to start with: the expectation (or the maximum) plus room for re-requests. */
-    suggestedLimits: { maxCalls: Math.ceil((calls.expected ?? calls.max) * 1.3) || undefined, maxInputTokens: Math.ceil((inputTokens.expected ?? inputTokens.max) * 1.3) || undefined },
+    /**
+     * Caps to start with: the expectation (or the maximum) plus room for re-requests. No input cap
+     * while a connection's fixed overhead is unmeasured: the estimate would leave it out and the run
+     * would stop early. One run measures it.
+     */
+    suggestedLimits: {
+      maxCalls: Math.ceil((calls.expected ?? calls.max) * 1.3) || undefined,
+      maxInputTokens: unmeasured ? undefined : Math.ceil((inputTokens.expected ?? inputTokens.max) * 1.3) || undefined,
+    },
   };
 }
 

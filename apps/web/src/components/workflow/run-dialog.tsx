@@ -1,11 +1,15 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, type UseQueryResult } from '@tanstack/react-query';
+import type { InferResponseType } from 'hono/client';
 import { useNavigate } from '@tanstack/react-router';
-import { Play, Search } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Play, Search, TriangleAlert } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
@@ -13,6 +17,15 @@ import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 
 type Mode = 'all' | 'groups' | 'units' | 'tags';
+
+const range = (value: { min: number; expected: number | null; max: number }, unit: string) =>
+  value.expected !== null ? `${value.expected.toLocaleString()}${unit}` : `${value.min.toLocaleString()}~${value.max.toLocaleString()}${unit}`;
+
+/** A cap field: empty means no cap; anything else must be a positive whole number. */
+const parseCap = (text: string) => {
+  const value = Number(text.replace(/,/g, '').trim());
+  return text.trim() !== '' && Number.isInteger(value) && value > 0 ? value : undefined;
+};
 
 /**
  * Start a workflow on the whole project, chosen groups, tagged lines, or picked lines. The count shown is
@@ -35,6 +48,9 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
 }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const [step, setStep] = useState<1 | 2>(1);
+  // undefined = untouched: the field shows the server's suggestion.
+  const [caps, setCaps] = useState<{ calls?: string; tokens?: string }>({});
   const initialMode: Mode | undefined = unitIds?.length ? 'units' : groupIds?.length ? 'groups' : undefined;
   const [mode, setMode] = useState<Mode | undefined>(initialMode);
   const [picked, setPicked] = useState<Set<string>>(new Set(groupIds));
@@ -56,8 +72,22 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
     queryFn: () => unwrap(client.workflows[':id'].preview.$post({ param: { id: workflowId! }, json: scope })),
     enabled: open && Boolean(workflowId) && ready,
   });
+  const plan = useQuery({
+    queryKey: ['units', 'run-preflight', workflowId, scope],
+    queryFn: () => unwrap(client.workflows[':id'].preflight.$post({ param: { id: workflowId! }, json: scope })),
+    enabled: open && step === 2 && Boolean(workflowId) && ready,
+  });
+  const suggested = plan.data?.suggestedLimits;
+  const callsText = caps.calls ?? (suggested?.maxCalls ? String(suggested.maxCalls) : '');
+  const tokensText = caps.tokens ?? (suggested?.maxInputTokens ? String(suggested.maxInputTokens) : '');
+  const callsCap = parseCap(callsText);
+  const tokensCap = parseCap(tokensText);
+  const capsInvalid = (callsText.trim() !== '' && callsCap === undefined) || (tokensText.trim() !== '' && tokensCap === undefined);
   const start = useMutation({
-    mutationFn: () => unwrap(client.workflows[':id'].runs.$post({ param: { id: workflowId! }, json: scope })),
+    mutationFn: () => {
+      const limits = { ...(callsCap ? { maxCalls: callsCap } : {}), ...(tokensCap ? { maxInputTokens: tokensCap } : {}) };
+      return unwrap(client.workflows[':id'].runs.$post({ param: { id: workflowId! }, json: { ...scope, ...(Object.keys(limits).length ? { limits } : {}) } }));
+    },
     onSuccess: (run) => {
       setOpen(false);
       void navigate({ to: '/p/$projectId/runs/$runId', params: { projectId, runId: run.runId } });
@@ -73,6 +103,8 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
       onOpenChange={(next) => {
         setOpen(next);
         if (next) {
+          setStep(1);
+          setCaps({});
           setMode(initialMode);
           setPicked(new Set(groupIds));
         }
@@ -85,12 +117,14 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
           </Button>
         )}
       </DialogTrigger>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className={step === 2 ? 'sm:max-w-3xl' : 'sm:max-w-lg'}>
         <DialogHeader>
-          <DialogTitle>워크플로 실행</DialogTitle>
+          <DialogTitle>{step === 1 ? '워크플로 실행 · 범위 고르기' : '워크플로 실행 · 번역 준비'}</DialogTitle>
           <DialogDescription>저장된 버전과 현재 AI 프로필 설정을 고정해서 실행합니다.{dirty && ' 저장하지 않은 편집은 포함되지 않습니다.'}</DialogDescription>
         </DialogHeader>
 
+        {step === 1 && (
+          <>
         {!fixedWorkflowId && (
           <Select value={workflowId} onValueChange={setChosen}>
             <SelectTrigger className="w-full" aria-label="워크플로">
@@ -197,15 +231,141 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
             <span className="text-muted-foreground"> (선택 {selectedTotal}개 중 {selectedTotal - count}개는 진입 상태 조건에 맞지 않음)</span>
           )}
         </p>
+          </>
+        )}
+        {step === 2 && <PlanStep plan={plan} callsText={callsText} tokensText={tokensText} onCalls={(value) => setCaps((previous) => ({ ...previous, calls: value }))} onTokens={(value) => setCaps((previous) => ({ ...previous, tokens: value }))} />}
+        {start.isError && <p className="text-sm text-destructive">{start.error.message}</p>}
         <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>
-            취소
-          </Button>
-          <Button disabled={!count || !workflowId || start.isPending} onClick={() => start.mutate()}>
-            {start.isPending && <Spinner />} {count ? `${count.toLocaleString()}개 실행` : '실행'}
-          </Button>
+          {step === 1 ? (
+            <>
+              <Button variant="outline" onClick={() => setOpen(false)}>
+                취소
+              </Button>
+              <Button disabled={!count || !workflowId} onClick={() => setStep(2)}>
+                다음 <ArrowRight />
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="outline" onClick={() => setStep(1)} disabled={start.isPending}>
+                <ArrowLeft /> 뒤로
+              </Button>
+              <Button disabled={!plan.data || !plan.data.lines.total || capsInvalid || !workflowId || start.isPending} onClick={() => start.mutate()}>
+                {start.isPending && <Spinner />} {plan.data ? `${plan.data.lines.total.toLocaleString()}줄 실행` : '실행'}
+              </Button>
+            </>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+type Plan = UseQueryResult<InferResponseType<(typeof client.workflows)[':id']['preflight']['$post'], 200>>;
+
+function PlanStep({ plan, callsText, tokensText, onCalls, onTokens }: { plan: Plan; callsText: string; tokensText: string; onCalls: (value: string) => void; onTokens: (value: string) => void }) {
+  if (plan.isError) return <p className="rounded-md border px-3 py-2 text-sm">계획을 계산하지 못했습니다: {plan.error.message}</p>;
+  const data = plan.data;
+  if (!data)
+    return (
+      <div className="space-y-3" aria-busy>
+        <Skeleton className="h-16 w-full" />
+        <Skeleton className="h-32 w-full" />
+        <Skeleton className="h-12 w-full" />
+      </div>
+    );
+  const perBatch = data.plan.linesPerBatch;
+  const speechRules = data.knowledge.speechRules.confirmed ?? 0;
+  const candidateRules = data.knowledge.speechRules.candidate ?? 0;
+  return (
+    <div className="max-h-[60vh] space-y-4 overflow-auto pr-1">
+      <div className="space-y-1 rounded-md bg-muted/60 px-3 py-2 text-sm">
+        <p>
+          계획 묶음 {data.plan.batches.toLocaleString()}개
+          {perBatch && ` · 묶음당 ${perBatch.min.toLocaleString()}~${perBatch.max.toLocaleString()}줄(중앙 ${perBatch.median.toLocaleString()}) · 5줄 이하 ${Math.round(data.plan.smallShare * 100)}%`}
+        </p>
+        <p>
+          예상 호출 <b className="tabular-nums">{range(data.totals.calls, '회')}</b>
+          {' · '}입력 토큰 <b className="tabular-nums">{range(data.totals.inputTokens, '')}</b>
+        </p>
+        <p>
+          대사 {data.lines.total.toLocaleString()}줄 (미번역 {data.lines.untranslated.toLocaleString()} · 번역됨 {data.lines.translated.toLocaleString()})
+        </p>
+      </div>
+
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>노드</TableHead>
+            <TableHead>계정</TableHead>
+            <TableHead className="text-right">요청</TableHead>
+            <TableHead className="text-right">프롬프트/요청</TableHead>
+            <TableHead className="text-right">고정/요청</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {data.nodes.map((node) => (
+            <TableRow key={node.nodeId}>
+              <TableCell className="font-medium">{node.name}</TableCell>
+              <TableCell>
+                {node.connection ? (
+                  <span className="inline-flex items-center gap-1.5">
+                    {node.connection.name}
+                    {node.connection.cli && <Badge variant="outline">CLI</Badge>}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">없음</span>
+                )}
+              </TableCell>
+              <TableCell className="text-right tabular-nums">
+                {range(node.requests, '')}
+                {!node.everyLine && node.requests.expected === null && <span className="ml-1 text-xs text-muted-foreground">이력 없음</span>}
+              </TableCell>
+              <TableCell className="text-right tabular-nums">{node.promptTokens.toLocaleString()}</TableCell>
+              <TableCell className="text-right tabular-nums">{node.overheadTokens === null ? <span className="text-muted-foreground">미측정</span> : node.overheadTokens.toLocaleString()}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+
+      <ul className="space-y-0.5 text-sm">
+        <li>
+          작품 분석: {data.knowledge.analysis ? `${data.knowledge.analysis.finishedAt ? new Date(data.knowledge.analysis.finishedAt).toLocaleDateString() : '날짜 미상'} · ${data.knowledge.analysis.model ?? '모델 미상'}` : '없음'}
+        </li>
+        <li>
+          확정 말투 규칙 {speechRules.toLocaleString()}개{candidateRules > 0 && <span className="text-muted-foreground"> (후보 {candidateRules.toLocaleString()}개는 번역에 쓰이지 않음)</span>}
+        </li>
+        <li>
+          청자 미상 {data.knowledge.unknownListenerLines.toLocaleString()} / {data.knowledge.dialogueLines.toLocaleString()}줄
+        </li>
+      </ul>
+
+      {data.warnings.length > 0 && (
+        <ul className="space-y-1 rounded-md border px-3 py-2 text-sm">
+          {data.warnings.map((warning) => (
+            <li key={warning} className="flex items-start gap-2">
+              <TriangleAlert className="mt-0.5 size-4 shrink-0 text-muted-foreground" /> {warning}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="space-y-2">
+        <div className="grid grid-cols-2 gap-3">
+          <label className="space-y-1 text-sm">
+            호출 상한 (회)
+            <Input inputMode="numeric" value={callsText} onChange={(event) => onCalls(event.target.value)} placeholder="상한 없음" />
+          </label>
+          <label className="space-y-1 text-sm">
+            입력 토큰 상한
+            <Input inputMode="numeric" value={tokensText} onChange={(event) => onTokens(event.target.value)} placeholder="상한 없음" />
+          </label>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          실행 중 이 값에 닿으면 실행이 일시정지하고 이유를 보여 줍니다. 예상치의 1.3배로 채워 두었습니다.
+          {data.suggestedLimits.maxInputTokens === undefined && ' 요청당 고정 토큰을 아직 잰 적 없는 연결이 있어 입력 토큰 상한은 비워 두었습니다(한 번 실행하면 측정됩니다).'}
+        </p>
+      </div>
+    </div>
   );
 }
