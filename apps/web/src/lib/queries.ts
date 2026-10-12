@@ -82,6 +82,8 @@ export const q = {
       queryFn: () => unwrap(client.runs[':id'].items.$get({ param: { id }, query: { ...query, offset: query.offset?.toString() } as never })),
       placeholderData: keepPreviousData,
     }),
+  /** The batches a run was planned in. */
+  runPlan: (id: string) => queryOptions({ queryKey: ['runs', 'plan', id], queryFn: () => unwrap(client.runs[':id'].plan.$get({ param: { id } })), staleTime: Infinity }),
   runSteps: (id: string) => queryOptions({ queryKey: ['runs', 'steps', id], queryFn: () => unwrap(client.runs[':id'].steps.$get({ param: { id } })) }),
   reviews: (projectId: string) => queryOptions({ queryKey: ['units', 'reviews', projectId], queryFn: () => unwrap(client.projects[':projectId'].reviews.$get({ param: { projectId } })) }),
   /** Proposals of one pi chat, or (no session) those sent from the CLI. */

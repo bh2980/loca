@@ -23,6 +23,8 @@ import { SplitPane } from '@/components/split-pane';
 import { JobStatusBadge } from '@/components/job-status';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { BatchList } from '@/components/workflow/run-dialog';
+import { Skeleton } from '@/components/ui/skeleton';
 
 type State = keyof typeof ITEM_STATE;
 interface RunSearch {
@@ -30,7 +32,7 @@ interface RunSearch {
   node?: string;
   page?: number;
   line?: string;
-  view?: 'items' | 'steps';
+  view?: 'items' | 'steps' | 'plan';
   lineTab?: 'context';
   aiNode?: string;
 }
@@ -41,7 +43,7 @@ export const Route = createFileRoute('/p/$projectId/runs/$runId')({
     node: typeof raw.node === 'string' ? raw.node : undefined,
     page: typeof raw.page === 'number' && raw.page > 0 ? raw.page : undefined,
     line: typeof raw.line === 'string' ? raw.line : undefined,
-    view: raw.view === 'steps' ? 'steps' : undefined,
+    view: raw.view === 'steps' || raw.view === 'plan' ? raw.view : undefined,
     lineTab: raw.lineTab === 'context' ? 'context' : undefined,
     aiNode: typeof raw.aiNode === 'string' && raw.aiNode.includes(':') ? raw.aiNode : undefined,
   }),
@@ -57,6 +59,7 @@ function RunDetail() {
   const run = useQuery(q.run(runId));
   const items = useQuery(q.runItems(runId, { state: search.state, nodeId: search.node, offset: (search.page ?? 0) * PAGE }));
   const steps = useQuery({ ...q.runSteps(runId), enabled: search.view === 'steps' });
+  const plan = useQuery({ ...q.runPlan(runId), enabled: search.view === 'plan' });
   const control = useMutation({ mutationFn: (action: 'pause' | 'resume' | 'cancel') => unwrap(client.runs[':id'][':action{pause|resume|cancel}'].$post({ param: { id: runId, action } })) });
   const setSearch = (next: Partial<RunSearch>, replace = false) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace });
   useReportView('run', [run.data && { kind: '실행', id: run.data.id, label: `${run.data.workflowName} v${run.data.workflowVersion}` }]);
@@ -191,10 +194,11 @@ function RunDetail() {
               })}
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <Tabs value={search.view ?? 'items'} onValueChange={(value) => setSearch({ view: value === 'steps' ? 'steps' : undefined }, true)}>
+              <Tabs value={search.view ?? 'items'} onValueChange={(value) => setSearch({ view: value === 'steps' || value === 'plan' ? value : undefined }, true)}>
                 <TabsList>
                   <TabsTrigger value="items">대사별</TabsTrigger>
                   <TabsTrigger value="steps">AI 호출</TabsTrigger>
+                  <TabsTrigger value="plan">번역 계획</TabsTrigger>
                 </TabsList>
               </Tabs>
               {(search.view ?? 'items') === 'items' && (
@@ -257,6 +261,21 @@ function RunDetail() {
                   ))}
                 </TableBody>
               </Table>
+            ) : search.view === 'plan' ? (
+              <div className="p-4">
+                {plan.data ? (
+                  plan.data.total ? (
+                    <>
+                      <p className="mb-3 text-sm text-muted-foreground">실행을 시작할 때 짠 묶음입니다. 모든 AI 단계(번역·검수·수정)가 이 묶음 단위로 움직입니다.</p>
+                      <BatchList list={plan.data} defaultOpen />
+                    </>
+                  ) : (
+                    <p className="py-12 text-center text-sm text-muted-foreground">이 실행에는 저장된 번역 계획이 없습니다(계획을 저장하기 전에 시작한 실행).</p>
+                  )
+                ) : (
+                  <Skeleton className="h-32 w-full" />
+                )}
+              </div>
             ) : (
               <ul className="divide-y">
                 {steps.data?.map((step) => (

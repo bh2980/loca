@@ -9,7 +9,7 @@ import { events } from '../events.ts';
 import { lineView } from '../engine/functions/index.ts';
 import { runScript } from '../engine/functions/sandbox.ts';
 import { createRunInSteps, selectRunUnits } from '../engine/runner.ts';
-import { preflight } from '../services/preflight.ts';
+import { listBatches, preflight } from '../services/preflight.ts';
 import { snapshotProfiles } from '../services/routes.ts';
 
 const scopeSchema = z.object({ groupIds: z.array(z.string()).optional(), unitIds: z.array(z.string()).optional(), tagIds: z.array(z.string()).optional(), ignoreStatus: z.boolean().optional() });
@@ -260,6 +260,21 @@ export const workflowRoutes = new Hono<Env>()
       : [];
     const byRun = Map.groupBy(counts, (row) => row.runId);
     return c.json(runs.map((run) => ({ ...run, states: Object.fromEntries((byRun.get(run.id) ?? []).map((row) => [row.state, row.count])) })));
+  })
+  /** The batches this run was planned in (stored per line when it started), as the run dialog lists them. */
+  .get('/runs/:id/plan', (c) => {
+    const { db } = c.var.deps;
+    const run = found(db.select({ id: s.runs.id }).from(s.runs).where(eq(s.runs.id, c.req.param('id'))).get(), '실행');
+    const lines = db
+      .selectDistinct({ plan: s.runItems.plan, groupId: s.units.groupId, speaker: s.units.speaker, seq: s.units.seq, tokens: sql<number>`(length(cast(${s.units.source} as blob)) + 3) / 4` })
+      .from(s.runItems)
+      .innerJoin(s.units, eq(s.units.id, s.runItems.unitId))
+      .where(eq(s.runItems.runId, run.id))
+      .all()
+      .filter((line) => line.plan !== null)
+      .sort((x, y) => x.seq - y.seq);
+    const batches = [...Map.groupBy(lines, (line) => line.plan!).entries()].sort((x, y) => x[0] - y[0]).map(([, list]) => list);
+    return c.json(listBatches(db, batches));
   })
   .get('/runs/:id', (c) => {
     const { db } = c.var.deps;

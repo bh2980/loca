@@ -384,10 +384,10 @@ function PlanStep({ plan, callsText, tokensText, onCalls, onTokens }: { plan: Pl
 const JOINED = { link: '그래프로 이어짐', speaker: '화자 겹침', fill: '덜 찬 묶음 채움' } as const;
 
 /** The plan batch by batch: which scenes travel in one request, and why each joined the one before. */
-function BatchList({ list }: { list: NonNullable<Plan['data']>['plan']['list'] }) {
+export function BatchList({ list, defaultOpen = false }: { list: NonNullable<Plan['data']>['plan']['list']; defaultOpen?: boolean }) {
   if (!list.total) return null;
   return (
-    <Collapsible>
+    <Collapsible defaultOpen={defaultOpen}>
       <CollapsibleTrigger className="group flex items-center gap-1.5 text-sm font-medium">
         <ChevronRight className="size-4 transition-transform group-data-[state=open]:rotate-90" />
         묶음 구성 보기 ({list.total.toLocaleString()}개)

@@ -234,7 +234,7 @@ type PlannedLine = { groupId: string; speaker: string | null; tokens: number };
  * scene joined the one before it (the planBatches rules: a dialogue-graph transition, a shared
  * speaker, or a request still under half full).
  */
-function listBatches(db: Db, batches: PlannedLine[][]) {
+export function listBatches(db: Db, batches: PlannedLine[][]) {
   const shown = batches.slice(0, BATCH_LIST_LIMIT);
   const groupIds = [...new Set(shown.flat().map((line) => line.groupId))];
   const titles = new Map(inChunks(groupIds, (ids) => db.select({ id: s.groups.id, title: s.groups.title }).from(s.groups).where(inArray(s.groups.id, ids)).all()).map((group) => [group.id, group.title]));

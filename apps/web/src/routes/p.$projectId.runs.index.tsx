@@ -117,7 +117,7 @@ function Runs() {
               </TableHeader>
               <TableBody>
                 {rows.map((row) => (
-                  <TableRow key={row.id} data-state={row.id === search.job ? 'selected' : undefined} className="cursor-pointer" onClick={() => select(row.id === search.job ? undefined : row.id)}>
+                  <TableRow key={row.id} data-state={row.id === search.job ? 'selected' : undefined} className="cursor-pointer" onClick={() => (row.kind === 'run' ? void navigate({ to: '/p/$projectId/runs/$runId', params: { projectId, runId: row.id } }) : select(row.id === search.job ? undefined : row.id))}>
                     <TableCell>
                       <span className="mr-1.5 text-xs text-muted-foreground">{JOB_KIND[row.kind]}</span>
                       <span className="font-medium">{row.title}</span>
