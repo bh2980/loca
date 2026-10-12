@@ -16,6 +16,8 @@ import { snapshotProfiles } from './routes.ts';
 import { readWebPage, webSearch } from './web.ts';
 import { applyBatch, checkScript, findLines, lineContext, normalizeBatch, runStats, sceneStats, scenesWith, validateBatch } from './script-query.ts';
 
+/** Lines of a batch proposal checked and applied per step when it is accepted. */
+const APPLY_CHUNK = 500;
 const page = { offset: z.number().int().min(0).default(0), limit: z.number().int().min(1).max(200).default(50) };
 
 /**
@@ -419,14 +421,33 @@ export function agentTools(db: Db, projectId: string, author: { profileId: strin
         'Change many lines in one proposal: new translations (added as candidates and made current), statuses, tags. Pass each line\'s rev from find_lines so lines changed meanwhile are skipped, not overwritten. Use this instead of many propose_translation calls.',
       inputSchema: batchChangeSchema,
       needsApproval: true,
-      execute: (raw) => {
-        const { batch } = normalizeBatch(db, projectId, raw);
-        if (!batch.changes.length) return { ok: true, applied: 0, skipped: [], note: '바뀌는 내용이 없습니다.' };
+      execute: async (raw) => {
         // Like `loca import`: the lines that cannot change are skipped and reported, the rest applied.
-        const report = validateBatch(db, projectId, batch);
-        const bad = new Map([...report.errors, ...report.conflicts].map((entry) => [entry.key, entry.reason]));
-        const result = applyBatch(db, projectId, { ...batch, changes: batch.changes.filter((change) => !bad.has(change.key)) });
-        return { ...result, skipped: [...[...bad].map(([key, reason]) => ({ key, reason })), ...result.skipped] };
+        // A whole game (50k lines) is checked and applied APPLY_CHUNK lines at a time, handing the
+        // event loop back in between so the app and running workflows keep answering.
+        let applied = 0;
+        let changing = 0;
+        const skipped: { key: string; reason: string }[] = [];
+        const seen = new Set<string>();
+        for (let start = 0; start < raw.changes.length; start += APPLY_CHUNK) {
+          const part = raw.changes.slice(start, start + APPLY_CHUNK).filter((change) => {
+            if (!seen.has(change.key)) return seen.add(change.key);
+            skipped.push({ key: change.key, reason: '같은 키가 두 번 나옵니다.' });
+            return false;
+          });
+          const { batch } = normalizeBatch(db, projectId, { ...raw, changes: part });
+          if (batch.changes.length) {
+            changing += batch.changes.length;
+            const report = validateBatch(db, projectId, batch);
+            const bad = new Map([...report.errors, ...report.conflicts].map((entry) => [entry.key, entry.reason]));
+            const result = applyBatch(db, projectId, { ...batch, changes: batch.changes.filter((change) => !bad.has(change.key)) });
+            applied += result.applied;
+            skipped.push(...[...bad].map(([key, reason]) => ({ key, reason })), ...result.skipped);
+          }
+          await new Promise((resolve) => setImmediate(resolve));
+        }
+        if (!changing) return { ok: true, applied: 0, skipped, note: '바뀌는 내용이 없습니다.' };
+        return { ok: true, applied, skipped };
       },
     }),
     save_status: tool({
