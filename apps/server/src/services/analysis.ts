@@ -203,7 +203,8 @@ export class AnalysisService {
       if (signal.aborted || !merged) return;
       const counts = saveDrafts(this.db, job.projectId, job.id, merged, keyOf, autoConfirm);
       this.db.update(s.analysisJobs).set({ status: 'completed', result: counts, usage, finishedAt: new Date() }).where(eq(s.analysisJobs.id, job.id)).run();
-      events.changed(job.projectId, 'runs', 'analysis', 'knowledge');
+      // The drafts include term candidates and scene listeners (units), besides the story knowledge.
+      events.changed(job.projectId, 'runs', 'analysis', 'knowledge', 'terms', 'units');
     } catch (error) {
       if (signal.aborted) return;
       this.db.update(s.analysisJobs).set({ status: 'failed', error: error instanceof Error ? error.message : String(error), usage, finishedAt: new Date() }).where(eq(s.analysisJobs.id, job.id)).run();

@@ -4,6 +4,7 @@ import { lineFilterSchema } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { nodeSetLayout } from './layout.ts';
+import { events } from '../events.ts';
 import { allLines } from './script-query.ts';
 
 /** What an agent can pick graph nodes by; every part is optional and they add up. */
@@ -75,6 +76,7 @@ export function saveView(db: Db, projectId: string, nodeIds: string[], label: st
   const ids = [...new Set(nodeIds)].sort();
   const id = createHash('sha1').update(`${projectId}:${ids.join(',')}`).digest('hex').slice(0, 16);
   db.insert(s.graphViews).values({ id, projectId, label, nodeIds: ids }).onConflictDoUpdate({ target: s.graphViews.id, set: { label } }).run();
+  events.changed(projectId, 'graph');
   return id;
 }
 
