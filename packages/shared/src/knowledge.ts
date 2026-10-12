@@ -1,11 +1,14 @@
 import { z } from 'zod';
 
-/** AI drafts are candidates until a person confirms them; only confirmed knowledge reaches AI nodes. */
-export const KNOWLEDGE_STATUSES = ['candidate', 'confirmed'] as const;
+/**
+ * AI drafts are candidates until a person confirms them; only confirmed knowledge reaches AI nodes.
+ * A discarded AI item stays as "rejected" so a later analysis does not propose it again.
+ */
+export const KNOWLEDGE_STATUSES = ['candidate', 'confirmed', 'rejected'] as const;
 export const KNOWLEDGE_ORIGINS = ['human', 'ai', 'import'] as const;
 export type KnowledgeStatus = (typeof KNOWLEDGE_STATUSES)[number];
 export type KnowledgeOrigin = (typeof KNOWLEDGE_ORIGINS)[number];
-export const KNOWLEDGE_STATUS_LABELS: Record<KnowledgeStatus, string> = { candidate: '후보', confirmed: '확정' };
+export const KNOWLEDGE_STATUS_LABELS: Record<KnowledgeStatus, string> = { candidate: '후보', confirmed: '확정', rejected: '버림' };
 export const KNOWLEDGE_ORIGIN_LABELS: Record<KnowledgeOrigin, string> = { human: '사람', ai: 'AI', import: '가져오기' };
 
 /**
