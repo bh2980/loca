@@ -78,7 +78,7 @@ function GraphPage() {
   const select = (id: string | undefined) => void navigate({ search: (previous) => ({ ...previous, node: id }), replace: true });
   const layout = graph.data?.layout;
   const hubs = useMemo(() => new Map((search.scope === 'scene' ? (layout?.hubs ?? []) : []).map((hub) => [hub.id, hub])), [layout, search.scope]);
-  const looseEdges = search.scope === 'dialogue' ? layout?.looseEdges : undefined;
+  const looseEdges = layout?.looseEdges;
   const hidden = search.scope === 'scene' ? (layout?.hiddenEdges ?? []) : [];
   // Hidden links are drawn as straight lines between the laid-out boxes (bottom centre → top centre).
   const edges = useMemo(() => {
@@ -190,7 +190,7 @@ function GraphPage() {
               </div>
               <p className="absolute top-3 right-3 rounded-md bg-background/90 px-2 py-1 text-xs text-muted-foreground tabular-nums shadow-sm">
                 {search.scope === 'scene'
-                  ? `장면 ${(layout.nodes.length - hubs.size).toLocaleString()}${hubs.size ? ` · 연결점 ${hubs.size.toLocaleString()}` : ''} · 연결 ${edges.length.toLocaleString()}`
+                  ? `장면 ${(layout.nodes.length - hubs.size).toLocaleString()}${hubs.size ? ` · 연결점 ${hubs.size.toLocaleString()}` : ''} · 연결 ${(edges.length + (looseEdges?.length ?? 0)).toLocaleString()}${looseEdges?.length ? ` (연결점 직선 ${looseEdges.length.toLocaleString()})` : ''}`
                   : `노드 ${layout.nodes.length.toLocaleString()} · 연결 ${(edges.length + (looseEdges?.length ?? 0)).toLocaleString()}`}
                 {highlight && ` · 강조 ${highlight.size.toLocaleString()}`}
               </p>

@@ -1,5 +1,5 @@
 import { Worker } from 'node:worker_threads';
-import { and, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
 import { graphEdges, graphLayouts, graphNodes, groups, projects, type LayoutData } from '../db/schema.ts';
 import { events } from '../events.ts';
@@ -56,7 +56,7 @@ function save(db: Db, projectId: string, scope: 'dialogue' | 'scene', value: Par
 
 /** What the worker needs to derive and lay out the scene graph (see SceneSource). */
 export function sceneSource(db: Db, projectId: string): SceneSource {
-  const sceneIds = db.select({ id: groups.id }).from(groups).where(and(eq(groups.projectId, projectId), eq(groups.kind, 'scene'))).all().map((group) => group.id);
+  const sceneIds = db.select({ id: groups.id }).from(groups).where(and(eq(groups.projectId, projectId), eq(groups.kind, 'scene'))).orderBy(asc(groups.sort), asc(groups.key)).all().map((group) => group.id);
   const scenes = new Set(sceneIds);
   return {
     scenes: sceneIds,
