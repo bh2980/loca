@@ -485,7 +485,11 @@ export function agentTools(db: Db, projectId: string, author: { profileId: strin
       inputSchema: z.object({ type: z.enum(['status', 'tag']), name: z.string().min(1), color: z.string().default('#8b5cf6'), kind: z.enum(['initial', 'normal', 'final']).default('normal') }),
       needsApproval: true,
       execute: ({ type, name, color, kind }) => {
-        if (type === 'tag') return { ok: true, id: db.insert(s.tags).values({ projectId, name, color }).returning().get().id };
+        if (type === 'tag') {
+          const id = db.insert(s.tags).values({ projectId, name, color }).returning().get().id;
+          changed('statuses');
+          return { ok: true, id };
+        }
         const sort = db.select({ count: count() }).from(s.statuses).where(eq(s.statuses.projectId, projectId)).get()!.count;
         const id = db.insert(s.statuses).values({ projectId, name, color, kind, sort }).returning().get().id;
         changed('statuses');

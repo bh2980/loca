@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Events, type ChangeEvent } from './events.ts';
+import { Events, withImplied, type ChangeEvent } from './events.ts';
 
 describe('Events coalescing', () => {
   beforeEach(() => void vi.useFakeTimers());
@@ -14,7 +14,7 @@ describe('Events coalescing', () => {
   it('merges 50 calls within 100ms into one event with the union of topics', () => {
     const bus = new Events();
     const got = collect(bus);
-    const topics = ['runs', 'reviews', 'units', 'terms'] as const;
+    const topics = ['runs', 'calls', 'chat', 'graph'] as const;
     for (let i = 0; i < 50; i++) {
       bus.changed('p1', topics[i % 4]!);
       vi.advanceTimersByTime(2);
@@ -23,19 +23,19 @@ describe('Events coalescing', () => {
     vi.advanceTimersByTime(300);
     expect(got).toHaveLength(1);
     expect(got[0]!.projectId).toBe('p1');
-    expect([...got[0]!.topics].sort()).toEqual(['reviews', 'runs', 'terms', 'units']);
+    expect([...got[0]!.topics].sort()).toEqual(['calls', 'chat', 'graph', 'runs']);
   });
 
   it('keeps projects separate', () => {
     const bus = new Events();
     const got = collect(bus);
     bus.changed('a', 'runs');
-    bus.changed('b', 'units');
+    bus.changed('b', 'terms');
     bus.changed(undefined, 'connections');
     vi.advanceTimersByTime(300);
     expect(got).toHaveLength(3);
     expect(got.find((e) => e.projectId === 'a')!.topics).toEqual(['runs']);
-    expect(got.find((e) => e.projectId === 'b')!.topics).toEqual(['units']);
+    expect(got.find((e) => e.projectId === 'b')!.topics).toEqual(['terms', 'units', 'statuses', 'workflows']);
   });
 
   it('emits at least every max wait under a steady stream', () => {
@@ -58,5 +58,13 @@ describe('Events coalescing', () => {
     expect(got).toHaveLength(1);
     vi.advanceTimersByTime(1000);
     expect(got).toHaveLength(1);
+  });
+});
+
+describe('implied topics', () => {
+  it('refreshes queries that read beyond their own topic', () => {
+    // A speech rule or character change reaches the line hints (units), their counts and workflow checks.
+    expect([...withImplied(['knowledge'])].sort()).toEqual(['knowledge', 'statuses', 'units', 'workflows']);
+    expect([...withImplied(['chat'])]).toEqual(['chat']);
   });
 });
