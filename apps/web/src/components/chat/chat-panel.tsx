@@ -193,7 +193,13 @@ function ChatBody({ projectId, sessionId, initial, profileId, profiles, onProfil
   // The conversation outlives this panel: closing it mid-reply keeps the reply coming in.
   const stored = chatFor(sessionId, initial);
   stored.view.current = viewRef.current;
-  const { messages, sendMessage, status, stop, error, addToolApprovalResponse, addToolOutput } = useChat({ chat: stored.chat });
+  const { messages, sendMessage, setMessages, status, stop, error, addToolApprovalResponse, addToolOutput } = useChat({ chat: stored.chat });
+  // A reply this window is not streaming (sent before a reload, or from another window) is saved
+  // by the server when it ends; the saved conversation then catches up here.
+  useEffect(() => {
+    if (status !== 'ready' || initial.length <= messages.length) return;
+    if (messages.every((message, i) => initial[i]?.id === message.id)) setMessages(initial);
+  }, [initial]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [input, setInput] = useState(() => sessionStorage.getItem(`tw.chat.draft.${sessionId}`) ?? '');
   useEffect(() => {
@@ -283,6 +289,11 @@ function ChatBody({ projectId, sessionId, initial, profileId, profiles, onProfil
           {busy && (
             <p className="flex items-center gap-2 text-sm text-muted-foreground">
               <Spinner /> {status === 'submitted' ? '생각하는 중…' : '작업 중… (도구로 자료를 읽거나 답을 쓰고 있습니다)'}
+            </p>
+          )}
+          {!busy && !error && lastMessage?.role === 'user' && (
+            <p className="flex items-center gap-2 px-1 text-sm text-muted-foreground">
+              <Spinner className="size-3.5" /> 답을 기다리는 중입니다. 새로고침 전에 보낸 질문이면 답이 끝나는 대로 여기에 나타납니다.
             </p>
           )}
           {stalled && (
