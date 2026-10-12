@@ -53,6 +53,12 @@ const alive = (pid: number) => {
   }
 };
 
+/** A killed process can take a moment to disappear under load: wait up to two seconds for it. */
+async function gone(pid: number) {
+  for (let waited = 0; waited < 2000 && alive(pid); waited += 50) await new Promise((resolve) => setTimeout(resolve, 50));
+  return !alive(pid);
+}
+
 const KEYS = ['FAKE_CLI_FIXED_TOKENS', 'FAKE_CLI_CACHED_TOKENS', 'FAKE_CLI_STARTUP_MS', 'FAKE_CLI_PID_FILE', 'FAKE_CLI_IGNORE_SIGTERM', 'FAKE_CLI_EXIT', 'MOCK_BAD_JSON_RATE', 'MOCK_TRUNCATE_RATE', 'MOCK_DROP_RATE', 'MOCK_429_RATE'];
 let saved: Record<string, string | undefined>;
 let before: string[];
@@ -130,7 +136,7 @@ describe.each(KINDS)('fake $kind CLI', ({ kind, bin, anthropicStyle, reportsCost
     expect(Date.now() - started).toBeLessThan(5000);
     const pid = Number(readFileSync(process.env.FAKE_CLI_PID_FILE, 'utf8'));
     await new Promise((resolve) => setTimeout(resolve, 200));
-    expect(alive(pid)).toBe(false);
+    expect(await gone(pid)).toBe(true);
   });
 
   it('kills the process on cancel', async () => {
@@ -144,7 +150,7 @@ describe.each(KINDS)('fake $kind CLI', ({ kind, bin, anthropicStyle, reportsCost
     expect(Date.now() - started).toBeLessThan(5000);
     const pid = Number(readFileSync(process.env.FAKE_CLI_PID_FILE, 'utf8'));
     await new Promise((resolve) => setTimeout(resolve, 200));
-    expect(alive(pid)).toBe(false);
+    expect(await gone(pid)).toBe(true);
   });
 });
 
@@ -157,7 +163,7 @@ describe('fake CLI extras', () => {
     const error = await failure(cliGenerate(route('claude', 'claude'), request({ timeoutMs: 500 })));
     expect(error.code).toBe('timeout');
     expect(Date.now() - started).toBeLessThan(8000);
-    expect(alive(Number(readFileSync(process.env.FAKE_CLI_PID_FILE, 'utf8')))).toBe(false);
+    expect(await gone(Number(readFileSync(process.env.FAKE_CLI_PID_FILE, 'utf8')))).toBe(true);
   }, 12_000);
 
   it('answers a non-workbench prompt from the schema', async () => {
