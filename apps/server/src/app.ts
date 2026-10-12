@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
+import { compress } from 'hono/compress';
 import { HTTPException } from 'hono/http-exception';
 import { streamSSE } from 'hono/streaming';
 import type { Deps, Env } from './context.ts';
@@ -51,6 +52,9 @@ export function createApp(deps: Deps) {
       await next();
     })
     .use('/api/*', bodyLimit({ maxSize: 256 * 1024 * 1024 }))
+    // JSON only: a 50k-line dialogue graph is 27 MB raw, 6.6 MB gzipped. Event streams (change
+    // events, chat) must not be buffered by a compressor.
+    .use('/api/*', compress({ contentTypeFilter: /^application\/json/ }))
     .route('/api', api)
     .onError((error, c) => {
       if (error instanceof HTTPException) return c.json({ error: error.message }, error.status);
