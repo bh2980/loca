@@ -38,3 +38,12 @@ describe('packGroups', () => {
     expect(packGroups([scene('a', 25)], config).map((request) => request.length)).toEqual([10, 10, 5]);
   });
 });
+
+describe('planBatches with dialogue-graph links', () => {
+  it('keeps a linked scene with the batch even when no speaker is shared', () => {
+    seq = 0;
+    const lines = [...scene('s1', 5, { speaker: 'A' }), ...scene('s2', 2, { speaker: 'B' })];
+    expect(planBatches(lines, config).map((batch) => batch.length)).toEqual([5, 2]);
+    expect(planBatches(lines, config, (a, b) => a === 's1' && b === 's2').map((batch) => batch.length)).toEqual([7]);
+  });
+});

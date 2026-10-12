@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, inArray, notInArray, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/sqlite-core';
 import jsonLogic from 'json-logic-js';
 import * as ai from '@tw/ai';
 import { batchConfigSchema, FUNCTIONS, nodeName, type AiNode, type ConditionData, type FunctionName, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
@@ -749,6 +750,29 @@ export function selectRunUnits(db: Db, projectId: string, definition: WorkflowDe
 }
 
 /**
+ * Direct transitions between scenes in the dialogue graph: an edge from a node of one group to a
+ * node of another. Links through hubs (nodes outside every scene) are left out on purpose: a menu
+ * or return point would otherwise make every scene "related" to every other.
+ */
+export function sceneLinks(db: Db | Tx, lines: { groupId: string }[]) {
+  const groups = [...new Set(lines.map((line) => line.groupId))];
+  const pairs = new Set<string>();
+  if (groups.length > 1) {
+    const fromNode = alias(s.graphNodes, 'from_node');
+    const toNode = alias(s.graphNodes, 'to_node');
+    const rows = db
+      .selectDistinct({ from: fromNode.groupId, to: toNode.groupId })
+      .from(s.graphEdges)
+      .innerJoin(fromNode, eq(fromNode.id, s.graphEdges.fromId))
+      .innerJoin(toNode, eq(toNode.id, s.graphEdges.toId))
+      .where(and(inList(fromNode.groupId, groups), sql`${fromNode.groupId} <> ${toNode.groupId}`))
+      .all();
+    for (const row of rows) if (row.from && row.to) pairs.add(`${row.from}|${row.to}`);
+  }
+  return (a: string, b: string) => pairs.has(`${a}|${b}`);
+}
+
+/**
  * The run plan: which lines travel together through every AI node. Planned once, when the run
  * starts, with the batch settings of the first AI node the lines reach (see planBatches): script
  * order, scenes kept whole, dialogue apart from documents and UI, unrelated scenes not mixed.
@@ -776,7 +800,7 @@ export function planRun(db: Db | Tx, definition: WorkflowDefinition, unitIds: st
       .where(inArray(s.units.id, ids))
       .all(),
   );
-  const batches = planBatches(lines, batchConfigSchema.parse(first.config.batch ?? {}));
+  const batches = planBatches(lines, batchConfigSchema.parse(first.config.batch ?? {}), sceneLinks(db, lines));
   return new Map(batches.flatMap((batch, index) => batch.map((line) => [line.id, index] as const)));
 }
 

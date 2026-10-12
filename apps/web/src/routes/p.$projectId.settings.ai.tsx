@@ -118,6 +118,7 @@ function AiSettings() {
                               <span className="font-mono text-xs text-muted-foreground">{info.transport === 'http' ? connection.baseUrl : info.transport === 'cli' ? (connection.executable ?? 'PATH') : ''}</span>
                               {info.transport === 'http' && <Badge variant={connection.hasKey ? 'default' : 'outline'}>{connection.hasKey ? '키 저장됨' : '키 없음'}</Badge>}
                               <CapabilityBadges kind={connection.kind} />
+                              <Badge variant="outline">동시 {connection.concurrency ?? 2}</Badge>
                               </div>
                             </TableCell>
                             <TableCell className="text-right" onClick={(event) => event.stopPropagation()}>
@@ -344,12 +345,12 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
   const editSchema = connectionInputSchema.omit({ kind: true });
   const form = useForm<z.input<typeof editSchema>, unknown, z.output<typeof editSchema>>({
     resolver: zodResolver(editSchema),
-    defaultValues: { name: connection.name, baseUrl: connection.baseUrl ?? undefined, executable: connection.executable ?? '', headerTemplate: connection.headerTemplate ?? '' },
+    defaultValues: { name: connection.name, baseUrl: connection.baseUrl ?? undefined, executable: connection.executable ?? '', headerTemplate: connection.headerTemplate ?? '', concurrency: isTool ? undefined : (connection.concurrency ?? 2) },
   });
 
   const save = useMutation({
     mutationFn: (values: z.output<typeof editSchema>) =>
-      unwrap(client.connections[':id'].$patch({ param: { id: connection.id }, json: { name: values.name, baseUrl: isHttp ? values.baseUrl : undefined, executable: isHttp ? undefined : (values.executable ?? ''), headerTemplate: connection.kind === 'http' ? (values.headerTemplate ?? '') : undefined } })),
+      unwrap(client.connections[':id'].$patch({ param: { id: connection.id }, json: { name: values.name, baseUrl: isHttp ? values.baseUrl : undefined, executable: isHttp ? undefined : (values.executable ?? ''), headerTemplate: connection.kind === 'http' ? (values.headerTemplate ?? '') : undefined, concurrency: isTool ? undefined : values.concurrency } })),
     onSuccess: () => {
       invalidate();
       toast.success('저장했습니다.');
@@ -437,6 +438,14 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
               <FieldLabel htmlFor="edit-header">키를 보내는 헤더</FieldLabel>
               <Input id="edit-header" className="font-mono text-xs" {...form.register('headerTemplate')} placeholder="Authorization: Bearer {key}" />
               <FieldDescription>{'{key}'} 자리에 저장한 키가 들어갑니다.</FieldDescription>
+            </Field>
+          )}
+          {!isTool && (
+            <Field data-invalid={!!form.formState.errors.concurrency}>
+              <FieldLabel htmlFor="edit-concurrency">동시 실행 수</FieldLabel>
+              <Input id="edit-concurrency" type="number" min={1} max={32} step={1} {...form.register('concurrency', { setValueAs: (value: string) => (value === '' ? undefined : Number(value)) })} aria-invalid={!!form.formState.errors.concurrency} />
+              <FieldDescription>이 계정으로 동시에 보내는 AI 호출 수입니다. 모든 실행이 함께 씁니다. 구독 한도가 빡빡하면 줄이세요.</FieldDescription>
+              <FieldError errors={[form.formState.errors.concurrency]} />
             </Field>
           )}
           <Button type="submit" variant="secondary" disabled={save.isPending || !form.formState.isDirty}>

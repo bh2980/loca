@@ -9,6 +9,7 @@ import { events } from '../events.ts';
 import { lineView } from '../engine/functions/index.ts';
 import { runScript } from '../engine/functions/sandbox.ts';
 import { createRun, selectRunUnits } from '../engine/runner.ts';
+import { preflight } from '../services/preflight.ts';
 import { snapshotProfiles } from '../services/routes.ts';
 
 const scopeSchema = z.object({ groupIds: z.array(z.string()).optional(), unitIds: z.array(z.string()).optional(), tagIds: z.array(z.string()).optional(), ignoreStatus: z.boolean().optional() });
@@ -110,6 +111,12 @@ export const workflowRoutes = new Hono<Env>()
     const { db } = c.var.deps;
     const workflow = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
     return c.json({ count: selectRunUnits(db, workflow.projectId, workflow.definition, c.req.valid('json')).length });
+  })
+  /** The run plan and its cost estimate, computed without calling a model (see services/preflight.ts). */
+  .post('/workflows/:id/preflight', validate('json', scopeSchema), (c) => {
+    const { db } = c.var.deps;
+    const workflow = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
+    return c.json(preflight(db, workflow, c.req.valid('json')));
   })
   .post('/workflows/:id/runs', validate('json', scopeSchema.extend({ limits: z.object({ maxCalls: z.number().int().min(1).optional(), maxInputTokens: z.number().int().min(1).optional() }).optional() })), (c) => {
     const { db } = c.var.deps;

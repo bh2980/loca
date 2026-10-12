@@ -21,10 +21,11 @@ export interface BatchLine {
  *   A scene starts a new request instead of being split, unless it is larger than a whole request
  *   on its own; then it is cut into full requests and its tail keeps filling. With `kind` and
  *   `speaker` known (the run plan), a scene also starts a new request when its kind differs
- *   (dialogue, document, UI) or when it shares no speaker with a request already half full:
- *   related scenes travel together, unrelated ones do not pad each other's context.
+ *   (dialogue, document, UI) or when it shares no speaker with a request already half full and no
+ *   `linked` scene (a direct dialogue-graph transition): related scenes travel together, unrelated
+ *   ones do not pad each other's context.
  */
-export function planBatches<T extends BatchLine>(lines: T[], config: BatchConfig): T[][] {
+export function planBatches<T extends BatchLine>(lines: T[], config: BatchConfig, linked?: (a: string, b: string) => boolean): T[][] {
   const ordered = [...lines].sort((a, b) => a.seq - b.seq);
   if (config.mode === 'unit') return ordered.map((line) => [line]);
   if (config.mode === 'count') return Array.from({ length: Math.ceil(ordered.length / config.size) }, (_, index) => ordered.slice(index * config.size, (index + 1) * config.size));
@@ -44,7 +45,9 @@ export function planBatches<T extends BatchLine>(lines: T[], config: BatchConfig
     if (scene[0].kind !== undefined && scene[0].kind !== current[0].kind) return true;
     const speakers = new Set(current.flatMap((line) => (line.speaker ? [line.speaker] : [])));
     const theirs = scene.flatMap((line) => (line.speaker ? [line.speaker] : []));
-    return speakers.size > 0 && theirs.length > 0 && !theirs.some((speaker) => speakers.has(speaker)) && halfFull();
+    if (!(speakers.size > 0 && theirs.length > 0 && !theirs.some((speaker) => speakers.has(speaker)) && halfFull())) return false;
+    const groups = new Set(current.map((line) => line.groupId));
+    return !linked || ![...groups].some((group) => linked(group, scene[0].groupId) || linked(scene[0].groupId, group));
   };
   const scenes = [...Map.groupBy(ordered, (line) => line.groupId).values()];
   for (const scene of scenes) {
