@@ -1,14 +1,17 @@
 import { parentPort, workerData } from 'node:worker_threads';
 import ELK, { type ElkNode } from 'elkjs/lib/elk.bundled.js';
 import type { LayoutData } from '../db/schema.ts';
-import { deriveSceneGraph, reduceSceneEdges } from './scene-graph.ts';
+import { deriveSceneGraph, depthBlocks, reduceSceneEdges } from './scene-graph.ts';
 import { sectionJobs, type SectionNode } from './section-graph.ts';
 
 export interface LayoutJob {
   nodes: { id: string; width: number; height: number }[];
   edges: { id: string; from: string; to: string }[];
-  /** Nodes joined only by drawn (not laid out) edges, placed in this order in a labelled grid. */
-  ordered?: { label: string; ids: string[] };
+  /**
+   * Nodes joined only by drawn (not laid out) edges, placed in labelled blocks side by side (one
+   * per section), each in rows from top to bottom; `{n}` in the label is the block's node count.
+   */
+  ordered?: { label: string; blocks: { name: string | null; rows: string[][] }[] };
 }
 
 /**
@@ -18,6 +21,8 @@ export interface LayoutJob {
  */
 export interface SceneSource {
   scenes: string[];
+  /** Section (장·Day) of each scene, in the order of `scenes`. */
+  sections: (string | null)[];
   nodes: { id: string; groupId: string | null }[];
   edges: { fromId: string; toId: string }[];
   size: [number, number];
@@ -64,7 +69,7 @@ function sceneLayoutJob(source: SceneSource): LayoutJob & { hidden: { from: stri
     hidden: hidden.map(({ from, to }) => ({ from, to })),
     hubs: graph.hubs.map((hub) => ({ id: hub.id, nodes: hub.nodeIds.length, scenes: hub.scenes })),
     loose: loose.map((edge, index) => ({ id: `h${index}`, from: edge.from, to: edge.to })),
-    ordered: { label: '연결점으로 이어진 장면 {n}개 (대본 순서)', ids: source.scenes.filter((id) => throughHub.has(id)) },
+    ordered: { label: '연결점으로 이어진 장면 {n}개 · 대사 그래프 깊이순', blocks: depthBlocks(source, throughHub) },
   };
 }
 
@@ -156,7 +161,7 @@ const GAP = 400;
 async function layout(job: LayoutJob): Promise<LayoutData> {
   const elk = new ELK();
   const linked = new Set(job.edges.flatMap((edge) => [edge.from, edge.to]));
-  const inOrder = new Set(job.ordered?.ids.filter((id) => !linked.has(id)));
+  const inOrder = new Set(job.ordered?.blocks.flatMap((block) => block.rows.flat()).filter((id) => !linked.has(id)));
   const connected = job.nodes.filter((node) => linked.has(node.id));
   const isolated = job.nodes.filter((node) => !linked.has(node.id) && !inOrder.has(node.id));
 
@@ -180,23 +185,40 @@ async function layout(job: LayoutJob): Promise<LayoutData> {
     : undefined;
   const offsetX = connected.length ? (main.width ?? 0) + GAP : 0;
 
-  // Nodes joined only through drawn edges (scenes reached through a hub), in the given order, in
-  // rows below the flow: their position says "script order", not "unconnected".
+  // Nodes joined only through drawn edges (scenes reached through a hub): one block per section,
+  // side by side below the flow, rows from top to bottom (see depthBlocks).
   const byId = new Map(job.nodes.map((node) => [node.id, node]));
-  const grid = (job.ordered?.ids ?? []).filter((id) => inOrder.has(id)).map((id) => byId.get(id)!);
-  const gridTop = Math.max(main.height ?? 0, loose?.height ?? 0) + (grid.length ? GAP : 0);
-  const columns = Math.max(1, Math.ceil(Math.sqrt(grid.length * 2)));
-  const cellWidth = Math.max(0, ...grid.map((node) => node.width)) + 24;
-  const cellHeight = Math.max(0, ...grid.map((node) => node.height)) + 24;
-  const gridNodes = grid.map((node, index) => ({ id: node.id, x: (index % columns) * cellWidth, y: gridTop + Math.floor(index / columns) * cellHeight, width: node.width, height: node.height }));
-  const gridWidth = grid.length ? Math.min(grid.length, columns) * cellWidth : 0;
-  const gridHeight = grid.length ? Math.ceil(grid.length / columns) * cellHeight : 0;
+  const blocks = (job.ordered?.blocks ?? [])
+    .map((block) => ({ name: block.name, rows: block.rows.map((row) => row.filter((id) => inOrder.has(id)).map((id) => byId.get(id)!)).filter((row) => row.length) }))
+    .filter((block) => block.rows.length);
+  const gridTop = Math.max(main.height ?? 0, loose?.height ?? 0) + (blocks.length ? GAP : 0);
+  const gridNodes: { id: string; x: number; y: number; width: number; height: number }[] = [];
+  const gridRegions: { label: string; x: number; y: number; width: number; height: number }[] = [];
+  let blockLeft = 0;
+  let gridHeight = 0;
+  for (const block of blocks) {
+    const all = block.rows.flat();
+    const cellWidth = Math.max(...all.map((node) => node.width)) + 24;
+    const cellHeight = Math.max(...all.map((node) => node.height)) + 40;
+    const width = Math.max(...block.rows.map((row) => row.length)) * cellWidth;
+    block.rows.forEach((row, rowIndex) => {
+      // Rows are centred so a narrow level sits under the middle of a wide one.
+      const indent = (width - row.length * cellWidth) / 2;
+      row.forEach((node, index) => gridNodes.push({ id: node.id, x: blockLeft + indent + index * cellWidth, y: gridTop + rowIndex * cellHeight, width: node.width, height: node.height }));
+    });
+    const height = block.rows.length * cellHeight;
+    const label = job.ordered!.label.replace('{n}', all.length.toLocaleString());
+    gridRegions.push({ label: block.name ? `${block.name} · ${label}` : label, x: blockLeft, y: gridTop, width, height });
+    blockLeft += width + GAP / 2;
+    gridHeight = Math.max(gridHeight, height);
+  }
+  const gridWidth = blocks.length ? blockLeft - GAP / 2 : 0;
 
   const ends = new Map(job.edges.map((edge) => [edge.id, edge]));
   const place = (node: ElkNode, dx = 0) => ({ id: node.id, x: (node.x ?? 0) + dx, y: node.y ?? 0, width: node.width ?? 0, height: node.height ?? 0 });
   return {
     width: Math.max(offsetX + (loose?.width ?? 0), gridWidth),
-    height: grid.length ? gridTop + gridHeight : Math.max(main.height ?? 0, loose?.height ?? 0),
+    height: blocks.length ? gridTop + gridHeight : Math.max(main.height ?? 0, loose?.height ?? 0),
     nodes: [...(main.children ?? []).map((node) => place(node)), ...(loose?.children ?? []).map((node) => place(node, offsetX)), ...gridNodes],
     edges: (main.edges ?? []).map((edge) => {
       const points: number[] = [];
@@ -210,7 +232,7 @@ async function layout(job: LayoutJob): Promise<LayoutData> {
     }),
     regions: [
       ...(loose ? [{ label: `연결 없는 노드 ${isolated.length.toLocaleString()}개`, x: offsetX, y: 0, width: loose.width ?? 0, height: loose.height ?? 0 }] : []),
-      ...(grid.length ? [{ label: `${job.ordered!.label.replace('{n}', grid.length.toLocaleString())}`, x: 0, y: gridTop, width: gridWidth, height: gridHeight }] : []),
+      ...gridRegions,
     ],
   };
 }

@@ -164,3 +164,51 @@ export function reduceSceneEdges<T extends { from: string; to: string }>(edges: 
   }
   return { kept, hidden };
 }
+
+/** Widest row of a depth block; a wider level wraps onto the next row. */
+const ROW_MAX = 12;
+
+/**
+ * Scenes reached only through hubs have no scene-to-scene link to lay out by, but the dialogue
+ * graph still says how far into the flow each one starts: its depth, the fewest edges from a node
+ * nothing leads to. One block per section; rows by depth (top first), script order within a row.
+ * Scenes the walk never reaches go last.
+ */
+export function depthBlocks(source: { scenes: string[]; sections: (string | null)[]; nodes: { id: string; groupId: string | null }[]; edges: { fromId: string; toId: string }[] }, wanted: Set<string>) {
+  const next = new Map<string, string[]>();
+  const into = new Set<string>();
+  for (const edge of source.edges) {
+    (next.get(edge.fromId) ?? next.set(edge.fromId, []).get(edge.fromId)!).push(edge.toId);
+    into.add(edge.toId);
+  }
+  const depth = new Map<string, number>();
+  let frontier = source.nodes.filter((node) => !into.has(node.id)).map((node) => node.id);
+  for (const id of frontier) depth.set(id, 0);
+  for (let level = 1; frontier.length; level++) {
+    const following: string[] = [];
+    for (const id of frontier)
+      for (const other of next.get(id) ?? [])
+        if (!depth.has(other)) {
+          depth.set(other, level);
+          following.push(other);
+        }
+    frontier = following;
+  }
+  const sceneDepth = new Map<string, number>();
+  for (const node of source.nodes)
+    if (node.groupId && wanted.has(node.groupId) && depth.has(node.id)) sceneDepth.set(node.groupId, Math.min(sceneDepth.get(node.groupId) ?? Infinity, depth.get(node.id)!));
+  const sectionOf = new Map(source.scenes.map((id, index) => [id, source.sections[index] ?? null]));
+  const blocks = new Map<string | null, Map<number, string[]>>();
+  for (const id of source.scenes) {
+    if (!wanted.has(id)) continue;
+    const levels = blocks.get(sectionOf.get(id)!) ?? blocks.set(sectionOf.get(id)!, new Map()).get(sectionOf.get(id)!)!;
+    const level = sceneDepth.get(id) ?? Infinity;
+    (levels.get(level) ?? levels.set(level, []).get(level)!).push(id);
+  }
+  return [...blocks].map(([name, levels]) => ({
+    name,
+    rows: [...levels]
+      .sort((a, b) => a[0] - b[0])
+      .flatMap(([, ids]) => Array.from({ length: Math.ceil(ids.length / ROW_MAX) }, (_, index) => ids.slice(index * ROW_MAX, (index + 1) * ROW_MAX))),
+  }));
+}

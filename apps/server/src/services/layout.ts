@@ -71,10 +71,12 @@ export function sectionSource(db: Db, projectId: string) {
 
 /** What the worker needs to derive and lay out the scene graph (see SceneSource). */
 export function sceneSource(db: Db, projectId: string): SceneSource {
-  const sceneIds = db.select({ id: groups.id }).from(groups).where(and(eq(groups.projectId, projectId), eq(groups.kind, 'scene'))).orderBy(asc(groups.sort), asc(groups.key)).all().map((group) => group.id);
+  const rows = db.select({ id: groups.id, section: groups.section }).from(groups).where(and(eq(groups.projectId, projectId), eq(groups.kind, 'scene'))).orderBy(asc(groups.sort), asc(groups.key)).all();
+  const sceneIds = rows.map((group) => group.id);
   const scenes = new Set(sceneIds);
   return {
     scenes: sceneIds,
+    sections: rows.map((group) => group.section),
     nodes: db.select({ id: graphNodes.id, groupId: graphNodes.groupId }).from(graphNodes).where(eq(graphNodes.projectId, projectId)).all().map((node) => ({ id: node.id, groupId: node.groupId && scenes.has(node.groupId) ? node.groupId : null })),
     edges: db.select({ fromId: graphEdges.fromId, toId: graphEdges.toId }).from(graphEdges).where(eq(graphEdges.projectId, projectId)).all(),
     size: SCENE_SIZE,
