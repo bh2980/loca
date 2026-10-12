@@ -1,4 +1,5 @@
 import { createUIMessageStream, createUIMessageStreamResponse, type UIMessage } from 'ai';
+import { readToEnd } from './chat-turns.ts';
 import { eq } from 'drizzle-orm';
 import * as ai from '@tw/ai';
 import { startCall } from './ai-calls.ts';
@@ -61,6 +62,8 @@ export async function piChatResponse(input: {
   view: string | null;
   messages: UIMessage[];
   signal: AbortSignal;
+  /** Called once the reply has been read to its end (see readToEnd). */
+  onEnd: () => void;
 }): Promise<Response> {
   const { db, chat, route, messages } = input;
   let live = sessions.get(chat.id);
@@ -163,7 +166,7 @@ export async function piChatResponse(input: {
     },
     onError: (error) => (error instanceof Error ? error.message : String(error)),
   });
-  return createUIMessageStreamResponse({ stream });
+  return createUIMessageStreamResponse({ stream, ...readToEnd(input.onEnd) });
 }
 
 /** A deleted chat or a changed profile frees its pi session. */

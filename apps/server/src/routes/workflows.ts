@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { and, asc, count, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { knowledgeTemplate, listenerTemplate, nodeProfileIds, speechFixTemplate, termExtractionTemplate, translationTemplate, validateWorkflow, workflowDefinitionSchema, type WorkflowDefinition } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
@@ -85,7 +85,7 @@ export const workflowRoutes = new Hono<Env>()
     const { db } = c.var.deps;
     const body = c.req.valid('json');
     const current = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
-    if (current.version !== body.version) badRequest(`다른 곳에서 먼저 저장했습니다 (v${current.version}). 새로고침 후 다시 저장하세요.`);
+    if (current.version !== body.version) badRequest('다른 곳에서 먼저 저장했습니다. 새로고침 후 다시 저장하세요.');
     const row = db
       .update(s.workflows)
       .set({ name: body.name, description: body.description, definition: body.definition, version: current.version + 1 })
@@ -158,7 +158,9 @@ export const workflowRoutes = new Hono<Env>()
     const projectId = c.req.param('projectId');
     const { kind, status, ref, limit } = c.req.valid('query');
     const where = and(eq(s.aiCalls.projectId, projectId), kind ? eq(s.aiCalls.kind, kind) : undefined, status ? eq(s.aiCalls.status, status) : undefined, ref ? eq(s.aiCalls.refId, ref) : undefined);
-    const calls = db.select().from(s.aiCalls).where(where).orderBy(desc(s.aiCalls.startedAt)).limit(limit).all();
+    // What was sent can be a whole script; it is fetched one call at a time (below), not listed.
+    const { request: _request, ...listed } = getTableColumns(s.aiCalls);
+    const calls = db.select({ ...listed, hasRequest: sql<boolean>`${s.aiCalls.request} is not null` }).from(s.aiCalls).where(where).orderBy(desc(s.aiCalls.startedAt)).limit(limit).all();
     const profiles = new Map(db.select({ id: s.profiles.id, name: s.profiles.name }).from(s.profiles).all().map((profile) => [profile.id, profile.name]));
     const totals = db
       .select({
@@ -173,7 +175,28 @@ export const workflowRoutes = new Hono<Env>()
       .where(eq(s.aiCalls.projectId, projectId))
       .groupBy(s.aiCalls.kind)
       .all();
-    return c.json({ calls: calls.map((call) => ({ ...call, profileName: call.profileId ? (profiles.get(call.profileId) ?? null) : null })), totals });
+    return c.json({ calls: calls.map((call) => ({ ...call, hasRequest: Boolean(call.hasRequest), profileName: call.profileId ? (profiles.get(call.profileId) ?? null) : null })), totals });
+  })
+  /** What one model request sent (system prompt, then the prompt), when it was kept. */
+  .get('/projects/:projectId/ai-calls/:id/request', (c) => {
+    const row = found(c.var.deps.db.select({ request: s.aiCalls.request }).from(s.aiCalls).where(and(eq(s.aiCalls.id, c.req.param('id')), eq(s.aiCalls.projectId, c.req.param('projectId')))).get(), 'AI 호출');
+    return c.json({ request: row.request });
+  })
+  /**
+   * How fast a model has answered before, for "보통 약 N분": the median seconds per 1,000 input tokens
+   * over finished requests of this kind with this model, across every project.
+   */
+  .get('/ai-calls/pace', validate('query', z.object({ model: z.string().min(1), kind: z.enum(s.AI_CALL_KINDS) })), (c) => {
+    const { model, kind } = c.req.valid('query');
+    const rows = c.var.deps.db
+      .select({ input: s.aiCalls.inputTokens, started: s.aiCalls.startedAt, finished: s.aiCalls.finishedAt })
+      .from(s.aiCalls)
+      .where(and(eq(s.aiCalls.model, model), eq(s.aiCalls.kind, kind), eq(s.aiCalls.status, 'ok'), sql`${s.aiCalls.inputTokens} > 0`, sql`${s.aiCalls.finishedAt} is not null`))
+      .orderBy(desc(s.aiCalls.startedAt))
+      .limit(50)
+      .all();
+    const rates = rows.map((row) => (row.finished!.getTime() - row.started.getTime()) / 1000 / (row.input! / 1000)).sort((a, b) => a - b);
+    return c.json({ samples: rates.length, secondsPer1k: rates.length ? rates[Math.floor(rates.length / 2)] : null });
   })
   /**
    * AI jobs that are not workflow runs (work analysis, glossary fill), for 실행 기록 to list beside
@@ -184,26 +207,8 @@ export const workflowRoutes = new Hono<Env>()
     const projectId = c.req.param('projectId');
     const analyses = db.select().from(s.analysisJobs).where(eq(s.analysisJobs.projectId, projectId)).orderBy(desc(s.analysisJobs.createdAt)).limit(100).all();
     const fills = db.select().from(s.termJobs).where(eq(s.termJobs.projectId, projectId)).orderBy(desc(s.termJobs.createdAt)).limit(100).all();
-    // Chats that called a model: one job per conversation, its turns are its requests.
-    const chats = db
-      .select({
-        id: s.chatSessions.id,
-        title: s.chatSessions.title,
-        profileId: s.chatSessions.profileId,
-        createdAt: sql<number>`min(${s.aiCalls.startedAt})`,
-        finishedAt: sql<number>`max(${s.aiCalls.finishedAt})`,
-        running: sql<number>`sum(${s.aiCalls.status} = 'running')`,
-        failed: sql<number>`sum(${s.aiCalls.status} = 'failed')`,
-      })
-      .from(s.chatSessions)
-      .innerJoin(s.aiCalls, eq(s.aiCalls.refId, s.chatSessions.id))
-      .where(eq(s.chatSessions.projectId, projectId))
-      .groupBy(s.chatSessions.id)
-      .orderBy(desc(sql`min(${s.aiCalls.startedAt})`))
-      .limit(100)
-      .all();
     const runIds = db.select({ id: s.runs.id }).from(s.runs).where(eq(s.runs.projectId, projectId)).orderBy(desc(s.runs.createdAt)).limit(200).all().map((run) => run.id);
-    const ids = [...analyses, ...fills, ...chats].map((job) => job.id).concat(runIds);
+    const ids = [...analyses, ...fills].map((job) => job.id).concat(runIds);
     const stats = new Map(
       (ids.length
         ? db
@@ -228,7 +233,6 @@ export const workflowRoutes = new Hono<Env>()
       jobs: [
       ...analyses.map((job) => ({ kind: 'analysis' as const, id: job.id, title: '작품 분석', profile: job.profileId ? (profiles.get(job.profileId) ?? null) : null, status: job.status, error: job.error, done: job.partsDone, total: job.partsTotal, createdAt: job.createdAt, finishedAt: job.finishedAt, ...usage(job.id, job.usage) })),
       ...fills.map((job) => ({ kind: 'terms' as const, id: job.id, title: '용어 AI 채우기', profile: job.profileId ? (profiles.get(job.profileId) ?? null) : null, status: job.status, error: job.error, done: job.done, total: job.total, createdAt: job.createdAt, finishedAt: job.finishedAt, ...usage(job.id, job.usage) })),
-        ...chats.map((chat) => ({ kind: 'chat' as const, id: chat.id, title: chat.title || '채팅', profile: chat.profileId ? (profiles.get(chat.profileId) ?? null) : null, status: chat.running ? ('running' as const) : ('completed' as const), error: chat.failed ? `실패한 요청 ${chat.failed}건` : null, done: null, total: null, createdAt: new Date(chat.createdAt), finishedAt: chat.running ? null : new Date(chat.finishedAt), ...usage(chat.id, null) })),
       ],
     });
   })

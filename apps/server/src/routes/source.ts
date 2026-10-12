@@ -25,6 +25,8 @@ const listQuery = z.object({
   review: z.enum(['1']).optional(),
   /** Only lines not yet in a final status. */
   remaining: z.enum(['1']).optional(),
+  /** A line to show: the page is the one holding it (the response says which offset it used). */
+  focus: z.string().optional(),
   offset: z.coerce.number().int().min(0).default(0),
   limit: z.coerce.number().int().min(1).max(500).default(100),
 });
@@ -148,6 +150,15 @@ export const sourceRoutes = new Hono<Env>()
     // The groups table is only needed for the kind filter; without it the count is one index range.
     const counted = db.select({ count: count() }).from(s.units);
     const total = (query.kind ? counted.innerJoin(s.groups, eq(s.groups.id, s.units.groupId)) : counted).where(where).get()!.count;
+    // Opened at a given line (a link from elsewhere): start at the page that holds it.
+    let offset = query.offset;
+    if (query.focus) {
+      const target = db.select({ seq: s.units.seq }).from(s.units).where(and(eq(s.units.id, query.focus), eq(s.units.projectId, projectId))).get();
+      if (target) {
+        const before = (query.kind ? db.select({ count: count() }).from(s.units).innerJoin(s.groups, eq(s.groups.id, s.units.groupId)) : db.select({ count: count() }).from(s.units)).where(and(where, sql`${s.units.seq} < ${target.seq}`)).get()!.count;
+        offset = Math.floor(before / query.limit) * query.limit;
+      }
+    }
     const rows = db
       .select({ ...unitColumns, groupTitle: s.groups.title, origin: s.candidates.origin, model: s.candidates.model })
       .from(s.units)
@@ -156,7 +167,7 @@ export const sourceRoutes = new Hono<Env>()
       .where(where)
       .orderBy(asc(s.units.seq))
       .limit(query.limit)
-      .offset(query.offset)
+      .offset(offset)
       .all();
     const ids = rows.map((row) => row.id);
     const tagRows = ids.length ? db.select().from(s.unitTags).where(inArray(s.unitTags.unitId, ids)).all() : [];
@@ -172,7 +183,7 @@ export const sourceRoutes = new Hono<Env>()
         .orderBy(desc(s.runs.createdAt))
         .all())
         if (!lastRun.has(item.unitId)) lastRun.set(item.unitId, { runId: item.runId, workflowName: item.workflowName, issues: item.data.issues ?? [] });
-    return c.json({ total, rows: rows.map((row) => ({ ...row, tagIds: (tags.get(row.id) ?? []).map((tag) => tag.tagId), lastRun: lastRun.get(row.id) ?? null })) });
+    return c.json({ total, offset, rows: rows.map((row) => ({ ...row, tagIds: (tags.get(row.id) ?? []).map((tag) => tag.tagId), lastRun: lastRun.get(row.id) ?? null })) });
   })
   /** Lines by key, in script order: evidence cited by knowledge drafts. */
   .post('/projects/:projectId/units/by-keys', validate('json', z.object({ keys: z.array(z.string()).max(500) })), (c) => {

@@ -43,7 +43,7 @@ loca는 게임 내부 형식을 모릅니다. 게임마다 **변환기**가 추�
 | `relationships[]` | `from`, `to`(인물 이름·별칭), `kind`, `description`, `mutual`, `changes[]`(`at` 대사 키, `change`, `cause`) | 원본이나 공식 자료에 있는 것만 |
 | `events[]` | `title`, `summary`, `cause`, `outcome`, `participants`, `evidence`(대사 키) | 공식 자료에 있는 것만. 보통은 앱의 작품 분석이 초안을 만듭니다 |
 | `speechRules[]` | `from`, `to`, `level`(`hasipsio` 하십시오체/`hao` 하오체/`hage` 하게체/`haera` 해라체/`haeyo` 해요체/`hae` 해체·반말/`other`), `address`, `note`, `start`(대사 키, 이 줄부터) | 기존 공식 번역에서 확인된 말투만 |
-| `documents[]` | `title`, `kind`(`story`/`world`/`style`/`note`), `body`(마크다운), `alwaysInclude` | `alwaysInclude`는 매 AI 호출에 통째로 들어가므로 짧은 핵심 설정만 |
+| `documents[]` | `title`, `kind`(`story`/`world`/`style`/`note`), `body`(마크다운), `alwaysInclude` | `alwaysInclude`(앱의 ‘번역 문맥에 넣기’)를 켜면 ‘작품 문서’ 문맥을 켠 AI 노드의 호출마다 통째로 들어가므로 짧은 핵심 설정만 |
 | `terms[]` | `source`, `target`, `note` | 확정된 공식 번역어만. 모르면 `target`을 비웁니다 |
 
 ## 묶음 나누기

@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 import { KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, LISTENER_ORIGINS, SPEECH_LEVELS, type AgentSettings, type ContextItem, type FormatRules, type NodeType, type PiOptions, type RelationshipChange, type WorkflowDefinition } from '@tw/shared';
+import type { Usage } from '@tw/ai';
 
 const id = () => text('id').primaryKey().$defaultFn(() => crypto.randomUUID());
 const createdAt = () => integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date());
@@ -243,6 +244,8 @@ export const aiCalls = sqliteTable(
     cachedInputTokens: integer('cached_input_tokens'),
     outputTokens: integer('output_tokens'),
     costUsd: real('cost_usd'),
+    /** What was sent (system prompt and prompt), for work analysis and glossary fills; runs keep theirs in run steps. */
+    request: text('request'),
     startedAt: integer('started_at', { mode: 'timestamp_ms' }).notNull(),
     finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),
   },
@@ -264,6 +267,8 @@ export const terms = sqliteTable('terms', {
   examples: json<string[]>('examples').notNull().default(sql`'[]'`),
   /** The workflow run that added it, for AI terms. */
   runId: text('run_id'),
+  /** The work analysis that proposed it, for AI terms. */
+  jobId: text('job_id'),
   /** A person edited or promoted this AI term. */
   reviewed: integer('reviewed', { mode: 'boolean' }).notNull().default(false),
   updatedAt: updatedAt(),
@@ -361,6 +366,8 @@ export const analysisJobs = sqliteTable(
     result: json<Record<string, number>>('result'),
     /** Per part: a hash of its script text and the model's answer, so a failed job can be resumed. */
     parts: json<{ hash: string; answer: unknown }[]>('parts'),
+    /** What the analysis reads: lines, scenes and an estimate of the tokens sent (UTF-8 bytes / 4). */
+    input: json<{ lines: number; scenes: number; tokens: number }>('input'),
     error: text('error'),
     createdAt: createdAt(),
     finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),
@@ -588,7 +595,8 @@ export const chatSessions = sqliteTable('chat_sessions', {
   profileId: text('profile_id'),
   messages: json<unknown[]>('messages').notNull().default(sql`'[]'`),
   /** An agent CLI's own session for this chat (resumed each turn), and when it last took a turn. */
-  agentSession: json<{ kind: string; model: string; id: string; lastTurnAt: number }>('agent_session'),
+  /** `totals`: the CLI's running usage for the conversation, when it reports one (see cliChat). */
+  agentSession: json<{ kind: string; model: string; id: string; lastTurnAt: number; totals?: Usage }>('agent_session'),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });

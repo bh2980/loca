@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { EventFlow, type FlowEvent } from '@/components/knowledge/event-flow';
+import { splitList } from '@/components/chip-input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { client, unwrap } from '@/lib/api';
 import { DOCUMENT_KIND } from '@/lib/labels';
@@ -83,13 +84,13 @@ function Knowledge() {
       columns: [
         { head: '제목', cell: (row) => text(row.title), className: 'font-medium', width: 240 },
         { head: '종류', cell: (row) => DOCUMENT_KIND[row.kind as (typeof DOCUMENT_KINDS)[number]], width: 96 },
-        { head: '항상 포함', cell: (row) => (row.alwaysInclude ? <Badge variant="outline">항상 포함</Badge> : null), width: 104 },
+        { head: '번역 문맥', cell: (row) => (row.alwaysInclude ? <Badge variant="outline">넣음</Badge> : null), width: 96 },
         { head: '내용', cell: (row) => <span className="line-clamp-1 text-muted-foreground">{text(row.body).replace(/[#*_>`]+/g, '').replace(/\s+/g, ' ')}</span> },
       ],
       fields: [
         { name: 'title', label: '제목', type: 'text' },
         { name: 'kind', label: '종류', type: 'docKind' },
-        { name: 'alwaysInclude', label: '항상 포함 (모든 AI 요청에 전문을 넣음)', type: 'bool' },
+        { name: 'alwaysInclude', label: '번역 문맥에 넣기 (‘작품 문서’를 켠 AI 노드에 전문이 들어감)', type: 'bool' },
         { name: 'body', label: '본문 (마크다운)', type: 'long' },
       ],
       create: () => unwrap(api.documents.$post({ param: { projectId }, json: { title: '새 문서', kind: 'note', body: '', alwaysInclude: false } })),
@@ -106,7 +107,7 @@ function Knowledge() {
       ],
       fields: [
         { name: 'name', label: '이름', type: 'text' },
-        { name: 'aliases', label: '별칭 (쉼표로 구분)', type: 'list' },
+        { name: 'aliases', label: '별칭', type: 'list' },
         { name: 'player', label: '플레이어 캐릭터', type: 'bool' },
         { name: 'profile', label: '프로필', type: 'long' },
         { name: 'speech', label: '말투 특징 (원문 관찰)', type: 'long' },
@@ -152,7 +153,7 @@ function Knowledge() {
         { name: 'summary', label: '요약', type: 'long' },
         { name: 'cause', label: '원인', type: 'long' },
         { name: 'outcome', label: '결과', type: 'long' },
-        { name: 'participants', label: '관련 인물 (쉼표로 구분)', type: 'list' },
+        { name: 'participants', label: '관련 인물', type: 'list', suggestions: (people.data?.characters ?? []).map((c) => c.name) },
       ],
       label: (row) => text(row.title),
       save: (id, json) => unwrap(api.events[':id'].$patch({ ...param(id), json: json as never })),
@@ -172,14 +173,15 @@ function Knowledge() {
         { name: 'fromName', label: '화자', type: 'text' },
         { name: 'toName', label: '청자 (여럿 group · 불특정 다수 public · 혼잣말 self)', type: 'text' },
         { name: 'level', label: '말투', type: 'level' },
-        { name: 'address', label: '호칭', type: 'text' },
+        { name: 'address', label: '호칭', type: 'chips', suggestions: (rules.data ?? []).flatMap((rule) => splitList(rule.address)) },
         { name: 'startKey', label: '시작 대사 키 (비우면 처음부터)', type: 'key' },
-        { name: 'note', label: '이유·메모', type: 'long' },
+        { name: 'note', label: '이유·메모 (사람이 보는 설명, AI에 보내지 않음)', type: 'long' },
       ],
       label: (row) => `${text(row.fromName)} → ${listenerLabel(text(row.toName))}`,
       save: (id, json) => unwrap(api['speech-rules'][':id'].$patch({ ...param(id), json: json as never })),
       extra: (row) => <RuleLines projectId={projectId} ruleId={row.id} candidate={row.status === 'candidate'} />,
       create: () => unwrap(api['speech-rules'].$post({ param: { projectId }, json: { fromName: '화자', toName: '청자', level: 'haeyo' } as never })),
+      createWith: (json) => unwrap(api['speech-rules'].$post({ param: { projectId }, json: json as never })),
       remove: (id) => unwrap(api['speech-rules'][':id'].$delete(param(id))),
     },
   };

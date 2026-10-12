@@ -40,6 +40,7 @@ const draft = (rule: Analysis['speechRules'][number]['level']): Analysis => ({
     { from: 'Bob', to: 'Alice', level: rule, address: '선장님', note: '', start: null, evidence: ['L2'] },
     { from: 'Alice', to: 'Bob', level: 'hae', address: '', note: '', start: 'L3', evidence: ['L3'] },
   ],
+  terms: [{ source: 'boss', kind: 'title', meaning: '선원들이 선장을 부르는 말', target: '선장님', evidence: ['L2'] }],
   sceneListeners: [],
 });
 
@@ -174,6 +175,23 @@ describe('work analysis', () => {
     expect(ai.review).toContain('정식 규칙');
   });
 
+  it('proposes terms as glossary candidates, fills only empty forms of terms already there, and replaces its own untouched ones on a rerun', () => {
+    const { db, projectId } = setup();
+    const keyOf = scriptText(db, projectId).keyOf;
+    db.insert(s.terms).values({ projectId, source: 'Alice', target: '', note: '', status: 'candidate', origin: 'script' }).run();
+    const analysis = { ...draft('haeyo'), terms: [...draft('haeyo').terms, { source: 'alice', kind: 'person' as const, meaning: '선장', target: '앨리스', evidence: ['L1'] }] };
+    const counts = saveDrafts(db, projectId, 'job1', analysis, keyOf, true);
+    expect(counts.terms).toBe(1);
+    const boss = db.select().from(s.terms).where(eq(s.terms.source, 'boss')).get()!;
+    expect(boss).toMatchObject({ target: '선장님', note: '호칭·직함 · 선원들이 선장을 부르는 말', status: 'candidate', origin: 'ai', jobId: 'job1', examples: ['a2'] });
+    // The term found in the script before keeps its own entry and gains the analysis's form.
+    expect(db.select().from(s.terms).where(eq(s.terms.projectId, projectId)).all().filter((t) => t.source.toLowerCase() === 'alice')).toEqual([expect.objectContaining({ source: 'Alice', target: '앨리스', origin: 'script' })]);
+    // A rerun replaces the earlier analysis's untouched term instead of adding a second one.
+    db.insert(s.analysisJobs).values([{ id: 'job1', projectId, status: 'completed' }, { id: 'job2', projectId, status: 'completed' }]).run();
+    saveDrafts(db, projectId, 'job2', analysis, keyOf, true);
+    expect(db.select().from(s.terms).where(eq(s.terms.source, 'boss')).all().map((t) => t.jobId)).toEqual(['job2']);
+  });
+
   it('merges parts: one person across aliases, rules on that person, contradictions kept as conflicts', () => {
     const first: Analysis = { ...draft('hae'), characters: [{ name: 'Mara Holt', aliases: ['Holt'], profile: '', speech: '', player: false, evidence: [] }], speechRules: [{ from: 'Mara Holt', to: 'Bob', level: 'hae', address: '', note: '', start: null, evidence: [] }], relationships: [], events: [{ title: '습격', summary: '', cause: '', outcome: '', participants: [], evidence: ['L1'] }] };
     const second: Analysis = { ...draft('hae'), characters: [{ name: 'Holt', aliases: ['Mara'], profile: '형사', speech: '', player: false, evidence: [] }], speechRules: [{ from: 'Holt', to: 'Bob', level: 'haeyo', address: '', note: '', start: null, evidence: [] }], relationships: [], events: [{ title: '습격', summary: '', cause: '', outcome: '', participants: [], evidence: ['L2'] }] };
@@ -206,7 +224,7 @@ describe('work analysis', () => {
     const { projectId } = importProject(db, file);
     let calls = 0;
     let failSecond = true;
-    const empty: Analysis = { overview: { setting: '', mainConflict: '', plot: '', evidence: [] }, characters: [], relationships: [], events: [], speechRules: [], sceneListeners: [] };
+    const empty: Analysis = { overview: { setting: '', mainConflict: '', plot: '', evidence: [] }, characters: [], relationships: [], events: [], speechRules: [], terms: [], sceneListeners: [] };
     const service = new AnalysisService(
       db,
       memoryStore(),

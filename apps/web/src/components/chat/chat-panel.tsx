@@ -10,6 +10,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Elapsed } from '@/components/job-progress';
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import { client, unwrap } from '@/lib/api';
@@ -21,6 +22,9 @@ import { cn } from '@/lib/utils';
 import { useViewState, type ViewItem } from '@/lib/view-context';
 import { ProposalCard } from './proposal-card';
 import { ToolPart } from './tool-part';
+
+/** A conversation's model use in the session list: 950, 12.3k, 10.3M tokens. */
+const compactTokens = (n: number) => new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(n);
 
 const SESSION_KEY = (projectId: string) => `tw.chat.session.${projectId}`;
 const readSession = (projectId: string) => {
@@ -59,8 +63,11 @@ export function ChatPanel({ projectId }: { projectId: string }) {
   const create = useMutation({
     mutationFn: () => unwrap(client.projects[':projectId'].chat.$post({ param: { projectId }, json: { profileId: chatProfiles[0]?.id } })),
     onSuccess: (session) => {
-      void queryClient.invalidateQueries({ queryKey: ['chat', projectId] });
+      // The new conversation joins the list before it is picked: otherwise the stale list would
+      // unpick it, and a waiting AI-button request would start yet another one, again and again.
+      queryClient.setQueryData(q.chatSessions(projectId).queryKey, (list) => (list ? [{ id: session.id, title: session.title, profileId: session.profileId, updatedAt: session.updatedAt, calls: 0, tokens: 0 }, ...list.filter((item) => item.id !== session.id)] : list));
       setSessionId(session.id);
+      void queryClient.invalidateQueries({ queryKey: ['chat', projectId] });
     },
   });
 
@@ -78,8 +85,13 @@ export function ChatPanel({ projectId }: { projectId: string }) {
   const current = sessions.data?.find((session) => session.id === sessionId);
   // An AI button was pressed with no conversation yet: start one, the request waits for it.
   const pendingRequest = usePendingAgentRequest();
+  // One conversation per wait: never a second while the first is being made or was just made.
+  const starting = useRef(false);
   useEffect(() => {
-    if (pendingRequest && sessions.data && !sessionId && !create.isPending) create.mutate();
+    if (!pendingRequest) starting.current = false;
+    if (!pendingRequest || !sessions.data || sessionId || create.isPending || starting.current) return;
+    starting.current = true;
+    create.mutate();
   }, [pendingRequest, sessions.data, sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
@@ -97,6 +109,11 @@ export function ChatPanel({ projectId }: { projectId: string }) {
             {sessions.data?.map((session) => (
               <DropdownMenuItem key={session.id} onSelect={() => setSessionId(session.id)} className={cn('group/session pr-1', session.id === sessionId && 'font-medium')}>
                 <span className="min-w-0 flex-1 truncate">{session.title}</span>
+                {session.calls > 0 && (
+                  <span className="shrink-0 text-xs text-muted-foreground tabular-nums" title={`모델 요청 ${session.calls}건 · 토큰 ${session.tokens.toLocaleString()}`}>
+                    {session.calls}건 · {compactTokens(session.tokens)}
+                  </span>
+                )}
                 <Button
                   variant="ghost"
                   size="icon-xs"
@@ -165,6 +182,7 @@ function Conversation({ projectId, sessionId, profileId, profiles }: { projectId
       projectId={projectId}
       sessionId={sessionId}
       initial={(saved.data?.messages ?? []) as unknown as UIMessage[]}
+      turn={saved.data?.turn ?? null}
       profileId={profileId}
       profiles={profiles}
       onProfile={async (next) => {
@@ -175,10 +193,11 @@ function Conversation({ projectId, sessionId, profileId, profiles }: { projectId
   );
 }
 
-function ChatBody({ projectId, sessionId, initial, profileId, profiles, onProfile }: {
+function ChatBody({ projectId, sessionId, initial, turn, profileId, profiles, onProfile }: {
   projectId: string;
   sessionId: string;
   initial: UIMessage[];
+  turn: Turn | null;
   profileId: string | null;
   profiles: { id: string; name: string; model: string }[];
   onProfile: (id: string) => Promise<void>;
@@ -193,7 +212,12 @@ function ChatBody({ projectId, sessionId, initial, profileId, profiles, onProfil
   // The conversation outlives this panel: closing it mid-reply keeps the reply coming in.
   const stored = chatFor(sessionId, initial);
   stored.view.current = viewRef.current;
-  const { messages, sendMessage, setMessages, status, stop, error, addToolApprovalResponse, addToolOutput } = useChat({ chat: stored.chat });
+  const { messages, sendMessage, setMessages, regenerate, status, stop, error, addToolApprovalResponse, addToolOutput } = useChat({ chat: stored.chat });
+  // The turn runs on the server, not in this request: stopping ends both.
+  const halt = () => {
+    void stop();
+    void unwrap(client.chat[':sessionId'].stop.$post({ param: { sessionId } }));
+  };
   // A reply this window is not streaming (sent before a reload, or from another window) is saved
   // by the server when it ends; the saved conversation then catches up here.
   useEffect(() => {
@@ -206,6 +230,8 @@ function ChatBody({ projectId, sessionId, initial, profileId, profiles, onProfil
     sessionStorage.setItem(`tw.chat.draft.${sessionId}`, input);
   }, [sessionId, input]);
   const busy = status === 'submitted' || status === 'streaming';
+  // A turn this window is not streaming (sent before a reload) that is still going on the server.
+  const elsewhere = !busy && Boolean(turn?.startedAt) && messages.at(-1)?.role === 'user';
   // pi chats store change requests as proposals; their cards are decided through the API.
   const proposals = useQuery(q.proposals(projectId, sessionId));
   const proposalById = new Map(proposals.data?.map((proposal) => [proposal.id, proposal]));
@@ -240,7 +266,7 @@ function ChatBody({ projectId, sessionId, initial, profileId, profiles, onProfil
 
   const send = () => {
     const text = input.trim();
-    if (!text || busy || !profileId) return;
+    if (!text || busy || elsewhere || !profileId) return;
     void sendMessage({ text });
     setInput('');
   };
@@ -291,11 +317,7 @@ function ChatBody({ projectId, sessionId, initial, profileId, profiles, onProfil
               <Spinner /> {status === 'submitted' ? '생각하는 중…' : '작업 중… (도구로 자료를 읽거나 답을 쓰고 있습니다)'}
             </p>
           )}
-          {!busy && !error && lastMessage?.role === 'user' && (
-            <p className="flex items-center gap-2 px-1 text-sm text-muted-foreground">
-              <Spinner className="size-3.5" /> 답을 기다리는 중입니다. 새로고침 전에 보낸 질문이면 답이 끝나는 대로 여기에 나타납니다.
-            </p>
-          )}
+          {!busy && !error && lastMessage?.role === 'user' && <TurnState turn={turn} onStop={halt} onRetry={() => void regenerate()} canRetry={Boolean(profileId)} />}
           {stalled && (
             <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
               <span className="text-muted-foreground">{finishReason === 'length' ? '출력 한도(모델 프로필의 최대 출력)에 걸려 멈췄습니다.' : '에이전트가 결과를 말하지 않고 멈췄습니다.'}</span>
@@ -348,8 +370,8 @@ function ChatBody({ projectId, sessionId, initial, profileId, profiles, onProfil
             </SelectContent>
           </Select>
           <div className="ml-auto">
-            {busy ? (
-              <Button size="icon" variant="secondary" aria-label="중지" onClick={() => void stop()}>
+            {busy || elsewhere ? (
+              <Button size="icon" variant="secondary" aria-label="중지" onClick={halt}>
                 <Square className="size-3" />
               </Button>
             ) : (
@@ -383,6 +405,44 @@ function ExternalProposals({ projectId }: { projectId: string }) {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+type Turn = { startedAt: number | null; call: { label: string | null; status: string; error: string | null; startedAt: string } | null };
+
+/**
+ * A question whose answer this window is not streaming (it was sent before a reload): while the
+ * server is still on it, what step it is at and for how long, with a way to stop; once it is
+ * over without an answer, why, with a way to ask again.
+ */
+function TurnState({ turn, onStop, onRetry, canRetry }: { turn: Turn | null; onStop: () => void; onRetry: () => void; canRetry: boolean }) {
+  if (turn?.startedAt) {
+    const rounds = Number(/도구 결과 후 (\d+)/.exec(turn.call?.label ?? '')?.[1] ?? 0);
+    const step = turn.call?.status === 'running' ? (rounds ? `도구 결과를 받고 이어서 쓰는 중 (${rounds + 1}번째 요청)` : '답을 쓰는 중') : '도구를 쓰는 중';
+    return (
+      <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+        <Spinner className="size-3.5" />
+        <span className="min-w-0 flex-1">
+          {step} · <Elapsed since={new Date(turn.startedAt)} />
+          <span className="block text-xs">새로고침 전에 보낸 질문입니다. 답이 끝나면 여기에 나타납니다.</span>
+        </span>
+        <Button variant="outline" onClick={onStop}>
+          중단
+        </Button>
+      </div>
+    );
+  }
+  const reason = turn?.call?.status === 'failed' ? turn.call.error : null;
+  return (
+    <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+      <span className="min-w-0 flex-1 text-muted-foreground">
+        답을 받지 못했습니다.
+        <span className="block text-xs">{reason ?? '답이 끝나기 전에 끊겼습니다.'}</span>
+      </span>
+      <Button variant="outline" disabled={!canRetry} onClick={onRetry}>
+        다시 보내기
+      </Button>
     </div>
   );
 }

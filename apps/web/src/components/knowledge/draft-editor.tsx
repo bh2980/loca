@@ -1,13 +1,15 @@
-import { type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Check, Play, Trash2 } from 'lucide-react';
+import { Check, ChevronRight, Play, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { DOCUMENT_KINDS, KNOWLEDGE_ORIGIN_LABELS, SPEECH_FIX_WORKFLOW, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, sourceOf, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type SpeechLevel } from '@tw/shared';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { ChipInput, joinList, splitList } from '@/components/chip-input';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -39,7 +41,10 @@ export type Value = string | boolean | string[] | null;
 export interface Field {
   name: string;
   label: string;
-  type: 'text' | 'long' | 'list' | 'bool' | 'level' | 'key' | 'docKind' | 'character';
+  /** 'chips' is several values kept as one comma-separated string (forms of address); 'list' an array. */
+  type: 'text' | 'long' | 'list' | 'chips' | 'bool' | 'level' | 'key' | 'docKind' | 'character';
+  /** Values offered while typing a 'list' or 'chips' field. */
+  suggestions?: string[];
 }
 export interface KindSpec {
   rows: Row[];
@@ -49,6 +54,8 @@ export interface KindSpec {
   save: (id: string, json: Record<string, Value>) => Promise<unknown>;
   /** Creates an empty item (a person's, official) and returns its id; absent when it cannot be made yet. */
   create?: () => Promise<{ id: string }>;
+  /** Creates an item with these fields (a new speech stretch from a picked line). */
+  createWith?: (json: Record<string, Value>) => Promise<{ id: string }>;
   remove: (id: string) => Promise<unknown>;
   /** Shown under the fields (read-only facts such as relationship changes, a rule's lines). */
   extra?: (row: Row) => ReactNode;
@@ -185,10 +192,21 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
   embedded?: boolean;
 }) {
   const saved = JSON.stringify(Object.fromEntries(spec.fields.map((field) => [field.name, row[field.name] ?? null])));
-  const [draft, setDraft, clear] = useDraft(`knowledge.${kind}.${row.id}`, saved);
+  const [draft, setDraft, clearDraft] = useDraft(`knowledge.${kind}.${row.id}`, saved);
+  // What the item was when editing began: if it changes elsewhere meanwhile (a chat proposal
+  // accepted, another window), the unsaved edit must not quietly hide the new value.
+  const [base, setBase, clearBase] = useDraft(`knowledge-base.${kind}.${row.id}`, '');
   const form = JSON.parse(draft) as Record<string, Value>;
   const dirty = draft !== saved;
-  const update = (name: string, value: Value) => setDraft(JSON.stringify({ ...form, [name]: value }));
+  const changedElsewhere = dirty && Boolean(base) && base !== saved;
+  const clear = () => {
+    clearDraft();
+    clearBase();
+  };
+  const update = (name: string, value: Value) => {
+    if (!dirty) setBase(saved);
+    setDraft(JSON.stringify({ ...form, [name]: value }));
+  };
   const save = useMutation({
     mutationFn: () => spec.save(row.id, form),
     onSuccess: () => {
@@ -202,6 +220,19 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
 
   const body = (
     <>
+      {changedElsewhere && (
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-warning/40 bg-warning/5 px-3 py-2 text-xs">
+          <span className="text-warning">고치는 동안 이 항목이 다른 곳에서 바뀌었습니다. 아래는 아직 저장하지 않은 내 수정입니다.</span>
+          <span className="ml-auto flex gap-1">
+            <Button variant="outline" size="inline" className="px-2" onClick={clear}>
+              바뀐 내용 불러오기
+            </Button>
+            <Button variant="ghost" size="inline" className="px-2" onClick={() => setBase(saved)}>
+              내 수정 유지
+            </Button>
+          </span>
+        </div>
+      )}
       <PaneSection title="내용">
         <div className="flex flex-col gap-4">
           {spec.fields.map((field) => (
@@ -209,8 +240,11 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
           ))}
         </div>
       </PaneSection>
-      {spec.extra?.(row)}
-      <Evidence projectId={projectId} keys={row.evidence} />
+      {/* The folded lists (a rule's lines, the evidence) read as one block. */}
+      <div className="space-y-1">
+        {spec.extra?.(row)}
+        <Evidence projectId={projectId} keys={row.evidence} />
+      </div>
     </>
   );
   const actions = !official ? (
@@ -218,7 +252,15 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
       <Button variant="ghost" className="text-destructive" onClick={() => onDecide('discard')}>
         <Trash2 /> 버리기
       </Button>
-      <Button variant="outline" className="ml-auto" disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
+      {dirty && (
+        <span className="ml-auto flex items-center gap-1 text-xs text-warning">
+          저장 안 된 수정
+          <Button variant="ghost" size="inline" className="text-muted-foreground" onClick={clear}>
+            되돌리기
+          </Button>
+        </span>
+      )}
+      <Button variant="outline" className={dirty ? undefined : 'ml-auto'} disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
         저장
       </Button>
       <Button disabled={dirty} title={dirty ? '먼저 저장하세요' : 'AI가 넣은 그대로 정식 자료로 올립니다'} onClick={() => onDecide('confirm')}>
@@ -244,7 +286,15 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      <Button className="ml-auto" disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
+      {dirty && (
+        <span className="ml-auto flex items-center gap-1 text-xs text-warning">
+          저장 안 된 수정
+          <Button variant="ghost" size="inline" className="text-muted-foreground" onClick={clear}>
+            되돌리기
+          </Button>
+        </span>
+      )}
+      <Button className={dirty ? undefined : 'ml-auto'} disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
         저장
       </Button>
     </>
@@ -302,7 +352,9 @@ export function FieldInput({ field, value, characters, onChange }: { field: Fiel
           </SelectContent>
         </Select>
       ) : field.type === 'list' ? (
-        <Input id={id} value={(value as string[] | null)?.join(', ') ?? ''} onChange={(event) => onChange(event.target.value.split(',').map((part) => part.trim()).filter(Boolean))} />
+        <ChipInput id={id} value={(value as string[] | null) ?? []} onChange={onChange} suggestions={field.suggestions} placeholder="쉼표나 Enter로 추가" />
+      ) : field.type === 'chips' ? (
+        <ChipInput id={id} value={splitList(value)} onChange={(chips) => onChange(joinList(chips))} suggestions={field.suggestions} placeholder="쉼표나 Enter로 추가" />
       ) : field.type === 'level' ? (
         <Select value={text(value)} onValueChange={onChange}>
           <SelectTrigger id={id} className="w-full">
@@ -324,11 +376,29 @@ export function FieldInput({ field, value, characters, onChange }: { field: Fiel
 }
 
 /** The lines a draft cites, opening in the script. Keys that are not lines were already dropped by the server. */
+/** A list that stays folded until asked for (evidence, a rule's lines): the pane shows what to decide first. */
+function Fold({ label, children, actions }: { label: ReactNode; children: ReactNode; actions?: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <div className="flex min-h-7 items-center gap-2">
+        <CollapsibleTrigger asChild>
+          <Button variant="ghost" size="inline" className="-ml-1 text-muted-foreground">
+            <ChevronRight className={cn('transition-transform', open && 'rotate-90')} /> {label}
+          </Button>
+        </CollapsibleTrigger>
+        {actions && <div className="ml-auto">{actions}</div>}
+      </div>
+      <CollapsibleContent className="mt-1">{children}</CollapsibleContent>
+    </Collapsible>
+  );
+}
+
 export function Evidence({ projectId, keys }: { projectId: string; keys: string[] }) {
   const lines = useQuery(q.linesByKeys(projectId, keys.slice(0, 50)));
+  if (!keys.length) return <p className="text-xs text-muted-foreground">근거로 든 대사가 없습니다.</p>;
   return (
-    <PaneSection title={`근거 대사 ${keys.length}개`}>
-      {keys.length === 0 && <p className="text-xs text-muted-foreground">근거로 든 대사가 없습니다.</p>}
+    <Fold label={`근거 대사 ${keys.length}개`}>
       <ul className="space-y-1">
         {lines.data?.map((line) => (
           <li key={line.id}>
@@ -340,7 +410,7 @@ export function Evidence({ projectId, keys }: { projectId: string; keys: string[
           </li>
         ))}
       </ul>
-    </PaneSection>
+    </Fold>
   );
 }
 
@@ -352,15 +422,15 @@ export function RuleLines({ projectId, ruleId, candidate }: { projectId: string;
     <PaneSection
       title={`${candidate ? '확정하면 적용될' : '이 규칙이 적용되는'} 대사 ${lines.data?.count ?? '…'}개`}
       actions={
-        !!lines.data?.count && !candidate ? (
+        lines.data?.translatedIds.length && !candidate ? (
           <RunDialog
             projectId={projectId}
-            unitIds={lines.data.unitIds}
+            unitIds={lines.data.translatedIds}
             defaultIgnoreStatus
             preferWorkflow={SPEECH_FIX_WORKFLOW}
             trigger={
-              <Button variant="ghost">
-                <Play /> 다시 실행
+              <Button variant="ghost" title={`“${SPEECH_FIX_WORKFLOW}” 워크플로로 번역된 줄의 어미·호칭만 이 규칙에 맞춥니다`}>
+                <Play /> 번역된 {lines.data.translatedIds.length.toLocaleString()}줄 말투 맞추기
               </Button>
             }
           />
@@ -369,7 +439,9 @@ export function RuleLines({ projectId, ruleId, candidate }: { projectId: string;
     >
       <div className="space-y-2">
       <p className="text-xs text-muted-foreground">
-        청자가 정해진 이 쌍의 대사(대사 그래프에서 이 구간 시작을 반드시 거친 뒤, 다음 구간 전까지. 루트에 따라 다르면 대본 순서 기준)입니다. 규칙을 고쳤다면 “{SPEECH_FIX_WORKFLOW}”로 이 대사들의 어미·호칭만 다시 맞추세요.
+        {lines.data && !lines.data.translatedIds.length
+          ? '아직 번역된 줄이 없습니다. 이 줄들을 번역할 때 이 규칙이 들어갑니다.'
+          : `규칙을 고쳤다면 “말투 맞추기”로 이미 번역된 줄의 어미·호칭만 다시 맞춥니다. 뜻과 표현은 그대로 둡니다.`}
       </p>
       {!!lines.data?.routeDependent && (
         <p className="text-xs text-warning">
@@ -382,6 +454,7 @@ export function RuleLines({ projectId, ruleId, candidate }: { projectId: string;
           {levels.map(([level, count]) => `${level === 'unknown' ? '판단 불가·번역 없음' : SPEECH_LEVEL_LABELS[level as SpeechLevel]} ${count}`).join(' · ')}
         </p>
       )}
+      <Fold label="대사 보기">
       <ul className="max-h-60 space-y-1 overflow-auto">
         {lines.data?.rows.map((line) => (
           <li key={line.id}>
@@ -393,6 +466,7 @@ export function RuleLines({ projectId, ruleId, candidate }: { projectId: string;
           </li>
         ))}
       </ul>
+      </Fold>
       </div>
     </PaneSection>
   );

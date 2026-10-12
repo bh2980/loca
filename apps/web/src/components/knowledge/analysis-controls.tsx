@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Play, Sparkles, Square } from 'lucide-react';
+import { CircleStop, Play, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
+import { Elapsed, JobProgress } from '@/components/job-progress';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -21,10 +22,14 @@ export function JobStatus({ projectId }: { projectId: string }) {
   const when = new Date(job.finishedAt ?? job.createdAt).toLocaleString();
   if (job.status === 'running')
     return (
-      <span className="flex items-center gap-2">
-        <Sparkles className="size-4 animate-pulse" /> 대본 전체를 읽는 중 · {job.model} · {job.partsDone}/{job.partsTotal} 부분
-        <Button variant="ghost" onClick={() => cancel.mutate(job.id)}>
-          <Square /> 중단
+      <span className="flex min-w-0 items-center gap-2">
+        <JobProgress done={job.partsDone} total={job.partsTotal} running className="w-20 shrink-0" />
+        <span className="truncate">
+          대본을 읽는 중 · {job.model} · <Elapsed since={job.createdAt} />
+          {job.partsTotal > 1 && ` · ${job.partsDone}/${job.partsTotal} 부분`}
+        </span>
+        <Button variant="ghost" size="inline" onClick={() => cancel.mutate(job.id)} disabled={cancel.isPending}>
+          <CircleStop /> 중단
         </Button>
       </span>
     );
@@ -37,6 +42,7 @@ export function JobStatus({ projectId }: { projectId: string }) {
       마지막 분석 {when} · {job.model} · 초안 {total}개
       {result.rulesForReview ? ` · 확인 권장 말투 규칙 ${result.rulesForReview}개` : ''}
       {result.listeners ? ` · 청자 ${result.listeners.toLocaleString()}줄 채움` : ''}
+      {result.terms ? ` · 용어 후보 ${result.terms}개` : ''}
       {result.invalidEvidence ? ` · 대본에 없는 근거 ${result.invalidEvidence}개 제외` : ''}
     </span>
   );
@@ -66,10 +72,12 @@ export function StartAnalysis({ projectId, variant = 'default' }: { projectId: s
   });
   const running = jobs.data?.[0]?.status === 'running';
   const hasDrafts = hasAnalysis(jobs.data);
+  // Only one analysis runs at a time; while it does, its progress (with a stop button) stands in for this.
+  if (running) return null;
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant={variant} disabled={running}>
+        <Button variant={variant}>
           <Sparkles /> {hasDrafts ? '작품 다시 분석' : '작품 분석'}
         </Button>
       </PopoverTrigger>
@@ -77,7 +85,7 @@ export function StartAnalysis({ projectId, variant = 'default' }: { projectId: s
         <div className="space-y-1">
           <h3 className="text-sm font-semibold">작품 분석</h3>
           <p className="text-xs text-muted-foreground">
-            모델이 대본 전체를 한 번에 읽고 개요·인물·관계·사건·말투 규칙 초안을 근거와 함께 만듭니다. 번역과 상태는 바뀌지 않습니다. 긴 문맥 모델을 권장하고, 출력 한도가 작으면 답이 잘릴 수 있습니다.
+            모델이 대본 전체를 한 번에 읽고 개요·인물·관계·사건·말투 규칙 초안과 용어 후보(번역 제안 포함)를 근거와 함께 만듭니다. 용어는 용어집에 후보로 들어가고 확정은 사람이 합니다. 번역과 상태는 바뀌지 않습니다. 긴 문맥 모델을 권장하고, 출력 한도가 작으면 답이 잘릴 수 있습니다.
             {hasDrafts && ' 다시 분석하면 사람이 고치거나 확정하지 않은 AI 항목이 새 결과로 바뀝니다.'}
           </p>
         </div>

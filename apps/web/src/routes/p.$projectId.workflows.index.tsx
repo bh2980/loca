@@ -46,7 +46,12 @@ function Workflows() {
       ),
     },
     { id: 'nodes', header: '노드', meta: { width: 64, align: 'end' }, cell: ({ row }) => row.original.nodeCount },
-    { id: 'version', header: '버전', meta: { width: 64, className: 'text-muted-foreground' }, cell: ({ row }) => `v${row.original.version}` },
+    {
+      id: 'saved',
+      header: '저장',
+      meta: { width: 120, className: 'text-muted-foreground' },
+      cell: ({ row }) => new Date(row.original.updatedAt).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
+    },
     {
       id: 'last',
       header: '최근 실행',

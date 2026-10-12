@@ -163,13 +163,15 @@ export class TermService {
           }),
         })),
       };
+      const system = [SYSTEM, profile.instructions].filter(Boolean).join('\n\n');
+      const prompt = JSON.stringify(input);
       const result = await ai.withFallback(
         routes,
         profile.maxAttempts,
         (route) =>
-          logged(this.db, { projectId, kind: 'terms', refId: state.id, label: `용어 AI 채우기 · ${batch.length.toLocaleString()}개`, profileId: profile.id }, route, () => this.model.generate<z.infer<typeof suggestSchema>>(route, {
-            system: [SYSTEM, profile.instructions].filter(Boolean).join('\n\n'),
-            prompt: JSON.stringify(input),
+          logged(this.db, { projectId, kind: 'terms', refId: state.id, label: `용어 AI 채우기 · ${batch.length.toLocaleString()}개`, profileId: profile.id, request: `${system}\n\n---\n\n${prompt}` }, route, () => this.model.generate<z.infer<typeof suggestSchema>>(route, {
+            system,
+            prompt,
             schema: suggestSchema,
             maxOutputTokens: profile.maxOutputTokens,
             temperature: profile.temperature ?? undefined,

@@ -241,7 +241,11 @@ export function speechRuleIndex(db: Db, projectId: string) {
 }
 
 /** How a rule reads in a prompt or a check. */
-export const describeRule = (rule: Rule) => [SPEECH_LEVEL_LABELS[rule.level], rule.address && `호칭 "${rule.address}"`].filter(Boolean).join(', ');
+/** "하게체, 호칭 "행크 경위님" 또는 "경위님"": the level and every form of address (kept comma-separated). */
+export const describeRule = (rule: Rule) => {
+  const forms = rule.address.split(',').map((form) => form.trim()).filter(Boolean);
+  return [SPEECH_LEVEL_LABELS[rule.level], forms.length && `호칭 ${forms.map((form) => `"${form}"`).join(' 또는 ')}`].filter(Boolean).join(', ');
+};
 
 /** "해요체", "해체": the level name without its 반말 hint. */
 const levelName = (level: SpeechLevel) => SPEECH_LEVEL_LABELS[level].replace(/\(.*\)/u, '');
@@ -287,5 +291,7 @@ export function ruleLines(db: Db, projectId: string, ruleId: string) {
   }
   // Of these, lines whose stretch depends on the route (picked by script order).
   const routeDependent = rows.filter((line) => uncertain.has(line.key)).length;
-  return { count: rows.length, routeDependent, unitIds: rows.map((line) => line.id), levels, rows: rows.slice(0, 100).map(({ listenerOrigin: _o, listenerConfidence: _c, ...line }) => line) };
+  // Only translated lines have endings to fix; untranslated ones get the rule when they are translated.
+  const translatedIds = rows.filter((line) => line.translation?.trim()).map((line) => line.id);
+  return { count: rows.length, routeDependent, unitIds: rows.map((line) => line.id), translatedIds, levels, rows: rows.slice(0, 100).map(({ listenerOrigin: _o, listenerConfidence: _c, ...line }) => line) };
 }

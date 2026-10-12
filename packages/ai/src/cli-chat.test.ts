@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readCliChat } from './cli-chat.ts';
+import { readCliChat, turnShare } from './cli-chat.ts';
 
 // Shapes as the CLIs print them (grok 1.0.46, Claude Code 2.1, codex 0.154 exec --json, agy 1.3, opencode run --format json).
 describe('CLI chat output', () => {
@@ -32,5 +32,13 @@ describe('CLI chat output', () => {
       .map((event) => JSON.stringify(event))
       .join('\n');
     expect(readCliChat('opencode', opencode, 'x')).toMatchObject({ sessionId: 'ses_1', text: 'The code word was HERON.' });
+  });
+
+  it('counts only a turn\'s share when the CLI reports the conversation\'s running total', () => {
+    // agy 1.3 on a resumed conversation: 20,333 in after turn 1, 53,130 after turn 2.
+    expect(turnShare({ inputTokens: 53_130, outputTokens: 1_343 }, { inputTokens: 20_333, outputTokens: 1_144 })).toEqual({ inputTokens: 32_797, outputTokens: 199 });
+    expect(turnShare({ inputTokens: 900 }, undefined)).toEqual({ inputTokens: 900 });
+    // A smaller total: the CLI started a new conversation, so the total is the turn.
+    expect(turnShare({ inputTokens: 900 }, { inputTokens: 50_000 })).toEqual({ inputTokens: 900 });
   });
 });

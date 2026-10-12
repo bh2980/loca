@@ -93,9 +93,23 @@ export function LineList({
 }) {
   const statuses = useQuery(q.statuses(projectId));
   const page = search.page ?? 0;
+  // Lines picked here (click, keys); any other line in the URL arrived from elsewhere (a link).
+  const pickedHere = useRef<string | undefined>(undefined);
+  // A line that arrives from a link may sit on any page: the server opens the page that holds it,
+  // then the URL takes that page (replace), so paging and Back keep working from there.
+  const [focusing, setFocusing] = useState<string | undefined>(() => search.line);
+  useEffect(() => {
+    if (search.line && search.line !== pickedHere.current) setFocusing(search.line);
+  }, [search.line]);
   const lines = useQuery(
-    q.units(projectId, { groupId, kind, review: review ? '1' : undefined, remaining: search.remaining ? '1' : undefined, q: search.q, statusId: search.status, tagId: search.tag, speaker: search.speaker, listener: search.listener, offset: page * PAGE_SIZE, limit: PAGE_SIZE }),
+    q.units(projectId, { groupId, kind, review: review ? '1' : undefined, remaining: search.remaining ? '1' : undefined, q: search.q, statusId: search.status, tagId: search.tag, speaker: search.speaker, listener: search.listener, focus: focusing, offset: page * PAGE_SIZE, limit: PAGE_SIZE }),
   );
+  useEffect(() => {
+    if (!focusing || !lines.data || lines.isPlaceholderData) return;
+    const held = Math.floor(lines.data.offset / PAGE_SIZE);
+    setFocusing(undefined);
+    if (held !== page) onSearch({ page: held || undefined }, { replace: true });
+  }, [focusing, lines.data, lines.isPlaceholderData]); // eslint-disable-line react-hooks/exhaustive-deps
   const statusList = useMemo(() => statuses.data?.statuses ?? [], [statuses.data]);
   const statusById = new Map(statusList.map((status) => [status.id, status]));
   const tagById = new Map(statuses.data?.tags.map((tag) => [tag.id, tag]));
@@ -142,10 +156,12 @@ export function LineList({
     if (!landing.current || !rows?.length || lines.isPlaceholderData) return;
     const target = landing.current === 'first' ? rows[0] : rows.at(-1)!;
     landing.current = null;
+    pickedHere.current = target.id;
     onSearch({ line: target.id }, { replace: true });
   }, [rows, lines.isPlaceholderData, onSearch]);
 
   const select = (id: string | undefined, edit: boolean) => {
+    pickedHere.current = id;
     setEditing(edit);
     onSearch({ line: id }, { replace: true });
   };
@@ -196,8 +212,18 @@ export function LineList({
     return () => window.removeEventListener('keydown', onKey);
   }, []);
   const selectedRow = useRef<HTMLLIElement>(null);
+  // A line opened from a link (glossary example, search, evidence) is brought to the middle and
+  // flashes once, so it is found at a glance; lines moved to here only scroll as far as needed.
+  const [arrived, setArrived] = useState<string>();
   useEffect(() => {
-    selectedRow.current?.scrollIntoView({ block: 'nearest' });
+    const row = selectedRow.current;
+    if (!row) return;
+    const fromLink = search.line !== pickedHere.current;
+    row.scrollIntoView({ block: fromLink ? 'center' : 'nearest' });
+    if (fromLink) {
+      pickedHere.current = search.line;
+      setArrived(search.line);
+    }
   }, [search.line, rows]);
 
   // Filters that came from elsewhere (home, search, a glossary link) show as removable chips.
@@ -282,6 +308,8 @@ export function LineList({
                   ref={selected ? selectedRow : undefined}
                   onClick={() => !selected && select(line.id, true)}
                   className={cn('flex gap-3 border-b px-4 transition-colors', selected ? 'bg-muted/60 py-3 shadow-[inset_2px_0_0_var(--primary)]' : 'cursor-pointer py-2.5 hover:bg-muted/40')}
+                  style={line.id === arrived ? { animation: 'line-arrived 2s ease-out' } : undefined}
+                  onAnimationEnd={() => setArrived(undefined)}
                 >
                   {picking && <Checkbox className="mt-1" aria-label={`${line.key} 선택`} checked={picked.has(line.id)} onClick={(event) => event.stopPropagation()} onCheckedChange={(checked) => pick([line.id], Boolean(checked))} />}
                   <div className="grid min-w-0 flex-1 grid-cols-2 gap-6">

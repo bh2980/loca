@@ -149,3 +149,15 @@
   .prose-chat input[type='checkbox'] { @apply mr-1 align-middle; }
   .prose-chat ul.contains-task-list { @apply list-none pl-1; }
 }
+
+/* A bar that moves while work runs whose progress cannot be counted (one long model call). */
+@keyframes indeterminate {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(250%); }
+}
+
+/* A line opened from a link flashes once where it landed. */
+@keyframes line-arrived {
+  0%, 30% { background-color: color-mix(in oklch, var(--warning) 22%, transparent); }
+  100% { background-color: transparent; }
+}

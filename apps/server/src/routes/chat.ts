@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { convertToModelMessages, stepCountIs, streamText, type UIMessage } from 'ai';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import * as ai from '@tw/ai';
 import { CONNECTION_KIND_INFO } from '@tw/shared';
@@ -9,6 +9,7 @@ import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { startCall } from '../services/ai-calls.ts';
 import { AGENT_SYSTEM, agentTools } from '../services/agent-tools.ts';
+import { readToEnd, startTurn, stopTurn, turnStartedAt } from '../services/chat-turns.ts';
 import { liveProfileRoutes } from '../services/routes.ts';
 import { closePiChat, piChatResponse } from '../services/pi-chat.ts';
 import { withFittedResults } from '../services/tool-output.ts';
@@ -39,9 +40,19 @@ export const chatRoutes = new Hono<Env>()
     const { db } = c.var.deps;
     return c.json(
       db
-        .select({ id: s.chatSessions.id, title: s.chatSessions.title, profileId: s.chatSessions.profileId, updatedAt: s.chatSessions.updatedAt })
+        // Each conversation's model use (its turns in the AI log): chats are not in 실행 기록, so the panel shows it.
+        .select({
+          id: s.chatSessions.id,
+          title: s.chatSessions.title,
+          profileId: s.chatSessions.profileId,
+          updatedAt: s.chatSessions.updatedAt,
+          calls: sql<number>`count(${s.aiCalls.id})`,
+          tokens: sql<number>`coalesce(sum(${s.aiCalls.inputTokens}), 0) + coalesce(sum(${s.aiCalls.outputTokens}), 0)`,
+        })
         .from(s.chatSessions)
+        .leftJoin(s.aiCalls, eq(s.aiCalls.refId, s.chatSessions.id))
         .where(eq(s.chatSessions.projectId, c.req.param('projectId')))
+        .groupBy(s.chatSessions.id)
         .orderBy(desc(s.chatSessions.updatedAt))
         .all(),
     );
@@ -53,7 +64,14 @@ export const chatRoutes = new Hono<Env>()
     events.changed(projectId, 'chat');
     return c.json(row, 201);
   })
-  .get('/chat/:sessionId', (c) => c.json(found(c.var.deps.db.select().from(s.chatSessions).where(eq(s.chatSessions.id, c.req.param('sessionId'))).get(), '대화')))
+  .get('/chat/:sessionId', (c) => {
+    const { db } = c.var.deps;
+    const sessionId = c.req.param('sessionId');
+    const session = found(db.select().from(s.chatSessions).where(eq(s.chatSessions.id, sessionId)).get(), '대화');
+    // What the latest turn is doing or how it ended, for a panel that is not streaming it (after a reload).
+    const call = db.select({ label: s.aiCalls.label, status: s.aiCalls.status, error: s.aiCalls.error, startedAt: s.aiCalls.startedAt }).from(s.aiCalls).where(eq(s.aiCalls.refId, sessionId)).orderBy(desc(s.aiCalls.startedAt)).get() ?? null;
+    return c.json({ ...session, turn: { startedAt: turnStartedAt(sessionId), call } });
+  })
   .patch('/chat/:sessionId', validate('json', z.object({ title: z.string().trim().min(1).optional(), profileId: z.string().nullable().optional() })), (c) => {
     const { db } = c.var.deps;
     const row = found(db.update(s.chatSessions).set(c.req.valid('json')).where(eq(s.chatSessions.id, c.req.param('sessionId'))).returning().get(), '대화');
@@ -89,6 +107,8 @@ export const chatRoutes = new Hono<Env>()
     db.update(s.chatSessions).set({ messages }).where(eq(s.chatSessions.id, session.id)).run();
 
     const view = c.req.valid('json').view;
+    // The turn, not this request, decides when the reply stops (a reload keeps it going; 중단 stops it).
+    const turn = startTurn(session.projectId, session.id);
     if ((ai.CHAT_CLI_KINDS as string[]).includes(route.kind)) {
       return cliChatResponse({
         db,
@@ -98,7 +118,8 @@ export const chatRoutes = new Hono<Env>()
         view: view ? describeView(view) : null,
         messages,
         timeoutMs: live.snapshot.timeoutSeconds * 1000,
-        signal: c.req.raw.signal,
+        signal: turn.signal,
+        onEnd: turn.end,
       });
     }
     if (route.kind === 'pi') {
@@ -110,9 +131,11 @@ export const chatRoutes = new Hono<Env>()
           system: [AGENT_SYSTEM, PI_NOTE, live.snapshot.instructions].filter(Boolean).join('\n\n'),
           view: view ? describeView(view) : null,
           messages,
-          signal: c.req.raw.signal,
+          signal: turn.signal,
+          onEnd: turn.end,
         });
       } catch (error) {
+        turn.end();
         return badRequest(error instanceof Error ? error.message : String(error));
       }
     }
@@ -131,7 +154,7 @@ export const chatRoutes = new Hono<Env>()
       maxOutputTokens: live.snapshot.maxOutputTokens,
       temperature: live.snapshot.temperature ?? undefined,
       providerOptions: ai.openaiProviderOptions(route),
-      abortSignal: c.req.raw.signal,
+      abortSignal: turn.signal,
     });
     return result.toUIMessageStreamResponse({
       originalMessages: messages,
@@ -142,5 +165,7 @@ export const chatRoutes = new Hono<Env>()
         events.changed(session.projectId, 'chat');
       },
       onError: (error) => (error instanceof Error ? error.message : String(error)),
+      ...readToEnd(turn.end),
     });
-  });
+  })
+  .post('/chat/:sessionId/stop', (c) => c.json({ stopped: stopTurn(c.req.param('sessionId')) }));
