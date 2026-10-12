@@ -12,12 +12,12 @@ export function PaneHeader({ kicker, title, subtitle, icon, actions, onClose }: 
       {icon}
       <div className="min-w-0 flex-1">
         {kicker && <div className="text-xs text-muted-foreground">{kicker}</div>}
-        <h2 className="truncate text-sm font-medium">{title}</h2>
+        <h2 className="truncate text-sm font-semibold">{title}</h2>
         {subtitle && <div className="text-xs text-muted-foreground">{subtitle}</div>}
       </div>
       {actions}
       {onClose && (
-        <Button variant="ghost" size="icon" className="size-7" onClick={onClose} aria-label="닫기">
+        <Button variant="ghost" size="icon" onClick={onClose} aria-label="닫기">
           <X />
         </Button>
       )}

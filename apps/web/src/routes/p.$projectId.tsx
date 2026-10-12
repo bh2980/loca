@@ -15,7 +15,8 @@ import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/s
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { chatDock, useChatDockOpen } from '@/lib/chat-dock';
 import { q } from '@/lib/queries';
-import { useViewState } from '@/lib/view-context';
+import { useCurrentNav } from '@/lib/nav';
+import { cn } from '@/lib/utils';
 
 export const Route = createFileRoute('/p/$projectId')({
   loader: ({ context, params }) => context.queryClient.ensureQueryData(q.project(params.projectId)),
@@ -38,7 +39,6 @@ export const Route = createFileRoute('/p/$projectId')({
 function ProjectLayout() {
   const { projectId } = Route.useParams();
   const chatOpen = useChatDockOpen();
-  const view = useViewState();
   const layout = useDefaultLayout({ id: 'tw-main-chat', panelIds: chatOpen ? ['main', 'chat'] : ['main'], storage: localStorage });
 
   useEffect(() => {
@@ -61,17 +61,17 @@ function ProjectLayout() {
             <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
               <SidebarTrigger />
               <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
-              <h1 className="truncate text-sm font-semibold">{view.page}</h1>
+              <SectionTabs projectId={projectId} />
               <div className="ml-auto flex items-center gap-1.5">
                 <CommandSearch projectId={projectId} />
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button variant={chatOpen ? 'secondary' : 'ghost'} size="sm" onClick={chatDock.toggle} aria-pressed={chatOpen}>
-                      <MessageSquare /> 에이전트
+                    <Button variant={chatOpen ? 'secondary' : 'ghost'} size="icon" onClick={chatDock.toggle} aria-pressed={chatOpen} aria-label="에이전트 채팅">
+                      <MessageSquare />
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
-                    채팅 열기/닫기 <Kbd>⌘I</Kbd>
+                    에이전트 채팅 {chatOpen ? '닫기' : '열기'} <Kbd>⌘I</Kbd>
                   </TooltipContent>
                 </Tooltip>
               </div>
@@ -91,5 +91,30 @@ function ProjectLayout() {
         </ResizablePanelGroup>
       </SidebarInset>
     </SidebarProvider>
+  );
+}
+
+/** The current menu's screens as tabs; a menu with one screen shows its name. */
+function SectionTabs({ projectId }: { projectId: string }) {
+  const { section, tab: active } = useCurrentNav(projectId);
+  if (section.tabs.length === 1) return <h1 className="text-sm font-semibold">{section.label}</h1>;
+  return (
+    <nav className="flex h-full min-w-0 items-stretch gap-1" aria-label={section.label}>
+      {section.tabs.map((tab) => (
+        <Link
+          key={tab.label}
+          to={`/p/$projectId${tab.path}` as never}
+          params={{ projectId } as never}
+          search={tab.search as never}
+          aria-current={tab === active ? 'page' : undefined}
+          className={cn(
+            'flex items-center border-y-2 border-t-transparent px-2 text-sm whitespace-nowrap transition-colors',
+            tab === active ? 'border-b-foreground font-medium text-foreground' : 'border-b-transparent text-muted-foreground hover:text-foreground',
+          )}
+        >
+          {tab.label}
+        </Link>
+      ))}
+    </nav>
   );
 }

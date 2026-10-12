@@ -1,41 +1,45 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useSyncExternalStore } from 'react';
 
 /**
- * Unsaved edits survive navigation, Back/Forward and reloads (sessionStorage), and
- * are never overwritten by a server refetch: the draft only exists while it differs.
+ * Unsaved edits survive navigation, Back/Forward and reloads (sessionStorage), and are never
+ * overwritten by a server refetch: the draft only exists while it differs. Every component using
+ * the same key sees the same draft as it is typed (the row editor and the line pane's checks).
  */
-export function useDraft(key: string, saved: string): [string, (value: string) => void, () => void] {
-  const storageKey = `tw.draft.${key}`;
-  const read = () => {
-    try {
-      return sessionStorage.getItem(storageKey);
-    } catch {
-      return null;
-    }
-  };
-  const [draft, setDraftState] = useState<string | null>(read);
-  useEffect(() => {
-    setDraftState(read());
-  }, [storageKey]); // eslint-disable-line react-hooks/exhaustive-deps
+const listeners = new Map<string, Set<() => void>>();
+const storageKey = (key: string) => `tw.draft.${key}`;
 
-  const setDraft = useCallback(
-    (value: string) => {
-      setDraftState(value);
-      try {
-        sessionStorage.setItem(storageKey, value);
-      } catch {
-        /* ignore */
-      }
+const read = (key: string) => {
+  try {
+    return sessionStorage.getItem(storageKey(key));
+  } catch {
+    return null;
+  }
+};
+
+const write = (key: string, value: string | null) => {
+  try {
+    if (value === null) sessionStorage.removeItem(storageKey(key));
+    else sessionStorage.setItem(storageKey(key), value);
+  } catch {
+    /* private mode */
+  }
+  listeners.get(key)?.forEach((listener) => listener());
+};
+
+export function useDraft(key: string, saved: string): [string, (value: string) => void, () => void] {
+  const subscribe = useCallback(
+    (listener: () => void) => {
+      const set = listeners.get(key) ?? new Set();
+      set.add(listener);
+      listeners.set(key, set);
+      return () => {
+        set.delete(listener);
+      };
     },
-    [storageKey],
+    [key],
   );
-  const clear = useCallback(() => {
-    setDraftState(null);
-    try {
-      sessionStorage.removeItem(storageKey);
-    } catch {
-      /* ignore */
-    }
-  }, [storageKey]);
+  const draft = useSyncExternalStore(subscribe, () => read(key));
+  const setDraft = useCallback((value: string) => write(key, value), [key]);
+  const clear = useCallback(() => write(key, null), [key]);
   return [draft ?? saved, setDraft, clear];
 }

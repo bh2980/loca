@@ -33,7 +33,7 @@ interface RunSearch {
   page?: number;
   line?: string;
   view?: 'items' | 'steps' | 'plan';
-  lineTab?: 'context';
+  lineTab?: 'candidates' | 'context';
   aiNode?: string;
 }
 
@@ -44,7 +44,7 @@ export const Route = createFileRoute('/p/$projectId/runs/$runId')({
     page: typeof raw.page === 'number' && raw.page > 0 ? raw.page : undefined,
     line: typeof raw.line === 'string' ? raw.line : undefined,
     view: raw.view === 'steps' || raw.view === 'plan' ? raw.view : undefined,
-    lineTab: raw.lineTab === 'context' ? 'context' : undefined,
+    lineTab: raw.lineTab === 'context' || raw.lineTab === 'candidates' ? raw.lineTab : undefined,
     aiNode: typeof raw.aiNode === 'string' && raw.aiNode.includes(':') ? raw.aiNode : undefined,
   }),
   component: RunDetail,
@@ -137,8 +137,9 @@ function RunDetail() {
                 unitId={search.line}
                 onClose={() => setSearch({ line: undefined }, true)}
                 showScene
-                tab={search.lineTab ?? 'edit'}
-                onTab={(tab) => setSearch({ lineTab: tab === 'context' ? 'context' : undefined }, true)}
+                editor
+                tab={search.lineTab ?? 'checks'}
+                onTab={(tab) => setSearch({ lineTab: tab === 'checks' ? undefined : tab }, true)}
                 aiNode={search.aiNode}
                 onAiNode={(aiNode) => setSearch({ aiNode }, true)}
               />

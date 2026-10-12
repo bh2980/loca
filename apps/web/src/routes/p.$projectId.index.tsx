@@ -67,7 +67,7 @@ function Dashboard() {
           <CardContent className="space-y-4">
             <p className="text-3xl font-semibold tabular-nums">{project.data?.reviewCount ?? 0}</p>
             <Button asChild variant="outline" size="sm" disabled={!project.data?.reviewCount}>
-              <Link to="/p/$projectId/reviews" params={{ projectId }}>
+              <Link to="/p/$projectId/script" params={{ projectId }} search={{ review: true }}>
                 <Inbox /> 검토하러 가기
               </Link>
             </Button>

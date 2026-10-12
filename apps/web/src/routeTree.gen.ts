@@ -15,7 +15,6 @@ import { Route as PProjectIdIndexRouteImport } from './routes/p.$projectId.index
 import { Route as PProjectIdGlossaryRouteImport } from './routes/p.$projectId.glossary'
 import { Route as PProjectIdGraphRouteImport } from './routes/p.$projectId.graph'
 import { Route as PProjectIdKnowledgeRouteImport } from './routes/p.$projectId.knowledge'
-import { Route as PProjectIdReviewsRouteImport } from './routes/p.$projectId.reviews'
 import { Route as PProjectIdScriptRouteImport } from './routes/p.$projectId.script'
 import { Route as PProjectIdRunsIndexRouteImport } from './routes/p.$projectId.runs.index'
 import { Route as PProjectIdRunsRunIdRouteImport } from './routes/p.$projectId.runs.$runId'
@@ -54,11 +53,6 @@ const PProjectIdGraphRoute = PProjectIdGraphRouteImport.update({
 const PProjectIdKnowledgeRoute = PProjectIdKnowledgeRouteImport.update({
   id: '/knowledge',
   path: '/knowledge',
-  getParentRoute: () => PProjectIdRoute,
-} as any)
-const PProjectIdReviewsRoute = PProjectIdReviewsRouteImport.update({
-  id: '/reviews',
-  path: '/reviews',
   getParentRoute: () => PProjectIdRoute,
 } as any)
 const PProjectIdScriptRoute = PProjectIdScriptRouteImport.update({
@@ -117,7 +111,6 @@ export interface FileRoutesByFullPath {
   '/p/$projectId/glossary': typeof PProjectIdGlossaryRoute
   '/p/$projectId/graph': typeof PProjectIdGraphRoute
   '/p/$projectId/knowledge': typeof PProjectIdKnowledgeRoute
-  '/p/$projectId/reviews': typeof PProjectIdReviewsRoute
   '/p/$projectId/script': typeof PProjectIdScriptRoute
   '/p/$projectId/': typeof PProjectIdIndexRoute
   '/p/$projectId/runs/$runId': typeof PProjectIdRunsRunIdRoute
@@ -134,7 +127,6 @@ export interface FileRoutesByTo {
   '/p/$projectId/glossary': typeof PProjectIdGlossaryRoute
   '/p/$projectId/graph': typeof PProjectIdGraphRoute
   '/p/$projectId/knowledge': typeof PProjectIdKnowledgeRoute
-  '/p/$projectId/reviews': typeof PProjectIdReviewsRoute
   '/p/$projectId/script': typeof PProjectIdScriptRoute
   '/p/$projectId': typeof PProjectIdIndexRoute
   '/p/$projectId/runs/$runId': typeof PProjectIdRunsRunIdRoute
@@ -153,7 +145,6 @@ export interface FileRoutesById {
   '/p/$projectId/glossary': typeof PProjectIdGlossaryRoute
   '/p/$projectId/graph': typeof PProjectIdGraphRoute
   '/p/$projectId/knowledge': typeof PProjectIdKnowledgeRoute
-  '/p/$projectId/reviews': typeof PProjectIdReviewsRoute
   '/p/$projectId/script': typeof PProjectIdScriptRoute
   '/p/$projectId/': typeof PProjectIdIndexRoute
   '/p/$projectId/runs/$runId': typeof PProjectIdRunsRunIdRoute
@@ -173,7 +164,6 @@ export interface FileRouteTypes {
     | '/p/$projectId/glossary'
     | '/p/$projectId/graph'
     | '/p/$projectId/knowledge'
-    | '/p/$projectId/reviews'
     | '/p/$projectId/script'
     | '/p/$projectId/'
     | '/p/$projectId/runs/$runId'
@@ -190,7 +180,6 @@ export interface FileRouteTypes {
     | '/p/$projectId/glossary'
     | '/p/$projectId/graph'
     | '/p/$projectId/knowledge'
-    | '/p/$projectId/reviews'
     | '/p/$projectId/script'
     | '/p/$projectId'
     | '/p/$projectId/runs/$runId'
@@ -208,7 +197,6 @@ export interface FileRouteTypes {
     | '/p/$projectId/glossary'
     | '/p/$projectId/graph'
     | '/p/$projectId/knowledge'
-    | '/p/$projectId/reviews'
     | '/p/$projectId/script'
     | '/p/$projectId/'
     | '/p/$projectId/runs/$runId'
@@ -268,13 +256,6 @@ declare module '@tanstack/react-router' {
       path: '/knowledge'
       fullPath: '/p/$projectId/knowledge'
       preLoaderRoute: typeof PProjectIdKnowledgeRouteImport
-      parentRoute: typeof PProjectIdRoute
-    }
-    '/p/$projectId/reviews': {
-      id: '/p/$projectId/reviews'
-      path: '/reviews'
-      fullPath: '/p/$projectId/reviews'
-      preLoaderRoute: typeof PProjectIdReviewsRouteImport
       parentRoute: typeof PProjectIdRoute
     }
     '/p/$projectId/script': {
@@ -347,7 +328,6 @@ interface PProjectIdRouteChildren {
   PProjectIdGlossaryRoute: typeof PProjectIdGlossaryRoute
   PProjectIdGraphRoute: typeof PProjectIdGraphRoute
   PProjectIdKnowledgeRoute: typeof PProjectIdKnowledgeRoute
-  PProjectIdReviewsRoute: typeof PProjectIdReviewsRoute
   PProjectIdScriptRoute: typeof PProjectIdScriptRoute
   PProjectIdIndexRoute: typeof PProjectIdIndexRoute
   PProjectIdRunsRunIdRoute: typeof PProjectIdRunsRunIdRoute
@@ -364,7 +344,6 @@ const PProjectIdRouteChildren: PProjectIdRouteChildren = {
   PProjectIdGlossaryRoute: PProjectIdGlossaryRoute,
   PProjectIdGraphRoute: PProjectIdGraphRoute,
   PProjectIdKnowledgeRoute: PProjectIdKnowledgeRoute,
-  PProjectIdReviewsRoute: PProjectIdReviewsRoute,
   PProjectIdScriptRoute: PProjectIdScriptRoute,
   PProjectIdIndexRoute: PProjectIdIndexRoute,
   PProjectIdRunsRunIdRoute: PProjectIdRunsRunIdRoute,
