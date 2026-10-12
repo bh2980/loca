@@ -1,26 +1,27 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { CircleAlert, Play, Tags } from 'lucide-react';
+import { Check, CircleAlert, ListChecks, MoreHorizontal, PanelRightOpen, Play, Tags, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { LISTENER_MIN_CONFIDENCE, listenerLabel } from '@tw/shared';
-import { DataTable, type ColumnDef } from '@/components/data-table';
-import { HeaderFilter } from '@/components/header-filter';
+import { checkFormat, LISTENER_MIN_CONFIDENCE, listenerLabel, mentions, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
+import { BulkBar } from '@/components/data-table';
 import { LineDetail, LINE_TABS, type LineTab } from '@/components/line-detail';
 import { SplitPane } from '@/components/split-pane';
-import { StatusBadge, StatusDot, TagChip } from '@/components/status';
+import { StatusDot, TagChip } from '@/components/status';
 import { Pager, SearchInput, Toolbar } from '@/components/toolbar';
 import { TranslationEditor } from '@/components/translation-editor';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { Button } from '@/components/ui/button';
-import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuLabel, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Checkbox } from '@/components/ui/checkbox';
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { client, unwrap } from '@/lib/api';
+import { useDraft } from '@/lib/drafts';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
 export const PAGE_SIZE = 100;
-
-const ORIGIN_LABEL = { ai: 'AI', human: '사람', tool: '도구', import: '가져옴' } as const;
 
 export interface LinesSearch {
   q?: string;
@@ -29,8 +30,12 @@ export interface LinesSearch {
   speaker?: string;
   /** A character name, or "-" for lines whose listener is unknown. */
   listener?: string;
+  /** Only lines not in a final status yet. */
+  remaining?: true;
   page?: number;
   line?: string;
+  /** The line's details pane is open (closed by default: the row itself is the editor). */
+  detail?: true;
   /** The line pane's tab and the AI node whose context it shows ("workflowId:nodeId"). */
   lineTab?: Exclude<LineTab, 'checks'>;
   aiNode?: string;
@@ -42,38 +47,27 @@ export const linesSearchSchema = (raw: Record<string, unknown>): LinesSearch => 
   tag: typeof raw.tag === 'string' ? raw.tag : undefined,
   speaker: typeof raw.speaker === 'string' && raw.speaker ? raw.speaker : undefined,
   listener: typeof raw.listener === 'string' && raw.listener ? raw.listener : undefined,
+  remaining: raw.remaining === true || raw.remaining === 'true' ? true : undefined,
   page: typeof raw.page === 'number' && raw.page > 0 ? raw.page : undefined,
   line: typeof raw.line === 'string' ? raw.line : undefined,
+  detail: raw.detail === true || raw.detail === 'true' ? true : undefined,
   lineTab: typeof raw.lineTab === 'string' && LINE_TABS.includes(raw.lineTab as LineTab) && raw.lineTab !== 'checks' ? (raw.lineTab as LinesSearch['lineTab']) : undefined,
   aiNode: typeof raw.aiNode === 'string' && raw.aiNode.includes(':') ? raw.aiNode : undefined,
 });
 
-/** Who the line is addressed to. AI guesses are faint with their confidence; unsure ones count as unknown. */
-export function ListenerCell({ line }: { line: { listener: string | null; listenerOrigin: 'import' | 'ai' | 'human' | null; listenerConfidence: number | null } }) {
-  const name = line.listener ? listenerLabel(line.listener) : null;
-  if (line.listenerOrigin === 'ai' && (line.listenerConfidence ?? 0) < LISTENER_MIN_CONFIDENCE)
-    return (
-      <span className="text-warning" title={`AI 추정: ${name ?? '모름'} (확신 ${(line.listenerConfidence ?? 0).toFixed(2)})`}>
-        미상
-      </span>
-    );
-  if (!name) return <span className="text-muted-foreground">—</span>;
-  if (line.listenerOrigin === 'ai')
-    return (
-      <span className="text-muted-foreground" title={`AI 추정 (확신 ${(line.listenerConfidence ?? 0).toFixed(2)})`}>
-        {name} · AI
-      </span>
-    );
-  return <span>{name}</span>;
+/** Who the line is addressed to. Unsure AI guesses count as unknown. */
+function listenerText(line: { listener: string | null; listenerOrigin: 'import' | 'ai' | 'human' | null; listenerConfidence: number | null }) {
+  if (!line.listener || (line.listenerOrigin === 'ai' && (line.listenerConfidence ?? 0) < LISTENER_MIN_CONFIDENCE)) return { text: '청자 미상', unknown: true };
+  return { text: listenerLabel(line.listener), unknown: false };
 }
 
 const typing = (target: EventTarget | null) => target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName));
 
 /**
- * The translation screen's line list: lines in script order, filtered by the column headers, with
- * the picked line's translation editable in its own row and its details in the pane beside it.
- * Keyboard: ↑↓ (or ⌥↑↓ while typing) moves between lines, ↵ starts editing, ⌘↵ saves and moves
- * the line on to its next status, then goes to the next line.
+ * The translation screen's lines: source on the left, translation on the right, in script order.
+ * Only the picked line opens up — its editor and a short row of hints (speech rule, terms, format,
+ * what the last run flagged). Everything else (listener, tags, candidates, AI context, history)
+ * lives in the details pane, opened on demand. Keyboard: ↑↓ moves, ↵ edits, ⌘↵ confirms and goes on.
  */
 export function LineList({
   projectId,
@@ -84,6 +78,7 @@ export function LineList({
   onSearch,
   heading,
   actions,
+  menu,
 }: {
   projectId: string;
   groupId?: string;
@@ -91,15 +86,16 @@ export function LineList({
   kind?: 'scene' | 'document' | 'ui';
   search: LinesSearch;
   onSearch: (next: Partial<LinesSearch>, options?: { replace?: boolean }) => void;
-  /** Left of the toolbar: what this list is (a group's title, "모든 대사"). */
   heading: ReactNode;
   actions?: ReactNode;
+  /** Extra items for the "더 보기" menu (what this group can do besides translating). */
+  menu?: ReactNode;
 }) {
   const statuses = useQuery(q.statuses(projectId));
   const page = search.page ?? 0;
-  const lines = useQuery(q.units(projectId, { groupId, kind, review: review ? '1' : undefined, q: search.q, statusId: search.status, tagId: search.tag, speaker: search.speaker, listener: search.listener, offset: page * PAGE_SIZE, limit: PAGE_SIZE }));
-  const speakers = useQuery(q.speakers(projectId));
-  const people = useQuery(q.characters(projectId));
+  const lines = useQuery(
+    q.units(projectId, { groupId, kind, review: review ? '1' : undefined, remaining: search.remaining ? '1' : undefined, q: search.q, statusId: search.status, tagId: search.tag, speaker: search.speaker, listener: search.listener, offset: page * PAGE_SIZE, limit: PAGE_SIZE }),
+  );
   const statusList = useMemo(() => statuses.data?.statuses ?? [], [statuses.data]);
   const statusById = new Map(statusList.map((status) => [status.id, status]));
   const tagById = new Map(statuses.data?.tags.map((tag) => [tag.id, tag]));
@@ -110,7 +106,8 @@ export function LineList({
   const [focusTick, setFocusTick] = useState(0);
   const setEditing = (edit: boolean) => setFocusTick((tick) => (edit ? tick + 1 : 0));
 
-  // Picked lines (checkboxes) are separate from the line open in the pane, and survive paging.
+  // Picking several lines is a mode, so checkboxes don't clutter the everyday list.
+  const [picking, setPicking] = useState(false);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const knownTags = useRef(new Map<string, string[]>());
   for (const row of rows ?? []) knownTags.current.set(row.id, row.tagIds);
@@ -125,6 +122,10 @@ export function LineList({
       else next.delete(id);
       return next;
     });
+  const stopPicking = () => {
+    setPicking(false);
+    setPicked(new Set());
+  };
   const setStatus = useMutation({
     mutationFn: (statusId: string) => unwrap(client.projects[':projectId'].units.$patch({ param: { projectId }, json: { unitIds: [...picked], statusId } })),
     onSuccess: () => toast.success(`${picked.size}개 대사의 상태를 바꿨습니다.`),
@@ -164,12 +165,13 @@ export function LineList({
       onSearch({ page: page - 1 || undefined, line: undefined });
     }
   };
-  // After ⌘↵ the line may leave the list (검토함); the next line is the one after it as it was.
+  // After ⌘↵ the line may leave the list (검토함, 남은 줄만); the next line is the one after it as it was.
   const advanceFrom = (id: string) => {
     if (!rows) return;
     const index = rows.findIndex((row) => row.id === id);
+    const shrinking = review || search.remaining;
     if (index >= 0 && index + 1 < rows.length) select(rows[index + 1].id, true);
-    else if (review && index > 0 && page + 1 >= Math.ceil(total / PAGE_SIZE)) select(rows[index - 1].id, true);
+    else if (shrinking && index > 0 && page + 1 >= Math.ceil(total / PAGE_SIZE)) select(rows[index - 1].id, true);
     else move(1, true);
   };
 
@@ -193,111 +195,31 @@ export function LineList({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+  const selectedRow = useRef<HTMLLIElement>(null);
+  useEffect(() => {
+    selectedRow.current?.scrollIntoView({ block: 'nearest' });
+  }, [search.line, rows]);
 
-  type Row = NonNullable<typeof rows>[number];
-  const columns: ColumnDef<Row, unknown>[] = [
-    {
-      id: 'source',
-      meta: { wrap: true },
-      header: () => (
-        <span className="flex items-center gap-2">
-          <HeaderFilter label="화자" value={search.speaker} onChange={(speaker) => onSearch({ speaker, page: undefined })} options={(speakers.data ?? []).filter((row) => row.speaker).map((row) => ({ value: row.speaker!, label: row.speaker, hint: row.lines }))} />
-          <span className="text-muted-foreground/50">→</span>
-          <HeaderFilter
-            label="청자"
-            value={search.listener}
-            onChange={(listener) => onSearch({ listener, page: undefined })}
-            options={[
-              { value: '-', label: '미상', keywords: '미상 unknown' },
-              ...(people.data?.characters ?? []).filter((c) => c.status === 'confirmed').map((c) => ({ value: c.name, label: c.name, hint: c.player ? '플레이어' : undefined })),
-            ]}
-          />
-          <span className="text-muted-foreground/50">·</span>
-          원문
-        </span>
-      ),
-      cell: ({ row: { original: line } }) => (
-        <div className="space-y-1">
-          <p className="flex min-w-0 items-baseline gap-1 text-xs whitespace-nowrap">
-            <span className="truncate font-medium">{line.speaker ?? <span className="font-normal text-muted-foreground">화자 없음</span>}</span>
-            {line.kind === 'dialogue' && (
-              <>
-                <span className="text-muted-foreground">→</span>
-                <span className="truncate">
-                  <ListenerCell line={line} />
-                </span>
-              </>
-            )}
-            {showScene && (
-              <span className="ml-auto truncate pl-2 text-muted-foreground" title={line.groupTitle}>
-                {line.groupTitle}
-              </span>
-            )}
-          </p>
-          <p>{line.source}</p>
-        </div>
-      ),
-    },
-    {
-      id: 'translation',
-      meta: { wrap: true },
-      header: '번역',
-      cell: ({ row: { original: line } }) =>
-        line.id === search.line ? (
-          <TranslationEditor
-            key={line.id}
-            unit={line}
-            statuses={statusList}
-            focusKey={focusTick}
-            onEscape={() => setEditing(false)}
-            onDone={(advanced) => (advanced ? advanceFrom(line.id) : undefined)}
-          />
-        ) : (
-          <div className="space-y-1">
-            <p className={cn(!line.translation && 'text-muted-foreground')}>{line.translation ?? '—'}</p>
-            {line.translation && line.origin && <p className="text-xs text-muted-foreground">{ORIGIN_LABEL[line.origin]}{line.model && ` · ${line.model}`}</p>}
-            {review && !!line.lastRun?.issues.length && (
-              <p className="flex items-start gap-1 text-xs text-warning">
-                <CircleAlert className="mt-0.5 size-3 shrink-0" />
-                <span className="line-clamp-2">{line.lastRun.issues.join(' · ')}</span>
-              </p>
-            )}
-          </div>
-        ),
-    },
-    {
-      id: 'status',
-      meta: { width: 128 },
-      header: () => (
-        <HeaderFilter
-          label="상태"
-          value={search.status}
-          onChange={(status) => onSearch({ status, page: undefined })}
-          options={statusList.map((status) => ({ value: status.id, keywords: status.name, label: <><StatusDot color={status.color} /> {status.name}</> }))}
-          groups={[{ heading: '태그', value: search.tag, onChange: (tag) => onSearch({ tag, page: undefined }), options: (statuses.data?.tags ?? []).map((tag) => ({ value: tag.id, keywords: tag.name, label: `#${tag.name}` })) }]}
-        />
-      ),
-      cell: ({ row: { original: line } }) => (
-        <div className="flex flex-col items-start gap-1">
-          <StatusBadge status={statusById.get(line.statusId)} />
-          {line.tagIds.map((id) => tagById.get(id)).filter(Boolean).map((tag) => <TagChip key={tag!.id} tag={tag!} />)}
-        </div>
-      ),
-    },
-  ];
+  // Filters that came from elsewhere (home, search, a glossary link) show as removable chips.
+  const chips = [
+    search.status && { key: 'status', label: `상태: ${statusById.get(search.status)?.name ?? '?'}`, clear: { status: undefined } },
+    search.tag && { key: 'tag', label: `태그: #${tagById.get(search.tag)?.name ?? '?'}`, clear: { tag: undefined } },
+    search.speaker && { key: 'speaker', label: `화자: ${search.speaker}`, clear: { speaker: undefined } },
+    search.listener && { key: 'listener', label: search.listener === '-' ? '청자 미상만' : `청자: ${search.listener}`, clear: { listener: undefined } },
+  ].filter(Boolean) as { key: string; label: string; clear: Partial<LinesSearch> }[];
 
-  const filtered = Boolean(search.q || search.status || search.tag || search.speaker || search.listener);
   return (
     <SplitPane
       id="lines"
-      defaultWidth="340px"
+      defaultWidth="380px"
       className="h-full min-h-0"
       pane={
-        search.line && (
+        search.line &&
+        search.detail && (
           <LineDetail
             projectId={projectId}
             unitId={search.line}
-            onClose={() => select(undefined, false)}
+            onClose={() => onSearch({ detail: undefined, lineTab: undefined }, { replace: true })}
             showScene={showScene}
             tab={search.lineTab ?? 'checks'}
             onTab={(tab) => onSearch({ lineTab: tab === 'checks' ? undefined : tab }, { replace: true })}
@@ -307,86 +229,201 @@ export function LineList({
         )
       }
     >
-      <Toolbar count={lines.data ? `${total.toLocaleString()}줄` : undefined} actions={actions}>
-        <div className="mr-2 min-w-0">{heading}</div>
-        <SearchInput value={search.q} onChange={(value) => onSearch({ q: value, page: undefined })} placeholder="원문·번역·화자·ID" />
-        {filtered && (
-          <Button variant="ghost" onClick={() => onSearch({ q: undefined, status: undefined, tag: undefined, speaker: undefined, listener: undefined, page: undefined })}>
-            필터 지우기
-          </Button>
-        )}
-      </Toolbar>
-      <DataTable
-        columns={columns}
-        rows={rows}
-        rowId={(line) => line.id}
-        loading={!lines.data}
-        selected={search.line}
-        onRowClick={(line) => line.id !== search.line && select(line.id, true)}
-        picked={picked}
-        onPick={pick}
-        empty={review ? '검토할 대사가 없습니다. ‘검토함에 표시’가 켜진 상태의 대사가 여기에 모입니다.' : filtered ? '조건에 맞는 대사가 없습니다.' : '대사가 없습니다.'}
-        footer={
-          <div className="flex shrink-0 items-center border-t">
-            <p className="px-4 text-xs text-muted-foreground">↑↓ 줄 이동 · ↵ 편집 · ⌘S 저장 · ⌘↵ 다음 상태로 · Esc 편집 끝</p>
-            <div className="ml-auto [&>div]:border-t-0">
-              <Pager page={page} total={total} pageSize={PAGE_SIZE} onPage={(next) => onSearch({ page: next || undefined, line: undefined })} />
-            </div>
-          </div>
-        }
-        bulk={
+      <Toolbar
+        actions={
           <>
-            <RunDialog
-              projectId={projectId}
-              unitIds={[...picked]}
-              trigger={
-                <Button>
-                  <Play /> 워크플로 실행
+            {actions}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" aria-label="더 보기">
+                  <MoreHorizontal />
                 </Button>
-              }
-            />
-            <Select value="" onValueChange={(statusId) => setStatus.mutate(statusId)}>
-              <SelectTrigger size="sm" className="w-36 bg-background">
-                <SelectValue placeholder="상태 변경" />
-              </SelectTrigger>
-              <SelectContent>
-                {statusList.map((status) => (
-                  <SelectItem key={status.id} value={status.id}>
-                    <StatusDot color={status.color} /> {status.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {!!statuses.data?.tags.length && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" className="bg-background">
-                    <Tags /> 태그
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-56">
-                  <DropdownMenuLabel className="text-xs text-muted-foreground">선택한 {picked.size}개 대사의 태그</DropdownMenuLabel>
-                  {statuses.data.tags.map((tag) => {
-                    const state = tagState(tag.id);
-                    return (
-                      <DropdownMenuCheckboxItem
-                        key={tag.id}
-                        checked={state === 'all'}
-                        // Keep the menu open so several tags can be toggled in a row.
-                        onSelect={(event) => event.preventDefault()}
-                        onCheckedChange={() => setTag.mutate({ tagId: tag.id, add: state !== 'all' })}
-                      >
-                        <TagChip tag={tag} />
-                        {state === 'some' && <span className="ml-auto text-xs text-muted-foreground">일부</span>}
-                      </DropdownMenuCheckboxItem>
-                    );
-                  })}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={() => (picking ? stopPicking() : setPicking(true))}>
+                  <ListChecks /> {picking ? '선택 그만하기' : '여러 줄 선택'}
+                </DropdownMenuItem>
+                {menu}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </>
         }
-      />
+      >
+        <div className="mr-1 min-w-0">{heading}</div>
+        <Button variant={search.remaining ? 'secondary' : 'outline'} aria-pressed={Boolean(search.remaining)} onClick={() => onSearch({ remaining: search.remaining ? undefined : true, page: undefined })}>
+          {search.remaining && <Check />} 남은 줄만
+        </Button>
+        <SearchInput value={search.q} onChange={(value) => onSearch({ q: value, page: undefined })} placeholder="찾기" className="w-44" />
+        {chips.map((chip) => (
+          <Button key={chip.key} variant="secondary" onClick={() => onSearch({ ...chip.clear, page: undefined })} aria-label={`${chip.label} 필터 지우기`}>
+            {chip.label} <X />
+          </Button>
+        ))}
+      </Toolbar>
+
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {!rows ? (
+          <div className="space-y-4 p-4">
+            {Array.from({ length: 6 }, (_, i) => (
+              <Skeleton key={i} className="h-10" />
+            ))}
+          </div>
+        ) : rows.length === 0 ? (
+          <p className="px-4 py-16 text-center text-sm text-muted-foreground">{review ? '검토할 대사가 없습니다.' : search.remaining ? '남은 줄이 없습니다. 모두 최종 상태입니다.' : '맞는 대사가 없습니다.'}</p>
+        ) : (
+          <ul>
+            {rows.map((line) => {
+              const selected = line.id === search.line;
+              const status = statusById.get(line.statusId);
+              const who = listenerText(line);
+              return (
+                <li
+                  key={line.id}
+                  ref={selected ? selectedRow : undefined}
+                  onClick={() => !selected && select(line.id, true)}
+                  className={cn('flex gap-3 border-b px-4 transition-colors', selected ? 'bg-muted/60 py-3 shadow-[inset_2px_0_0_var(--primary)]' : 'cursor-pointer py-2.5 hover:bg-muted/40')}
+                >
+                  {picking && <Checkbox className="mt-1" aria-label={`${line.key} 선택`} checked={picked.has(line.id)} onClick={(event) => event.stopPropagation()} onCheckedChange={(checked) => pick([line.id], Boolean(checked))} />}
+                  <div className="grid min-w-0 flex-1 grid-cols-2 gap-6">
+                    <div className="min-w-0">
+                      <p className="mb-0.5 flex min-w-0 gap-1 text-xs text-muted-foreground">
+                        <span className="truncate">{line.speaker ?? '지문'}</span>
+                        {selected && line.kind === 'dialogue' && <span className={cn('truncate', who.unknown && 'text-warning')}>→ {who.text}</span>}
+                        {showScene && <span className="ml-auto truncate pl-2">{line.groupTitle}</span>}
+                      </p>
+                      <p className={cn('break-words whitespace-pre-wrap', selected ? 'text-base' : 'text-sm')}>{line.source}</p>
+                    </div>
+                    <div className="min-w-0">
+                      {selected ? (
+                        <>
+                          <TranslationEditor key={line.id} unit={line} statuses={statusList} focusKey={focusTick} onEscape={() => setEditing(false)} onDone={(advanced) => (advanced ? advanceFrom(line.id) : undefined)} />
+                          <LineHints projectId={projectId} line={line} onDetail={(tab) => onSearch({ detail: true, lineTab: tab }, { replace: true })} />
+                        </>
+                      ) : (
+                        <div className="flex gap-2 pt-4 text-sm">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="mt-1.5 flex">
+                                <StatusDot color={status?.color ?? '#a1a1aa'} />
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent>{status?.name}</TooltipContent>
+                          </Tooltip>
+                          <div className="min-w-0">
+                            <p className={cn('break-words whitespace-pre-wrap', !line.translation && 'text-muted-foreground')}>{line.translation ?? '번역 없음'}</p>
+                            {review && !!line.lastRun?.issues.length && (
+                              <p className="mt-1 flex items-start gap-1 text-xs text-warning">
+                                <CircleAlert className="mt-0.5 size-3 shrink-0" />
+                                <span className="line-clamp-2">{line.lastRun.issues[0]}</span>
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+      <Pager page={page} total={total} pageSize={PAGE_SIZE} onPage={(next) => onSearch({ page: next || undefined, line: undefined })} />
+      {picking && (
+        <BulkBar count={picked.size} onClear={stopPicking}>
+          <Button variant="outline" disabled={!rows?.length} onClick={() => pick(rows?.map((row) => row.id) ?? [], true)}>
+            이 페이지 모두
+          </Button>
+          {picked.size > 0 && (
+            <>
+              <RunDialog
+                projectId={projectId}
+                unitIds={[...picked]}
+                trigger={
+                  <Button>
+                    <Play /> AI 실행
+                  </Button>
+                }
+              />
+              <Select value="" onValueChange={(statusId) => setStatus.mutate(statusId)}>
+                <SelectTrigger size="sm" className="w-36 bg-background">
+                  <SelectValue placeholder="상태 바꾸기" />
+                </SelectTrigger>
+                <SelectContent>
+                  {statusList.map((item) => (
+                    <SelectItem key={item.id} value={item.id}>
+                      <StatusDot color={item.color} /> {item.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {!!statuses.data?.tags.length && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" className="bg-background">
+                      <Tags /> 태그
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-56">
+                    <DropdownMenuLabel className="text-xs text-muted-foreground">선택한 {picked.size}개 대사의 태그</DropdownMenuLabel>
+                    {statuses.data.tags.map((tag) => {
+                      const state = tagState(tag.id);
+                      return (
+                        <DropdownMenuCheckboxItem key={tag.id} checked={state === 'all'} onSelect={(event) => event.preventDefault()} onCheckedChange={() => setTag.mutate({ tagId: tag.id, add: state !== 'all' })}>
+                          <TagChip tag={tag} />
+                          {state === 'some' && <span className="ml-auto text-xs text-muted-foreground">일부</span>}
+                        </DropdownMenuCheckboxItem>
+                      );
+                    })}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+            </>
+          )}
+        </BulkBar>
+      )}
     </SplitPane>
+  );
+}
+
+/**
+ * The few things worth knowing while typing, as one row under the editor: does the translation
+ * keep the speech rule, the confirmed terms and the source's format, and what the last run said.
+ * "자세히" opens everything else in the pane.
+ */
+function LineHints({ projectId, line, onDetail }: { projectId: string; line: { id: string; source: string; translation: string | null; lastRun: { issues: string[] } | null }; onDetail: (tab?: Exclude<LineTab, 'checks'>) => void }) {
+  const unit = useQuery(q.unit(line.id));
+  const terms = useQuery(q.terms(projectId));
+  const project = useQuery(q.project(projectId));
+  const [draft] = useDraft(`line:${line.id}`, line.translation ?? '');
+  const text = draft.trim();
+  const speech = unit.data?.speech;
+  const guessed = text ? speechLevelOf(text) : null;
+  const used = useMemo(() => (terms.data ?? []).filter((term) => term.status === 'confirmed' && term.target && mentions(line.source, term.source)), [terms.data, line.source]);
+  const format = text ? checkFormat(line.source, draft, { placeholders: true, tags: true, newlines: true, emptyText: false }, project.data?.formatRules) : [];
+  const others = (unit.data?.candidates.length ?? 0) - (line.translation ? 1 : 0);
+
+  const hint = (key: string, ok: boolean | null, label: ReactNode, title?: string) => (
+    <span key={key} title={title} className={cn('inline-flex items-center gap-1 rounded-md border bg-background px-2 py-0.5 text-xs', ok === false && 'border-warning/40 text-warning')}>
+      {ok === true && <Check className="size-3 text-success" />}
+      {ok === false && <CircleAlert className="size-3" />}
+      {label}
+    </span>
+  );
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5" onClick={(event) => event.stopPropagation()}>
+      {speech && speech.level !== 'other' && hint('speech', guessed ? guessed === speech.level : null, `말투: ${SPEECH_LEVEL_LABELS[speech.level]}${guessed && guessed !== speech.level ? ` (지금 ${SPEECH_LEVEL_LABELS[guessed]})` : ''}`, speech.rule)}
+      {used.map((term) => hint(term.id, text ? text.toLowerCase().includes(term.target.toLowerCase()) : null, `${term.source} → ${term.target}`))}
+      {format.map((issue) => hint(issue.code, false, issue.message))}
+      {line.lastRun?.issues.slice(0, 1).map((issue) => hint('run', false, issue))}
+      {others > 0 && (
+        <Button variant="ghost" size="inline" className="text-muted-foreground" onClick={() => onDetail('candidates')}>
+          다른 후보 {others}개
+        </Button>
+      )}
+      <Button variant="ghost" size="inline" className="ml-auto text-muted-foreground" onClick={() => onDetail()}>
+        <PanelRightOpen /> 자세히
+      </Button>
+    </div>
   );
 }

@@ -2,13 +2,14 @@ import { useCallback, useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useDefaultLayout } from 'react-resizable-panels';
-import { ChevronLeft, ChevronRight, Network, PanelLeftClose, PanelLeftOpen, Play, X } from 'lucide-react';
-import { AiButton } from '@/components/ai-button';
+import { ChevronLeft, ChevronRight, Network, PanelLeftClose, PanelLeftOpen, Play, Sparkles } from 'lucide-react';
 import { Page } from '@/components/page';
 import { GroupList, type GroupRow } from '@/components/script/group-list';
 import { LineList, linesSearchSchema, type LinesSearch } from '@/components/script/line-list';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { Button } from '@/components/ui/button';
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
+import { askAgent } from '@/lib/agent';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { GROUP_KIND } from '@/lib/labels';
@@ -61,8 +62,9 @@ function Script() {
   const ordered = [...(groups.data ?? [])].sort((a, b) => a.sort - b.sort);
   const index = ordered.findIndex((item) => item.id === search.group);
   const group = index >= 0 ? ordered[index] : undefined;
+  const finalIds = new Set(statuses.data?.statuses.filter((status) => status.kind === 'final').map((status) => status.id));
   const lineTotal = project.data?.byStatus.reduce((sum, row) => sum + row.count, 0) ?? 0;
-  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const done = group ? Object.entries(group.statuses).reduce((sum, [id, n]) => sum + (finalIds.has(id) ? n : 0), 0) : 0;
   const [listOpen, setListOpen] = useState(() => readListOpen());
   // The list's width is dragged by its edge and remembered, like every right-hand pane.
   const layout = useDefaultLayout({ id: 'tw-script-groups', panelIds: listOpen ? ['groups', 'lines'] : ['lines'], storage: localStorage });
@@ -78,70 +80,39 @@ function Script() {
   useReportView('script', [group && { kind: GROUP_KIND[group.kind], id: group.id, label: group.title }]);
 
   const onSearch = useCallback((next: Partial<ScriptSearch>, options?: { replace?: boolean }) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace: options?.replace }), [navigate]);
-  const openGroup = (id: string | undefined) => void navigate({ search: (previous) => ({ gq: previous.gq, kind: previous.kind, group: id }) });
+  const openGroup = (id: string | undefined) => void navigate({ search: (previous) => ({ gq: previous.gq, remaining: previous.remaining, group: id }) });
 
-  const listToggle = (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button variant="ghost" size="icon" onClick={toggleList} aria-label={listOpen ? '묶음 목록 접기' : '묶음 목록 펴기'}>
-          {listOpen ? <PanelLeftClose /> : <PanelLeftOpen />}
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>{listOpen ? '묶음 목록 접기' : '묶음 목록 펴기'}</TooltipContent>
-    </Tooltip>
-  );
-  const title = search.review ? (
-    <span className="text-sm font-semibold">검토함</span>
-  ) : search.group ? (
-    <span className="flex min-w-0 items-center gap-1">
-      <Button variant="ghost" size="icon" disabled={index <= 0} aria-label="이전 묶음" onClick={() => openGroup(ordered[index - 1]?.id)}>
-        <ChevronLeft />
-      </Button>
-      <span className="min-w-0">
-        <span className="block max-w-80 truncate text-sm font-semibold" title={group?.title}>
-          {group?.title ?? '…'}
-        </span>
-        {group && <span className="block truncate text-xs text-muted-foreground">{[GROUP_KIND[group.kind], group.section, group.description].filter(Boolean).join(' · ')}</span>}
-      </span>
-      <Button variant="ghost" size="icon" disabled={index < 0 || index >= ordered.length - 1} aria-label="다음 묶음" onClick={() => openGroup(ordered[index + 1]?.id)}>
-        <ChevronRight />
-      </Button>
-    </span>
-  ) : (
-    <span className="text-sm font-semibold">모든 대사{search.kind ? ` · ${GROUP_KIND[search.kind]}` : ''}</span>
-  );
   const heading = (
     <span className="flex min-w-0 items-center gap-1">
-      {listToggle}
-      {title}
-    </span>
-  );
-
-  const actions = group && (
-    <>
-      <RunDialog
-        projectId={projectId}
-        groupIds={[group.id]}
-        trigger={
-          <Button variant="outline">
-            <Play /> 이 {GROUP_KIND[group.kind]} 실행
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button variant="ghost" size="icon" onClick={toggleList} aria-label={listOpen ? '장면 목록 접기' : '장면 목록 펴기'}>
+            {listOpen ? <PanelLeftClose /> : <PanelLeftOpen />}
           </Button>
-        }
-      />
-      <AiButton prompt={`이 ${GROUP_KIND[group.kind]}을 끝까지 읽고 요약해줘.`}>AI 요약</AiButton>
-      {group.kind === 'scene' && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" asChild>
-              <Link to="/p/$projectId/graph" params={{ projectId }} search={{ scope: 'dialogue', scene: group.id }} aria-label="대사 그래프에서 보기">
-                <Network />
-              </Link>
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>대사 그래프에서 보기</TooltipContent>
-        </Tooltip>
+        </TooltipTrigger>
+        <TooltipContent>{listOpen ? '장면 목록 접기' : '장면 목록 펴기'}</TooltipContent>
+      </Tooltip>
+      {search.group ? (
+        <>
+          <Button variant="ghost" size="icon" disabled={index <= 0} aria-label="이전 장면" onClick={() => openGroup(ordered[index - 1]?.id)}>
+            <ChevronLeft />
+          </Button>
+          <span className="max-w-72 truncate text-sm font-semibold" title={group?.title}>
+            {group?.title ?? '…'}
+          </span>
+          <Button variant="ghost" size="icon" disabled={index < 0 || index >= ordered.length - 1} aria-label="다음 장면" onClick={() => openGroup(ordered[index + 1]?.id)}>
+            <ChevronRight />
+          </Button>
+          {group && (
+            <span className="text-xs whitespace-nowrap text-muted-foreground tabular-nums">
+              {done}/{group.total} 완료
+            </span>
+          )}
+        </>
+      ) : (
+        <span className="px-1 text-sm font-semibold">{search.review ? '검토함' : '모든 대사'}</span>
       )}
-    </>
+    </span>
   );
 
   return (
@@ -149,43 +120,16 @@ function Script() {
       <ResizablePanelGroup orientation="horizontal" defaultLayout={layout.defaultLayout} onLayoutChanged={layout.onLayoutChanged} className="h-full min-h-0">
         {listOpen && (
           <>
-            <ResizablePanel id="groups" defaultSize="340px" minSize="220px" maxSize="50%" className="min-w-0">
+            <ResizablePanel id="groups" defaultSize="300px" minSize="200px" maxSize="50%" className="min-w-0">
               <GroupList
                 projectId={projectId}
                 groups={groups.data && ordered}
-                statuses={statuses.data?.statuses ?? []}
+                finalIds={finalIds}
                 scope={{ group: search.group, review: search.review }}
                 lineTotal={lineTotal}
                 reviewCount={project.data?.reviewCount ?? 0}
                 gq={search.gq}
-                kind={search.kind}
-                onFilter={(next) => onSearch(next, { replace: true })}
-                picked={picked}
-                onPick={(ids, on) =>
-                  setPicked((previous) => {
-                    const next = new Set(previous);
-                    for (const id of ids) if (on) next.add(id);
-                    else next.delete(id);
-                    return next;
-                  })
-                }
-                bulk={
-                  <>
-                    <span className="font-medium tabular-nums">묶음 {picked.size}개</span>
-                    <RunDialog
-                      projectId={projectId}
-                      groupIds={[...picked]}
-                      trigger={
-                        <Button>
-                          <Play /> 실행
-                        </Button>
-                      }
-                    />
-                    <Button variant="ghost" size="icon" className="ml-auto" aria-label="선택 해제" onClick={() => setPicked(new Set())}>
-                      <X />
-                    </Button>
-                  </>
-                }
+                onFilter={(gq) => onSearch({ gq }, { replace: true })}
               />
             </ResizablePanel>
             <ResizableHandle withHandle />
@@ -201,7 +145,33 @@ function Script() {
             search={search}
             onSearch={onSearch}
             heading={heading}
-            actions={actions}
+            actions={
+              <RunDialog
+                projectId={projectId}
+                groupIds={group ? [group.id] : undefined}
+                trigger={
+                  <Button variant="outline">
+                    <Play /> AI 실행
+                  </Button>
+                }
+              />
+            }
+            menu={
+              group && (
+                <>
+                  <DropdownMenuItem onSelect={() => askAgent(`이 ${GROUP_KIND[group.kind]}을 끝까지 읽고 요약해줘.`, { send: true })}>
+                    <Sparkles /> AI로 장면 요약
+                  </DropdownMenuItem>
+                  {group.kind === 'scene' && (
+                    <DropdownMenuItem asChild>
+                      <Link to="/p/$projectId/graph" params={{ projectId }} search={{ scope: 'dialogue', scene: group.id }}>
+                        <Network /> 대사 그래프에서 보기
+                      </Link>
+                    </DropdownMenuItem>
+                  )}
+                </>
+              )
+            }
           />
         </ResizablePanel>
       </ResizablePanelGroup>

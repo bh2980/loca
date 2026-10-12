@@ -23,6 +23,8 @@ const listQuery = z.object({
   listener: z.string().optional(),
   /** Only lines whose status is shown in the review inbox. */
   review: z.enum(['1']).optional(),
+  /** Only lines not yet in a final status. */
+  remaining: z.enum(['1']).optional(),
   offset: z.coerce.number().int().min(0).default(0),
   limit: z.coerce.number().int().min(1).max(500).default(100),
 });
@@ -141,6 +143,7 @@ export const sourceRoutes = new Hono<Env>()
     if (query.listener === '-') conditions.push(sql`not ${knownListener}`);
     else if (query.listener) conditions.push(and(eq(s.units.listener, query.listener), knownListener)!);
     if (query.review) conditions.push(sql`${s.units.statusId} in (select id from ${s.statuses} where ${s.statuses.projectId} = ${projectId} and ${s.statuses.inReview} = 1)`);
+    if (query.remaining) conditions.push(sql`${s.units.statusId} in (select id from ${s.statuses} where ${s.statuses.projectId} = ${projectId} and ${s.statuses.kind} != 'final')`);
     const where = and(...conditions);
     // The groups table is only needed for the kind filter; without it the count is one index range.
     const counted = db.select({ count: count() }).from(s.units);
