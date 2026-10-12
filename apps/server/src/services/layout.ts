@@ -1,9 +1,9 @@
 import { Worker } from 'node:worker_threads';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, ne, sql } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
 import { graphEdges, graphLayouts, graphNodes, groups, projects, type LayoutData } from '../db/schema.ts';
 import { events } from '../events.ts';
-import type { LayoutJob, SceneSource, WorkerJob } from './layout-worker.ts';
+import type { LayoutJob, SceneSource, SectionLayouts, WorkerJob } from './layout-worker.ts';
 
 const NODE_SIZE: Record<string, [number, number]> = {
   script: [260, 76],
@@ -24,7 +24,7 @@ class Cancelled extends Error {}
 /** Projects whose layout is being computed: the live worker, and whether another run was asked for meanwhile. */
 const active = new Map<string, { worker: Worker | null; rerun: boolean; cancelled: boolean }>();
 
-function runWorker(job: WorkerJob, onWorker: (worker: Worker) => void): Promise<LayoutData> {
+function runWorker<T = LayoutData>(job: WorkerJob, onWorker: (worker: Worker) => void): Promise<T> {
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL('./layout-worker.ts', import.meta.url), {
       workerData: job,
@@ -41,17 +41,32 @@ function runWorker(job: WorkerJob, onWorker: (worker: Worker) => void): Promise<
       done();
     };
     const timer = setTimeout(() => finish(() => reject(new Error('레이아웃 계산이 5분을 넘어 중단했습니다. 그래프가 너무 크거나 복잡합니다.'))), LAYOUT_TIMEOUT_MS);
-    worker.once('message', (message: { ok: true; data: LayoutData } | { ok: false; error: string }) => finish(() => (message.ok ? resolve(message.data) : reject(new Error(message.error)))));
+    worker.once('message', (message: { ok: true; data: T } | { ok: false; error: string }) => finish(() => (message.ok ? resolve(message.data) : reject(new Error(message.error)))));
     worker.once('error', (error) => finish(() => reject(new Error(`레이아웃 작업이 오류로 멈췄습니다: ${error.message}`))));
     worker.once('exit', (code) => finish(() => reject(new Error(`레이아웃 작업이 결과 없이 종료했습니다 (코드 ${code}). 메모리가 부족했을 수 있습니다.`))));
   });
 }
 
-function save(db: Db, projectId: string, scope: 'dialogue' | 'scene', value: Partial<typeof graphLayouts.$inferInsert>) {
+function save(db: Db, projectId: string, scope: 'dialogue' | 'scene', value: Partial<typeof graphLayouts.$inferInsert>, section = '') {
   db.insert(graphLayouts)
-    .values({ projectId, scope, status: 'pending', ...value })
-    .onConflictDoUpdate({ target: [graphLayouts.projectId, graphLayouts.scope], set: { ...value, updatedAt: new Date() } })
+    .values({ projectId, scope, section, status: 'pending', ...value })
+    .onConflictDoUpdate({ target: [graphLayouts.projectId, graphLayouts.scope, graphLayouts.section], set: { ...value, updatedAt: new Date() } })
     .run();
+}
+
+/** The dialogue graph's nodes with their scene's section, in script order of sections. */
+export function sectionSource(db: Db, projectId: string) {
+  const groupRows = db.select({ id: groups.id, section: groups.section }).from(groups).where(eq(groups.projectId, projectId)).orderBy(asc(groups.sort), asc(groups.key)).all();
+  const sectionOf = new Map(groupRows.map((group) => [group.id, group.section || null]));
+  const nodes = db.select({ id: graphNodes.id, kind: graphNodes.kind, groupId: graphNodes.groupId }).from(graphNodes).where(eq(graphNodes.projectId, projectId)).all();
+  return {
+    nodes: nodes.map((node) => {
+      const [width, height] = NODE_SIZE[node.kind] ?? NODE_SIZE.unknown;
+      return { id: node.id, width, height, section: node.groupId ? (sectionOf.get(node.groupId) ?? null) : null };
+    }),
+    edges: db.select({ id: graphEdges.id, from: graphEdges.fromId, to: graphEdges.toId }).from(graphEdges).where(eq(graphEdges.projectId, projectId)).all(),
+    order: [...new Set(groupRows.flatMap((group) => (group.section ? [group.section] : [])))],
+  };
 }
 
 /** What the worker needs to derive and lay out the scene graph (see SceneSource). */
@@ -80,6 +95,17 @@ export function dialogueJob(db: Db, projectId: string): LayoutJob {
 
 const projectExists = (db: Db, projectId: string) => !!db.select({ id: projects.id }).from(projects).where(eq(projects.id, projectId)).get();
 
+/** Projects laid out before section layouts existed: their scenes span several sections but no section layout is stored. */
+export function projectsMissingSections(db: Db) {
+  const rows = db.all<{ projectId: string }>(sql`
+    select g.project_id as projectId from ${groups} g
+    where g.section is not null and g.section != ''
+      and exists (select 1 from ${graphNodes} n where n.group_id = g.id)
+    group by g.project_id having count(distinct g.section) > 1
+      and not exists (select 1 from ${graphLayouts} l where l.project_id = g.project_id and l.scope = 'dialogue' and l.section != '')`);
+  return rows.map((row) => row.projectId);
+}
+
 /** Stops the layout of a project that is being deleted; its result would have nowhere to go. */
 export function cancelLayout(projectId: string) {
   const state = active.get(projectId);
@@ -94,7 +120,7 @@ export function cancelLayout(projectId: string) {
  * a failure ends up as a failed layout, and a project deleted meanwhile is dropped quietly. One
  * computation per project at a time; a request that arrives meanwhile reruns once afterwards.
  */
-export async function computeLayouts(db: Db, projectId: string): Promise<void> {
+export async function computeLayouts(db: Db, projectId: string, options: { sectionsOnly?: boolean } = {}): Promise<void> {
   const running = active.get(projectId);
   if (running) {
     running.rerun = true;
@@ -105,7 +131,7 @@ export async function computeLayouts(db: Db, projectId: string): Promise<void> {
   try {
     do {
       state.rerun = false;
-      await computeOnce(db, projectId, state);
+      await computeOnce(db, projectId, state, options.sectionsOnly);
     } while (state.rerun && !state.cancelled);
   } catch (error) {
     if (!(error instanceof Cancelled)) console.error('layout failed', error);
@@ -114,7 +140,7 @@ export async function computeLayouts(db: Db, projectId: string): Promise<void> {
   }
 }
 
-async function computeOnce(db: Db, projectId: string, state: { worker: Worker | null; cancelled: boolean }) {
+async function computeOnce(db: Db, projectId: string, state: { worker: Worker | null; cancelled: boolean }, sectionsOnly = false) {
   const guarded = (write: () => void) => {
     if (state.cancelled || !projectExists(db, projectId)) throw new Cancelled();
     write();
@@ -123,12 +149,12 @@ async function computeOnce(db: Db, projectId: string, state: { worker: Worker | 
     ['scene', (): WorkerJob => ({ kind: 'scenes', source: sceneSource(db, projectId) })],
     ['dialogue', (): WorkerJob => ({ kind: 'layout', job: dialogueJob(db, projectId) })],
   ] as const;
-  for (const [scope, build] of jobs) {
+  for (const [scope, build] of sectionsOnly ? [] : jobs) {
     guarded(() => save(db, projectId, scope, { status: 'pending', data: null, error: null }));
     events.changed(projectId, 'graph');
     try {
       const work = build();
-      const empty = work.kind === 'scenes' ? !work.source.scenes.length : !work.job.nodes.length;
+      const empty = work.kind === 'scenes' ? !work.source.scenes.length : work.kind === 'layout' ? !work.job.nodes.length : !work.nodes.length;
       const data: LayoutData = empty ? { width: 0, height: 0, nodes: [], edges: [] } : await runWorker(work, (worker) => (state.worker = worker));
       state.worker = null;
       guarded(() => save(db, projectId, scope, { status: 'ready', data, error: null }));
@@ -139,4 +165,22 @@ async function computeOnce(db: Db, projectId: string, state: { worker: Worker | 
     }
     events.changed(projectId, 'graph');
   }
+
+  // Each section's own dialogue layout, when the script has more than one section with lines in the graph.
+  guarded(() => db.delete(graphLayouts).where(and(eq(graphLayouts.projectId, projectId), eq(graphLayouts.scope, 'dialogue'), ne(graphLayouts.section, ''))).run());
+  const source = sectionSource(db, projectId);
+  const used = new Set(source.nodes.flatMap((node) => (node.section ? [node.section] : [])));
+  if (used.size < 2) return;
+  try {
+    const { sections } = await runWorker<SectionLayouts>({ kind: 'sections', ...source }, (worker) => (state.worker = worker));
+    state.worker = null;
+    guarded(() => db.transaction(() => {
+      for (const section of sections) save(db, projectId, 'dialogue', { status: 'ready', data: section.data, error: null }, section.name);
+    }));
+  } catch (error) {
+    state.worker = null;
+    if (error instanceof Cancelled) throw error;
+    console.error('section layouts failed', error);
+  }
+  events.changed(projectId, 'graph');
 }

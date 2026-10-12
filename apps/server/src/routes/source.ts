@@ -1,9 +1,9 @@
 import { Hono } from 'hono';
-import { and, asc, count, desc, eq, inArray, like, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, like, ne, or, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { LISTENER_MIN_CONFIDENCE, type NodeType } from '@tw/shared';
 import { found, validate, type Env } from '../context.ts';
-import { eachChunk } from '../db/chunk.ts';
+import { eachChunk, inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { computeLayouts } from '../services/layout.ts';
@@ -246,11 +246,12 @@ export const sourceRoutes = new Hono<Env>()
   })
 
   // ── graphs ─────────────────────────────────────────────────────────
-  .get('/projects/:projectId/graph/:scope{dialogue|scene}', (c) => {
+  .get('/projects/:projectId/graph/:scope{dialogue|scene}', validate('query', z.object({ section: z.string().optional() })), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     const scope = c.req.param('scope') as 'dialogue' | 'scene';
-    const where = and(eq(s.graphLayouts.projectId, projectId), eq(s.graphLayouts.scope, scope));
+    const section = scope === 'dialogue' ? (c.req.valid('query').section ?? '') : '';
+    const where = and(eq(s.graphLayouts.projectId, projectId), eq(s.graphLayouts.scope, scope), eq(s.graphLayouts.section, section));
     const layout = db.select({ status: s.graphLayouts.status, error: s.graphLayouts.error }).from(s.graphLayouts).where(where).get();
     if (scope === 'scene') {
       const nodes = db
@@ -264,8 +265,28 @@ export const sourceRoutes = new Hono<Env>()
         layout: db.select({ data: s.graphLayouts.data }).from(s.graphLayouts).where(where).get()?.data ?? null,
         nodes: nodes.map((node) => ({ ...node, type: null as string | null, kind: 'scene', groupId: node.id, preview: `${node.total}개 대사` })),
         nodeTypes: {} as Record<string, NodeType>,
+        sections: [] as { name: string; nodes: number; groupIds: string[] }[],
       });
     }
+    // Sections laid out on their own (see layout.ts), with the scenes in each for jumping from the scene graph.
+    const stored = db
+      .select({ name: s.graphLayouts.section, nodes: sql<number>`json_array_length(${s.graphLayouts.data}, '$.nodes')` })
+      .from(s.graphLayouts)
+      .where(and(eq(s.graphLayouts.projectId, projectId), eq(s.graphLayouts.scope, 'dialogue'), ne(s.graphLayouts.section, ''), eq(s.graphLayouts.status, 'ready')))
+      .all();
+    const scenesBySection = Map.groupBy(
+      db.select({ id: s.groups.id, section: s.groups.section }).from(s.groups).where(eq(s.groups.projectId, projectId)).orderBy(asc(s.groups.sort)).all(),
+      (group) => group.section ?? '',
+    );
+    const order = [...scenesBySection.keys()];
+    const sections = stored
+      .map((row) => ({ name: row.name, nodes: row.nodes ?? 0, groupIds: (scenesBySection.get(row.name) ?? []).map((group) => group.id) }))
+      .sort((a, b) => (order.indexOf(a.name) === -1 ? Infinity : order.indexOf(a.name)) - (order.indexOf(b.name) === -1 ? Infinity : order.indexOf(b.name)));
+    // The stored layout goes out as the JSON text it is stored as: parsing and re-serializing a
+    // 50k-node layout (15 MB) held the server for a quarter of a second. A section's layout is
+    // small, so its node ids are read from it to send only that section's nodes.
+    const raw = db.select({ data: sql<string | null>`${s.graphLayouts.data}` }).from(s.graphLayouts).where(where).get()?.data ?? 'null';
+    const only = section && raw !== 'null' ? (JSON.parse(raw) as s.LayoutData).nodes.map((node) => node.id).filter((id) => !id.startsWith('portal:')) : null;
     // One preview line per node keeps the payload small; details load on selection.
     const nodes = db
       .select({
@@ -279,14 +300,13 @@ export const sourceRoutes = new Hono<Env>()
         preview: sql<string | null>`(select coalesce(u.speaker || ': ', '') || substr(u.source, 1, 90) from units u where u.id = json_extract("graph_nodes"."unit_ids", '$[0]'))`,
       })
       .from(s.graphNodes)
-      .where(eq(s.graphNodes.projectId, projectId))
+      .where(and(eq(s.graphNodes.projectId, projectId), only ? inList(s.graphNodes.id, only) : undefined))
       .all();
     const nodeTypes = db.select({ nodeTypes: s.projects.nodeTypes }).from(s.projects).where(eq(s.projects.id, projectId)).get()?.nodeTypes ?? {};
-    // The stored layout goes out as the JSON text it is stored as: parsing and re-serializing a
-    // 50k-node layout (15 MB) held the server for a quarter of a second.
-    const raw = db.select({ data: sql<string | null>`${s.graphLayouts.data}` }).from(s.graphLayouts).where(where).get()?.data ?? 'null';
-    const head = JSON.stringify({ status: layout?.status ?? 'missing', error: layout?.error ?? null, nodes, nodeTypes });
-    return c.body(`${head.slice(0, -1)},"layout":${raw}}`, 200, { 'content-type': 'application/json; charset=UTF-8' }) as unknown as ReturnType<typeof c.json<{ status: string; error: string | null; layout: s.LayoutData | null; nodes: typeof nodes; nodeTypes: typeof nodeTypes }>>;
+    const head = JSON.stringify({ status: layout?.status ?? 'missing', error: layout?.error ?? null, nodes, nodeTypes, sections });
+    return c.body(`${head.slice(0, -1)},"layout":${raw}}`, 200, { 'content-type': 'application/json; charset=UTF-8' }) as unknown as ReturnType<
+      typeof c.json<{ status: string; error: string | null; layout: s.LayoutData | null; nodes: typeof nodes; nodeTypes: typeof nodeTypes; sections: typeof sections }>
+    >;
   })
   /** Recompute stored layouts, e.g. after the layout options changed. The source graph itself is untouched. */
   .post('/projects/:projectId/graph/relayout', (c) => {

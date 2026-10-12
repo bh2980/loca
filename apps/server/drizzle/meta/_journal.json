@@ -197,6 +197,13 @@
       "when": 1791782984285,
       "tag": "0027_proposal_report",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "6",
+      "when": 1791819228523,
+      "tag": "0028_section_layouts",
+      "breakpoints": true
     }
   ]
 }

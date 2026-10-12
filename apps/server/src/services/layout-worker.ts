@@ -2,6 +2,7 @@ import { parentPort, workerData } from 'node:worker_threads';
 import ELK, { type ElkNode } from 'elkjs/lib/elk.bundled.js';
 import type { LayoutData } from '../db/schema.ts';
 import { deriveSceneGraph, reduceSceneEdges } from './scene-graph.ts';
+import { sectionJobs, type SectionNode } from './section-graph.ts';
 
 export interface LayoutJob {
   nodes: { id: string; width: number; height: number }[];
@@ -22,7 +23,16 @@ export interface SceneSource {
   size: [number, number];
 }
 
-export type WorkerJob = { kind: 'layout'; job: LayoutJob } | { kind: 'scenes'; source: SceneSource };
+export type WorkerJob =
+  | { kind: 'layout'; job: LayoutJob }
+  | { kind: 'scenes'; source: SceneSource }
+  /** The dialogue graph split by section, each section laid out on its own (see section-graph.ts). */
+  | { kind: 'sections'; nodes: SectionNode[]; edges: LayoutJob['edges']; order: string[] };
+
+/** What the 'sections' job returns: one layout per section. */
+export interface SectionLayouts {
+  sections: { name: string; data: LayoutData }[];
+}
 
 const HUB_SIZE: [number, number] = [160, 48];
 
@@ -83,12 +93,23 @@ function withoutHubEdges(job: LayoutJob): { job: LayoutJob; loose: LayoutJob['ed
   }
   return { job: { ...job, edges: kept }, loose };
 }
-async function run(work: WorkerJob): Promise<LayoutData> {
-  if (work.kind === 'layout') {
-    const { job, loose } = withoutHubEdges(work.job);
-    const data = await layout(job);
-    if (loose.length) data.looseEdges = loose;
-    return data;
+async function dialogueLayout(work: LayoutJob) {
+  const { job, loose } = withoutHubEdges(work);
+  const data = await layout(job);
+  if (loose.length) data.looseEdges = loose;
+  return data;
+}
+
+async function run(work: WorkerJob): Promise<LayoutData | SectionLayouts> {
+  if (work.kind === 'layout') return dialogueLayout(work.job);
+  if (work.kind === 'sections') {
+    const sections: SectionLayouts['sections'] = [];
+    for (const section of sectionJobs(work.nodes, work.edges, work.order)) {
+      const data = await dialogueLayout(section.job);
+      if (section.portals.length) data.portals = section.portals;
+      sections.push({ name: section.name, data });
+    }
+    return { sections };
   }
   const { hidden, hubs, loose, ...job } = sceneLayoutJob(work.source);
   const data = await layout(job);

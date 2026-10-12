@@ -28,10 +28,11 @@ export const q = {
       placeholderData: keepPreviousData,
     }),
   unit: (unitId: string) => queryOptions({ queryKey: ['units', 'detail', unitId], queryFn: () => unwrap(client.units[':unitId'].$get({ param: { unitId } })) }),
-  graph: (projectId: string, scope: 'scene' | 'dialogue') =>
+  /** `section`: one section's own dialogue layout (dialogue scope only). */
+  graph: (projectId: string, scope: 'scene' | 'dialogue', section?: string) =>
     queryOptions({
-      queryKey: ['graph', projectId, scope],
-      queryFn: () => unwrap(client.projects[':projectId'].graph[':scope{dialogue|scene}'].$get({ param: { projectId, scope } })),
+      queryKey: ['graph', projectId, scope, section ?? ''],
+      queryFn: () => unwrap(client.projects[':projectId'].graph[':scope{dialogue|scene}'].$get({ param: { projectId, scope }, query: section ? { section } : {} })),
       staleTime: Infinity,
     }),
   graphNode: (nodeId: string) => queryOptions({ queryKey: ['units', 'graph-node', nodeId], queryFn: () => unwrap(client['graph-nodes'][':nodeId'].$get({ param: { nodeId } })) }),

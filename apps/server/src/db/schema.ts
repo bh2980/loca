@@ -180,6 +180,8 @@ export interface LayoutData {
    * many connections); drawn as straight lines between the placed nodes.
    */
   looseEdges?: { id: string; from: string; to: string }[];
+  /** One section's dialogue graph: stand-ins ("portal:in|out:<section>") for the lines in other sections it links to. */
+  portals?: { id: string; section: string; direction: 'in' | 'out' }[];
 }
 
 export const graphLayouts = sqliteTable(
@@ -187,12 +189,14 @@ export const graphLayouts = sqliteTable(
   {
     projectId: projectId(),
     scope: text('scope', { enum: ['dialogue', 'scene'] }).notNull(),
+    /** '' for the whole graph; a section name for that section's own dialogue layout. */
+    section: text('section').notNull().default(''),
     status: text('status', { enum: ['pending', 'ready', 'failed'] }).notNull(),
     data: json<LayoutData>('data'),
     error: text('error'),
     updatedAt: updatedAt(),
   },
-  (t) => [primaryKey({ columns: [t.projectId, t.scope] })],
+  (t) => [primaryKey({ columns: [t.projectId, t.scope, t.section] })],
 );
 
 export const terms = sqliteTable('terms', {
