@@ -5,7 +5,7 @@ import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { packGroups } from '../engine/batches.ts';
 import { buildPrompt } from '../engine/prompts.ts';
-import { planRun, selectRunUnits } from '../engine/runner.ts';
+import { planRun, sceneLinks, selectRunUnits } from '../engine/runner.ts';
 import { mainPairs } from './analysis.ts';
 import { buildContext } from './context.ts';
 import { speechRuleIndex } from './speech.ts';
@@ -56,6 +56,7 @@ export async function preflight(db: Db, workflow: typeof s.workflows.$inferSelec
   await new Promise((resolve) => setImmediate(resolve));
   const groups = [...Map.groupBy(units.filter((unit) => plan.has(unit.id)), (unit) => plan.get(unit.id)!).values()];
   const sizes = groups.map((group) => group.length).sort((a, b) => a - b);
+  const batchList = listBatches(db, groups);
 
   const everyLine = linesThrough(definition);
   const nodes = definition.nodes.filter((node): node is AiNode => node.type === 'ai');
@@ -134,6 +135,7 @@ export async function preflight(db: Db, workflow: typeof s.workflows.$inferSelec
       batches: sizes.length,
       linesPerBatch: sizes.length ? { min: sizes[0], median: sizes[Math.floor(sizes.length / 2)], max: sizes.at(-1)! } : null,
       smallShare: sizes.length ? small / sizes.length : 0,
+      list: batchList,
     },
     nodes: estimates,
     totals: { calls, inputTokens },
@@ -220,4 +222,38 @@ function samplePrompt(db: Db, projectId: string, node: AiNode, instructions: str
     return estimateTokens(`${system}\n\n${prompt}`);
   });
   return Math.round(sizes.reduce((total, size) => total + size, 0) / sizes.length);
+}
+
+/** Batches shown in the plan; a 50k-line run has about a thousand, the rest are counted. */
+const BATCH_LIST_LIMIT = 300;
+
+type PlannedLine = { groupId: string; speaker: string | null; tokens: number };
+
+/**
+ * The plan batch by batch, for the user to judge before starting: the scenes in each, and why each
+ * scene joined the one before it (the planBatches rules: a dialogue-graph transition, a shared
+ * speaker, or a request still under half full).
+ */
+function listBatches(db: Db, batches: PlannedLine[][]) {
+  const shown = batches.slice(0, BATCH_LIST_LIMIT);
+  const groupIds = [...new Set(shown.flat().map((line) => line.groupId))];
+  const titles = new Map(inChunks(groupIds, (ids) => db.select({ id: s.groups.id, title: s.groups.title }).from(s.groups).where(inArray(s.groups.id, ids)).all()).map((group) => [group.id, group.title]));
+  const linked = sceneLinks(db, shown.flat());
+  return {
+    total: batches.length,
+    batches: shown.map((batch) => {
+      const scenes = [...Map.groupBy(batch, (line) => line.groupId).entries()];
+      return {
+        lines: batch.length,
+        tokens: batch.reduce((sum, line) => sum + line.tokens, 0),
+        scenes: scenes.map(([groupId, lines], index) => {
+          if (index === 0) return { groupId, title: titles.get(groupId) ?? groupId, lines: lines.length, joined: null };
+          const before = new Set(scenes.slice(0, index).flatMap(([, earlier]) => earlier.map((line) => line.speaker)).filter(Boolean));
+          const shared = [...new Set(lines.map((line) => line.speaker).filter((speaker): speaker is string => !!speaker && before.has(speaker)))];
+          const joined = linked(scenes[index - 1][0], groupId) ? { why: 'link' as const } : shared.length ? { why: 'speaker' as const, speakers: shared.slice(0, 3) } : { why: 'fill' as const };
+          return { groupId, title: titles.get(groupId) ?? groupId, lines: lines.length, joined };
+        }),
+      };
+    }),
+  };
 }

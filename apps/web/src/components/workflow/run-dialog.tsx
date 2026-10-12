@@ -2,10 +2,11 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, type UseQueryResult } from '@tanstack/react-query';
 import type { InferResponseType } from 'hono/client';
 import { useNavigate } from '@tanstack/react-router';
-import { ArrowLeft, ArrowRight, Play, Search, TriangleAlert } from 'lucide-react';
+import { ArrowLeft, ArrowRight, ChevronRight, Play, Search, TriangleAlert } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -329,6 +330,8 @@ function PlanStep({ plan, callsText, tokensText, onCalls, onTokens }: { plan: Pl
         </TableBody>
       </Table>
 
+      <BatchList list={data.plan.list} />
+
       <ul className="space-y-0.5 text-sm">
         <li>
           작품 분석: {data.knowledge.analysis ? `${data.knowledge.analysis.finishedAt ? new Date(data.knowledge.analysis.finishedAt).toLocaleDateString() : '날짜 미상'} · ${data.knowledge.analysis.model ?? '모델 미상'}` : '없음'}
@@ -368,5 +371,57 @@ function PlanStep({ plan, callsText, tokensText, onCalls, onTokens }: { plan: Pl
         </p>
       </div>
     </div>
+  );
+}
+
+const JOINED = { link: '그래프로 이어짐', speaker: '화자 겹침', fill: '덜 찬 묶음 채움' } as const;
+
+/** The plan batch by batch: which scenes travel in one request, and why each joined the one before. */
+function BatchList({ list }: { list: NonNullable<Plan['data']>['plan']['list'] }) {
+  if (!list.total) return null;
+  return (
+    <Collapsible>
+      <CollapsibleTrigger className="group flex items-center gap-1.5 text-sm font-medium">
+        <ChevronRight className="size-4 transition-transform group-data-[state=open]:rotate-90" />
+        묶음 구성 보기 ({list.total.toLocaleString()}개)
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <Table className="mt-2">
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-10">#</TableHead>
+              <TableHead className="text-right">줄</TableHead>
+              <TableHead className="text-right">원문 토큰</TableHead>
+              <TableHead>장면 (줄 수) · 같이 묶인 이유</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {list.batches.map((batch, index) => (
+              <TableRow key={index} className="align-top">
+                <TableCell className="tabular-nums text-muted-foreground">{index + 1}</TableCell>
+                <TableCell className="text-right tabular-nums">{batch.lines.toLocaleString()}</TableCell>
+                <TableCell className="text-right tabular-nums">{batch.tokens.toLocaleString()}</TableCell>
+                <TableCell className="whitespace-normal">
+                  <ul className="space-y-0.5">
+                    {batch.scenes.map((scene) => (
+                      <li key={scene.groupId}>
+                        {scene.title} <span className="tabular-nums text-muted-foreground">({scene.lines})</span>
+                        {scene.joined && (
+                          <span className="ml-1.5 text-xs text-muted-foreground">
+                            ← {JOINED[scene.joined.why]}
+                            {scene.joined.why === 'speaker' && `: ${scene.joined.speakers.join(', ')}`}
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+        {list.total > list.batches.length && <p className="mt-1 text-xs text-muted-foreground">앞 {list.batches.length.toLocaleString()}개만 보여 줍니다.</p>}
+      </CollapsibleContent>
+    </Collapsible>
   );
 }

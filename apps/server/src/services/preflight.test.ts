@@ -49,6 +49,11 @@ describe('preflight', () => {
     const first = await preflight(db, workflow, scope);
     expect(first.lines.total).toBeGreaterThan(2_900);
     expect(first.plan.batches).toBeGreaterThan(10);
+    // The batch list covers every planned line, and each later scene says why it joined.
+    expect(first.plan.list.total).toBe(first.plan.batches);
+    const listed = first.plan.list.batches;
+    if (listed.length === first.plan.batches) expect(listed.reduce((sum, batch) => sum + batch.lines, 0)).toBe(first.lines.total);
+    expect(listed.flatMap((batch) => batch.scenes.slice(1)).every((scene) => scene.joined !== null)).toBe(true);
     const translate = first.nodes.find((node) => node.everyLine)!;
     expect(translate.requests.min).toBe(translate.requests.max);
     expect(first.totals.calls.expected).toBeNull();
