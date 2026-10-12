@@ -73,6 +73,7 @@ function FloatingEdge({ id, source, target, markerStart, markerEnd, data, select
       {(selected || data?.showLabel) && (
         <EdgeLabelRenderer>
           <div
+            data-relation-label
             className={cn('nodrag nopan absolute flex flex-col rounded border bg-background text-[11px] shadow-xs', (selected || data?.focus) && 'border-primary', data?.dim && 'opacity-30')}
             style={{ transform: `translate(-50%, -50%) translate(${label.x}px, ${label.y}px)`, pointerEvents: 'all' }}
           >
@@ -241,7 +242,8 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
       elementsSelectable
       onNodeClick={(_event, node) => onSelectCharacter(node.id)}
       onEdgeClick={(_event, edge) => onSelectRelationship(edge.id.split('+')[0])}
-      onPaneClick={onClear}
+      // A click on a relationship label also reaches the pane; it picks that relationship, not nothing.
+      onPaneClick={(event) => !(event.target as HTMLElement).closest('[data-relation-label]') && onClear()}
       proOptions={{ hideAttribution: true }}
     >
       <Background />
