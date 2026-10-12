@@ -71,7 +71,7 @@ export function GettingStarted({ projectId }: { projectId: string }) {
     {
       key: 'analysis',
       title: '작품 분석',
-      why: 'AI가 대본 전체를 읽고 인물·관계·사건·말투 규칙과 장면별 청자 초안을 만듭니다. 번역할 때 AI가 받는 문맥의 바탕입니다.',
+      why: 'AI가 대본 전체를 읽고 인물·관계·사건·말투 규칙·장면별 청자 초안과 용어 후보(번역 제안 포함)를 만듭니다. 번역할 때 AI가 받는 문맥의 바탕입니다.',
       done: analysed,
       action: (primary) => <StartAnalysis projectId={projectId} variant={primary ? 'default' : 'outline'} />,
       progress: reading && (
@@ -110,7 +110,9 @@ export function GettingStarted({ projectId }: { projectId: string }) {
       key: 'terms',
       title: '용어 정하기',
       why: !terms.data.length
-        ? '대본에서 고유명사·약어·화자 이름을 코드로 찾아 용어 후보로 넣습니다. AI를 쓰지 않아 비용이 없고 몇 초면 끝납니다.'
+        ? analysed
+          ? '작품 분석이 용어를 찾지 못했습니다. 대본에서 고유명사·약어·화자 이름을 코드로 찾아 후보로 넣을 수 있습니다(AI 비용 없음).'
+          : '작품 분석이 용어 후보도 만듭니다. 분석 전에 대본에서 고유명사·약어·화자 이름을 코드로 먼저 찾아 둘 수도 있습니다(AI 비용 없음, 몇 초).'
         : `용어 후보 ${candidates.toLocaleString()}개${emptyTerms ? ` (번역이 빈 것 ${emptyTerms.toLocaleString()}개)` : ''}. 용어집에서 빈 번역을 AI로 채우고, 확인해서 확정하세요. 확정한 용어만 번역 문맥에 들어갑니다.`,
       done: confirmedTerms > 0,
       optional: true,

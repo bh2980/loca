@@ -266,6 +266,8 @@ export const terms = sqliteTable('terms', {
   examples: json<string[]>('examples').notNull().default(sql`'[]'`),
   /** The workflow run that added it, for AI terms. */
   runId: text('run_id'),
+  /** The work analysis that proposed it, for AI terms. */
+  jobId: text('job_id'),
   /** A person edited or promoted this AI term. */
   reviewed: integer('reviewed', { mode: 'boolean' }).notNull().default(false),
   updatedAt: updatedAt(),

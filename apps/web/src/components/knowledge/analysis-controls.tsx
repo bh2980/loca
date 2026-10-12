@@ -42,6 +42,7 @@ export function JobStatus({ projectId }: { projectId: string }) {
       마지막 분석 {when} · {job.model} · 초안 {total}개
       {result.rulesForReview ? ` · 확인 권장 말투 규칙 ${result.rulesForReview}개` : ''}
       {result.listeners ? ` · 청자 ${result.listeners.toLocaleString()}줄 채움` : ''}
+      {result.terms ? ` · 용어 후보 ${result.terms}개` : ''}
       {result.invalidEvidence ? ` · 대본에 없는 근거 ${result.invalidEvidence}개 제외` : ''}
     </span>
   );
@@ -84,7 +85,7 @@ export function StartAnalysis({ projectId, variant = 'default' }: { projectId: s
         <div className="space-y-1">
           <h3 className="text-sm font-semibold">작품 분석</h3>
           <p className="text-xs text-muted-foreground">
-            모델이 대본 전체를 한 번에 읽고 개요·인물·관계·사건·말투 규칙 초안을 근거와 함께 만듭니다. 번역과 상태는 바뀌지 않습니다. 긴 문맥 모델을 권장하고, 출력 한도가 작으면 답이 잘릴 수 있습니다.
+            모델이 대본 전체를 한 번에 읽고 개요·인물·관계·사건·말투 규칙 초안과 용어 후보(번역 제안 포함)를 근거와 함께 만듭니다. 용어는 용어집에 후보로 들어가고 확정은 사람이 합니다. 번역과 상태는 바뀌지 않습니다. 긴 문맥 모델을 권장하고, 출력 한도가 작으면 답이 잘릴 수 있습니다.
             {hasDrafts && ' 다시 분석하면 사람이 고치거나 확정하지 않은 AI 항목이 새 결과로 바뀝니다.'}
           </p>
         </div>

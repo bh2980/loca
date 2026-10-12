@@ -118,3 +118,8 @@ export const politenessOfLevel = (level: SpeechLevel | null): Politeness | null 
 
 /** Whether the text ends politely or plainly; speakers mix neighbouring levels, so this is the reliable axis. */
 export const politenessOf = (text: string): Politeness | null => politenessOfLevel(speechLevelOf(text));
+
+/** What kind of glossary term the work analysis says a name or word is (shown in the term's note). */
+export const TERM_KINDS = ['person', 'place', 'organization', 'item', 'concept', 'title', 'ui', 'other'] as const;
+export type TermKind = (typeof TERM_KINDS)[number];
+export const TERM_KIND_LABELS: Record<TermKind, string> = { person: '인물', place: '장소', organization: '조직', item: '물건·기술', concept: '개념·은어', title: '호칭·직함', ui: 'UI', other: '' };

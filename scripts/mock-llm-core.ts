@@ -146,6 +146,8 @@ function analysis(user: string) {
       })),
       events: [{ title: '모의 사건', summary: '처음 장면의 일', cause: '', outcome: '', participants: cast.slice(0, 2).map(([name]) => name), evidence: lines.slice(0, 2).map((line) => line.id) }],
       speechRules: list.map((pair, index) => ({ from: pair.from, to: pair.to, level: levels[index % 4], address: '', note: '모의 규칙', start: null, evidence: pair.evidence })),
+      // The speakers as terms, so a mock analysis fills the glossary like a real one.
+      terms: cast.map(([name, rows]) => ({ source: name, kind: 'person', meaning: '모의 용어 설명', target: `[KO] ${name}`, evidence: rows.slice(0, 2).map((row) => row.id) })),
     },
   };
 }

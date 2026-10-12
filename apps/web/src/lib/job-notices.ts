@@ -4,7 +4,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { q } from '@/lib/queries';
 
-const KINDS: Record<string, string> = { documents: '문서', characters: '인물', relationships: '관계', events: '사건', speechRules: '말투 규칙' };
+const KINDS: Record<string, string> = { documents: '문서', characters: '인물', relationships: '관계', events: '사건', speechRules: '말투 규칙', terms: '용어 후보' };
 
 /**
  * Long work ends while the user is elsewhere: a work analysis, a glossary fill or a workflow run
