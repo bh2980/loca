@@ -300,3 +300,43 @@ describe('slots per account', () => {
     expect(order.indexOf('R')).toBeLessThan(order.lastIndexOf('T'));
   });
 });
+
+describe('sharing and branching', () => {
+  it('spreads a node over the accounts of its profiles', async () => {
+    const { db, workflow } = setup(12, () => 5);
+    const other = db.insert(s.connections).values({ kind: 'openai', name: 'second', baseUrl: 'http://localhost:2/v1', concurrency: 1 }).returning().get();
+    const second = db.insert(s.profiles).values({ name: 'second', connectionId: other.id, model: 'm2', maxOutputTokens: 1000, timeoutSeconds: 30, maxAttempts: 1 }).returning().get();
+    const first = workflow.definition.nodes.find((node) => node.type === 'ai')!;
+    const definition = { ...workflow.definition, nodes: workflow.definition.nodes.map((node) => (node.type === 'ai' ? { ...node, config: { ...node.config, extraProfileIds: [second.id], batch: { mode: 'count' as const, size: 5, maxTokens: 6_000 } } } : node)) };
+    db.update(s.workflows).set({ definition }).where(eq(s.workflows.id, workflow.id)).run();
+    const fresh = db.select().from(s.workflows).where(eq(s.workflows.id, workflow.id)).get()!;
+    const runId = createRun(db, { projectId: fresh.projectId, workflow: fresh, profiles: snapshotProfiles(db, [(first as { config: { profileId: string } }).config.profileId, second.id]), scope: { ignoreStatus: true } }).runId;
+    const models: string[] = [];
+    const base = model();
+    // Calls take a moment, so both accounts are busy at once.
+    const slow: ModelPort = { ...base, generate: async (route, request) => (models.push(route.model), await new Promise((resolve) => setTimeout(resolve, 5)), base.generate(route, request)) };
+    await new Runner(db, memoryStore(), slow).drain();
+    expect(runOf(db, runId).status).toBe('completed');
+    expect(new Set(models)).toEqual(new Set(['m', 'm2']));
+    const steps = db.select({ model: s.runSteps.model }).from(s.runSteps).where(eq(s.runSteps.runId, runId)).all();
+    expect(steps.some((step) => step.model === 'm2')).toBe(true);
+  });
+
+  it('sends a line down every branch of an exit and counts it done once all of them are', async () => {
+    const { db, workflow } = setup(2, () => 3);
+    const end = { id: 'side-end', type: 'end' as const, position: { x: 0, y: 0 }, config: {} };
+    const entry = workflow.definition.nodes.find((node) => node.type === 'entry')!;
+    const firstEdge = workflow.definition.edges.find((edge) => edge.source === entry.id)!;
+    const definition = { ...workflow.definition, nodes: [...workflow.definition.nodes, end], edges: [...workflow.definition.edges, { id: 'side', source: entry.id, sourceHandle: firstEdge.sourceHandle, target: 'side-end' }] };
+    db.update(s.workflows).set({ definition }).where(eq(s.workflows.id, workflow.id)).run();
+    const fresh = db.select().from(s.workflows).where(eq(s.workflows.id, workflow.id)).get()!;
+    const profileId = (workflow.definition.nodes.find((node) => node.type === 'ai') as { config: { profileId: string } }).config.profileId;
+    const runId = createRun(db, { projectId: fresh.projectId, workflow: fresh, profiles: snapshotProfiles(db, [profileId]), scope: { ignoreStatus: true } }).runId;
+    await new Runner(db, memoryStore(), model()).drain();
+    const items = db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all();
+    // Six lines, each with an item on the main path and a copy that went straight to the side end.
+    expect(items).toHaveLength(12);
+    expect(items.filter((item) => item.nodeId === 'side-end' && item.state === 'done')).toHaveLength(6);
+    expect(runOf(db, runId).status).toBe('completed');
+  });
+});

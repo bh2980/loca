@@ -28,6 +28,7 @@ export function translationTemplate(ids: {
 }): WorkflowDefinition {
   const ai = (preset: keyof typeof AI_PRESETS) => ({
     profileId: ids.profileId,
+    extraProfileIds: [],
     instructions: AI_PRESETS[preset].instructions,
     output: AI_PRESETS[preset].output,
     fields: [],
@@ -92,6 +93,7 @@ export function termExtractionTemplate(ids: { profileId: string }): WorkflowDefi
         label: AI_PRESETS.terms.label,
         config: {
           profileId: ids.profileId,
+          extraProfileIds: [],
           instructions: AI_PRESETS.terms.instructions,
           output: 'terms',
           fields: [],
@@ -138,6 +140,7 @@ export function listenerTemplate(ids: { profileId: string }): WorkflowDefinition
         label: AI_PRESETS.listener.label,
         config: {
           profileId: ids.profileId,
+          extraProfileIds: [],
           instructions: AI_PRESETS.listener.instructions,
           output: 'listener',
           fields: [],
@@ -176,6 +179,7 @@ export function speechFixTemplate(ids: { profileId: string }): WorkflowDefinitio
         label: AI_PRESETS.speechFix.label,
         config: {
           profileId: ids.profileId,
+          extraProfileIds: [],
           instructions: AI_PRESETS.speechFix.instructions,
           output: 'candidate',
           fields: [],
@@ -215,6 +219,7 @@ export function knowledgeTemplate(ids: { profileId: string }): WorkflowDefinitio
         label: AI_PRESETS.knowledge.label,
         config: {
           profileId: ids.profileId,
+          extraProfileIds: [],
           instructions: AI_PRESETS.knowledge.instructions,
           output: 'knowledge',
           fields: [],

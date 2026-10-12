@@ -1,7 +1,7 @@
 import { tool } from 'ai';
 import { and, asc, count, desc, eq, inArray, like, or } from 'drizzle-orm';
 import { z } from 'zod';
-import { AI_OUTPUTS, AI_PRESETS, batchChangeSchema, CONNECTION_KIND_INFO, FUNCTIONS, lineFilterSchema, NODE_TYPES, profileInputSchema, sourceOf, workflowDefinitionSchema } from '@tw/shared';
+import { AI_OUTPUTS, AI_PRESETS, batchChangeSchema, CONNECTION_KIND_INFO, FUNCTIONS, lineFilterSchema, NODE_TYPES, nodeProfileIds, profileInputSchema, sourceOf, workflowDefinitionSchema } from '@tw/shared';
 import { z as zod } from 'zod';
 import type { Db } from '../db/index.ts';
 import { inList } from '../db/chunk.ts';
@@ -395,7 +395,7 @@ export function agentTools(db: Db, projectId: string, author: { profileId: strin
         const errors = workflowIssues(db, projectId, workflow.definition).filter((issue) => issue.level === 'error');
         if (errors.length) return { ok: false, error: `워크플로에 오류가 있습니다: ${errors[0].message}` };
         if (!selectRunUnits(db, projectId, workflow.definition, scope).length) return { ok: false, error: '조건에 맞는 대사가 없습니다.' };
-        const profileIds = [...new Set(workflow.definition.nodes.flatMap((node) => (node.type === 'ai' ? [node.config.profileId] : [])))];
+        const profileIds = [...new Set(workflow.definition.nodes.flatMap((node) => (node.type === 'ai' ? nodeProfileIds(node) : [])))];
         const run = createRun(db, { projectId, workflow, profiles: snapshotProfiles(db, profileIds), scope });
         return { ok: true, ...run, workflow: workflow.name };
       },

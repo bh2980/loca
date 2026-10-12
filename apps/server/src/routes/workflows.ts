@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { knowledgeTemplate, listenerTemplate, speechFixTemplate, termExtractionTemplate, translationTemplate, validateWorkflow, workflowDefinitionSchema, type WorkflowDefinition } from '@tw/shared';
+import { knowledgeTemplate, listenerTemplate, nodeProfileIds, speechFixTemplate, termExtractionTemplate, translationTemplate, validateWorkflow, workflowDefinitionSchema, type WorkflowDefinition } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -123,7 +123,7 @@ export const workflowRoutes = new Hono<Env>()
     const workflow = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
     const errors = workflowIssues(db, workflow.projectId, workflow.definition).filter((issue) => issue.level === 'error');
     if (errors.length) badRequest(`워크플로에 오류가 ${errors.length}개 있습니다: ${errors[0].message}`);
-    const profileIds = [...new Set(workflow.definition.nodes.flatMap((node) => (node.type === 'ai' ? [node.config.profileId] : [])))];
+    const profileIds = [...new Set(workflow.definition.nodes.flatMap((node) => (node.type === 'ai' ? nodeProfileIds(node) : [])))];
     try {
       const { limits, ...scope } = c.req.valid('json');
       return c.json(createRun(db, { projectId: workflow.projectId, workflow, profiles: snapshotProfiles(db, profileIds), scope, limits }), 201);
@@ -162,14 +162,21 @@ export const workflowRoutes = new Hono<Env>()
       .orderBy(desc(s.runs.createdAt))
       .limit(200)
       .all();
+    // Per line, not per item: a line sent down several branches has an item in each, and is done
+    // only when every branch is (running > queued > failed > cancelled > done).
     const counts = runs.length
-      ? db
-          .select({ runId: s.runItems.runId, state: s.runItems.state, count: count() })
-          .from(s.runItems)
-          .innerJoin(s.runs, eq(s.runs.id, s.runItems.runId))
-          .where(eq(s.runs.projectId, projectId))
-          .groupBy(s.runItems.runId, s.runItems.state)
-          .all()
+      ? db.all<{ runId: string; state: s.ItemState; count: number }>(sql`
+          select run_id as runId, state, count(*) as count from (
+            select i.run_id, case
+              when sum(i.state = 'running') > 0 then 'running'
+              when sum(i.state = 'queued') > 0 then 'queued'
+              when sum(i.state = 'failed') > 0 then 'failed'
+              when sum(i.state = 'cancelled') > 0 then 'cancelled'
+              else 'done' end as state
+            from ${s.runItems} i join ${s.runs} r on r.id = i.run_id
+            where r.project_id = ${projectId}
+            group by i.run_id, i.unit_id
+          ) group by run_id, state`)
       : [];
     const byRun = Map.groupBy(counts, (row) => row.runId);
     return c.json(runs.map((run) => ({ ...run, states: Object.fromEntries((byRun.get(run.id) ?? []).map((row) => [row.state, row.count])) })));

@@ -11,7 +11,7 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as ai from '../packages/ai/src/index.ts';
-import { importFileSchema, knowledgeTemplate } from '../packages/shared/src/index.ts';
+import { importFileSchema, knowledgeTemplate, nodeProfileIds } from '../packages/shared/src/index.ts';
 import { openDatabase } from '../apps/server/src/db/index.ts';
 import * as s from '../apps/server/src/db/schema.ts';
 import { importProject } from '../apps/server/src/services/importer.ts';
@@ -103,7 +103,7 @@ async function runScenario(scenario: Scenario, size: number): Promise<Metrics> {
   if (scenario.workflow === '자료 갱신') db.insert(s.workflows).values({ projectId, name: scenario.workflow, definition: knowledgeTemplate({ profileId: profile.id }) }).run();
   const workflow = db.select().from(s.workflows).all().find((row) => row.projectId === projectId && row.name === scenario.workflow);
   if (!workflow) throw new Error(`workflow "${scenario.workflow}" is not among the imported templates`);
-  const profileIds = [...new Set(workflow.definition.nodes.flatMap((node) => (node.type === 'ai' ? [node.config.profileId] : [])))];
+  const profileIds = [...new Set(workflow.definition.nodes.flatMap((node) => (node.type === 'ai' ? nodeProfileIds(node) : [])))];
   const { runId } = createRun(db, { projectId, workflow, profiles: snapshotProfiles(db, profileIds.length ? profileIds : [profile.id]), scope: { ignoreStatus: true } });
 
   const started = performance.now();

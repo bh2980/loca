@@ -2,7 +2,7 @@ import { and, asc, desc, eq, inArray, notInArray, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
 import jsonLogic from 'json-logic-js';
 import * as ai from '@tw/ai';
-import { batchConfigSchema, FUNCTIONS, nodeName, type AiNode, type ConditionData, type FunctionName, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import { batchConfigSchema, FUNCTIONS, nodeName, nodeProfileIds, type AiNode, type ConditionData, type FunctionName, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
 import { inChunks, inList } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -216,27 +216,35 @@ export class Runner {
     this.route(tx, run, { ...item, data }, outcome.port, outcome.error);
   }
 
-  /** Moves an item out through `port`. An exit with no edge ends the item (failed for `error`). */
+  /**
+   * Moves an item out through `port`. An exit with no edge ends the item (failed for `error`). An
+   * exit with several edges sends the line down each of them: the item takes the first, and a copy
+   * of it each of the others (validation keeps those branches apart until they end).
+   */
   private route(tx: Tx, run: Run, item: Item, port: string, error?: string) {
     const definition: WorkflowDefinition = run.definition;
-    const edge = definition.edges.find((candidate) => candidate.source === item.nodeId && candidate.sourceHandle === port);
+    const edges = definition.edges.filter((candidate) => candidate.source === item.nodeId && candidate.sourceHandle === port);
     const path = [...item.data.path, { nodeId: item.nodeId, port, at: Date.now() }].slice(-200);
-    let state: ItemState = 'queued';
-    let nodeId = item.nodeId;
-    let message = error ?? null;
-    const visits = { ...item.visits };
-    if (!edge) {
-      state = port === 'error' ? 'failed' : 'done';
-    } else {
-      nodeId = edge.target;
-      visits[nodeId] = (visits[nodeId] ?? 0) + 1;
-      if (visits[nodeId] > definition.settings.maxVisitsPerNode) {
-        const target = this.node(run, nodeId);
-        state = 'failed';
-        message = `'${target ? nodeName(target) : nodeId}' 노드 방문 상한(${definition.settings.maxVisitsPerNode}회)을 넘었습니다.`;
+    const moved = (target: string | undefined) => {
+      let state: ItemState = 'queued';
+      let nodeId = item.nodeId;
+      let message = error ?? null;
+      const visits = { ...item.visits };
+      if (!target) {
+        state = port === 'error' ? 'failed' : 'done';
+      } else {
+        nodeId = target;
+        visits[nodeId] = (visits[nodeId] ?? 0) + 1;
+        if (visits[nodeId] > definition.settings.maxVisitsPerNode) {
+          const node = this.node(run, nodeId);
+          state = 'failed';
+          message = `'${node ? nodeName(node) : nodeId}' 노드 방문 상한(${definition.settings.maxVisitsPerNode}회)을 넘었습니다.`;
+        }
       }
-    }
-    tx.update(s.runItems).set({ nodeId, state, visits, data: { ...item.data, path }, error: message }).where(eq(s.runItems.id, item.id)).run();
+      return { nodeId, state, visits, data: { ...item.data, path }, error: message };
+    };
+    tx.update(s.runItems).set(moved(edges[0]?.target)).where(eq(s.runItems.id, item.id)).run();
+    for (const edge of edges.slice(1)) tx.insert(s.runItems).values({ runId: run.id, unitId: item.unitId, plan: item.plan, ...moved(edge.target) }).run();
   }
 
   /** Lines still queued or running, per node. */
@@ -266,9 +274,9 @@ export class Runner {
   /** HTTP / script function calls in flight per run. */
   private functionsByRun = new Map<string, number>();
 
-  /** The account an AI node's calls count against: its profile's primary route. Null for functions. */
-  private accountOf(run: Run, node: WorkflowNode) {
-    return node.type === 'ai' ? (run.profiles[node.config.profileId]?.routes[0]?.connectionId ?? null) : null;
+  /** The account a profile's calls count against: its primary route's connection. */
+  private accountOfProfile(run: Run, profileId: string) {
+    return run.profiles[profileId]?.routes[0]?.connectionId ?? null;
   }
 
   private upstreams = new Map<string, Map<string, Set<string>>>();
@@ -357,8 +365,7 @@ export class Runner {
     const busy = this.inflight.get(run.id)?.size ?? 0;
     const accounts = new Map(this.db.select({ id: s.connections.id, concurrency: s.connections.concurrency }).from(s.connections).all().map((row) => [row.id, row.concurrency]));
     const canSend = (node: WorkflowNode) => {
-      const account = this.accountOf(run, node);
-      if (account) return (this.callsByAccount.get(account) ?? 0) < (accounts.get(account) ?? 2);
+      if (node.type === 'ai') return this.freeProfile(run, node, accounts) !== null;
       return (this.functionsByRun.get(run.id) ?? 0) < run.definition.settings.concurrency;
     };
     const slow = run.definition.nodes.filter(isAsync);
@@ -429,7 +436,7 @@ export class Runner {
         for (const nodeId of order) {
           const queue = queues.get(nodeId)!;
           if (!queue.requests.length || !canSend(queue.node)) continue;
-          this.dispatch(run, queue.node, queue.requests.shift()!);
+          this.dispatch(run, queue.node, queue.requests.shift()!, accounts);
           changed = sent = true;
         }
       }
@@ -443,7 +450,7 @@ export class Runner {
       const config = node.type === 'ai' ? batchConfigSchema.parse(node.config.batch ?? {}) : null;
       const first = config ? (packGroups([...Map.groupBy(lines, (line) => line.plan ?? -1).values()], config)[0] ?? []) : lines.slice(0, 1);
       if (first.length && canSend(node)) {
-        this.dispatch(run, node, first);
+        this.dispatch(run, node, first, accounts);
         changed = true;
       }
     }
@@ -510,7 +517,22 @@ export class Runner {
     }
   }
 
-  private dispatch(run: Run, node: WorkflowNode, lines: Waiting[]) {
+  /**
+   * The profile an AI node's next request goes to: of the node's profiles whose account has a free
+   * slot, the one with the most room left (so work spreads over the accounts). Null when none has.
+   */
+  private freeProfile(run: Run, node: AiNode, accounts: Map<string, number>) {
+    let best: { profileId: string; room: number } | null = null;
+    for (const profileId of nodeProfileIds(node)) {
+      const account = this.accountOfProfile(run, profileId);
+      // A profile without a connection (missing from the snapshot) fails the request visibly.
+      const room = account ? (accounts.get(account) ?? 2) - (this.callsByAccount.get(account) ?? 0) : 1;
+      if (room > 0 && (!best || room > best.room)) best = { profileId, room };
+    }
+    return best?.profileId ?? null;
+  }
+
+  private dispatch(run: Run, node: WorkflowNode, lines: Waiting[], accounts: Map<string, number>) {
     const ids = lines.map((line) => line.id);
     const byId = new Map(this.db.select().from(s.runItems).where(inArray(s.runItems.id, ids)).all().map((item) => [item.id, item]));
     const batch = ids.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : []));
@@ -519,11 +541,12 @@ export class Runner {
     if (!controller || controller.signal.aborted) this.aborts.set(run.id, (controller = new AbortController()));
     const set = this.inflight.get(run.id) ?? new Set();
     this.inflight.set(run.id, set);
-    const account = this.accountOf(run, node);
+    const profileId = node.type === 'ai' ? (this.freeProfile(run, node, accounts) ?? node.config.profileId) : null;
+    const account = profileId ? this.accountOfProfile(run, profileId) : null;
     const counts = account ? this.callsByAccount : this.functionsByRun;
     const key = account ?? run.id;
     counts.set(key, (counts.get(key) ?? 0) + 1);
-    const work = node.type === 'ai' ? this.executeAi(run, node, batch, controller.signal) : this.executeFunction(run, node as FunctionNode, batch[0], controller.signal);
+    const work = node.type === 'ai' ? this.executeAi(run, node, profileId!, batch, controller.signal) : this.executeFunction(run, node as FunctionNode, batch[0], controller.signal);
     const task = work.finally(() => {
       set.delete(task);
       counts.set(key, (counts.get(key) ?? 1) - 1);
@@ -552,8 +575,8 @@ export class Runner {
     }
   }
 
-  private async executeAi(run: Run, node: AiNode, batch: Item[], signal: AbortSignal) {
-    const profile = run.profiles[node.config.profileId];
+  private async executeAi(run: Run, node: AiNode, profileId: string, batch: Item[], signal: AbortSignal) {
+    const profile = run.profiles[profileId];
     if (!profile) return this.failBatch(run, batch, { runId: run.id, nodeId: node.id, unitIds: batch.map((item) => item.unitId), startedAt: new Date() }, new Error('AI 프로필이 실행 스냅샷에 없습니다.'));
     const routes = resolveRoutes(profile, this.secrets);
     if (routes[0]?.kind === 'systemone') return this.judgeLines(run, node, batch, profile, routes, signal);

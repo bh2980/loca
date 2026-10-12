@@ -19,6 +19,8 @@ export interface NodeEstimate {
   nodeId: string;
   name: string;
   profile: string | null;
+  /** Other profiles sharing this node's requests (their accounts take whatever is free). */
+  sharedWith: string[];
   connection: { id: string; name: string; kind: string; cli: boolean } | null;
   /** Requests if every planned line reaches this node once. */
   full: number;
@@ -71,6 +73,7 @@ export function preflight(db: Db, workflow: typeof s.workflows.$inferSelect, sco
       nodeId: node.id,
       name: nodeName(node),
       profile: profile?.name ?? null,
+      sharedWith: node.config.extraProfileIds.flatMap((id) => db.select({ name: s.profiles.name }).from(s.profiles).where(eq(s.profiles.id, id)).get()?.name ?? []),
       connection: connection ? { id: connection.id, name: connection.name, kind: connection.kind, cli: CONNECTION_KIND_INFO[connection.kind].transport === 'cli' } : null,
       full: requests.length,
       requests: { min: all ? requests.length : 0, expected: all ? requests.length : historyRate === null ? null : Math.round(historyRate * units.length), max },
@@ -187,7 +190,8 @@ function overheadOf(db: Db, connectionId: string): number | null {
     .all()
     .filter((step) => {
       const node = step.definition.nodes.find((candidate) => candidate.id === step.nodeId);
-      return node?.type === 'ai' && step.profiles[node.config.profileId]?.routes[0]?.connectionId === connectionId;
+      // A node sharing its work over several profiles does not record which one answered a call.
+      return node?.type === 'ai' && !node.config.extraProfileIds?.length && step.profiles[node.config.profileId]?.routes[0]?.connectionId === connectionId;
     })
     .slice(0, HISTORY);
   if (!steps.length) return null;

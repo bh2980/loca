@@ -22,6 +22,31 @@ describe('workflow validation', () => {
     expect(issues).toContainEqual(expect.objectContaining({ level: 'error', nodeId: 'check', message: expect.stringContaining('통과') }));
   });
 
+  it('lets an exit send lines down several branches that end apart, with one changing the line', () => {
+    const template = workflowDefinitionSchema.parse(translationTemplate(ids));
+    const node = (id: string, config: Record<string, unknown>, type = 'function') => workflowNodeSchema.parse({ id, type, position: { x: 0, y: 0 }, config });
+    const side = [node('terms', { output: 'terms', profileId: 'p' }, 'ai'), node('add', { fn: 'addTerms', params: { fromNodeId: 'terms' } }), node('end-terms', {}, 'end')];
+    const sideEdges = [
+      { id: 's1', source: 'review', sourceHandle: 'pass', target: 'terms' },
+      { id: 's2', source: 'terms', sourceHandle: 'out', target: 'add' },
+      { id: 's3', source: 'add', sourceHandle: 'out', target: 'end-terms' },
+    ];
+    const ok: WorkflowDefinition = { ...template, nodes: [...template.nodes, ...side], edges: [...template.edges, ...sideEdges] };
+    expect(validateWorkflow(ok, refs).filter((issue) => issue.level === 'error')).toEqual([]);
+    // The side branch joining the main one again (at its end node).
+    const rejoined: WorkflowDefinition = { ...ok, edges: ok.edges.map((edge) => (edge.id === 's3' ? { ...edge, target: 'end' } : edge)) };
+    expect(validateWorkflow(rejoined, refs)).toContainEqual(expect.objectContaining({ level: 'error', nodeId: 'review', message: expect.stringContaining('다시 만납니다') }));
+    // Both branches setting the status.
+    const twice: WorkflowDefinition = { ...ok, nodes: ok.nodes.map((n) => (n.id === 'add' ? node('add', { fn: 'setStatus', params: { statusId: 's1' } }) : n)) };
+    expect(validateWorkflow(twice, refs)).toContainEqual(expect.objectContaining({ level: 'error', message: expect.stringContaining('상태를 바꿉니다') }));
+  });
+
+  it('flags a deleted profile among the ones sharing a node', () => {
+    const template = workflowDefinitionSchema.parse(translationTemplate(ids));
+    const shared: WorkflowDefinition = { ...template, nodes: template.nodes.map((n) => (n.type === 'ai' && n.id === 'review' ? { ...n, config: { ...n.config, extraProfileIds: ['gone'] } } : n)) };
+    expect(validateWorkflow(shared, refs)).toContainEqual(expect.objectContaining({ level: 'error', nodeId: 'review', message: expect.stringContaining('함께 나눌') }));
+  });
+
   it('warns about a loop that nothing can leave', () => {
     const definition = workflowDefinitionSchema.parse({
       nodes: [

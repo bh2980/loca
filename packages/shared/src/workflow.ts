@@ -61,6 +61,8 @@ export const jsonFieldSchema = z.object({
 
 const aiConfig = z.object({
   profileId: z.string().default(''),
+  /** More profiles sharing this node's work: each request goes to whichever account has a free slot. */
+  extraProfileIds: z.array(z.string()).default([]),
   instructions: z.string().default(''),
   output: z.enum(['candidate', 'verdict', 'terms', 'listener', 'knowledge', 'json']).default('candidate'),
   fields: z.array(jsonFieldSchema).default([]),
@@ -114,6 +116,12 @@ export type WorkflowEdge = z.infer<typeof workflowEdgeSchema>;
 export type WorkflowDefinition = z.infer<typeof workflowDefinitionSchema>;
 export type AiNode = Extract<WorkflowNode, { type: 'ai' }>;
 export type FunctionNode = Extract<WorkflowNode, { type: 'function' }>;
+
+/** Every profile an AI node may send a request with, its own first. */
+export const nodeProfileIds = (node: AiNode) => [...new Set([node.config.profileId, ...node.config.extraProfileIds].filter(Boolean))];
+
+/** Functions that change the line itself (its status, tags or representative translation). */
+const LINE_CHANGING_FUNCTIONS = new Set(['setStatus']);
 
 export interface NodeTypeInfo {
   label: string;
@@ -211,9 +219,39 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
       error(`'${nodeName(source)}'에 없는 출구입니다: ${edge.sourceHandle}`, { edgeId: edge.id });
     if (!NODE_TYPES[target.type].hasInput) error('진입 노드로 들어가는 연결은 둘 수 없습니다.', { edgeId: edge.id });
     const port = `${edge.source}:${edge.sourceHandle}`;
-    if (usedPorts.has(port)) error('한 출구에는 연결을 하나만 둘 수 있습니다.', { edgeId: edge.id });
+    if (definition.edges.some((other) => other !== edge && other.source === edge.source && other.sourceHandle === edge.sourceHandle && other.target === edge.target && definition.edges.indexOf(other) < definition.edges.indexOf(edge)))
+      error('같은 출구에서 같은 노드로 가는 연결이 두 번 있습니다.', { edgeId: edge.id });
     usedPorts.add(port);
     graph.addDirectedEdgeWithKey(edge.id, edge.source, edge.target);
+  }
+
+  // An exit with several connections sends each line down all of them (a copy per branch). The
+  // branches end apart: if they met again a line would arrive twice. Only one of them may change
+  // the line itself, or two branches would set its status at the same time.
+  const reach = (start: string) => {
+    const seen = new Set<string>();
+    const stack = [start];
+    while (stack.length) {
+      const id = stack.pop()!;
+      if (seen.has(id) || !graph.hasNode(id)) continue;
+      seen.add(id);
+      stack.push(...graph.outNeighbors(id));
+    }
+    return seen;
+  };
+  for (const [port, edges] of Map.groupBy(definition.edges, (edge) => `${edge.source}:${edge.sourceHandle}`)) {
+    const targets = [...new Set(edges.map((edge) => edge.target))];
+    if (targets.length < 2) continue;
+    const source = definition.nodes.find((node) => node.id === port.slice(0, port.indexOf(':')));
+    const where = source ? `'${nodeName(source)}'의 갈래` : '갈래';
+    const branches = targets.map((target) => reach(target));
+    const met = branches.flatMap((branch, index) => branches.slice(index + 1).flatMap((other) => [...branch].filter((id) => other.has(id))));
+    if (met.length) {
+      const node = definition.nodes.find((candidate) => candidate.id === met[0]);
+      error(`${where}가 '${node ? nodeName(node) : met[0]}'에서 다시 만납니다. 한 출구에서 나간 갈래는 따로 끝나야 합니다.`, { nodeId: source?.id });
+    }
+    const changing = branches.filter((branch) => [...branch].some((id) => { const node = definition.nodes.find((candidate) => candidate.id === id); return node?.type === 'function' && LINE_CHANGING_FUNCTIONS.has(node.config.fn); }));
+    if (changing.length > 1) error(`${where} 중 둘 이상이 대사의 상태를 바꿉니다. 상태 변경은 한 갈래에만 두세요.`, { nodeId: source?.id });
   }
 
   for (const node of definition.nodes) {
@@ -225,6 +263,7 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
     if (node.type === 'ai') {
       if (!refs.profileIds.has(node.config.profileId))
         error(node.config.profileId ? '삭제된 모델 프로필입니다.' : '모델 프로필을 선택하세요.', { nodeId: node.id });
+      if (node.config.extraProfileIds.some((id) => !refs.profileIds.has(id))) error('함께 나눌 프로필 중 삭제된 것이 있습니다.', { nodeId: node.id });
       if (node.config.output === 'json' && !node.config.fields.length) error('자유 형식 출력에는 필드가 하나 이상 필요합니다.', { nodeId: node.id });
     }
     if (node.type === 'entry')
