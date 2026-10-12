@@ -130,10 +130,8 @@ describe('import format', () => {
     expect(paths).toEqual(expect.arrayContaining(['units.0.group', 'graph.nodes.0.units', 'graph.edges.0.to']));
   });
 
-  it('only takes the current format name and treats a graph as partial unless declared', () => {
+  it('only takes the current format name', () => {
     expect(importFileSchema.safeParse({ ...base, format: 'translation-workbench/v1' }).success).toBe(false);
-    const file = importFileSchema.parse({ ...base, graph: { nodes: [{ key: 'n1', units: ['u1'] }], edges: [] } });
-    expect(file.graph?.flow).toBe('partial');
   });
 
   it('checks the line keys that speech rules, relationship changes and events point to', () => {

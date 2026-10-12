@@ -3,7 +3,7 @@ import path from 'node:path';
 import { Command, Option } from 'commander';
 import { hc } from 'hono/client';
 import type { AppType } from '@tw/server/app';
-import { CHECK_KINDS, CONTEXT_ITEM_KINDS, GRAPH_FLOW_LABELS, importFileJsonSchema, importFileSchema, importWarnings, lineChangeSchema, summarizeImport, type LineFilterInput } from '@tw/shared';
+import { CHECK_KINDS, CONTEXT_ITEM_KINDS, importFileJsonSchema, importFileSchema, importWarnings, lineChangeSchema, summarizeImport, type LineFilterInput } from '@tw/shared';
 
 /**
  * loca — the workbench from a terminal, for people and for agents with a shell (codex, claude, pi).
@@ -419,7 +419,7 @@ format
     if (globals().json) return print({ ok: true, summary, warnings });
     console.log(`형식이 맞습니다: ${summary.name}`);
     console.log(`  묶음 ${summary.groups} · 대사 ${summary.units} · 인물 ${summary.characters} · 문서 ${summary.documents} · 용어 ${summary.terms}`);
-    console.log(summary.graphFlow ? `  그래프 노드 ${summary.graphNodes} · 연결 ${summary.graphEdges} · 범위: ${GRAPH_FLOW_LABELS[summary.graphFlow]}` : '  그래프 없음: 앞 대사 문맥을 장면 순서로만 찾습니다');
+    console.log(summary.graphNodes ? `  그래프 노드 ${summary.graphNodes} · 연결 ${summary.graphEdges}` : '  그래프 없음: 앞 대사 문맥을 장면 순서로만 찾습니다');
     for (const warning of warnings) console.log(`  경고  ${warning.message}${warning.examples.length ? ` (예: ${warning.examples.join(', ')})` : ''}`);
   });
 

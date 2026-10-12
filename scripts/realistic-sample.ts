@@ -214,7 +214,7 @@ export function realistic(size: number): { file: ImportFileInput; report: string
       project: { name: `현실형 샘플 ${size.toLocaleString()}줄`, description: '짧은 장면·허브·인물·용어가 있는 현실형 합성 데이터 (비용·규모 검증용)', sourceLanguage: 'en', targetLanguage: 'ko' },
       groups,
       units,
-      graph: { flow: 'complete', nodeTypes: NODE_TYPES, nodes, edges },
+      graph: { nodeTypes: NODE_TYPES, nodes, edges },
       characters,
       relationships,
       documents,

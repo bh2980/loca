@@ -81,7 +81,6 @@ pnpm loca import "$W/ch1.out.jsonl"     # 제안 1건 → 앱에서 수락하면
   "groups": [{ "key": "scene-1", "kind": "scene", "title": "…" }],          // scene | document | ui
   "units":  [{ "key": "scene-1.3", "group": "scene-1", "speaker": "MIRA", "source": "…" }],
   "graph": {
-    "flow": "partial",   // complete: 분기·조건·장면 이동이 그래프에 빠짐없이 있음 / partial(기본): 그 밖
     // 원본 노드 클래스마다 표시 범주(kind)와 의미를 한 번 선언합니다.
     "nodeTypes": { "IfElseState": { "kind": "condition", "label": "조건 분기", "description": "…" } },
     "nodes": [{ "key": "n1", "type": "ChatMessageState", "units": ["scene-1.3"] }, { "key": "n2", "type": "IfElseState" }],

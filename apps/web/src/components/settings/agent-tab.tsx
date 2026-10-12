@@ -28,14 +28,8 @@ export function AgentTab() {
   const groups = Object.keys(AGENT_TOOL_GROUPS) as AgentToolGroup[];
 
   return (
-    <div className="mt-3 max-w-3xl space-y-6">
+    <div className="max-w-3xl space-y-6">
       <section className="space-y-3">
-        <div>
-          <h2 className="text-sm font-semibold">에이전트 도구</h2>
-          <p className="text-xs text-muted-foreground">
-            채팅(API·pi)과 CLI가 이 프로젝트에서 쓸 수 있는 도구입니다. 끈 도구는 에이전트에게 아예 보이지 않습니다. 변경 도구는 켜 두어도 항상 수락 카드를 거칩니다.
-          </p>
-        </div>
         {groups.map((group) => {
           const names = Object.entries(AGENT_TOOLS)
             .filter(([, info]) => info.group === group)

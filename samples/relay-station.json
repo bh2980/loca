@@ -138,7 +138,6 @@
   }
  ],
  "graph": {
-  "flow": "complete",
   "nodeTypes": {
    "ChatMessageState": {
     "kind": "script",

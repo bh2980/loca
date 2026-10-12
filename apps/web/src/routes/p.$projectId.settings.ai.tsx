@@ -154,7 +154,7 @@ function AiSettings() {
             <section className="space-y-3">
               <div>
                 <h2 className="text-sm font-semibold">채팅 도구</h2>
-                <p className="text-xs text-muted-foreground">오른쪽 채팅 패널의 AI와 터미널의 loca CLI가 쓸 수 있는 도구를 켜고 끕니다.</p>
+                <p className="text-xs text-muted-foreground">오른쪽 채팅 패널의 AI와 터미널의 loca CLI가 쓸 수 있는 도구를 켜고 끕니다. 끈 도구는 AI에게 아예 보이지 않습니다. 변경 도구는 켜 두어도 항상 수락 카드를 거칩니다.</p>
               </div>
               <AgentTab />
             </section>

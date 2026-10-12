@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { agentSettingsSchema, formatRulesSchema, GRAPH_FLOWS, importFileSchema, importWarnings, patchOf, STATUS_COLORS, summarizeImport } from '@tw/shared';
+import { agentSettingsSchema, formatRulesSchema, importFileSchema, importWarnings, patchOf, STATUS_COLORS, summarizeImport } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
@@ -64,7 +64,7 @@ export const projectRoutes = new Hono<Env>()
       .get()!.count;
     return c.json({ ...project, byStatus, groupCount, reviewCount });
   })
-  .patch('/:projectId', validate('json', z.object({ name: z.string().trim().min(1).optional(), description: z.string().optional(), formatRules: formatRulesSchema.optional(), agentSettings: agentSettingsSchema.optional(), graphFlow: z.enum(GRAPH_FLOWS).optional() })), (c) => {
+  .patch('/:projectId', validate('json', z.object({ name: z.string().trim().min(1).optional(), description: z.string().optional(), formatRules: formatRulesSchema.optional(), agentSettings: agentSettingsSchema.optional() })), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     found(db.update(s.projects).set(c.req.valid('json')).where(eq(s.projects.id, projectId)).returning().get(), '프로젝트');

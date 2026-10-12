@@ -105,7 +105,6 @@ const groupKeys = new Set(groups.map((group) => group.key));
 
 const graph = base.graph && {
   ...base.graph,
-  flow: 'partial' as const,
   nodes: base.graph.nodes.map((node) => {
     const group = groupOfNode.get(node.key);
     return { ...node, units: (node.units ?? []).filter((key) => unitByKey.has(key)), ...(group && groupKeys.has(group) ? { group } : {}) };

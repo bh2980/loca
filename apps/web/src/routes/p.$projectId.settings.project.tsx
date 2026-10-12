@@ -3,14 +3,13 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Download, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { GRAPH_FLOW_LABELS, GRAPH_FLOWS, type FormatRules, type GraphFlow } from '@tw/shared';
+import { type FormatRules } from '@tw/shared';
 import { FormatRulesSection } from '@/components/format-rules';
 import { Page } from '@/components/page';
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Textarea } from '@/components/ui/textarea';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
@@ -26,7 +25,7 @@ function ProjectSettings() {
   return <ProjectForm key={project.data.id} projectId={projectId} project={project.data} />;
 }
 
-function ProjectForm({ projectId, project }: { projectId: string; project: { name: string; description: string | null; sourceLanguage: string; targetLanguage: string; formatRules: FormatRules; graphFlow: GraphFlow } }) {
+function ProjectForm({ projectId, project }: { projectId: string; project: { name: string; description: string | null; sourceLanguage: string; targetLanguage: string; formatRules: FormatRules } }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [name, setName] = useState(project.name);
@@ -37,14 +36,6 @@ function ProjectForm({ projectId, project }: { projectId: string; project: { nam
   const save = useMutation({
     mutationFn: () => unwrap(client.projects[':projectId'].$patch({ param: { projectId }, json: { name, description } })),
     onSuccess: () => toast.success('저장했습니다.'),
-    onError: (error) => toast.error(error.message),
-  });
-  const setFlow = useMutation({
-    mutationFn: (graphFlow: GraphFlow) => unwrap(client.projects[':projectId'].$patch({ param: { projectId }, json: { graphFlow } })),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['units', 'project', projectId] });
-      toast.success('그래프 범위를 저장했습니다.');
-    },
     onError: (error) => toast.error(error.message),
   });
   const remove = useMutation({
@@ -77,23 +68,6 @@ function ProjectForm({ projectId, project }: { projectId: string; project: { nam
         </section>
 
         <FormatRulesSection projectId={projectId} rules={project.formatRules} />
-
-        <section className="space-y-2 border-t pt-6">
-          <h2 className="text-sm font-semibold">원문 그래프 범위</h2>
-          <p className="text-sm text-muted-foreground">
-            그래프가 게임의 진행 흐름(분기·조건·이동)을 빠짐없이 담고 있는지입니다. 가져온 파일의 변환기가 정하며, 잘못됐으면 여기서 고칩니다. 지금은 기록만 하고, 이후 장면의 앞뒤를 판단할 때 씁니다: 전체일 때만 서로 닿지 않는 장면을 ‘한 플레이에서 함께 나오지 않음’으로 보고, 일부면 ‘순서 모름’으로 봅니다.
-          </p>
-          <RadioGroup value={project.graphFlow} onValueChange={(value) => setFlow.mutate(value as GraphFlow)} disabled={setFlow.isPending}>
-            {GRAPH_FLOWS.map((flow) => (
-              <div key={flow} className="flex items-center gap-2">
-                <RadioGroupItem value={flow} id={`graph-flow-${flow}`} />
-                <Label htmlFor={`graph-flow-${flow}`} className="font-normal">
-                  {GRAPH_FLOW_LABELS[flow]}
-                </Label>
-              </div>
-            ))}
-          </RadioGroup>
-        </section>
 
         <section className="space-y-2 border-t pt-6">
           <h2 className="text-sm font-semibold">번역 결과 내보내기</h2>

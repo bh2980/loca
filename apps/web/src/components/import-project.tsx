@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { FileUp } from 'lucide-react';
-import { GRAPH_FLOW_LABELS } from '@tw/shared';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Spinner } from '@/components/ui/spinner';
@@ -103,12 +102,6 @@ export function ImportProjectDialog({ trigger }: { trigger?: React.ReactNode }) 
                 <dd className="tabular-nums">{value.toLocaleString()}</dd>
               </div>
             ))}
-            {result.summary.graphFlow && (
-              <>
-                <dt className="text-muted-foreground">그래프 범위</dt>
-                <dd>{GRAPH_FLOW_LABELS[result.summary.graphFlow]}</dd>
-              </>
-            )}
           </dl>
         )}
         {result && 'warnings' in result && result.ok && result.warnings.length > 0 && (

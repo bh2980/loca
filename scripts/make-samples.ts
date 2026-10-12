@@ -106,7 +106,7 @@ write('relay-station.json', {
   project: { name: '중계소 (샘플)', description: '분기·합류·반복이 있는 작은 샘플 프로젝트', sourceLanguage: 'en', targetLanguage: 'ko' },
   groups: [...scenes.map((scene, order) => ({ key: scene.key, title: scene.title, order })), { key: 'ui', kind: 'ui', title: '메뉴 UI', order: scenes.length }],
   units: [...units, { key: 'ui.continue', group: 'ui', kind: 'ui', source: 'Continue' }, { key: 'ui.save', group: 'ui', kind: 'ui', source: 'Save & Quit' }],
-  graph: { flow: 'complete', nodeTypes: SAMPLE_NODE_TYPES, nodes, edges },
+  graph: { nodeTypes: SAMPLE_NODE_TYPES, nodes, edges },
   characters: [
     { name: 'MIRA', aliases: ['Mira'], profile: '전직 통신병. 침착하고 짧게 말한다. 존댓말을 쓰지 않는다.' },
     { name: 'JONAS', aliases: ['Jonas'], profile: '정비공. 회의적이고 농담이 많다. 미라에게 반말.' },
@@ -201,7 +201,7 @@ function synthetic(target: number): ImportFileInput {
     project: { name: `합성 그래프 ${target.toLocaleString()}노드`, description: '배치·성능 확인용 합성 데이터' },
     groups,
     units: lines,
-    graph: { flow: 'complete', nodeTypes: SAMPLE_NODE_TYPES, nodes: graphNodes, edges: graphEdges },
+    graph: { nodeTypes: SAMPLE_NODE_TYPES, nodes: graphNodes, edges: graphEdges },
   };
 }
 write('synthetic-9k.json', synthetic(9000));

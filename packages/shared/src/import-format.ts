@@ -16,16 +16,6 @@ export const GRAPH_NODE_KINDS = ['script', 'condition', 'wait', 'event', 'state'
 export const CONTENT_KINDS = new Set<string>(['script', 'scene']);
 export const isContentKind = (kind: string) => CONTENT_KINDS.has(kind);
 
-/**
- * Whether the graph is the game's whole execution flow. Only a complete graph lets "neither scene
- * reaches the other" mean "never in the same playthrough"; in a partial one it means "order unknown".
- */
-export const GRAPH_FLOWS = ['complete', 'partial'] as const;
-export const GRAPH_FLOW_LABELS: Record<(typeof GRAPH_FLOWS)[number], string> = {
-  complete: '게임 흐름 전체',
-  partial: '일부 (순서가 빠진 곳이 있음)',
-};
-
 export const DOCUMENT_KINDS = ['story', 'world', 'style', 'note'] as const;
 
 const key = z.string().min(1).max(512);
@@ -151,8 +141,6 @@ export const importFileSchema = z
     units: z.array(importUnitSchema).min(1),
     graph: z
       .object({
-        /** Declared by the converter; partial unless every branch, condition and jump is in the graph. */
-        flow: z.enum(GRAPH_FLOWS).default('partial'),
         nodeTypes: z.record(z.string(), nodeTypeSchema).default({}),
         nodes: z.array(importGraphNodeSchema),
         edges: z.array(importGraphEdgeSchema),
@@ -214,7 +202,6 @@ export const importFileSchema = z
   });
 
 export type ImportFile = z.infer<typeof importFileSchema>;
-export type GraphFlow = (typeof GRAPH_FLOWS)[number];
 
 /** The standard file as JSON Schema, for converter authors (`loca format schema`). Cross-reference checks are not expressible there. */
 export const importFileJsonSchema = () => z.toJSONSchema(importFileSchema, { io: 'input', unrepresentable: 'any' });
@@ -227,7 +214,6 @@ export function summarizeImport(file: ImportFile) {
     units: file.units.length,
     graphNodes: file.graph?.nodes.length ?? 0,
     graphEdges: file.graph?.edges.length ?? 0,
-    graphFlow: file.graph ? file.graph.flow : null,
     characters: file.characters.length,
     documents: file.documents.length,
     terms: file.terms.length,

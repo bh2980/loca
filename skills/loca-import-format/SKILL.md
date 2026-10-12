@@ -12,7 +12,6 @@ loca는 게임 내부 형식을 모릅니다. 게임마다 **변환기**가 추�
 - **변환기는 게임 전용 코드**입니다. loca가 아니라 그 게임의 작업 폴더나 저장소에 둡니다. 같은 입력이면 항상 같은 파일이 나오게 만듭니다(정렬 고정, 무작위·시간 값 금지).
 - **key는 게임의 안정된 ID**를 씁니다(문자열 테이블 키, 대사 ID). 번역 결과는 key로 게임에 돌아가므로, 배열 순번이나 실행할 때마다 바뀌는 값은 쓰지 않습니다.
 - **없는 것을 지어내지 않습니다.** 원본에 없는 그래프 간선, 짐작한 인물 관계, 추측한 화자를 넣지 않습니다. 모르면 비워 둡니다. 원본의 근거(파일 경로, 원래 ID, 조건식 원문)는 `meta`에 남깁니다.
-- **그래프 범위를 정직하게 선언합니다**(`graph.flow`, 아래 참고).
 - 중간 파일과 시험 출력은 작업 폴더에 둡니다: `W=$(loca workspace new <게임>-convert)`. 이 폴더는 git에 올라가지 않습니다.
 
 ## 순서
@@ -37,7 +36,6 @@ loca는 게임 내부 형식을 모릅니다. 게임마다 **변환기**가 추�
 | `project` | `name`, `description`, `sourceLanguage`(기본 `en`), `targetLanguage`(기본 `ko`), `formatRules` | 아래 ‘자리표시자·태그’ |
 | `groups[]` | 묶음: `key`, `kind`(`scene`/`document`/`ui`), `title`, `description`, `section`, `order`, `meta` | 아래 ‘묶음 나누기’ |
 | `units[]` | 대사·문구: `key`, `group`, `order`, `kind`(`dialogue`/`document`/`ui`), `speaker`, `listener`, `source`, `translation`, `meta` | `translation`이 있으면 현재 번역이 되고 상태는 기본 상태 세트의 ‘AI 초벌’로 들어갑니다. 공식·기존 번역일 때만 넣습니다. `listener`(누구에게 하는 말인지, 인물 이름)는 게임 데이터가 확실히 알 때만 |
-| `graph.flow` | `complete` 또는 `partial`(기본) | 아래 ‘그래프’ |
 | `graph.nodeTypes` | 게임의 노드 클래스 이름 → `{ kind, label, description }` | `kind`: `script`(대사 있음)·`condition`·`wait`·`event`·`state`·`connector`·`unknown` |
 | `graph.nodes[]` | `key`, `type`, `kind`, `label`, `units`(이 노드가 보여 주는 대사 key, 순서대로), `group`, `meta` | 대사가 없는 컨테이너 노드는 `group`으로 장면을 알려 줍니다 |
 | `graph.edges[]` | `from`, `to`, `kind`, `label` | 선택지 문구나 조건은 `label`에 |
@@ -57,9 +55,6 @@ loca는 게임 내부 형식을 모릅니다. 게임마다 **변환기**가 추�
 - 게임에 대화 그래프(분기, 조건, 대기, 이벤트)가 있으면 그대로 옮깁니다. loca는 이 그래프로 **앞 대사 문맥**과 **장면 연결**을 계산합니다.
 - 노드의 `units`는 그 노드가 보여 주는 대사입니다. 선택지 노드에서 갈라지는 간선마다 선택지 문구를 `label`에 둡니다. 조건 분기는 조건식 원문을 `label`이나 노드 `meta`에 둡니다.
 - 그래프가 없으면 `graph`를 생략합니다. 파일 순서로 간선을 지어내지 않습니다.
-- `graph.flow`:
-  - `complete`: 게임의 진행 흐름(모든 분기·조건·장면 이동)이 그래프에 빠짐없이 있다. 그래프에서 서로 닿지 않는 두 장면은 한 번의 플레이에서 함께 나오지 않는다고 볼 수 있을 때만.
-  - `partial`: 그 밖의 모든 경우. 장면이 조사 진행·플래그·시간으로 열리거나, 장 사이 이동이 그래프에 없거나, 확실하지 않으면 `partial`입니다.
 
 ## 자리표시자·태그
 번역에서 지켜야 할 토큰을 `project.formatRules`로 알려 줍니다. loca의 형식 검사와 AI 검수가 같은 규칙을 씁니다.
@@ -89,7 +84,6 @@ loca는 게임 내부 형식을 모릅니다. 게임마다 **변환기**가 추�
     { "key": "MENU_CONTINUE", "group": "menu", "kind": "ui", "source": "Continue" }
   ],
   "graph": {
-    "flow": "partial",
     "nodeTypes": { "Line": { "kind": "script", "label": "대사" }, "Choice": { "kind": "condition", "label": "선택지" } },
     "nodes": [
       { "key": "n1", "type": "Line", "units": ["HARBOR_001", "HARBOR_002"] },
