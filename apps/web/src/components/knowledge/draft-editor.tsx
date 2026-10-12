@@ -192,10 +192,21 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
   embedded?: boolean;
 }) {
   const saved = JSON.stringify(Object.fromEntries(spec.fields.map((field) => [field.name, row[field.name] ?? null])));
-  const [draft, setDraft, clear] = useDraft(`knowledge.${kind}.${row.id}`, saved);
+  const [draft, setDraft, clearDraft] = useDraft(`knowledge.${kind}.${row.id}`, saved);
+  // What the item was when editing began: if it changes elsewhere meanwhile (a chat proposal
+  // accepted, another window), the unsaved edit must not quietly hide the new value.
+  const [base, setBase, clearBase] = useDraft(`knowledge-base.${kind}.${row.id}`, '');
   const form = JSON.parse(draft) as Record<string, Value>;
   const dirty = draft !== saved;
-  const update = (name: string, value: Value) => setDraft(JSON.stringify({ ...form, [name]: value }));
+  const changedElsewhere = dirty && Boolean(base) && base !== saved;
+  const clear = () => {
+    clearDraft();
+    clearBase();
+  };
+  const update = (name: string, value: Value) => {
+    if (!dirty) setBase(saved);
+    setDraft(JSON.stringify({ ...form, [name]: value }));
+  };
   const save = useMutation({
     mutationFn: () => spec.save(row.id, form),
     onSuccess: () => {
@@ -209,6 +220,19 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
 
   const body = (
     <>
+      {changedElsewhere && (
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-warning/40 bg-warning/5 px-3 py-2 text-xs">
+          <span className="text-warning">고치는 동안 이 항목이 다른 곳에서 바뀌었습니다. 아래는 아직 저장하지 않은 내 수정입니다.</span>
+          <span className="ml-auto flex gap-1">
+            <Button variant="outline" size="inline" className="px-2" onClick={clear}>
+              바뀐 내용 불러오기
+            </Button>
+            <Button variant="ghost" size="inline" className="px-2" onClick={() => setBase(saved)}>
+              내 수정 유지
+            </Button>
+          </span>
+        </div>
+      )}
       <PaneSection title="내용">
         <div className="flex flex-col gap-4">
           {spec.fields.map((field) => (
@@ -216,8 +240,11 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
           ))}
         </div>
       </PaneSection>
-      {spec.extra?.(row)}
-      <Evidence projectId={projectId} keys={row.evidence} />
+      {/* The folded lists (a rule's lines, the evidence) read as one block. */}
+      <div className="space-y-1">
+        {spec.extra?.(row)}
+        <Evidence projectId={projectId} keys={row.evidence} />
+      </div>
     </>
   );
   const actions = !official ? (
@@ -225,7 +252,15 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
       <Button variant="ghost" className="text-destructive" onClick={() => onDecide('discard')}>
         <Trash2 /> 버리기
       </Button>
-      <Button variant="outline" className="ml-auto" disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
+      {dirty && (
+        <span className="ml-auto flex items-center gap-1 text-xs text-warning">
+          저장 안 된 수정
+          <Button variant="ghost" size="inline" className="text-muted-foreground" onClick={clear}>
+            되돌리기
+          </Button>
+        </span>
+      )}
+      <Button variant="outline" className={dirty ? undefined : 'ml-auto'} disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
         저장
       </Button>
       <Button disabled={dirty} title={dirty ? '먼저 저장하세요' : 'AI가 넣은 그대로 정식 자료로 올립니다'} onClick={() => onDecide('confirm')}>
@@ -251,7 +286,15 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      <Button className="ml-auto" disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
+      {dirty && (
+        <span className="ml-auto flex items-center gap-1 text-xs text-warning">
+          저장 안 된 수정
+          <Button variant="ghost" size="inline" className="text-muted-foreground" onClick={clear}>
+            되돌리기
+          </Button>
+        </span>
+      )}
+      <Button className={dirty ? undefined : 'ml-auto'} disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
         저장
       </Button>
     </>

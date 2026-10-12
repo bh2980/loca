@@ -18,7 +18,8 @@ import { decisionsSince, propose, proposedText } from './proposals.ts';
  * at once, changes as proposals for this chat) and resumes the session with the results.
  * The browser receives the AI SDK UI message stream like any other chat.
  */
-const MAX_ROUNDS = 8;
+/** Tool rounds in one turn before stopping to report, the same allowance the API chat gets (stepCountIs(30)): a guard against a looping model, not a budget. */
+const MAX_ROUNDS = 30;
 const RESULT_LIMIT = 20_000;
 const TOOL_BLOCK = /```loca-tools[ \t]*\r?\n([\s\S]*?)```/g;
 
