@@ -8,7 +8,7 @@ import { eachChunk, inChunks } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { graphOrder, ruleLines } from '../services/speech.ts';
-import { withRoutes } from '../services/event-routes.ts';
+import { forks, withRoutes } from '../services/event-routes.ts';
 import { discoverAndSave, SUGGEST_BATCH } from '../services/terms.ts';
 
 export const termInput = z.object({
@@ -177,7 +177,10 @@ export const knowledgeRoutes = new Hono<Env>()
       const first = event.evidence.flatMap((key) => lines.get(key) ?? []).sort((a, b) => a.seq - b.seq)[0];
       return { ...event, at: first ? { seq: first.seq, section: first.section, scene: first.scene, key: first.key } : null };
     });
-    return c.json(withRoutes(graphOrder(db, projectId), placed));
+    const graphNodes = db.select({ id: s.graphNodes.id, kind: s.graphNodes.kind, unitIds: s.graphNodes.unitIds }).from(s.graphNodes).where(eq(s.graphNodes.projectId, projectId)).all();
+    const graphEdges = db.select({ fromId: s.graphEdges.fromId, toId: s.graphEdges.toId, label: s.graphEdges.label }).from(s.graphEdges).where(eq(s.graphEdges.projectId, projectId)).all();
+    const keyOf = new Map(db.select({ id: s.units.id, key: s.units.key }).from(s.units).where(eq(s.units.projectId, projectId)).all().map((unit) => [unit.id, unit.key]));
+    return c.json(withRoutes(graphOrder(db, projectId), forks(graphNodes, graphEdges, keyOf), placed));
   })
   .post('/events', validate('json', eventInput), (c) => {
     const projectId = c.req.param('projectId')!;

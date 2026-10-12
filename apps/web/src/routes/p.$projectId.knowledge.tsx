@@ -413,8 +413,8 @@ type TimelineEvent = Row & { at?: { seq: number; section: string | null; scene: 
 
 /**
  * Events in script order, by section (the file's chapter / act / day, when it has them): each sits
- * where its earliest evidence line is. Events on routes the dialogue graph keeps apart (neither
- * leads to the other) stand side by side in lanes until the routes meet again. Events whose
+ * where its earliest evidence line is. Events down different ways of the same choice or condition
+ * stand in lanes (side by side up to three, stacked beyond) until the routes meet again. Events whose
  * evidence names no line of the script go last ("위치 모름"); nothing is placed by guess.
  */
 function EventTimeline({ events, selected, onOpen }: { events: Row[]; selected?: string; onOpen: (id: string) => void }) {
@@ -454,10 +454,12 @@ function EventTimeline({ events, selected, onOpen }: { events: Row[]; selected?:
             {runs(list).map((run) =>
               (run[0].lanes ?? 1) > 1 ? (
                 <li key={run[0].id} className="space-y-1">
-                  <p className="text-xs text-muted-foreground">갈래 {run[0].lanes}개 · 대사 그래프에서 서로 닿지 않는 길</p>
-                  <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${run[0].lanes}, minmax(0, 1fr))` }}>
+                  <p className="text-xs text-muted-foreground">갈래 {run[0].lanes}개 · 같은 선택지·조건에서 갈라진 길</p>
+                  {/* Up to three ways side by side; more would leave each too narrow to read, so they stack. */}
+                  <div className={run[0].lanes! <= 3 ? 'grid gap-2' : 'space-y-2'} style={run[0].lanes! <= 3 ? { gridTemplateColumns: `repeat(${run[0].lanes}, minmax(0, 1fr))` } : undefined}>
                     {Array.from({ length: run[0].lanes! }, (_, lane) => (
                       <ol key={lane} className="space-y-2 rounded-md border border-dashed p-2">
+                        <li className="text-xs text-muted-foreground">갈래 {lane + 1}</li>
                         {run.filter((event) => event.route!.lane === lane).map((event) => item(event, false))}
                       </ol>
                     ))}
