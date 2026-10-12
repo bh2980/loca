@@ -451,6 +451,8 @@ export const runSteps = sqliteTable(
     nodeId: text('node_id').notNull(),
     unitIds: json<string[]>('unit_ids').notNull(),
     ok: integer('ok', { mode: 'boolean' }).notNull(),
+    /** The profile the call went out with: a node can share its work over several. */
+    profileId: text('profile_id'),
     model: text('model'),
     prompt: text('prompt'),
     /** What went into the prompt besides the lines, why, and what was dropped for the cap. */

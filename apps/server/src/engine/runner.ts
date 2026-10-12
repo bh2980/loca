@@ -613,7 +613,7 @@ export class Runner {
     const project = this.db.select().from(s.projects).where(eq(s.projects.id, run.projectId)).get()!;
     const { rows, lines } = this.promptLines(items);
     const round = Math.max(0, ...items.map((item) => item.data.retries?.[node.id] ?? 0));
-    const step: StepRecord = { runId: run.id, nodeId: node.id, unitIds: items.map((item) => item.unitId), startedAt: new Date(), round };
+    const step: StepRecord = { runId: run.id, nodeId: node.id, profileId: profile.id, unitIds: items.map((item) => item.unitId), startedAt: new Date(), round };
     const context = buildContext(this.db, run.projectId, rows, node.config.context);
     step.context = context.items;
     const { system, prompt } = buildPrompt(node, profile.instructions, { source: project.sourceLanguage, target: project.targetLanguage }, context, lines);
@@ -658,7 +658,7 @@ export class Runner {
 
   /** A judge model (System One) answers one line at a time and only supports verdicts. */
   private async judgeLines(run: Run, node: AiNode, batch: Item[], profile: s.ProfileSnapshot, routes: ai.ResolvedRoute[], signal: AbortSignal) {
-    const step: StepRecord = { runId: run.id, nodeId: node.id, unitIds: batch.map((item) => item.unitId), startedAt: new Date() };
+    const step: StepRecord = { runId: run.id, nodeId: node.id, profileId: profile.id, unitIds: batch.map((item) => item.unitId), startedAt: new Date() };
     if (node.config.output !== 'verdict') return this.failBatch(run, batch, step, new Error('System One 프로필은 출력 형태가 "판정"인 AI 노드에서만 쓸 수 있습니다.'));
     const { rows, lines } = this.promptLines(batch);
     const context = buildContext(this.db, run.projectId, rows, node.config.context);

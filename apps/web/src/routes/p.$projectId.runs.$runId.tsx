@@ -229,7 +229,7 @@ function RunDetail() {
                         <span className="w-32 truncate font-medium">{nodeName(step.nodeId)}</span>
                         <Badge variant={step.ok ? 'outline' : 'destructive'}>{step.ok ? '성공' : '실패'}</Badge>
                         <span className="text-muted-foreground">대사 {step.unitIds.length}</span>
-                        <span className="text-muted-foreground">{step.model ?? ''}</span>
+                        <span className="text-muted-foreground">{[data.profiles.find((profile) => profile.id === step.profileId)?.name, step.model].filter(Boolean).join(' · ')}</span>
                         <span className="ml-auto text-xs text-muted-foreground tabular-nums">
                           {((new Date(step.finishedAt).getTime() - new Date(step.startedAt).getTime()) / 1000).toFixed(1)}s
                           {step.inputTokens != null && ` · 입력 ${step.inputTokens.toLocaleString()}${step.cachedInputTokens ? `(캐시 ${step.cachedInputTokens.toLocaleString()})` : ''} · 출력 ${(step.outputTokens ?? 0).toLocaleString()}`}

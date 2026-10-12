@@ -1,0 +1,1 @@
+ALTER TABLE `run_steps` ADD `profile_id` text;

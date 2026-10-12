@@ -318,8 +318,10 @@ describe('sharing and branching', () => {
     await new Runner(db, memoryStore(), slow).drain();
     expect(runOf(db, runId).status).toBe('completed');
     expect(new Set(models)).toEqual(new Set(['m', 'm2']));
-    const steps = db.select({ model: s.runSteps.model }).from(s.runSteps).where(eq(s.runSteps.runId, runId)).all();
-    expect(steps.some((step) => step.model === 'm2')).toBe(true);
+    // Each call records the profile it went out with.
+    const steps = db.select({ model: s.runSteps.model, profileId: s.runSteps.profileId }).from(s.runSteps).where(eq(s.runSteps.runId, runId)).all();
+    expect(steps.filter((step) => step.model === 'm2').every((step) => step.profileId === second.id)).toBe(true);
+    expect(steps.some((step) => step.profileId === second.id)).toBe(true);
   });
 
   it('sends a line down every branch of an exit and counts it done once all of them are', async () => {

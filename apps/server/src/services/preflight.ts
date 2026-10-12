@@ -181,7 +181,7 @@ function rateFromHistory(db: Db, workflowId: string, nodeId: string): number | n
 /** Median input the connection reported beyond our own prompt, over recent successful calls. */
 function overheadOf(db: Db, connectionId: string): number | null {
   const steps = db
-    .select({ input: s.runSteps.inputTokens, prompt: s.runSteps.prompt, profiles: s.runs.profiles, nodeId: s.runSteps.nodeId, definition: s.runs.definition })
+    .select({ input: s.runSteps.inputTokens, prompt: s.runSteps.prompt, profiles: s.runs.profiles, profileId: s.runSteps.profileId, nodeId: s.runSteps.nodeId, definition: s.runs.definition })
     .from(s.runSteps)
     .innerJoin(s.runs, eq(s.runs.id, s.runSteps.runId))
     .where(and(eq(s.runSteps.ok, true), isNotNull(s.runSteps.inputTokens), isNotNull(s.runSteps.prompt)))
@@ -190,8 +190,10 @@ function overheadOf(db: Db, connectionId: string): number | null {
     .all()
     .filter((step) => {
       const node = step.definition.nodes.find((candidate) => candidate.id === step.nodeId);
-      // A node sharing its work over several profiles does not record which one answered a call.
-      return node?.type === 'ai' && !extraProfilesOf(node).length && step.profiles[node.config.profileId]?.routes[0]?.connectionId === connectionId;
+      if (node?.type !== 'ai') return false;
+      // Steps record their profile; older ones only say so when the node had a single profile.
+      const profileId = step.profileId ?? (extraProfilesOf(node).length ? null : node.config.profileId);
+      return !!profileId && step.profiles[profileId]?.routes[0]?.connectionId === connectionId;
     })
     .slice(0, HISTORY);
   if (!steps.length) return null;
