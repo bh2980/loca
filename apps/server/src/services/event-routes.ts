@@ -1,32 +1,29 @@
 import type { GraphOrder } from './graph-order.ts';
 
-/** The nearest choice or condition upstream of a line, and which of its ways leads to the line. */
-export type Fork = { point: string; arm: string } | null;
+/** The nearest choice or condition upstream of a line, which of its ways leads to the line, and that way's label. */
+export type Fork = { point: string; arm: string; label: string | null } | null;
 
 /**
- * Events on different routes, for the timeline: two events are on different branches only when
- * their nearest choice or condition upstream is the same node and they lie down different ways
- * out of it, and neither leads to the other. Lines that merely do not reach each other (scenes a
- * game opens side by side from its state flow) are not branches: they keep script order. Branch
- * runs become one block with a lane per branch; an event every lane leads to starts the next block.
+ * Events as a flow for the 사건 흐름 graph. An event leads to another when the player can go from
+ * the first one's line to the second one's in the dialogue graph; only direct steps are kept (if A
+ * leads to B and B to C, there is no A → C). Where one event leads to several, each step is named
+ * by the choice or condition way it takes, when the graph labels it. Events that do not reach each
+ * other get no line at all: lines are only drawn from the dialogue graph (scenes a game opens side
+ * by side are not branches), and such events simply keep script order.
  */
-export function withRoutes<T extends { id: string; at: { seq: number; key: string } | null }>(order: Pick<GraphOrder, 'has' | 'leadsTo'>, forkOf: (key: string) => Fork, events: T[]) {
-  const apart = (a: string, b: string) => {
-    const [x, y] = [forkOf(a), forkOf(b)];
-    return !!x && !!y && x.point === y.point && x.arm !== y.arm && !order.leadsTo(a, b) && !order.leadsTo(b, a);
-  };
-  const route = new Map<string, { block: number; lane: number }>();
-  const blocks: { lanes: T[][] }[] = [];
-  for (const event of events.filter((candidate) => candidate.at).sort((a, b) => a.at!.seq - b.at!.seq)) {
-    const current = blocks.at(-1);
-    if (current && current.lanes.flat().some((other) => apart(other.at!.key, event.at!.key))) {
-      const lane = current.lanes.findIndex((list) => order.leadsTo(list.at(-1)!.at!.key, event.at!.key));
-      if (lane >= 0) current.lanes[lane].push(event);
-      else current.lanes.push([event]);
-    } else blocks.push({ lanes: [[event]] });
+export function eventFlow<T extends { id: string; at: { seq: number; key: string } | null }>(order: Pick<GraphOrder, 'leadsTo'>, forkOf: (key: string) => Fork, events: T[]) {
+  const placed = events.filter((event) => event.at).sort((a, b) => a.at!.seq - b.at!.seq);
+  // Steps in one direction only: lines that reach each other both ways (a loop) are not an order.
+  const leads = (a: T, b: T) => a.id !== b.id && order.leadsTo(a.at!.key, b.at!.key) && !order.leadsTo(b.at!.key, a.at!.key);
+  const next = new Map<string, { id: string; label: string | null }[]>();
+  for (const from of placed) {
+    const reached = placed.filter((to) => leads(from, to));
+    // Direct steps: reached events no other reached event leads to.
+    const direct = reached.filter((to) => !reached.some((via) => via !== to && leads(via, to)));
+    const steps = direct.map((to) => ({ id: to.id, label: direct.length > 1 ? (forkOf(to.at!.key)?.label ?? null) : null }));
+    if (steps.length) next.set(from.id, steps);
   }
-  blocks.forEach((block, index) => block.lanes.forEach((lane, laneIndex) => lane.forEach((event) => route.set(event.id, { block: index, lane: laneIndex }))));
-  return events.map((event) => ({ ...event, route: route.get(event.id) ?? null, lanes: route.has(event.id) ? blocks[route.get(event.id)!.block].lanes.length : 1 }));
+  return events.map((event) => ({ ...event, next: next.get(event.id) ?? [] }));
 }
 
 /**
@@ -65,7 +62,7 @@ export function forks(nodes: { id: string; kind: string; unitIds: string[] }[], 
       for (const id of frontier) {
         for (const parent of ins.get(id) ?? []) {
           if (splits(parent)) {
-            found = { point: parent, arm: id };
+            found = { point: parent, arm: id, label: outs.get(parent)!.find((way) => way.to === id)?.label?.trim() || null };
             break;
           }
           if (!seen.has(parent)) (seen.add(parent), next.push(parent));

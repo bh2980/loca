@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { EventFlow, type FlowEvent } from '@/components/knowledge/event-flow';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { client, unwrap } from '@/lib/api';
 import { DOCUMENT_KIND } from '@/lib/labels';
@@ -361,7 +362,12 @@ function Knowledge() {
           </div>
         ) : timeline ? (
           <ScrollArea className="min-h-0 flex-1">
-            {pending ? <Skeleton className="m-4 h-40" /> : <EventTimeline events={rows} selected={search.item} onOpen={(id) => set({ item: id === search.item ? undefined : id })} />}
+            {pending ? <Skeleton className="m-4 h-40" /> : <EventFlow
+                  events={rows.map((row) => ({ ...(row as unknown as FlowEvent), title: text(row.title), summary: text(row.summary), participants: row.participants as string[] }))}
+                  selected={search.item}
+                  onOpen={(id) => set({ item: id === search.item ? undefined : id })}
+                  badge={(event) => <SourceBadge row={rows.find((row) => row.id === event.id)!} />}
+                />}
           </ScrollArea>
         ) : pairsView ? (
           <PairTable
@@ -404,80 +410,5 @@ function ViewSwitch({ label, value, onChange, items }: { label: string; value: s
         </ToggleGroupItem>
       ))}
     </ToggleGroup>
-  );
-}
-
-type TimelineEvent = Row & { at?: { seq: number; section: string | null; scene: string; key: string } | null; route?: { block: number; lane: number } | null; lanes?: number };
-
-/**
- * Events in script order, by section (the file's chapter / act / day, when it has them): each sits
- * where its earliest evidence line is. Events down different ways of the same choice or condition
- * stand in lanes (side by side up to three, stacked beyond) until the routes meet again. Events whose
- * evidence names no line of the script go last ("위치 모름"); nothing is placed by guess.
- */
-function EventTimeline({ events, selected, onOpen }: { events: Row[]; selected?: string; onOpen: (id: string) => void }) {
-  const placed = (events as TimelineEvent[]).filter((event) => event.at).sort((a, b) => a.at!.seq - b.at!.seq);
-  const sections = [...Map.groupBy(placed, (event) => event.at!.section ?? '').entries()];
-  const unplaced = (events as TimelineEvent[]).filter((event) => !event.at);
-  const item = (event: TimelineEvent, dot = true) => (
-    <li key={event.id}>
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={() => onOpen(event.id)}
-        onKeyDown={(key) => (key.key === 'Enter' || key.key === ' ') && (key.preventDefault(), onOpen(event.id))}
-        className={cn('relative block w-full cursor-pointer rounded-md border bg-background px-3 py-2 text-left hover:bg-muted/40', event.id === selected && 'border-primary ring-1 ring-primary/30', event.status === 'candidate' && 'border-dashed border-warning')}
-      >
-        {dot && <span className="absolute top-3.5 -left-[21px] size-2.5 rounded-full border-2 border-background bg-muted-foreground" />}
-        <span className="flex items-baseline gap-2">
-          <span className="font-medium">{text(event.title)}</span>
-          {event.at && <span className="truncate text-xs text-muted-foreground">{event.at.scene}</span>}
-          <span className="ml-auto shrink-0">
-            <SourceBadge row={event} />
-          </span>
-        </span>
-        {text(event.summary) && <span className="mt-0.5 line-clamp-2 block text-sm text-muted-foreground">{text(event.summary)}</span>}
-        {(event.participants as string[]).length > 0 && <span className="mt-1 block text-xs text-muted-foreground">{(event.participants as string[]).join(' · ')}</span>}
-      </div>
-    </li>
-  );
-  if (!events.length) return <p className="px-6 py-12 text-center text-sm text-muted-foreground">사건이 없습니다. “작품 분석”으로 초안을 받거나 표에서 추가하세요.</p>;
-  // Within a section: runs of one lane, and branch blocks drawn as columns.
-  const runs = (list: TimelineEvent[]) => [...Map.groupBy(list, (event) => (event.lanes ?? 1) > 1 ? `b${event.route!.block}` : `s${event.id}`).values()];
-  const titled = sections.length > 1 || sections.some(([section]) => section);
-  return (
-    <div className="space-y-6 px-6 py-4">
-      {sections.map(([section, list]) => (
-        <section key={section}>
-          {titled && <h3 className="mb-2 text-sm font-semibold">{section || '구역 없음'}</h3>}
-          <ol className="ml-2 space-y-2 border-l pl-4">
-            {runs(list).map((run) =>
-              (run[0].lanes ?? 1) > 1 ? (
-                <li key={run[0].id} className="space-y-1">
-                  <p className="text-xs text-muted-foreground">갈래 {run[0].lanes}개 · 같은 선택지·조건에서 갈라진 길</p>
-                  {/* Up to three ways side by side; more would leave each too narrow to read, so they stack. */}
-                  <div className={run[0].lanes! <= 3 ? 'grid gap-2' : 'space-y-2'} style={run[0].lanes! <= 3 ? { gridTemplateColumns: `repeat(${run[0].lanes}, minmax(0, 1fr))` } : undefined}>
-                    {Array.from({ length: run[0].lanes! }, (_, lane) => (
-                      <ol key={lane} className="space-y-2 rounded-md border border-dashed p-2">
-                        <li className="text-xs text-muted-foreground">갈래 {lane + 1}</li>
-                        {run.filter((event) => event.route!.lane === lane).map((event) => item(event, false))}
-                      </ol>
-                    ))}
-                  </div>
-                </li>
-              ) : (
-                run.map((event) => item(event))
-              ),
-            )}
-          </ol>
-        </section>
-      ))}
-      {unplaced.length > 0 && (
-        <section>
-          <h3 className="mb-2 text-sm font-semibold">위치 모름 <span className="font-normal text-muted-foreground">근거 대사가 대본에 없음</span></h3>
-          <ol className="ml-2 space-y-2 border-l pl-4">{unplaced.map((event) => item(event))}</ol>
-        </section>
-      )}
-    </div>
   );
 }

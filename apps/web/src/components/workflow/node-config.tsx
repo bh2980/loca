@@ -207,7 +207,7 @@ function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRefs; onCh
               ) : null;
             })()}
             어떤 모델을 쓸지는 프로필에서, 무엇을 시킬지는 아래 지시문에서 정합니다.{' '}
-            <Link to="/p/$projectId/settings/ai" params={{ projectId: refs.projectId }} search={{ profile: config.profileId || undefined }} className="underline">
+            <Link to="/p/$projectId/settings/profiles" params={{ projectId: refs.projectId }} search={{ profile: config.profileId || undefined }} className="underline">
               프로필 관리
             </Link>
             {config.output === 'verdict' && ' · 판정에는 System One도 쓸 수 있습니다.'}
