@@ -66,6 +66,8 @@ export const connectionInputSchema = z.object({
   headerTemplate: z.string().trim().optional(),
   /** pi connections only. */
   options: piOptionsSchema.optional(),
+  /** Model calls this account takes at once, shared by every run. */
+  concurrency: z.number().int().min(1).max(32).optional(),
 });
 export type ConnectionInput = z.infer<typeof connectionInputSchema>;
 

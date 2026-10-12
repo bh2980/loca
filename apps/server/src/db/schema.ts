@@ -310,6 +310,8 @@ export const connections = sqliteTable('connections', {
   createdAt: createdAt(),
   /** pi connections: packages, extensions and built-in tools to load (see piOptionsSchema). */
   options: json<PiOptions>('options'),
+  /** Model calls this account takes at once, shared by every run. */
+  concurrency: integer('concurrency').notNull().default(2),
 });
 
 export interface FallbackRoute {

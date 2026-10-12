@@ -259,6 +259,16 @@ export class Runner {
     return new Map(rows.map((row) => [`${row.plan}|${row.nodeId}`, row.count]));
   }
 
+  /** Model calls in flight per account (connection id), across runs. */
+  private callsByAccount = new Map<string, number>();
+  /** HTTP / script function calls in flight per run. */
+  private functionsByRun = new Map<string, number>();
+
+  /** The account an AI node's calls count against: its profile's primary route. Null for functions. */
+  private accountOf(run: Run, node: WorkflowNode) {
+    return node.type === 'ai' ? (run.profiles[node.config.profileId]?.routes[0]?.connectionId ?? null) : null;
+  }
+
   private upstreams = new Map<string, Map<string, Set<string>>>();
   /** For each node, every node that can reach it through the run's frozen edges. */
   private upstream(run: Run) {
@@ -339,9 +349,18 @@ export class Runner {
       return true;
     }
 
-    const limit = run.definition.settings.concurrency;
+    // Slots: model calls are limited per account (connection), shared by every run; HTTP and
+    // script functions by the workflow's own setting. A full account does not hold up nodes
+    // that use another one.
     const busy = this.inflight.get(run.id)?.size ?? 0;
-    if (busy >= limit) {
+    const accounts = new Map(this.db.select({ id: s.connections.id, concurrency: s.connections.concurrency }).from(s.connections).all().map((row) => [row.id, row.concurrency]));
+    const canSend = (node: WorkflowNode) => {
+      const account = this.accountOf(run, node);
+      if (account) return (this.callsByAccount.get(account) ?? 0) < (accounts.get(account) ?? 2);
+      return (this.functionsByRun.get(run.id) ?? 0) < run.definition.settings.concurrency;
+    };
+    const slow = run.definition.nodes.filter(isAsync);
+    if (slow.length && !slow.some(canSend)) {
       if (changed) this.notify(run.id, ...touched);
       return true;
     }
@@ -372,35 +391,59 @@ export class Runner {
     const now = Date.now();
     const idle = busy === 0;
     const stale = (lines: Waiting[]) => lines.some((line) => now - line.since.getTime() >= GATHER_MS);
-    const partials: { node: WorkflowNode; batch: Waiting[] }[] = [];
-    const send = (node: WorkflowNode, batch: Waiting[]) => {
-      if ((this.inflight.get(run.id)?.size ?? 0) >= limit) return false;
-      this.dispatch(run, node, batch);
-      changed = true;
-      return true;
-    };
+    // Per node: full requests from plan batches that are ready (no member can still arrive from
+    // upstream, or waited GATHER_MS), then a short last request if upstream cannot feed it any more.
+    const full = new Map<string, { node: WorkflowNode; requests: Waiting[][] }>();
+    const short = new Map<string, { node: WorkflowNode; requests: Waiting[][] }>();
+    const held = new Map<string, { node: WorkflowNode; lines: Waiting[] }>();
     for (const [nodeId, lines] of Map.groupBy(waiting, (line) => line.nodeId)) {
       const node = this.node(run, nodeId);
       if (!node) continue;
+      held.set(nodeId, { node, lines });
       const config = node.type === 'ai' ? batchConfigSchema.parse(node.config.batch ?? {}) : null;
       const before = [...(upstream.get(nodeId) ?? [])].filter((id) => id !== nodeId);
       let batches: Waiting[][];
       if (!config) batches = lines.map((line) => [line]);
       else if (lines.every((line) => line.plan !== null)) {
         const groups = [...Map.groupBy(lines, (line) => line.plan!).entries()];
-        const ready = groups.filter(([plan, members]) => idle || stale(members) || !before.some((id) => (openByPlan.get(`${plan}|${id}`) ?? 0) > 0));
+        const ready = groups.filter(([plan, members]) => stale(members) || !before.some((id) => (openByPlan.get(`${plan}|${id}`) ?? 0) > 0));
         batches = packGroups(ready.map(([, members]) => members), config);
       } else batches = planBatches(lines, config);
       for (const [index, batch] of batches.entries()) {
-        const last = index === batches.length - 1;
-        const full = !config || config.mode === 'unit' || batch.length >= config.size || (config.mode === 'group' && batch.reduce((sum, line) => sum + line.tokens, 0) >= config.maxTokens);
-        if (last && !full) partials.push({ node, batch });
-        else if (!send(node, batch)) break;
+        const complete = !config || config.mode === 'unit' || batch.length >= config.size || (config.mode === 'group' && batch.reduce((sum, line) => sum + line.tokens, 0) >= config.maxTokens);
+        const target = index < batches.length - 1 || complete ? full : short;
+        if (target === short && before.some((id) => (open.get(id) ?? 0) > 0) && !stale(batch)) continue;
+        if (!target.has(nodeId)) target.set(nodeId, { node, requests: [] });
+        target.get(nodeId)!.requests.push(batch);
       }
     }
-    for (const { node, batch } of partials) {
-      const feeding = [...(upstream.get(node.id) ?? [])].some((id) => id !== node.id && (open.get(id) ?? 0) > 0);
-      if (idle || !feeding || stale(batch)) send(node, batch);
+    // Round robin across nodes, downstream first, full requests before short ones: lines finish
+    // sooner, no node takes every slot, and small requests do not jump ahead of full ones.
+    const depth = (nodeId: string) => upstream.get(nodeId)?.size ?? 0;
+    const roundRobin = (queues: Map<string, { node: WorkflowNode; requests: Waiting[][] }>) => {
+      const order = [...queues.keys()].sort((a, b) => depth(b) - depth(a));
+      for (let sent = true; sent; ) {
+        sent = false;
+        for (const nodeId of order) {
+          const queue = queues.get(nodeId)!;
+          if (!queue.requests.length || !canSend(queue.node)) continue;
+          this.dispatch(run, queue.node, queue.requests.shift()!);
+          changed = sent = true;
+        }
+      }
+    };
+    roundRobin(full);
+    roundRobin(short);
+    // Nothing of this run is running and nothing above could go: waiting would never end (e.g. a
+    // loop whose members sit at both ends). Send the most downstream node's lines as they are.
+    if (!(this.inflight.get(run.id)?.size ?? 0) && held.size) {
+      const [, { node, lines }] = [...held.entries()].sort(([a], [b]) => depth(b) - depth(a))[0];
+      const config = node.type === 'ai' ? batchConfigSchema.parse(node.config.batch ?? {}) : null;
+      const first = config ? (packGroups([...Map.groupBy(lines, (line) => line.plan ?? -1).values()], config)[0] ?? []) : lines.slice(0, 1);
+      if (first.length && canSend(node)) {
+        this.dispatch(run, node, first);
+        changed = true;
+      }
     }
     if (changed) this.notify(run.id, ...touched);
     return true;
@@ -473,8 +516,15 @@ export class Runner {
     if (!controller || controller.signal.aborted) this.aborts.set(run.id, (controller = new AbortController()));
     const set = this.inflight.get(run.id) ?? new Set();
     this.inflight.set(run.id, set);
+    const account = this.accountOf(run, node);
+    const counts = account ? this.callsByAccount : this.functionsByRun;
+    const key = account ?? run.id;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
     const work = node.type === 'ai' ? this.executeAi(run, node, batch, controller.signal) : this.executeFunction(run, node as FunctionNode, batch[0], controller.signal);
-    const task = work.finally(() => set.delete(task));
+    const task = work.finally(() => {
+      set.delete(task);
+      counts.set(key, (counts.get(key) ?? 1) - 1);
+    });
     set.add(task);
   }
 

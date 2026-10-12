@@ -226,3 +226,57 @@ describe('run plan', () => {
     expect(kinds.some((call) => call.review)).toBe(true);
   });
 });
+
+describe('slots per account', () => {
+  /** Counts calls in flight per connection and remembers the peak; each call takes `ms(kind)`. */
+  function timedModel(ms: (review: boolean) => number) {
+    const now = new Map<string, number>();
+    const peak = new Map<string, number>();
+    const order: string[] = [];
+    const port: ModelPort = {
+      judge: async () => {
+        throw new Error('unused');
+      },
+      generate: async (route, request) => {
+        const review = request.system.includes('Review each');
+        const account = (route as { baseUrl?: string }).baseUrl ?? '';
+        now.set(account, (now.get(account) ?? 0) + 1);
+        peak.set(account, Math.max(peak.get(account) ?? 0, now.get(account)!));
+        order.push(review ? 'R' : 'T');
+        await new Promise((resolve) => setTimeout(resolve, ms(review)));
+        now.set(account, now.get(account)! - 1);
+        const lines = promptEntries(request.prompt);
+        if (review) return { object: { results: lines.map((line) => ({ id: line.id, passed: true, issues: [] })) }, usage: {} } as never;
+        return { object: { translations: lines.map((line) => ({ id: line.id, text: `[ko] ${line.source}` })) }, usage: {} } as never;
+      },
+    };
+    return { port, peak, order };
+  }
+
+  it('two runs on one account never exceed its slots together', async () => {
+    const { db, start } = setup(40, () => 20);
+    db.update(s.connections).set({ concurrency: 3 }).run();
+    start();
+    start();
+    const { port, peak } = timedModel(() => 5);
+    await new Runner(db, memoryStore(), port).drain();
+    expect(Math.max(...peak.values())).toBe(3);
+  });
+
+  it('a slow account does not hold up nodes on another account', async () => {
+    const { db, workflow, start } = setup(40, () => 20);
+    // Review on a second, slow account with one slot; translate keeps its own two.
+    const slow = db.insert(s.connections).values({ kind: 'openai', name: 'slow', baseUrl: 'http://slow/v1', concurrency: 1 }).returning().get();
+    const reviewer = db.insert(s.profiles).values({ name: 'slow', connectionId: slow.id, model: 'm', maxOutputTokens: 1000, timeoutSeconds: 30, maxAttempts: 1 }).returning().get();
+    const definition = { ...workflow.definition, nodes: workflow.definition.nodes.map((node) => (node.type === 'ai' && node.config.instructions.includes('Review each') ? { ...node, config: { ...node.config, profileId: reviewer.id } } : node)) };
+    db.update(s.workflows).set({ definition }).where(eq(s.workflows.id, workflow.id)).run();
+    void start;
+    createRun(db, { projectId: workflow.projectId, workflow: { ...workflow, definition }, profiles: snapshotProfiles(db, [...new Set(definition.nodes.flatMap((node) => (node.type === 'ai' ? [node.config.profileId] : [])))]), scope: { ignoreStatus: true } });
+    const { port, peak, order } = timedModel((review) => (review ? 40 : 5));
+    await new Runner(db, memoryStore(), port).drain();
+    expect(peak.get('http://slow/v1')).toBe(1);
+    // Every translate request went out before the slow reviews were done.
+    expect(order.lastIndexOf('T')).toBeLessThan(order.lastIndexOf('R'));
+    expect(order.indexOf('R')).toBeLessThan(order.lastIndexOf('T'));
+  });
+});
