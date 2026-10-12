@@ -202,7 +202,11 @@ export function GraphCanvas({ nodes, regions = [], edges, looseEdges, hubs, info
       context.setLineDash([]);
       context.fillStyle = '#71717a';
       context.font = `${13 / Math.max(t.k, 0.05)}px Pretendard, system-ui, sans-serif`;
-      context.fillText(region.label, region.x - 24, region.y - 24 - 8 / t.k);
+      // Labels keep their screen size, so zoomed out they are cut to the region's width instead of running into the next one.
+      const room = region.width + 48;
+      let label = region.label;
+      while (label.length > 1 && context.measureText(label).width > room) label = `${label.slice(0, -2)}…`;
+      context.fillText(label, region.x - 24, region.y - 24 - 8 / t.k);
       context.restore();
     }
 

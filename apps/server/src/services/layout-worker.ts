@@ -11,7 +11,7 @@ export interface LayoutJob {
    * Nodes joined only by drawn (not laid out) edges, placed in labelled blocks side by side (one
    * per section), each in rows from top to bottom; `{n}` in the label is the block's node count.
    */
-  ordered?: { label: string; blocks: { name: string | null; rows: string[][] }[] };
+  ordered?: { label: string; blocks: { name: string | null; rows: string[][]; heads?: string[] }[] };
 }
 
 /**
@@ -62,14 +62,34 @@ function sceneLayoutJob(source: SceneSource): LayoutJob & { hidden: { from: stri
       anchors.push(edge);
     } else loose.push(edge);
   }
-  const throughHub = new Set(loose.flatMap((edge) => [edge.from, edge.to]));
+  const throughHub = new Set(loose.flatMap((edge) => [edge.from, edge.to]).filter((id) => scenes.has(id)));
+  // A hub whose scenes all sit in one section block heads that block: it is drawn on top of the
+  // block and its lines into the block are left out (the block says the same thing); its other
+  // links stay drawn. A hub spread over several blocks stays in the flow with all its lines.
+  const blocks: { name: string | null; rows: string[][]; heads: string[] }[] = depthBlocks(source, throughHub).map((block) => ({ ...block, heads: [] }));
+  const blockOf = new Map(blocks.flatMap((block, index) => block.rows.flat().map((id) => [id, index] as const)));
+  const headed = new Map<string, number>();
+  for (const hub of graph.hubs) {
+    const touched = new Set(loose.flatMap((edge) => (edge.from === hub.id ? [edge.to] : edge.to === hub.id ? [edge.from] : [])).filter((id) => blockOf.has(id)).map((id) => blockOf.get(id)!));
+    if (touched.size === 1) {
+      const index = [...touched][0];
+      headed.set(hub.id, index);
+      blocks[index].heads.push(hub.id);
+    }
+  }
+  const implied = (edge: { from: string; to: string }) => {
+    const [hub, scene] = headed.has(edge.from) ? [edge.from, edge.to] : [edge.to, edge.from];
+    return headed.has(hub) && blockOf.get(scene) === headed.get(hub);
+  };
+  const keptAnchors = anchors.filter((edge) => !headed.has(edge.to));
+  const keptLoose = loose.filter((edge) => !implied(edge));
   return {
     nodes: [...source.scenes.map((id) => ({ id, width: source.size[0], height: source.size[1] })), ...graph.hubs.map((hub) => ({ id: hub.id, width: HUB_SIZE[0], height: HUB_SIZE[1] }))],
-    edges: [...kept, ...anchors].map((edge, index) => ({ id: `s${index}`, from: edge.from, to: edge.to })),
+    edges: [...kept, ...keptAnchors].map((edge, index) => ({ id: `s${index}`, from: edge.from, to: edge.to })),
     hidden: hidden.map(({ from, to }) => ({ from, to })),
     hubs: graph.hubs.map((hub) => ({ id: hub.id, nodes: hub.nodeIds.length, scenes: hub.scenes })),
-    loose: loose.map((edge, index) => ({ id: `h${index}`, from: edge.from, to: edge.to })),
-    ordered: { label: '연결점으로 이어진 장면 {n}개 · 대사 그래프 깊이순', blocks: depthBlocks(source, throughHub) },
+    loose: keptLoose.map((edge, index) => ({ id: `h${index}`, from: edge.from, to: edge.to })),
+    ordered: { label: '연결점으로 이어진 장면 {n}개 (깊이순)', blocks },
   };
 }
 
@@ -161,7 +181,7 @@ const GAP = 400;
 async function layout(job: LayoutJob): Promise<LayoutData> {
   const elk = new ELK();
   const linked = new Set(job.edges.flatMap((edge) => [edge.from, edge.to]));
-  const inOrder = new Set(job.ordered?.blocks.flatMap((block) => block.rows.flat()).filter((id) => !linked.has(id)));
+  const inOrder = new Set(job.ordered?.blocks.flatMap((block) => [...(block.heads ?? []), ...block.rows.flat()]).filter((id) => !linked.has(id)));
   const connected = job.nodes.filter((node) => linked.has(node.id));
   const isolated = job.nodes.filter((node) => !linked.has(node.id) && !inOrder.has(node.id));
 
@@ -189,7 +209,7 @@ async function layout(job: LayoutJob): Promise<LayoutData> {
   // side by side below the flow, rows from top to bottom (see depthBlocks).
   const byId = new Map(job.nodes.map((node) => [node.id, node]));
   const blocks = (job.ordered?.blocks ?? [])
-    .map((block) => ({ name: block.name, rows: block.rows.map((row) => row.filter((id) => inOrder.has(id)).map((id) => byId.get(id)!)).filter((row) => row.length) }))
+    .map((block) => ({ name: block.name, scenes: block.rows.flat().filter((id) => inOrder.has(id)).length, rows: [block.heads ?? [], ...block.rows].map((row) => row.filter((id) => inOrder.has(id)).map((id) => byId.get(id)!)).filter((row) => row.length) }))
     .filter((block) => block.rows.length);
   const gridTop = Math.max(main.height ?? 0, loose?.height ?? 0) + (blocks.length ? GAP : 0);
   const gridNodes: { id: string; x: number; y: number; width: number; height: number }[] = [];
@@ -207,7 +227,7 @@ async function layout(job: LayoutJob): Promise<LayoutData> {
       row.forEach((node, index) => gridNodes.push({ id: node.id, x: blockLeft + indent + index * cellWidth, y: gridTop + rowIndex * cellHeight, width: node.width, height: node.height }));
     });
     const height = block.rows.length * cellHeight;
-    const label = job.ordered!.label.replace('{n}', all.length.toLocaleString());
+    const label = job.ordered!.label.replace('{n}', block.scenes.toLocaleString());
     gridRegions.push({ label: block.name ? `${block.name} · ${label}` : label, x: blockLeft, y: gridTop, width, height });
     blockLeft += width + GAP / 2;
     gridHeight = Math.max(gridHeight, height);
