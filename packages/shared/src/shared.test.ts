@@ -41,6 +41,12 @@ describe('workflow validation', () => {
     expect(validateWorkflow(twice, refs)).toContainEqual(expect.objectContaining({ level: 'error', message: expect.stringContaining('상태를 바꿉니다') }));
   });
 
+  it('reads a workflow saved before profiles could be shared', () => {
+    const template = workflowDefinitionSchema.parse(translationTemplate(ids));
+    const old = JSON.parse(JSON.stringify(template), (key, value) => (key === 'extraProfileIds' ? undefined : value)) as WorkflowDefinition;
+    expect(validateWorkflow(old, refs).filter((issue) => issue.level === 'error')).toEqual([]);
+  });
+
   it('flags a deleted profile among the ones sharing a node', () => {
     const template = workflowDefinitionSchema.parse(translationTemplate(ids));
     const shared: WorkflowDefinition = { ...template, nodes: template.nodes.map((n) => (n.type === 'ai' && n.id === 'review' ? { ...n, config: { ...n.config, extraProfileIds: ['gone'] } } : n)) };

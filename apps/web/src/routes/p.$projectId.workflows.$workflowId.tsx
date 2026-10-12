@@ -18,7 +18,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import { ChevronLeft, LayoutGrid, Plus, RotateCcw, Save } from 'lucide-react';
 import { toast } from 'sonner';
-import { AI_OUTPUTS, AI_PRESETS, FUNCTIONS, FUNCTION_NAMES, nodeName, workflowNodeSchema, type FunctionName, type WorkflowDefinition, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
+import { AI_OUTPUTS, AI_PRESETS, FUNCTIONS, FUNCTION_NAMES, nodeName, nodeProfileIds, workflowNodeSchema, type FunctionName, type WorkflowDefinition, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
 import { Page } from '@/components/page';
 import { autoLayout } from '@/components/workflow/auto-layout';
 import { NodeConfig } from '@/components/workflow/node-config';
@@ -126,7 +126,7 @@ function WorkflowEditor() {
         return node.config.statusIds.length ? node.config.statusIds.map((id) => statusName.get(id) ?? '삭제된 상태').join(', ') : '범위 안의 모든 대사';
       case 'ai': {
         const batch = node.config.batch.mode === 'unit' ? '하나씩' : node.config.batch.mode === 'group' ? `장면별 ≤${node.config.batch.size}` : `${node.config.batch.size}개씩`;
-        return `${AI_OUTPUTS[node.config.output].label} · ${profileName.get(node.config.profileId) ?? '프로필 없음'} · ${batch}`;
+        return `${AI_OUTPUTS[node.config.output].label} · ${profileName.get(node.config.profileId) ?? '프로필 없음'}${nodeProfileIds(node).length > 1 ? ` 외 ${nodeProfileIds(node).length - 1}개` : ''} · ${batch}`;
       }
       case 'function': {
         const params = node.config.params as Record<string, unknown>;
@@ -181,8 +181,10 @@ function WorkflowEditor() {
     [current?.definition, search.node, issues, liveCounts, statuses.data, profiles.data, connections.data], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const edges: Edge[] = useMemo(
-    () =>
-      (current?.definition.edges ?? []).map((edge) => {
+    () => {
+      const all = current?.definition.edges ?? [];
+      return all.map((edge) => {
+        const branches = all.filter((other) => other.source === edge.source && other.sourceHandle === edge.sourceHandle).length;
         const negative = ['error', 'fail', 'false', 'rejected'].includes(edge.sourceHandle);
         return {
           id: edge.id,
@@ -192,9 +194,11 @@ function WorkflowEditor() {
           targetHandle: 'in',
           type: 'smoothstep',
           markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
+          ...(branches > 1 ? { label: '모두 보냄', labelStyle: { fontSize: 11, fill: '#71717a' }, labelBgStyle: { fill: '#ffffff' } } : {}),
           style: negative ? { stroke: '#fb7185', strokeDasharray: '5 4' } : { stroke: '#a1a1aa' },
         };
-      }),
+      });
+    },
     [current?.definition.edges],
   );
 
@@ -248,8 +252,9 @@ function WorkflowEditor() {
   const onConnect = (connection: Connection) => {
     if (!connection.sourceHandle || connection.source === connection.target && false) return;
     setDraft((value) => {
-      // One edge per exit: connecting an exit again replaces its previous edge.
-      const kept = value.definition.edges.filter((edge) => !(edge.source === connection.source && edge.sourceHandle === connection.sourceHandle));
+      // An exit may have several edges (every line goes down all of them); only an exact duplicate is refused.
+      if (value.definition.edges.some((edge) => edge.source === connection.source && edge.sourceHandle === connection.sourceHandle && edge.target === connection.target)) return value;
+      const kept = value.definition.edges;
       const added = addEdge({ ...connection, id: `e-${crypto.randomUUID().slice(0, 8)}` }, kept.map((edge) => ({ ...edge }))) as typeof kept;
       return { ...value, definition: { ...value.definition, edges: added.map(({ id, source, sourceHandle, target }) => ({ id, source, sourceHandle: sourceHandle!, target })) } };
     });

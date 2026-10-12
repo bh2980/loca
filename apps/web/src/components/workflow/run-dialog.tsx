@@ -312,6 +312,7 @@ function PlanStep({ plan, callsText, tokensText, onCalls, onTokens }: { plan: Pl
                   <span className="inline-flex items-center gap-1.5">
                     {node.connection.name}
                     {node.connection.cli && <Badge variant="outline">CLI</Badge>}
+                    {node.sharedWith.length > 0 && <span className="text-xs text-muted-foreground"> · 함께: {node.sharedWith.join(', ')}</span>}
                   </span>
                 ) : (
                   <span className="text-muted-foreground">없음</span>

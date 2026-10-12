@@ -148,6 +148,10 @@ function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRefs; onCh
     const capabilities = kind ? CONNECTION_KIND_INFO[kind].capabilities : [];
     return capabilities.includes('generate') || (config.output === 'verdict' && capabilities.includes('judge'));
   });
+  const extras = config.extraProfileIds ?? [];
+  const chosen = [config.profileId, ...extras].filter(Boolean);
+  const chosenModels = new Set(chosen.map((id) => refs.profiles.find((profile) => profile.id === id)?.model));
+  const setExtra = (index: number, value: string) => set({ extraProfileIds: extras.map((id, i) => (i === index ? value : id)) });
   const setField = (index: number, patch: Partial<JsonField>) => set({ fields: config.fields.map((field, i) => (i === index ? { ...field, ...patch } : field)) });
 
   return (
@@ -215,21 +219,53 @@ function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRefs; onCh
               프로필 관리
             </Link>
             {config.output === 'verdict' && ' · 판정에는 System One도 쓸 수 있습니다.'}
+            {extras.length > 0 && <span className="mt-1 block">요청마다 칸이 빈 계정의 프로필로 보냅니다. 같은 모델의 다른 계정을 붙이면 처리량만 늘어납니다.</span>}
+            {config.output === 'candidate' && chosenModels.size > 1 && <span className="mt-1 block text-amber-700">서로 다른 모델이 번역을 나누면 장면마다 문체가 달라질 수 있습니다.</span>}
           </>
         }
       >
-        <Select value={config.profileId || undefined} onValueChange={(value) => set({ profileId: value })}>
-          <SelectTrigger className="w-full">
-            <SelectValue placeholder="프로필 선택" />
-          </SelectTrigger>
-          <SelectContent>
-            {usable.map((profile) => (
-              <SelectItem key={profile.id} value={profile.id}>
-                {profile.name} <span className="text-muted-foreground">· {profile.model}</span>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="space-y-1.5">
+          <Select value={config.profileId || undefined} onValueChange={(value) => set({ profileId: value })}>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="프로필 선택" />
+            </SelectTrigger>
+            <SelectContent>
+              {usable
+                .filter((profile) => profile.id === config.profileId || !extras.includes(profile.id))
+                .map((profile) => (
+                  <SelectItem key={profile.id} value={profile.id}>
+                    {profile.name} <span className="text-muted-foreground">· {profile.model}</span>
+                  </SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
+          {extras.map((extraId, index) => (
+            <div key={index} className="flex items-center gap-1.5">
+              <Select value={extraId || undefined} onValueChange={(value) => setExtra(index, value)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="함께 나눌 프로필 선택" />
+                </SelectTrigger>
+                <SelectContent>
+                  {usable
+                    .filter((profile) => profile.id === extraId || (profile.id !== config.profileId && !extras.includes(profile.id)))
+                    .map((profile) => (
+                      <SelectItem key={profile.id} value={profile.id}>
+                        {profile.name} <span className="text-muted-foreground">· {profile.model}</span>
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+              <Button size="icon" variant="ghost" className="size-8 shrink-0" aria-label="프로필 빼기" onClick={() => set({ extraProfileIds: extras.filter((_, i) => i !== index) })}>
+                <X />
+              </Button>
+            </div>
+          ))}
+          {usable.some((profile) => profile.id !== config.profileId && !extras.includes(profile.id)) && (
+            <Button size="sm" variant="outline" onClick={() => set({ extraProfileIds: [...extras, ''] })} disabled={extras.includes('')}>
+              <Plus /> 함께 나눌 프로필
+            </Button>
+          )}
+        </div>
       </Field>
       <Field
         label="지시문 (이 단계에서 할 일)"

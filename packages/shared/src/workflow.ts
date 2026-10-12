@@ -118,7 +118,9 @@ export type AiNode = Extract<WorkflowNode, { type: 'ai' }>;
 export type FunctionNode = Extract<WorkflowNode, { type: 'function' }>;
 
 /** Every profile an AI node may send a request with, its own first. */
-export const nodeProfileIds = (node: AiNode) => [...new Set([node.config.profileId, ...node.config.extraProfileIds].filter(Boolean))];
+export const nodeProfileIds = (node: AiNode) => [...new Set([node.config.profileId, ...extraProfilesOf(node)].filter(Boolean))];
+/** Saved workflows may predate the setting; read it through this. */
+export const extraProfilesOf = (node: AiNode): string[] => node.config.extraProfileIds ?? [];
 
 /** Functions that change the line itself (its status, tags or representative translation). */
 const LINE_CHANGING_FUNCTIONS = new Set(['setStatus']);
@@ -263,7 +265,8 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
     if (node.type === 'ai') {
       if (!refs.profileIds.has(node.config.profileId))
         error(node.config.profileId ? '삭제된 모델 프로필입니다.' : '모델 프로필을 선택하세요.', { nodeId: node.id });
-      if (node.config.extraProfileIds.some((id) => !refs.profileIds.has(id))) error('함께 나눌 프로필 중 삭제된 것이 있습니다.', { nodeId: node.id });
+      if (extraProfilesOf(node).some((id) => !id)) error('함께 나눌 프로필을 고르거나 그 칸을 지우세요.', { nodeId: node.id });
+      else if (extraProfilesOf(node).some((id) => !refs.profileIds.has(id))) error('함께 나눌 프로필 중 삭제된 것이 있습니다.', { nodeId: node.id });
       if (node.config.output === 'json' && !node.config.fields.length) error('자유 형식 출력에는 필드가 하나 이상 필요합니다.', { nodeId: node.id });
     }
     if (node.type === 'entry')
