@@ -160,12 +160,19 @@ function WorkflowEditor() {
     return counts;
   }, [live.data]);
 
+  // React Flow measures each node and reports it as a 'dimensions' change; nodes rebuilt without
+  // those sizes stay hidden (and their edges undrawn) until measured again, which never happens
+  // when the size did not change. So the sizes are kept here and put back on every rebuild.
+  const [measured, setMeasured] = useState<Record<string, { width: number; height: number }>>({});
+  // Another workflow reuses node ids ("entry", "translate") with other sizes.
+  useEffect(() => setMeasured({}), [workflowId]);
   const nodes: FlowNode[] = useMemo(
     () =>
       (current?.definition.nodes ?? []).map((node) => ({
         id: node.id,
         type: 'workflow',
         position: node.position,
+        measured: measured[node.id],
         selected: node.id === search.node,
         deletable: node.type !== 'entry',
         data: {
@@ -181,7 +188,7 @@ function WorkflowEditor() {
           })(),
         },
       })),
-    [current?.definition, search.node, issues, liveCounts, statuses.data, profiles.data, connections.data], // eslint-disable-line react-hooks/exhaustive-deps
+    [current?.definition, search.node, issues, liveCounts, statuses.data, profiles.data, connections.data, measured], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const edges: Edge[] = useMemo(
     () => {
@@ -235,6 +242,13 @@ function WorkflowEditor() {
   );
 
   const onNodesChange = (changes: NodeChange<FlowNode>[]) => {
+    const sized = changes.filter((change) => change.type === 'dimensions' && change.dimensions);
+    if (sized.length)
+      setMeasured((previous) => {
+        const next = { ...previous };
+        for (const change of sized) if (change.type === 'dimensions' && change.dimensions) next[change.id] = change.dimensions;
+        return next;
+      });
     const moved = changes.filter((change) => change.type === 'position' && change.position);
     const removed = changes.filter((change) => change.type === 'remove').map((change) => change.id);
     if (!moved.length && !removed.length) return;
