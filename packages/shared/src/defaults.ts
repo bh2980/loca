@@ -230,7 +230,7 @@ export function knowledgeTemplate(ids: { model: DraftModelChoice }): WorkflowDef
           batch: { mode: 'group', size: 120, maxTokens: 6_000 },
         },
       },
-      { id: 'apply', type: 'function', position: { x: 600, y: 0 }, label: '자료 반영', config: { fn: 'applyKnowledge', params: { fromNodeId: 'find', autoConfirm: true } } },
+      { id: 'apply', type: 'function', position: { x: 600, y: 0 }, label: '자료 반영', config: { fn: 'applyKnowledge', params: { fromNodeId: 'find' } } },
       { id: 'end', type: 'end', position: { x: 900, y: 0 }, config: {} },
     ],
     edges: [

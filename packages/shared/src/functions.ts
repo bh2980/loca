@@ -40,15 +40,11 @@ export const setStatusParams = z.object({
 export const addTermsParams = z.object({
   /** AI node whose "terms" output to add. Empty = the most recent terms output on the line. */
   fromNodeId: z.string().default(''),
-  /** Add straight into the confirmed glossary (used as AI context right away) instead of as candidates. */
-  autoConfirm: z.boolean().default(false),
 });
 
 export const applyKnowledgeParams = z.object({
   /** AI node whose "knowledge" output to apply. Empty = the most recent one on the line. */
   fromNodeId: z.string().default(''),
-  /** New items are used as context right away (still marked AI) instead of waiting as candidates. */
-  autoConfirm: z.boolean().default(true),
 });
 
 export const setListenerParams = z.object({
@@ -119,14 +115,14 @@ export const FUNCTIONS = {
   },
   addTerms: {
     label: '용어 후보 추가',
-    description: 'AI 노드가 뽑은 용어를 용어집에 추가합니다. 기본은 후보(수락 후 문맥에 쓰임), 자동 확정을 켜면 바로 쓰입니다. 이미 있는 용어(대소문자 무시)는 그대로 두고 빈 번역·메모만 채웁니다. 거절한 용어는 건드리지 않습니다.',
+    description: 'AI 노드가 뽑은 용어를 용어집에 추가합니다. 확정할지 후보로 둘지는 설정 › AI 확정의 ‘용어’를 따릅니다. 이미 있는 용어(대소문자 무시)는 그대로 두고 빈 번역·메모만 채웁니다. 거절한 용어는 건드리지 않습니다.',
     params: addTermsParams,
     ports: () => out,
     async: false,
   },
   applyKnowledge: {
     label: '자료 반영',
-    description: 'AI 노드가 찾은 새 인물·관계 변화·사건·말투 구간을 자료에 넣습니다(출처: AI). 정식 자료는 바꾸지 않고, 다르게 보는 내용은 “AI 후보” 변경 제안으로 남깁니다.',
+    description: 'AI 노드가 찾은 새 인물·관계 변화·사건·말투 구간을 자료에 넣습니다(출처: AI). 확정할지 후보로 둘지는 설정 › AI 확정을 따릅니다. 사람이 정한 자료는 바꾸지 않고, 다르게 보는 내용은 AI 후보로 옆에 남깁니다.',
     params: applyKnowledgeParams,
     ports: () => out,
     async: false,

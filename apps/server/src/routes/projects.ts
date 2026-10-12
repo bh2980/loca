@@ -1,16 +1,17 @@
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { agentSettingsSchema, formatRulesSchema, importFileSchema, importWarnings, patchOf, STATUS_COLORS, summarizeImport } from '@tw/shared';
+import { agentSettingsSchema, aiConfirmSchema, formatRulesSchema, importFileSchema, importWarnings, patchOf, STATUS_COLORS, summarizeImport } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { forgetProjectContext } from '../services/context.ts';
 import { importProject } from '../services/importer.ts';
+import type { DecidedTable } from '../services/status-by.ts';
 import { defaultModelChoice } from '../services/routes.ts';
 import { cancelLayout, computeLayouts } from '../services/layout.ts';
 
-const statusInput = z.object({ name: z.string().trim().min(1).max(40), color: z.string().default(STATUS_COLORS[0]), kind: z.enum(['initial', 'normal', 'final']).default('normal'), inReview: z.boolean().default(false) });
+const statusInput = z.object({ name: z.string().trim().min(1).max(40), color: z.string().default(STATUS_COLORS[0]), kind: z.enum(['initial', 'normal', 'final']).default('normal'), inReview: z.boolean().default(false), humanOnly: z.boolean().default(false) });
 const tagInput = z.object({ name: z.string().trim().min(1).max(40), color: z.string().default(STATUS_COLORS[2]) });
 
 export const projectRoutes = new Hono<Env>()
@@ -62,9 +63,25 @@ export const projectRoutes = new Hono<Env>()
       .innerJoin(s.statuses, eq(s.statuses.id, s.units.statusId))
       .where(and(eq(s.units.projectId, projectId), eq(s.statuses.inReview, true)))
       .get()!.count;
-    return c.json({ ...project, byStatus, groupCount, reviewCount });
+    // What AI decided and no person has looked at (✦): lines a run sent to a final status, confirmed knowledge and terms.
+    const aiLines = db
+      .select({ count: count() })
+      .from(s.units)
+      .innerJoin(s.statuses, eq(s.statuses.id, s.units.statusId))
+      .where(and(eq(s.units.projectId, projectId), eq(s.units.statusBy, 'ai'), eq(s.statuses.kind, 'final')))
+      .get()!.count;
+    const aiConfirmed = (table: DecidedTable) => {
+      const t = table as typeof s.terms;
+      return db.select({ count: count() }).from(t).where(and(eq(t.projectId, projectId), eq(t.statusBy, 'ai'), eq(t.status, 'confirmed'))).get()!.count;
+    };
+    const aiDecided = {
+      lines: aiLines,
+      terms: aiConfirmed(s.terms),
+      knowledge: [s.documents, s.characters, s.relationships, s.storyEvents, s.speechRules].reduce((sum, table) => sum + aiConfirmed(table), 0),
+    };
+    return c.json({ ...project, aiConfirm: aiConfirmSchema.parse(project.aiConfirm), byStatus, groupCount, reviewCount, aiDecided });
   })
-  .patch('/:projectId', validate('json', z.object({ name: z.string().trim().min(1).optional(), description: z.string().optional(), formatRules: formatRulesSchema.optional(), agentSettings: agentSettingsSchema.optional() })), (c) => {
+  .patch('/:projectId', validate('json', z.object({ name: z.string().trim().min(1).optional(), description: z.string().optional(), formatRules: formatRulesSchema.optional(), agentSettings: agentSettingsSchema.optional(), aiConfirm: aiConfirmSchema.optional() })), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     found(db.update(s.projects).set(c.req.valid('json')).where(eq(s.projects.id, projectId)).returning().get(), '프로젝트');
@@ -110,6 +127,7 @@ export const projectRoutes = new Hono<Env>()
         kind: s.statuses.kind,
         sort: s.statuses.sort,
         inReview: s.statuses.inReview,
+        humanOnly: s.statuses.humanOnly,
         units: sql<number>`(select count(*) from units u where u.status_id = "statuses"."id")`,
       })
       .from(s.statuses)

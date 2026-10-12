@@ -2,7 +2,8 @@ import { createHash } from 'node:crypto';
 import { and, desc, eq, inArray, ne, notInArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import * as ai from '@tw/ai';
-import { isSpecialListener, SPEECH_LEVEL_GUIDE, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, TERM_KIND_LABELS, TERM_KINDS, type ModelChoice } from '@tw/shared';
+import { aiStatus, DEFAULT_AI_CONFIRM, isSpecialListener, SPEECH_LEVEL_GUIDE, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, TERM_KIND_LABELS, TERM_KINDS, type AiConfirm, type AiConfirmKind, type ModelChoice } from '@tw/shared';
+import { aiConfirmOf } from './status-by.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
@@ -110,7 +111,7 @@ export class AnalysisService {
    * Starts an analysis. With `resume`, parts whose script text is unchanged since the latest
    * unfinished (failed or cancelled) job reuse that job's answers, so only the rest is read again.
    */
-  start(projectId: string, choice: ModelChoice, autoConfirm = true, resume = false): Job {
+  start(projectId: string, choice: ModelChoice, resume = false): Job {
     if (this.db.select().from(s.analysisJobs).where(and(eq(s.analysisJobs.projectId, projectId), eq(s.analysisJobs.status, 'running'))).get()) throw new Error('이미 진행 중인 작품 분석이 있습니다.');
     const { snapshot } = liveChoice(this.db, choice, this.secrets, 'generate');
     const { blocks, keyOf } = scriptText(this.db, projectId);
@@ -125,7 +126,7 @@ export class AnalysisService {
     const abort = new AbortController();
     this.aborts.set(job.id, abort);
     events.changed(projectId, 'runs', 'analysis');
-    this.run(job, snapshot, parts, keyOf, autoConfirm, abort.signal, reused)
+    this.run(job, snapshot, parts, keyOf, abort.signal, reused)
       .catch((error) => console.error('analysis job failed', error))
       .finally(() => this.aborts.delete(job.id));
     return job;
@@ -137,10 +138,10 @@ export class AnalysisService {
     if (job) events.changed(job.projectId, 'runs', 'analysis');
   }
 
-  private async run(job: Job, model: s.AiSnapshot, parts: string[], keyOf: Map<string, string>, autoConfirm: boolean, signal: AbortSignal, reused = new Map<string, unknown>()) {
+  private async run(job: Job, model: s.AiSnapshot, parts: string[], keyOf: Map<string, string>, signal: AbortSignal, reused = new Map<string, unknown>()) {
     const routes = resolveRoutes(model, this.secrets);
     // People a person made or imported (or took over from AI) keep their names: the model must reuse them.
-    const kept = this.db.select().from(s.characters).where(eq(s.characters.projectId, job.projectId)).all().filter((c) => c.origin !== 'ai' || c.reviewed);
+    const kept = this.db.select().from(s.characters).where(eq(s.characters.projectId, job.projectId)).all().filter((c) => c.statusBy === 'human');
     const cast = kept.length
       ? `\n\nKNOWN CHARACTERS (names as stored; the script's speaker names). For these people use exactly these names in every field and put other names they go by in "aliases"; only people not listed here get new names:\n${kept.map((c) => `- ${c.name}${c.aliases.length ? ` (also: ${c.aliases.join(', ')})` : ''}`).join('\n')}`
       : '';
@@ -201,7 +202,7 @@ export class AnalysisService {
         events.changed(job.projectId, 'runs', 'analysis');
       }
       if (signal.aborted || !merged) return;
-      const counts = saveDrafts(this.db, job.projectId, job.id, merged, keyOf, autoConfirm);
+      const counts = saveDrafts(this.db, job.projectId, job.id, merged, keyOf, aiConfirmOf(this.db, job.projectId));
       this.db.update(s.analysisJobs).set({ status: 'completed', result: counts, usage, finishedAt: new Date() }).where(eq(s.analysisJobs.id, job.id)).run();
       // The drafts include term candidates and scene listeners (units), besides the story knowledge.
       events.changed(job.projectId, 'runs', 'analysis', 'knowledge', 'terms', 'units');
@@ -309,7 +310,7 @@ type Stored = typeof s.documents | typeof s.characters | typeof s.relationships 
  * rule's speaker's. Scene listeners fill lines whose listener nobody set. Evidence ids that are not
  * lines are dropped and counted.
  */
-export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: Analysis, keyOf: Map<string, string>, autoConfirm = false): Record<string, number> {
+export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: Analysis, keyOf: Map<string, string>, policy: AiConfirm = DEFAULT_AI_CONFIRM): Record<string, number> {
   let invalidEvidence = 0;
   const keys = (list: string[]) =>
     list.flatMap((id) => {
@@ -318,15 +319,15 @@ export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: A
       return key ? [key] : [];
     });
   const keyOrNull = (id: string | null) => (id ? (keyOf.get(id.trim()) ?? null) : null);
-  const status = autoConfirm ? ('confirmed' as const) : ('candidate' as const);
-  const draft = { status, origin: 'ai' as const, jobId };
+  // Each kind lands as 설정 › AI 확정 says; AI set the status either way (docs/DESIGN.md 3.5).
+  const draft = (kind: AiConfirmKind) => ({ status: aiStatus(policy, kind), statusBy: 'ai' as const, origin: 'ai' as const, jobId });
   const counts = { listeners: 0, rulesForReview: 0, terms: 0 };
 
   db.transaction((tx) => {
     // Only what earlier analyses wrote and nobody touched is replaced; workflow-made items and rejected ones stay.
     const analysisJobs = tx.select({ id: s.analysisJobs.id }).from(s.analysisJobs).where(eq(s.analysisJobs.projectId, projectId)).all().map((job) => job.id);
     const stale = (table: Stored) =>
-      and(eq(table.projectId, projectId), eq(table.origin, 'ai'), eq(table.reviewed, false), ne(table.status, 'rejected'), analysisJobs.length ? inArray(table.jobId, analysisJobs) : sql`0`);
+      and(eq(table.projectId, projectId), eq(table.origin, 'ai'), eq(table.statusBy, 'ai'), ne(table.status, 'rejected'), analysisJobs.length ? inArray(table.jobId, analysisJobs) : sql`0`);
     tx.delete(s.relationships).where(stale(s.relationships)).run();
     // A draft character that a kept relationship points to stays (deleting it would take the relationship with it).
     const kept = tx.select({ fromId: s.relationships.fromId, toId: s.relationships.toId }).from(s.relationships).where(eq(s.relationships.projectId, projectId)).all().flatMap((r) => [r.fromId, r.toId]);
@@ -340,7 +341,7 @@ export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: A
     const body = [overview.setting && `## 배경\n${overview.setting}`, overview.mainConflict && `## 주요 갈등\n${overview.mainConflict}`, overview.plot && `## 줄거리\n${overview.plot}`].filter(Boolean).join('\n\n');
     const title = '작품 개요 (AI 분석)';
     const documentRejected = tx.select({ id: s.documents.id }).from(s.documents).where(and(eq(s.documents.projectId, projectId), eq(s.documents.title, title), eq(s.documents.status, 'rejected'), eq(s.documents.body, body))).get();
-    if (body && !documentRejected) tx.insert(s.documents).values({ projectId, kind: 'story', title, body, evidence: keys(overview.evidence), ...draft }).run();
+    if (body && !documentRejected) tx.insert(s.documents).values({ projectId, kind: 'story', title, body, evidence: keys(overview.evidence), ...draft('documents') }).run();
 
     // People: a stored person (any status) keeps their name; rejected ones are not proposed again but nothing new points at them.
     const stored = tx.select({ id: s.characters.id, name: s.characters.name, aliases: s.characters.aliases, status: s.characters.status, profile: s.characters.profile, speech: s.characters.speech, evidence: s.characters.evidence }).from(s.characters).where(eq(s.characters.projectId, projectId)).all();
@@ -365,7 +366,7 @@ export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: A
         if (fill && Object.keys(fill).length) tx.update(s.characters).set(fill).where(eq(s.characters.id, known.id)).run();
         continue;
       }
-      const row = tx.insert(s.characters).values({ projectId, name: c.name, aliases: c.aliases, profile: c.profile, speech: c.speech, player: c.player, evidence: keys(c.evidence), ...draft }).returning({ id: s.characters.id }).get();
+      const row = tx.insert(s.characters).values({ projectId, name: c.name, aliases: c.aliases, profile: c.profile, speech: c.speech, player: c.player, evidence: keys(c.evidence), ...draft('characters') }).returning({ id: s.characters.id }).get();
       for (const name of namesOf(c)) if (!idByName.has(name.toLowerCase())) idByName.set(name.toLowerCase(), row.id);
     }
 
@@ -379,14 +380,14 @@ export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: A
         const at = keyOrNull(change.at);
         return at ? [{ at, change: change.change, cause: change.cause }] : [];
       });
-      tx.insert(s.relationships).values({ projectId, fromId, toId, kind: r.kind, description: r.description, changes, evidence: keys(r.evidence), ...draft }).run();
+      tx.insert(s.relationships).values({ projectId, fromId, toId, kind: r.kind, description: r.description, changes, evidence: keys(r.evidence), ...draft('relationships') }).run();
     }
 
     const eventTitles = new Set(tx.select({ title: s.storyEvents.title }).from(s.storyEvents).where(eq(s.storyEvents.projectId, projectId)).all().map((e) => e.title.toLowerCase()));
     for (const e of analysis.events) {
       if (eventTitles.has(e.title.toLowerCase())) continue;
       eventTitles.add(e.title.toLowerCase());
-      tx.insert(s.storyEvents).values({ projectId, title: e.title, summary: e.summary, cause: e.cause, outcome: e.outcome, participants: e.participants.map(canon), evidence: keys(e.evidence), ...draft }).run();
+      tx.insert(s.storyEvents).values({ projectId, title: e.title, summary: e.summary, cause: e.cause, outcome: e.outcome, participants: e.participants.map(canon), evidence: keys(e.evidence), ...draft('events') }).run();
     }
 
     // Terms follow the auto-confirm switch like the rest, except one without a Korean form: it stays a
@@ -403,7 +404,7 @@ export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: A
         if (Object.keys(fill).length) tx.update(s.terms).set(fill).where(eq(s.terms.id, known.id)).run();
         continue;
       }
-      const row = tx.insert(s.terms).values({ projectId, source: t.source.trim(), target: t.target.trim(), note, status: autoConfirm && t.target.trim() ? 'confirmed' : 'candidate', origin: 'ai', jobId, examples }).returning({ id: s.terms.id, source: s.terms.source, target: s.terms.target, note: s.terms.note, status: s.terms.status, examples: s.terms.examples }).get();
+      const row = tx.insert(s.terms).values({ projectId, source: t.source.trim(), target: t.target.trim(), note, status: t.target.trim() ? aiStatus(policy, 'terms') : 'candidate', statusBy: 'ai', origin: 'ai', jobId, examples }).returning({ id: s.terms.id, source: s.terms.source, target: s.terms.target, note: s.terms.note, status: s.terms.status, examples: s.terms.examples }).get();
       glossary.set(row.source.toLowerCase(), row);
       counts.terms += 1;
     }
@@ -428,7 +429,7 @@ export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: A
       // Evidence lines should be the rule's speaker talking; mostly someone else's means the rule is doubtful.
       const foreign = evidence.filter((line) => person(speakerOf.get(line) ?? '') !== person(from)).length;
       // An official rule (imported, a person's) for the same pair and stretch that says otherwise.
-      const official = existingRules.find((old) => (old.origin !== 'ai' || old.reviewed) && old.status === 'confirmed' && person(old.fromName) === person(from) && person(old.toName) === person(to) && old.startKey === start);
+      const official = existingRules.find((old) => old.statusBy === 'human' && old.status === 'confirmed' && person(old.fromName) === person(from) && person(old.toName) === person(to) && old.startKey === start);
       const reasons = [
         official && official.level !== r.level && `정식 규칙(${SPEECH_LEVEL_LABELS[official.level]})과 다름`,
         r.conflict && '다른 부분의 분석과 엇갈림',
@@ -440,7 +441,7 @@ export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: A
       if (reasons.length) counts.rulesForReview += 1;
       const yieldsToPerson = Boolean(official && official.level !== r.level);
       tx.insert(s.speechRules)
-        .values({ projectId, fromName: from, toName: to, level: r.level, address: r.address, note: r.note, review: reasons.length ? reasons.join(', ') : null, startKey: start, evidence, ...draft, status: yieldsToPerson ? 'candidate' : status })
+        .values({ projectId, fromName: from, toName: to, level: r.level, address: r.address, note: r.note, review: reasons.length ? reasons.join(', ') : null, startKey: start, evidence, ...draft('speechRules'), ...(yieldsToPerson && { status: 'candidate' as const }) })
         .run();
     }
   });

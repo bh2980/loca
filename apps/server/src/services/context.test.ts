@@ -156,14 +156,14 @@ describe('context builder', () => {
 
   it('sends unreviewed AI characters, relationships and documents apart from the facts', () => {
     const { db, projectId, unit } = setup();
-    const ai = db.insert(s.characters).values({ projectId, name: 'Ghost Rider', origin: 'ai', reviewed: false, profile: '추측' }).returning().get();
-    const checked = db.insert(s.characters).values({ projectId, name: 'Vera', origin: 'ai', reviewed: true, profile: '확인함' }).returning().get();
+    const ai = db.insert(s.characters).values({ projectId, name: 'Ghost Rider', origin: 'ai', statusBy: 'ai', profile: '추측' }).returning().get();
+    const checked = db.insert(s.characters).values({ projectId, name: 'Vera', origin: 'ai', statusBy: 'human', profile: '확인함' }).returning().get();
     db.insert(s.relationships).values([
-      { projectId, fromId: ai.id, toId: checked.id, kind: 'guess', origin: 'ai', reviewed: false },
+      { projectId, fromId: ai.id, toId: checked.id, kind: 'guess', origin: 'ai', statusBy: 'ai' },
       { projectId, fromId: ai.id, toId: checked.id, kind: 'fact', origin: 'human' },
     ]).run();
     db.insert(s.documents).values([
-      { projectId, kind: 'world', title: 'AI 설정', body: 'x', alwaysInclude: true, origin: 'ai', reviewed: false },
+      { projectId, kind: 'world', title: 'AI 설정', body: 'x', alwaysInclude: true, origin: 'ai', statusBy: 'ai' },
       { projectId, kind: 'world', title: '사람 설정', body: 'y', alwaysInclude: true },
     ]).run();
     const batch = [{ ...unit('arrival.1'), source: `${unit('arrival.1').source} Ghost Rider meets Vera.` }];
@@ -176,6 +176,21 @@ describe('context builder', () => {
     expect(context.documents.map((d) => d.title)).toContain('사람 설정');
     expect(context.documents.map((d) => d.title)).not.toContain('AI 설정');
     expect(context.aiNotes.documents.map((d) => d.title)).toEqual(['AI 설정']);
+
+    // '사람이 확정한 것만': nothing AI confirmed reaches the prompt, not even as a note.
+    db.insert(s.terms).values([
+      { projectId, source: 'Ghost', target: '유령', origin: 'ai', statusBy: 'ai' },
+      { projectId, source: 'Vera', target: '베라' },
+    ]).run();
+    const strict = buildContext(db, projectId, batch, config({ characters: true, relationships: true, documents: true, glossary: true, humanOnly: true }));
+    expect(strict.characters.map((c) => c.name)).toContain('Vera');
+    expect(strict.characters.map((c) => c.name)).not.toContain('Ghost Rider');
+    expect(strict.aiNotes).toEqual({ characters: [], relationships: [], documents: [] });
+    expect(strict.relationships.map((r) => r.kind)).toEqual(['fact']);
+    expect(strict.documents.map((d) => d.title)).toContain('사람 설정');
+    expect(strict.documents.map((d) => d.title)).not.toContain('AI 설정');
+    expect(strict.terms.map((term) => term.source)).toContain('Vera');
+    expect(strict.terms.map((term) => term.source)).not.toContain('Ghost');
   });
 
   it('does not match a character through a generic alias, only through its name or a real alias', () => {

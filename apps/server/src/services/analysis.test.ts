@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { importFileSchema } from '@tw/shared';
+import { DEFAULT_AI_CONFIRM, importFileSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { ModelError } from '@tw/ai';
@@ -69,18 +69,20 @@ describe('work analysis', () => {
     expect(job.result).toMatchObject({ characters: 2, speechRules: 2, invalidEvidence: 1 });
 
     const rules = db.select().from(s.speechRules).where(eq(s.speechRules.projectId, projectId)).orderBy(s.speechRules.fromName).all();
-    expect(rules.map((rule) => [rule.fromName, rule.level, rule.startKey, rule.status, rule.origin])).toEqual([
-      ['Alice', 'hae', 'a3', 'confirmed', 'ai'],
-      ['Bob', 'hasipsio', null, 'confirmed', 'ai'],
+    expect(rules.map((rule) => [rule.fromName, rule.level, rule.startKey, rule.status, rule.origin, rule.statusBy])).toEqual([
+      ['Alice', 'hae', 'a3', 'confirmed', 'ai', 'ai'],
+      ['Bob', 'hasipsio', null, 'confirmed', 'ai', 'ai'],
     ]);
     const rel = db.select().from(s.relationships).where(eq(s.relationships.projectId, projectId)).get()!;
     expect(rel.changes).toEqual([{ at: 'a3', change: '긴장', cause: '지각' }]);
     expect(rel.evidence).toEqual(['a2']);
 
     // A person reviews one rule; the rerun keeps it, replaces the rest, and does not propose the kept one again.
-    db.update(s.speechRules).set({ reviewed: true }).where(eq(s.speechRules.fromName, 'Alice')).run();
+    db.update(s.speechRules).set({ statusBy: 'human' }).where(eq(s.speechRules.fromName, 'Alice')).run();
     level = 'haeyo';
-    service.start(projectId, choice, false);
+    // 설정 › AI 확정: speech rules from AI now wait as candidates.
+    db.update(s.projects).set({ aiConfirm: { speechRules: 'candidate' } }).where(eq(s.projects.id, projectId)).run();
+    service.start(projectId, choice);
     expect((await settle(service, projectId)).status).toBe('completed');
     const after = db.select().from(s.speechRules).where(eq(s.speechRules.projectId, projectId)).orderBy(s.speechRules.fromName, s.speechRules.status).all();
     expect(after.map((rule) => [rule.fromName, rule.level, rule.status])).toEqual([
@@ -126,7 +128,7 @@ describe('work analysis', () => {
     db.update(s.units).set({ listener: 'Captain', listenerOrigin: 'import' }).where(eq(s.units.key, 'a3')).run();
     const { keyOf } = scriptText(db, projectId);
     const analysis = { ...draft('hasipsio'), sceneListeners: [{ scene: 'g1', speaker: 'Alice', listener: 'Bob', confidence: 0.95 }, { scene: 'g1', speaker: 'Bob', listener: 'Alice', confidence: 0.95 }] };
-    const counts = saveDrafts(db, projectId, 'job', analysis, keyOf, true);
+    const counts = saveDrafts(db, projectId, 'job', analysis, keyOf);
     const lines = new Map(db.select().from(s.units).where(eq(s.units.projectId, projectId)).all().map((unit) => [unit.key, unit]));
     expect(lines.get('a1')).toMatchObject({ listener: 'Bob', listenerOrigin: 'ai', listenerConfidence: 0.95 });
     expect(lines.get('a2')).toMatchObject({ listener: 'Alice', listenerOrigin: 'ai' });
@@ -142,12 +144,12 @@ describe('work analysis', () => {
   it('does not propose a rejected rule again, and doubts a rule whose evidence is someone else talking', () => {
     const { db, projectId } = setup();
     const { keyOf } = scriptText(db, projectId);
-    saveDrafts(db, projectId, 'job1', draft('hasipsio'), keyOf, true);
-    db.update(s.speechRules).set({ status: 'rejected', reviewed: true }).where(eq(s.speechRules.fromName, 'Bob')).run();
+    saveDrafts(db, projectId, 'job1', draft('hasipsio'), keyOf);
+    db.update(s.speechRules).set({ status: 'rejected', statusBy: 'human' }).where(eq(s.speechRules.fromName, 'Bob')).run();
     db.insert(s.analysisJobs).values({ id: 'job1', projectId, status: 'completed' }).run();
     // Same rule again, plus one citing Alice's lines as Bob's speech.
     const again = { ...draft('hasipsio'), speechRules: [...draft('hasipsio').speechRules, { from: 'Bob', to: 'Alice', level: 'hae' as const, address: '', note: '', start: 'L3', evidence: ['L1', 'L3'] }] };
-    saveDrafts(db, projectId, 'job2', again, keyOf, true);
+    saveDrafts(db, projectId, 'job2', again, keyOf);
     const bob = db.select().from(s.speechRules).where(eq(s.speechRules.fromName, 'Bob')).all();
     expect(bob.filter((rule) => rule.level === 'hasipsio').map((rule) => rule.status)).toEqual(['rejected']);
     const doubtful = bob.find((rule) => rule.level === 'hae')!;
@@ -159,7 +161,7 @@ describe('work analysis', () => {
     const { db, projectId } = setup();
     const { keyOf } = scriptText(db, projectId);
     db.insert(s.characters).values([{ projectId, name: 'Alice', origin: 'import', status: 'confirmed' }, { projectId, name: 'Bob', profile: '사람이 쓴 설명', origin: 'human', status: 'confirmed' }]).run();
-    saveDrafts(db, projectId, 'job', draft('haeyo'), keyOf, true);
+    saveDrafts(db, projectId, 'job', draft('haeyo'), keyOf);
     const people = new Map(db.select().from(s.characters).where(eq(s.characters.projectId, projectId)).all().map((c) => [c.name, c]));
     expect(people.size).toBe(2);
     expect(people.get('Alice')).toMatchObject({ profile: '선장', speech: '짧고 단호함', origin: 'import' });
@@ -169,8 +171,8 @@ describe('work analysis', () => {
   it("keeps an AI rule as a candidate beside a person's rule that says otherwise", () => {
     const { db, projectId } = setup();
     const { keyOf } = scriptText(db, projectId);
-    db.insert(s.speechRules).values({ projectId, fromName: 'Bob', toName: 'Alice', level: 'hae', startKey: null, status: 'confirmed', reviewed: true }).run();
-    saveDrafts(db, projectId, 'job', draft('hasipsio'), keyOf, true);
+    db.insert(s.speechRules).values({ projectId, fromName: 'Bob', toName: 'Alice', level: 'hae', startKey: null, status: 'confirmed', statusBy: 'human' }).run();
+    saveDrafts(db, projectId, 'job', draft('hasipsio'), keyOf);
     const ai = db.select().from(s.speechRules).where(eq(s.speechRules.fromName, 'Bob')).all().find((rule) => rule.level === 'hasipsio')!;
     expect(ai.status).toBe('candidate');
     expect(ai.review).toContain('정식 규칙');
@@ -181,7 +183,7 @@ describe('work analysis', () => {
     const keyOf = scriptText(db, projectId).keyOf;
     db.insert(s.terms).values({ projectId, source: 'Alice', target: '', note: '', status: 'candidate', origin: 'script' }).run();
     const analysis = { ...draft('haeyo'), terms: [...draft('haeyo').terms, { source: 'alice', kind: 'person' as const, meaning: '선장', target: '앨리스', evidence: ['L1'] }] };
-    const counts = saveDrafts(db, projectId, 'job1', analysis, keyOf, true);
+    const counts = saveDrafts(db, projectId, 'job1', analysis, keyOf);
     expect(counts.terms).toBe(1);
     const boss = db.select().from(s.terms).where(eq(s.terms.source, 'boss')).get()!;
     expect(boss).toMatchObject({ target: '선장님', note: '호칭·직함 · 선원들이 선장을 부르는 말', status: 'confirmed', origin: 'ai', jobId: 'job1', examples: ['a2'] });
@@ -189,10 +191,10 @@ describe('work analysis', () => {
     expect(db.select().from(s.terms).where(eq(s.terms.projectId, projectId)).all().filter((t) => t.source.toLowerCase() === 'alice')).toEqual([expect.objectContaining({ source: 'Alice', target: '앨리스', origin: 'script' })]);
     // A rerun replaces the earlier analysis's untouched term instead of adding a second one.
     db.insert(s.analysisJobs).values([{ id: 'job1', projectId, status: 'completed' }, { id: 'job2', projectId, status: 'completed' }]).run();
-    saveDrafts(db, projectId, 'job2', analysis, keyOf, true);
+    saveDrafts(db, projectId, 'job2', analysis, keyOf);
     expect(db.select().from(s.terms).where(eq(s.terms.source, 'boss')).all().map((t) => t.jobId)).toEqual(['job2']);
     // With the switch off, a rerun replaces it as a candidate.
-    saveDrafts(db, projectId, 'job3', analysis, keyOf, false);
+    saveDrafts(db, projectId, 'job3', analysis, keyOf, { ...DEFAULT_AI_CONFIRM, terms: 'candidate' });
     expect(db.select().from(s.terms).where(eq(s.terms.source, 'boss')).all().map((t) => [t.jobId, t.status])).toEqual([['job3', 'candidate']]);
   });
 
@@ -246,7 +248,7 @@ describe('work analysis', () => {
     expect((await settle(service, projectId)).status).toBe('failed');
     expect(calls).toBe(2);
     failSecond = false;
-    service.start(projectId, choice, true, true);
+    service.start(projectId, choice, true);
     const job = await settle(service, projectId);
     expect(job.status).toBe('completed');
     // Part 1 came from the failed job; only part 2 was read again.

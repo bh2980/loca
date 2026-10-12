@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { AI_OUTPUTS, AI_PRESETS, aiNodeConfigSchema, batchChangeSchema, CONNECTION_KIND_INFO, FUNCTIONS, lineFilterSchema, NODE_TYPES, sourceOf, workflowDefinitionSchema } from '@tw/shared';
 import { z as zod } from 'zod';
 import type { Db } from '../db/index.ts';
+import { byPerson } from './status-by.ts';
 import { inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
@@ -166,13 +167,13 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
     }),
     list_characters: tool({
       description:
-        'Stored characters (profile, how they speak, whether they are the player character) and their relationships (with changes). Each item says its status (confirmed = used as AI context, candidate = not yet) and source (ai = added by AI and not yet taken over by a person, official).',
+        'Stored characters (profile, how they speak, whether they are the player character) and their relationships (with changes). Each item says its status (confirmed = used as AI context, candidate = not yet), statusBy (ai = AI set that status and no person has looked yet, human = a person decided) and source (who wrote the content: analysis, workflow, script, import, human).',
       inputSchema: z.object({}),
       execute: () => {
         const characters = db.select().from(s.characters).where(eq(s.characters.projectId, projectId)).all();
         const names = new Map(characters.map((character) => [character.id, character.name]));
         return {
-          characters: characters.map(({ id, name, aliases, profile, speech, player, status, origin, reviewed }) => ({ id, name, aliases, profile, speech, player, status, source: sourceOf({ origin, reviewed }) })),
+          characters: characters.map(({ id, name, aliases, profile, speech, player, status, origin, jobId, statusBy }) => ({ id, name, aliases, profile, speech, player, status, statusBy, source: sourceOf({ origin, jobId }) })),
           relationships: db
             .select()
             .from(s.relationships)
@@ -193,7 +194,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
           .where(eq(s.speechRules.projectId, projectId))
           .all()
           .filter((rule) => (!speaker || rule.fromName.toLowerCase() === speaker.toLowerCase()) && (!listener || rule.toName.toLowerCase() === listener.toLowerCase()))
-          .map(({ id, fromName, toName, level, address, note, startKey, status, origin, reviewed, evidence }) => ({ id, from: fromName, to: toName, level, address, note, startKey, status, source: sourceOf({ origin, reviewed }), evidence })),
+          .map(({ id, fromName, toName, level, address, note, startKey, status, origin, jobId, statusBy, evidence }) => ({ id, from: fromName, to: toName, level, address, note, startKey, status, statusBy, source: sourceOf({ origin, jobId }), evidence })),
     }),
     list_events: tool({
       description: 'Stored story events: summary, cause, outcome, participants and the lines that show them, with status and source.',
@@ -204,7 +205,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
           .from(s.storyEvents)
           .where(eq(s.storyEvents.projectId, projectId))
           .all()
-          .map(({ id, title, summary, cause, outcome, participants, evidence, status, origin, reviewed }) => ({ id, title, summary, cause, outcome, participants, evidence, status, source: sourceOf({ origin, reviewed }) })),
+          .map(({ id, title, summary, cause, outcome, participants, evidence, status, origin, jobId, statusBy }) => ({ id, title, summary, cause, outcome, participants, evidence, status, statusBy, source: sourceOf({ origin, jobId }) })),
     }),
     read_documents: tool({
       description: 'Story, world-building, style and note documents (full text).',
@@ -288,7 +289,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         const existing = !id && characterByName(input.name);
         if (existing) return { ok: false, error: `같은 이름의 인물이 이미 있습니다. id=${existing.id}로 수정 제안을 다시 하세요.` };
         if (id) {
-          if (!db.update(s.characters).set({ ...input, reviewed: true }).where(and(eq(s.characters.id, id), eq(s.characters.projectId, projectId))).run().changes) return { ok: false, error: '없는 인물입니다.' };
+          if (!db.update(s.characters).set({ ...input, ...byPerson(db, s.characters, id, input) }).where(and(eq(s.characters.id, id), eq(s.characters.projectId, projectId))).run().changes) return { ok: false, error: '없는 인물입니다.' };
         } else id = db.insert(s.characters).values({ ...input, projectId }).returning().get().id;
         changed('knowledge');
         return { ok: true, id };
@@ -303,7 +304,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         if (!a || !b) return { ok: false, error: `인물을 먼저 만들어야 합니다: ${!a ? from : to}` };
         const values = { ...input, fromId: a.id, toId: b.id };
         if (id) {
-          if (!db.update(s.relationships).set({ ...values, reviewed: true }).where(and(eq(s.relationships.id, id), eq(s.relationships.projectId, projectId))).run().changes) return { ok: false, error: '없는 관계입니다.' };
+          if (!db.update(s.relationships).set({ ...values, ...byPerson(db, s.relationships, id, values) }).where(and(eq(s.relationships.id, id), eq(s.relationships.projectId, projectId))).run().changes) return { ok: false, error: '없는 관계입니다.' };
         } else id = db.insert(s.relationships).values({ ...values, projectId }).returning().get().id;
         changed('knowledge');
         return { ok: true, id };
@@ -316,8 +317,8 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       needsApproval: true,
       execute: ({ id, ...input }) => {
         if (id) {
-          // Accepted by a person: like an edit in the app, it is reviewed and no longer marked for a look.
-          if (!db.update(s.speechRules).set({ ...input, reviewed: true, review: null }).where(and(eq(s.speechRules.id, id), eq(s.speechRules.projectId, projectId))).run().changes) return { ok: false, error: '없는 말투 규칙입니다.' };
+          // Accepted by a person: like an edit in the app, a person set it and it is no longer marked for a look.
+          if (!db.update(s.speechRules).set({ ...input, ...byPerson(db, s.speechRules, id, input), review: null }).where(and(eq(s.speechRules.id, id), eq(s.speechRules.projectId, projectId))).run().changes) return { ok: false, error: '없는 말투 규칙입니다.' };
         } else id = db.insert(s.speechRules).values({ ...input, projectId }).returning().get().id;
         changed('knowledge');
         return { ok: true, id };
@@ -329,7 +330,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       needsApproval: true,
       execute: ({ id, ...input }) => {
         if (id) {
-          if (!db.update(s.storyEvents).set({ ...input, reviewed: true }).where(and(eq(s.storyEvents.id, id), eq(s.storyEvents.projectId, projectId))).run().changes) return { ok: false, error: '없는 사건입니다.' };
+          if (!db.update(s.storyEvents).set({ ...input, ...byPerson(db, s.storyEvents, id, input) }).where(and(eq(s.storyEvents.id, id), eq(s.storyEvents.projectId, projectId))).run().changes) return { ok: false, error: '없는 사건입니다.' };
         } else id = db.insert(s.storyEvents).values({ ...input, projectId }).returning().get().id;
         changed('knowledge');
         return { ok: true, id };
@@ -341,7 +342,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       needsApproval: true,
       execute: ({ id, ...input }) => {
         if (id) {
-          if (!db.update(s.documents).set({ ...input, reviewed: true }).where(and(eq(s.documents.id, id), eq(s.documents.projectId, projectId))).run().changes) return { ok: false, error: '없는 문서입니다.' };
+          if (!db.update(s.documents).set({ ...input, ...byPerson(db, s.documents, id, input) }).where(and(eq(s.documents.id, id), eq(s.documents.projectId, projectId))).run().changes) return { ok: false, error: '없는 문서입니다.' };
         } else id = db.insert(s.documents).values({ ...input, projectId }).returning().get().id;
         changed('knowledge');
         return { ok: true, id };
@@ -356,7 +357,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         db.transaction((tx) => {
           for (const { id, ...term } of terms) {
             if (id) {
-              if (!tx.update(s.terms).set({ ...term, reviewed: true }).where(and(eq(s.terms.id, id), eq(s.terms.projectId, projectId))).run().changes) missing.push(id);
+              if (!tx.update(s.terms).set({ ...term, ...byPerson(tx as unknown as Db, s.terms, id, term) }).where(and(eq(s.terms.id, id), eq(s.terms.projectId, projectId))).run().changes) missing.push(id);
             } else tx.insert(s.terms).values({ ...term, projectId }).run();
           }
         });

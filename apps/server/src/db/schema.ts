@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import { KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, LISTENER_ORIGINS, SPEECH_LEVELS, type AgentSettings, type ModelChoice, type ContextItem, type FormatRules, type NodeType, type PiOptions, type RelationshipChange, type WorkflowDefinition } from '@tw/shared';
+import { KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, type AiConfirm, type ModelChoice, type ContextItem, type FormatRules, type NodeType, type PiOptions, type RelationshipChange, type WorkflowDefinition } from '@tw/shared';
 import type { Usage } from '@tw/ai';
 
 const id = () => text('id').primaryKey().$defaultFn(() => crypto.randomUUID());
@@ -18,8 +18,8 @@ const knowledge = () => ({
   origin: text('origin', { enum: KNOWLEDGE_ORIGINS }).notNull().default('human'),
   evidence: json<string[]>('evidence').notNull().default(sql`'[]'`),
   jobId: text('job_id'),
-  /** A person edited or confirmed this AI item: a new analysis leaves it alone. */
-  reviewed: integer('reviewed', { mode: 'boolean' }).notNull().default(false),
+  /** Who put it in its current status (docs/DESIGN.md 3.5). An AI item a person never touched stays "ai"; a new analysis may replace it. */
+  statusBy: text('status_by', { enum: STATUS_BY }).notNull().default('human'),
 });
 
 export const projects = sqliteTable('projects', {
@@ -34,6 +34,8 @@ export const projects = sqliteTable('projects', {
   /** Which agent tools this project's chat (and the CLI) may use. */
   agentSettings: json<AgentSettings>('agent_settings').notNull().default(sql`'{"disabledTools":[]}'`),
   formatRules: json<FormatRules>('format_rules').notNull().default(sql`'{"presets":["brace","printf","angleTag"],"custom":[]}'`),
+  /** What becomes of AI results per knowledge kind (설정 › AI 확정). Absent kinds: auto. */
+  aiConfirm: json<Partial<AiConfirm>>('ai_confirm').notNull().default(sql`'{}'`),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
@@ -47,6 +49,8 @@ export const statuses = sqliteTable('statuses', {
   sort: integer('sort').notNull(),
   /** Lines in this status are listed in the review inbox, however they got there. */
   inReview: integer('in_review', { mode: 'boolean' }).notNull().default(false),
+  /** Only a person may put a line here: a run that tries sends it to the review inbox instead. */
+  humanOnly: integer('human_only', { mode: 'boolean' }).notNull().default(false),
 });
 
 export const tags = sqliteTable('tags', {
@@ -95,6 +99,9 @@ export const units = sqliteTable(
     translation: text('translation'),
     candidateId: text('candidate_id'),
     statusId: text('status_id').notNull().references(() => statuses.id),
+    /** Who set the current status: a run (statusRunId) or a person (an edit, a confirm, an accepted proposal, the import). */
+    statusBy: text('status_by', { enum: STATUS_BY }).notNull().default('human'),
+    statusRunId: text('status_run_id'),
     meta: json<Record<string, unknown>>('meta'),
     updatedAt: updatedAt(),
   },
@@ -269,8 +276,8 @@ export const terms = sqliteTable('terms', {
   runId: text('run_id'),
   /** The work analysis that proposed it, for AI terms. */
   jobId: text('job_id'),
-  /** A person edited or promoted this AI term. */
-  reviewed: integer('reviewed', { mode: 'boolean' }).notNull().default(false),
+  /** Who put it in its current status (see knowledge()). */
+  statusBy: text('status_by', { enum: STATUS_BY }).notNull().default('human'),
   updatedAt: updatedAt(),
 });
 

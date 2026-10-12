@@ -25,6 +25,8 @@ const listQuery = z.object({
   review: z.enum(['1']).optional(),
   /** Only lines not yet in a final status. */
   remaining: z.enum(['1']).optional(),
+  /** Only lines whose current status a run set and no person has looked at since (✦). */
+  by: z.enum(['ai']).optional(),
   /** A line to show: the page is the one holding it (the response says which offset it used). */
   focus: z.string().optional(),
   offset: z.coerce.number().int().min(0).default(0),
@@ -72,6 +74,8 @@ const unitColumns = {
   source: s.units.source,
   translation: s.units.translation,
   statusId: s.units.statusId,
+  statusBy: s.units.statusBy,
+  statusRunId: s.units.statusRunId,
   updatedAt: s.units.updatedAt,
 };
 
@@ -145,6 +149,7 @@ export const sourceRoutes = new Hono<Env>()
     if (query.listener === '-') conditions.push(sql`not ${knownListener}`);
     else if (query.listener) conditions.push(and(eq(s.units.listener, query.listener), knownListener)!);
     if (query.review) conditions.push(sql`${s.units.statusId} in (select id from ${s.statuses} where ${s.statuses.projectId} = ${projectId} and ${s.statuses.inReview} = 1)`);
+    if (query.by) conditions.push(eq(s.units.statusBy, query.by));
     if (query.remaining) conditions.push(sql`${s.units.statusId} in (select id from ${s.statuses} where ${s.statuses.projectId} = ${projectId} and ${s.statuses.kind} != 'final')`);
     const where = and(...conditions);
     // The groups table is only needed for the kind filter; without it the count is one index range.
@@ -199,14 +204,28 @@ export const sourceRoutes = new Hono<Env>()
         .all(),
     );
   })
-  .patch('/projects/:projectId/units', validate('json', z.object({ unitIds: z.array(z.string()).min(1), statusId: z.string().optional(), addTagIds: z.array(z.string()).default([]), removeTagIds: z.array(z.string()).default([]) })), (c) => {
+  .patch(
+    '/projects/:projectId/units',
+    validate(
+      'json',
+      z.object({
+        unitIds: z.array(z.string()).min(1),
+        statusId: z.string().optional(),
+        /** 확인함: a person looked at the lines; their statuses stay, but a person now holds them (no ✦). */
+        checked: z.literal(true).optional(),
+        addTagIds: z.array(z.string()).default([]),
+        removeTagIds: z.array(z.string()).default([]),
+      }),
+    ),
+    (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     const body = c.req.valid('json');
     db.transaction((tx) => {
       // Chunked: a selection can be a whole project, and SQLite caps bound variables per statement.
       eachChunk(body.unitIds, (slice) => {
-        if (body.statusId) tx.update(s.units).set({ statusId: body.statusId }).where(and(eq(s.units.projectId, projectId), inArray(s.units.id, slice))).run();
+        // A person setting the status (or confirming what a run set) makes it theirs.
+        if (body.statusId || body.checked) tx.update(s.units).set({ ...(body.statusId && { statusId: body.statusId }), statusBy: 'human', statusRunId: null }).where(and(eq(s.units.projectId, projectId), inArray(s.units.id, slice))).run();
         if (body.removeTagIds.length) tx.delete(s.unitTags).where(and(inArray(s.unitTags.unitId, slice), inArray(s.unitTags.tagId, body.removeTagIds))).run();
       });
       if (body.addTagIds.length)
@@ -216,7 +235,8 @@ export const sourceRoutes = new Hono<Env>()
     });
     events.changed(projectId, 'units', 'statuses');
     return c.json({ ok: true });
-  })
+    },
+  )
   .get('/units/:unitId', (c) => {
     const { db } = c.var.deps;
     const unitId = c.req.param('unitId');
@@ -254,6 +274,8 @@ export const sourceRoutes = new Hono<Env>()
         patch.candidateId = candidate.id;
       }
       if (body.statusId) patch.statusId = body.statusId;
+      // A person's translation or status: the line's status is theirs now (docs/DESIGN.md 3.5).
+      if (patch.statusId || patch.translation !== undefined) Object.assign(patch, { statusBy: 'human', statusRunId: null });
       if (body.listener !== undefined) Object.assign(patch, { listener: body.listener, listenerOrigin: 'human', listenerConfidence: null });
       if (Object.keys(patch).length) tx.update(s.units).set(patch).where(eq(s.units.id, unitId)).run();
       if (body.tagIds) {

@@ -11,6 +11,11 @@ import { choiceKey, draftModelChoiceSchema, EMPTY_MODEL_CHOICE, type ModelChoice
  * and documents did nothing or hurt, so they are opt-in per node.
  */
 export const contextConfigSchema = z.object({
+  /**
+   * Leave out terms and knowledge that AI confirmed and no person has looked at (✦), e.g. for a
+   * review that should check against what people decided. Off: AI-confirmed items are used too.
+   */
+  humanOnly: z.boolean().default(false),
   glossary: z.boolean().default(true),
   documents: z.boolean().default(false),
   characters: z.boolean().default(false),

@@ -337,12 +337,14 @@ describe('function nodes', () => {
     expect(byKey.get('u1')!.translation).toBe('[Line 1]');
     expect(received).toEqual([{ text: '[Hi {name}]' }]);
     expect(items[0].data.outputs?.script).toEqual({ terms: 2 });
-    // New terms are added once, as candidates; a known one (any case) is not added again, only filled.
+    // New terms are added once, confirmed by AI (설정 › AI 확정 default); a known one (any case) is not added again, only filled.
     const terms = db.select().from(s.terms).where(eq(s.terms.projectId, projectId)).all();
-    expect(terms.map((term) => [term.source, term.target, term.note, term.status])).toEqual([
-      ['directorate', '총국', '기관', 'candidate'],
-      ['Line', '줄', '', 'candidate'],
+    expect(terms.map((term) => [term.source, term.target, term.note, term.status, term.statusBy])).toEqual([
+      ['directorate', '총국', '기관', 'candidate', 'human'],
+      ['Line', '줄', '', 'confirmed', 'ai'],
     ]);
+    // The run set every line's status: AI, with the run.
+    expect(units.map((unit) => [unit.statusBy, unit.statusRunId])).toEqual(units.map(() => ['ai', runId]));
     expect(db.select().from(s.candidates).where(eq(s.candidates.origin, 'tool')).all()).toHaveLength(4);
   });
 
@@ -367,3 +369,44 @@ describe('function nodes', () => {
     expect(item.error).toContain('초 안에 끝나지 않았습니다');
   });
 });
+
+describe('who set the status', () => {
+  const confirmFlow = (statusId: string) =>
+    workflowDefinitionSchema.parse({
+      nodes: [
+        { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: {} },
+        { id: 'confirm', type: 'function', position: { x: 0, y: 0 }, config: { fn: 'setStatus', params: { statusId } } },
+        { id: 'end', type: 'end', position: { x: 0, y: 0 } },
+      ],
+      edges: [
+        { id: '1', source: 'entry', sourceHandle: 'out', target: 'confirm' },
+        { id: '2', source: 'confirm', sourceHandle: 'out', target: 'end' },
+      ],
+    });
+  const noModel: ModelPort = { judge: async () => { throw new Error('unused'); }, generate: async () => { throw new Error('unused'); } };
+
+  it('sends a line to the review inbox instead of a status only a person may set, and says why', async () => {
+    const { db, projectId } = setup(2);
+    const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).all();
+    const final = statuses.find((status) => status.kind === 'final')!;
+    const inbox = statuses.find((status) => status.inReview)!;
+    db.update(s.statuses).set({ humanOnly: true }).where(eq(s.statuses.id, final.id)).run();
+    const workflow = db.insert(s.workflows).values({ projectId, name: '확정', definition: confirmFlow(final.id) }).returning().get();
+    const { runId } = createRun(db, { projectId, workflow, models: {}, scope: {} });
+    await new Runner(db, memoryStore(), noModel).drain();
+
+    const units = db.select().from(s.units).where(eq(s.units.projectId, projectId)).all();
+    expect(units.map((unit) => [unit.statusId, unit.statusBy, unit.statusRunId])).toEqual(units.map(() => [inbox.id, 'ai', runId]));
+    const items = db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all();
+    expect(items.every((item) => item.data.issues?.[0]?.includes('사람만 지정할 수 있어 검토함으로 보냈습니다'))).toBe(true);
+
+    // Without a review-inbox status the line stays where it was, with the same reason.
+    db.update(s.statuses).set({ inReview: false }).where(eq(s.statuses.projectId, projectId)).run();
+    const before = units[0].statusId;
+    const again = createRun(db, { projectId, workflow, models: {}, scope: { unitIds: [units[0].id], ignoreStatus: true } });
+    await new Runner(db, memoryStore(), noModel).drain();
+    expect(db.select().from(s.units).where(eq(s.units.id, units[0].id)).get()!.statusId).toBe(before);
+    expect(db.select().from(s.runItems).where(eq(s.runItems.runId, again.runId)).get()!.data.issues?.[0]).toContain('상태를 바꾸지 않았습니다');
+  });
+});
+
