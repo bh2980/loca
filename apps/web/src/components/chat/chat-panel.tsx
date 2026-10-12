@@ -59,8 +59,11 @@ export function ChatPanel({ projectId }: { projectId: string }) {
   const create = useMutation({
     mutationFn: () => unwrap(client.projects[':projectId'].chat.$post({ param: { projectId }, json: { profileId: chatProfiles[0]?.id } })),
     onSuccess: (session) => {
-      void queryClient.invalidateQueries({ queryKey: ['chat', projectId] });
+      // The new conversation joins the list before it is picked: otherwise the stale list would
+      // unpick it, and a waiting AI-button request would start yet another one, again and again.
+      queryClient.setQueryData(q.chatSessions(projectId).queryKey, (list) => (list ? [session as (typeof list)[number], ...list.filter((item) => item.id !== session.id)] : list));
       setSessionId(session.id);
+      void queryClient.invalidateQueries({ queryKey: ['chat', projectId] });
     },
   });
 
@@ -78,8 +81,13 @@ export function ChatPanel({ projectId }: { projectId: string }) {
   const current = sessions.data?.find((session) => session.id === sessionId);
   // An AI button was pressed with no conversation yet: start one, the request waits for it.
   const pendingRequest = usePendingAgentRequest();
+  // One conversation per wait: never a second while the first is being made or was just made.
+  const starting = useRef(false);
   useEffect(() => {
-    if (pendingRequest && sessions.data && !sessionId && !create.isPending) create.mutate();
+    if (!pendingRequest) starting.current = false;
+    if (!pendingRequest || !sessions.data || sessionId || create.isPending || starting.current) return;
+    starting.current = true;
+    create.mutate();
   }, [pendingRequest, sessions.data, sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
