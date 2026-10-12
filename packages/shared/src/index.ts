@@ -5,3 +5,7 @@ export * from './connections.ts';
 export * from './defaults.ts';
 export * from './functions.ts';
 export * from './presets.ts';
+export * from './agent.ts';
+export * from './script.ts';
+export * from './context.ts';
+export * from './knowledge.ts';

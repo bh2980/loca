@@ -1,13 +1,13 @@
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { formatRulesSchema, importFileSchema, patchOf, STATUS_COLORS } from '@tw/shared';
+import { agentSettingsSchema, formatRulesSchema, importFileSchema, importWarnings, patchOf, STATUS_COLORS, summarizeImport } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { forgetProjectContext } from '../services/context.ts';
 import { importProject } from '../services/importer.ts';
-import { computeLayouts } from '../services/layout.ts';
+import { cancelLayout, computeLayouts } from '../services/layout.ts';
 
 const statusInput = z.object({ name: z.string().trim().min(1).max(40), color: z.string().default(STATUS_COLORS[0]), kind: z.enum(['initial', 'normal', 'final']).default('normal'), inReview: z.boolean().default(false) });
 const tagInput = z.object({ name: z.string().trim().min(1).max(40), color: z.string().default(STATUS_COLORS[2]) });
@@ -34,20 +34,7 @@ export const projectRoutes = new Hono<Env>()
     const result = importFileSchema.safeParse(c.req.valid('json'));
     if (!result.success)
       return c.json({ ok: false as const, issues: result.error.issues.slice(0, 50).map((issue) => ({ path: issue.path.join('.'), message: issue.message })) });
-    const file = result.data;
-    return c.json({
-      ok: true as const,
-      summary: {
-        name: file.project.name,
-        groups: file.groups.length,
-        units: file.units.length,
-        graphNodes: file.graph?.nodes.length ?? 0,
-        graphEdges: file.graph?.edges.length ?? 0,
-        characters: file.characters.length,
-        documents: file.documents.length,
-        terms: file.terms.length,
-      },
-    });
+    return c.json({ ok: true as const, summary: summarizeImport(result.data), warnings: importWarnings(result.data) });
   })
   .post('/', validate('json', importFileSchema), (c) => {
     const { db } = c.var.deps;
@@ -77,7 +64,7 @@ export const projectRoutes = new Hono<Env>()
       .get()!.count;
     return c.json({ ...project, byStatus, groupCount, reviewCount });
   })
-  .patch('/:projectId', validate('json', z.object({ name: z.string().trim().min(1).optional(), description: z.string().optional(), formatRules: formatRulesSchema.optional() })), (c) => {
+  .patch('/:projectId', validate('json', z.object({ name: z.string().trim().min(1).optional(), description: z.string().optional(), formatRules: formatRulesSchema.optional(), agentSettings: agentSettingsSchema.optional() })), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     found(db.update(s.projects).set(c.req.valid('json')).where(eq(s.projects.id, projectId)).returning().get(), '프로젝트');
@@ -89,6 +76,7 @@ export const projectRoutes = new Hono<Env>()
     const projectId = c.req.param('projectId');
     const active = db.select({ id: s.runs.id }).from(s.runs).where(and(eq(s.runs.projectId, projectId), eq(s.runs.status, 'running'))).all();
     for (const run of active) c.var.deps.runner.cancel(run.id);
+    cancelLayout(projectId);
     db.delete(s.projects).where(eq(s.projects.id, projectId)).run();
     forgetProjectContext(projectId);
     events.changed(undefined, 'projects');
@@ -104,7 +92,7 @@ export const projectRoutes = new Hono<Env>()
       .from(s.units)
       .innerJoin(s.statuses, eq(s.statuses.id, s.units.statusId))
       .where(eq(s.units.projectId, projectId))
-      .orderBy(asc(s.units.groupId), asc(s.units.sort))
+      .orderBy(asc(s.units.seq))
       .all();
     c.header('Content-Disposition', `attachment; filename="${encodeURIComponent(project.name)}-translations.json"`);
     return c.json({ format: 'translation-workbench/translations-v1', project: project.name, targetLanguage: project.targetLanguage, units: rows });

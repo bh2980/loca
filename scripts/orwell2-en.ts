@@ -16,13 +16,15 @@
  *     as a scene it would sit between every pair of conversations;
  *   - groups get a section for the script list: the chapter for conversations and event text,
  *     the source ("insider_davidspc", "website_beholder") for documents;
- *   - groups left without lines are dropped. Graph nodes and edges are kept as they are.
+ *   - groups left without lines are dropped. Graph nodes and edges are kept as they are;
+ *   - the format is set to the current name and the graph is declared partial: the game unlocks
+ *     conversations by investigation state, which the graph does not encode.
  *
  * Usage: pnpm tsx scripts/orwell2-en.ts <orwell2-data folder>
  */
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { importFileSchema, type ImportFileInput } from '../packages/shared/src/index.ts';
+import { IMPORT_FORMAT, importFileSchema, type ImportFileInput } from '../packages/shared/src/index.ts';
 
 type File = ImportFileInput & { groups: NonNullable<ImportFileInput['groups']>; units: NonNullable<ImportFileInput['units']> };
 interface Conversation {
@@ -111,6 +113,7 @@ const graph = base.graph && {
 
 const output: File = {
   ...base,
+  format: IMPORT_FORMAT,
   project: {
     ...base.project,
     description: `${base.project.description ?? ''}\n영어(en) 원문만 담았습니다. 장면은 대화(conversation) 단위이고, 장(Day)은 묶음 메타데이터 chapter에 있습니다.`.trim(),

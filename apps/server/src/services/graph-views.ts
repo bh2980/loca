@@ -1,0 +1,104 @@
+import { createHash } from 'node:crypto';
+import { and, eq, sql } from 'drizzle-orm';
+import { lineFilterSchema } from '@tw/shared';
+import type { Db } from '../db/index.ts';
+import * as s from '../db/schema.ts';
+import { nodeSetLayout } from './layout.ts';
+import { allLines } from './script-query.ts';
+
+/** What an agent can pick graph nodes by; every part is optional and they add up. */
+export interface NodePick {
+  /** Scene ids, keys or titles: every node in them. */
+  scenes?: string[];
+  /** Lines these characters speak (names, aliases or speaker keys). */
+  speakers?: string[];
+  /** Line keys. */
+  lines?: string[];
+  /** Lines whose source, translation, speaker or key contains this text. */
+  q?: string;
+  /** Also the nodes this many steps before and after the picked ones (0–5). */
+  around?: number;
+}
+
+/** Most nodes one view holds; past this the agent is asked to narrow it. */
+export const VIEW_LIMIT = 5_000;
+
+/** The graph nodes a pick names, and what it could not find. */
+export function pickNodes(db: Db, projectId: string, pick: NodePick) {
+  const nodes = new Set<string>();
+  const unknown: string[] = [];
+  const groups = db.select({ id: s.groups.id, key: s.groups.key, title: s.groups.title }).from(s.groups).where(eq(s.groups.projectId, projectId)).all();
+  const sceneIds = new Set<string>();
+  for (const scene of pick.scenes ?? []) {
+    const lower = scene.toLowerCase();
+    const match = groups.filter((group) => group.id === scene || group.key === scene || group.title.toLowerCase() === lower);
+    if (match.length) for (const group of match) sceneIds.add(group.id);
+    else unknown.push(scene);
+  }
+  if (sceneIds.size)
+    for (const row of db.select({ id: s.graphNodes.id, groupId: s.graphNodes.groupId }).from(s.graphNodes).where(eq(s.graphNodes.projectId, projectId)).all())
+      if (row.groupId && sceneIds.has(row.groupId)) nodes.add(row.id);
+  // Lines → the graph nodes that hold them.
+  const lineFilter = { ...(pick.speakers?.length && { speakers: pick.speakers }), ...(pick.lines?.length && { keys: pick.lines }), ...(pick.q && { q: pick.q }) };
+  if (Object.keys(lineFilter).length) {
+    const unitIds = allLines(db, projectId, lineFilterSchema.parse(lineFilter)).map((line) => line.id);
+    if (pick.lines?.length) {
+      const found = new Set(allLines(db, projectId, lineFilterSchema.parse({ keys: pick.lines })).map((line) => line.key));
+      unknown.push(...pick.lines.filter((key) => !found.has(key)));
+    }
+    if (unitIds.length)
+      for (const row of db.all<{ id: string }>(sql`
+        select distinct n.id as id from ${s.graphNodes} n, json_each(n.unit_ids) j
+        where n.project_id = ${projectId} and j.value in (select value from json_each(${JSON.stringify(unitIds)}))`))
+        nodes.add(row.id);
+  }
+  const around = Math.min(5, Math.max(0, pick.around ?? 0));
+  if (around && nodes.size) {
+    const edges = db.select({ from: s.graphEdges.fromId, to: s.graphEdges.toId }).from(s.graphEdges).where(eq(s.graphEdges.projectId, projectId)).all();
+    const near = new Map<string, string[]>();
+    for (const edge of edges) {
+      (near.get(edge.from) ?? near.set(edge.from, []).get(edge.from)!).push(edge.to);
+      (near.get(edge.to) ?? near.set(edge.to, []).get(edge.to)!).push(edge.from);
+    }
+    let frontier = [...nodes];
+    for (let step = 0; step < around; step++) {
+      const next: string[] = [];
+      for (const id of frontier) for (const other of near.get(id) ?? []) if (!nodes.has(other)) (nodes.add(other), next.push(other));
+      frontier = next;
+    }
+  }
+  return { nodeIds: [...nodes], unknown, scenes: groups.filter((group) => sceneIds.has(group.id)).map((group) => group.title) };
+}
+
+/** Stores a set of nodes (same set, same id) and returns its id. */
+export function saveView(db: Db, projectId: string, nodeIds: string[], label: string) {
+  const ids = [...new Set(nodeIds)].sort();
+  const id = createHash('sha1').update(`${projectId}:${ids.join(',')}`).digest('hex').slice(0, 16);
+  db.insert(s.graphViews).values({ id, projectId, label, nodeIds: ids }).onConflictDoUpdate({ target: s.graphViews.id, set: { label } }).run();
+  return id;
+}
+
+export function readView(db: Db, projectId: string, id: string) {
+  return db.select().from(s.graphViews).where(and(eq(s.graphViews.id, id), eq(s.graphViews.projectId, projectId))).get();
+}
+
+/** The section of a script that holds most of these nodes (where a highlight is best shown). */
+export function sectionWithMost(db: Db, projectId: string, nodeIds: string[]) {
+  const wanted = new Set(nodeIds);
+  const sectionOf = new Map(db.select({ id: s.groups.id, section: s.groups.section }).from(s.groups).where(eq(s.groups.projectId, projectId)).all().map((group) => [group.id, group.section]));
+  const counts = new Map<string, number>();
+  for (const node of db.select({ id: s.graphNodes.id, groupId: s.graphNodes.groupId }).from(s.graphNodes).where(eq(s.graphNodes.projectId, projectId)).all()) {
+    const section = wanted.has(node.id) && node.groupId ? sectionOf.get(node.groupId) : null;
+    if (section) counts.set(section, (counts.get(section) ?? 0) + 1);
+  }
+  return [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+}
+
+/** Lays out a stored view on its own (once) and returns the section key the graph route serves it under. */
+export async function viewSection(db: Db, projectId: string, id: string) {
+  const view = readView(db, projectId, id);
+  if (!view) throw new Error('없는 보기입니다.');
+  const key = `view:${id}`;
+  await nodeSetLayout(db, projectId, key, view.nodeIds, view.label);
+  return key;
+}

@@ -1,6 +1,9 @@
-import { Check, ChevronRight, CircleAlert, Wrench, X } from 'lucide-react';
+import { AGENT_TOOLS } from '@tw/shared';
+import { useNavigate, useParams } from '@tanstack/react-router';
+import { Check, ChevronRight, CircleAlert, Network, Wrench, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { workflowEdits, type WorkflowNodeEdit } from '@/lib/workflow-edits';
+import { ProposalCard, type Proposal } from './proposal-card';
 import { Markdown } from './markdown';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -18,33 +21,10 @@ interface Part {
   approval?: { id: string; approved?: boolean };
 }
 
-const LABEL: Record<string, string> = {
-  project_overview: '프로젝트 개요 조회',
-  list_scenes: '장면 목록 조회',
-  read_scene: '장면 읽기',
-  search_lines: '대사 검색',
-  list_speakers: '화자 목록 조회',
-  list_characters: '인물 조회',
-  read_documents: '참조 문서 읽기',
-  list_terms: '용어집 조회',
-  harness_reference: '워크플로 구조 확인',
-  read_workflow: '워크플로 읽기',
-  read_run: '실행 기록 읽기',
-  save_character: '인물 저장',
-  save_relationship: '관계 저장',
-  save_document: '참조 문서 저장',
-  save_terms: '용어 저장',
-  save_profile: 'AI 프로필 저장',
-  save_workflow: '워크플로 저장',
-  save_status: '상태·태그 만들기',
-  read_line: '대사 읽기',
-  propose_translation: '번역 후보 추가',
-  save_group_summary: '장면 요약 저장',
-  edit_workflow_node: '워크플로 노드 수정',
-};
+export const LABEL: Record<string, string> = Object.fromEntries(Object.entries(AGENT_TOOLS).map(([name, info]) => [name, info.label]));
 
 /** A readable preview of what an approval-gated tool would change. */
-function ChangePreview({ name, input }: { name: string; input: Record<string, unknown> }) {
+export function ChangePreview({ name, input }: { name: string; input: Record<string, unknown> }) {
   const field = (label: string, value: unknown) =>
     value === undefined || value === '' ? null : (
       <div className="grid grid-cols-[5rem_1fr] gap-2">
@@ -98,6 +78,49 @@ function ChangePreview({ name, input }: { name: string; input: Record<string, un
         </dl>
       );
     }
+    case 'propose_changes': {
+      const changes = (input.changes as { key: string; translation?: string; status?: string; addTags?: string[]; removeTags?: string[] }[] | undefined) ?? [];
+      // A large batch arrives as its first lines plus counts (see routes/proposals.ts).
+      const counts = input.counts as { lines: number; translations: number; statuses: number; tagged: number } | undefined;
+      const translations = counts?.translations ?? changes.filter((change) => change.translation !== undefined).length;
+      const statuses = counts?.statuses ?? changes.filter((change) => change.status).length;
+      const tagged = counts?.tagged ?? changes.filter((change) => change.addTags?.length || change.removeTags?.length).length;
+      return (
+        <div className="space-y-2">
+          <p>
+            대사 <b>{(counts?.lines ?? changes.length).toLocaleString()}</b>개 · 번역 {translations.toLocaleString()} · 상태 {statuses.toLocaleString()} · 태그 {tagged.toLocaleString()}
+            {counts && changes.length < counts.lines && <span className="text-muted-foreground"> · 처음 {changes.length}개만 표시</span>}
+          </p>
+          <ul className="max-h-56 space-y-1 overflow-auto">
+            {changes.slice(0, 50).map((change) => (
+              <li key={change.key} className="rounded border px-2 py-1">
+                <span className="font-mono text-[11px] text-muted-foreground">{change.key}</span>
+                {change.translation !== undefined && <span className="block">{change.translation}</span>}
+                {(change.status || change.addTags?.length || change.removeTags?.length) && (
+                  <span className="block text-muted-foreground">
+                    {[change.status && `→ ${change.status}`, ...(change.addTags ?? []).map((tag) => `+#${tag}`), ...(change.removeTags ?? []).map((tag) => `−#${tag}`)].filter(Boolean).join(' ')}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+          {changes.length > 50 && <p className="text-muted-foreground">외 {changes.length - 50}개</p>}
+          <p className="text-muted-foreground">수락하면 한 번에 반영됩니다. 그사이 다른 곳에서 바뀐 대사는 덮어쓰지 않고 건너뜁니다.</p>
+        </div>
+      );
+    }
+    case 'start_run': {
+      const count = (key: string) => ((input[key] as unknown[] | undefined) ?? []).length;
+      const scope = [count('groupIds') && `장면·묶음 ${count('groupIds')}개`, count('unitIds') && `대사 ${count('unitIds')}개`, count('tagIds') && `태그 ${count('tagIds')}개`].filter(Boolean).join(', ') || '진입 조건에 맞는 모든 대사';
+      return (
+        <dl className="space-y-1">
+          {field('워크플로', input.workflowId)}
+          {field('범위', scope)}
+          {field('상태 조건', input.ignoreStatus ? '무시하고 실행' : '진입 상태에 맞는 대사만')}
+          <p className="text-muted-foreground">수락하면 바로 실행이 시작되고 AI 호출 비용이 듭니다.</p>
+        </dl>
+      );
+    }
     case 'propose_translation':
       return <dl className="space-y-1">{field('번역', input.text)}{field('메모', input.note)}</dl>;
     case 'save_group_summary':
@@ -118,8 +141,10 @@ function ChangePreview({ name, input }: { name: string; input: Record<string, un
   }
 }
 
-export function ToolPart({ part, stale, onDecide, onOutput }: {
+export function ToolPart({ part, stale, onDecide, onOutput, proposal }: {
   part: Part;
+  /** For pi chats: the stored proposal a change tool produced (decided with its own buttons). */
+  proposal?: Proposal;
   /** Not in the latest reply: an unanswered proposal can no longer be applied. */
   stale?: boolean;
   onDecide: (approvalId: string, approved: boolean) => void;
@@ -128,7 +153,8 @@ export function ToolPart({ part, stale, onDecide, onOutput }: {
 }) {
   const name = part.type.slice('tool-'.length);
   const label = LABEL[name] ?? name;
-  const isChange = name.startsWith('save_') || name === 'propose_translation';
+  const isChange = name.startsWith('save_') || name.startsWith('propose_') || name === 'start_run';
+  if (proposal) return <ProposalCard proposal={proposal} />;
 
   if (name === 'edit_workflow_node' && part.input && (part.state === 'input-available' || part.state === 'output-available')) {
     const output = part.output as { applied?: boolean } | undefined;
@@ -137,7 +163,7 @@ export function ToolPart({ part, stale, onDecide, onOutput }: {
         <div className="flex items-center gap-2 border-b bg-muted/40 px-3 py-1.5 text-xs font-medium">
           <Wrench className="size-3.5 text-muted-foreground" /> {label}
           <span className="ml-auto">
-            {output?.applied === true && <span className="text-emerald-600">편집기에 적용됨 · 저장 필요</span>}
+            {output?.applied === true && <span className="text-success">편집기에 적용됨 · 저장 필요</span>}
             {output?.applied === false && <span className="text-muted-foreground">거절함</span>}
             {!output && stale && <span className="text-muted-foreground">응답하지 않음</span>}
           </span>
@@ -175,7 +201,7 @@ export function ToolPart({ part, stale, onDecide, onOutput }: {
           <Wrench className="size-3.5 text-muted-foreground" /> {label}
           <span className="ml-auto">
             {part.state === 'output-denied' && <span className="text-muted-foreground">거절함</span>}
-            {part.state === 'output-available' && !failed && <span className="text-emerald-600">적용됨</span>}
+            {part.state === 'output-available' && !failed && <span className="text-success">적용됨</span>}
             {failed && <span className="text-destructive">{String((part.output as { error?: string }).error ?? '실패')}</span>}
             {part.state === 'approval-responded' && <Spinner className="size-3" />}
           </span>
@@ -195,6 +221,8 @@ export function ToolPart({ part, stale, onDecide, onOutput }: {
     );
   }
 
+  if (name === 'show_graph' && part.state === 'output-available' && (part.output as GraphViewOutput)?.ok) return <GraphViewLink output={part.output as GraphViewOutput} />;
+
   return (
     <Collapsible>
       <CollapsibleTrigger className="group flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground">
@@ -209,5 +237,30 @@ export function ToolPart({ part, stale, onDecide, onOutput }: {
         </pre>
       </CollapsibleContent>
     </Collapsible>
+  );
+}
+
+interface GraphViewOutput {
+  ok: true;
+  nodes: number;
+  label: string;
+  open: { to: '/p/$projectId/graph'; search: Record<string, string | undefined> };
+}
+
+/** show_graph: the view the agent made, opened with one click. */
+function GraphViewLink({ output }: { output: GraphViewOutput }) {
+  const navigate = useNavigate();
+  const { projectId } = useParams({ strict: false }) as { projectId?: string };
+  const only = String(output.open.search.section ?? '').startsWith('view:');
+  return (
+    <div className="flex items-center gap-2 rounded-lg border bg-background px-3 py-2 text-xs">
+      <Network className="size-3.5 text-muted-foreground" />
+      <span className="min-w-0 flex-1 truncate">
+        {output.label} · 노드 {output.nodes.toLocaleString()}개 {only ? '따로 그림' : '강조'}
+      </span>
+      <Button size="sm" variant="outline" className="h-7" disabled={!projectId} onClick={() => void navigate({ to: output.open.to, params: { projectId: projectId! }, search: output.open.search as never })}>
+        그래프에서 보기
+      </Button>
+    </div>
   );
 }

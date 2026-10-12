@@ -16,9 +16,9 @@ import {
   applyNodeChanges,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { ChevronLeft, LayoutGrid, Plus, RotateCcw, Save } from 'lucide-react';
+import { ChevronLeft, LayoutGrid, Plus, RotateCcw, Save, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { AI_OUTPUTS, AI_PRESETS, FUNCTIONS, FUNCTION_NAMES, nodeName, workflowNodeSchema, type FunctionName, type WorkflowDefinition, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
+import { AI_OUTPUTS, AI_PRESETS, FUNCTIONS, FUNCTION_NAMES, nodeName, nodeProfileIds, workflowNodeSchema, type FunctionName, type WorkflowDefinition, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
 import { Page } from '@/components/page';
 import { autoLayout } from '@/components/workflow/auto-layout';
 import { NodeConfig } from '@/components/workflow/node-config';
@@ -33,6 +33,7 @@ import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { workflowEdits } from '@/lib/workflow-edits';
+import { SplitPane } from '@/components/split-pane';
 
 export const Route = createFileRoute('/p/$projectId/workflows/$workflowId')({
   validateSearch: (raw: Record<string, unknown>): { node?: string } => ({ node: typeof raw.node === 'string' ? raw.node : undefined }),
@@ -97,6 +98,9 @@ function WorkflowEditor() {
 
   // Validate the draft on the server (same rules as run start), debounced.
   const [issues, setIssues] = useState<WorkflowIssue[]>([]);
+  // The selected line (for Delete/Backspace and the "선 삭제" button); edges are rebuilt from the
+  // definition, so their selection is kept here.
+  const [edgeId, setEdgeId] = useState<string>();
   useEffect(() => {
     if (!current) return;
     if (!draft) return setIssues(workflow.data?.issues ?? []);
@@ -126,7 +130,7 @@ function WorkflowEditor() {
         return node.config.statusIds.length ? node.config.statusIds.map((id) => statusName.get(id) ?? '삭제된 상태').join(', ') : '범위 안의 모든 대사';
       case 'ai': {
         const batch = node.config.batch.mode === 'unit' ? '하나씩' : node.config.batch.mode === 'group' ? `장면별 ≤${node.config.batch.size}` : `${node.config.batch.size}개씩`;
-        return `${AI_OUTPUTS[node.config.output].label} · ${profileName.get(node.config.profileId) ?? '프로필 없음'} · ${batch}`;
+        return `${AI_OUTPUTS[node.config.output].label} · ${profileName.get(node.config.profileId) ?? '프로필 없음'}${nodeProfileIds(node).length > 1 ? ` 외 ${nodeProfileIds(node).length - 1}개` : ''} · ${batch}`;
       }
       case 'function': {
         const params = node.config.params as Record<string, unknown>;
@@ -157,12 +161,19 @@ function WorkflowEditor() {
     return counts;
   }, [live.data]);
 
+  // React Flow measures each node and reports it as a 'dimensions' change; nodes rebuilt without
+  // those sizes stay hidden (and their edges undrawn) until measured again, which never happens
+  // when the size did not change. So the sizes are kept here and put back on every rebuild.
+  const [measured, setMeasured] = useState<Record<string, { width: number; height: number }>>({});
+  // Another workflow reuses node ids ("entry", "translate") with other sizes.
+  useEffect(() => setMeasured({}), [workflowId]);
   const nodes: FlowNode[] = useMemo(
     () =>
       (current?.definition.nodes ?? []).map((node) => ({
         id: node.id,
         type: 'workflow',
         position: node.position,
+        measured: measured[node.id],
         selected: node.id === search.node,
         deletable: node.type !== 'entry',
         data: {
@@ -178,11 +189,13 @@ function WorkflowEditor() {
           })(),
         },
       })),
-    [current?.definition, search.node, issues, liveCounts, statuses.data, profiles.data, connections.data], // eslint-disable-line react-hooks/exhaustive-deps
+    [current?.definition, search.node, issues, liveCounts, statuses.data, profiles.data, connections.data, measured], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const edges: Edge[] = useMemo(
-    () =>
-      (current?.definition.edges ?? []).map((edge) => {
+    () => {
+      const all = current?.definition.edges ?? [];
+      return all.map((edge) => {
+        const branches = all.filter((other) => other.source === edge.source && other.sourceHandle === edge.sourceHandle).length;
         const negative = ['error', 'fail', 'false', 'rejected'].includes(edge.sourceHandle);
         return {
           id: edge.id,
@@ -192,10 +205,13 @@ function WorkflowEditor() {
           targetHandle: 'in',
           type: 'smoothstep',
           markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
-          style: negative ? { stroke: '#fb7185', strokeDasharray: '5 4' } : { stroke: '#a1a1aa' },
+          selected: edge.id === edgeId,
+          ...(branches > 1 ? { label: '모두 보냄', labelStyle: { fontSize: 11, fill: '#71717a' }, labelBgStyle: { fill: '#ffffff' } } : {}),
+          style: { ...(negative ? { stroke: '#fb7185', strokeDasharray: '5 4' } : { stroke: '#a1a1aa' }), ...(edge.id === edgeId && { strokeWidth: 2.5 }) },
         };
-      }),
-    [current?.definition.edges],
+      });
+    },
+    [current?.definition.edges, edgeId],
   );
 
   const select = (id: string | undefined) => void navigate({ search: { node: id }, replace: true });
@@ -227,6 +243,13 @@ function WorkflowEditor() {
   );
 
   const onNodesChange = (changes: NodeChange<FlowNode>[]) => {
+    const sized = changes.filter((change) => change.type === 'dimensions' && change.dimensions);
+    if (sized.length)
+      setMeasured((previous) => {
+        const next = { ...previous };
+        for (const change of sized) if (change.type === 'dimensions' && change.dimensions) next[change.id] = change.dimensions;
+        return next;
+      });
     const moved = changes.filter((change) => change.type === 'position' && change.position);
     const removed = changes.filter((change) => change.type === 'remove').map((change) => change.id);
     if (!moved.length && !removed.length) return;
@@ -241,15 +264,21 @@ function WorkflowEditor() {
     }));
     if (removed.includes(search.node ?? '')) select(undefined);
   };
+  const removeEdges = (ids: string[]) => {
+    setDraft((value) => ({ ...value, definition: { ...value.definition, edges: value.definition.edges.filter((edge) => !ids.includes(edge.id)) } }));
+    setEdgeId(undefined);
+  };
   const onEdgesChange = (changes: EdgeChange[]) => {
+    for (const change of changes) if (change.type === 'select') setEdgeId(change.selected ? change.id : (current) => (current === change.id ? undefined : current));
     const removed = changes.filter((change) => change.type === 'remove').map((change) => change.id);
-    if (removed.length) setDraft((value) => ({ ...value, definition: { ...value.definition, edges: value.definition.edges.filter((edge) => !removed.includes(edge.id)) } }));
+    if (removed.length) removeEdges(removed);
   };
   const onConnect = (connection: Connection) => {
     if (!connection.sourceHandle || connection.source === connection.target && false) return;
     setDraft((value) => {
-      // One edge per exit: connecting an exit again replaces its previous edge.
-      const kept = value.definition.edges.filter((edge) => !(edge.source === connection.source && edge.sourceHandle === connection.sourceHandle));
+      // An exit may have several edges (every line goes down all of them); only an exact duplicate is refused.
+      if (value.definition.edges.some((edge) => edge.source === connection.source && edge.sourceHandle === connection.sourceHandle && edge.target === connection.target)) return value;
+      const kept = value.definition.edges;
       const added = addEdge({ ...connection, id: `e-${crypto.randomUUID().slice(0, 8)}` }, kept.map((edge) => ({ ...edge }))) as typeof kept;
       return { ...value, definition: { ...value.definition, edges: added.map(({ id, source, sourceHandle, target }) => ({ id, source, sourceHandle: sourceHandle!, target })) } };
     });
@@ -350,6 +379,11 @@ function WorkflowEditor() {
               {!hasEntry && <PaletteItem icon={nodeIcon({ type: 'entry' } as WorkflowNode)} title="진입" description="대사가 흐름에 들어오는 곳" onSelect={() => addNode({ type: 'entry', config: {} }, 'entry')} />}
             </DropdownMenuContent>
           </DropdownMenu>
+          {edgeId && current?.definition.edges.some((edge) => edge.id === edgeId) && (
+            <Button variant="ghost" size="sm" className="text-destructive" onClick={() => removeEdges([edgeId])}>
+              <Trash2 /> 선 삭제
+            </Button>
+          )}
           <Button variant="outline" size="sm" onClick={() => void arrange()}>
             <LayoutGrid /> 자동 정렬
           </Button>
@@ -367,14 +401,51 @@ function WorkflowEditor() {
       flush
     >
       {stale && (
-        <div className="flex items-center gap-3 border-b bg-amber-50 px-6 py-2 text-sm text-amber-900">
+        <div className="flex items-center gap-3 border-b bg-warning/10 px-6 py-2 text-sm text-warning">
           다른 곳에서 v{workflow.data.version}을 저장했습니다. 이 편집은 v{draft!.baseVersion} 기준입니다.
           <Button size="sm" variant="outline" onClick={discard}>
             편집 버리고 최신 불러오기
           </Button>
         </div>
       )}
-      <div className="absolute inset-0 flex" style={stale ? { top: 41 } : undefined}>
+      <SplitPane
+        id="workflow"
+        defaultWidth="360px"
+        className="absolute inset-0"
+        style={stale ? { top: 41 } : undefined}
+        pane={
+          selected && (
+            <div className="h-full bg-background">
+              <NodeConfig
+                key={`${selected.id}:${revision}`}
+                node={selected}
+                issues={issues.filter((issue) => issue.nodeId === selected.id)}
+                refs={{
+                  statuses: statuses.data?.statuses ?? [],
+                  tags: statuses.data?.tags ?? [],
+                  projectId,
+                  profiles: profiles.data ?? [],
+                  connections: connections.data ?? [],
+                  nodes: current.definition.nodes,
+                }}
+                onChange={(next) => setDraft((value) => ({ ...value, definition: { ...value.definition, nodes: value.definition.nodes.map((node) => (node.id === next.id ? next : node)) } }))}
+                onDelete={() => {
+                  setDraft((value) => ({
+                    ...value,
+                    definition: {
+                      ...value.definition,
+                      nodes: value.definition.nodes.filter((node) => node.id !== selected.id),
+                      edges: value.definition.edges.filter((edge) => edge.source !== selected.id && edge.target !== selected.id),
+                    },
+                  }));
+                  select(undefined);
+                }}
+                onClose={() => select(undefined)}
+              />
+            </div>
+          )
+        }
+      >
         <div className="min-w-0 flex-1">
           <ReactFlow
             nodes={nodes}
@@ -383,8 +454,9 @@ function WorkflowEditor() {
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
-            onNodeClick={(_event, node) => select(node.id)}
-            onPaneClick={() => select(undefined)}
+            onNodeClick={(_event, node) => (select(node.id), setEdgeId(undefined))}
+            onEdgeClick={(_event, edge) => setEdgeId(edge.id)}
+            onPaneClick={() => (select(undefined), setEdgeId(undefined))}
             fitView
             fitViewOptions={{ padding: 0.15 }}
             minZoom={0.2}
@@ -395,37 +467,7 @@ function WorkflowEditor() {
             <Controls showInteractive={false} position="bottom-right" />
           </ReactFlow>
         </div>
-        {selected && (
-          <div className="w-[360px] shrink-0 border-l bg-background">
-            <NodeConfig
-              key={`${selected.id}:${revision}`}
-              node={selected}
-              issues={issues.filter((issue) => issue.nodeId === selected.id)}
-              refs={{
-                statuses: statuses.data?.statuses ?? [],
-                tags: statuses.data?.tags ?? [],
-                projectId,
-                profiles: profiles.data ?? [],
-                connections: connections.data ?? [],
-                nodes: current.definition.nodes,
-              }}
-              onChange={(next) => setDraft((value) => ({ ...value, definition: { ...value.definition, nodes: value.definition.nodes.map((node) => (node.id === next.id ? next : node)) } }))}
-              onDelete={() => {
-                setDraft((value) => ({
-                  ...value,
-                  definition: {
-                    ...value.definition,
-                    nodes: value.definition.nodes.filter((node) => node.id !== selected.id),
-                    edges: value.definition.edges.filter((edge) => edge.source !== selected.id && edge.target !== selected.id),
-                  },
-                }));
-                select(undefined);
-              }}
-              onClose={() => select(undefined)}
-            />
-          </div>
-        )}
-      </div>
+      </SplitPane>
     </Page>
   );
 }

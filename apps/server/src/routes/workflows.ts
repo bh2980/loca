@@ -1,14 +1,15 @@
 import { Hono } from 'hono';
-import { and, asc, count, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { termExtractionTemplate, translationTemplate, validateWorkflow, workflowDefinitionSchema, type WorkflowDefinition } from '@tw/shared';
+import { knowledgeTemplate, listenerTemplate, nodeProfileIds, speechFixTemplate, termExtractionTemplate, translationTemplate, validateWorkflow, workflowDefinitionSchema, type WorkflowDefinition } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { lineView } from '../engine/functions/index.ts';
 import { runScript } from '../engine/functions/sandbox.ts';
-import { createRun, selectRunUnits } from '../engine/runner.ts';
+import { createRunInSteps, selectRunUnits } from '../engine/runner.ts';
+import { listBatches, preflight } from '../services/preflight.ts';
 import { snapshotProfiles } from '../services/routes.ts';
 
 const scopeSchema = z.object({ groupIds: z.array(z.string()).optional(), unitIds: z.array(z.string()).optional(), tagIds: z.array(z.string()).optional(), ignoreStatus: z.boolean().optional() });
@@ -33,6 +34,9 @@ function blankWorkflow(db: Db, projectId: string): WorkflowDefinition {
     edges: [{ id: 'e1', source: 'entry', sourceHandle: 'out', target: 'end' }],
   });
 }
+
+/** Single-purpose templates that only need a model profile. */
+const TEMPLATES = { terms: termExtractionTemplate, listener: listenerTemplate, knowledge: knowledgeTemplate, speechFix: speechFixTemplate };
 
 function templateWorkflow(db: Db, projectId: string): WorkflowDefinition {
   const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).orderBy(asc(s.statuses.sort)).all();
@@ -62,17 +66,12 @@ export const workflowRoutes = new Hono<Env>()
       })),
     );
   })
-  .post('/projects/:projectId/workflows', validate('json', z.object({ name: z.string().trim().min(1), from: z.enum(['template', 'terms', 'blank']).default('template') })), (c) => {
+  .post('/projects/:projectId/workflows', validate('json', z.object({ name: z.string().trim().min(1), from: z.enum(['template', 'blank', 'terms', 'listener', 'knowledge', 'speechFix']).default('template') })), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     const { name, from } = c.req.valid('json');
     const profile = db.select({ id: s.profiles.id }).from(s.profiles).orderBy(asc(s.profiles.name)).get();
-    const definition =
-      from === 'template'
-        ? templateWorkflow(db, projectId)
-        : from === 'terms'
-          ? termExtractionTemplate({ profileId: profile?.id ?? '' })
-          : blankWorkflow(db, projectId);
+    const definition = from === 'template' ? templateWorkflow(db, projectId) : from === 'blank' ? blankWorkflow(db, projectId) : TEMPLATES[from]({ profileId: profile?.id ?? '' });
     const row = db.insert(s.workflows).values({ projectId, name, definition }).returning().get();
     events.changed(projectId, 'workflows');
     return c.json(row, 201);
@@ -113,14 +112,21 @@ export const workflowRoutes = new Hono<Env>()
     const workflow = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
     return c.json({ count: selectRunUnits(db, workflow.projectId, workflow.definition, c.req.valid('json')).length });
   })
-  .post('/workflows/:id/runs', validate('json', scopeSchema), (c) => {
+  /** The run plan and its cost estimate, computed without calling a model (see services/preflight.ts). */
+  .post('/workflows/:id/preflight', validate('json', scopeSchema), async (c) => {
+    const { db } = c.var.deps;
+    const workflow = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
+    return c.json(await preflight(db, workflow, c.req.valid('json')));
+  })
+  .post('/workflows/:id/runs', validate('json', scopeSchema.extend({ limits: z.object({ maxCalls: z.number().int().min(1).optional(), maxInputTokens: z.number().int().min(1).optional() }).optional() })), async (c) => {
     const { db } = c.var.deps;
     const workflow = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
     const errors = workflowIssues(db, workflow.projectId, workflow.definition).filter((issue) => issue.level === 'error');
     if (errors.length) badRequest(`워크플로에 오류가 ${errors.length}개 있습니다: ${errors[0].message}`);
-    const profileIds = [...new Set(workflow.definition.nodes.flatMap((node) => (node.type === 'ai' ? [node.config.profileId] : [])))];
+    const profileIds = [...new Set(workflow.definition.nodes.flatMap((node) => (node.type === 'ai' ? nodeProfileIds(node) : [])))];
     try {
-      return c.json(createRun(db, { projectId: workflow.projectId, workflow, profiles: snapshotProfiles(db, profileIds), scope: c.req.valid('json') }), 201);
+      const { limits, ...scope } = c.req.valid('json');
+      return c.json(await createRunInSteps(db, { projectId: workflow.projectId, workflow, profiles: snapshotProfiles(db, profileIds), scope, limits }), 201);
     } catch (error) {
       return badRequest(error instanceof Error ? error.message : String(error));
     }
@@ -132,7 +138,7 @@ export const workflowRoutes = new Hono<Env>()
     const { code, ports, unitId } = c.req.valid('json');
     const unit = unitId
       ? db.select().from(s.units).where(and(eq(s.units.id, unitId), eq(s.units.projectId, c.req.param('projectId')))).get()
-      : db.select().from(s.units).where(eq(s.units.projectId, c.req.param('projectId'))).orderBy(asc(s.units.sort)).limit(1).get();
+      : db.select().from(s.units).where(eq(s.units.projectId, c.req.param('projectId'))).orderBy(asc(s.units.seq)).limit(1).get();
     if (!unit) return badRequest('시험할 대사가 없습니다.');
     const input = lineView({ unit, item: { data: { path: [], outputs: {} }, visits: {} } as never, tagIds: [], projectId: unit.projectId, runId: 'test' });
     const started = Date.now();
@@ -146,27 +152,129 @@ export const workflowRoutes = new Hono<Env>()
   })
 
   // ── runs ───────────────────────────────────────────────────────────
+  /** The project's AI log: every model request, newest first (see ai-calls.ts), with totals. */
+  .get('/projects/:projectId/ai-calls', validate('query', z.object({ kind: z.enum(s.AI_CALL_KINDS).optional(), status: z.enum(['running', 'ok', 'failed']).optional(), ref: z.string().optional(), limit: z.coerce.number().int().min(1).max(500).default(200) })), (c) => {
+    const { db } = c.var.deps;
+    const projectId = c.req.param('projectId');
+    const { kind, status, ref, limit } = c.req.valid('query');
+    const where = and(eq(s.aiCalls.projectId, projectId), kind ? eq(s.aiCalls.kind, kind) : undefined, status ? eq(s.aiCalls.status, status) : undefined, ref ? eq(s.aiCalls.refId, ref) : undefined);
+    const calls = db.select().from(s.aiCalls).where(where).orderBy(desc(s.aiCalls.startedAt)).limit(limit).all();
+    const profiles = new Map(db.select({ id: s.profiles.id, name: s.profiles.name }).from(s.profiles).all().map((profile) => [profile.id, profile.name]));
+    const totals = db
+      .select({
+        kind: s.aiCalls.kind,
+        calls: sql<number>`count(*)`,
+        running: sql<number>`sum(${s.aiCalls.status} = 'running')`,
+        failed: sql<number>`sum(${s.aiCalls.status} = 'failed')`,
+        inputTokens: sql<number>`coalesce(sum(${s.aiCalls.inputTokens}), 0)`,
+        outputTokens: sql<number>`coalesce(sum(${s.aiCalls.outputTokens}), 0)`,
+      })
+      .from(s.aiCalls)
+      .where(eq(s.aiCalls.projectId, projectId))
+      .groupBy(s.aiCalls.kind)
+      .all();
+    return c.json({ calls: calls.map((call) => ({ ...call, profileName: call.profileId ? (profiles.get(call.profileId) ?? null) : null })), totals });
+  })
+  /**
+   * AI jobs that are not workflow runs (work analysis, glossary fill), for 실행 기록 to list beside
+   * the runs, each with its model requests from the AI log.
+   */
+  .get('/projects/:projectId/jobs', (c) => {
+    const { db } = c.var.deps;
+    const projectId = c.req.param('projectId');
+    const analyses = db.select().from(s.analysisJobs).where(eq(s.analysisJobs.projectId, projectId)).orderBy(desc(s.analysisJobs.createdAt)).limit(100).all();
+    const fills = db.select().from(s.termJobs).where(eq(s.termJobs.projectId, projectId)).orderBy(desc(s.termJobs.createdAt)).limit(100).all();
+    // Chats that called a model: one job per conversation, its turns are its requests.
+    const chats = db
+      .select({
+        id: s.chatSessions.id,
+        title: s.chatSessions.title,
+        profileId: s.chatSessions.profileId,
+        createdAt: sql<number>`min(${s.aiCalls.startedAt})`,
+        finishedAt: sql<number>`max(${s.aiCalls.finishedAt})`,
+        running: sql<number>`sum(${s.aiCalls.status} = 'running')`,
+        failed: sql<number>`sum(${s.aiCalls.status} = 'failed')`,
+      })
+      .from(s.chatSessions)
+      .innerJoin(s.aiCalls, eq(s.aiCalls.refId, s.chatSessions.id))
+      .where(eq(s.chatSessions.projectId, projectId))
+      .groupBy(s.chatSessions.id)
+      .orderBy(desc(sql`min(${s.aiCalls.startedAt})`))
+      .limit(100)
+      .all();
+    const runIds = db.select({ id: s.runs.id }).from(s.runs).where(eq(s.runs.projectId, projectId)).orderBy(desc(s.runs.createdAt)).limit(200).all().map((run) => run.id);
+    const ids = [...analyses, ...fills, ...chats].map((job) => job.id).concat(runIds);
+    const stats = new Map(
+      (ids.length
+        ? db
+            .select({ refId: s.aiCalls.refId, calls: sql<number>`count(*)`, inputTokens: sql<number>`coalesce(sum(${s.aiCalls.inputTokens}), 0)`, outputTokens: sql<number>`coalesce(sum(${s.aiCalls.outputTokens}), 0)` })
+            .from(s.aiCalls)
+            .where(and(eq(s.aiCalls.projectId, projectId), inArray(s.aiCalls.refId, ids)))
+            .groupBy(s.aiCalls.refId)
+            .all()
+        : []
+      ).map((row) => [row.refId!, row]),
+    );
+    const profiles = new Map(db.select({ id: s.profiles.id, name: s.profiles.name }).from(s.profiles).all().map((profile) => [profile.id, profile.name]));
+    // Jobs from before the AI log have their own usage totals; the log adds the request count.
+    const usage = (id: string, own: { inputTokens?: number; outputTokens?: number } | null) => ({
+      calls: stats.get(id)?.calls ?? null,
+      inputTokens: stats.get(id)?.inputTokens || own?.inputTokens || 0,
+      outputTokens: stats.get(id)?.outputTokens || own?.outputTokens || 0,
+    });
+    return c.json({
+      /** Model requests per workflow run, from the AI log (runs started before it have none). */
+      runCalls: Object.fromEntries(runIds.flatMap((id) => (stats.has(id) ? [[id, stats.get(id)!] as const] : []))),
+      jobs: [
+      ...analyses.map((job) => ({ kind: 'analysis' as const, id: job.id, title: '작품 분석', profile: job.profileId ? (profiles.get(job.profileId) ?? null) : null, status: job.status, error: job.error, done: job.partsDone, total: job.partsTotal, createdAt: job.createdAt, finishedAt: job.finishedAt, ...usage(job.id, job.usage) })),
+      ...fills.map((job) => ({ kind: 'terms' as const, id: job.id, title: '용어 AI 채우기', profile: job.profileId ? (profiles.get(job.profileId) ?? null) : null, status: job.status, error: job.error, done: job.done, total: job.total, createdAt: job.createdAt, finishedAt: job.finishedAt, ...usage(job.id, job.usage) })),
+        ...chats.map((chat) => ({ kind: 'chat' as const, id: chat.id, title: chat.title || '채팅', profile: chat.profileId ? (profiles.get(chat.profileId) ?? null) : null, status: chat.running ? ('running' as const) : ('completed' as const), error: chat.failed ? `실패한 요청 ${chat.failed}건` : null, done: null, total: null, createdAt: new Date(chat.createdAt), finishedAt: chat.running ? null : new Date(chat.finishedAt), ...usage(chat.id, null) })),
+      ],
+    });
+  })
   .get('/projects/:projectId/runs', (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     const runs = db
-      .select({ id: s.runs.id, workflowId: s.runs.workflowId, workflowName: s.runs.workflowName, workflowVersion: s.runs.workflowVersion, status: s.runs.status, total: s.runs.total, createdAt: s.runs.createdAt, finishedAt: s.runs.finishedAt })
+      .select({ id: s.runs.id, workflowId: s.runs.workflowId, workflowName: s.runs.workflowName, workflowVersion: s.runs.workflowVersion, status: s.runs.status, notice: s.runs.notice, total: s.runs.total, createdAt: s.runs.createdAt, finishedAt: s.runs.finishedAt })
       .from(s.runs)
       .where(eq(s.runs.projectId, projectId))
       .orderBy(desc(s.runs.createdAt))
       .limit(200)
       .all();
+    // Per line, not per item: a line sent down several branches has an item in each, and is done
+    // only when every branch is (running > queued > failed > cancelled > done).
     const counts = runs.length
-      ? db
-          .select({ runId: s.runItems.runId, state: s.runItems.state, count: count() })
-          .from(s.runItems)
-          .innerJoin(s.runs, eq(s.runs.id, s.runItems.runId))
-          .where(eq(s.runs.projectId, projectId))
-          .groupBy(s.runItems.runId, s.runItems.state)
-          .all()
+      ? db.all<{ runId: string; state: s.ItemState; count: number }>(sql`
+          select run_id as runId, state, count(*) as count from (
+            select i.run_id, case
+              when sum(i.state = 'running') > 0 then 'running'
+              when sum(i.state = 'queued') > 0 then 'queued'
+              when sum(i.state = 'failed') > 0 then 'failed'
+              when sum(i.state = 'cancelled') > 0 then 'cancelled'
+              else 'done' end as state
+            from ${s.runItems} i join ${s.runs} r on r.id = i.run_id
+            where r.project_id = ${projectId}
+            group by i.run_id, i.unit_id
+          ) group by run_id, state`)
       : [];
     const byRun = Map.groupBy(counts, (row) => row.runId);
     return c.json(runs.map((run) => ({ ...run, states: Object.fromEntries((byRun.get(run.id) ?? []).map((row) => [row.state, row.count])) })));
+  })
+  /** The batches this run was planned in (stored per line when it started), as the run dialog lists them. */
+  .get('/runs/:id/plan', (c) => {
+    const { db } = c.var.deps;
+    const run = found(db.select({ id: s.runs.id }).from(s.runs).where(eq(s.runs.id, c.req.param('id'))).get(), '실행');
+    const lines = db
+      .selectDistinct({ plan: s.runItems.plan, groupId: s.units.groupId, speaker: s.units.speaker, seq: s.units.seq, tokens: sql<number>`(length(cast(${s.units.source} as blob)) + 3) / 4` })
+      .from(s.runItems)
+      .innerJoin(s.units, eq(s.units.id, s.runItems.unitId))
+      .where(eq(s.runItems.runId, run.id))
+      .all()
+      .filter((line) => line.plan !== null)
+      .sort((x, y) => x.seq - y.seq);
+    const batches = [...Map.groupBy(lines, (line) => line.plan!).entries()].sort((x, y) => x[0] - y[0]).map(([, list]) => list);
+    return c.json(listBatches(db, batches));
   })
   .get('/runs/:id', (c) => {
     const { db } = c.var.deps;
@@ -178,7 +286,7 @@ export const workflowRoutes = new Hono<Env>()
       .groupBy(s.runItems.nodeId, s.runItems.state)
       .all();
     const usage = db
-      .select({ steps: count(), failed: sql<number>`sum(case when ${s.runSteps.ok} then 0 else 1 end)`, inputTokens: sql<number>`coalesce(sum(${s.runSteps.inputTokens}), 0)`, outputTokens: sql<number>`coalesce(sum(${s.runSteps.outputTokens}), 0)` })
+      .select({ steps: count(), failed: sql<number>`sum(case when ${s.runSteps.ok} then 0 else 1 end)`, inputTokens: sql<number>`coalesce(sum(${s.runSteps.inputTokens}), 0)`, outputTokens: sql<number>`coalesce(sum(${s.runSteps.outputTokens}), 0)`, cachedInputTokens: sql<number>`coalesce(sum(${s.runSteps.cachedInputTokens}), 0)`, reasoningTokens: sql<number>`coalesce(sum(${s.runSteps.reasoningTokens}), 0)`, costUsd: sql<number | null>`sum(${s.runSteps.costUsd})` })
       .from(s.runSteps)
       .where(eq(s.runSteps.runId, run.id))
       .get();
@@ -198,7 +306,7 @@ export const workflowRoutes = new Hono<Env>()
       .from(s.runItems)
       .innerJoin(s.units, eq(s.units.id, s.runItems.unitId))
       .where(where)
-      .orderBy(asc(s.units.groupId), asc(s.units.sort))
+      .orderBy(asc(s.units.seq))
       .limit(limit)
       .offset(offset)
       .all();

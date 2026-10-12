@@ -30,6 +30,35 @@ export const AI_PRESETS: Record<string, { label: string; output: AiOutput; instr
       'Revise each candidate translation so it resolves every listed issue while keeping what was already correct. ' +
       'Keep every placeholder, rich-text tag and line break exactly.',
   },
+  speechFix: {
+    label: 'AI 말투 맞추기',
+    output: 'candidate',
+    include: { candidate: true, issues: false },
+    instructions:
+      'Each line has a current translation ("candidate") and, where known, its listener and a confirmed speechRule. ' +
+      'Change only the sentence endings, honorifics and forms of address so the line follows its speechRule; keep the meaning, word choice and everything else as it is. ' +
+      'If a line already follows its rule, or has no rule, return its candidate unchanged. Keep every placeholder, rich-text tag and line break exactly.',
+  },
+  knowledge: {
+    label: 'AI 자료 변경 찾기',
+    output: 'knowledge',
+    include: { candidate: false, issues: false },
+    instructions:
+      'Read these lines as one scene against what is already known (cast, characters, relationships and the speech rules on each line). ' +
+      'Report only what the scene adds or changes: people not in the cast, a relationship that starts or changes (with the line where it shows), ' +
+      'events that later lines may refer back to, and a point where a speaker starts addressing a listener at a different Korean speech level. ' +
+      'Use only what the lines say; return empty lists when nothing is new.',
+  },
+  listener: {
+    label: 'AI 청자 추정',
+    output: 'listener',
+    include: { candidate: false, issues: false },
+    instructions:
+      'For each line, decide who the speaker is addressing, so a Korean translator can pick the right speech level. ' +
+      'Read the whole batch as a scene: who is present, turn-taking, vocatives, questions and answers. ' +
+      'Name the listener exactly as in the cast list (the player character included, even if it never speaks); use "group" for several people present, ' +
+      '"public" for an unspecified audience (broadcast, announcement, post), "self" for thinking aloud, and null when you cannot tell. Give a confidence from 0 to 1; never guess with high confidence.',
+  },
   terms: {
     label: 'AI 용어 추출',
     output: 'terms',

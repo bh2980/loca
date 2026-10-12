@@ -3,13 +3,70 @@
  *   pnpm mock-llm            → http://127.0.0.1:4398/v1   (model id: mock)
  * Workflows: translations are "[KO] <source>"; review fails a line once (lines ending in "?"), revise fixes it.
  * Chat: asks for tools the way a real model would (overview, then a character proposal when asked about 인물).
+ * Every structured answer matches the server's zod schemas (checked by apps/server/src/engine/mock-llm.test.ts).
+ *
+ * Cost and failure profiles (environment variables; every one can also be sent per request as an
+ * `x-mock-<name>` header, e.g. `x-mock-drop-rate: 0.1`, so one process serves several tests):
+ *   MOCK_FIXED_TOKENS   added to prompt_tokens per request (agent CLIs add 13k-29k of their own)
+ *   MOCK_CACHED_TOKENS  reported as prompt_tokens_details.cached_tokens (inside prompt_tokens)
+ *   MOCK_LATENCY_MS     base latency + up to 25% jitter (default 400ms, 1500ms for work analysis)
+ *   MOCK_DROP_RATE      fraction of per-line entries left out of the answer
+ *   MOCK_DUP_RATE       fraction of entries that repeat the previous entry's id
+ *   MOCK_EMPTY_RATE     fraction of translations with empty text
+ *   MOCK_BAD_JSON_RATE  fraction of answers that are not valid JSON
+ *   MOCK_429_RATE       fraction of requests answered 429 with a Retry-After header
+ *   MOCK_TRUNCATE_RATE  fraction of answers cut short with finish_reason "length"
+ *   MOCK_SEED           seed of the PRNG, so a run is reproducible (default 1)
+ *   MOCK_PROFILE        presets, comma separated; explicit variables win
+ *     cli-like  fixed 20000, cached 10000, latency 2000ms
+ *     faulty    drop 0.05, 429 0.03, bad JSON 0.02, truncate 0.01
+ * Usage is always token-like: prompt_tokens = fixed + ceil(chars/4), completion_tokens = ceil(chars/4).
+ * GET /__stats → requests, by kind, input/cached/output tokens, lines-per-request histogram; POST /__reset clears it.
  */
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
+import { envGetter, hashString, headerGetter, makeRand, resolveOptions, respond, usageFor, type Usage } from './mock-llm-core.ts';
 
 const port = Number(process.env.MOCK_LLM_PORT ?? 4398);
 const app = new Hono();
+
+const envOptions = resolveOptions(envGetter(process.env));
+const random = makeRand(envOptions.seed);
+/** Process settings, overridden by `x-mock-*` headers of one request. */
+const requestOptions = (headers: Headers) => resolveOptions(headerGetter(headers), envOptions);
+
+const stats = {
+  requests: 0,
+  rejected429: 0,
+  byKind: {} as Record<string, number>,
+  inputTokens: 0,
+  cachedTokens: 0,
+  outputTokens: 0,
+  linesPerRequest: {} as Record<string, number>,
+  record(kind: string, status: number, lines: number, usage: Usage) {
+    this.requests++;
+    this.byKind[kind] = (this.byKind[kind] ?? 0) + 1;
+    if (status === 429) {
+      this.rejected429++;
+      return;
+    }
+    this.inputTokens += usage.prompt_tokens;
+    this.cachedTokens += usage.prompt_tokens_details.cached_tokens;
+    this.outputTokens += usage.completion_tokens;
+    if (lines > 0) this.linesPerRequest[lines] = (this.linesPerRequest[lines] ?? 0) + 1;
+  },
+  reset() {
+    this.requests = this.rejected429 = this.inputTokens = this.cachedTokens = this.outputTokens = 0;
+    this.byKind = {};
+    this.linesPerRequest = {};
+  },
+};
+app.get('/__stats', (c) => c.json({ requests: stats.requests, rejected429: stats.rejected429, byKind: stats.byKind, inputTokens: stats.inputTokens, cachedTokens: stats.cachedTokens, outputTokens: stats.outputTokens, linesPerRequest: stats.linesPerRequest }));
+app.post('/__reset', (c) => {
+  stats.reset();
+  return c.json({ ok: true });
+});
 
 interface Message {
   role: string;
@@ -33,36 +90,27 @@ app.post('/v1/chat/completions', async (c) => {
   const last = body.messages.at(-1);
 
   if (body.response_format) {
-    const input = JSON.parse(text(last)) as { lines: { id: string; source: string; candidate?: string }[] };
-    // Lines mentioning "orders" never pass review, so they end up waiting for a person.
-    const stubborn = (source: string) => /orders/i.test(source);
-    if (system.includes('Find proper nouns')) {
-      // Capitalised words that are not sentence starts stand in for proper nouns.
-      const words = new Set(input.lines.flatMap((line) => [...line.source.matchAll(/(?<=\s)([A-Z][a-z]{3,})/g)].map((match) => match[1])));
-      const terms = [...words].map((source) => ({ source, target: `[${source}]`, note: '모의 추출' }));
-      return c.json({ id: 'mock', object: 'chat.completion', model: 'mock', choices: [{ index: 0, message: { role: 'assistant', content: JSON.stringify({ terms }) }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } });
+    const options = requestOptions(c.req.raw.headers);
+    const schema = (body.response_format as { json_schema?: { schema?: unknown } }).json_schema?.schema;
+    const rand = c.req.header('x-mock-seed') ? makeRand(options.seed ^ hashString(system + text(last))) : random;
+    const outcome = respond({ system, user: text(last), schema }, options, rand);
+    stats.record(outcome.kind, outcome.status, outcome.lines, outcome.usage);
+    await new Promise((resolve) => setTimeout(resolve, outcome.delayMs));
+    if (outcome.status === 429) {
+      c.header('Retry-After', String(outcome.retryAfterSeconds ?? 1));
+      return c.json(JSON.parse(outcome.content), 429);
     }
-    const kind = system.includes('Review each') ? 'review' : system.includes('Revise each') ? 'revise' : 'translate';
-    const content =
-      kind === 'review'
-        ? {
-            results: input.lines.map((line) => {
-              const failed = stubborn(line.source) || (line.source.trim().endsWith('?') && line.candidate?.startsWith('[KO]'));
-              return { id: line.id, passed: !failed, issues: failed ? [stubborn(line.source) ? '“orders”의 대상(누구의 명령인지)이 번역에서 모호합니다.' : '의문문 어조가 자연스럽지 않습니다.'] : [] };
-            }),
-          }
-        : { translations: input.lines.map((line) => ({ id: line.id, text: kind === 'revise' ? `[KO✓] ${line.source}` : `[KO] ${line.source}` })) };
-    await new Promise((resolve) => setTimeout(resolve, 400));
     return c.json({
       id: 'mock',
       object: 'chat.completion',
       model: 'mock',
-      choices: [{ index: 0, message: { role: 'assistant', content: JSON.stringify(content) }, finish_reason: 'stop' }],
-      usage: { prompt_tokens: system.length + text(last).length, completion_tokens: JSON.stringify(content).length, total_tokens: 0 },
+      choices: [{ index: 0, message: { role: 'assistant', content: outcome.content }, finish_reason: outcome.finishReason }],
+      usage: outcome.usage,
     });
   }
 
   // Chat agent turn.
+  if (process.env.MOCK_DEBUG) console.log('roles', body.messages.map((message) => message.role).join(','));
   const tools = new Set(body.tools?.map((tool) => tool.function.name));
   const user = text([...body.messages].reverse().find((message) => message.role === 'user'));
   let call: { name: string; args: unknown } | undefined;
@@ -89,6 +137,9 @@ app.post('/v1/chat/completions', async (c) => {
   const table = '## 모의 현황\n\n| 항목 | 내용 |\n|---|---|\n| 프로젝트 | 모의 프로젝트 |\n| 대사 | 8,157개 |\n\n- [x] 표 렌더링\n- [ ] ~~취소선~~';
   const reply = /표/.test(user) ? table : last?.role === 'tool' ? '도구 결과를 확인했습니다. (모의 응답)' : `"${user.slice(0, 40)}"에 대한 모의 응답입니다.`;
 
+  const options = requestOptions(c.req.raw.headers);
+  const usage = usageFor(body.messages.map((message) => text(message)).join('').length + JSON.stringify(body.tools ?? []).length, (call ? JSON.stringify(call.args) : reply).length, options);
+  stats.record('chat', 200, 0, usage);
   return streamSSE(c, async (stream) => {
     const chunk = (delta: unknown, finish: string | null = null) =>
       stream.writeSSE({ data: JSON.stringify({ id: 'mock', object: 'chat.completion.chunk', model: 'mock', choices: [{ index: 0, delta, finish_reason: finish }] }) });
@@ -104,7 +155,7 @@ app.post('/v1/chat/completions', async (c) => {
       }
       await chunk({}, 'stop');
     }
-    await stream.writeSSE({ data: JSON.stringify({ id: 'mock', object: 'chat.completion.chunk', model: 'mock', choices: [], usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 } }) });
+    await stream.writeSSE({ data: JSON.stringify({ id: 'mock', object: 'chat.completion.chunk', model: 'mock', choices: [], usage }) });
     await stream.writeSSE({ data: '[DONE]' });
   });
 });

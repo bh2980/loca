@@ -1,0 +1,19 @@
+{
+  "name": "@tw/cli",
+  "private": true,
+  "type": "module",
+  "description": "loca — the game translation workbench from the terminal",
+  "bin": {
+    "loca": "./bin/loca.mjs"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@tw/server": "workspace:*",
+    "@tw/shared": "workspace:*",
+    "commander": "14.0.1",
+    "hono": "^4.13.13",
+    "tsx": "^4.23.15"
+  }
+}

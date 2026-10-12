@@ -2,12 +2,15 @@
  * Writes standard-format sample projects.
  *   samples/relay-station.json   small curated story: branch, join, loop, characters, documents, glossary
  *   samples/synthetic-9k.json    ~9,000-node synthetic script graph for layout/performance checks (not committed)
- * Usage: pnpm samples
+ *   samples/realistic-<n>k.json  short scenes, hubs, characters, terms, documents, listeners, translations (not committed)
+ * Usage: pnpm samples                                        relay-station + synthetic-9k
+ *        pnpm samples -- --profile realistic --size 9000     only realistic-9k.json (also 50000)
  */
 import { writeFileSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { importFileSchema, type ImportFileInput } from '../packages/shared/src/index.ts';
+import { realistic } from './realistic-sample.ts';
 
 const out = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../samples');
 mkdirSync(out, { recursive: true });
@@ -16,6 +19,21 @@ function write(name: string, file: ImportFileInput) {
   importFileSchema.parse(file); // never ship a sample the importer would reject
   writeFileSync(path.join(out, name), JSON.stringify(file, null, 1));
   console.log(`${name}: ${file.units.length} lines, ${file.graph?.nodes.length ?? 0} nodes`);
+}
+
+const flag = (name: string) => {
+  const args = process.argv.slice(2);
+  const at = args.findIndex((arg) => arg === `--${name}` || arg.startsWith(`--${name}=`));
+  return at < 0 ? undefined : args[at].includes('=') ? args[at].split('=')[1] : args[at + 1];
+};
+if (flag('profile') !== undefined) {
+  if (flag('profile') !== 'realistic') throw new Error(`unknown --profile "${flag('profile')}" (known: realistic)`);
+  const size = Number(flag('size') ?? 9000);
+  if (!Number.isInteger(size) || size < 100) throw new Error(`--size must be an integer of at least 100, got "${flag('size')}"`);
+  const { file, report } = realistic(size);
+  write(`realistic-${size % 1000 === 0 ? `${size / 1000}k` : size}.json`, file);
+  console.log(report);
+  process.exit(0);
 }
 
 /** A converter ships one entry per original node class: display kind + what it means. */
@@ -84,7 +102,7 @@ edges.push(
   { from: 'e.dawn', to: 'n.ending.1' },
 );
 write('relay-station.json', {
-  format: 'translation-workbench/v1',
+  format: 'loca/v1',
   project: { name: '중계소 (샘플)', description: '분기·합류·반복이 있는 작은 샘플 프로젝트', sourceLanguage: 'en', targetLanguage: 'ko' },
   groups: [...scenes.map((scene, order) => ({ key: scene.key, title: scene.title, order })), { key: 'ui', kind: 'ui', title: '메뉴 UI', order: scenes.length }],
   units: [...units, { key: 'ui.continue', group: 'ui', kind: 'ui', source: 'Continue' }, { key: 'ui.save', group: 'ui', kind: 'ui', source: 'Save & Quit' }],
@@ -179,7 +197,7 @@ function synthetic(target: number): ImportFileInput {
     graphNodes.push({ key: `n.${key}`, type: 'ChatMessageState', units: [key] });
   }
   return {
-    format: 'translation-workbench/v1',
+    format: 'loca/v1',
     project: { name: `합성 그래프 ${target.toLocaleString()}노드`, description: '배치·성능 확인용 합성 데이터' },
     groups,
     units: lines,

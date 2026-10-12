@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { AI_PRESETS, importFileSchema, workflowDefinitionSchema } from '@tw/shared';
+import { AI_PRESETS, importFileSchema, knowledgeTemplate, listenerTemplate, workflowDefinitionSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
 import { snapshotProfiles } from '../services/routes.ts';
 import { memoryStore } from '../services/secrets.ts';
+import { promptEntries } from './prompts.ts';
 import { createRun, Runner, type ModelPort } from './runner.ts';
 
 function setup(lines = 30) {
@@ -17,7 +18,7 @@ function setup(lines = 30) {
     .returning()
     .get();
   const file = importFileSchema.parse({
-    format: 'translation-workbench/v1',
+    format: 'loca/v1',
     project: { name: 'Test' },
     groups: [{ key: 'g1', title: 'Scene' }],
     units: Array.from({ length: lines }, (_, index) => ({ key: `u${index}`, group: 'g1', source: index === 0 ? 'Hi {name}' : `Line ${index}` })),
@@ -37,7 +38,7 @@ function fakeModel(): ModelPort & { calls: string[] } {
       throw new Error('unused');
     },
     generate: async (_route, request) => {
-      const input = JSON.parse(request.prompt) as { lines: { id: string; source: string; candidate?: string }[] };
+      const input = { lines: promptEntries(request.prompt) as { id: string; source: string; candidate?: string }[] };
       const kind = request.system.includes('Review each') ? 'review' : request.system.includes('Revise each') ? 'revise' : request.system.includes('Find proper nouns') ? 'terms' : 'translate';
       if (kind === 'terms') return { object: { terms: [{ source: 'Directorate', target: '총국', note: '기관' }, { source: 'Line', target: '줄', note: '' }] }, usage: {} } as never;
       calls.push(kind);
@@ -121,6 +122,154 @@ describe('workflow runner', () => {
   });
 });
 
+describe('listener estimation', () => {
+  it('records AI listeners with their confidence and leaves a person\'s choice alone', async () => {
+    const { db, projectId, profileId } = setup(3);
+    const units = db.select().from(s.units).where(eq(s.units.projectId, projectId)).orderBy(s.units.sort).all();
+    db.update(s.units).set({ listener: 'Bob', listenerOrigin: 'human' }).where(eq(s.units.id, units[2].id)).run();
+    db.insert(s.characters).values([{ projectId, name: 'Alice' }, { projectId, name: 'Pat', player: true }]).run();
+    const workflow = db.insert(s.workflows).values({ projectId, name: '청자', definition: listenerTemplate({ profileId }) }).returning().get();
+    const prompts: string[] = [];
+    const runner = new Runner(db, memoryStore(), {
+      judge: async () => {
+        throw new Error('unused');
+      },
+      generate: async (_route, request) => {
+        prompts.push(request.prompt);
+        const input = { lines: promptEntries(request.prompt) as { id: string }[] };
+        return { object: { listeners: input.lines.map((line, index) => ({ id: line.id, listener: index === 0 ? 'Pat' : null, confidence: index === 0 ? 0.95 : 0.4 })) }, usage: {} } as never;
+      },
+    });
+    createRun(db, { projectId, workflow, profiles: snapshotProfiles(db, [profileId]), scope: {} });
+    await runner.drain();
+
+    // The whole cast goes in, the player marked, even though nobody is named in the lines.
+    expect(JSON.parse(prompts[0]).cast).toEqual([{ name: 'Alice', aliases: [] }, { name: 'Pat', aliases: [], player: true }]);
+    const after = db.select().from(s.units).where(eq(s.units.projectId, projectId)).orderBy(s.units.sort).all();
+    expect(after.map((unit) => [unit.listener, unit.listenerOrigin, unit.listenerConfidence])).toEqual([
+      ['Pat', 'ai', 0.95],
+      [null, 'ai', 0.4],
+      ['Bob', 'human', null],
+    ]);
+  });
+});
+
+describe('listener template', () => {
+  it('sends only dialogue lines without a known listener to the model and never overwrites an import listener', async () => {
+    const lines = [
+      // [kind, listener, origin, confidence]
+      ['dialogue', 'Bob', 'import', null],
+      ['dialogue', 'Bob', 'human', null],
+      ['dialogue', 'Bob', 'ai', 0.95],
+      ['dialogue', 'Bob', 'ai', 0.5],
+      ['dialogue', null, null, null],
+      ['ui', null, null, null],
+      ['document', null, null, null],
+      ['dialogue', null, null, null],
+    ] as const;
+    const db = openDatabase(':memory:');
+    const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1' }).returning().get();
+    const profile = db.insert(s.profiles).values({ name: 'fake', connectionId: connection.id, model: 'm', maxOutputTokens: 1000, timeoutSeconds: 30, maxAttempts: 1 }).returning().get();
+    const file = importFileSchema.parse({
+      format: 'loca/v1',
+      project: { name: 'Test' },
+      groups: [{ key: 'g1', title: 'Scene' }],
+      units: lines.map(([kind, listener], index) => ({ key: `u${index}`, group: 'g1', source: `Line ${index}`, kind, ...(listener && { listener }) })),
+    });
+    const { projectId } = importProject(db, file, profile.id);
+    const rows = db.select().from(s.units).where(eq(s.units.projectId, projectId)).orderBy(s.units.sort).all();
+    // Importing marks every given listener "import"; set the other origins as the later lines would have them.
+    rows.forEach((row, index) => {
+      const [, listener, origin, confidence] = lines[index];
+      if (listener) db.update(s.units).set({ listenerOrigin: origin, listenerConfidence: confidence }).where(eq(s.units.id, row.id)).run();
+    });
+    const workflow = db.insert(s.workflows).values({ projectId, name: '청자', definition: listenerTemplate({ profileId: profile.id }) }).returning().get();
+    const sent: string[] = [];
+    const runner = new Runner(db, memoryStore(), {
+      judge: async () => {
+        throw new Error('unused');
+      },
+      generate: async (_route, request) => {
+        const entries = promptEntries(request.prompt) as { id: string; source: string }[];
+        sent.push(...entries.map((entry) => entry.source));
+        return { object: { listeners: entries.map((entry) => ({ id: entry.id, listener: 'Zed', confidence: 0.95 })) }, usage: {} } as never;
+      },
+    });
+    createRun(db, { projectId, workflow, profiles: snapshotProfiles(db, [profile.id]), scope: { ignoreStatus: true } });
+    await runner.drain();
+
+    // Import, person, confident AI and non-dialogue lines are skipped; the unsure AI guess and the two blank dialogue lines are asked.
+    expect(sent.sort()).toEqual(['Line 3', 'Line 4', 'Line 7']);
+    const after = db.select().from(s.units).where(eq(s.units.projectId, projectId)).orderBy(s.units.sort).all();
+    expect(after.map((unit) => [unit.listener, unit.listenerOrigin])).toEqual([
+      ['Bob', 'import'],
+      ['Bob', 'human'],
+      ['Bob', 'ai'],
+      ['Zed', 'ai'],
+      ['Zed', 'ai'],
+      [null, null],
+      [null, null],
+      ['Zed', 'ai'],
+    ]);
+  });
+
+  it('setListener alone skips import listeners and non-dialogue lines', async () => {
+    const { syncFunctions } = await import('./functions/index.ts');
+    const record = (unit: Record<string, unknown>) => {
+      const updates: unknown[] = [];
+      const tx = { update: () => ({ set: (values: unknown) => ({ where: () => ({ run: () => updates.push(values) }) }) }) };
+      const input = { unit, item: { data: { outputs: { n: { listener: 'Zed', confidence: 0.99 } } }, visits: {} } };
+      const result = syncFunctions.setListener!(tx as never, { fromNodeId: 'n' }, input as never);
+      return { updates, result };
+    };
+    expect(record({ kind: 'dialogue', listener: 'Bob', listenerOrigin: 'import' }).updates).toEqual([]);
+    expect(record({ kind: 'ui', listener: null, listenerOrigin: null }).updates).toEqual([]);
+    expect(record({ kind: 'dialogue', listener: null, listenerOrigin: null }).updates).toHaveLength(1);
+  });
+});
+
+describe('knowledge updates', () => {
+  it('adds what a scene reveals as AI items, never edits official knowledge, and stays idempotent', async () => {
+    const { db, projectId, profileId } = setup(3);
+    const [alice] = db.insert(s.characters).values([{ projectId, name: 'Alice' }, { projectId, name: 'Bob' }]).returning().all();
+    const bob = db.select().from(s.characters).where(eq(s.characters.name, 'Bob')).get()!;
+    db.insert(s.relationships).values({ projectId, fromId: alice.id, toId: bob.id, kind: 'friend' }).run();
+    db.insert(s.speechRules).values({ projectId, fromName: 'Alice', toName: 'Bob', level: 'hae' }).run();
+    const workflow = db.insert(s.workflows).values({ projectId, name: '자료', definition: knowledgeTemplate({ profileId }) }).returning().get();
+    const runner = new Runner(db, memoryStore(), {
+      judge: async () => {
+        throw new Error('unused');
+      },
+      generate: async () =>
+        ({
+          object: {
+            characters: [{ name: 'Carol', aliases: [], profile: 'new' }, { name: 'alice', aliases: [], profile: 'dup' }],
+            relationships: [{ from: 'Alice', to: 'Bob', kind: 'friend', description: '', change: 'falls out', at: '2' }],
+            events: [{ title: 'Fight', summary: '', outcome: '', participants: ['Alice'], evidence: ['1'] }],
+            speechRules: [{ from: 'Alice', to: 'Bob', level: 'haeyo', address: '', note: '', start: null }, { from: 'Alice', to: 'Bob', level: 'hasipsio', address: '', note: '', start: '3' }],
+          },
+          usage: {},
+        }) as never,
+    });
+    createRun(db, { projectId, workflow, profiles: snapshotProfiles(db, [profileId]), scope: {} });
+    await runner.drain();
+
+    const people = db.select().from(s.characters).where(eq(s.characters.projectId, projectId)).all();
+    expect(people.map((c) => [c.name, c.origin, c.status])).toEqual([['Alice', 'human', 'confirmed'], ['Bob', 'human', 'confirmed'], ['Carol', 'ai', 'confirmed']]);
+    // The official relationship keeps its form; the change waits beside it as a candidate.
+    const rels = db.select().from(s.relationships).where(eq(s.relationships.projectId, projectId)).all();
+    expect(rels.map((r) => [r.origin, r.status, r.changes.map((c) => c.at)])).toEqual([['human', 'confirmed', []], ['ai', 'candidate', ['u1']]]);
+    expect(db.select().from(s.storyEvents).all().map((e) => [e.title, e.evidence])).toEqual([['Fight', ['u0']]]);
+    // A different level for the stretch a person decided is a proposal; a new stretch is a new AI rule.
+    const rules = db.select().from(s.speechRules).where(eq(s.speechRules.projectId, projectId)).all();
+    expect(rules.map((r) => [r.level, r.startKey, r.origin, r.status])).toEqual([
+      ['hae', null, 'human', 'confirmed'],
+      ['haeyo', null, 'ai', 'candidate'],
+      ['hasipsio', 'u2', 'ai', 'confirmed'],
+    ]);
+  });
+});
+
 describe('function nodes', () => {
   it('chains AI term extraction, term candidates, a sandboxed script and an HTTP tool', async () => {
     const { createServer } = await import('node:http');
@@ -139,7 +288,7 @@ describe('function nodes', () => {
     const port = (server.address() as { port: number }).port;
 
     const { db, projectId, profileId } = setup(3);
-    const tool = db.insert(s.connections).values({ kind: 'http', name: 'speller', baseUrl: `http://127.0.0.1:${port}`, headerTemplate: 'X-Key: {key}' }).returning().get();
+    const tool = db.insert(s.connections).values({ kind: 'http', name: 'speller', headerTemplate: 'X-Key: {key}' }).returning().get();
     const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).all();
     const confirmed = statuses.find((status) => status.kind === 'final')!;
     const definition = workflowDefinitionSchema.parse({
@@ -159,7 +308,7 @@ describe('function nodes', () => {
             },
           },
         },
-        { id: 'http', type: 'function', position: { x: 0, y: 0 }, config: { fn: 'http', params: { connectionId: tool.id, body: '{ "text": "{{candidate}}" }', resultPath: 'result.text' } } },
+        { id: 'http', type: 'function', position: { x: 0, y: 0 }, config: { fn: 'http', params: { url: `http://127.0.0.1:${port}/spell`, connectionId: tool.id, body: '{ "text": "{{candidate}}" }', resultPath: 'result.text' } } },
         { id: 'confirm', type: 'function', position: { x: 0, y: 0 }, config: { fn: 'setStatus', params: { statusId: confirmed.id, applyCandidate: true } } },
         { id: 'end', type: 'end', position: { x: 0, y: 0 } },
       ],

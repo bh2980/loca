@@ -1,7 +1,7 @@
 # Translation Workbench working rules
 
 - Product: user-defined translation statuses + workflow nodes between them that automate translation with AI. Story/world documents, characters, relationships and the dialogue/scene graphs exist to give AI nodes context. See `docs/DESIGN.md`; update its journeys and acceptance criteria before changing a flow.
-- Check the complete journey in the browser (start the API, Vite and `pnpm mock-llm`), including native Back/Forward, retained filters/selection/drafts, and realistic volume (`pnpm samples` → `samples/synthetic-9k.json`). A successful build is not UX verification.
+- Check the complete journey in the browser (start the API, Vite and `pnpm mock-llm`), including native Back/Forward, retained filters/selection/drafts, and realistic volume (`pnpm samples -- --profile realistic --size 9000` → `samples/realistic-9k.json`; the mock LLM's `MOCK_PROFILE=cli-like|faulty` adds per-call overhead and failures). A successful build is not UX verification.
 - URL search params are the source of truth for page state (filters, selection, tabs). Viewports and unsaved drafts live in sessionStorage; never push history entries for polling, panning or SSE refreshes.
 - Server changes reach the client as SSE topics (`apps/server/src/events.ts`); query keys start with the topic. Do not add polling.
 - Labels must describe actual scope and evidence. Scene links are derived from the dialogue graph and must say so. Never invent graph edges or relationships.
@@ -10,3 +10,4 @@
 - UI: shadcn/ui components and tokens only, white neutral theme, color reserved for meaning. Collections are tables; details open in a right-hand pane, not modals (AlertDialog only for destructive confirmation). The project chat is a global right-docked panel and every page reports its selection via `useReportView`.
 - After `shadcn add`, replace any `from "cn"` import with `@/lib/utils` and remove the `cn` package it adds.
 - Never run real AI jobs or modify user translations as part of verification without authorization; use the mock LLM and an isolated `WORKBENCH_DATA_DIR`.
+- The `loca` CLI (apps/cli) and the chat tools share the server's script service (`services/script-query.ts`). Anything that changes the project from the CLI or a pi chat becomes a proposal the user accepts in the app; never add a CLI path that writes directly. Keep `skills/` in step with CLI commands.

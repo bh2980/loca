@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
-import { BookPlus, Braces, CircleDot, Code, Flag, GitFork, Globe, ListChecks, ScanSearch, Sparkles, SpellCheck, Tag } from 'lucide-react';
+import { BookPlus, Braces, CircleDot, Code, Flag, GitFork, Globe, ListChecks, MessageCircleQuestion, NotebookPen, ScanSearch, Sparkles, SpellCheck, Tag, UserCheck } from 'lucide-react';
 import { nodeName, nodePorts, type WorkflowNode } from '@tw/shared';
 import { cn } from '@/lib/utils';
 
@@ -11,10 +11,12 @@ const FUNCTION_ICON: Record<string, Icon> = {
   glossaryCheck: SpellCheck,
   setStatus: Tag,
   addTerms: BookPlus,
+  setListener: UserCheck,
+  applyKnowledge: NotebookPen,
   http: Globe,
   script: Code,
 };
-const AI_ICON: Record<string, Icon> = { candidate: Sparkles, verdict: ScanSearch, terms: BookPlus, json: Braces };
+const AI_ICON: Record<string, Icon> = { candidate: Sparkles, verdict: ScanSearch, terms: BookPlus, listener: MessageCircleQuestion, knowledge: NotebookPen, json: Braces };
 
 export function nodeIcon(node: WorkflowNode): Icon {
   switch (node.type) {
@@ -50,7 +52,7 @@ export type FlowNode = Node<
 
 function Badges({ errors, warnings }: { errors: string[]; warnings: string[] }) {
   if (errors.length) return <span className="shrink-0 rounded bg-destructive/10 px-1.5 text-[11px] font-medium text-destructive">오류 {errors.length}</span>;
-  if (warnings.length) return <span className="shrink-0 rounded bg-amber-100 px-1.5 text-[11px] font-medium text-amber-700">주의</span>;
+  if (warnings.length) return <span className="shrink-0 rounded bg-warning/15 px-1.5 text-[11px] font-medium text-warning">주의</span>;
   return null;
 }
 

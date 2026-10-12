@@ -66,7 +66,7 @@ function Reviews() {
                   {item.groupTitle} · {item.key}
                 </p>
                 <p className="truncate text-sm">{item.source}</p>
-                {!!item.lastRun?.issues.length && <p className="truncate text-xs text-amber-700">{item.lastRun.issues[0]}</p>}
+                {!!item.lastRun?.issues.length && <p className="truncate text-xs text-warning">{item.lastRun.issues[0]}</p>}
               </button>
             </li>
           ))}
@@ -158,7 +158,7 @@ function ReviewItem({ projectId, item, position, statuses, onDone }: {
         {!!item.lastRun?.issues.length && (
           <section className="rounded-md border p-3 text-sm">
             <h3 className="mb-1 text-xs font-medium text-muted-foreground">최근 실행에서 지적된 문제</h3>
-            <ul className="list-disc pl-5 text-amber-800">
+            <ul className="list-disc pl-5 text-warning">
               {item.lastRun.issues.map((issue, i) => (
                 <li key={i}>{issue}</li>
               ))}
@@ -188,7 +188,7 @@ function ReviewItem({ projectId, item, position, statuses, onDone }: {
           </div>
         </div>
 
-        <LineChecks projectId={projectId} source={item.source} text={draft} terms={terms.data ?? []} rules={project.data?.formatRules} />
+        <LineChecks projectId={projectId} source={item.source} text={draft} terms={terms.data ?? []} rules={project.data?.formatRules} speech={unit.data?.speech} />
 
         {!!unit.data?.candidates.length && (
           <section>

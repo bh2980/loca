@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BaseEdge, Background, Controls, EdgeLabelRenderer, Handle, MarkerType, Position, ReactFlow, useInternalNode, type Edge, type EdgeProps, type InternalNode, type Node, type NodeProps } from '@xyflow/react';
+import { BaseEdge, Background, Controls, EdgeLabelRenderer, Handle, MarkerType, Panel, Position, ReactFlow, useInternalNode, type Edge, type EdgeProps, type InternalNode, type Node, type NodeChange, type NodeProps } from '@xyflow/react';
+import { Button } from '@/components/ui/button';
 import ELK from 'elkjs/lib/elk.bundled.js';
 import '@xyflow/react/dist/style.css';
 import { cn } from '@/lib/utils';
@@ -14,6 +15,8 @@ export interface GraphRelationship {
   toId: string;
   kind: string;
   mutual: boolean;
+  /** Drawn dashed: a candidate not yet used as context. */
+  dashed?: boolean;
 }
 
 const NODE_WIDTH = 150;
@@ -21,7 +24,9 @@ const NODE_HEIGHT = 44;
 const elk = new ELK();
 
 type PersonNode = Node<{ label: string; dim: boolean }, 'person'>;
-type RelationEdge = Edge<{ offset: number; kind: string; dim: boolean; focus: boolean }, 'relation'>;
+/** A line's label: one row per relationship it stands for (two when the pair goes both ways). */
+type LabelRow = { id: string; text: string; selected: boolean };
+type RelationEdge = Edge<{ offset: number; rows: LabelRow[]; dim: boolean; focus: boolean; dashed?: boolean; showLabel: boolean; onPick: (id: string) => void }, 'relation'>;
 
 function PersonNodeView({ data, selected }: NodeProps<PersonNode>) {
   return (
@@ -63,15 +68,27 @@ function FloatingEdge({ id, source, target, markerStart, markerEnd, data, select
   const label = { x: 0.25 * from.x + 0.5 * control.x + 0.25 * to.x, y: 0.25 * from.y + 0.5 * control.y + 0.25 * to.y };
   return (
     <>
-      <BaseEdge id={id} path={path} markerStart={markerStart} markerEnd={markerEnd} interactionWidth={20} style={{ stroke: selected || data?.focus ? 'var(--color-primary)' : '#a1a1aa', strokeWidth: selected ? 2.5 : data?.focus ? 2 : 1.5, opacity: data?.dim ? 0.2 : 1 }} />
-      <EdgeLabelRenderer>
-        <div
-          className={cn('nodrag nopan pointer-events-none absolute rounded border bg-background px-1.5 py-0.5 text-[11px]', (selected || data?.focus) && 'border-primary text-primary', data?.dim && 'opacity-30')}
-          style={{ transform: `translate(-50%, -50%) translate(${label.x}px, ${label.y}px)` }}
-        >
-          {data?.kind}
-        </div>
-      </EdgeLabelRenderer>
+      <BaseEdge id={id} path={path} markerStart={markerStart} markerEnd={markerEnd} interactionWidth={20} style={{ stroke: selected || data?.focus ? 'var(--color-primary)' : '#a1a1aa', strokeWidth: selected ? 2.5 : data?.focus ? 2 : 1.5, opacity: data?.dim ? 0.2 : 1, strokeDasharray: data?.dashed ? '5 4' : undefined }} />
+      {/* Labels of every relationship at once pile up; they show for the selected or hovered person, or on the selected line. */}
+      {(selected || data?.showLabel) && (
+        <EdgeLabelRenderer>
+          <div
+            data-relation-label
+            className={cn('nodrag nopan absolute flex flex-col rounded border bg-background text-[11px] shadow-xs', (selected || data?.focus) && 'border-primary', data?.dim && 'opacity-30')}
+            style={{ transform: `translate(-50%, -50%) translate(${label.x}px, ${label.y}px)`, pointerEvents: 'all' }}
+          >
+            {data?.rows.map((row) => (
+              <button key={row.id} type="button" className={cn('px-1.5 py-0.5 text-left whitespace-nowrap hover:bg-muted', row.selected ? 'font-medium text-primary' : (selected || data.focus) && 'text-primary')} onClick={(event) => {
+                  // The line under the label would otherwise take the click and pick the first relationship.
+                  event.stopPropagation();
+                  data.onPick(row.id);
+                }}>
+                {row.text}
+              </button>
+            ))}
+          </div>
+        </EdgeLabelRenderer>
+      )}
     </>
   );
 }
@@ -81,9 +98,11 @@ const edgeTypes = { relation: FloatingEdge };
 
 /**
  * Characters as nodes, stored relationships as edges. People form a network rather than a
- * narrative, so ELK's stress layout is used instead of a layered (directional) one.
+ * narrative, so ELK's stress layout is used instead of a layered (directional) one. People can be
+ * dragged; where a person was put is remembered in this browser (`storageKey`) over the layout.
  */
-export function RelationshipGraph({ characters, relationships, selectedCharacterId, selectedRelationshipId, onSelectCharacter, onSelectRelationship, onClear }: {
+export function RelationshipGraph({ storageKey, characters, relationships, selectedCharacterId, selectedRelationshipId, onSelectCharacter, onSelectRelationship, onClear }: {
+  storageKey: string;
   characters: GraphCharacter[];
   relationships: GraphRelationship[];
   selectedCharacterId?: string;
@@ -95,6 +114,22 @@ export function RelationshipGraph({ characters, relationships, selectedCharacter
   const [positions, setPositions] = useState<{ key: string; byId: Record<string, { x: number; y: number }> } | null>(null);
   const known = useMemo(() => new Set(characters.map((character) => character.id)), [characters]);
   const drawable = useMemo(() => relationships.filter((relationship) => known.has(relationship.fromId) && known.has(relationship.toId)), [relationships, known]);
+  const [placed, setPlaced] = useState<Record<string, { x: number; y: number }>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(storageKey) ?? '{}') as Record<string, { x: number; y: number }>;
+    } catch {
+      return {};
+    }
+  });
+  const place = (next: Record<string, { x: number; y: number }>) => {
+    setPlaced(next);
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(next));
+    } catch {
+      // Positions are a convenience; without storage they last until reload.
+    }
+  };
+  const [hovered, setHovered] = useState<string | null>(null);
   const layoutKey = useMemo(() => JSON.stringify([characters.map((c) => c.id), drawable.map((r) => [r.fromId, r.toId])]), [characters, drawable]);
 
   useEffect(() => {
@@ -102,7 +137,7 @@ export function RelationshipGraph({ characters, relationships, selectedCharacter
     void elk
       .layout({
         id: 'root',
-        layoutOptions: { 'elk.algorithm': 'stress', 'elk.stress.desiredEdgeLength': '280', 'elk.spacing.nodeNode': '90' },
+        layoutOptions: { 'elk.algorithm': 'stress', 'elk.stress.desiredEdgeLength': '340', 'elk.spacing.nodeNode': '120' },
         children: characters.map((character) => ({ id: character.id, width: NODE_WIDTH, height: NODE_HEIGHT })),
         edges: drawable.map((relationship) => ({ id: relationship.id, sources: [relationship.fromId], targets: [relationship.toId] })),
       })
@@ -132,65 +167,104 @@ export function RelationshipGraph({ characters, relationships, selectedCharacter
         nodeIds.add(relationship.fromId).add(relationship.toId);
       }
     }
-    return { active: nodeIds.size > 0, nodeIds, edgeIds };
-  }, [drawable, selectedCharacterId, selectedRelationshipId]);
+    const labelled = new Set(edgeIds);
+    if (hovered) for (const relationship of drawable) if (relationship.fromId === hovered || relationship.toId === hovered) labelled.add(relationship.id);
+    return { active: nodeIds.size > 0, nodeIds, edgeIds, labelled };
+  }, [drawable, selectedCharacterId, selectedRelationshipId, hovered]);
 
   const nodes = useMemo<PersonNode[]>(
     () =>
       characters.map((character) => ({
         id: character.id,
         type: 'person',
-        position: positions?.byId[character.id] ?? { x: 0, y: 0 },
+        position: placed[character.id] ?? positions?.byId[character.id] ?? { x: 0, y: 0 },
         data: { label: character.name, dim: emphasis.active && !emphasis.nodeIds.has(character.id) },
         selected: character.id === selectedCharacterId,
         width: NODE_WIDTH,
         height: NODE_HEIGHT,
       })),
-    [characters, positions, selectedCharacterId, emphasis],
+    [characters, positions, placed, selectedCharacterId, emphasis],
   );
+  // Where nodes are while being dragged, on top of the memoized nodes: emphasis or selection changing
+  // mid-drag must not put a node back where it was. The drop is kept in `placed`.
+  const [moving, setMoving] = useState<Record<string, { x: number; y: number }>>({});
+  const [dragging, setDragging] = useState(false);
+  const flowNodes = useMemo(() => nodes.map((node) => (moving[node.id] ? { ...node, position: moving[node.id] } : node)), [nodes, moving]);
   const edges = useMemo<RelationEdge[]>(() => {
-    const seen = new Map<string, number>();
-    return drawable.map((relationship) => {
-      const pair = [relationship.fromId, relationship.toId].sort().join('|');
-      const index = seen.get(pair) ?? 0;
-      seen.set(pair, index + 1);
-      // Alternate sides so reversed duplicates do not overlap: 0, +40, -40, +80…
-      const offset = index === 0 ? 0 : (index % 2 ? 1 : -1) * Math.ceil(index / 2) * 40;
-      const marker = { type: MarkerType.ArrowClosed, color: '#71717a' };
-      return {
-        id: relationship.id,
-        type: 'relation',
-        source: relationship.fromId,
-        target: relationship.toId,
-        data: { offset, kind: relationship.kind, dim: emphasis.active && !emphasis.edgeIds.has(relationship.id), focus: emphasis.edgeIds.has(relationship.id) },
-        markerEnd: marker,
-        markerStart: relationship.mutual ? marker : undefined,
-        selected: relationship.id === selectedRelationshipId,
-      };
-    });
-  }, [drawable, selectedRelationshipId, emphasis]);
+    const marker = { type: MarkerType.ArrowClosed, color: '#71717a' };
+    const result: RelationEdge[] = [];
+    for (const list of Map.groupBy(drawable, (relationship) => [relationship.fromId, relationship.toId].sort().join('|')).values()) {
+      // One relationship each way: one line, arrows at both ends, both names in its label.
+      const [first, second] = list;
+      const pairs = list.length === 2 && first.fromId === second.toId && first.toId === second.fromId ? [[first, second]] : list.map((relationship) => [relationship]);
+      pairs.forEach((members, index) => {
+        const [head] = members;
+        const ids = members.map((relationship) => relationship.id);
+        const offset = index === 0 ? 0 : (index % 2 ? 1 : -1) * Math.ceil(index / 2) * 40;
+        result.push({
+          id: ids.join('+'),
+          type: 'relation',
+          source: head.fromId,
+          target: head.toId,
+          data: {
+            offset,
+            rows: members.map((relationship, at) => ({ id: relationship.id, text: members.length > 1 ? `${at === 0 ? '→' : '←'} ${relationship.kind}` : relationship.kind, selected: relationship.id === selectedRelationshipId })),
+            dashed: members.every((relationship) => relationship.dashed),
+            dim: emphasis.active && !ids.some((id) => emphasis.edgeIds.has(id)),
+            focus: ids.some((id) => emphasis.edgeIds.has(id)),
+            showLabel: ids.some((id) => emphasis.labelled.has(id)),
+            onPick: onSelectRelationship,
+          },
+          markerEnd: marker,
+          markerStart: members.length > 1 || head.mutual ? marker : undefined,
+          selected: ids.some((id) => id === selectedRelationshipId),
+        });
+      });
+    }
+    return result;
+  }, [drawable, selectedRelationshipId, emphasis, onSelectRelationship]);
 
   if (!positions) return <div className="flex h-full items-center justify-center text-sm text-muted-foreground">배치 계산 중…</div>;
   return (
     <ReactFlow
       key={positions.key}
-      nodes={nodes}
+      nodes={flowNodes}
       edges={edges}
+      onNodesChange={(changes: NodeChange<PersonNode>[]) => {
+        const moved = changes.flatMap((change) => (change.type === 'position' && change.position ? [[change.id, change.position] as const] : []));
+        if (moved.length) setMoving((current) => ({ ...current, ...Object.fromEntries(moved) }));
+      }}
+      onNodeDragStart={() => setDragging(true)}
+      onNodeDragStop={(_event, _node, dragged) => {
+        place({ ...placed, ...Object.fromEntries(dragged.map((node) => [node.id, node.position])) });
+        setMoving({});
+        setDragging(false);
+      }}
+      onNodeMouseEnter={(_event, node) => !dragging && setHovered(node.id)}
+      onNodeMouseLeave={() => !dragging && setHovered(null)}
       nodeTypes={nodeTypes}
       edgeTypes={edgeTypes}
       fitView
       fitViewOptions={{ padding: 0.2 }}
       minZoom={0.1}
-      nodesDraggable={false}
+      nodesDraggable
       nodesConnectable={false}
       elementsSelectable
       onNodeClick={(_event, node) => onSelectCharacter(node.id)}
-      onEdgeClick={(_event, edge) => onSelectRelationship(edge.id)}
-      onPaneClick={onClear}
+      onEdgeClick={(_event, edge) => onSelectRelationship(edge.id.split('+')[0])}
+      // A click on a relationship label also reaches the pane; it picks that relationship, not nothing.
+      onPaneClick={(event) => !(event.target as HTMLElement).closest('[data-relation-label]') && onClear()}
       proOptions={{ hideAttribution: true }}
     >
       <Background />
       <Controls showInteractive={false} />
+      {Object.keys(placed).length > 0 && (
+        <Panel position="top-right">
+          <Button size="sm" variant="outline" className="bg-background" onClick={() => place({})}>
+            배치 되돌리기
+          </Button>
+        </Panel>
+      )}
     </ReactFlow>
   );
 }

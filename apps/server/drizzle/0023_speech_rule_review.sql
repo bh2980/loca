@@ -1,0 +1,1 @@
+ALTER TABLE `speech_rules` ADD `review` text;

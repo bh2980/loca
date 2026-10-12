@@ -42,6 +42,17 @@ const MIN_K = 0.01;
 const MAX_K = 2.5;
 const PAD = 48;
 
+export interface LooseEdge {
+  id: string;
+  from: string;
+  to: string;
+}
+/** Scene-graph hub ("연결점"): dialogue nodes outside every scene that join many scenes. */
+export interface HubInfo {
+  nodes: number;
+  scenes: number;
+}
+
 export interface Region {
   label: string;
   x: number;
@@ -54,6 +65,10 @@ interface Props {
   nodes: LayoutNode[];
   regions?: Region[];
   edges: LayoutEdge[];
+  /** Real edges left out of the layout (they touch a hub); drawn as faint straight lines. */
+  looseEdges?: LooseEdge[];
+  /** Hub nodes by id; drawn as quiet pills instead of the usual node shapes. */
+  hubs?: Map<string, HubInfo>;
   info: Map<string, NodeInfo>;
   width: number;
   height: number;
@@ -70,7 +85,7 @@ interface Props {
  * Draws a precomputed ELK layout. d3-zoom owns pan/zoom, Flatbush owns spatial queries,
  * so each frame only touches what is on screen. One <canvas>, no per-node DOM.
  */
-export function GraphCanvas({ nodes, regions = [], edges, info, width, height, selectedId, highlight, initialViewport, onViewportChange, onSelect, handle }: Props) {
+export function GraphCanvas({ nodes, regions = [], edges, looseEdges, hubs, info, width, height, selectedId, highlight, initialViewport, onViewportChange, onSelect, handle }: Props) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const minimap = useRef<HTMLCanvasElement>(null);
   const transform = useRef<ZoomTransform>(zoomIdentity);
@@ -94,8 +109,8 @@ export function GraphCanvas({ nodes, regions = [], edges, info, width, height, s
   useEffect(() => {
     if (minimapOpen) schedule();
   }, [minimapOpen]); // eslint-disable-line react-hooks/exhaustive-deps
-  const props = useRef({ selectedId, highlight, onViewportChange, onSelect });
-  props.current = { selectedId, highlight, onViewportChange, onSelect };
+  const props = useRef({ selectedId, highlight, onViewportChange, onSelect, hubs });
+  props.current = { selectedId, highlight, onViewportChange, onSelect, hubs };
 
   const index = useMemo(() => {
     const byId = new Map(nodes.map((node) => [node.id, node]));
@@ -129,8 +144,22 @@ export function GraphCanvas({ nodes, regions = [], edges, info, width, height, s
         adjacent.set(end, set);
       }
     });
-    return { byId, nodeIndex, edgeIndex, bounds, adjacent };
-  }, [nodes, edges]);
+    // Loose edges as one flat array of segments (bottom centre -> top centre); edges whose ends are not placed are skipped.
+    const segments: number[] = [];
+    const looseByNode = new Map<string, number[]>();
+    for (const edge of looseEdges ?? []) {
+      const a = byId.get(edge.from), b = byId.get(edge.to);
+      if (!a || !b) continue;
+      const at = segments.length / 4;
+      segments.push(a.x + a.width / 2, a.y + a.height, b.x + b.width / 2, b.y);
+      for (const end of [edge.from, edge.to]) {
+        const list = looseByNode.get(end);
+        if (list) list.push(at);
+        else looseByNode.set(end, [at]);
+      }
+    }
+    return { byId, nodeIndex, edgeIndex, bounds, adjacent, segments, looseByNode };
+  }, [nodes, edges, looseEdges]);
 
   const fitTransform = (box = index.bounds) => {
     const w = box.maxX - box.minX, h = box.maxY - box.minY;
@@ -173,8 +202,34 @@ export function GraphCanvas({ nodes, regions = [], edges, info, width, height, s
       context.setLineDash([]);
       context.fillStyle = '#71717a';
       context.font = `${13 / Math.max(t.k, 0.05)}px Pretendard, system-ui, sans-serif`;
-      context.fillText(region.label, region.x - 24, region.y - 24 - 8 / t.k);
+      // Labels keep their screen size, so zoomed out they are cut to the region's width instead of running into the next one.
+      const room = region.width + 48;
+      let label = region.label;
+      while (label.length > 1 && context.measureText(label).width > room) label = `${label.slice(0, -2)}…`;
+      context.fillText(label, region.x - 24, region.y - 24 - 8 / t.k);
       context.restore();
+    }
+
+    // Loose (hub) edges lie beneath everything else, in a single pass.
+    const segments = index.segments;
+    if (segments.length) {
+      const muted = style.getPropertyValue('--muted-foreground').trim() || '#71717a';
+      const own = selected ? new Set(index.looseByNode.get(selected)) : undefined;
+      context.strokeStyle = muted;
+      context.lineWidth = Math.max(0.5, 0.75 / t.k);
+      // Hub lines are many and long; drawn all at once they hide the flow. Only the selected node's show.
+      if (own?.size) {
+        context.globalAlpha = 0.8;
+        context.lineWidth = Math.max(1, 1.2 / t.k);
+        context.beginPath();
+        for (const at of own) {
+          const i = at * 4;
+          context.moveTo(segments[i], segments[i + 1]);
+          context.lineTo(segments[i + 2], segments[i + 3]);
+        }
+        context.stroke();
+      }
+      context.globalAlpha = 1;
     }
 
     // Edges first, so nodes sit on top of their lines.
@@ -208,6 +263,11 @@ export function GraphCanvas({ nodes, regions = [], edges, info, width, height, s
       const isSelected = node.id === selected;
       const faded = dimmed && !focus!.has(node.id) && !isSelected;
       context.globalAlpha = faded ? 0.25 : 1;
+      const hub = props.current.hubs?.get(node.id);
+      if (hub) {
+        drawHub(context, node, hub, { selected: isSelected, selectColor, detailed, k: t.k, style });
+        continue;
+      }
       drawShape(context, meta?.kind ?? 'unknown', node, { selected: isSelected, selectColor, detailed, k: t.k });
       if (detailed && meta) drawLabel(context, meta, node);
     }
@@ -294,7 +354,7 @@ export function GraphCanvas({ nodes, regions = [], edges, info, width, height, s
 
   useEffect(() => {
     schedule();
-  }, [selectedId, highlight, info]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedId, highlight, info, hubs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const animateTo = (target: ZoomTransform) => {
     if (behavior.current && canvas.current) select(canvas.current).transition().duration(350).call(behavior.current.transform, target);
@@ -377,6 +437,31 @@ export function GraphCanvas({ nodes, regions = [], edges, info, width, height, s
   );
 }
 
+function drawHub(context: CanvasRenderingContext2D, node: LayoutNode, hub: HubInfo, options: { selected: boolean; selectColor: string; detailed: boolean; k: number; style: CSSStyleDeclaration }) {
+  const muted = options.style.getPropertyValue('--muted').trim() || '#f4f4f5';
+  const mutedForeground = options.style.getPropertyValue('--muted-foreground').trim() || '#71717a';
+  context.beginPath();
+  context.roundRect(node.x, node.y, node.width, node.height, node.height / 2);
+  context.fillStyle = muted;
+  context.fill();
+  if (options.selected || options.detailed) {
+    context.lineWidth = options.selected ? Math.max(2.5, 2.5 / options.k) : 1;
+    context.strokeStyle = options.selected ? options.selectColor : mutedForeground;
+    context.setLineDash(options.selected ? [] : [4, 3]);
+    context.stroke();
+    context.setLineDash([]);
+  }
+  if (options.detailed) {
+    context.save();
+    context.fillStyle = mutedForeground;
+    context.font = '12px Pretendard, system-ui, sans-serif';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillText(`연결점 · 장면 ${hub.scenes}개`, node.x + node.width / 2, node.y + node.height / 2);
+    context.restore();
+  }
+}
+
 function tracePolyline(context: CanvasRenderingContext2D, points: number[]) {
   if (points.length < 4) return;
   context.moveTo(points[0], points[1]);
@@ -403,15 +488,21 @@ function arrowHead(context: CanvasRenderingContext2D, points: number[], size: nu
 function drawLabel(context: CanvasRenderingContext2D, meta: NodeInfo, node: LayoutNode) {
   context.save();
   context.fillStyle = '#18181b';
-  if (meta.kind === 'script' || meta.kind === 'scene') {
+  if (meta.kind === 'script' || meta.kind === 'scene' || meta.kind === 'chain') {
     context.beginPath();
     context.rect(node.x + 10, node.y + 6, node.width - 20, node.height - 12);
     context.clip();
     context.font = '600 12px Pretendard, system-ui, sans-serif';
-    context.fillText(meta.kind === 'scene' ? (meta.label ?? meta.key) : meta.key, node.x + 12, node.y + 22);
+    context.fillText(meta.kind === 'scene' || meta.kind === 'chain' ? (meta.label ?? meta.key) : meta.key, node.x + 12, node.y + 22);
     context.font = '12px Pretendard, system-ui, sans-serif';
     context.fillStyle = '#52525b';
     wrapText(context, meta.preview ?? meta.label ?? '', node.x + 12, node.y + 42, node.width - 24, 16, 2);
+  } else if (meta.kind === 'portal') {
+    // Section stand-in: the name sits inside the box.
+    context.font = '11px Pretendard, system-ui, sans-serif';
+    context.textAlign = 'center';
+    context.fillStyle = '#52525b';
+    context.fillText(meta.label ?? '', node.x + node.width / 2, node.y + node.height / 2 + 4);
   } else if (node.width > 40) {
     context.font = '11px Pretendard, system-ui, sans-serif';
     context.textAlign = 'center';

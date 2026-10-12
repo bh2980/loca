@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
+import { compress } from 'hono/compress';
 import { HTTPException } from 'hono/http-exception';
 import { streamSSE } from 'hono/streaming';
 import type { Deps, Env } from './context.ts';
@@ -10,6 +11,8 @@ import { knowledgeRoutes } from './routes/knowledge.ts';
 import { projectRoutes } from './routes/projects.ts';
 import { sourceRoutes } from './routes/source.ts';
 import { workflowRoutes } from './routes/workflows.ts';
+import { proposalRoutes } from './routes/proposals.ts';
+import { scriptRoutes } from './routes/script.ts';
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 
@@ -21,11 +24,12 @@ export function createApp(deps: Deps) {
     })
     .get('/events', (c) =>
       streamSSE(c, async (stream) => {
-        const send = (event: ChangeEvent) => void stream.writeSSE({ event: 'change', data: JSON.stringify(event) });
+        // The client may be gone before the write: that is not an error worth crashing for.
+        const send = (event: ChangeEvent) => void stream.writeSSE({ event: 'change', data: JSON.stringify(event) }).catch(() => {});
         events.on('change', send);
         stream.onAbort(() => void events.off('change', send));
         while (!stream.aborted) {
-          await stream.writeSSE({ event: 'ping', data: '' });
+          await stream.writeSSE({ event: 'ping', data: '' }).catch(() => stream.abort());
           await stream.sleep(20_000);
         }
       }),
@@ -35,6 +39,8 @@ export function createApp(deps: Deps) {
     .route('/', sourceRoutes)
     .route('/', workflowRoutes)
     .route('/', chatRoutes)
+    .route('/', proposalRoutes)
+    .route('/', scriptRoutes)
     .route('/connections', connectionRoutes)
     .route('/profiles', profileRoutes);
 
@@ -46,6 +52,9 @@ export function createApp(deps: Deps) {
       await next();
     })
     .use('/api/*', bodyLimit({ maxSize: 256 * 1024 * 1024 }))
+    // JSON only: a 50k-line dialogue graph is 27 MB raw, 6.6 MB gzipped. Event streams (change
+    // events, chat) must not be buffered by a compressor.
+    .use('/api/*', compress({ contentTypeFilter: /^application\/json/ }))
     .route('/api', api)
     .onError((error, c) => {
       if (error instanceof HTTPException) return c.json({ error: error.message }, error.status);

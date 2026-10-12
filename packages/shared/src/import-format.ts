@@ -1,12 +1,13 @@
 import { formatRulesSchema } from './format-check.ts';
 import { z } from 'zod';
+import { relationshipChangeSchema, SPEECH_LEVELS } from './knowledge.ts';
 
 /**
  * Standard project file. Game-specific extractors convert their output into this
  * shape; the workbench never needs to know the game's internal format.
  * Keys are the extractor's stable ids and are preserved verbatim.
  */
-export const IMPORT_FORMAT = 'translation-workbench/v1' as const;
+export const IMPORT_FORMAT = 'loca/v1' as const;
 
 export const GROUP_KINDS = ['scene', 'document', 'ui'] as const;
 export const UNIT_KINDS = ['dialogue', 'document', 'ui'] as const;
@@ -37,6 +38,8 @@ export const importUnitSchema = z.object({
   order: z.number().int().optional(),
   kind: z.enum(UNIT_KINDS).default('dialogue'),
   speaker: z.string().optional(),
+  /** Who the line is addressed to (a character name), when the game data knows it. */
+  listener: z.string().optional(),
   source: z.string(),
   translation: z.string().optional(),
   meta,
@@ -76,6 +79,10 @@ export const importCharacterSchema = z.object({
   name: z.string().min(1),
   aliases: z.array(z.string()).default([]),
   profile: z.string().default(''),
+  /** How the character talks in the source. */
+  speech: z.string().default(''),
+  /** The player character (e.g. a silent protagonist that lines are addressed to). */
+  player: z.boolean().default(false),
 });
 
 export const importRelationshipSchema = z.object({
@@ -84,6 +91,26 @@ export const importRelationshipSchema = z.object({
   kind: z.string().min(1),
   description: z.string().default(''),
   mutual: z.boolean().default(false),
+  changes: z.array(relationshipChangeSchema).default([]),
+});
+
+export const importEventSchema = z.object({
+  title: z.string().min(1),
+  summary: z.string().default(''),
+  cause: z.string().default(''),
+  outcome: z.string().default(''),
+  participants: z.array(z.string()).default([]),
+  evidence: z.array(key).default([]),
+});
+
+export const importSpeechRuleSchema = z.object({
+  from: z.string().min(1),
+  to: z.string().min(1),
+  level: z.enum(SPEECH_LEVELS),
+  address: z.string().default(''),
+  note: z.string().default(''),
+  /** The rule applies from this line on; omitted = from the beginning. */
+  start: key.optional(),
 });
 
 export const importDocumentSchema = z.object({
@@ -123,6 +150,8 @@ export const importFileSchema = z
     relationships: z.array(importRelationshipSchema).default([]),
     documents: z.array(importDocumentSchema).default([]),
     terms: z.array(importTermSchema).default([]),
+    events: z.array(importEventSchema).default([]),
+    speechRules: z.array(importSpeechRuleSchema).default([]),
   })
   .superRefine((file, ctx) => {
     const issue = (path: (string | number)[], message: string) => ctx.addIssue({ code: 'custom', path, message });
@@ -158,10 +187,62 @@ export const importFileSchema = z
     file.relationships.forEach((rel, index) => {
       if (!names.has(rel.from)) issue(['relationships', index, 'from'], `없는 인물: ${rel.from}`);
       if (!names.has(rel.to)) issue(['relationships', index, 'to'], `없는 인물: ${rel.to}`);
+      rel.changes.forEach((change, at) => {
+        if (!units.has(change.at)) issue(['relationships', index, 'changes', at, 'at'], `없는 unit: ${change.at}`);
+      });
     });
+    file.speechRules.forEach((rule, index) => {
+      if (rule.start && !units.has(rule.start)) issue(['speechRules', index, 'start'], `없는 unit: ${rule.start}`);
+    });
+    file.events.forEach((event, index) =>
+      event.evidence.forEach((ref, at) => {
+        if (!units.has(ref)) issue(['events', index, 'evidence', at], `없는 unit: ${ref}`);
+      }),
+    );
   });
 
 export type ImportFile = z.infer<typeof importFileSchema>;
+
+/** The standard file as JSON Schema, for converter authors (`loca format schema`). Cross-reference checks are not expressible there. */
+export const importFileJsonSchema = () => z.toJSONSchema(importFileSchema, { io: 'input', unrepresentable: 'any' });
+
+/** Counts for a validated file, shown before import (app and `loca format check`). */
+export function summarizeImport(file: ImportFile) {
+  return {
+    name: file.project.name,
+    groups: file.groups.length,
+    units: file.units.length,
+    graphNodes: file.graph?.nodes.length ?? 0,
+    graphEdges: file.graph?.edges.length ?? 0,
+    characters: file.characters.length,
+    documents: file.documents.length,
+    terms: file.terms.length,
+    events: file.events.length,
+    speechRules: file.speechRules.length,
+    listeners: file.units.filter((unit) => unit.listener).length,
+  };
+}
+
+/**
+ * Valid but probably not what the converter meant. Not errors: some games really have these.
+ * Each warning carries a few example keys so the converter's author can look them up.
+ */
+export function importWarnings(file: ImportFile): { message: string; examples: string[] }[] {
+  const warnings: { message: string; examples: string[] }[] = [];
+  if (file.graph) {
+    const placed = new Set(file.graph.nodes.flatMap((node) => node.units));
+    const loose = file.units.filter((unit) => unit.kind === 'dialogue' && !placed.has(unit.key));
+    if (loose.length) warnings.push({ message: `그래프 노드에 들어가지 않은 대사(kind dialogue) ${loose.length}개: 앞 대사 문맥을 장면 순서로만 찾습니다`, examples: loose.slice(0, 5).map((unit) => unit.key) });
+  }
+  if (file.characters.length) {
+    const names = new Set(file.characters.flatMap((character) => [character.name, ...character.aliases]));
+    const unknown = [...new Set(file.units.flatMap((unit) => (unit.speaker && !names.has(unit.speaker) ? [unit.speaker] : [])))];
+    if (unknown.length) warnings.push({ message: `인물 목록에 없는 화자 ${unknown.length}명: 프로필·관계가 문맥에 붙지 않습니다`, examples: unknown.slice(0, 5) });
+  }
+  const empty = file.units.filter((unit) => !unit.source.trim());
+  if (empty.length) warnings.push({ message: `원문이 빈 대사 ${empty.length}개`, examples: empty.slice(0, 5).map((unit) => unit.key) });
+  return warnings;
+}
 export type NodeType = z.infer<typeof nodeTypeSchema>;
 export type GraphNodeKind = (typeof GRAPH_NODE_KINDS)[number];
 export type ImportFileInput = z.input<typeof importFileSchema>;

@@ -2,10 +2,12 @@ import { and, eq } from 'drizzle-orm';
 import { get } from 'es-toolkit/compat';
 import {
   addTermsParams,
+  applyKnowledgeParams,
   checkFormat,
   formatCheckParams,
   httpParams,
   scriptParams,
+  setListenerParams,
   setStatusParams,
   type FunctionName,
 } from '@tw/shared';
@@ -13,6 +15,8 @@ import type { Db } from '../../db/index.ts';
 import * as s from '../../db/schema.ts';
 import type { SecretStore } from '../../services/secrets.ts';
 import { runScript } from './sandbox.ts';
+import { knowledgeOf, speechMismatch, speechRuleIndex } from '../../services/speech.ts';
+import type { KnowledgeOutput } from '../prompts.ts';
 
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 type Unit = typeof s.units.$inferSelect;
@@ -39,8 +43,6 @@ export interface FunctionInput {
 
 const NEEDS_CANDIDATE = '검사할 번역 후보가 없습니다.';
 const candidateOf = (input: FunctionInput) => input.item.data.candidateText ?? input.unit.translation ?? null;
-const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const mentions = (text: string, term: string) => new RegExp(`(?<![\\p{L}\\p{N}])${escape(term)}(?![\\p{L}\\p{N}])`, 'iu').test(text);
 
 /** What a script or HTTP template can see about a line. */
 export function lineView(input: FunctionInput) {
@@ -67,10 +69,20 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
   glossaryCheck(tx, _raw, input) {
     const text = candidateOf(input);
     if (text === null) return { port: 'fail', issues: [NEEDS_CANDIDATE], output: { passed: false, issues: [NEEDS_CANDIDATE] } };
-    const terms = tx.select().from(s.terms).where(and(eq(s.terms.projectId, input.projectId), eq(s.terms.status, 'confirmed'))).all();
-    const issues = terms
-      .filter((term) => term.target.trim() && mentions(input.unit.source, term.source) && !text.toLowerCase().includes(term.target.toLowerCase()))
+    const issues = knowledgeOf(tx as unknown as Db, input.projectId)
+      .glossary()
+      .matcher.find(input.unit.source)
+      .filter((term) => !text.toLowerCase().includes(term.target.toLowerCase()))
       .map((term) => `용어 "${term.source}"은(는) "${term.target}"(으)로 옮겨야 합니다.`);
+    return { port: issues.length ? 'fail' : 'pass', issues, output: { passed: !issues.length, issues } };
+  },
+
+  speechCheck(tx, _raw, input) {
+    const text = candidateOf(input);
+    if (text === null) return { port: 'fail', issues: [NEEDS_CANDIDATE], output: { passed: false, issues: [NEEDS_CANDIDATE] } };
+    const found = speechRuleIndex(tx as unknown as Db, input.projectId).resolve([input.unit]).get(input.unit.key);
+    const issue = found ? speechMismatch(found.rule, text) : null;
+    const issues = issue ? [issue] : [];
     return { port: issues.length ? 'fail' : 'pass', issues, output: { passed: !issues.length, issues } };
   },
 
@@ -94,18 +106,111 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     const outputs = Object.entries(input.item.data.outputs ?? {});
     const source = params.fromNodeId ? input.item.data.outputs?.[params.fromNodeId] : outputs.reverse().find(([, output]) => Array.isArray(output.terms))?.[1];
     const found = (Array.isArray(source?.terms) ? source.terms : []) as { source?: string; target?: string; note?: string }[];
-    const existing = new Set(tx.select({ source: s.terms.source }).from(s.terms).where(eq(s.terms.projectId, input.projectId)).all().map((term) => term.source.toLowerCase()));
+    // Candidates count too, so the whole table is read; cached until a term is written (including by this node).
+    const existing = new Set(knowledgeOf(tx as unknown as Db, input.projectId).allTermSources().map((source) => source.toLowerCase()));
     let added = 0;
     for (const term of found) {
       const key = term.source?.trim();
       if (!key || existing.has(key.toLowerCase())) continue;
       existing.add(key.toLowerCase());
       tx.insert(s.terms)
-        .values({ projectId: input.projectId, source: key, target: term.target?.trim() ?? '', note: term.note ?? '', status: params.autoConfirm ? 'confirmed' : 'candidate', origin: `run:${input.runId}` })
+        .values({ projectId: input.projectId, source: key, target: term.target?.trim() ?? '', note: term.note ?? '', status: params.autoConfirm ? 'confirmed' : 'candidate', origin: 'ai', runId: input.runId })
         .run();
       added++;
     }
     return { port: 'out', output: { added } };
+  },
+
+  applyKnowledge(tx, raw, input) {
+    const params = applyKnowledgeParams.parse(raw);
+    const outputs = Object.entries(input.item.data.outputs ?? {});
+    const source = params.fromNodeId ? input.item.data.outputs?.[params.fromNodeId] : outputs.reverse().find(([, output]) => 'knowledge' in output)?.[1];
+    const found = (source?.knowledge ?? null) as KnowledgeOutput | null;
+    if (!found) return { port: 'out', output: { added: 0, proposed: 0, reason: '자료 변경 출력이 없습니다.' } };
+    const projectId = input.projectId;
+    const status = params.autoConfirm ? ('confirmed' as const) : ('candidate' as const);
+    const ai = { origin: 'ai' as const, status };
+    const lower = (value: string) => value.trim().toLowerCase();
+    let added = 0;
+    let proposed = 0;
+
+    // The batch's lines all carry the same change set; every insert checks first, so applying it again adds nothing.
+    // Read from the snapshot (fresh: every write bumps its version) but copied, since this node edits what it reads.
+    const know = knowledgeOf(tx as unknown as Db, projectId);
+    const people = know.allCharacters();
+    const idOf = new Map(people.flatMap((c) => [c.name, ...c.aliases].map((name) => [lower(name), c.id] as const)));
+    for (const person of found.characters) {
+      if ([person.name, ...person.aliases].some((name) => idOf.has(lower(name)))) continue;
+      const row = tx.insert(s.characters).values({ projectId, name: person.name, aliases: person.aliases, profile: person.profile, evidence: [input.unit.key], ...ai }).returning({ id: s.characters.id }).get();
+      for (const name of [person.name, ...person.aliases]) idOf.set(lower(name), row.id);
+      added++;
+    }
+
+    const rels = know.allRelationships().map((rel) => ({ ...rel }));
+    for (const rel of found.relationships) {
+      const fromId = idOf.get(lower(rel.from));
+      const toId = idOf.get(lower(rel.to));
+      if (!fromId || !toId) continue;
+      const change = rel.change && rel.at ? { at: rel.at, change: rel.change, cause: '' } : null;
+      const same = rels.filter((existing) => existing.fromId === fromId && existing.toId === toId);
+      if (!same.length) {
+        rels.push(tx.insert(s.relationships).values({ projectId, fromId, toId, kind: rel.kind, description: rel.description, changes: change ? [change] : [], evidence: change ? [change.at] : [], ...ai }).returning().get());
+        added++;
+        continue;
+      }
+      if (!change || same.some((existing) => existing.changes.some((known) => known.at === change.at))) continue;
+      const open = same.find((existing) => existing.origin === 'ai' && !existing.reviewed);
+      if (open) {
+        // An unchecked AI relationship just gains the change.
+        tx.update(s.relationships).set({ changes: [...open.changes, change], evidence: [...open.evidence, change.at] }).where(eq(s.relationships.id, open.id)).run();
+        open.changes = [...open.changes, change];
+        added++;
+      } else {
+        // Official knowledge is never edited by AI: the change waits as a candidate beside it.
+        rels.push(tx.insert(s.relationships).values({ projectId, fromId, toId, kind: rel.kind, description: `변경 제안: ${rel.change}`, changes: [change], evidence: [change.at], origin: 'ai', status: 'candidate' }).returning().get());
+        proposed++;
+      }
+    }
+
+    const titles = new Set(know.eventTitles().map(lower));
+    for (const event of found.events) {
+      if (titles.has(lower(event.title))) continue;
+      titles.add(lower(event.title));
+      tx.insert(s.storyEvents).values({ projectId, title: event.title, summary: event.summary, outcome: event.outcome, participants: event.participants, evidence: event.evidence, ...ai }).run();
+      added++;
+    }
+
+    const rules = [...know.allSpeechRules()];
+    for (const rule of found.speechRules) {
+      const pair = rules.filter((existing) => lower(existing.fromName) === lower(rule.from) && lower(existing.toName) === lower(rule.to));
+      if (pair.some((existing) => existing.startKey === rule.start && existing.level === rule.level)) continue;
+      // A different level for a stretch a person already decided is a proposal, not a new rule.
+      const disagrees = pair.some((existing) => existing.startKey === rule.start && (existing.origin !== 'ai' || existing.reviewed));
+      rules.push(
+        tx.insert(s.speechRules)
+          .values({ projectId, fromName: rule.from, toName: rule.to, level: rule.level, address: rule.address, note: rule.note, startKey: rule.start, evidence: rule.start ? [rule.start] : [input.unit.key], origin: 'ai', status: disagrees ? 'candidate' : status })
+          .returning()
+          .get(),
+      );
+      if (disagrees) proposed++;
+      else added++;
+    }
+    return { port: 'out', output: { added, proposed } };
+  },
+
+  setListener(tx, raw, input) {
+    const params = setListenerParams.parse(raw);
+    const outputs = Object.entries(input.item.data.outputs ?? {});
+    const source = params.fromNodeId ? input.item.data.outputs?.[params.fromNodeId] : outputs.reverse().find(([, output]) => 'confidence' in output && 'listener' in output)?.[1];
+    if (!source || !('listener' in source)) return { port: 'out', output: { recorded: false, reason: '청자 출력이 없습니다.' } };
+    // Only dialogue has a listener; what the import or a person set is never overwritten by the AI.
+    if (input.unit.kind !== 'dialogue') return { port: 'out', output: { recorded: false, reason: '대사가 아니라 청자가 필요 없습니다.' } };
+    if (input.unit.listenerOrigin === 'human') return { port: 'out', output: { recorded: false, reason: '사람이 정한 청자가 있습니다.' } };
+    if (input.unit.listenerOrigin === 'import' && input.unit.listener) return { port: 'out', output: { recorded: false, reason: '가져온 청자가 있습니다.' } };
+    const listener = typeof source.listener === 'string' ? source.listener : null;
+    const confidence = typeof source.confidence === 'number' ? source.confidence : 0;
+    tx.update(s.units).set({ listener, listenerOrigin: 'ai', listenerConfidence: confidence }).where(eq(s.units.id, input.unit.id)).run();
+    return { port: 'out', output: { recorded: true, listener, confidence } };
   },
 };
 
@@ -136,13 +241,14 @@ export async function runAsyncFunction(
 
   if (fn === 'http') {
     const params = httpParams.parse(raw);
-    const connection = deps.db.select().from(s.connections).where(eq(s.connections.id, params.connectionId)).get();
-    if (!connection?.baseUrl) throw new Error('HTTP 연결을 찾을 수 없습니다.');
     const view = lineView(input);
-    const url = `${connection.baseUrl.replace(/\/+$/, '')}/${render(params.path, view, false).replace(/^\/+/, '')}`;
+    const url = render(params.url.trim(), view, false);
+    if (!/^https?:\/\//.test(url)) throw new Error('HTTP 호출 주소가 http(s)://로 시작하지 않습니다.');
     const headers: Record<string, string> = { Accept: 'application/json' };
-    const key = deps.secrets.get(connection.id);
-    if (key && connection.headerTemplate) {
+    const connection = params.connectionId ? deps.db.select().from(s.connections).where(eq(s.connections.id, params.connectionId)).get() : undefined;
+    if (params.connectionId && !connection) throw new Error('고른 API 키를 찾을 수 없습니다.');
+    const key = connection ? deps.secrets.get(connection.id) : undefined;
+    if (connection && key && connection.headerTemplate) {
       const [name, ...rest] = connection.headerTemplate.split(':');
       headers[name.trim()] = rest.join(':').trim().replace('{key}', key);
     }

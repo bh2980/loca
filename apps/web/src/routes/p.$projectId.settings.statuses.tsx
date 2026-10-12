@@ -282,7 +282,7 @@ function StatusSettings() {
                 )}
                 {data.data && tags.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={3} className="py-6 text-center text-muted-foreground">
+                    <TableCell colSpan={3} className="py-12 text-center text-muted-foreground">
                       태그가 없습니다.
                     </TableCell>
                   </TableRow>

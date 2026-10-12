@@ -4,18 +4,22 @@ import { CONNECTION_KIND_INFO } from '@tw/shared';
 import { cliGenerate, cliModels, cliVersion } from './cli.ts';
 import { ModelError, toModelError } from './errors.ts';
 import { openaiChatModel, openaiGenerate, openaiModels } from './openai.ts';
-import { systemOneJudge, systemOneModels } from './systemone.ts';
-import type { GenerateRequest, GenerateResult, JudgeRequest, JudgeResult, ResolvedRoute } from './types.ts';
+import { piGenerate, piModelsWith, piProbe } from './pi.ts';
+import { systemOneAsk, systemOneJudge, systemOneModels } from './systemone.ts';
+import type { AskRequest, AskResult, GenerateRequest, GenerateResult, JudgeRequest, JudgeResult, ResolvedRoute, Usage } from './types.ts';
 
 export * from './types.ts';
-export { ModelError } from './errors.ts';
+export { ModelError, type ModelErrorCode } from './errors.ts';
 export { cliLoginStatus, cliVersion, openLoginTerminal, LOGIN_COMMANDS } from './cli.ts';
+export { CHAT_CLI_KINDS, cliChat, readCliChat, type ChatCliKind, type CliChatResult, type CliChatTurn } from './cli-chat.ts';
 export { openaiProviderOptions } from './openai.ts';
+export { createPiChatSession, piModel, piModelsWith, piResources, piRuntime, resetPiRuntime, type PiSession, type PiToolSpec } from './pi.ts';
 
 export function generate<T>(route: ResolvedRoute, request: GenerateRequest<T>): Promise<GenerateResult<T>> {
   if (route.kind === 'openai') return openaiGenerate(route, request);
   if (route.kind === 'systemone') throw new ModelError('config', 'System One은 판정(검수)에만 사용할 수 있습니다.', false);
   if (route.kind === 'http') throw new ModelError('config', 'HTTP 도구 연결은 AI 노드에 쓸 수 없습니다.', false);
+  if (route.kind === 'pi') return piGenerate(route, request);
   return cliGenerate(route, request);
 }
 
@@ -24,9 +28,16 @@ export function judge(route: ResolvedRoute, request: JudgeRequest): Promise<Judg
   return systemOneJudge(route, request);
 }
 
+/** Typed questions (yes/no, choice, score) for a judgment model; System One only. */
+export function ask(route: ResolvedRoute, request: AskRequest): Promise<AskResult> {
+  if (route.kind !== 'systemone') throw new ModelError('config', '판정 전용 연결이 아닙니다.', false);
+  return systemOneAsk(route, request);
+}
+
 export function chatModel(route: ResolvedRoute): LanguageModel {
   if (!CONNECTION_KIND_INFO[route.kind].capabilities.includes('chat'))
     throw new ModelError('config', '이 연결은 채팅(도구 호출)을 지원하지 않습니다.', false);
+  if (route.kind === 'pi') throw new ModelError('config', 'pi 채팅은 서버의 pi 세션으로 처리합니다.', false);
   return openaiChatModel(route);
 }
 
@@ -35,7 +46,8 @@ export async function listModels(route: Omit<ResolvedRoute, 'model'>): Promise<s
   if (route.kind === 'http') return null;
   if (route.kind === 'openai') return openaiModels(route);
   if (route.kind === 'systemone') return systemOneModels(route);
-  if (route.kind === 'grok' || route.kind === 'antigravity' || route.kind === 'codex' || route.kind === 'claude') return cliModels(route.kind, route.executable);
+  if (route.kind === 'pi') return piModelsWith(route.piOptions);
+  if (route.kind === 'grok' || route.kind === 'antigravity' || route.kind === 'opencode' || route.kind === 'codex' || route.kind === 'claude') return cliModels(route.kind, route.executable);
   return null;
 }
 
@@ -47,6 +59,7 @@ export async function probe(route: Omit<ResolvedRoute, 'model'>): Promise<string
     });
     return `서버가 응답했습니다 (HTTP ${response.status}).`;
   }
+  if (route.kind === 'pi') return piProbe();
   if (route.kind === 'openai' || route.kind === 'systemone') {
     const models = await listModels(route);
     return `모델 ${models?.length ?? 0}개를 확인했습니다.`;
@@ -60,6 +73,8 @@ export interface Attempt {
   ok: boolean;
   error?: string;
   code?: string;
+  /** What this attempt used, when the connection reported it (also for failed attempts). */
+  usage?: Usage;
 }
 
 /**
@@ -84,10 +99,11 @@ export async function withFallback<R>(
         shouldRetry: ({ error }) => toModelError(error, signal).transient,
         onFailedAttempt: ({ error }) => {
           const failure = toModelError(error, signal);
-          attempts.push({ route: index, model: route.model, ok: false, error: failure.message, code: failure.code });
+          attempts.push({ route: index, model: route.model, ok: false, error: failure.message, code: failure.code, ...(failure.usage ? { usage: failure.usage } : {}) });
         },
       });
-      attempts.push({ route: index, model: route.model, ok: true });
+      const usage = (result as { usage?: Usage } | null)?.usage;
+      attempts.push({ route: index, model: route.model, ok: true, ...(usage ? { usage } : {}) });
       return { result, route, attempts };
     } catch (error) {
       last = toModelError(error, signal);

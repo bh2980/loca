@@ -1,14 +1,15 @@
 import { Hono } from 'hono';
-import { asc, eq, or, sql } from 'drizzle-orm';
+import { asc, desc, eq, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import * as ai from '@tw/ai';
 import { CONNECTION_KIND_INFO, connectionInputSchema, patchOf, profileInputSchema } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
+import { logged } from '../services/ai-calls.ts';
 import { connectionRoute, liveProfileRoutes } from '../services/routes.ts';
 
-type CliKind = 'codex' | 'claude' | 'grok' | 'antigravity';
+type CliKind = 'codex' | 'claude' | 'grok' | 'antigravity' | 'opencode';
 const isCli = (kind: string): kind is CliKind => CONNECTION_KIND_INFO[kind as keyof typeof CONNECTION_KIND_INFO]?.transport === 'cli';
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -73,6 +74,17 @@ export const connectionRoutes = new Hono<Env>()
       return c.json({ ok: false as const, detail: message(error) });
     }
   })
+  /** What a pi connection can load (extensions, skills…), for its switches on the settings page. */
+  .get('/:id/pi-resources', async (c) => {
+    const { db, secrets } = c.var.deps;
+    const route = found(connectionRoute(db, c.req.param('id'), secrets), '연결');
+    if (route.kind !== 'pi') badRequest('pi 연결이 아닙니다.');
+    try {
+      return c.json({ ok: true as const, ...(await ai.piResources(route.piOptions)) });
+    } catch (error) {
+      return c.json({ ok: false as const, detail: message(error) });
+    }
+  })
   .get('/:id/models', async (c) => {
     const { db, secrets } = c.var.deps;
     const route = found(connectionRoute(db, c.req.param('id'), secrets), '연결');
@@ -106,6 +118,8 @@ export const connectionRoutes = new Hono<Env>()
 
 export const profileRoutes = new Hono<Env>()
   .get('/', (c) => c.json(c.var.deps.db.select().from(s.profiles).orderBy(asc(s.profiles.name)).all()))
+  /** Recent profile tests from the AI log (they belong to no project, so 실행 기록 does not list them). */
+  .get('/test-calls', (c) => c.json(c.var.deps.db.select().from(s.aiCalls).where(eq(s.aiCalls.kind, 'test')).orderBy(desc(s.aiCalls.startedAt)).limit(20).all()))
   .post('/', validate('json', profileInputSchema), (c) => {
     const { db } = c.var.deps;
     const input = c.req.valid('json');
@@ -133,8 +147,9 @@ export const profileRoutes = new Hono<Env>()
     const { source, targetLanguage } = c.req.valid('json');
     const started = Date.now();
     try {
+      const call = { projectId: null, kind: 'test' as const, refId: live.snapshot.id, label: `프로필 시험 · ${live.snapshot.name}`, profileId: live.snapshot.id };
       const { result, route, attempts } = await ai.withFallback(live.routes, live.snapshot.maxAttempts, (route) =>
-        route.kind === 'systemone'
+        logged(db, call, route, () => route.kind === 'systemone'
           ? ai.judge(route, { state: { source }, instructions: 'Is this text well-formed?', timeoutMs: live.snapshot.timeoutSeconds * 1000 }).then((judged) => ({ text: judged.passed ? 'pass' : 'fail', usage: judged.usage }))
           : ai
               .generate(route, {
@@ -146,6 +161,7 @@ export const profileRoutes = new Hono<Env>()
                 timeoutMs: live.snapshot.timeoutSeconds * 1000,
               })
               .then((generated) => ({ text: generated.object.text, usage: generated.usage })),
+        ),
       );
       return c.json({ ok: true as const, text: result.text, model: route.model, attempts, ms: Date.now() - started });
     } catch (error) {

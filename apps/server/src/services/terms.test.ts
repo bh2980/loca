@@ -1,0 +1,87 @@
+import { describe, expect, it } from 'vitest';
+import { eq } from 'drizzle-orm';
+import { importFileSchema } from '@tw/shared';
+import { openDatabase } from '../db/index.ts';
+import * as s from '../db/schema.ts';
+import { importProject } from './importer.ts';
+import { memoryStore } from './secrets.ts';
+import { discoverAndSave, NOT_A_TERM, TermService } from './terms.ts';
+
+function setup() {
+  const db = openDatabase(':memory:');
+  const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1' }).returning().get();
+  const profile = db.insert(s.profiles).values({ name: 'fake', connectionId: connection.id, model: 'm', maxOutputTokens: 1000, timeoutSeconds: 30, maxAttempts: 1 }).returning().get();
+  const file = importFileSchema.parse({
+    format: 'loca/v1',
+    project: { name: 'Test' },
+    groups: [{ key: 'g1', title: 'Plaza' }],
+    units: [
+      { key: 'a1', group: 'g1', speaker: 'Symes', source: 'They met at Freedom Plaza.', translation: '그들은 자유 광장에서 만났다.' },
+      { key: 'a2', group: 'g1', speaker: 'Symes', source: 'Was Freedom Plaza busy? Thank God it was not.' },
+      { key: 'a3', group: 'g1', speaker: 'Nina', source: 'Thank God for Thought.' },
+      { key: 'a4', group: 'g1', speaker: 'Nina', source: 'I left Thought.' },
+    ],
+    characters: [{ name: 'Nina' }],
+  });
+  const { projectId } = importProject(db, file);
+  return { db, projectId, profileId: profile.id };
+}
+
+const terms = (db: ReturnType<typeof setup>['db'], projectId: string) =>
+  db.select().from(s.terms).where(eq(s.terms.projectId, projectId)).all().sort((a, b) => a.source.localeCompare(b.source));
+
+describe('glossary candidates from the script', () => {
+  it('adds new candidates with counts, and on a rerun refreshes counts without re-adding rejected ones', () => {
+    const { db, projectId } = setup();
+    expect(discoverAndSave(db, projectId)).toEqual({ found: 4, added: 4, updated: 0 });
+    expect(terms(db, projectId).map(({ source, status, origin, lines, examples }) => ({ source, status, origin, lines, examples }))).toEqual([
+      { source: 'Freedom Plaza', status: 'candidate', origin: 'script', lines: 2, examples: ['a1', 'a2'] },
+      { source: 'God', status: 'candidate', origin: 'script', lines: 2, examples: ['a2', 'a3'] },
+      { source: 'Nina', status: 'candidate', origin: 'script', lines: 0, examples: [] },
+      { source: 'Thought', status: 'candidate', origin: 'script', lines: 2, examples: ['a3', 'a4'] },
+    ]);
+    db.update(s.terms).set({ status: 'rejected' }).where(eq(s.terms.source, 'God')).run();
+    expect(discoverAndSave(db, projectId)).toEqual({ found: 4, added: 0, updated: 4 });
+    expect(terms(db, projectId).find((term) => term.source === 'God')?.status).toBe('rejected');
+  });
+
+  it('fills empty candidates from the model with example lines, marks ordinary words and leaves a person’s edits alone', async () => {
+    const { db, projectId, profileId } = setup();
+    discoverAndSave(db, projectId);
+    db.update(s.terms).set({ target: '니나' }).where(eq(s.terms.source, 'Nina')).run();
+    const prompts: string[] = [];
+    const service = new TermService(db, memoryStore(), {
+      generate: async (_route, request) => {
+        prompts.push(request.prompt);
+        return {
+          object: {
+            terms: [
+              { source: 'Freedom Plaza', isTerm: true, target: '자유 광장', note: '지명' },
+              { source: 'God', isTerm: false, target: '신', note: '감탄' },
+              { source: 'Thought', isTerm: true, target: '사상', note: '단체 이름' },
+            ],
+          },
+          usage: { inputTokens: 100, outputTokens: 20 },
+        } as never;
+      },
+    });
+    expect(service.pending(projectId).map((term) => term.source)).toEqual(['Freedom Plaza', 'God', 'Thought']);
+    service.start(projectId, profileId);
+    for (let i = 0; i < 50 && service.state(projectId)?.running; i++) await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(service.state(projectId)).toMatchObject({ running: false, done: 3, total: 3, usage: { inputTokens: 100, outputTokens: 20 } });
+    // The job is kept for 실행 기록, and its request is in the AI log under it.
+    const job = db.select().from(s.termJobs).get()!;
+    expect(job).toMatchObject({ projectId, status: 'completed', done: 3, total: 3, usage: { inputTokens: 100, outputTokens: 20 } });
+    expect(db.select().from(s.aiCalls).all()).toMatchObject([{ kind: 'terms', refId: job.id, status: 'ok', inputTokens: 100 }]);
+    const input = JSON.parse(prompts[0]);
+    expect(input.candidates[0]).toEqual({ source: 'Freedom Plaza', lines: 2, examples: [{ speaker: 'Symes', source: 'They met at Freedom Plaza.', translation: '그들은 자유 광장에서 만났다.' }, { speaker: 'Symes', source: 'Was Freedom Plaza busy? Thank God it was not.' }] });
+    expect(terms(db, projectId).map(({ source, target, note, origin, status }) => ({ source, target, note, origin, status }))).toEqual([
+      { source: 'Freedom Plaza', target: '자유 광장', note: '지명', origin: 'ai', status: 'candidate' },
+      { source: 'God', target: '', note: NOT_A_TERM, origin: 'ai', status: 'candidate' },
+      { source: 'Nina', target: '니나', note: '인물 이름', origin: 'script', status: 'candidate' },
+      { source: 'Thought', target: '사상', note: '단체 이름', origin: 'ai', status: 'candidate' },
+    ]);
+    // Ordinary words are not sent again.
+    expect(service.pending(projectId)).toEqual([]);
+  });
+});

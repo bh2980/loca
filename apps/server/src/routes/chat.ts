@@ -3,11 +3,19 @@ import { convertToModelMessages, stepCountIs, streamText, type UIMessage } from 
 import { and, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import * as ai from '@tw/ai';
+import { CONNECTION_KIND_INFO } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
+import { startCall } from '../services/ai-calls.ts';
 import { AGENT_SYSTEM, agentTools } from '../services/agent-tools.ts';
 import { liveProfileRoutes } from '../services/routes.ts';
+import { closePiChat, piChatResponse } from '../services/pi-chat.ts';
+import { withFittedResults } from '../services/tool-output.ts';
+import { cliChatResponse } from '../services/cli-chat.ts';
+
+/** pi cannot pause a tool call for a card, so change tools there record a proposal instead. */
+const PI_NOTE = `이 대화에서 프로젝트를 바꾸는 도구(save_*, propose_translation)는 바로 실행되지 않고 '제안'으로 올라갑니다. 사용자가 채팅 패널의 카드에서 수락하면 반영되고, 결과는 다음 메시지 앞에 알려 드립니다. 제안한 뒤에는 무엇을 왜 제안했는지 짧게 설명하고 기다리세요. 워크플로 노드 편집(edit_workflow_node)은 이 대화에서 쓸 수 없습니다.`;
 
 /**
  * What the user is looking at when they send a message. The web app reports it from every page,
@@ -55,6 +63,7 @@ export const chatRoutes = new Hono<Env>()
   .delete('/chat/:sessionId', (c) => {
     const { db } = c.var.deps;
     const row = db.delete(s.chatSessions).where(eq(s.chatSessions.id, c.req.param('sessionId'))).returning().get();
+    closePiChat(c.req.param('sessionId'));
     if (row) events.changed(row.projectId, 'chat');
     return c.json({ ok: true });
   })
@@ -65,7 +74,7 @@ export const chatRoutes = new Hono<Env>()
     if (!session.profileId) badRequest('대화에 사용할 AI 프로필을 선택하세요.');
     const live = found(liveProfileRoutes(db, session.profileId!, secrets), 'AI 프로필');
     const route = live.routes[0];
-    if (!route || route.kind !== 'openai') badRequest('채팅은 도구 호출을 지원하는 OpenAI 호환 API 프로필에서만 쓸 수 있습니다.');
+    if (!route || !CONNECTION_KIND_INFO[route.kind].capabilities.includes('chat')) badRequest('이 프로필의 연결은 채팅을 지원하지 않습니다(System One은 판정 전용).');
     const messages = c.req.valid('json').messages as UIMessage[];
 
     const firstUser = messages.find((message) => message.role === 'user');
@@ -76,12 +85,44 @@ export const chatRoutes = new Hono<Env>()
     }
 
     const view = c.req.valid('json').view;
+    if ((ai.CHAT_CLI_KINDS as string[]).includes(route.kind)) {
+      return cliChatResponse({
+        db,
+        chat: session,
+        route,
+        system: [AGENT_SYSTEM, live.snapshot.instructions].filter(Boolean).join('\n\n'),
+        view: view ? describeView(view) : null,
+        messages,
+        timeoutMs: live.snapshot.timeoutSeconds * 1000,
+        signal: c.req.raw.signal,
+      });
+    }
+    if (route.kind === 'pi') {
+      try {
+        return await piChatResponse({
+          db,
+          chat: session,
+          route,
+          system: [AGENT_SYSTEM, PI_NOTE, live.snapshot.instructions].filter(Boolean).join('\n\n'),
+          view: view ? describeView(view) : null,
+          messages,
+          signal: c.req.raw.signal,
+        });
+      } catch (error) {
+        return badRequest(error instanceof Error ? error.message : String(error));
+      }
+    }
+    // One log row per turn (its tool steps included); usage comes with the finish.
+    const finish = startCall(db, { projectId: session.projectId, kind: 'chat', refId: session.id, label: '채팅', profileId: session.profileId }, route);
     const result = streamText({
       model: ai.chatModel(route),
+      onFinish: ({ totalUsage }) => finish({ usage: { inputTokens: totalUsage.inputTokens, cachedInputTokens: totalUsage.inputTokenDetails?.cacheReadTokens, outputTokens: totalUsage.outputTokens } }),
+      onError: ({ error }) => finish({ error }),
+      onAbort: () => finish({ error: '중단함' }),
       system: [AGENT_SYSTEM, live.snapshot.instructions, view && describeView(view)].filter(Boolean).join('\n\n'),
       // An editor proposal left unanswered before the next message is dropped rather than failing the turn.
       messages: await convertToModelMessages(messages, { ignoreIncompleteToolCalls: true }),
-      tools: agentTools(db, session.projectId, { profileId: session.profileId, model: route.model }),
+      tools: withFittedResults(agentTools(db, session.projectId, { profileId: session.profileId, model: route.model })),
       stopWhen: stepCountIs(30),
       maxOutputTokens: live.snapshot.maxOutputTokens,
       temperature: live.snapshot.temperature ?? undefined,
@@ -90,6 +131,8 @@ export const chatRoutes = new Hono<Env>()
     });
     return result.toUIMessageStreamResponse({
       originalMessages: messages,
+      // Why the turn ended, so the panel can say "hit the output limit" instead of going quiet.
+      messageMetadata: ({ part }) => (part.type === 'finish' ? { finishReason: part.finishReason } : undefined),
       onFinish: ({ messages: final }) => {
         db.update(s.chatSessions).set({ messages: final }).where(and(eq(s.chatSessions.id, session.id))).run();
         events.changed(session.projectId, 'chat');

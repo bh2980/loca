@@ -4,6 +4,7 @@ import { Play, Plus, Trash2, X } from 'lucide-react';
 import {
   AI_OUTPUTS,
   CONNECTION_KIND_INFO,
+  contextConfigSchema,
   FUNCTIONS,
   NODE_TYPES,
   nodeName,
@@ -27,6 +28,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Link } from '@tanstack/react-router';
 import { client, unwrap } from '@/lib/api';
 import { nodeIcon } from './node-view';
+import { PaneHeader } from '@/components/pane-header';
 
 type AiNode = Extract<WorkflowNode, { type: 'ai' }>;
 type FunctionNode = Extract<WorkflowNode, { type: 'function' }>;
@@ -78,22 +80,13 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-start gap-2 border-b px-4 py-3">
-        <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium">{nodeName(node)}</p>
-          <p className="text-xs text-muted-foreground">{description}</p>
-        </div>
-        <Button variant="ghost" size="icon" className="size-7" onClick={onClose} aria-label="닫기">
-          <X />
-        </Button>
-      </div>
+      <PaneHeader icon={<Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />} title={nodeName(node)} subtitle={description} onClose={onClose} />
       <ScrollArea className="min-h-0 flex-1">
         <fieldset disabled={readOnly} className="space-y-5 p-4">
           {issues.length > 0 && (
             <ul className="space-y-1 rounded-md border border-destructive/30 bg-destructive/5 p-2.5 text-xs">
               {issues.map((issue, index) => (
-                <li key={index} className={issue.level === 'error' ? 'text-destructive' : 'text-amber-700'}>
+                <li key={index} className={issue.level === 'error' ? 'text-destructive' : 'text-warning'}>
                   {issue.message}
                 </li>
               ))}
@@ -138,6 +131,8 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
 
 function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRefs; onChange: (node: WorkflowNode) => void }) {
   const config = node.config;
+  // Saved workflows may predate a context setting; show its default.
+  const context = contextConfigSchema.parse(config.context ?? {});
   const set = (patch: Partial<AiNode['config']>) => onChange({ ...node, config: { ...config, ...patch } });
   const kindOf = (profileId: string) => refs.connections.find((connection) => connection.id === refs.profiles.find((profile) => profile.id === profileId)?.connectionId)?.kind;
   const usable = refs.profiles.filter((profile) => {
@@ -145,6 +140,10 @@ function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRefs; onCh
     const capabilities = kind ? CONNECTION_KIND_INFO[kind].capabilities : [];
     return capabilities.includes('generate') || (config.output === 'verdict' && capabilities.includes('judge'));
   });
+  const extras = config.extraProfileIds ?? [];
+  const chosen = [config.profileId, ...extras].filter(Boolean);
+  const chosenModels = new Set(chosen.map((id) => refs.profiles.find((profile) => profile.id === id)?.model));
+  const setExtra = (index: number, value: string) => set({ extraProfileIds: extras.map((id, i) => (i === index ? value : id)) });
   const setField = (index: number, patch: Partial<JsonField>) => set({ fields: config.fields.map((field, i) => (i === index ? { ...field, ...patch } : field)) });
 
   return (
@@ -180,8 +179,8 @@ function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRefs; onCh
                   </SelectContent>
                 </Select>
                 <Input className="h-8 flex-1 text-xs" value={field.description} placeholder="설명 (AI에게 보임)" onChange={(event) => setField(index, { description: event.target.value })} />
-                <Button size="icon" variant="ghost" className="size-8" aria-label="필드 삭제" onClick={() => set({ fields: config.fields.filter((_, i) => i !== index) })}>
-                  <X />
+                <Button size="icon" variant="ghost" className="size-7 text-destructive" aria-label="필드 삭제" onClick={() => set({ fields: config.fields.filter((_, i) => i !== index) })}>
+                  <Trash2 />
                 </Button>
               </div>
             ))}
@@ -208,25 +207,57 @@ function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRefs; onCh
               ) : null;
             })()}
             어떤 모델을 쓸지는 프로필에서, 무엇을 시킬지는 아래 지시문에서 정합니다.{' '}
-            <Link to="/p/$projectId/settings/ai" params={{ projectId: refs.projectId }} search={{ tab: 'profiles', profile: config.profileId || undefined }} className="underline">
+            <Link to="/p/$projectId/settings/ai" params={{ projectId: refs.projectId }} search={{ profile: config.profileId || undefined }} className="underline">
               프로필 관리
             </Link>
             {config.output === 'verdict' && ' · 판정에는 System One도 쓸 수 있습니다.'}
+            {extras.length > 0 && <span className="mt-1 block">요청마다 칸이 빈 계정의 프로필로 보냅니다. 같은 모델의 다른 계정을 붙이면 처리량만 늘어납니다.</span>}
+            {config.output === 'candidate' && chosenModels.size > 1 && <span className="mt-1 block text-warning">서로 다른 모델이 번역을 나누면 장면마다 문체가 달라질 수 있습니다.</span>}
           </>
         }
       >
-        <Select value={config.profileId || undefined} onValueChange={(value) => set({ profileId: value })}>
-          <SelectTrigger className="w-full">
-            <SelectValue placeholder="프로필 선택" />
-          </SelectTrigger>
-          <SelectContent>
-            {usable.map((profile) => (
-              <SelectItem key={profile.id} value={profile.id}>
-                {profile.name} <span className="text-muted-foreground">· {profile.model}</span>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="space-y-1.5">
+          <Select value={config.profileId || undefined} onValueChange={(value) => set({ profileId: value })}>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="프로필 선택" />
+            </SelectTrigger>
+            <SelectContent>
+              {usable
+                .filter((profile) => profile.id === config.profileId || !extras.includes(profile.id))
+                .map((profile) => (
+                  <SelectItem key={profile.id} value={profile.id}>
+                    {profile.name} <span className="text-muted-foreground">· {profile.model}</span>
+                  </SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
+          {extras.map((extraId, index) => (
+            <div key={index} className="flex items-center gap-1.5">
+              <Select value={extraId || undefined} onValueChange={(value) => setExtra(index, value)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="함께 나눌 프로필 선택" />
+                </SelectTrigger>
+                <SelectContent>
+                  {usable
+                    .filter((profile) => profile.id === extraId || (profile.id !== config.profileId && !extras.includes(profile.id)))
+                    .map((profile) => (
+                      <SelectItem key={profile.id} value={profile.id}>
+                        {profile.name} <span className="text-muted-foreground">· {profile.model}</span>
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+              <Button size="icon" variant="ghost" className="size-8 shrink-0" aria-label="프로필 빼기" onClick={() => set({ extraProfileIds: extras.filter((_, i) => i !== index) })}>
+                <X />
+              </Button>
+            </div>
+          ))}
+          {usable.some((profile) => profile.id !== config.profileId && !extras.includes(profile.id)) && (
+            <Button size="sm" variant="outline" onClick={() => set({ extraProfileIds: [...extras, ''] })} disabled={extras.includes('')}>
+              <Plus /> 함께 나눌 프로필
+            </Button>
+          )}
+        </div>
       </Field>
       <Field
         label="지시문 (이 단계에서 할 일)"
@@ -247,18 +278,28 @@ function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRefs; onCh
       <Separator />
       <div className="space-y-2.5">
         <p className="text-xs font-medium">문맥</p>
-        <ToggleRow label="용어집 (확정 용어 중 원문에 나온 것)" checked={config.context.glossary} onChange={(value) => set({ context: { ...config.context, glossary: value } })} />
-        <ToggleRow label="항상 포함 문서 (스토리·세계관·문체)" checked={config.context.documents} onChange={(value) => set({ context: { ...config.context, documents: value } })} />
-        <ToggleRow label="등장 인물 프로필" checked={config.context.characters} onChange={(value) => set({ context: { ...config.context, characters: value } })} />
-        <ToggleRow label="인물 관계" checked={config.context.relationships} onChange={(value) => set({ context: { ...config.context, relationships: value } })} />
+        <ToggleRow label="용어집 (확정 용어 중 원문에 나온 것)" checked={context.glossary} onChange={(value) => set({ context: { ...context, glossary: value } })} />
+        <ToggleRow label="항상 포함 문서 (스토리·세계관·문체)" checked={context.documents} onChange={(value) => set({ context: { ...context, documents: value } })} />
+        <ToggleRow label="등장 인물 프로필" checked={context.characters} onChange={(value) => set({ context: { ...context, characters: value } })} />
+        <ToggleRow label="인물 관계" checked={context.relationships} onChange={(value) => set({ context: { ...context, relationships: value } })} />
+        <ToggleRow label="청자·말투 규칙 (대사마다 청자와 그 쌍의 확정 말투 규칙)" checked={context.speech} onChange={(value) => set({ context: { ...context, speech: value } })} />
+        <ToggleRow label="인물 명단 (확정된 인물 전체의 이름·별칭·플레이어 여부)" checked={context.cast} onChange={(value) => set({ context: { ...context, cast: value } })} />
         <div className="grid grid-cols-2 gap-3">
           <Field label="선행 대사 수" hint="대사 그래프에서 앞에 오는 대사">
-            <Input type="number" min={0} max={50} value={config.context.precedingLines} onChange={(event) => set({ context: { ...config.context, precedingLines: Number(event.target.value) } })} />
+            <Input type="number" min={0} max={50} value={context.precedingLines} onChange={(event) => set({ context: { ...context, precedingLines: Number(event.target.value) } })} />
           </Field>
           <Field label="이전 장면 수" hint="장면 그래프에서 앞선 장면">
-            <Input type="number" min={0} max={10} value={config.context.previousScenes} onChange={(event) => set({ context: { ...config.context, previousScenes: Number(event.target.value) } })} />
+            <Input type="number" min={0} max={10} value={context.previousScenes} onChange={(event) => set({ context: { ...context, previousScenes: Number(event.target.value) } })} />
           </Field>
         </div>
+        <ToggleRow
+          label="선행 대사의 현재 번역도 보내기 (묶음 첫머리의 일부 줄에만 들어감. 실험에서 효과가 보이지 않아 기본 끔)"
+          checked={context.precedingTranslations}
+          onChange={(value) => set({ context: { ...context, precedingTranslations: value } })}
+        />
+        <Field label="문맥 상한 (토큰, 추정)" hint="대사 말고 넣는 문맥의 합. 넘치면 문서 → 이전 장면 → 장면 → 관계 → 인물 → 선행 대사 → 용어 순으로 빼고 실행 기록에 남깁니다">
+          <Input type="number" min={500} max={200000} step={500} value={context.maxTokens} onChange={(event) => set({ context: { ...context, maxTokens: Number(event.target.value) } })} />
+        </Field>
       </div>
       <Separator />
       <div className="grid grid-cols-2 gap-3">
@@ -336,6 +377,49 @@ function FunctionConfig({ node, refs, readOnly, onChange }: { node: FunctionNode
         </>
       );
     }
+    case 'applyKnowledge': {
+      const sources = refs.nodes.filter((other) => other.type === 'ai' && other.config.output === 'knowledge');
+      return (
+        <>
+          <Field label="자료 변경을 가져올 AI 노드" hint="정식 자료는 바꾸지 않습니다. 다른 의견은 후보로 남깁니다.">
+            <Select value={(params.fromNodeId as string) || 'latest'} onValueChange={(value) => set('fromNodeId', value === 'latest' ? '' : value)}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="latest">가장 최근 자료 변경 출력</SelectItem>
+                {sources.map((other) => (
+                  <SelectItem key={other.id} value={other.id}>
+                    {nodeName(other)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+          <ToggleRow label="자동 확정 (새 항목을 바로 문맥에 씀, AI 표시는 유지)" checked={params.autoConfirm as boolean} onChange={(value) => set('autoConfirm', value)} />
+        </>
+      );
+    }
+    case 'setListener': {
+      const sources = refs.nodes.filter((other) => other.type === 'ai' && other.config.output === 'listener');
+      return (
+        <Field label="청자를 가져올 AI 노드" hint="사람이 정한 청자는 바꾸지 않습니다. 확신도 0.9 미만은 문맥에서 ‘미상’으로 다룹니다.">
+          <Select value={(params.fromNodeId as string) || 'latest'} onValueChange={(value) => set('fromNodeId', value === 'latest' ? '' : value)}>
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="latest">가장 최근 청자 출력</SelectItem>
+              {sources.map((other) => (
+                <SelectItem key={other.id} value={other.id}>
+                  {nodeName(other)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+      );
+    }
     case 'http':
       return <HttpConfig params={params} refs={refs} set={set} />;
     case 'script':
@@ -399,20 +483,6 @@ function HttpConfig({ params, refs, set }: { params: Record<string, unknown>; re
   const selected = tools.find((tool) => tool.id === params.connectionId);
   return (
     <>
-      <Field label="HTTP 연결" hint={tools.length ? selected?.baseUrl : '설정 › 연결·프로필 › 도구 연결에서 먼저 추가하세요.'}>
-        <Select value={(params.connectionId as string) || undefined} onValueChange={(value) => set('connectionId', value)}>
-          <SelectTrigger className="w-full">
-            <SelectValue placeholder="연결 선택" />
-          </SelectTrigger>
-          <SelectContent>
-            {tools.map((tool) => (
-              <SelectItem key={tool.id} value={tool.id}>
-                {tool.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </Field>
       <div className="grid grid-cols-[6rem_1fr] gap-2">
         <Field label="메서드">
           <Select value={params.method as string} onValueChange={(value) => set('method', value)}>
@@ -425,10 +495,26 @@ function HttpConfig({ params, refs, set }: { params: Record<string, unknown>; re
             </SelectContent>
           </Select>
         </Field>
-        <Field label="경로">
-          <Input className="font-mono text-xs" value={params.path as string} placeholder="spell/check" onChange={(event) => set('path', event.target.value)} />
+        <Field label="주소">
+          <Input className="font-mono text-xs" value={params.url as string} placeholder="https://api.example.com/spell" onChange={(event) => set('url', event.target.value)} />
         </Field>
       </div>
+      <p className="-mt-2 text-[11px] text-muted-foreground">주소에도 {'{{unit.key}}'} 같은 값을 넣을 수 있습니다(자동으로 URL 인코딩).</p>
+      <Field label="API 키 (선택)" hint={tools.length ? (selected ? '설정의 헤더 형식으로 키를 붙여 보냅니다' : '키가 필요 없는 공개 API면 비워 둡니다') : '키가 필요한 API면 설정 › API 키에서 먼저 추가하세요.'}>
+        <Select value={(params.connectionId as string) || 'none'} onValueChange={(value) => set('connectionId', value === 'none' ? '' : value)}>
+          <SelectTrigger className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">키 없음</SelectItem>
+            {tools.map((tool) => (
+              <SelectItem key={tool.id} value={tool.id}>
+                {tool.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </Field>
       {params.method === 'POST' && (
         <Field label="요청 본문 (JSON)" hint={`대사마다 바뀌는 값: ${PLACEHOLDERS}`}>
           <Textarea className="min-h-28 font-mono text-xs" spellCheck={false} value={params.body as string} onChange={(event) => set('body', event.target.value)} />

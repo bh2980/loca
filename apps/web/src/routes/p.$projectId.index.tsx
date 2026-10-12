@@ -1,14 +1,13 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowRight, Inbox, Workflow } from 'lucide-react';
+import { ArrowRight, History, Inbox, Workflow } from 'lucide-react';
 import { Page } from '@/components/page';
 import { StatusBar, StatusDot } from '@/components/status';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { q } from '@/lib/queries';
-import { RUN_STATUS } from '@/lib/labels';
+import { JobStatusBadge } from '@/components/job-status';
 
 export const Route = createFileRoute('/p/$projectId/')({ component: Dashboard });
 
@@ -18,6 +17,9 @@ function Dashboard() {
   const statuses = useQuery(q.statuses(projectId));
   const runs = useQuery(q.runs(projectId));
   const workflows = useQuery(q.workflows(projectId));
+  // Model requests in flight anywhere in the project (analysis, glossary, chat…), not only runs.
+  const calls = useQuery(q.aiCalls(projectId));
+  const pending = calls.data?.calls.filter((call) => call.status === 'running') ?? [];
 
   const counts = Object.fromEntries(project.data?.byStatus.map((row) => [row.statusId, row.count]) ?? []);
   const total = Object.values(counts).reduce((sum, value) => sum + value, 0);
@@ -73,16 +75,24 @@ function Dashboard() {
         </Card>
 
         <Card className="lg:col-span-3">
-          <CardHeader className="flex-row items-start justify-between">
-            <div>
-              <CardTitle>실행</CardTitle>
-              <CardDescription>{active.length ? `진행 중 ${active.length}개` : '진행 중인 실행이 없습니다.'}</CardDescription>
-            </div>
-            <Button asChild size="sm" variant="outline">
-              <Link to="/p/$projectId/workflows" params={{ projectId }}>
-                <Workflow /> 워크플로 목록
-              </Link>
-            </Button>
+          <CardHeader>
+            <CardTitle>실행</CardTitle>
+            <CardDescription>
+              {active.length ? `진행 중 ${active.length}개` : '진행 중인 실행이 없습니다.'}
+              {pending.length > 0 && ` · AI 호출 진행 중 ${pending.length}건 (${[...new Set(pending.map((call) => call.label))].slice(0, 3).join(', ')})`}
+            </CardDescription>
+            <CardAction className="flex gap-2">
+              <Button asChild size="sm" variant="outline">
+                <Link to="/p/$projectId/runs" params={{ projectId }} >
+                  <History /> 실행 기록
+                </Link>
+              </Button>
+              <Button asChild size="sm" variant="outline">
+                <Link to="/p/$projectId/workflows" params={{ projectId }}>
+                  <Workflow /> 워크플로 목록
+                </Link>
+              </Button>
+            </CardAction>
           </CardHeader>
           <CardContent>
             <ul className="divide-y">
@@ -92,7 +102,7 @@ function Dashboard() {
                   <li key={run.id}>
                     <Link to="/p/$projectId/runs/$runId" params={{ projectId, runId: run.id }} className="flex items-center gap-4 py-2.5 text-sm hover:bg-muted/40">
                       <span className="w-40 truncate font-medium">{run.workflowName}</span>
-                      <Badge variant={run.status === 'running' ? 'default' : 'outline'}>{RUN_STATUS[run.status]}</Badge>
+                      <JobStatusBadge status={run.status} />
                       <Progress value={(finished / run.total) * 100} className="h-1.5 flex-1" />
                       <span className="w-24 text-right tabular-nums text-muted-foreground">
                         {finished}/{run.total}

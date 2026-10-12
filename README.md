@@ -1,4 +1,4 @@
-# Translation Workbench
+# loca — 게임 번역 작업실
 
 게임에서 추출한 원문을 가져와, 사용자가 정의한 **번역 상태**와 그 사이의 **워크플로 노드**로
 AI 번역·검수·수정·사람 확인을 자동화하는 Windows 로컬 작업실입니다.
@@ -35,7 +35,7 @@ pnpm dev
 ## 시작하기
 
 1. 첫 화면에서 **표준 파일 가져오기** → `samples/relay-station.json` (작은 예시)
-2. 설정 › AI 연결·프로필 → 연결 추가(OpenAI 호환 API, System One, Codex/Claude/Grok/Antigravity CLI) → 프로필 만들기
+2. 설정 › AI 연결·프로필 → 연결 추가(OpenAI 호환 API, System One, Codex/Claude/Grok/Antigravity/opencode CLI) → 프로필 만들기. opencode CLI로는 opencode의 무료 모델(`opencode/…`)과 opencode Go 모델을 쓸 수 있습니다
 3. 워크플로 → 기본 번역 → AI 노드에 프로필 지정 → 저장 → 실행
 4. 실행 기록에서 진행을 보고, 검토함에서 ‘사람 확인 필요’ 같은 검토 상태의 대사를 고치고 다음 상태로 옮김
 5. 우측 **에이전트**(⌘I)에게 "대본을 읽고 인물 프로필을 만들어줘"처럼 요청 → 제안 카드 수락
@@ -46,14 +46,37 @@ pnpm dev
 pnpm mock-llm
 ```
 
-## 표준 포맷 (`translation-workbench/v1`)
+## loca CLI
+
+앱이 켜져 있을 때 터미널에서 대본을 찾고, 점검하고, 파일로 번역을 주고받습니다.
+
+```bash
+pnpm loca projects
+pnpm loca lines --speaker "Alice" --all
+pnpm loca lines --speaker "Alice" --listener "Bob"   # Alice가 Bob에게 한 말 (--listener - 는 청자 미상)
+pnpm loca check terms
+pnpm loca check speech               # 화자→청자 말투 규칙과 어미가 다른 번역 (추정)
+pnpm loca context tower.1                # AI 노드가 이 대사에 보낼 문맥 (모델 호출 없음)
+W=$(pnpm --silent loca workspace new ch1)     # .loca/ch1 작업 폴더 (git에 안 올라감)
+pnpm loca export --section "Chapter 1" --untranslated --context 4 --terms -o "$W/ch1.jsonl"
+pnpm loca import "$W/ch1.out.jsonl" --dry-run
+pnpm loca import "$W/ch1.out.jsonl"     # 제안 1건 → 앱에서 수락하면 반영
+```
+
+앱 없이 되는 명령: `loca format schema`(표준 파일 JSON Schema), `loca format check <파일>`(형식 오류·요약·경고),
+`loca workspace new|list|clean`(에이전트 임시 파일을 두는 `.loca/`. 가장 가까운 `.loca`, 없으면 git 저장소 루트, 없으면 현재 폴더에 만들고 스스로 git에서 빠집니다. `LOCA_WORKSPACE`로 바꿀 수 있음).
+
+어디서나 `loca`로 쓰려면 `apps/cli`에서 `npm link`. 앱 주소는 `LOCA_URL`, 프로젝트는 `--project` 또는 `LOCA_PROJECT`. 에이전트용 사용법은 [`skills/`](skills/README.md).
+
+## 표준 포맷 (`loca/v1`)
 
 게임별 추출기/변환기가 만드는 JSON입니다. 작업실은 게임 내부 구조를 몰라도 됩니다. 스키마의 기준은
-[packages/shared/src/import-format.ts](packages/shared/src/import-format.ts)이고, 가져오기 화면이 위반 위치를 경로로 알려 줍니다.
+[packages/shared/src/import-format.ts](packages/shared/src/import-format.ts)이고, 가져오기 화면과 `loca format check`가 위반 위치를 경로로 알려 줍니다.
+변환기를 만드는 절차는 [`skills/loca-import-format`](skills/loca-import-format/SKILL.md).
 
 ```jsonc
 {
-  "format": "translation-workbench/v1",
+  "format": "loca/v1",
   "project": { "name": "…", "sourceLanguage": "en", "targetLanguage": "ko" },
   "groups": [{ "key": "scene-1", "kind": "scene", "title": "…" }],          // scene | document | ui
   "units":  [{ "key": "scene-1.3", "group": "scene-1", "speaker": "MIRA", "source": "…" }],

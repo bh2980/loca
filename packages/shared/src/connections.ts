@@ -1,19 +1,22 @@
 import { z } from 'zod';
+import { piOptionsSchema } from './agent.ts';
 
-export const CONNECTION_KINDS = ['openai', 'systemone', 'codex', 'claude', 'grok', 'antigravity', 'http'] as const;
+export const CONNECTION_KINDS = ['openai', 'pi', 'systemone', 'codex', 'claude', 'grok', 'antigravity', 'opencode', 'http'] as const;
 export type ConnectionKind = (typeof CONNECTION_KINDS)[number];
 
 /**
  * generate: structured generation (translate / revise / review nodes)
  * judge:    typed decision only (review nodes)
- * chat:     tool-calling conversation (project chat agent)
- * tool:     plain HTTP API called by the workflow "HTTP 호출" function (spell checkers, dictionaries…)
+ * chat:     multi-turn conversation with the workbench tools (project chat agent). API connections call the
+ *           tools natively; agent CLIs resume their own session each turn and request tools in their answer
+ * tool:     an API key (credential) for the workflow "HTTP 호출" function; the address lives in the node
  */
 export type Capability = 'generate' | 'judge' | 'chat' | 'tool';
 
 export interface ConnectionKindInfo {
   label: string;
-  transport: 'http' | 'cli';
+  /** sdk: runs in the server process with its own credentials (pi). */
+  transport: 'http' | 'cli' | 'sdk';
   capabilities: Capability[];
   defaultBaseUrl?: string;
   needsKey: boolean;
@@ -29,19 +32,28 @@ export const CONNECTION_KIND_INFO: Record<ConnectionKind, ConnectionKindInfo> = 
     needsKey: true,
     efforts: ['minimal', 'low', 'medium', 'high'],
   },
+  pi: {
+    label: 'pi (구독·API 로그인)',
+    transport: 'sdk',
+    capabilities: ['generate', 'chat'],
+    needsKey: false,
+    efforts: ['minimal', 'low', 'medium', 'high', 'xhigh'],
+  },
   systemone: {
     label: 'System One (TypeSafe)',
     transport: 'http',
     capabilities: ['judge'],
-    defaultBaseUrl: 'https://api.typesafe.ai/v1',
+    defaultBaseUrl: 'https://api.typesafe.ai',
     needsKey: true,
     efforts: [],
   },
-  codex: { label: 'Codex CLI', transport: 'cli', capabilities: ['generate'], needsKey: false, efforts: ['minimal', 'low', 'medium', 'high', 'xhigh'] },
-  claude: { label: 'Claude Code CLI', transport: 'cli', capabilities: ['generate'], needsKey: false, efforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
-  grok: { label: 'Grok CLI', transport: 'cli', capabilities: ['generate'], needsKey: false, efforts: [] },
-  antigravity: { label: 'Antigravity CLI', transport: 'cli', capabilities: ['generate'], needsKey: false, efforts: [] },
-  http: { label: 'HTTP API (도구)', transport: 'http', capabilities: ['tool'], needsKey: false, efforts: [] },
+  codex: { label: 'Codex CLI', transport: 'cli', capabilities: ['generate', 'chat'], needsKey: false, efforts: ['minimal', 'low', 'medium', 'high', 'xhigh'] },
+  claude: { label: 'Claude Code CLI', transport: 'cli', capabilities: ['generate', 'chat'], needsKey: false, efforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
+  grok: { label: 'Grok CLI', transport: 'cli', capabilities: ['generate', 'chat'], needsKey: false, efforts: [] },
+  antigravity: { label: 'Antigravity CLI', transport: 'cli', capabilities: ['generate', 'chat'], needsKey: false, efforts: [] },
+  // opencode's own free models (opencode/…) are only served through its CLI; opencode Go models too.
+  opencode: { label: 'opencode CLI', transport: 'cli', capabilities: ['generate', 'chat'], needsKey: false, efforts: [] },
+  http: { label: 'API 키', transport: 'http', capabilities: ['tool'], needsKey: true, efforts: [] },
 };
 
 export const connectionInputSchema = z.object({
@@ -52,6 +64,10 @@ export const connectionInputSchema = z.object({
   executable: z.string().trim().optional(),
   /** HTTP tools: how the stored key is sent, e.g. "Authorization: Bearer {key}" or "X-API-Key: {key}". */
   headerTemplate: z.string().trim().optional(),
+  /** pi connections only. */
+  options: piOptionsSchema.optional(),
+  /** Model calls this account takes at once, shared by every run. */
+  concurrency: z.number().int().min(1).max(32).optional(),
 });
 export type ConnectionInput = z.infer<typeof connectionInputSchema>;
 

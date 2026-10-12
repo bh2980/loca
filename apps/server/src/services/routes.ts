@@ -25,7 +25,7 @@ export function snapshotProfiles(db: Db, ids: string[]): Record<string, ProfileS
         routes: [{ connectionId: row.connectionId, model: row.model, effort: row.effort }, ...row.fallbacks].flatMap((route) => {
           const connection = byId.get(route.connectionId);
           return connection
-            ? [{ connectionId: connection.id, kind: connection.kind, baseUrl: connection.baseUrl, executable: connection.executable, model: route.model, effort: route.effort ?? null }]
+            ? [{ connectionId: connection.id, kind: connection.kind, baseUrl: connection.baseUrl, executable: connection.executable, model: route.model, effort: route.effort ?? null, piOptions: connection.options ?? null }]
             : [];
         }),
       },
@@ -41,6 +41,7 @@ export function resolveRoutes(snapshot: ProfileSnapshot, secrets: SecretStore): 
     model: route.model,
     effort: route.effort ?? undefined,
     apiKey: secrets.get(route.connectionId) ?? undefined,
+    piOptions: route.piOptions ?? undefined,
   }));
 }
 
@@ -57,5 +58,6 @@ export function connectionRoute(db: Db, connectionId: string, secrets: SecretSto
     baseUrl: connection.baseUrl ?? undefined,
     executable: connection.executable ?? undefined,
     apiKey: secrets.get(connection.id) ?? undefined,
+    piOptions: connection.options ?? undefined,
   };
 }

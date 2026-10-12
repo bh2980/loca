@@ -4,12 +4,12 @@ import path from 'node:path';
 import { execa, ExecaError } from 'execa';
 import { z } from 'zod';
 import type { ConnectionKind } from '@tw/shared';
-import { ModelError } from './errors.ts';
-import type { GenerateRequest, GenerateResult, ResolvedRoute, Usage } from './types.ts';
+import { ModelError, TOO_LONG } from './errors.ts';
+import { addUsage, readUsage, type GenerateRequest, type GenerateResult, type ResolvedRoute, type Usage } from './types.ts';
 
-type CliKind = Extract<ConnectionKind, 'codex' | 'claude' | 'grok' | 'antigravity'>;
+type CliKind = Extract<ConnectionKind, 'codex' | 'claude' | 'grok' | 'antigravity' | 'opencode'>;
 
-const COMMAND: Record<CliKind, string> = { codex: 'codex', claude: 'claude', grok: 'grok', antigravity: 'agy' };
+const COMMAND: Record<CliKind, string> = { codex: 'codex', claude: 'claude', grok: 'grok', antigravity: 'agy', opencode: 'opencode' };
 
 export const cliCommand = (kind: CliKind, executable?: string) => executable?.trim() || COMMAND[kind];
 
@@ -23,7 +23,17 @@ interface Files {
   schema: string;
   prompt: string;
   result: string;
+  /** Codex: our instructions in place of its coding-agent base instructions. */
+  instructions: string;
 }
+
+/**
+ * Codex features that add tools or instructions a translation call never uses. Measured on real game
+ * translation batches (codex 0.162, gpt-6.1-sol): these plus our own model instructions cut each
+ * request from about 15k to 9k input tokens with the same answers. Set through -c, which older
+ * versions ignore for names they do not know (--disable would fail on them).
+ */
+const CODEX_UNUSED_FEATURES = ['hooks', 'shell_tool', 'multi_agent', 'plugins', 'apps', 'browser_use', 'browser_use_external', 'computer_use', 'code_mode_host', 'goals', 'image_generation', 'view_image', 'sleep_tool', 'unified_exec', 'tool_suggest', 'skill_search', 'in_app_browser', 'workspace_dependencies', 'worktrees', 'collaboration_modes'];
 
 function args(kind: CliKind, route: ResolvedRoute, schema: object, files: Files, timeoutMs: number): string[] {
   const effort = route.effort;
@@ -34,15 +44,19 @@ function args(kind: CliKind, route: ResolvedRoute, schema: object, files: Files,
         '--ignore-user-config', '--color', 'never', '--json', '--cd', files.dir,
         '--output-schema', files.schema, '--output-last-message', files.result,
         '-c', 'approval_policy="never"', '-c', 'web_search="disabled"',
-        '-c', 'features.hooks=false', '-c', 'features.shell_tool=false', '-c', 'features.multi_agent=false',
+        ...CODEX_UNUSED_FEATURES.flatMap((feature) => ['-c', `features.${feature}=false`]),
+        // The key was renamed once; an unknown one is ignored.
+        '-c', `model_instructions_file=${JSON.stringify(files.instructions)}`, '-c', `experimental_instructions_file=${JSON.stringify(files.instructions)}`,
         ...(effort ? ['-c', `model_reasoning_effort=${JSON.stringify(effort)}`] : []),
         '-',
       ];
     case 'claude':
       return [
         '--print', '--safe-mode', '--model', route.model, '--json-schema', JSON.stringify(schema),
+        // --tools '' removes the built-in tools; a blanket --disallowedTools would also block the
+        // structured-output tool that --json-schema answers through.
         '--output-format', 'json', '--input-format', 'text', '--no-session-persistence', '--max-turns', '1',
-        '--tools', '', '--disallowedTools', '*', '--permission-mode', 'dontAsk', '--no-chrome',
+        '--tools', '', '--permission-mode', 'dontAsk', '--no-chrome',
         '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}',
         ...(effort ? ['--effort', effort] : []),
       ];
@@ -54,38 +68,61 @@ function args(kind: CliKind, route: ResolvedRoute, schema: object, files: Files,
         ...(effort ? ['--reasoning-effort', effort] : []),
       ];
     case 'antigravity':
+      // agy 1.3: --print takes the prompt as its value, so the prompt goes in on stdin as one
+      // stream-json message instead (no command-line length limit on Windows).
       return [
-        '--print', '--model', route.model, '--json-schema', files.schema, '--output-format', 'json',
-        '--mode', 'plan', '--sandbox', '--disable-slash-commands', '--print-timeout', `${Math.ceil(timeoutMs / 1000)}s`,
+        '--print=', '--input-format', 'stream-json', '--output-format', 'stream-json', '--model', route.model,
+        '--json-schema', files.schema, '--sandbox', '--disable-slash-commands', '--print-timeout', `${Math.ceil(timeoutMs / 1000)}s`,
         ...(effort ? ['--effort', effort] : []),
       ];
+    case 'opencode':
+      // One non-interactive turn with the read-only plan agent in an empty folder; the prompt
+      // comes on stdin. opencode has no schema flag, so the schema is in the prompt (cliGenerate).
+      return ['run', '--format', 'json', '--model', route.model, '--agent', 'plan'];
   }
 }
 
 const record = (value: unknown) =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 
-function parseJson(text: string): unknown {
+function parseJson(text: string, usage?: Usage): unknown {
   const clean = text.replace(/^﻿/, '').trim();
   const fenced = /^```(?:json)?\s*\n([\s\S]*?)\n```$/.exec(clean);
   try {
     return JSON.parse(fenced?.[1] ?? clean);
   } catch {
-    throw new ModelError('invalid-output', '모델 응답이 JSON이 아닙니다.', false);
+    throw new ModelError('invalid-output', '모델 응답이 JSON이 아닙니다.', false, usage);
   }
 }
 
-function usageOf(raw: unknown): Usage {
-  const usage = record(raw);
-  const num = (...values: unknown[]) => values.find((value): value is number => typeof value === 'number');
-  return {
-    inputTokens: num(usage?.input_tokens, usage?.inputTokens, usage?.prompt_tokens),
-    outputTokens: num(usage?.output_tokens, usage?.outputTokens, usage?.completion_tokens),
-  };
+/** CLIs report an exhausted plan or rate limit only in their text; treat it like HTTP 429 so fallbacks can take over. */
+const QUOTA = /quota|RESOURCE_EXHAUSTED|rate.?limit|usage limit|too many requests|\b429\b/i;
+const cliFailure = (detail: string, usage?: Usage) =>
+  QUOTA.test(detail)
+    ? new ModelError('rate-limit', `CLI 사용량 한도에 도달했습니다. ${detail}`, undefined, usage)
+    : TOO_LONG.test(detail)
+      ? new ModelError('too-long', `요청이 모델의 문맥 창보다 깁니다. ${detail}`.slice(0, 400), false, usage)
+      : new ModelError('cli', `CLI가 실패를 반환했습니다: ${detail}`, false, usage);
+
+/** JSON somewhere in a model's text answer: a fenced block, else the outermost braces. */
+function parseLooseJson(text: string, usage?: Usage): unknown {
+  const fenced = /```(?:json)?\s*\n([\s\S]*?)\n```/.exec(text)?.[1];
+  const candidate = fenced ?? text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1);
+  return parseJson(candidate || text, usage);
+}
+
+/** opencode prints one `step_finish` per model step; tokens and cost are summed over them (cache is outside `input`). */
+export function opencodeUsage(events: unknown[]): Usage {
+  let total: Usage = {};
+  for (const event of events.map(record)) {
+    const part = record(event?.part);
+    if (event?.type === 'step_finish' && part) total = addUsage(total, readUsage(part.tokens, part.cost));
+  }
+  return total;
 }
 
 /** Each CLI wraps the model's answer in its own terminal envelope; progress events are never results. */
-function unwrap(kind: CliKind, stdout: string): { data: unknown; usage: Usage } {
+export function unwrap(kind: CliKind, stdout: string): { data: unknown; usage: Usage } {
   const lines = stdout.split(/\r?\n/).filter(Boolean);
   const events = lines.flatMap((line) => {
     try {
@@ -94,74 +131,114 @@ function unwrap(kind: CliKind, stdout: string): { data: unknown; usage: Usage } 
       return [];
     }
   });
+  // opencode streams parts; the answer is the text parts, an error event means the turn failed.
+  if (kind === 'opencode') {
+    const usage = opencodeUsage(events);
+    const failure = events.map(record).find((event) => event?.type === 'error');
+    if (failure) throw cliFailure(JSON.stringify(failure.error ?? failure.part ?? failure).slice(0, 300), usage);
+    const text = events
+      .map(record)
+      .filter((event) => event?.type === 'text')
+      .map((event) => String(record(event?.part)?.text ?? ''))
+      .join('');
+    if (!text.trim()) throw new ModelError('cli', 'CLI가 최종 결과를 반환하지 않았습니다.', false, usage);
+    return { data: parseLooseJson(text, usage), usage };
+  }
   let envelope = record(events.length === 1 ? events[0] : undefined);
+  // agy streams events and ends with {"event":"result","result":{status, structured_output, usage, error}}.
+  if (kind === 'antigravity') envelope = record(record(events.findLast((event) => record(event)?.event === 'result'))?.result) ?? envelope;
   if (!envelope) {
     try {
       envelope = record(parseJson(stdout));
     } catch {
-      envelope = record(events.findLast((event) => record(event)?.type === 'result' || record(event)?.stopReason));
+      envelope = record(events.findLast((event) => record(event)?.type === 'result' || record(event)?.stopReason || record(event)?.stop_reason));
     }
   }
   if (!envelope) throw new ModelError('cli', 'CLI가 최종 결과를 반환하지 않았습니다.', false);
-  if (envelope.is_error === true || envelope.type === 'error' || String(envelope.subtype ?? '').startsWith('error'))
-    throw new ModelError('cli', `CLI가 실패를 반환했습니다: ${String(envelope.result ?? envelope.error ?? '').slice(0, 300)}`, false);
-  const stop = String(envelope.stopReason ?? '').toLowerCase();
-  if (/max_?tokens|length|truncat/.test(stop)) throw new ModelError('invalid-output', '응답이 길이 제한에 걸려 잘렸습니다.', false);
+  const usage = readUsage(envelope.usage, envelope.total_cost_usd);
+  if (envelope.is_error === true || envelope.type === 'error' || envelope.status === 'ERROR' || String(envelope.subtype ?? '').startsWith('error'))
+    throw cliFailure(String(envelope.result ?? envelope.error ?? '').slice(0, 300), usage);
+  const stop = String(envelope.stopReason ?? envelope.stop_reason ?? '').toLowerCase();
+  if (/max_?tokens|length|truncat/.test(stop)) throw new ModelError('invalid-output', '응답이 길이 제한에 걸려 잘렸습니다.', false, usage);
   const data =
     envelope.structured_output ??
     envelope.structuredOutput ??
-    (typeof envelope.result === 'string' ? parseJson(envelope.result) : envelope.result) ??
-    (typeof envelope.text === 'string' ? parseJson(envelope.text) : undefined) ??
-    (kind === 'antigravity' ? envelope : undefined);
-  if (data === undefined) throw new ModelError('cli', 'CLI 응답에서 결과를 찾지 못했습니다.', false);
-  return { data, usage: usageOf(envelope.usage) };
+    (typeof envelope.result === 'string' ? parseJson(envelope.result, usage) : envelope.result) ??
+    (typeof envelope.text === 'string' ? parseJson(envelope.text, usage) : undefined) ??
+    (typeof envelope.response === 'string' ? parseJson(envelope.response, usage) : undefined);
+  if (data === undefined) throw new ModelError('cli', 'CLI 응답에서 결과를 찾지 못했습니다.', false, usage);
+  return { data, usage };
+}
+
+/** Codex prints JSONL events on stdout; the answer itself is the `--output-last-message` file. */
+function readCodex(stdout: string, lastMessage: string): { data: unknown; usage: Usage } {
+  const events = stdout.split(/\r?\n/).flatMap((line) => {
+    try {
+      return [record(JSON.parse(line))];
+    } catch {
+      return [];
+    }
+  });
+  const usage = readUsage(events.findLast((event) => event?.type === 'turn.completed')?.usage);
+  if (events.some((event) => event?.type === 'turn.failed' || event?.type === 'error'))
+    throw new ModelError('cli', 'Codex가 실패 이벤트를 반환했습니다.', false, usage);
+  return { data: parseJson(lastMessage, usage), usage };
+}
+
+/**
+ * The model's answer from a CLI's stdout (and Codex's last-message file), checked against the
+ * schema. Whenever the CLI got as far as an answer, a failure carries the usage it reported.
+ */
+export function readCliOutput<T>(kind: CliKind, stdout: string, schema: z.ZodType<T>, lastMessage = ''): GenerateResult<T> {
+  const { data, usage } = kind === 'codex' ? readCodex(stdout, lastMessage) : unwrap(kind, stdout);
+  const parsed = schema.safeParse(data);
+  if (!parsed.success) throw new ModelError('invalid-output', `응답 형식이 맞지 않습니다: ${parsed.error.issues[0]?.message ?? ''}`, false, usage);
+  return { object: parsed.data, usage };
 }
 
 export async function cliGenerate<T>(route: ResolvedRoute, request: GenerateRequest<T>): Promise<GenerateResult<T>> {
   const kind = route.kind as CliKind;
   const schema = z.toJSONSchema(request.schema, { target: 'draft-7' });
   const dir = await mkdtemp(path.join(tmpdir(), 'tw-call-'));
-  const files: Files = { dir, schema: path.join(dir, 'schema.json'), prompt: path.join(dir, 'prompt.txt'), result: path.join(dir, 'result.json') };
-  const prompt = `${PREAMBLE}\n\n${request.system}\n\n${request.prompt}`;
+  const files: Files = { dir, schema: path.join(dir, 'schema.json'), prompt: path.join(dir, 'prompt.txt'), result: path.join(dir, 'result.json'), instructions: path.join(dir, 'instructions.md') };
+  const instructions = `${PREAMBLE}\n\n${request.system}`;
+  // Codex reads the instructions from their own file; the others get them ahead of the task.
+  const prompt =
+    (kind === 'codex' ? request.prompt : `${instructions}\n\n${request.prompt}`) +
+    (kind === 'opencode' ? `\n\nAnswer with one JSON value that follows this JSON Schema, and nothing else:\n${JSON.stringify(schema)}` : '');
   try {
-    await Promise.all([writeFile(files.schema, JSON.stringify(schema)), writeFile(files.prompt, prompt)]);
+    await Promise.all([writeFile(files.schema, JSON.stringify(schema)), writeFile(files.prompt, prompt), ...(kind === 'codex' ? [writeFile(files.instructions, instructions)] : [])]);
     const result = await execa(cliCommand(kind, route.executable), args(kind, route, schema, files, request.timeoutMs), {
       cwd: dir,
-      input: kind === 'grok' ? undefined : prompt,
+      input: kind === 'grok' ? undefined : kind === 'antigravity' ? `${JSON.stringify({ event: 'user', message: { role: 'user', content: prompt } })}\n` : prompt,
       timeout: request.timeoutMs,
       cancelSignal: request.signal,
       maxBuffer: 16 * 1024 * 1024,
       forceKillAfterDelay: 3000,
       windowsHide: true,
     });
-    let data: unknown;
-    let usage: Usage = {};
-    if (kind === 'codex') {
-      const events = result.stdout.split(/\r?\n/).flatMap((line) => {
-        try {
-          return [record(JSON.parse(line))];
-        } catch {
-          return [];
-        }
-      });
-      if (events.some((event) => event?.type === 'turn.failed' || event?.type === 'error'))
-        throw new ModelError('cli', 'Codex가 실패 이벤트를 반환했습니다.', false);
-      data = parseJson(await readFile(files.result, 'utf8').catch(() => ''));
-      usage = usageOf(events.findLast((event) => event?.type === 'turn.completed')?.usage);
-    } else {
-      ({ data, usage } = unwrap(kind, result.stdout));
-    }
-    const parsed = request.schema.safeParse(data);
-    if (!parsed.success) throw new ModelError('invalid-output', `응답 형식이 맞지 않습니다: ${parsed.error.issues[0]?.message ?? ''}`, false);
-    return { object: parsed.data, usage };
+    return readCliOutput(kind, result.stdout, request.schema, kind === 'codex' ? await readFile(files.result, 'utf8').catch(() => '') : '');
   } catch (error) {
     if (error instanceof ModelError) throw error;
     if (error instanceof ExecaError) {
       if (error.isCanceled) throw new ModelError('cancelled', '작업이 취소되었습니다.');
       if (error.timedOut) throw new ModelError('timeout', 'CLI 호출이 제한 시간을 초과했습니다.');
       if (error.code === 'ENOENT') throw new ModelError('config', `CLI를 찾지 못했습니다: ${cliCommand(kind, route.executable)}`, false);
-      const detail = (error.stderr || error.stdout || '').toString().trim().split('\n').slice(-3).join(' ').slice(0, 400);
-      throw new ModelError('cli', `CLI가 실패했습니다 (exit ${error.exitCode}). ${detail}`, false);
+      // A CLI that exits non-zero often still printed its envelope on stdout: its own error, and usage.
+      const stdout = (error.stdout ?? '').toString();
+      let usage: Usage | undefined;
+      try {
+        usage = unwrap(kind, stdout).usage;
+      } catch (failure) {
+        // Only an envelope that reported something is the CLI's own answer; otherwise fall back to the exit.
+        if (failure instanceof ModelError && failure.usage && Object.keys(failure.usage).length) throw failure;
+      }
+      const output = `${(error.stderr ?? '').toString()}\n${stdout}`;
+      const detail = (error.stderr || stdout || '').toString().trim().split('\n').slice(-3).join(' ').slice(0, 400);
+      // The whole output is searched: a pretty-printed envelope can push the reason far from the last lines.
+      if (QUOTA.test(output)) throw new ModelError('rate-limit', `CLI 사용량 한도에 도달했습니다. ${detail}`, undefined, usage);
+      if (TOO_LONG.test(output)) throw new ModelError('too-long', `요청이 모델의 문맥 창보다 깁니다. ${detail}`.slice(0, 400), false, usage);
+      throw new ModelError('cli', `CLI가 실패했습니다 (exit ${error.exitCode}). ${detail}`, false, usage);
     }
     throw new ModelError('unknown', error instanceof Error ? error.message : String(error), false);
   } finally {
@@ -182,11 +259,11 @@ export async function cliVersion(kind: CliKind, executable?: string): Promise<st
 
 /**
  * How each CLI reports its models: `grok models` ("* grok-4.7 (default)" / "- grok-4.6", also when
- * signed out), `agy models` ("<id>\t<name>"), `codex debug models` (JSON catalog; entries with
+ * signed out), `agy models` ("<id>\t<name>"), `opencode models` ("<provider>/<model>" per line), `codex debug models` (JSON catalog; entries with
  * visibility "list" are the ones its picker offers). claude has no list command; its --help names
  * the aliases it accepts, which always point at the latest model of each family.
  */
-const MODEL_ARGS: Partial<Record<CliKind, string[]>> = { grok: ['models'], antigravity: ['models'], codex: ['debug', 'models'] };
+const MODEL_ARGS: Partial<Record<CliKind, string[]>> = { grok: ['models'], antigravity: ['models'], opencode: ['models'], codex: ['debug', 'models'] };
 const CLAUDE_ALIASES = ['opus', 'sonnet', 'haiku', 'fable'];
 const MODEL_LIST: Partial<Record<CliKind, (stdout: string) => string[]>> = {
   codex: (stdout) => {
@@ -197,6 +274,7 @@ const MODEL_LIST: Partial<Record<CliKind, (stdout: string) => string[]>> = {
       .map((model) => model.slug!);
   },
   grok: (stdout) => [...stdout.matchAll(/^\s*[*-]\s+(\S+)/gm)].map((match) => match[1]),
+  opencode: (stdout) => [...stdout.matchAll(/^([\w.-]+\/[\w.:#-]+)\s*$/gm)].map((match) => match[1]),
   antigravity: (stdout) =>
     stdout
       .split(/\r?\n/)
@@ -235,6 +313,7 @@ export const LOGIN_COMMANDS: Record<CliKind, string[]> = {
   claude: ['auth', 'login'],
   grok: ['login'],
   antigravity: [],
+  opencode: ['auth', 'login'],
 };
 
 export async function openLoginTerminal(kind: CliKind, executable?: string): Promise<void> {

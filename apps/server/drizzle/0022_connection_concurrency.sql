@@ -1,0 +1,1 @@
+ALTER TABLE `connections` ADD `concurrency` integer DEFAULT 2 NOT NULL;

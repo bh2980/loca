@@ -56,7 +56,7 @@ export function ImportProjectDialog({ trigger }: { trigger?: React.ReactNode }) 
         <DialogHeader>
           <DialogTitle>새 프로젝트 가져오기</DialogTitle>
           <DialogDescription>
-            게임 추출기가 만든 <code className="text-xs">translation-workbench/v1</code> 형식의 JSON 파일을 선택하세요.
+            게임 추출기가 만든 <code className="text-xs">loca/v1</code> 형식의 JSON 파일을 선택하세요.
           </DialogDescription>
         </DialogHeader>
         <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed px-4 py-8 text-sm text-muted-foreground hover:bg-muted/50">
@@ -103,6 +103,16 @@ export function ImportProjectDialog({ trigger }: { trigger?: React.ReactNode }) 
               </div>
             ))}
           </dl>
+        )}
+        {result && 'warnings' in result && result.ok && result.warnings.length > 0 && (
+          <ul className="max-h-40 space-y-1 overflow-auto rounded-md border p-3 text-xs">
+            {result.warnings.map((warning) => (
+              <li key={warning.message}>
+                <span className="text-warning">{warning.message}</span>
+                {warning.examples.length > 0 && <span className="block truncate font-mono text-muted-foreground">예: {warning.examples.join(', ')}</span>}
+              </li>
+            ))}
+          </ul>
         )}
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>

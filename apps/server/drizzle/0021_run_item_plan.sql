@@ -1,0 +1,1 @@
+ALTER TABLE `run_items` ADD `plan` integer;

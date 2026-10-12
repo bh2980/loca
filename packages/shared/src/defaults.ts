@@ -1,5 +1,5 @@
 import { AI_PRESETS } from './presets.ts';
-import type { WorkflowDefinition } from './workflow.ts';
+import { contextConfigSchema, type WorkflowDefinition } from './workflow.ts';
 
 export type StatusKind = 'initial' | 'normal' | 'final';
 
@@ -28,17 +28,18 @@ export function translationTemplate(ids: {
 }): WorkflowDefinition {
   const ai = (preset: keyof typeof AI_PRESETS) => ({
     profileId: ids.profileId,
+    extraProfileIds: [],
     instructions: AI_PRESETS[preset].instructions,
     output: AI_PRESETS[preset].output,
     fields: [],
     include: AI_PRESETS[preset].include,
-    context: { glossary: true, documents: true, characters: true, relationships: true, precedingLines: 8, previousScenes: 1 },
-    batch: { mode: 'group' as const, size: 30 },
+    context: contextConfigSchema.parse({}),
+    batch: { mode: 'group' as const, size: 60, maxTokens: 6_000 },
   });
   const status = (statusId: string, applyCandidate = false) => ({ fn: 'setStatus', params: { statusId, addTagIds: [], removeTagIds: [], applyCandidate } });
   const at = (column: number, row: number) => ({ x: column * 300, y: row * 180 });
   return {
-    settings: { maxVisitsPerNode: 5, concurrency: 2 },
+    settings: { maxVisitsPerNode: 5, concurrency: 2, maxConsecutiveFailures: 3 },
     nodes: [
       { id: 'entry', type: 'entry', position: at(0, 1), config: { statusIds: [ids.untranslated] } },
       { id: 'translate', type: 'ai', position: at(1, 1), label: 'AI 번역', config: ai('translate') },
@@ -82,7 +83,7 @@ export function translationTemplate(ids: {
  */
 export function termExtractionTemplate(ids: { profileId: string }): WorkflowDefinition {
   return {
-    settings: { maxVisitsPerNode: 5, concurrency: 2 },
+    settings: { maxVisitsPerNode: 5, concurrency: 2, maxConsecutiveFailures: 3 },
     nodes: [
       { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: { statusIds: [] } },
       {
@@ -92,13 +93,14 @@ export function termExtractionTemplate(ids: { profileId: string }): WorkflowDefi
         label: AI_PRESETS.terms.label,
         config: {
           profileId: ids.profileId,
+          extraProfileIds: [],
           instructions: AI_PRESETS.terms.instructions,
           output: 'terms',
           fields: [],
           include: { candidate: false, issues: false },
           // The current glossary is in context so the model skips terms that already exist.
-          context: { glossary: true, documents: true, characters: true, relationships: false, precedingLines: 0, previousScenes: 0 },
-          batch: { mode: 'group', size: 60 },
+          context: { ...contextConfigSchema.parse({}), characters: true, documents: true, relationships: false, precedingLines: 0, previousScenes: 0 },
+          batch: { mode: 'group', size: 60, maxTokens: 6_000 },
         },
       },
       { id: 'add', type: 'function', position: { x: 600, y: 0 }, label: '용어 후보 추가', config: { fn: 'addTerms', params: { fromNodeId: 'terms' } } },
@@ -112,3 +114,127 @@ export function termExtractionTemplate(ids: { profileId: string }): WorkflowDefi
   };
 }
 
+
+/**
+ * Listener estimation: the work analysis (or the import) already gave most lines a listener, so lines
+ * whose listener is known (import, person, confident AI guess) and lines that are not dialogue go
+ * straight to the end. Only the rest are read scene by scene with the whole cast and get a listener
+ * with a confidence. Translations and statuses are untouched, so it can run on any lines, any number of times.
+ */
+export function listenerTemplate(ids: { profileId: string }): WorkflowDefinition {
+  return {
+    settings: { maxVisitsPerNode: 5, concurrency: 2, maxConsecutiveFailures: 3 },
+    nodes: [
+      { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: { statusIds: [] } },
+      {
+        id: 'needs',
+        type: 'condition',
+        position: { x: 300, y: 0 },
+        label: '청자가 이미 있나?',
+        config: { expression: { var: 'listenerKnown' }, description: '가져오기·사람·확신 높은 AI 청자가 있거나 대사가 아니면 건너뜁니다.' },
+      },
+      {
+        id: 'listener',
+        type: 'ai',
+        position: { x: 600, y: 0 },
+        label: AI_PRESETS.listener.label,
+        config: {
+          profileId: ids.profileId,
+          extraProfileIds: [],
+          instructions: AI_PRESETS.listener.instructions,
+          output: 'listener',
+          fields: [],
+          include: AI_PRESETS.listener.include,
+          context: { ...contextConfigSchema.parse({}), glossary: false, cast: true, characters: true, relationships: true, documents: true, precedingLines: 8, previousScenes: 1 },
+          batch: { mode: 'group', size: 80, maxTokens: 6_000 },
+        },
+      },
+      { id: 'record', type: 'function', position: { x: 900, y: 0 }, label: '청자 기록', config: { fn: 'setListener', params: { fromNodeId: 'listener' } } },
+      { id: 'end', type: 'end', position: { x: 1200, y: 0 }, config: {} },
+    ],
+    edges: [
+      { id: 'e1', source: 'entry', sourceHandle: 'out', target: 'needs' },
+      { id: 'e2', source: 'needs', sourceHandle: 'true', target: 'end' },
+      { id: 'e3', source: 'needs', sourceHandle: 'false', target: 'listener' },
+      { id: 'e4', source: 'listener', sourceHandle: 'out', target: 'record' },
+      { id: 'e5', source: 'record', sourceHandle: 'out', target: 'end' },
+    ],
+  };
+}
+
+/**
+ * After a speech rule or a listener is corrected: re-fit only the speech level and forms of address
+ * of the current translations, so the rest of the wording does not drift as a full re-translation would.
+ * The fitted text becomes the representative translation; the status stays as it was.
+ */
+export function speechFixTemplate(ids: { profileId: string }): WorkflowDefinition {
+  return {
+    settings: { maxVisitsPerNode: 5, concurrency: 2, maxConsecutiveFailures: 3 },
+    nodes: [
+      { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: { statusIds: [] } },
+      {
+        id: 'fit',
+        type: 'ai',
+        position: { x: 300, y: 0 },
+        label: AI_PRESETS.speechFix.label,
+        config: {
+          profileId: ids.profileId,
+          extraProfileIds: [],
+          instructions: AI_PRESETS.speechFix.instructions,
+          output: 'candidate',
+          fields: [],
+          include: AI_PRESETS.speechFix.include,
+          context: { ...contextConfigSchema.parse({}), speech: true, documents: false, characters: false, relationships: false, glossary: false, precedingLines: 4, previousScenes: 0 },
+          batch: { mode: 'group', size: 40, maxTokens: 6_000 },
+        },
+      },
+      { id: 'apply', type: 'function', position: { x: 600, y: 0 }, label: '번역에 적용', config: { fn: 'setStatus', params: { applyCandidate: true } } },
+      { id: 'end', type: 'end', position: { x: 900, y: 0 }, config: {} },
+    ],
+    edges: [
+      { id: 'e1', source: 'entry', sourceHandle: 'out', target: 'fit' },
+      { id: 'e2', source: 'fit', sourceHandle: 'out', target: 'apply' },
+      { id: 'e3', source: 'apply', sourceHandle: 'out', target: 'end' },
+    ],
+  };
+}
+
+/** The workflow that a speech rule's "re-run affected lines" picks first. */
+export const SPEECH_FIX_WORKFLOW = '말투만 고치기';
+
+/**
+ * Keeps 자료 growing with the script: each scene is read against what is already known and new
+ * people, relationship changes, events and speech-level changes are added as AI items. Official
+ * knowledge is never changed; disagreements become AI candidates. Translations are untouched.
+ */
+export function knowledgeTemplate(ids: { profileId: string }): WorkflowDefinition {
+  return {
+    settings: { maxVisitsPerNode: 5, concurrency: 2, maxConsecutiveFailures: 3 },
+    nodes: [
+      { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: { statusIds: [] } },
+      {
+        id: 'find',
+        type: 'ai',
+        position: { x: 300, y: 0 },
+        label: AI_PRESETS.knowledge.label,
+        config: {
+          profileId: ids.profileId,
+          extraProfileIds: [],
+          instructions: AI_PRESETS.knowledge.instructions,
+          output: 'knowledge',
+          fields: [],
+          include: AI_PRESETS.knowledge.include,
+          context: { ...contextConfigSchema.parse({}), glossary: false, cast: true, characters: true, relationships: true, documents: true, speech: true, precedingLines: 8, previousScenes: 1 },
+          batch: { mode: 'group', size: 120, maxTokens: 6_000 },
+        },
+      },
+      { id: 'apply', type: 'function', position: { x: 600, y: 0 }, label: '자료 반영', config: { fn: 'applyKnowledge', params: { fromNodeId: 'find', autoConfirm: true } } },
+      { id: 'end', type: 'end', position: { x: 900, y: 0 }, config: {} },
+    ],
+    edges: [
+      { id: 'e1', source: 'entry', sourceHandle: 'out', target: 'find' },
+      { id: 'e2', source: 'find', sourceHandle: 'out', target: 'apply' },
+      { id: 'e3', source: 'apply', sourceHandle: 'out', target: 'end' },
+    ],
+  };
+}

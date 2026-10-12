@@ -14,6 +14,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
+import { HeaderFilter } from '@/components/header-filter';
+import { LISTENER_MIN_CONFIDENCE, listenerLabel } from '@tw/shared';
+import { SplitPane } from '@/components/split-pane';
 
 export const PAGE_SIZE = 100;
 
@@ -29,12 +32,39 @@ function OriginBadge({ origin, model }: { origin: keyof typeof ORIGIN_LABEL; mod
   );
 }
 
+
+/** Who the line is addressed to. AI guesses are faint with their confidence; unsure ones count as unknown. */
+export function ListenerCell({ line }: { line: { listener: string | null; listenerOrigin: 'import' | 'ai' | 'human' | null; listenerConfidence: number | null } }) {
+  const name = line.listener ? listenerLabel(line.listener) : null;
+  if (line.listenerOrigin === 'ai' && (line.listenerConfidence ?? 0) < LISTENER_MIN_CONFIDENCE)
+    return (
+      <span className="text-warning" title={`AI 추정: ${name ?? '모름'} (확신 ${(line.listenerConfidence ?? 0).toFixed(2)})`}>
+        미상
+      </span>
+    );
+  if (!name) return <span className="text-muted-foreground">—</span>;
+  if (line.listenerOrigin === 'ai')
+    return (
+      <span className="text-muted-foreground" title={`AI 추정 (확신 ${(line.listenerConfidence ?? 0).toFixed(2)})`}>
+        {name}
+        <span className="ml-1 text-[10px]">AI</span>
+      </span>
+    );
+  return <span>{name}</span>;
+}
+
 export interface LinesSearch {
   q?: string;
   status?: string;
   tag?: string;
+  speaker?: string;
+  /** A character name, or "-" for lines whose listener is unknown. */
+  listener?: string;
   page?: number;
   line?: string;
+  /** The line panel's tab and the AI node whose context it shows ("workflowId:nodeId"). */
+  lineTab?: 'context';
+  aiNode?: string;
 }
 
 /**
@@ -52,7 +82,9 @@ export function LinesView({ projectId, groupId, kind, search, onSearch, showScen
 }) {
   const statuses = useQuery(q.statuses(projectId));
   const page = search.page ?? 0;
-  const lines = useQuery(q.units(projectId, { groupId, kind, q: search.q, statusId: search.status, tagId: search.tag, offset: page * PAGE_SIZE, limit: PAGE_SIZE }));
+  const lines = useQuery(q.units(projectId, { groupId, kind, q: search.q, statusId: search.status, tagId: search.tag, speaker: search.speaker, listener: search.listener, offset: page * PAGE_SIZE, limit: PAGE_SIZE }));
+  const speakers = useQuery(q.speakers(projectId));
+  const people = useQuery(q.characters(projectId));
   const statusById = new Map(statuses.data?.statuses.map((status) => [status.id, status]));
   const tagById = new Map(statuses.data?.tags.map((tag) => [tag.id, tag]));
   const total = lines.data?.total ?? 0;
@@ -91,7 +123,27 @@ export function LinesView({ projectId, groupId, kind, search, onSearch, showScen
   }, [search.line, lines.data]);
 
   return (
-    <div className="flex h-full min-h-0">
+    <SplitPane
+      id="lines"
+      defaultWidth="400px"
+      className="h-full min-h-0"
+      pane={
+        search.line && (
+          <div className="h-full">
+            <LineDetail
+              projectId={projectId}
+              unitId={search.line}
+              onClose={() => onSearch({ line: undefined }, { replace: true })}
+              showScene={showScene}
+              tab={search.lineTab ?? 'edit'}
+              onTab={(tab) => onSearch({ lineTab: tab === 'context' ? 'context' : undefined }, { replace: true })}
+              aiNode={search.aiNode}
+              onAiNode={(aiNode) => onSearch({ aiNode }, { replace: true })}
+            />
+          </div>
+        )
+      }
+    >
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex flex-wrap items-center gap-2 px-6 py-3">
           <InputGroup className="w-72">
@@ -105,34 +157,6 @@ export function LinesView({ projectId, groupId, kind, search, onSearch, showScen
               onBlur={(event) => event.currentTarget.value.trim() !== (search.q ?? '') && onSearch({ q: event.currentTarget.value.trim() || undefined, page: undefined })}
             />
           </InputGroup>
-          <Select value={search.status ?? 'all'} onValueChange={(value) => onSearch({ status: value === 'all' ? undefined : value, page: undefined })}>
-            <SelectTrigger className="w-44" aria-label="상태 필터">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">모든 상태</SelectItem>
-              {statuses.data?.statuses.map((status) => (
-                <SelectItem key={status.id} value={status.id}>
-                  <StatusDot color={status.color} /> {status.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {!!statuses.data?.tags.length && (
-            <Select value={search.tag ?? 'all'} onValueChange={(value) => onSearch({ tag: value === 'all' ? undefined : value, page: undefined })}>
-              <SelectTrigger className="w-36" aria-label="태그 필터">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">모든 태그</SelectItem>
-                {statuses.data.tags.map((tag) => (
-                  <SelectItem key={tag.id} value={tag.id}>
-                    #{tag.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
           <span className="ml-auto text-sm text-muted-foreground tabular-nums">
             {total.toLocaleString()}개{total > PAGE_SIZE && ` 중 ${(page * PAGE_SIZE + 1).toLocaleString()}–${Math.min(total, (page + 1) * PAGE_SIZE).toLocaleString()}`}
           </span>
@@ -201,10 +225,36 @@ export function LinesView({ projectId, groupId, kind, search, onSearch, showScen
                   <Checkbox aria-label="이 페이지 모두 선택" checked={allOnPage} onCheckedChange={(checked) => toggle(pageIds, Boolean(checked))} />
                 </TableHead>
                 {showScene && <TableHead className="w-32">묶음</TableHead>}
-                <TableHead className="w-28">화자</TableHead>
+                <TableHead className="w-28">
+                  <HeaderFilter
+                    label="화자"
+                    value={search.speaker}
+                    onChange={(speaker) => onSearch({ speaker, page: undefined })}
+                    options={(speakers.data ?? []).filter((row) => row.speaker).map((row) => ({ value: row.speaker!, label: row.speaker, hint: row.lines }))}
+                  />
+                </TableHead>
+                <TableHead className="w-28">
+                  <HeaderFilter
+                    label="청자"
+                    value={search.listener}
+                    onChange={(listener) => onSearch({ listener, page: undefined })}
+                    options={[
+                      { value: '-', label: '미상', keywords: '미상 unknown' },
+                      ...(people.data?.characters ?? []).filter((c) => c.status === 'confirmed').map((c) => ({ value: c.name, label: c.name, hint: c.player ? '플레이어' : undefined })),
+                    ]}
+                  />
+                </TableHead>
                 <TableHead>원문</TableHead>
                 <TableHead>번역</TableHead>
-                <TableHead className="w-36">상태</TableHead>
+                <TableHead className="w-36">
+                  <HeaderFilter
+                    label="상태"
+                    value={search.status}
+                    onChange={(status) => onSearch({ status, page: undefined })}
+                    options={(statuses.data?.statuses ?? []).map((status) => ({ value: status.id, keywords: status.name, label: <><StatusDot color={status.color} /> {status.name}</> }))}
+                    groups={[{ heading: '태그', value: search.tag, onChange: (tag) => onSearch({ tag, page: undefined }), options: (statuses.data?.tags ?? []).map((tag) => ({ value: tag.id, keywords: tag.name, label: `#${tag.name}` })) }]}
+                  />
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -223,6 +273,9 @@ export function LinesView({ projectId, groupId, kind, search, onSearch, showScen
                     </TableCell>
                     {showScene && <TableCell className="truncate text-muted-foreground">{line.groupTitle}</TableCell>}
                     <TableCell className="truncate font-medium">{line.speaker ?? <span className="text-muted-foreground">—</span>}</TableCell>
+                    <TableCell className="truncate">
+                      <ListenerCell line={line} />
+                    </TableCell>
                     <TableCell className="whitespace-pre-wrap">{line.source}</TableCell>
                     <TableCell className={cn('whitespace-pre-wrap', !line.translation && 'text-muted-foreground')}>
                       {line.translation ?? '—'}
@@ -239,7 +292,7 @@ export function LinesView({ projectId, groupId, kind, search, onSearch, showScen
               })}
               {lines.data?.rows.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="py-10 text-center text-muted-foreground">
+                  <TableCell colSpan={7} className="py-12 text-center text-muted-foreground">
                     조건에 맞는 대사가 없습니다.
                   </TableCell>
                 </TableRow>
@@ -261,12 +314,7 @@ export function LinesView({ projectId, groupId, kind, search, onSearch, showScen
           </div>
         )}
       </div>
-      {search.line && (
-        <div className="w-[400px] shrink-0 border-l">
-          <LineDetail projectId={projectId} unitId={search.line} onClose={() => onSearch({ line: undefined }, { replace: true })} showScene={showScene} />
-        </div>
-      )}
-    </div>
+    </SplitPane>
   );
 }
 
@@ -274,6 +322,10 @@ export const linesSearchSchema = (raw: Record<string, unknown>): LinesSearch => 
   q: typeof raw.q === 'string' && raw.q ? raw.q : undefined,
   status: typeof raw.status === 'string' ? raw.status : undefined,
   tag: typeof raw.tag === 'string' ? raw.tag : undefined,
+  speaker: typeof raw.speaker === 'string' && raw.speaker ? raw.speaker : undefined,
+  listener: typeof raw.listener === 'string' && raw.listener ? raw.listener : undefined,
   page: typeof raw.page === 'number' && raw.page > 0 ? raw.page : undefined,
   line: typeof raw.line === 'string' ? raw.line : undefined,
+  lineTab: raw.lineTab === 'context' ? 'context' : undefined,
+  aiNode: typeof raw.aiNode === 'string' && raw.aiNode.includes(':') ? raw.aiNode : undefined,
 });

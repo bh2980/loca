@@ -75,7 +75,7 @@ function Workflows() {
                   <TableCell onClick={(event) => event.stopPropagation()}>
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
-                        <Button variant="ghost" size="icon" className="size-8" aria-label={`${workflow.name} 삭제`}>
+                        <Button variant="ghost" size="icon" className="size-7 text-destructive" aria-label={`${workflow.name} 삭제`}>
                           <Trash2 />
                         </Button>
                       </AlertDialogTrigger>
@@ -105,7 +105,7 @@ function NewWorkflow({ projectId }: { projectId: string }) {
   const navigate = Route.useNavigate();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
-  const [from, setFrom] = useState<'template' | 'terms' | 'blank'>('template');
+  const [from, setFrom] = useState<'template' | 'terms' | 'listener' | 'knowledge' | 'speechFix' | 'blank'>('template');
   const create = useMutation({
     mutationFn: () => unwrap(client.projects[':projectId'].workflows.$post({ param: { projectId }, json: { name: name.trim(), from } })),
     onSuccess: (workflow) => {
@@ -129,7 +129,7 @@ function NewWorkflow({ projectId }: { projectId: string }) {
             <Label htmlFor="wf-name">이름</Label>
             <Input id="wf-name" value={name} onChange={(event) => setName(event.target.value)} autoFocus />
           </div>
-          <RadioGroup value={from} onValueChange={(value) => setFrom(value as 'template' | 'terms' | 'blank')}>
+          <RadioGroup value={from} onValueChange={(value) => setFrom(value as 'template' | 'terms' | 'listener' | 'knowledge' | 'speechFix' | 'blank')}>
             <label className="flex items-start gap-2 text-sm">
               <RadioGroupItem value="template" className="mt-0.5" />
               <span>
@@ -142,6 +142,27 @@ function NewWorkflow({ projectId }: { projectId: string }) {
               <span>
                 용어 추출 템플릿
                 <span className="block text-xs text-muted-foreground">장면별로 용어를 뽑아 용어집 후보로 추가 (상태는 그대로). 수락 후 번역에 쓰입니다.</span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2 text-sm">
+              <RadioGroupItem value="listener" className="mt-0.5" />
+              <span>
+                청자 추정 템플릿
+                <span className="block text-xs text-muted-foreground">장면별로 대사마다 누구에게 하는 말인지와 확신도를 적습니다 (번역·상태는 그대로). 말투 규칙은 청자가 정해진 대사에만 쓰입니다.</span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2 text-sm">
+              <RadioGroupItem value="knowledge" className="mt-0.5" />
+              <span>
+                자료 갱신 템플릿
+                <span className="block text-xs text-muted-foreground">장면을 읽으며 새 인물·관계 변화·사건·말투 변화를 자료에 AI 항목으로 넣습니다 (정식 자료는 그대로, 다른 의견은 후보).</span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2 text-sm">
+              <RadioGroupItem value="speechFix" className="mt-0.5" />
+              <span>
+                말투만 고치기 템플릿
+                <span className="block text-xs text-muted-foreground">말투 규칙·청자를 고친 뒤, 현재 번역의 어미·호칭만 확정 규칙에 맞춥니다 (뜻·표현·상태는 그대로).</span>
               </span>
             </label>
             <label className="flex items-start gap-2 text-sm">

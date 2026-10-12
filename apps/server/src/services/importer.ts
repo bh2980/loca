@@ -1,4 +1,4 @@
-import { DEFAULT_STATUSES, termExtractionTemplate, translationTemplate, type ImportFile } from '@tw/shared';
+import { DEFAULT_STATUSES, listenerTemplate, SPEECH_FIX_WORKFLOW, speechFixTemplate, termExtractionTemplate, translationTemplate, type ImportFile } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 
@@ -68,6 +68,8 @@ export function importProject(db: Db, file: ImportFile, defaultProfileId = ''): 
         sort: unit.order ?? index,
         kind: unit.kind,
         speaker: unit.speaker ?? null,
+        listener: unit.listener ?? null,
+        listenerOrigin: unit.listener ? 'import' : null,
         source: unit.source,
         translation: unit.translation ?? null,
         candidateId,
@@ -75,6 +77,19 @@ export function importProject(db: Db, file: ImportFile, defaultProfileId = ''): 
         meta: unit.meta,
       });
     });
+    // seq = position in the whole script: group order, then unit order, tie-broken by group key then unit key.
+    const groupOrder = new Map(file.groups.map((group, index) => [group.key, { sort: group.order ?? index, key: group.key }]));
+    const groupOfUnit = new Map(file.units.map((unit) => [unit.key, groupOrder.get(unit.group)!]));
+    const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+    unitRows
+      .sort((a, b) => {
+        const ga = groupOfUnit.get(a.key)!;
+        const gb = groupOfUnit.get(b.key)!;
+        return ga.sort - gb.sort || compare(ga.key, gb.key) || a.sort - b.sort || compare(a.key, b.key);
+      })
+      .forEach((row, seq) => {
+        row.seq = seq;
+      });
     insertMany(tx, s.units, unitRows);
     insertMany(tx, s.candidates, candidateRows);
 
@@ -105,7 +120,7 @@ export function importProject(db: Db, file: ImportFile, defaultProfileId = ''): 
       file.characters.map((character) => {
         const id = crypto.randomUUID();
         for (const name of [character.name, ...character.aliases]) characterIds.set(name, id);
-        return { id, projectId, name: character.name, aliases: character.aliases, profile: character.profile };
+        return { id, projectId, name: character.name, aliases: character.aliases, profile: character.profile, speech: character.speech, player: character.player, origin: 'import' as const };
       }),
     );
     insertMany(
@@ -118,9 +133,17 @@ export function importProject(db: Db, file: ImportFile, defaultProfileId = ''): 
         kind: rel.kind,
         description: rel.description,
         mutual: rel.mutual,
+        changes: rel.changes,
+        origin: 'import' as const,
       })),
     );
-    insertMany(tx, s.documents, file.documents.map((doc) => ({ projectId, ...doc })));
+    insertMany(tx, s.documents, file.documents.map((doc) => ({ projectId, ...doc, origin: 'import' as const })));
+    insertMany(tx, s.storyEvents, file.events.map((event) => ({ projectId, ...event, origin: 'import' as const })));
+    insertMany(
+      tx,
+      s.speechRules,
+      file.speechRules.map((rule) => ({ projectId, fromName: rule.from, toName: rule.to, level: rule.level, address: rule.address, note: rule.note, startKey: rule.start ?? null, origin: 'import' as const })),
+    );
     insertMany(tx, s.terms, file.terms.map((term) => ({ projectId, ...term })));
 
     tx.insert(s.workflows)
@@ -143,6 +166,22 @@ export function importProject(db: Db, file: ImportFile, defaultProfileId = ''): 
         name: '용어 추출',
         description: '장면별로 고유명사·반복 용어를 뽑아 용어집 후보로 추가합니다. 용어집에서 수락한 뒤 번역을 돌리세요.',
         definition: termExtractionTemplate({ profileId: defaultProfileId }),
+      })
+      .run();
+    tx.insert(s.workflows)
+      .values({
+        projectId,
+        name: '청자 추정',
+        description: '청자가 아직 없는 대사(가져온 것·사람이 정한 것·확신 높은 AI 청자가 없는 대화)만 장면별로 누구에게 하는 말인지 추정해 적습니다. 번역·상태는 바꾸지 않습니다. 말투 규칙은 청자가 정해진 대사에만 쓰입니다.',
+        definition: listenerTemplate({ profileId: defaultProfileId }),
+      })
+      .run();
+    tx.insert(s.workflows)
+      .values({
+        projectId,
+        name: SPEECH_FIX_WORKFLOW,
+        description: '말투 규칙이나 청자를 고친 뒤, 해당 대사의 현재 번역에서 어미·호칭만 확정 규칙에 맞춥니다. 뜻과 다른 표현은 그대로 두고 상태도 바꾸지 않습니다.',
+        definition: speechFixTemplate({ profileId: defaultProfileId }),
       })
       .run();
   });

@@ -14,6 +14,7 @@ import {
   Settings2,
   Tags,
   Workflow,
+  KeyRound,
   History,
   Languages,
 } from 'lucide-react';
@@ -140,7 +141,8 @@ export function AppSidebar({ projectId }: { projectId: string }) {
           projectId={projectId}
           items={[
             { to: '/p/$projectId/settings/statuses', label: '상태·태그', icon: Tags },
-            { to: '/p/$projectId/settings/ai', label: '연결·프로필', icon: Cpu },
+            { to: '/p/$projectId/settings/ai', label: 'AI', icon: Cpu },
+            { to: '/p/$projectId/settings/keys', label: 'API 키', icon: KeyRound },
             { to: '/p/$projectId/settings/project', label: '프로젝트', icon: Settings2 },
           ]}
         />

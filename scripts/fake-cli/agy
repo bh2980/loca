@@ -1,0 +1,3 @@
+#!/usr/bin/env node
+// Fake agy CLI; see fake-cli.mjs for how to use it.
+import("./fake-cli.mjs").then((m) => m.main("antigravity"));

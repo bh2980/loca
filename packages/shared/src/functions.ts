@@ -44,10 +44,24 @@ export const addTermsParams = z.object({
   autoConfirm: z.boolean().default(false),
 });
 
+export const applyKnowledgeParams = z.object({
+  /** AI node whose "knowledge" output to apply. Empty = the most recent one on the line. */
+  fromNodeId: z.string().default(''),
+  /** New items are used as context right away (still marked AI) instead of waiting as candidates. */
+  autoConfirm: z.boolean().default(true),
+});
+
+export const setListenerParams = z.object({
+  /** AI node whose "listener" output to record. Empty = the most recent listener output on the line. */
+  fromNodeId: z.string().default(''),
+});
+
 export const httpParams = z.object({
+  /** Full address, e.g. "https://api.example.com/spell?lang=ko"; "{{unit.key}}"-style values are filled in (URL-encoded). */
+  url: z.string().default(''),
+  /** An API key (credential) whose header goes with the request; empty for public APIs. */
   connectionId: z.string().default(''),
   method: z.enum(['GET', 'POST']).default('POST'),
-  path: z.string().default(''),
   /** JSON body; "{{candidate}}", "{{unit.source}}", "{{outputs.<node>.<field>}}" are replaced per line. */
   body: z.string().default('{\n  "text": "{{candidate}}"\n}'),
   /** Where the answer is in the response, e.g. "result.text". Empty = whole body. */
@@ -89,6 +103,13 @@ export const FUNCTIONS = {
     ports: () => pass,
     async: false,
   },
+  speechCheck: {
+    label: '말투 규칙 검사',
+    description: '화자→청자의 확정 말투 규칙과 번역 끝 어미(추정)가 맞는지 검사합니다. 청자를 모르거나 규칙이 없으면 통과합니다.',
+    params: z.object({}),
+    ports: () => pass,
+    async: false,
+  },
   setStatus: {
     label: '상태 변경',
     description: '상태·태그를 바꾸고, 원하면 현재 후보를 대표 번역으로 적용합니다.',
@@ -103,9 +124,23 @@ export const FUNCTIONS = {
     ports: () => out,
     async: false,
   },
+  applyKnowledge: {
+    label: '자료 반영',
+    description: 'AI 노드가 찾은 새 인물·관계 변화·사건·말투 구간을 자료에 넣습니다(출처: AI). 정식 자료는 바꾸지 않고, 다르게 보는 내용은 “AI 후보” 변경 제안으로 남깁니다.',
+    params: applyKnowledgeParams,
+    ports: () => out,
+    async: false,
+  },
+  setListener: {
+    label: '청자 기록',
+    description: 'AI 노드가 추정한 청자와 확신도를 대사에 적습니다(출처: AI). 사람이 정한 청자는 바꾸지 않고, 확신도가 낮은 청자는 문맥에서 “미상”으로 다룹니다.',
+    params: setListenerParams,
+    ports: () => out,
+    async: false,
+  },
   http: {
     label: 'HTTP 호출',
-    description: '등록한 외부 API(맞춤법·사전 등)를 호출하고 결과를 후보·판정·데이터로 받습니다.',
+    description: '외부 API(맞춤법·사전 등)를 주소로 호출하고 결과를 후보·판정·데이터로 받습니다. 키가 필요하면 설정의 API 키를 고릅니다.',
     params: httpParams,
     ports: (params: z.infer<typeof httpParams>) => (params.mode === 'verdict' ? pass : out),
     async: true,

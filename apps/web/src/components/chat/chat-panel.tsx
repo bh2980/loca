@@ -3,7 +3,7 @@ import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport, lastAssistantMessageIsCompleteWithApprovalResponses, lastAssistantMessageIsCompleteWithToolCalls, type UIMessage } from 'ai';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation } from '@tanstack/react-router';
-import { ArrowUp, History, Plus, Square, X } from 'lucide-react';
+import { ArrowUp, ChevronRight, History, Plus, Square, X } from 'lucide-react';
 import { Markdown } from './markdown';
 import { CONNECTION_KIND_INFO } from '@tw/shared';
 import { Button } from '@/components/ui/button';
@@ -15,7 +15,9 @@ import { client, unwrap } from '@/lib/api';
 import { agentRequests, usePendingAgentRequest } from '@/lib/agent';
 import { chatDock } from '@/lib/chat-dock';
 import { q } from '@/lib/queries';
+import { cn } from '@/lib/utils';
 import { useViewState, type ViewItem } from '@/lib/view-context';
+import { ProposalCard } from './proposal-card';
 import { ToolPart } from './tool-part';
 
 const SESSION_KEY = (projectId: string) => `tw.chat.session.${projectId}`;
@@ -98,8 +100,9 @@ export function ChatPanel({ projectId }: { projectId: string }) {
           <X />
         </Button>
       </div>
+      <ExternalProposals projectId={projectId} />
       {current ? (
-        <Conversation key={current.id} sessionId={current.id} profileId={current.profileId} profiles={chatProfiles} />
+        <Conversation key={current.id} projectId={projectId} sessionId={current.id} profileId={current.profileId} profiles={chatProfiles} />
       ) : (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center text-sm text-muted-foreground">
           <p>프로젝트의 원문·자료·워크플로를 읽고 인물 프로필이나 참조 문서, 프로필·워크플로를 제안하는 에이전트입니다.</p>
@@ -112,12 +115,13 @@ export function ChatPanel({ projectId }: { projectId: string }) {
   );
 }
 
-function Conversation({ sessionId, profileId, profiles }: { sessionId: string; profileId: string | null; profiles: { id: string; name: string; model: string }[] }) {
+function Conversation({ projectId, sessionId, profileId, profiles }: { projectId: string; sessionId: string; profileId: string | null; profiles: { id: string; name: string; model: string }[] }) {
   const queryClient = useQueryClient();
   const saved = useQuery(q.chatSession(sessionId));
   if (saved.isPending) return <div className="flex flex-1 items-center justify-center"><Spinner /></div>;
   return (
     <ChatBody
+      projectId={projectId}
       sessionId={sessionId}
       initial={(saved.data?.messages ?? []) as unknown as UIMessage[]}
       profileId={profileId}
@@ -130,7 +134,8 @@ function Conversation({ sessionId, profileId, profiles }: { sessionId: string; p
   );
 }
 
-function ChatBody({ sessionId, initial, profileId, profiles, onProfile }: {
+function ChatBody({ projectId, sessionId, initial, profileId, profiles, onProfile }: {
+  projectId: string;
   sessionId: string;
   initial: UIMessage[];
   profileId: string | null;
@@ -160,6 +165,14 @@ function ChatBody({ sessionId, initial, profileId, profiles, onProfile }: {
     sessionStorage.setItem(`tw.chat.draft.${sessionId}`, input);
   }, [sessionId, input]);
   const busy = status === 'submitted' || status === 'streaming';
+  // pi chats store change requests as proposals; their cards are decided through the API.
+  const proposals = useQuery(q.proposals(projectId, sessionId));
+  const proposalById = new Map(proposals.data?.map((proposal) => [proposal.id, proposal]));
+  // A finished turn whose last part is a tool call said nothing about the result: say so and offer to continue.
+  const lastMessage = messages.at(-1);
+  const lastPart = lastMessage?.parts.filter((part) => part.type !== 'step-start').at(-1);
+  const finishReason = (lastMessage?.metadata as { finishReason?: string } | undefined)?.finishReason;
+  const stalled = !busy && !error && lastMessage?.role === 'assistant' && (finishReason === 'length' || Boolean(lastPart?.type.startsWith('tool-') && (lastPart as { state?: string }).state === 'output-available'));
 
   // Requests from AI buttons elsewhere in the app.
   const pendingRequest = usePendingAgentRequest();
@@ -226,16 +239,24 @@ function ChatBody({ sessionId, initial, profileId, profiles, onProfile }: {
                         <Markdown>{part.text}</Markdown>
                       </div>
                     );
-                  if (part.type.startsWith('tool-')) return <ToolPart key={index} part={part as never} stale={message.id !== messages.at(-1)?.id} onDecide={(id, approved) => addToolApprovalResponse({ id, approved })} onOutput={(toolCallId, output) => void addToolOutput({ tool: part.type.slice(5) as never, toolCallId, output: output as never })} />;
+                  if (part.type.startsWith('tool-')) return <ToolPart key={index} part={part as never} proposal={proposalById.get(((part as { output?: { proposalId?: string } }).output ?? {}).proposalId ?? '') as never} stale={message.id !== messages.at(-1)?.id} onDecide={(id, approved) => addToolApprovalResponse({ id, approved })} onOutput={(toolCallId, output) => void addToolOutput({ tool: part.type.slice(5) as never, toolCallId, output: output as never })} />;
                   return null;
                 })}
               </div>
             ),
           )}
-          {status === 'submitted' && (
+          {busy && (
             <p className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Spinner /> 생각하는 중…
+              <Spinner /> {status === 'submitted' ? '생각하는 중…' : '작업 중… (도구로 자료를 읽거나 답을 쓰고 있습니다)'}
             </p>
+          )}
+          {stalled && (
+            <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+              <span className="text-muted-foreground">{finishReason === 'length' ? '출력 한도(모델 프로필의 최대 출력)에 걸려 멈췄습니다.' : '에이전트가 결과를 말하지 않고 멈췄습니다.'}</span>
+              <Button size="sm" variant="outline" className="ml-auto" disabled={!profileId} onClick={() => void sendMessage({ text: '계속해줘' })}>
+                계속
+              </Button>
+            </div>
           )}
           {error && <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">{error.message}</p>}
         </div>
@@ -294,5 +315,28 @@ function ChatBody({ sessionId, initial, profileId, profiles, onProfile }: {
         </div>
       </div>
     </>
+  );
+}
+
+/** Changes sent from the CLI (by a person or an agent using it), waiting for a decision. */
+function ExternalProposals({ projectId }: { projectId: string }) {
+  const proposals = useQuery(q.proposals(projectId));
+  const pending = (proposals.data ?? []).filter((proposal) => proposal.status === 'pending');
+  const [open, setOpen] = useState(true);
+  if (!pending.length) return null;
+  return (
+    <div className="max-h-[45%] shrink-0 overflow-y-auto border-b bg-background">
+      <button className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <ChevronRight className={cn('size-4 text-muted-foreground transition-transform', open && 'rotate-90')} />
+        CLI에서 온 제안 {pending.length}개
+      </button>
+      {open && (
+        <div className="space-y-2 px-3 pb-3">
+          {pending.map((proposal) => (
+            <ProposalCard key={proposal.id} proposal={proposal as never} />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

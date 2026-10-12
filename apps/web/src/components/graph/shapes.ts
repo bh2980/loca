@@ -1,7 +1,7 @@
 /**
  * Node shapes by meaning, so kind is readable without color:
  * line/scene = rounded rectangle, condition = diamond, wait = hourglass, event = circle,
- * state change = hexagon, connector/join = dot, unknown = dashed rectangle.
+ * state change = hexagon, connector/join = dot, unknown = dashed rectangle, folded run = stacked box.
  */
 interface Box {
   x: number;
@@ -13,6 +13,7 @@ interface Box {
 const FILL: Record<string, string> = {
   script: '#ffffff',
   scene: '#ffffff',
+  chain: '#ffffff',
   condition: '#fef3c7',
   wait: '#e0e7ff',
   event: '#dcfce7',
@@ -24,6 +25,7 @@ const FILL: Record<string, string> = {
 export const KIND_LABEL: Record<string, string> = {
   script: '대사',
   scene: '장면',
+  chain: '이어진 노드',
   condition: '조건·분기',
   wait: '대기',
   event: '이벤트',
@@ -70,11 +72,24 @@ export function drawShape(context: CanvasRenderingContext2D, kind: string, box: 
     case 'connector':
       context.arc(cx, cy, Math.min(w, h) / 2, 0, Math.PI * 2);
       break;
+    case 'chain':
+      // A folded run: a box with a second edge behind it, like a small stack.
+      context.roundRect(x + 5, y + 5, w, h, Math.min(10, h / 4));
+      context.fillStyle = options.detailed ? '#f4f4f5' : '#d4d4d8';
+      context.fill();
+      if (options.detailed) {
+        context.strokeStyle = '#d4d4d8';
+        context.lineWidth = 1;
+        context.stroke();
+      }
+      context.beginPath();
+      context.roundRect(x, y, w, h, Math.min(10, h / 4));
+      break;
     default:
       context.roundRect(x, y, w, h, Math.min(10, h / 4));
   }
   // Zoomed out there is no outline, so white boxes need a visible fill.
-  context.fillStyle = !options.detailed && (kind === 'script' || kind === 'scene') ? '#a1a1aa' : (FILL[kind] ?? FILL.unknown);
+  context.fillStyle = !options.detailed && (kind === 'script' || kind === 'scene' || kind === 'chain') ? '#a1a1aa' : (FILL[kind] ?? FILL.unknown);
   context.fill();
   if (!options.detailed && !options.selected) return;
   context.lineWidth = options.selected ? Math.max(2.5, 2.5 / options.k) : 1;

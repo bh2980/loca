@@ -3,19 +3,40 @@ import Graph from 'graphology';
 import { FUNCTIONS, functionPorts, type FunctionName, type Port } from './functions.ts';
 import { stronglyConnectedComponents } from 'graphology-components';
 
-/** What an AI node pulls into its prompt. Every field maps to stored project data. */
+/**
+ * What an AI node pulls into its prompt. Every field maps to stored project data.
+ * Defaults follow the experiments (docs/DESIGN.md 2.4): a known listener with a confirmed speech rule,
+ * glossary, preceding lines and the scene description help; character profiles, relationship bundles
+ * and documents did nothing or hurt, so they are opt-in per node.
+ */
 export const contextConfigSchema = z.object({
   glossary: z.boolean().default(true),
-  documents: z.boolean().default(true),
-  characters: z.boolean().default(true),
-  relationships: z.boolean().default(true),
+  documents: z.boolean().default(false),
+  characters: z.boolean().default(false),
+  relationships: z.boolean().default(false),
+  /** Each line's listener and the confirmed speech rule for that speaker → listener pair. */
+  speech: z.boolean().default(true),
+  /** Every confirmed character's name, aliases and player flag, so the model can name people not mentioned in the batch. */
+  cast: z.boolean().default(false),
   precedingLines: z.number().int().min(0).max(50).default(8),
   previousScenes: z.number().int().min(0).max(10).default(1),
+  /**
+   * Show the current translation of preceding lines. Off by default: only lines at a batch boundary
+   * get preceding lines at all, and in experiment E9 it reached 6 of 407 lines with no measurable effect.
+   */
+  precedingTranslations: z.boolean().default(false),
+  /** Estimated token cap for everything besides the lines themselves; what does not fit is dropped and recorded. */
+  maxTokens: z.number().int().min(500).max(200_000).default(12_000),
 });
 
+/** How lines become model requests; see planBatches (apps/server/src/engine/batches.ts). */
 export const batchConfigSchema = z.object({
+  /** group: consecutive scenes share a request, scenes kept whole when they fit; count: fixed size across scenes; unit: one line each. */
   mode: z.enum(['unit', 'group', 'count']).default('group'),
-  size: z.number().int().min(1).max(200).default(30),
+  /** Most lines in one request. */
+  size: z.number().int().min(1).max(200).default(60),
+  /** Most estimated tokens of line text in one request ("group"); context is capped separately. */
+  maxTokens: z.number().int().min(500).max(100_000).default(6_000),
 });
 
 const position = z.object({ x: z.number(), y: z.number() });
@@ -26,6 +47,8 @@ export const AI_OUTPUTS = {
   candidate: { label: '번역 후보', description: '대사마다 새 번역 후보를 만듭니다.' },
   verdict: { label: '판정', description: '통과/실패와 의견을 냅니다.' },
   terms: { label: '용어 후보', description: '원문에서 용어(원문·번역·메모)를 뽑습니다.' },
+  listener: { label: '청자', description: '대사마다 누구에게 하는 말인지와 확신도를 냅니다.' },
+  knowledge: { label: '자료 변경', description: '이 대사들에서 새로 드러난 인물·관계 변화·사건·말투 변화를 냅니다.' },
   json: { label: '자유 형식', description: '직접 정한 필드를 대사마다 채웁니다.' },
 } as const;
 export type AiOutput = keyof typeof AI_OUTPUTS;
@@ -38,8 +61,10 @@ export const jsonFieldSchema = z.object({
 
 const aiConfig = z.object({
   profileId: z.string().default(''),
+  /** More profiles sharing this node's work: each request goes to whichever account has a free slot. */
+  extraProfileIds: z.array(z.string()).default([]),
   instructions: z.string().default(''),
-  output: z.enum(['candidate', 'verdict', 'terms', 'json']).default('candidate'),
+  output: z.enum(['candidate', 'verdict', 'terms', 'listener', 'knowledge', 'json']).default('candidate'),
   fields: z.array(jsonFieldSchema).default([]),
   /** Also show the model the line's current candidate / the latest failing issues. */
   include: z
@@ -76,8 +101,10 @@ export const workflowDefinitionSchema = z.object({
     .object({
       maxVisitsPerNode: z.number().int().min(1).max(50).default(5),
       concurrency: z.number().int().min(1).max(8).default(2),
+      /** The run pauses after this many model or function calls in a row fail. */
+      maxConsecutiveFailures: z.number().int().min(1).max(50).default(3),
     })
-    .default({ maxVisitsPerNode: 5, concurrency: 2 }),
+    .default({ maxVisitsPerNode: 5, concurrency: 2, maxConsecutiveFailures: 3 }),
 });
 
 export type ContextConfig = z.infer<typeof contextConfigSchema>;
@@ -89,6 +116,14 @@ export type WorkflowEdge = z.infer<typeof workflowEdgeSchema>;
 export type WorkflowDefinition = z.infer<typeof workflowDefinitionSchema>;
 export type AiNode = Extract<WorkflowNode, { type: 'ai' }>;
 export type FunctionNode = Extract<WorkflowNode, { type: 'function' }>;
+
+/** Every profile an AI node may send a request with, its own first. */
+export const nodeProfileIds = (node: AiNode) => [...new Set([node.config.profileId, ...extraProfilesOf(node)].filter(Boolean))];
+/** Saved workflows may predate the setting; read it through this. */
+export const extraProfilesOf = (node: AiNode): string[] => node.config.extraProfileIds ?? [];
+
+/** Functions that change the line itself (its status, tags or representative translation). */
+const LINE_CHANGING_FUNCTIONS = new Set(['setStatus']);
 
 export interface NodeTypeInfo {
   label: string;
@@ -139,6 +174,11 @@ export interface ConditionData {
   candidate: string | null;
   issues: string[];
   unit: { kind: string; speaker: string | null; statusId: string; tagIds: string[] };
+  /**
+   * The line needs no listener estimate: its listener came from the import or a person, or is an AI guess
+   * at or above the confidence threshold, or the line is not dialogue.
+   */
+  listenerKnown: boolean;
 }
 
 export interface WorkflowIssue {
@@ -181,20 +221,57 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
       error(`'${nodeName(source)}'에 없는 출구입니다: ${edge.sourceHandle}`, { edgeId: edge.id });
     if (!NODE_TYPES[target.type].hasInput) error('진입 노드로 들어가는 연결은 둘 수 없습니다.', { edgeId: edge.id });
     const port = `${edge.source}:${edge.sourceHandle}`;
-    if (usedPorts.has(port)) error('한 출구에는 연결을 하나만 둘 수 있습니다.', { edgeId: edge.id });
+    if (definition.edges.some((other) => other !== edge && other.source === edge.source && other.sourceHandle === edge.sourceHandle && other.target === edge.target && definition.edges.indexOf(other) < definition.edges.indexOf(edge)))
+      error('같은 출구에서 같은 노드로 가는 연결이 두 번 있습니다.', { edgeId: edge.id });
     usedPorts.add(port);
     graph.addDirectedEdgeWithKey(edge.id, edge.source, edge.target);
   }
 
+  // An exit with several connections sends each line down all of them (a copy per branch). The
+  // branches may share an end node (each copy just ends there), but no other node: a line would
+  // arrive twice. Only one of them may change the line itself, or two branches would set its
+  // status at the same time.
+  const reach = (start: string) => {
+    const seen = new Set<string>();
+    const stack = [start];
+    while (stack.length) {
+      const id = stack.pop()!;
+      if (seen.has(id) || !graph.hasNode(id)) continue;
+      seen.add(id);
+      stack.push(...graph.outNeighbors(id));
+    }
+    return seen;
+  };
+  for (const [port, edges] of Map.groupBy(definition.edges, (edge) => `${edge.source}:${edge.sourceHandle}`)) {
+    const targets = [...new Set(edges.map((edge) => edge.target))];
+    if (targets.length < 2) continue;
+    const source = definition.nodes.find((node) => node.id === port.slice(0, port.indexOf(':')));
+    const where = source ? `'${nodeName(source)}'의 갈래` : '갈래';
+    const branches = targets.map((target) => reach(target));
+    const isEnd = (id: string) => definition.nodes.find((node) => node.id === id)?.type === 'end';
+    const met = branches.flatMap((branch, index) => branches.slice(index + 1).flatMap((other) => [...branch].filter((id) => other.has(id) && !isEnd(id))));
+    if (met.length) {
+      const node = definition.nodes.find((candidate) => candidate.id === met[0]);
+      error(`${where}가 '${node ? nodeName(node) : met[0]}'에서 다시 만납니다. 한 출구에서 나간 갈래는 따로 끝나야 합니다.`, { nodeId: source?.id });
+    }
+    const changing = branches.filter((branch) => [...branch].some((id) => { const node = definition.nodes.find((candidate) => candidate.id === id); return node?.type === 'function' && LINE_CHANGING_FUNCTIONS.has(node.config.fn); }));
+    if (changing.length > 1) error(`${where} 중 둘 이상이 대사의 상태를 바꿉니다. 상태 변경은 한 갈래에만 두세요.`, { nodeId: source?.id });
+  }
+
   for (const node of definition.nodes) {
     for (const port of nodePorts(node)) {
-      // An unconnected error port means "mark the line failed"; every other exit must lead somewhere.
-      if (port.id !== 'error' && !usedPorts.has(`${node.id}:${port.id}`))
-        error(`'${port.label}' 출구가 연결되지 않았습니다.`, { nodeId: node.id });
+      // An unconnected error port marks the line failed and an unconnected "out" ends it there (after
+      // a side job such as adding terms); exits that choose between ways (pass/fail, true/false…)
+      // must lead somewhere, so a forgotten one does not quietly end lines.
+      if (port.id === 'error' || usedPorts.has(`${node.id}:${port.id}`)) continue;
+      if (port.id === 'out' && node.type !== 'entry') warn(`'${port.label}' 출구가 연결되지 않아 대사가 여기서 끝납니다.`, { nodeId: node.id });
+      else error(`'${port.label}' 출구가 연결되지 않았습니다.`, { nodeId: node.id });
     }
     if (node.type === 'ai') {
       if (!refs.profileIds.has(node.config.profileId))
         error(node.config.profileId ? '삭제된 모델 프로필입니다.' : '모델 프로필을 선택하세요.', { nodeId: node.id });
+      if (extraProfilesOf(node).some((id) => !id)) error('함께 나눌 프로필을 고르거나 그 칸을 지우세요.', { nodeId: node.id });
+      else if (extraProfilesOf(node).some((id) => !refs.profileIds.has(id))) error('함께 나눌 프로필 중 삭제된 것이 있습니다.', { nodeId: node.id });
       if (node.config.output === 'json' && !node.config.fields.length) error('자유 형식 출력에는 필드가 하나 이상 필요합니다.', { nodeId: node.id });
     }
     if (node.type === 'entry')
@@ -216,11 +293,21 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
         for (const id of [...(params.addTagIds as string[]), ...(params.removeTagIds as string[])])
           if (!refs.tagIds.has(id)) error('삭제된 태그가 있습니다.', { nodeId: node.id });
       }
-      if (node.config.fn === 'http' && !refs.toolConnectionIds.has(params.connectionId as string))
-        error(params.connectionId ? '삭제된 도구 연결입니다.' : '호출할 HTTP 연결을 선택하세요.', { nodeId: node.id });
+      if (node.config.fn === 'http') {
+        if (!/^https?:\/\//.test(String(params.url).trim())) error('HTTP 호출할 주소(https://…)를 입력하세요.', { nodeId: node.id });
+        if (params.connectionId && !refs.toolConnectionIds.has(params.connectionId as string)) error('삭제된 API 키입니다.', { nodeId: node.id });
+      }
       if (node.config.fn === 'addTerms' && params.fromNodeId) {
         const from = definition.nodes.find((other) => other.id === params.fromNodeId);
         if (from?.type !== 'ai' || from.config.output !== 'terms') error('용어 후보를 내는 AI 노드를 선택하세요.', { nodeId: node.id });
+      }
+      if (node.config.fn === 'applyKnowledge' && params.fromNodeId) {
+        const from = definition.nodes.find((other) => other.id === params.fromNodeId);
+        if (from?.type !== 'ai' || from.config.output !== 'knowledge') error('자료 변경을 내는 AI 노드를 선택하세요.', { nodeId: node.id });
+      }
+      if (node.config.fn === 'setListener' && params.fromNodeId) {
+        const from = definition.nodes.find((other) => other.id === params.fromNodeId);
+        if (from?.type !== 'ai' || from.config.output !== 'listener') error('청자를 내는 AI 노드를 선택하세요.', { nodeId: node.id });
       }
     }
     if (node.type === 'condition' && (node.config.expression === undefined || node.config.expression === null))

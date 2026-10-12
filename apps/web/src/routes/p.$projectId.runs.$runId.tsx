@@ -1,10 +1,12 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, Pause, Play, Square } from 'lucide-react';
+import { ChevronLeft, ChevronRight, OctagonAlert, Pause, Play, Square } from 'lucide-react';
 import { nodeName as nameOf, type WorkflowNode } from '@tw/shared';
+import { ContextItemList } from '@/components/ai-context';
 import { LineDetail } from '@/components/line-detail';
 import { Page } from '@/components/page';
 import { nodeIcon } from '@/components/workflow/node-view';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -13,10 +15,16 @@ import { Progress } from '@/components/ui/progress';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { client, unwrap } from '@/lib/api';
-import { ITEM_STATE, RUN_STATUS } from '@/lib/labels';
+import { ITEM_STATE } from '@/lib/labels';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { useReportView } from '@/lib/view-context';
+import { SplitPane } from '@/components/split-pane';
+import { JobStatusBadge } from '@/components/job-status';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { BatchList } from '@/components/workflow/run-dialog';
+import { Skeleton } from '@/components/ui/skeleton';
 
 type State = keyof typeof ITEM_STATE;
 interface RunSearch {
@@ -24,7 +32,9 @@ interface RunSearch {
   node?: string;
   page?: number;
   line?: string;
-  view?: 'items' | 'steps';
+  view?: 'items' | 'steps' | 'plan';
+  lineTab?: 'context';
+  aiNode?: string;
 }
 
 export const Route = createFileRoute('/p/$projectId/runs/$runId')({
@@ -33,7 +43,9 @@ export const Route = createFileRoute('/p/$projectId/runs/$runId')({
     node: typeof raw.node === 'string' ? raw.node : undefined,
     page: typeof raw.page === 'number' && raw.page > 0 ? raw.page : undefined,
     line: typeof raw.line === 'string' ? raw.line : undefined,
-    view: raw.view === 'steps' ? 'steps' : undefined,
+    view: raw.view === 'steps' || raw.view === 'plan' ? raw.view : undefined,
+    lineTab: raw.lineTab === 'context' ? 'context' : undefined,
+    aiNode: typeof raw.aiNode === 'string' && raw.aiNode.includes(':') ? raw.aiNode : undefined,
   }),
   component: RunDetail,
 });
@@ -47,6 +59,7 @@ function RunDetail() {
   const run = useQuery(q.run(runId));
   const items = useQuery(q.runItems(runId, { state: search.state, nodeId: search.node, offset: (search.page ?? 0) * PAGE }));
   const steps = useQuery({ ...q.runSteps(runId), enabled: search.view === 'steps' });
+  const plan = useQuery({ ...q.runPlan(runId), enabled: search.view === 'plan' });
   const control = useMutation({ mutationFn: (action: 'pause' | 'resume' | 'cancel') => unwrap(client.runs[':id'][':action{pause|resume|cancel}'].$post({ param: { id: runId, action } })) });
   const setSearch = (next: Partial<RunSearch>, replace = false) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace });
   useReportView('run', [run.data && { kind: '실행', id: run.data.id, label: `${run.data.workflowName} v${run.data.workflowVersion}` }]);
@@ -77,7 +90,7 @@ function RunDetail() {
       meta={`${new Date(data.createdAt).toLocaleString()} 시작 · 프로필 ${data.profiles.map((profile) => `${profile.name}(${profile.models.join(' → ')})`).join(', ') || '없음'}`}
       actions={
         <>
-          <Badge variant={data.status === 'running' ? 'default' : 'outline'}>{RUN_STATUS[data.status]}</Badge>
+          <JobStatusBadge status={data.status} />
           {data.status === 'running' && (
             <Button size="sm" variant="outline" onClick={() => control.mutate('pause')}>
               <Pause /> 일시정지
@@ -89,18 +102,59 @@ function RunDetail() {
             </Button>
           )}
           {active && (
-            <Button size="sm" variant="outline" onClick={() => control.mutate('cancel')}>
-              <Square /> 취소
-            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button size="sm" variant="ghost" className="text-destructive">
+                  <Square /> 실행 취소
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>실행을 취소할까요?</AlertDialogTitle>
+                  <AlertDialogDescription>아직 처리하지 않은 대사는 이 실행에서 빠집니다. 이미 반영된 번역·상태는 그대로이고, 다시 실행하면 남은 대사를 처리할 수 있습니다.</AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>계속 실행</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => control.mutate('cancel')}>실행 취소</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           )}
         </>
       }
       flush
       className="border-t-0"
     >
-      <div className="flex h-full min-h-0">
+      <SplitPane
+        id="run-lines"
+        defaultWidth="400px"
+        className="h-full min-h-0"
+        pane={
+          search.line && (
+            <div className="h-full">
+              <LineDetail
+                projectId={projectId}
+                unitId={search.line}
+                onClose={() => setSearch({ line: undefined }, true)}
+                showScene
+                tab={search.lineTab ?? 'edit'}
+                onTab={(tab) => setSearch({ lineTab: tab === 'context' ? 'context' : undefined }, true)}
+                aiNode={search.aiNode}
+                onAiNode={(aiNode) => setSearch({ aiNode }, true)}
+              />
+            </div>
+          )
+        }
+      >
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="space-y-4 px-6 pt-4 pb-4">
+            {data.status === 'paused' && data.notice && (
+              <Alert variant="destructive">
+                <OctagonAlert />
+                <AlertTitle>실행이 멈췄습니다</AlertTitle>
+                <AlertDescription>{data.notice} 원인을 확인한 뒤 위의 재개 버튼으로 이어서 실행할 수 있습니다.</AlertDescription>
+              </Alert>
+            )}
             <div className="space-y-1.5">
               <div className="flex flex-wrap items-baseline justify-between gap-x-4 text-sm">
                 <span>
@@ -109,7 +163,11 @@ function RunDetail() {
                 </span>
                 {data.usage && (
                   <span className="text-xs text-muted-foreground tabular-nums">
-                    AI 호출 {data.usage.steps} · 실패 {data.usage.failed ?? 0} · 토큰 {(data.usage.inputTokens + data.usage.outputTokens).toLocaleString()}
+                    AI 호출 {data.usage.steps} · 실패 {data.usage.failed ?? 0} · 입력 {data.usage.inputTokens.toLocaleString()}
+                    {data.usage.cachedInputTokens > 0 && ` (캐시 ${data.usage.cachedInputTokens.toLocaleString()})`} · 출력 {data.usage.outputTokens.toLocaleString()}
+                    {data.usage.costUsd != null && ` · 보고된 비용 $${data.usage.costUsd.toFixed(4)}`}
+                    {data.limits?.maxCalls != null && ` · 호출 상한 ${data.limits.maxCalls.toLocaleString()}회`}
+                    {data.limits?.maxInputTokens != null && ` · 입력 상한 ${data.limits.maxInputTokens.toLocaleString()}`}
                   </span>
                 )}
               </div>
@@ -136,23 +194,24 @@ function RunDetail() {
               })}
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <Tabs value={search.view ?? 'items'} onValueChange={(value) => setSearch({ view: value === 'steps' ? 'steps' : undefined }, true)}>
+              <Tabs value={search.view ?? 'items'} onValueChange={(value) => setSearch({ view: value === 'steps' || value === 'plan' ? value : undefined }, true)}>
                 <TabsList>
                   <TabsTrigger value="items">대사별</TabsTrigger>
                   <TabsTrigger value="steps">AI 호출</TabsTrigger>
+                  <TabsTrigger value="plan">번역 계획</TabsTrigger>
                 </TabsList>
               </Tabs>
               {(search.view ?? 'items') === 'items' && (
-                <Tabs value={search.state ?? 'all'} onValueChange={(value) => setSearch({ state: value === 'all' ? undefined : (value as State), page: undefined })}>
-                  <TabsList>
-                    <TabsTrigger value="all">전체</TabsTrigger>
-                    {(Object.keys(ITEM_STATE) as State[]).filter((state) => totals[state]).map((state) => (
-                      <TabsTrigger key={state} value={state}>
-                        {ITEM_STATE[state]} {totals[state]}
-                      </TabsTrigger>
-                    ))}
-                  </TabsList>
-                </Tabs>
+                <ToggleGroup type="single" variant="outline" size="sm" value={search.state ?? 'all'} onValueChange={(value) => value && setSearch({ state: value === 'all' ? undefined : (value as State), page: undefined })}>
+                  <ToggleGroupItem value="all" className="px-3">
+                    전체
+                  </ToggleGroupItem>
+                  {(Object.keys(ITEM_STATE) as State[]).filter((state) => totals[state]).map((state) => (
+                    <ToggleGroupItem key={state} value={state} className="px-3 tabular-nums">
+                      {ITEM_STATE[state]} {totals[state]}
+                    </ToggleGroupItem>
+                  ))}
+                </ToggleGroup>
               )}
               {search.node && (
                 <Button variant="ghost" size="sm" onClick={() => setSearch({ node: undefined })}>
@@ -189,11 +248,11 @@ function RunDetail() {
                       </TableCell>
                       <TableCell className="text-xs">
                         {item.error && <p className="text-destructive">{item.error}</p>}
-                        {!!item.data.issues?.length && <p className="text-amber-700">{item.data.issues.join(' / ')}</p>}
+                        {!!item.data.issues?.length && <p className="text-warning">{item.data.issues.join(' / ')}</p>}
                         {Object.entries(item.data.outputs ?? {})
                           .filter(([, output]) => typeof output.passed === 'boolean')
                           .map(([nodeId, output]) => (
-                            <p key={nodeId} className={output.passed ? 'text-emerald-700' : 'text-amber-700'}>
+                            <p key={nodeId} className={output.passed ? 'text-success' : 'text-warning'}>
                               {nodeName(nodeId)} {output.passed ? '통과' : '실패'}
                             </p>
                           ))}
@@ -202,6 +261,23 @@ function RunDetail() {
                   ))}
                 </TableBody>
               </Table>
+            ) : search.view === 'plan' ? (
+              <div className="p-4">
+                {plan.data ? (
+                  plan.data.total ? (
+                    <>
+                      <p className="mb-3 text-sm text-muted-foreground">실행을 시작할 때 짠 묶음입니다. 모든 AI 단계(번역·검수·수정)가 이 묶음 단위로 움직입니다.</p>
+                      <BatchList list={plan.data} defaultOpen />
+                    </>
+                  ) : (
+                    <p className="py-12 text-center text-sm text-muted-foreground">이 실행에는 저장된 번역 계획이 없습니다(계획을 저장하기 전에 시작한 실행).</p>
+                  )
+                ) : plan.isError ? (
+                  <p className="py-12 text-center text-sm text-destructive">번역 계획을 불러오지 못했습니다: {plan.error.message}</p>
+                ) : (
+                  <Skeleton className="h-32 w-full" />
+                )}
+              </div>
             ) : (
               <ul className="divide-y">
                 {steps.data?.map((step) => (
@@ -212,10 +288,11 @@ function RunDetail() {
                         <span className="w-32 truncate font-medium">{nodeName(step.nodeId)}</span>
                         <Badge variant={step.ok ? 'outline' : 'destructive'}>{step.ok ? '성공' : '실패'}</Badge>
                         <span className="text-muted-foreground">대사 {step.unitIds.length}</span>
-                        <span className="text-muted-foreground">{step.model ?? ''}</span>
+                        <span className="text-muted-foreground">{[data.profiles.find((profile) => profile.id === step.profileId)?.name, step.model].filter(Boolean).join(' · ')}</span>
                         <span className="ml-auto text-xs text-muted-foreground tabular-nums">
                           {((new Date(step.finishedAt).getTime() - new Date(step.startedAt).getTime()) / 1000).toFixed(1)}s
-                          {step.inputTokens != null && ` · ${step.inputTokens}+${step.outputTokens} tok`}
+                          {step.inputTokens != null && ` · 입력 ${step.inputTokens.toLocaleString()}${step.cachedInputTokens ? `(캐시 ${step.cachedInputTokens.toLocaleString()})` : ''} · 출력 ${(step.outputTokens ?? 0).toLocaleString()}`}
+                          {step.costUsd != null && ` · $${step.costUsd.toFixed(4)}`}
                         </span>
                       </CollapsibleTrigger>
                       <CollapsibleContent className="mt-2 space-y-2 pl-7">
@@ -223,17 +300,39 @@ function RunDetail() {
                         {Array.isArray(step.attempts) && step.attempts.length > 1 && (
                           <p className="text-xs text-muted-foreground">시도: {(step.attempts as { model: string; ok: boolean; error?: string }[]).map((attempt) => `${attempt.model} ${attempt.ok ? '성공' : `실패(${attempt.error})`}`).join(' → ')}</p>
                         )}
+                        {Array.isArray(step.context) && (
+                          <Collapsible>
+                            <CollapsibleTrigger className="group flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+                            <ChevronRight className="size-3.5 transition-transform group-data-[state=open]:rotate-90" />
+                              넣은 문맥 {step.context.filter((item) => item.included).length}개
+                              {step.context.some((item) => !item.included) && ` · 상한 초과로 뺀 것 ${step.context.filter((item) => !item.included).length}개`}
+                            </CollapsibleTrigger>
+                          <CollapsibleContent>
+                            <div className="mt-2">
+                              <ContextItemList items={step.context} />
+                            </div>
+                          </CollapsibleContent>
+                          </Collapsible>
+                        )}
                         {step.prompt && (
-                          <details>
-                            <summary className="cursor-pointer text-xs text-muted-foreground">보낸 프롬프트(문맥 포함)</summary>
+                          <Collapsible>
+                            <CollapsibleTrigger className="group flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+                            <ChevronRight className="size-3.5 transition-transform group-data-[state=open]:rotate-90" />
+                            보낸 프롬프트(문맥 포함)</CollapsibleTrigger>
+                          <CollapsibleContent>
                             <pre className="mt-1 max-h-80 overflow-auto rounded bg-muted/50 p-2 text-[11px] whitespace-pre-wrap">{step.prompt}</pre>
-                          </details>
+                          </CollapsibleContent>
+                          </Collapsible>
                         )}
                         {step.output != null && (
-                          <details>
-                            <summary className="cursor-pointer text-xs text-muted-foreground">응답</summary>
+                          <Collapsible>
+                            <CollapsibleTrigger className="group flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+                            <ChevronRight className="size-3.5 transition-transform group-data-[state=open]:rotate-90" />
+                            응답</CollapsibleTrigger>
+                          <CollapsibleContent>
                             <pre className="mt-1 max-h-80 overflow-auto rounded bg-muted/50 p-2 text-[11px]">{JSON.stringify(step.output, null, 2)}</pre>
-                          </details>
+                          </CollapsibleContent>
+                          </Collapsible>
                         )}
                       </CollapsibleContent>
                     </Collapsible>
@@ -257,12 +356,7 @@ function RunDetail() {
             </div>
           )}
         </div>
-        {search.line && (
-          <div className="w-[400px] shrink-0 border-l">
-            <LineDetail projectId={projectId} unitId={search.line} onClose={() => setSearch({ line: undefined }, true)} showScene />
-          </div>
-        )}
-      </div>
+      </SplitPane>
       {data.workflowId && (
         <p className="sr-only">
           <Link to="/p/$projectId/workflows/$workflowId" params={{ projectId, workflowId: data.workflowId }}>

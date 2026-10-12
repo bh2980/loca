@@ -64,6 +64,174 @@
       "when": 1791507080271,
       "tag": "0008_group_section",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1791508492760,
+      "tag": "0009_proposals",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1791536781214,
+      "tag": "0010_agent_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1791542923558,
+      "tag": "0011_graph_flow",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1791543824111,
+      "tag": "0012_run_step_context",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1791574874596,
+      "tag": "0013_knowledge_drafts",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1791576422747,
+      "tag": "0014_knowledge_reviewed",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1791578596430,
+      "tag": "0015_term_trust",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1791583584167,
+      "tag": "0016_http_url_in_node",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1791584917891,
+      "tag": "0017_chat_agent_session",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1791751610992,
+      "tag": "0018_run_guards_and_usage",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1791764273341,
+      "tag": "0019_run_step_rounds",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1791765000000,
+      "tag": "0020_unit_seq",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1791766129544,
+      "tag": "0021_run_item_plan",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1791766462130,
+      "tag": "0022_connection_concurrency",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1791771167876,
+      "tag": "0023_speech_rule_review",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1791771231315,
+      "tag": "0024_analysis_parts",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1791775291504,
+      "tag": "0025_term_occurrences",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1791782437923,
+      "tag": "0026_step_profile",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "6",
+      "when": 1791782984285,
+      "tag": "0027_proposal_report",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "6",
+      "when": 1791819228523,
+      "tag": "0028_section_layouts",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "6",
+      "when": 1791819777153,
+      "tag": "0029_graph_views",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "6",
+      "when": 1791826146772,
+      "tag": "0030_drop_graph_flow",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "6",
+      "when": 1791826367649,
+      "tag": "0031_ai_calls",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1791827296252,
+      "tag": "0032_term_jobs",
+      "breakpoints": true
     }
   ]
 }

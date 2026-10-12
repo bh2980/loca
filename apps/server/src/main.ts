@@ -8,18 +8,36 @@ import { config } from './config.ts';
 import { openDatabase } from './db/index.ts';
 import * as s from './db/schema.ts';
 import { Runner } from './engine/runner.ts';
-import { computeLayouts } from './services/layout.ts';
+import { AnalysisService } from './services/analysis.ts';
+import { TermService } from './services/terms.ts';
+import { closeStaleCalls } from './services/ai-calls.ts';
+import { computeLayouts, projectsMissingSections, projectsWithOldLayouts } from './services/layout.ts';
 import { keyringStore, memoryStore } from './services/secrets.ts';
+
+// A stray rejected promise (a client that vanished, a failed background job) must not take the server down.
+process.on('unhandledRejection', (reason) => console.error('unhandled rejection', reason));
+// After an uncaught exception Node's state is unreliable: log and exit.
+process.on('uncaughtException', (error) => {
+  console.error('uncaught exception', error);
+  process.exit(1);
+});
 
 const db = openDatabase(path.join(config.dataDir, 'workbench.sqlite'));
 const secrets = process.env.WORKBENCH_SECRETS === 'memory' ? memoryStore() : keyringStore;
+// Requests a stopped server never heard back from are closed as failed in the AI log.
+closeStaleCalls(db);
 const runner = new Runner(db, secrets);
 runner.start();
 
 // Layouts interrupted by a restart are recomputed.
 for (const layout of db.select().from(s.graphLayouts).where(eq(s.graphLayouts.status, 'pending')).all()) void computeLayouts(db, layout.projectId);
+// Section layouts came later: projects laid out before get them once, without redoing the rest.
+// Layouts made the old way are made again (whole and per section).
+const outdated = new Set(projectsWithOldLayouts(db));
+for (const projectId of outdated) void computeLayouts(db, projectId);
+for (const projectId of projectsMissingSections(db)) if (!outdated.has(projectId)) void computeLayouts(db, projectId, { sectionsOnly: true });
 
-const app = createApp({ db, secrets, runner });
+const app = createApp({ db, secrets, runner, analysis: new AnalysisService(db, secrets), terms: new TermService(db, secrets) });
 if (existsSync(config.webDist)) {
   const root = path.relative(process.cwd(), config.webDist);
   app.use('/*', serveStatic({ root }));
@@ -27,13 +45,18 @@ if (existsSync(config.webDist)) {
 }
 
 const server = serve({ fetch: app.fetch, hostname: '127.0.0.1', port: config.port }, (info) => {
-  console.log(`Translation Workbench → http://127.0.0.1:${info.port}  (data: ${config.dataDir})`);
+  console.log(`loca → http://127.0.0.1:${info.port}  (data: ${config.dataDir})`);
 });
 
 const shutdown = async () => {
-  await runner.stop();
-  server.close();
+  try {
+    await runner.stop();
+    server.close();
+  } catch (error) {
+    console.error('shutdown failed', error);
+  }
   process.exit(0);
 };
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
+process.on('SIGINT', () => void shutdown());
+process.on('SIGTERM', () => void shutdown());
+
