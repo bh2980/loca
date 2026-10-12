@@ -220,7 +220,7 @@ describe('run plan', () => {
     expect(members.size).toBeGreaterThan(1);
     for (const call of kinds) {
       // Every plan batch a request touches is in it whole (nothing failed, so nothing was split off).
-      for (const plan of new Set(call.sources.map((source) => planOf.get(source))))
+      for (const plan of new Set(call.sources.map((source) => planOf.get(source) ?? null)))
         expect(members.get(plan)!.every(([source]) => call.sources.includes(source))).toBe(true);
     }
     expect(kinds.some((call) => call.review)).toBe(true);
