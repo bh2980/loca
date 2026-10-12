@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { StatusDot } from '@/components/status';
+import { AiMark, StatusDot } from '@/components/status';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { client, unwrap } from '@/lib/api';
@@ -36,7 +36,7 @@ export function TranslationEditor({
   focusKey,
   className,
 }: {
-  unit: { id: string; translation: string | null; statusId: string; candidates?: { id: string; text: string }[] };
+  unit: { id: string; translation: string | null; statusId: string; statusBy?: 'ai' | 'human'; candidates?: { id: string; text: string }[] };
   statuses: Status[];
   onDone?: (moved: boolean) => void;
   onEscape?: () => void;
@@ -98,6 +98,11 @@ export function TranslationEditor({
       />
       <div className="flex flex-wrap items-center gap-2">
         {dirty && <span className="text-xs text-warning">저장 안 됨</span>}
+        {!dirty && unit.statusBy === 'ai' && (
+          <span className="flex items-center gap-1 text-xs text-muted-foreground">
+            <AiMark by="ai" /> 상태를 AI가 정함 · 저장하거나 옮기면 사람이 정한 것이 됩니다
+          </span>
+        )}
         <div className="ml-auto flex items-center gap-2">
           {dirty && (
             <Button variant="ghost" onClick={clearDraft}>

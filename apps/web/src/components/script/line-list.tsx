@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Check, CircleAlert, ListChecks, MoreHorizontal, PanelRightOpen, Play, Tags, X } from 'lucide-react';
+import { Check, CircleAlert, ListChecks, MoreHorizontal, PanelRightOpen, Play, Sparkles, Tags, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { checkFormat, LISTENER_MIN_CONFIDENCE, listenerLabel, mentions, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
 import { BulkBar } from '@/components/data-table';
 import { LineDetail, LINE_TABS, type LineTab } from '@/components/line-detail';
 import { SplitPane } from '@/components/split-pane';
-import { StatusDot, TagChip } from '@/components/status';
+import { AiMark, StatusDot, TagChip } from '@/components/status';
 import { Pager, SearchInput, Toolbar } from '@/components/toolbar';
 import { TranslationEditor } from '@/components/translation-editor';
 import { RunDialog } from '@/components/workflow/run-dialog';
@@ -32,6 +32,8 @@ export interface LinesSearch {
   listener?: string;
   /** Only lines not in a final status yet. */
   remaining?: true;
+  /** Only lines whose status a run set and no person has looked at since (✦). */
+  by?: 'ai';
   page?: number;
   line?: string;
   /** The line's details pane is open (closed by default: the row itself is the editor). */
@@ -48,6 +50,7 @@ export const linesSearchSchema = (raw: Record<string, unknown>): LinesSearch => 
   speaker: typeof raw.speaker === 'string' && raw.speaker ? raw.speaker : undefined,
   listener: typeof raw.listener === 'string' && raw.listener ? raw.listener : undefined,
   remaining: raw.remaining === true || raw.remaining === 'true' ? true : undefined,
+  by: raw.by === 'ai' ? 'ai' : undefined,
   page: typeof raw.page === 'number' && raw.page > 0 ? raw.page : undefined,
   line: typeof raw.line === 'string' ? raw.line : undefined,
   detail: raw.detail === true || raw.detail === 'true' ? true : undefined,
@@ -102,7 +105,7 @@ export function LineList({
     if (search.line && search.line !== pickedHere.current) setFocusing(search.line);
   }, [search.line]);
   const lines = useQuery(
-    q.units(projectId, { groupId, kind, review: review ? '1' : undefined, remaining: search.remaining ? '1' : undefined, q: search.q, statusId: search.status, tagId: search.tag, speaker: search.speaker, listener: search.listener, focus: focusing, offset: page * PAGE_SIZE, limit: PAGE_SIZE }),
+    q.units(projectId, { groupId, kind, review: review ? '1' : undefined, remaining: search.remaining ? '1' : undefined, by: search.by, q: search.q, statusId: search.status, tagId: search.tag, speaker: search.speaker, listener: search.listener, focus: focusing, offset: page * PAGE_SIZE, limit: PAGE_SIZE }),
   );
   useEffect(() => {
     if (!focusing || !lines.data || lines.isPlaceholderData) return;
@@ -144,6 +147,15 @@ export function LineList({
     mutationFn: (statusId: string) => unwrap(client.projects[':projectId'].units.$patch({ param: { projectId }, json: { unitIds: [...picked], statusId } })),
     onSuccess: () => toast.success(`${picked.size}개 대사의 상태를 바꿨습니다.`),
   });
+  // 확인함: the statuses stay; a person now holds them, so the ✦ goes.
+  const check = useMutation({
+    mutationFn: (unitIds: string[]) => unwrap(client.projects[':projectId'].units.$patch({ param: { projectId }, json: { unitIds, checked: true } })),
+    onSuccess: (_data, unitIds) => {
+      toast.success(`${unitIds.length}개 대사를 확인했습니다.`);
+      if (search.by) stopPicking();
+    },
+  });
+  const pickedByAi = (rows ?? []).filter((row) => picked.has(row.id) && row.statusBy === 'ai').map((row) => row.id);
   const setTag = useMutation({
     mutationFn: ({ tagId, add }: { tagId: string; add: boolean }) =>
       unwrap(client.projects[':projectId'].units.$patch({ param: { projectId }, json: add ? { unitIds: [...picked], addTagIds: [tagId] } : { unitIds: [...picked], removeTagIds: [tagId] } })),
@@ -185,7 +197,7 @@ export function LineList({
   const advanceFrom = (id: string) => {
     if (!rows) return;
     const index = rows.findIndex((row) => row.id === id);
-    const shrinking = review || search.remaining;
+    const shrinking = review || search.remaining || search.by;
     if (index >= 0 && index + 1 < rows.length) select(rows[index + 1].id, true);
     else if (shrinking && index > 0 && page + 1 >= Math.ceil(total / PAGE_SIZE)) select(rows[index - 1].id, true);
     else move(1, true);
@@ -279,6 +291,9 @@ export function LineList({
         <Button variant={search.remaining ? 'secondary' : 'outline'} aria-pressed={Boolean(search.remaining)} onClick={() => onSearch({ remaining: search.remaining ? undefined : true, page: undefined })}>
           {search.remaining && <Check />} 남은 줄만
         </Button>
+        <Button variant={search.by ? 'secondary' : 'outline'} aria-pressed={Boolean(search.by)} title="워크플로가 상태를 정했고 아직 사람이 확인하지 않은 줄(✦)" onClick={() => onSearch({ by: search.by ? undefined : 'ai', page: undefined })}>
+          {search.by ? <Check /> : <Sparkles />} AI가 정한 것만
+        </Button>
         <SearchInput value={search.q} onChange={(value) => onSearch({ q: value, page: undefined })} placeholder="찾기" className="w-44" />
         {chips.map((chip) => (
           <Button key={chip.key} variant="secondary" onClick={() => onSearch({ ...chip.clear, page: undefined })} aria-label={`${chip.label} 필터 지우기`}>
@@ -295,7 +310,7 @@ export function LineList({
             ))}
           </div>
         ) : rows.length === 0 ? (
-          <p className="px-4 py-16 text-center text-sm text-muted-foreground">{review ? '검토할 대사가 없습니다.' : search.remaining ? '남은 줄이 없습니다. 모두 최종 상태입니다.' : '맞는 대사가 없습니다.'}</p>
+          <p className="px-4 py-16 text-center text-sm text-muted-foreground">{review ? '검토할 대사가 없습니다.' : search.by ? 'AI가 정하고 확인하지 않은 줄이 없습니다.' : search.remaining ? '남은 줄이 없습니다. 모두 최종 상태입니다.' : '맞는 대사가 없습니다.'}</p>
         ) : (
           <ul>
             {rows.map((line) => {
@@ -337,6 +352,7 @@ export function LineList({
                             </TooltipTrigger>
                             <TooltipContent>{status?.name}</TooltipContent>
                           </Tooltip>
+                          {line.statusBy === 'ai' && <AiMark by="ai" className="mt-1 -ml-1" />}
                           <div className="min-w-0">
                             <p className={cn('break-words whitespace-pre-wrap', !line.translation && 'text-muted-foreground')}>{line.translation ?? '번역 없음'}</p>
                             {review && !!line.lastRun?.issues.length && (
@@ -364,6 +380,9 @@ export function LineList({
           </Button>
           {picked.size > 0 && (
             <>
+              <Button variant="outline" className="bg-background" disabled={pickedByAi.length === 0 || check.isPending} title="상태는 그대로 두고 사람이 확인한 것으로 표시합니다(✦ 없앰)" onClick={() => check.mutate(pickedByAi)}>
+                <Check /> 확인함{pickedByAi.length ? ` (${pickedByAi.length})` : ''}
+              </Button>
               <RunDialog
                 projectId={projectId}
                 unitIds={[...picked]}

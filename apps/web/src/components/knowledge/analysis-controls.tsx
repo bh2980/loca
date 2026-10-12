@@ -6,6 +6,7 @@ import { Elapsed, JobProgress } from '@/components/job-progress';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { AiConfirmNote } from '@/components/settings/ai-confirm';
 import { ModelPicker, useInitialModel, type ModelValue } from '@/components/model-picker';
 import { Switch } from '@/components/ui/switch';
 import { client, unwrap } from '@/lib/api';
@@ -51,20 +52,19 @@ export function JobStatus({ projectId }: { projectId: string }) {
 /** Whether an analysis has finished before, so its drafts exist. */
 export const hasAnalysis = (jobs: { status: string }[] | undefined) => (jobs ?? []).some((job) => job.status === 'completed');
 
-/** Start (or redo) a work analysis with a connection + model, auto-confirm on by default. */
+/** Start (or redo) a work analysis with a connection + model; how its drafts land is 설정 › AI 확정. */
 export function StartAnalysis({ projectId, variant = 'default' }: { projectId: string; /** Outline once drafts exist and another action is the screen's primary. */ variant?: 'default' | 'outline' }) {
   const jobs = useQuery(q.analysisJobs(projectId));
   const initial = useInitialModel(['generate'], jobs.data?.[0]);
   const [picked, setPicked] = useState<ModelValue | null>(null);
   const model = picked ?? initial;
-  const [autoConfirm, setAutoConfirm] = useState(true);
   const [resume, setResume] = useState(true);
   const [open, setOpen] = useState(false);
   // A failed or stopped analysis that finished some parts can be continued from where it stopped.
   const last = jobs.data?.[0];
   const resumable = last && (last.status === 'failed' || last.status === 'cancelled') && last.partsDone > 0 ? last : undefined;
   const start = useMutation({
-    mutationFn: () => unwrap(client.projects[':projectId'].analysis.$post({ param: { projectId }, json: { model: model!, autoConfirm, resume: Boolean(resumable) && resume } })),
+    mutationFn: () => unwrap(client.projects[':projectId'].analysis.$post({ param: { projectId }, json: { model: model!, resume: Boolean(resumable) && resume } })),
     onSuccess: () => {
       setOpen(false);
       toast.success('작품 분석을 시작했습니다. 끝나면 초안이 여기에 들어옵니다.');
@@ -86,22 +86,12 @@ export function StartAnalysis({ projectId, variant = 'default' }: { projectId: s
         <div className="space-y-1">
           <h3 className="text-sm font-semibold">작품 분석</h3>
           <p className="text-xs text-muted-foreground">
-            모델이 대본 전체를 한 번에 읽고 개요·인물·관계·사건·말투 규칙 초안과 용어 후보(번역 제안 포함)를 근거와 함께 만듭니다. 용어는 용어집에 후보로 들어가고 확정은 사람이 합니다. 번역과 상태는 바뀌지 않습니다. 긴 문맥 모델을 권장하고, 연결 설정의 최대 출력 토큰이 작으면 답이 잘릴 수 있습니다.
-            {hasDrafts && ' 다시 분석하면 사람이 고치거나 확정하지 않은 AI 항목이 새 결과로 바뀝니다.'}
+            모델이 대본 전체를 한 번에 읽고 개요·인물·관계·사건·말투 규칙 초안과 용어(번역 제안 포함)를 근거와 함께 만듭니다. 번역과 상태는 바뀌지 않습니다. 긴 문맥 모델을 권장하고, 연결 설정의 최대 출력 토큰이 작으면 답이 잘릴 수 있습니다.
+            {hasDrafts && ' 다시 분석하면 사람이 고치거나 확정·확인하지 않은 AI 항목이 새 결과로 바뀝니다.'}
           </p>
         </div>
         <ModelPicker value={model} onChange={setPicked} />
-        <div className="space-y-1">
-          <div className="flex items-center justify-between">
-            <Label htmlFor="auto-confirm">자동 확정</Label>
-            <Switch id="auto-confirm" checked={autoConfirm} onCheckedChange={setAutoConfirm} />
-          </div>
-          <p className="text-xs text-muted-foreground">
-            {autoConfirm
-              ? '결과(용어 포함)가 바로 번역 문맥에 쓰입니다. 번역이 빈 용어만 후보로 남습니다. 대사가 많은 주요 쌍, 엇갈리거나 근거가 맞지 않는 말투 규칙에는 "확인 권장" 표시가 붙습니다.'
-              : '결과가 후보로 들어오고, 확정한 것만 번역 문맥에 쓰입니다.'}
-          </p>
-        </div>
+        <AiConfirmNote projectId={projectId} kinds={['documents', 'characters', 'relationships', 'events', 'speechRules', 'terms']} />
         {resumable && (
           <div className="space-y-1">
             <div className="flex items-center justify-between">

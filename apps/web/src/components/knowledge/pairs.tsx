@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { ChevronRight, Plus } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { isSettled, listenerLabel, SPEECH_LEVEL_LABELS, sourceOf, type SpeechLevel } from '@tw/shared';
+import { isSettled, listenerLabel, SPEECH_LEVEL_LABELS, type SpeechLevel } from '@tw/shared';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { DetailPane, PaneSection } from '@/components/detail-pane';
 import { candidateRow, DraftEditor, fail, matches, metaColumns, SourceBadge, type Draft, type KindSpec, type Row, type SourceFilter, type StatusFilter } from '@/components/knowledge/draft-editor';
@@ -59,8 +59,8 @@ export const pairSummary = (pair: Pair): Draft => {
   return {
     id: pair.key,
     status: rows.some((row) => row.status === 'candidate') ? 'candidate' : 'confirmed',
-    origin: rows.some((row) => sourceOf(row) !== 'official') ? 'ai' : 'human',
-    reviewed: false,
+    origin: rows.some((row) => row.origin === 'ai') ? 'ai' : 'human',
+    statusBy: rows.some((row) => row.statusBy === 'ai') ? 'ai' : 'human',
     evidence: [],
   };
 };

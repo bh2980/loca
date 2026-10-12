@@ -49,7 +49,7 @@ export function GettingStarted({ projectId }: { projectId: string }) {
   const reading = jobs.data.find((job) => job.status === 'running');
   const ran = runs.data.length > 0;
   if (analysed && ran) return null;
-  const toCheck = rules.data.filter((rule) => rule.review && !rule.reviewed).length;
+  const toCheck = rules.data.filter((rule) => rule.review && rule.statusBy === 'ai').length;
   const confirmedTerms = terms.data.filter((term) => term.status === 'confirmed').length;
   const candidates = terms.data.filter((term) => term.status === 'candidate').length;
   const emptyTerms = terms.data.filter((term) => term.status === 'candidate' && !term.target.trim()).length;

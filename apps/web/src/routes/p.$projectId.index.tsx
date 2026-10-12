@@ -1,7 +1,7 @@
 import { cloneElement, type ReactElement, type ReactNode } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { BookMarked, ChevronRight, CircleAlert, Inbox, MessageSquareQuote, UserRoundSearch, Workflow } from 'lucide-react';
+import { BookMarked, ChevronRight, CircleAlert, Inbox, MessageSquareQuote, Sparkles, UserRoundSearch, Workflow } from 'lucide-react';
 import { GettingStarted } from '@/components/getting-started';
 import { JobStatusBadge } from '@/components/job-status';
 import { Elapsed, JobProgress } from '@/components/job-progress';
@@ -50,6 +50,8 @@ function Home() {
   const finalIds = new Set(statusList.filter((status) => status.kind === 'final').map((status) => status.id));
   const done = Object.entries(counts).reduce((sum, [id, value]) => sum + (finalIds.has(id) ? value : 0), 0);
   const initial = statusList.find((status) => status.kind === 'initial');
+  const finals = statusList.filter((status) => status.kind === 'final');
+  const aiDecided = project.data?.aiDecided;
   const stopped = runs.data?.filter((run) => run.status === 'paused') ?? [];
   const recent = [
     ...(runs.data ?? []).map((run) => ({ kind: 'run' as const, id: run.id, title: run.workflowName, status: run.status, done: (run.states.done ?? 0) + (run.states.failed ?? 0) + (run.states.cancelled ?? 0), total: run.total, at: new Date(run.createdAt) })),
@@ -90,8 +92,33 @@ function Home() {
       icon: <MessageSquareQuote />,
       title: '확인 권장 말투 규칙',
       description: '대사가 많은 쌍이거나 근거가 엇갈리는 규칙. 틀리면 많은 줄의 번역이 틀립니다.',
-      count: rules.data?.filter((rule) => rule.review && !rule.reviewed).length ?? 0,
+      count: rules.data?.filter((rule) => rule.review && rule.statusBy === 'ai').length ?? 0,
       link: <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table' }} />,
+    },
+    // What AI decided and nobody has looked at (✦, docs/DESIGN.md 3.5).
+    {
+      key: 'ai-lines',
+      icon: <Sparkles />,
+      title: 'AI가 확정한 대사',
+      description: '워크플로가 최종 상태로 보냈고 아직 사람이 확인하지 않은 줄. 훑어보고 ‘확인함’ 하거나 고치세요.',
+      count: aiDecided?.lines ?? 0,
+      link: <Link to="/p/$projectId/script" params={{ projectId }} search={{ by: 'ai', status: finals.length === 1 ? finals[0].id : undefined }} />,
+    },
+    {
+      key: 'ai-knowledge',
+      icon: <Sparkles />,
+      title: 'AI가 확정한 자료',
+      description: '바로 문맥에 쓰이고 있지만 사람이 확인하지 않은 문서·인물·관계·사건·말투 규칙.',
+      count: aiDecided?.knowledge ?? 0,
+      link: <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', state: 'ai' }} />,
+    },
+    {
+      key: 'ai-terms',
+      icon: <Sparkles />,
+      title: 'AI가 확정한 용어',
+      description: '바로 번역 문맥에 쓰이고 있지만 사람이 확인하지 않은 용어.',
+      count: aiDecided?.terms ?? 0,
+      link: <Link to="/p/$projectId/glossary" params={{ projectId }} search={{ state: 'ai' }} />,
     },
     {
       key: 'terms',

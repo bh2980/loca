@@ -15,7 +15,7 @@ export const q = {
     queryOptions({ queryKey: ['units', 'groups', projectId, query], queryFn: () => unwrap(client.projects[':projectId'].groups.$get({ param: { projectId }, query })) }),
   group: (groupId: string) => queryOptions({ queryKey: ['units', 'group', groupId], queryFn: () => unwrap(client.groups[':groupId'].$get({ param: { groupId } })) }),
   speakers: (projectId: string) => queryOptions({ queryKey: ['units', 'speakers', projectId], queryFn: () => unwrap(client.projects[':projectId'].speakers.$get({ param: { projectId } })) }),
-  units: (projectId: string, query: { groupId?: string; kind?: 'scene' | 'document' | 'ui'; statusId?: string; tagId?: string; q?: string; speaker?: string; listener?: string; review?: '1'; remaining?: '1'; focus?: string; offset?: number; limit?: number }) =>
+  units: (projectId: string, query: { groupId?: string; kind?: 'scene' | 'document' | 'ui'; statusId?: string; tagId?: string; q?: string; speaker?: string; listener?: string; review?: '1'; remaining?: '1'; by?: 'ai'; focus?: string; offset?: number; limit?: number }) =>
     queryOptions({
       queryKey: ['units', 'list', projectId, query],
       queryFn: () =>

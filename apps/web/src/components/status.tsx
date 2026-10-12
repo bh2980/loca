@@ -1,3 +1,5 @@
+import { Sparkles } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
 export interface StatusLike {
@@ -36,5 +38,23 @@ export function StatusBar({ statuses, counts, className }: { statuses: StatusLik
     <div className={cn('flex h-1.5 w-full overflow-hidden rounded-full bg-muted', className)} role="img" aria-label={statuses.map((status) => `${status.name} ${counts[status.id] ?? 0}`).join(', ')}>
       {total > 0 && statuses.map((status) => (counts[status.id] ? <div key={status.id} style={{ width: `${(counts[status.id] / total) * 100}%`, backgroundColor: status.color }} /> : null))}
     </div>
+  );
+}
+
+/**
+ * ✦ beside a status or 확정 that AI set and no person has looked at since (docs/DESIGN.md 3.5).
+ * The same mark everywhere: lines, knowledge, terms. Renders nothing when a person set it.
+ */
+export function AiMark({ by, className }: { by: 'ai' | 'human' | null | undefined; className?: string }) {
+  if (by !== 'ai') return null;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span role="img" aria-label="AI가 정함" className={cn('inline-flex shrink-0 text-muted-foreground', className)}>
+          <Sparkles className="size-3" />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>AI가 정함 · 아직 사람이 확인하지 않음</TooltipContent>
+    </Tooltip>
   );
 }

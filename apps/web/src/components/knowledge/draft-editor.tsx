@@ -3,7 +3,7 @@ import { Link } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Check, ChevronRight, Play, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { DOCUMENT_KINDS, KNOWLEDGE_ORIGIN_LABELS, SPEECH_FIX_WORKFLOW, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, sourceOf, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type SpeechLevel } from '@tw/shared';
+import { aiDecided, DOCUMENT_KINDS, SPEECH_FIX_WORKFLOW, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, sourceOf, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type SpeechLevel, type StatusBy } from '@tw/shared';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { useDraft } from '@/lib/drafts';
+import { AiMark } from '@/components/status';
 import { DOCUMENT_KIND } from '@/lib/labels';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
@@ -31,7 +32,8 @@ export interface Draft {
   id: string;
   status: KnowledgeStatus;
   origin: KnowledgeOrigin;
-  reviewed: boolean;
+  /** Who set the status (docs/DESIGN.md 3.5). */
+  statusBy: StatusBy;
   evidence: string[];
   /** The work analysis that put it in, if any. */
   jobId?: string | null;
@@ -64,34 +66,43 @@ export interface KindSpec {
 export const fail = (error: Error) => toast.error(error.message);
 export const text = (value: unknown) => (typeof value === 'string' ? value : '');
 
-/** AI (added by AI, nobody took it over) or 정식; candidates are shown with a dashed edge, not a badge. */
+/** 출처: who wrote the content (작품 분석, 워크플로·채팅, 대본에서 찾음, 가져오기, 사람). */
 export function SourceBadge({ row }: { row: Draft }) {
-  const source = sourceOf(row);
-  if (source !== 'official')
-    return (
-      <Badge variant="outline" className="text-muted-foreground" title={`AI가 넣었고(${SOURCE_LABELS[source]}) 아직 사람이 고치거나 정식으로 올리지 않았습니다.`}>
-        AI
-      </Badge>
-    );
-  return <span className="text-xs text-muted-foreground">{row.origin === 'import' || row.origin === 'script' ? KNOWLEDGE_ORIGIN_LABELS[row.origin] : SOURCE_LABELS.official}</span>;
+  return <span className="text-xs text-muted-foreground">{SOURCE_LABELS[sourceOf(row)]}</span>;
 }
 
 /** A candidate row: dashed left edge (not used as context until confirmed). */
 export const candidateRow = (row: Draft) => (row.status === 'candidate' ? '[&>td:first-child]:border-l-2 [&>td:first-child]:border-dashed [&>td:first-child]:border-l-warning' : undefined);
 
 export type SourceFilter = KnowledgeSource | undefined;
-export type StatusFilter = 'confirmed' | 'candidate' | undefined;
-export const matches = (row: Draft, source: SourceFilter, status: StatusFilter) => (!source || sourceOf(row) === source) && (!status || row.status === status);
+/** 'ai': confirmed by AI and not looked at yet (✦), the 'AI가 정한 것만' filter. */
+export type StatusFilter = 'confirmed' | 'ai' | 'candidate' | undefined;
+export const matches = (row: Draft, source: SourceFilter, status: StatusFilter) =>
+  (!source || sourceOf(row) === source) && (!status || (status === 'ai' ? aiDecided(row) : row.status === status));
 
 export const sourceOptions: FilterOption[] = KNOWLEDGE_SOURCES.map((value) => ({ value, label: SOURCE_LABELS[value] }));
 export const statusOptions: FilterOption[] = [
   { value: 'confirmed', label: KNOWLEDGE_STATUS_LABELS.confirmed },
+  { value: 'ai', label: 'AI가 정한 것만 (확정 ✦)' },
   { value: 'candidate', label: KNOWLEDGE_STATUS_LABELS.candidate },
 ];
 
-/** 상태 cell: 확정 (used as context) or 후보 (not yet). */
+/** 상태 cell: 확정 (used as context, ✦ when AI confirmed it) or 후보 (not yet). */
 export function StateCell({ row }: { row: Draft }) {
-  return row.status === 'candidate' ? <span className="text-warning">{KNOWLEDGE_STATUS_LABELS.candidate}</span> : <span className="text-muted-foreground">{KNOWLEDGE_STATUS_LABELS.confirmed}</span>;
+  if (row.status === 'candidate') return <span className="text-warning">{KNOWLEDGE_STATUS_LABELS.candidate}</span>;
+  return (
+    <span className="inline-flex items-center gap-1 text-muted-foreground">
+      {KNOWLEDGE_STATUS_LABELS.confirmed}
+      <AiMark by={row.statusBy} />
+    </span>
+  );
+}
+
+/** What the confirm button does to the picks: candidates become 확정, AI-confirmed ones are marked 확인함. */
+export function confirmLabel(rows: Draft[]) {
+  const candidates = rows.some((row) => row.status === 'candidate');
+  const checked = rows.some((row) => row.status !== 'candidate' && row.statusBy === 'ai');
+  return candidates && checked ? '확정·확인함' : candidates ? '확정' : '확인함';
 }
 
 /** 출처 and 상태 as the last two columns of a table; both filter through their header. */
@@ -122,15 +133,18 @@ export function KnowledgeFilters({ source, status, onChange }: { source: SourceF
   );
 }
 
-/** The bar for picked AI items: make them official or throw them away. Official items among the picks are skipped. */
-export function BulkDecide({ picked, actionable, pending, onConfirm, onDiscard }: { picked: number; actionable: number; pending: boolean; onConfirm: () => void; onDiscard: () => void }) {
+/**
+ * The bar for picked items a person has not decided: confirm them (후보 → 확정, AI 확정 → 확인함;
+ * the status stays and a person now holds it) or throw them away. Items a person decided are skipped.
+ */
+export function BulkDecide({ picked, actionable, pending, onConfirm, onDiscard }: { picked: number; actionable: Draft[]; pending: boolean; onConfirm: () => void; onDiscard: () => void }) {
   return (
     <>
-      <Button disabled={actionable === 0 || pending} onClick={onConfirm}>
-        <Check /> 정식으로 올리기
+      <Button disabled={actionable.length === 0 || pending} onClick={onConfirm}>
+        <Check /> {confirmLabel(actionable)}
       </Button>
-      <DiscardButton count={actionable} disabled={actionable === 0} onConfirm={onDiscard} />
-      {picked > actionable && <span className="text-xs text-muted-foreground">정식 항목 {picked - actionable}개는 건너뜁니다</span>}
+      <DiscardButton count={actionable.length} disabled={actionable.length === 0} onConfirm={onDiscard} />
+      {picked > actionable.length && <span className="text-xs text-muted-foreground">사람이 정한 {picked - actionable.length}개는 건너뜁니다</span>}
     </>
   );
 }
@@ -165,8 +179,8 @@ export function DiscardButton({ count, onConfirm, disabled }: { count: number; o
       </AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>AI 항목 {count}개를 버릴까요?</AlertDialogTitle>
-          <AlertDialogDescription>AI가 넣고 아직 정식이 아닌 항목만 지워집니다. 다시 분석하면 다시 들어올 수 있습니다.</AlertDialogDescription>
+          <AlertDialogTitle>{count}개를 버릴까요?</AlertDialogTitle>
+          <AlertDialogDescription>사람이 아직 정하지 않은 항목(후보, AI가 확정한 것)만 버립니다. 버린 항목은 다시 분석해도 다시 제안되지 않습니다.</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>취소</AlertDialogCancel>
@@ -211,7 +225,7 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
     mutationFn: () => spec.save(row.id, form),
     onSuccess: () => {
       clear();
-      toast.success('저장했습니다. 고친 항목은 정식이 됩니다.');
+      toast.success('저장했습니다. 사람이 고친 항목이라 다시 분석해도 바뀌지 않습니다.');
     },
     onError: fail,
   });
@@ -263,8 +277,8 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
       <Button variant="outline" className={dirty ? undefined : 'ml-auto'} disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
         저장
       </Button>
-      <Button disabled={dirty} title={dirty ? '먼저 저장하세요' : 'AI가 넣은 그대로 정식 자료로 올립니다'} onClick={() => onDecide('confirm')}>
-        <Check /> 정식으로 올리기
+      <Button disabled={dirty} title={dirty ? '먼저 저장하세요' : row.status === 'candidate' ? '이대로 확정해 문맥에 씁니다' : '상태는 그대로 두고 사람이 확인한 것으로 표시합니다'} onClick={() => onDecide('confirm')}>
+        <Check /> {confirmLabel([row])}
       </Button>
     </>
   ) : (
@@ -277,7 +291,7 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
         </AlertDialogTrigger>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>정식 항목을 삭제할까요?</AlertDialogTitle>
+            <AlertDialogTitle>사람이 정한 항목을 삭제할까요?</AlertDialogTitle>
             <AlertDialogDescription>“{spec.label(row)}”이(가) 사라지고 더 이상 AI 문맥에 쓰이지 않습니다.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -313,7 +327,8 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
       subtitle={
         <span className="flex items-center gap-1.5">
           <SourceBadge row={row} />
-          {row.status === 'candidate' && <span>후보 · 아직 문맥에 쓰이지 않음</span>}
+          <span>·</span>
+          {row.status === 'candidate' ? <span>후보 · 아직 문맥에 쓰이지 않음</span> : aiDecided(row) ? <span className="inline-flex items-center gap-1">확정 <AiMark by="ai" /> AI가 정함, 아직 확인 안 함</span> : <span>확정</span>}
         </span>
       }
       onClose={onClose}

@@ -7,7 +7,7 @@ import { DOCUMENT_KINDS, isSettled, KNOWLEDGE_SOURCES, listenerLabel, SPEECH_LEV
 import { Page } from '@/components/page';
 import { RelationshipGraph } from '@/components/relationship-graph';
 import { hasAnalysis, JobStatus, StartAnalysis } from '@/components/knowledge/analysis-controls';
-import { BulkDecide, DraftEditor, fail, KINDS, KnowledgeFilters, KnowledgeTable, matches, RelationshipChanges, RuleLines, SourceBadge, text, type Kind, type KindSpec, type Row } from '@/components/knowledge/draft-editor';
+import { BulkDecide, DraftEditor, fail, KINDS, KnowledgeFilters, KnowledgeTable, matches, RelationshipChanges, RuleLines, SourceBadge, text, type Kind, type KindSpec, type Row, type SourceFilter, type StatusFilter } from '@/components/knowledge/draft-editor';
 import { SplitPane } from '@/components/split-pane';
 import { Toolbar } from '@/components/toolbar';
 import { buildPairs, PairDetail, pairItems, pairMatches, pairSummary, PairTable, type Pair } from '@/components/knowledge/pairs';
@@ -29,10 +29,10 @@ const TABS = { documents: '문서', people: '인물·관계', events: '사건' }
 type Tab = keyof typeof TABS;
 interface KnowledgeSearch {
   tab?: Tab;
-  /** 출처 filter: AI / 정식. */
+  /** 출처 filter: who wrote it (작품 분석, 워크플로·채팅, 대본에서 찾음, 가져오기, 사람). */
   source?: KnowledgeSource;
-  /** 상태 filter: 확정 / 후보. */
-  state?: 'confirmed' | 'candidate';
+  /** 상태 filter: 확정 / AI가 정한 것만 (확정 ✦) / 후보. */
+  state?: StatusFilter;
   /** Selected item id, or a pair key ("from→to") in 인물·관계 › 관계. */
   item?: string;
   /** Inside 인물·관계 shown as tables: people instead of pairs. */
@@ -46,7 +46,7 @@ export const Route = createFileRoute('/p/$projectId/knowledge')({
   validateSearch: (raw: Record<string, unknown>): KnowledgeSearch => ({
     tab: typeof raw.tab === 'string' && raw.tab in TABS ? (raw.tab as Tab) : undefined,
     source: typeof raw.source === 'string' && (KNOWLEDGE_SOURCES as readonly string[]).includes(raw.source) ? (raw.source as KnowledgeSource) : undefined,
-    state: raw.state === 'confirmed' || raw.state === 'candidate' ? raw.state : undefined,
+    state: raw.state === 'confirmed' || raw.state === 'ai' || raw.state === 'candidate' ? raw.state : undefined,
     item: typeof raw.item === 'string' && raw.item ? raw.item : undefined,
     view: raw.view === 'characters' ? 'characters' : undefined,
     display: raw.display === 'table' ? 'table' : undefined,
@@ -56,8 +56,9 @@ export const Route = createFileRoute('/p/$projectId/knowledge')({
 
 /**
  * The work's knowledge: documents, people with their speaker → listener pairs (relationship +
- * speech rules), and events. "작품 분석" fills it; every item shows whether it is an AI candidate,
- * AI-confirmed (used, unchecked) or official, and AI items can be promoted or discarded in bulk.
+ * speech rules), and events. "작품 분석" fills it; every item shows who wrote it (출처) and whether it
+ * is a candidate, confirmed by AI (✦, used but unchecked) or decided by a person; undecided items can be
+ * confirmed (확정 / 확인함) or discarded in bulk.
  */
 function Knowledge() {
   const { projectId } = Route.useParams();
@@ -200,7 +201,7 @@ function Knowledge() {
   const unofficial = (kind: Kind) => specs[kind].rows.filter((row) => !isSettled(row)).length;
   const unofficialHere = tab === 'people' ? unofficial('characters') + unofficial('relationships') + unofficial('speechRules') : unofficial(tab);
   useReportView('knowledge', [
-    selected && { kind: KINDS[tableKind], id: selected.id, label: spec.label(selected), detail: !isSettled(selected) ? `${selected.status === 'candidate' ? '후보' : '확정'} · AI가 넣은 항목` : undefined },
+    selected && { kind: KINDS[tableKind], id: selected.id, label: spec.label(selected), detail: !isSettled(selected) ? (selected.status === 'candidate' ? '후보' : '확정 · AI가 정함, 아직 사람이 확인 안 함') : undefined },
     pair && { kind: '관계·말투', id: pair.key, label: `${pair.from} → ${pair.to}` },
   ]);
 
@@ -222,7 +223,7 @@ function Knowledge() {
     },
     onSuccess: (changed, { action }) => {
       setChecked(new Set());
-      toast.success(action === 'confirm' ? `${changed}개를 정식으로 올렸습니다.` : `${changed}개 AI 항목을 버렸습니다.`);
+      toast.success(action === 'confirm' ? `${changed}개를 확정·확인했습니다.` : `${changed}개를 버렸습니다.`);
     },
     onError: fail,
   });
@@ -232,7 +233,8 @@ function Knowledge() {
     const items = visiblePairs.filter((candidate) => checked.has(candidate.key)).flatMap(pairItems).filter((item) => !isSettled(item.row));
     return (['relationships', 'speechRules'] as const).map((kind) => ({ kind, ids: items.filter((item) => item.kind === kind).map((item) => item.row.id) }));
   };
-  const checkedCount = checkedItems().reduce((sum, item) => sum + item.ids.length, 0);
+  // The undecided rows among the picks, for the confirm button's label (확정 / 확인함).
+  const checkedRows: Row[] = pairsView ? visiblePairs.filter((candidate) => checked.has(candidate.key)).flatMap(pairItems).map((item) => item.row).filter((row) => !isSettled(row)) : rows.filter((row) => checked.has(row.id) && !isSettled(row));
 
   const create = useMutation({
     mutationFn: () => spec.create!(),
@@ -255,9 +257,9 @@ function Knowledge() {
   const jobs = useQuery(q.analysisJobs(projectId));
   const analysed = hasAnalysis(jobs.data);
   const pending = tab === 'documents' ? documents.isPending : tab === 'events' ? storyEvents.isPending : people.isPending || rules.isPending;
-  const filters = { source: search.source, status: search.state, onChange: (next: { source?: KnowledgeSource; status?: 'confirmed' | 'candidate' }) => set({ ...('source' in next && { source: next.source }), ...('status' in next && { state: next.status }), item: undefined }) };
+  const filters = { source: search.source, status: search.state, onChange: (next: { source?: SourceFilter; status?: StatusFilter }) => set({ ...('source' in next && { source: next.source }), ...('status' in next && { state: next.status }), item: undefined }) };
   const filtered = Boolean(search.source || search.state);
-  const bulk = <BulkDecide picked={checked.size} actionable={checkedCount} pending={decide.isPending} onConfirm={() => decide.mutate({ items: checkedItems(), action: 'confirm' })} onDiscard={() => decide.mutate({ items: checkedItems(), action: 'discard' })} />;
+  const bulk = <BulkDecide picked={checked.size} actionable={checkedRows} pending={decide.isPending} onConfirm={() => decide.mutate({ items: checkedItems(), action: 'confirm' })} onDiscard={() => decide.mutate({ items: checkedItems(), action: 'discard' })} />;
   const total = graph ? `인물 ${characters.length.toLocaleString()}명 · 관계 ${visiblePairs.length.toLocaleString()}쌍` : pairsView ? `${visiblePairs.length.toLocaleString()}쌍` : `${rows.length.toLocaleString()}${tab === 'people' ? '명' : '개'}`;
   const count = pending ? undefined : `${total}${unofficialHere > 0 ? ` · 확인 필요 ${unofficialHere.toLocaleString()}` : ''}`;
   const empty = filtered ? `조건에 맞는 ${KINDS[tableKind]} 항목이 없습니다.` : `${KINDS[tableKind]} 항목이 없습니다. “추가”로 직접 만들거나 “작품 분석”으로 초안을 받으세요.`;

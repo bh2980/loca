@@ -10,7 +10,7 @@ import { Toggle } from '@/components/ui/toggle';
 import { AiButton } from '@/components/ai-button';
 import { AiContextPanel } from '@/components/ai-context';
 import { DetailPane, FieldRow, PaneSection } from '@/components/detail-pane';
-import { StatusDot, TagChip } from '@/components/status';
+import { AiMark, StatusDot, TagChip } from '@/components/status';
 import { TranslationEditor } from '@/components/translation-editor';
 import { client, unwrap } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
@@ -63,6 +63,8 @@ export function LineDetail({
   const patch = useMutation({
     mutationFn: (json: { statusId?: string; tagIds?: string[]; listener?: string | null }) => unwrap(client.units[':unitId'].$patch({ param: { unitId }, json })),
   });
+  // 확인함: the status a run set stays, a person now holds it.
+  const check = useMutation({ mutationFn: () => unwrap(client.projects[':projectId'].units.$patch({ param: { projectId }, json: { unitIds: [unitId], checked: true } })) });
 
   const line = unit.data;
   const status = statuses.data?.statuses.find((item) => item.id === line?.statusId);
@@ -136,6 +138,14 @@ export function LineDetail({
                     ))}
                   </SelectContent>
                 </Select>
+                {line.statusBy === 'ai' && (
+                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <AiMark by="ai" /> 실행이 정함
+                    <Button variant="ghost" size="inline" disabled={check.isPending} title="상태는 그대로 두고 사람이 확인한 것으로 표시합니다" onClick={() => check.mutate()}>
+                      확인함
+                    </Button>
+                  </span>
+                )}
               </FieldRow>
               {tags.length > 0 && (
                 <FieldRow label="태그">

@@ -20,6 +20,7 @@ import { Route as PProjectIdRunsIndexRouteImport } from './routes/p.$projectId.r
 import { Route as PProjectIdRunsRunIdRouteImport } from './routes/p.$projectId.runs.$runId'
 import { Route as PProjectIdSettingsAgentRouteImport } from './routes/p.$projectId.settings.agent'
 import { Route as PProjectIdSettingsAiRouteImport } from './routes/p.$projectId.settings.ai'
+import { Route as PProjectIdSettingsAiConfirmRouteImport } from './routes/p.$projectId.settings.ai-confirm'
 import { Route as PProjectIdSettingsKeysRouteImport } from './routes/p.$projectId.settings.keys'
 import { Route as PProjectIdSettingsProjectRouteImport } from './routes/p.$projectId.settings.project'
 import { Route as PProjectIdSettingsStatusesRouteImport } from './routes/p.$projectId.settings.statuses'
@@ -81,6 +82,12 @@ const PProjectIdSettingsAiRoute = PProjectIdSettingsAiRouteImport.update({
   path: '/settings/ai',
   getParentRoute: () => PProjectIdRoute,
 } as any)
+const PProjectIdSettingsAiConfirmRoute =
+  PProjectIdSettingsAiConfirmRouteImport.update({
+    id: '/settings/ai-confirm',
+    path: '/settings/ai-confirm',
+    getParentRoute: () => PProjectIdRoute,
+  } as any)
 const PProjectIdSettingsKeysRoute = PProjectIdSettingsKeysRouteImport.update({
   id: '/settings/keys',
   path: '/settings/keys',
@@ -122,6 +129,7 @@ export interface FileRoutesByFullPath {
   '/p/$projectId/runs/$runId': typeof PProjectIdRunsRunIdRoute
   '/p/$projectId/settings/agent': typeof PProjectIdSettingsAgentRoute
   '/p/$projectId/settings/ai': typeof PProjectIdSettingsAiRoute
+  '/p/$projectId/settings/ai-confirm': typeof PProjectIdSettingsAiConfirmRoute
   '/p/$projectId/settings/keys': typeof PProjectIdSettingsKeysRoute
   '/p/$projectId/settings/project': typeof PProjectIdSettingsProjectRoute
   '/p/$projectId/settings/statuses': typeof PProjectIdSettingsStatusesRoute
@@ -139,6 +147,7 @@ export interface FileRoutesByTo {
   '/p/$projectId/runs/$runId': typeof PProjectIdRunsRunIdRoute
   '/p/$projectId/settings/agent': typeof PProjectIdSettingsAgentRoute
   '/p/$projectId/settings/ai': typeof PProjectIdSettingsAiRoute
+  '/p/$projectId/settings/ai-confirm': typeof PProjectIdSettingsAiConfirmRoute
   '/p/$projectId/settings/keys': typeof PProjectIdSettingsKeysRoute
   '/p/$projectId/settings/project': typeof PProjectIdSettingsProjectRoute
   '/p/$projectId/settings/statuses': typeof PProjectIdSettingsStatusesRoute
@@ -158,6 +167,7 @@ export interface FileRoutesById {
   '/p/$projectId/runs/$runId': typeof PProjectIdRunsRunIdRoute
   '/p/$projectId/settings/agent': typeof PProjectIdSettingsAgentRoute
   '/p/$projectId/settings/ai': typeof PProjectIdSettingsAiRoute
+  '/p/$projectId/settings/ai-confirm': typeof PProjectIdSettingsAiConfirmRoute
   '/p/$projectId/settings/keys': typeof PProjectIdSettingsKeysRoute
   '/p/$projectId/settings/project': typeof PProjectIdSettingsProjectRoute
   '/p/$projectId/settings/statuses': typeof PProjectIdSettingsStatusesRoute
@@ -178,6 +188,7 @@ export interface FileRouteTypes {
     | '/p/$projectId/runs/$runId'
     | '/p/$projectId/settings/agent'
     | '/p/$projectId/settings/ai'
+    | '/p/$projectId/settings/ai-confirm'
     | '/p/$projectId/settings/keys'
     | '/p/$projectId/settings/project'
     | '/p/$projectId/settings/statuses'
@@ -195,6 +206,7 @@ export interface FileRouteTypes {
     | '/p/$projectId/runs/$runId'
     | '/p/$projectId/settings/agent'
     | '/p/$projectId/settings/ai'
+    | '/p/$projectId/settings/ai-confirm'
     | '/p/$projectId/settings/keys'
     | '/p/$projectId/settings/project'
     | '/p/$projectId/settings/statuses'
@@ -213,6 +225,7 @@ export interface FileRouteTypes {
     | '/p/$projectId/runs/$runId'
     | '/p/$projectId/settings/agent'
     | '/p/$projectId/settings/ai'
+    | '/p/$projectId/settings/ai-confirm'
     | '/p/$projectId/settings/keys'
     | '/p/$projectId/settings/project'
     | '/p/$projectId/settings/statuses'
@@ -305,6 +318,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PProjectIdSettingsAiRouteImport
       parentRoute: typeof PProjectIdRoute
     }
+    '/p/$projectId/settings/ai-confirm': {
+      id: '/p/$projectId/settings/ai-confirm'
+      path: '/settings/ai-confirm'
+      fullPath: '/p/$projectId/settings/ai-confirm'
+      preLoaderRoute: typeof PProjectIdSettingsAiConfirmRouteImport
+      parentRoute: typeof PProjectIdRoute
+    }
     '/p/$projectId/settings/keys': {
       id: '/p/$projectId/settings/keys'
       path: '/settings/keys'
@@ -352,6 +372,7 @@ interface PProjectIdRouteChildren {
   PProjectIdRunsRunIdRoute: typeof PProjectIdRunsRunIdRoute
   PProjectIdSettingsAgentRoute: typeof PProjectIdSettingsAgentRoute
   PProjectIdSettingsAiRoute: typeof PProjectIdSettingsAiRoute
+  PProjectIdSettingsAiConfirmRoute: typeof PProjectIdSettingsAiConfirmRoute
   PProjectIdSettingsKeysRoute: typeof PProjectIdSettingsKeysRoute
   PProjectIdSettingsProjectRoute: typeof PProjectIdSettingsProjectRoute
   PProjectIdSettingsStatusesRoute: typeof PProjectIdSettingsStatusesRoute
@@ -369,6 +390,7 @@ const PProjectIdRouteChildren: PProjectIdRouteChildren = {
   PProjectIdRunsRunIdRoute: PProjectIdRunsRunIdRoute,
   PProjectIdSettingsAgentRoute: PProjectIdSettingsAgentRoute,
   PProjectIdSettingsAiRoute: PProjectIdSettingsAiRoute,
+  PProjectIdSettingsAiConfirmRoute: PProjectIdSettingsAiConfirmRoute,
   PProjectIdSettingsKeysRoute: PProjectIdSettingsKeysRoute,
   PProjectIdSettingsProjectRoute: PProjectIdSettingsProjectRoute,
   PProjectIdSettingsStatusesRoute: PProjectIdSettingsStatusesRoute,
