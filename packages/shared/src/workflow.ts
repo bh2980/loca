@@ -20,8 +20,11 @@ export const contextConfigSchema = z.object({
   cast: z.boolean().default(false),
   precedingLines: z.number().int().min(0).max(50).default(8),
   previousScenes: z.number().int().min(0).max(10).default(1),
-  /** Show the current translation of preceding lines (off when the existing translation is the answer key). */
-  precedingTranslations: z.boolean().default(true),
+  /**
+   * Show the current translation of preceding lines. Off by default: only lines at a batch boundary
+   * get preceding lines at all, and in experiment E9 it reached 6 of 407 lines with no measurable effect.
+   */
+  precedingTranslations: z.boolean().default(false),
   /** Estimated token cap for everything besides the lines themselves; what does not fit is dropped and recorded. */
   maxTokens: z.number().int().min(500).max(200_000).default(12_000),
 });

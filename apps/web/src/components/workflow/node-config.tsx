@@ -265,7 +265,7 @@ function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRefs; onCh
           </Field>
         </div>
         <ToggleRow
-          label="선행 대사의 현재 번역도 보내기 (말투 맞추기에 도움. 기존 번역이 정답인 실험에서는 끄기)"
+          label="선행 대사의 현재 번역도 보내기 (묶음 첫머리의 일부 줄에만 들어감. 실험에서 효과가 보이지 않아 기본 끔)"
           checked={context.precedingTranslations}
           onChange={(value) => set({ context: { ...context, precedingTranslations: value } })}
         />

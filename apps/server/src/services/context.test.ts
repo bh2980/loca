@@ -50,11 +50,11 @@ describe('context builder', () => {
     expect(context.preceding[unit('panel.2').id]).toBeUndefined();
   });
 
-  it('can leave out existing translations of preceding lines', () => {
+  it('shows existing translations of preceding lines only when asked', () => {
     const { db, projectId, unit } = setup();
     db.update(s.units).set({ translation: '정답' }).where(eq(s.units.id, unit('panel.1').id)).run();
-    const shown = buildContext(db, projectId, [unit('panel.2')], config()).preceding[unit('panel.2').id].lines;
-    const hidden = buildContext(db, projectId, [unit('panel.2')], config({ precedingTranslations: false })).preceding[unit('panel.2').id].lines;
+    const shown = buildContext(db, projectId, [unit('panel.2')], config({ precedingTranslations: true })).preceding[unit('panel.2').id].lines;
+    const hidden = buildContext(db, projectId, [unit('panel.2')], config()).preceding[unit('panel.2').id].lines;
     expect(shown.find((line) => line.key === 'panel.1')?.translation).toBe('정답');
     expect(hidden.every((line) => !('translation' in line))).toBe(true);
   });
