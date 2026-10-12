@@ -22,7 +22,7 @@ export interface NodeEstimate {
   full: number;
   /** min / expected / max requests; expected is null without history for a node not every line reaches. */
   requests: { min: number; expected: number | null; max: number };
-  /** Every line passes here (reached only through plain "out" exits from the entry). */
+  /** On the main path: reached from the entry through out / pass / true exits, so every line is expected here once. */
   everyLine: boolean;
   /** Estimated tokens of the prompt we send, per request (sampled from real plan batches). */
   promptTokens: number;
@@ -97,10 +97,13 @@ export function preflight(db: Db, workflow: typeof s.workflows.$inferSelect, sco
   const warnings: string[] = [];
   const small = sizes.filter((size) => size <= 5).length;
   if (sizes.length && small / sizes.length > 0.1) warnings.push(`계획 묶음 ${sizes.length}개 중 ${small}개가 5줄 이하입니다. 요청마다 붙는 고정 비용 비중이 커집니다.`);
-  for (const estimate of estimates) {
-    if (estimate.connection?.cli) warnings.push(`'${estimate.name}'은(는) ${estimate.connection.name}(CLI)로 실행되어 구독 사용량을 씁니다.`);
-    if (estimate.connection && estimate.overheadTokens === null) warnings.push(`'${estimate.connection.name}'의 요청당 고정 토큰을 아직 잰 적이 없어 입력 토큰이 실제보다 적게 보일 수 있습니다.`);
-    else if (estimate.overheadTokens && estimate.overheadTokens > estimate.promptTokens) warnings.push(`'${estimate.name}'은(는) 요청당 고정 토큰(${estimate.overheadTokens.toLocaleString()})이 보내는 내용보다 큽니다.`);
+  // One note per connection, naming the nodes that use it.
+  for (const list of Map.groupBy(estimates.filter((estimate) => estimate.connection), (estimate) => estimate.connection!.id).values()) {
+    const { connection, overheadTokens } = list[0];
+    const names = list.map((estimate) => `'${estimate.name}'`).join(', ');
+    if (connection!.cli) warnings.push(`${names}은(는) ${connection!.name}(CLI)로 실행되어 구독 사용량을 씁니다.`);
+    if (overheadTokens === null) warnings.push(`${connection!.name}의 요청당 고정 토큰을 아직 잰 적이 없어 입력 토큰이 실제보다 적게 보일 수 있습니다. 한 번 실행하면 측정됩니다.`);
+    else if (list.some((estimate) => overheadTokens > estimate.promptTokens)) warnings.push(`${connection!.name}은(는) 요청마다 보내는 내용보다 큰 고정 토큰(${overheadTokens.toLocaleString()})을 씁니다.`);
   }
   if (dialogue.length && unknownListener / dialogue.length > 0.2) warnings.push(`대사 ${dialogue.length.toLocaleString()}줄 중 ${unknownListener.toLocaleString()}줄은 청자를 모릅니다. 말투 규칙이 적용되지 않습니다.`);
   if (!rules.some((row) => row.status === 'confirmed')) warnings.push('확정된 말투 규칙이 없습니다. 작품 분석으로 먼저 만들 수 있습니다.');
@@ -126,7 +129,11 @@ export function preflight(db: Db, workflow: typeof s.workflows.$inferSelect, sco
   };
 }
 
-/** Nodes every line passes through: reached from the entry only through plain "out" exits. */
+/**
+ * The main path: nodes reached from the entry through out / pass / true exits. Lines are expected to
+ * pass each of them once; nodes only a fail / false / error exit leads to get a range instead.
+ */
+const MAIN_EXITS = new Set(['out', 'pass', 'true']);
 function linesThrough(definition: WorkflowDefinition) {
   const entry = definition.nodes.find((node) => node.type === 'entry');
   const seen = new Set<string>();
@@ -135,7 +142,7 @@ function linesThrough(definition: WorkflowDefinition) {
     const id = queue.shift()!;
     if (seen.has(id)) continue;
     seen.add(id);
-    for (const edge of definition.edges) if (edge.source === id && edge.sourceHandle === 'out') queue.push(edge.target);
+    for (const edge of definition.edges) if (edge.source === id && MAIN_EXITS.has(edge.sourceHandle)) queue.push(edge.target);
   }
   return seen;
 }
