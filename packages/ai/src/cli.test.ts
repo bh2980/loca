@@ -40,6 +40,11 @@ describe('readCliOutput', () => {
     expect(error.usage).toEqual({ inputTokens: 7, outputTokens: 0, costUsd: 0.01 });
   });
 
+  it('tells a prompt too long for the model from other CLI failures', () => {
+    const error = failure(() => readCliOutput('claude', JSON.stringify({ type: 'result', is_error: true, result: 'Prompt is too long', usage: { input_tokens: 0, output_tokens: 0 } }), schema));
+    expect(error.code).toBe('too-long');
+  });
+
   it('reads Codex JSONL plus the last-message file: cached input stays inside input', () => {
     const stdout = jsonl(
       { type: 'thread.started', thread_id: 't-9' },

@@ -18,6 +18,17 @@ import type { SecretStore } from './secrets.ts';
  * parts and five times cheaper; splitting is only for scripts larger than the model's window.
  */
 export const ANALYSIS_PART_TOKENS = 300_000;
+/** A part split in two at a scene boundary (each scene block starts with "## "); null for a single scene. */
+export function splitPart(part: string): [string, string] | null {
+  const blocks = part.split(/\n\n(?=## )/);
+  if (blocks.length < 2) return null;
+  const total = part.length;
+  let size = 0;
+  let cut = 1;
+  for (; cut < blocks.length - 1 && size + blocks[cut - 1].length < total / 2; cut++) size += blocks[cut - 1].length;
+  return [blocks.slice(0, cut).join('\n\n'), blocks.slice(cut).join('\n\n')];
+}
+
 /** A whole-script read takes minutes; the profile's per-call timeout is for single scenes. */
 const MIN_TIMEOUT_MS = 30 * 60_000;
 
@@ -132,7 +143,10 @@ export class AnalysisService {
     const usage = { inputTokens: 0, outputTokens: 0 };
     const answers: { hash: string; answer: unknown }[] = [];
     try {
-      for (const [index, part] of parts.entries()) {
+      // Parts the model refuses as longer than its context window are split in two and read again.
+      const queue = [...parts];
+      for (let index = 0; index < queue.length; index++) {
+        const part = queue[index];
         const hash = createHash('sha256').update(part).digest('hex');
         const kept = reused.get(hash);
         const parsed = kept ? analysisSchema.safeParse(kept) : null;
@@ -143,22 +157,35 @@ export class AnalysisService {
           continue;
         }
         const known: string = merged ? `\n\nALREADY KNOWN from earlier parts (reuse these names; return only what this part adds or changes):\n${summarize(merged)}` : '';
-        const where = parts.length > 1 ? `\nThis is part ${index + 1} of ${parts.length} of the script, in order.` : '';
-        const result = await ai.withFallback(
-          routes,
-          profile.maxAttempts,
-          (route) =>
-            this.model.generate<Analysis>(route, {
-              system: [SYSTEM, profile.instructions].filter(Boolean).join('\n\n'),
-              prompt: `${RETURN}${where}${cast}${known}\n\nSCRIPT:\n${part}`,
-              schema: analysisSchema,
-              maxOutputTokens: profile.maxOutputTokens,
-              temperature: profile.temperature ?? undefined,
-              timeoutMs: Math.max(profile.timeoutSeconds * 1000, MIN_TIMEOUT_MS),
-              signal,
-            }),
-          signal,
-        );
+        const where = queue.length > 1 ? `\nThis is part ${index + 1} of ${queue.length} of the script, in order.` : '';
+        const result = await ai
+          .withFallback(
+            routes,
+            profile.maxAttempts,
+            (route) =>
+              this.model.generate<Analysis>(route, {
+                system: [SYSTEM, profile.instructions].filter(Boolean).join('\n\n'),
+                prompt: `${RETURN}${where}${cast}${known}\n\nSCRIPT:\n${part}`,
+                schema: analysisSchema,
+                maxOutputTokens: profile.maxOutputTokens,
+                temperature: profile.temperature ?? undefined,
+                timeoutMs: Math.max(profile.timeoutSeconds * 1000, MIN_TIMEOUT_MS),
+                signal,
+              }),
+            signal,
+          )
+          .catch((error: unknown) => {
+            const halves = (error as { code?: string }).code === 'too-long' ? splitPart(part) : null;
+            if (!halves) throw error;
+            return halves;
+          });
+        if (Array.isArray(result)) {
+          queue.splice(index, 1, ...result);
+          index--;
+          this.db.update(s.analysisJobs).set({ partsTotal: queue.length }).where(eq(s.analysisJobs.id, job.id)).run();
+          events.changed(job.projectId, 'analysis');
+          continue;
+        }
         usage.inputTokens += result.result.usage.inputTokens ?? 0;
         usage.outputTokens += result.result.usage.outputTokens ?? 0;
         merged = merged ? mergeAnalysis(merged, result.result.object) : result.result.object;

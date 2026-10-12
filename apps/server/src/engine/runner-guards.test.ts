@@ -193,6 +193,26 @@ describe('incomplete answers', () => {
     expect(items.filter((item) => item.state === 'failed')).toHaveLength(2);
     expect(items.filter((item) => item.state === 'done')).toHaveLength(6);
   });
+
+  it('splits a request longer than the model window, and does not pause the run for it', async () => {
+    const { db, start } = setup(1, () => 8);
+    const runId = start();
+    const fake: ModelPort = {
+      judge: async () => {
+        throw new Error('unused');
+      },
+      generate: async (_route, request) => {
+        const lines = promptEntries(request.prompt) as { id: string; source: string }[];
+        if (lines.length > 4) throw new ai.ModelError('too-long', 'maximum context length exceeded', false);
+        if (request.system.includes('Review each')) return { object: { results: lines.map((line) => ({ id: line.id, passed: true, issues: [] })) }, usage: {} } as never;
+        return { object: { translations: lines.map((line) => ({ id: line.id, text: `[ko] ${line.source}` })) }, usage: {} } as never;
+      },
+    };
+    await new Runner(db, memoryStore(), fake).drain();
+    expect(runOf(db, runId).status).toBe('completed');
+    const items = db.select({ state: s.runItems.state }).from(s.runItems).where(eq(s.runItems.runId, runId)).all();
+    expect(items.every((item) => item.state === 'done')).toBe(true);
+  });
 });
 
 describe('run plan', () => {

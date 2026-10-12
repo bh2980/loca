@@ -3,7 +3,8 @@ import { eq } from 'drizzle-orm';
 import { importFileSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { AnalysisService, canonicalNames, mergeAnalysis, saveDrafts, type Analysis, type MergedRule } from './analysis.ts';
+import { ModelError } from '@tw/ai';
+import { AnalysisService, canonicalNames, mergeAnalysis, saveDrafts, splitPart, type Analysis, type MergedRule } from './analysis.ts';
 import { importProject } from './importer.ts';
 import { memoryStore } from './secrets.ts';
 import { scriptText } from './script-text.ts';
@@ -207,6 +208,38 @@ describe('work analysis', () => {
     // Part 1 came from the failed job; only part 2 was read again.
     expect(calls).toBe(3);
     expect(job.partsTotal).toBe(2);
+  });
+
+  it('splits a part the model refuses as too long at a scene boundary and reads the halves', async () => {
+    const { db, profileId } = setup();
+    const file = importFileSchema.parse({
+      format: 'loca/v1',
+      project: { name: 'Two scenes' },
+      groups: [{ key: 'g1', title: 'Harbor' }, { key: 'g2', title: 'Deck' }],
+      units: [
+        { key: 'a1', group: 'g1', speaker: 'Alice', source: "You're late." },
+        { key: 'b1', group: 'g2', speaker: 'Bob', source: 'Aye.' },
+      ],
+    });
+    const { projectId } = importProject(db, file);
+    const prompts: string[] = [];
+    const service = new AnalysisService(db, memoryStore(), {
+      generate: async (_route, request) => {
+        prompts.push(request.prompt);
+        // Two scenes in one request do not fit.
+        if ((request.prompt.match(/^## /gm) ?? []).length > 1) throw new ModelError('too-long', 'prompt is too long', false);
+        return { object: draft('hae'), usage: { inputTokens: 1, outputTokens: 1 } } as never;
+      },
+    });
+    service.start(projectId, profileId);
+    const job = await settle(service, projectId);
+    expect(job).toMatchObject({ status: 'completed', partsTotal: 2, partsDone: 2 });
+    expect(prompts).toHaveLength(3);
+  });
+
+  it('cuts a part between scenes, near its middle', () => {
+    expect(splitPart('## a\n  L1 x\n\n## b\n  L2 y\n\n## c\n  L3 z')).toEqual(['## a\n  L1 x\n\n## b\n  L2 y', '## c\n  L3 z']);
+    expect(splitPart('## a\n  L1 x')).toBeNull();
   });
 });
 

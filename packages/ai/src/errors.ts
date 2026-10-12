@@ -10,6 +10,8 @@ export type ModelErrorCode =
   | 'timeout'
   | 'cancelled'
   | 'invalid-output'
+  /** The request is longer than the model's context window: send less (split the batch or part). */
+  | 'too-long'
   | 'cli'
   | 'unknown';
 
@@ -26,6 +28,10 @@ export class ModelError extends Error {
     this.name = 'ModelError';
   }
 }
+
+/** How providers and CLIs word a request that does not fit the model's context window. */
+export const TOO_LONG = /context(_| )?(length|window)|maximum context|prompt is too long|input is too long|too many (input )?tokens|exceeds? (the )?(model'?s? )?(max(imum)?|context)|request (entity )?too large/i;
+const tooLong = (message: string) => new ModelError('too-long', `요청이 모델의 문맥 창보다 깁니다. ${message}`.slice(0, 400), false);
 
 /** AI SDK 7 `LanguageModelUsage` → `Usage`. */
 export function readAiSdkUsage(usage: LanguageModelUsage | undefined): Usage {
@@ -50,6 +56,7 @@ export function toModelError(error: unknown, signal?: AbortSignal): ModelError {
     const status = error.statusCode ?? 0;
     if (status === 401 || status === 403) return new ModelError('auth', `인증에 실패했습니다 (HTTP ${status}). API 키를 확인하세요.`);
     if (status === 429) return new ModelError('rate-limit', '요청 한도에 도달했습니다 (HTTP 429).');
+    if (status === 413 || ((status === 400 || status === 422) && TOO_LONG.test(`${error.message} ${error.responseBody ?? ''}`))) return tooLong(`(HTTP ${status})`);
     if (status >= 500 || status === 408) return new ModelError('network', `서버 오류 (HTTP ${status}).`);
     if (status) return new ModelError('config', `요청이 거부되었습니다 (HTTP ${status}). 모델·설정을 확인하세요.`);
     return new ModelError('network', 'API 서버에 연결하지 못했습니다.');
@@ -57,11 +64,14 @@ export function toModelError(error: unknown, signal?: AbortSignal): ModelError {
   if (error instanceof APIError) {
     if (error.status === 401 || error.status === 403) return new ModelError('auth', 'TypeSafe 인증에 실패했습니다. API 키를 확인하세요.');
     if (error.status === 429) return new ModelError('rate-limit', 'TypeSafe 요청 한도에 도달했습니다.');
+    if (error.status === 413 || (error.status === 400 && TOO_LONG.test(error.message))) return tooLong(`(TypeSafe HTTP ${error.status})`);
     if (error.status >= 500) return new ModelError('network', `TypeSafe 서버 오류 (HTTP ${error.status}).`);
     return new ModelError('config', `TypeSafe 요청이 거부되었습니다 (HTTP ${error.status}).`);
   }
   if (error instanceof APIConnectionError) return new ModelError('network', 'TypeSafe 서버에 연결하지 못했습니다.');
   if (error instanceof Error && error.name === 'TimeoutError') return new ModelError('timeout', '제한 시간을 초과했습니다.');
   if (error instanceof Error && error.name === 'AbortError') return new ModelError('cancelled', '작업이 취소되었습니다.');
-  return new ModelError('unknown', error instanceof Error ? error.message : String(error));
+  const message = error instanceof Error ? error.message : String(error);
+  if (TOO_LONG.test(message)) return tooLong(message);
+  return new ModelError('unknown', message);
 }

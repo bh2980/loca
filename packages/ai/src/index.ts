@@ -9,7 +9,7 @@ import { systemOneAsk, systemOneJudge, systemOneModels } from './systemone.ts';
 import type { AskRequest, AskResult, GenerateRequest, GenerateResult, JudgeRequest, JudgeResult, ResolvedRoute, Usage } from './types.ts';
 
 export * from './types.ts';
-export { ModelError } from './errors.ts';
+export { ModelError, type ModelErrorCode } from './errors.ts';
 export { cliLoginStatus, cliVersion, openLoginTerminal, LOGIN_COMMANDS } from './cli.ts';
 export { CHAT_CLI_KINDS, cliChat, readCliChat, type ChatCliKind, type CliChatResult, type CliChatTurn } from './cli-chat.ts';
 export { openaiProviderOptions } from './openai.ts';

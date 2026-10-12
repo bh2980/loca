@@ -617,12 +617,14 @@ export class Runner {
       this.guard(run.id);
     } catch (error) {
       if (signal.aborted) return;
-      const malformed = (error as { code?: string }).code === 'invalid-output';
-      if (!(malformed && items.length > 1 && depth < MAX_SPLITS)) return this.failBatch(run, items, { ...step, attempts: attemptsOf(error) }, error);
+      // A malformed answer or a request longer than the model's window: smaller requests may pass.
+      const code = (error as { code?: string }).code;
+      const splittable = code === 'invalid-output' || code === 'too-long';
+      if (!(splittable && items.length > 1 && depth < MAX_SPLITS)) return this.failBatch(run, items, { ...step, attempts: attemptsOf(error) }, error);
       // Record the failed request, then try each half on its own.
       const message = error instanceof Error ? error.message : String(error);
       this.db.insert(s.runSteps).values({ ...step, ok: false, error: `${message} (반으로 나눠 다시 보냄)`, attempts: attemptsOf(error), ...usageColumns(stepUsage(attemptsOf(error), (error as { usage?: ai.Usage }).usage)), finishedAt: new Date() }).run();
-      this.guard(run.id, { code: 'invalid-output', message });
+      this.guard(run.id, { code, message });
       const half = Math.ceil(items.length / 2);
       for (const part of [items.slice(0, half), items.slice(half)]) {
         if (!this.stillRunning(run.id, part)) return;

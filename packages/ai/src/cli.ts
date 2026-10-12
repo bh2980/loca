@@ -4,7 +4,7 @@ import path from 'node:path';
 import { execa, ExecaError } from 'execa';
 import { z } from 'zod';
 import type { ConnectionKind } from '@tw/shared';
-import { ModelError } from './errors.ts';
+import { ModelError, TOO_LONG } from './errors.ts';
 import { addUsage, readUsage, type GenerateRequest, type GenerateResult, type ResolvedRoute, type Usage } from './types.ts';
 
 type CliKind = Extract<ConnectionKind, 'codex' | 'claude' | 'grok' | 'antigravity' | 'opencode'>;
@@ -86,7 +86,11 @@ function parseJson(text: string, usage?: Usage): unknown {
 /** CLIs report an exhausted plan or rate limit only in their text; treat it like HTTP 429 so fallbacks can take over. */
 const QUOTA = /quota|RESOURCE_EXHAUSTED|rate.?limit|usage limit|too many requests|\b429\b/i;
 const cliFailure = (detail: string, usage?: Usage) =>
-  QUOTA.test(detail) ? new ModelError('rate-limit', `CLI 사용량 한도에 도달했습니다. ${detail}`, undefined, usage) : new ModelError('cli', `CLI가 실패를 반환했습니다: ${detail}`, false, usage);
+  QUOTA.test(detail)
+    ? new ModelError('rate-limit', `CLI 사용량 한도에 도달했습니다. ${detail}`, undefined, usage)
+    : TOO_LONG.test(detail)
+      ? new ModelError('too-long', `요청이 모델의 문맥 창보다 깁니다. ${detail}`.slice(0, 400), false, usage)
+      : new ModelError('cli', `CLI가 실패를 반환했습니다: ${detail}`, false, usage);
 
 /** JSON somewhere in a model's text answer: a fenced block, else the outermost braces. */
 function parseLooseJson(text: string, usage?: Usage): unknown {
@@ -219,6 +223,7 @@ export async function cliGenerate<T>(route: ResolvedRoute, request: GenerateRequ
       const detail = (error.stderr || stdout || '').toString().trim().split('\n').slice(-3).join(' ').slice(0, 400);
       // The whole output is searched: a pretty-printed envelope can push the reason far from the last lines.
       if (QUOTA.test(output)) throw new ModelError('rate-limit', `CLI 사용량 한도에 도달했습니다. ${detail}`, undefined, usage);
+      if (TOO_LONG.test(output)) throw new ModelError('too-long', `요청이 모델의 문맥 창보다 깁니다. ${detail}`.slice(0, 400), false, usage);
       throw new ModelError('cli', `CLI가 실패했습니다 (exit ${error.exitCode}). ${detail}`, false, usage);
     }
     throw new ModelError('unknown', error instanceof Error ? error.message : String(error), false);
