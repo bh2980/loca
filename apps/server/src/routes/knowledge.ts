@@ -270,7 +270,8 @@ export const knowledgeRoutes = new Hono<Env>()
         }, 2_000);
         return total;
       });
-      events.changed(projectId, 'knowledge');
+      // Terms are cached under their own topic (the glossary), not with the story knowledge.
+      events.changed(projectId, kind === 'terms' ? 'terms' : 'knowledge');
       return c.json({ changed });
     },
   );

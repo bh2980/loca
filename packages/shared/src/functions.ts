@@ -119,7 +119,7 @@ export const FUNCTIONS = {
   },
   addTerms: {
     label: '용어 후보 추가',
-    description: 'AI 노드가 뽑은 용어를 용어집에 추가합니다. 기본은 후보(수락 후 문맥에 쓰임), 자동 확정을 켜면 바로 쓰입니다.',
+    description: 'AI 노드가 뽑은 용어를 용어집에 추가합니다. 기본은 후보(수락 후 문맥에 쓰임), 자동 확정을 켜면 바로 쓰입니다. 이미 있는 용어(대소문자 무시)는 그대로 두고 빈 번역·메모만 채웁니다. 거절한 용어는 건드리지 않습니다.',
     params: addTermsParams,
     ports: () => out,
     async: false,

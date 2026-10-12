@@ -60,7 +60,7 @@ export const jsonFieldSchema = z.object({
   description: z.string().default(''),
 });
 
-const aiConfig = z.object({
+export const aiNodeConfigSchema = z.object({
   model: draftModelChoiceSchema.default({ ...EMPTY_MODEL_CHOICE }),
   /** More models sharing this node's work: each request goes to whichever account has a free slot. */
   extraModels: z.array(draftModelChoiceSchema).default([]),
@@ -79,7 +79,7 @@ const aiConfig = z.object({
 
 export const workflowNodeSchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('entry'), config: z.object({ statusIds: z.array(z.string()).default([]) }) }),
-  z.object({ ...base, type: z.literal('ai'), config: aiConfig }),
+  z.object({ ...base, type: z.literal('ai'), config: aiNodeConfigSchema }),
   z.object({ ...base, type: z.literal('function'), config: z.object({ fn: z.string(), params: z.record(z.string(), z.unknown()).default({}) }) }),
   z.object({
     ...base,

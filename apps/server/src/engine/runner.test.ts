@@ -320,6 +320,8 @@ describe('function nodes', () => {
         { id: '7', source: 'confirm', sourceHandle: 'out', target: 'end' },
       ],
     });
+    // Already in the glossary with an empty translation: kept, and only its empty fields are filled.
+    db.insert(s.terms).values({ projectId, source: 'directorate', target: '', note: '', status: 'candidate', origin: 'script' }).run();
     const workflow = db.insert(s.workflows).values({ projectId, name: 'functions', definition }).returning().get();
     const runner = new Runner(db, memoryStore(), fakeModel());
     const { runId } = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: {} });
@@ -335,11 +337,11 @@ describe('function nodes', () => {
     expect(byKey.get('u1')!.translation).toBe('[Line 1]');
     expect(received).toEqual([{ text: '[Hi {name}]' }]);
     expect(items[0].data.outputs?.script).toEqual({ terms: 2 });
-    // Extracted terms are added once, as candidates, without touching confirmed context.
+    // New terms are added once, as candidates; a known one (any case) is not added again, only filled.
     const terms = db.select().from(s.terms).where(eq(s.terms.projectId, projectId)).all();
-    expect(terms.map((term) => [term.source, term.status])).toEqual([
-      ['Directorate', 'candidate'],
-      ['Line', 'candidate'],
+    expect(terms.map((term) => [term.source, term.target, term.note, term.status])).toEqual([
+      ['directorate', '총국', '기관', 'candidate'],
+      ['Line', '줄', '', 'candidate'],
     ]);
     expect(db.select().from(s.candidates).where(eq(s.candidates.origin, 'tool')).all()).toHaveLength(4);
   });

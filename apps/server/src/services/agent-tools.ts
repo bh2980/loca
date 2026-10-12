@@ -1,7 +1,7 @@
 import { tool } from 'ai';
 import { and, asc, count, desc, eq, inArray, like, ne, or } from 'drizzle-orm';
 import { z } from 'zod';
-import { AI_OUTPUTS, AI_PRESETS, batchChangeSchema, CONNECTION_KIND_INFO, FUNCTIONS, lineFilterSchema, NODE_TYPES, sourceOf, workflowDefinitionSchema } from '@tw/shared';
+import { AI_OUTPUTS, AI_PRESETS, aiNodeConfigSchema, batchChangeSchema, CONNECTION_KIND_INFO, FUNCTIONS, lineFilterSchema, NODE_TYPES, sourceOf, workflowDefinitionSchema } from '@tw/shared';
 import { z as zod } from 'zod';
 import type { Db } from '../db/index.ts';
 import { inList } from '../db/chunk.ts';
@@ -229,7 +229,8 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         nodeTypes: NODE_TYPES,
         definitionShape: 'nodes: [{id, type: entry|ai|function|condition|end, position:{x,y}, label?, config}], edges: [{id, source, sourceHandle (exit id), target}], settings: {maxVisitsPerNode, concurrency, maxConsecutiveFailures}',
         aiNode: {
-          config: '{model: {connectionId, model, effort?}, extraModels: [{connectionId, model, effort?}] (more accounts sharing the work), temperature?, instructions, output: candidate|verdict|terms|json, fields (json only): [{name, type, description}], include:{candidate, issues}, context:{glossary, documents, characters, relationships, precedingLines, previousScenes}, batch:{mode:"unit"|"group"|"count", size}}',
+          // From the schema itself, so new fields reach the agent without editing this text.
+          config: zod.toJSONSchema(aiNodeConfigSchema, { io: 'input' }),
           outputs: AI_OUTPUTS,
           exits: 'verdict → pass/fail/error; others → out/error',
           presets: AI_PRESETS,
@@ -240,7 +241,13 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
           scriptContract: 'export default function run(input) where input = {unit, candidate, issues, outputs, visits}; return {port?, candidate?, data?, issues?}. Runs in a sandbox without network.',
         },
         conditionData: 'JSON Logic over {visits: {[nodeId]: count}, outputs: {[nodeId]: output}, candidate, issues, unit: {kind, speaker, statusId, tagIds}}. Example: {"<": [{"var": "visits.review"}, 3]} or {"==": [{"var": "outputs.review.passed"}, true]}',
-        rules: 'Exactly one entry node. Every exit except "error" must be connected. One edge per exit. A loop needs a node with two or more exits inside it.',
+        rules: [
+          'Exactly one entry node.',
+          'Every exit except "error" must be connected; an unconnected "out" only warns (the line stops there).',
+          'Parallel branches: draw several edges from ONE exit. Each line then goes down every branch (a copy per branch), e.g. confirm → [end] and confirm → [term extraction] at the same time. Branches from one exit must not meet again, at most one branch may change the line\'s status, and a line counts as done when all its branches finish. There is no separate parallel node.',
+          'Never two edges from the same exit to the same node.',
+          'A loop needs a node with two or more exits inside it.',
+        ],
         connections: db
           .select({ id: s.connections.id, name: s.connections.name, kind: s.connections.kind, baseUrl: s.connections.baseUrl, defaultModel: s.connections.defaultModel, defaultEffort: s.connections.defaultEffort })
           .from(s.connections)
