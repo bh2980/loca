@@ -16,7 +16,7 @@ import {
   applyNodeChanges,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { ChevronLeft, LayoutGrid, Plus, RotateCcw, Save } from 'lucide-react';
+import { ChevronLeft, LayoutGrid, Plus, RotateCcw, Save, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AI_OUTPUTS, AI_PRESETS, FUNCTIONS, FUNCTION_NAMES, nodeName, nodeProfileIds, workflowNodeSchema, type FunctionName, type WorkflowDefinition, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
 import { Page } from '@/components/page';
@@ -97,6 +97,9 @@ function WorkflowEditor() {
 
   // Validate the draft on the server (same rules as run start), debounced.
   const [issues, setIssues] = useState<WorkflowIssue[]>([]);
+  // The selected line (for Delete/Backspace and the "선 삭제" button); edges are rebuilt from the
+  // definition, so their selection is kept here.
+  const [edgeId, setEdgeId] = useState<string>();
   useEffect(() => {
     if (!current) return;
     if (!draft) return setIssues(workflow.data?.issues ?? []);
@@ -194,12 +197,13 @@ function WorkflowEditor() {
           targetHandle: 'in',
           type: 'smoothstep',
           markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
+          selected: edge.id === edgeId,
           ...(branches > 1 ? { label: '모두 보냄', labelStyle: { fontSize: 11, fill: '#71717a' }, labelBgStyle: { fill: '#ffffff' } } : {}),
-          style: negative ? { stroke: '#fb7185', strokeDasharray: '5 4' } : { stroke: '#a1a1aa' },
+          style: { ...(negative ? { stroke: '#fb7185', strokeDasharray: '5 4' } : { stroke: '#a1a1aa' }), ...(edge.id === edgeId && { strokeWidth: 2.5 }) },
         };
       });
     },
-    [current?.definition.edges],
+    [current?.definition.edges, edgeId],
   );
 
   const select = (id: string | undefined) => void navigate({ search: { node: id }, replace: true });
@@ -245,9 +249,14 @@ function WorkflowEditor() {
     }));
     if (removed.includes(search.node ?? '')) select(undefined);
   };
+  const removeEdges = (ids: string[]) => {
+    setDraft((value) => ({ ...value, definition: { ...value.definition, edges: value.definition.edges.filter((edge) => !ids.includes(edge.id)) } }));
+    setEdgeId(undefined);
+  };
   const onEdgesChange = (changes: EdgeChange[]) => {
+    for (const change of changes) if (change.type === 'select') setEdgeId(change.selected ? change.id : (current) => (current === change.id ? undefined : current));
     const removed = changes.filter((change) => change.type === 'remove').map((change) => change.id);
-    if (removed.length) setDraft((value) => ({ ...value, definition: { ...value.definition, edges: value.definition.edges.filter((edge) => !removed.includes(edge.id)) } }));
+    if (removed.length) removeEdges(removed);
   };
   const onConnect = (connection: Connection) => {
     if (!connection.sourceHandle || connection.source === connection.target && false) return;
@@ -355,6 +364,11 @@ function WorkflowEditor() {
               {!hasEntry && <PaletteItem icon={nodeIcon({ type: 'entry' } as WorkflowNode)} title="진입" description="대사가 흐름에 들어오는 곳" onSelect={() => addNode({ type: 'entry', config: {} }, 'entry')} />}
             </DropdownMenuContent>
           </DropdownMenu>
+          {edgeId && current?.definition.edges.some((edge) => edge.id === edgeId) && (
+            <Button variant="outline" size="sm" onClick={() => removeEdges([edgeId])}>
+              <Trash2 /> 선 삭제
+            </Button>
+          )}
           <Button variant="outline" size="sm" onClick={() => void arrange()}>
             <LayoutGrid /> 자동 정렬
           </Button>
@@ -388,8 +402,9 @@ function WorkflowEditor() {
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
-            onNodeClick={(_event, node) => select(node.id)}
-            onPaneClick={() => select(undefined)}
+            onNodeClick={(_event, node) => (select(node.id), setEdgeId(undefined))}
+            onEdgeClick={(_event, edge) => setEdgeId(edge.id)}
+            onPaneClick={() => (select(undefined), setEdgeId(undefined))}
             fitView
             fitViewOptions={{ padding: 0.15 }}
             minZoom={0.2}

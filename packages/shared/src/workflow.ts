@@ -228,8 +228,9 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
   }
 
   // An exit with several connections sends each line down all of them (a copy per branch). The
-  // branches end apart: if they met again a line would arrive twice. Only one of them may change
-  // the line itself, or two branches would set its status at the same time.
+  // branches may share an end node (each copy just ends there), but no other node: a line would
+  // arrive twice. Only one of them may change the line itself, or two branches would set its
+  // status at the same time.
   const reach = (start: string) => {
     const seen = new Set<string>();
     const stack = [start];
@@ -247,7 +248,8 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
     const source = definition.nodes.find((node) => node.id === port.slice(0, port.indexOf(':')));
     const where = source ? `'${nodeName(source)}'의 갈래` : '갈래';
     const branches = targets.map((target) => reach(target));
-    const met = branches.flatMap((branch, index) => branches.slice(index + 1).flatMap((other) => [...branch].filter((id) => other.has(id))));
+    const isEnd = (id: string) => definition.nodes.find((node) => node.id === id)?.type === 'end';
+    const met = branches.flatMap((branch, index) => branches.slice(index + 1).flatMap((other) => [...branch].filter((id) => other.has(id) && !isEnd(id))));
     if (met.length) {
       const node = definition.nodes.find((candidate) => candidate.id === met[0]);
       error(`${where}가 '${node ? nodeName(node) : met[0]}'에서 다시 만납니다. 한 출구에서 나간 갈래는 따로 끝나야 합니다.`, { nodeId: source?.id });
@@ -258,9 +260,12 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
 
   for (const node of definition.nodes) {
     for (const port of nodePorts(node)) {
-      // An unconnected error port means "mark the line failed"; every other exit must lead somewhere.
-      if (port.id !== 'error' && !usedPorts.has(`${node.id}:${port.id}`))
-        error(`'${port.label}' 출구가 연결되지 않았습니다.`, { nodeId: node.id });
+      // An unconnected error port marks the line failed and an unconnected "out" ends it there (after
+      // a side job such as adding terms); exits that choose between ways (pass/fail, true/false…)
+      // must lead somewhere, so a forgotten one does not quietly end lines.
+      if (port.id === 'error' || usedPorts.has(`${node.id}:${port.id}`)) continue;
+      if (port.id === 'out' && node.type !== 'entry') warn(`'${port.label}' 출구가 연결되지 않아 대사가 여기서 끝납니다.`, { nodeId: node.id });
+      else error(`'${port.label}' 출구가 연결되지 않았습니다.`, { nodeId: node.id });
     }
     if (node.type === 'ai') {
       if (!refs.profileIds.has(node.config.profileId))

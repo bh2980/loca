@@ -33,8 +33,16 @@ describe('workflow validation', () => {
     ];
     const ok: WorkflowDefinition = { ...template, nodes: [...template.nodes, ...side], edges: [...template.edges, ...sideEdges] };
     expect(validateWorkflow(ok, refs).filter((issue) => issue.level === 'error')).toEqual([]);
-    // The side branch joining the main one again (at its end node).
-    const rejoined: WorkflowDefinition = { ...ok, edges: ok.edges.map((edge) => (edge.id === 's3' ? { ...edge, target: 'end' } : edge)) };
+    // Sharing the main branch's end node is fine: each copy just ends there.
+    const sharedEnd: WorkflowDefinition = { ...ok, edges: ok.edges.map((edge) => (edge.id === 's3' ? { ...edge, target: 'end' } : edge)) };
+    expect(validateWorkflow(sharedEnd, refs).filter((issue) => issue.level === 'error')).toEqual([]);
+    // Or no end at all: an unconnected "다음" just ends the copy there.
+    const open: WorkflowDefinition = { ...ok, edges: ok.edges.filter((edge) => edge.id !== 's3') };
+    const issues = validateWorkflow(open, refs);
+    expect(issues.filter((issue) => issue.level === 'error')).toEqual([]);
+    expect(issues).toContainEqual(expect.objectContaining({ level: 'warning', nodeId: 'add', message: expect.stringContaining('여기서 끝납니다') }));
+    // Meeting at a node that does work: the line would be handled twice.
+    const rejoined: WorkflowDefinition = { ...ok, edges: ok.edges.map((edge) => (edge.id === 's3' ? { ...edge, target: 'confirm' } : edge)) };
     expect(validateWorkflow(rejoined, refs)).toContainEqual(expect.objectContaining({ level: 'error', nodeId: 'review', message: expect.stringContaining('다시 만납니다') }));
     // Both branches setting the status.
     const twice: WorkflowDefinition = { ...ok, nodes: ok.nodes.map((n) => (n.id === 'add' ? node('add', { fn: 'setStatus', params: { statusId: 's1' } }) : n)) };
