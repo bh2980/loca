@@ -15,6 +15,7 @@ import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/s
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { chatDock, useChatDockOpen } from '@/lib/chat-dock';
 import { q } from '@/lib/queries';
+import { useJobNotices } from '@/lib/job-notices';
 import { useCurrentNav } from '@/lib/nav';
 import { cn } from '@/lib/utils';
 
@@ -39,6 +40,7 @@ export const Route = createFileRoute('/p/$projectId')({
 function ProjectLayout() {
   const { projectId } = Route.useParams();
   const chatOpen = useChatDockOpen();
+  useJobNotices(projectId);
   const layout = useDefaultLayout({ id: 'tw-main-chat', panelIds: chatOpen ? ['main', 'chat'] : ['main'], storage: localStorage });
 
   useEffect(() => {

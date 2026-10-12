@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Play, Sparkles, Square } from 'lucide-react';
+import { CircleStop, Play, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
+import { Elapsed, JobProgress } from '@/components/job-progress';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -21,10 +22,14 @@ export function JobStatus({ projectId }: { projectId: string }) {
   const when = new Date(job.finishedAt ?? job.createdAt).toLocaleString();
   if (job.status === 'running')
     return (
-      <span className="flex items-center gap-2">
-        <Sparkles className="size-4 animate-pulse" /> 대본 전체를 읽는 중 · {job.model} · {job.partsDone}/{job.partsTotal} 부분
-        <Button variant="ghost" onClick={() => cancel.mutate(job.id)}>
-          <Square /> 중단
+      <span className="flex min-w-0 items-center gap-2">
+        <JobProgress done={job.partsDone} total={job.partsTotal} running className="w-20 shrink-0" />
+        <span className="truncate">
+          대본을 읽는 중 · {job.model} · <Elapsed since={job.createdAt} />
+          {job.partsTotal > 1 && ` · ${job.partsDone}/${job.partsTotal} 부분`}
+        </span>
+        <Button variant="ghost" size="inline" onClick={() => cancel.mutate(job.id)} disabled={cancel.isPending}>
+          <CircleStop /> 중단
         </Button>
       </span>
     );
@@ -66,10 +71,12 @@ export function StartAnalysis({ projectId, variant = 'default' }: { projectId: s
   });
   const running = jobs.data?.[0]?.status === 'running';
   const hasDrafts = hasAnalysis(jobs.data);
+  // Only one analysis runs at a time; while it does, its progress (with a stop button) stands in for this.
+  if (running) return null;
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant={variant} disabled={running}>
+        <Button variant={variant}>
           <Sparkles /> {hasDrafts ? '작품 다시 분석' : '작품 분석'}
         </Button>
       </PopoverTrigger>

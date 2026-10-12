@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Check, Play, Plus, ScanSearch, Sparkles, Square, Trash2 } from 'lucide-react';
+import { Check, Play, Plus, ScanSearch, Sparkles, CircleStop, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { DetailPane, PaneSection } from '@/components/detail-pane';
 import { HeaderFilter } from '@/components/header-filter';
 import { Page } from '@/components/page';
 import { SplitPane } from '@/components/split-pane';
+import { JobProgress } from '@/components/job-progress';
 import { SearchInput, Toolbar } from '@/components/toolbar';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
@@ -154,10 +155,11 @@ function Glossary() {
           actions={
             <>
               {fill?.running ? (
-                <span className="flex items-center gap-2 text-sm tabular-nums">
-                  <Sparkles className="size-4 animate-pulse" /> 용어 번역 채우는 중 {fill.done.toLocaleString()}/{fill.total.toLocaleString()}
-                  <Button variant="ghost" disabled={cancelFill.isPending} onClick={() => cancelFill.mutate()}>
-                    <Square /> 중단
+                <span className="flex items-center gap-2 text-xs text-muted-foreground tabular-nums">
+                  <JobProgress done={fill.done} total={fill.total} running className="w-20" />
+                  용어 번역 채우는 중 {fill.done.toLocaleString()}/{fill.total.toLocaleString()}
+                  <Button variant="ghost" size="inline" disabled={cancelFill.isPending} onClick={() => cancelFill.mutate()}>
+                    <CircleStop /> 중단
                   </Button>
                 </span>
               ) : (

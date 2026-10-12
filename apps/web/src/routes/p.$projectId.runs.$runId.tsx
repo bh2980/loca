@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, OctagonAlert, Pause, Play, Square } from 'lucide-react';
+import { ChevronLeft, ChevronRight, OctagonAlert, Pause, Play, CircleStop } from 'lucide-react';
 import { nodeName as nameOf, type WorkflowNode } from '@tw/shared';
 import { ContextItemList } from '@/components/ai-context';
 import { LineDetail } from '@/components/line-detail';
@@ -152,7 +152,7 @@ function RunDetail() {
     <AlertDialog>
       <AlertDialogTrigger asChild>
         <Button variant="ghost" className="text-destructive hover:text-destructive">
-          <Square /> 실행 취소
+          <CircleStop /> 실행 취소
         </Button>
       </AlertDialogTrigger>
       <AlertDialogContent>
