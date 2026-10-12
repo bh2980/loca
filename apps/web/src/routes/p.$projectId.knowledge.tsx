@@ -174,7 +174,7 @@ function Knowledge() {
         { name: 'level', label: '말투', type: 'level' },
         { name: 'address', label: '호칭', type: 'text' },
         { name: 'startKey', label: '시작 대사 키 (비우면 처음부터)', type: 'key' },
-        { name: 'note', label: '이유·메모', type: 'long' },
+        { name: 'note', label: '이유·메모 (사람이 보는 설명, AI에 보내지 않음)', type: 'long' },
       ],
       label: (row) => `${text(row.fromName)} → ${listenerLabel(text(row.toName))}`,
       save: (id, json) => unwrap(api['speech-rules'][':id'].$patch({ ...param(id), json: json as never })),
