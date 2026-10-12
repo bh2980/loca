@@ -2,7 +2,7 @@ import { and, asc, desc, eq, inArray, isNull, ne, notInArray, or, sql } from 'dr
 import { alias } from 'drizzle-orm/sqlite-core';
 import jsonLogic from 'json-logic-js';
 import * as ai from '@tw/ai';
-import { batchConfigSchema, FUNCTIONS, nodeName, nodeProfileIds, type AiNode, type ConditionData, type FunctionName, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import { batchConfigSchema, FUNCTIONS, choiceKey, nodeModels, nodeName, type AiNode, type ConditionData, type FunctionName, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
 import { inChunks, inList } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -72,7 +72,6 @@ const attemptsOf = (error: unknown): ai.Attempt[] => ((error as { attempts?: ai.
 interface Outcome extends FunctionResult {
   /** Candidate provenance when `candidate` is set. */
   origin?: 'ai' | 'tool';
-  profileId?: string;
   model?: string;
   error?: string;
 }
@@ -208,7 +207,7 @@ export class Runner {
     if (outcome.candidate !== undefined) {
       const candidateId = crypto.randomUUID();
       tx.insert(s.candidates)
-        .values({ id: candidateId, unitId: item.unitId, text: outcome.candidate, origin, profileId: outcome.profileId, model: outcome.model, runId: run.id, nodeId: item.nodeId })
+        .values({ id: candidateId, unitId: item.unitId, text: outcome.candidate, origin, model: outcome.model, runId: run.id, nodeId: item.nodeId })
         .run();
       data.candidateId = candidateId;
       data.candidateText = outcome.candidate;
@@ -276,9 +275,9 @@ export class Runner {
   /** HTTP / script function calls in flight per run. */
   private functionsByRun = new Map<string, number>();
 
-  /** The account a profile's calls count against: its primary route's connection. */
-  private accountOfProfile(run: Run, profileId: string) {
-    return run.profiles[profileId]?.routes[0]?.connectionId ?? null;
+  /** The account a model choice's calls count against: its picked route's connection. */
+  private accountOf(run: Run, key: string) {
+    return run.models[key]?.routes[0]?.connectionId ?? null;
   }
 
   private upstreams = new Map<string, Map<string, Set<string>>>();
@@ -367,7 +366,7 @@ export class Runner {
     const busy = this.inflight.get(run.id)?.size ?? 0;
     const accounts = new Map(this.db.select({ id: s.connections.id, concurrency: s.connections.concurrency }).from(s.connections).all().map((row) => [row.id, row.concurrency]));
     const canSend = (node: WorkflowNode) => {
-      if (node.type === 'ai') return this.freeProfile(run, node, accounts) !== null;
+      if (node.type === 'ai') return this.freeModel(run, node, accounts) !== null;
       return (this.functionsByRun.get(run.id) ?? 0) < run.definition.settings.concurrency;
     };
     const slow = run.definition.nodes.filter(isAsync);
@@ -520,18 +519,18 @@ export class Runner {
   }
 
   /**
-   * The profile an AI node's next request goes to: of the node's profiles whose account has a free
-   * slot, the one with the most room left (so work spreads over the accounts). Null when none has.
+   * The model an AI node's next request goes to (its choiceKey): of the node's models whose account
+   * has a free slot, the one with the most room left (so work spreads over the accounts). Null when none has.
    */
-  private freeProfile(run: Run, node: AiNode, accounts: Map<string, number>) {
-    let best: { profileId: string; room: number } | null = null;
-    for (const profileId of nodeProfileIds(node)) {
-      const account = this.accountOfProfile(run, profileId);
-      // A profile without a connection (missing from the snapshot) fails the request visibly.
+  private freeModel(run: Run, node: AiNode, accounts: Map<string, number>) {
+    let best: { key: string; room: number } | null = null;
+    for (const key of nodeModels(node).map(choiceKey)) {
+      const account = this.accountOf(run, key);
+      // A model without a connection (missing from the snapshot) fails the request visibly.
       const room = account ? (accounts.get(account) ?? 2) - (this.callsByAccount.get(account) ?? 0) : 1;
-      if (room > 0 && (!best || room > best.room)) best = { profileId, room };
+      if (room > 0 && (!best || room > best.room)) best = { key, room };
     }
-    return best?.profileId ?? null;
+    return best?.key ?? null;
   }
 
   private dispatch(run: Run, node: WorkflowNode, lines: Waiting[], accounts: Map<string, number>) {
@@ -543,12 +542,12 @@ export class Runner {
     if (!controller || controller.signal.aborted) this.aborts.set(run.id, (controller = new AbortController()));
     const set = this.inflight.get(run.id) ?? new Set();
     this.inflight.set(run.id, set);
-    const profileId = node.type === 'ai' ? (this.freeProfile(run, node, accounts) ?? node.config.profileId) : null;
-    const account = profileId ? this.accountOfProfile(run, profileId) : null;
+    const modelKey = node.type === 'ai' ? (this.freeModel(run, node, accounts) ?? choiceKey(node.config.model)) : null;
+    const account = modelKey ? this.accountOf(run, modelKey) : null;
     const counts = account ? this.callsByAccount : this.functionsByRun;
     const key = account ?? run.id;
     counts.set(key, (counts.get(key) ?? 0) + 1);
-    const work = node.type === 'ai' ? this.executeAi(run, node, profileId!, batch, controller.signal) : this.executeFunction(run, node as FunctionNode, batch[0], controller.signal);
+    const work = node.type === 'ai' ? this.executeAi(run, node, modelKey!, batch, controller.signal) : this.executeFunction(run, node as FunctionNode, batch[0], controller.signal);
     const task = work.finally(() => {
       set.delete(task);
       counts.set(key, (counts.get(key) ?? 1) - 1);
@@ -577,12 +576,12 @@ export class Runner {
     }
   }
 
-  private async executeAi(run: Run, node: AiNode, profileId: string, batch: Item[], signal: AbortSignal) {
-    const profile = run.profiles[profileId];
-    if (!profile) return this.failBatch(run, batch, { runId: run.id, nodeId: node.id, unitIds: batch.map((item) => item.unitId), startedAt: new Date() }, new Error('AI 프로필이 실행 스냅샷에 없습니다.'));
-    const routes = resolveRoutes(profile, this.secrets);
-    if (routes[0]?.kind === 'systemone') return this.judgeLines(run, node, batch, profile, routes, signal);
-    await this.callLines(run, node, profile, routes, batch, signal, 0);
+  private async executeAi(run: Run, node: AiNode, modelKey: string, batch: Item[], signal: AbortSignal) {
+    const model = run.models[modelKey];
+    if (!model) return this.failBatch(run, batch, { runId: run.id, nodeId: node.id, unitIds: batch.map((item) => item.unitId), startedAt: new Date() }, new Error('이 노드의 AI 연결이 실행을 시작할 때 없었습니다. 노드에서 연결과 모델을 다시 고르고 새로 실행하세요.'));
+    const routes = resolveRoutes(model, this.secrets);
+    if (routes[0]?.kind === 'systemone') return this.judgeLines(run, node, batch, model, routes, signal);
+    await this.callLines(run, node, model, routes, batch, signal, 0);
   }
 
   /** The lines of `items` as the prompt numbers them, in batch (script) order. */
@@ -611,23 +610,23 @@ export class Runner {
    * malformed answer for several lines is retried right away as two halves, MAX_SPLITS levels deep,
    * so one bad line does not fail a whole batch. Every request is recorded as its own step.
    */
-  private async callLines(run: Run, node: AiNode, profile: s.ProfileSnapshot, routes: ai.ResolvedRoute[], items: Item[], signal: AbortSignal, depth: number): Promise<void> {
+  private async callLines(run: Run, node: AiNode, model: s.AiSnapshot, routes: ai.ResolvedRoute[], items: Item[], signal: AbortSignal, depth: number): Promise<void> {
     const project = this.db.select().from(s.projects).where(eq(s.projects.id, run.projectId)).get()!;
     const { rows, lines } = this.promptLines(items);
     const round = Math.max(0, ...items.map((item) => item.data.retries?.[node.id] ?? 0));
-    const step: StepRecord = { runId: run.id, nodeId: node.id, profileId: profile.id, unitIds: items.map((item) => item.unitId), startedAt: new Date(), round };
+    const step: StepRecord = { runId: run.id, nodeId: node.id, connectionId: routes[0]?.connectionId ?? null, unitIds: items.map((item) => item.unitId), startedAt: new Date(), round };
     const context = buildContext(this.db, run.projectId, rows, node.config.context);
     step.context = context.items;
-    const { system, prompt } = buildPrompt(node, profile.instructions, { source: project.sourceLanguage, target: project.targetLanguage }, context, lines);
+    const { system, prompt } = buildPrompt(node, { source: project.sourceLanguage, target: project.targetLanguage }, context, lines);
     const perLine = PER_LINE_OUTPUTS.has(node.config.output);
-    const request = { system, prompt, schema: outputSchema(node, perLine ? lines.map((line) => line.id) : undefined), maxOutputTokens: profile.maxOutputTokens, temperature: profile.temperature ?? undefined, timeoutMs: profile.timeoutSeconds * 1000, signal };
+    const request = { system, prompt, schema: outputSchema(node, perLine ? lines.map((line) => line.id) : undefined), maxOutputTokens: model.maxOutputTokens, temperature: node.config.temperature, timeoutMs: model.timeoutSeconds * 1000, signal };
     step.prompt = `${system}\n\n${prompt}`;
 
     try {
-      const call = { projectId: run.projectId, kind: 'run' as const, refId: run.id, label: `${nodeName(node)} · ${items.length.toLocaleString()}줄`, profileId: profile.id };
-      const result = await ai.withFallback(routes, profile.maxAttempts, (route) => logged(this.db, call, route, () => this.model.generate(route, request)), signal);
+      const call = { projectId: run.projectId, kind: 'run' as const, refId: run.id, label: `${nodeName(node)} · ${items.length.toLocaleString()}줄` };
+      const result = await ai.withFallback(routes, model.maxAttempts, (route) => logged(this.db, call, route, () => this.model.generate(route, request)), signal);
       const raw = result.result.object;
-      const outcomes = this.readAiOutput(node, raw, lines, profile.id, result.route.model);
+      const outcomes = this.readAiOutput(node, raw, lines, result.route.model);
       const answered = outcomes.filter(Boolean).length;
       this.db.transaction((tx) => {
         items.forEach((item, index) => {
@@ -636,7 +635,7 @@ export class Runner {
           else this.retryLater(tx, run, item, `모델 응답에 이 대사의 ${MISSING_WHAT[node.config.output]}이(가) 없습니다.`);
         });
         tx.insert(s.runSteps)
-          .values({ ...step, ok: true, model: result.route.model, output: raw, attempts: result.attempts, returnedLines: perLine ? answered : null, ...usageColumns(stepUsage(result.attempts, result.result.usage)), finishedAt: new Date() })
+          .values({ ...step, ok: true, connectionId: result.route.connectionId ?? step.connectionId, model: result.route.model, output: raw, attempts: result.attempts, returnedLines: perLine ? answered : null, ...usageColumns(stepUsage(result.attempts, result.result.usage)), finishedAt: new Date() })
           .run();
       });
       this.notify(run.id);
@@ -654,15 +653,15 @@ export class Runner {
       const half = Math.ceil(items.length / 2);
       for (const part of [items.slice(0, half), items.slice(half)]) {
         if (!this.stillRunning(run.id, part)) return;
-        await this.callLines(run, node, profile, routes, part, signal, depth + 1);
+        await this.callLines(run, node, model, routes, part, signal, depth + 1);
       }
     }
   }
 
   /** A judge model (System One) answers one line at a time and only supports verdicts. */
-  private async judgeLines(run: Run, node: AiNode, batch: Item[], profile: s.ProfileSnapshot, routes: ai.ResolvedRoute[], signal: AbortSignal) {
-    const step: StepRecord = { runId: run.id, nodeId: node.id, profileId: profile.id, unitIds: batch.map((item) => item.unitId), startedAt: new Date() };
-    if (node.config.output !== 'verdict') return this.failBatch(run, batch, step, new Error('System One 프로필은 출력 형태가 "판정"인 AI 노드에서만 쓸 수 있습니다.'));
+  private async judgeLines(run: Run, node: AiNode, batch: Item[], model: s.AiSnapshot, routes: ai.ResolvedRoute[], signal: AbortSignal) {
+    const step: StepRecord = { runId: run.id, nodeId: node.id, connectionId: routes[0]?.connectionId ?? null, unitIds: batch.map((item) => item.unitId), startedAt: new Date() };
+    if (node.config.output !== 'verdict') return this.failBatch(run, batch, step, new Error('System One 연결은 출력 형태가 "판정"인 AI 노드에서만 쓸 수 있습니다.'));
     const { rows, lines } = this.promptLines(batch);
     const context = buildContext(this.db, run.projectId, rows, node.config.context);
     step.context = context.items;
@@ -673,12 +672,12 @@ export class Runner {
       for (const line of lines) {
         const outcome = await ai.withFallback(
           routes,
-          profile.maxAttempts,
+          model.maxAttempts,
           (route) =>
-            logged(this.db, { projectId: run.projectId, kind: 'run', refId: run.id, label: `${nodeName(node)} · 판정 1줄`, profileId: profile.id }, route, () => this.model.judge(route, {
+            logged(this.db, { projectId: run.projectId, kind: 'run', refId: run.id, label: `${nodeName(node)} · 판정 1줄` }, route, () => this.model.judge(route, {
               state: { source: line.source, translation: line.candidate ?? '', speaker: line.speaker, context: { scene: context.scenes[line.groupId] ?? null, characters: context.characters, glossary: context.terms } },
-              instructions: [node.config.instructions, profile.instructions].filter(Boolean).join('\n') || 'Is this translation acceptable as is?',
-              timeoutMs: profile.timeoutSeconds * 1000,
+              instructions: node.config.instructions.trim() || 'Is this translation acceptable as is?',
+              timeoutMs: model.timeoutSeconds * 1000,
               signal,
             })),
           signal,
@@ -703,14 +702,14 @@ export class Runner {
   }
 
   /** Turn the model's structured answer into one Outcome per line, by output kind. Null: the answer left the line out. */
-  private readAiOutput(node: AiNode, raw: unknown, lines: PromptLine[], profileId: string, model: string): (Outcome | null)[] {
+  private readAiOutput(node: AiNode, raw: unknown, lines: PromptLine[], model: string): (Outcome | null)[] {
     const missing = (_what: string) => null;
     const value = raw as { translations?: { id: string; text: string }[]; results?: ({ id: string } & Record<string, unknown>)[]; terms?: unknown[]; listeners?: { id: string; listener: unknown; confidence: unknown }[] };
     switch (node.config.output) {
       case 'candidate':
         return lines.map((line) => {
           const text = value.translations?.find((entry) => entry.id === line.id)?.text;
-          return text === undefined || !text.trim() ? missing('번역') : { port: 'out', candidate: text, origin: 'ai', profileId, model, output: { text } };
+          return text === undefined || !text.trim() ? missing('번역') : { port: 'out', candidate: text, origin: 'ai', model, output: { text } };
         });
       case 'verdict':
         return lines.map((line) => {
@@ -846,7 +845,7 @@ export function planRun(db: Db | Tx, definition: WorkflowDefinition, unitIds: st
   return new Map(batches.flatMap((batch, index) => batch.map((line) => [line.id, index] as const)));
 }
 
-type RunInput = { projectId: string; workflow: typeof s.workflows.$inferSelect; profiles: Record<string, s.ProfileSnapshot>; scope: s.RunScope; limits?: s.RunLimits };
+type RunInput = { projectId: string; workflow: typeof s.workflows.$inferSelect; models: Record<string, s.AiSnapshot>; scope: s.RunScope; limits?: s.RunLimits };
 
 /** The run's lines and their plan batches, and the run row to store. */
 function runRows(db: Db, input: RunInput) {
@@ -863,7 +862,7 @@ function runRows(db: Db, input: RunInput) {
     workflowName: input.workflow.name,
     workflowVersion: input.workflow.version,
     definition: input.workflow.definition,
-    profiles: input.profiles,
+    models: input.models,
     scope: input.scope,
     status: 'running' as s.RunStatus,
     total: unitIds.length,

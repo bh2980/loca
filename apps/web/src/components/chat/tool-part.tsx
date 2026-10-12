@@ -65,8 +65,6 @@ export function ChangePreview({ name, input }: { name: string; input: Record<str
         </ul>
       );
     }
-    case 'save_profile':
-      return <dl className="space-y-1">{field('작업', action)}{field('이름', input.name)}{field('모델', input.model)}{field('추론', input.effort)}{markdown(input.instructions)}</dl>;
     case 'save_workflow': {
       const definition = input.definition as { nodes?: { type: string; label?: string }[]; edges?: unknown[] } | undefined;
       return (

@@ -9,6 +9,7 @@ import {
   NODE_TYPES,
   nodeName,
   type AiOutput,
+  type Capability,
   type FunctionName,
   type JsonField,
   type WorkflowIssue,
@@ -29,6 +30,7 @@ import { Link } from '@tanstack/react-router';
 import { client, unwrap } from '@/lib/api';
 import { nodeIcon } from './node-view';
 import { PaneHeader } from '@/components/pane-header';
+import { ModelPicker, type ModelValue } from '@/components/model-picker';
 
 type AiNode = Extract<WorkflowNode, { type: 'ai' }>;
 type FunctionNode = Extract<WorkflowNode, { type: 'function' }>;
@@ -38,8 +40,7 @@ export interface NodeRefs {
   projectId: string;
   statuses: { id: string; name: string; color: string }[];
   tags: { id: string; name: string; color: string }[];
-  profiles: { id: string; name: string; model: string; connectionId: string; effort?: string | null; fallbacks?: unknown[]; instructions?: string }[];
-  connections: { id: string; name: string; kind: keyof typeof CONNECTION_KIND_INFO; baseUrl: string | null }[];
+  connections: { id: string; name: string; kind: keyof typeof CONNECTION_KIND_INFO; baseUrl: string | null; fallback: { connectionId: string; model: string } | null }[];
   nodes: WorkflowNode[];
 }
 
@@ -152,16 +153,13 @@ function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRefs; onCh
   // Saved workflows may predate a context setting; show its default.
   const context = contextConfigSchema.parse(config.context ?? {});
   const set = (patch: Partial<AiNode['config']>) => onChange({ ...node, config: { ...config, ...patch } });
-  const kindOf = (profileId: string) => refs.connections.find((connection) => connection.id === refs.profiles.find((profile) => profile.id === profileId)?.connectionId)?.kind;
-  const usable = refs.profiles.filter((profile) => {
-    const kind = kindOf(profile.id);
-    const capabilities = kind ? CONNECTION_KIND_INFO[kind].capabilities : [];
-    return capabilities.includes('generate') || (config.output === 'verdict' && capabilities.includes('judge'));
-  });
-  const extras = config.extraProfileIds ?? [];
-  const chosen = [config.profileId, ...extras].filter(Boolean);
-  const chosenModels = new Set(chosen.map((id) => refs.profiles.find((profile) => profile.id === id)?.model));
-  const setExtra = (index: number, value: string) => set({ extraProfileIds: extras.map((id, i) => (i === index ? value : id)) });
+  const need: Capability[] = config.output === 'verdict' ? ['generate', 'judge'] : ['generate'];
+  const extras = config.extraModels;
+  const chosenModels = new Set([config.model, ...extras].filter((choice) => choice.model).map((choice) => choice.model));
+  const setExtra = (index: number, value: ModelValue) => set({ extraModels: extras.map((choice, i) => (i === index ? value : choice)) });
+  const connection = refs.connections.find((item) => item.id === config.model.connectionId);
+  // Temperature reaches API models only; agent CLIs choose their own.
+  const takesTemperature = connection ? CONNECTION_KIND_INFO[connection.kind].transport !== 'cli' && connection.kind !== 'systemone' : false;
   const setField = (index: number, patch: Partial<JsonField>) => set({ fields: config.fields.map((field, i) => (i === index ? { ...field, ...patch } : field)) });
 
   return (
@@ -209,77 +207,52 @@ function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRefs; onCh
         </Field>
       )}
       <Field
-        label="모델 프로필"
+        label="AI 모델"
         hint={
           <>
-            {(() => {
-              const profile = refs.profiles.find((item) => item.id === config.profileId);
-              const connection = refs.connections.find((item) => item.id === profile?.connectionId);
-              return profile ? (
-                <span className="block">
-                  {connection?.name ?? '연결 없음'} · {profile.model}
-                  {profile.effort && ` · 추론 ${profile.effort}`}
-                  {!!profile.fallbacks?.length && ` · 대체 ${profile.fallbacks.length}개`}
-                  {profile.instructions && ' · 공통 지시문 있음'}
-                </span>
-              ) : null;
-            })()}
-            어떤 모델을 쓸지는 프로필에서, 무엇을 시킬지는 아래 지시문에서 정합니다.{' '}
-            <Link to="/p/$projectId/settings/profiles" params={{ projectId: refs.projectId }} search={{ profile: config.profileId || undefined }} className="underline">
-              프로필 관리
+            {connection?.fallback && <span className="block">이 연결이 막히면 연결 설정의 ‘막히면’으로 넘깁니다.</span>}
+            시간 제한·시도 횟수·최대 출력은{' '}
+            <Link to="/p/$projectId/settings/ai" params={{ projectId: refs.projectId }} search={{ conn: config.model.connectionId || undefined }} className="underline">
+              AI 연결 설정
             </Link>
-            {config.output === 'verdict' && ' · 판정에는 System One도 쓸 수 있습니다.'}
-            {extras.length > 0 && <span className="mt-1 block">요청마다 칸이 빈 계정의 프로필로 보냅니다. 같은 모델의 다른 계정을 붙이면 처리량만 늘어납니다.</span>}
+            에서 정합니다.
+            {config.output === 'verdict' && ' 판정에는 System One도 쓸 수 있습니다.'}
+            {extras.length > 0 && <span className="mt-1 block">요청마다 칸이 빈 계정의 모델로 보냅니다. 같은 모델의 다른 계정을 붙이면 처리량만 늘어납니다.</span>}
             {config.output === 'candidate' && chosenModels.size > 1 && <span className="mt-1 block text-warning">서로 다른 모델이 번역을 나누면 장면마다 문체가 달라질 수 있습니다.</span>}
           </>
         }
       >
         <div className="space-y-1.5">
-          <Select value={config.profileId || undefined} onValueChange={(value) => set({ profileId: value })}>
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder="프로필 선택" />
-            </SelectTrigger>
-            <SelectContent>
-              {usable
-                .filter((profile) => profile.id === config.profileId || !extras.includes(profile.id))
-                .map((profile) => (
-                  <SelectItem key={profile.id} value={profile.id}>
-                    {profile.name} <span className="text-muted-foreground">· {profile.model}</span>
-                  </SelectItem>
-                ))}
-            </SelectContent>
-          </Select>
-          {extras.map((extraId, index) => (
+          <ModelPicker need={need} value={config.model} onChange={(model) => set({ model })} />
+          {extras.map((extra, index) => (
             <div key={index} className="flex items-center gap-1.5">
-              <Select value={extraId || undefined} onValueChange={(value) => setExtra(index, value)}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="함께 나눌 프로필 선택" />
-                </SelectTrigger>
-                <SelectContent>
-                  {usable
-                    .filter((profile) => profile.id === extraId || (profile.id !== config.profileId && !extras.includes(profile.id)))
-                    .map((profile) => (
-                      <SelectItem key={profile.id} value={profile.id}>
-                        {profile.name} <span className="text-muted-foreground">· {profile.model}</span>
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-              <Button size="icon" variant="ghost" className="shrink-0" aria-label="프로필 빼기" onClick={() => set({ extraProfileIds: extras.filter((_, i) => i !== index) })}>
+              <ModelPicker need={need} value={extra} onChange={(value) => setExtra(index, value)} />
+              <Button size="icon" variant="ghost" className="shrink-0" aria-label="함께 나눌 모델 빼기" onClick={() => set({ extraModels: extras.filter((_, i) => i !== index) })}>
                 <X />
               </Button>
             </div>
           ))}
-          {usable.some((profile) => profile.id !== config.profileId && !extras.includes(profile.id)) && (
-            <Button variant="outline" onClick={() => set({ extraProfileIds: [...extras, ''] })} disabled={extras.includes('')}>
-              <Plus /> 함께 나눌 프로필
-            </Button>
-          )}
+          <Button variant="outline" onClick={() => set({ extraModels: [...extras, { connectionId: '', model: '' }] })} disabled={extras.some((choice) => !choice.model)}>
+            <Plus /> 함께 나눌 모델
+          </Button>
         </div>
       </Field>
+      {takesTemperature && (
+        <Field label="온도 (고급)" hint="비우면 모델 기본값. 낮을수록 같은 입력에 같은 답을 냅니다.">
+          <Input
+            type="number"
+            min={0}
+            max={2}
+            step={0.1}
+            className="w-28"
+            value={config.temperature ?? ''}
+            placeholder="기본값"
+            onChange={(event) => set({ temperature: event.target.value === '' ? undefined : Math.min(2, Math.max(0, Number(event.target.value))) })}
+          />
+        </Field>
+      )}
       <Field
         label="지시문 (이 단계에서 할 일)"
-        hint="프로필의 공통 지시문은 뒤에 덧붙습니다."
         action={
           <AiButton variant="ghost" prompt={`이 AI 노드의 지시문을 ${config.instructions.trim() ? '다듬어줘' : '작성해줘'}.`}>
             {config.instructions.trim() ? 'AI로 다듬기' : 'AI로 작성'}

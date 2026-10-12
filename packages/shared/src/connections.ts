@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { piOptionsSchema } from './agent.ts';
+import { modelChoiceSchema } from './model-choice.ts';
 
 export const CONNECTION_KINDS = ['openai', 'pi', 'systemone', 'codex', 'claude', 'grok', 'antigravity', 'opencode', 'http'] as const;
 export type ConnectionKind = (typeof CONNECTION_KINDS)[number];
@@ -68,27 +69,17 @@ export const connectionInputSchema = z.object({
   options: piOptionsSchema.optional(),
   /** Model calls this account takes at once, shared by every run. */
   concurrency: z.number().int().min(1).max(32).optional(),
+  /** Filled in when this connection is picked somewhere (and for templates and imported workflows). */
+  defaultModel: z.string().trim().nullable().optional(),
+  defaultEffort: z.string().nullable().optional(),
+  /** How every call through this connection is made, wherever it is picked. */
+  timeoutSeconds: z.number().int().min(10).max(3600).optional(),
+  maxAttempts: z.number().int().min(1).max(5).optional(),
+  maxOutputTokens: z.number().int().min(256).max(200_000).optional(),
+  /** Where calls go when this connection keeps failing transiently (rate limit, network, timeout); that connection's own fallback is followed in turn. */
+  fallback: modelChoiceSchema.nullable().optional(),
 });
 export type ConnectionInput = z.infer<typeof connectionInputSchema>;
 
-const route = z.object({
-  connectionId: z.string().min(1),
-  model: z.string().trim().min(1),
-  effort: z.string().optional(),
-});
-
-export const profileInputSchema = z.object({
-  name: z.string().trim().min(1).max(80),
-  description: z.string().default(''),
-  connectionId: z.string().min(1),
-  model: z.string().trim().min(1),
-  effort: z.string().optional(),
-  instructions: z.string().default(''),
-  temperature: z.number().min(0).max(2).optional(),
-  maxOutputTokens: z.number().int().min(256).max(200_000).default(8000),
-  timeoutSeconds: z.number().int().min(10).max(3600).default(300),
-  maxAttempts: z.number().int().min(1).max(5).default(2),
-  /** Tried in order after the primary route exhausts its attempts on a transient failure. */
-  fallbacks: z.array(route).max(3).default([]),
-});
-export type ProfileInput = z.infer<typeof profileInputSchema>;
+/** Defaults of a new connection's call settings. */
+export const CONNECTION_CALL_DEFAULTS = { timeoutSeconds: 300, maxAttempts: 2, maxOutputTokens: 16_000 } as const;

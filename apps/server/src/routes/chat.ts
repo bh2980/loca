@@ -3,14 +3,14 @@ import { convertToModelMessages, stepCountIs, streamText, type UIMessage } from 
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import * as ai from '@tw/ai';
-import { CONNECTION_KIND_INFO } from '@tw/shared';
+import { modelChoiceSchema, type ModelChoice } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { startCall } from '../services/ai-calls.ts';
 import { AGENT_SYSTEM, agentTools } from '../services/agent-tools.ts';
 import { readToEnd, startTurn, stopTurn, turnStartedAt } from '../services/chat-turns.ts';
-import { liveProfileRoutes } from '../services/routes.ts';
+import { liveChoice } from '../services/routes.ts';
 import { closePiChat, piChatResponse } from '../services/pi-chat.ts';
 import { withFittedResults } from '../services/tool-output.ts';
 import { cliChatResponse } from '../services/cli-chat.ts';
@@ -35,6 +35,12 @@ const describeView = (view: z.infer<typeof viewSchema>) =>
     ...view.items.map((item) => `- ${item.kind}: ${item.label} [id=${item.id}]${item.detail ? `\n  ${item.detail}` : ''}`),
   ].join('\n');
 
+const choiceColumns = (choice: Partial<ModelChoice> | { connectionId: string | null; model: string | null; effort: string | null } | undefined) => ({
+  connectionId: choice?.connectionId ?? null,
+  model: choice?.model ?? null,
+  effort: choice?.effort || null,
+});
+
 export const chatRoutes = new Hono<Env>()
   .get('/projects/:projectId/chat', (c) => {
     const { db } = c.var.deps;
@@ -44,7 +50,9 @@ export const chatRoutes = new Hono<Env>()
         .select({
           id: s.chatSessions.id,
           title: s.chatSessions.title,
-          profileId: s.chatSessions.profileId,
+          connectionId: s.chatSessions.connectionId,
+          model: s.chatSessions.model,
+          effort: s.chatSessions.effort,
           updatedAt: s.chatSessions.updatedAt,
           calls: sql<number>`count(${s.aiCalls.id})`,
           tokens: sql<number>`coalesce(sum(${s.aiCalls.inputTokens}), 0) + coalesce(sum(${s.aiCalls.outputTokens}), 0)`,
@@ -57,10 +65,13 @@ export const chatRoutes = new Hono<Env>()
         .all(),
     );
   })
-  .post('/projects/:projectId/chat', validate('json', z.object({ profileId: z.string().optional() })), (c) => {
+  .post('/projects/:projectId/chat', validate('json', z.object({ model: modelChoiceSchema.optional() })), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
-    const row = db.insert(s.chatSessions).values({ projectId, title: '새 대화', profileId: c.req.valid('json').profileId ?? null }).returning().get();
+    // A new conversation talks to the AI the latest one picked, unless told otherwise.
+    const latest = db.select({ connectionId: s.chatSessions.connectionId, model: s.chatSessions.model, effort: s.chatSessions.effort }).from(s.chatSessions).where(and(eq(s.chatSessions.projectId, projectId), sql`${s.chatSessions.model} is not null`)).orderBy(desc(s.chatSessions.updatedAt)).get();
+    const choice = c.req.valid('json').model ?? latest;
+    const row = db.insert(s.chatSessions).values({ projectId, title: '새 대화', ...choiceColumns(choice) }).returning().get();
     events.changed(projectId, 'chat');
     return c.json(row, 201);
   })
@@ -72,9 +83,12 @@ export const chatRoutes = new Hono<Env>()
     const call = db.select({ label: s.aiCalls.label, status: s.aiCalls.status, error: s.aiCalls.error, startedAt: s.aiCalls.startedAt }).from(s.aiCalls).where(eq(s.aiCalls.refId, sessionId)).orderBy(desc(s.aiCalls.startedAt)).get() ?? null;
     return c.json({ ...session, turn: { startedAt: turnStartedAt(sessionId), call } });
   })
-  .patch('/chat/:sessionId', validate('json', z.object({ title: z.string().trim().min(1).optional(), profileId: z.string().nullable().optional() })), (c) => {
+  .patch('/chat/:sessionId', validate('json', z.object({ title: z.string().trim().min(1).optional(), model: modelChoiceSchema.optional() })), (c) => {
     const { db } = c.var.deps;
-    const row = found(db.update(s.chatSessions).set(c.req.valid('json')).where(eq(s.chatSessions.id, c.req.param('sessionId'))).returning().get(), '대화');
+    const { title, model } = c.req.valid('json');
+    const row = found(db.update(s.chatSessions).set({ title, ...(model && choiceColumns(model)) }).where(eq(s.chatSessions.id, c.req.param('sessionId'))).returning().get(), '대화');
+    // A pi session is bound to its model: the next turn opens a new one.
+    if (model) closePiChat(row.id);
     events.changed(row.projectId, 'chat');
     return c.json({ ok: true });
   })
@@ -89,10 +103,15 @@ export const chatRoutes = new Hono<Env>()
   .post('/chat/:sessionId/stream', validate('json', z.object({ messages: z.array(z.any()), view: viewSchema.optional() })), async (c) => {
     const { db, secrets } = c.var.deps;
     const session = found(db.select().from(s.chatSessions).where(eq(s.chatSessions.id, c.req.param('sessionId'))).get(), '대화');
-    if (!session.profileId) badRequest('대화에 사용할 AI 프로필을 선택하세요.');
-    const live = found(liveProfileRoutes(db, session.profileId!, secrets), 'AI 프로필');
-    const route = live.routes[0];
-    if (!route || !CONNECTION_KIND_INFO[route.kind].capabilities.includes('chat')) badRequest('이 프로필의 연결은 채팅을 지원하지 않습니다(System One은 판정 전용).');
+    if (!session.connectionId || !session.model) badRequest('입력창 아래에서 채팅할 AI 연결과 모델을 고르세요.');
+    let live: ReturnType<typeof liveChoice>;
+    try {
+      live = liveChoice(db, { connectionId: session.connectionId!, model: session.model!, ...(session.effort && { effort: session.effort }) }, secrets, 'chat');
+    } catch (error) {
+      return badRequest(error instanceof Error ? error.message : String(error));
+    }
+    // A chat talks to one model: the connection's fallback is for workflow and analysis requests.
+    const route = live.routes[0]!;
     const messages = c.req.valid('json').messages as UIMessage[];
 
     const firstUser = messages.find((message) => message.role === 'user');
@@ -114,7 +133,7 @@ export const chatRoutes = new Hono<Env>()
         db,
         chat: session,
         route,
-        system: [AGENT_SYSTEM, live.snapshot.instructions].filter(Boolean).join('\n\n'),
+        system: AGENT_SYSTEM,
         view: view ? describeView(view) : null,
         messages,
         timeoutMs: live.snapshot.timeoutSeconds * 1000,
@@ -128,7 +147,7 @@ export const chatRoutes = new Hono<Env>()
           db,
           chat: session,
           route,
-          system: [AGENT_SYSTEM, PI_NOTE, live.snapshot.instructions].filter(Boolean).join('\n\n'),
+          system: [AGENT_SYSTEM, PI_NOTE].join('\n\n'),
           view: view ? describeView(view) : null,
           messages,
           signal: turn.signal,
@@ -140,19 +159,18 @@ export const chatRoutes = new Hono<Env>()
       }
     }
     // One log row per turn (its tool steps included); usage comes with the finish.
-    const finish = startCall(db, { projectId: session.projectId, kind: 'chat', refId: session.id, label: '채팅', profileId: session.profileId }, route);
+    const finish = startCall(db, { projectId: session.projectId, kind: 'chat', refId: session.id, label: '채팅' }, route);
     const result = streamText({
       model: ai.chatModel(route),
       onFinish: ({ totalUsage }) => finish({ usage: { inputTokens: totalUsage.inputTokens, cachedInputTokens: totalUsage.inputTokenDetails?.cacheReadTokens, outputTokens: totalUsage.outputTokens } }),
       onError: ({ error }) => finish({ error }),
       onAbort: () => finish({ error: '중단함' }),
-      system: [AGENT_SYSTEM, live.snapshot.instructions, view && describeView(view)].filter(Boolean).join('\n\n'),
+      system: [AGENT_SYSTEM, view && describeView(view)].filter(Boolean).join('\n\n'),
       // An editor proposal left unanswered before the next message is dropped rather than failing the turn.
       messages: await convertToModelMessages(messages, { ignoreIncompleteToolCalls: true }),
-      tools: withFittedResults(agentTools(db, session.projectId, { profileId: session.profileId, model: route.model })),
+      tools: withFittedResults(agentTools(db, session.projectId, { model: route.model })),
       stopWhen: stepCountIs(30),
       maxOutputTokens: live.snapshot.maxOutputTokens,
-      temperature: live.snapshot.temperature ?? undefined,
       providerOptions: ai.openaiProviderOptions(route),
       abortSignal: turn.signal,
     });

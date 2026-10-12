@@ -1,16 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useChat } from '@ai-sdk/react';
 import type { UIMessage } from 'ai';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation } from '@tanstack/react-router';
 import { ArrowUp, ChevronRight, History, Plus, Square, Trash2, X } from 'lucide-react';
 import { Markdown } from './markdown';
-import { CONNECTION_KIND_INFO } from '@tw/shared';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Elapsed } from '@/components/job-progress';
+import { ModelPicker, type ModelValue } from '@/components/model-picker';
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import { client, unwrap } from '@/lib/api';
@@ -39,14 +38,7 @@ const readSession = (projectId: string) => {
 export function ChatPanel({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient();
   const sessions = useQuery(q.chatSessions(projectId));
-  const profiles = useQuery(q.profiles());
-  const connections = useQuery(q.connections());
   const [sessionId, setSessionId] = useState<string | null>(() => readSession(projectId));
-
-  const chatProfiles = useMemo(() => {
-    const kinds = new Map(connections.data?.map((connection) => [connection.id, connection.kind]));
-    return (profiles.data ?? []).filter((profile) => CONNECTION_KIND_INFO[kinds.get(profile.connectionId) ?? 'codex']?.capabilities.includes('chat'));
-  }, [profiles.data, connections.data]);
 
   useEffect(() => {
     if (sessions.data && sessionId && !sessions.data.some((session) => session.id === sessionId)) setSessionId(null);
@@ -61,11 +53,12 @@ export function ChatPanel({ projectId }: { projectId: string }) {
   }, [projectId, sessionId]);
 
   const create = useMutation({
-    mutationFn: () => unwrap(client.projects[':projectId'].chat.$post({ param: { projectId }, json: { profileId: chatProfiles[0]?.id } })),
+    // The server starts it with the AI the latest conversation picked.
+    mutationFn: () => unwrap(client.projects[':projectId'].chat.$post({ param: { projectId }, json: {} })),
     onSuccess: (session) => {
       // The new conversation joins the list before it is picked: otherwise the stale list would
       // unpick it, and a waiting AI-button request would start yet another one, again and again.
-      queryClient.setQueryData(q.chatSessions(projectId).queryKey, (list) => (list ? [{ id: session.id, title: session.title, profileId: session.profileId, updatedAt: session.updatedAt, calls: 0, tokens: 0 }, ...list.filter((item) => item.id !== session.id)] : list));
+      queryClient.setQueryData(q.chatSessions(projectId).queryKey, (list) => (list ? [{ id: session.id, title: session.title, connectionId: session.connectionId, model: session.model, effort: session.effort, updatedAt: session.updatedAt, calls: 0, tokens: 0 }, ...list.filter((item) => item.id !== session.id)] : list));
       setSessionId(session.id);
       void queryClient.invalidateQueries({ queryKey: ['chat', projectId] });
     },
@@ -160,10 +153,10 @@ export function ChatPanel({ projectId }: { projectId: string }) {
       </AlertDialog>
       <ExternalProposals projectId={projectId} />
       {current ? (
-        <Conversation key={current.id} projectId={projectId} sessionId={current.id} profileId={current.profileId} profiles={chatProfiles} />
+        <Conversation key={current.id} projectId={projectId} sessionId={current.id} model={current.connectionId && current.model ? { connectionId: current.connectionId, model: current.model, ...(current.effort && { effort: current.effort }) } : null} />
       ) : (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center text-sm text-muted-foreground">
-          <p>프로젝트의 원문·자료·워크플로를 읽고 인물 프로필이나 참조 문서, 프로필·워크플로를 제안하는 에이전트입니다.</p>
+          <p>프로젝트의 원문·자료·워크플로를 읽고 인물 프로필이나 참조 문서, 워크플로를 제안하는 에이전트입니다.</p>
           <Button onClick={() => create.mutate()} disabled={create.isPending}>
             <Plus /> 새 대화 시작
           </Button>
@@ -173,7 +166,7 @@ export function ChatPanel({ projectId }: { projectId: string }) {
   );
 }
 
-function Conversation({ projectId, sessionId, profileId, profiles }: { projectId: string; sessionId: string; profileId: string | null; profiles: { id: string; name: string; model: string }[] }) {
+function Conversation({ projectId, sessionId, model }: { projectId: string; sessionId: string; model: ModelValue | null }) {
   const queryClient = useQueryClient();
   const saved = useQuery(q.chatSession(sessionId));
   if (saved.isPending) return <div className="flex flex-1 items-center justify-center"><Spinner /></div>;
@@ -183,25 +176,27 @@ function Conversation({ projectId, sessionId, profileId, profiles }: { projectId
       sessionId={sessionId}
       initial={(saved.data?.messages ?? []) as unknown as UIMessage[]}
       turn={saved.data?.turn ?? null}
-      profileId={profileId}
-      profiles={profiles}
-      onProfile={async (next) => {
-        await unwrap(client.chat[':sessionId'].$patch({ param: { sessionId }, json: { profileId: next } }));
+      model={model}
+      onModel={async (next) => {
+        // Shown at once; a choice without a model yet (a connection with no default) waits for one.
+        queryClient.setQueryData(q.chatSessions(projectId).queryKey, (list) => list?.map((item) => (item.id === sessionId ? { ...item, connectionId: next.connectionId, model: next.model || null, effort: next.effort ?? null } : item)));
+        if (!next.model) return;
+        await unwrap(client.chat[':sessionId'].$patch({ param: { sessionId }, json: { model: next } }));
         void queryClient.invalidateQueries({ queryKey: ['chat'] });
       }}
     />
   );
 }
 
-function ChatBody({ projectId, sessionId, initial, turn, profileId, profiles, onProfile }: {
+function ChatBody({ projectId, sessionId, initial, turn, model, onModel }: {
   projectId: string;
   sessionId: string;
   initial: UIMessage[];
   turn: Turn | null;
-  profileId: string | null;
-  profiles: { id: string; name: string; model: string }[];
-  onProfile: (id: string) => Promise<void>;
+  model: ModelValue | null;
+  onModel: (next: ModelValue) => Promise<void>;
 }) {
+  const ready = Boolean(model?.connectionId && model.model);
   const view = useViewState();
   const location = useLocation();
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
@@ -250,13 +245,13 @@ function ChatBody({ projectId, sessionId, initial, turn, profileId, profiles, on
     const timer = setTimeout(() => {
       const request = agentRequests.take();
       if (!request) return;
-      if (request.send && profileId) {
+      if (request.send && ready) {
         pinned.current = true;
         void sendMessage({ text: request.text });
       } else setInput(request.text);
     }, 50);
     return () => clearTimeout(timer);
-  }, [pendingRequest, busy, profileId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [pendingRequest, busy, ready]); // eslint-disable-line react-hooks/exhaustive-deps
   const scroller = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
   useEffect(() => {
@@ -266,7 +261,7 @@ function ChatBody({ projectId, sessionId, initial, turn, profileId, profiles, on
 
   const send = () => {
     const text = input.trim();
-    if (!text || busy || elsewhere || !profileId) return;
+    if (!text || busy || elsewhere || !ready) return;
     void sendMessage({ text });
     setInput('');
   };
@@ -317,11 +312,11 @@ function ChatBody({ projectId, sessionId, initial, turn, profileId, profiles, on
               <Spinner /> {status === 'submitted' ? '생각하는 중…' : '작업 중… (도구로 자료를 읽거나 답을 쓰고 있습니다)'}
             </p>
           )}
-          {!busy && !error && lastMessage?.role === 'user' && <TurnState turn={turn} onStop={halt} onRetry={() => void regenerate()} canRetry={Boolean(profileId)} />}
+          {!busy && !error && lastMessage?.role === 'user' && <TurnState turn={turn} onStop={halt} onRetry={() => void regenerate()} canRetry={ready} />}
           {stalled && (
             <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
-              <span className="text-muted-foreground">{finishReason === 'length' ? '출력 한도(모델 프로필의 최대 출력)에 걸려 멈췄습니다.' : '에이전트가 결과를 말하지 않고 멈췄습니다.'}</span>
-              <Button variant="outline" className="ml-auto" disabled={!profileId} onClick={() => void sendMessage({ text: '계속해줘' })}>
+              <span className="text-muted-foreground">{finishReason === 'length' ? '출력 한도(AI 연결 설정의 최대 출력 토큰)에 걸려 멈췄습니다.' : '에이전트가 결과를 말하지 않고 멈췄습니다.'}</span>
+              <Button variant="outline" className="ml-auto" disabled={!ready} onClick={() => void sendMessage({ text: '계속해줘' })}>
                 계속
               </Button>
             </div>
@@ -353,29 +348,20 @@ function ChatBody({ projectId, sessionId, initial, turn, profileId, profiles, on
               send();
             }
           }}
-          placeholder={profileId ? '메시지 (Enter 전송, Shift+Enter 줄바꿈)' : '먼저 아래에서 채팅용 모델 프로필을 고르세요'}
+          placeholder={ready ? '메시지 (Enter 전송, Shift+Enter 줄바꿈)' : '먼저 아래에서 채팅할 AI 연결과 모델을 고르세요'}
           className="max-h-48 min-h-16 resize-none border-0 bg-transparent px-1 shadow-none focus-visible:ring-0"
         />
         <div className="flex items-center gap-2">
-          <Select value={profileId ?? undefined} onValueChange={(value) => void onProfile(value)}>
-            <SelectTrigger size="sm" className="h-7 max-w-52 border-0 bg-muted text-xs shadow-none">
-              <SelectValue placeholder={profiles.length ? '모델 프로필' : '채팅 가능한 프로필 없음'} />
-            </SelectTrigger>
-            <SelectContent>
-              {profiles.map((profile) => (
-                <SelectItem key={profile.id} value={profile.id}>
-                  {profile.name} <span className="text-muted-foreground">· {profile.model}</span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="min-w-0 flex-1">
+            <ModelPicker compact need={['chat']} value={model} onChange={(next) => void onModel(next)} />
+          </div>
           <div className="ml-auto">
             {busy || elsewhere ? (
               <Button size="icon" variant="secondary" aria-label="중지" onClick={halt}>
                 <Square className="size-3" />
               </Button>
             ) : (
-              <Button size="icon" aria-label="보내기" disabled={!input.trim() || !profileId} onClick={send}>
+              <Button size="icon" aria-label="보내기" disabled={!input.trim() || !ready} onClick={send}>
                 <ArrowUp />
               </Button>
             )}

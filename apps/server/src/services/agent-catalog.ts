@@ -23,7 +23,7 @@ interface SdkTool {
   execute?: (input: never, options: never) => unknown;
 }
 
-export function agentCatalog(db: Db, projectId: string, author?: { profileId: string | null; model: string | null }): CatalogTool[] {
+export function agentCatalog(db: Db, projectId: string, author?: { model: string | null }): CatalogTool[] {
   const tools = agentTools(db, projectId, author) as unknown as Record<string, SdkTool>;
   return Object.entries(tools).flatMap(([name, tool]) => {
     const execute = tool.execute;

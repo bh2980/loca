@@ -13,9 +13,9 @@ import { SearchInput, Toolbar } from '@/components/toolbar';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
+import { ModelPicker, useInitialModel, type ModelValue } from '@/components/model-picker';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -387,13 +387,14 @@ function Examples({ projectId, keys }: { projectId: string; keys: string[] }) {
   );
 }
 
-/** Confirm a batched AI fill of the empty translations: the expected number of requests, and the profile to use. */
+/** Confirm a batched AI fill of the empty translations: the expected number of requests, and the AI to use. */
 function FillDialog({ projectId, pending, calls, batch }: { projectId: string; pending: number; calls: number; batch: number }) {
-  const profiles = useQuery(q.profiles());
   const [open, setOpen] = useState(false);
-  const [profileId, setProfileId] = useState<string>();
+  const initial = useInitialModel(['generate']);
+  const [picked, setPicked] = useState<ModelValue | null>(null);
+  const model = picked ?? initial;
   const start = useMutation({
-    mutationFn: () => unwrap(client.projects[':projectId'].terms.suggest.$post({ param: { projectId }, json: { profileId: profileId! } })),
+    mutationFn: () => unwrap(client.projects[':projectId'].terms.suggest.$post({ param: { projectId }, json: model! })),
     onSuccess: () => {
       setOpen(false);
       toast.success('용어 번역 채우기를 시작했습니다. 후보로 들어옵니다.');
@@ -414,20 +415,9 @@ function FillDialog({ projectId, pending, calls, batch }: { projectId: string; p
             번역이 빈 후보 {pending.toLocaleString()}개 · 예상 요청 {calls.toLocaleString()}회 (요청당 {batch}개, 예문 2줄씩)
           </DialogDescription>
         </DialogHeader>
-        <Select value={profileId} onValueChange={setProfileId}>
-          <SelectTrigger className="w-full" aria-label="모델 프로필">
-            <SelectValue placeholder="모델 프로필 선택" />
-          </SelectTrigger>
-          <SelectContent>
-            {profiles.data?.map((profile) => (
-              <SelectItem key={profile.id} value={profile.id}>
-                {profile.name} · {profile.model}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <ModelPicker value={model} onChange={setPicked} />
         <DialogFooter>
-          <Button disabled={!profileId || start.isPending} onClick={() => start.mutate()}>
+          <Button disabled={!model?.model || start.isPending} onClick={() => start.mutate()}>
             <Play /> 시작
           </Button>
         </DialogFooter>

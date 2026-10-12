@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { knowledgeTemplate, listenerTemplate, nodeProfileIds, speechFixTemplate, termExtractionTemplate, translationTemplate, validateWorkflow, workflowDefinitionSchema, type WorkflowDefinition } from '@tw/shared';
+import { CONNECTION_KIND_INFO, knowledgeTemplate, listenerTemplate, speechFixTemplate, termExtractionTemplate, translationTemplate, validateWorkflow, workflowDefinitionSchema, type WorkflowDefinition } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -10,14 +10,19 @@ import { lineView } from '../engine/functions/index.ts';
 import { runScript } from '../engine/functions/sandbox.ts';
 import { createRunInSteps, selectRunUnits } from '../engine/runner.ts';
 import { listBatches, preflight } from '../services/preflight.ts';
-import { snapshotProfiles } from '../services/routes.ts';
+import { choiceLabel, defaultModelChoice, snapshotWorkflowModels } from '../services/routes.ts';
 
 const scopeSchema = z.object({ groupIds: z.array(z.string()).optional(), unitIds: z.array(z.string()).optional(), tagIds: z.array(z.string()).optional(), ignoreStatus: z.boolean().optional() });
+
+/** Connection names now, for logs that keep only the id; a deleted connection reads as its kind. */
+const connectionNames = (db: Db) => new Map(db.select({ id: s.connections.id, name: s.connections.name }).from(s.connections).all().map((row) => [row.id, row.name]));
+const connectionName = (names: Map<string, string>, id: string | null, kind: string | null) =>
+  (id && names.get(id)) ?? (kind ? (CONNECTION_KIND_INFO[kind as keyof typeof CONNECTION_KIND_INFO]?.label ?? kind) : null);
 
 export function workflowIssues(db: Db, projectId: string, definition: WorkflowDefinition) {
   const ids = (rows: { id: string }[]) => new Set(rows.map((row) => row.id));
   return validateWorkflow(definition, {
-    profileIds: ids(db.select({ id: s.profiles.id }).from(s.profiles).all()),
+    connections: new Map(db.select({ id: s.connections.id, kind: s.connections.kind }).from(s.connections).all().filter((row) => row.kind !== 'http').map((row) => [row.id, row.kind])),
     statusIds: ids(db.select({ id: s.statuses.id }).from(s.statuses).where(eq(s.statuses.projectId, projectId)).all()),
     tagIds: ids(db.select({ id: s.tags.id }).from(s.tags).where(eq(s.tags.projectId, projectId)).all()),
     toolConnectionIds: ids(db.select({ id: s.connections.id }).from(s.connections).where(eq(s.connections.kind, 'http')).all()),
@@ -35,7 +40,7 @@ function blankWorkflow(db: Db, projectId: string): WorkflowDefinition {
   });
 }
 
-/** Single-purpose templates that only need a model profile. */
+/** Single-purpose templates that only need a model. */
 const TEMPLATES = { terms: termExtractionTemplate, listener: listenerTemplate, knowledge: knowledgeTemplate, speechFix: speechFixTemplate };
 
 function templateWorkflow(db: Db, projectId: string): WorkflowDefinition {
@@ -43,9 +48,8 @@ function templateWorkflow(db: Db, projectId: string): WorkflowDefinition {
   const initial = statuses.find((status) => status.kind === 'initial') ?? statuses[0];
   const final = statuses.find((status) => status.kind === 'final') ?? statuses.at(-1)!;
   const middle = statuses.filter((status) => status.kind === 'normal');
-  const profile = db.select({ id: s.profiles.id }).from(s.profiles).orderBy(asc(s.profiles.name)).get();
   return translationTemplate({
-    profileId: profile?.id ?? '',
+    model: defaultModelChoice(db),
     untranslated: initial.id,
     draft: middle[0]?.id ?? initial.id,
     needsReview: statuses.find((status) => status.inReview)?.id ?? middle[1]?.id ?? middle[0]?.id ?? initial.id,
@@ -70,8 +74,7 @@ export const workflowRoutes = new Hono<Env>()
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     const { name, from } = c.req.valid('json');
-    const profile = db.select({ id: s.profiles.id }).from(s.profiles).orderBy(asc(s.profiles.name)).get();
-    const definition = from === 'template' ? templateWorkflow(db, projectId) : from === 'blank' ? blankWorkflow(db, projectId) : TEMPLATES[from]({ profileId: profile?.id ?? '' });
+    const definition = from === 'template' ? templateWorkflow(db, projectId) : from === 'blank' ? blankWorkflow(db, projectId) : TEMPLATES[from]({ model: defaultModelChoice(db) });
     const row = db.insert(s.workflows).values({ projectId, name, definition }).returning().get();
     events.changed(projectId, 'workflows');
     return c.json(row, 201);
@@ -123,10 +126,9 @@ export const workflowRoutes = new Hono<Env>()
     const workflow = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
     const errors = workflowIssues(db, workflow.projectId, workflow.definition).filter((issue) => issue.level === 'error');
     if (errors.length) badRequest(`워크플로에 오류가 ${errors.length}개 있습니다: ${errors[0].message}`);
-    const profileIds = [...new Set(workflow.definition.nodes.flatMap((node) => (node.type === 'ai' ? nodeProfileIds(node) : [])))];
     try {
       const { limits, ...scope } = c.req.valid('json');
-      return c.json(await createRunInSteps(db, { projectId: workflow.projectId, workflow, profiles: snapshotProfiles(db, profileIds), scope, limits }), 201);
+      return c.json(await createRunInSteps(db, { projectId: workflow.projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope, limits }), 201);
     } catch (error) {
       return badRequest(error instanceof Error ? error.message : String(error));
     }
@@ -161,7 +163,7 @@ export const workflowRoutes = new Hono<Env>()
     // What was sent can be a whole script; it is fetched one call at a time (below), not listed.
     const { request: _request, ...listed } = getTableColumns(s.aiCalls);
     const calls = db.select({ ...listed, hasRequest: sql<boolean>`${s.aiCalls.request} is not null` }).from(s.aiCalls).where(where).orderBy(desc(s.aiCalls.startedAt)).limit(limit).all();
-    const profiles = new Map(db.select({ id: s.profiles.id, name: s.profiles.name }).from(s.profiles).all().map((profile) => [profile.id, profile.name]));
+    const names = connectionNames(db);
     const totals = db
       .select({
         kind: s.aiCalls.kind,
@@ -175,7 +177,7 @@ export const workflowRoutes = new Hono<Env>()
       .where(eq(s.aiCalls.projectId, projectId))
       .groupBy(s.aiCalls.kind)
       .all();
-    return c.json({ calls: calls.map((call) => ({ ...call, hasRequest: Boolean(call.hasRequest), profileName: call.profileId ? (profiles.get(call.profileId) ?? null) : null })), totals });
+    return c.json({ calls: calls.map((call) => ({ ...call, hasRequest: Boolean(call.hasRequest), connectionName: connectionName(names, call.connectionId, call.connectionKind) })), totals });
   })
   /** What one model request sent (system prompt, then the prompt), when it was kept. */
   .get('/projects/:projectId/ai-calls/:id/request', (c) => {
@@ -220,7 +222,8 @@ export const workflowRoutes = new Hono<Env>()
         : []
       ).map((row) => [row.refId!, row]),
     );
-    const profiles = new Map(db.select({ id: s.profiles.id, name: s.profiles.name }).from(s.profiles).all().map((profile) => [profile.id, profile.name]));
+    const names = connectionNames(db);
+    const used = (job: { connectionId: string | null; model: string | null; effort: string | null }) => (job.model ? choiceLabel(connectionName(names, job.connectionId, null) ?? '', { model: job.model, effort: job.effort }) : null);
     // Jobs from before the AI log have their own usage totals; the log adds the request count.
     const usage = (id: string, own: { inputTokens?: number; outputTokens?: number } | null) => ({
       calls: stats.get(id)?.calls ?? null,
@@ -231,8 +234,8 @@ export const workflowRoutes = new Hono<Env>()
       /** Model requests per workflow run, from the AI log (runs started before it have none). */
       runCalls: Object.fromEntries(runIds.flatMap((id) => (stats.has(id) ? [[id, stats.get(id)!] as const] : []))),
       jobs: [
-      ...analyses.map((job) => ({ kind: 'analysis' as const, id: job.id, title: '작품 분석', profile: job.profileId ? (profiles.get(job.profileId) ?? null) : null, status: job.status, error: job.error, done: job.partsDone, total: job.partsTotal, createdAt: job.createdAt, finishedAt: job.finishedAt, ...usage(job.id, job.usage) })),
-      ...fills.map((job) => ({ kind: 'terms' as const, id: job.id, title: '용어 AI 채우기', profile: job.profileId ? (profiles.get(job.profileId) ?? null) : null, status: job.status, error: job.error, done: job.done, total: job.total, createdAt: job.createdAt, finishedAt: job.finishedAt, ...usage(job.id, job.usage) })),
+      ...analyses.map((job) => ({ kind: 'analysis' as const, id: job.id, title: '작품 분석', model: used(job), status: job.status, error: job.error, done: job.partsDone, total: job.partsTotal, createdAt: job.createdAt, finishedAt: job.finishedAt, ...usage(job.id, job.usage) })),
+      ...fills.map((job) => ({ kind: 'terms' as const, id: job.id, title: '용어 AI 채우기', model: used(job), status: job.status, error: job.error, done: job.done, total: job.total, createdAt: job.createdAt, finishedAt: job.finishedAt, ...usage(job.id, job.usage) })),
       ],
     });
   })
@@ -294,8 +297,9 @@ export const workflowRoutes = new Hono<Env>()
       .from(s.runSteps)
       .where(eq(s.runSteps.runId, run.id))
       .get();
-    const { profiles, ...rest } = run;
-    return c.json({ ...rest, profiles: Object.values(profiles).map((profile) => ({ id: profile.id, name: profile.name, models: profile.routes.map((route) => route.model) })), nodes, usage });
+    const { models, ...rest } = run;
+    // What each model choice resolved to when the run started, its fallbacks after it.
+    return c.json({ ...rest, models: Object.values(models).map((model) => ({ label: model.label, routes: model.routes.map((route) => ({ connectionId: route.connectionId, name: route.name, model: route.model })) })), nodes, usage });
   })
   .get('/runs/:id/items', validate('query', z.object({ state: z.string().optional(), nodeId: z.string().optional(), offset: z.coerce.number().default(0), limit: z.coerce.number().max(500).default(100) })), (c) => {
     const { db } = c.var.deps;

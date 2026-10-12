@@ -12,7 +12,7 @@ loca 앱이 켜져 있어야 합니다(기본 `http://127.0.0.1:4317`, 다르면
 - **번역문을 채팅 답변에 다시 쓰지 않습니다.** 결과는 파일에만 씁니다. 사용자에게는 몇 줄을 했는지, 무엇이 걸렸는지만 알립니다.
 - 파일은 작업 폴더에 둡니다: `W=$(loca workspace new ch1-translate)`. git에 올라가지 않고, 끝나면 `loca workspace clean ch1-translate`로 지웁니다.
 - 돌려보낸 변경은 **제안 1건**이 되고, 사용자가 loca 앱에서 수락해야 반영됩니다. 수락 전까지 아무것도 바뀌지 않습니다.
-- 대량 번역을 loca의 워크플로로 돌리는 편이 나으면(사용자가 모델 프로필을 정해 둔 경우) 그렇게 제안하세요: `loca call start_run '{"workflowId":"...","groupIds":[...]}'`.
+- 대량 번역을 loca의 워크플로로 돌리는 편이 나으면(워크플로의 AI 노드에 연결과 모델이 정해져 있는 경우. `loca call harness_reference`로 확인) 그렇게 제안하세요: `loca call start_run '{"workflowId":"...","groupIds":[...]}'`.
 
 ## 순서
 1. 범위 확인

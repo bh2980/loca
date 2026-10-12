@@ -9,7 +9,6 @@ export type Topic =
   | 'terms'
   | 'knowledge'
   | 'connections'
-  | 'profiles'
   | 'workflows'
   | 'runs'
   | 'reviews'

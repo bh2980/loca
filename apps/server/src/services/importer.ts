@@ -1,4 +1,4 @@
-import { DEFAULT_STATUSES, listenerTemplate, SPEECH_FIX_WORKFLOW, speechFixTemplate, termExtractionTemplate, translationTemplate, type ImportFile } from '@tw/shared';
+import { DEFAULT_STATUSES, listenerTemplate, SPEECH_FIX_WORKFLOW, speechFixTemplate, termExtractionTemplate, translationTemplate, type DraftModelChoice, type ImportFile } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 
@@ -16,7 +16,7 @@ export interface ImportSummary {
 }
 
 /** Creates a project from a validated standard file. Everything lands in one transaction or nothing does. */
-export function importProject(db: Db, file: ImportFile, defaultProfileId = ''): ImportSummary {
+export function importProject(db: Db, file: ImportFile, model: DraftModelChoice = { connectionId: '', model: '' }): ImportSummary {
   const projectId = crypto.randomUUID();
   db.transaction((tx) => {
     tx.insert(s.projects)
@@ -152,7 +152,7 @@ export function importProject(db: Db, file: ImportFile, defaultProfileId = ''): 
         name: '기본 번역',
         description: '번역 → 형식 검사 → 검수 → 확정. 실패는 3회까지 수정 후 사람 확인 필요(검토함)로.',
         definition: translationTemplate({
-          profileId: defaultProfileId,
+          model,
           untranslated: statusIds.untranslated,
           draft: statusIds.draft,
           needsReview: statusIds['needs-review'],
@@ -165,7 +165,7 @@ export function importProject(db: Db, file: ImportFile, defaultProfileId = ''): 
         projectId,
         name: '용어 추출',
         description: '장면별로 고유명사·반복 용어를 뽑아 용어집 후보로 추가합니다. 용어집에서 수락한 뒤 번역을 돌리세요.',
-        definition: termExtractionTemplate({ profileId: defaultProfileId }),
+        definition: termExtractionTemplate({ model }),
       })
       .run();
     tx.insert(s.workflows)
@@ -173,7 +173,7 @@ export function importProject(db: Db, file: ImportFile, defaultProfileId = ''): 
         projectId,
         name: '청자 추정',
         description: '청자가 아직 없는 대사(가져온 것·사람이 정한 것·확신 높은 AI 청자가 없는 대화)만 장면별로 누구에게 하는 말인지 추정해 적습니다. 번역·상태는 바꾸지 않습니다. 말투 규칙은 청자가 정해진 대사에만 쓰입니다.',
-        definition: listenerTemplate({ profileId: defaultProfileId }),
+        definition: listenerTemplate({ model }),
       })
       .run();
     tx.insert(s.workflows)
@@ -181,7 +181,7 @@ export function importProject(db: Db, file: ImportFile, defaultProfileId = ''): 
         projectId,
         name: SPEECH_FIX_WORKFLOW,
         description: '말투 규칙이나 청자를 고친 뒤, 해당 대사의 현재 번역에서 어미·호칭만 확정 규칙에 맞춥니다. 뜻과 다른 표현은 그대로 두고 상태도 바꾸지 않습니다.',
-        definition: speechFixTemplate({ profileId: defaultProfileId }),
+        definition: speechFixTemplate({ model }),
       })
       .run();
   });

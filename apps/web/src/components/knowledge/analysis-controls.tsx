@@ -6,7 +6,7 @@ import { Elapsed, JobProgress } from '@/components/job-progress';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ModelPicker, useInitialModel, type ModelValue } from '@/components/model-picker';
 import { Switch } from '@/components/ui/switch';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
@@ -51,11 +51,12 @@ export function JobStatus({ projectId }: { projectId: string }) {
 /** Whether an analysis has finished before, so its drafts exist. */
 export const hasAnalysis = (jobs: { status: string }[] | undefined) => (jobs ?? []).some((job) => job.status === 'completed');
 
-/** Start (or redo) a work analysis with a profile, auto-confirm on by default. */
+/** Start (or redo) a work analysis with a connection + model, auto-confirm on by default. */
 export function StartAnalysis({ projectId, variant = 'default' }: { projectId: string; /** Outline once drafts exist and another action is the screen's primary. */ variant?: 'default' | 'outline' }) {
-  const profiles = useQuery(q.profiles());
   const jobs = useQuery(q.analysisJobs(projectId));
-  const [profileId, setProfileId] = useState<string>();
+  const initial = useInitialModel(['generate'], jobs.data?.[0]);
+  const [picked, setPicked] = useState<ModelValue | null>(null);
+  const model = picked ?? initial;
   const [autoConfirm, setAutoConfirm] = useState(true);
   const [resume, setResume] = useState(true);
   const [open, setOpen] = useState(false);
@@ -63,7 +64,7 @@ export function StartAnalysis({ projectId, variant = 'default' }: { projectId: s
   const last = jobs.data?.[0];
   const resumable = last && (last.status === 'failed' || last.status === 'cancelled') && last.partsDone > 0 ? last : undefined;
   const start = useMutation({
-    mutationFn: () => unwrap(client.projects[':projectId'].analysis.$post({ param: { projectId }, json: { profileId: profileId!, autoConfirm, resume: Boolean(resumable) && resume } })),
+    mutationFn: () => unwrap(client.projects[':projectId'].analysis.$post({ param: { projectId }, json: { model: model!, autoConfirm, resume: Boolean(resumable) && resume } })),
     onSuccess: () => {
       setOpen(false);
       toast.success('작품 분석을 시작했습니다. 끝나면 초안이 여기에 들어옵니다.');
@@ -85,22 +86,11 @@ export function StartAnalysis({ projectId, variant = 'default' }: { projectId: s
         <div className="space-y-1">
           <h3 className="text-sm font-semibold">작품 분석</h3>
           <p className="text-xs text-muted-foreground">
-            모델이 대본 전체를 한 번에 읽고 개요·인물·관계·사건·말투 규칙 초안과 용어 후보(번역 제안 포함)를 근거와 함께 만듭니다. 용어는 용어집에 후보로 들어가고 확정은 사람이 합니다. 번역과 상태는 바뀌지 않습니다. 긴 문맥 모델을 권장하고, 출력 한도가 작으면 답이 잘릴 수 있습니다.
+            모델이 대본 전체를 한 번에 읽고 개요·인물·관계·사건·말투 규칙 초안과 용어 후보(번역 제안 포함)를 근거와 함께 만듭니다. 용어는 용어집에 후보로 들어가고 확정은 사람이 합니다. 번역과 상태는 바뀌지 않습니다. 긴 문맥 모델을 권장하고, 연결 설정의 최대 출력 토큰이 작으면 답이 잘릴 수 있습니다.
             {hasDrafts && ' 다시 분석하면 사람이 고치거나 확정하지 않은 AI 항목이 새 결과로 바뀝니다.'}
           </p>
         </div>
-        <Select value={profileId} onValueChange={setProfileId}>
-          <SelectTrigger className="w-full" aria-label="모델 프로필">
-            <SelectValue placeholder="모델 프로필 선택" />
-          </SelectTrigger>
-          <SelectContent>
-            {profiles.data?.map((profile) => (
-              <SelectItem key={profile.id} value={profile.id}>
-                {profile.name} · {profile.model} · 출력 {profile.maxOutputTokens.toLocaleString()}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <ModelPicker value={model} onChange={setPicked} />
         <div className="space-y-1">
           <div className="flex items-center justify-between">
             <Label htmlFor="auto-confirm">자동 확정</Label>
@@ -123,7 +113,7 @@ export function StartAnalysis({ projectId, variant = 'default' }: { projectId: s
             </p>
           </div>
         )}
-        <Button className="w-full" disabled={!profileId || start.isPending} onClick={() => start.mutate()}>
+        <Button className="w-full" disabled={!model?.model || start.isPending} onClick={() => start.mutate()}>
           <Play /> 시작
         </Button>
       </PopoverContent>

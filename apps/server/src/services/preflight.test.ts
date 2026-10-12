@@ -8,7 +8,7 @@ import { promptEntries } from '../engine/prompts.ts';
 import { createRun, Runner, type ModelPort } from '../engine/runner.ts';
 import { importProject } from './importer.ts';
 import { preflight } from './preflight.ts';
-import { snapshotProfiles } from './routes.ts';
+import { snapshotWorkflowModels } from './routes.ts';
 import { memoryStore } from './secrets.ts';
 
 /** Translates everything; review passes all but every tenth line once. */
@@ -40,8 +40,9 @@ describe('preflight', () => {
   it('predicts the plan and the calls of the run it describes', async () => {
     const db = openDatabase(':memory:');
     const connection = db.insert(s.connections).values({ kind: 'openai', name: 'mock', baseUrl: 'http://mock/v1' }).returning().get();
-    const profile = db.insert(s.profiles).values({ name: 'mock', connectionId: connection.id, model: 'm', maxOutputTokens: 4000, timeoutSeconds: 30, maxAttempts: 1 }).returning().get();
-    const { projectId } = importProject(db, importFileSchema.parse(realistic(3000).file), profile.id);
+    db.update(s.connections).set({ maxOutputTokens: 4000, timeoutSeconds: 30, maxAttempts: 1 }).where(eq(s.connections.id, connection.id)).run();
+  const choice = { connectionId: connection.id, model: 'm' };
+    const { projectId } = importProject(db, importFileSchema.parse(realistic(3000).file), choice);
     const workflow = db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).all().find((row) => row.name === '기본 번역')!;
     const scope = { ignoreStatus: true };
 
@@ -59,7 +60,7 @@ describe('preflight', () => {
     expect(first.totals.calls.expected).toBeNull();
     expect(first.warnings.some((warning) => warning.includes('고정 토큰을 아직 잰 적이'))).toBe(true);
 
-    const runId = createRun(db, { projectId, workflow, profiles: snapshotProfiles(db, [profile.id]), scope }).runId;
+    const runId = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope }).runId;
     await new Runner(db, memoryStore(), model()).drain();
     const steps = db.select().from(s.runSteps).where(eq(s.runSteps.runId, runId)).all();
     const actual = (nodeId: string) => steps.filter((step) => step.nodeId === nodeId).length;

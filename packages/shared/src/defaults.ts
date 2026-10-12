@@ -1,4 +1,5 @@
 import { AI_PRESETS } from './presets.ts';
+import type { DraftModelChoice } from './model-choice.ts';
 import { contextConfigSchema, type WorkflowDefinition } from './workflow.ts';
 
 export type StatusKind = 'initial' | 'normal' | 'final';
@@ -20,15 +21,16 @@ export const STATUS_COLORS = ['#a1a1aa', '#3b82f6', '#8b5cf6', '#ec4899', '#f59e
  * a status shown in the review inbox. People take it from there; the run itself ends.
  */
 export function translationTemplate(ids: {
-  profileId: string;
+  /** The AI the template's nodes use; empty until the user has a connection with a default model. */
+  model: DraftModelChoice;
   untranslated: string;
   draft: string;
   needsReview: string;
   confirmed: string;
 }): WorkflowDefinition {
   const ai = (preset: keyof typeof AI_PRESETS) => ({
-    profileId: ids.profileId,
-    extraProfileIds: [],
+    model: ids.model,
+    extraModels: [],
     instructions: AI_PRESETS[preset].instructions,
     output: AI_PRESETS[preset].output,
     fields: [],
@@ -81,7 +83,7 @@ export function translationTemplate(ids: {
  * candidates. Statuses are not touched; candidates reach AI context only after a person accepts them,
  * which is why extraction runs before translation instead of inside it.
  */
-export function termExtractionTemplate(ids: { profileId: string }): WorkflowDefinition {
+export function termExtractionTemplate(ids: { model: DraftModelChoice }): WorkflowDefinition {
   return {
     settings: { maxVisitsPerNode: 5, concurrency: 2, maxConsecutiveFailures: 3 },
     nodes: [
@@ -92,8 +94,8 @@ export function termExtractionTemplate(ids: { profileId: string }): WorkflowDefi
         position: { x: 300, y: 0 },
         label: AI_PRESETS.terms.label,
         config: {
-          profileId: ids.profileId,
-          extraProfileIds: [],
+          model: ids.model,
+          extraModels: [],
           instructions: AI_PRESETS.terms.instructions,
           output: 'terms',
           fields: [],
@@ -121,7 +123,7 @@ export function termExtractionTemplate(ids: { profileId: string }): WorkflowDefi
  * straight to the end. Only the rest are read scene by scene with the whole cast and get a listener
  * with a confidence. Translations and statuses are untouched, so it can run on any lines, any number of times.
  */
-export function listenerTemplate(ids: { profileId: string }): WorkflowDefinition {
+export function listenerTemplate(ids: { model: DraftModelChoice }): WorkflowDefinition {
   return {
     settings: { maxVisitsPerNode: 5, concurrency: 2, maxConsecutiveFailures: 3 },
     nodes: [
@@ -139,8 +141,8 @@ export function listenerTemplate(ids: { profileId: string }): WorkflowDefinition
         position: { x: 600, y: 0 },
         label: AI_PRESETS.listener.label,
         config: {
-          profileId: ids.profileId,
-          extraProfileIds: [],
+          model: ids.model,
+          extraModels: [],
           instructions: AI_PRESETS.listener.instructions,
           output: 'listener',
           fields: [],
@@ -167,7 +169,7 @@ export function listenerTemplate(ids: { profileId: string }): WorkflowDefinition
  * of the current translations, so the rest of the wording does not drift as a full re-translation would.
  * The fitted text becomes the representative translation; the status stays as it was.
  */
-export function speechFixTemplate(ids: { profileId: string }): WorkflowDefinition {
+export function speechFixTemplate(ids: { model: DraftModelChoice }): WorkflowDefinition {
   return {
     settings: { maxVisitsPerNode: 5, concurrency: 2, maxConsecutiveFailures: 3 },
     nodes: [
@@ -178,8 +180,8 @@ export function speechFixTemplate(ids: { profileId: string }): WorkflowDefinitio
         position: { x: 300, y: 0 },
         label: AI_PRESETS.speechFix.label,
         config: {
-          profileId: ids.profileId,
-          extraProfileIds: [],
+          model: ids.model,
+          extraModels: [],
           instructions: AI_PRESETS.speechFix.instructions,
           output: 'candidate',
           fields: [],
@@ -207,7 +209,7 @@ export const SPEECH_FIX_WORKFLOW = '말투만 고치기';
  * people, relationship changes, events and speech-level changes are added as AI items. Official
  * knowledge is never changed; disagreements become AI candidates. Translations are untouched.
  */
-export function knowledgeTemplate(ids: { profileId: string }): WorkflowDefinition {
+export function knowledgeTemplate(ids: { model: DraftModelChoice }): WorkflowDefinition {
   return {
     settings: { maxVisitsPerNode: 5, concurrency: 2, maxConsecutiveFailures: 3 },
     nodes: [
@@ -218,8 +220,8 @@ export function knowledgeTemplate(ids: { profileId: string }): WorkflowDefinitio
         position: { x: 300, y: 0 },
         label: AI_PRESETS.knowledge.label,
         config: {
-          profileId: ids.profileId,
-          extraProfileIds: [],
+          model: ids.model,
+          extraModels: [],
           instructions: AI_PRESETS.knowledge.instructions,
           output: 'knowledge',
           fields: [],
