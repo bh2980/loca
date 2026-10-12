@@ -57,7 +57,7 @@ export const pairSummary = (pair: Pair): Draft => {
   return {
     id: pair.key,
     status: rows.some((row) => row.status === 'candidate') ? 'candidate' : 'confirmed',
-    origin: rows.some((row) => sourceOf(row) === 'ai') ? 'ai' : 'human',
+    origin: rows.some((row) => sourceOf(row) !== 'official') ? 'ai' : 'human',
     reviewed: false,
     evidence: [],
   };

@@ -31,6 +31,8 @@ export interface Draft {
   origin: KnowledgeOrigin;
   reviewed: boolean;
   evidence: string[];
+  /** The work analysis that put it in, if any. */
+  jobId?: string | null;
 }
 export type Row = Draft & Record<string, unknown>;
 export type Value = string | boolean | string[] | null;
@@ -57,10 +59,11 @@ export const text = (value: unknown) => (typeof value === 'string' ? value : '')
 
 /** AI (added by AI, nobody took it over) or 정식; candidates are shown with a dashed edge, not a badge. */
 export function SourceBadge({ row }: { row: Draft }) {
-  if (sourceOf(row) === 'ai')
+  const source = sourceOf(row);
+  if (source !== 'official')
     return (
-      <Badge variant="outline" className="text-muted-foreground" title="AI가 넣었고 아직 사람이 고치거나 정식으로 올리지 않았습니다.">
-        {SOURCE_LABELS.ai}
+      <Badge variant="outline" className="text-muted-foreground" title={`AI가 넣었고(${SOURCE_LABELS[source]}) 아직 사람이 고치거나 정식으로 올리지 않았습니다.`}>
+        AI
       </Badge>
     );
   return <span className="text-xs text-muted-foreground">{row.origin === 'import' || row.origin === 'script' ? KNOWLEDGE_ORIGIN_LABELS[row.origin] : SOURCE_LABELS.official}</span>;
