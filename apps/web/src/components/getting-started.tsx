@@ -1,10 +1,12 @@
 import type { ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
-import { Check, Play } from 'lucide-react';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { Check, CircleStop, Play } from 'lucide-react';
 import { hasAnalysis, StartAnalysis } from '@/components/knowledge/analysis-controls';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { Button } from '@/components/ui/button';
+import { Elapsed, JobProgress } from '@/components/job-progress';
+import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
@@ -15,6 +17,8 @@ interface Step {
   done: boolean;
   /** Worth doing but not needed to translate; never "the next step". */
   optional?: boolean;
+  /** Shown under the step while it is being done (an analysis reading the script). */
+  progress?: ReactNode;
   /** What to press for this step; the next step's is the page's primary button. */
   action: (primary: boolean) => ReactNode;
 }
@@ -32,9 +36,11 @@ export function GettingStarted({ projectId }: { projectId: string }) {
   const terms = useQuery(q.terms(projectId));
   const runs = useQuery(q.runs(projectId));
   const project = useQuery(q.project(projectId));
+  const cancel = useMutation({ mutationFn: (jobId: string) => unwrap(client.projects[':projectId'].analysis[':jobId'].cancel.$post({ param: { projectId, jobId } })) });
   if (!profiles.data || !connections.data || !jobs.data || !rules.data || !terms.data || !runs.data || !project.data) return null;
 
   const analysed = hasAnalysis(jobs.data);
+  const reading = jobs.data.find((job) => job.status === 'running');
   const ran = runs.data.length > 0;
   if (analysed && ran) return null;
   const toCheck = rules.data.filter((rule) => rule.review && !rule.reviewed).length;
@@ -60,6 +66,23 @@ export function GettingStarted({ projectId }: { projectId: string }) {
       why: 'AI가 대본 전체를 읽고 인물·관계·사건·말투 규칙과 장면별 청자 초안을 만듭니다. 번역할 때 AI가 받는 문맥의 바탕입니다.',
       done: analysed,
       action: (primary) => <StartAnalysis projectId={projectId} variant={primary ? 'default' : 'outline'} />,
+      progress: reading && (
+        <div className="mt-2 space-y-1.5">
+          <JobProgress done={reading.partsDone} total={reading.partsTotal} running />
+          <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+            <span>
+              대본을 읽는 중 · {reading.model} · <Elapsed since={reading.createdAt} /> 경과
+              {reading.partsTotal > 1 && ` · ${reading.partsDone}/${reading.partsTotal} 부분`}
+            </span>
+            <Link to="/p/$projectId/runs" params={{ projectId }} search={{ job: reading.id }} className="underline underline-offset-2 hover:text-foreground">
+              실행 기록에서 보기
+            </Link>
+            <Button variant="ghost" size="inline" onClick={() => cancel.mutate(reading.id)} disabled={cancel.isPending}>
+              <CircleStop /> 중단
+            </Button>
+          </p>
+        </div>
+      ),
     },
     {
       key: 'check',
@@ -140,8 +163,9 @@ export function GettingStarted({ projectId }: { projectId: string }) {
                   {step.optional && <span className="ml-2 text-xs font-normal text-muted-foreground">선택</span>}
                 </p>
                 {!step.done && <p className="text-xs text-muted-foreground">{step.why}</p>}
+                {step.progress}
               </div>
-              {!step.done && (current || step.optional) && <div className="shrink-0">{step.action(current)}</div>}
+              {!step.done && !step.progress && (current || step.optional) && <div className="shrink-0">{step.action(current)}</div>}
             </li>
           );
         })}

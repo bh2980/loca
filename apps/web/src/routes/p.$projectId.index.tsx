@@ -4,15 +4,17 @@ import { useQuery } from '@tanstack/react-query';
 import { BookMarked, ChevronRight, CircleAlert, Inbox, MessageSquareQuote, UserRoundSearch, Workflow } from 'lucide-react';
 import { GettingStarted } from '@/components/getting-started';
 import { JobStatusBadge } from '@/components/job-status';
+import { Elapsed, JobProgress } from '@/components/job-progress';
 import { Page } from '@/components/page';
 import { StatusBar, StatusDot } from '@/components/status';
 import { Button } from '@/components/ui/button';
-import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
 export const Route = createFileRoute('/p/$projectId/')({ component: Home });
+
+const JOB_KIND = { run: '워크플로', analysis: '작품 분석', terms: '용어집', chat: '채팅' } as const;
 
 interface Todo {
   key: string;
@@ -39,6 +41,8 @@ function Home() {
   const terms = useQuery(q.terms(projectId));
   const runs = useQuery(q.runs(projectId));
   const workflows = useQuery(q.workflows(projectId));
+  // Work analyses and glossary fills run beside workflows; the list shows them together, newest first.
+  const jobs = useQuery(q.jobs(projectId));
 
   const counts = Object.fromEntries(project.data?.byStatus.map((row) => [row.statusId, row.count]) ?? []);
   const total = Object.values(counts).reduce((sum, value) => sum + value, 0);
@@ -47,7 +51,13 @@ function Home() {
   const done = Object.entries(counts).reduce((sum, [id, value]) => sum + (finalIds.has(id) ? value : 0), 0);
   const initial = statusList.find((status) => status.kind === 'initial');
   const stopped = runs.data?.filter((run) => run.status === 'paused') ?? [];
-  const active = runs.data?.filter((run) => run.status === 'running') ?? [];
+  const recent = [
+    ...(runs.data ?? []).map((run) => ({ kind: 'run' as const, id: run.id, title: run.workflowName, status: run.status, done: (run.states.done ?? 0) + (run.states.failed ?? 0) + (run.states.cancelled ?? 0), total: run.total, at: new Date(run.createdAt) })),
+    ...(jobs.data?.jobs ?? []).map((job) => ({ kind: job.kind, id: job.id, title: job.title, status: job.status, done: job.done ?? 0, total: job.total ?? 1, at: new Date(job.createdAt) })),
+  ]
+    .sort((a, b) => b.at.getTime() - a.at.getTime())
+    .slice(0, 5);
+  const active = recent.filter((item) => item.status === 'running');
 
   const todos: Todo[] = [
     {
@@ -157,26 +167,29 @@ function Home() {
             </Link>
           </Button>
         </div>
-        {runs.data?.length === 0 ? (
+        {runs.data?.length === 0 && jobs.data?.jobs.length === 0 ? (
           <p className="rounded-lg border px-4 py-6 text-sm text-muted-foreground">아직 실행한 적이 없습니다. 워크플로 {workflows.data?.length ?? 0}개가 준비되어 있습니다.</p>
         ) : (
           <ul className="divide-y rounded-lg border">
-            {runs.data?.slice(0, 5).map((run) => {
-              const finished = (run.states.done ?? 0) + (run.states.failed ?? 0) + (run.states.cancelled ?? 0);
-              return (
-                <li key={run.id}>
-                  <Link to="/p/$projectId/runs/$runId" params={{ projectId, runId: run.id }} className="flex items-center gap-4 px-4 py-3 text-sm hover:bg-muted/50">
-                    <span className="w-48 truncate font-medium">{run.workflowName}</span>
-                    <JobStatusBadge status={run.status} />
-                    <Progress value={run.total ? (finished / run.total) * 100 : 0} className="h-1.5 flex-1" />
-                    <span className="w-24 text-right text-muted-foreground tabular-nums">
-                      {finished.toLocaleString()}/{run.total.toLocaleString()}
-                    </span>
-                    <span className="w-44 text-right text-xs whitespace-nowrap text-muted-foreground">{new Date(run.createdAt).toLocaleString()}</span>
-                  </Link>
-                </li>
-              );
-            })}
+            {recent.map((item) => (
+              <li key={item.id}>
+                <Link
+                  {...(item.kind === 'run' ? { to: '/p/$projectId/runs/$runId', params: { projectId, runId: item.id } } : { to: '/p/$projectId/runs', params: { projectId }, search: { job: item.id } })}
+                  className="flex items-center gap-4 px-4 py-3 text-sm hover:bg-muted/50"
+                >
+                  <span className="w-40 shrink-0 truncate">
+                    {item.title !== JOB_KIND[item.kind] && <span className="mr-1.5 text-xs text-muted-foreground">{JOB_KIND[item.kind]}</span>}
+                    <span className="font-medium">{item.title}</span>
+                  </span>
+                  <JobStatusBadge status={item.status} />
+                  <JobProgress done={item.done} total={item.total} running={item.status === 'running'} className="min-w-16 flex-1" />
+                  <span className="w-24 shrink-0 text-right whitespace-nowrap text-muted-foreground tabular-nums">
+                    {item.status === 'running' && item.total <= 1 ? <Elapsed since={item.at} /> : `${item.done.toLocaleString()}/${item.total.toLocaleString()}`}
+                  </span>
+                  <span className="hidden w-44 shrink-0 text-right text-xs whitespace-nowrap text-muted-foreground xl:block">{item.at.toLocaleString()}</span>
+                </Link>
+              </li>
+            ))}
           </ul>
         )}
       </section>
