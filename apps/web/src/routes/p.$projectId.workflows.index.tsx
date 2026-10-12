@@ -75,7 +75,7 @@ function Workflows() {
                   <TableCell onClick={(event) => event.stopPropagation()}>
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
-                        <Button variant="ghost" size="icon" className="size-8" aria-label={`${workflow.name} 삭제`}>
+                        <Button variant="ghost" size="icon" className="size-7 text-destructive" aria-label={`${workflow.name} 삭제`}>
                           <Trash2 />
                         </Button>
                       </AlertDialogTrigger>

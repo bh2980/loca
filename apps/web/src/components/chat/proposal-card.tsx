@@ -34,7 +34,7 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
         {proposal.source === 'cli' && <span className="font-normal text-muted-foreground">· CLI</span>}
         <span className="ml-auto">
           {proposal.status !== 'pending' && (
-            <span className={proposal.status === 'accepted' ? 'text-emerald-600' : proposal.status === 'failed' ? 'text-destructive' : 'text-muted-foreground'}>
+            <span className={proposal.status === 'accepted' ? 'text-success' : proposal.status === 'failed' ? 'text-destructive' : 'text-muted-foreground'}>
               {STATUS[proposal.status]}
               {failure && ` · ${failure}`}
               {skipped > 0 && ` · ${skipped.toLocaleString()}개는 건너뜀(그사이 바뀌었거나 바꿀 수 없음)`}
@@ -74,7 +74,7 @@ function ProposalReport({ report }: { report: NonNullable<Proposal['report']> })
         </p>
       )}
       {warnings > 0 && (
-        <p className="text-amber-700 dark:text-amber-400">
+        <p className="text-warning">
           경고 {warnings.toLocaleString()}개: {report.warnings.slice(0, 3).map((entry) => `${entry.key} ${entry.issues[0]}`).join(' · ')}
           {warnings > 3 && ' …'}
         </p>

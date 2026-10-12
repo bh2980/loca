@@ -92,7 +92,7 @@ export function PiOptionsPanel({ connectionId, options }: { connectionId: string
             ) : (
               <p className="text-xs text-destructive">확장을 읽지 못했습니다: {resources.data && !resources.data.ok ? resources.data.detail : ''}</p>
             )}
-            {data && data.errors.length > 0 && <p className="mt-1 text-xs text-amber-700">불러오지 못한 확장 {data.errors.length}개: {data.errors[0]}</p>}
+            {data && data.errors.length > 0 && <p className="mt-1 text-xs text-warning">불러오지 못한 확장 {data.errors.length}개: {data.errors[0]}</p>}
           </div>
         )}
       </section>
@@ -112,7 +112,7 @@ export function PiOptionsPanel({ connectionId, options }: { connectionId: string
           ))}
         </div>
         {fileToolsOn && (
-          <p className="mt-1 flex items-start gap-1.5 text-xs text-amber-700">
+          <p className="mt-1 flex items-start gap-1.5 text-xs text-warning">
             <TriangleAlert className="mt-0.5 size-3.5 shrink-0" /> 에이전트가 작업 폴더의 파일을 바꾸거나 명령을 실행할 수 있습니다. 이 도구들은 수락 카드를 거치지 않습니다.
           </p>
         )}

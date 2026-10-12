@@ -3,7 +3,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Controller, useFieldArray, useForm, useWatch } from 'react-hook-form';
-import { Check, ChevronRight, ChevronsUpDown, Plus, Trash2, X } from 'lucide-react';
+import { Check, ChevronRight, ChevronsUpDown, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { z } from 'zod';
 import { CONNECTION_KIND_INFO, CONNECTION_KINDS, connectionInputSchema, profileInputSchema, type Capability, type ConnectionKind } from '@tw/shared';
@@ -26,6 +26,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { client, unwrap, type InferResponseType } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
+import { PaneHeader as SharedPaneHeader } from '@/components/pane-header';
+import { SplitPane } from '@/components/split-pane';
 
 export const Route = createFileRoute('/p/$projectId/settings/ai')({
   validateSearch: (raw: Record<string, unknown>): { conn?: string; profile?: string } => ({
@@ -142,7 +144,7 @@ function AiSettings() {
                     {orphans.map((profile) => profileRow(profile, false))}
                     {aiConnections.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
+                        <TableCell colSpan={4} className="py-12 text-center text-muted-foreground">
                           연결이 없습니다. “연결 추가”로 시작하세요.
                         </TableCell>
                       </TableRow>
@@ -168,22 +170,20 @@ function AiSettings() {
 }
 
 /** Table on the left, detail/form pane on the right. */
+/** The list and its editing pane, resizable like every right-hand pane (see SplitPane). */
 function Split({ list, pane }: { list: ReactNode; pane: ReactNode | null }) {
   return (
-    <div className="flex items-start gap-4">
-      <div className="min-w-0 flex-1">{list}</div>
-      {pane && <aside className="sticky top-0 w-[28rem] shrink-0 rounded-lg border bg-background p-4">{pane}</aside>}
-    </div>
+    <SplitPane id="settings-ai" defaultWidth="448px" className="items-start" pane={pane && <aside className="sticky top-0 ml-4 rounded-lg border bg-background p-4">{pane}</aside>}>
+      {list}
+    </SplitPane>
   );
 }
 
+/** The shared pane header, inside the padded settings card. */
 function PaneHeader({ title, onClose }: { title: string; onClose: () => void }) {
   return (
-    <div className="mb-4 flex items-center justify-between">
-      <h2 className="font-semibold">{title}</h2>
-      <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="닫기">
-        <X />
-      </Button>
+    <div className="-mx-4 -mt-4 mb-4">
+      <SharedPaneHeader title={title} onClose={onClose} />
     </div>
   );
 }
@@ -823,7 +823,7 @@ function ProfileForm({ profile, connectionId: initialConnection, onClose }: { pr
                   <div key={row.id} className="rounded-md border p-3">
                     <div className="flex items-center justify-between">
                       <span className="text-xs text-muted-foreground">{index + 1}번째 대체</span>
-                      <Button type="button" variant="ghost" size="icon-sm" onClick={() => fallbacks.remove(index)} aria-label="대체 경로 삭제">
+                      <Button type="button" variant="ghost" size="icon" className="size-7 text-destructive" onClick={() => fallbacks.remove(index)} aria-label="대체 경로 삭제">
                         <Trash2 />
                       </Button>
                     </div>

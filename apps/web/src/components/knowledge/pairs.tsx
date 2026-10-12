@@ -68,7 +68,7 @@ export const pairSettled = (pair: Pair) => [pair.relationship, ...pair.rules].ev
 export const pairItems = (pair: Pair) => [...(pair.relationship ? [{ kind: 'relationships' as const, row: pair.relationship }] : []), ...pair.rules.map((row) => ({ kind: 'speechRules' as const, row }))];
 const reviewOf = (rule: Row) => (typeof rule.review === 'string' && rule.review ? rule.review : null);
 const ReviewBadge = ({ reasons }: { reasons: string }) => (
-  <Badge variant="outline" className="border-amber-500 text-amber-800" title={reasons}>
+  <Badge variant="outline" className="border-warning text-warning" title={reasons}>
     확인 권장
   </Badge>
 );
@@ -152,7 +152,7 @@ export function PairDetail({ projectId, pair, relationships, speechRules, charac
               {pair.relationship && (
                 <span className="flex items-center gap-1.5">
                   <SourceBadge row={pair.relationship} />
-                  {pair.relationship.status === 'candidate' && <span className="border-b border-dashed border-amber-500 text-xs text-amber-800">후보</span>}
+                  {pair.relationship.status === 'candidate' && <span className="border-b border-dashed border-warning text-xs text-warning">후보</span>}
                 </span>
               )}
             </div>
@@ -176,7 +176,7 @@ export function PairDetail({ projectId, pair, relationships, speechRules, charac
           <section className="space-y-3 border-t pt-4">
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-semibold">말투 규칙 <span className="font-normal text-muted-foreground">· 번역 결정, 구간별</span></h3>
-              <Button size="sm" variant="ghost" disabled={addRule.isPending} onClick={() => addRule.mutate()}>
+              <Button size="sm" variant="outline" disabled={addRule.isPending} onClick={() => addRule.mutate()}>
                 <Plus /> 구간 추가
               </Button>
             </div>
@@ -186,7 +186,7 @@ export function PairDetail({ projectId, pair, relationships, speechRules, charac
                 const open = openRule === rule.id;
                 const review = reviewOf(rule);
                 return (
-                  <li key={rule.id} className={cn('rounded-md border', rule.status === 'candidate' && 'border-dashed border-amber-500')}>
+                  <li key={rule.id} className={cn('rounded-md border', rule.status === 'candidate' && 'border-dashed border-warning')}>
                     <button type="button" className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm" onClick={() => setOpenRule(open ? undefined : rule.id)} aria-expanded={open}>
                       <ChevronRight className={cn('size-4 shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')} />
                       <span className="font-medium">{SPEECH_LEVEL_LABELS[rule.level as SpeechLevel]}</span>

@@ -1,3 +1,4 @@
+import { ChevronRight } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { CONTEXT_ITEM_KINDS, CONTEXT_PRIORITY, type ContextItem } from '@tw/shared';
 import { Badge } from '@/components/ui/badge';
@@ -5,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton';
 import { client, unwrap } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
 const tokens = (value: number) => `약 ${value.toLocaleString()}`;
 
@@ -17,7 +19,7 @@ export function ContextItemList({ items, budget }: { items: ContextItem[]; budge
       {budget && (
         <p className="text-xs text-muted-foreground">
           문맥 {tokens(budget.used)} / 상한 {budget.limit.toLocaleString()} 토큰 (추정)
-          {dropped.length > 0 && <span className="text-amber-700"> · 상한을 넘어 {dropped.length}개를 뺌</span>}
+          {dropped.length > 0 && <span className="text-warning"> · 상한을 넘어 {dropped.length}개를 뺌</span>}
         </p>
       )}
       {CONTEXT_PRIORITY.map((kind) => {
@@ -36,7 +38,7 @@ export function ContextItemList({ items, budget }: { items: ContextItem[]; budge
                       {item.label}
                     </span>
                     {!item.included && (
-                      <Badge variant="outline" className="px-1.5 py-0 text-[10px] text-amber-700">
+                      <Badge variant="outline" className="px-1.5 py-0 text-[10px] text-warning">
                         상한 초과로 뺌
                       </Badge>
                     )}
@@ -126,7 +128,7 @@ export function AiContextPanel({ projectId, unitKey, aiNode, onAiNode }: { proje
             {data.preceding.lines.length > 0 && <Lines lines={data.preceding.lines} />}
             {data.preceding.branches.length > 0 && (
               <div className="space-y-2">
-                <p className="text-xs text-amber-700">갈래가 합쳐지는 곳입니다. 플레이어는 이 중 한 갈래를 거쳐 왔습니다.</p>
+                <p className="text-xs text-warning">갈래가 합쳐지는 곳입니다. 플레이어는 이 중 한 갈래를 거쳐 왔습니다.</p>
                 {data.preceding.branches.map((branch) => (
                   <div key={branch.label}>
                     <Badge variant="outline" className="mb-1 px-1.5 py-0 text-[11px]">
@@ -147,10 +149,14 @@ export function AiContextPanel({ projectId, unitKey, aiNode, onAiNode }: { proje
         <ContextItemList items={data.items} budget={data.budget} />
       </section>
 
-      <details>
-        <summary className="cursor-pointer text-xs text-muted-foreground">실제 프롬프트</summary>
+      <Collapsible>
+        <CollapsibleTrigger className="group flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+        <ChevronRight className="size-3.5 transition-transform group-data-[state=open]:rotate-90" />
+        실제 프롬프트</CollapsibleTrigger>
+      <CollapsibleContent>
         <pre className="mt-1 max-h-96 overflow-auto rounded bg-muted/50 p-2 text-[11px] whitespace-pre-wrap">{`${data.system}\n\n${data.prompt}`}</pre>
-      </details>
+      </CollapsibleContent>
+      </Collapsible>
     </div>
   );
 }

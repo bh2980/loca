@@ -116,7 +116,7 @@ export function GroupTable({ projectId, groups, statuses, picked, onPick, onOpen
                   <TableCell>
                     <StatusBar statuses={statuses} counts={counts} className="h-1.5" />
                   </TableCell>
-                  <TableCell className={cn('text-right tabular-nums', unknown ? 'text-amber-700' : 'text-muted-foreground')}>{unknown || '—'}</TableCell>
+                  <TableCell className={cn('text-right tabular-nums', unknown ? 'text-warning' : 'text-muted-foreground')}>{unknown || '—'}</TableCell>
                 </TableRow>
               )}
               {open &&
@@ -133,7 +133,7 @@ export function GroupTable({ projectId, groups, statuses, picked, onPick, onOpen
                     <TableCell>
                       <StatusBar statuses={statuses} counts={group.statuses} className="h-1.5" />
                     </TableCell>
-                    <TableCell className={cn('text-right tabular-nums', group.unknownListeners ? 'text-amber-700' : 'text-muted-foreground')}>{group.unknownListeners || '—'}</TableCell>
+                    <TableCell className={cn('text-right tabular-nums', group.unknownListeners ? 'text-warning' : 'text-muted-foreground')}>{group.unknownListeners || '—'}</TableCell>
                   </TableRow>
                 ))}
             </Fragment>

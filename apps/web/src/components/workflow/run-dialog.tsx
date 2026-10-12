@@ -233,7 +233,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
           실행할 대사: <b className="tabular-nums">{!workflowId || !ready ? '—' : count === undefined ? '…' : `${count.toLocaleString()}개`}</b>
           {!mode && <span className="text-muted-foreground"> — 실행 범위를 고르세요.</span>}
           {mode === 'all' && count !== undefined && count > 0 && (
-            <span className="mt-1 block text-amber-700">프로젝트 전체에서 진입 조건에 맞는 대사 모두에 AI를 호출합니다. 비용과 시간을 확인하세요.</span>
+            <span className="mt-1 block text-warning">프로젝트 전체에서 진입 조건에 맞는 대사 모두에 AI를 호출합니다. 비용과 시간을 확인하세요.</span>
           )}
           {selectedTotal !== undefined && count !== undefined && count < selectedTotal && (
             <span className="text-muted-foreground"> (선택 {selectedTotal}개 중 {selectedTotal - count}개는 진입 상태 조건에 맞지 않음)</span>

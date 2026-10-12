@@ -108,7 +108,7 @@ export function ImportProjectDialog({ trigger }: { trigger?: React.ReactNode }) 
           <ul className="max-h-40 space-y-1 overflow-auto rounded-md border p-3 text-xs">
             {result.warnings.map((warning) => (
               <li key={warning.message}>
-                <span className="text-amber-700">{warning.message}</span>
+                <span className="text-warning">{warning.message}</span>
                 {warning.examples.length > 0 && <span className="block truncate font-mono text-muted-foreground">예: {warning.examples.join(', ')}</span>}
               </li>
             ))}

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, X } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { compileFormatRules, FORMAT_PRESET_IDS, FORMAT_PRESETS, formatPatternError, matchTokens, type FormatRules } from '@tw/shared';
 import { Button } from '@/components/ui/button';
@@ -79,8 +79,8 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
                   </SelectContent>
                 </Select>
                 <Input className="h-8 flex-1 font-mono text-xs" placeholder="예: @[a-z]+@" value={rule.pattern} spellCheck={false} onChange={(event) => setRule(index, { pattern: event.target.value })} />
-                <Button size="icon" variant="ghost" className="size-8" aria-label="규칙 삭제" onClick={() => setDraft((current) => ({ ...current, custom: current.custom.filter((_, i) => i !== index) }))}>
-                  <X />
+                <Button size="icon" variant="ghost" className="size-7 text-destructive" aria-label="규칙 삭제" onClick={() => setDraft((current) => ({ ...current, custom: current.custom.filter((_, i) => i !== index) }))}>
+                  <Trash2 />
                 </Button>
               </div>
               {error && <p className="text-xs text-destructive">{error}</p>}

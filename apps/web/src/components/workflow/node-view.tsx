@@ -52,7 +52,7 @@ export type FlowNode = Node<
 
 function Badges({ errors, warnings }: { errors: string[]; warnings: string[] }) {
   if (errors.length) return <span className="shrink-0 rounded bg-destructive/10 px-1.5 text-[11px] font-medium text-destructive">오류 {errors.length}</span>;
-  if (warnings.length) return <span className="shrink-0 rounded bg-amber-100 px-1.5 text-[11px] font-medium text-amber-700">주의</span>;
+  if (warnings.length) return <span className="shrink-0 rounded bg-warning/15 px-1.5 text-[11px] font-medium text-warning">주의</span>;
   return null;
 }
 

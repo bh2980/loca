@@ -91,7 +91,7 @@ export function KnowledgeFilters({ source, status, onChange }: { source: SourceF
         <ToggleGroupItem value="all">전체</ToggleGroupItem>
         <ToggleGroupItem value="confirmed">{KNOWLEDGE_STATUS_LABELS.confirmed}</ToggleGroupItem>
         <ToggleGroupItem value="candidate">
-          <span className="border-b border-dashed border-amber-500">{KNOWLEDGE_STATUS_LABELS.candidate}</span>
+          <span className="border-b border-dashed border-warning">{KNOWLEDGE_STATUS_LABELS.candidate}</span>
         </ToggleGroupItem>
       </ToggleGroup>
     </div>
@@ -324,7 +324,7 @@ export function RuleLines({ projectId, ruleId, candidate }: { projectId: string;
         청자가 정해진 이 쌍의 대사(대사 그래프에서 이 구간 시작을 반드시 거친 뒤, 다음 구간 전까지. 루트에 따라 다르면 대본 순서 기준)입니다. 규칙을 고쳤다면 “{SPEECH_FIX_WORKFLOW}”로 이 대사들의 어미·호칭만 다시 맞추세요.
       </p>
       {!!lines.data?.routeDependent && (
-        <p className="text-xs text-amber-700 dark:text-amber-400">
+        <p className="text-xs text-warning">
           이 중 {lines.data.routeDependent.toLocaleString()}개는 구간 시작을 거쳤는지가 루트에 따라 달라, 대본 순서로 이 규칙을 골랐습니다. 번역은 한 줄에 하나라 루트 하나에만 맞을 수 있으니 확인하세요.
         </p>
       )}

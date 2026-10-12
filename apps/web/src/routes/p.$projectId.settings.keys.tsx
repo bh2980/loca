@@ -12,6 +12,8 @@ import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
+import { PaneHeader } from '@/components/pane-header';
+import { SplitPane } from '@/components/split-pane';
 
 export const Route = createFileRoute('/p/$projectId/settings/keys')({
   validateSearch: (raw: Record<string, unknown>): { key?: string } => ({ key: typeof raw.key === 'string' && raw.key ? raw.key : undefined }),
@@ -36,7 +38,18 @@ function ApiKeys() {
 
   return (
     <Page title="API 키">
-      <div className="flex items-start gap-4">
+      <SplitPane
+        id="settings-keys"
+        defaultWidth="384px"
+        className="items-start"
+        pane={
+          (search.key === 'new' || selected) && (
+            <aside className="sticky top-0 ml-4 rounded-lg border bg-background">
+              <KeyPane key={selected?.id ?? 'new'} row={selected} onClose={() => open(undefined)} onCreated={(id) => open(id)} />
+            </aside>
+          )
+        }
+      >
         <div className="min-w-0 flex-1 space-y-3">
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm text-muted-foreground">워크플로의 ‘HTTP 호출’ 노드가 키가 필요한 API를 부를 때 고릅니다. 주소는 노드에 적고, 키는 여기(OS 키체인)에만 둡니다. 공개 API는 키가 필요 없습니다.</p>
@@ -65,7 +78,7 @@ function ApiKeys() {
                 ))}
                 {connections.data && keys.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={3} className="h-24 text-center text-muted-foreground">
+                    <TableCell colSpan={3} className="py-12 text-center text-muted-foreground">
                       API 키가 없습니다.
                     </TableCell>
                   </TableRow>
@@ -74,12 +87,7 @@ function ApiKeys() {
             </Table>
           </div>
         </div>
-        {(search.key === 'new' || selected) && (
-          <aside className="sticky top-0 w-[24rem] shrink-0 rounded-lg border bg-background p-4">
-            <KeyPane key={selected?.id ?? 'new'} row={selected} onClose={() => open(undefined)} onCreated={(id) => open(id)} />
-          </aside>
-        )}
-      </div>
+      </SplitPane>
     </Page>
   );
 }
@@ -111,13 +119,9 @@ function KeyPane({ row, onClose, onCreated }: { row?: { id: string; name: string
   const dirty = !row || name !== row.name || header !== (row.headerTemplate ?? '') || Boolean(secret.trim());
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="font-semibold">{row ? row.name : 'API 키 추가'}</h2>
-        <Button variant="ghost" size="icon" className="size-7" onClick={onClose} aria-label="닫기">
-          <X />
-        </Button>
-      </div>
+    <div>
+      <PaneHeader kicker="API 키" title={row ? row.name : 'API 키 추가'} onClose={onClose} />
+      <div className="space-y-4 p-4">
       <div className="space-y-1.5">
         <Label htmlFor="key-name">이름</Label>
         <Input id="key-name" value={name} placeholder="예: 맞춤법 검사기 키" onChange={(event) => setName(event.target.value)} />
@@ -157,6 +161,7 @@ function KeyPane({ row, onClose, onCreated }: { row?: { id: string; name: string
         <Button size="sm" disabled={!name.trim() || !dirty || create.isPending || save.isPending} onClick={() => (row ? save.mutate() : create.mutate())}>
           {row ? '저장' : '추가'}
         </Button>
+      </div>
       </div>
     </div>
   );

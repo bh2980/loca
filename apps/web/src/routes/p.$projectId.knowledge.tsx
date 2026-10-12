@@ -321,7 +321,7 @@ function Knowledge() {
                 </>
               )}
               {!pairsView && (
-                <Button size="sm" variant="outline" disabled={!spec.create || create.isPending} onClick={() => create.mutate()}>
+                <Button size="sm" disabled={!spec.create || create.isPending} onClick={() => create.mutate()}>
                   <Plus /> 추가
                 </Button>
               )}

@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { useMemo } from 'react';
-import { Check, CircleAlert, CircleCheck } from 'lucide-react';
+import { CircleAlert, CircleCheck } from 'lucide-react';
 import { checkFormat, isSpecialListener, KNOWLEDGE_ORIGIN_LABELS, LISTENER_MIN_CONFIDENCE, listenerLabel, mentions, SPECIAL_LISTENERS, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatRules, type KnowledgeStatus, type SpeechLevel } from '@tw/shared';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -139,7 +139,7 @@ export function LineDetail({
                 </SelectContent>
               </Select>
               {line.listenerOrigin && (
-                <span className={cn('text-xs', line.listenerOrigin === 'ai' && (line.listenerConfidence ?? 0) < LISTENER_MIN_CONFIDENCE ? 'text-amber-700' : 'text-muted-foreground')}>
+                <span className={cn('text-xs', line.listenerOrigin === 'ai' && (line.listenerConfidence ?? 0) < LISTENER_MIN_CONFIDENCE ? 'text-warning' : 'text-muted-foreground')}>
                   {KNOWLEDGE_ORIGIN_LABELS[line.listenerOrigin === 'import' ? 'import' : line.listenerOrigin]}
                   {line.listenerOrigin === 'ai' &&
                     ` 추정 · 확신 ${(line.listenerConfidence ?? 0).toFixed(2)}${(line.listenerConfidence ?? 0) < LISTENER_MIN_CONFIDENCE ? ' (낮아서 미상으로 다룸)' : ''}`}
@@ -203,7 +203,7 @@ export function LineDetail({
                     patch.mutate(same ? { candidateId: same.id } : { translation: draft }, { onSuccess: clearDraft });
                   }}
                 >
-                  <Check /> 저장
+                  저장
                 </Button>
               </div>
             )}
@@ -248,7 +248,7 @@ export function LineDetail({
                       {item.workflowName}
                     </Link>
                     <span className="shrink-0 text-xs whitespace-nowrap text-muted-foreground">{STATE[item.state]}</span>
-                    {!!item.data.issues?.length && <span className="truncate text-xs text-amber-600">{item.data.issues[0]}</span>}
+                    {!!item.data.issues?.length && <span className="truncate text-xs text-warning">{item.data.issues[0]}</span>}
                     {item.error && <span className="truncate text-xs text-destructive">{item.error}</span>}
                   </li>
                 ))}
@@ -277,7 +277,7 @@ export function LineChecks({ projectId, source, text, terms, rules, speech }: { 
             <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', item: speech.ruleId }} className="min-w-0 truncate hover:underline">
               {speech.rule}
             </Link>
-            <span className={cn('ml-auto shrink-0 text-xs', !guessed || speech.level === 'other' ? 'text-muted-foreground' : guessed === speech.level ? 'text-emerald-700' : 'text-amber-700')}>
+            <span className={cn('ml-auto shrink-0 text-xs', !guessed || speech.level === 'other' ? 'text-muted-foreground' : guessed === speech.level ? 'text-success' : 'text-warning')}>
               {!guessed || speech.level === 'other' ? '' : guessed === speech.level ? '맞음 (어미 추정)' : `번역은 ${SPEECH_LEVEL_LABELS[guessed]} (어미 추정)`}
             </span>
           </div>
@@ -288,7 +288,7 @@ export function LineChecks({ projectId, source, text, terms, rules, speech }: { 
         {!text.trim() ? (
           <p className="text-sm text-muted-foreground">번역이 없습니다.</p>
         ) : formatIssues.length ? (
-          <ul className="space-y-1 text-sm text-amber-700">
+          <ul className="space-y-1 text-sm text-warning">
             {formatIssues.map((issue) => (
               <li key={issue.code} className="flex items-start gap-1.5">
                 <CircleAlert className="mt-0.5 size-3.5 shrink-0" /> {issue.message}
@@ -296,7 +296,7 @@ export function LineChecks({ projectId, source, text, terms, rules, speech }: { 
             ))}
           </ul>
         ) : (
-          <p className="flex items-center gap-1.5 text-sm text-emerald-700">
+          <p className="flex items-center gap-1.5 text-sm text-success">
             <CircleCheck className="size-3.5" /> 자리표시자·태그·줄바꿈이 원문과 맞습니다.
           </p>
         )}
@@ -313,7 +313,7 @@ export function LineChecks({ projectId, source, text, terms, rules, speech }: { 
                     <b>{term.source}</b> → {term.target || <span className="text-muted-foreground">(번역 없음)</span>}
                   </Link>
                   {term.status === 'candidate' && <Badge variant="outline" className="px-1.5 py-0 text-[11px]">후보</Badge>}
-                  <span className={cn('ml-auto shrink-0 text-xs', !text.trim() || !term.target ? 'text-muted-foreground' : ok ? 'text-emerald-700' : term.status === 'confirmed' ? 'text-amber-700' : 'text-muted-foreground')}>
+                  <span className={cn('ml-auto shrink-0 text-xs', !text.trim() || !term.target ? 'text-muted-foreground' : ok ? 'text-success' : term.status === 'confirmed' ? 'text-warning' : 'text-muted-foreground')}>
                     {!text.trim() || !term.target ? '' : ok ? '번역에 있음' : '번역에 없음'}
                   </span>
                 </li>

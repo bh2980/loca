@@ -214,7 +214,7 @@ function Glossary() {
               ))}
               {terms.data && rows.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={5} className="py-10 text-center text-muted-foreground">
+                  <TableCell colSpan={5} className="py-12 text-center text-muted-foreground">
                     {needle ? '조건에 맞는 용어가 없습니다.' : search.source || search.state ? '조건에 맞는 용어가 없습니다. 워크플로의 ‘용어 후보 추가’ 함수가 AI 용어를 모읍니다.' : '아직 용어가 없습니다. ‘대본에서 찾기’로 후보를 찾거나 위에서 직접 추가하세요.'}
                   </TableCell>
                 </TableRow>

@@ -38,7 +38,7 @@ export function ListenerCell({ line }: { line: { listener: string | null; listen
   const name = line.listener ? listenerLabel(line.listener) : null;
   if (line.listenerOrigin === 'ai' && (line.listenerConfidence ?? 0) < LISTENER_MIN_CONFIDENCE)
     return (
-      <span className="text-amber-700" title={`AI 추정: ${name ?? '모름'} (확신 ${(line.listenerConfidence ?? 0).toFixed(2)})`}>
+      <span className="text-warning" title={`AI 추정: ${name ?? '모름'} (확신 ${(line.listenerConfidence ?? 0).toFixed(2)})`}>
         미상
       </span>
     );
@@ -292,7 +292,7 @@ export function LinesView({ projectId, groupId, kind, search, onSearch, showScen
               })}
               {lines.data?.rows.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="py-10 text-center text-muted-foreground">
+                  <TableCell colSpan={7} className="py-12 text-center text-muted-foreground">
                     조건에 맞는 대사가 없습니다.
                   </TableCell>
                 </TableRow>

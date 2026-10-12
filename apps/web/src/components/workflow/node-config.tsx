@@ -86,7 +86,7 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
           {issues.length > 0 && (
             <ul className="space-y-1 rounded-md border border-destructive/30 bg-destructive/5 p-2.5 text-xs">
               {issues.map((issue, index) => (
-                <li key={index} className={issue.level === 'error' ? 'text-destructive' : 'text-amber-700'}>
+                <li key={index} className={issue.level === 'error' ? 'text-destructive' : 'text-warning'}>
                   {issue.message}
                 </li>
               ))}
@@ -179,8 +179,8 @@ function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRefs; onCh
                   </SelectContent>
                 </Select>
                 <Input className="h-8 flex-1 text-xs" value={field.description} placeholder="설명 (AI에게 보임)" onChange={(event) => setField(index, { description: event.target.value })} />
-                <Button size="icon" variant="ghost" className="size-8" aria-label="필드 삭제" onClick={() => set({ fields: config.fields.filter((_, i) => i !== index) })}>
-                  <X />
+                <Button size="icon" variant="ghost" className="size-7 text-destructive" aria-label="필드 삭제" onClick={() => set({ fields: config.fields.filter((_, i) => i !== index) })}>
+                  <Trash2 />
                 </Button>
               </div>
             ))}
@@ -212,7 +212,7 @@ function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRefs; onCh
             </Link>
             {config.output === 'verdict' && ' · 판정에는 System One도 쓸 수 있습니다.'}
             {extras.length > 0 && <span className="mt-1 block">요청마다 칸이 빈 계정의 프로필로 보냅니다. 같은 모델의 다른 계정을 붙이면 처리량만 늘어납니다.</span>}
-            {config.output === 'candidate' && chosenModels.size > 1 && <span className="mt-1 block text-amber-700">서로 다른 모델이 번역을 나누면 장면마다 문체가 달라질 수 있습니다.</span>}
+            {config.output === 'candidate' && chosenModels.size > 1 && <span className="mt-1 block text-warning">서로 다른 모델이 번역을 나누면 장면마다 문체가 달라질 수 있습니다.</span>}
           </>
         }
       >

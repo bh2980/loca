@@ -380,7 +380,7 @@ function WorkflowEditor() {
             </DropdownMenuContent>
           </DropdownMenu>
           {edgeId && current?.definition.edges.some((edge) => edge.id === edgeId) && (
-            <Button variant="outline" size="sm" onClick={() => removeEdges([edgeId])}>
+            <Button variant="ghost" size="sm" className="text-destructive" onClick={() => removeEdges([edgeId])}>
               <Trash2 /> 선 삭제
             </Button>
           )}
@@ -401,7 +401,7 @@ function WorkflowEditor() {
       flush
     >
       {stale && (
-        <div className="flex items-center gap-3 border-b bg-amber-50 px-6 py-2 text-sm text-amber-900">
+        <div className="flex items-center gap-3 border-b bg-warning/10 px-6 py-2 text-sm text-warning">
           다른 곳에서 v{workflow.data.version}을 저장했습니다. 이 편집은 v{draft!.baseVersion} 기준입니다.
           <Button size="sm" variant="outline" onClick={discard}>
             편집 버리고 최신 불러오기

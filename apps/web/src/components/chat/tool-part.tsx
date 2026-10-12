@@ -163,7 +163,7 @@ export function ToolPart({ part, stale, onDecide, onOutput, proposal }: {
         <div className="flex items-center gap-2 border-b bg-muted/40 px-3 py-1.5 text-xs font-medium">
           <Wrench className="size-3.5 text-muted-foreground" /> {label}
           <span className="ml-auto">
-            {output?.applied === true && <span className="text-emerald-600">편집기에 적용됨 · 저장 필요</span>}
+            {output?.applied === true && <span className="text-success">편집기에 적용됨 · 저장 필요</span>}
             {output?.applied === false && <span className="text-muted-foreground">거절함</span>}
             {!output && stale && <span className="text-muted-foreground">응답하지 않음</span>}
           </span>
@@ -201,7 +201,7 @@ export function ToolPart({ part, stale, onDecide, onOutput, proposal }: {
           <Wrench className="size-3.5 text-muted-foreground" /> {label}
           <span className="ml-auto">
             {part.state === 'output-denied' && <span className="text-muted-foreground">거절함</span>}
-            {part.state === 'output-available' && !failed && <span className="text-emerald-600">적용됨</span>}
+            {part.state === 'output-available' && !failed && <span className="text-success">적용됨</span>}
             {failed && <span className="text-destructive">{String((part.output as { error?: string }).error ?? '실패')}</span>}
             {part.state === 'approval-responded' && <Spinner className="size-3" />}
           </span>

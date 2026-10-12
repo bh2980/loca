@@ -21,6 +21,8 @@ import { cn } from '@/lib/utils';
 import { useReportView } from '@/lib/view-context';
 import { SplitPane } from '@/components/split-pane';
 import { JobStatusBadge } from '@/components/job-status';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 
 type State = keyof typeof ITEM_STATE;
 interface RunSearch {
@@ -97,9 +99,23 @@ function RunDetail() {
             </Button>
           )}
           {active && (
-            <Button size="sm" variant="outline" onClick={() => control.mutate('cancel')}>
-              <Square /> 취소
-            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button size="sm" variant="ghost" className="text-destructive">
+                  <Square /> 실행 취소
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>실행을 취소할까요?</AlertDialogTitle>
+                  <AlertDialogDescription>아직 처리하지 않은 대사는 이 실행에서 빠집니다. 이미 반영된 번역·상태는 그대로이고, 다시 실행하면 남은 대사를 처리할 수 있습니다.</AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>계속 실행</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => control.mutate('cancel')}>실행 취소</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           )}
         </>
       }
@@ -182,16 +198,16 @@ function RunDetail() {
                 </TabsList>
               </Tabs>
               {(search.view ?? 'items') === 'items' && (
-                <Tabs value={search.state ?? 'all'} onValueChange={(value) => setSearch({ state: value === 'all' ? undefined : (value as State), page: undefined })}>
-                  <TabsList>
-                    <TabsTrigger value="all">전체</TabsTrigger>
-                    {(Object.keys(ITEM_STATE) as State[]).filter((state) => totals[state]).map((state) => (
-                      <TabsTrigger key={state} value={state}>
-                        {ITEM_STATE[state]} {totals[state]}
-                      </TabsTrigger>
-                    ))}
-                  </TabsList>
-                </Tabs>
+                <ToggleGroup type="single" variant="outline" size="sm" value={search.state ?? 'all'} onValueChange={(value) => value && setSearch({ state: value === 'all' ? undefined : (value as State), page: undefined })}>
+                  <ToggleGroupItem value="all" className="px-3">
+                    전체
+                  </ToggleGroupItem>
+                  {(Object.keys(ITEM_STATE) as State[]).filter((state) => totals[state]).map((state) => (
+                    <ToggleGroupItem key={state} value={state} className="px-3 tabular-nums">
+                      {ITEM_STATE[state]} {totals[state]}
+                    </ToggleGroupItem>
+                  ))}
+                </ToggleGroup>
               )}
               {search.node && (
                 <Button variant="ghost" size="sm" onClick={() => setSearch({ node: undefined })}>
@@ -228,11 +244,11 @@ function RunDetail() {
                       </TableCell>
                       <TableCell className="text-xs">
                         {item.error && <p className="text-destructive">{item.error}</p>}
-                        {!!item.data.issues?.length && <p className="text-amber-700">{item.data.issues.join(' / ')}</p>}
+                        {!!item.data.issues?.length && <p className="text-warning">{item.data.issues.join(' / ')}</p>}
                         {Object.entries(item.data.outputs ?? {})
                           .filter(([, output]) => typeof output.passed === 'boolean')
                           .map(([nodeId, output]) => (
-                            <p key={nodeId} className={output.passed ? 'text-emerald-700' : 'text-amber-700'}>
+                            <p key={nodeId} className={output.passed ? 'text-success' : 'text-warning'}>
                               {nodeName(nodeId)} {output.passed ? '통과' : '실패'}
                             </p>
                           ))}
@@ -264,27 +280,38 @@ function RunDetail() {
                           <p className="text-xs text-muted-foreground">시도: {(step.attempts as { model: string; ok: boolean; error?: string }[]).map((attempt) => `${attempt.model} ${attempt.ok ? '성공' : `실패(${attempt.error})`}`).join(' → ')}</p>
                         )}
                         {Array.isArray(step.context) && (
-                          <details>
-                            <summary className="cursor-pointer text-xs text-muted-foreground">
+                          <Collapsible>
+                            <CollapsibleTrigger className="group flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+                            <ChevronRight className="size-3.5 transition-transform group-data-[state=open]:rotate-90" />
                               넣은 문맥 {step.context.filter((item) => item.included).length}개
                               {step.context.some((item) => !item.included) && ` · 상한 초과로 뺀 것 ${step.context.filter((item) => !item.included).length}개`}
-                            </summary>
+                            </CollapsibleTrigger>
+                          <CollapsibleContent>
                             <div className="mt-2">
                               <ContextItemList items={step.context} />
                             </div>
-                          </details>
+                          </CollapsibleContent>
+                          </Collapsible>
                         )}
                         {step.prompt && (
-                          <details>
-                            <summary className="cursor-pointer text-xs text-muted-foreground">보낸 프롬프트(문맥 포함)</summary>
+                          <Collapsible>
+                            <CollapsibleTrigger className="group flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+                            <ChevronRight className="size-3.5 transition-transform group-data-[state=open]:rotate-90" />
+                            보낸 프롬프트(문맥 포함)</CollapsibleTrigger>
+                          <CollapsibleContent>
                             <pre className="mt-1 max-h-80 overflow-auto rounded bg-muted/50 p-2 text-[11px] whitespace-pre-wrap">{step.prompt}</pre>
-                          </details>
+                          </CollapsibleContent>
+                          </Collapsible>
                         )}
                         {step.output != null && (
-                          <details>
-                            <summary className="cursor-pointer text-xs text-muted-foreground">응답</summary>
+                          <Collapsible>
+                            <CollapsibleTrigger className="group flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+                            <ChevronRight className="size-3.5 transition-transform group-data-[state=open]:rotate-90" />
+                            응답</CollapsibleTrigger>
+                          <CollapsibleContent>
                             <pre className="mt-1 max-h-80 overflow-auto rounded bg-muted/50 p-2 text-[11px]">{JSON.stringify(step.output, null, 2)}</pre>
-                          </details>
+                          </CollapsibleContent>
+                          </Collapsible>
                         )}
                       </CollapsibleContent>
                     </Collapsible>
