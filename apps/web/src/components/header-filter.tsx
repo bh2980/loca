@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { Check, ListFilter } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
@@ -40,10 +41,10 @@ export function HeaderFilter({ label, value, options, onChange, groups }: {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button type="button" className={cn('-mx-1 flex items-center gap-1 rounded px-1 py-0.5 hover:bg-muted', active && 'text-primary')} aria-label={`${label} 필터`}>
+        <Button variant="ghost" size="inline" className={cn('-mx-1 text-muted-foreground', active && 'text-primary')} aria-label={`${label} 필터`}>
           {label}
-          <ListFilter className={cn('size-3.5', active ? 'opacity-100' : 'opacity-40')} />
-        </button>
+          <ListFilter className={active ? 'opacity-100' : 'opacity-40'} />
+        </Button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-64 p-0">
         <Command>

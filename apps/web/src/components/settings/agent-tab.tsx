@@ -50,7 +50,7 @@ export function AgentTab() {
                 {names.map((name) => (
                   <li key={name} className="flex items-center justify-between gap-2 py-1 text-sm">
                     <span className="min-w-0 truncate">
-                      {AGENT_TOOLS[name].label} <code className="text-[11px] text-muted-foreground">{name}</code>
+                      {AGENT_TOOLS[name].label} <code className="text-xs text-muted-foreground">{name}</code>
                     </span>
                     <Switch checked={!disabled.has(name)} disabled={save.isPending} onCheckedChange={(on) => set([name], on)} aria-label={AGENT_TOOLS[name].label} />
                   </li>

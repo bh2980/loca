@@ -45,7 +45,7 @@ export function TypeLegend({ nodes, nodeTypes, active, onPick }: {
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" className={cn('bg-background', active && 'border-[color:var(--graph-select)]')}>
+        <Button variant="outline" className={cn('bg-background', active && 'border-[color:var(--graph-select)]')}>
           <Shapes /> 노드 종류
         </Button>
       </PopoverTrigger>
@@ -54,22 +54,24 @@ export function TypeLegend({ nodes, nodeTypes, active, onPick }: {
           {groups.map((group) => (
             <section key={group.title} className="px-1 py-1">
               <h3 className="px-2 pt-1 text-xs font-medium">{group.title}</h3>
-              <p className="px-2 pb-1 text-[11px] text-muted-foreground">{group.hint}</p>
+              <p className="px-2 pb-1 text-xs text-muted-foreground">{group.hint}</p>
               <ul>
                 {group.rows.map((row) => (
                   <li key={row.key}>
-                    <button
-                      className={cn('flex w-full items-start gap-2 rounded px-2 py-1.5 text-left hover:bg-muted', active === row.key && 'bg-muted')}
+                    <Button
+                      variant="ghost"
+                      size="row"
+                      className={cn('items-start', active === row.key && 'bg-muted')}
                       onClick={() => onPick(active === row.key ? undefined : row.key)}
                       title={row.description || undefined}
                     >
-                      <span className="mt-0.5 w-16 shrink-0 text-[11px] text-muted-foreground">{KIND_LABEL[row.kind] ?? row.kind}</span>
+                      <span className="mt-0.5 w-16 shrink-0 text-xs text-muted-foreground">{KIND_LABEL[row.kind] ?? row.kind}</span>
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-sm">{row.label}</span>
-                        {!row.key.startsWith('kind:') && row.label !== row.key && <span className="block truncate font-mono text-[11px] text-muted-foreground">{row.key}</span>}
+                        {!row.key.startsWith('kind:') && row.label !== row.key && <span className="block truncate font-mono text-xs text-muted-foreground">{row.key}</span>}
                       </span>
                       <span className="text-xs text-muted-foreground tabular-nums">{row.count.toLocaleString()}</span>
-                    </button>
+                    </Button>
                   </li>
                 ))}
               </ul>
@@ -78,7 +80,7 @@ export function TypeLegend({ nodes, nodeTypes, active, onPick }: {
         </div>
         {active && (
           <div className="border-t p-2">
-            <Button variant="ghost" size="sm" className="w-full" onClick={() => onPick(undefined)}>
+            <Button variant="ghost" className="w-full" onClick={() => onPick(undefined)}>
               강조 해제
             </Button>
           </div>

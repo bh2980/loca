@@ -23,7 +23,7 @@ export function JobStatus({ projectId }: { projectId: string }) {
     return (
       <span className="flex items-center gap-2">
         <Sparkles className="size-4 animate-pulse" /> 대본 전체를 읽는 중 · {job.model} · {job.partsDone}/{job.partsTotal} 부분
-        <Button size="sm" variant="ghost" className="h-7" onClick={() => cancel.mutate(job.id)}>
+        <Button variant="ghost" onClick={() => cancel.mutate(job.id)}>
           <Square /> 중단
         </Button>
       </span>
@@ -42,8 +42,11 @@ export function JobStatus({ projectId }: { projectId: string }) {
   );
 }
 
+/** Whether an analysis has finished before, so its drafts exist. */
+export const hasAnalysis = (jobs: { status: string }[] | undefined) => (jobs ?? []).some((job) => job.status === 'completed');
+
 /** Start (or redo) a work analysis with a profile, auto-confirm on by default. */
-export function StartAnalysis({ projectId }: { projectId: string }) {
+export function StartAnalysis({ projectId, variant = 'default' }: { projectId: string; /** Outline once drafts exist and another action is the screen's primary. */ variant?: 'default' | 'outline' }) {
   const profiles = useQuery(q.profiles());
   const jobs = useQuery(q.analysisJobs(projectId));
   const [profileId, setProfileId] = useState<string>();
@@ -62,11 +65,11 @@ export function StartAnalysis({ projectId }: { projectId: string }) {
     onError: fail,
   });
   const running = jobs.data?.[0]?.status === 'running';
-  const hasDrafts = (jobs.data ?? []).some((job) => job.status === 'completed');
+  const hasDrafts = hasAnalysis(jobs.data);
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button size="sm" disabled={running}>
+        <Button variant={variant} disabled={running}>
           <Sparkles /> {hasDrafts ? '작품 다시 분석' : '작품 분석'}
         </Button>
       </PopoverTrigger>
@@ -95,7 +98,7 @@ export function StartAnalysis({ projectId }: { projectId: string }) {
             <Label htmlFor="auto-confirm">자동 확정</Label>
             <Switch id="auto-confirm" checked={autoConfirm} onCheckedChange={setAutoConfirm} />
           </div>
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-xs text-muted-foreground">
             {autoConfirm
               ? '결과가 바로 번역 문맥에 쓰입니다. 대사가 많은 주요 쌍, 엇갈리거나 근거가 맞지 않는 말투 규칙에는 "확인 권장" 표시가 붙습니다.'
               : '결과가 후보로 들어오고, 확정한 것만 번역 문맥에 쓰입니다.'}
@@ -107,7 +110,7 @@ export function StartAnalysis({ projectId }: { projectId: string }) {
               <Label htmlFor="resume-analysis">이어서 분석</Label>
               <Switch id="resume-analysis" checked={resume} onCheckedChange={setResume} />
             </div>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               지난 분석이 {resumable.partsTotal}부분 중 {resumable.partsDone}부분을 마쳤습니다. 그 뒤로 대본이 바뀌지 않은 부분은 다시 읽지 않습니다.
             </p>
           </div>

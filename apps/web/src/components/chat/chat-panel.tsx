@@ -74,7 +74,7 @@ export function ChatPanel({ projectId }: { projectId: string }) {
       <div className="flex h-12 shrink-0 items-center gap-1 border-b px-2">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="sm" className="min-w-0 flex-1 justify-start">
+            <Button variant="ghost" className="min-w-0 flex-1 justify-start">
               <History className="text-muted-foreground" />
               <span className="truncate">{current?.title ?? '대화 없음'}</span>
             </Button>
@@ -93,10 +93,10 @@ export function ChatPanel({ projectId }: { projectId: string }) {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        <Button variant="ghost" size="icon" className="size-8" aria-label="새 대화" onClick={() => create.mutate()}>
+        <Button variant="ghost" size="icon" aria-label="새 대화" onClick={() => create.mutate()}>
           <Plus />
         </Button>
-        <Button variant="ghost" size="icon" className="size-8" aria-label="채팅 닫기" onClick={() => chatDock.set(false)}>
+        <Button variant="ghost" size="icon" aria-label="채팅 닫기" onClick={() => chatDock.set(false)}>
           <X />
         </Button>
       </div>
@@ -106,7 +106,7 @@ export function ChatPanel({ projectId }: { projectId: string }) {
       ) : (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center text-sm text-muted-foreground">
           <p>프로젝트의 원문·자료·워크플로를 읽고 인물 프로필이나 참조 문서, 프로필·워크플로를 제안하는 에이전트입니다.</p>
-          <Button size="sm" onClick={() => create.mutate()} disabled={create.isPending}>
+          <Button onClick={() => create.mutate()} disabled={create.isPending}>
             <Plus /> 새 대화 시작
           </Button>
         </div>
@@ -218,9 +218,9 @@ function ChatBody({ projectId, sessionId, initial, profileId, profiles, onProfil
           <div className="space-y-2 pt-6 text-sm text-muted-foreground">
             <p className="font-medium text-foreground">무엇을 도와드릴까요?</p>
             {['대본을 끝까지 읽고 주요 인물 프로필을 만들어줘', '지금 진행 상황을 요약해줘', '검수를 더 엄격하게 하는 워크플로를 제안해줘'].map((example) => (
-              <button key={example} className="block w-full rounded-md border bg-background px-3 py-2 text-left text-foreground hover:bg-muted" onClick={() => setInput(example)}>
+              <Button key={example} variant="outline" size="row" className="px-3 py-2" onClick={() => setInput(example)}>
                 {example}
-              </button>
+              </Button>
             ))}
           </div>
         )}
@@ -253,7 +253,7 @@ function ChatBody({ projectId, sessionId, initial, profileId, profiles, onProfil
           {stalled && (
             <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
               <span className="text-muted-foreground">{finishReason === 'length' ? '출력 한도(모델 프로필의 최대 출력)에 걸려 멈췄습니다.' : '에이전트가 결과를 말하지 않고 멈췄습니다.'}</span>
-              <Button size="sm" variant="outline" className="ml-auto" disabled={!profileId} onClick={() => void sendMessage({ text: '계속해줘' })}>
+              <Button variant="outline" className="ml-auto" disabled={!profileId} onClick={() => void sendMessage({ text: '계속해줘' })}>
                 계속
               </Button>
             </div>
@@ -269,9 +269,9 @@ function ChatBody({ projectId, sessionId, initial, profileId, profiles, onProfil
               <span key={`${item.kind}:${item.id}`} className="inline-flex max-w-full items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-xs">
                 <span className="text-muted-foreground">{item.kind}</span>
                 <span className="truncate">{item.label}</span>
-                <button aria-label={`${item.label} 첨부 빼기`} className="text-muted-foreground hover:text-foreground" onClick={() => setExcluded((set) => new Set(set).add(`${item.kind}:${item.id}`))}>
-                  <X className="size-3" />
-                </button>
+                <Button variant="ghost" size="icon-xs" aria-label={`${item.label} 첨부 빼기`} className="text-muted-foreground" onClick={() => setExcluded((set) => new Set(set).add(`${item.kind}:${item.id}`))}>
+                  <X />
+                </Button>
               </span>
             ))}
           </div>
@@ -303,11 +303,11 @@ function ChatBody({ projectId, sessionId, initial, profileId, profiles, onProfil
           </Select>
           <div className="ml-auto">
             {busy ? (
-              <Button size="icon" variant="secondary" className="size-7" aria-label="중지" onClick={() => void stop()}>
+              <Button size="icon" variant="secondary" aria-label="중지" onClick={() => void stop()}>
                 <Square className="size-3" />
               </Button>
             ) : (
-              <Button size="icon" className="size-7" aria-label="보내기" disabled={!input.trim() || !profileId} onClick={send}>
+              <Button size="icon" aria-label="보내기" disabled={!input.trim() || !profileId} onClick={send}>
                 <ArrowUp />
               </Button>
             )}
@@ -326,10 +326,10 @@ function ExternalProposals({ projectId }: { projectId: string }) {
   if (!pending.length) return null;
   return (
     <div className="max-h-[45%] shrink-0 overflow-y-auto border-b bg-background">
-      <button className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium" onClick={() => setOpen(!open)} aria-expanded={open}>
-        <ChevronRight className={cn('size-4 text-muted-foreground transition-transform', open && 'rotate-90')} />
+      <Button variant="ghost" size="row" className="rounded-none px-3 py-2 font-medium" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <ChevronRight className={cn('text-muted-foreground transition-transform', open && 'rotate-90')} />
         CLI에서 온 제안 {pending.length}개
-      </button>
+      </Button>
       {open && (
         <div className="space-y-2 px-3 pb-3">
           {pending.map((proposal) => (

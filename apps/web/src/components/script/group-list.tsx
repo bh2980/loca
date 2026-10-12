@@ -141,7 +141,7 @@ export function GroupList({
                   onCheckedChange={(checked) => onPick(ids, Boolean(checked))}
                 />
                 <CollapsibleTrigger asChild>
-                  <Button variant="ghost" className="h-7 min-w-0 flex-1 justify-start gap-1 px-1 text-xs font-semibold text-muted-foreground">
+                  <Button variant="ghost" size="inline" className="min-w-0 flex-1 justify-start py-1 font-semibold text-muted-foreground">
                     <ChevronRight className={cn('transition-transform', open && 'rotate-90')} />
                     <span className="truncate">{section.name}</span>
                     <span className="ml-auto font-normal tabular-nums">{section.groups.length}</span>

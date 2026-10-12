@@ -49,10 +49,10 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
       </div>
       {proposal.status === 'pending' && (
         <div className="flex justify-end gap-2 border-t px-3 py-2">
-          <Button size="sm" variant="outline" disabled={decide.isPending} onClick={() => decide.mutate('reject')}>
+          <Button variant="outline" disabled={decide.isPending} onClick={() => decide.mutate('reject')}>
             <X /> 거절
           </Button>
-          <Button size="sm" disabled={decide.isPending} onClick={() => decide.mutate('accept')}>
+          <Button disabled={decide.isPending} onClick={() => decide.mutate('accept')}>
             <Check /> 수락
           </Button>
         </div>

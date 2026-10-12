@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { compileFormatRules, FORMAT_PRESET_IDS, FORMAT_PRESETS, formatPatternError, matchTokens, type FormatRules } from '@tw/shared';
+import { SettingsSection } from '@/components/settings/section';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
@@ -39,13 +40,10 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
   const setRule = (index: number, patch: Partial<FormatRules['custom'][number]>) => setDraft((current) => ({ ...current, custom: current.custom.map((rule, i) => (i === index ? { ...rule, ...patch } : rule)) }));
 
   return (
-    <section className="space-y-4 border-t pt-6">
-      <div>
-        <h2 className="text-sm font-semibold">형식 규칙</h2>
-        <p className="text-sm text-muted-foreground">
-          형식 검사(워크플로의 형식 검사 함수, 대사 패널)가 원문과 번역에서 같은 개수만큼 있어야 하는 토큰을 무엇으로 볼지 정합니다. 이 게임 문자열에 쓰이는 형식만 켜세요. 대괄호 변수와 BBCode는 비슷하게 생겼으니 둘 중 하나만 켜는 것이 좋습니다.
-        </p>
-      </div>
+    <SettingsSection
+      title="형식 규칙"
+      description="형식 검사(워크플로의 형식 검사 함수, 대사 패널)가 원문과 번역에서 같은 개수만큼 있어야 하는 토큰을 무엇으로 볼지 정합니다. 이 게임 문자열에 쓰이는 형식만 켜세요. 대괄호 변수와 BBCode는 비슷하게 생겼으니 둘 중 하나만 켜는 것이 좋습니다."
+    >
       <div className="grid gap-2 sm:grid-cols-2">
         {FORMAT_PRESET_IDS.map((id) => {
           const preset = FORMAT_PRESETS[id];
@@ -68,9 +66,9 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
           return (
             <div key={index} className="space-y-1">
               <div className="flex items-center gap-2">
-                <Input className="h-8 w-32 text-sm" placeholder="이름" value={rule.label} onChange={(event) => setRule(index, { label: event.target.value })} />
+                <Input className="w-32" placeholder="이름" value={rule.label} onChange={(event) => setRule(index, { label: event.target.value })} />
                 <Select value={rule.kind} onValueChange={(kind) => setRule(index, { kind: kind as 'placeholder' | 'tag' })}>
-                  <SelectTrigger size="sm" className="w-28">
+                  <SelectTrigger className="w-28">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -78,8 +76,8 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
                     <SelectItem value="tag">서식 태그</SelectItem>
                   </SelectContent>
                 </Select>
-                <Input className="h-8 flex-1 font-mono text-xs" placeholder="예: @[a-z]+@" value={rule.pattern} spellCheck={false} onChange={(event) => setRule(index, { pattern: event.target.value })} />
-                <Button size="icon" variant="ghost" className="size-7 text-destructive" aria-label="규칙 삭제" onClick={() => setDraft((current) => ({ ...current, custom: current.custom.filter((_, i) => i !== index) }))}>
+                <Input className="flex-1 font-mono text-xs" placeholder="예: @[a-z]+@" value={rule.pattern} spellCheck={false} onChange={(event) => setRule(index, { pattern: event.target.value })} />
+                <Button size="icon" variant="ghost" className="text-destructive" aria-label="규칙 삭제" onClick={() => setDraft((current) => ({ ...current, custom: current.custom.filter((_, i) => i !== index) }))}>
                   <Trash2 />
                 </Button>
               </div>
@@ -87,7 +85,7 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
             </div>
           );
         })}
-        <Button size="sm" variant="outline" onClick={() => setDraft((current) => ({ ...current, custom: [...current.custom, { label: '', kind: 'placeholder', pattern: '' }] }))}>
+        <Button variant="outline" onClick={() => setDraft((current) => ({ ...current, custom: [...current.custom, { label: '', kind: 'placeholder', pattern: '' }] }))}>
           <Plus /> 규칙 추가
         </Button>
       </div>
@@ -113,6 +111,6 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
           </Button>
         )}
       </div>
-    </section>
+    </SettingsSection>
   );
 }

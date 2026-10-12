@@ -11,7 +11,6 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input';
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
@@ -114,7 +113,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
     >
       <DialogTrigger asChild>
         {trigger ?? (
-          <Button size="sm" disabled={disabled}>
+          <Button disabled={disabled}>
             <Play /> 실행
           </Button>
         )}
@@ -259,7 +258,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
                 <ArrowLeft /> 뒤로
               </Button>
               <Button disabled={!plan.data || !plan.data.lines.total || capsInvalid || !workflowId || start.isPending} onClick={() => start.mutate()}>
-                {start.isPending && <Spinner />} {plan.data ? `${plan.data.lines.total.toLocaleString()}줄 실행` : '실행'}
+                {start.isPending && <Spinner />} 시작
               </Button>
             </>
           )}
@@ -286,7 +285,7 @@ function PlanStep({ plan, callsText, tokensText, onCalls, onTokens }: { plan: Pl
   const speechRules = data.knowledge.speechRules.confirmed ?? 0;
   const candidateRules = data.knowledge.speechRules.candidate ?? 0;
   return (
-    <div className="max-h-[60vh] space-y-4 overflow-auto pr-1">
+    <div className="max-h-[70svh] space-y-4 overflow-auto pr-1">
       <div className="space-y-1 rounded-md bg-muted/60 px-3 py-2 text-sm">
         <p>
           계획 묶음 {data.plan.batches.toLocaleString()}개
@@ -301,41 +300,32 @@ function PlanStep({ plan, callsText, tokensText, onCalls, onTokens }: { plan: Pl
         </p>
       </div>
 
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>노드</TableHead>
-            <TableHead>계정</TableHead>
-            <TableHead className="text-right">요청</TableHead>
-            <TableHead className="text-right">프롬프트/요청</TableHead>
-            <TableHead className="text-right">고정/요청</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {data.nodes.map((node) => (
-            <TableRow key={node.nodeId}>
-              <TableCell className="font-medium">{node.name}</TableCell>
-              <TableCell>
-                {node.connection ? (
-                  <span className="inline-flex items-center gap-1.5">
-                    {node.connection.name}
-                    {node.connection.cli && <Badge variant="outline">CLI</Badge>}
-                    {node.sharedWith.length > 0 && <span className="text-xs text-muted-foreground"> · 함께: {node.sharedWith.join(', ')}</span>}
-                  </span>
-                ) : (
-                  <span className="text-muted-foreground">없음</span>
-                )}
-              </TableCell>
-              <TableCell className="text-right tabular-nums">
-                {range(node.requests, '')}
+      <ul className="divide-y rounded-md border">
+        {data.nodes.map((node) => (
+          <li key={node.nodeId} className="space-y-0.5 px-3 py-2 text-sm">
+            <div className="flex items-center gap-2">
+              <span className="min-w-0 flex-1 truncate font-medium">{node.name}</span>
+              <span className="shrink-0 tabular-nums">
+                요청 {range(node.requests, '')}
                 {!node.everyLine && node.requests.expected === null && <span className="ml-1 text-xs text-muted-foreground">이력 없음</span>}
-              </TableCell>
-              <TableCell className="text-right tabular-nums">{node.promptTokens.toLocaleString()}</TableCell>
-              <TableCell className="text-right tabular-nums">{node.overheadTokens === null ? <span className="text-muted-foreground">미측정</span> : node.overheadTokens.toLocaleString()}</TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+              </span>
+            </div>
+            <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground tabular-nums">
+              {node.connection ? (
+                <>
+                  <span>{node.connection.name}</span>
+                  {node.connection.cli && <Badge variant="outline">CLI</Badge>}
+                  {node.sharedWith.length > 0 && <span>함께: {node.sharedWith.join(', ')}</span>}
+                </>
+              ) : (
+                <span>연결 없음</span>
+              )}
+              <span>프롬프트/요청 {node.promptTokens.toLocaleString()}</span>
+              <span>고정/요청 {node.overheadTokens === null ? '미측정' : node.overheadTokens.toLocaleString()}</span>
+            </p>
+          </li>
+        ))}
+      </ul>
 
       <BatchList list={data.plan.list} />
 
@@ -388,45 +378,35 @@ export function BatchList({ list, defaultOpen = false }: { list: NonNullable<Pla
   if (!list.total) return null;
   return (
     <Collapsible defaultOpen={defaultOpen}>
-      <CollapsibleTrigger className="group flex items-center gap-1.5 text-sm font-medium">
-        <ChevronRight className="size-4 transition-transform group-data-[state=open]:rotate-90" />
-        묶음 구성 보기 ({list.total.toLocaleString()}개)
+      <CollapsibleTrigger asChild>
+        <Button variant="ghost" className="group -ml-2">
+          <ChevronRight className="transition-transform group-data-[state=open]:rotate-90" />
+          묶음 구성 보기 ({list.total.toLocaleString()}개)
+        </Button>
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <Table className="mt-2">
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-10">#</TableHead>
-              <TableHead className="text-right">줄</TableHead>
-              <TableHead className="text-right">원문 토큰</TableHead>
-              <TableHead>장면 (줄 수) · 같이 묶인 이유</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {list.batches.map((batch, index) => (
-              <TableRow key={index} className="align-top">
-                <TableCell className="tabular-nums text-muted-foreground">{index + 1}</TableCell>
-                <TableCell className="text-right tabular-nums">{batch.lines.toLocaleString()}</TableCell>
-                <TableCell className="text-right tabular-nums">{batch.tokens.toLocaleString()}</TableCell>
-                <TableCell className="whitespace-normal">
-                  <ul className="space-y-0.5">
-                    {batch.scenes.map((scene) => (
-                      <li key={scene.groupId}>
-                        {scene.title} <span className="tabular-nums text-muted-foreground">({scene.lines})</span>
-                        {scene.joined && (
-                          <span className="ml-1.5 text-xs text-muted-foreground">
-                            ← {JOINED[scene.joined.why]}
-                            {scene.joined.why === 'speaker' && `: ${scene.joined.speakers.join(', ')}`}
-                          </span>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+        <ul className="mt-2 divide-y rounded-md border">
+          {list.batches.map((batch, index) => (
+            <li key={index} className="space-y-1 px-3 py-2 text-sm">
+              <p className="text-xs text-muted-foreground tabular-nums">
+                #{index + 1} · {batch.lines.toLocaleString()}줄 · 원문 토큰 {batch.tokens.toLocaleString()}
+              </p>
+              <ul className="space-y-0.5">
+                {batch.scenes.map((scene) => (
+                  <li key={scene.groupId}>
+                    {scene.title} <span className="tabular-nums text-muted-foreground">({scene.lines})</span>
+                    {scene.joined && (
+                      <span className="ml-1.5 text-xs text-muted-foreground">
+                        ← {JOINED[scene.joined.why]}
+                        {scene.joined.why === 'speaker' && `: ${scene.joined.speakers.join(', ')}`}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </li>
+          ))}
+        </ul>
         {list.total > list.batches.length && <p className="mt-1 text-xs text-muted-foreground">앞 {list.batches.length.toLocaleString()}개만 보여 줍니다.</p>}
       </CollapsibleContent>
     </Collapsible>

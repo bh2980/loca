@@ -23,7 +23,7 @@ export function StatusBadge({ status, className }: { status?: StatusLike; classN
 
 export function TagChip({ tag }: { tag: StatusLike }) {
   return (
-    <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-medium" style={{ backgroundColor: `${tag.color}1f`, color: tag.color }}>
+    <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium" style={{ backgroundColor: `${tag.color}1f`, color: tag.color }}>
       #{tag.name}
     </span>
   );

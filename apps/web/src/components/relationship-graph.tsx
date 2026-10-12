@@ -74,17 +74,17 @@ function FloatingEdge({ id, source, target, markerStart, markerEnd, data, select
         <EdgeLabelRenderer>
           <div
             data-relation-label
-            className={cn('nodrag nopan absolute flex flex-col rounded border bg-background text-[11px] shadow-xs', (selected || data?.focus) && 'border-primary', data?.dim && 'opacity-30')}
+            className={cn('nodrag nopan absolute flex flex-col rounded border bg-background text-xs shadow-xs', (selected || data?.focus) && 'border-primary', data?.dim && 'opacity-30')}
             style={{ transform: `translate(-50%, -50%) translate(${label.x}px, ${label.y}px)`, pointerEvents: 'all' }}
           >
             {data?.rows.map((row) => (
-              <button key={row.id} type="button" className={cn('px-1.5 py-0.5 text-left whitespace-nowrap hover:bg-muted', row.selected ? 'font-medium text-primary' : (selected || data.focus) && 'text-primary')} onClick={(event) => {
+              <Button key={row.id} variant="ghost" size="inline" className={cn('justify-start rounded-none font-normal whitespace-nowrap', row.selected ? 'font-medium text-primary' : (selected || data.focus) && 'text-primary')} onClick={(event) => {
                   // The line under the label would otherwise take the click and pick the first relationship.
                   event.stopPropagation();
                   data.onPick(row.id);
                 }}>
                 {row.text}
-              </button>
+              </Button>
             ))}
           </div>
         </EdgeLabelRenderer>
@@ -260,7 +260,7 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
       <Controls showInteractive={false} />
       {Object.keys(placed).length > 0 && (
         <Panel position="top-right">
-          <Button size="sm" variant="outline" className="bg-background" onClick={() => place({})}>
+          <Button variant="outline" className="bg-background" onClick={() => place({})}>
             배치 되돌리기
           </Button>
         </Panel>

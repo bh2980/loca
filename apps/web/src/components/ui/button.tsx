@@ -28,6 +28,10 @@ const buttonVariants = cva(
         "icon-xs": "size-6 rounded-md [&_svg:not([class*='size-'])]:size-3",
         "icon-sm": "size-8",
         "icon-lg": "size-10",
+        /** A label-sized control inside text: column header filters, section toggles, graph labels. */
+        inline: "h-auto gap-1 rounded-sm px-1 py-0.5 text-xs font-medium has-[>svg]:px-1 [&_svg:not([class*='size-'])]:size-3.5",
+        /** A whole row of a list or menu-like panel (search results, legend entries, examples). */
+        row: "h-auto w-full justify-start gap-2 px-2 py-1.5 text-left font-normal whitespace-normal",
       },
     },
     defaultVariants: {

@@ -51,16 +51,16 @@ export type FlowNode = Node<
 >;
 
 function Badges({ errors, warnings }: { errors: string[]; warnings: string[] }) {
-  if (errors.length) return <span className="shrink-0 rounded bg-destructive/10 px-1.5 text-[11px] font-medium text-destructive">오류 {errors.length}</span>;
-  if (warnings.length) return <span className="shrink-0 rounded bg-warning/15 px-1.5 text-[11px] font-medium text-warning">주의</span>;
+  if (errors.length) return <span className="shrink-0 rounded bg-destructive/10 px-1.5 text-xs font-medium text-destructive">오류 {errors.length}</span>;
+  if (warnings.length) return <span className="shrink-0 rounded bg-warning/15 px-1.5 text-xs font-medium text-warning">주의</span>;
   return null;
 }
 
 function Live({ live }: { live?: FlowNode['data']['live'] }) {
   if (!live || live.queued + live.running + live.failed === 0) return null;
   return (
-    <div className="flex gap-2 border-t px-3 py-1 text-[11px] tabular-nums">
-      {live.running > 0 && <span className="text-blue-600">처리 {live.running}</span>}
+    <div className="flex gap-2 border-t px-3 py-1 text-xs tabular-nums">
+      {live.running > 0 && <span className="font-medium text-foreground">처리 {live.running}</span>}
       {live.queued > 0 && <span className="text-muted-foreground">대기 {live.queued}</span>}
       {live.failed > 0 && <span className="text-destructive">실패 {live.failed}</span>}
     </div>
@@ -73,7 +73,7 @@ function Exits({ ports }: { ports: { id: string; label: string }[] }) {
   return (
     <div className="border-t py-1">
       {ports.map((port) => (
-        <div key={port.id} className="relative flex h-6 items-center justify-end pr-3 text-[11px] text-muted-foreground">
+        <div key={port.id} className="relative flex h-6 items-center justify-end pr-3 text-xs text-muted-foreground">
           {port.label}
           <Handle type="source" position={Position.Right} id={port.id} className={handleClass(port.id)} />
         </div>
@@ -115,15 +115,15 @@ export const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected 
           {inputHandle}
           <Icon className="relative size-5 text-amber-600" />
           <Handle type="source" position={Position.Right} id="true" className={handleClass('true')} />
-          <span className="absolute top-[38%] right-0 translate-x-full pl-2 text-[11px] text-muted-foreground">참</span>
+          <span className="absolute top-[38%] right-0 translate-x-full pl-2 text-xs text-muted-foreground">참</span>
           <Handle type="source" position={Position.Bottom} id="false" className={handleClass('false')} />
-          <span className="absolute bottom-0 left-1/2 translate-y-full pl-2 text-[11px] text-muted-foreground">거짓</span>
+          <span className="absolute bottom-0 left-1/2 translate-y-full pl-2 text-xs text-muted-foreground">거짓</span>
         </div>
         <div className="mt-5 flex max-w-full items-center gap-1 px-1 text-center">
           <span className="truncate text-sm font-medium">{nodeName(node)}</span>
           <Badges errors={errors} warnings={warnings} />
         </div>
-        {node.config.description && node.config.description !== nodeName(node) && <p className="line-clamp-2 px-2 text-center text-[11px] text-muted-foreground">{summary}</p>}
+        {node.config.description && node.config.description !== nodeName(node) && <p className="line-clamp-2 px-2 text-center text-xs text-muted-foreground">{summary}</p>}
       </div>
     );
   }
@@ -137,8 +137,8 @@ export const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected 
           <Icon className="size-3.5" style={{ color }} />
         </span>
         <div className="min-w-0">
-          <p className="truncate text-[11px] text-muted-foreground">{nodeName(node)}</p>
-          <p className="truncate text-sm font-medium">{status ? `→ ${status.name}` : '상태 그대로'}{summary.includes('대표 번역') && <span className="ml-1 text-[11px] font-normal text-muted-foreground">+ 대표 번역</span>}</p>
+          <p className="truncate text-xs text-muted-foreground">{nodeName(node)}</p>
+          <p className="truncate text-sm font-medium">{status ? `→ ${status.name}` : '상태 그대로'}{summary.includes('대표 번역') && <span className="ml-1 text-xs font-normal text-muted-foreground">+ 대표 번역</span>}</p>
         </div>
         <Badges errors={errors} warnings={warnings} />
         <Handle type="source" position={Position.Right} id="out" className={handleClass('out')} />
@@ -159,7 +159,7 @@ export const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected 
       {inputHandle}
       <div className={cn('flex items-center gap-2 border-b px-3 py-2', ai && 'rounded-t-2xl border-violet-100 bg-gradient-to-r from-violet-50 to-white', node.type === 'function' && 'border-sky-100 bg-sky-50/60')}>
         <Icon className={cn('size-4 shrink-0', ai ? 'text-violet-600' : 'text-sky-600')} />
-        <span className={cn('truncate text-sm font-medium', node.type === 'function' && 'font-mono text-[13px]')}>{nodeName(node)}</span>
+        <span className={cn('truncate text-sm font-medium')}>{nodeName(node)}</span>
         <span className="ml-auto" />
         <Badges errors={errors} warnings={warnings} />
       </div>
