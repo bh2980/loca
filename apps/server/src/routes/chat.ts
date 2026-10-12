@@ -10,6 +10,7 @@ import { events } from '../events.ts';
 import { AGENT_SYSTEM, agentTools } from '../services/agent-tools.ts';
 import { liveProfileRoutes } from '../services/routes.ts';
 import { closePiChat, piChatResponse } from '../services/pi-chat.ts';
+import { withFittedResults } from '../services/tool-output.ts';
 import { cliChatResponse } from '../services/cli-chat.ts';
 
 /** pi cannot pause a tool call for a card, so change tools there record a proposal instead. */
@@ -115,7 +116,7 @@ export const chatRoutes = new Hono<Env>()
       system: [AGENT_SYSTEM, live.snapshot.instructions, view && describeView(view)].filter(Boolean).join('\n\n'),
       // An editor proposal left unanswered before the next message is dropped rather than failing the turn.
       messages: await convertToModelMessages(messages, { ignoreIncompleteToolCalls: true }),
-      tools: agentTools(db, session.projectId, { profileId: session.profileId, model: route.model }),
+      tools: withFittedResults(agentTools(db, session.projectId, { profileId: session.profileId, model: route.model })),
       stopWhen: stepCountIs(30),
       maxOutputTokens: live.snapshot.maxOutputTokens,
       temperature: live.snapshot.temperature ?? undefined,

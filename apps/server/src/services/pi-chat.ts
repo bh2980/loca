@@ -6,6 +6,7 @@ import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { agentCatalog, jsonSchemaOf } from './agent-catalog.ts';
 import { prepareProposal, reportText } from './proposal-check.ts';
+import { fitText } from './tool-output.ts';
 import { propose, proposedText } from './proposals.ts';
 
 /**
@@ -81,7 +82,7 @@ export async function piChatResponse(input: {
           return { text: proposedText(proposal.id) + reportText(prepared.report), details: { proposalId: proposal.id } };
         }
         const result = await tool.run(args);
-        return { text: JSON.stringify(result).slice(0, 40_000), details: result };
+        return { text: fitText(result), details: result };
       },
     }));
     live = {

@@ -1,5 +1,5 @@
 import { tool } from 'ai';
-import { and, asc, count, desc, eq, inArray, like, or } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, like, ne, or } from 'drizzle-orm';
 import { z } from 'zod';
 import { AI_OUTPUTS, AI_PRESETS, batchChangeSchema, CONNECTION_KIND_INFO, FUNCTIONS, lineFilterSchema, NODE_TYPES, nodeProfileIds, profileInputSchema, sourceOf, workflowDefinitionSchema } from '@tw/shared';
 import { z as zod } from 'zod';
@@ -188,9 +188,15 @@ export function agentTools(db: Db, projectId: string, author: { profileId: strin
       execute: ({ ids }) => db.select().from(s.documents).where(and(eq(s.documents.projectId, projectId), ids?.length ? inList(s.documents.id, ids) : undefined)).all(),
     }),
     list_terms: tool({
-      description: 'Glossary entries, optionally filtered.',
-      inputSchema: z.object({ q: z.string().optional() }),
-      execute: ({ q }) => db.select().from(s.terms).where(and(eq(s.terms.projectId, projectId), q ? or(like(s.terms.source, `%${q}%`), like(s.terms.target, `%${q}%`)) : undefined)).limit(500).all(),
+      description: 'Glossary entries (not rejected ones), optionally filtered. Returns total and one page; use offset to page through.',
+      inputSchema: z.object({ q: z.string().optional(), ...page }),
+      execute: ({ q, offset, limit }) => {
+        const where = and(eq(s.terms.projectId, projectId), ne(s.terms.status, 'rejected'), q ? or(like(s.terms.source, `%${q}%`), like(s.terms.target, `%${q}%`)) : undefined);
+        return {
+          total: db.select({ count: count() }).from(s.terms).where(where).get()!.count,
+          terms: db.select({ id: s.terms.id, source: s.terms.source, target: s.terms.target, note: s.terms.note, status: s.terms.status }).from(s.terms).where(where).orderBy(asc(s.terms.source)).limit(limit).offset(offset).all(),
+        };
+      },
     }),
     harness_reference: tool({
       description: 'How workflows work: node types, their exits, the condition data model, available AI connections/profiles, statuses and tags. Read this before proposing a workflow or profile.',

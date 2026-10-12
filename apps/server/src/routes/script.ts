@@ -7,6 +7,7 @@ import * as s from '../db/schema.ts';
 import { agentCatalog, jsonSchemaOf } from '../services/agent-catalog.ts';
 import { previewContext } from '../services/context-preview.ts';
 import { prepareProposal, reportText } from '../services/proposal-check.ts';
+import { fitResult } from '../services/tool-output.ts';
 import { propose, proposedText } from '../services/proposals.ts';
 import { checkScript, exportLines, findLines, firstAppearance, lineContext, normalizeBatch, runStats, sceneStats, scenesWith, validateBatch } from '../services/script-query.ts';
 
@@ -92,7 +93,7 @@ export const scriptRoutes = new Hono<Env>()
       const proposal = propose(db, { projectId, sessionId: null, source: 'cli', tool: tool.name, input: prepared.input, report: prepared.report });
       return c.json({ proposed: true, proposalId: proposal.id, message: proposedText(proposal.id) + reportText(prepared.report), report: prepared.report });
     }
-    return c.json({ proposed: false, result: await tool.run(parsed.data) });
+    return c.json({ proposed: false, result: fitResult(await tool.run(parsed.data)) });
   })
   /** Projects by name, so the CLI can take `--project <name>`. */
   .get('/cli/projects', (c) => {

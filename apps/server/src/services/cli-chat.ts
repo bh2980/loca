@@ -6,6 +6,7 @@ import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { agentCatalog, jsonSchemaOf, type CatalogTool } from './agent-catalog.ts';
 import { prepareProposal, reportText } from './proposal-check.ts';
+import { fitText } from './tool-output.ts';
 import { decisionsSince, propose, proposedText } from './proposals.ts';
 
 /**
@@ -133,7 +134,7 @@ export async function cliChatResponse(input: {
               results.push(`${call.tool}: ${proposedText(proposal.id)}${reportText(prepared.report)}`);
             } else {
               output = await tool.run(call.input);
-              results.push(`${call.tool}: ${JSON.stringify(output).slice(0, RESULT_LIMIT)}`);
+              results.push(`${call.tool}: ${fitText(output, RESULT_LIMIT)}`);
             }
             writer.write({ type: 'tool-output-available', toolCallId, output });
           } catch (cause) {

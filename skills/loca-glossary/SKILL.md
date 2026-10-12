@@ -5,7 +5,8 @@ description: Build and maintain the glossary of a loca project — find where te
 
 # loca 용어집 다루기
 
-- 용어 목록: `loca call list_terms` (또는 `'{"q":"Guild"}'`로 좁히기)
+- 용어 목록: `loca call list_terms` (또는 `'{"q":"Guild"}'`로 좁히기). 한 번에 50개(`limit` 최대 200), `total`을 보고 `offset`으로 넘겨 읽는다
+- 도구 결과가 길면 앞부분만 오고 `truncated`(`shown`·`total`)가 붙는다. 그때는 offset·limit이나 더 좁은 조건으로 다시 부른다
 - 용어가 쓰인 대사: `loca lines --q "Guild" --all --jsonl`
 - 확정 용어를 어긴 번역: `loca check terms`
 
