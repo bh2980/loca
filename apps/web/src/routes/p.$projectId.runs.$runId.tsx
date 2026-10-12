@@ -272,6 +272,8 @@ function RunDetail() {
                   ) : (
                     <p className="py-12 text-center text-sm text-muted-foreground">이 실행에는 저장된 번역 계획이 없습니다(계획을 저장하기 전에 시작한 실행).</p>
                   )
+                ) : plan.isError ? (
+                  <p className="py-12 text-center text-sm text-destructive">번역 계획을 불러오지 못했습니다: {plan.error.message}</p>
                 ) : (
                   <Skeleton className="h-32 w-full" />
                 )}
