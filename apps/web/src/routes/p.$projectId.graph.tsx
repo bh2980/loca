@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Maximize, Minus, Plus, Search } from 'lucide-react';
+import { Maximize, Minus, Plus, Search, X } from 'lucide-react';
 import { GraphCanvas, type GraphCanvasHandle, type NodeInfo, type Viewport } from '@/components/graph/graph-canvas';
 import { DialogueNodeDetail, SceneNodeDetail } from '@/components/graph/node-detail';
 import { KIND_LABEL } from '@/components/graph/shapes';
@@ -10,6 +10,7 @@ import { Page } from '@/components/page';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
@@ -85,16 +86,30 @@ function GraphPage() {
     const map = new Map<string, NodeInfo>((graph.data?.nodes ?? []).map((node) => [node.id, { ...node, label: node.label ?? (node.type ? (types[node.type]?.label ?? node.type) : null) }]));
     // Stand-ins for lines that continue in (or come from) another section.
     for (const portal of graph.data?.layout?.portals ?? []) map.set(portal.id, { id: portal.id, kind: 'portal', label: `${portal.direction === 'out' ? '→' : '←'} ${portal.section}`, preview: null, key: portal.id });
+    // A folded straight run reads as its first line, with how many nodes it holds.
+    for (const chain of graph.data?.layout?.chains ?? []) {
+      const first = map.get(chain.nodeIds[0]);
+      map.set(chain.id, { id: chain.id, kind: 'chain', label: `이어진 노드 ${chain.nodeIds.length}개`, preview: first?.preview ?? first?.label ?? null, key: `${first?.key ?? ''} 외 ${chain.nodeIds.length - 1}개` });
+    }
     return map;
   }, [graph.data]);
+  // Nodes inside a folded run are shown, selected and highlighted through their block.
+  const chainOf = useMemo(() => new Map((graph.data?.layout?.chains ?? []).flatMap((chain) => chain.nodeIds.map((id) => [id, chain.id] as const))), [graph.data]);
+  const shown = (id: string) => chainOf.get(id) ?? id;
   const portals = useMemo(() => new Map((graph.data?.layout?.portals ?? []).map((portal) => [portal.id, portal])), [graph.data]);
   const highlight = useMemo(() => {
+    const picked = pickHighlight();
+    if (!picked) return undefined;
+    for (const id of [...picked]) if (chainOf.has(id)) picked.add(chainOf.get(id)!);
+    return picked;
+  }, [graph.data, search.scope, search.scene, search.type, search.mark, mark.data, dialogue, chainOf]); // eslint-disable-line react-hooks/exhaustive-deps
+  function pickHighlight() {
     if (!graph.data) return undefined;
     if (dialogue && search.mark && mark.data) return new Set(mark.data.nodeIds);
     if (search.type) return new Set(graph.data.nodes.filter((node) => (node.type ?? `kind:${node.kind}`) === search.type).map((node) => node.id));
     if (search.scope !== 'dialogue' || !search.scene) return undefined;
     return new Set(graph.data.nodes.filter((node) => node.groupId === search.scene).map((node) => node.id));
-  }, [graph.data, search.scope, search.scene, search.type, search.mark, mark.data, dialogue]);
+  }
   const matches = useMemo(() => {
     const text = find.trim().toLowerCase();
     if (!text || !graph.data) return [];
@@ -167,17 +182,24 @@ function GraphPage() {
           search.node && (
             <div className="h-full bg-background">
               {search.scope === 'scene' && hubs.has(search.node) ? (
-                <aside className="flex h-full flex-col gap-2 p-4 text-sm">
-                  <div className="flex items-center justify-between">
-                    <h2 className="font-medium">연결점</h2>
-                    <Button size="sm" variant="ghost" onClick={() => select(undefined)}>
-                      닫기
+                <aside className="flex h-full flex-col text-sm">
+                  <div className="flex items-start gap-2 border-b px-4 py-3">
+                    <h2 className="min-w-0 flex-1 truncate text-sm font-medium">연결점</h2>
+                    <Button size="icon" variant="ghost" className="size-7" aria-label="닫기" onClick={() => select(undefined)}>
+                      <X />
                     </Button>
                   </div>
-                  <p className="text-muted-foreground">
+                  <p className="px-4 py-3 text-muted-foreground">
                     장면에 속하지 않는 노드 {hubs.get(search.node)!.nodes.toLocaleString()}개가 장면 {hubs.get(search.node)!.scenes.toLocaleString()}개를 잇습니다. 대사 그래프에서 파생한 연결입니다.
                   </p>
                 </aside>
+              ) : search.node.startsWith('chain:') ? (
+                <ChainDetail
+                  title={info.get(search.node)?.label ?? ''}
+                  nodes={(layout?.chains?.find((chain) => chain.id === search.node)?.nodeIds ?? []).map((id) => info.get(id)).filter((node): node is NodeInfo => !!node)}
+                  onPick={(id) => select(id)}
+                  onClose={() => select(undefined)}
+                />
               ) : search.scope === 'scene' ? (
                 <SceneNodeDetail projectId={projectId} groupId={search.node} onClose={() => select(undefined)} />
               ) : (
@@ -187,7 +209,7 @@ function GraphPage() {
                   onClose={() => select(undefined)}
                   onSelect={(id) => {
                     select(id);
-                    canvas.current?.focus(id);
+                    canvas.current?.focus(shown(id));
                   }}
                 />
               )}
@@ -208,7 +230,7 @@ function GraphPage() {
               info={info}
               width={size.width}
               height={size.height}
-              selectedId={search.node}
+              selectedId={search.node ? shown(search.node) : undefined}
               highlight={highlight}
               initialViewport={readViewport(key)}
               onViewportChange={(viewport) => sessionStorage.setItem(key, JSON.stringify(viewport))}
@@ -248,7 +270,7 @@ function GraphPage() {
                           className="w-full truncate rounded px-2 py-1 text-left hover:bg-muted"
                           onClick={() => {
                             select(node.id);
-                            canvas.current?.focus(node.id);
+                            canvas.current?.focus(shown(node.id));
                             setFind('');
                           }}
                         >
@@ -282,7 +304,7 @@ function GraphPage() {
               <p className="absolute top-3 right-3 rounded-md bg-background/90 px-2 py-1 text-xs text-muted-foreground tabular-nums shadow-sm">
                 {search.scope === 'scene'
                   ? `장면 ${(layout.nodes.length - hubs.size).toLocaleString()}${hubs.size ? ` · 연결점 ${hubs.size.toLocaleString()}` : ''} · 연결 ${(edges.length + (looseEdges?.length ?? 0)).toLocaleString()}${looseEdges?.length ? ` (연결점 직선 ${looseEdges.length.toLocaleString()})` : ''}`
-                  : `${view ? `보기${view.label ? ` "${view.label}"` : ''} · ` : chosen ? `구역 ${chosen} · ` : sections.length > 1 ? '전체 · ' : ''}노드 ${(layout.nodes.length - portals.size).toLocaleString()}개${portals.size ? ` · 다른 구역으로 이어지는 이름표 ${portals.size.toLocaleString()}` : ''} · 연결 ${(edges.length + (looseEdges?.length ?? 0)).toLocaleString()}`}
+                  : `${view ? `보기${view.label ? ` "${view.label}"` : ''} · ` : chosen ? `구역 ${chosen} · ` : sections.length > 1 ? '전체 · ' : ''}노드 ${(layout.nodes.length - portals.size - (layout.chains?.length ?? 0) + (layout.chains ?? []).reduce((sum, chain) => sum + chain.nodeIds.length, 0)).toLocaleString()}개${layout.chains?.length ? ` (한 길로 이어진 ${(layout.chains ?? []).reduce((sum, chain) => sum + chain.nodeIds.length, 0).toLocaleString()}개는 덩어리 ${layout.chains.length.toLocaleString()}개로 접음)` : ''}${portals.size ? ` · 다른 구역으로 이어지는 이름표 ${portals.size.toLocaleString()}` : ''} · 연결 ${(edges.length + (looseEdges?.length ?? 0)).toLocaleString()}`}
                 {highlight && !mark.data && ` · 강조 ${highlight.size.toLocaleString()}`}
               </p>
               {search.mark && mark.data && layout && (
@@ -303,7 +325,7 @@ function GraphPage() {
               )}
               {search.scope === 'dialogue' && !!looseEdges?.length && (
                 <p className="absolute top-11 right-3 rounded-md bg-background/90 px-2 py-1 text-xs text-muted-foreground shadow-sm">
-                  직선: 허브 연결(배치에서 제외) {looseEdges.length.toLocaleString()}개
+                  허브 연결 {looseEdges.length.toLocaleString()}개는 숨김 · 허브를 누르면 그 선만 보입니다
                 </p>
               )}
               {search.scope === 'scene' && hubs.size > 0 && (
@@ -325,5 +347,34 @@ function GraphPage() {
         </div>
       </SplitPane>
     </Page>
+  );
+}
+
+/** A folded straight run: its nodes in order; picking one opens it (the block stays selected on the canvas). */
+function ChainDetail({ title, nodes, onPick, onClose }: { title: string; nodes: NodeInfo[]; onPick: (id: string) => void; onClose: () => void }) {
+  return (
+    <aside className="flex h-full flex-col text-sm">
+      <div className="flex items-start gap-2 border-b px-4 py-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-xs text-muted-foreground">한 길로만 이어지는 노드를 한 덩어리로 접었습니다</p>
+          <h2 className="truncate text-sm font-medium">{title}</h2>
+        </div>
+        <Button size="icon" variant="ghost" className="size-7" aria-label="닫기" onClick={onClose}>
+          <X />
+        </Button>
+      </div>
+      <ScrollArea className="min-h-0 flex-1">
+        <ol className="divide-y">
+          {nodes.map((node) => (
+            <li key={node.id}>
+              <Button variant="ghost" className="h-auto w-full justify-start rounded-none px-4 py-2 text-left font-normal whitespace-normal" onClick={() => onPick(node.id)}>
+                <span className="w-14 shrink-0 text-xs text-muted-foreground">{KIND_LABEL[node.kind] ?? node.kind}</span>
+                <span className="min-w-0 flex-1 line-clamp-2">{node.preview ?? node.label ?? node.key}</span>
+              </Button>
+            </li>
+          ))}
+        </ol>
+      </ScrollArea>
+    </aside>
   );
 }

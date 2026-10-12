@@ -11,7 +11,7 @@ import { Runner } from './engine/runner.ts';
 import { AnalysisService } from './services/analysis.ts';
 import { TermService } from './services/terms.ts';
 import { closeStaleCalls } from './services/ai-calls.ts';
-import { computeLayouts, projectsMissingSections } from './services/layout.ts';
+import { computeLayouts, projectsMissingSections, projectsWithOldLayouts } from './services/layout.ts';
 import { keyringStore, memoryStore } from './services/secrets.ts';
 
 // A stray rejected promise (a client that vanished, a failed background job) must not take the server down.
@@ -32,7 +32,10 @@ runner.start();
 // Layouts interrupted by a restart are recomputed.
 for (const layout of db.select().from(s.graphLayouts).where(eq(s.graphLayouts.status, 'pending')).all()) void computeLayouts(db, layout.projectId);
 // Section layouts came later: projects laid out before get them once, without redoing the rest.
-for (const projectId of projectsMissingSections(db)) void computeLayouts(db, projectId, { sectionsOnly: true });
+// Layouts made the old way are made again (whole and per section).
+const outdated = new Set(projectsWithOldLayouts(db));
+for (const projectId of outdated) void computeLayouts(db, projectId);
+for (const projectId of projectsMissingSections(db)) if (!outdated.has(projectId)) void computeLayouts(db, projectId, { sectionsOnly: true });
 
 const app = createApp({ db, secrets, runner, analysis: new AnalysisService(db, secrets), terms: new TermService(db, secrets) });
 if (existsSync(config.webDist)) {

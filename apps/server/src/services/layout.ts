@@ -47,7 +47,21 @@ function runWorker<T = LayoutData>(job: WorkerJob, onWorker: (worker: Worker) =>
   });
 }
 
-function save(db: Db, projectId: string, scope: 'dialogue' | 'scene', value: Partial<typeof graphLayouts.$inferInsert>, section = '') {
+/** Bumped when layouts are made differently (2: straight runs folded, hub-only scenes by depth); older ones are recomputed at startup. */
+export const LAYOUT_VERSION = 2;
+
+/** Projects with a stored layout made by an older LAYOUT_VERSION (agent views excepted: they are made again on request). */
+export function projectsWithOldLayouts(db: Db) {
+  return db
+    .selectDistinct({ projectId: graphLayouts.projectId })
+    .from(graphLayouts)
+    .where(and(eq(graphLayouts.status, 'ready'), sql`coalesce(json_extract(${graphLayouts.data}, '$.version'), 0) < ${LAYOUT_VERSION}`, sql`${graphLayouts.section} not like 'view:%'`))
+    .all()
+    .map((row) => row.projectId);
+}
+
+function save(db: Db, projectId: string, scope: 'dialogue' | 'scene', given: Partial<typeof graphLayouts.$inferInsert>, section = '') {
+  const value = given.data ? { ...given, data: { ...given.data, version: LAYOUT_VERSION } } : given;
   db.insert(graphLayouts)
     .values({ projectId, scope, section, status: 'pending', ...value })
     .onConflictDoUpdate({ target: [graphLayouts.projectId, graphLayouts.scope, graphLayouts.section], set: { ...value, updatedAt: new Date() } })
@@ -62,7 +76,7 @@ export function sectionSource(db: Db, projectId: string) {
   return {
     nodes: nodes.map((node) => {
       const [width, height] = NODE_SIZE[node.kind] ?? NODE_SIZE.unknown;
-      return { id: node.id, width, height, section: node.groupId ? (sectionOf.get(node.groupId) ?? null) : null };
+      return { id: node.id, width, height, group: node.groupId, section: node.groupId ? (sectionOf.get(node.groupId) ?? null) : null };
     }),
     edges: db.select({ id: graphEdges.id, from: graphEdges.fromId, to: graphEdges.toId }).from(graphEdges).where(eq(graphEdges.projectId, projectId)).all(),
     order: [...new Set(groupRows.flatMap((group) => (group.section ? [group.section] : [])))],
@@ -84,12 +98,12 @@ export function sceneSource(db: Db, projectId: string): SceneSource {
 }
 
 export function dialogueJob(db: Db, projectId: string): LayoutJob {
-  const nodes = db.select({ id: graphNodes.id, kind: graphNodes.kind }).from(graphNodes).where(eq(graphNodes.projectId, projectId)).all();
+  const nodes = db.select({ id: graphNodes.id, kind: graphNodes.kind, groupId: graphNodes.groupId }).from(graphNodes).where(eq(graphNodes.projectId, projectId)).all();
   const edges = db.select({ id: graphEdges.id, from: graphEdges.fromId, to: graphEdges.toId }).from(graphEdges).where(eq(graphEdges.projectId, projectId)).all();
   return {
     nodes: nodes.map((node) => {
       const [width, height] = NODE_SIZE[node.kind] ?? NODE_SIZE.unknown;
-      return { id: node.id, width, height };
+      return { id: node.id, width, height, group: node.groupId };
     }),
     edges,
   };
@@ -118,7 +132,7 @@ export async function nodeSetLayout(db: Db, projectId: string, key: string, node
       edges,
       nodes: nodes.map((node) => {
         const [width, height] = NODE_SIZE[node.kind] ?? NODE_SIZE.unknown;
-        return { id: node.id, width, height, section: chosen.has(node.id) ? VIEW : node.groupId ? `scene:${node.groupId}` : null };
+        return { id: node.id, width, height, group: node.groupId, section: chosen.has(node.id) ? VIEW : node.groupId ? `scene:${node.groupId}` : null };
       }),
     },
     () => {},

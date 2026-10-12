@@ -77,7 +77,11 @@ function FloatingEdge({ id, source, target, markerStart, markerEnd, data, select
             style={{ transform: `translate(-50%, -50%) translate(${label.x}px, ${label.y}px)`, pointerEvents: 'all' }}
           >
             {data?.rows.map((row) => (
-              <button key={row.id} type="button" className={cn('px-1.5 py-0.5 text-left whitespace-nowrap hover:bg-muted', row.selected ? 'font-medium text-primary' : (selected || data.focus) && 'text-primary')} onClick={() => data.onPick(row.id)}>
+              <button key={row.id} type="button" className={cn('px-1.5 py-0.5 text-left whitespace-nowrap hover:bg-muted', row.selected ? 'font-medium text-primary' : (selected || data.focus) && 'text-primary')} onClick={(event) => {
+                  // The line under the label would otherwise take the click and pick the first relationship.
+                  event.stopPropagation();
+                  data.onPick(row.id);
+                }}>
                 {row.text}
               </button>
             ))}

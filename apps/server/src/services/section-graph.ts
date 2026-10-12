@@ -9,6 +9,8 @@ export interface SectionNode {
   height: number;
   /** The section of the node's scene; null for nodes outside a scene (choices, conditions…). */
   section: string | null;
+  /** The node's scene, passed through to the layout job. */
+  group?: string | null;
 }
 
 export interface SectionJob {
@@ -59,7 +61,7 @@ export function sectionJobs(nodes: SectionNode[], edges: { id: string; from: str
   const section = assignSections(nodes, edges);
   const names = [...new Set([...order.filter((name) => [...section.values()].includes(name)), ...section.values()])];
   const jobs = new Map<string, SectionJob>(names.map((name) => [name, { name, job: { nodes: [], edges: [] }, portals: [] }]));
-  for (const node of nodes) jobs.get(section.get(node.id)!)!.job.nodes.push({ id: node.id, width: node.width, height: node.height });
+  for (const node of nodes) jobs.get(section.get(node.id)!)!.job.nodes.push({ id: node.id, width: node.width, height: node.height, group: node.group ?? null });
   const portal = (owner: SectionJob, other: string, direction: 'in' | 'out') => {
     const id = `portal:${direction}:${other}`;
     if (!owner.portals.some((entry) => entry.id === id)) {

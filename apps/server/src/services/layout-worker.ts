@@ -2,10 +2,12 @@ import { parentPort, workerData } from 'node:worker_threads';
 import ELK, { type ElkNode } from 'elkjs/lib/elk.bundled.js';
 import type { LayoutData } from '../db/schema.ts';
 import { deriveSceneGraph, depthBlocks, reduceSceneEdges } from './scene-graph.ts';
+import { foldChains } from './chains.ts';
 import { sectionJobs, type SectionNode } from './section-graph.ts';
 
 export interface LayoutJob {
-  nodes: { id: string; width: number; height: number }[];
+  /** `group`: the node's scene, for dialogue layouts (straight runs are folded within one scene). */
+  nodes: { id: string; width: number; height: number; group?: string | null }[];
   edges: { id: string; from: string; to: string }[];
   /**
    * Nodes joined only by drawn (not laid out) edges, placed in labelled blocks side by side (one
@@ -121,9 +123,12 @@ function withoutHubEdges(job: LayoutJob): { job: LayoutJob; loose: LayoutJob['ed
   return { job: { ...job, edges: kept }, loose };
 }
 async function dialogueLayout(work: LayoutJob) {
-  const { job, loose } = withoutHubEdges(work);
+  const groupOf = new Map(work.nodes.map((node) => [node.id, node.group]));
+  const folded = foldChains(work, (id) => groupOf.get(id));
+  const { job, loose } = withoutHubEdges(folded.job);
   const data = await layout(job);
   if (loose.length) data.looseEdges = loose;
+  if (folded.chains.length) data.chains = folded.chains;
   return data;
 }
 

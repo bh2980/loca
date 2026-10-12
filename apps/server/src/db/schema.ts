@@ -182,6 +182,10 @@ export interface LayoutData {
   portals?: { id: string; section: string; direction: 'in' | 'out'; /** In a view of chosen scenes: the scene the lines continue in. */ groupId?: string }[];
   /** A view an agent made (section "view:<id>", see graph-views.ts): what it shows, for the header. */
   view?: { label: string; nodes: number };
+  /** Dialogue graph: straight runs folded into one block ("chain:<first node>"), with their nodes in order (see chains.ts). */
+  chains?: { id: string; nodeIds: string[] }[];
+  /** How the layout was made (LAYOUT_VERSION); older stored layouts are recomputed at startup. */
+  version?: number;
 }
 
 export const graphLayouts = sqliteTable(

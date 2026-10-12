@@ -217,16 +217,7 @@ export function GraphCanvas({ nodes, regions = [], edges, looseEdges, hubs, info
       const own = selected ? new Set(index.looseByNode.get(selected)) : undefined;
       context.strokeStyle = muted;
       context.lineWidth = Math.max(0.5, 0.75 / t.k);
-      context.globalAlpha = dimmed ? 0.05 : 0.12;
-      context.beginPath();
-      for (let i = 0; i < segments.length; i += 4) {
-        if (own?.has(i / 4)) continue;
-        const x1 = segments[i], y1 = segments[i + 1], x2 = segments[i + 2], y2 = segments[i + 3];
-        if ((x1 < view.minX && x2 < view.minX) || (x1 > view.maxX && x2 > view.maxX) || (y1 < view.minY && y2 < view.minY) || (y1 > view.maxY && y2 > view.maxY)) continue;
-        context.moveTo(x1, y1);
-        context.lineTo(x2, y2);
-      }
-      context.stroke();
+      // Hub lines are many and long; drawn all at once they hide the flow. Only the selected node's show.
       if (own?.size) {
         context.globalAlpha = 0.8;
         context.lineWidth = Math.max(1, 1.2 / t.k);
@@ -497,12 +488,12 @@ function arrowHead(context: CanvasRenderingContext2D, points: number[], size: nu
 function drawLabel(context: CanvasRenderingContext2D, meta: NodeInfo, node: LayoutNode) {
   context.save();
   context.fillStyle = '#18181b';
-  if (meta.kind === 'script' || meta.kind === 'scene') {
+  if (meta.kind === 'script' || meta.kind === 'scene' || meta.kind === 'chain') {
     context.beginPath();
     context.rect(node.x + 10, node.y + 6, node.width - 20, node.height - 12);
     context.clip();
     context.font = '600 12px Pretendard, system-ui, sans-serif';
-    context.fillText(meta.kind === 'scene' ? (meta.label ?? meta.key) : meta.key, node.x + 12, node.y + 22);
+    context.fillText(meta.kind === 'scene' || meta.kind === 'chain' ? (meta.label ?? meta.key) : meta.key, node.x + 12, node.y + 22);
     context.font = '12px Pretendard, system-ui, sans-serif';
     context.fillStyle = '#52525b';
     wrapText(context, meta.preview ?? meta.label ?? '', node.x + 12, node.y + 42, node.width - 24, 16, 2);
