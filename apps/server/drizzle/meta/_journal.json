@@ -225,6 +225,13 @@
       "when": 1791826367649,
       "tag": "0031_ai_calls",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1791827296252,
+      "tag": "0032_term_jobs",
+      "breakpoints": true
     }
   ]
 }

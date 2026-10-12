@@ -68,8 +68,10 @@ export const q = {
     queryOptions({ queryKey: ['workflows', projectId], queryFn: () => unwrap(client.projects[':projectId'].workflows.$get({ param: { projectId } })) }),
   workflow: (id: string) => queryOptions({ queryKey: ['workflows', 'detail', id], queryFn: () => unwrap(client.workflows[':id'].$get({ param: { id } })) }),
   /** The project's AI log (every model request); `kind` narrows it to one source. */
-  aiCalls: (projectId: string, kind?: 'run' | 'analysis' | 'terms' | 'test' | 'chat') =>
-    queryOptions({ queryKey: ['calls', projectId, kind ?? ''], queryFn: () => unwrap(client.projects[':projectId']['ai-calls'].$get({ param: { projectId }, query: kind ? { kind } : {} })) }),
+  aiCalls: (projectId: string, kind?: 'run' | 'analysis' | 'terms' | 'test' | 'chat', ref?: string) =>
+    queryOptions({ queryKey: ['calls', projectId, kind ?? '', ref ?? ''], queryFn: () => unwrap(client.projects[':projectId']['ai-calls'].$get({ param: { projectId }, query: { ...(kind && { kind }), ...(ref && { ref }) } })) }),
+  /** Work analyses and glossary fills, for 실행 기록 beside the runs. */
+  jobs: (projectId: string) => queryOptions({ queryKey: ['runs', projectId, 'jobs'], queryFn: () => unwrap(client.projects[':projectId'].jobs.$get({ param: { projectId } })) }),
   runs: (projectId: string) => queryOptions({ queryKey: ['runs', projectId], queryFn: () => unwrap(client.projects[':projectId'].runs.$get({ param: { projectId } })) }),
   run: (id: string) => queryOptions({ queryKey: ['runs', 'detail', id], queryFn: () => unwrap(client.runs[':id'].$get({ param: { id } })) }),
   runItems: (id: string, query: { state?: string; nodeId?: string; offset?: number }) =>

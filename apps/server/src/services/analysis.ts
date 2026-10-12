@@ -120,7 +120,7 @@ export class AnalysisService {
     const job = this.db.insert(s.analysisJobs).values({ projectId, profileId, model: profile.routes[0]?.model ?? null, status: 'running', partsTotal: parts.length }).returning().get();
     const abort = new AbortController();
     this.aborts.set(job.id, abort);
-    events.changed(projectId, 'analysis');
+    events.changed(projectId, 'runs', 'analysis');
     this.run(job, profile, parts, keyOf, autoConfirm, abort.signal, reused)
       .catch((error) => console.error('analysis job failed', error))
       .finally(() => this.aborts.delete(job.id));
@@ -130,7 +130,7 @@ export class AnalysisService {
   cancel(jobId: string) {
     this.aborts.get(jobId)?.abort();
     const job = this.db.update(s.analysisJobs).set({ status: 'cancelled', finishedAt: new Date() }).where(and(eq(s.analysisJobs.id, jobId), eq(s.analysisJobs.status, 'running'))).returning().get();
-    if (job) events.changed(job.projectId, 'analysis');
+    if (job) events.changed(job.projectId, 'runs', 'analysis');
   }
 
   private async run(job: Job, profile: s.ProfileSnapshot, parts: string[], keyOf: Map<string, string>, autoConfirm: boolean, signal: AbortSignal, reused = new Map<string, unknown>()) {
@@ -184,7 +184,7 @@ export class AnalysisService {
           queue.splice(index, 1, ...result);
           index--;
           this.db.update(s.analysisJobs).set({ partsTotal: queue.length }).where(eq(s.analysisJobs.id, job.id)).run();
-          events.changed(job.projectId, 'analysis');
+          events.changed(job.projectId, 'runs', 'analysis');
           continue;
         }
         usage.inputTokens += result.result.usage.inputTokens ?? 0;
@@ -193,16 +193,16 @@ export class AnalysisService {
         if (signal.aborted) return;
         answers.push({ hash, answer: result.result.object });
         this.db.update(s.analysisJobs).set({ partsDone: index + 1, usage, parts: answers }).where(eq(s.analysisJobs.id, job.id)).run();
-        events.changed(job.projectId, 'analysis');
+        events.changed(job.projectId, 'runs', 'analysis');
       }
       if (signal.aborted || !merged) return;
       const counts = saveDrafts(this.db, job.projectId, job.id, merged, keyOf, autoConfirm);
       this.db.update(s.analysisJobs).set({ status: 'completed', result: counts, usage, finishedAt: new Date() }).where(eq(s.analysisJobs.id, job.id)).run();
-      events.changed(job.projectId, 'analysis', 'knowledge');
+      events.changed(job.projectId, 'runs', 'analysis', 'knowledge');
     } catch (error) {
       if (signal.aborted) return;
       this.db.update(s.analysisJobs).set({ status: 'failed', error: error instanceof Error ? error.message : String(error), usage, finishedAt: new Date() }).where(eq(s.analysisJobs.id, job.id)).run();
-      events.changed(job.projectId, 'analysis');
+      events.changed(job.projectId, 'runs', 'analysis');
     }
   }
 }

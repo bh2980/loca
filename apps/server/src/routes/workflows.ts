@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { and, asc, count, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { knowledgeTemplate, listenerTemplate, nodeProfileIds, speechFixTemplate, termExtractionTemplate, translationTemplate, validateWorkflow, workflowDefinitionSchema, type WorkflowDefinition } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
@@ -153,11 +153,11 @@ export const workflowRoutes = new Hono<Env>()
 
   // ── runs ───────────────────────────────────────────────────────────
   /** The project's AI log: every model request, newest first (see ai-calls.ts), with totals. */
-  .get('/projects/:projectId/ai-calls', validate('query', z.object({ kind: z.enum(s.AI_CALL_KINDS).optional(), status: z.enum(['running', 'ok', 'failed']).optional(), limit: z.coerce.number().int().min(1).max(500).default(200) })), (c) => {
+  .get('/projects/:projectId/ai-calls', validate('query', z.object({ kind: z.enum(s.AI_CALL_KINDS).optional(), status: z.enum(['running', 'ok', 'failed']).optional(), ref: z.string().optional(), limit: z.coerce.number().int().min(1).max(500).default(200) })), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
-    const { kind, status, limit } = c.req.valid('query');
-    const where = and(eq(s.aiCalls.projectId, projectId), kind ? eq(s.aiCalls.kind, kind) : undefined, status ? eq(s.aiCalls.status, status) : undefined);
+    const { kind, status, ref, limit } = c.req.valid('query');
+    const where = and(eq(s.aiCalls.projectId, projectId), kind ? eq(s.aiCalls.kind, kind) : undefined, status ? eq(s.aiCalls.status, status) : undefined, ref ? eq(s.aiCalls.refId, ref) : undefined);
     const calls = db.select().from(s.aiCalls).where(where).orderBy(desc(s.aiCalls.startedAt)).limit(limit).all();
     const profiles = new Map(db.select({ id: s.profiles.id, name: s.profiles.name }).from(s.profiles).all().map((profile) => [profile.id, profile.name]));
     const totals = db
@@ -174,6 +174,44 @@ export const workflowRoutes = new Hono<Env>()
       .groupBy(s.aiCalls.kind)
       .all();
     return c.json({ calls: calls.map((call) => ({ ...call, profileName: call.profileId ? (profiles.get(call.profileId) ?? null) : null })), totals });
+  })
+  /**
+   * AI jobs that are not workflow runs (work analysis, glossary fill), for 실행 기록 to list beside
+   * the runs, each with its model requests from the AI log.
+   */
+  .get('/projects/:projectId/jobs', (c) => {
+    const { db } = c.var.deps;
+    const projectId = c.req.param('projectId');
+    const analyses = db.select().from(s.analysisJobs).where(eq(s.analysisJobs.projectId, projectId)).orderBy(desc(s.analysisJobs.createdAt)).limit(100).all();
+    const fills = db.select().from(s.termJobs).where(eq(s.termJobs.projectId, projectId)).orderBy(desc(s.termJobs.createdAt)).limit(100).all();
+    const runIds = db.select({ id: s.runs.id }).from(s.runs).where(eq(s.runs.projectId, projectId)).orderBy(desc(s.runs.createdAt)).limit(200).all().map((run) => run.id);
+    const ids = [...analyses, ...fills].map((job) => job.id).concat(runIds);
+    const stats = new Map(
+      (ids.length
+        ? db
+            .select({ refId: s.aiCalls.refId, calls: sql<number>`count(*)`, inputTokens: sql<number>`coalesce(sum(${s.aiCalls.inputTokens}), 0)`, outputTokens: sql<number>`coalesce(sum(${s.aiCalls.outputTokens}), 0)` })
+            .from(s.aiCalls)
+            .where(and(eq(s.aiCalls.projectId, projectId), inArray(s.aiCalls.refId, ids)))
+            .groupBy(s.aiCalls.refId)
+            .all()
+        : []
+      ).map((row) => [row.refId!, row]),
+    );
+    const profiles = new Map(db.select({ id: s.profiles.id, name: s.profiles.name }).from(s.profiles).all().map((profile) => [profile.id, profile.name]));
+    // Jobs from before the AI log have their own usage totals; the log adds the request count.
+    const usage = (id: string, own: { inputTokens?: number; outputTokens?: number } | null) => ({
+      calls: stats.get(id)?.calls ?? null,
+      inputTokens: stats.get(id)?.inputTokens || own?.inputTokens || 0,
+      outputTokens: stats.get(id)?.outputTokens || own?.outputTokens || 0,
+    });
+    return c.json({
+      /** Model requests per workflow run, from the AI log (runs started before it have none). */
+      runCalls: Object.fromEntries(runIds.flatMap((id) => (stats.has(id) ? [[id, stats.get(id)!] as const] : []))),
+      jobs: [
+      ...analyses.map((job) => ({ kind: 'analysis' as const, id: job.id, title: '작품 분석', profile: job.profileId ? (profiles.get(job.profileId) ?? null) : null, status: job.status, error: job.error, done: job.partsDone, total: job.partsTotal, createdAt: job.createdAt, finishedAt: job.finishedAt, ...usage(job.id, job.usage) })),
+      ...fills.map((job) => ({ kind: 'terms' as const, id: job.id, title: '용어 AI 채우기', profile: job.profileId ? (profiles.get(job.profileId) ?? null) : null, status: job.status, error: job.error, done: job.done, total: job.total, createdAt: job.createdAt, finishedAt: job.finishedAt, ...usage(job.id, job.usage) })),
+      ],
+    });
   })
   .get('/projects/:projectId/runs', (c) => {
     const { db } = c.var.deps;

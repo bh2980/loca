@@ -69,6 +69,10 @@ describe('glossary candidates from the script', () => {
     service.start(projectId, profileId);
     for (let i = 0; i < 50 && service.state(projectId)?.running; i++) await new Promise((resolve) => setTimeout(resolve, 5));
     expect(service.state(projectId)).toMatchObject({ running: false, done: 3, total: 3, usage: { inputTokens: 100, outputTokens: 20 } });
+    // The job is kept for 실행 기록, and its request is in the AI log under it.
+    const job = db.select().from(s.termJobs).get()!;
+    expect(job).toMatchObject({ projectId, status: 'completed', done: 3, total: 3, usage: { inputTokens: 100, outputTokens: 20 } });
+    expect(db.select().from(s.aiCalls).all()).toMatchObject([{ kind: 'terms', refId: job.id, status: 'ok', inputTokens: 100 }]);
     const input = JSON.parse(prompts[0]);
     expect(input.candidates[0]).toEqual({ source: 'Freedom Plaza', lines: 2, examples: [{ speaker: 'Symes', source: 'They met at Freedom Plaza.', translation: '그들은 자유 광장에서 만났다.' }, { speaker: 'Symes', source: 'Was Freedom Plaza busy? Thank God it was not.' }] });
     expect(terms(db, projectId).map(({ source, target, note, origin, status }) => ({ source, target, note, origin, status }))).toEqual([
