@@ -10,6 +10,25 @@ export function propose(db: Db, input: { projectId: string; sessionId: string | 
   return row;
 }
 
+/** Lines of a batch proposal sent with the list; the panel previews these and shows the counts. */
+const PREVIEW_CHANGES = 50;
+
+/**
+ * A batch proposal can carry a whole game (50k lines, several MB): the list sends its counts and
+ * the first lines, and accepting still runs the stored input.
+ */
+export function listedProposal(proposal: typeof s.proposals.$inferSelect) {
+  const changes = (proposal.input as { changes?: { translation?: string; status?: string; addTags?: string[]; removeTags?: string[] }[] }).changes;
+  if (!Array.isArray(changes) || changes.length <= PREVIEW_CHANGES) return proposal;
+  const counts = {
+    lines: changes.length,
+    translations: changes.filter((change) => change.translation !== undefined).length,
+    statuses: changes.filter((change) => change.status).length,
+    tagged: changes.filter((change) => change.addTags?.length || change.removeTags?.length).length,
+  };
+  return { ...proposal, input: { ...proposal.input, changes: changes.slice(0, PREVIEW_CHANGES), counts } };
+}
+
 /** What an agent is told when it proposes a change instead of making it. */
 export const proposedText = (id: string) =>
   `제안을 올렸습니다 (proposal ${id}). 아직 반영되지 않았습니다. 사용자가 작업실 채팅 패널에서 수락하면 반영됩니다. 같은 제안을 반복하지 마세요.`;

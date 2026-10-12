@@ -79,13 +79,16 @@ export function ChangePreview({ name, input }: { name: string; input: Record<str
     }
     case 'propose_changes': {
       const changes = (input.changes as { key: string; translation?: string; status?: string; addTags?: string[]; removeTags?: string[] }[] | undefined) ?? [];
-      const translations = changes.filter((change) => change.translation !== undefined).length;
-      const statuses = changes.filter((change) => change.status).length;
-      const tagged = changes.filter((change) => change.addTags?.length || change.removeTags?.length).length;
+      // A large batch arrives as its first lines plus counts (see routes/proposals.ts).
+      const counts = input.counts as { lines: number; translations: number; statuses: number; tagged: number } | undefined;
+      const translations = counts?.translations ?? changes.filter((change) => change.translation !== undefined).length;
+      const statuses = counts?.statuses ?? changes.filter((change) => change.status).length;
+      const tagged = counts?.tagged ?? changes.filter((change) => change.addTags?.length || change.removeTags?.length).length;
       return (
         <div className="space-y-2">
           <p>
-            대사 <b>{changes.length}</b>개 · 번역 {translations} · 상태 {statuses} · 태그 {tagged}
+            대사 <b>{(counts?.lines ?? changes.length).toLocaleString()}</b>개 · 번역 {translations.toLocaleString()} · 상태 {statuses.toLocaleString()} · 태그 {tagged.toLocaleString()}
+            {counts && changes.length < counts.lines && <span className="text-muted-foreground"> · 처음 {changes.length}개만 표시</span>}
           </p>
           <ul className="max-h-56 space-y-1 overflow-auto">
             {changes.slice(0, 50).map((change) => (

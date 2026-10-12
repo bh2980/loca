@@ -312,6 +312,8 @@ program
     for (const entry of report.errors.slice(0, 20)) console.log(`  오류  ${entry.key}: ${entry.reason}`);
     for (const entry of report.conflicts.slice(0, 20)) console.log(`  충돌  ${entry.key}: ${entry.reason}`);
     for (const entry of report.warnings.slice(0, 20)) console.log(`  경고  ${entry.key}: ${entry.issues.join(' / ')}`);
+    const hidden = Math.max(0, report.errors.length - 20) + Math.max(0, report.conflicts.length - 20) + Math.max(0, report.warnings.length - 20);
+    if (hidden) console.log(`  … ${hidden.toLocaleString()}개 더 (--json으로 전부 보기)`);
     if (report.proposalId) console.log(`\n제안을 올렸습니다 (${report.proposalId}). loca 앱 채팅 패널에서 수락하면 한 번에 반영됩니다.`);
     else if (!options.dryRun) console.log('\n올릴 변경이 없어 제안을 만들지 않았습니다.');
   });

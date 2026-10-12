@@ -45,7 +45,8 @@ export const lineChangeSchema = z.object({
 export type LineChange = z.infer<typeof lineChangeSchema>;
 
 export const batchChangeSchema = z.object({
-  changes: z.array(lineChangeSchema).min(1).max(5000),
+  // A whole game: `loca import` sends one file as one proposal.
+  changes: z.array(lineChangeSchema).min(1).max(100_000),
   /** Who wrote the translations: shown on the candidates. */
   origin: z.enum(['ai', 'human']).default('ai'),
   model: z.string().optional(),

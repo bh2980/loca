@@ -3,7 +3,7 @@ import { and, desc, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { badRequest, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
-import { decideProposal } from '../services/proposals.ts';
+import { decideProposal, listedProposal } from '../services/proposals.ts';
 
 /** Changes proposed by pi chat sessions and the CLI, decided in the chat panel. */
 export const proposalRoutes = new Hono<Env>()
@@ -18,7 +18,8 @@ export const proposalRoutes = new Hono<Env>()
         .where(and(eq(s.proposals.projectId, c.req.param("projectId")), scope))
         .orderBy(desc(s.proposals.createdAt))
         .limit(100)
-        .all(),
+        .all()
+        .map(listedProposal),
     );
   })
   .post('/proposals/:id/:action{accept|reject}', async (c) => {
