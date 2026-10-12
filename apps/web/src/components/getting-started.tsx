@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Check, CircleStop, Play } from 'lucide-react';
+import { Check, CircleStop, Play, ScanSearch } from 'lucide-react';
+import { toast } from 'sonner';
 import { hasAnalysis, StartAnalysis } from '@/components/knowledge/analysis-controls';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { Button } from '@/components/ui/button';
@@ -36,6 +37,11 @@ export function GettingStarted({ projectId }: { projectId: string }) {
   const terms = useQuery(q.terms(projectId));
   const runs = useQuery(q.runs(projectId));
   const project = useQuery(q.project(projectId));
+  const discover = useMutation({
+    mutationFn: () => unwrap(client.projects[':projectId'].terms.discover.$post({ param: { projectId } })),
+    onSuccess: (result) => toast.success(`용어 후보 ${result.added.toLocaleString()}개를 찾았습니다`, { description: '용어집에서 번역을 채우고 확정하세요.' }),
+    onError: (error) => toast.error(error.message),
+  });
   const cancel = useMutation({ mutationFn: (jobId: string) => unwrap(client.projects[':projectId'].analysis[':jobId'].cancel.$post({ param: { projectId, jobId } })) });
   if (!profiles.data || !connections.data || !jobs.data || !rules.data || !terms.data || !runs.data || !project.data) return null;
 
@@ -45,6 +51,8 @@ export function GettingStarted({ projectId }: { projectId: string }) {
   if (analysed && ran) return null;
   const toCheck = rules.data.filter((rule) => rule.review && !rule.reviewed).length;
   const confirmedTerms = terms.data.filter((term) => term.status === 'confirmed').length;
+  const candidates = terms.data.filter((term) => term.status === 'candidate').length;
+  const emptyTerms = terms.data.filter((term) => term.status === 'candidate' && !term.target.trim()).length;
 
   const steps: Step[] = [
     {
@@ -101,16 +109,23 @@ export function GettingStarted({ projectId }: { projectId: string }) {
     {
       key: 'terms',
       title: '용어 정하기',
-      why: '대본에서 고유명사 후보를 찾아 번역을 정합니다. 확정한 용어만 번역 문맥에 들어갑니다.',
+      why: !terms.data.length
+        ? '대본에서 고유명사·약어·화자 이름을 코드로 찾아 용어 후보로 넣습니다. AI를 쓰지 않아 비용이 없고 몇 초면 끝납니다.'
+        : `용어 후보 ${candidates.toLocaleString()}개${emptyTerms ? ` (번역이 빈 것 ${emptyTerms.toLocaleString()}개)` : ''}. 용어집에서 빈 번역을 AI로 채우고, 확인해서 확정하세요. 확정한 용어만 번역 문맥에 들어갑니다.`,
       done: confirmedTerms > 0,
       optional: true,
-      action: () => (
-        <Button asChild variant="ghost">
-          <Link to="/p/$projectId/glossary" params={{ projectId }}>
-            용어집 열기
-          </Link>
-        </Button>
-      ),
+      action: () =>
+        terms.data.length ? (
+          <Button asChild variant="ghost">
+            <Link to="/p/$projectId/glossary" params={{ projectId }} search={{ state: 'candidate' }}>
+              용어집 열기
+            </Link>
+          </Button>
+        ) : (
+          <Button variant="outline" disabled={discover.isPending} onClick={() => discover.mutate()}>
+            <ScanSearch /> 대본에서 용어 찾기
+          </Button>
+        ),
     },
     {
       key: 'run',
