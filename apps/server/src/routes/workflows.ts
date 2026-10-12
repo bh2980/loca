@@ -85,7 +85,7 @@ export const workflowRoutes = new Hono<Env>()
     const { db } = c.var.deps;
     const body = c.req.valid('json');
     const current = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
-    if (current.version !== body.version) badRequest(`다른 곳에서 먼저 저장했습니다 (v${current.version}). 새로고침 후 다시 저장하세요.`);
+    if (current.version !== body.version) badRequest('다른 곳에서 먼저 저장했습니다. 새로고침 후 다시 저장하세요.');
     const row = db
       .update(s.workflows)
       .set({ name: body.name, description: body.description, definition: body.definition, version: current.version + 1 })

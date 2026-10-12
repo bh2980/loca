@@ -63,7 +63,7 @@ function RunDetail() {
   const plan = useQuery({ ...q.runPlan(runId), enabled: search.view === 'plan' });
   const control = useMutation({ mutationFn: (action: 'pause' | 'resume' | 'cancel') => unwrap(client.runs[':id'][':action{pause|resume|cancel}'].$post({ param: { id: runId, action } })) });
   const setSearch = (next: Partial<RunSearch>, replace = false) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace });
-  useReportView('run', [run.data && { kind: '실행', id: run.data.id, label: `${run.data.workflowName} v${run.data.workflowVersion}` }]);
+  useReportView('run', [run.data && { kind: '실행', id: run.data.id, label: run.data.workflowName }]);
 
   if (!run.data)
     return (
@@ -169,7 +169,7 @@ function RunDetail() {
   );
 
   return (
-    <Page title={`${data.workflowName} v${data.workflowVersion}`} flush>
+    <Page title={data.workflowName} flush>
       <SplitPane
         id="run-lines"
         defaultWidth="400px"

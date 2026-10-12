@@ -134,7 +134,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
             <SelectContent>
               {workflows.data?.map((workflow) => (
                 <SelectItem key={workflow.id} value={workflow.id} disabled={workflow.errorCount > 0}>
-                  {workflow.name} <span className="text-muted-foreground">v{workflow.version}{workflow.errorCount > 0 && ' · 오류 있음'}</span>
+                  {workflow.name} {workflow.errorCount > 0 && <span className="text-muted-foreground">· 오류 있음</span>}
                 </SelectItem>
               ))}
             </SelectContent>

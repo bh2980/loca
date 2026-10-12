@@ -37,6 +37,9 @@ import { useReportView } from '@/lib/view-context';
 import { workflowEdits } from '@/lib/workflow-edits';
 import { SplitPane } from '@/components/split-pane';
 
+/** When the workflow was last saved: 10. 13. 오전 06:16. Runs keep their own copy of what they ran. */
+const savedAt = (at: string) => new Date(at).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
 export const Route = createFileRoute('/p/$projectId/workflows/$workflowId')({
   validateSearch: (raw: Record<string, unknown>): { node?: string } => ({ node: typeof raw.node === 'string' ? raw.node : undefined }),
   component: () => (
@@ -119,7 +122,7 @@ function WorkflowEditor() {
     onSuccess: (row) => {
       discard();
       setIssues(row.issues);
-      toast.success(`v${row.version} 저장했습니다.`);
+      toast.success('저장했습니다.');
     },
   });
 
@@ -219,7 +222,7 @@ function WorkflowEditor() {
   const select = (id: string | undefined) => void navigate({ search: { node: id }, replace: true });
   const selected = current?.definition.nodes.find((node) => node.id === search.node);
   useReportView('workflow', [
-    workflow.data && { kind: '워크플로', id: workflow.data.id, label: `${workflow.data.name} v${workflow.data.version}` },
+    workflow.data && { kind: '워크플로', id: workflow.data.id, label: workflow.data.name },
     selected && { kind: '워크플로 노드', id: selected.id, label: `${nodeName(selected)} (${selected.type})`, detail: `저장 전 설정: ${JSON.stringify(selected.config).slice(0, 5000)}` },
   ]);
 
@@ -330,11 +333,10 @@ function WorkflowEditor() {
           <Input
             value={current.name}
             onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))}
-            className="h-8 w-60 border-transparent px-1 font-medium text-foreground shadow-none hover:border-input focus-visible:border-input"
+            className="h-8 w-auto min-w-24 max-w-80 field-sizing-content border-transparent px-1 font-medium text-foreground shadow-none hover:border-input focus-visible:border-input"
             aria-label="워크플로 이름"
           />
-          <Badge variant="outline">v{workflow.data.version}</Badge>
-          {draft && <Badge variant="secondary">저장 안 됨</Badge>}
+          {draft ? <Badge variant="secondary">저장 안 됨</Badge> : <span className="text-xs text-muted-foreground">{savedAt(workflow.data.updatedAt)} 저장</span>}
           {errorCount > 0 && <span className="truncate text-destructive">오류 {errorCount}개 — 저장한 버전에 오류가 없어야 실행할 수 있습니다.</span>}
         </span>
       }
@@ -404,7 +406,7 @@ function WorkflowEditor() {
     >
       {stale && (
         <div className="flex items-center gap-3 border-b bg-warning/10 px-6 py-2 text-sm text-warning">
-          다른 곳에서 v{workflow.data.version}을 저장했습니다. 이 편집은 v{draft!.baseVersion} 기준입니다.
+          편집하는 동안 다른 곳에서 이 워크플로를 저장했습니다({savedAt(workflow.data.updatedAt)}). 이 편집은 그 전 내용을 바탕으로 합니다.
           <Button variant="outline" onClick={discard}>
             편집 버리고 최신 불러오기
           </Button>
