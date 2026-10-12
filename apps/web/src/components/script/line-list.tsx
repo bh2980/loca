@@ -136,16 +136,20 @@ export function LineList({
     onSuccess: (_data, { tagId, add }) => toast.success(`${picked.size}개 대사${add ? '에' : '에서'} #${tagById.get(tagId)?.name} 태그를 ${add ? '붙였습니다' : '뗐습니다'}.`),
   });
 
+  // Lines picked here (click, keys); any other line in the URL arrived from elsewhere (a link).
+  const pickedHere = useRef<string | undefined>(undefined);
   // Moving past the end of a page opens the next page and lands on its first (or last) line.
   const landing = useRef<'first' | 'last' | null>(null);
   useEffect(() => {
     if (!landing.current || !rows?.length || lines.isPlaceholderData) return;
     const target = landing.current === 'first' ? rows[0] : rows.at(-1)!;
     landing.current = null;
+    pickedHere.current = target.id;
     onSearch({ line: target.id }, { replace: true });
   }, [rows, lines.isPlaceholderData, onSearch]);
 
   const select = (id: string | undefined, edit: boolean) => {
+    pickedHere.current = id;
     setEditing(edit);
     onSearch({ line: id }, { replace: true });
   };
@@ -196,8 +200,18 @@ export function LineList({
     return () => window.removeEventListener('keydown', onKey);
   }, []);
   const selectedRow = useRef<HTMLLIElement>(null);
+  // A line opened from a link (glossary example, search, evidence) is brought to the middle and
+  // flashes once, so it is found at a glance; lines moved to here only scroll as far as needed.
+  const [arrived, setArrived] = useState<string>();
   useEffect(() => {
-    selectedRow.current?.scrollIntoView({ block: 'nearest' });
+    const row = selectedRow.current;
+    if (!row) return;
+    const fromLink = search.line !== pickedHere.current;
+    row.scrollIntoView({ block: fromLink ? 'center' : 'nearest' });
+    if (fromLink) {
+      pickedHere.current = search.line;
+      setArrived(search.line);
+    }
   }, [search.line, rows]);
 
   // Filters that came from elsewhere (home, search, a glossary link) show as removable chips.
@@ -282,6 +296,8 @@ export function LineList({
                   ref={selected ? selectedRow : undefined}
                   onClick={() => !selected && select(line.id, true)}
                   className={cn('flex gap-3 border-b px-4 transition-colors', selected ? 'bg-muted/60 py-3 shadow-[inset_2px_0_0_var(--primary)]' : 'cursor-pointer py-2.5 hover:bg-muted/40')}
+                  style={line.id === arrived ? { animation: 'line-arrived 2s ease-out' } : undefined}
+                  onAnimationEnd={() => setArrived(undefined)}
                 >
                   {picking && <Checkbox className="mt-1" aria-label={`${line.key} 선택`} checked={picked.has(line.id)} onClick={(event) => event.stopPropagation()} onCheckedChange={(checked) => pick([line.id], Boolean(checked))} />}
                   <div className="grid min-w-0 flex-1 grid-cols-2 gap-6">

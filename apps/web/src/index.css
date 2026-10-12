@@ -155,3 +155,9 @@
   from { transform: translateX(-100%); }
   to { transform: translateX(250%); }
 }
+
+/* A line opened from a link flashes once where it landed. */
+@keyframes line-arrived {
+  0%, 30% { background-color: color-mix(in oklch, var(--warning) 22%, transparent); }
+  100% { background-color: transparent; }
+}
