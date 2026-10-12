@@ -100,6 +100,17 @@ describe('context builder', () => {
     expect(context.speech[unit('tower.1').id]).toEqual({ listener: 'JONAS', rule: '해체(반말)', note: '화해 후' });
   });
 
+  it('applies a rule toward several people, the public or oneself, and says who is present', () => {
+    const { db, projectId, unit } = setup();
+    db.update(s.units).set({ listener: 'group', listenerOrigin: 'human' }).where(eq(s.units.id, unit('arrival.1').id)).run();
+    db.update(s.units).set({ listener: 'self', listenerOrigin: 'ai', listenerConfidence: 0.95 }).where(eq(s.units.id, unit('arrival.3').id)).run();
+    db.insert(s.speechRules).values([{ projectId, fromName: 'Mira', toName: 'group', level: 'haeyo' }, { projectId, fromName: 'Mira', toName: 'self', level: 'hae' }]).run();
+    const context = buildContext(db, projectId, [unit('arrival.1'), unit('arrival.3')], config());
+    // The others who speak in the scene (MIRA herself left out).
+    expect(context.speech[unit('arrival.1').id]).toEqual({ listener: 'everyone present (JONAS)', rule: '해요체' });
+    expect(context.speech[unit('arrival.3').id]).toEqual({ listener: 'self (thinking aloud)', rule: '해체(반말)' });
+  });
+
   it('does not carry a stretch over to a branch its start never leads to, even when that branch comes later in the script', () => {
     const { db, projectId, unit } = setup();
     db.update(s.units).set({ listener: 'Jonas', listenerOrigin: 'human' }).where(eq(s.units.id, unit('logbook.2').id)).run();

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { and, desc, eq, inArray, ne, notInArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import * as ai from '@tw/ai';
-import { SPEECH_LEVEL_GUIDE, SPEECH_LEVEL_LABELS, SPEECH_LEVELS } from '@tw/shared';
+import { isSpecialListener, SPEECH_LEVEL_GUIDE, SPEECH_LEVEL_LABELS, SPEECH_LEVELS } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
@@ -64,11 +64,11 @@ Rules:
 - Use only what the text says. Do NOT use prior knowledge of this game.
 - Every item cites evidence as line ids like ["L120","L131"].
 - Write in Korean, except names and quoted source words.
-- characters: everyone who speaks or is addressed often. "speech" describes how they talk in the source. Mark the player character (the one the player controls or who is addressed as "you" by the game, even if it never speaks) with "player": true.
+- characters: everyone who speaks or is addressed often. "speech" describes how they talk in the source. Mark the player character (the one the player controls or who is addressed as "you" by the game, even if it never speaks) with "player": true. Name everyone as the source does, in the source language; an unnamed player character gets the role the game uses (e.g. "Investigator"), never a translated name.
 - relationships: one per direction that matters; "changes" give the line id ("at") where the relationship changes and why.
 - events: what happened, its cause and its outcome, the people involved; include events that later lines refer back to.
-- speechRules: for every speaker → listener direction with several lines, the Korean speech level the translation should use, one of: ${SPEECH_LEVEL_GUIDE}. Decide from the relationship (age, rank, intimacy, hostility, era and setting) as a Korean translator would; narration-like or written addresses often take 해라체, close friends 해체. "address" is how the speaker should address the listener in Korean (e.g. "수사관님", "언니"), empty if none. If the level changes at some point (falling out, reconciliation, promotion), give one rule per stretch: "start" is the line id where the new stretch begins (null for the first). Do not mark a single sarcastic or emotional line as a change. "note" says why.
-- sceneListeners: for each scene and each speaker in it, whom that speaker mostly addresses there ("scene" is the key in [brackets]; "listener" a character name, "group", "self", or null when you cannot tell) and your confidence from 0 to 1. Give a high confidence only when nearly every line of that speaker in the scene addresses that listener; mixed or unclear → lower. Skip scenes with a single obvious speaker talking to nobody in particular.
+- speechRules: for every speaker → listener direction with several lines (the listener may also be "group", "public" or "self" as in sceneListeners: how the speaker talks to several people present, to an unspecified audience, or to themself), the Korean speech level the translation should use, one of: ${SPEECH_LEVEL_GUIDE}. Decide from the relationship (age, rank, intimacy, hostility, era and setting) as a Korean translator would; narration-like or written addresses often take 해라체, close friends 해체. "address" is how the speaker should address the listener in Korean (e.g. "수사관님", "언니"), empty if none. If the level changes at some point (falling out, reconciliation, promotion), give one rule per stretch: "start" is the line id where the new stretch begins (null for the first). Do not mark a single sarcastic or emotional line as a change. "note" says why.
+- sceneListeners: for each scene and each speaker in it, whom that speaker mostly addresses there ("scene" is the key in [brackets]; "listener" a character name; "group" when the speaker addresses several people present at once (a meeting, a group call); "public" for an unspecified audience (a broadcast, announcement, speech, post or advert); "self" for thinking aloud, a diary or muttering; or null when you cannot tell) and your confidence from 0 to 1. Give a high confidence only when nearly every line of that speaker in the scene addresses that listener; mixed or unclear → lower. In a group scene where a speaker mostly talks to everyone, "group" with high confidence is right even if a few lines answer one person. Skip scenes with a single obvious speaker talking to nobody in particular.
 - Keep the whole answer under about 15,000 words.`;
 
 const RETURN = 'Return only JSON with "overview", "characters", "relationships", "events", "speechRules" and "sceneListeners".';
@@ -431,7 +431,7 @@ function applySceneListeners(tx: Tx, projectId: string, entries: Analysis['scene
   for (const entry of entries) {
     const groupId = groupByKey.get(entry.scene.trim());
     if (!groupId) continue;
-    const listener = entry.listener && !['group', 'self'].includes(entry.listener) ? canon(entry.listener) : entry.listener;
+    const listener = entry.listener && !isSpecialListener(entry.listener) ? canon(entry.listener) : entry.listener;
     wanted.set(`${groupId}|${person(canon(entry.speaker))}`, { listener, confidence: Math.min(1, Math.max(0, entry.confidence)) });
   }
   let changed = 0;

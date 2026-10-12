@@ -3,7 +3,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Check, Network, Plus, Table2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { DOCUMENT_KINDS, isSettled, KNOWLEDGE_SOURCES, SPEECH_LEVEL_LABELS, type KnowledgeSource, type SpeechLevel } from '@tw/shared';
+import { DOCUMENT_KINDS, isSettled, KNOWLEDGE_SOURCES, listenerLabel, SPEECH_LEVEL_LABELS, type KnowledgeSource, type SpeechLevel } from '@tw/shared';
 import { Page } from '@/components/page';
 import { RelationshipGraph } from '@/components/relationship-graph';
 import { JobStatus, StartAnalysis } from '@/components/knowledge/analysis-controls';
@@ -158,7 +158,7 @@ function Knowledge() {
     speechRules: {
       rows: [...(rules.data ?? [])].sort((a, b) => a.fromName.localeCompare(b.fromName) || a.toName.localeCompare(b.toName)) as KindSpec['rows'],
       columns: [
-        { head: '화자 → 청자', cell: (row) => `${text(row.fromName)} → ${text(row.toName)}`, className: 'font-medium' },
+        { head: '화자 → 청자', cell: (row) => `${text(row.fromName)} → ${listenerLabel(text(row.toName))}`, className: 'font-medium' },
         { head: '말투', cell: (row) => SPEECH_LEVEL_LABELS[row.level as SpeechLevel] },
         { head: '호칭', cell: (row) => text(row.address) || '—' },
         { head: '시작', cell: (row) => (row.startKey ? <span className="font-mono text-xs">{text(row.startKey)}</span> : '처음부터') },
@@ -166,13 +166,13 @@ function Knowledge() {
       ],
       fields: [
         { name: 'fromName', label: '화자', type: 'text' },
-        { name: 'toName', label: '청자', type: 'text' },
+        { name: 'toName', label: '청자 (여럿 group · 불특정 다수 public · 혼잣말 self)', type: 'text' },
         { name: 'level', label: '말투', type: 'level' },
         { name: 'address', label: '호칭', type: 'text' },
         { name: 'startKey', label: '시작 대사 키 (비우면 처음부터)', type: 'key' },
         { name: 'note', label: '이유·메모', type: 'long' },
       ],
-      label: (row) => `${text(row.fromName)} → ${text(row.toName)}`,
+      label: (row) => `${text(row.fromName)} → ${listenerLabel(text(row.toName))}`,
       save: (id, json) => unwrap(api['speech-rules'][':id'].$patch({ ...param(id), json: json as never })),
       extra: (row) => <RuleLines projectId={projectId} ruleId={row.id} candidate={row.status === 'candidate'} />,
       create: () => unwrap(api['speech-rules'].$post({ param: { projectId }, json: { fromName: '화자', toName: '청자', level: 'haeyo' } as never })),

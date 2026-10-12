@@ -15,7 +15,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { HeaderFilter } from '@/components/header-filter';
-import { LISTENER_MIN_CONFIDENCE } from '@tw/shared';
+import { LISTENER_MIN_CONFIDENCE, listenerLabel } from '@tw/shared';
 
 export const PAGE_SIZE = 100;
 
@@ -31,11 +31,10 @@ function OriginBadge({ origin, model }: { origin: keyof typeof ORIGIN_LABEL; mod
   );
 }
 
-const LISTENER_WORDS: Record<string, string> = { group: '여럿', self: '혼잣말' };
 
 /** Who the line is addressed to. AI guesses are faint with their confidence; unsure ones count as unknown. */
 export function ListenerCell({ line }: { line: { listener: string | null; listenerOrigin: 'import' | 'ai' | 'human' | null; listenerConfidence: number | null } }) {
-  const name = line.listener ? (LISTENER_WORDS[line.listener] ?? line.listener) : null;
+  const name = line.listener ? listenerLabel(line.listener) : null;
   if (line.listenerOrigin === 'ai' && (line.listenerConfidence ?? 0) < LISTENER_MIN_CONFIDENCE)
     return (
       <span className="text-amber-700" title={`AI 추정: ${name ?? '모름'} (확신 ${(line.listenerConfidence ?? 0).toFixed(2)})`}>

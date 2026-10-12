@@ -55,7 +55,7 @@ const CONTRACT: Record<AiNode['config']['output'], string> = {
   verdict: 'Return one result per line id in "results": passed, and concrete issues (empty when passed).',
   terms: 'Return the terms found across all lines in "terms" (source, target, note). Return an empty list when there are none.',
   knowledge: `Return what these lines add in "characters", "relationships" (with "change" and the line id "at" where it shows), "events" (with evidence line ids) and "speechRules" (level is one of: ${SPEECH_LEVEL_GUIDE}; "start" is the line id where the new level begins). Empty lists when nothing is new.`,
-  listener: 'Return one entry per line id in "listeners": listener (a cast name, "group", "self" or null) and confidence (0 to 1).',
+  listener: 'Return one entry per line id in "listeners": listener (a cast name, "group", "public", "self" or null) and confidence (0 to 1).',
   json: 'Return one object per line id in "results" with the requested fields.',
 };
 

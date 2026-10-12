@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray, lt } from 'drizzle-orm';
-import { CONTEXT_PRIORITY, contextConfigSchema, estimateTokens, mentions, termMatcher, type ContextConfig, type ContextItem, type ContextItemKind } from '@tw/shared';
+import { CONTEXT_PRIORITY, contextConfigSchema, estimateTokens, listenerLabel, mentions, termMatcher, type ContextConfig, type ContextItem, type ContextItemKind } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import { documents as documentsTable, graphEdges, graphNodes, groups, units } from '../db/schema.ts';
 import { cachedKnowledge, describeRule, knowledgeOf, knownListener, speechRuleIndex } from './speech.ts';
@@ -270,18 +270,28 @@ export function buildContext(
 
   if (config.speech) {
     const lines = db
-      .select({ id: units.id, key: units.key, speaker: units.speaker, listener: units.listener, listenerOrigin: units.listenerOrigin, listenerConfidence: units.listenerConfidence })
+      .select({ id: units.id, key: units.key, groupId: units.groupId, speaker: units.speaker, listener: units.listener, listenerOrigin: units.listenerOrigin, listenerConfidence: units.listenerConfidence })
       .from(units)
       .where(inArray(units.id, batch.map((unit) => unit.id)))
       .all();
     const rules = speechRuleIndex(db, projectId).resolve(lines);
+    // "group" names who is there: the other speakers of the scene.
+    const present = lines.some((line) => knownListener(line) === 'group') ? speakersOf(db, [...new Set(lines.map((line) => line.groupId))]) : new Map<string, string[]>();
+    const told = (line: (typeof lines)[number], listener: string) =>
+      listener === 'group'
+        ? `everyone present${(present.get(line.groupId) ?? []).filter((name) => name !== line.speaker).length ? ` (${(present.get(line.groupId) ?? []).filter((name) => name !== line.speaker).slice(0, 8).join(', ')})` : ''}`
+        : listener === 'public'
+          ? 'the public (an unspecified audience)'
+          : listener === 'self'
+            ? 'self (thinking aloud)'
+            : listener;
     for (const line of lines) {
       const listener = knownListener(line);
       if (!listener) continue;
       const found = rules.get(line.key);
-      const entry = { listener, ...(found && { rule: describeRule(found.rule), ...(found.rule.note && { note: found.rule.note }), ...(found.byOrder && { byOrder: true as const }) }) };
+      const entry = { listener: told(line, listener), ...(found && { rule: describeRule(found.rule), ...(found.rule.note && { note: found.rule.note }), ...(found.byOrder && { byOrder: true as const }) }) };
       candidates.speech.push({
-        item: { kind: 'speech', label: `${line.key}: ${line.speaker ?? '?'} → ${listener}${found ? ` · ${describeRule(found.rule)}` : ''}`, reason: found ? `확정 말투 규칙${found.routeDependent ? ' (구간 시작을 거쳤는지가 루트에 따라 달라 대본 순서 기준)' : found.byOrder ? ' (그래프 밖이라 구간은 대본 순서 기준)' : ''}` : '청자만 (이 쌍의 확정 규칙 없음)' },
+        item: { kind: 'speech', label: `${line.key}: ${line.speaker ?? '?'} → ${listenerLabel(listener)}${found ? ` · ${describeRule(found.rule)}` : ''}`, reason: found ? `확정 말투 규칙${found.routeDependent ? ' (구간 시작을 거쳤는지가 루트에 따라 달라 대본 순서 기준)' : found.byOrder ? ' (그래프 밖이라 구간은 대본 순서 기준)' : ''}` : '청자만 (이 쌍의 확정 규칙 없음)' },
         payload: entry,
         keep: () => (result.speech[line.id] = entry),
       });
@@ -367,5 +377,14 @@ export function buildContext(
       }
       result.items.push({ ...candidate.item, tokens, included });
     }
+  return result;
+}
+
+/** Speakers of each scene, in order of first line: who a "group" listener means. */
+function speakersOf(db: Db, groupIds: string[]) {
+  const rows = db.select({ groupId: units.groupId, speaker: units.speaker }).from(units).where(inArray(units.groupId, groupIds)).orderBy(units.seq).all();
+  const result = new Map<string, string[]>();
+  for (const row of rows) if (row.speaker) (result.get(row.groupId) ?? result.set(row.groupId, []).get(row.groupId)!).push(row.speaker);
+  for (const [groupId, list] of result) result.set(groupId, [...new Set(list)]);
   return result;
 }

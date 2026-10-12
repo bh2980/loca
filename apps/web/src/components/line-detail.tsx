@@ -2,7 +2,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { useMemo } from 'react';
 import { Check, CircleAlert, CircleCheck, X } from 'lucide-react';
-import { checkFormat, KNOWLEDGE_ORIGIN_LABELS, LISTENER_MIN_CONFIDENCE, mentions, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatRules, type KnowledgeStatus, type SpeechLevel } from '@tw/shared';
+import { checkFormat, isSpecialListener, KNOWLEDGE_ORIGIN_LABELS, LISTENER_MIN_CONFIDENCE, listenerLabel, mentions, SPECIAL_LISTENERS, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatRules, type KnowledgeStatus, type SpeechLevel } from '@tw/shared';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -122,8 +122,11 @@ export function LineDetail({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="-">미상</SelectItem>
-                  <SelectItem value="group">여럿</SelectItem>
-                  <SelectItem value="self">혼잣말</SelectItem>
+                  {Object.entries(SPECIAL_LISTENERS).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
                   {people.data?.characters
                     .filter((c) => c.status === 'confirmed' || c.name === line.listener)
                     .map((c) => (
@@ -132,7 +135,7 @@ export function LineDetail({
                         {c.player && ' · 플레이어'}
                       </SelectItem>
                     ))}
-                  {line.listener && !['group', 'self'].includes(line.listener) && !people.data?.characters.some((c) => c.name === line.listener) && <SelectItem value={line.listener}>{line.listener}</SelectItem>}
+                  {line.listener && !isSpecialListener(line.listener) && !people.data?.characters.some((c) => c.name === line.listener) && <SelectItem value={line.listener}>{line.listener}</SelectItem>}
                 </SelectContent>
               </Select>
               {line.listenerOrigin && (
@@ -269,7 +272,7 @@ export function LineChecks({ projectId, source, text, terms, rules, speech }: { 
     <section className="space-y-3">
       {speech && (
         <div>
-          <h3 className="mb-1.5 text-xs font-medium text-muted-foreground">말투 규칙 (→ {speech.listener}{speech.routeDependent ? ', 루트에 따라 달라 구간은 대본 순서 기준' : speech.byOrder ? ', 그래프 밖이라 구간은 대본 순서 기준' : ''})</h3>
+          <h3 className="mb-1.5 text-xs font-medium text-muted-foreground">말투 규칙 (→ {listenerLabel(speech.listener)}{speech.routeDependent ? ', 루트에 따라 달라 구간은 대본 순서 기준' : speech.byOrder ? ', 그래프 밖이라 구간은 대본 순서 기준' : ''})</h3>
           <div className="flex items-center gap-2 text-sm">
             <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', item: speech.ruleId }} className="min-w-0 truncate hover:underline">
               {speech.rule}

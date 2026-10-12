@@ -56,8 +56,8 @@ export const AI_PRESETS: Record<string, { label: string; output: AiOutput; instr
     instructions:
       'For each line, decide who the speaker is addressing, so a Korean translator can pick the right speech level. ' +
       'Read the whole batch as a scene: who is present, turn-taking, vocatives, questions and answers. ' +
-      'Name the listener exactly as in the cast list (the player character included, even if it never speaks); use "group" for several people, ' +
-      '"self" for thinking aloud, and null when you cannot tell. Give a confidence from 0 to 1; never guess with high confidence.',
+      'Name the listener exactly as in the cast list (the player character included, even if it never speaks); use "group" for several people present, ' +
+      '"public" for an unspecified audience (broadcast, announcement, post), "self" for thinking aloud, and null when you cannot tell. Give a confidence from 0 to 1; never guess with high confidence.',
   },
   terms: {
     label: 'AI 용어 추출',
