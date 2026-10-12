@@ -246,6 +246,20 @@
       "when": 1791839249001,
       "tag": "0034_term_job",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "6",
+      "when": 1791843580503,
+      "tag": "0035_model_choice",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "6",
+      "when": 1791843671913,
+      "tag": "0036_drop_profiles",
+      "breakpoints": true
     }
   ]
 }

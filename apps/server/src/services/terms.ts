@@ -1,13 +1,14 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import * as ai from '@tw/ai';
+import type { ModelChoice } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import { eachChunk } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { logged } from './ai-calls.ts';
 import type { ModelPort } from '../engine/runner.ts';
-import { resolveRoutes, snapshotProfiles } from './routes.ts';
+import { liveChoice, resolveRoutes } from './routes.ts';
 import type { SecretStore } from './secrets.ts';
 import { discoverTerms } from './term-discovery.ts';
 
@@ -107,22 +108,20 @@ export class TermService {
     return this.states.get(projectId) ?? null;
   }
 
-  start(projectId: string, profileId: string) {
+  start(projectId: string, choice: ModelChoice) {
     if (this.states.get(projectId)?.running) throw new Error('이미 용어 번역을 채우는 중입니다.');
-    const profile = snapshotProfiles(this.db, [profileId])[profileId];
-    if (!profile) throw new Error('모델 프로필을 찾을 수 없습니다.');
-    if (profile.routes[0]?.kind === 'systemone') throw new Error('System One 프로필은 판정 전용이라 용어 번역에 쓸 수 없습니다.');
+    const { snapshot } = liveChoice(this.db, choice, this.secrets, 'generate');
     const pending = this.pending(projectId);
     if (!pending.length) throw new Error('번역이 비어 있는 용어 후보가 없습니다.');
     const batches = Array.from({ length: Math.ceil(pending.length / SUGGEST_BATCH) }, (_, index) => pending.slice(index * SUGGEST_BATCH, (index + 1) * SUGGEST_BATCH));
     const id = crypto.randomUUID();
-    this.db.insert(s.termJobs).values({ id, projectId, profileId, status: 'running', total: pending.length, usage: { inputTokens: 0, outputTokens: 0 } }).run();
+    this.db.insert(s.termJobs).values({ id, projectId, connectionId: choice.connectionId, model: choice.model, effort: choice.effort ?? null, status: 'running', total: pending.length, usage: { inputTokens: 0, outputTokens: 0 } }).run();
     const state: SuggestState = { id, running: true, done: 0, total: pending.length, usage: { inputTokens: 0, outputTokens: 0 } };
     this.states.set(projectId, state);
     const abort = new AbortController();
     this.aborts.set(projectId, abort);
     events.changed(projectId, 'terms');
-    this.run(projectId, profile, batches, state, abort.signal)
+    this.run(projectId, snapshot, batches, state, abort.signal)
       .catch((error) => (state.error = error instanceof Error ? error.message : String(error)))
       .finally(() => {
         state.running = false;
@@ -137,8 +136,8 @@ export class TermService {
     this.aborts.get(projectId)?.abort();
   }
 
-  private async run(projectId: string, profile: s.ProfileSnapshot, batches: Candidate[][], state: SuggestState, signal: AbortSignal) {
-    const routes = resolveRoutes(profile, this.secrets);
+  private async run(projectId: string, model: s.AiSnapshot, batches: Candidate[][], state: SuggestState, signal: AbortSignal) {
+    const routes = resolveRoutes(model, this.secrets);
     const confirmed = this.db
       .select({ source: s.terms.source, target: s.terms.target })
       .from(s.terms)
@@ -163,19 +162,18 @@ export class TermService {
           }),
         })),
       };
-      const system = [SYSTEM, profile.instructions].filter(Boolean).join('\n\n');
+      const system = SYSTEM;
       const prompt = JSON.stringify(input);
       const result = await ai.withFallback(
         routes,
-        profile.maxAttempts,
+        model.maxAttempts,
         (route) =>
-          logged(this.db, { projectId, kind: 'terms', refId: state.id, label: `용어 AI 채우기 · ${batch.length.toLocaleString()}개`, profileId: profile.id, request: `${system}\n\n---\n\n${prompt}` }, route, () => this.model.generate<z.infer<typeof suggestSchema>>(route, {
+          logged(this.db, { projectId, kind: 'terms', refId: state.id, label: `용어 AI 채우기 · ${batch.length.toLocaleString()}개`, request: `${system}\n\n---\n\n${prompt}` }, route, () => this.model.generate<z.infer<typeof suggestSchema>>(route, {
             system,
             prompt,
             schema: suggestSchema,
-            maxOutputTokens: profile.maxOutputTokens,
-            temperature: profile.temperature ?? undefined,
-            timeoutMs: profile.timeoutSeconds * 1000,
+            maxOutputTokens: model.maxOutputTokens,
+            timeoutMs: model.timeoutSeconds * 1000,
             signal,
           })),
         signal,

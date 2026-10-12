@@ -30,7 +30,6 @@ interface Step {
  * once a translation run has happened and the analysis exists (the work is under way).
  */
 export function GettingStarted({ projectId }: { projectId: string }) {
-  const profiles = useQuery(q.profiles());
   const connections = useQuery(q.connections());
   const jobs = useQuery(q.analysisJobs(projectId));
   const rules = useQuery(q.speechRules(projectId));
@@ -43,8 +42,9 @@ export function GettingStarted({ projectId }: { projectId: string }) {
     onError: (error) => toast.error(error.message),
   });
   const cancel = useMutation({ mutationFn: (jobId: string) => unwrap(client.projects[':projectId'].analysis[':jobId'].cancel.$post({ param: { projectId, jobId } })) });
-  if (!profiles.data || !connections.data || !jobs.data || !rules.data || !terms.data || !runs.data || !project.data) return null;
+  if (!connections.data || !jobs.data || !rules.data || !terms.data || !runs.data || !project.data) return null;
 
+  const aiConnections = connections.data.filter((connection) => connection.kind !== 'http');
   const analysed = hasAnalysis(jobs.data);
   const reading = jobs.data.find((job) => job.status === 'running');
   const ran = runs.data.length > 0;
@@ -57,13 +57,13 @@ export function GettingStarted({ projectId }: { projectId: string }) {
   const steps: Step[] = [
     {
       key: 'ai',
-      title: 'AI 준비',
-      why: 'AI 연결(API·CLI 등)과 그 위에 쓸 모델 프로필을 만듭니다. 분석과 번역이 이 프로필을 씁니다.',
-      done: profiles.data.length > 0,
+      title: 'AI 연결 추가',
+      why: 'AI를 부를 통로(API·CLI 등)를 추가하고 기본 모델을 정합니다. 분석·번역·채팅에서 이 연결과 모델을 고릅니다.',
+      done: aiConnections.length > 0,
       action: (primary) => (
         <Button asChild variant={primary ? 'default' : 'outline'}>
-          <Link to={connections.data.length ? '/p/$projectId/settings/profiles' : '/p/$projectId/settings/ai'} params={{ projectId }}>
-            {connections.data.length ? '모델 프로필 만들기' : 'AI 연결 추가'}
+          <Link to="/p/$projectId/settings/ai" params={{ projectId }} search={{ conn: aiConnections.length ? undefined : 'new' }}>
+            AI 연결 추가
           </Link>
         </Button>
       ),

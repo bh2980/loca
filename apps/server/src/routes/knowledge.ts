@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { and, asc, eq, inArray, ne, or, sql } from 'drizzle-orm';
 import { mentions } from '../services/context.ts';
 import { z } from 'zod';
-import { DOCUMENT_KINDS, KNOWLEDGE_STATUSES, patchOf, relationshipChangeSchema, SPEECH_LEVELS } from '@tw/shared';
+import { DOCUMENT_KINDS, KNOWLEDGE_STATUSES, modelChoiceSchema, patchOf, relationshipChangeSchema, SPEECH_LEVELS } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import { eachChunk, inChunks } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
@@ -52,9 +52,9 @@ export const knowledgeRoutes = new Hono<Env>()
     const pending = c.var.deps.terms.pending(projectId).length;
     return c.json({ state: c.var.deps.terms.state(projectId), pending, calls: Math.ceil(pending / SUGGEST_BATCH), batch: SUGGEST_BATCH });
   })
-  .post('/terms/suggest', validate('json', z.object({ profileId: z.string().min(1) })), (c) => {
+  .post('/terms/suggest', validate('json', modelChoiceSchema), (c) => {
     try {
-      return c.json(c.var.deps.terms.start(c.req.param('projectId')!, c.req.valid('json').profileId));
+      return c.json(c.var.deps.terms.start(c.req.param('projectId')!, c.req.valid('json')));
     } catch (error) {
       return badRequest(error instanceof Error ? error.message : String(error));
     }
@@ -229,9 +229,9 @@ export const knowledgeRoutes = new Hono<Env>()
   .get('/speech-rules/:id/lines', (c) => c.json(found(ruleLines(c.var.deps.db, c.req.param('projectId')!, c.req.param('id')) ?? undefined, '말투 규칙')))
   /** Work analysis jobs, newest first. */
   .get('/analysis', (c) => c.json(c.var.deps.analysis.list(c.req.param('projectId')!)))
-  .post('/analysis', validate('json', z.object({ profileId: z.string().min(1), autoConfirm: z.boolean().default(true), resume: z.boolean().default(false) })), (c) => {
+  .post('/analysis', validate('json', z.object({ model: modelChoiceSchema, autoConfirm: z.boolean().default(true), resume: z.boolean().default(false) })), (c) => {
     try {
-      return c.json(c.var.deps.analysis.start(c.req.param('projectId')!, c.req.valid('json').profileId, c.req.valid('json').autoConfirm, c.req.valid('json').resume), 201);
+      return c.json(c.var.deps.analysis.start(c.req.param('projectId')!, c.req.valid('json').model, c.req.valid('json').autoConfirm, c.req.valid('json').resume), 201);
     } catch (error) {
       return badRequest(error instanceof Error ? error.message : String(error));
     }

@@ -59,7 +59,7 @@ export function readToolCalls(text: string): { visible: string; calls: { tool: s
 
 const textOf = (message: UIMessage) => message.parts.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('\n');
 
-/** Earlier conversation, for a new CLI session (first use, or after the profile changed). */
+/** Earlier conversation, for a new CLI session (first use, or after the model changed). */
 function transcript(messages: UIMessage[]) {
   const lines = messages
     .slice(0, -1)
@@ -95,7 +95,7 @@ export async function cliChatResponse(input: {
 }): Promise<Response> {
   const { db, chat, route, messages } = input;
   const run = input.turn ?? ai.cliChat;
-  const tools = agentCatalog(db, chat.projectId, { profileId: chat.profileId, model: route.model });
+  const tools = agentCatalog(db, chat.projectId, { model: route.model });
   const byName = new Map(tools.map((tool) => [tool.name, tool]));
   const system = [input.system, toolProtocol(tools)].join('\n\n');
   // The CLI session is reused while the connection kind and model stay the same.
@@ -110,7 +110,7 @@ export async function cliChatResponse(input: {
     execute: async ({ writer }) => {
       for (let round = 0; round < MAX_ROUNDS; round++) {
         writer.write({ type: 'start-step' });
-        const answer = await logged(db, { projectId: chat.projectId, kind: 'chat', refId: chat.id, label: `채팅 (CLI${round ? ` · 도구 결과 후 ${round}` : ''})`, profileId: chat.profileId }, route, () => run(route, { sessionId, system, prompt, timeoutMs: input.timeoutMs, signal: input.signal, totalsBefore }));
+        const answer = await logged(db, { projectId: chat.projectId, kind: 'chat', refId: chat.id, label: `채팅 (CLI${round ? ` · 도구 결과 후 ${round}` : ''})` }, route, () => run(route, { sessionId, system, prompt, timeoutMs: input.timeoutMs, signal: input.signal, totalsBefore }));
         sessionId = answer.sessionId;
         totalsBefore = answer.totals;
         db.update(s.chatSessions).set({ agentSession: { kind: route.kind, model: route.model, id: sessionId, lastTurnAt: Date.now(), totals: totalsBefore } }).where(eq(s.chatSessions.id, chat.id)).run();

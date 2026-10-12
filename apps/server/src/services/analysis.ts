@@ -2,13 +2,13 @@ import { createHash } from 'node:crypto';
 import { and, desc, eq, inArray, ne, notInArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import * as ai from '@tw/ai';
-import { isSpecialListener, SPEECH_LEVEL_GUIDE, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, TERM_KIND_LABELS, TERM_KINDS } from '@tw/shared';
+import { isSpecialListener, SPEECH_LEVEL_GUIDE, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, TERM_KIND_LABELS, TERM_KINDS, type ModelChoice } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { logged } from './ai-calls.ts';
 import type { ModelPort } from '../engine/runner.ts';
-import { resolveRoutes, snapshotProfiles } from './routes.ts';
+import { liveChoice, resolveRoutes } from './routes.ts';
 import { packBlocks, scriptText } from './script-text.ts';
 import { knownListener } from './speech.ts';
 import type { SecretStore } from './secrets.ts';
@@ -30,7 +30,7 @@ export function splitPart(part: string): [string, string] | null {
   return [blocks.slice(0, cut).join('\n\n'), blocks.slice(cut).join('\n\n')];
 }
 
-/** A whole-script read takes minutes; the profile's per-call timeout is for single scenes. */
+/** A whole-script read takes minutes; the connection's per-call timeout is for single scenes. */
 const MIN_TIMEOUT_MS = 30 * 60_000;
 
 const ids = z.array(z.string()).default([]);
@@ -110,11 +110,9 @@ export class AnalysisService {
    * Starts an analysis. With `resume`, parts whose script text is unchanged since the latest
    * unfinished (failed or cancelled) job reuse that job's answers, so only the rest is read again.
    */
-  start(projectId: string, profileId: string, autoConfirm = true, resume = false): Job {
+  start(projectId: string, choice: ModelChoice, autoConfirm = true, resume = false): Job {
     if (this.db.select().from(s.analysisJobs).where(and(eq(s.analysisJobs.projectId, projectId), eq(s.analysisJobs.status, 'running'))).get()) throw new Error('이미 진행 중인 작품 분석이 있습니다.');
-    const profile = snapshotProfiles(this.db, [profileId])[profileId];
-    if (!profile) throw new Error('모델 프로필을 찾을 수 없습니다.');
-    if (profile.routes[0]?.kind === 'systemone') throw new Error('System One 프로필은 판정 전용이라 작품 분석에 쓸 수 없습니다.');
+    const { snapshot } = liveChoice(this.db, choice, this.secrets, 'generate');
     const { blocks, keyOf } = scriptText(this.db, projectId);
     if (!blocks.length) throw new Error('분석할 대본이 없습니다.');
     const parts = packBlocks(blocks, this.partTokens);
@@ -123,11 +121,11 @@ export class AnalysisService {
       : undefined;
     const reused = new Map((previous?.parts ?? []).map((part) => [part.hash, part.answer]));
     const input = { lines: keyOf.size, scenes: blocks.length, tokens: Math.round(Buffer.byteLength(parts.join('\n\n')) / 4) };
-    const job = this.db.insert(s.analysisJobs).values({ projectId, profileId, model: profile.routes[0]?.model ?? null, status: 'running', partsTotal: parts.length, input }).returning().get();
+    const job = this.db.insert(s.analysisJobs).values({ projectId, connectionId: choice.connectionId, model: choice.model, effort: choice.effort ?? null, status: 'running', partsTotal: parts.length, input }).returning().get();
     const abort = new AbortController();
     this.aborts.set(job.id, abort);
     events.changed(projectId, 'runs', 'analysis');
-    this.run(job, profile, parts, keyOf, autoConfirm, abort.signal, reused)
+    this.run(job, snapshot, parts, keyOf, autoConfirm, abort.signal, reused)
       .catch((error) => console.error('analysis job failed', error))
       .finally(() => this.aborts.delete(job.id));
     return job;
@@ -139,8 +137,8 @@ export class AnalysisService {
     if (job) events.changed(job.projectId, 'runs', 'analysis');
   }
 
-  private async run(job: Job, profile: s.ProfileSnapshot, parts: string[], keyOf: Map<string, string>, autoConfirm: boolean, signal: AbortSignal, reused = new Map<string, unknown>()) {
-    const routes = resolveRoutes(profile, this.secrets);
+  private async run(job: Job, model: s.AiSnapshot, parts: string[], keyOf: Map<string, string>, autoConfirm: boolean, signal: AbortSignal, reused = new Map<string, unknown>()) {
+    const routes = resolveRoutes(model, this.secrets);
     // People a person made or imported (or took over from AI) keep their names: the model must reuse them.
     const kept = this.db.select().from(s.characters).where(eq(s.characters.projectId, job.projectId)).all().filter((c) => c.origin !== 'ai' || c.reviewed);
     const cast = kept.length
@@ -165,20 +163,19 @@ export class AnalysisService {
         }
         const known: string = merged ? `\n\nALREADY KNOWN from earlier parts (reuse these names; return only what this part adds or changes):\n${summarize(merged)}` : '';
         const where = queue.length > 1 ? `\nThis is part ${index + 1} of ${queue.length} of the script, in order.` : '';
-        const system = [SYSTEM, profile.instructions].filter(Boolean).join('\n\n');
+        const system = SYSTEM;
         const prompt = `${RETURN}${where}${cast}${known}\n\nSCRIPT:\n${part}`;
         const result = await ai
           .withFallback(
             routes,
-            profile.maxAttempts,
+            model.maxAttempts,
             (route) =>
-              logged(this.db, { projectId: job.projectId, kind: 'analysis', refId: job.id, label: `작품 분석 ${index + 1}/${queue.length}`, profileId: profile.id, request: `${system}\n\n---\n\n${prompt}` }, route, () => this.model.generate<Analysis>(route, {
+              logged(this.db, { projectId: job.projectId, kind: 'analysis', refId: job.id, label: `작품 분석 ${index + 1}/${queue.length}`, request: `${system}\n\n---\n\n${prompt}` }, route, () => this.model.generate<Analysis>(route, {
                 system,
                 prompt,
                 schema: analysisSchema,
-                maxOutputTokens: profile.maxOutputTokens,
-                temperature: profile.temperature ?? undefined,
-                timeoutMs: Math.max(profile.timeoutSeconds * 1000, MIN_TIMEOUT_MS),
+                maxOutputTokens: model.maxOutputTokens,
+                timeoutMs: Math.max(model.timeoutSeconds * 1000, MIN_TIMEOUT_MS),
                 signal,
               })),
             signal,

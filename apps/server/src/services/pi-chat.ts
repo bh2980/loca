@@ -73,7 +73,7 @@ export async function piChatResponse(input: {
     live = undefined;
   }
   if (!live) {
-    const tools: ai.PiToolSpec[] = agentCatalog(db, chat.projectId, { profileId: chat.profileId, model: route.model }).map((tool) => ({
+    const tools: ai.PiToolSpec[] = agentCatalog(db, chat.projectId, { model: route.model }).map((tool) => ({
       name: tool.name,
       label: tool.name,
       description: tool.changes ? `${tool.description} (변경 도구: 바로 실행되지 않고 사용자 수락을 기다리는 제안으로 올라갑니다.)` : tool.description,
@@ -116,7 +116,7 @@ export async function piChatResponse(input: {
       // Steps mirror pi turns (one model call and its tool calls), so the client sees that a turn
       // ended in text and does not resubmit as if a tool result were still waiting for the model.
       const usage: ai.Usage = {};
-      const finish = startCall(db, { projectId: chat.projectId, kind: 'chat', refId: chat.id, label: '채팅 (pi)', profileId: chat.profileId }, route);
+      const finish = startCall(db, { projectId: chat.projectId, kind: 'chat', refId: chat.id, label: '채팅 (pi)' }, route);
       const unsubscribe = current.pi.subscribe((event) => {
         if (event.type === 'turn_start') writer.write({ type: 'start-step' });
         else if (event.type === 'turn_end') {
@@ -169,7 +169,7 @@ export async function piChatResponse(input: {
   return createUIMessageStreamResponse({ stream, ...readToEnd(input.onEnd) });
 }
 
-/** A deleted chat or a changed profile frees its pi session. */
+/** A deleted chat or a changed model frees its pi session. */
 export function closePiChat(chatId: string) {
   sessions.get(chatId)?.pi.dispose();
   sessions.delete(chatId);

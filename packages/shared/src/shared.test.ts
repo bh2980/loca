@@ -5,8 +5,9 @@ import { politenessOf, speechLevelOf } from './knowledge.ts';
 import { termExtractionTemplate, translationTemplate } from './defaults.ts';
 import { nodePorts, validateWorkflow, workflowDefinitionSchema, workflowNodeSchema, type WorkflowDefinition } from './workflow.ts';
 
-const ids = { profileId: 'p', untranslated: 's0', draft: 's1', needsReview: 's2', confirmed: 's3' };
-const refs = { profileIds: new Set(['p']), statusIds: new Set(['s0', 's1', 's2', 's3']), tagIds: new Set<string>(), toolConnectionIds: new Set<string>() };
+const model = { connectionId: 'c', model: 'm' };
+const ids = { model, untranslated: 's0', draft: 's1', needsReview: 's2', confirmed: 's3' };
+const refs = { connections: new Map([['c', 'openai']]), statusIds: new Set(['s0', 's1', 's2', 's3']), tagIds: new Set<string>(), toolConnectionIds: new Set<string>() };
 
 describe('workflow validation', () => {
   it('accepts the default template', () => {
@@ -14,10 +15,10 @@ describe('workflow validation', () => {
     expect(validateWorkflow(template, refs).filter((issue) => issue.level === 'error')).toEqual([]);
   });
 
-  it('reports a missing profile and an unconnected exit on the node', () => {
+  it('reports a deleted connection and an unconnected exit on the node', () => {
     const template = workflowDefinitionSchema.parse(translationTemplate(ids));
     const broken: WorkflowDefinition = { ...template, edges: template.edges.filter((edge) => edge.id !== 'e4') };
-    const issues = validateWorkflow(broken, { ...refs, profileIds: new Set() });
+    const issues = validateWorkflow(broken, { ...refs, connections: new Map() });
     expect(issues).toContainEqual(expect.objectContaining({ level: 'error', nodeId: 'translate' }));
     expect(issues).toContainEqual(expect.objectContaining({ level: 'error', nodeId: 'check', message: expect.stringContaining('통과') }));
   });
@@ -25,7 +26,7 @@ describe('workflow validation', () => {
   it('lets an exit send lines down several branches that end apart, with one changing the line', () => {
     const template = workflowDefinitionSchema.parse(translationTemplate(ids));
     const node = (id: string, config: Record<string, unknown>, type = 'function') => workflowNodeSchema.parse({ id, type, position: { x: 0, y: 0 }, config });
-    const side = [node('terms', { output: 'terms', profileId: 'p' }, 'ai'), node('add', { fn: 'addTerms', params: { fromNodeId: 'terms' } }), node('end-terms', {}, 'end')];
+    const side = [node('terms', { output: 'terms', model }, 'ai'), node('add', { fn: 'addTerms', params: { fromNodeId: 'terms' } }), node('end-terms', {}, 'end')];
     const sideEdges = [
       { id: 's1', source: 'review', sourceHandle: 'pass', target: 'terms' },
       { id: 's2', source: 'terms', sourceHandle: 'out', target: 'add' },
@@ -49,15 +50,14 @@ describe('workflow validation', () => {
     expect(validateWorkflow(twice, refs)).toContainEqual(expect.objectContaining({ level: 'error', message: expect.stringContaining('상태를 바꿉니다') }));
   });
 
-  it('reads a workflow saved before profiles could be shared', () => {
-    const template = workflowDefinitionSchema.parse(translationTemplate(ids));
-    const old = JSON.parse(JSON.stringify(template), (key, value) => (key === 'extraProfileIds' ? undefined : value)) as WorkflowDefinition;
-    expect(validateWorkflow(old, refs).filter((issue) => issue.level === 'error')).toEqual([]);
+  it('asks for a model on an AI node that has none yet', () => {
+    const template = workflowDefinitionSchema.parse(translationTemplate({ ...ids, model: { connectionId: '', model: '' } }));
+    expect(validateWorkflow(template, refs)).toContainEqual(expect.objectContaining({ level: 'error', nodeId: 'translate', message: 'AI 연결과 모델을 고르세요.' }));
   });
 
-  it('flags a deleted profile among the ones sharing a node', () => {
+  it('flags a deleted connection among the models sharing a node', () => {
     const template = workflowDefinitionSchema.parse(translationTemplate(ids));
-    const shared: WorkflowDefinition = { ...template, nodes: template.nodes.map((n) => (n.type === 'ai' && n.id === 'review' ? { ...n, config: { ...n.config, extraProfileIds: ['gone'] } } : n)) };
+    const shared: WorkflowDefinition = { ...template, nodes: template.nodes.map((n) => (n.type === 'ai' && n.id === 'review' ? { ...n, config: { ...n.config, extraModels: [{ connectionId: 'gone', model: 'm' }] } } : n)) };
     expect(validateWorkflow(shared, refs)).toContainEqual(expect.objectContaining({ level: 'error', nodeId: 'review', message: expect.stringContaining('함께 나눌') }));
   });
 
@@ -176,7 +176,7 @@ describe('format check', () => {
 
 describe('templates', () => {
   it('term extraction template is valid and only adds candidates', () => {
-    const definition = workflowDefinitionSchema.parse(termExtractionTemplate({ profileId: 'p' }));
+    const definition = workflowDefinitionSchema.parse(termExtractionTemplate({ model }));
     expect(validateWorkflow(definition, refs).filter((issue) => issue.level === 'error')).toEqual([]);
     expect(definition.nodes.map((node) => (node.type === 'function' ? node.config.fn : node.type))).toEqual(['entry', 'ai', 'addTerms', 'end']);
   });

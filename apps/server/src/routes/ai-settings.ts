@@ -1,17 +1,40 @@
 import { Hono } from 'hono';
-import { asc, desc, eq, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import * as ai from '@tw/ai';
-import { CONNECTION_KIND_INFO, connectionInputSchema, patchOf, profileInputSchema } from '@tw/shared';
+import { CONNECTION_KIND_INFO, connectionInputSchema, patchOf, type ModelChoice } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { logged } from '../services/ai-calls.ts';
-import { connectionRoute, liveProfileRoutes } from '../services/routes.ts';
+import type { Db } from '../db/index.ts';
+import { choiceLabel, connectionRoute, liveChoice } from '../services/routes.ts';
 
 type CliKind = 'codex' | 'claude' | 'grok' | 'antigravity' | 'opencode';
 const isCli = (kind: string): kind is CliKind => CONNECTION_KIND_INFO[kind as keyof typeof CONNECTION_KIND_INFO]?.transport === 'cli';
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+/** A fallback must lead somewhere else: itself would only repeat the same failing calls. */
+function checkFallback(db: Db, id: string | null, fallback: ModelChoice | null | undefined) {
+  if (!fallback) return;
+  if (fallback.connectionId === id) badRequest('막히면 넘길 곳으로 같은 연결을 고를 수 없습니다.');
+  const target = found(db.select().from(s.connections).where(eq(s.connections.id, fallback.connectionId)).get(), '막히면 넘길 연결');
+  if (target.kind === 'http') badRequest('API 키 연결로는 넘길 수 없습니다.');
+}
+
+/** Where a connection is picked: AI nodes (by workflow), conversations and other connections' fallbacks. */
+function usesOf(db: Db, id: string) {
+  const workflows = db
+    .select({ name: s.workflows.name, project: s.projects.name, definition: s.workflows.definition })
+    .from(s.workflows)
+    .innerJoin(s.projects, eq(s.projects.id, s.workflows.projectId))
+    .all()
+    .filter((row) => row.definition.nodes.some((node) => node.type === 'ai' && [node.config.model, ...node.config.extraModels].some((choice) => choice.connectionId === id)))
+    .map((row) => `워크플로 '${row.name}'(${row.project})`);
+  const chats = db.select({ id: s.chatSessions.id }).from(s.chatSessions).where(eq(s.chatSessions.connectionId, id)).all().length;
+  const fallbacks = db.select({ name: s.connections.name, fallback: s.connections.fallback }).from(s.connections).all().filter((row) => row.fallback?.connectionId === id).map((row) => `연결 '${row.name}'의 막히면`);
+  return [...workflows, ...(chats ? [`대화 ${chats}개`] : []), ...fallbacks];
+}
 
 export const connectionRoutes = new Hono<Env>()
   .get('/', (c) => {
@@ -23,6 +46,7 @@ export const connectionRoutes = new Hono<Env>()
     const { db, secrets } = c.var.deps;
     const { apiKey, ...input } = c.req.valid('json');
     const info = CONNECTION_KIND_INFO[input.kind];
+    checkFallback(db, null, input.fallback);
     const row = db
       .insert(s.connections)
       .values({ ...input, baseUrl: info.transport === 'http' ? (input.baseUrl ?? info.defaultBaseUrl) : null, executable: input.executable || null })
@@ -35,19 +59,16 @@ export const connectionRoutes = new Hono<Env>()
   .patch('/:id', validate('json', patchOf(connectionInputSchema.omit({ kind: true }))), (c) => {
     const { db } = c.var.deps;
     const input = c.req.valid('json');
-    found(db.update(s.connections).set({ ...input, executable: input.executable === '' ? null : input.executable }).where(eq(s.connections.id, c.req.param('id'))).returning().get(), '연결');
-    events.changed(undefined, 'connections', 'profiles');
+    checkFallback(db, c.req.param('id'), input.fallback);
+    found(db.update(s.connections).set({ ...input, executable: input.executable === '' ? null : input.executable, defaultModel: input.defaultModel || (input.defaultModel === undefined ? undefined : null), defaultEffort: input.defaultEffort || (input.defaultEffort === undefined ? undefined : null) }).where(eq(s.connections.id, c.req.param('id'))).returning().get(), '연결');
+    events.changed(undefined, 'connections', 'workflows');
     return c.json({ ok: true });
   })
   .delete('/:id', (c) => {
     const { db, secrets } = c.var.deps;
     const id = c.req.param('id');
-    const users = db
-      .select({ name: s.profiles.name })
-      .from(s.profiles)
-      .where(or(eq(s.profiles.connectionId, id), sql`exists (select 1 from json_each(${s.profiles.fallbacks}) where json_extract(value, '$.connectionId') = ${id})`))
-      .all();
-    if (users.length) badRequest(`이 연결을 쓰는 프로필이 있습니다: ${users.map((user) => user.name).join(', ')}`);
+    const uses = usesOf(db, id);
+    if (uses.length) badRequest(`이 연결을 쓰는 곳이 있습니다: ${uses.slice(0, 5).join(', ')}${uses.length > 5 ? ` 외 ${uses.length - 5}곳` : ''}. 그곳에서 다른 연결을 고른 뒤 지우세요.`);
     db.delete(s.connections).where(eq(s.connections.id, id)).run();
     secrets.delete(id);
     events.changed(undefined, 'connections');
@@ -116,54 +137,37 @@ export const connectionRoutes = new Hono<Env>()
     }
   });
 
-export const profileRoutes = new Hono<Env>()
-  .get('/', (c) => c.json(c.var.deps.db.select().from(s.profiles).orderBy(asc(s.profiles.name)).all()))
-  /** Recent profile tests from the AI log (they belong to no project, so 실행 기록 does not list them). */
-  .get('/test-calls', (c) => c.json(c.var.deps.db.select().from(s.aiCalls).where(eq(s.aiCalls.kind, 'test')).orderBy(desc(s.aiCalls.startedAt)).limit(20).all()))
-  .post('/', validate('json', profileInputSchema), (c) => {
-    const { db } = c.var.deps;
-    const input = c.req.valid('json');
-    found(db.select().from(s.connections).where(eq(s.connections.id, input.connectionId)).get(), '연결');
-    const row = db.insert(s.profiles).values(input).returning().get();
-    events.changed(undefined, 'profiles');
-    return c.json(row, 201);
-  })
-  .put('/:id', validate('json', profileInputSchema), (c) => {
-    const { db } = c.var.deps;
-    found(db.update(s.profiles).set(c.req.valid('json')).where(eq(s.profiles.id, c.req.param('id'))).returning().get(), '프로필');
-    events.changed(undefined, 'profiles', 'workflows');
-    return c.json({ ok: true });
-  })
-  .delete('/:id', (c) => {
-    const { db } = c.var.deps;
-    db.delete(s.profiles).where(eq(s.profiles.id, c.req.param('id'))).run();
-    events.changed(undefined, 'profiles', 'workflows');
-    return c.json({ ok: true });
-  })
-  /** One-off translation with the saved profile. Nothing is written to any project. */
-  .post('/:id/test', validate('json', z.object({ source: z.string().min(1), targetLanguage: z.string().default('ko') })), async (c) => {
+/** Model tests: a one-off translation through a connection, written to no project. */
+export const modelTestRoutes = new Hono<Env>()
+  /** Recent tests of one connection, from the AI log (they belong to no project, so 실행 기록 does not list them). */
+  .get('/connections/:id/tests', (c) =>
+    c.json(c.var.deps.db.select().from(s.aiCalls).where(and(eq(s.aiCalls.kind, 'test'), eq(s.aiCalls.refId, c.req.param('id')))).orderBy(desc(s.aiCalls.startedAt)).limit(5).all()),
+  )
+  .post('/connections/:id/test', validate('json', z.object({ model: z.string().trim().min(1), effort: z.string().optional(), source: z.string().min(1), targetLanguage: z.string().default('ko') })), async (c) => {
     const { db, secrets } = c.var.deps;
-    const live = found(liveProfileRoutes(db, c.req.param('id'), secrets), '프로필');
-    const { source, targetLanguage } = c.req.valid('json');
+    const { model, effort, source, targetLanguage } = c.req.valid('json');
+    const choice = { connectionId: c.req.param('id'), model, ...(effort && { effort }) };
+    const connection = found(db.select().from(s.connections).where(eq(s.connections.id, choice.connectionId)).get(), '연결');
     const started = Date.now();
     try {
-      const call = { projectId: null, kind: 'test' as const, refId: live.snapshot.id, label: `프로필 시험 · ${live.snapshot.name}`, profileId: live.snapshot.id };
+      const judge = connection.kind === 'systemone';
+      const live = liveChoice(db, choice, secrets, judge ? 'judge' : 'generate');
+      const call = { projectId: null, kind: 'test' as const, refId: connection.id, label: `모델 시험 · ${choiceLabel(connection.name, choice)}` };
       const { result, route, attempts } = await ai.withFallback(live.routes, live.snapshot.maxAttempts, (route) =>
         logged(db, call, route, () => route.kind === 'systemone'
           ? ai.judge(route, { state: { source }, instructions: 'Is this text well-formed?', timeoutMs: live.snapshot.timeoutSeconds * 1000 }).then((judged) => ({ text: judged.passed ? 'pass' : 'fail', usage: judged.usage }))
           : ai
               .generate(route, {
-                system: `Translate the text into ${targetLanguage}. ${live.snapshot.instructions}`,
+                system: `Translate the text into ${targetLanguage}.`,
                 prompt: source,
                 schema: z.object({ text: z.string() }),
                 maxOutputTokens: live.snapshot.maxOutputTokens,
-                temperature: live.snapshot.temperature ?? undefined,
                 timeoutMs: live.snapshot.timeoutSeconds * 1000,
               })
               .then((generated) => ({ text: generated.object.text, usage: generated.usage })),
         ),
       );
-      return c.json({ ok: true as const, text: result.text, model: route.model, attempts, ms: Date.now() - started });
+      return c.json({ ok: true as const, text: result.text, model: route.model, fellBack: route.connectionId !== choice.connectionId || route.model !== choice.model, attempts, ms: Date.now() - started });
     } catch (error) {
       return c.json({ ok: false as const, detail: message(error), ms: Date.now() - started });
     }

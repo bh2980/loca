@@ -12,7 +12,8 @@ import { scriptText } from './script-text.ts';
 function setup() {
   const db = openDatabase(':memory:');
   const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1' }).returning().get();
-  const profile = db.insert(s.profiles).values({ name: 'fake', connectionId: connection.id, model: 'm', maxOutputTokens: 1000, timeoutSeconds: 30, maxAttempts: 1 }).returning().get();
+  db.update(s.connections).set({ maxOutputTokens: 1000, timeoutSeconds: 30, maxAttempts: 1 }).where(eq(s.connections.id, connection.id)).run();
+  const choice = { connectionId: connection.id, model: 'm' };
   const file = importFileSchema.parse({
     format: 'loca/v1',
     project: { name: 'Test' },
@@ -25,7 +26,7 @@ function setup() {
     graph: { nodes: [{ key: 'n1', units: ['a1'] }, { key: 'n2', units: ['a2', 'a3'] }], edges: [{ from: 'n1', to: 'n2', label: 'Apologize' }] },
   });
   const { projectId } = importProject(db, file);
-  return { db, projectId, profileId: profile.id };
+  return { db, projectId, choice };
 }
 
 const draft = (rule: Analysis['speechRules'][number]['level']): Analysis => ({
@@ -58,11 +59,11 @@ describe('work analysis', () => {
   });
 
   it('stores drafts as confirmed AI items with line keys, and a rerun replaces only what nobody touched', async () => {
-    const { db, projectId, profileId } = setup();
+    const { db, projectId, choice } = setup();
     let level: Analysis['speechRules'][number]['level'] = 'hasipsio';
     const service = new AnalysisService(db, memoryStore(), { generate: async () => ({ object: draft(level), usage: { inputTokens: 10, outputTokens: 5 } }) as never });
 
-    service.start(projectId, profileId);
+    service.start(projectId, choice);
     const job = await settle(service, projectId);
     expect(job.status).toBe('completed');
     expect(job.result).toMatchObject({ characters: 2, speechRules: 2, invalidEvidence: 1 });
@@ -79,7 +80,7 @@ describe('work analysis', () => {
     // A person reviews one rule; the rerun keeps it, replaces the rest, and does not propose the kept one again.
     db.update(s.speechRules).set({ reviewed: true }).where(eq(s.speechRules.fromName, 'Alice')).run();
     level = 'haeyo';
-    service.start(projectId, profileId, false);
+    service.start(projectId, choice, false);
     expect((await settle(service, projectId)).status).toBe('completed');
     const after = db.select().from(s.speechRules).where(eq(s.speechRules.projectId, projectId)).orderBy(s.speechRules.fromName, s.speechRules.status).all();
     expect(after.map((rule) => [rule.fromName, rule.level, rule.status])).toEqual([
@@ -90,13 +91,13 @@ describe('work analysis', () => {
   });
 
   it('records a failure without touching knowledge', async () => {
-    const { db, projectId, profileId } = setup();
+    const { db, projectId, choice } = setup();
     const service = new AnalysisService(db, memoryStore(), {
       generate: async () => {
         throw new Error('boom');
       },
     });
-    service.start(projectId, profileId);
+    service.start(projectId, choice);
     const job = await settle(service, projectId);
     expect(job.status).toBe('failed');
     expect(job.error).toContain('boom');
@@ -214,7 +215,8 @@ describe('work analysis', () => {
   it('resumes a failed analysis: unchanged parts reuse their answers, only the rest is read again', async () => {
     const db = openDatabase(':memory:');
     const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1' }).returning().get();
-    const profile = db.insert(s.profiles).values({ name: 'fake', connectionId: connection.id, model: 'm', maxOutputTokens: 1000, timeoutSeconds: 30, maxAttempts: 1 }).returning().get();
+    db.update(s.connections).set({ maxOutputTokens: 1000, timeoutSeconds: 30, maxAttempts: 1 }).where(eq(s.connections.id, connection.id)).run();
+  const choice = { connectionId: connection.id, model: 'm' };
     const file = importFileSchema.parse({
       format: 'loca/v1',
       project: { name: 'Two parts' },
@@ -240,11 +242,11 @@ describe('work analysis', () => {
       },
       5,
     );
-    service.start(projectId, profile.id);
+    service.start(projectId, choice);
     expect((await settle(service, projectId)).status).toBe('failed');
     expect(calls).toBe(2);
     failSecond = false;
-    service.start(projectId, profile.id, true, true);
+    service.start(projectId, choice, true, true);
     const job = await settle(service, projectId);
     expect(job.status).toBe('completed');
     // Part 1 came from the failed job; only part 2 was read again.
@@ -253,7 +255,7 @@ describe('work analysis', () => {
   });
 
   it('splits a part the model refuses as too long at a scene boundary and reads the halves', async () => {
-    const { db, profileId } = setup();
+    const { db, choice } = setup();
     const file = importFileSchema.parse({
       format: 'loca/v1',
       project: { name: 'Two scenes' },
@@ -273,7 +275,7 @@ describe('work analysis', () => {
         return { object: draft('hae'), usage: { inputTokens: 1, outputTokens: 1 } } as never;
       },
     });
-    service.start(projectId, profileId);
+    service.start(projectId, choice);
     const job = await settle(service, projectId);
     expect(job).toMatchObject({ status: 'completed', partsTotal: 2, partsDone: 2 });
     expect(prompts).toHaveLength(3);

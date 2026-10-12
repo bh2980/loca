@@ -7,6 +7,7 @@ import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { forgetProjectContext } from '../services/context.ts';
 import { importProject } from '../services/importer.ts';
+import { defaultModelChoice } from '../services/routes.ts';
 import { cancelLayout, computeLayouts } from '../services/layout.ts';
 
 const statusInput = z.object({ name: z.string().trim().min(1).max(40), color: z.string().default(STATUS_COLORS[0]), kind: z.enum(['initial', 'normal', 'final']).default('normal'), inReview: z.boolean().default(false) });
@@ -38,8 +39,7 @@ export const projectRoutes = new Hono<Env>()
   })
   .post('/', validate('json', importFileSchema), (c) => {
     const { db } = c.var.deps;
-    const firstProfile = db.select({ id: s.profiles.id }).from(s.profiles).orderBy(asc(s.profiles.name)).limit(1).get();
-    const summary = importProject(db, c.req.valid('json'), firstProfile?.id);
+    const summary = importProject(db, c.req.valid('json'), defaultModelChoice(db));
     void computeLayouts(db, summary.projectId);
     events.changed(undefined, 'projects');
     return c.json(summary, 201);

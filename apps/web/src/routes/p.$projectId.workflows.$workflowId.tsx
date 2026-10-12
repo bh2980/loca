@@ -20,7 +20,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import { ChevronLeft, LayoutGrid, Pencil, Plus, RotateCcw, Save, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { AI_OUTPUTS, AI_PRESETS, FUNCTIONS, FUNCTION_NAMES, nodeName, nodeProfileIds, workflowNodeSchema, type FunctionName, type WorkflowDefinition, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
+import { AI_OUTPUTS, AI_PRESETS, FUNCTIONS, FUNCTION_NAMES, nodeModels, nodeName, workflowNodeSchema, type FunctionName, type WorkflowDefinition, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
 import { Page } from '@/components/page';
 import { autoLayout } from '@/components/workflow/auto-layout';
 import { NodeConfig } from '@/components/workflow/node-config';
@@ -108,7 +108,6 @@ function WorkflowEditor() {
   const flow = useReactFlow();
   const workflow = useQuery(q.workflow(workflowId));
   const statuses = useQuery(q.statuses(projectId));
-  const profiles = useQuery(q.profiles());
   const connections = useQuery(q.connections());
   const runs = useQuery(q.runs(projectId));
   const activeRun = runs.data?.find((run) => run.workflowId === workflowId && (run.status === 'running' || run.status === 'paused'));
@@ -162,15 +161,22 @@ function WorkflowEditor() {
   });
 
   const statusName = new Map(statuses.data?.statuses.map((status) => [status.id, status.name]));
-  const profileName = new Map(profiles.data?.map((profile) => [profile.id, profile.name]));
   const connectionName = new Map(connections.data?.map((connection) => [connection.id, connection.name]));
+  // A new AI node starts with the model the workflow already uses, else the first connection's default.
+  const newNodeModel = () => {
+    const used = current?.definition.nodes.find((node) => node.type === 'ai' && node.config.model.model);
+    if (used?.type === 'ai') return used.config.model;
+    const connection = connections.data?.find((item) => item.defaultModel && item.kind !== 'http' && item.kind !== 'systemone');
+    return connection ? { connectionId: connection.id, model: connection.defaultModel!, ...(connection.defaultEffort && { effort: connection.defaultEffort }) } : { connectionId: '', model: '' };
+  };
   const summary = (node: WorkflowNode): string => {
     switch (node.type) {
       case 'entry':
         return node.config.statusIds.length ? node.config.statusIds.map((id) => statusName.get(id) ?? '삭제된 상태').join(', ') : '범위 안의 모든 대사';
       case 'ai': {
         const batch = node.config.batch.mode === 'unit' ? '하나씩' : node.config.batch.mode === 'group' ? `장면별 ≤${node.config.batch.size}` : `${node.config.batch.size}개씩`;
-        return `${AI_OUTPUTS[node.config.output].label} · ${profileName.get(node.config.profileId) ?? '프로필 없음'}${nodeProfileIds(node).length > 1 ? ` 외 ${nodeProfileIds(node).length - 1}개` : ''} · ${batch}`;
+        const model = node.config.model.model ? `${connectionName.get(node.config.model.connectionId) ?? '삭제된 연결'} · ${node.config.model.model}` : '모델 없음';
+        return `${AI_OUTPUTS[node.config.output].label} · ${model}${nodeModels(node).length > 1 ? ` 외 ${nodeModels(node).length - 1}개` : ''} · ${batch}`;
       }
       case 'function': {
         const params = node.config.params as Record<string, unknown>;
@@ -229,7 +235,7 @@ function WorkflowEditor() {
           })(),
         },
       })),
-    [current?.definition, search.node, issues, liveCounts, statuses.data, profiles.data, connections.data, measured], // eslint-disable-line react-hooks/exhaustive-deps
+    [current?.definition, search.node, issues, liveCounts, statuses.data, connections.data, measured], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const edges: Edge[] = useMemo(
     () => {
@@ -386,14 +392,14 @@ function WorkflowEditor() {
                   icon={nodeIcon({ type: 'ai', config: { output: preset.output } } as WorkflowNode)}
                   title={preset.label}
                   description={AI_OUTPUTS[preset.output].description}
-                  onSelect={() => addNode({ type: 'ai', label: preset.label, config: { profileId: profiles.data?.[0]?.id ?? '', output: preset.output, instructions: preset.instructions, include: preset.include } }, key)}
+                  onSelect={() => addNode({ type: 'ai', label: preset.label, config: { model: newNodeModel(), output: preset.output, instructions: preset.instructions, include: preset.include } }, key)}
                 />
               ))}
               <PaletteItem
                 icon={nodeIcon({ type: 'ai', config: { output: 'json' } } as WorkflowNode)}
                 title="AI 자유 형식"
                 description="필드를 직접 정해 대사마다 채우게 합니다."
-                onSelect={() => addNode({ type: 'ai', config: { profileId: profiles.data?.[0]?.id ?? '', output: 'json', fields: [{ name: 'note', type: 'string', description: '' }] } }, 'ai')}
+                onSelect={() => addNode({ type: 'ai', config: { model: newNodeModel(), output: 'json', fields: [{ name: 'note', type: 'string', description: '' }] } }, 'ai')}
               />
               <DropdownMenuSeparator />
               <DropdownMenuLabel className="text-xs text-muted-foreground">함수</DropdownMenuLabel>
@@ -458,7 +464,6 @@ function WorkflowEditor() {
                   statuses: statuses.data?.statuses ?? [],
                   tags: statuses.data?.tags ?? [],
                   projectId,
-                  profiles: profiles.data ?? [],
                   connections: connections.data ?? [],
                   nodes: current.definition.nodes,
                 }}

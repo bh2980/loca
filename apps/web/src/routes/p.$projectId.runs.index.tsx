@@ -133,7 +133,7 @@ function Runs() {
             id: job.id,
             kind: job.kind,
             title: job.title,
-            sub: job.profile ?? '',
+            sub: job.model ?? '',
             status: job.status,
             error: job.error,
             progress: job.total != null && job.done != null ? { done: job.done, total: job.total, unit: job.kind === 'analysis' ? '부분' : '개' } : null,
@@ -236,7 +236,7 @@ function JobCalls({ projectId, job, onClose }: { projectId: string; job: { id: s
                 )}
               </div>
               <p className="text-xs text-muted-foreground tabular-nums">
-                {new Date(call.startedAt).toLocaleTimeString()} · {call.profileName ?? '프로필 없음'} · {call.model}
+                {new Date(call.startedAt).toLocaleTimeString()} · {call.connectionName ?? '연결 없음'} · {call.model}
                 {call.inputTokens != null && ` · 입력 ${call.inputTokens.toLocaleString()}${call.cachedInputTokens ? `(캐시 ${call.cachedInputTokens.toLocaleString()})` : ''} / 출력 ${(call.outputTokens ?? 0).toLocaleString()}`}
               </p>
               {call.error && <p className="text-xs break-words text-destructive">{call.error}</p>}

@@ -43,7 +43,6 @@ export const AGENT_TOOLS: Record<string, { group: AgentToolGroup; label: string 
   propose_changes: { group: 'change', label: '여러 대사 한꺼번에 변경' },
   save_group_summary: { group: 'change', label: '장면 요약 저장' },
   save_status: { group: 'change', label: '상태·태그 만들기' },
-  save_profile: { group: 'change', label: '모델 프로필 저장' },
   save_workflow: { group: 'change', label: '워크플로 저장' },
   start_run: { group: 'run', label: '워크플로 실행' },
   web_search: { group: 'web', label: '웹 검색' },

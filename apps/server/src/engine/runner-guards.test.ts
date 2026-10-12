@@ -5,7 +5,7 @@ import { importFileSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
-import { snapshotProfiles } from '../services/routes.ts';
+import { snapshotWorkflowModels } from '../services/routes.ts';
 import { memoryStore } from '../services/secrets.ts';
 import { promptEntries } from './prompts.ts';
 import { createRun, createRunInSteps, Runner, type ModelPort } from './runner.ts';
@@ -14,17 +14,14 @@ import { createRun, createRunInSteps, Runner, type ModelPort } from './runner.ts
 function setup(scenes: number, size: (scene: number) => number) {
   const db = openDatabase(':memory:');
   const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1' }).returning().get();
-  const profile = db
-    .insert(s.profiles)
-    .values({ name: 'fake', connectionId: connection.id, model: 'm', maxOutputTokens: 1000, timeoutSeconds: 30, maxAttempts: 1 })
-    .returning()
-    .get();
+  db.update(s.connections).set({ maxOutputTokens: 1000, timeoutSeconds: 30, maxAttempts: 1 }).where(eq(s.connections.id, connection.id)).run();
+  const choice = { connectionId: connection.id, model: 'm' };
   const groups = Array.from({ length: scenes }, (_, index) => ({ key: `g${String(scenes - index).padStart(6, '0')}`, title: `Scene ${index}` }));
   const units = groups.flatMap((group, scene) => Array.from({ length: size(scene) }, (_, index) => ({ key: `${group.key}-${index}`, group: group.key, source: `S${scene} L${index}` })));
-  const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Test' }, groups, units }), profile.id);
+  const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Test' }, groups, units }), choice);
   const workflow = db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).get()!;
   const start = (limits?: s.RunLimits) =>
-    createRun(db, { projectId, workflow, profiles: snapshotProfiles(db, [profile.id]), scope: { ignoreStatus: true }, limits }).runId;
+    createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: { ignoreStatus: true }, limits }).runId;
   return { db, workflow, start };
 }
 
@@ -59,7 +56,7 @@ describe('runner at scale', () => {
     // Large batches keep the test fast; the point is the 40,000 queued items.
     const definition = { ...workflow.definition, nodes: workflow.definition.nodes.map((node) => (node.type === 'ai' ? { ...node, config: { ...node.config, batch: { mode: 'count' as const, size: 200, maxTokens: 6_000 } } } : node)) };
     db.update(s.workflows).set({ definition }).where(eq(s.workflows.id, workflow.id)).run();
-    const runId = createRun(db, { projectId: workflow.projectId, workflow: { ...workflow, definition }, profiles: snapshotProfiles(db, Object.values(definition.nodes).flatMap((node) => (node.type === 'ai' ? [node.config.profileId] : []))), scope: { ignoreStatus: true } }).runId;
+    const runId = createRun(db, { projectId: workflow.projectId, workflow: { ...workflow, definition }, models: snapshotWorkflowModels(db, definition), scope: { ignoreStatus: true } }).runId;
     const runner = new Runner(db, memoryStore(), model());
     await runner.drain(5_000);
     expect(runOf(db, runId).status).toBe('completed');
@@ -287,11 +284,12 @@ describe('slots per account', () => {
     const { db, workflow, start } = setup(40, () => 20);
     // Review on a second, slow account with one slot; translate keeps its own two.
     const slow = db.insert(s.connections).values({ kind: 'openai', name: 'slow', baseUrl: 'http://slow/v1', concurrency: 1 }).returning().get();
-    const reviewer = db.insert(s.profiles).values({ name: 'slow', connectionId: slow.id, model: 'm', maxOutputTokens: 1000, timeoutSeconds: 30, maxAttempts: 1 }).returning().get();
-    const definition = { ...workflow.definition, nodes: workflow.definition.nodes.map((node) => (node.type === 'ai' && node.config.instructions.includes('Review each') ? { ...node, config: { ...node.config, profileId: reviewer.id } } : node)) };
+    db.update(s.connections).set({ maxOutputTokens: 1000, timeoutSeconds: 30, maxAttempts: 1 }).where(eq(s.connections.id, slow.id)).run();
+    const reviewer = { connectionId: slow.id, model: 'm' };
+    const definition = { ...workflow.definition, nodes: workflow.definition.nodes.map((node) => (node.type === 'ai' && node.config.instructions.includes('Review each') ? { ...node, config: { ...node.config, model: reviewer } } : node)) };
     db.update(s.workflows).set({ definition }).where(eq(s.workflows.id, workflow.id)).run();
     void start;
-    createRun(db, { projectId: workflow.projectId, workflow: { ...workflow, definition }, profiles: snapshotProfiles(db, [...new Set(definition.nodes.flatMap((node) => (node.type === 'ai' ? [node.config.profileId] : [])))]), scope: { ignoreStatus: true } });
+    createRun(db, { projectId: workflow.projectId, workflow: { ...workflow, definition }, models: snapshotWorkflowModels(db, definition), scope: { ignoreStatus: true } });
     const { port, peak, order } = timedModel((review) => (review ? 40 : 5));
     await new Runner(db, memoryStore(), port).drain();
     expect(peak.get('http://slow/v1')).toBe(1);
@@ -302,15 +300,15 @@ describe('slots per account', () => {
 });
 
 describe('sharing and branching', () => {
-  it('spreads a node over the accounts of its profiles', async () => {
+  it('spreads a node over the accounts of its models', async () => {
     const { db, workflow } = setup(12, () => 5);
     const other = db.insert(s.connections).values({ kind: 'openai', name: 'second', baseUrl: 'http://localhost:2/v1', concurrency: 1 }).returning().get();
-    const second = db.insert(s.profiles).values({ name: 'second', connectionId: other.id, model: 'm2', maxOutputTokens: 1000, timeoutSeconds: 30, maxAttempts: 1 }).returning().get();
-    const first = workflow.definition.nodes.find((node) => node.type === 'ai')!;
-    const definition = { ...workflow.definition, nodes: workflow.definition.nodes.map((node) => (node.type === 'ai' ? { ...node, config: { ...node.config, extraProfileIds: [second.id], batch: { mode: 'count' as const, size: 5, maxTokens: 6_000 } } } : node)) };
+    db.update(s.connections).set({ maxOutputTokens: 1000, timeoutSeconds: 30, maxAttempts: 1 }).where(eq(s.connections.id, other.id)).run();
+    const second = { connectionId: other.id, model: 'm2' };
+    const definition = { ...workflow.definition, nodes: workflow.definition.nodes.map((node) => (node.type === 'ai' ? { ...node, config: { ...node.config, extraModels: [second], batch: { mode: 'count' as const, size: 5, maxTokens: 6_000 } } } : node)) };
     db.update(s.workflows).set({ definition }).where(eq(s.workflows.id, workflow.id)).run();
     const fresh = db.select().from(s.workflows).where(eq(s.workflows.id, workflow.id)).get()!;
-    const runId = createRun(db, { projectId: fresh.projectId, workflow: fresh, profiles: snapshotProfiles(db, [(first as { config: { profileId: string } }).config.profileId, second.id]), scope: { ignoreStatus: true } }).runId;
+    const runId = createRun(db, { projectId: fresh.projectId, workflow: fresh, models: snapshotWorkflowModels(db, fresh.definition), scope: { ignoreStatus: true } }).runId;
     const models: string[] = [];
     const base = model();
     // Calls take a moment, so both accounts are busy at once.
@@ -318,10 +316,10 @@ describe('sharing and branching', () => {
     await new Runner(db, memoryStore(), slow).drain();
     expect(runOf(db, runId).status).toBe('completed');
     expect(new Set(models)).toEqual(new Set(['m', 'm2']));
-    // Each call records the profile it went out with.
-    const steps = db.select({ model: s.runSteps.model, profileId: s.runSteps.profileId }).from(s.runSteps).where(eq(s.runSteps.runId, runId)).all();
-    expect(steps.filter((step) => step.model === 'm2').every((step) => step.profileId === second.id)).toBe(true);
-    expect(steps.some((step) => step.profileId === second.id)).toBe(true);
+    // Each call records the connection it went out through.
+    const steps = db.select({ model: s.runSteps.model, connectionId: s.runSteps.connectionId }).from(s.runSteps).where(eq(s.runSteps.runId, runId)).all();
+    expect(steps.filter((step) => step.model === 'm2').every((step) => step.connectionId === other.id)).toBe(true);
+    expect(steps.some((step) => step.connectionId === other.id)).toBe(true);
   });
 
   it('sends a line down every branch of an exit and counts it done once all of them are', async () => {
@@ -332,8 +330,7 @@ describe('sharing and branching', () => {
     const definition = { ...workflow.definition, nodes: [...workflow.definition.nodes, end], edges: [...workflow.definition.edges, { id: 'side', source: entry.id, sourceHandle: firstEdge.sourceHandle, target: 'side-end' }] };
     db.update(s.workflows).set({ definition }).where(eq(s.workflows.id, workflow.id)).run();
     const fresh = db.select().from(s.workflows).where(eq(s.workflows.id, workflow.id)).get()!;
-    const profileId = (workflow.definition.nodes.find((node) => node.type === 'ai') as { config: { profileId: string } }).config.profileId;
-    const runId = createRun(db, { projectId: fresh.projectId, workflow: fresh, profiles: snapshotProfiles(db, [profileId]), scope: { ignoreStatus: true } }).runId;
+    const runId = createRun(db, { projectId: fresh.projectId, workflow: fresh, models: snapshotWorkflowModels(db, fresh.definition), scope: { ignoreStatus: true } }).runId;
     await new Runner(db, memoryStore(), model()).drain();
     const items = db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all();
     // Six lines, each with an item on the main path and a copy that went straight to the side end.
@@ -346,8 +343,7 @@ describe('sharing and branching', () => {
 describe('creating a large run', () => {
   it('stores the lines in steps, waits paused meanwhile, and starts once all are in', async () => {
     const { db, workflow } = setup(5, () => 1_000);
-    const profileId = (workflow.definition.nodes.find((node) => node.type === 'ai') as { config: { profileId: string } }).config.profileId;
-    const pending = createRunInSteps(db, { projectId: workflow.projectId, workflow, profiles: snapshotProfiles(db, [profileId]), scope: { ignoreStatus: true } });
+    const pending = createRunInSteps(db, { projectId: workflow.projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: { ignoreStatus: true } });
     // Before the first step yields, the run exists paused and cannot be resumed early.
     const early = db.select().from(s.runs).all()[0];
     expect(early).toMatchObject({ status: 'paused', notice: expect.stringContaining('넣는 중') });

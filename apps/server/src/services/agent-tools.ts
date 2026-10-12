@@ -1,7 +1,7 @@
 import { tool } from 'ai';
 import { and, asc, count, desc, eq, inArray, like, ne, or } from 'drizzle-orm';
 import { z } from 'zod';
-import { AI_OUTPUTS, AI_PRESETS, aiNodeConfigSchema, batchChangeSchema, CONNECTION_KIND_INFO, FUNCTIONS, lineFilterSchema, NODE_TYPES, nodeProfileIds, profileInputSchema, sourceOf, workflowDefinitionSchema } from '@tw/shared';
+import { AI_OUTPUTS, AI_PRESETS, aiNodeConfigSchema, batchChangeSchema, CONNECTION_KIND_INFO, FUNCTIONS, lineFilterSchema, NODE_TYPES, sourceOf, workflowDefinitionSchema } from '@tw/shared';
 import { z as zod } from 'zod';
 import type { Db } from '../db/index.ts';
 import { inList } from '../db/chunk.ts';
@@ -12,7 +12,7 @@ import { describeRule, knownListener, speechRuleIndex } from './speech.ts';
 import { workflowIssues } from '../routes/workflows.ts';
 import { mentions } from './context.ts';
 import { createRunInSteps, selectRunUnits } from '../engine/runner.ts';
-import { snapshotProfiles } from './routes.ts';
+import { snapshotWorkflowModels } from './routes.ts';
 import { readWebPage, webSearch } from './web.ts';
 import { pickNodes, saveView, sectionWithMost, viewSection, VIEW_LIMIT } from './graph-views.ts';
 import { applyBatch, checkScript, findLines, lineContext, normalizeBatch, runStats, sceneStats, scenesWith, validateBatch } from './script-query.ts';
@@ -25,7 +25,7 @@ const page = { offset: z.number().int().min(0).default(0), limit: z.number().int
  * The project agent's harness. Read tools run immediately; every tool that changes the
  * project has `needsApproval`, so the user accepts or rejects it in the chat (Cursor-style).
  */
-export function agentTools(db: Db, projectId: string, author: { profileId: string | null; model: string | null } = { profileId: null, model: null }) {
+export function agentTools(db: Db, projectId: string, author: { model: string | null } = { model: null }) {
   const changed = (...topics: Parameters<typeof events.changed>[1][]) => events.changed(projectId, ...topics);
   const characterByName = (name: string) =>
     db
@@ -38,7 +38,7 @@ export function agentTools(db: Db, projectId: string, author: { profileId: strin
   const all = {
     // ── read ──────────────────────────────────────────────────────
     project_overview: tool({
-      description: 'Project summary: languages, line counts per status, scenes, workflows, AI profiles, pending reviews and recent runs.',
+      description: 'Project summary: languages, line counts per status, scenes, workflows, pending reviews and recent runs.',
       inputSchema: z.object({}),
       execute: () => {
         const project = db.select().from(s.projects).where(eq(s.projects.id, projectId)).get();
@@ -223,7 +223,7 @@ export function agentTools(db: Db, projectId: string, author: { profileId: strin
       },
     }),
     harness_reference: tool({
-      description: 'How workflows work: node types, their exits, the condition data model, available AI connections/profiles, statuses and tags. Read this before proposing a workflow or profile.',
+      description: 'How workflows work: node types, their exits, the condition data model, available AI connections (with each default model and the efforts it takes), statuses and tags. Read this before proposing a workflow.',
       inputSchema: z.object({}),
       execute: () => ({
         nodeTypes: NODE_TYPES,
@@ -248,8 +248,11 @@ export function agentTools(db: Db, projectId: string, author: { profileId: strin
           'Never two edges from the same exit to the same node.',
           'A loop needs a node with two or more exits inside it.',
         ],
-        connections: db.select({ id: s.connections.id, name: s.connections.name, kind: s.connections.kind, baseUrl: s.connections.baseUrl }).from(s.connections).all().map((row) => ({ ...row, capabilities: CONNECTION_KIND_INFO[row.kind].capabilities })),
-        profiles: db.select({ id: s.profiles.id, name: s.profiles.name, model: s.profiles.model, connectionId: s.profiles.connectionId, instructions: s.profiles.instructions }).from(s.profiles).all(),
+        connections: db
+          .select({ id: s.connections.id, name: s.connections.name, kind: s.connections.kind, baseUrl: s.connections.baseUrl, defaultModel: s.connections.defaultModel, defaultEffort: s.connections.defaultEffort })
+          .from(s.connections)
+          .all()
+          .map((row) => ({ ...row, capabilities: CONNECTION_KIND_INFO[row.kind].capabilities, efforts: CONNECTION_KIND_INFO[row.kind].efforts })),
         statuses: db.select({ id: s.statuses.id, name: s.statuses.name, kind: s.statuses.kind }).from(s.statuses).where(eq(s.statuses.projectId, projectId)).orderBy(asc(s.statuses.sort)).all(),
         tags: db.select({ id: s.tags.id, name: s.tags.name }).from(s.tags).where(eq(s.tags.projectId, projectId)).all(),
       }),
@@ -361,19 +364,6 @@ export function agentTools(db: Db, projectId: string, author: { profileId: strin
         return { ok: true, count: terms.length - missing.length, ...(missing.length && { skipped: missing.map((id) => ({ id, reason: '없는 용어' })) }) };
       },
     }),
-    save_profile: tool({
-      description: 'Create an AI profile (app-wide), or update it when id is given. Pick connectionId from harness_reference.',
-      inputSchema: profileInputSchema.extend({ id: z.string().optional() }),
-      needsApproval: true,
-      execute: ({ id, ...input }) => {
-        if (!db.select().from(s.connections).where(eq(s.connections.id, input.connectionId)).get()) return { ok: false, error: '없는 연결입니다.' };
-        if (id) {
-          if (!db.update(s.profiles).set(input).where(eq(s.profiles.id, id)).run().changes) return { ok: false, error: '없는 프로필입니다.' };
-        } else id = db.insert(s.profiles).values(input).returning().get().id;
-        events.changed(undefined, 'profiles');
-        return { ok: true, id };
-      },
-    }),
     save_workflow: tool({
       description: 'Create a workflow, or replace an existing one\'s definition when id is given. Returns validation issues.',
       inputSchema: z.object({ id: z.string().optional(), name: z.string().min(1), description: z.string().default(''), definition: workflowDefinitionSchema }),
@@ -395,7 +385,7 @@ export function agentTools(db: Db, projectId: string, author: { profileId: strin
       execute: ({ unitId, text, note }) => {
         const unit = db.select({ id: s.units.id }).from(s.units).where(and(eq(s.units.id, unitId), eq(s.units.projectId, projectId))).get();
         if (!unit) return { ok: false, error: '대사를 찾을 수 없습니다.' };
-        const id = db.insert(s.candidates).values({ unitId, text, note, origin: 'ai', profileId: author.profileId, model: author.model }).returning().get().id;
+        const id = db.insert(s.candidates).values({ unitId, text, note, origin: 'ai', model: author.model }).returning().get().id;
         changed('units');
         return { ok: true, id };
       },
@@ -441,8 +431,7 @@ export function agentTools(db: Db, projectId: string, author: { profileId: strin
         const errors = workflowIssues(db, projectId, workflow.definition).filter((issue) => issue.level === 'error');
         if (errors.length) return { ok: false, error: `워크플로에 오류가 있습니다: ${errors[0].message}` };
         if (!selectRunUnits(db, projectId, workflow.definition, scope).length) return { ok: false, error: '조건에 맞는 대사가 없습니다.' };
-        const profileIds = [...new Set(workflow.definition.nodes.flatMap((node) => (node.type === 'ai' ? nodeProfileIds(node) : [])))];
-        const run = await createRunInSteps(db, { projectId, workflow, profiles: snapshotProfiles(db, profileIds), scope });
+        const run = await createRunInSteps(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope });
         return { ok: true, ...run, workflow: workflow.name };
       },
     }),
@@ -538,7 +527,7 @@ export const AGENT_SYSTEM = `당신은 게임 번역 작업실 loca의 프로젝
 - 대본 전체를 읽어야 하면 list_scenes와 read_scene을 offset으로 끝까지 넘기며 읽습니다. 대사는 find_lines 하나로 필터를 조합해 찾습니다(화자·언급 인물·장면·구역·상태·태그·번역 여부). total에 닿을 때까지 offset을 넘기고, 작은 호출을 여러 번 하기보다 넓게 한 번에 읽습니다. 여러 줄을 바꿀 때는 propose_changes 하나로 묶고 rev를 함께 넘깁니다. 문제 찾기는 check_script, 진행 상황은 script_stats를 씁니다.
 - 도구를 쓴 뒤에는 반드시 사용자에게 결과나 다음 단계를 글로 알립니다. 아무 말 없이 차례를 끝내지 않습니다.
 - 프로젝트를 바꾸는 도구(save_*)는 사용자가 승인해야 실행됩니다. 승인 전에 무엇을 왜 바꾸는지 한두 문장으로 설명하고, 한 번에 검토할 수 있는 크기로 제안합니다.
-- 워크플로나 프로필을 만들기 전에는 harness_reference를 읽습니다.
+- 워크플로를 만들기 전에는 harness_reference를 읽습니다(AI 노드의 model은 거기 나온 연결 id와 그 연결의 모델).
 - 대사 번역을 제안할 때는 read_line으로 앞뒤 대사·용어·화자 프로필을 읽고 propose_translation으로 후보를 추가합니다. 확정 용어는 반드시 지킵니다.
 - 편집기에 열린 워크플로의 노드(지시문·조건식·스크립트 코드)를 바꿀 때는 save_workflow가 아니라 edit_workflow_node를 씁니다. 화면 정보의 노드 설정이 저장 전 최신 상태입니다.
 - 워크플로 실행은 사용자가 요청할 때만 start_run으로 제안합니다. 실행 전에 대상 대사 수와 범위를 알려 주고, 결과는 read_run으로 확인합니다.

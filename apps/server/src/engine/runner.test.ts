@@ -4,7 +4,7 @@ import { AI_PRESETS, importFileSchema, knowledgeTemplate, listenerTemplate, work
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
-import { snapshotProfiles } from '../services/routes.ts';
+import { snapshotWorkflowModels } from '../services/routes.ts';
 import { memoryStore } from '../services/secrets.ts';
 import { promptEntries } from './prompts.ts';
 import { createRun, Runner, type ModelPort } from './runner.ts';
@@ -12,20 +12,17 @@ import { createRun, Runner, type ModelPort } from './runner.ts';
 function setup(lines = 30) {
   const db = openDatabase(':memory:');
   const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1' }).returning().get();
-  const profile = db
-    .insert(s.profiles)
-    .values({ name: 'fake', connectionId: connection.id, model: 'm', maxOutputTokens: 1000, timeoutSeconds: 30, maxAttempts: 1 })
-    .returning()
-    .get();
+  db.update(s.connections).set({ maxOutputTokens: 1000, timeoutSeconds: 30, maxAttempts: 1 }).where(eq(s.connections.id, connection.id)).run();
+  const choice = { connectionId: connection.id, model: 'm' };
   const file = importFileSchema.parse({
     format: 'loca/v1',
     project: { name: 'Test' },
     groups: [{ key: 'g1', title: 'Scene' }],
     units: Array.from({ length: lines }, (_, index) => ({ key: `u${index}`, group: 'g1', source: index === 0 ? 'Hi {name}' : `Line ${index}` })),
   });
-  const { projectId } = importProject(db, file, profile.id);
+  const { projectId } = importProject(db, file, choice);
   const workflow = db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).get()!;
-  return { db, projectId, workflow, profileId: profile.id };
+  return { db, projectId, workflow, choice };
 }
 
 /** Lines 1–3 fail review until revised three times; line 0 drops its placeholder once. */
@@ -69,10 +66,10 @@ function fakeModel(): ModelPort & { calls: string[] } {
 
 describe('workflow runner', () => {
   it('confirms passing lines, revises failures, then hands the rest to the review status', async () => {
-    const { db, projectId, workflow, profileId } = setup();
+    const { db, projectId, workflow, choice } = setup();
     const model = fakeModel();
     const runner = new Runner(db, memoryStore(), model);
-    const { runId, total } = createRun(db, { projectId, workflow, profiles: snapshotProfiles(db, [profileId]), scope: {} });
+    const { runId, total } = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: {} });
     expect(total).toBe(30);
     await runner.drain();
 
@@ -103,7 +100,7 @@ describe('workflow runner', () => {
   });
 
   it('marks the batch failed with the model error when no route works', async () => {
-    const { db, projectId, workflow, profileId } = setup(2);
+    const { db, projectId, workflow, choice } = setup(2);
     const runner = new Runner(db, memoryStore(), {
       judge: async () => {
         throw new Error('unused');
@@ -112,7 +109,7 @@ describe('workflow runner', () => {
         throw new Error('인증 실패');
       },
     });
-    const { runId } = createRun(db, { projectId, workflow, profiles: snapshotProfiles(db, [profileId]), scope: {} });
+    const { runId } = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: {} });
     await runner.drain();
     const items = db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all();
     expect(items.every((item) => item.state === 'failed' && item.error?.includes('인증 실패'))).toBe(true);
@@ -124,11 +121,11 @@ describe('workflow runner', () => {
 
 describe('listener estimation', () => {
   it('records AI listeners with their confidence and leaves a person\'s choice alone', async () => {
-    const { db, projectId, profileId } = setup(3);
+    const { db, projectId, choice } = setup(3);
     const units = db.select().from(s.units).where(eq(s.units.projectId, projectId)).orderBy(s.units.sort).all();
     db.update(s.units).set({ listener: 'Bob', listenerOrigin: 'human' }).where(eq(s.units.id, units[2].id)).run();
     db.insert(s.characters).values([{ projectId, name: 'Alice' }, { projectId, name: 'Pat', player: true }]).run();
-    const workflow = db.insert(s.workflows).values({ projectId, name: '청자', definition: listenerTemplate({ profileId }) }).returning().get();
+    const workflow = db.insert(s.workflows).values({ projectId, name: '청자', definition: listenerTemplate({ model: choice }) }).returning().get();
     const prompts: string[] = [];
     const runner = new Runner(db, memoryStore(), {
       judge: async () => {
@@ -140,7 +137,7 @@ describe('listener estimation', () => {
         return { object: { listeners: input.lines.map((line, index) => ({ id: line.id, listener: index === 0 ? 'Pat' : null, confidence: index === 0 ? 0.95 : 0.4 })) }, usage: {} } as never;
       },
     });
-    createRun(db, { projectId, workflow, profiles: snapshotProfiles(db, [profileId]), scope: {} });
+    createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: {} });
     await runner.drain();
 
     // The whole cast goes in, the player marked, even though nobody is named in the lines.
@@ -169,21 +166,22 @@ describe('listener template', () => {
     ] as const;
     const db = openDatabase(':memory:');
     const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1' }).returning().get();
-    const profile = db.insert(s.profiles).values({ name: 'fake', connectionId: connection.id, model: 'm', maxOutputTokens: 1000, timeoutSeconds: 30, maxAttempts: 1 }).returning().get();
+    db.update(s.connections).set({ maxOutputTokens: 1000, timeoutSeconds: 30, maxAttempts: 1 }).where(eq(s.connections.id, connection.id)).run();
+  const choice = { connectionId: connection.id, model: 'm' };
     const file = importFileSchema.parse({
       format: 'loca/v1',
       project: { name: 'Test' },
       groups: [{ key: 'g1', title: 'Scene' }],
       units: lines.map(([kind, listener], index) => ({ key: `u${index}`, group: 'g1', source: `Line ${index}`, kind, ...(listener && { listener }) })),
     });
-    const { projectId } = importProject(db, file, profile.id);
+    const { projectId } = importProject(db, file, choice);
     const rows = db.select().from(s.units).where(eq(s.units.projectId, projectId)).orderBy(s.units.sort).all();
     // Importing marks every given listener "import"; set the other origins as the later lines would have them.
     rows.forEach((row, index) => {
       const [, listener, origin, confidence] = lines[index];
       if (listener) db.update(s.units).set({ listenerOrigin: origin, listenerConfidence: confidence }).where(eq(s.units.id, row.id)).run();
     });
-    const workflow = db.insert(s.workflows).values({ projectId, name: '청자', definition: listenerTemplate({ profileId: profile.id }) }).returning().get();
+    const workflow = db.insert(s.workflows).values({ projectId, name: '청자', definition: listenerTemplate({ model: choice }) }).returning().get();
     const sent: string[] = [];
     const runner = new Runner(db, memoryStore(), {
       judge: async () => {
@@ -195,7 +193,7 @@ describe('listener template', () => {
         return { object: { listeners: entries.map((entry) => ({ id: entry.id, listener: 'Zed', confidence: 0.95 })) }, usage: {} } as never;
       },
     });
-    createRun(db, { projectId, workflow, profiles: snapshotProfiles(db, [profile.id]), scope: { ignoreStatus: true } });
+    createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: { ignoreStatus: true } });
     await runner.drain();
 
     // Import, person, confident AI and non-dialogue lines are skipped; the unsure AI guess and the two blank dialogue lines are asked.
@@ -230,12 +228,12 @@ describe('listener template', () => {
 
 describe('knowledge updates', () => {
   it('adds what a scene reveals as AI items, never edits official knowledge, and stays idempotent', async () => {
-    const { db, projectId, profileId } = setup(3);
+    const { db, projectId, choice } = setup(3);
     const [alice] = db.insert(s.characters).values([{ projectId, name: 'Alice' }, { projectId, name: 'Bob' }]).returning().all();
     const bob = db.select().from(s.characters).where(eq(s.characters.name, 'Bob')).get()!;
     db.insert(s.relationships).values({ projectId, fromId: alice.id, toId: bob.id, kind: 'friend' }).run();
     db.insert(s.speechRules).values({ projectId, fromName: 'Alice', toName: 'Bob', level: 'hae' }).run();
-    const workflow = db.insert(s.workflows).values({ projectId, name: '자료', definition: knowledgeTemplate({ profileId }) }).returning().get();
+    const workflow = db.insert(s.workflows).values({ projectId, name: '자료', definition: knowledgeTemplate({ model: choice }) }).returning().get();
     const runner = new Runner(db, memoryStore(), {
       judge: async () => {
         throw new Error('unused');
@@ -251,7 +249,7 @@ describe('knowledge updates', () => {
           usage: {},
         }) as never,
     });
-    createRun(db, { projectId, workflow, profiles: snapshotProfiles(db, [profileId]), scope: {} });
+    createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: {} });
     await runner.drain();
 
     const people = db.select().from(s.characters).where(eq(s.characters.projectId, projectId)).all();
@@ -287,14 +285,14 @@ describe('function nodes', () => {
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     const port = (server.address() as { port: number }).port;
 
-    const { db, projectId, profileId } = setup(3);
+    const { db, projectId, choice } = setup(3);
     const tool = db.insert(s.connections).values({ kind: 'http', name: 'speller', headerTemplate: 'X-Key: {key}' }).returning().get();
     const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).all();
     const confirmed = statuses.find((status) => status.kind === 'final')!;
     const definition = workflowDefinitionSchema.parse({
       nodes: [
         { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: {} },
-        { id: 'terms', type: 'ai', position: { x: 0, y: 0 }, config: { profileId, output: 'terms', instructions: AI_PRESETS.terms.instructions } },
+        { id: 'terms', type: 'ai', position: { x: 0, y: 0 }, config: { model: choice, output: 'terms', instructions: AI_PRESETS.terms.instructions } },
         { id: 'add', type: 'function', position: { x: 0, y: 0 }, config: { fn: 'addTerms', params: { fromNodeId: 'terms' } } },
         {
           id: 'script',
@@ -326,7 +324,7 @@ describe('function nodes', () => {
     db.insert(s.terms).values({ projectId, source: 'directorate', target: '', note: '', status: 'candidate', origin: 'script' }).run();
     const workflow = db.insert(s.workflows).values({ projectId, name: 'functions', definition }).returning().get();
     const runner = new Runner(db, memoryStore(), fakeModel());
-    const { runId } = createRun(db, { projectId, workflow, profiles: snapshotProfiles(db, [profileId]), scope: {} });
+    const { runId } = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: {} });
     await runner.drain();
     server.close();
 
@@ -349,7 +347,7 @@ describe('function nodes', () => {
   });
 
   it('stops a runaway script and reports it as an error', async () => {
-    const { db, projectId, profileId } = setup(1);
+    const { db, projectId, choice } = setup(1);
     const definition = workflowDefinitionSchema.parse({
       nodes: [
         { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: {} },
@@ -362,7 +360,7 @@ describe('function nodes', () => {
       ],
     });
     const workflow = db.insert(s.workflows).values({ projectId, name: 'loop', definition }).returning().get();
-    const { runId } = createRun(db, { projectId, workflow, profiles: snapshotProfiles(db, [profileId]), scope: {} });
+    const { runId } = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: {} });
     await new Runner(db, memoryStore(), fakeModel()).drain();
     const [item] = db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all();
     expect(item.state).toBe('failed');
