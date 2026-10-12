@@ -1,8 +1,41 @@
 import { and, eq, inArray } from 'drizzle-orm';
-import { batchChangeSchema } from '@tw/shared';
+import { batchChangeSchema, type BatchChange } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { normalizeBatch, validateBatch } from './script-query.ts';
+import { normalizeBatch, validateBatch, type BatchReport } from './script-query.ts';
+
+/** Lines checked per step; the event loop is handed back in between (a 50k-line check takes about a second). */
+const CHECK_CHUNK = 500;
+
+/**
+ * normalizeBatch + validateBatch over a whole batch, CHECK_CHUNK lines at a time, so checking a
+ * whole game never holds up other requests. Revs are filled in. A key repeated anywhere is an error.
+ */
+export async function checkBatch(db: Db, projectId: string, input: BatchChange) {
+  const changes: BatchChange['changes'] = [];
+  const unchanged: string[] = [];
+  const report: BatchReport = { total: input.changes.length, changes: 0, conflicts: [], errors: [], warnings: [] };
+  const seen = new Set<string>();
+  for (let start = 0; start < input.changes.length; start += CHECK_CHUNK) {
+    const part = input.changes.slice(start, start + CHECK_CHUNK).filter((change) => {
+      if (!seen.has(change.key)) return seen.add(change.key);
+      report.errors.push({ key: change.key, reason: '같은 키가 두 번 나옵니다.' });
+      return false;
+    });
+    const normalized = normalizeBatch(db, projectId, { ...input, changes: part }, { fillRev: true });
+    unchanged.push(...normalized.unchanged);
+    if (normalized.batch.changes.length) {
+      const checked = validateBatch(db, projectId, normalized.batch);
+      report.changes += checked.changes;
+      report.conflicts.push(...checked.conflicts);
+      report.errors.push(...checked.errors);
+      report.warnings.push(...checked.warnings);
+      changes.push(...normalized.batch.changes);
+    }
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  return { batch: { ...input, changes }, unchanged, report };
+}
 
 export type Prepared = { ok: true; input: Record<string, unknown>; report: s.ProposalReport | null } | { ok: false; error: string };
 
@@ -34,7 +67,7 @@ for (const [tool, field, what, exists] of [
  *   edited before acceptance is skipped, not overwritten) and reports what it left out and the
  *   warnings about the rest.
  */
-export function prepareProposal(db: Db, projectId: string, tool: string, input: Record<string, unknown>): Prepared {
+export async function prepareProposal(db: Db, projectId: string, tool: string, input: Record<string, unknown>): Promise<Prepared> {
   const byId = BY_ID[tool];
   const id = byId && input[byId.field];
   if (byId && typeof id === 'string' && id && !byId.exists(db, projectId, id)) return { ok: false, error: `없는 ${byId.what}입니다 (${byId.field}=${id}). 목록 도구로 id를 확인하세요.` };
@@ -48,9 +81,8 @@ export function prepareProposal(db: Db, projectId: string, tool: string, input: 
 
   const parsed = batchChangeSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: `입력이 맞지 않습니다: ${parsed.error.issues[0]?.path.join('.')} ${parsed.error.issues[0]?.message}` };
-  const { batch } = normalizeBatch(db, projectId, parsed.data, { fillRev: true });
-  if (!batch.changes.length) return { ok: false, error: '바뀌는 내용이 없습니다(모두 지금과 같습니다).' };
-  const checked = validateBatch(db, projectId, batch);
+  const { batch, report: checked } = await checkBatch(db, projectId, parsed.data);
+  if (!batch.changes.length && !checked.errors.length) return { ok: false, error: '바뀌는 내용이 없습니다(모두 지금과 같습니다).' };
   const dropped = [...checked.errors, ...checked.conflicts];
   const bad = new Set(dropped.map((entry) => entry.key));
   const changes = batch.changes.filter((change) => !bad.has(change.key));

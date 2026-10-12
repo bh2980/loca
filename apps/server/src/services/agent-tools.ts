@@ -11,7 +11,7 @@ import { characterInput, documentInput, eventInput, relationshipInput, speechRul
 import { describeRule, knownListener, speechRuleIndex } from './speech.ts';
 import { workflowIssues } from '../routes/workflows.ts';
 import { mentions } from './context.ts';
-import { createRun, selectRunUnits } from '../engine/runner.ts';
+import { createRunInSteps, selectRunUnits } from '../engine/runner.ts';
 import { snapshotProfiles } from './routes.ts';
 import { readWebPage, webSearch } from './web.ts';
 import { applyBatch, checkScript, findLines, lineContext, normalizeBatch, runStats, sceneStats, scenesWith, validateBatch } from './script-query.ts';
@@ -126,8 +126,8 @@ export function agentTools(db: Db, projectId: string, author: { profileId: strin
       description:
         'Find problems across many lines at once. kind: terms (confirmed glossary term not used in the translation), consistency (same source, different translations), format (placeholders/tags/line breaks per the project format rules), length (translation longer than ratio × source; good for UI strings), speech (translation ending does not match the confirmed speech rule of the speaker → listener pair; a guess from the ending). filter narrows the lines.',
       inputSchema: z.object({ kind: z.enum(['terms', 'consistency', 'format', 'length', 'speech']), filter: lineFilterSchema.default({ offset: 0, limit: 200 }), ratio: z.number().min(1).max(5).optional(), limit: z.number().int().min(1).max(500).default(100) }),
-      execute: ({ kind, filter, ratio, limit }) => {
-        const found = checkScript(db, projectId, kind, filter, { ratio });
+      execute: async ({ kind, filter, ratio, limit }) => {
+        const found = await checkScript(db, projectId, kind, filter, { ratio });
         return { total: found.length, items: found.slice(0, limit) };
       },
     }),
@@ -405,14 +405,14 @@ export function agentTools(db: Db, projectId: string, author: { profileId: strin
         ignoreStatus: z.boolean().optional(),
       }),
       needsApproval: true,
-      execute: ({ workflowId, ...scope }) => {
+      execute: async ({ workflowId, ...scope }) => {
         const workflow = db.select().from(s.workflows).where(and(eq(s.workflows.id, workflowId), eq(s.workflows.projectId, projectId))).get();
         if (!workflow) return { ok: false, error: '워크플로를 찾을 수 없습니다.' };
         const errors = workflowIssues(db, projectId, workflow.definition).filter((issue) => issue.level === 'error');
         if (errors.length) return { ok: false, error: `워크플로에 오류가 있습니다: ${errors[0].message}` };
         if (!selectRunUnits(db, projectId, workflow.definition, scope).length) return { ok: false, error: '조건에 맞는 대사가 없습니다.' };
         const profileIds = [...new Set(workflow.definition.nodes.flatMap((node) => (node.type === 'ai' ? nodeProfileIds(node) : [])))];
-        const run = createRun(db, { projectId, workflow, profiles: snapshotProfiles(db, profileIds), scope });
+        const run = await createRunInSteps(db, { projectId, workflow, profiles: snapshotProfiles(db, profileIds), scope });
         return { ok: true, ...run, workflow: workflow.name };
       },
     }),

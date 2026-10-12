@@ -8,7 +8,7 @@ import { importProject } from '../services/importer.ts';
 import { snapshotProfiles } from '../services/routes.ts';
 import { memoryStore } from '../services/secrets.ts';
 import { promptEntries } from './prompts.ts';
-import { createRun, Runner, type ModelPort } from './runner.ts';
+import { createRun, createRunInSteps, Runner, type ModelPort } from './runner.ts';
 
 /** A project of `scenes` scenes; scene i has `size(i)` lines. Scene keys sort opposite to script order. */
 function setup(scenes: number, size: (scene: number) => number) {
@@ -340,5 +340,22 @@ describe('sharing and branching', () => {
     expect(items).toHaveLength(12);
     expect(items.filter((item) => item.nodeId === 'side-end' && item.state === 'done')).toHaveLength(6);
     expect(runOf(db, runId).status).toBe('completed');
+  });
+});
+
+describe('creating a large run', () => {
+  it('stores the lines in steps, waits paused meanwhile, and starts once all are in', async () => {
+    const { db, workflow } = setup(5, () => 1_000);
+    const profileId = (workflow.definition.nodes.find((node) => node.type === 'ai') as { config: { profileId: string } }).config.profileId;
+    const pending = createRunInSteps(db, { projectId: workflow.projectId, workflow, profiles: snapshotProfiles(db, [profileId]), scope: { ignoreStatus: true } });
+    // Before the first step yields, the run exists paused and cannot be resumed early.
+    const early = db.select().from(s.runs).all()[0];
+    expect(early).toMatchObject({ status: 'paused', notice: expect.stringContaining('넣는 중') });
+    new Runner(db, memoryStore(), model()).resume(early.id);
+    expect(runOf(db, early.id).status).toBe('paused');
+    const { runId, total } = await pending;
+    expect(total).toBe(5_000);
+    expect(db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all()).toHaveLength(5_000);
+    expect(runOf(db, runId)).toMatchObject({ status: 'running', notice: null });
   });
 });

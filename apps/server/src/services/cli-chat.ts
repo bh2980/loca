@@ -127,7 +127,7 @@ export async function cliChatResponse(input: {
             if (!tool) throw new Error(`알 수 없는 도구입니다: ${call.tool}`);
             let output: unknown;
             if (tool.changes) {
-              const prepared = prepareProposal(db, chat.projectId, tool.name, tool.schema.parse(call.input) as Record<string, unknown>);
+              const prepared = await prepareProposal(db, chat.projectId, tool.name, tool.schema.parse(call.input) as Record<string, unknown>);
               if (!prepared.ok) throw new Error(`제안을 만들지 않았습니다: ${prepared.error}`);
               const proposal = propose(db, { projectId: chat.projectId, sessionId: chat.id, source: 'cli', tool: tool.name, input: prepared.input, report: prepared.report });
               output = { proposalId: proposal.id };

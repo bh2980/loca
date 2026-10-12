@@ -17,16 +17,16 @@ function setup() {
 }
 
 describe('proposal check', () => {
-  it('refuses a change to a row that does not exist, before it becomes a proposal', () => {
+  it('refuses a change to a row that does not exist, before it becomes a proposal', async () => {
     const { db, projectId } = setup();
-    expect(prepareProposal(db, projectId, 'save_character', { id: 'nope', name: 'X' })).toEqual({ ok: false, error: expect.stringContaining('없는 인물') });
-    expect(prepareProposal(db, projectId, 'save_terms', { terms: [{ id: 'gone', source: 'a', target: 'b' }] })).toEqual({ ok: false, error: expect.stringContaining('gone') });
-    expect(prepareProposal(db, projectId, 'save_character', { name: 'New' })).toMatchObject({ ok: true, report: null });
+    expect(await prepareProposal(db, projectId, 'save_character', { id: 'nope', name: 'X' })).toEqual({ ok: false, error: expect.stringContaining('없는 인물') });
+    expect(await prepareProposal(db, projectId, 'save_terms', { terms: [{ id: 'gone', source: 'a', target: 'b' }] })).toEqual({ ok: false, error: expect.stringContaining('gone') });
+    expect(await prepareProposal(db, projectId, 'save_character', { name: 'New' })).toMatchObject({ ok: true, report: null });
   });
 
-  it('keeps the lines of a batch that can change, fills in revs and reports the rest', () => {
+  it('keeps the lines of a batch that can change, fills in revs and reports the rest', async () => {
     const { db, projectId, unit } = setup();
-    const prepared = prepareProposal(db, projectId, 'propose_changes', {
+    const prepared = await prepareProposal(db, projectId, 'propose_changes', {
       changes: [
         { key: 'arrival.1', translation: '새 번역' },
         { key: 'missing.1', translation: '없음' },
@@ -41,9 +41,9 @@ describe('proposal check', () => {
     expect(prepared.report?.dropped.map((entry) => entry.key).sort()).toEqual(['arrival.2', 'missing.1']);
   });
 
-  it('turns down a batch with nothing it could change', () => {
+  it('turns down a batch with nothing it could change', async () => {
     const { db, projectId } = setup();
-    expect(prepareProposal(db, projectId, 'propose_changes', { changes: [{ key: 'missing.1', translation: 'x' }] })).toEqual({ ok: false, error: expect.stringContaining('missing.1') });
+    expect(await prepareProposal(db, projectId, 'propose_changes', { changes: [{ key: 'missing.1', translation: 'x' }] })).toEqual({ ok: false, error: expect.stringContaining('missing.1') });
   });
 
   it('applies the valid lines when accepted and skips the ones changed meanwhile', async () => {

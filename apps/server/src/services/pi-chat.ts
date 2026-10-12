@@ -76,7 +76,7 @@ export async function piChatResponse(input: {
       parameters: jsonSchemaOf(tool.schema),
       execute: async (args) => {
         if (tool.changes) {
-          const prepared = prepareProposal(db, chat.projectId, tool.name, args);
+          const prepared = await prepareProposal(db, chat.projectId, tool.name, args);
           if (!prepared.ok) return { text: `제안을 만들지 않았습니다: ${prepared.error}`, details: { error: prepared.error } };
           const proposal = propose(db, { projectId: chat.projectId, sessionId: chat.id, source: 'pi', tool: tool.name, input: prepared.input, report: prepared.report });
           return { text: proposedText(proposal.id) + reportText(prepared.report), details: { proposalId: proposal.id } };

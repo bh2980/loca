@@ -6,10 +6,10 @@ import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { agentCatalog, jsonSchemaOf } from '../services/agent-catalog.ts';
 import { previewContext } from '../services/context-preview.ts';
-import { prepareProposal, reportText } from '../services/proposal-check.ts';
+import { checkBatch, prepareProposal, reportText } from '../services/proposal-check.ts';
 import { fitResult } from '../services/tool-output.ts';
 import { propose, proposedText } from '../services/proposals.ts';
-import { checkScript, exportLines, findLines, firstAppearance, lineContext, normalizeBatch, runStats, sceneStats, scenesWith, validateBatch } from '../services/script-query.ts';
+import { checkScript, exportLines, findLines, firstAppearance, lineContext, runStats, sceneStats, scenesWith } from '../services/script-query.ts';
 
 /**
  * The script API behind the `loca` CLI. Reading answers directly; writing (import, change tools)
@@ -40,9 +40,9 @@ export const scriptRoutes = new Hono<Env>()
   .post(
     '/projects/:projectId/checks/:kind{terms|consistency|format|length|speech}',
     validate('json', z.object({ filter: lineFilterSchema.default({ offset: 0, limit: 200 }), ratio: z.number().min(1).max(5).optional() })),
-    (c) => {
+    async (c) => {
       const { filter, ratio } = c.req.valid('json');
-      return c.json(checkScript(c.var.deps.db, c.req.param('projectId'), c.req.param('kind') as 'terms', filter, { ratio }));
+      return c.json(await checkScript(c.var.deps.db, c.req.param('projectId'), c.req.param('kind') as 'terms', filter, { ratio }));
     },
   )
   .get('/projects/:projectId/stats/:of{groups|sections|runs}', validate('query', z.object({ sinceHours: z.coerce.number().min(1).default(24) })), (c) => {
@@ -59,13 +59,13 @@ export const scriptRoutes = new Hono<Env>()
     },
   )
   /** Check a batch; unless dryRun, the valid, non-conflicting lines become one proposal. */
-  .post('/projects/:projectId/import', validate('json', batchChangeSchema.extend({ dryRun: z.boolean().default(false) })), (c) => {
+  .post('/projects/:projectId/import', validate('json', batchChangeSchema.extend({ dryRun: z.boolean().default(false) })), async (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     const { dryRun, ...raw } = c.req.valid('json');
-    const { batch, unchanged } = normalizeBatch(db, projectId, raw, { fillRev: true });
-    if (!batch.changes.length) return c.json({ total: raw.changes.length, unchanged: unchanged.length, changes: 0, conflicts: [], errors: [], warnings: [], proposalId: null });
-    const report = { ...validateBatch(db, projectId, batch), total: raw.changes.length, unchanged: unchanged.length };
+    const { batch, unchanged, report: checked } = await checkBatch(db, projectId, raw);
+    if (!batch.changes.length && !checked.errors.length) return c.json({ total: raw.changes.length, unchanged: unchanged.length, changes: 0, conflicts: [], errors: [], warnings: [], proposalId: null });
+    const report = { ...checked, total: raw.changes.length, unchanged: unchanged.length };
     if (dryRun) return c.json({ ...report, proposalId: null });
     if (!agentCatalog(db, projectId).some((tool) => tool.name === 'propose_changes')) badRequest('에이전트 설정에서 ‘여러 대사 한꺼번에 변경’이 꺼져 있습니다.');
     const bad = new Set([...report.errors, ...report.conflicts].map((entry) => entry.key));
@@ -88,7 +88,7 @@ export const scriptRoutes = new Hono<Env>()
     const parsed = tool.schema.safeParse(input);
     if (!parsed.success) return badRequest(`입력이 맞지 않습니다: ${parsed.error.issues.map((issue) => `${issue.path.join('.')} ${issue.message}`).join('; ')}`);
     if (tool.changes) {
-      const prepared = prepareProposal(db, projectId, tool.name, parsed.data as Record<string, unknown>);
+      const prepared = await prepareProposal(db, projectId, tool.name, parsed.data as Record<string, unknown>);
       if (!prepared.ok) return badRequest(prepared.error);
       const proposal = propose(db, { projectId, sessionId: null, source: 'cli', tool: tool.name, input: prepared.input, report: prepared.report });
       return c.json({ proposed: true, proposalId: proposal.id, message: proposedText(proposal.id) + reportText(prepared.report), report: prepared.report });

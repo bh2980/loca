@@ -112,7 +112,7 @@ describe('knowledge snapshot cache', () => {
 });
 
 describe('checkScript terms speed', () => {
-  it('20k lines x 1,000 terms finishes in a few seconds and matches the per-pair result', () => {
+  it('20k lines x 1,000 terms finishes in a few seconds and matches the per-pair result', async () => {
     const lineCount = 20_000;
     const termCount = 1_000;
     const db = openDatabase(':memory:');
@@ -127,7 +127,7 @@ describe('checkScript terms speed', () => {
     const { projectId } = importProject(db, file);
 
     const start = performance.now();
-    const found = checkScript(db, projectId, 'terms', lineFilterSchema.parse({}));
+    const found = await checkScript(db, projectId, 'terms', lineFilterSchema.parse({}));
     const ms = performance.now() - start;
     console.log(`checkScript(terms) ${lineCount} lines x ${termCount} terms: ${ms.toFixed(0)} ms, ${found.length} findings`);
     expect(ms).toBeLessThan(5000);

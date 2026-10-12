@@ -51,7 +51,8 @@ function lookups(db: Db, projectId: string) {
 }
 
 /** Lines matching a filter, in script order. `total` counts every match, not just this page. */
-export function findLines(db: Db, projectId: string, filter: LineFilter): { total: number; rows: LineRow[] } {
+/** With `all`, every matching line in one query (no count, no paging): see allLines. `seq` limits it to a stretch of the script. */
+export function findLines(db: Db, projectId: string, filter: LineFilter, options: { all?: boolean; seq?: [number, number] } = {}): { total: number; rows: LineRow[] } {
   const { namesOf, statusId, tagId, statuses, tags } = lookups(db, projectId);
   const where: SQL[] = [eq(s.units.projectId, projectId)];
   if (filter.q) where.push(or(like(s.units.source, `%${filter.q}%`), like(s.units.translation, `%${filter.q}%`), like(s.units.speaker, `%${filter.q}%`), like(s.units.key, `%${filter.q}%`))!);
@@ -70,6 +71,7 @@ export function findLines(db: Db, projectId: string, filter: LineFilter): { tota
     where.push(inArray(s.units.id, db.select({ id: s.unitTags.unitId }).from(s.unitTags).where(inList(s.unitTags.tagId, filter.tags.map((value) => tagId(value) ?? value)))));
   if (filter.translated !== undefined) where.push(filter.translated ? sql`${s.units.translation} is not null and ${s.units.translation} != ''` : sql`(${s.units.translation} is null or ${s.units.translation} = '')`);
   if (filter.keys?.length) where.push(inList(s.units.key, filter.keys));
+  if (options.seq) where.push(sql`${s.units.seq} >= ${options.seq[0]} and ${s.units.seq} < ${options.seq[1]}`);
 
   // Mentions need whole-word matching (and {ALIAS} placeholders), so they are checked in code
   // over a LIKE pre-filter; everything else pages in SQL.
@@ -86,7 +88,10 @@ export function findLines(db: Db, projectId: string, filter: LineFilter): { tota
   if (mentionNames.length) {
     const all = base.all().filter(({ unit }) => mentionNames.some((name) => mentions(unit.source, name) || unit.source.includes(`{${name}}`)));
     total = all.length;
-    page = all.slice(filter.offset, filter.offset + filter.limit);
+    page = options.all ? all : all.slice(filter.offset, filter.offset + filter.limit);
+  } else if (options.all) {
+    page = base.all();
+    total = page.length;
   } else {
     // Groups are joined only when a group filter needs them.
     const counted = db.select({ count: count() }).from(s.units);
@@ -117,12 +122,27 @@ export function findLines(db: Db, projectId: string, filter: LineFilter): { tota
 }
 
 /** Every match, page by page (for checks and export). */
+/** Every line matching the filter, in script order: one query (paging 1,000 at a time with OFFSET and a count each took a second for 50k lines). */
 export function allLines(db: Db, projectId: string, filter: LineFilter): LineRow[] {
-  const rows: LineRow[] = [];
-  for (let offset = 0; ; offset += 1000) {
-    const page = findLines(db, projectId, { ...filter, offset, limit: 1000 });
-    rows.push(...page.rows);
-    if (rows.length >= page.total || !page.rows.length) return rows;
+  return findLines(db, projectId, filter, { all: true }).rows;
+}
+
+/** Lines read and handled per step by the checks; the event loop is handed back in between. */
+const STEP_LINES = 2_000;
+const yieldNow = () => new Promise((resolve) => setImmediate(resolve));
+
+/**
+ * The matching lines in script order, STEP_LINES positions of the script at a time, handing the
+ * event loop back between steps: a check over a whole 50k-line game then never holds up other
+ * requests for more than a few tens of milliseconds.
+ */
+export async function* lineSteps(db: Db, projectId: string, filter: LineFilter): AsyncGenerator<LineRow[]> {
+  const range = db.select({ low: sql<number | null>`min(${s.units.seq})`, high: sql<number | null>`max(${s.units.seq})` }).from(s.units).where(eq(s.units.projectId, projectId)).get();
+  if (range?.low === null || range?.low === undefined || range.high === null) return;
+  for (let low = range.low; low <= range.high; low += STEP_LINES) {
+    const rows = findLines(db, projectId, filter, { all: true, seq: [low, low + STEP_LINES] }).rows;
+    if (rows.length) yield rows;
+    await yieldNow();
   }
 }
 
@@ -188,43 +208,47 @@ export function firstAppearance(db: Db, projectId: string, speaker: string) {
 
 // ── checks ───────────────────────────────────────────────────────────
 
-export function checkScript(db: Db, projectId: string, kind: CheckKind, filter: LineFilter, options: { ratio?: number } = {}) {
-  const lines = allLines(db, projectId, { ...filter, translated: true });
-  if (kind === 'terms') {
-    const { matcher } = knowledgeOf(db, projectId).glossary();
-    return lines.flatMap((line) =>
-      matcher
-        .find(line.source)
-        .filter((term) => !line.translation!.toLowerCase().includes(term.target.toLowerCase()))
-        .map((term) => ({ key: line.key, group: line.group.title, source: line.source, translation: line.translation, term: term.source, expected: term.target })),
-    );
-  }
+export async function checkScript(db: Db, projectId: string, kind: CheckKind, filter: LineFilter, options: { ratio?: number } = {}) {
+  const translated = { ...filter, translated: true };
   if (kind === 'consistency') {
+    // Needs every line before it can compare; reading still goes step by step.
     const normalize = (text: string) => text.trim().replace(/\s+/g, ' ');
+    const lines: LineRow[] = [];
+    for await (const step of lineSteps(db, projectId, translated)) lines.push(...step);
     const bySource = Map.groupBy(lines, (line) => normalize(line.source));
     return [...bySource]
       .map(([source, group]) => ({ source, variants: [...Map.groupBy(group, (line) => normalize(line.translation!))].map(([translation, same]) => ({ translation, keys: same.map((line) => line.key) })) }))
       .filter((entry) => entry.variants.length > 1);
   }
-  if (kind === 'format') {
-    const rules = db.select({ rules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, projectId)).get()?.rules;
-    return lines.flatMap((line) => {
-      const issues = checkFormat(line.source, line.translation!, { placeholders: true, tags: true, newlines: true, emptyText: true }, rules);
-      return issues.length ? [{ key: line.key, group: line.group.title, source: line.source, translation: line.translation, issues: issues.map((issue) => issue.message) }] : [];
-    });
-  }
-  if (kind === 'speech') {
-    const rules = speechRuleIndex(db, projectId).resolve(lines.map((line) => ({ key: line.key, speaker: line.speaker, listener: line.listener, listenerOrigin: 'human' as const, listenerConfidence: null })));
-    return lines.flatMap((line) => {
-      const found = rules.get(line.key);
-      const issue = found ? speechMismatch(found.rule, line.translation) : null;
-      return issue ? [{ key: line.key, group: line.group.title, speaker: line.speaker, listener: found!.listener, rule: describeRule(found!.rule), source: line.source, translation: line.translation, issue }] : [];
-    });
-  }
+  const found: unknown[] = [];
+  const matcher = kind === 'terms' ? knowledgeOf(db, projectId).glossary().matcher : null;
+  const rules = kind === 'format' ? db.select({ rules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, projectId)).get()?.rules : undefined;
+  const index = kind === 'speech' ? speechRuleIndex(db, projectId) : null;
   const ratio = options.ratio ?? 1.5;
-  return lines
-    .filter((line) => line.translation!.length > line.source.length * ratio)
-    .map((line) => ({ key: line.key, group: line.group.title, kind: line.kind, source: line.source, translation: line.translation, ratio: Math.round((line.translation!.length / Math.max(1, line.source.length)) * 100) / 100 }));
+  for await (const lines of lineSteps(db, projectId, translated)) {
+    if (matcher)
+      for (const line of lines)
+        for (const term of matcher.find(line.source))
+          if (!line.translation!.toLowerCase().includes(term.target.toLowerCase())) found.push({ key: line.key, group: line.group.title, source: line.source, translation: line.translation, term: term.source, expected: term.target });
+    if (kind === 'format')
+      for (const line of lines) {
+        const issues = checkFormat(line.source, line.translation!, { placeholders: true, tags: true, newlines: true, emptyText: true }, rules);
+        if (issues.length) found.push({ key: line.key, group: line.group.title, source: line.source, translation: line.translation, issues: issues.map((issue) => issue.message) });
+      }
+    if (index) {
+      const resolved = index.resolve(lines.map((line) => ({ key: line.key, speaker: line.speaker, listener: line.listener, listenerOrigin: 'human' as const, listenerConfidence: null })));
+      for (const line of lines) {
+        const rule = resolved.get(line.key);
+        const issue = rule ? speechMismatch(rule.rule, line.translation) : null;
+        if (issue) found.push({ key: line.key, group: line.group.title, speaker: line.speaker, listener: rule!.listener, rule: describeRule(rule!.rule), source: line.source, translation: line.translation, issue });
+      }
+    }
+    if (kind === 'length')
+      for (const line of lines)
+        if (line.translation!.length > line.source.length * ratio)
+          found.push({ key: line.key, group: line.group.title, kind: line.kind, source: line.source, translation: line.translation, ratio: Math.round((line.translation!.length / Math.max(1, line.source.length)) * 100) / 100 });
+  }
+  return found;
 }
 
 // ── stats ────────────────────────────────────────────────────────────

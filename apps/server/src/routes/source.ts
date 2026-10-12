@@ -250,7 +250,8 @@ export const sourceRoutes = new Hono<Env>()
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     const scope = c.req.param('scope') as 'dialogue' | 'scene';
-    const layout = db.select().from(s.graphLayouts).where(and(eq(s.graphLayouts.projectId, projectId), eq(s.graphLayouts.scope, scope))).get();
+    const where = and(eq(s.graphLayouts.projectId, projectId), eq(s.graphLayouts.scope, scope));
+    const layout = db.select({ status: s.graphLayouts.status, error: s.graphLayouts.error }).from(s.graphLayouts).where(where).get();
     if (scope === 'scene') {
       const nodes = db
         .select({ id: s.groups.id, label: s.groups.title, key: s.groups.key, total: sql<number>`(select count(*) from units u where u.group_id = "groups"."id")` })
@@ -260,7 +261,7 @@ export const sourceRoutes = new Hono<Env>()
       return c.json({
         status: layout?.status ?? 'missing',
         error: layout?.error ?? null,
-        layout: layout?.data ?? null,
+        layout: db.select({ data: s.graphLayouts.data }).from(s.graphLayouts).where(where).get()?.data ?? null,
         nodes: nodes.map((node) => ({ ...node, type: null as string | null, kind: 'scene', groupId: node.id, preview: `${node.total}개 대사` })),
         nodeTypes: {} as Record<string, NodeType>,
       });
@@ -281,7 +282,11 @@ export const sourceRoutes = new Hono<Env>()
       .where(eq(s.graphNodes.projectId, projectId))
       .all();
     const nodeTypes = db.select({ nodeTypes: s.projects.nodeTypes }).from(s.projects).where(eq(s.projects.id, projectId)).get()?.nodeTypes ?? {};
-    return c.json({ status: layout?.status ?? 'missing', error: layout?.error ?? null, layout: layout?.data ?? null, nodes, nodeTypes });
+    // The stored layout goes out as the JSON text it is stored as: parsing and re-serializing a
+    // 50k-node layout (15 MB) held the server for a quarter of a second.
+    const raw = db.select({ data: sql<string | null>`${s.graphLayouts.data}` }).from(s.graphLayouts).where(where).get()?.data ?? 'null';
+    const head = JSON.stringify({ status: layout?.status ?? 'missing', error: layout?.error ?? null, nodes, nodeTypes });
+    return c.body(`${head.slice(0, -1)},"layout":${raw}}`, 200, { 'content-type': 'application/json; charset=UTF-8' }) as unknown as ReturnType<typeof c.json<{ status: string; error: string | null; layout: s.LayoutData | null; nodes: typeof nodes; nodeTypes: typeof nodeTypes }>>;
   })
   /** Recompute stored layouts, e.g. after the layout options changed. The source graph itself is untouched. */
   .post('/projects/:projectId/graph/relayout', (c) => {

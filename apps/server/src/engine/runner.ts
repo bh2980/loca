@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, notInArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
 import jsonLogic from 'json-logic-js';
 import * as ai from '@tw/ai';
@@ -146,7 +146,8 @@ export class Runner {
   }
 
   resume(runId: string) {
-    this.db.update(s.runs).set({ status: 'running', notice: null }).where(and(eq(s.runs.id, runId), eq(s.runs.status, 'paused'))).run();
+    // A run still being filled (createRunInSteps) starts by itself once all its lines are in.
+    this.db.update(s.runs).set({ status: 'running', notice: null }).where(and(eq(s.runs.id, runId), eq(s.runs.status, 'paused'), or(isNull(s.runs.notice), ne(s.runs.notice, FILLING)))).run();
     this.notify(runId);
   }
 
@@ -782,21 +783,39 @@ export function selectRunUnits(db: Db, projectId: string, definition: WorkflowDe
  * or return point would otherwise make every scene "related" to every other.
  */
 export function sceneLinks(db: Db | Tx, lines: { groupId: string }[]) {
-  const groups = [...new Set(lines.map((line) => line.groupId))];
+  const groups = new Set(lines.map((line) => line.groupId));
   const pairs = new Set<string>();
-  if (groups.length > 1) {
+  if (groups.size > 1) {
+    // The project's scene transitions in one pass, filtered here: a 2,000-scene IN list made the
+    // join slow (160 ms for a 50k-line run).
+    const projectId = db.select({ projectId: s.groups.projectId }).from(s.groups).where(eq(s.groups.id, groups.values().next().value!)).get()?.projectId;
     const fromNode = alias(s.graphNodes, 'from_node');
     const toNode = alias(s.graphNodes, 'to_node');
-    const rows = db
-      .selectDistinct({ from: fromNode.groupId, to: toNode.groupId })
-      .from(s.graphEdges)
-      .innerJoin(fromNode, eq(fromNode.id, s.graphEdges.fromId))
-      .innerJoin(toNode, eq(toNode.id, s.graphEdges.toId))
-      .where(and(inList(fromNode.groupId, groups), sql`${fromNode.groupId} <> ${toNode.groupId}`))
-      .all();
-    for (const row of rows) if (row.from && row.to) pairs.add(`${row.from}|${row.to}`);
+    const rows = projectId
+      ? db
+          .selectDistinct({ from: fromNode.groupId, to: toNode.groupId })
+          .from(s.graphEdges)
+          .innerJoin(fromNode, eq(fromNode.id, s.graphEdges.fromId))
+          .innerJoin(toNode, eq(toNode.id, s.graphEdges.toId))
+          .where(and(eq(s.graphEdges.projectId, projectId), sql`${fromNode.groupId} <> ${toNode.groupId}`))
+          .all()
+      : [];
+    for (const row of rows) if (row.from && row.to && groups.has(row.from)) pairs.add(`${row.from}|${row.to}`);
   }
   return (a: string, b: string) => pairs.has(`${a}|${b}`);
+}
+
+/**
+ * Lines by id for planning: a run over most of a project reads the project's lines once and keeps
+ * the wanted ones (ids in chunks of 5,000 took 140 ms for 50k lines); a small run reads by id.
+ */
+export function planLines(db: Db | Tx, unitIds: string[]) {
+  const columns = { id: s.units.id, groupId: s.units.groupId, seq: s.units.seq, kind: s.units.kind, speaker: s.units.speaker, tokens: sql<number>`(length(cast(${s.units.source} as blob)) + 3) / 4` };
+  if (unitIds.length < 2_000) return inChunks(unitIds, (ids) => db.select(columns).from(s.units).where(inArray(s.units.id, ids)).all());
+  const projectId = db.select({ projectId: s.units.projectId }).from(s.units).where(eq(s.units.id, unitIds[0])).get()?.projectId;
+  if (!projectId) return [];
+  const wanted = new Set(unitIds);
+  return db.select(columns).from(s.units).where(eq(s.units.projectId, projectId)).all().filter((line) => wanted.has(line.id));
 }
 
 /**
@@ -820,43 +839,70 @@ export function planRun(db: Db | Tx, definition: WorkflowDefinition, unitIds: st
     else for (const edge of definition.edges) if (edge.source === id) queue.push(edge.target);
   }
   if (!first) return new Map<string, number>();
-  const lines = inChunks(unitIds, (ids) =>
-    db
-      .select({ id: s.units.id, groupId: s.units.groupId, seq: s.units.seq, kind: s.units.kind, speaker: s.units.speaker, tokens: sql<number>`(length(cast(${s.units.source} as blob)) + 3) / 4` })
-      .from(s.units)
-      .where(inArray(s.units.id, ids))
-      .all(),
-  );
+  const lines = planLines(db, unitIds);
   const batches = planBatches(lines, batchConfigSchema.parse(first.config.batch ?? {}), sceneLinks(db, lines));
   return new Map(batches.flatMap((batch, index) => batch.map((line) => [line.id, index] as const)));
 }
 
-export function createRun(db: Db, input: { projectId: string; workflow: typeof s.workflows.$inferSelect; profiles: Record<string, s.ProfileSnapshot>; scope: s.RunScope; limits?: s.RunLimits }) {
+type RunInput = { projectId: string; workflow: typeof s.workflows.$inferSelect; profiles: Record<string, s.ProfileSnapshot>; scope: s.RunScope; limits?: s.RunLimits };
+
+/** The run's lines and their plan batches, and the run row to store. */
+function runRows(db: Db, input: RunInput) {
   const entry = input.workflow.definition.nodes.find((node) => node.type === 'entry');
   if (!entry) throw new Error('진입 노드가 없습니다.');
   const unitIds = selectRunUnits(db, input.projectId, input.workflow.definition, input.scope);
   if (!unitIds.length) throw new Error('조건에 맞는 대사가 없습니다.');
   const runId = crypto.randomUUID();
+  const plan = planRun(db, input.workflow.definition, unitIds);
+  const run = {
+    id: runId,
+    projectId: input.projectId,
+    workflowId: input.workflow.id,
+    workflowName: input.workflow.name,
+    workflowVersion: input.workflow.version,
+    definition: input.workflow.definition,
+    profiles: input.profiles,
+    scope: input.scope,
+    status: 'running' as s.RunStatus,
+    total: unitIds.length,
+    limits: input.limits ?? null,
+  };
+  const items = unitIds.map((unitId) => ({ runId, unitId, nodeId: entry.id, state: 'queued' as const, visits: { [entry.id]: 1 }, data: { path: [], outputs: {} } as ItemData, plan: plan.get(unitId) ?? null }));
+  return { run, items };
+}
+
+/** Creates a run with all its lines in one transaction (tests, scripts and small runs). */
+export function createRun(db: Db, input: RunInput) {
+  const { run, items } = runRows(db, input);
   db.transaction((tx) => {
-    tx.insert(s.runs)
-      .values({
-        id: runId,
-        projectId: input.projectId,
-        workflowId: input.workflow.id,
-        workflowName: input.workflow.name,
-        workflowVersion: input.workflow.version,
-        definition: input.workflow.definition,
-        profiles: input.profiles,
-        scope: input.scope,
-        status: 'running',
-        total: unitIds.length,
-        limits: input.limits ?? null,
-      })
-      .run();
-    const plan = planRun(tx, input.workflow.definition, unitIds);
-    const rows = unitIds.map((unitId) => ({ runId, unitId, nodeId: entry.id, state: 'queued' as const, visits: { [entry.id]: 1 }, data: { path: [], outputs: {} } as ItemData, plan: plan.get(unitId) ?? null }));
-    for (let index = 0; index < rows.length; index += 400) tx.insert(s.runItems).values(rows.slice(index, index + 400)).run();
+    tx.insert(s.runs).values(run).run();
+    for (let index = 0; index < items.length; index += 400) tx.insert(s.runItems).values(items.slice(index, index + 400)).run();
   });
   events.changed(input.projectId, 'runs');
-  return { runId, total: unitIds.length };
+  return { runId: run.id, total: run.total };
+}
+
+/** Lines stored per step when a run is created from the app or a chat. */
+const FILL_STEP = 2_000;
+const FILLING = '대사를 넣는 중입니다.';
+
+/**
+ * createRun for the app and chats: a 50k-line run is stored FILL_STEP lines at a time with the
+ * event loop handed back in between (one transaction took about a second, holding up every
+ * request). The run waits paused, saying so, until all its lines are in.
+ */
+export async function createRunInSteps(db: Db, input: RunInput) {
+  const { run, items } = runRows(db, input);
+  db.insert(s.runs).values({ ...run, status: 'paused', notice: FILLING }).run();
+  events.changed(input.projectId, 'runs');
+  for (let start = 0; start < items.length; start += FILL_STEP) {
+    await new Promise((resolve) => setImmediate(resolve));
+    db.transaction((tx) => {
+      const part = items.slice(start, start + FILL_STEP);
+      for (let index = 0; index < part.length; index += 400) tx.insert(s.runItems).values(part.slice(index, index + 400)).run();
+    });
+  }
+  db.update(s.runs).set({ status: 'running', notice: null }).where(and(eq(s.runs.id, run.id), eq(s.runs.status, 'paused'), eq(s.runs.notice, FILLING))).run();
+  events.changed(input.projectId, 'runs');
+  return { runId: run.id, total: run.total };
 }

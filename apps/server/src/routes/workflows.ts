@@ -8,7 +8,7 @@ import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { lineView } from '../engine/functions/index.ts';
 import { runScript } from '../engine/functions/sandbox.ts';
-import { createRun, selectRunUnits } from '../engine/runner.ts';
+import { createRunInSteps, selectRunUnits } from '../engine/runner.ts';
 import { preflight } from '../services/preflight.ts';
 import { snapshotProfiles } from '../services/routes.ts';
 
@@ -113,12 +113,12 @@ export const workflowRoutes = new Hono<Env>()
     return c.json({ count: selectRunUnits(db, workflow.projectId, workflow.definition, c.req.valid('json')).length });
   })
   /** The run plan and its cost estimate, computed without calling a model (see services/preflight.ts). */
-  .post('/workflows/:id/preflight', validate('json', scopeSchema), (c) => {
+  .post('/workflows/:id/preflight', validate('json', scopeSchema), async (c) => {
     const { db } = c.var.deps;
     const workflow = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
-    return c.json(preflight(db, workflow, c.req.valid('json')));
+    return c.json(await preflight(db, workflow, c.req.valid('json')));
   })
-  .post('/workflows/:id/runs', validate('json', scopeSchema.extend({ limits: z.object({ maxCalls: z.number().int().min(1).optional(), maxInputTokens: z.number().int().min(1).optional() }).optional() })), (c) => {
+  .post('/workflows/:id/runs', validate('json', scopeSchema.extend({ limits: z.object({ maxCalls: z.number().int().min(1).optional(), maxInputTokens: z.number().int().min(1).optional() }).optional() })), async (c) => {
     const { db } = c.var.deps;
     const workflow = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
     const errors = workflowIssues(db, workflow.projectId, workflow.definition).filter((issue) => issue.level === 'error');
@@ -126,7 +126,7 @@ export const workflowRoutes = new Hono<Env>()
     const profileIds = [...new Set(workflow.definition.nodes.flatMap((node) => (node.type === 'ai' ? nodeProfileIds(node) : [])))];
     try {
       const { limits, ...scope } = c.req.valid('json');
-      return c.json(createRun(db, { projectId: workflow.projectId, workflow, profiles: snapshotProfiles(db, profileIds), scope, limits }), 201);
+      return c.json(await createRunInSteps(db, { projectId: workflow.projectId, workflow, profiles: snapshotProfiles(db, profileIds), scope, limits }), 201);
     } catch (error) {
       return badRequest(error instanceof Error ? error.message : String(error));
     }

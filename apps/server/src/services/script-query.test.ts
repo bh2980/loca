@@ -64,15 +64,15 @@ describe('script queries', () => {
     expect(normalizeBatch(db, projectId, batchChangeSchema.parse({ changes: [{ key: 'a', translation: '카렌, 내 사랑.' }] })).unchanged).toEqual(['a']);
   });
 
-  it('finds the same source translated two ways', () => {
+  it('finds the same source translated two ways', async () => {
     const { db, projectId } = setup();
     applyBatch(db, projectId, batchChangeSchema.parse({ changes: [{ key: 'a', translation: '카렌, 내 사랑.' }, { key: 'c', translation: '카렌, 자기야.' }] }));
-    const found = checkScript(db, projectId, 'consistency', filter({})) as { variants: unknown[] }[];
+    const found = (await checkScript(db, projectId, 'consistency', filter({}))) as { variants: unknown[] }[];
     expect(found).toHaveLength(1);
     expect(found[0].variants).toHaveLength(2);
   });
 
-  it('filters by listener, checks translations against speech rules, and takes listener changes from a batch', () => {
+  it('filters by listener, checks translations against speech rules, and takes listener changes from a batch', async () => {
     const { db, projectId } = setup();
     db.update(s.units).set({ listener: 'Bob Stone', listenerOrigin: 'import', translation: '밥, 여기야.' }).where(eq(s.units.key, 'a')).run();
     db.update(s.units).set({ listener: 'CHAR_ALICE', listenerOrigin: 'ai', listenerConfidence: 0.5, translation: '앨리스한테 물어봐요.' }).where(eq(s.units.key, 'b')).run();
@@ -81,7 +81,7 @@ describe('script queries', () => {
     // Names resolve through aliases; an unsure AI listener counts as unknown.
     expect(findLines(db, projectId, filter({ listeners: ['Bob'] })).rows.map((row) => [row.key, row.listener])).toEqual([['a', 'Bob Stone']]);
     expect(findLines(db, projectId, filter({ listeners: ['-'] })).rows.map((row) => row.key)).toEqual(['b', 'c']);
-    expect(checkScript(db, projectId, 'speech', filter({}))).toEqual([expect.objectContaining({ key: 'a', rule: '해요체', listener: 'Bob Stone' })]);
+    expect(await checkScript(db, projectId, 'speech', filter({}))).toEqual([expect.objectContaining({ key: 'a', rule: '해요체', listener: 'Bob Stone' })]);
 
     const batch = batchChangeSchema.parse({ changes: [{ key: 'b', listener: 'Alice Grey' }, { key: 'a', listener: 'Bob Stone' }] });
     const { batch: normalized, unchanged } = normalizeBatch(db, projectId, batch);

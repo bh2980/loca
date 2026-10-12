@@ -41,27 +41,33 @@ export interface NodeEstimate {
  * requests per AI node, token estimates and the risks worth seeing before spending a subscription.
  * The plan is the same one createRun stores (planRun), so the numbers describe the real run.
  */
-export function preflight(db: Db, workflow: typeof s.workflows.$inferSelect, scope: s.RunScope) {
+export async function preflight(db: Db, workflow: typeof s.workflows.$inferSelect, scope: s.RunScope) {
   const definition: WorkflowDefinition = workflow.definition;
   const projectId = workflow.projectId;
   const unitIds = selectRunUnits(db, projectId, definition, scope);
-  const units = inChunks(unitIds, (ids) =>
-    db
-      .select({ id: s.units.id, groupId: s.units.groupId, seq: s.units.seq, kind: s.units.kind, speaker: s.units.speaker, translation: s.units.translation, listener: s.units.listener, listenerOrigin: s.units.listenerOrigin, listenerConfidence: s.units.listenerConfidence, tokens: sql<number>`(length(cast(${s.units.source} as blob)) + 3) / 4` })
-      .from(s.units)
-      .where(inArray(s.units.id, ids))
-      .all(),
-  ).sort((a, b) => a.seq - b.seq);
+  const columns = { id: s.units.id, groupId: s.units.groupId, seq: s.units.seq, kind: s.units.kind, speaker: s.units.speaker, translation: s.units.translation, listener: s.units.listener, listenerOrigin: s.units.listenerOrigin, listenerConfidence: s.units.listenerConfidence, tokens: sql<number>`(length(cast(${s.units.source} as blob)) + 3) / 4` };
+  // Most of a project: one scan kept by id is faster than ids in chunks (see planLines).
+  const wanted = new Set(unitIds);
+  const units = (unitIds.length < 2_000 ? inChunks(unitIds, (ids) => db.select(columns).from(s.units).where(inArray(s.units.id, ids)).all()) : db.select(columns).from(s.units).where(eq(s.units.projectId, projectId)).all().filter((unit) => wanted.has(unit.id))).sort((a, b) => a.seq - b.seq);
+  await new Promise((resolve) => setImmediate(resolve));
 
   // The run plan, exactly as a run would store it.
   const plan = planRun(db, definition, unitIds);
+  await new Promise((resolve) => setImmediate(resolve));
   const groups = [...Map.groupBy(units.filter((unit) => plan.has(unit.id)), (unit) => plan.get(unit.id)!).values()];
   const sizes = groups.map((group) => group.length).sort((a, b) => a - b);
 
   const everyLine = linesThrough(definition);
   const nodes = definition.nodes.filter((node): node is AiNode => node.type === 'ai');
   const project = db.select().from(s.projects).where(eq(s.projects.id, projectId)).get()!;
-  const estimates: NodeEstimate[] = nodes.map((node) => {
+  // Each node's estimate (packing, sample prompts, history) takes tens of milliseconds on a 50k-line
+  // run; the event loop is handed back between nodes so other requests are not held up.
+  const estimates: NodeEstimate[] = [];
+  for (const node of nodes) {
+    await new Promise((resolve) => setImmediate(resolve));
+    estimates.push(estimateNode(node));
+  }
+  function estimateNode(node: AiNode): NodeEstimate {
     const config = batchConfigSchema.parse(node.config.batch ?? {});
     const requests = packGroups(groups, config);
     const profile = node.config.profileId ? db.select().from(s.profiles).where(eq(s.profiles.id, node.config.profileId)).get() : undefined;
@@ -82,7 +88,7 @@ export function preflight(db: Db, workflow: typeof s.workflows.$inferSelect, sco
       overheadTokens: connection ? overheadOf(db, connection.id) : null,
       historyRate,
     };
-  });
+  }
 
   // Totals: a known expectation where every node has one, otherwise the range.
   const sum = (pick: (estimate: NodeEstimate) => number | null) => estimates.reduce<number | null>((total, estimate) => (total === null || pick(estimate) === null ? null : total + pick(estimate)!), 0);

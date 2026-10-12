@@ -46,7 +46,7 @@ describe('preflight', () => {
     const scope = { ignoreStatus: true };
 
     // First run: no history yet, so only nodes every line passes have an expectation.
-    const first = preflight(db, workflow, scope);
+    const first = await preflight(db, workflow, scope);
     expect(first.lines.total).toBeGreaterThan(2_900);
     expect(first.plan.batches).toBeGreaterThan(10);
     const translate = first.nodes.find((node) => node.everyLine)!;
@@ -63,7 +63,7 @@ describe('preflight', () => {
 
     // Second preflight learns from the run: every node has an expectation within 20% of what ran,
     // and the connection's fixed overhead is now measured.
-    const second = preflight(db, workflow, scope);
+    const second = await preflight(db, workflow, scope);
     for (const node of second.nodes) {
       expect(node.requests.expected).not.toBeNull();
       const ran = actual(node.nodeId);
