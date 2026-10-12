@@ -131,7 +131,7 @@ export const workflowRoutes = new Hono<Env>()
     const { code, ports, unitId } = c.req.valid('json');
     const unit = unitId
       ? db.select().from(s.units).where(and(eq(s.units.id, unitId), eq(s.units.projectId, c.req.param('projectId')))).get()
-      : db.select().from(s.units).where(eq(s.units.projectId, c.req.param('projectId'))).orderBy(asc(s.units.sort)).limit(1).get();
+      : db.select().from(s.units).where(eq(s.units.projectId, c.req.param('projectId'))).orderBy(asc(s.units.seq)).limit(1).get();
     if (!unit) return badRequest('시험할 대사가 없습니다.');
     const input = lineView({ unit, item: { data: { path: [], outputs: {} }, visits: {} } as never, tagIds: [], projectId: unit.projectId, runId: 'test' });
     const started = Date.now();
@@ -197,7 +197,7 @@ export const workflowRoutes = new Hono<Env>()
       .from(s.runItems)
       .innerJoin(s.units, eq(s.units.id, s.runItems.unitId))
       .where(where)
-      .orderBy(asc(s.units.groupId), asc(s.units.sort))
+      .orderBy(asc(s.units.seq))
       .limit(limit)
       .offset(offset)
       .all();

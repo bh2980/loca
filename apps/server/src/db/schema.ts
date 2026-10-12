@@ -82,6 +82,8 @@ export const units = sqliteTable(
     groupId: text('group_id').notNull().references(() => groups.id, { onDelete: 'cascade' }),
     key: text('key').notNull(),
     sort: integer('sort').notNull(),
+    /** Position in the whole project script (0..n-1): group order, then unit order. The one key for script order. */
+    seq: integer('seq').notNull().default(0),
     kind: text('kind', { enum: ['dialogue', 'document', 'ui'] }).notNull(),
     speaker: text('speaker'),
     /** Who the line is addressed to: a character name, or null when unknown. */
@@ -100,6 +102,7 @@ export const units = sqliteTable(
   (t) => [
     uniqueIndex('units_key').on(t.projectId, t.key),
     index('units_group').on(t.groupId, t.sort),
+    index('units_seq').on(t.projectId, t.seq),
     index('units_status').on(t.projectId, t.statusId),
   ],
 );

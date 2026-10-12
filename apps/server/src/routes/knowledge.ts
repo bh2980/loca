@@ -54,7 +54,7 @@ export const knowledgeRoutes = new Hono<Env>()
       .from(s.units)
       .innerJoin(s.groups, eq(s.groups.id, s.units.groupId))
       .where(and(eq(s.units.projectId, projectId), sql`${s.units.source} like ${pattern} escape '\\'`))
-      .orderBy(asc(s.groups.sort), asc(s.units.sort))
+      .orderBy(asc(s.units.seq))
       .all()
       .filter((row) => mentions(row.source, term.source));
     return c.json({ count: rows.length, unitIds: rows.map((row) => row.id), rows: rows.slice(0, 100) });

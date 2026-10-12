@@ -6,7 +6,7 @@ import { inChunks, inList } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import type { ItemData, ItemState } from '../db/schema.ts';
-import { events } from '../events.ts';
+import { events, type Topic } from '../events.ts';
 import { buildContext } from '../services/context.ts';
 import { resolveRoutes } from '../services/routes.ts';
 import type { SecretStore } from '../services/secrets.ts';
@@ -25,8 +25,10 @@ type Unit = typeof s.units.$inferSelect;
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 type StepRecord = Omit<typeof s.runSteps.$inferInsert, 'ok' | 'finishedAt'>;
 /** A queued line waiting at a slow node, with its script position for batching. */
-type Waiting = { id: string; unitId: string; nodeId: string; groupId: string; groupSort: number; sort: number; tokens: number; since: Date };
+type Waiting = { id: string; unitId: string; nodeId: string; groupId: string; seq: number; tokens: number; since: Date };
 
+/** Functions that write beyond the line itself, and the change topic they touch. */
+const FUNCTION_TOPICS: Record<string, Topic> = { addTerms: 'terms', applyKnowledge: 'knowledge' };
 /** A partial batch waits this long for more lines from upstream before it is sent anyway. */
 const GATHER_MS = 5_000;
 /** Lines passed through instant nodes per tick; the rest wait for the next tick, so a tick never blocks for long. */
@@ -185,9 +187,10 @@ export class Runner {
       return this.halt(runId, `입력 토큰 상한(${run.limits.maxInputTokens.toLocaleString()})에 도달해서 멈췄습니다.`);
   }
 
-  private notify(runId: string) {
+  /** Run progress always changes lines; nodes that write terms or story data add their topic. */
+  private notify(runId: string, ...topics: Topic[]) {
     const run = this.db.select({ projectId: s.runs.projectId }).from(s.runs).where(eq(s.runs.id, runId)).get();
-    events.changed(run?.projectId, 'runs', 'reviews', 'units', 'terms');
+    events.changed(run?.projectId, 'runs', 'units', ...topics);
   }
 
   private node(run: Run, nodeId: string): WorkflowNode | undefined {
@@ -293,17 +296,15 @@ export class Runner {
         unitId: s.runItems.unitId,
         nodeId: s.runItems.nodeId,
         groupId: s.units.groupId,
-        groupSort: s.groups.sort,
-        sort: s.units.sort,
+        seq: s.units.seq,
         // estimateTokens without loading the text: UTF-8 bytes / 4.
         tokens: sql<number>`(length(cast(${s.units.source} as blob)) + 3) / 4`,
         since: s.runItems.updatedAt,
       })
       .from(s.runItems)
       .innerJoin(s.units, eq(s.units.id, s.runItems.unitId))
-      .innerJoin(s.groups, eq(s.groups.id, s.units.groupId))
       .where(and(eq(s.runItems.runId, run.id), eq(s.runItems.state, 'queued'), inArray(s.runItems.nodeId, slowIds)))
-      .orderBy(asc(s.groups.sort), asc(s.units.groupId), asc(s.units.sort))
+      .orderBy(asc(s.units.seq))
       .all();
   }
 
@@ -313,22 +314,23 @@ export class Runner {
     // number per tick so a 50,000-line run never holds the event loop.
     let changed = false;
     let settled = 0;
+    const touched = new Set<Topic>();
     while (settled < SETTLE_PER_TICK) {
       const instant = this.queuedInstant(run, slowIds, SETTLE_PER_TICK - settled);
       if (!instant.length) break;
-      this.settle(run, instant);
+      for (const topic of this.settle(run, instant)) touched.add(topic);
       settled += instant.length;
       changed = true;
     }
     if (settled >= SETTLE_PER_TICK) {
-      this.notify(run.id);
+      this.notify(run.id, ...touched);
       return true;
     }
 
     const limit = run.definition.settings.concurrency;
     const busy = this.inflight.get(run.id)?.size ?? 0;
     if (busy >= limit) {
-      if (changed) this.notify(run.id);
+      if (changed) this.notify(run.id, ...touched);
       return true;
     }
 
@@ -344,7 +346,7 @@ export class Runner {
       if (!open.length) {
         this.db.update(s.runs).set({ status: 'completed', finishedAt: new Date() }).where(eq(s.runs.id, run.id)).run();
         this.notify(run.id);
-      } else if (changed) this.notify(run.id);
+      } else if (changed) this.notify(run.id, ...touched);
       return false;
     }
 
@@ -378,11 +380,18 @@ export class Runner {
       const stale = batch.some((line) => now - line.since.getTime() >= GATHER_MS);
       if (idle || !feeding || stale) send(node, batch);
     }
-    if (changed) this.notify(run.id);
+    if (changed) this.notify(run.id, ...touched);
     return true;
   }
 
-  private settle(run: Run, items: Item[]) {
+  /** Runs instant nodes for `items`; returns the extra topics their functions wrote to. */
+  private settle(run: Run, items: Item[]): Set<Topic> {
+    const topics = new Set<Topic>();
+    for (const item of items) {
+      const node = this.node(run, item.nodeId);
+      const topic = node?.type === 'function' ? FUNCTION_TOPICS[node.config.fn] : undefined;
+      if (topic) topics.add(topic);
+    }
     this.db.transaction((tx) => {
       const unitRows = new Map(inChunks(items.map((item) => item.unitId), (ids) => tx.select().from(s.units).where(inArray(s.units.id, ids)).all()).map((unit) => [unit.id, unit]));
       const tagRows = Map.groupBy(inChunks([...unitRows.keys()], (ids) => tx.select().from(s.unitTags).where(inArray(s.unitTags.unitId, ids)).all()), (row) => row.unitId);
@@ -396,6 +405,7 @@ export class Runner {
         this.runInstant(tx, run, node, item, unit, (tagRows.get(unit.id) ?? []).map((row) => row.tagId));
       }
     });
+    return topics;
   }
 
   private runInstant(tx: Tx, run: Run, node: WorkflowNode, item: Item, unit: Unit, tagIds: string[]) {
@@ -606,7 +616,7 @@ export class Runner {
           return { port: result.passed ? 'pass' : 'fail', issues: result.passed ? undefined : result.issues, output: { passed: result.passed, issues: result.issues } };
         });
       case 'terms':
-        // Terms describe the whole batch; every line carries them so a later "add terms" sees them.
+        // Terms describe the whole batch; every line carries them so later nodes and scripts can read them.
         return lines.map(() => ({ port: 'out', output: { terms: value.terms ?? [] } }));
       case 'knowledge': {
         // Like terms, the change set describes the whole batch; line ids become line keys so it outlives the prompt.

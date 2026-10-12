@@ -3,8 +3,8 @@ import type { BatchConfig } from '@tw/shared';
 /** A line to batch, in script position. `tokens` is the estimated size of its text. */
 export interface BatchLine {
   groupId: string;
-  groupSort: number;
-  sort: number;
+  /** Position in the whole script (units.seq). */
+  seq: number;
   tokens: number;
 }
 
@@ -20,7 +20,7 @@ export interface BatchLine {
  *   cost a request each; the prompt keeps every scene's boundary and per-line context.
  */
 export function planBatches<T extends BatchLine>(lines: T[], config: BatchConfig): T[][] {
-  const ordered = [...lines].sort((a, b) => a.groupSort - b.groupSort || a.groupId.localeCompare(b.groupId) || a.sort - b.sort);
+  const ordered = [...lines].sort((a, b) => a.seq - b.seq);
   if (config.mode === 'unit') return ordered.map((line) => [line]);
   if (config.mode === 'count') return Array.from({ length: Math.ceil(ordered.length / config.size) }, (_, index) => ordered.slice(index * config.size, (index + 1) * config.size));
 

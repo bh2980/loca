@@ -80,7 +80,7 @@ export function findLines(db: Db, projectId: string, filter: LineFilter): { tota
     .from(s.units)
     .innerJoin(s.groups, eq(s.groups.id, s.units.groupId))
     .where(and(...where))
-    .orderBy(asc(s.groups.sort), asc(s.units.sort));
+    .orderBy(asc(s.units.seq));
   let total: number;
   let page: { unit: Unit; group: LineRow['group'] }[];
   if (mentionNames.length) {
@@ -88,7 +88,10 @@ export function findLines(db: Db, projectId: string, filter: LineFilter): { tota
     total = all.length;
     page = all.slice(filter.offset, filter.offset + filter.limit);
   } else {
-    total = db.select({ count: count() }).from(s.units).innerJoin(s.groups, eq(s.groups.id, s.units.groupId)).where(and(...where)).get()!.count;
+    // Groups are joined only when a group filter needs them.
+    const counted = db.select({ count: count() }).from(s.units);
+    const usesGroups = Boolean(filter.groups?.length || filter.sections?.length || filter.groupKind);
+    total = (usesGroups ? counted.innerJoin(s.groups, eq(s.groups.id, s.units.groupId)) : counted).where(and(...where)).get()!.count;
     page = base.limit(filter.limit).offset(filter.offset).all();
   }
   const ids = page.map(({ unit }) => unit.id);
@@ -149,7 +152,7 @@ export function scenesWith(db: Db, projectId: string, speakers: string[]) {
 export function lineContext(db: Db, projectId: string, key: string, around: number) {
   const unit = db.select().from(s.units).where(and(eq(s.units.projectId, projectId), eq(s.units.key, key))).get();
   if (!unit) return null;
-  const siblings = db.select({ id: s.units.id, key: s.units.key, speaker: s.units.speaker, source: s.units.source, translation: s.units.translation }).from(s.units).where(eq(s.units.groupId, unit.groupId)).orderBy(asc(s.units.sort)).all();
+  const siblings = db.select({ id: s.units.id, key: s.units.key, speaker: s.units.speaker, source: s.units.source, translation: s.units.translation }).from(s.units).where(eq(s.units.groupId, unit.groupId)).orderBy(asc(s.units.seq)).all();
   const index = siblings.findIndex((row) => row.id === unit.id);
   const node = db.select().from(s.graphNodes).where(and(eq(s.graphNodes.projectId, projectId), sql`exists (select 1 from json_each(${s.graphNodes.unitIds}) where value = ${unit.id})`)).get();
   let graph = null;
@@ -299,7 +302,7 @@ export function exportLines(db: Db, projectId: string, filter: LineFilter, optio
     if (options.before > 0) {
       const groupId = units.get(line.id)!;
       if (!groupLines.has(groupId))
-        groupLines.set(groupId, db.select({ id: s.units.id, speaker: s.units.speaker, source: s.units.source, translation: s.units.translation }).from(s.units).where(eq(s.units.groupId, groupId)).orderBy(asc(s.units.sort)).all());
+        groupLines.set(groupId, db.select({ id: s.units.id, speaker: s.units.speaker, source: s.units.source, translation: s.units.translation }).from(s.units).where(eq(s.units.groupId, groupId)).orderBy(asc(s.units.seq)).all());
       const siblings = groupLines.get(groupId)!;
       const index = siblings.findIndex((row) => row.id === line.id);
       before = siblings.slice(Math.max(0, index - options.before), index).map(({ speaker, source, translation }) => ({ speaker, source, translation }));

@@ -78,6 +78,19 @@ export function importProject(db: Db, file: ImportFile, defaultProfileId = ''): 
         meta: unit.meta,
       });
     });
+    // seq = position in the whole script: group order, then unit order, tie-broken by group key then unit key.
+    const groupOrder = new Map(file.groups.map((group, index) => [group.key, { sort: group.order ?? index, key: group.key }]));
+    const groupOfUnit = new Map(file.units.map((unit) => [unit.key, groupOrder.get(unit.group)!]));
+    const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+    unitRows
+      .sort((a, b) => {
+        const ga = groupOfUnit.get(a.key)!;
+        const gb = groupOfUnit.get(b.key)!;
+        return ga.sort - gb.sort || compare(ga.key, gb.key) || a.sort - b.sort || compare(a.key, b.key);
+      })
+      .forEach((row, seq) => {
+        row.seq = seq;
+      });
     insertMany(tx, s.units, unitRows);
     insertMany(tx, s.candidates, candidateRows);
 

@@ -118,14 +118,16 @@ export const sourceRoutes = new Hono<Env>()
     if (query.listener === '-') conditions.push(sql`not ${knownListener}`);
     else if (query.listener) conditions.push(and(eq(s.units.listener, query.listener), knownListener)!);
     const where = and(...conditions);
-    const total = db.select({ count: count() }).from(s.units).innerJoin(s.groups, eq(s.groups.id, s.units.groupId)).where(where).get()!.count;
+    // The groups table is only needed for the kind filter; without it the count is one index range.
+    const counted = db.select({ count: count() }).from(s.units);
+    const total = (query.kind ? counted.innerJoin(s.groups, eq(s.groups.id, s.units.groupId)) : counted).where(where).get()!.count;
     const rows = db
       .select({ ...unitColumns, groupTitle: s.groups.title, origin: s.candidates.origin, model: s.candidates.model })
       .from(s.units)
       .innerJoin(s.groups, eq(s.groups.id, s.units.groupId))
       .leftJoin(s.candidates, eq(s.candidates.id, s.units.candidateId))
       .where(where)
-      .orderBy(asc(s.groups.sort), asc(s.units.sort))
+      .orderBy(asc(s.units.seq))
       .limit(query.limit)
       .offset(query.offset)
       .all();
@@ -143,7 +145,7 @@ export const sourceRoutes = new Hono<Env>()
         .from(s.units)
         .innerJoin(s.groups, eq(s.groups.id, s.units.groupId))
         .where(and(eq(s.units.projectId, c.req.param('projectId')), inArray(s.units.key, keys)))
-        .orderBy(asc(s.groups.sort), asc(s.units.sort))
+        .orderBy(asc(s.units.seq))
         .all(),
     );
   })
@@ -180,7 +182,7 @@ export const sourceRoutes = new Hono<Env>()
       .innerJoin(s.statuses, eq(s.statuses.id, s.units.statusId))
       .innerJoin(s.groups, eq(s.groups.id, s.units.groupId))
       .where(where)
-      .orderBy(asc(s.groups.sort), asc(s.units.sort))
+      .orderBy(asc(s.units.seq))
       .limit(500)
       .all();
     const latest = new Map<string, { workflowName: string; runId: string; issues: string[] }>();

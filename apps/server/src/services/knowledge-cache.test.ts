@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { importFileSchema, lineFilterSchema, mentions } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -100,6 +100,8 @@ describe('knowledge snapshot cache', () => {
     const g1 = db.select().from(s.groups).where(eq(s.groups.key, 'g1')).get()!;
     const g2 = db.select().from(s.groups).where(eq(s.groups.key, 'g2')).get()!;
     db.update(s.groups).set({ sort: g2.sort + 10 }).where(eq(s.groups.id, g1.id)).run();
+    // Script order is units.seq; a reorder has to renumber it (nothing reorders scenes in the app today).
+    db.update(s.units).set({ seq: sql`${s.units.seq} + 100` }).where(eq(s.units.groupId, g1.id)).run();
     expect(resolve('l1')).toBe('hae');
     expect(resolve('l0')).toBe('hae');
     // A new alias makes a different speaker name hit the same pair.

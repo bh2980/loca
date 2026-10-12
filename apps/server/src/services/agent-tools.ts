@@ -73,7 +73,7 @@ export function agentTools(db: Db, projectId: string, author: { profileId: strin
         return {
           scene: { title: scene.title, description: scene.description },
           total: db.select({ count: count() }).from(s.units).where(where).get()!.count,
-          lines: db.select({ key: s.units.key, speaker: s.units.speaker, source: s.units.source, translation: s.units.translation }).from(s.units).where(where).orderBy(asc(s.units.sort)).limit(limit).offset(offset).all(),
+          lines: db.select({ key: s.units.key, speaker: s.units.speaker, source: s.units.source, translation: s.units.translation }).from(s.units).where(where).orderBy(asc(s.units.seq)).limit(limit).offset(offset).all(),
         };
       },
     }),
@@ -88,7 +88,7 @@ export function agentTools(db: Db, projectId: string, author: { profileId: strin
           .get();
         if (!unit) return { error: '대사를 찾을 수 없습니다.' };
         const group = db.select({ id: s.groups.id, kind: s.groups.kind, title: s.groups.title, description: s.groups.description }).from(s.groups).where(eq(s.groups.id, unit.groupId)).get();
-        const around = db.select({ id: s.units.id, sort: s.units.sort, speaker: s.units.speaker, source: s.units.source, translation: s.units.translation }).from(s.units).where(eq(s.units.groupId, unit.groupId)).orderBy(asc(s.units.sort)).all();
+        const around = db.select({ id: s.units.id, sort: s.units.sort, speaker: s.units.speaker, source: s.units.source, translation: s.units.translation }).from(s.units).where(eq(s.units.groupId, unit.groupId)).orderBy(asc(s.units.seq)).all();
         const index = around.findIndex((row) => row.id === unit.id);
         const terms = db.select({ source: s.terms.source, target: s.terms.target, note: s.terms.note }).from(s.terms).where(and(eq(s.terms.projectId, projectId), eq(s.terms.status, 'confirmed'))).all();
         const rule = speechRuleIndex(db, projectId).resolve([unit]).get(unit.key);

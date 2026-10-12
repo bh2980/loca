@@ -28,9 +28,8 @@ export function previewContext(db: Db, projectId: string, unitKey: string, pick:
   // The batch the runner would form when the whole script is in scope (same planning rule).
   const config = batchConfigSchema.parse(node.config.batch ?? {});
   const all = db
-    .select({ id: s.units.id, groupId: s.units.groupId, sort: s.units.sort, groupSort: s.groups.sort, tokens: sql<number>`(length(cast(${s.units.source} as blob)) + 3) / 4` })
+    .select({ id: s.units.id, groupId: s.units.groupId, seq: s.units.seq, tokens: sql<number>`(length(cast(${s.units.source} as blob)) + 3) / 4` })
     .from(s.units)
-    .innerJoin(s.groups, eq(s.groups.id, s.units.groupId))
     .where(eq(s.units.projectId, projectId))
     .all();
   const ids = planBatches(all, config).find((batch) => batch.some((row) => row.id === unit.id))?.map((row) => row.id) ?? [unit.id];

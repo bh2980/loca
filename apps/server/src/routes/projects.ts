@@ -92,7 +92,7 @@ export const projectRoutes = new Hono<Env>()
       .from(s.units)
       .innerJoin(s.statuses, eq(s.statuses.id, s.units.statusId))
       .where(eq(s.units.projectId, projectId))
-      .orderBy(asc(s.units.groupId), asc(s.units.sort))
+      .orderBy(asc(s.units.seq))
       .all();
     c.header('Content-Disposition', `attachment; filename="${encodeURIComponent(project.name)}-translations.json"`);
     return c.json({ format: 'translation-workbench/translations-v1', project: project.name, targetLanguage: project.targetLanguage, units: rows });

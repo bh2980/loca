@@ -147,13 +147,11 @@ export function knowledgeOf(db: Db, projectId: string) {
 function scriptOrder(db: Db, projectId: string) {
   return cachedKnowledge(db, projectId, 'scriptOrder', ['order'], () => {
     const rows = db
-      .select({ key: s.units.key, groupSort: s.groups.sort, sort: s.units.sort })
+      .select({ key: s.units.key, seq: s.units.seq })
       .from(s.units)
-      .innerJoin(s.groups, eq(s.groups.id, s.units.groupId))
       .where(eq(s.units.projectId, projectId))
       .all();
-    // Group sort dominates; unit sort stays far below a group step.
-    return new Map(rows.map((row) => [row.key, row.groupSort * 1_000_000 + row.sort]));
+    return new Map(rows.map((row) => [row.key, row.seq]));
   });
 }
 
@@ -215,7 +213,7 @@ export function ruleLines(db: Db, projectId: string, ruleId: string) {
     .from(s.units)
     .innerJoin(s.groups, eq(s.groups.id, s.units.groupId))
     .where(and(eq(s.units.projectId, projectId), eq(s.units.kind, 'dialogue')))
-    .orderBy(asc(s.groups.sort), asc(s.units.sort))
+    .orderBy(asc(s.units.seq))
     .all()
     .filter((line) => line.speaker && index.norm(line.speaker) === index.norm(rule.fromName) && knownListener(line) && index.norm(knownListener(line)!) === index.norm(rule.toName));
   // A candidate rule is not resolved by the index; show the lines it would take over.

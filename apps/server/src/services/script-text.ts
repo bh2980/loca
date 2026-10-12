@@ -18,7 +18,7 @@ export interface ScriptBlock {
  */
 export function scriptText(db: Db, projectId: string) {
   const groups = db.select().from(s.groups).where(eq(s.groups.projectId, projectId)).orderBy(asc(s.groups.sort)).all();
-  const units = db.select({ id: s.units.id, key: s.units.key, groupId: s.units.groupId, kind: s.units.kind, speaker: s.units.speaker, source: s.units.source }).from(s.units).where(eq(s.units.projectId, projectId)).orderBy(asc(s.units.sort)).all();
+  const units = db.select({ id: s.units.id, key: s.units.key, groupId: s.units.groupId, kind: s.units.kind, speaker: s.units.speaker, source: s.units.source }).from(s.units).where(eq(s.units.projectId, projectId)).orderBy(asc(s.units.seq)).all();
   const byGroup = Map.groupBy(units, (unit) => unit.groupId);
 
   // Labels of the edges that lead into each line's graph node.
