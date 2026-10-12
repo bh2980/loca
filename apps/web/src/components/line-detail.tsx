@@ -1,9 +1,11 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
+import { toast } from 'sonner';
 import { useMemo } from 'react';
 import { CircleAlert, CircleCheck } from 'lucide-react';
 import { checkFormat, isSpecialListener, KNOWLEDGE_ORIGIN_LABELS, LISTENER_MIN_CONFIDENCE, listenerLabel, mentions, SPECIAL_LISTENERS, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatRules, type KnowledgeStatus, type SpeechLevel } from '@tw/shared';
 import { Badge } from '@/components/ui/badge';
+import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Toggle } from '@/components/ui/toggle';
@@ -60,8 +62,15 @@ export function LineDetail({
   const [draft, setDraft] = useDraft(`line:${unitId}`, unit.data?.translation ?? '');
   useReportView('line-detail', [unit.data && { kind: '대사', id: unit.data.id, label: `${unit.data.key} · ${unit.data.source.slice(0, 40)}` }]);
 
+  const queryClient = useQueryClient();
   const patch = useMutation({
     mutationFn: (json: { statusId?: string; tagIds?: string[]; listener?: string | null }) => unwrap(client.units[':unitId'].$patch({ param: { unitId }, json })),
+    // The pick shows at once (pane and list); a failure puts it back.
+    onMutate: async (json) => ({ undo: await optimistic(queryClient, unitChanges([unitId], patchedLine(json))) }),
+    onError: (error, _json, context) => {
+      context?.undo();
+      toast.error(error.message);
+    },
   });
 
   const line = unit.data;

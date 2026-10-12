@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { STATUS_COLORS } from '@tw/shared';
@@ -19,6 +19,7 @@ import { Switch } from '@/components/ui/switch';
 import { client, unwrap } from '@/lib/api';
 import { STATUS_KIND } from '@/lib/labels';
 import { q } from '@/lib/queries';
+import { optimistic } from '@/lib/optimistic';
 import { cn } from '@/lib/utils';
 
 type StatusSearch = { status?: string; tag?: string };
@@ -85,9 +86,19 @@ function StatusSettings() {
   const selectedTag = search.tag && search.tag !== 'new' ? tags?.find((tag) => tag.id === search.tag) : undefined;
 
   const fail = (error: Error) => toast.error(error.message);
+  const queryClient = useQueryClient();
   const reorder = useMutation({
     mutationFn: (ids: string[]) => unwrap(client.projects[':projectId'].statuses.order.$put({ param: { projectId }, json: { ids } })),
-    onError: fail,
+    // The row moves at once; a failure moves it back.
+    onMutate: async (ids) => ({
+      undo: await optimistic(queryClient, [
+        { key: q.statuses(projectId).queryKey, update: (data: { statuses: { id: string }[] }) => ({ ...data, statuses: [...data.statuses].sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id)) }) },
+      ]),
+    }),
+    onError: (error, _ids, context) => {
+      context?.undo();
+      fail(error);
+    },
   });
   const create = useMutation({
     mutationFn: (json: StatusForm) => unwrap(client.projects[':projectId'].statuses.$post({ param: { projectId }, json })),

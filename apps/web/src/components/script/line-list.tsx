@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, CircleAlert, ListChecks, ListFilter, MoreHorizontal, PanelRightOpen, Play, Tags, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { checkFormat, LISTENER_MIN_CONFIDENCE, listenerLabel, mentions, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
@@ -19,6 +19,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { client, unwrap } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
+import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
@@ -177,13 +178,22 @@ export function LineList({
     setPicking(false);
     setPicked(new Set());
   };
+  const queryClient = useQueryClient();
+  const undoOnError = (error: Error, _vars: unknown, context: { undo: () => void } | undefined) => {
+    context?.undo();
+    toast.error(error.message);
+  };
   const setStatus = useMutation({
     mutationFn: (statusId: string) => unwrap(client.projects[':projectId'].units.$patch({ param: { projectId }, json: { unitIds: [...picked], statusId } })),
+    onMutate: async (statusId) => ({ undo: await optimistic(queryClient, unitChanges(picked, patchedLine({ statusId }))) }),
     onSuccess: () => toast.success(`${picked.size}개 대사의 상태를 바꿨습니다.`),
+    onError: undoOnError,
   });
   const setTag = useMutation({
     mutationFn: ({ tagId, add }: { tagId: string; add: boolean }) =>
       unwrap(client.projects[':projectId'].units.$patch({ param: { projectId }, json: add ? { unitIds: [...picked], addTagIds: [tagId] } : { unitIds: [...picked], removeTagIds: [tagId] } })),
+    onMutate: async ({ tagId, add }) => ({ undo: await optimistic(queryClient, unitChanges(picked, patchedLine(add ? { addTagIds: [tagId] } : { removeTagIds: [tagId] }))) }),
+    onError: undoOnError,
     onSuccess: (_data, { tagId, add }) => toast.success(`${picked.size}개 대사${add ? '에' : '에서'} #${tagById.get(tagId)?.name} 태그를 ${add ? '붙였습니다' : '뗐습니다'}.`),
   });
 
