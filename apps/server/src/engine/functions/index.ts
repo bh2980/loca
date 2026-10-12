@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { get } from 'es-toolkit/compat';
 import {
   addTermsParams,
@@ -109,16 +109,32 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     // Candidates count too, so the whole table is read; cached until a term is written (including by this node).
     const existing = new Set(knowledgeOf(tx as unknown as Db, input.projectId).allTermSources().map((source) => source.toLowerCase()));
     let added = 0;
+    let filled = 0;
     for (const term of found) {
       const key = term.source?.trim();
-      if (!key || existing.has(key.toLowerCase())) continue;
+      if (!key) continue;
+      if (existing.has(key.toLowerCase())) {
+        // Like the work analysis: a term already in the glossary keeps what it has; only its empty
+        // translation and note are filled. A rejected term stays as the person left it.
+        const target = term.target?.trim() ?? '';
+        const note = term.note?.trim() ?? '';
+        if (!target && !note) continue;
+        const known = tx.select({ id: s.terms.id, target: s.terms.target, note: s.terms.note, status: s.terms.status }).from(s.terms).where(and(eq(s.terms.projectId, input.projectId), sql`lower(${s.terms.source}) = ${key.toLowerCase()}`)).get();
+        if (!known || known.status === 'rejected') continue;
+        const fill = { ...(!known.target.trim() && target && { target }), ...(!known.note.trim() && note && { note }) };
+        if (Object.keys(fill).length) {
+          tx.update(s.terms).set(fill).where(eq(s.terms.id, known.id)).run();
+          filled++;
+        }
+        continue;
+      }
       existing.add(key.toLowerCase());
       tx.insert(s.terms)
         .values({ projectId: input.projectId, source: key, target: term.target?.trim() ?? '', note: term.note ?? '', status: params.autoConfirm ? 'confirmed' : 'candidate', origin: 'ai', runId: input.runId })
         .run();
       added++;
     }
-    return { port: 'out', output: { added } };
+    return { port: 'out', output: { added, filled } };
   },
 
   applyKnowledge(tx, raw, input) {
