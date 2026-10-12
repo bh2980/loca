@@ -4,7 +4,7 @@ import { mentions } from '../services/context.ts';
 import { z } from 'zod';
 import { DOCUMENT_KINDS, KNOWLEDGE_STATUSES, patchOf, relationshipChangeSchema, SPEECH_LEVELS } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
-import { eachChunk } from '../db/chunk.ts';
+import { eachChunk, inChunks } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { ruleLines } from '../services/speech.ts';
@@ -161,7 +161,24 @@ export const knowledgeRoutes = new Hono<Env>()
     events.changed(projectId, 'knowledge');
     return c.json({ ok: true });
   })
-  .get('/events', (c) => c.json(c.var.deps.db.select().from(s.storyEvents).where(and(eq(s.storyEvents.projectId, c.req.param('projectId')!), ne(s.storyEvents.status, 'rejected'))).all()))
+  /** Events with where they happen: the earliest of their evidence lines (script position, section, scene), for the timeline. */
+  .get('/events', (c) => {
+    const { db } = c.var.deps;
+    const projectId = c.req.param('projectId')!;
+    const events = db.select().from(s.storyEvents).where(and(eq(s.storyEvents.projectId, projectId), ne(s.storyEvents.status, 'rejected'))).all();
+    const keys = [...new Set(events.flatMap((event) => event.evidence))];
+    const lines = new Map(
+      inChunks(keys, (slice) =>
+        db.select({ key: s.units.key, seq: s.units.seq, section: s.groups.section, scene: s.groups.title }).from(s.units).innerJoin(s.groups, eq(s.groups.id, s.units.groupId)).where(and(eq(s.units.projectId, projectId), inArray(s.units.key, slice))).all(),
+      ).map((line) => [line.key, line]),
+    );
+    return c.json(
+      events.map((event) => {
+        const first = event.evidence.flatMap((key) => lines.get(key) ?? []).sort((a, b) => a.seq - b.seq)[0];
+        return { ...event, at: first ? { seq: first.seq, section: first.section, scene: first.scene, key: first.key } : null };
+      }),
+    );
+  })
   .post('/events', validate('json', eventInput), (c) => {
     const projectId = c.req.param('projectId')!;
     const row = c.var.deps.db.insert(s.storyEvents).values({ ...c.req.valid('json'), projectId }).returning().get();

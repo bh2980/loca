@@ -329,7 +329,7 @@ export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: A
     if (body && !documentRejected) tx.insert(s.documents).values({ projectId, kind: 'story', title, body, evidence: keys(overview.evidence), ...draft }).run();
 
     // People: a stored person (any status) keeps their name; rejected ones are not proposed again but nothing new points at them.
-    const stored = tx.select({ id: s.characters.id, name: s.characters.name, aliases: s.characters.aliases, status: s.characters.status }).from(s.characters).where(eq(s.characters.projectId, projectId)).all();
+    const stored = tx.select({ id: s.characters.id, name: s.characters.name, aliases: s.characters.aliases, status: s.characters.status, profile: s.characters.profile, speech: s.characters.speech, evidence: s.characters.evidence }).from(s.characters).where(eq(s.characters.projectId, projectId)).all();
     const live = stored.filter((c) => c.status !== 'rejected');
     // The model may still spell a known person differently ("Mara Holt" for the speaker "Mara"):
     // such names are mapped onto the stored person everywhere, so rules and relationships meet the lines' speakers.
@@ -339,7 +339,18 @@ export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: A
     for (const c of live) for (const name of namesOf(c)) idByName.set(name.toLowerCase(), c.id);
     const knownNames = new Set(stored.flatMap((c) => namesOf(c).map((name) => name.toLowerCase())));
     for (const c of analysis.characters) {
-      if (namesOf(c).some((name) => knownNames.has(name.toLowerCase())) || canon(c.name) !== c.name) continue;
+      if (namesOf(c).some((name) => knownNames.has(name.toLowerCase())) || canon(c.name) !== c.name) {
+        // A person already in the cast (often only a name from the import) gets what the analysis
+        // found in the fields still empty; nothing a person or the import wrote is replaced.
+        const known = live.find((person) => person.id === idByName.get(canon(c.name).toLowerCase()));
+        const fill = known && {
+          ...(!known.profile.trim() && c.profile.trim() && { profile: c.profile }),
+          ...(!known.speech.trim() && c.speech.trim() && { speech: c.speech }),
+          ...(!known.evidence.length && keys(c.evidence).length && { evidence: keys(c.evidence) }),
+        };
+        if (fill && Object.keys(fill).length) tx.update(s.characters).set(fill).where(eq(s.characters.id, known.id)).run();
+        continue;
+      }
       const row = tx.insert(s.characters).values({ projectId, name: c.name, aliases: c.aliases, profile: c.profile, speech: c.speech, player: c.player, evidence: keys(c.evidence), ...draft }).returning({ id: s.characters.id }).get();
       for (const name of namesOf(c)) if (!idByName.has(name.toLowerCase())) idByName.set(name.toLowerCase(), row.id);
     }

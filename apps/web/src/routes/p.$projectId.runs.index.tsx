@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { ITEM_STATE, RUN_STATUS } from '@/lib/labels';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
+import { SplitPane } from '@/components/split-pane';
 
 interface RunsSearch {
   /** The run or job whose AI requests the right-hand pane shows. */
@@ -90,7 +91,18 @@ function Runs() {
           </EmptyHeader>
         </Empty>
       ) : (
-        <div className="flex min-h-0 rounded-lg border">
+        <SplitPane
+          id="runs"
+          defaultWidth="440px"
+          className="min-h-0 rounded-lg border"
+          pane={
+            selected && (
+              <div className="h-full">
+                <JobCalls key={selected.id} projectId={projectId} job={selected} onClose={() => select(undefined)} />
+              </div>
+            )
+          }
+        >
           <div className="min-w-0 flex-1">
             <Table>
               <TableHeader>
@@ -140,12 +152,7 @@ function Runs() {
               </TableBody>
             </Table>
           </div>
-          {selected && (
-            <div className="w-[440px] shrink-0 border-l">
-              <JobCalls key={selected.id} projectId={projectId} job={selected} onClose={() => select(undefined)} />
-            </div>
-          )}
-        </div>
+        </SplitPane>
       )}
     </Page>
   );

@@ -1,13 +1,14 @@
 import { useMemo, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Check, Network, Plus, Table2 } from 'lucide-react';
+import { Check, GanttChart, Network, Plus, Table2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { DOCUMENT_KINDS, isSettled, KNOWLEDGE_SOURCES, listenerLabel, SPEECH_LEVEL_LABELS, type KnowledgeSource, type SpeechLevel } from '@tw/shared';
 import { Page } from '@/components/page';
 import { RelationshipGraph } from '@/components/relationship-graph';
 import { JobStatus, StartAnalysis } from '@/components/knowledge/analysis-controls';
 import { candidateRow, DiscardButton, DraftEditor, fail, KINDS, KnowledgeFilters, matches, RelationshipChanges, RuleLines, SourceBadge, text, type Kind, type KindSpec, type Row } from '@/components/knowledge/draft-editor';
+import { SplitPane } from '@/components/split-pane';
 import { buildPairs, PairDetail, pairItems, pairMatches, pairSummary, PairTable, type Pair } from '@/components/knowledge/pairs';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -33,10 +34,10 @@ interface KnowledgeSearch {
   state?: 'confirmed' | 'candidate';
   /** Selected item id, or a pair key ("from→to") in 인물·관계 › 관계. */
   item?: string;
-  /** Inside 인물·관계: people instead of pairs. */
+  /** Inside 인물·관계 shown as tables: people instead of pairs. */
   view?: 'characters';
-  /** Pairs as a table instead of the graph. */
-  display?: 'table';
+  /** 인물·관계 as tables instead of the graph; 사건 as a timeline instead of the table. */
+  display?: 'table' | 'timeline';
 }
 
 export const Route = createFileRoute('/p/$projectId/knowledge')({
@@ -46,7 +47,7 @@ export const Route = createFileRoute('/p/$projectId/knowledge')({
     state: raw.state === 'confirmed' || raw.state === 'candidate' ? raw.state : undefined,
     item: typeof raw.item === 'string' && raw.item ? raw.item : undefined,
     view: raw.view === 'characters' ? 'characters' : undefined,
-    display: raw.display === 'table' ? 'table' : undefined,
+    display: raw.display === 'table' || raw.display === 'timeline' ? raw.display : undefined,
   }),
   component: Knowledge,
 });
@@ -61,8 +62,10 @@ function Knowledge() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const tab: Tab = search.tab ?? 'documents';
-  const pairsView = tab === 'people' && search.view !== 'characters';
-  const graph = pairsView && search.display !== 'table';
+  // 인물·관계 is one graph (people and their relationships) or two tables (pairs / people).
+  const graph = tab === 'people' && search.display !== 'table';
+  const pairsView = tab === 'people' && !graph && search.view !== 'characters';
+  const timeline = tab === 'events' && search.display === 'timeline';
   const set = (next: Partial<KnowledgeSearch>, replace = true) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace });
 
   const documents = useQuery(q.documents(projectId));
@@ -185,7 +188,7 @@ function Knowledge() {
   const pairs = useMemo(() => buildPairs(characters, specs.relationships.rows, specs.speechRules.rows), [characters, specs.relationships.rows, specs.speechRules.rows]);
   const visiblePairs = pairs.filter((pair) => pairMatches(pair, search.source, search.state));
   // A link may name a relationship or rule id; it opens the pair holding it.
-  const pair = pairsView ? pairs.find((candidate) => candidate.key === search.item || pairItems(candidate).some((item) => item.row.id === search.item)) : undefined;
+  const pair = pairsView || graph ? pairs.find((candidate) => candidate.key === search.item || pairItems(candidate).some((item) => item.row.id === search.item)) : undefined;
 
   const tableKind: Kind = tab === 'people' ? 'characters' : tab;
   const spec = specs[tableKind];
@@ -239,8 +242,36 @@ function Knowledge() {
 
   return (
     <Page title="자료" flush meta={<JobStatus projectId={projectId} />} actions={<StartAnalysis projectId={projectId} />}>
-      <div className="flex h-full min-h-0">
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <SplitPane
+        id="knowledge"
+        defaultWidth="440px"
+        className="h-full"
+        pane={
+          selected ? (
+            <DraftEditor
+              key={selected.id}
+              projectId={projectId}
+              kind={tableKind}
+              spec={spec}
+              row={selected}
+              characters={characters}
+              onClose={() => set({ item: undefined })}
+              onDecide={(action) => decide.mutate({ items: [{ kind: tableKind, ids: [selected.id] }], action })}
+            />
+          ) : pair ? (
+            <PairDetail
+              key={pair.key}
+              projectId={projectId}
+              pair={pair}
+              {...pairSpecs(pair)}
+              characters={characters}
+              onClose={() => set({ item: undefined })}
+              onDecide={(kind, ids, action) => decide.mutate({ items: [{ kind, ids }], action })}
+            />
+          ) : null
+        }
+      >
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <div className="flex flex-wrap items-center gap-2 border-b px-6 py-2">
             <Tabs value={tab} onValueChange={(value) => { setChecked(new Set()); set({ tab: value as Tab, item: undefined, view: undefined, display: undefined }, false); }}>
               <TabsList>
@@ -252,14 +283,24 @@ function Knowledge() {
                 ))}
               </TabsList>
             </Tabs>
-            {tab === 'people' && (
+            {tab === 'people' && !graph && (
               <ToggleGroup type="single" variant="outline" size="sm" value={search.view ?? 'pairs'} onValueChange={(value) => value && (setChecked(new Set()), set({ view: value === 'characters' ? 'characters' : undefined, item: undefined }, false))}>
                 <ToggleGroupItem value="pairs" className="px-3">관계</ToggleGroupItem>
                 <ToggleGroupItem value="characters" className="px-3">인물</ToggleGroupItem>
               </ToggleGroup>
             )}
-            {pairsView && (
-              <ToggleGroup type="single" variant="outline" size="sm" value={search.display ?? 'graph'} onValueChange={(value) => value && set({ display: value === 'table' ? 'table' : undefined })}>
+            {tab === 'events' && (
+              <ToggleGroup type="single" variant="outline" size="sm" value={search.display ?? 'table'} onValueChange={(value) => value && set({ display: value === 'timeline' ? 'timeline' : undefined })}>
+                <ToggleGroupItem value="table" aria-label="표로 보기">
+                  <Table2 />
+                </ToggleGroupItem>
+                <ToggleGroupItem value="timeline" aria-label="타임라인으로 보기">
+                  <GanttChart />
+                </ToggleGroupItem>
+              </ToggleGroup>
+            )}
+            {tab === 'people' && (
+              <ToggleGroup type="single" variant="outline" size="sm" value={search.display ?? 'graph'} onValueChange={(value) => value && (setChecked(new Set()), set({ display: value === 'table' ? 'table' : undefined, view: undefined }))}>
                 <ToggleGroupItem value="graph" aria-label="그래프로 보기">
                   <Network />
                 </ToggleGroupItem>
@@ -289,17 +330,21 @@ function Knowledge() {
           {graph ? (
             <div className="min-h-0 flex-1">
               <RelationshipGraph
+                storageKey={`tw.relationships.${projectId}`}
                 characters={characters}
                 relationships={edges}
+                selectedCharacterId={selected?.id}
                 selectedRelationshipId={pair?.key}
-                onSelectCharacter={(id) => set({ view: 'characters', item: id }, false)}
+                onSelectCharacter={(id) => set({ item: id })}
                 onSelectRelationship={(key) => set({ item: key })}
                 onClear={() => set({ item: undefined })}
               />
             </div>
           ) : (
             <ScrollArea className="min-h-0 flex-1">
-              {pairsView ? (
+              {timeline ? (
+                <EventTimeline events={rows} selected={search.item} onOpen={(id) => set({ item: id === search.item ? undefined : id })} />
+              ) : pairsView ? (
                 <PairTable
                   pairs={visiblePairs}
                   selected={pair?.key}
@@ -359,34 +404,56 @@ function Knowledge() {
             </ScrollArea>
           )}
         </div>
-        {selected && (
-          <div className="w-[420px] shrink-0 border-l">
-            <DraftEditor
-              key={selected.id}
-              projectId={projectId}
-              kind={tableKind}
-              spec={spec}
-              row={selected}
-              characters={characters}
-              onClose={() => set({ item: undefined })}
-              onDecide={(action) => decide.mutate({ items: [{ kind: tableKind, ids: [selected.id] }], action })}
-            />
-          </div>
-        )}
-        {pair && (
-          <div className="w-[440px] shrink-0 border-l">
-            <PairDetail
-              key={pair.key}
-              projectId={projectId}
-              pair={pair}
-              {...pairSpecs(pair)}
-              characters={characters}
-              onClose={() => set({ item: undefined })}
-              onDecide={(kind, ids, action) => decide.mutate({ items: [{ kind, ids }], action })}
-            />
-          </div>
-        )}
-      </div>
+      </SplitPane>
     </Page>
+  );
+}
+
+type TimelineEvent = Row & { at?: { seq: number; section: string | null; scene: string; key: string } | null };
+
+/**
+ * Events in script order, by section: each sits where its earliest evidence line is. Events whose
+ * evidence names no line of the script go last ("위치 모름"); nothing is placed by guess.
+ */
+function EventTimeline({ events, selected, onOpen }: { events: Row[]; selected?: string; onOpen: (id: string) => void }) {
+  const placed = (events as TimelineEvent[]).filter((event) => event.at).sort((a, b) => a.at!.seq - b.at!.seq);
+  const sections = [...Map.groupBy(placed, (event) => event.at!.section ?? '').entries()];
+  const unplaced = (events as TimelineEvent[]).filter((event) => !event.at);
+  const item = (event: TimelineEvent) => (
+    <li key={event.id}>
+      <button
+        type="button"
+        onClick={() => onOpen(event.id)}
+        className={cn('relative w-full rounded-md border bg-background px-3 py-2 text-left hover:bg-muted/40', event.id === selected && 'border-primary ring-1 ring-primary/30', candidateRow(event))}
+      >
+        <span className="absolute top-3.5 -left-[21px] size-2.5 rounded-full border-2 border-background bg-muted-foreground" />
+        <span className="flex items-baseline gap-2">
+          <span className="font-medium">{text(event.title)}</span>
+          {event.at && <span className="truncate text-xs text-muted-foreground">{event.at.scene}</span>}
+          <span className="ml-auto shrink-0">
+            <SourceBadge row={event} />
+          </span>
+        </span>
+        {text(event.summary) && <span className="mt-0.5 line-clamp-2 block text-sm text-muted-foreground">{text(event.summary)}</span>}
+        {(event.participants as string[]).length > 0 && <span className="mt-1 block text-xs text-muted-foreground">{(event.participants as string[]).join(' · ')}</span>}
+      </button>
+    </li>
+  );
+  if (!events.length) return <p className="px-6 py-12 text-center text-sm text-muted-foreground">사건이 없습니다. “작품 분석”으로 초안을 받거나 표에서 추가하세요.</p>;
+  return (
+    <div className="space-y-6 px-6 py-4">
+      {sections.map(([section, list]) => (
+        <section key={section}>
+          <h3 className="mb-2 text-sm font-semibold">{section || '구역 없음'}</h3>
+          <ol className="ml-2 space-y-2 border-l pl-4">{list.map(item)}</ol>
+        </section>
+      ))}
+      {unplaced.length > 0 && (
+        <section>
+          <h3 className="mb-2 text-sm font-semibold">위치 모름 <span className="font-normal text-muted-foreground">근거 대사가 대본에 없음</span></h3>
+          <ol className="ml-2 space-y-2 border-l pl-4">{unplaced.map(item)}</ol>
+        </section>
+      )}
+    </div>
   );
 }

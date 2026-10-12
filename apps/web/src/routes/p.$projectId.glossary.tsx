@@ -21,6 +21,7 @@ import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { useReportView } from '@/lib/view-context';
+import { SplitPane } from '@/components/split-pane';
 
 export const Route = createFileRoute('/p/$projectId/glossary')({
   validateSearch: (raw: Record<string, unknown>): { q?: string; term?: string; source?: KnowledgeSource; state?: 'confirmed' | 'candidate' } => ({
@@ -98,7 +99,18 @@ function Glossary() {
 
   return (
     <Page title="용어집">
-      <div className="flex min-h-0 gap-0 rounded-lg border">
+      <SplitPane
+        id="glossary"
+        defaultWidth="380px"
+        className="min-h-0 rounded-lg border"
+        pane={
+          selected && (
+            <div className="h-full">
+              <TermEditor key={selected.id} projectId={projectId} term={selected} onClose={() => select(undefined)} />
+            </div>
+          )
+        }
+      >
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2 border-b p-3">
             <KnowledgeFilters
@@ -209,12 +221,7 @@ function Glossary() {
             </TableBody>
           </Table>
         </div>
-        {selected && (
-          <div className="w-[380px] shrink-0 border-l">
-            <TermEditor key={selected.id} projectId={projectId} term={selected} onClose={() => select(undefined)} />
-          </div>
-        )}
-      </div>
+      </SplitPane>
     </Page>
   );
 }

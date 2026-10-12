@@ -16,6 +16,7 @@ import { Switch } from '@/components/ui/switch';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { useSize } from '@/hooks/use-size';
 import { q } from '@/lib/queries';
+import { SplitPane } from '@/components/split-pane';
 
 type Scope = 'scene' | 'dialogue';
 interface GraphSearch {
@@ -158,7 +159,42 @@ function GraphPage() {
       }
       flush
     >
-      <div className="absolute inset-0 flex">
+      <SplitPane
+        id="graph"
+        defaultWidth="380px"
+        className="absolute inset-0"
+        pane={
+          search.node && (
+            <div className="h-full bg-background">
+              {search.scope === 'scene' && hubs.has(search.node) ? (
+                <aside className="flex h-full flex-col gap-2 p-4 text-sm">
+                  <div className="flex items-center justify-between">
+                    <h2 className="font-medium">연결점</h2>
+                    <Button size="sm" variant="ghost" onClick={() => select(undefined)}>
+                      닫기
+                    </Button>
+                  </div>
+                  <p className="text-muted-foreground">
+                    장면에 속하지 않는 노드 {hubs.get(search.node)!.nodes.toLocaleString()}개가 장면 {hubs.get(search.node)!.scenes.toLocaleString()}개를 잇습니다. 대사 그래프에서 파생한 연결입니다.
+                  </p>
+                </aside>
+              ) : search.scope === 'scene' ? (
+                <SceneNodeDetail projectId={projectId} groupId={search.node} onClose={() => select(undefined)} />
+              ) : (
+                <DialogueNodeDetail
+                  projectId={projectId}
+                  nodeId={search.node}
+                  onClose={() => select(undefined)}
+                  onSelect={(id) => {
+                    select(id);
+                    canvas.current?.focus(id);
+                  }}
+                />
+              )}
+            </div>
+          )
+        }
+      >
         <div ref={container} className="relative min-w-0 flex-1 bg-[radial-gradient(var(--graph-grid)_1px,transparent_1px)] [background-size:20px_20px]">
           {graph.data?.status === 'ready' && layout && size.width > 0 && !marking && (
             <GraphCanvas
@@ -287,36 +323,7 @@ function GraphPage() {
             </>
           )}
         </div>
-        {search.node && (
-          <div className="w-[380px] shrink-0 border-l bg-background">
-            {search.scope === 'scene' && hubs.has(search.node) ? (
-              <aside className="flex h-full flex-col gap-2 p-4 text-sm">
-                <div className="flex items-center justify-between">
-                  <h2 className="font-medium">연결점</h2>
-                  <Button size="sm" variant="ghost" onClick={() => select(undefined)}>
-                    닫기
-                  </Button>
-                </div>
-                <p className="text-muted-foreground">
-                  장면에 속하지 않는 노드 {hubs.get(search.node)!.nodes.toLocaleString()}개가 장면 {hubs.get(search.node)!.scenes.toLocaleString()}개를 잇습니다. 대사 그래프에서 파생한 연결입니다.
-                </p>
-              </aside>
-            ) : search.scope === 'scene' ? (
-              <SceneNodeDetail projectId={projectId} groupId={search.node} onClose={() => select(undefined)} />
-            ) : (
-              <DialogueNodeDetail
-                projectId={projectId}
-                nodeId={search.node}
-                onClose={() => select(undefined)}
-                onSelect={(id) => {
-                  select(id);
-                  canvas.current?.focus(id);
-                }}
-              />
-            )}
-          </div>
-        )}
-      </div>
+      </SplitPane>
     </Page>
   );
 }

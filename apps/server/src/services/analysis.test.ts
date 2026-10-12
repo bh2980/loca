@@ -153,6 +153,17 @@ describe('work analysis', () => {
     expect(doubtful.review).toContain('근거 대사의 화자가 다름');
   });
 
+  it('fills the empty fields of a person already in the cast and leaves written ones alone', () => {
+    const { db, projectId } = setup();
+    const { keyOf } = scriptText(db, projectId);
+    db.insert(s.characters).values([{ projectId, name: 'Alice', origin: 'import', status: 'confirmed' }, { projectId, name: 'Bob', profile: '사람이 쓴 설명', origin: 'human', status: 'confirmed' }]).run();
+    saveDrafts(db, projectId, 'job', draft('haeyo'), keyOf, true);
+    const people = new Map(db.select().from(s.characters).where(eq(s.characters.projectId, projectId)).all().map((c) => [c.name, c]));
+    expect(people.size).toBe(2);
+    expect(people.get('Alice')).toMatchObject({ profile: '선장', speech: '짧고 단호함', origin: 'import' });
+    expect(people.get('Bob')).toMatchObject({ profile: '사람이 쓴 설명', speech: '' });
+  });
+
   it("keeps an AI rule as a candidate beside a person's rule that says otherwise", () => {
     const { db, projectId } = setup();
     const { keyOf } = scriptText(db, projectId);

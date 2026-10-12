@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BaseEdge, Background, Controls, EdgeLabelRenderer, Handle, MarkerType, Position, ReactFlow, useInternalNode, type Edge, type EdgeProps, type InternalNode, type Node, type NodeProps } from '@xyflow/react';
+import { applyNodeChanges, BaseEdge, Background, Controls, EdgeLabelRenderer, Handle, MarkerType, Panel, Position, ReactFlow, useInternalNode, type Edge, type EdgeProps, type InternalNode, type Node, type NodeChange, type NodeProps } from '@xyflow/react';
+import { Button } from '@/components/ui/button';
 import ELK from 'elkjs/lib/elk.bundled.js';
 import '@xyflow/react/dist/style.css';
 import { cn } from '@/lib/utils';
@@ -23,7 +24,7 @@ const NODE_HEIGHT = 44;
 const elk = new ELK();
 
 type PersonNode = Node<{ label: string; dim: boolean }, 'person'>;
-type RelationEdge = Edge<{ offset: number; kind: string; dim: boolean; focus: boolean; dashed?: boolean }, 'relation'>;
+type RelationEdge = Edge<{ offset: number; kind: string; dim: boolean; focus: boolean; dashed?: boolean; showLabel: boolean }, 'relation'>;
 
 function PersonNodeView({ data, selected }: NodeProps<PersonNode>) {
   return (
@@ -66,14 +67,17 @@ function FloatingEdge({ id, source, target, markerStart, markerEnd, data, select
   return (
     <>
       <BaseEdge id={id} path={path} markerStart={markerStart} markerEnd={markerEnd} interactionWidth={20} style={{ stroke: selected || data?.focus ? 'var(--color-primary)' : '#a1a1aa', strokeWidth: selected ? 2.5 : data?.focus ? 2 : 1.5, opacity: data?.dim ? 0.2 : 1, strokeDasharray: data?.dashed ? '5 4' : undefined }} />
-      <EdgeLabelRenderer>
-        <div
-          className={cn('nodrag nopan pointer-events-none absolute rounded border bg-background px-1.5 py-0.5 text-[11px]', (selected || data?.focus) && 'border-primary text-primary', data?.dim && 'opacity-30')}
-          style={{ transform: `translate(-50%, -50%) translate(${label.x}px, ${label.y}px)` }}
-        >
-          {data?.kind}
-        </div>
-      </EdgeLabelRenderer>
+      {/* Labels of every relationship at once pile up; they show for the selected or hovered person, or on the selected line. */}
+      {(selected || data?.showLabel) && (
+        <EdgeLabelRenderer>
+          <div
+            className={cn('nodrag nopan pointer-events-none absolute rounded border bg-background px-1.5 py-0.5 text-[11px]', (selected || data?.focus) && 'border-primary text-primary', data?.dim && 'opacity-30')}
+            style={{ transform: `translate(-50%, -50%) translate(${label.x}px, ${label.y}px)` }}
+          >
+            {data?.kind}
+          </div>
+        </EdgeLabelRenderer>
+      )}
     </>
   );
 }
@@ -83,9 +87,11 @@ const edgeTypes = { relation: FloatingEdge };
 
 /**
  * Characters as nodes, stored relationships as edges. People form a network rather than a
- * narrative, so ELK's stress layout is used instead of a layered (directional) one.
+ * narrative, so ELK's stress layout is used instead of a layered (directional) one. People can be
+ * dragged; where a person was put is remembered in this browser (`storageKey`) over the layout.
  */
-export function RelationshipGraph({ characters, relationships, selectedCharacterId, selectedRelationshipId, onSelectCharacter, onSelectRelationship, onClear }: {
+export function RelationshipGraph({ storageKey, characters, relationships, selectedCharacterId, selectedRelationshipId, onSelectCharacter, onSelectRelationship, onClear }: {
+  storageKey: string;
   characters: GraphCharacter[];
   relationships: GraphRelationship[];
   selectedCharacterId?: string;
@@ -97,6 +103,22 @@ export function RelationshipGraph({ characters, relationships, selectedCharacter
   const [positions, setPositions] = useState<{ key: string; byId: Record<string, { x: number; y: number }> } | null>(null);
   const known = useMemo(() => new Set(characters.map((character) => character.id)), [characters]);
   const drawable = useMemo(() => relationships.filter((relationship) => known.has(relationship.fromId) && known.has(relationship.toId)), [relationships, known]);
+  const [placed, setPlaced] = useState<Record<string, { x: number; y: number }>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(storageKey) ?? '{}') as Record<string, { x: number; y: number }>;
+    } catch {
+      return {};
+    }
+  });
+  const place = (next: Record<string, { x: number; y: number }>) => {
+    setPlaced(next);
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(next));
+    } catch {
+      // Positions are a convenience; without storage they last until reload.
+    }
+  };
+  const [hovered, setHovered] = useState<string | null>(null);
   const layoutKey = useMemo(() => JSON.stringify([characters.map((c) => c.id), drawable.map((r) => [r.fromId, r.toId])]), [characters, drawable]);
 
   useEffect(() => {
@@ -104,7 +126,7 @@ export function RelationshipGraph({ characters, relationships, selectedCharacter
     void elk
       .layout({
         id: 'root',
-        layoutOptions: { 'elk.algorithm': 'stress', 'elk.stress.desiredEdgeLength': '280', 'elk.spacing.nodeNode': '90' },
+        layoutOptions: { 'elk.algorithm': 'stress', 'elk.stress.desiredEdgeLength': '340', 'elk.spacing.nodeNode': '120' },
         children: characters.map((character) => ({ id: character.id, width: NODE_WIDTH, height: NODE_HEIGHT })),
         edges: drawable.map((relationship) => ({ id: relationship.id, sources: [relationship.fromId], targets: [relationship.toId] })),
       })
@@ -134,22 +156,27 @@ export function RelationshipGraph({ characters, relationships, selectedCharacter
         nodeIds.add(relationship.fromId).add(relationship.toId);
       }
     }
-    return { active: nodeIds.size > 0, nodeIds, edgeIds };
-  }, [drawable, selectedCharacterId, selectedRelationshipId]);
+    const labelled = new Set(edgeIds);
+    if (hovered) for (const relationship of drawable) if (relationship.fromId === hovered || relationship.toId === hovered) labelled.add(relationship.id);
+    return { active: nodeIds.size > 0, nodeIds, edgeIds, labelled };
+  }, [drawable, selectedCharacterId, selectedRelationshipId, hovered]);
 
   const nodes = useMemo<PersonNode[]>(
     () =>
       characters.map((character) => ({
         id: character.id,
         type: 'person',
-        position: positions?.byId[character.id] ?? { x: 0, y: 0 },
+        position: placed[character.id] ?? positions?.byId[character.id] ?? { x: 0, y: 0 },
         data: { label: character.name, dim: emphasis.active && !emphasis.nodeIds.has(character.id) },
         selected: character.id === selectedCharacterId,
         width: NODE_WIDTH,
         height: NODE_HEIGHT,
       })),
-    [characters, positions, selectedCharacterId, emphasis],
+    [characters, positions, placed, selectedCharacterId, emphasis],
   );
+  // React Flow moves a dragged node through these changes; the drop is kept in `placed`.
+  const [flowNodes, setFlowNodes] = useState(nodes);
+  useEffect(() => setFlowNodes(nodes), [nodes]);
   const edges = useMemo<RelationEdge[]>(() => {
     const seen = new Map<string, number>();
     return drawable.map((relationship) => {
@@ -164,7 +191,7 @@ export function RelationshipGraph({ characters, relationships, selectedCharacter
         type: 'relation',
         source: relationship.fromId,
         target: relationship.toId,
-        data: { offset, kind: relationship.kind, dashed: relationship.dashed, dim: emphasis.active && !emphasis.edgeIds.has(relationship.id), focus: emphasis.edgeIds.has(relationship.id) },
+        data: { offset, kind: relationship.kind, dashed: relationship.dashed, dim: emphasis.active && !emphasis.edgeIds.has(relationship.id), focus: emphasis.edgeIds.has(relationship.id), showLabel: emphasis.labelled.has(relationship.id) },
         markerEnd: marker,
         markerStart: relationship.mutual ? marker : undefined,
         selected: relationship.id === selectedRelationshipId,
@@ -176,14 +203,18 @@ export function RelationshipGraph({ characters, relationships, selectedCharacter
   return (
     <ReactFlow
       key={positions.key}
-      nodes={nodes}
+      nodes={flowNodes}
       edges={edges}
+      onNodesChange={(changes: NodeChange<PersonNode>[]) => setFlowNodes((current) => applyNodeChanges(changes, current))}
+      onNodeDragStop={(_event, _node, dragged) => place({ ...placed, ...Object.fromEntries(dragged.map((node) => [node.id, node.position])) })}
+      onNodeMouseEnter={(_event, node) => setHovered(node.id)}
+      onNodeMouseLeave={() => setHovered(null)}
       nodeTypes={nodeTypes}
       edgeTypes={edgeTypes}
       fitView
       fitViewOptions={{ padding: 0.2 }}
       minZoom={0.1}
-      nodesDraggable={false}
+      nodesDraggable
       nodesConnectable={false}
       elementsSelectable
       onNodeClick={(_event, node) => onSelectCharacter(node.id)}
@@ -193,6 +224,13 @@ export function RelationshipGraph({ characters, relationships, selectedCharacter
     >
       <Background />
       <Controls showInteractive={false} />
+      {Object.keys(placed).length > 0 && (
+        <Panel position="top-right">
+          <Button size="sm" variant="outline" className="bg-background" onClick={() => place({})}>
+            배치 되돌리기
+          </Button>
+        </Panel>
+      )}
     </ReactFlow>
   );
 }

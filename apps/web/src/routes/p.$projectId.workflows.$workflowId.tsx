@@ -33,6 +33,7 @@ import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { workflowEdits } from '@/lib/workflow-edits';
+import { SplitPane } from '@/components/split-pane';
 
 export const Route = createFileRoute('/p/$projectId/workflows/$workflowId')({
   validateSearch: (raw: Record<string, unknown>): { node?: string } => ({ node: typeof raw.node === 'string' ? raw.node : undefined }),
@@ -407,7 +408,44 @@ function WorkflowEditor() {
           </Button>
         </div>
       )}
-      <div className="absolute inset-0 flex" style={stale ? { top: 41 } : undefined}>
+      <SplitPane
+        id="workflow"
+        defaultWidth="360px"
+        className="absolute inset-0"
+        style={stale ? { top: 41 } : undefined}
+        pane={
+          selected && (
+            <div className="h-full bg-background">
+              <NodeConfig
+                key={`${selected.id}:${revision}`}
+                node={selected}
+                issues={issues.filter((issue) => issue.nodeId === selected.id)}
+                refs={{
+                  statuses: statuses.data?.statuses ?? [],
+                  tags: statuses.data?.tags ?? [],
+                  projectId,
+                  profiles: profiles.data ?? [],
+                  connections: connections.data ?? [],
+                  nodes: current.definition.nodes,
+                }}
+                onChange={(next) => setDraft((value) => ({ ...value, definition: { ...value.definition, nodes: value.definition.nodes.map((node) => (node.id === next.id ? next : node)) } }))}
+                onDelete={() => {
+                  setDraft((value) => ({
+                    ...value,
+                    definition: {
+                      ...value.definition,
+                      nodes: value.definition.nodes.filter((node) => node.id !== selected.id),
+                      edges: value.definition.edges.filter((edge) => edge.source !== selected.id && edge.target !== selected.id),
+                    },
+                  }));
+                  select(undefined);
+                }}
+                onClose={() => select(undefined)}
+              />
+            </div>
+          )
+        }
+      >
         <div className="min-w-0 flex-1">
           <ReactFlow
             nodes={nodes}
@@ -429,37 +467,7 @@ function WorkflowEditor() {
             <Controls showInteractive={false} position="bottom-right" />
           </ReactFlow>
         </div>
-        {selected && (
-          <div className="w-[360px] shrink-0 border-l bg-background">
-            <NodeConfig
-              key={`${selected.id}:${revision}`}
-              node={selected}
-              issues={issues.filter((issue) => issue.nodeId === selected.id)}
-              refs={{
-                statuses: statuses.data?.statuses ?? [],
-                tags: statuses.data?.tags ?? [],
-                projectId,
-                profiles: profiles.data ?? [],
-                connections: connections.data ?? [],
-                nodes: current.definition.nodes,
-              }}
-              onChange={(next) => setDraft((value) => ({ ...value, definition: { ...value.definition, nodes: value.definition.nodes.map((node) => (node.id === next.id ? next : node)) } }))}
-              onDelete={() => {
-                setDraft((value) => ({
-                  ...value,
-                  definition: {
-                    ...value.definition,
-                    nodes: value.definition.nodes.filter((node) => node.id !== selected.id),
-                    edges: value.definition.edges.filter((edge) => edge.source !== selected.id && edge.target !== selected.id),
-                  },
-                }));
-                select(undefined);
-              }}
-              onClose={() => select(undefined)}
-            />
-          </div>
-        )}
-      </div>
+      </SplitPane>
     </Page>
   );
 }

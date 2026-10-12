@@ -19,6 +19,7 @@ import { ITEM_STATE, RUN_STATUS } from '@/lib/labels';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { useReportView } from '@/lib/view-context';
+import { SplitPane } from '@/components/split-pane';
 
 type State = keyof typeof ITEM_STATE;
 interface RunSearch {
@@ -104,7 +105,27 @@ function RunDetail() {
       flush
       className="border-t-0"
     >
-      <div className="flex h-full min-h-0">
+      <SplitPane
+        id="run-lines"
+        defaultWidth="400px"
+        className="h-full min-h-0"
+        pane={
+          search.line && (
+            <div className="h-full">
+              <LineDetail
+                projectId={projectId}
+                unitId={search.line}
+                onClose={() => setSearch({ line: undefined }, true)}
+                showScene
+                tab={search.lineTab ?? 'edit'}
+                onTab={(tab) => setSearch({ lineTab: tab === 'context' ? 'context' : undefined }, true)}
+                aiNode={search.aiNode}
+                onAiNode={(aiNode) => setSearch({ aiNode }, true)}
+              />
+            </div>
+          )
+        }
+      >
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="space-y-4 px-6 pt-4 pb-4">
             {data.status === 'paused' && data.notice && (
@@ -286,21 +307,7 @@ function RunDetail() {
             </div>
           )}
         </div>
-        {search.line && (
-          <div className="w-[400px] shrink-0 border-l">
-            <LineDetail
-              projectId={projectId}
-              unitId={search.line}
-              onClose={() => setSearch({ line: undefined }, true)}
-              showScene
-              tab={search.lineTab ?? 'edit'}
-              onTab={(tab) => setSearch({ lineTab: tab === 'context' ? 'context' : undefined }, true)}
-              aiNode={search.aiNode}
-              onAiNode={(aiNode) => setSearch({ aiNode }, true)}
-            />
-          </div>
-        )}
-      </div>
+      </SplitPane>
       {data.workflowId && (
         <p className="sr-only">
           <Link to="/p/$projectId/workflows/$workflowId" params={{ projectId, workflowId: data.workflowId }}>

@@ -16,6 +16,7 @@ import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { HeaderFilter } from '@/components/header-filter';
 import { LISTENER_MIN_CONFIDENCE, listenerLabel } from '@tw/shared';
+import { SplitPane } from '@/components/split-pane';
 
 export const PAGE_SIZE = 100;
 
@@ -122,7 +123,27 @@ export function LinesView({ projectId, groupId, kind, search, onSearch, showScen
   }, [search.line, lines.data]);
 
   return (
-    <div className="flex h-full min-h-0">
+    <SplitPane
+      id="lines"
+      defaultWidth="400px"
+      className="h-full min-h-0"
+      pane={
+        search.line && (
+          <div className="h-full">
+            <LineDetail
+              projectId={projectId}
+              unitId={search.line}
+              onClose={() => onSearch({ line: undefined }, { replace: true })}
+              showScene={showScene}
+              tab={search.lineTab ?? 'edit'}
+              onTab={(tab) => onSearch({ lineTab: tab === 'context' ? 'context' : undefined }, { replace: true })}
+              aiNode={search.aiNode}
+              onAiNode={(aiNode) => onSearch({ aiNode }, { replace: true })}
+            />
+          </div>
+        )
+      }
+    >
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex flex-wrap items-center gap-2 px-6 py-3">
           <InputGroup className="w-72">
@@ -293,21 +314,7 @@ export function LinesView({ projectId, groupId, kind, search, onSearch, showScen
           </div>
         )}
       </div>
-      {search.line && (
-        <div className="w-[400px] shrink-0 border-l">
-          <LineDetail
-            projectId={projectId}
-            unitId={search.line}
-            onClose={() => onSearch({ line: undefined }, { replace: true })}
-            showScene={showScene}
-            tab={search.lineTab ?? 'edit'}
-            onTab={(tab) => onSearch({ lineTab: tab === 'context' ? 'context' : undefined }, { replace: true })}
-            aiNode={search.aiNode}
-            onAiNode={(aiNode) => onSearch({ aiNode }, { replace: true })}
-          />
-        </div>
-      )}
-    </div>
+    </SplitPane>
   );
 }
 
