@@ -107,7 +107,8 @@ export function buildPrompt(
       listener: context.speech[line.unitId]?.listener,
       speechRule: context.speech[line.unitId]?.rule,
       source: line.source,
-      candidate: node.config.include.candidate ? line.candidate : undefined,
+      // A verdict is about the current translation, so a reviewing node always sees it.
+      candidate: node.config.include.candidate || node.config.output === 'verdict' ? line.candidate : undefined,
       issues: node.config.include.issues && line.issues?.length ? line.issues : undefined,
       precedingLines: before?.lines.length ? show(before.lines) : undefined,
       precedingBranches: before?.branches.length

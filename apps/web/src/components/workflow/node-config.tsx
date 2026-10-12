@@ -56,6 +56,24 @@ function Field({ label, hint, action, children }: { label: string; hint?: React.
   );
 }
 
+/** A context item counted in lines or scenes: a switch like the others, with the count beside it while on (0 = off). */
+function CountRow({ label, unit, value, fallback, max, onChange }: { label: string; unit: string; value: number; fallback: number; max: number; onChange: (value: number) => void }) {
+  return (
+    <div className="flex items-center justify-between gap-3 text-sm">
+      <span>{label}</span>
+      <span className="flex items-center gap-2">
+        {value > 0 && (
+          <span className="flex items-center gap-1 text-xs text-muted-foreground">
+            <Input type="number" min={1} max={max} value={value} onChange={(event) => onChange(Math.max(1, Math.min(max, Number(event.target.value) || 1)))} className="h-7 w-14 text-right" aria-label={`${label} 수`} />
+            {unit}
+          </span>
+        )}
+        <Switch checked={value > 0} onCheckedChange={(on) => onChange(on ? fallback : 0)} aria-label={label} />
+      </span>
+    </div>
+  );
+}
+
 function ToggleRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
   return (
     <label className="flex items-center justify-between gap-3 text-sm">
@@ -270,34 +288,38 @@ function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRefs; onCh
       >
         <Textarea value={config.instructions} onChange={(event) => set({ instructions: event.target.value })} className="min-h-32 text-xs" />
       </Field>
-      <div className="space-y-2.5">
-        <p className="text-xs font-medium">대사마다 함께 보낼 것</p>
-        <ToggleRow label="현재 번역 후보" checked={config.include.candidate} onChange={(value) => set({ include: { ...config.include, candidate: value } })} />
-        <ToggleRow label="앞 단계의 지적 사항 (검수·검사 실패 이유)" checked={config.include.issues} onChange={(value) => set({ include: { ...config.include, issues: value } })} />
-      </div>
+      {config.output === 'candidate' && (
+        <Field label="기존 번역">
+          <Select value={config.include.candidate ? 'revise' : 'fresh'} onValueChange={(value) => set({ include: { ...config.include, candidate: value === 'revise' } })}>
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="fresh">보지 않고 새로 번역</SelectItem>
+              <SelectItem value="revise">보고 고침</SelectItem>
+            </SelectContent>
+          </Select>
+        </Field>
+      )}
       <Separator />
       <div className="space-y-2.5">
         <p className="text-xs font-medium">문맥</p>
-        <ToggleRow label="용어집 (확정 용어 중 원문에 나온 것)" checked={context.glossary} onChange={(value) => set({ context: { ...context, glossary: value } })} />
-        <ToggleRow label="항상 포함 문서 (스토리·세계관·문체)" checked={context.documents} onChange={(value) => set({ context: { ...context, documents: value } })} />
-        <ToggleRow label="등장 인물 프로필" checked={context.characters} onChange={(value) => set({ context: { ...context, characters: value } })} />
+        <p className="text-xs text-muted-foreground">확정된 자료만 들어갑니다. 실제로 들어간 것은 대사 패널의 AI 문맥 탭에서 봅니다.</p>
+        <ToggleRow label="용어집" checked={context.glossary} onChange={(value) => set({ context: { ...context, glossary: value } })} />
+        <ToggleRow label="청자·말투 규칙" checked={context.speech} onChange={(value) => set({ context: { ...context, speech: value } })} />
+        <ToggleRow label="앞 단계 지적 사항" checked={config.include.issues} onChange={(value) => set({ include: { ...config.include, issues: value } })} />
+        <CountRow label="앞 대사" unit="줄" value={context.precedingLines} fallback={8} max={50} onChange={(value) => set({ context: { ...context, precedingLines: value } })} />
+        {context.precedingLines > 0 && (
+          <div className="pl-4">
+            <ToggleRow label="앞 대사의 현재 번역도" checked={context.precedingTranslations} onChange={(value) => set({ context: { ...context, precedingTranslations: value } })} />
+          </div>
+        )}
+        <CountRow label="이전 장면" unit="개" value={context.previousScenes} fallback={1} max={10} onChange={(value) => set({ context: { ...context, previousScenes: value } })} />
+        <ToggleRow label="인물 명단" checked={context.cast} onChange={(value) => set({ context: { ...context, cast: value } })} />
+        <ToggleRow label="인물 프로필" checked={context.characters} onChange={(value) => set({ context: { ...context, characters: value } })} />
         <ToggleRow label="인물 관계" checked={context.relationships} onChange={(value) => set({ context: { ...context, relationships: value } })} />
-        <ToggleRow label="청자·말투 규칙 (대사마다 청자와 그 쌍의 확정 말투 규칙)" checked={context.speech} onChange={(value) => set({ context: { ...context, speech: value } })} />
-        <ToggleRow label="인물 명단 (확정된 인물 전체의 이름·별칭·플레이어 여부)" checked={context.cast} onChange={(value) => set({ context: { ...context, cast: value } })} />
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="선행 대사 수" hint="대사 그래프에서 앞에 오는 대사">
-            <Input type="number" min={0} max={50} value={context.precedingLines} onChange={(event) => set({ context: { ...context, precedingLines: Number(event.target.value) } })} />
-          </Field>
-          <Field label="이전 장면 수" hint="장면 그래프에서 앞선 장면">
-            <Input type="number" min={0} max={10} value={context.previousScenes} onChange={(event) => set({ context: { ...context, previousScenes: Number(event.target.value) } })} />
-          </Field>
-        </div>
-        <ToggleRow
-          label="선행 대사의 현재 번역도 보내기 (묶음 첫머리의 일부 줄에만 들어감. 실험에서 효과가 보이지 않아 기본 끔)"
-          checked={context.precedingTranslations}
-          onChange={(value) => set({ context: { ...context, precedingTranslations: value } })}
-        />
-        <Field label="문맥 상한 (토큰, 추정)" hint="대사 말고 넣는 문맥의 합. 넘치면 문서 → 이전 장면 → 장면 → 관계 → 인물 → 선행 대사 → 용어 순으로 빼고 실행 기록에 남깁니다">
+        <ToggleRow label="작품 문서" checked={context.documents} onChange={(value) => set({ context: { ...context, documents: value } })} />
+        <Field label="문맥 상한 (토큰, 추정)" hint="넘치면 덜 중요한 것부터 빼고 실행 기록에 남깁니다.">
           <Input type="number" min={500} max={200000} step={500} value={context.maxTokens} onChange={(event) => set({ context: { ...context, maxTokens: Number(event.target.value) } })} />
         </Field>
       </div>

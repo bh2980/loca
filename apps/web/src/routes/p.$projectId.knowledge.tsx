@@ -83,13 +83,13 @@ function Knowledge() {
       columns: [
         { head: '제목', cell: (row) => text(row.title), className: 'font-medium', width: 240 },
         { head: '종류', cell: (row) => DOCUMENT_KIND[row.kind as (typeof DOCUMENT_KINDS)[number]], width: 96 },
-        { head: '항상 포함', cell: (row) => (row.alwaysInclude ? <Badge variant="outline">항상 포함</Badge> : null), width: 104 },
+        { head: '번역 문맥', cell: (row) => (row.alwaysInclude ? <Badge variant="outline">넣음</Badge> : null), width: 96 },
         { head: '내용', cell: (row) => <span className="line-clamp-1 text-muted-foreground">{text(row.body).replace(/[#*_>`]+/g, '').replace(/\s+/g, ' ')}</span> },
       ],
       fields: [
         { name: 'title', label: '제목', type: 'text' },
         { name: 'kind', label: '종류', type: 'docKind' },
-        { name: 'alwaysInclude', label: '항상 포함 (모든 AI 요청에 전문을 넣음)', type: 'bool' },
+        { name: 'alwaysInclude', label: '번역 문맥에 넣기 (‘작품 문서’를 켠 AI 노드에 전문이 들어감)', type: 'bool' },
         { name: 'body', label: '본문 (마크다운)', type: 'long' },
       ],
       create: () => unwrap(api.documents.$post({ param: { projectId }, json: { title: '새 문서', kind: 'note', body: '', alwaysInclude: false } })),
