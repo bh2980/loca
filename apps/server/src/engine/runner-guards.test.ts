@@ -195,3 +195,34 @@ describe('incomplete answers', () => {
   });
 });
 
+describe('run plan', () => {
+  it('keeps each plan batch whole through every node', async () => {
+    const { db, start } = setup(30, (scene) => 3 + (scene % 5) * 7);
+    const runId = start();
+    const kinds: { review: boolean; sources: string[] }[] = [];
+    const fake = model();
+    const generate = fake.generate;
+    fake.generate = async (route, request) => {
+      kinds.push({ review: request.system.includes('Review each'), sources: promptEntries(request.prompt).map((line) => line.source) });
+      return generate(route, request);
+    };
+    await new Runner(db, memoryStore(), fake).drain();
+    const planOf = new Map(
+      db
+        .select({ source: s.units.source, plan: s.runItems.plan })
+        .from(s.runItems)
+        .innerJoin(s.units, eq(s.units.id, s.runItems.unitId))
+        .where(eq(s.runItems.runId, runId))
+        .all()
+        .map((row) => [row.source, row.plan]),
+    );
+    const members = Map.groupBy([...planOf], ([, plan]) => plan);
+    expect(members.size).toBeGreaterThan(1);
+    for (const call of kinds) {
+      // Every plan batch a request touches is in it whole (nothing failed, so nothing was split off).
+      for (const plan of new Set(call.sources.map((source) => planOf.get(source))))
+        expect(members.get(plan)!.every(([source]) => call.sources.includes(source))).toBe(true);
+    }
+    expect(kinds.some((call) => call.review)).toBe(true);
+  });
+});

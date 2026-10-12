@@ -11,7 +11,7 @@ import { buildContext } from '../services/context.ts';
 import { resolveRoutes } from '../services/routes.ts';
 import type { SecretStore } from '../services/secrets.ts';
 import { runAsyncFunction, syncFunctions, type FunctionInput, type FunctionResult } from './functions/index.ts';
-import { planBatches } from './batches.ts';
+import { packGroups, planBatches } from './batches.ts';
 import { buildPrompt, outputSchema, PER_LINE_OUTPUTS, type KnowledgeOutput, type PromptLine } from './prompts.ts';
 
 export interface ModelPort {
@@ -25,7 +25,7 @@ type Unit = typeof s.units.$inferSelect;
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 type StepRecord = Omit<typeof s.runSteps.$inferInsert, 'ok' | 'finishedAt'>;
 /** A queued line waiting at a slow node, with its script position for batching. */
-type Waiting = { id: string; unitId: string; nodeId: string; groupId: string; seq: number; tokens: number; since: Date };
+type Waiting = { id: string; unitId: string; nodeId: string; groupId: string; seq: number; tokens: number; since: Date; plan: number | null };
 
 /** Functions that write beyond the line itself, and the change topic they touch. */
 const FUNCTION_TOPICS: Record<string, Topic> = { addTerms: 'terms', applyKnowledge: 'knowledge' };
@@ -248,6 +248,17 @@ export class Runner {
     return new Map(rows.map((row) => [row.nodeId, row.count]));
   }
 
+  /** Lines still queued or running, per plan batch and node ("plan|node"). */
+  private openByPlanNode(runId: string) {
+    const rows = this.db
+      .select({ plan: s.runItems.plan, nodeId: s.runItems.nodeId, count: sql<number>`count(*)` })
+      .from(s.runItems)
+      .where(and(eq(s.runItems.runId, runId), inArray(s.runItems.state, ['queued', 'running'])))
+      .groupBy(s.runItems.plan, s.runItems.nodeId)
+      .all();
+    return new Map(rows.map((row) => [`${row.plan}|${row.nodeId}`, row.count]));
+  }
+
   private upstreams = new Map<string, Map<string, Set<string>>>();
   /** For each node, every node that can reach it through the run's frozen edges. */
   private upstream(run: Run) {
@@ -300,6 +311,7 @@ export class Runner {
         // estimateTokens without loading the text: UTF-8 bytes / 4.
         tokens: sql<number>`(length(cast(${s.units.source} as blob)) + 3) / 4`,
         since: s.runItems.updatedAt,
+        plan: s.runItems.plan,
       })
       .from(s.runItems)
       .innerJoin(s.units, eq(s.units.id, s.runItems.unitId))
@@ -350,10 +362,16 @@ export class Runner {
       return false;
     }
 
-    // Full batches go first. A partial one (the last of a node) waits for more lines while upstream
-    // nodes can still send some, unless it has waited GATHER_MS or nothing else is running.
+    // Lines move in the run plan's batches: a node sends a plan batch once none of its members can
+    // still arrive from upstream, packing ready batches up to the node's limits. Full requests go
+    // first; a short last one waits while upstream can still feed the node, unless it has waited
+    // GATHER_MS or nothing else is running. Runs started before plans batch on the fly.
     const open = this.openByNode(run.id);
+    const openByPlan = this.openByPlanNode(run.id);
     const upstream = this.upstream(run);
+    const now = Date.now();
+    const idle = busy === 0;
+    const stale = (lines: Waiting[]) => lines.some((line) => now - line.since.getTime() >= GATHER_MS);
     const partials: { node: WorkflowNode; batch: Waiting[] }[] = [];
     const send = (node: WorkflowNode, batch: Waiting[]) => {
       if ((this.inflight.get(run.id)?.size ?? 0) >= limit) return false;
@@ -365,7 +383,14 @@ export class Runner {
       const node = this.node(run, nodeId);
       if (!node) continue;
       const config = node.type === 'ai' ? batchConfigSchema.parse(node.config.batch ?? {}) : null;
-      const batches = config ? planBatches(lines, config) : lines.map((line) => [line]);
+      const before = [...(upstream.get(nodeId) ?? [])].filter((id) => id !== nodeId);
+      let batches: Waiting[][];
+      if (!config) batches = lines.map((line) => [line]);
+      else if (lines.every((line) => line.plan !== null)) {
+        const groups = [...Map.groupBy(lines, (line) => line.plan!).entries()];
+        const ready = groups.filter(([plan, members]) => idle || stale(members) || !before.some((id) => (openByPlan.get(`${plan}|${id}`) ?? 0) > 0));
+        batches = packGroups(ready.map(([, members]) => members), config);
+      } else batches = planBatches(lines, config);
       for (const [index, batch] of batches.entries()) {
         const last = index === batches.length - 1;
         const full = !config || config.mode === 'unit' || batch.length >= config.size || (config.mode === 'group' && batch.reduce((sum, line) => sum + line.tokens, 0) >= config.maxTokens);
@@ -373,12 +398,9 @@ export class Runner {
         else if (!send(node, batch)) break;
       }
     }
-    const now = Date.now();
-    const idle = (this.inflight.get(run.id)?.size ?? 0) === 0;
     for (const { node, batch } of partials) {
       const feeding = [...(upstream.get(node.id) ?? [])].some((id) => id !== node.id && (open.get(id) ?? 0) > 0);
-      const stale = batch.some((line) => now - line.since.getTime() >= GATHER_MS);
-      if (idle || !feeding || stale) send(node, batch);
+      if (idle || !feeding || stale(batch)) send(node, batch);
     }
     if (changed) this.notify(run.id, ...touched);
     return true;
@@ -676,6 +698,38 @@ export function selectRunUnits(db: Db, projectId: string, definition: WorkflowDe
   return db.select({ id: s.units.id }).from(s.units).where(and(...conditions)).all().map((row) => row.id);
 }
 
+/**
+ * The run plan: which lines travel together through every AI node. Planned once, when the run
+ * starts, with the batch settings of the first AI node the lines reach (see planBatches): script
+ * order, scenes kept whole, dialogue apart from documents and UI, unrelated scenes not mixed.
+ * Every node then moves lines by these batches, so a scene that was translated together is
+ * reviewed together. Returns unit id → batch number; empty when the workflow has no AI node.
+ */
+export function planRun(db: Db | Tx, definition: WorkflowDefinition, unitIds: string[]) {
+  const entry = definition.nodes.find((node) => node.type === 'entry');
+  const seen = new Set<string>();
+  const queue = entry ? [entry.id] : [];
+  let first: AiNode | undefined;
+  while (queue.length && !first) {
+    const id = queue.shift()!;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const node = definition.nodes.find((candidate) => candidate.id === id);
+    if (node?.type === 'ai') first = node;
+    else for (const edge of definition.edges) if (edge.source === id) queue.push(edge.target);
+  }
+  if (!first) return new Map<string, number>();
+  const lines = inChunks(unitIds, (ids) =>
+    db
+      .select({ id: s.units.id, groupId: s.units.groupId, seq: s.units.seq, kind: s.units.kind, speaker: s.units.speaker, tokens: sql<number>`(length(cast(${s.units.source} as blob)) + 3) / 4` })
+      .from(s.units)
+      .where(inArray(s.units.id, ids))
+      .all(),
+  );
+  const batches = planBatches(lines, batchConfigSchema.parse(first.config.batch ?? {}));
+  return new Map(batches.flatMap((batch, index) => batch.map((line) => [line.id, index] as const)));
+}
+
 export function createRun(db: Db, input: { projectId: string; workflow: typeof s.workflows.$inferSelect; profiles: Record<string, s.ProfileSnapshot>; scope: s.RunScope; limits?: s.RunLimits }) {
   const entry = input.workflow.definition.nodes.find((node) => node.type === 'entry');
   if (!entry) throw new Error('진입 노드가 없습니다.');
@@ -698,7 +752,8 @@ export function createRun(db: Db, input: { projectId: string; workflow: typeof s
         limits: input.limits ?? null,
       })
       .run();
-    const rows = unitIds.map((unitId) => ({ runId, unitId, nodeId: entry.id, state: 'queued' as const, visits: { [entry.id]: 1 }, data: { path: [], outputs: {} } as ItemData }));
+    const plan = planRun(tx, input.workflow.definition, unitIds);
+    const rows = unitIds.map((unitId) => ({ runId, unitId, nodeId: entry.id, state: 'queued' as const, visits: { [entry.id]: 1 }, data: { path: [], outputs: {} } as ItemData, plan: plan.get(unitId) ?? null }));
     for (let index = 0; index < rows.length; index += 400) tx.insert(s.runItems).values(rows.slice(index, index + 400)).run();
   });
   events.changed(input.projectId, 'runs');

@@ -28,7 +28,7 @@ export function previewContext(db: Db, projectId: string, unitKey: string, pick:
   // The batch the runner would form when the whole script is in scope (same planning rule).
   const config = batchConfigSchema.parse(node.config.batch ?? {});
   const all = db
-    .select({ id: s.units.id, groupId: s.units.groupId, seq: s.units.seq, tokens: sql<number>`(length(cast(${s.units.source} as blob)) + 3) / 4` })
+    .select({ id: s.units.id, groupId: s.units.groupId, seq: s.units.seq, kind: s.units.kind, speaker: s.units.speaker, tokens: sql<number>`(length(cast(${s.units.source} as blob)) + 3) / 4` })
     .from(s.units)
     .where(eq(s.units.projectId, projectId))
     .all();

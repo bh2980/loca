@@ -419,6 +419,8 @@ export const runItems = sqliteTable(
     visits: json<Record<string, number>>('visits').notNull(),
     data: json<ItemData>('data').notNull(),
     error: text('error'),
+    /** The run plan's batch this line belongs to (see planRun); null for runs started before plans. */
+    plan: integer('plan'),
     updatedAt: updatedAt(),
   },
   (t) => [index('run_items_run').on(t.runId, t.state, t.nodeId), index('run_items_unit').on(t.unitId)],
