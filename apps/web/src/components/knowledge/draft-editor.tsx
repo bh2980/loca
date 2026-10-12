@@ -1,13 +1,14 @@
-import { type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Check, Play, Trash2 } from 'lucide-react';
+import { Check, ChevronRight, Play, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { DOCUMENT_KINDS, KNOWLEDGE_ORIGIN_LABELS, SPEECH_FIX_WORKFLOW, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, sourceOf, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type SpeechLevel } from '@tw/shared';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -49,6 +50,8 @@ export interface KindSpec {
   save: (id: string, json: Record<string, Value>) => Promise<unknown>;
   /** Creates an empty item (a person's, official) and returns its id; absent when it cannot be made yet. */
   create?: () => Promise<{ id: string }>;
+  /** Creates an item with these fields (a new speech stretch from a picked line). */
+  createWith?: (json: Record<string, Value>) => Promise<{ id: string }>;
   remove: (id: string) => Promise<unknown>;
   /** Shown under the fields (read-only facts such as relationship changes, a rule's lines). */
   extra?: (row: Row) => ReactNode;
@@ -324,11 +327,29 @@ export function FieldInput({ field, value, characters, onChange }: { field: Fiel
 }
 
 /** The lines a draft cites, opening in the script. Keys that are not lines were already dropped by the server. */
+/** A list that stays folded until asked for (evidence, a rule's lines): the pane shows what to decide first. */
+function Fold({ label, children, actions }: { label: ReactNode; children: ReactNode; actions?: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <div className="flex min-h-7 items-center gap-2">
+        <CollapsibleTrigger asChild>
+          <Button variant="ghost" size="inline" className="-ml-1 text-muted-foreground">
+            <ChevronRight className={cn('transition-transform', open && 'rotate-90')} /> {label}
+          </Button>
+        </CollapsibleTrigger>
+        {actions && <div className="ml-auto">{actions}</div>}
+      </div>
+      <CollapsibleContent className="mt-1">{children}</CollapsibleContent>
+    </Collapsible>
+  );
+}
+
 export function Evidence({ projectId, keys }: { projectId: string; keys: string[] }) {
   const lines = useQuery(q.linesByKeys(projectId, keys.slice(0, 50)));
+  if (!keys.length) return <p className="text-xs text-muted-foreground">근거로 든 대사가 없습니다.</p>;
   return (
-    <PaneSection title={`근거 대사 ${keys.length}개`}>
-      {keys.length === 0 && <p className="text-xs text-muted-foreground">근거로 든 대사가 없습니다.</p>}
+    <Fold label={`근거 대사 ${keys.length}개`}>
       <ul className="space-y-1">
         {lines.data?.map((line) => (
           <li key={line.id}>
@@ -340,7 +361,7 @@ export function Evidence({ projectId, keys }: { projectId: string; keys: string[
           </li>
         ))}
       </ul>
-    </PaneSection>
+    </Fold>
   );
 }
 
@@ -384,6 +405,7 @@ export function RuleLines({ projectId, ruleId, candidate }: { projectId: string;
           {levels.map(([level, count]) => `${level === 'unknown' ? '판단 불가·번역 없음' : SPEECH_LEVEL_LABELS[level as SpeechLevel]} ${count}`).join(' · ')}
         </p>
       )}
+      <Fold label="대사 보기">
       <ul className="max-h-60 space-y-1 overflow-auto">
         {lines.data?.rows.map((line) => (
           <li key={line.id}>
@@ -395,6 +417,7 @@ export function RuleLines({ projectId, ruleId, candidate }: { projectId: string;
           </li>
         ))}
       </ul>
+      </Fold>
       </div>
     </PaneSection>
   );

@@ -180,6 +180,7 @@ function Knowledge() {
       save: (id, json) => unwrap(api['speech-rules'][':id'].$patch({ ...param(id), json: json as never })),
       extra: (row) => <RuleLines projectId={projectId} ruleId={row.id} candidate={row.status === 'candidate'} />,
       create: () => unwrap(api['speech-rules'].$post({ param: { projectId }, json: { fromName: '화자', toName: '청자', level: 'haeyo' } as never })),
+      createWith: (json) => unwrap(api['speech-rules'].$post({ param: { projectId }, json: json as never })),
       remove: (id) => unwrap(api['speech-rules'][':id'].$delete(param(id))),
     },
   };
