@@ -11,10 +11,30 @@ export interface DerivedSceneEdge {
   weight: number;
 }
 
-export function deriveSceneEdges(
+/** A component of nodes outside every scene (menus, return points) that joins many scenes. */
+export interface SceneHub {
+  /** "hub:" + the component's first node id; a node of the scene graph, not a group. */
+  id: string;
+  nodeIds: string[];
+  /** Distinct scenes it connects (in and out). */
+  scenes: number;
+}
+
+/** A component of non-scene nodes linking this many scenes or more becomes a hub ("연결점"). */
+export const HUB_MIN_SCENES = 6;
+
+/**
+ * Scene connections, with hubs kept as nodes. Nodes outside every scene form components (joined
+ * by edges between such nodes). A small component (a choice, a condition) links scenes directly,
+ * following edge direction, as before. A component that links HUB_MIN_SCENES scenes or more is a
+ * hub: scenes link to it and it links to scenes, instead of every scene linking to every other
+ * through it. Nothing is invented: hub edges stand for real dialogue-graph edges.
+ */
+export function deriveSceneGraph(
   nodes: { id: string; groupId: string | null }[],
   edges: { fromId: string; toId: string }[],
-): DerivedSceneEdge[] {
+  hubMinScenes = HUB_MIN_SCENES,
+): { edges: DerivedSceneEdge[]; hubs: SceneHub[] } {
   const groupOf = new Map(nodes.map((node) => [node.id, node.groupId]));
   const outgoing = new Map<string, string[]>();
   for (const edge of edges) {
@@ -22,29 +42,91 @@ export function deriveSceneEdges(
     if (list) list.push(edge.toId);
     else outgoing.set(edge.fromId, [edge.toId]);
   }
-  const result = new Map<string, DerivedSceneEdge>();
-  for (const node of nodes) {
-    if (!node.groupId) continue;
-    const seen = new Set<string>([node.id]);
-    const queue = [...(outgoing.get(node.id) ?? [])];
-    while (queue.length) {
-      const next = queue.shift()!;
-      if (seen.has(next)) continue;
-      seen.add(next);
-      const group = groupOf.get(next);
-      if (group) {
-        if (group !== node.groupId) {
-          const key = `${node.groupId}\u0000${group}`;
-          const existing = result.get(key);
-          if (existing) existing.weight++;
-          else result.set(key, { from: node.groupId, to: group, weight: 1 });
-        }
-        continue;
-      }
-      queue.push(...(outgoing.get(next) ?? []));
+  // Components of non-scene nodes (union-find over edges between two such nodes).
+  const parent = new Map<string, string>();
+  const find = (id: string): string => {
+    let root = id;
+    while (parent.get(root) !== root) root = parent.get(root)!;
+    // Path compression: point every node on the way straight at the root.
+    for (let node = id; node !== root; ) {
+      const next = parent.get(node)!;
+      parent.set(node, root);
+      node = next;
     }
+    return root;
+  };
+  for (const node of nodes) if (!node.groupId) parent.set(node.id, node.id);
+  for (const edge of edges)
+    if (parent.has(edge.fromId) && parent.has(edge.toId)) {
+      const [a, b] = [find(edge.fromId), find(edge.toId)];
+      if (a !== b) parent.set(a, b);
+    }
+  const touching = new Map<string, Set<string>>();
+  const touch = (root: string, scene: string) => (touching.get(root) ?? touching.set(root, new Set()).get(root)!).add(scene);
+  for (const edge of edges) {
+    const from = groupOf.get(edge.fromId);
+    const to = groupOf.get(edge.toId);
+    if (from && parent.has(edge.toId)) touch(find(edge.toId), from);
+    if (to && parent.has(edge.fromId)) touch(find(edge.fromId), to);
   }
-  return [...result.values()];
+  const hubOf = new Map<string, string>();
+  const members = new Map<string, string[]>();
+  for (const id of parent.keys()) (members.get(find(id)) ?? members.set(find(id), []).get(find(id))!).push(id);
+  const hubs: SceneHub[] = [];
+  for (const [root, scenes] of touching)
+    if (scenes.size >= hubMinScenes) {
+      const nodeIds = members.get(root)!;
+      const hub = { id: `hub:${nodeIds[0]}`, nodeIds, scenes: scenes.size };
+      hubs.push(hub);
+      hubOf.set(root, hub.id);
+    }
+
+  const result = new Map<string, DerivedSceneEdge>();
+  const link = (from: string, to: string) => {
+    if (from === to) return;
+    const key = `${from}\u0000${to}`;
+    const existing = result.get(key);
+    if (existing) existing.weight++;
+    else result.set(key, { from, to, weight: 1 });
+  };
+  // Where each non-scene node leads, following edges: scenes, or hubs (where the walk stops).
+  const reach = new Map<string, Set<string>>();
+  const reachFrom = (start: string) => {
+    const known = reach.get(start);
+    if (known) return known;
+    const found = new Set<string>();
+    const seen = new Set<string>([start]);
+    const queue = [start];
+    while (queue.length) {
+      for (const next of outgoing.get(queue.shift()!) ?? []) {
+        if (seen.has(next)) continue;
+        seen.add(next);
+        const group = groupOf.get(next);
+        if (group) found.add(group);
+        else if (hubOf.has(find(next))) found.add(hubOf.get(find(next))!);
+        else queue.push(next);
+      }
+    }
+    reach.set(start, found);
+    return found;
+  };
+  for (const edge of edges) {
+    const from = groupOf.get(edge.fromId);
+    const to = groupOf.get(edge.toId);
+    const fromHub = parent.has(edge.fromId) ? hubOf.get(find(edge.fromId)) : undefined;
+    if (from && to) link(from, to);
+    else if (from && parent.has(edge.toId)) {
+      const hub = hubOf.get(find(edge.toId));
+      if (hub) link(from, hub);
+      else for (const target of reachFrom(edge.toId)) link(from, target);
+    } else if (fromHub && to) link(fromHub, to);
+  }
+  return { edges: [...result.values()], hubs };
+}
+
+/** Scene-to-scene connections only (hub-mediated ones left out), e.g. for "previous scene" context. */
+export function deriveSceneEdges(nodes: { id: string; groupId: string | null }[], edges: { fromId: string; toId: string }[]): DerivedSceneEdge[] {
+  return deriveSceneGraph(nodes, edges).edges.filter((edge) => !edge.from.startsWith('hub:') && !edge.to.startsWith('hub:'));
 }
 
 /**

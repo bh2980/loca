@@ -1,7 +1,7 @@
 import { parentPort, workerData } from 'node:worker_threads';
 import ELK, { type ElkNode } from 'elkjs/lib/elk.bundled.js';
 import type { LayoutData } from '../db/schema.ts';
-import { deriveSceneEdges, reduceSceneEdges } from './scene-graph.ts';
+import { deriveSceneGraph, reduceSceneEdges } from './scene-graph.ts';
 
 export interface LayoutJob {
   nodes: { id: string; width: number; height: number }[];
@@ -22,23 +22,61 @@ export interface SceneSource {
 
 export type WorkerJob = { kind: 'layout'; job: LayoutJob } | { kind: 'scenes'; source: SceneSource };
 
-function sceneLayoutJob(source: SceneSource): LayoutJob & { hidden: { from: string; to: string }[] } {
+const HUB_SIZE: [number, number] = [160, 48];
+
+function sceneLayoutJob(source: SceneSource): LayoutJob & { hidden: { from: string; to: string }[]; hubs: { id: string; nodes: number; scenes: number }[] } {
   const scenes = new Set(source.scenes);
   // Document / UI nodes are passed through like control nodes, never treated as an endpoint.
-  const derived = deriveSceneEdges(source.nodes, source.edges);
-  const { kept, hidden } = reduceSceneEdges(derived.filter((edge) => scenes.has(edge.from) && scenes.has(edge.to)));
+  const graph = deriveSceneGraph(source.nodes, source.edges);
+  const hubIds = new Set(graph.hubs.map((hub) => hub.id));
+  const inGraph = (id: string) => scenes.has(id) || hubIds.has(id);
+  const { kept, hidden } = reduceSceneEdges(graph.edges.filter((edge) => inGraph(edge.from) && inGraph(edge.to)));
   return {
-    nodes: source.scenes.map((id) => ({ id, width: source.size[0], height: source.size[1] })),
+    nodes: [...source.scenes.map((id) => ({ id, width: source.size[0], height: source.size[1] })), ...graph.hubs.map((hub) => ({ id: hub.id, width: HUB_SIZE[0], height: HUB_SIZE[1] }))],
     edges: kept.map((edge, index) => ({ id: `s${index}`, from: edge.from, to: edge.to })),
     hidden: hidden.map(({ from, to }) => ({ from, to })),
+    hubs: graph.hubs.map((hub) => ({ id: hub.id, nodes: hub.nodeIds.length, scenes: hub.scenes })),
   };
 }
 
+/** A dialogue node with more connections than this is a hub; its edges are drawn, not laid out. */
+const HUB_DEGREE = 20;
+
+/**
+ * ELK runs out of memory on hubs: one node joined to hundreds of others far apart in the flow.
+ * Their edges are laid out without, except one way in per hub so it sits in the flow; the rest
+ * come back as loose edges (real edges, drawn straight by the page).
+ */
+function withoutHubEdges(job: LayoutJob): { job: LayoutJob; loose: LayoutJob['edges'] } {
+  const degree = new Map<string, number>();
+  for (const edge of job.edges) for (const id of [edge.from, edge.to]) degree.set(id, (degree.get(id) ?? 0) + 1);
+  const hubs = new Set([...degree].filter(([, count]) => count > HUB_DEGREE).map(([id]) => id));
+  if (!hubs.size) return { job, loose: [] };
+  const anchored = new Set<string>();
+  const kept: LayoutJob['edges'] = [];
+  const loose: LayoutJob['edges'] = [];
+  for (const edge of job.edges) {
+    const touchesHub = hubs.has(edge.from) || hubs.has(edge.to);
+    // Keep the first edge into each hub (from a non-hub) so the hub is placed after it.
+    if (touchesHub && hubs.has(edge.to) && !hubs.has(edge.from) && !anchored.has(edge.to)) {
+      anchored.add(edge.to);
+      kept.push(edge);
+    } else if (touchesHub) loose.push(edge);
+    else kept.push(edge);
+  }
+  return { job: { ...job, edges: kept }, loose };
+}
 async function run(work: WorkerJob): Promise<LayoutData> {
-  if (work.kind === 'layout') return layout(work.job);
-  const { hidden, ...job } = sceneLayoutJob(work.source);
+  if (work.kind === 'layout') {
+    const { job, loose } = withoutHubEdges(work.job);
+    const data = await layout(job);
+    if (loose.length) data.looseEdges = loose;
+    return data;
+  }
+  const { hidden, hubs, ...job } = sceneLayoutJob(work.source);
   const data = await layout(job);
   if (hidden.length) data.hiddenEdges = hidden;
+  if (hubs.length) data.hubs = hubs;
   return data;
 }
 

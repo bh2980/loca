@@ -173,6 +173,13 @@ export interface LayoutData {
   regions?: { label: string; x: number; y: number; width: number; height: number }[];
   /** Scene links left out of the drawing because another path already connects them (see reduceSceneEdges). */
   hiddenEdges?: { from: string; to: string }[];
+  /** Scene graph: hub nodes ("연결점") laid out among the scenes; their ids start with "hub:". */
+  hubs?: { id: string; nodes: number; scenes: number }[];
+  /**
+   * Dialogue graph: real edges left out of the layout because they touch a hub (a node with very
+   * many connections); drawn as straight lines between the placed nodes.
+   */
+  looseEdges?: { id: string; from: string; to: string }[];
 }
 
 export const graphLayouts = sqliteTable(
