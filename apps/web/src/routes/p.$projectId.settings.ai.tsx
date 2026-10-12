@@ -3,13 +3,14 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Controller, useFieldArray, useForm, useWatch } from 'react-hook-form';
-import { Check, ChevronsUpDown, Plus, Trash2, X } from 'lucide-react';
+import { Check, ChevronRight, ChevronsUpDown, Plus, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { z } from 'zod';
 import { CONNECTION_KIND_INFO, CONNECTION_KINDS, connectionInputSchema, profileInputSchema, type Capability, type ConnectionKind } from '@tw/shared';
 import { Page } from '@/components/page';
 import { AgentTab } from '@/components/settings/agent-tab';
 import { PiOptionsPanel } from '@/components/settings/pi-options';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -149,6 +150,7 @@ function AiSettings() {
                   </TableBody>
                 </Table>
               </div>
+              <ProfileTests />
             </section>
 
             <section className="space-y-3">
@@ -933,3 +935,31 @@ function ProfileTest({ profileId }: { profileId: string }) {
   );
 }
 
+
+/** Recent profile tests: they run outside any project, so this is where their requests are logged. */
+function ProfileTests() {
+  const tests = useQuery(q.profileTests());
+  if (!tests.data?.length) return null;
+  return (
+    <Collapsible className="text-sm">
+      <CollapsibleTrigger className="group flex items-center gap-1 text-muted-foreground hover:text-foreground">
+        <ChevronRight className="size-4 transition-transform group-data-[state=open]:rotate-90" />
+        최근 프로필 시험 {tests.data.length}건
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+      <ul className="mt-2 divide-y rounded-md border">
+        {tests.data.map((call) => (
+          <li key={call.id} className="flex flex-wrap items-center gap-x-3 px-3 py-1.5 text-xs">
+            <span className="text-muted-foreground tabular-nums">{new Date(call.startedAt).toLocaleString()}</span>
+            <span className="font-medium">{call.label}</span>
+            <span className="text-muted-foreground">{call.model}</span>
+            <span className={call.status === 'failed' ? 'text-destructive' : 'text-muted-foreground'}>
+              {call.status === 'running' ? '진행 중' : call.status === 'failed' ? `실패${call.error ? `: ${call.error}` : ''}` : `${((new Date(call.finishedAt!).getTime() - new Date(call.startedAt).getTime()) / 1000).toFixed(1)}초`}
+            </span>
+          </li>
+        ))}
+      </ul>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}

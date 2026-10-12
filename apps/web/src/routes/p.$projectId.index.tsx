@@ -84,7 +84,7 @@ function Dashboard() {
             </CardDescription>
             <CardAction className="flex gap-2">
               <Button asChild size="sm" variant="outline">
-                <Link to="/p/$projectId/runs" params={{ projectId }} search={pending.length ? { view: 'calls' } : {}}>
+                <Link to="/p/$projectId/runs" params={{ projectId }} >
                   <History /> 실행 기록
                 </Link>
               </Button>

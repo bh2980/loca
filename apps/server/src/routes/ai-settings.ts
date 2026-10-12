@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { asc, eq, or, sql } from 'drizzle-orm';
+import { asc, desc, eq, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import * as ai from '@tw/ai';
 import { CONNECTION_KIND_INFO, connectionInputSchema, patchOf, profileInputSchema } from '@tw/shared';
@@ -118,6 +118,8 @@ export const connectionRoutes = new Hono<Env>()
 
 export const profileRoutes = new Hono<Env>()
   .get('/', (c) => c.json(c.var.deps.db.select().from(s.profiles).orderBy(asc(s.profiles.name)).all()))
+  /** Recent profile tests from the AI log (they belong to no project, so 실행 기록 does not list them). */
+  .get('/test-calls', (c) => c.json(c.var.deps.db.select().from(s.aiCalls).where(eq(s.aiCalls.kind, 'test')).orderBy(desc(s.aiCalls.startedAt)).limit(20).all()))
   .post('/', validate('json', profileInputSchema), (c) => {
     const { db } = c.var.deps;
     const input = c.req.valid('json');

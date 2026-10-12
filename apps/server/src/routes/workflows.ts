@@ -184,8 +184,26 @@ export const workflowRoutes = new Hono<Env>()
     const projectId = c.req.param('projectId');
     const analyses = db.select().from(s.analysisJobs).where(eq(s.analysisJobs.projectId, projectId)).orderBy(desc(s.analysisJobs.createdAt)).limit(100).all();
     const fills = db.select().from(s.termJobs).where(eq(s.termJobs.projectId, projectId)).orderBy(desc(s.termJobs.createdAt)).limit(100).all();
+    // Chats that called a model: one job per conversation, its turns are its requests.
+    const chats = db
+      .select({
+        id: s.chatSessions.id,
+        title: s.chatSessions.title,
+        profileId: s.chatSessions.profileId,
+        createdAt: sql<number>`min(${s.aiCalls.startedAt})`,
+        finishedAt: sql<number>`max(${s.aiCalls.finishedAt})`,
+        running: sql<number>`sum(${s.aiCalls.status} = 'running')`,
+        failed: sql<number>`sum(${s.aiCalls.status} = 'failed')`,
+      })
+      .from(s.chatSessions)
+      .innerJoin(s.aiCalls, eq(s.aiCalls.refId, s.chatSessions.id))
+      .where(eq(s.chatSessions.projectId, projectId))
+      .groupBy(s.chatSessions.id)
+      .orderBy(desc(sql`min(${s.aiCalls.startedAt})`))
+      .limit(100)
+      .all();
     const runIds = db.select({ id: s.runs.id }).from(s.runs).where(eq(s.runs.projectId, projectId)).orderBy(desc(s.runs.createdAt)).limit(200).all().map((run) => run.id);
-    const ids = [...analyses, ...fills].map((job) => job.id).concat(runIds);
+    const ids = [...analyses, ...fills, ...chats].map((job) => job.id).concat(runIds);
     const stats = new Map(
       (ids.length
         ? db
@@ -210,6 +228,7 @@ export const workflowRoutes = new Hono<Env>()
       jobs: [
       ...analyses.map((job) => ({ kind: 'analysis' as const, id: job.id, title: '작품 분석', profile: job.profileId ? (profiles.get(job.profileId) ?? null) : null, status: job.status, error: job.error, done: job.partsDone, total: job.partsTotal, createdAt: job.createdAt, finishedAt: job.finishedAt, ...usage(job.id, job.usage) })),
       ...fills.map((job) => ({ kind: 'terms' as const, id: job.id, title: '용어 AI 채우기', profile: job.profileId ? (profiles.get(job.profileId) ?? null) : null, status: job.status, error: job.error, done: job.done, total: job.total, createdAt: job.createdAt, finishedAt: job.finishedAt, ...usage(job.id, job.usage) })),
+        ...chats.map((chat) => ({ kind: 'chat' as const, id: chat.id, title: chat.title || '채팅', profile: chat.profileId ? (profiles.get(chat.profileId) ?? null) : null, status: chat.running ? ('running' as const) : ('completed' as const), error: chat.failed ? `실패한 요청 ${chat.failed}건` : null, done: null, total: null, createdAt: new Date(chat.createdAt), finishedAt: chat.running ? null : new Date(chat.finishedAt), ...usage(chat.id, null) })),
       ],
     });
   })

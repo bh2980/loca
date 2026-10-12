@@ -64,6 +64,8 @@ export const q = {
     }),
   connections: () => queryOptions({ queryKey: ['connections'], queryFn: () => unwrap(client.connections.$get()) }),
   profiles: () => queryOptions({ queryKey: ['profiles'], queryFn: () => unwrap(client.profiles.$get()) }),
+  /** Recent profile tests (AI log rows outside any project). */
+  profileTests: () => queryOptions({ queryKey: ['calls', 'tests'], queryFn: () => unwrap(client.profiles['test-calls'].$get()) }),
   workflows: (projectId: string) =>
     queryOptions({ queryKey: ['workflows', projectId], queryFn: () => unwrap(client.projects[':projectId'].workflows.$get({ param: { projectId } })) }),
   workflow: (id: string) => queryOptions({ queryKey: ['workflows', 'detail', id], queryFn: () => unwrap(client.workflows[':id'].$get({ param: { id } })) }),
