@@ -390,10 +390,12 @@ export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: A
         evidence.length && foreign * 2 > evidence.length && '근거 대사의 화자가 다름',
         main.has(`${person(from)}|${person(to)}`) && '대사가 많은 주요 쌍',
       ].filter(Boolean) as string[];
-      const needsPerson = autoConfirm && reasons.length > 0;
-      if (needsPerson) counts.rulesForReview += 1;
+      // Every rule is used at once (people rarely review long lists); doubts only mark it for a look.
+      // A person's rule that says otherwise wins, so the AI one stays a candidate beside it.
+      if (reasons.length) counts.rulesForReview += 1;
+      const yieldsToPerson = Boolean(official && official.level !== r.level);
       tx.insert(s.speechRules)
-        .values({ projectId, fromName: from, toName: to, level: r.level, address: r.address, note: r.note, review: needsPerson ? reasons.join(', ') : null, startKey: start, evidence, ...draft, status: needsPerson ? 'candidate' : status })
+        .values({ projectId, fromName: from, toName: to, level: r.level, address: r.address, note: r.note, review: reasons.length ? reasons.join(', ') : null, startKey: start, evidence, ...draft, status: yieldsToPerson ? 'candidate' : status })
         .run();
     }
   });

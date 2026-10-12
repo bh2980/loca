@@ -130,9 +130,9 @@ describe('work analysis', () => {
     expect(lines.get('a2')).toMatchObject({ listener: 'Alice', listenerOrigin: 'ai' });
     expect(lines.get('a3')).toMatchObject({ listener: 'Captain', listenerOrigin: 'import' });
     expect(counts.listeners).toBe(2);
-    // Alice→Bob and Bob→Alice are the only pairs, so both are main pairs: their rules wait for a person.
+    // Alice→Bob and Bob→Alice are the only pairs, so both are main pairs: used at once, marked for a look.
     const bob = db.select().from(s.speechRules).where(eq(s.speechRules.fromName, 'Bob')).get()!;
-    expect(bob.status).toBe('candidate');
+    expect(bob.status).toBe('confirmed');
     expect(bob.review).toContain('주요 쌍');
     expect(counts.rulesForReview).toBeGreaterThan(0);
   });
@@ -149,8 +149,18 @@ describe('work analysis', () => {
     const bob = db.select().from(s.speechRules).where(eq(s.speechRules.fromName, 'Bob')).all();
     expect(bob.filter((rule) => rule.level === 'hasipsio').map((rule) => rule.status)).toEqual(['rejected']);
     const doubtful = bob.find((rule) => rule.level === 'hae')!;
-    expect(doubtful.status).toBe('candidate');
+    expect(doubtful.status).toBe('confirmed');
     expect(doubtful.review).toContain('근거 대사의 화자가 다름');
+  });
+
+  it("keeps an AI rule as a candidate beside a person's rule that says otherwise", () => {
+    const { db, projectId } = setup();
+    const { keyOf } = scriptText(db, projectId);
+    db.insert(s.speechRules).values({ projectId, fromName: 'Bob', toName: 'Alice', level: 'hae', startKey: null, status: 'confirmed', reviewed: true }).run();
+    saveDrafts(db, projectId, 'job', draft('hasipsio'), keyOf, true);
+    const ai = db.select().from(s.speechRules).where(eq(s.speechRules.fromName, 'Bob')).all().find((rule) => rule.level === 'hasipsio')!;
+    expect(ai.status).toBe('candidate');
+    expect(ai.review).toContain('정식 규칙');
   });
 
   it('merges parts: one person across aliases, rules on that person, contradictions kept as conflicts', () => {

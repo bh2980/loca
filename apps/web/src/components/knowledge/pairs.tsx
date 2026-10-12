@@ -68,7 +68,7 @@ export const pairItems = (pair: Pair) => [...(pair.relationship ? [{ kind: 'rela
 const reviewOf = (rule: Row) => (typeof rule.review === 'string' && rule.review ? rule.review : null);
 const ReviewBadge = ({ reasons }: { reasons: string }) => (
   <Badge variant="outline" className="border-amber-500 text-amber-800" title={reasons}>
-    확인 필요
+    확인 권장
   </Badge>
 );
 const levelsText = (rules: Row[]) => rules.map((rule) => SPEECH_LEVEL_LABELS[rule.level as SpeechLevel]).join(' → ');
@@ -201,7 +201,7 @@ export function PairDetail({ projectId, pair, relationships, speechRules, charac
                       <span className="ml-auto shrink-0 text-xs text-muted-foreground">{rule.startKey ? `${String(rule.startKey)}부터` : '처음부터'}</span>
                       <SourceBadge row={rule} />
                     </button>
-                    {review && <p className="px-3 pb-2 pl-9 text-xs text-muted-foreground">확인 필요: {review}</p>}
+                    {review && <p className="px-3 pb-2 pl-9 text-xs text-muted-foreground">확인 권장: {review}</p>}
                     {open && (
                       <div className="border-t p-3">
                         <DraftEditor embedded projectId={projectId} kind="speechRules" spec={speechRules} row={rule} characters={characters} onDecide={(action) => onDecide('speechRules', [rule.id], action)} />

@@ -35,7 +35,7 @@ export function JobStatus({ projectId }: { projectId: string }) {
   return (
     <span>
       마지막 분석 {when} · {job.model} · 초안 {total}개
-      {result.rulesForReview ? ` · 확인 필요한 말투 규칙 ${result.rulesForReview}개` : ''}
+      {result.rulesForReview ? ` · 확인 권장 말투 규칙 ${result.rulesForReview}개` : ''}
       {result.listeners ? ` · 청자 ${result.listeners.toLocaleString()}줄 채움` : ''}
       {result.invalidEvidence ? ` · 대본에 없는 근거 ${result.invalidEvidence}개 제외` : ''}
     </span>
