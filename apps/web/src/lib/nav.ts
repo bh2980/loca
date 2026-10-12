@@ -62,7 +62,7 @@ export const SECTIONS: Section[] = [
       { label: '상태·태그', path: '/settings/statuses' },
       { label: 'AI 연결', path: '/settings/ai' },
       { label: '모델 프로필', path: '/settings/profiles' },
-      { label: '에이전트', path: '/settings/agent' },
+      { label: 'AI 도구 권한', path: '/settings/agent' },
       { label: 'API 키', path: '/settings/keys' },
       { label: '프로젝트', path: '/settings/project' },
     ],
