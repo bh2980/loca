@@ -502,6 +502,12 @@ function drawLabel(context: CanvasRenderingContext2D, meta: NodeInfo, node: Layo
     context.font = '12px Pretendard, system-ui, sans-serif';
     context.fillStyle = '#52525b';
     wrapText(context, meta.preview ?? meta.label ?? '', node.x + 12, node.y + 42, node.width - 24, 16, 2);
+  } else if (meta.kind === 'portal') {
+    // Section stand-in: the name sits inside the box.
+    context.font = '11px Pretendard, system-ui, sans-serif';
+    context.textAlign = 'center';
+    context.fillStyle = '#52525b';
+    context.fillText(meta.label ?? '', node.x + node.width / 2, node.y + node.height / 2 + 4);
   } else if (node.width > 40) {
     context.font = '11px Pretendard, system-ui, sans-serif';
     context.textAlign = 'center';

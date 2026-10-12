@@ -1,12 +1,13 @@
 import { Hono } from 'hono';
-import { and, asc, count, desc, eq, inArray, like, ne, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, like, ne, notLike, or, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { LISTENER_MIN_CONFIDENCE, type NodeType } from '@tw/shared';
-import { found, validate, type Env } from '../context.ts';
+import { badRequest, found, validate, type Env } from '../context.ts';
+import type { Db } from '../db/index.ts';
 import { eachChunk, inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
-import { computeLayouts } from '../services/layout.ts';
+import { computeLayouts, sceneView } from '../services/layout.ts';
 import { describeRule, speechRuleIndex } from '../services/speech.ts';
 
 const listQuery = z.object({
@@ -66,6 +67,25 @@ const unitColumns = {
   statusId: s.units.statusId,
   updatedAt: s.units.updatedAt,
 };
+
+
+/** Sections laid out on their own (see layout.ts), in script order, with the scenes in each for jumping from the scene graph. */
+function graphSections(db: Db, projectId: string) {
+  const stored = db
+    .select({ name: s.graphLayouts.section, nodes: sql<number>`json_array_length(${s.graphLayouts.data}, '$.nodes')` })
+    .from(s.graphLayouts)
+    .where(and(eq(s.graphLayouts.projectId, projectId), eq(s.graphLayouts.scope, 'dialogue'), ne(s.graphLayouts.section, ''), notLike(s.graphLayouts.section, 'view:%'), eq(s.graphLayouts.status, 'ready')))
+    .all();
+  const scenesBySection = Map.groupBy(
+    db.select({ id: s.groups.id, section: s.groups.section }).from(s.groups).where(eq(s.groups.projectId, projectId)).orderBy(asc(s.groups.sort)).all(),
+    (group) => group.section ?? '',
+  );
+  const order = [...scenesBySection.keys()];
+  const sections = stored
+    .map((row) => ({ name: row.name, nodes: row.nodes ?? 0, groupIds: (scenesBySection.get(row.name) ?? []).map((group) => group.id) }))
+    .sort((a, b) => (order.indexOf(a.name) === -1 ? Infinity : order.indexOf(a.name)) - (order.indexOf(b.name) === -1 ? Infinity : order.indexOf(b.name)));
+  return sections;
+}
 
 export const sourceRoutes = new Hono<Env>()
   .get('/projects/:projectId/groups', validate('query', z.object({ kind: z.enum(['scene', 'document', 'ui']).optional(), q: z.string().trim().optional() })), (c) => {
@@ -246,6 +266,8 @@ export const sourceRoutes = new Hono<Env>()
   })
 
   // ── graphs ─────────────────────────────────────────────────────────
+  /** The dialogue graph's sections alone: the graph page needs them before it knows which layout to load. */
+  .get('/projects/:projectId/graph/sections', (c) => c.json(graphSections(c.var.deps.db, c.req.param('projectId'))))
   .get('/projects/:projectId/graph/:scope{dialogue|scene}', validate('query', z.object({ section: z.string().optional() })), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
@@ -268,20 +290,7 @@ export const sourceRoutes = new Hono<Env>()
         sections: [] as { name: string; nodes: number; groupIds: string[] }[],
       });
     }
-    // Sections laid out on their own (see layout.ts), with the scenes in each for jumping from the scene graph.
-    const stored = db
-      .select({ name: s.graphLayouts.section, nodes: sql<number>`json_array_length(${s.graphLayouts.data}, '$.nodes')` })
-      .from(s.graphLayouts)
-      .where(and(eq(s.graphLayouts.projectId, projectId), eq(s.graphLayouts.scope, 'dialogue'), ne(s.graphLayouts.section, ''), eq(s.graphLayouts.status, 'ready')))
-      .all();
-    const scenesBySection = Map.groupBy(
-      db.select({ id: s.groups.id, section: s.groups.section }).from(s.groups).where(eq(s.groups.projectId, projectId)).orderBy(asc(s.groups.sort)).all(),
-      (group) => group.section ?? '',
-    );
-    const order = [...scenesBySection.keys()];
-    const sections = stored
-      .map((row) => ({ name: row.name, nodes: row.nodes ?? 0, groupIds: (scenesBySection.get(row.name) ?? []).map((group) => group.id) }))
-      .sort((a, b) => (order.indexOf(a.name) === -1 ? Infinity : order.indexOf(a.name)) - (order.indexOf(b.name) === -1 ? Infinity : order.indexOf(b.name)));
+    const sections = graphSections(db, projectId);
     // The stored layout goes out as the JSON text it is stored as: parsing and re-serializing a
     // 50k-node layout (15 MB) held the server for a quarter of a second. A section's layout is
     // small, so its node ids are read from it to send only that section's nodes.
@@ -307,6 +316,15 @@ export const sourceRoutes = new Hono<Env>()
     return c.body(`${head.slice(0, -1)},"layout":${raw}}`, 200, { 'content-type': 'application/json; charset=UTF-8' }) as unknown as ReturnType<
       typeof c.json<{ status: string; error: string | null; layout: s.LayoutData | null; nodes: typeof nodes; nodeTypes: typeof nodeTypes; sections: typeof sections }>
     >;
+  })
+  /** A dialogue graph of chosen scenes only; returns the section key to read it with (see sceneView). */
+  .post('/projects/:projectId/graph/view', validate('json', z.object({ groupIds: z.array(z.string()).min(1).max(500) })), async (c) => {
+    const { db } = c.var.deps;
+    const projectId = c.req.param('projectId');
+    const known = new Set(db.select({ id: s.groups.id }).from(s.groups).where(eq(s.groups.projectId, projectId)).all().map((group) => group.id));
+    const groupIds = c.req.valid('json').groupIds.filter((id) => known.has(id));
+    if (!groupIds.length) return badRequest('없는 장면입니다.');
+    return c.json({ section: await sceneView(db, projectId, groupIds) });
   })
   /** Recompute stored layouts, e.g. after the layout options changed. The source graph itself is untouched. */
   .post('/projects/:projectId/graph/relayout', (c) => {

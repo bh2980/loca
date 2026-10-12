@@ -14,6 +14,7 @@ import { mentions } from './context.ts';
 import { createRunInSteps, selectRunUnits } from '../engine/runner.ts';
 import { snapshotProfiles } from './routes.ts';
 import { readWebPage, webSearch } from './web.ts';
+import { sceneView } from './layout.ts';
 import { applyBatch, checkScript, findLines, lineContext, normalizeBatch, runStats, sceneStats, scenesWith, validateBatch } from './script-query.ts';
 
 /** Lines of a batch proposal checked and applied per step when it is accepted. */
@@ -116,6 +117,30 @@ export function agentTools(db: Db, projectId: string, author: { profileId: strin
       description: 'Scenes/groups where every given speaker has lines (e.g. where Alice and Bob talk), with line counts per speaker.',
       inputSchema: z.object({ speakers: z.array(z.string().min(1)).min(1) }),
       execute: ({ speakers }) => scenesWith(db, projectId, speakers),
+    }),
+    show_scenes_graph: tool({
+      description:
+        'Open a dialogue graph of only some scenes for the user (the whole graph is too large to read). Pick the scenes with scenes (ids, keys or titles; use list_scenes / scenes_with to find them) and/or speakers (scenes where all of them speak). Lines that continue in other scenes end in labels naming those scenes. Returns a link the user clicks; tell them what you chose.',
+      inputSchema: z.object({ scenes: z.array(z.string().min(1)).max(200).default([]), speakers: z.array(z.string().min(1)).default([]) }),
+      execute: async ({ scenes, speakers }) => {
+        const rows = db.select({ id: s.groups.id, key: s.groups.key, title: s.groups.title }).from(s.groups).where(eq(s.groups.projectId, projectId)).all();
+        const wanted = new Set<string>();
+        const unknown: string[] = [];
+        for (const scene of scenes) {
+          const lower = scene.toLowerCase();
+          const match = rows.filter((row) => row.id === scene || row.key === scene || row.title.toLowerCase() === lower);
+          if (match.length) for (const row of match) wanted.add(row.id);
+          else unknown.push(scene);
+        }
+        if (speakers.length) {
+          const keys = new Set(scenesWith(db, projectId, speakers).map((scene) => scene.key));
+          for (const row of rows) if (keys.has(row.key)) wanted.add(row.id);
+        }
+        if (!wanted.size) return { ok: false, error: unknown.length ? `찾지 못한 장면: ${unknown.slice(0, 5).join(', ')}` : '보여 줄 장면이 없습니다.' };
+        if (wanted.size > 200) return { ok: false, error: `장면이 ${wanted.size}개라 너무 많습니다. 200개 이하로 좁혀 주세요.` };
+        const section = await sceneView(db, projectId, [...wanted]);
+        return { ok: true, scenes: rows.filter((row) => wanted.has(row.id)).map((row) => row.title), unknown, open: { to: '/p/$projectId/graph', search: { scope: 'dialogue', section } } };
+      },
     }),
     line_context: tool({
       description: 'One line (by key) with the lines around it and its neighbours in the dialogue graph: which nodes lead to it and where it leads (choices, conditions, waits).',

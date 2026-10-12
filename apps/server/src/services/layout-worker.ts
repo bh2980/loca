@@ -27,7 +27,9 @@ export type WorkerJob =
   | { kind: 'layout'; job: LayoutJob }
   | { kind: 'scenes'; source: SceneSource }
   /** The dialogue graph split by section, each section laid out on its own (see section-graph.ts). */
-  | { kind: 'sections'; nodes: SectionNode[]; edges: LayoutJob['edges']; order: string[] };
+  | { kind: 'sections'; nodes: SectionNode[]; edges: LayoutJob['edges']; order: string[] }
+  /** Only the section named `view` of such a split: chosen scenes, with portals named after the scenes around them. */
+  | { kind: 'view'; nodes: SectionNode[]; edges: LayoutJob['edges']; view: string };
 
 /** What the 'sections' job returns: one layout per section. */
 export interface SectionLayouts {
@@ -102,6 +104,13 @@ async function dialogueLayout(work: LayoutJob) {
 
 async function run(work: WorkerJob): Promise<LayoutData | SectionLayouts> {
   if (work.kind === 'layout') return dialogueLayout(work.job);
+  if (work.kind === 'view') {
+    const section = sectionJobs(work.nodes, work.edges, [work.view]).find((job) => job.name === work.view);
+    if (!section) return { width: 0, height: 0, nodes: [], edges: [] };
+    const data = await dialogueLayout(section.job);
+    if (section.portals.length) data.portals = section.portals;
+    return data;
+  }
   if (work.kind === 'sections') {
     const sections: SectionLayouts['sections'] = [];
     for (const section of sectionJobs(work.nodes, work.edges, work.order)) {

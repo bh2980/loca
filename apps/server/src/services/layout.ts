@@ -1,5 +1,6 @@
+import { createHash } from 'node:crypto';
 import { Worker } from 'node:worker_threads';
-import { and, asc, eq, ne, sql } from 'drizzle-orm';
+import { and, asc, eq, ne, notLike, sql } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
 import { graphEdges, graphLayouts, graphNodes, groups, projects, type LayoutData } from '../db/schema.ts';
 import { events } from '../events.ts';
@@ -95,6 +96,42 @@ export function dialogueJob(db: Db, projectId: string): LayoutJob {
 
 const projectExists = (db: Db, projectId: string) => !!db.select({ id: projects.id }).from(projects).where(eq(projects.id, projectId)).get();
 
+const VIEW = '고른 장면';
+
+/**
+ * The dialogue graph of chosen scenes only, laid out on demand (a few scenes take a second or two)
+ * and kept as section "view:<hash of the scene ids>", so the graph route serves it like a section.
+ * Lines that continue elsewhere end in portals named after the scene they continue in.
+ */
+export async function sceneView(db: Db, projectId: string, groupIds: string[]) {
+  const ids = [...new Set(groupIds)].sort();
+  const key = `view:${createHash('sha1').update(ids.join(',')).digest('hex').slice(0, 12)}`;
+  const existing = db.select({ status: graphLayouts.status }).from(graphLayouts).where(and(eq(graphLayouts.projectId, projectId), eq(graphLayouts.scope, 'dialogue'), eq(graphLayouts.section, key))).get();
+  if (existing?.status === 'ready') return key;
+  const chosen = new Set(ids);
+  const groupRows = db.select({ id: groups.id, title: groups.title, sort: groups.sort }).from(groups).where(eq(groups.projectId, projectId)).all();
+  const titleOf = new Map(groupRows.map((group) => [group.id, group.title]));
+  const nodes = db.select({ id: graphNodes.id, kind: graphNodes.kind, groupId: graphNodes.groupId }).from(graphNodes).where(eq(graphNodes.projectId, projectId)).all();
+  const edges = db.select({ id: graphEdges.id, from: graphEdges.fromId, to: graphEdges.toId }).from(graphEdges).where(eq(graphEdges.projectId, projectId)).all();
+  const data = await runWorker({
+    kind: 'view',
+    view: VIEW,
+    edges,
+    nodes: nodes.map((node) => {
+      const [width, height] = NODE_SIZE[node.kind] ?? NODE_SIZE.unknown;
+      return { id: node.id, width, height, section: node.groupId ? (chosen.has(node.groupId) ? VIEW : `scene:${node.groupId}`) : null };
+    }),
+  }, () => {});
+  // Portals name the scene the lines continue in, and keep its id to open it.
+  data.portals = data.portals?.map((portal) => {
+    const groupId = portal.section.startsWith('scene:') ? portal.section.slice('scene:'.length) : undefined;
+    return groupId ? { ...portal, section: titleOf.get(groupId) ?? groupId, groupId } : portal;
+  });
+  const titles = groupRows.filter((group) => chosen.has(group.id)).sort((a, b) => a.sort - b.sort).map((group) => group.title);
+  save(db, projectId, 'dialogue', { status: 'ready', data: { ...data, view: { groupIds: ids, titles } }, error: null }, key);
+  return key;
+}
+
 /** Projects laid out before section layouts existed: their scenes span several sections but no section layout is stored. */
 export function projectsMissingSections(db: Db) {
   const rows = db.all<{ projectId: string }>(sql`
@@ -102,7 +139,7 @@ export function projectsMissingSections(db: Db) {
     where g.section is not null and g.section != ''
       and exists (select 1 from ${graphNodes} n where n.group_id = g.id)
     group by g.project_id having count(distinct g.section) > 1
-      and not exists (select 1 from ${graphLayouts} l where l.project_id = g.project_id and l.scope = 'dialogue' and l.section != '')`);
+      and not exists (select 1 from ${graphLayouts} l where l.project_id = g.project_id and l.scope = 'dialogue' and l.section != '' and l.section not like 'view:%')`);
   return rows.map((row) => row.projectId);
 }
 
@@ -167,7 +204,7 @@ async function computeOnce(db: Db, projectId: string, state: { worker: Worker | 
   }
 
   // Each section's own dialogue layout, when the script has more than one section with lines in the graph.
-  guarded(() => db.delete(graphLayouts).where(and(eq(graphLayouts.projectId, projectId), eq(graphLayouts.scope, 'dialogue'), ne(graphLayouts.section, ''))).run());
+  guarded(() => db.delete(graphLayouts).where(and(eq(graphLayouts.projectId, projectId), eq(graphLayouts.scope, 'dialogue'), ne(graphLayouts.section, ''), notLike(graphLayouts.section, 'view:%'))).run());
   const source = sectionSource(db, projectId);
   const used = new Set(source.nodes.flatMap((node) => (node.section ? [node.section] : [])));
   if (used.size < 2) return;

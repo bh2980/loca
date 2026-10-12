@@ -10,6 +10,7 @@ import { Page } from '@/components/page';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
@@ -21,6 +22,8 @@ interface GraphSearch {
   scope: Scope;
   node?: string;
   scene?: string;
+  /** Dialogue graph section (장·Day); "all" draws the whole graph on one sheet. Absent = the first section. */
+  section?: string;
   /** Highlight one node type (original class name, or "kind:<kind>"). */
   type?: string;
   /** Also draw scene links hidden by the simplification (reachable through other scenes). */
@@ -32,6 +35,7 @@ export const Route = createFileRoute('/p/$projectId/graph')({
     scope: raw.scope === 'dialogue' ? 'dialogue' : 'scene',
     node: typeof raw.node === 'string' ? raw.node : undefined,
     scene: typeof raw.scene === 'string' ? raw.scene : undefined,
+    section: typeof raw.section === 'string' && raw.section ? raw.section : undefined,
     type: typeof raw.type === 'string' ? raw.type : undefined,
     links: raw.links === 'all' ? 'all' : undefined,
   }),
@@ -39,7 +43,7 @@ export const Route = createFileRoute('/p/$projectId/graph')({
 });
 
 /** Viewport is a per-tab preference: kept in sessionStorage, never in history, so panning adds no entries. */
-const viewportKey = (projectId: string, scope: Scope, scene?: string) => `tw.graph.view.${projectId}.${scope}.${scene ?? ''}`;
+const viewportKey = (projectId: string, scope: Scope, scene?: string, section?: string) => `tw.graph.view.${projectId}.${scope}.${section ?? ''}.${scene ?? ''}`;
 const readViewport = (key: string): Viewport | undefined => {
   try {
     return JSON.parse(sessionStorage.getItem(key) ?? 'null') ?? undefined;
@@ -48,11 +52,20 @@ const readViewport = (key: string): Viewport | undefined => {
   }
 };
 
+
 function GraphPage() {
   const { projectId } = Route.useParams();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
-  const graph = useQuery(q.graph(projectId, search.scope));
+  const dialogue = search.scope === 'dialogue';
+  // The section list is small and separate: the default section (the first, or the one holding
+  // `scene`) is known before any layout is loaded.
+  const sectionList = useQuery({ ...q.graphSections(projectId), enabled: dialogue });
+  const sections = dialogue ? (sectionList.data ?? []) : [];
+  const chosen = !dialogue || search.section === 'all' ? undefined : search.section ?? (sections.length > 1 ? (sections.find((section) => section.groupIds.includes(search.scene ?? ''))?.name ?? sections[0].name) : undefined);
+  const graph = useQuery({ ...q.graph(projectId, search.scope, chosen), enabled: !dialogue || !!search.section || sectionList.isSuccess });
+  // A view of chosen scenes (from the chat's show_scenes_graph): its scenes name it.
+  const view = chosen?.startsWith('view:') ? graph.data?.layout?.view : undefined;
   const [container, size] = useSize<HTMLDivElement>();
   const canvas = useRef<GraphCanvasHandle>(null);
   const [find, setFind] = useState('');
@@ -60,8 +73,12 @@ function GraphPage() {
   const info = useMemo(() => {
     const types = graph.data?.nodeTypes ?? {};
     // Control nodes are labelled by what the game's node class means, not by its raw name.
-    return new Map<string, NodeInfo>((graph.data?.nodes ?? []).map((node) => [node.id, { ...node, label: node.label ?? (node.type ? (types[node.type]?.label ?? node.type) : null) }]));
+    const map = new Map<string, NodeInfo>((graph.data?.nodes ?? []).map((node) => [node.id, { ...node, label: node.label ?? (node.type ? (types[node.type]?.label ?? node.type) : null) }]));
+    // Stand-ins for lines that continue in (or come from) another section.
+    for (const portal of graph.data?.layout?.portals ?? []) map.set(portal.id, { id: portal.id, kind: 'portal', label: `${portal.direction === 'out' ? '→' : '←'} ${portal.section}`, preview: null, key: portal.id });
+    return map;
   }, [graph.data]);
+  const portals = useMemo(() => new Map((graph.data?.layout?.portals ?? []).map((portal) => [portal.id, portal])), [graph.data]);
   const highlight = useMemo(() => {
     if (!graph.data) return undefined;
     if (search.type) return new Set(graph.data.nodes.filter((node) => (node.type ?? `kind:${node.kind}`) === search.type).map((node) => node.id));
@@ -74,8 +91,15 @@ function GraphPage() {
     return graph.data.nodes.filter((node) => [node.key, node.label, node.preview].some((value) => value?.toLowerCase().includes(text))).slice(0, 50);
   }, [find, graph.data]);
 
-  const key = viewportKey(projectId, search.scope, search.scene);
-  const select = (id: string | undefined) => void navigate({ search: (previous) => ({ ...previous, node: id }), replace: true });
+  const key = viewportKey(projectId, search.scope, search.scene, dialogue ? (chosen ?? 'all') : undefined);
+  const select = (id: string | undefined) => {
+    const target = id ? portals.get(id) : undefined;
+    // A portal is navigation to the section it stands for (or, in a view of chosen scenes, to the
+    // scene the lines continue in, shown in its own section), not a node to inspect.
+    if (target?.groupId) void navigate({ search: { scope: 'dialogue', scene: target.groupId } });
+    else if (target) void navigate({ search: (previous) => ({ ...previous, section: target.section, node: undefined, scene: undefined }) });
+    else void navigate({ search: (previous) => ({ ...previous, node: id }), replace: true });
+  };
   const layout = graph.data?.layout;
   const hubs = useMemo(() => new Map((search.scope === 'scene' ? (layout?.hubs ?? []) : []).map((hub) => [hub.id, hub])), [layout, search.scope]);
   const looseEdges = layout?.looseEdges;
@@ -96,10 +120,32 @@ function GraphPage() {
     <Page
       title="그래프"
       actions={
-        <ToggleGroup type="single" variant="outline" size="sm" value={search.scope} onValueChange={(value) => value && void navigate({ search: { scope: value as Scope } })}>
-          <ToggleGroupItem value="scene">장면 그래프</ToggleGroupItem>
-          <ToggleGroupItem value="dialogue">대사 그래프</ToggleGroupItem>
-        </ToggleGroup>
+        <div className="flex items-center gap-2">
+          {dialogue && (sections.length > 1 || view) && (
+            <Select
+              value={chosen ?? 'all'}
+              onValueChange={(value) => void navigate({ search: (previous) => ({ ...previous, section: value, node: undefined }), replace: true })}
+            >
+              <SelectTrigger size="sm" className="w-52" aria-label="구역">
+                <span className="text-muted-foreground">구역</span>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">전체 (한 장)</SelectItem>
+                {view && chosen && <SelectItem value={chosen}>고른 장면 {view.titles.length.toLocaleString()}개</SelectItem>}
+                {sections.map((section) => (
+                  <SelectItem key={section.name} value={section.name}>
+                    {section.name} <span className="text-muted-foreground">· {section.nodes.toLocaleString()}</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          <ToggleGroup type="single" variant="outline" size="sm" value={search.scope} onValueChange={(value) => value && void navigate({ search: { scope: value as Scope } })}>
+            <ToggleGroupItem value="scene">장면 그래프</ToggleGroupItem>
+            <ToggleGroupItem value="dialogue">대사 그래프</ToggleGroupItem>
+          </ToggleGroup>
+        </div>
       }
       flush
     >
@@ -107,7 +153,7 @@ function GraphPage() {
         <div ref={container} className="relative min-w-0 flex-1 bg-[radial-gradient(var(--graph-grid)_1px,transparent_1px)] [background-size:20px_20px]">
           {graph.data?.status === 'ready' && layout && size.width > 0 && (
             <GraphCanvas
-              key={`${search.scope}:${search.scene ?? ''}`}
+              key={`${search.scope}:${chosen ?? 'all'}:${search.scene ?? ''}`}
               handle={canvas}
               nodes={layout.nodes}
               regions={layout.regions}
@@ -191,7 +237,7 @@ function GraphPage() {
               <p className="absolute top-3 right-3 rounded-md bg-background/90 px-2 py-1 text-xs text-muted-foreground tabular-nums shadow-sm">
                 {search.scope === 'scene'
                   ? `장면 ${(layout.nodes.length - hubs.size).toLocaleString()}${hubs.size ? ` · 연결점 ${hubs.size.toLocaleString()}` : ''} · 연결 ${(edges.length + (looseEdges?.length ?? 0)).toLocaleString()}${looseEdges?.length ? ` (연결점 직선 ${looseEdges.length.toLocaleString()})` : ''}`
-                  : `노드 ${layout.nodes.length.toLocaleString()} · 연결 ${(edges.length + (looseEdges?.length ?? 0)).toLocaleString()}`}
+                  : `${view ? `고른 장면 ${view.titles.length.toLocaleString()}개 · ` : chosen ? `구역 ${chosen} · ` : sections.length > 1 ? '전체 · ' : ''}노드 ${(layout.nodes.length - portals.size).toLocaleString()}개${portals.size ? ` · 다른 구역으로 이어지는 이름표 ${portals.size.toLocaleString()}` : ''} · 연결 ${(edges.length + (looseEdges?.length ?? 0)).toLocaleString()}`}
                 {highlight && ` · 강조 ${highlight.size.toLocaleString()}`}
               </p>
               {search.scope === 'dialogue' && !!looseEdges?.length && (

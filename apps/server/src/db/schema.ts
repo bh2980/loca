@@ -181,7 +181,9 @@ export interface LayoutData {
    */
   looseEdges?: { id: string; from: string; to: string }[];
   /** One section's dialogue graph: stand-ins ("portal:in|out:<section>") for the lines in other sections it links to. */
-  portals?: { id: string; section: string; direction: 'in' | 'out' }[];
+  portals?: { id: string; section: string; direction: 'in' | 'out'; /** In a view of chosen scenes: the scene the lines continue in. */ groupId?: string }[];
+  /** A view of chosen scenes (section "view:<hash>"): which, for the header. */
+  view?: { groupIds: string[]; titles: string[] };
 }
 
 export const graphLayouts = sqliteTable(
