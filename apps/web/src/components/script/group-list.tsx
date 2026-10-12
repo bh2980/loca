@@ -46,7 +46,7 @@ export type ScriptScope = { group?: string; review?: true };
  * The script's scenes down the left of the translation screen, with "모든 대사" and "검토함" on top.
  * Each scene shows only how many of its lines are done (in a final status), or a check when all are.
  */
-export function GroupList({ projectId, groups, finalIds, scope, lineTotal, reviewCount, gq, onFilter }: {
+export function GroupList({ projectId, groups, finalIds, scope, lineTotal, reviewCount, gq, onFilter, marks }: {
   projectId: string;
   groups: GroupRow[] | undefined;
   /** Statuses that count as done. */
@@ -56,6 +56,8 @@ export function GroupList({ projectId, groups, finalIds, scope, lineTotal, revie
   reviewCount: number;
   gq?: string;
   onFilter: (gq: string | undefined) => void;
+  /** While a filter is walked (찾아가기): how many of its lines each scene holds; scenes keep the filter. */
+  marks?: Map<string, number>;
 }) {
   const sections = useMemo(() => sectionsOf(groups ?? []), [groups]);
   const [folded, setFolded] = useState<Set<string>>(() => new Set(readFolded(projectId)));
@@ -87,7 +89,7 @@ export function GroupList({ projectId, groups, finalIds, scope, lineTotal, revie
         {groups?.length === 0 && <p className="px-3 py-2 text-sm text-muted-foreground">맞는 장면이 없습니다.</p>}
         {sections.map((section) => {
           const open = Boolean(gq) || !section.name || !folded.has(section.name) || section.groups.some((group) => group.id === scope.group);
-          const items = section.groups.map((group) => <GroupItem key={group.id} projectId={projectId} group={group} done={doneOf(group)} active={group.id === scope.group} indent={Boolean(section.name)} />);
+          const items = section.groups.map((group) => <GroupItem key={group.id} projectId={projectId} group={group} done={doneOf(group)} active={group.id === scope.group} indent={Boolean(section.name)} marks={marks} />);
           if (!section.name) return <Fragment key={section.key}>{items}</Fragment>;
           return (
             <Collapsible key={section.key} open={open} onOpenChange={(next) => toggle(section.name!, next)}>
@@ -107,9 +109,20 @@ export function GroupList({ projectId, groups, finalIds, scope, lineTotal, revie
 }
 
 /** A link that changes what the center shows, keeping the list's own search and "남은 줄만". */
-function ScriptLink({ projectId, scope, className, children, ...props }: { projectId: string; scope: ScriptScope; className?: string; children: ReactNode; title?: string; 'aria-current'?: 'page' }) {
+function ScriptLink({ projectId, scope, keep, className, children, ...props }: { projectId: string; scope: ScriptScope; keep?: boolean; className?: string; children: ReactNode; title?: string; 'aria-current'?: 'page' }) {
   return (
-    <Link to="/p/$projectId/script" params={{ projectId }} search={(previous) => ({ gq: previous.gq, remaining: previous.remaining, ...scope })} className={className} {...props}>
+    <Link
+      to="/p/$projectId/script"
+      params={{ projectId }}
+      // keep: a filter being walked stays on (찾아가기); the scene opens at its first match.
+      search={(previous) =>
+        keep
+          ? { gq: previous.gq, remaining: previous.remaining, q: previous.q, status: previous.status, tag: previous.tag, speaker: previous.speaker, listener: previous.listener, view: previous.view === 'find' ? ('find' as const) : undefined, ...scope }
+          : { gq: previous.gq, remaining: previous.remaining, ...scope }
+      }
+      className={className}
+      {...props}
+    >
       {children}
     </Link>
   );
@@ -125,18 +138,26 @@ function ScopeLink({ projectId, scope, active, icon, label, count, highlight }: 
   );
 }
 
-function GroupItem({ projectId, group, done, active, indent }: { projectId: string; group: GroupRow; done: number; active: boolean; indent: boolean }) {
+function GroupItem({ projectId, group, done, active, indent, marks }: { projectId: string; group: GroupRow; done: number; active: boolean; indent: boolean; marks?: Map<string, number> }) {
   const complete = group.total > 0 && done === group.total;
+  const marked = marks?.get(group.id) ?? 0;
   return (
     <ScriptLink
       projectId={projectId}
       scope={{ group: group.id }}
+      keep={Boolean(marks)}
       title={group.title}
       aria-current={active ? 'page' : undefined}
       className={cn('flex h-8 items-center gap-2 rounded-md pr-2 text-sm', indent ? 'pl-7' : 'pl-2', active ? 'bg-muted font-medium' : 'hover:bg-muted/60', complete && !active && 'text-muted-foreground')}
     >
       <span className="min-w-0 flex-1 truncate">{group.title}</span>
-      {complete ? <Check className="size-3.5 shrink-0 text-success" aria-label="완료" /> : <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{done}/{group.total}</span>}
+      {marks ? (
+        marked ? <span className="shrink-0 rounded-full bg-warning/15 px-1.5 text-xs text-warning tabular-nums">{marked}</span> : null
+      ) : complete ? (
+        <Check className="size-3.5 shrink-0 text-success" aria-label="완료" />
+      ) : (
+        <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{done}/{group.total}</span>
+      )}
     </ScriptLink>
   );
 }

@@ -33,6 +33,11 @@ export interface LinesSearch {
   listener?: string;
   /** Only lines not in a final status yet. */
   remaining?: true;
+  /**
+   * How a filter shows: walked one by one inside their scenes (find, the default for speaker and
+   * listener, where the conversation matters) or listed apart (list, the default for the rest).
+   */
+  view?: 'find' | 'list';
   page?: number;
   line?: string;
   /** The line's details pane is open (closed by default: the row itself is the editor). */
@@ -49,12 +54,28 @@ export const linesSearchSchema = (raw: Record<string, unknown>): LinesSearch => 
   speaker: typeof raw.speaker === 'string' && raw.speaker ? raw.speaker : undefined,
   listener: typeof raw.listener === 'string' && raw.listener ? raw.listener : undefined,
   remaining: raw.remaining === true || raw.remaining === 'true' ? true : undefined,
+  view: raw.view === 'find' || raw.view === 'list' ? raw.view : undefined,
   page: typeof raw.page === 'number' && raw.page > 0 ? raw.page : undefined,
   line: typeof raw.line === 'string' ? raw.line : undefined,
   detail: raw.detail === true || raw.detail === 'true' ? true : undefined,
   lineTab: typeof raw.lineTab === 'string' && LINE_TABS.includes(raw.lineTab as LineTab) && raw.lineTab !== 'checks' ? (raw.lineTab as LinesSearch['lineTab']) : undefined,
   aiNode: typeof raw.aiNode === 'string' && raw.aiNode.includes(':') ? raw.aiNode : undefined,
 });
+
+/** Whether any line filter is set (search, status, tag, speaker, listener, 남은 줄만). */
+export const hasLineFilter = (search: LinesSearch) => Boolean(search.q || search.status || search.tag || search.speaker || search.listener || search.remaining);
+/** Whether the filter is walked inside the scenes rather than listed apart. */
+export const isFinding = (search: LinesSearch) => hasLineFilter(search) && (search.view === 'find' || (search.view !== 'list' && Boolean(search.speaker || search.listener)));
+
+/** The set filters as removable chips (also the find bar's label). */
+export function filterChips(search: LinesSearch, statuses: { id: string; name: string }[], tags: { id: string; name: string }[]) {
+  return [
+    search.status && { key: 'status', label: `상태: ${statuses.find((status) => status.id === search.status)?.name ?? '?'}`, clear: { status: undefined } },
+    search.tag && { key: 'tag', label: `태그: #${tags.find((tag) => tag.id === search.tag)?.name ?? '?'}`, clear: { tag: undefined } },
+    search.speaker && { key: 'speaker', label: `화자: ${search.speaker}`, clear: { speaker: undefined } },
+    search.listener && { key: 'listener', label: search.listener === '-' ? '청자 미상' : `청자: ${search.listener}`, clear: { listener: undefined } },
+  ].filter(Boolean) as { key: string; label: string; clear: Partial<LinesSearch> }[];
+}
 
 /** Who the line is addressed to. Unsure AI guesses count as unknown. */
 function listenerText(line: { listener: string | null; listenerOrigin: 'import' | 'ai' | 'human' | null; listenerConfidence: number | null }) {
@@ -81,6 +102,8 @@ export function LineList({
   actions,
   menu,
   onOpenScene,
+  find,
+  banner,
 }: {
   projectId: string;
   groupId?: string;
@@ -94,6 +117,10 @@ export function LineList({
   menu?: ReactNode;
   /** Opens a line in its own scene, without this list's filters. */
   onOpenScene?: (groupId: string, lineId: string) => void;
+  /** Walking a filter inside this scene: every line shows, the matching ones are marked. */
+  find?: { ids: Set<string>; label: string };
+  /** Shown between the toolbar and the lines (the find bar). */
+  banner?: ReactNode;
 }) {
   const statuses = useQuery(q.statuses(projectId));
   const page = search.page ?? 0;
@@ -106,7 +133,12 @@ export function LineList({
     if (search.line && search.line !== pickedHere.current) setFocusing(search.line);
   }, [search.line]);
   const lines = useQuery(
-    q.units(projectId, { groupId, kind, review: review ? '1' : undefined, remaining: search.remaining ? '1' : undefined, q: search.q, statusId: search.status, tagId: search.tag, speaker: search.speaker, listener: search.listener, focus: focusing, offset: page * PAGE_SIZE, limit: PAGE_SIZE }),
+    q.units(
+      projectId,
+      find
+        ? { groupId, focus: focusing, offset: page * PAGE_SIZE, limit: PAGE_SIZE }
+        : { groupId, kind, review: review ? '1' : undefined, remaining: search.remaining ? '1' : undefined, q: search.q, statusId: search.status, tagId: search.tag, speaker: search.speaker, listener: search.listener, focus: focusing, offset: page * PAGE_SIZE, limit: PAGE_SIZE },
+    ),
   );
   useEffect(() => {
     if (!focusing || !lines.data || lines.isPlaceholderData) return;
@@ -120,9 +152,6 @@ export function LineList({
   const rows = lines.data?.rows;
   const total = lines.data?.total ?? 0;
   const showScene = !groupId;
-  const filtered = Boolean(search.status || search.tag || search.speaker || search.listener || search.q || search.remaining || review);
-  // A line shown away from its neighbours (filtered, or across scenes) brings its surroundings along.
-  const outOfPlace = showScene || filtered;
   const speakers = useQuery(q.speakers(projectId));
   // Bumped whenever the picked line's editor should take the focus; 0 = just looking.
   const [focusTick, setFocusTick] = useState(0);
@@ -234,13 +263,8 @@ export function LineList({
     }
   }, [search.line, rows]);
 
-  // Filters that came from elsewhere (home, search, a glossary link) show as removable chips.
-  const chips = [
-    search.status && { key: 'status', label: `상태: ${statusById.get(search.status)?.name ?? '?'}`, clear: { status: undefined } },
-    search.tag && { key: 'tag', label: `태그: #${tagById.get(search.tag)?.name ?? '?'}`, clear: { tag: undefined } },
-    search.speaker && { key: 'speaker', label: `화자: ${search.speaker}`, clear: { speaker: undefined } },
-    search.listener && { key: 'listener', label: search.listener === '-' ? '청자 미상만' : `청자: ${search.listener}`, clear: { listener: undefined } },
-  ].filter(Boolean) as { key: string; label: string; clear: Partial<LinesSearch> }[];
+  // Set filters show as removable chips; while finding, the find bar shows them instead.
+  const chips = find ? [] : filterChips(search, statusList, statuses.data?.tags ?? []);
 
   return (
     <SplitPane
@@ -300,7 +324,13 @@ export function LineList({
             {chip.label} <X />
           </Button>
         ))}
+        {!find && !review && (search.speaker || search.listener || search.status || search.tag) && (
+          <Button variant="ghost" onClick={() => onSearch({ view: search.speaker || search.listener ? undefined : 'find', page: undefined })}>
+            장면에서 찾아가기
+          </Button>
+        )}
       </Toolbar>
+      {banner}
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {!rows ? (
@@ -316,6 +346,7 @@ export function LineList({
             {rows.map((line, index) => {
               const selected = line.id === search.line;
               const newScene = showScene && rows[index - 1]?.groupId !== line.groupId;
+              const marked = find?.ids.has(line.id);
               const status = statusById.get(line.statusId);
               const who = listenerText(line);
               return (
@@ -333,7 +364,7 @@ export function LineList({
                 <li
                   ref={selected ? selectedRow : undefined}
                   onClick={() => !selected && select(line.id, true)}
-                  className={cn('flex gap-3 border-b px-4 transition-colors', selected ? 'bg-muted/60 py-3 shadow-[inset_2px_0_0_var(--primary)]' : 'cursor-pointer py-2.5 hover:bg-muted/40')}
+                  className={cn('flex gap-3 border-b px-4 transition-colors', selected ? 'bg-muted/60 py-3 shadow-[inset_2px_0_0_var(--primary)]' : 'cursor-pointer py-2.5 hover:bg-muted/40', marked && !selected && 'bg-warning/5 shadow-[inset_2px_0_0_var(--warning)]')}
                   style={line.id === arrived ? { animation: 'line-arrived 2s ease-out' } : undefined}
                   onAnimationEnd={() => setArrived(undefined)}
                 >
@@ -342,10 +373,10 @@ export function LineList({
                     <div className="min-w-0">
                       <p className="mb-0.5 flex min-w-0 gap-1 text-xs text-muted-foreground">
                         <span className="truncate">{line.speaker ?? '지문'}</span>
+                        {marked && <span className="shrink-0 text-warning">● {find!.label}</span>}
                         {selected && line.kind === 'dialogue' && <span className={cn('truncate', who.unknown && 'text-warning')}>→ {who.text}</span>}
                       </p>
                       <p className={cn('break-words whitespace-pre-wrap', selected ? 'text-base' : 'text-sm')}>{line.source}</p>
-                      {selected && outOfPlace && <Surroundings unitId={line.id} />}
                     </div>
                     <div className="min-w-0">
                       {selected ? (
@@ -555,30 +586,3 @@ function LineFilters({ statuses, tags, speakers, search, onSearch }: {
     </DropdownMenu>
   );
 }
-
-/** The two lines before and after a line in its scene, for a list that shows it away from them. */
-function Surroundings({ unitId }: { unitId: string }) {
-  const unit = useQuery(q.unit(unitId));
-  const around = unit.data?.around;
-  if (!around || (!around.before.length && !around.after.length)) return null;
-  const row = (line: (typeof around.before)[number]) => (
-    <li key={line.id} className="flex min-w-0 gap-1.5">
-      <span className="shrink-0">{line.speaker ?? '지문'}</span>
-      <span className="truncate text-foreground/70">{line.source}</span>
-    </li>
-  );
-  return (
-    <div className="mt-2 rounded-md border bg-muted/30 px-2.5 py-1.5 text-xs text-muted-foreground">
-      <p className="mb-0.5">{unit.data?.group.title} · 앞뒤 대사</p>
-      <ul className="space-y-0.5">
-        {around.before.map(row)}
-        <li className="flex gap-1.5 font-medium text-foreground">
-          <span>▸</span>
-          <span>이 대사</span>
-        </li>
-        {around.after.map(row)}
-      </ul>
-    </div>
-  );
-}
-

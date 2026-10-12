@@ -1,11 +1,11 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useDefaultLayout } from 'react-resizable-panels';
-import { ChevronLeft, ChevronRight, Network, PanelLeftClose, PanelLeftOpen, Play, Sparkles } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Network, PanelLeftClose, PanelLeftOpen, Play, Sparkles, X } from 'lucide-react';
 import { Page } from '@/components/page';
 import { GroupList, type GroupRow } from '@/components/script/group-list';
-import { LineList, linesSearchSchema, type LinesSearch } from '@/components/script/line-list';
+import { filterChips, isFinding, LineList, linesSearchSchema, type LinesSearch } from '@/components/script/line-list';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { Button } from '@/components/ui/button';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
@@ -79,8 +79,65 @@ function Script() {
     });
   useReportView('script', [group && { kind: GROUP_KIND[group.kind], id: group.id, label: group.title }]);
 
+  // 찾아가기: the filter's lines are walked one by one inside their scenes instead of listed apart.
+  const finding = isFinding(search) && !search.review;
+  const matches = useQuery({
+    ...q.unitMatches(projectId, { statusId: search.status, tagId: search.tag, q: search.q, speaker: search.speaker, listener: search.listener, remaining: search.remaining ? '1' : undefined }),
+    enabled: finding,
+  });
+  const matchRows = useMemo(() => (finding ? (matches.data?.rows ?? []) : []), [finding, matches.data]);
+  const perScene = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const row of matchRows) counts.set(row.groupId, (counts.get(row.groupId) ?? 0) + 1);
+    return counts;
+  }, [matchRows]);
+  const position = matchRows.findIndex((row) => row.id === search.line);
+  const goToMatch = useCallback((row: { id: string; groupId: string } | undefined) => row && void navigate({ search: (previous) => ({ ...previous, group: row.groupId, line: row.id, page: undefined }), replace: true }), [navigate]);
+  // Next/previous from the picked line; from a line that is not a match, the nearest one after or before it in script order.
+  const step = (direction: 1 | -1) => {
+    if (!matchRows.length) return;
+    if (position >= 0) return goToMatch(matchRows[position + direction]);
+    const sceneIndex = (groupId: string) => ordered.findIndex((item) => item.id === groupId);
+    const here = sceneIndex(search.group ?? '');
+    const candidates = direction === 1 ? matchRows.filter((row) => sceneIndex(row.groupId) >= here) : matchRows.filter((row) => sceneIndex(row.groupId) <= here).reverse();
+    goToMatch(candidates[0] ?? (direction === 1 ? matchRows[0] : matchRows.at(-1)));
+  };
+  // Entering 찾아가기 (from home, picking a filter, opening a scene) goes to the first match there, or the first overall.
+  useEffect(() => {
+    if (!finding || !matches.data || !matchRows.length) return;
+    const picked = matchRows.find((row) => row.id === search.line);
+    if (picked) return picked.groupId === search.group ? undefined : goToMatch(picked);
+    if (search.line) return; // a line picked by hand in this scene, to read around a match
+    // A scene without matches stays open as chosen; ⌥↓ goes on from it.
+    if (search.group) return goToMatch(matchRows.find((row) => row.groupId === search.group));
+    goToMatch(matchRows[0]);
+  }, [finding, matches.data, search.group]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A match that stops matching (its listener was picked) hands over to the one that took its place.
+  const previousMatches = useRef<{ ids: string[]; line?: string }>({ ids: [] });
+  useEffect(() => {
+    const before = previousMatches.current;
+    previousMatches.current = { ids: matchRows.map((row) => row.id), line: search.line };
+    if (!finding || !search.line || before.line !== search.line) return;
+    const was = before.ids.indexOf(search.line);
+    if (was >= 0 && position < 0 && matchRows.length) goToMatch(matchRows[Math.min(was, matchRows.length - 1)]);
+  }, [matchRows]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!finding) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (!event.altKey || (event.key !== 'ArrowDown' && event.key !== 'ArrowUp')) return;
+      event.preventDefault();
+      step(event.key === 'ArrowDown' ? 1 : -1);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+  const findLabel = filterChips(search, statuses.data?.statuses ?? [], statuses.data?.tags ?? []).map((chip) => chip.label).concat(search.q ? [`“${search.q}”`] : [], search.remaining ? ['남은 줄'] : []).join(' · ');
+  const clearFilters = { q: undefined, status: undefined, tag: undefined, speaker: undefined, listener: undefined, remaining: undefined, view: undefined, page: undefined };
+
   const onSearch = useCallback((next: Partial<ScriptSearch>, options?: { replace?: boolean }) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace: options?.replace }), [navigate]);
-  const openGroup = (id: string | undefined) => void navigate({ search: (previous) => ({ gq: previous.gq, remaining: previous.remaining, group: id }) });
+  // Moving to another scene keeps a filter being walked (찾아가기); otherwise only the list's own search and 남은 줄만.
+  const openGroup = (id: string | undefined) =>
+    void navigate({ search: (previous) => (finding ? { ...previous, group: id, line: undefined, page: undefined, detail: undefined } : { gq: previous.gq, remaining: previous.remaining, group: id }) });
 
   const heading = (
     <span className="flex min-w-0 items-center gap-1">
@@ -130,6 +187,7 @@ function Script() {
                 reviewCount={project.data?.reviewCount ?? 0}
                 gq={search.gq}
                 onFilter={(gq) => onSearch({ gq }, { replace: true })}
+                marks={finding ? perScene : undefined}
               />
             </ResizablePanel>
             <ResizableHandle withHandle />
@@ -145,6 +203,41 @@ function Script() {
             search={search}
             onSearch={onSearch}
             onOpenScene={(groupId, line) => void navigate({ search: { group: groupId, line } })}
+            find={finding && search.group ? { ids: new Set(matchRows.filter((row) => row.groupId === search.group).map((row) => row.id)), label: findLabel } : undefined}
+            banner={
+              finding && (
+                <div className="flex shrink-0 items-center gap-2 border-b bg-warning/5 px-4 py-1.5 text-sm">
+                  <span className="truncate font-medium">{findLabel}</span>
+                  <span className="text-xs whitespace-nowrap text-muted-foreground tabular-nums">
+                    {!matches.data ? '찾는 중…' : !matchRows.length ? '해당하는 줄이 없습니다' : `${position >= 0 ? (position + 1).toLocaleString() : '–'} / ${matchRows.length.toLocaleString()}줄 · 이 장면 ${(perScene.get(search.group ?? '') ?? 0).toLocaleString()}줄`}
+                  </span>
+                  <span className="ml-auto flex items-center gap-1">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button variant="ghost" size="icon" aria-label="이전 줄" disabled={!matchRows.length} onClick={() => step(-1)}>
+                          <ChevronUp />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>이전 줄 (⌥↑)</TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button variant="ghost" size="icon" aria-label="다음 줄" disabled={!matchRows.length} onClick={() => step(1)}>
+                          <ChevronDown />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>다음 줄 (⌥↓)</TooltipContent>
+                    </Tooltip>
+                    <Button variant="ghost" onClick={() => onSearch({ view: 'list', group: undefined, page: undefined })}>
+                      목록으로 보기
+                    </Button>
+                    <Button variant="ghost" size="icon" aria-label="필터 지우기" onClick={() => onSearch(clearFilters)}>
+                      <X />
+                    </Button>
+                  </span>
+                </div>
+              )
+            }
             heading={heading}
             actions={
               <RunDialog
