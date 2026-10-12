@@ -66,8 +66,11 @@ describe('unit seq', () => {
     const previous = mkdtempSync(path.join(tmpdir(), 'tw-seq-'));
     cpSync(drizzleDir, previous, { recursive: true });
     const journalPath = path.join(previous, 'meta/_journal.json');
-    const journal = JSON.parse(readFileSync(journalPath, 'utf8')) as { entries: { tag: string }[] };
-    writeFileSync(journalPath, JSON.stringify({ ...journal, entries: journal.entries.filter((entry) => !entry.tag.includes('unit_seq')) }));
+    // A database from before the migration: every entry from unit_seq on is left out (drizzle only
+    // applies migrations newer than the last applied one, so later ones must not run first).
+    const journal = JSON.parse(readFileSync(journalPath, 'utf8')) as { entries: { idx: number; tag: string }[] };
+    const cut = journal.entries.find((entry) => entry.tag.includes('unit_seq'))!.idx;
+    writeFileSync(journalPath, JSON.stringify({ ...journal, entries: journal.entries.filter((entry) => entry.idx < cut) }));
 
     const sqlite = new Database(':memory:');
     sqlite.pragma('foreign_keys = ON');
