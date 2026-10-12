@@ -1,15 +1,15 @@
 import type { GraphOrder } from './graph-order.ts';
 
-/** The nearest choice or condition upstream of a line, which of its ways leads to the line, and that way's label. */
-export type Fork = { point: string; arm: string; label: string | null } | null;
+/** The nearest choice or condition upstream of a line, which of its ways leads to the line, its label, and whether it is a player's choice (not a condition). */
+export type Fork = { point: string; arm: string; label: string | null; choice: boolean } | null;
 
 /**
  * Events as a flow for the 사건 흐름 graph. An event leads to another when the player can go from
  * the first one's line to the second one's in the dialogue graph; only direct steps are kept (if A
- * leads to B and B to C, there is no A → C). Where one event leads to several, each step is named
- * by the choice or condition way it takes, when the graph labels it. Events that do not reach each
- * other get no line at all: lines are only drawn from the dialogue graph (scenes a game opens side
- * by side are not branches), and such events simply keep script order.
+ * leads to B and B to C, there is no A → C). One event leads to several only where they part at a
+ * single choice or condition (a branch); a choice's ways carry its labels. Anything else — scenes a
+ * state opens side by side, events that do not reach each other — gets no line and keeps script
+ * order: lines are only drawn from the dialogue graph, never guessed.
  */
 export function eventFlow<T extends { id: string; at: { seq: number; key: string } | null }>(order: Pick<GraphOrder, 'leadsTo'>, forkOf: (key: string) => Fork, events: T[]) {
   const placed = events.filter((event) => event.at).sort((a, b) => a.at!.seq - b.at!.seq);
@@ -20,7 +20,11 @@ export function eventFlow<T extends { id: string; at: { seq: number; key: string
     const reached = placed.filter((to) => leads(from, to));
     // Direct steps: reached events no other reached event leads to.
     const direct = reached.filter((to) => !reached.some((via) => via !== to && leads(via, to)));
-    const steps = direct.map((to) => ({ id: to.id, label: direct.length > 1 ? (forkOf(to.at!.key)?.label ?? null) : null }));
+    // Several ways out are a branch only when they part at one choice or condition. Scenes a
+    // state node opens side by side (or that merely all come later) are not: no lines then.
+    const forksOut = direct.map((to) => forkOf(to.at!.key));
+    const branch = direct.length > 1 && forksOut.every((fork) => fork && fork.point === forksOut[0]!.point) && new Set(forksOut.map((fork) => fork!.arm)).size > 1;
+    const steps = direct.length === 1 ? [{ id: direct[0].id, label: null }] : branch ? direct.map((to, i) => ({ id: to.id, label: forksOut[i]!.choice ? forksOut[i]!.label : null })) : [];
     if (steps.length) next.set(from.id, steps);
   }
   return events.map((event) => ({ ...event, next: next.get(event.id) ?? [] }));
@@ -62,7 +66,7 @@ export function forks(nodes: { id: string; kind: string; unitIds: string[] }[], 
       for (const id of frontier) {
         for (const parent of ins.get(id) ?? []) {
           if (splits(parent)) {
-            found = { point: parent, arm: id, label: outs.get(parent)!.find((way) => way.to === id)?.label?.trim() || null };
+            found = { point: parent, arm: id, label: outs.get(parent)!.find((way) => way.to === id)?.label?.trim() || null, choice: kind.get(parent) !== 'condition' };
             break;
           }
           if (!seen.has(parent)) (seen.add(parent), next.push(parent));

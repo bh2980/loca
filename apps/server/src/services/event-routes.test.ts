@@ -3,7 +3,7 @@ import { eventFlow, forks } from './event-routes.ts';
 
 // start → a (a condition) → (b1 → b2 | c1) → end; s (a state) opens p1 and p2 side by side; x is outside the graph.
 const next: Record<string, string[]> = { start: ['a'], a: ['b1', 'c1'], b1: ['b2'], b2: ['end'], c1: ['end'], end: [], s: ['p1', 'p2'], p1: [], p2: [] };
-const kinds: Record<string, string> = { a: 'condition', s: 'state' };
+const kinds: Record<string, string> = { a: 'script', s: 'state' };
 const labels: Record<string, string> = { 'a>b1': '도와준다', 'a>c1': '떠난다' };
 const reach = (from: string, to: string): boolean => (next[from] ?? []).some((step) => step === to || reach(step, to));
 const order = { leadsTo: reach };
@@ -30,5 +30,10 @@ describe('event flow', () => {
   it('draws no line between scenes a state opens side by side (both happen; they are not branches)', () => {
     const flow = eventFlow(order, forkOf, [event('P1', 'p1', 1), event('P2', 'p2', 2)]);
     expect(flow.map((row) => row.next)).toEqual([[], []]);
+  });
+
+  it('does not fan an event at a state out to every scene the state opens', () => {
+    const flow = new Map(eventFlow(order, forkOf, [event('S', 's', 1), event('P1', 'p1', 2), event('P2', 'p2', 3)]).map((row) => [row.id, row.next]));
+    expect(flow.get('S')).toEqual([]);
   });
 });

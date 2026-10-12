@@ -170,11 +170,15 @@ export const knowledgeRoutes = new Hono<Env>()
     const keys = [...new Set(events.flatMap((event) => event.evidence))];
     const lines = new Map(
       inChunks(keys, (slice) =>
-        db.select({ key: s.units.key, seq: s.units.seq, section: s.groups.section, scene: s.groups.title }).from(s.units).innerJoin(s.groups, eq(s.groups.id, s.units.groupId)).where(and(eq(s.units.projectId, projectId), inArray(s.units.key, slice))).all(),
+        db.select({ key: s.units.key, seq: s.units.seq, kind: s.units.kind, section: s.groups.section, scene: s.groups.title }).from(s.units).innerJoin(s.groups, eq(s.groups.id, s.units.groupId)).where(and(eq(s.units.projectId, projectId), inArray(s.units.key, slice))).all(),
       ).map((line) => [line.key, line]),
     );
     const placed = events.map((event) => {
-      const first = event.evidence.flatMap((key) => lines.get(key) ?? []).sort((a, b) => a.seq - b.seq)[0];
+      // Where the event happens: its earliest spoken evidence line; UI and document text (menus, event
+      // banners) only when it has no dialogue evidence, since such text often sits far from the scene.
+      const cited = event.evidence.flatMap((key) => lines.get(key) ?? []);
+      const spoken = cited.filter((line) => line.kind === 'dialogue');
+      const first = (spoken.length ? spoken : cited).sort((a, b) => a.seq - b.seq)[0];
       return { ...event, at: first ? { seq: first.seq, section: first.section, scene: first.scene, key: first.key } : null };
     });
     const graphNodes = db.select({ id: s.graphNodes.id, kind: s.graphNodes.kind, unitIds: s.graphNodes.unitIds }).from(s.graphNodes).where(eq(s.graphNodes.projectId, projectId)).all();
