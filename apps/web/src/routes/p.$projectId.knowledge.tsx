@@ -14,7 +14,6 @@ import { buildPairs, PairDetail, pairItems, pairMatches, pairSummary, PairTable,
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { EventFlow, type FlowEvent } from '@/components/knowledge/event-flow';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -361,14 +360,19 @@ function Knowledge() {
             )}
           </div>
         ) : timeline ? (
-          <ScrollArea className="min-h-0 flex-1">
-            {pending ? <Skeleton className="m-4 h-40" /> : <EventFlow
-                  events={rows.map((row) => ({ ...(row as unknown as FlowEvent), title: text(row.title), summary: text(row.summary), participants: row.participants as string[] }))}
-                  selected={search.item}
-                  onOpen={(id) => set({ item: id === search.item ? undefined : id })}
-                  badge={(event) => <SourceBadge row={rows.find((row) => row.id === event.id)!} />}
-                />}
-          </ScrollArea>
+          <div className="min-h-0 flex-1">
+            {pending ? (
+              <Skeleton className="m-4 h-40" />
+            ) : (
+              <EventFlow
+                projectId={projectId}
+                events={rows.map((row) => ({ ...(row as unknown as FlowEvent), title: text(row.title), summary: text(row.summary), participants: row.participants as string[] }))}
+                selected={search.item}
+                onOpen={(id) => set({ item: id })}
+                badge={(event) => <SourceBadge row={rows.find((row) => row.id === event.id)!} />}
+              />
+            )}
+          </div>
         ) : pairsView ? (
           <PairTable
             pairs={pending ? undefined : visiblePairs}
