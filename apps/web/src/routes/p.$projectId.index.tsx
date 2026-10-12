@@ -2,6 +2,7 @@ import { cloneElement, type ReactElement, type ReactNode } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { BookMarked, ChevronRight, CircleAlert, Inbox, MessageSquareQuote, UserRoundSearch, Workflow } from 'lucide-react';
+import { GettingStarted } from '@/components/getting-started';
 import { JobStatusBadge } from '@/components/job-status';
 import { Page } from '@/components/page';
 import { StatusBar, StatusDot } from '@/components/status';
@@ -104,6 +105,7 @@ function Home() {
 
   return (
     <Page title="홈" className="mx-auto w-full max-w-5xl space-y-8 py-8">
+      <GettingStarted projectId={projectId} />
       <section>
         <h2 className="mb-3 text-base font-semibold">다음 할 일</h2>
         {loading ? (
