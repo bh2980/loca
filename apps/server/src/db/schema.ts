@@ -212,6 +212,39 @@ export const graphViews = sqliteTable('graph_views', {
   createdAt: createdAt(),
 });
 
+/** Where a model request came from: a workflow run, work analysis, glossary fill, a profile test or a chat turn. */
+export const AI_CALL_KINDS = ['run', 'analysis', 'terms', 'test', 'chat'] as const;
+
+/**
+ * Every request sent to a model, one row per attempt (a fallback is its own row), written when it
+ * goes out and finished when it returns: the app-wide log of AI work. Run steps keep the prompts.
+ */
+export const aiCalls = sqliteTable(
+  'ai_calls',
+  {
+    id: id(),
+    /** Null for calls outside a project (a profile test). */
+    projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+    kind: text('kind', { enum: AI_CALL_KINDS }).notNull(),
+    /** The run, analysis job, chat or profile it belongs to. */
+    refId: text('ref_id'),
+    /** What it was for, as people read it ("AI 번역 · 60줄", "작품 분석 1/3"). */
+    label: text('label').notNull(),
+    profileId: text('profile_id'),
+    connectionKind: text('connection_kind'),
+    model: text('model'),
+    status: text('status', { enum: ['running', 'ok', 'failed'] }).notNull().default('running'),
+    error: text('error'),
+    inputTokens: integer('input_tokens'),
+    cachedInputTokens: integer('cached_input_tokens'),
+    outputTokens: integer('output_tokens'),
+    costUsd: real('cost_usd'),
+    startedAt: integer('started_at', { mode: 'timestamp_ms' }).notNull(),
+    finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),
+  },
+  (table) => [index('ai_calls_project_started').on(table.projectId, table.startedAt)],
+);
+
 export const terms = sqliteTable('terms', {
   id: id(),
   projectId: projectId(),

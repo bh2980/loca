@@ -7,6 +7,7 @@ import { CONNECTION_KIND_INFO } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
+import { startCall } from '../services/ai-calls.ts';
 import { AGENT_SYSTEM, agentTools } from '../services/agent-tools.ts';
 import { liveProfileRoutes } from '../services/routes.ts';
 import { closePiChat, piChatResponse } from '../services/pi-chat.ts';
@@ -111,8 +112,13 @@ export const chatRoutes = new Hono<Env>()
         return badRequest(error instanceof Error ? error.message : String(error));
       }
     }
+    // One log row per turn (its tool steps included); usage comes with the finish.
+    const finish = startCall(db, { projectId: session.projectId, kind: 'chat', refId: session.id, label: '채팅', profileId: session.profileId }, route);
     const result = streamText({
       model: ai.chatModel(route),
+      onFinish: ({ totalUsage }) => finish({ usage: { inputTokens: totalUsage.inputTokens, cachedInputTokens: totalUsage.inputTokenDetails?.cacheReadTokens, outputTokens: totalUsage.outputTokens } }),
+      onError: ({ error }) => finish({ error }),
+      onAbort: () => finish({ error: '중단함' }),
       system: [AGENT_SYSTEM, live.snapshot.instructions, view && describeView(view)].filter(Boolean).join('\n\n'),
       // An editor proposal left unanswered before the next message is dropped rather than failing the turn.
       messages: await convertToModelMessages(messages, { ignoreIncompleteToolCalls: true }),

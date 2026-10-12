@@ -1,6 +1,7 @@
 import { createUIMessageStream, createUIMessageStreamResponse, type UIMessage } from 'ai';
 import { eq } from 'drizzle-orm';
 import * as ai from '@tw/ai';
+import { logged } from './ai-calls.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
@@ -104,7 +105,7 @@ export async function cliChatResponse(input: {
     execute: async ({ writer }) => {
       for (let round = 0; round < MAX_ROUNDS; round++) {
         writer.write({ type: 'start-step' });
-        const answer = await run(route, { sessionId, system, prompt, timeoutMs: input.timeoutMs, signal: input.signal });
+        const answer = await logged(db, { projectId: chat.projectId, kind: 'chat', refId: chat.id, label: `채팅 (CLI${round ? ` · 도구 결과 후 ${round}` : ''})`, profileId: chat.profileId }, route, () => run(route, { sessionId, system, prompt, timeoutMs: input.timeoutMs, signal: input.signal }));
         sessionId = answer.sessionId;
         db.update(s.chatSessions).set({ agentSession: { kind: route.kind, model: route.model, id: sessionId, lastTurnAt: Date.now() } }).where(eq(s.chatSessions.id, chat.id)).run();
         const { visible, calls, error } = readToolCalls(answer.text);

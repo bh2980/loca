@@ -6,6 +6,7 @@ import { isSpecialListener, SPEECH_LEVEL_GUIDE, SPEECH_LEVEL_LABELS, SPEECH_LEVE
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
+import { logged } from './ai-calls.ts';
 import type { ModelPort } from '../engine/runner.ts';
 import { resolveRoutes, snapshotProfiles } from './routes.ts';
 import { packBlocks, scriptText } from './script-text.ts';
@@ -163,7 +164,7 @@ export class AnalysisService {
             routes,
             profile.maxAttempts,
             (route) =>
-              this.model.generate<Analysis>(route, {
+              logged(this.db, { projectId: job.projectId, kind: 'analysis', refId: job.id, label: `작품 분석 ${index + 1}/${queue.length}`, profileId: profile.id }, route, () => this.model.generate<Analysis>(route, {
                 system: [SYSTEM, profile.instructions].filter(Boolean).join('\n\n'),
                 prompt: `${RETURN}${where}${cast}${known}\n\nSCRIPT:\n${part}`,
                 schema: analysisSchema,
@@ -171,7 +172,7 @@ export class AnalysisService {
                 temperature: profile.temperature ?? undefined,
                 timeoutMs: Math.max(profile.timeoutSeconds * 1000, MIN_TIMEOUT_MS),
                 signal,
-              }),
+              })),
             signal,
           )
           .catch((error: unknown) => {

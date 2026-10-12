@@ -6,6 +6,7 @@ import { CONNECTION_KIND_INFO, connectionInputSchema, patchOf, profileInputSchem
 import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
+import { logged } from '../services/ai-calls.ts';
 import { connectionRoute, liveProfileRoutes } from '../services/routes.ts';
 
 type CliKind = 'codex' | 'claude' | 'grok' | 'antigravity' | 'opencode';
@@ -144,8 +145,9 @@ export const profileRoutes = new Hono<Env>()
     const { source, targetLanguage } = c.req.valid('json');
     const started = Date.now();
     try {
+      const call = { projectId: null, kind: 'test' as const, refId: live.snapshot.id, label: `프로필 시험 · ${live.snapshot.name}`, profileId: live.snapshot.id };
       const { result, route, attempts } = await ai.withFallback(live.routes, live.snapshot.maxAttempts, (route) =>
-        route.kind === 'systemone'
+        logged(db, call, route, () => route.kind === 'systemone'
           ? ai.judge(route, { state: { source }, instructions: 'Is this text well-formed?', timeoutMs: live.snapshot.timeoutSeconds * 1000 }).then((judged) => ({ text: judged.passed ? 'pass' : 'fail', usage: judged.usage }))
           : ai
               .generate(route, {
@@ -157,6 +159,7 @@ export const profileRoutes = new Hono<Env>()
                 timeoutMs: live.snapshot.timeoutSeconds * 1000,
               })
               .then((generated) => ({ text: generated.object.text, usage: generated.usage })),
+        ),
       );
       return c.json({ ok: true as const, text: result.text, model: route.model, attempts, ms: Date.now() - started });
     } catch (error) {

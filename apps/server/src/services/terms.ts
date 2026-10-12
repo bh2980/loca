@@ -5,6 +5,7 @@ import type { Db } from '../db/index.ts';
 import { eachChunk } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
+import { logged } from './ai-calls.ts';
 import type { ModelPort } from '../engine/runner.ts';
 import { resolveRoutes, snapshotProfiles } from './routes.ts';
 import type { SecretStore } from './secrets.ts';
@@ -149,7 +150,7 @@ export class TermService {
         routes,
         profile.maxAttempts,
         (route) =>
-          this.model.generate<z.infer<typeof suggestSchema>>(route, {
+          logged(this.db, { projectId, kind: 'terms', label: `용어 AI 채우기 · ${batch.length.toLocaleString()}개`, profileId: profile.id }, route, () => this.model.generate<z.infer<typeof suggestSchema>>(route, {
             system: [SYSTEM, profile.instructions].filter(Boolean).join('\n\n'),
             prompt: JSON.stringify(input),
             schema: suggestSchema,
@@ -157,7 +158,7 @@ export class TermService {
             temperature: profile.temperature ?? undefined,
             timeoutMs: profile.timeoutSeconds * 1000,
             signal,
-          }),
+          })),
         signal,
       );
       if (signal.aborted) return;

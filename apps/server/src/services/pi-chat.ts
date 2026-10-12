@@ -1,6 +1,7 @@
 import { createUIMessageStream, createUIMessageStreamResponse, type UIMessage } from 'ai';
 import { eq } from 'drizzle-orm';
 import * as ai from '@tw/ai';
+import { startCall } from './ai-calls.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
@@ -111,6 +112,8 @@ export async function piChatResponse(input: {
       };
       // Steps mirror pi turns (one model call and its tool calls), so the client sees that a turn
       // ended in text and does not resubmit as if a tool result were still waiting for the model.
+      const usage: ai.Usage = {};
+      const finish = startCall(db, { projectId: chat.projectId, kind: 'chat', refId: chat.id, label: '채팅 (pi)', profileId: chat.profileId }, route);
       const unsubscribe = current.pi.subscribe((event) => {
         if (event.type === 'turn_start') writer.write({ type: 'start-step' });
         else if (event.type === 'turn_end') {
@@ -122,7 +125,16 @@ export async function piChatResponse(input: {
             writer.write({ type: 'text-start', id: textId });
           }
           writer.write({ type: 'text-delta', id: textId, delta: event.assistantMessageEvent.delta });
-        } else if (event.type === 'message_end') closeText();
+        } else if (event.type === 'message_end') {
+          closeText();
+          // Assistant messages carry their usage; the turn's log row adds them up.
+          const reported = (event.message as { usage?: { input?: number; output?: number; cacheRead?: number } }).usage;
+          if (reported) {
+            usage.inputTokens = (usage.inputTokens ?? 0) + (reported.input ?? 0) + (reported.cacheRead ?? 0);
+            usage.cachedInputTokens = (usage.cachedInputTokens ?? 0) + (reported.cacheRead ?? 0);
+            usage.outputTokens = (usage.outputTokens ?? 0) + (reported.output ?? 0);
+          }
+        }
         else if (event.type === 'tool_execution_start') {
           closeText();
           writer.write({ type: 'tool-input-available', toolCallId: event.toolCallId, toolName: event.toolName, input: event.args });
@@ -135,6 +147,10 @@ export async function piChatResponse(input: {
       input.signal.addEventListener('abort', abort);
       try {
         await current.pi.prompt(prompt);
+        finish({ usage });
+      } catch (error) {
+        finish({ error, usage });
+        throw error;
       } finally {
         closeText();
         unsubscribe();

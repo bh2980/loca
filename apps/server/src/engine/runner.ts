@@ -15,6 +15,7 @@ import type { SecretStore } from '../services/secrets.ts';
 import { runAsyncFunction, syncFunctions, type FunctionInput, type FunctionResult } from './functions/index.ts';
 import { packGroups, planBatches } from './batches.ts';
 import { buildPrompt, outputSchema, PER_LINE_OUTPUTS, type KnowledgeOutput, type PromptLine } from './prompts.ts';
+import { logged } from '../services/ai-calls.ts';
 
 export interface ModelPort {
   generate: typeof ai.generate;
@@ -623,7 +624,8 @@ export class Runner {
     step.prompt = `${system}\n\n${prompt}`;
 
     try {
-      const result = await ai.withFallback(routes, profile.maxAttempts, (route) => this.model.generate(route, request), signal);
+      const call = { projectId: run.projectId, kind: 'run' as const, refId: run.id, label: `${nodeName(node)} · ${items.length.toLocaleString()}줄`, profileId: profile.id };
+      const result = await ai.withFallback(routes, profile.maxAttempts, (route) => logged(this.db, call, route, () => this.model.generate(route, request)), signal);
       const raw = result.result.object;
       const outcomes = this.readAiOutput(node, raw, lines, profile.id, result.route.model);
       const answered = outcomes.filter(Boolean).length;
@@ -673,12 +675,12 @@ export class Runner {
           routes,
           profile.maxAttempts,
           (route) =>
-            this.model.judge(route, {
+            logged(this.db, { projectId: run.projectId, kind: 'run', refId: run.id, label: `${nodeName(node)} · 판정 1줄`, profileId: profile.id }, route, () => this.model.judge(route, {
               state: { source: line.source, translation: line.candidate ?? '', speaker: line.speaker, context: { scene: context.scenes[line.groupId] ?? null, characters: context.characters, glossary: context.terms } },
               instructions: [node.config.instructions, profile.instructions].filter(Boolean).join('\n') || 'Is this translation acceptable as is?',
               timeoutMs: profile.timeoutSeconds * 1000,
               signal,
-            }),
+            })),
           signal,
         );
         attempts = [...attempts, ...outcome.attempts];

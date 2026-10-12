@@ -152,6 +152,29 @@ export const workflowRoutes = new Hono<Env>()
   })
 
   // ── runs ───────────────────────────────────────────────────────────
+  /** The project's AI log: every model request, newest first (see ai-calls.ts), with totals. */
+  .get('/projects/:projectId/ai-calls', validate('query', z.object({ kind: z.enum(s.AI_CALL_KINDS).optional(), status: z.enum(['running', 'ok', 'failed']).optional(), limit: z.coerce.number().int().min(1).max(500).default(200) })), (c) => {
+    const { db } = c.var.deps;
+    const projectId = c.req.param('projectId');
+    const { kind, status, limit } = c.req.valid('query');
+    const where = and(eq(s.aiCalls.projectId, projectId), kind ? eq(s.aiCalls.kind, kind) : undefined, status ? eq(s.aiCalls.status, status) : undefined);
+    const calls = db.select().from(s.aiCalls).where(where).orderBy(desc(s.aiCalls.startedAt)).limit(limit).all();
+    const profiles = new Map(db.select({ id: s.profiles.id, name: s.profiles.name }).from(s.profiles).all().map((profile) => [profile.id, profile.name]));
+    const totals = db
+      .select({
+        kind: s.aiCalls.kind,
+        calls: sql<number>`count(*)`,
+        running: sql<number>`sum(${s.aiCalls.status} = 'running')`,
+        failed: sql<number>`sum(${s.aiCalls.status} = 'failed')`,
+        inputTokens: sql<number>`coalesce(sum(${s.aiCalls.inputTokens}), 0)`,
+        outputTokens: sql<number>`coalesce(sum(${s.aiCalls.outputTokens}), 0)`,
+      })
+      .from(s.aiCalls)
+      .where(eq(s.aiCalls.projectId, projectId))
+      .groupBy(s.aiCalls.kind)
+      .all();
+    return c.json({ calls: calls.map((call) => ({ ...call, profileName: call.profileId ? (profiles.get(call.profileId) ?? null) : null })), totals });
+  })
   .get('/projects/:projectId/runs', (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
