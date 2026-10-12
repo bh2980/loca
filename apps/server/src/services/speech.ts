@@ -2,6 +2,7 @@ import { and, asc, eq } from 'drizzle-orm';
 import { LISTENER_MIN_CONFIDENCE, SPEECH_LEVEL_LABELS, politenessOfLevel, speechLevelOf, termMatcher, type Politeness, type SpeechLevel } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
+import { buildGraphOrder } from './graph-order.ts';
 
 type Rule = typeof s.speechRules.$inferSelect;
 interface LineLike {
@@ -143,7 +144,10 @@ export function knowledgeOf(db: Db, projectId: string) {
   };
 }
 
-/** Script order of every line (scene order, then line order): rule intervals are picked by it, ignoring branches. */
+/** The dialogue graph's "certainly passed" order; rule intervals are picked by it (DESIGN 3.2). */
+const graphOrder = (db: Db, projectId: string) => cachedKnowledge(db, projectId, 'graphOrder', ['order'], () => buildGraphOrder(db, projectId));
+
+/** Script order of every line (scene order, then line order): rule intervals fall back to it for lines outside the graph. */
 function scriptOrder(db: Db, projectId: string) {
   return cachedKnowledge(db, projectId, 'scriptOrder', ['order'], () => {
     const rows = db
@@ -153,6 +157,14 @@ function scriptOrder(db: Db, projectId: string) {
       .all();
     return new Map(rows.map((row) => [row.key, row.seq]));
   });
+}
+
+/** The rule for one line; `byOrder` when script order picked its stretch, `routeDependent` when the graph could not because routes differ. */
+export interface Resolved {
+  listener: string;
+  rule: Rule;
+  byOrder: boolean;
+  routeDependent?: true;
 }
 
 /**
@@ -174,18 +186,53 @@ export function speechRuleIndex(db: Db, projectId: string) {
 
   return {
     norm,
-    /** The rules that apply to these lines (by key); lines without a known listener or rule are absent. */
-    resolve(lines: LineLike[]): Map<string, { listener: string; rule: Rule; byOrder: boolean }> {
-      const result = new Map<string, { listener: string; rule: Rule; byOrder: boolean }>();
-      const lineOrder = byPair.size ? scriptOrder(db, projectId) : new Map<string, number>();
+    /**
+     * The rules that apply to these lines (by key); lines without a known listener or rule are absent.
+     * A rule with a start point applies where the dialogue graph certainly passed that point, and the
+     * latest such start wins; a start on a branch that never leads to the line does not count.
+     * Where a start is passed on some routes only, one translation cannot fit every route: the rule
+     * is picked by script order and marked (`byOrder` + `routeDependent`, key added to `uncertain`)
+     * so a person can review it. Lines or starts outside the graph also fall back to script order.
+     */
+    resolve(lines: LineLike[], uncertain?: Set<string>): Map<string, Resolved> {
+      const result = new Map<string, Resolved>();
+      const graph = [...byPair.values()].some((list) => list.some((rule) => rule.startKey)) ? graphOrder(db, projectId) : null;
+      let lineOrder: Map<string, number> | undefined;
       for (const line of lines) {
         const listener = knownListener(line);
         if (!line.speaker || !listener) continue;
         const list = byPair.get(`${norm(line.speaker)}|${norm(listener)}`);
         if (!list?.length) continue;
-        const at = lineOrder.get(line.key) ?? 0;
-        const rule = list.filter((candidate) => !candidate.startKey || (order.get(candidate.startKey) ?? Infinity) <= at).at(-1);
-        if (rule) result.set(line.key, { listener, rule, byOrder: list.length > 1 });
+        const base = list.filter((rule) => !rule.startKey).at(-1);
+        const starts = list.filter((rule) => rule.startKey);
+        if (!starts.length || !graph) {
+          if (base) result.set(line.key, { listener, rule: base, byOrder: false });
+          continue;
+        }
+        const passed = starts.map((rule) => ({ rule, passage: graph.passage(rule.startKey!, line.key) }));
+        const byScriptOrder = (candidates: Rule[]) => {
+          lineOrder ??= scriptOrder(db, projectId);
+          const at = lineOrder.get(line.key) ?? 0;
+          return candidates.filter((candidate) => !candidate.startKey || (order.get(candidate.startKey) ?? Infinity) <= at).at(-1);
+        };
+        if (passed.some(({ passage }) => passage === 'unknown')) {
+          const rule = byScriptOrder(list);
+          if (rule) result.set(line.key, { listener, rule, byOrder: true });
+          continue;
+        }
+        // Starts certainly passed all dominate the line, so they lie on one chain: the deepest is the latest.
+        const latest = passed.filter(({ passage }) => passage === 'definite').reduce<Rule | undefined>((best, { rule }) => (!best || graph.later(rule.startKey!, best.startKey!) ? rule : best), undefined);
+        // A start passed on some routes only matters unless it always comes before the latest certain start.
+        const open = passed.filter(({ rule, passage }) => passage === 'maybe' && !(latest && graph.leadsTo(rule.startKey!, latest.startKey!) && !graph.leadsTo(latest.startKey!, rule.startKey!)));
+        if (open.length) {
+          uncertain?.add(line.key);
+          // Starts on branches that never reach this line are left out even here.
+          const rule = byScriptOrder(list.filter((candidate) => !candidate.startKey || passed.some((entry) => entry.rule === candidate && entry.passage !== 'none')));
+          if (rule) result.set(line.key, { listener, rule, byOrder: true, routeDependent: true });
+          continue;
+        }
+        const rule = latest ?? base;
+        if (rule) result.set(line.key, { listener, rule, byOrder: false });
       }
       return result;
     },
@@ -229,12 +276,15 @@ export function ruleLines(db: Db, projectId: string, ruleId: string) {
     .all()
     .filter((line) => line.speaker && index.norm(line.speaker) === index.norm(rule.fromName) && knownListener(line) && index.norm(knownListener(line)!) === index.norm(rule.toName));
   // A candidate rule is not resolved by the index; show the lines it would take over.
-  const resolved = index.resolve(speakers);
+  const uncertain = new Set<string>();
+  const resolved = index.resolve(speakers, uncertain);
   const rows = rule.status === 'confirmed' ? speakers.filter((line) => resolved.get(line.key)?.rule.id === rule.id) : speakers;
   const levels: Partial<Record<SpeechLevel | 'unknown', number>> = {};
   for (const line of rows) {
     const level = line.translation ? (speechLevelOf(line.translation) ?? 'unknown') : 'unknown';
     levels[level] = (levels[level] ?? 0) + 1;
   }
-  return { count: rows.length, unitIds: rows.map((line) => line.id), levels, rows: rows.slice(0, 100).map(({ listenerOrigin: _o, listenerConfidence: _c, ...line }) => line) };
+  // Of these, lines whose stretch depends on the route (picked by script order).
+  const routeDependent = rows.filter((line) => uncertain.has(line.key)).length;
+  return { count: rows.length, routeDependent, unitIds: rows.map((line) => line.id), levels, rows: rows.slice(0, 100).map(({ listenerOrigin: _o, listenerConfidence: _c, ...line }) => line) };
 }

@@ -94,7 +94,7 @@ export function agentTools(db: Db, projectId: string, author: { profileId: strin
         const rule = speechRuleIndex(db, projectId).resolve([unit]).get(unit.key);
         return {
           line: { id: unit.id, key: unit.key, kind: unit.kind, speaker: unit.speaker, listener: knownListener(unit), source: unit.source, translation: unit.translation },
-          speechRule: rule ? { rule: describeRule(rule.rule), note: rule.rule.note, byScriptOrder: rule.byOrder } : null,
+          speechRule: rule ? { rule: describeRule(rule.rule), note: rule.rule.note, byScriptOrder: rule.byOrder, ...(rule.routeDependent && { routeDependent: true }) } : null,
           group,
           before: around.slice(Math.max(0, index - 6), index),
           after: around.slice(index + 1, index + 4),

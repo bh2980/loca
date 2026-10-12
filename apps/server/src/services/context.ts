@@ -281,7 +281,7 @@ export function buildContext(
       const found = rules.get(line.key);
       const entry = { listener, ...(found && { rule: describeRule(found.rule), ...(found.rule.note && { note: found.rule.note }), ...(found.byOrder && { byOrder: true as const }) }) };
       candidates.speech.push({
-        item: { kind: 'speech', label: `${line.key}: ${line.speaker ?? '?'} → ${listener}${found ? ` · ${describeRule(found.rule)}` : ''}`, reason: found ? `확정 말투 규칙${found.byOrder ? ' (구간은 대본 순서 기준)' : ''}` : '청자만 (이 쌍의 확정 규칙 없음)' },
+        item: { kind: 'speech', label: `${line.key}: ${line.speaker ?? '?'} → ${listener}${found ? ` · ${describeRule(found.rule)}` : ''}`, reason: found ? `확정 말투 규칙${found.routeDependent ? ' (구간 시작을 거쳤는지가 루트에 따라 달라 대본 순서 기준)' : found.byOrder ? ' (그래프 밖이라 구간은 대본 순서 기준)' : ''}` : '청자만 (이 쌍의 확정 규칙 없음)' },
         payload: entry,
         keep: () => (result.speech[line.id] = entry),
       });

@@ -93,11 +93,41 @@ describe('context builder', () => {
       .run();
     const lines = ['arrival.1', 'arrival.3', 'panel.2', 'tower.1'].map(unit);
     const context = buildContext(db, projectId, lines, config());
-    // Aliases resolve to the same pair; the later stretch starts at tower.1; candidates and unsure AI listeners are ignored.
-    expect(context.speech[unit('arrival.1').id]).toEqual({ listener: 'Jonas', rule: '해요체, 호칭 "조나스 씨"', byOrder: true });
+    // Aliases resolve to the same pair; the later stretch starts at tower.1 (every route passes it); candidates and unsure AI listeners are ignored.
+    expect(context.speech[unit('arrival.1').id]).toEqual({ listener: 'Jonas', rule: '해요체, 호칭 "조나스 씨"' });
     expect(context.speech[unit('arrival.3').id]?.rule).toBe('해요체, 호칭 "조나스 씨"');
     expect(context.speech[unit('panel.2').id]).toBeUndefined();
-    expect(context.speech[unit('tower.1').id]).toEqual({ listener: 'JONAS', rule: '해체(반말)', note: '화해 후', byOrder: true });
+    expect(context.speech[unit('tower.1').id]).toEqual({ listener: 'JONAS', rule: '해체(반말)', note: '화해 후' });
+  });
+
+  it('does not carry a stretch over to a branch its start never leads to, even when that branch comes later in the script', () => {
+    const { db, projectId, unit } = setup();
+    db.update(s.units).set({ listener: 'Jonas', listenerOrigin: 'human' }).where(eq(s.units.id, unit('logbook.2').id)).run();
+    // The panel and the logbook are two branches from the arrival; script order puts the panel first.
+    db.insert(s.speechRules)
+      .values([
+        { projectId, fromName: 'Mira', toName: 'Jonas', level: 'haeyo' },
+        { projectId, fromName: 'Mira', toName: 'Jonas', level: 'hae', startKey: 'panel.1' },
+      ])
+      .run();
+    const context = buildContext(db, projectId, [unit('logbook.2')], config());
+    expect(context.speech[unit('logbook.2').id]).toEqual({ listener: 'Jonas', rule: '해요체' });
+  });
+
+  it('picks by script order, and says so, where a stretch starts on only one of the routes into a line', () => {
+    const { db, projectId, unit } = setup();
+    for (const key of ['arrival.1', 'tower.1']) db.update(s.units).set({ listener: 'Jonas', listenerOrigin: 'human' }).where(eq(s.units.id, unit(key).id)).run();
+    // panel.1 is on one of the routes into the tower (the other goes through the logbook).
+    db.insert(s.speechRules)
+      .values([
+        { projectId, fromName: 'Mira', toName: 'Jonas', level: 'haeyo' },
+        { projectId, fromName: 'Mira', toName: 'Jonas', level: 'hae', startKey: 'panel.1' },
+      ])
+      .run();
+    const context = buildContext(db, projectId, ['arrival.1', 'tower.1'].map(unit), config());
+    expect(context.speech[unit('arrival.1').id]?.rule).toBe('해요체');
+    expect(context.speech[unit('tower.1').id]).toEqual({ listener: 'Jonas', rule: '해체(반말)', byOrder: true });
+    expect(context.items.find((item) => item.kind === 'speech' && item.label.startsWith('tower.1'))?.reason).toContain('루트에 따라 달라 대본 순서 기준');
   });
 
   it('defaults the translation context to listener/speech, glossary, preceding lines and scene text only', () => {

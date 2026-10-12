@@ -323,8 +323,13 @@ export function RuleLines({ projectId, ruleId, candidate }: { projectId: string;
         )}
       </div>
       <p className="text-[11px] text-muted-foreground">
-        청자가 정해진 이 쌍의 대사(같은 쌍의 다음 구간 전까지)입니다. 규칙을 고쳤다면 “{SPEECH_FIX_WORKFLOW}”로 이 대사들의 어미·호칭만 다시 맞추세요.
+        청자가 정해진 이 쌍의 대사(대사 그래프에서 이 구간 시작을 반드시 거친 뒤, 다음 구간 전까지. 루트에 따라 다르면 대본 순서 기준)입니다. 규칙을 고쳤다면 “{SPEECH_FIX_WORKFLOW}”로 이 대사들의 어미·호칭만 다시 맞추세요.
       </p>
+      {!!lines.data?.routeDependent && (
+        <p className="text-xs text-amber-700 dark:text-amber-400">
+          이 중 {lines.data.routeDependent.toLocaleString()}개는 구간 시작을 거쳤는지가 루트에 따라 달라, 대본 순서로 이 규칙을 골랐습니다. 번역은 한 줄에 하나라 루트 하나에만 맞을 수 있으니 확인하세요.
+        </p>
+      )}
       {levels.length > 0 && (
         <p className="text-xs">
           지금 번역의 말투(어미 추정):{' '}

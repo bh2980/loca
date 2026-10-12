@@ -260,7 +260,7 @@ export function LineDetail({
 }
 
 /** Glossary terms in this line, and whether the translation in the editor keeps them and the source's format. */
-export function LineChecks({ projectId, source, text, terms, rules, speech }: { projectId: string; source: string; text: string; terms: { id: string; source: string; target: string; status: KnowledgeStatus }[]; rules?: FormatRules; speech?: { listener: string; ruleId: string; rule: string; level: SpeechLevel; byOrder: boolean } | null }) {
+export function LineChecks({ projectId, source, text, terms, rules, speech }: { projectId: string; source: string; text: string; terms: { id: string; source: string; target: string; status: KnowledgeStatus }[]; rules?: FormatRules; speech?: { listener: string; ruleId: string; rule: string; level: SpeechLevel; byOrder: boolean; routeDependent?: boolean } | null }) {
   const used = useMemo(() => terms.filter((term) => mentions(source, term.source)), [terms, source]);
   const formatIssues = text.trim() ? checkFormat(source, text, { placeholders: true, tags: true, newlines: true, emptyText: true }, rules) : [];
   const kept = (target: string) => Boolean(target.trim()) && text.toLowerCase().includes(target.toLowerCase());
@@ -269,7 +269,7 @@ export function LineChecks({ projectId, source, text, terms, rules, speech }: { 
     <section className="space-y-3">
       {speech && (
         <div>
-          <h3 className="mb-1.5 text-xs font-medium text-muted-foreground">말투 규칙 (→ {speech.listener}{speech.byOrder ? ', 구간은 대본 순서 기준' : ''})</h3>
+          <h3 className="mb-1.5 text-xs font-medium text-muted-foreground">말투 규칙 (→ {speech.listener}{speech.routeDependent ? ', 루트에 따라 달라 구간은 대본 순서 기준' : speech.byOrder ? ', 그래프 밖이라 구간은 대본 순서 기준' : ''})</h3>
           <div className="flex items-center gap-2 text-sm">
             <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', item: speech.ruleId }} className="min-w-0 truncate hover:underline">
               {speech.rule}

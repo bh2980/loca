@@ -214,7 +214,7 @@ export const sourceRoutes = new Hono<Env>()
       .all();
     const nodes = db.select({ id: s.graphNodes.id, key: s.graphNodes.key }).from(s.graphNodes).where(sql`exists (select 1 from json_each(${s.graphNodes.unitIds}) where value = ${unitId})`).all();
     const resolved = speechRuleIndex(db, unit.projectId).resolve([unit]).get(unit.key);
-    const speech = resolved ? { listener: resolved.listener, ruleId: resolved.rule.id, rule: describeRule(resolved.rule), level: resolved.rule.level, byOrder: resolved.byOrder } : null;
+    const speech = resolved ? { listener: resolved.listener, ruleId: resolved.rule.id, rule: describeRule(resolved.rule), level: resolved.rule.level, byOrder: resolved.byOrder, routeDependent: !!resolved.routeDependent } : null;
     return c.json({ ...unit, group, candidates, tagIds, history, graphNodes: nodes, speech });
   })
   .patch('/units/:unitId', validate('json', unitPatch), (c) => {
