@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { convertToModelMessages, stepCountIs, streamText, type UIMessage } from 'ai';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import * as ai from '@tw/ai';
 import { CONNECTION_KIND_INFO } from '@tw/shared';
@@ -39,9 +39,19 @@ export const chatRoutes = new Hono<Env>()
     const { db } = c.var.deps;
     return c.json(
       db
-        .select({ id: s.chatSessions.id, title: s.chatSessions.title, profileId: s.chatSessions.profileId, updatedAt: s.chatSessions.updatedAt })
+        // Each conversation's model use (its turns in the AI log): chats are not in 실행 기록, so the panel shows it.
+        .select({
+          id: s.chatSessions.id,
+          title: s.chatSessions.title,
+          profileId: s.chatSessions.profileId,
+          updatedAt: s.chatSessions.updatedAt,
+          calls: sql<number>`count(${s.aiCalls.id})`,
+          tokens: sql<number>`coalesce(sum(${s.aiCalls.inputTokens}), 0) + coalesce(sum(${s.aiCalls.outputTokens}), 0)`,
+        })
         .from(s.chatSessions)
+        .leftJoin(s.aiCalls, eq(s.aiCalls.refId, s.chatSessions.id))
         .where(eq(s.chatSessions.projectId, c.req.param('projectId')))
+        .groupBy(s.chatSessions.id)
         .orderBy(desc(s.chatSessions.updatedAt))
         .all(),
     );

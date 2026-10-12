@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 import { KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, LISTENER_ORIGINS, SPEECH_LEVELS, type AgentSettings, type ContextItem, type FormatRules, type NodeType, type PiOptions, type RelationshipChange, type WorkflowDefinition } from '@tw/shared';
+import type { Usage } from '@tw/ai';
 
 const id = () => text('id').primaryKey().$defaultFn(() => crypto.randomUUID());
 const createdAt = () => integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date());
@@ -594,7 +595,8 @@ export const chatSessions = sqliteTable('chat_sessions', {
   profileId: text('profile_id'),
   messages: json<unknown[]>('messages').notNull().default(sql`'[]'`),
   /** An agent CLI's own session for this chat (resumed each turn), and when it last took a turn. */
-  agentSession: json<{ kind: string; model: string; id: string; lastTurnAt: number }>('agent_session'),
+  /** `totals`: the CLI's running usage for the conversation, when it reports one (see cliChat). */
+  agentSession: json<{ kind: string; model: string; id: string; lastTurnAt: number; totals?: Usage }>('agent_session'),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });

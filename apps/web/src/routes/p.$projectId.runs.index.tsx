@@ -29,7 +29,7 @@ export const Route = createFileRoute('/p/$projectId/runs/')({
   component: Runs,
 });
 
-const JOB_KIND = { run: '워크플로', analysis: '자료', terms: '용어집', chat: '채팅' } as const;
+const JOB_KIND = { run: '워크플로', analysis: '자료', terms: '용어집' } as const;
 type Stats = { calls: number | null; inputTokens: number; outputTokens: number };
 
 const seconds = (from: Date | string, to: Date | string | null) => {
@@ -104,8 +104,8 @@ const columns: ColumnDef<Row, unknown>[] = [
 
 
 /**
- * Everything AI did in the project, one row per job: workflow runs, work analyses, glossary fills
- * and chats, newest first. A workflow run opens its detail page; other jobs open their model requests in the right-hand pane.
+ * Everything AI did in the project, one row per job: workflow runs, work analyses, glossary fills,
+ * newest first. A workflow run opens its detail page; other jobs open their model requests in the right-hand pane.
  */
 function Runs() {
   const { projectId } = Route.useParams();
@@ -164,7 +164,7 @@ function Runs() {
           empty={
             <>
               <p className="font-medium text-foreground">아직 실행이 없습니다</p>
-              <p className="mt-1">워크플로 실행, 작품 분석, 용어 AI 채우기, 채팅이 모델을 부르면 여기에 쌓입니다.</p>
+              <p className="mt-1">워크플로 실행, 작품 분석, 용어 AI 채우기가 모델을 부르면 여기에 쌓입니다.</p>
             </>
           }
         />

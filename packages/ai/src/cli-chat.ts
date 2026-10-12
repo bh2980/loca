@@ -35,13 +35,28 @@ export interface CliChatTurn {
   prompt: string;
   timeoutMs: number;
   signal?: AbortSignal;
+  /** The conversation's running total after the previous turn (`totals` of its result). */
+  totalsBefore?: Usage;
 }
 
 export interface CliChatResult {
   sessionId: string;
   text: string;
+  /** This turn's own use. */
   usage: Usage;
+  /**
+   * Set when the CLI reports the conversation's running total instead of the turn's (Antigravity:
+   * its numbers only grow across a resumed conversation); pass it back as the next `totalsBefore`.
+   */
+  totals?: Usage;
 }
+
+const USAGE_KEYS = ['inputTokens', 'cachedInputTokens', 'outputTokens', 'reasoningTokens', 'costUsd'] as const;
+/** A turn's share of a running total. A total smaller than before means the CLI started over. */
+export const turnShare = (totals: Usage, before: Usage | undefined): Usage => {
+  if (!before || (totals.inputTokens ?? 0) < (before.inputTokens ?? 0)) return totals;
+  return Object.fromEntries(USAGE_KEYS.flatMap((key) => (totals[key] === undefined ? [] : [[key, Math.max(0, totals[key]! - (before[key] ?? 0))]])));
+};
 
 const lines = (stdout: string) =>
   stdout.split(/\r?\n/).flatMap((line) => {
@@ -137,7 +152,7 @@ export function readCliChat(kind: ChatCliKind, stdout: string, fallbackId: strin
     const init = events.find((event) => event.event === 'init');
     const result = events.findLast((event) => event.event === 'result')?.result as Record<string, unknown> | undefined;
     if (!result || result.status !== 'SUCCESS') throw failure(String(result?.error ?? stdout.slice(-300)));
-    return { sessionId: String(init?.conversation_id ?? result.conversation_id ?? fallbackId), text: String(result.response ?? ''), usage: usageOf(result.usage) };
+    return { sessionId: String(init?.conversation_id ?? result.conversation_id ?? fallbackId), text: String(result.response ?? ''), usage: usageOf(result.usage), totals: usageOf(result.usage) };
   }
   const error = events.find((event) => event.type === 'error');
   if (error) throw failure(JSON.stringify(error.error ?? error).slice(0, 300));
@@ -160,7 +175,8 @@ export async function cliChat(route: ResolvedRoute, turn: CliChatTurn): Promise<
     if (result.timedOut) throw new ModelError('timeout', 'CLI 응답 시간이 초과되었습니다.');
     const stdout = String(result.stdout ?? '');
     if (result.exitCode !== 0 && !stdout.trim()) throw failure(String(result.stderr ?? '').slice(-300) || `종료 코드 ${result.exitCode}`);
-    return readCliChat(kind, stdout, turn.sessionId ?? newId);
+    const answer = readCliChat(kind, stdout, turn.sessionId ?? newId);
+    return answer.totals ? { ...answer, usage: turnShare(answer.totals, turn.sessionId ? turn.totalsBefore : undefined) } : answer;
   } catch (error) {
     if (error instanceof ModelError) throw error;
     if (error instanceof ExecaError && error.code === 'ENOENT') throw new ModelError('config', `${cliCommand(kind, route.executable)} 실행 파일을 찾을 수 없습니다.`, false);

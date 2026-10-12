@@ -100,15 +100,17 @@ export async function cliChatResponse(input: {
   const last = messages.at(-1);
   let prompt = [saved ? null : transcript(messages), saved ? decisions(db, chat.id, saved.lastTurnAt) : null, input.view, last ? textOf(last) : ''].filter(Boolean).join('\n\n');
   let sessionId = saved?.id;
+  let totalsBefore = saved?.totals;
 
   const stream = createUIMessageStream({
     originalMessages: messages,
     execute: async ({ writer }) => {
       for (let round = 0; round < MAX_ROUNDS; round++) {
         writer.write({ type: 'start-step' });
-        const answer = await logged(db, { projectId: chat.projectId, kind: 'chat', refId: chat.id, label: `채팅 (CLI${round ? ` · 도구 결과 후 ${round}` : ''})`, profileId: chat.profileId }, route, () => run(route, { sessionId, system, prompt, timeoutMs: input.timeoutMs, signal: input.signal }));
+        const answer = await logged(db, { projectId: chat.projectId, kind: 'chat', refId: chat.id, label: `채팅 (CLI${round ? ` · 도구 결과 후 ${round}` : ''})`, profileId: chat.profileId }, route, () => run(route, { sessionId, system, prompt, timeoutMs: input.timeoutMs, signal: input.signal, totalsBefore }));
         sessionId = answer.sessionId;
-        db.update(s.chatSessions).set({ agentSession: { kind: route.kind, model: route.model, id: sessionId, lastTurnAt: Date.now() } }).where(eq(s.chatSessions.id, chat.id)).run();
+        totalsBefore = answer.totals;
+        db.update(s.chatSessions).set({ agentSession: { kind: route.kind, model: route.model, id: sessionId, lastTurnAt: Date.now(), totals: totalsBefore } }).where(eq(s.chatSessions.id, chat.id)).run();
         const { visible, calls, error } = readToolCalls(answer.text);
         if (visible) {
           const id = crypto.randomUUID();

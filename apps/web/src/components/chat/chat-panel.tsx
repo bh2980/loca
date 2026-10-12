@@ -22,6 +22,9 @@ import { useViewState, type ViewItem } from '@/lib/view-context';
 import { ProposalCard } from './proposal-card';
 import { ToolPart } from './tool-part';
 
+/** A conversation's model use in the session list: 950, 12.3k, 10.3M tokens. */
+const compactTokens = (n: number) => new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(n);
+
 const SESSION_KEY = (projectId: string) => `tw.chat.session.${projectId}`;
 const readSession = (projectId: string) => {
   try {
@@ -61,7 +64,7 @@ export function ChatPanel({ projectId }: { projectId: string }) {
     onSuccess: (session) => {
       // The new conversation joins the list before it is picked: otherwise the stale list would
       // unpick it, and a waiting AI-button request would start yet another one, again and again.
-      queryClient.setQueryData(q.chatSessions(projectId).queryKey, (list) => (list ? [session as (typeof list)[number], ...list.filter((item) => item.id !== session.id)] : list));
+      queryClient.setQueryData(q.chatSessions(projectId).queryKey, (list) => (list ? [{ id: session.id, title: session.title, profileId: session.profileId, updatedAt: session.updatedAt, calls: 0, tokens: 0 }, ...list.filter((item) => item.id !== session.id)] : list));
       setSessionId(session.id);
       void queryClient.invalidateQueries({ queryKey: ['chat', projectId] });
     },
@@ -105,6 +108,11 @@ export function ChatPanel({ projectId }: { projectId: string }) {
             {sessions.data?.map((session) => (
               <DropdownMenuItem key={session.id} onSelect={() => setSessionId(session.id)} className={cn('group/session pr-1', session.id === sessionId && 'font-medium')}>
                 <span className="min-w-0 flex-1 truncate">{session.title}</span>
+                {session.calls > 0 && (
+                  <span className="shrink-0 text-xs text-muted-foreground tabular-nums" title={`모델 요청 ${session.calls}건 · 토큰 ${session.tokens.toLocaleString()}`}>
+                    {session.calls}건 · {compactTokens(session.tokens)}
+                  </span>
+                )}
                 <Button
                   variant="ghost"
                   size="icon-xs"

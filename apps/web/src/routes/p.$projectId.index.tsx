@@ -14,7 +14,7 @@ import { cn } from '@/lib/utils';
 
 export const Route = createFileRoute('/p/$projectId/')({ component: Home });
 
-const JOB_KIND = { run: '워크플로', analysis: '작품 분석', terms: '용어집', chat: '채팅' } as const;
+const JOB_KIND = { run: '워크플로', analysis: '작품 분석', terms: '용어집' } as const;
 
 interface Todo {
   key: string;
