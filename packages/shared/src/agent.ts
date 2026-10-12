@@ -21,6 +21,7 @@ export const AGENT_TOOLS: Record<string, { group: AgentToolGroup; label: string 
   find_lines: { group: 'read', label: '대사 찾기' },
   scenes_with: { group: 'read', label: '같이 나오는 장면 찾기' },
   line_context: { group: 'read', label: '대사 앞뒤·분기 보기' },
+  show_graph: { group: 'read', label: '그래프에서 보여 주기' },
   check_script: { group: 'read', label: '번역 점검' },
   script_stats: { group: 'read', label: '진행·실행 통계' },
   list_speakers: { group: 'read', label: '화자 목록 조회' },

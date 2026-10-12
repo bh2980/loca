@@ -28,6 +28,8 @@ interface GraphSearch {
   type?: string;
   /** Also draw scene links hidden by the simplification (reachable through other scenes). */
   links?: 'all';
+  /** A stored view (made in the chat) whose nodes are highlighted. */
+  mark?: string;
 }
 
 export const Route = createFileRoute('/p/$projectId/graph')({
@@ -38,6 +40,7 @@ export const Route = createFileRoute('/p/$projectId/graph')({
     section: typeof raw.section === 'string' && raw.section ? raw.section : undefined,
     type: typeof raw.type === 'string' ? raw.type : undefined,
     links: raw.links === 'all' ? 'all' : undefined,
+    mark: typeof raw.mark === 'string' && raw.mark ? raw.mark : undefined,
   }),
   component: GraphPage,
 });
@@ -64,8 +67,13 @@ function GraphPage() {
   const sections = dialogue ? (sectionList.data ?? []) : [];
   const chosen = !dialogue || search.section === 'all' ? undefined : search.section ?? (sections.length > 1 ? (sections.find((section) => section.groupIds.includes(search.scene ?? ''))?.name ?? sections[0].name) : undefined);
   const graph = useQuery({ ...q.graph(projectId, search.scope, chosen), enabled: !dialogue || !!search.section || sectionList.isSuccess });
-  // A view of chosen scenes (from the chat's show_scenes_graph): its scenes name it.
-  const view = chosen?.startsWith('view:') ? graph.data?.layout?.view : undefined;
+  // A view laid out on its own (the chat's show_graph, mode "only").
+  const viewId = chosen?.startsWith('view:') ? chosen.slice('view:'.length) : undefined;
+  const viewInfo = useQuery({ ...q.graphView(projectId, viewId ?? ''), enabled: !!viewId });
+  const view = viewId && graph.data?.layout?.view ? { ...graph.data.layout.view, label: viewInfo.data?.label ?? graph.data.layout.view.label } : undefined;
+  // Nodes the chat asked to highlight (show_graph, mode "mark"); the canvas waits for them so it opens on them.
+  const mark = useQuery({ ...q.graphView(projectId, search.mark ?? ''), enabled: dialogue && !!search.mark });
+  const marking = dialogue && !!search.mark && mark.isPending;
   const [container, size] = useSize<HTMLDivElement>();
   const canvas = useRef<GraphCanvasHandle>(null);
   const [find, setFind] = useState('');
@@ -81,17 +89,18 @@ function GraphPage() {
   const portals = useMemo(() => new Map((graph.data?.layout?.portals ?? []).map((portal) => [portal.id, portal])), [graph.data]);
   const highlight = useMemo(() => {
     if (!graph.data) return undefined;
+    if (dialogue && search.mark && mark.data) return new Set(mark.data.nodeIds);
     if (search.type) return new Set(graph.data.nodes.filter((node) => (node.type ?? `kind:${node.kind}`) === search.type).map((node) => node.id));
     if (search.scope !== 'dialogue' || !search.scene) return undefined;
     return new Set(graph.data.nodes.filter((node) => node.groupId === search.scene).map((node) => node.id));
-  }, [graph.data, search.scope, search.scene, search.type]);
+  }, [graph.data, search.scope, search.scene, search.type, search.mark, mark.data, dialogue]);
   const matches = useMemo(() => {
     const text = find.trim().toLowerCase();
     if (!text || !graph.data) return [];
     return graph.data.nodes.filter((node) => [node.key, node.label, node.preview].some((value) => value?.toLowerCase().includes(text))).slice(0, 50);
   }, [find, graph.data]);
 
-  const key = viewportKey(projectId, search.scope, search.scene, dialogue ? (chosen ?? 'all') : undefined);
+  const key = viewportKey(projectId, search.scope, search.scene ?? (dialogue && search.mark ? `mark:${search.mark}` : undefined), dialogue ? (chosen ?? 'all') : undefined);
   const select = (id: string | undefined) => {
     const target = id ? portals.get(id) : undefined;
     // A portal is navigation to the section it stands for (or, in a view of chosen scenes, to the
@@ -132,7 +141,7 @@ function GraphPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">전체 (한 장)</SelectItem>
-                {view && chosen && <SelectItem value={chosen}>고른 장면 {view.titles.length.toLocaleString()}개</SelectItem>}
+                {view && chosen && <SelectItem value={chosen}>보기: {view.label || `노드 ${view.nodes.toLocaleString()}개`}</SelectItem>}
                 {sections.map((section) => (
                   <SelectItem key={section.name} value={section.name}>
                     {section.name} <span className="text-muted-foreground">· {section.nodes.toLocaleString()}</span>
@@ -151,9 +160,9 @@ function GraphPage() {
     >
       <div className="absolute inset-0 flex">
         <div ref={container} className="relative min-w-0 flex-1 bg-[radial-gradient(var(--graph-grid)_1px,transparent_1px)] [background-size:20px_20px]">
-          {graph.data?.status === 'ready' && layout && size.width > 0 && (
+          {graph.data?.status === 'ready' && layout && size.width > 0 && !marking && (
             <GraphCanvas
-              key={`${search.scope}:${chosen ?? 'all'}:${search.scene ?? ''}`}
+              key={`${search.scope}:${chosen ?? 'all'}:${search.scene ?? ''}:${search.mark ?? ''}`}
               handle={canvas}
               nodes={layout.nodes}
               regions={layout.regions}
@@ -237,9 +246,25 @@ function GraphPage() {
               <p className="absolute top-3 right-3 rounded-md bg-background/90 px-2 py-1 text-xs text-muted-foreground tabular-nums shadow-sm">
                 {search.scope === 'scene'
                   ? `장면 ${(layout.nodes.length - hubs.size).toLocaleString()}${hubs.size ? ` · 연결점 ${hubs.size.toLocaleString()}` : ''} · 연결 ${(edges.length + (looseEdges?.length ?? 0)).toLocaleString()}${looseEdges?.length ? ` (연결점 직선 ${looseEdges.length.toLocaleString()})` : ''}`
-                  : `${view ? `고른 장면 ${view.titles.length.toLocaleString()}개 · ` : chosen ? `구역 ${chosen} · ` : sections.length > 1 ? '전체 · ' : ''}노드 ${(layout.nodes.length - portals.size).toLocaleString()}개${portals.size ? ` · 다른 구역으로 이어지는 이름표 ${portals.size.toLocaleString()}` : ''} · 연결 ${(edges.length + (looseEdges?.length ?? 0)).toLocaleString()}`}
-                {highlight && ` · 강조 ${highlight.size.toLocaleString()}`}
+                  : `${view ? `보기${view.label ? ` "${view.label}"` : ''} · ` : chosen ? `구역 ${chosen} · ` : sections.length > 1 ? '전체 · ' : ''}노드 ${(layout.nodes.length - portals.size).toLocaleString()}개${portals.size ? ` · 다른 구역으로 이어지는 이름표 ${portals.size.toLocaleString()}` : ''} · 연결 ${(edges.length + (looseEdges?.length ?? 0)).toLocaleString()}`}
+                {highlight && !mark.data && ` · 강조 ${highlight.size.toLocaleString()}`}
               </p>
+              {search.mark && mark.data && layout && (
+                <div className="absolute top-11 right-3 flex items-center gap-2 rounded-md bg-background/90 py-1 pr-1 pl-2 text-xs shadow-sm">
+                  <span className="size-2 rounded-full bg-primary" />
+                  <span>
+                    강조{mark.data.label ? ` "${mark.data.label}"` : ''} · 이 화면 {layout.nodes.filter((node) => highlight?.has(node.id)).length.toLocaleString()} / {mark.data.nodeIds.length.toLocaleString()}개
+                  </span>
+                  {mark.data.section && mark.data.section !== chosen && (
+                    <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => void navigate({ search: (previous) => ({ ...previous, section: mark.data.section!, node: undefined }) })}>
+                      가장 많은 구역으로
+                    </Button>
+                  )}
+                  <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => void navigate({ search: (previous) => ({ ...previous, mark: undefined }), replace: true })}>
+                    강조 해제
+                  </Button>
+                </div>
+              )}
               {search.scope === 'dialogue' && !!looseEdges?.length && (
                 <p className="absolute top-11 right-3 rounded-md bg-background/90 px-2 py-1 text-xs text-muted-foreground shadow-sm">
                   직선: 허브 연결(배치에서 제외) {looseEdges.length.toLocaleString()}개

@@ -1,5 +1,6 @@
 import { AGENT_TOOLS } from '@tw/shared';
-import { Check, ChevronRight, CircleAlert, Wrench, X } from 'lucide-react';
+import { useNavigate, useParams } from '@tanstack/react-router';
+import { Check, ChevronRight, CircleAlert, Network, Wrench, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { workflowEdits, type WorkflowNodeEdit } from '@/lib/workflow-edits';
 import { ProposalCard, type Proposal } from './proposal-card';
@@ -220,6 +221,8 @@ export function ToolPart({ part, stale, onDecide, onOutput, proposal }: {
     );
   }
 
+  if (name === 'show_graph' && part.state === 'output-available' && (part.output as GraphViewOutput)?.ok) return <GraphViewLink output={part.output as GraphViewOutput} />;
+
   return (
     <Collapsible>
       <CollapsibleTrigger className="group flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground">
@@ -234,5 +237,30 @@ export function ToolPart({ part, stale, onDecide, onOutput, proposal }: {
         </pre>
       </CollapsibleContent>
     </Collapsible>
+  );
+}
+
+interface GraphViewOutput {
+  ok: true;
+  nodes: number;
+  label: string;
+  open: { to: '/p/$projectId/graph'; search: Record<string, string | undefined> };
+}
+
+/** show_graph: the view the agent made, opened with one click. */
+function GraphViewLink({ output }: { output: GraphViewOutput }) {
+  const navigate = useNavigate();
+  const { projectId } = useParams({ strict: false }) as { projectId?: string };
+  const only = String(output.open.search.section ?? '').startsWith('view:');
+  return (
+    <div className="flex items-center gap-2 rounded-lg border bg-background px-3 py-2 text-xs">
+      <Network className="size-3.5 text-muted-foreground" />
+      <span className="min-w-0 flex-1 truncate">
+        {output.label} · 노드 {output.nodes.toLocaleString()}개 {only ? '따로 그림' : '강조'}
+      </span>
+      <Button size="sm" variant="outline" className="h-7" disabled={!projectId} onClick={() => void navigate({ to: output.open.to, params: { projectId: projectId! }, search: output.open.search as never })}>
+        그래프에서 보기
+      </Button>
+    </div>
   );
 }

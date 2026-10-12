@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { Worker } from 'node:worker_threads';
 import { and, asc, eq, ne, notLike, sql } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
@@ -96,40 +95,38 @@ export function dialogueJob(db: Db, projectId: string): LayoutJob {
 
 const projectExists = (db: Db, projectId: string) => !!db.select({ id: projects.id }).from(projects).where(eq(projects.id, projectId)).get();
 
-const VIEW = '고른 장면';
+const VIEW = '보기';
 
 /**
- * The dialogue graph of chosen scenes only, laid out on demand (a few scenes take a second or two)
- * and kept as section "view:<hash of the scene ids>", so the graph route serves it like a section.
- * Lines that continue elsewhere end in portals named after the scene they continue in.
+ * A chosen set of dialogue-graph nodes laid out on its own, once (a few hundred nodes take a
+ * second or two), stored under section `key` so the graph route serves it like a section. Lines
+ * that continue outside the set end in portals named after the scene they continue in.
  */
-export async function sceneView(db: Db, projectId: string, groupIds: string[]) {
-  const ids = [...new Set(groupIds)].sort();
-  const key = `view:${createHash('sha1').update(ids.join(',')).digest('hex').slice(0, 12)}`;
+export async function nodeSetLayout(db: Db, projectId: string, key: string, nodeIds: string[], label = '') {
   const existing = db.select({ status: graphLayouts.status }).from(graphLayouts).where(and(eq(graphLayouts.projectId, projectId), eq(graphLayouts.scope, 'dialogue'), eq(graphLayouts.section, key))).get();
-  if (existing?.status === 'ready') return key;
-  const chosen = new Set(ids);
-  const groupRows = db.select({ id: groups.id, title: groups.title, sort: groups.sort }).from(groups).where(eq(groups.projectId, projectId)).all();
-  const titleOf = new Map(groupRows.map((group) => [group.id, group.title]));
+  if (existing?.status === 'ready') return;
+  const chosen = new Set(nodeIds);
+  const titleOf = new Map(db.select({ id: groups.id, title: groups.title }).from(groups).where(eq(groups.projectId, projectId)).all().map((group) => [group.id, group.title]));
   const nodes = db.select({ id: graphNodes.id, kind: graphNodes.kind, groupId: graphNodes.groupId }).from(graphNodes).where(eq(graphNodes.projectId, projectId)).all();
   const edges = db.select({ id: graphEdges.id, from: graphEdges.fromId, to: graphEdges.toId }).from(graphEdges).where(eq(graphEdges.projectId, projectId)).all();
-  const data = await runWorker({
-    kind: 'view',
-    view: VIEW,
-    edges,
-    nodes: nodes.map((node) => {
-      const [width, height] = NODE_SIZE[node.kind] ?? NODE_SIZE.unknown;
-      return { id: node.id, width, height, section: node.groupId ? (chosen.has(node.groupId) ? VIEW : `scene:${node.groupId}`) : null };
-    }),
-  }, () => {});
+  const data = await runWorker(
+    {
+      kind: 'view',
+      view: VIEW,
+      edges,
+      nodes: nodes.map((node) => {
+        const [width, height] = NODE_SIZE[node.kind] ?? NODE_SIZE.unknown;
+        return { id: node.id, width, height, section: chosen.has(node.id) ? VIEW : node.groupId ? `scene:${node.groupId}` : null };
+      }),
+    },
+    () => {},
+  );
   // Portals name the scene the lines continue in, and keep its id to open it.
   data.portals = data.portals?.map((portal) => {
     const groupId = portal.section.startsWith('scene:') ? portal.section.slice('scene:'.length) : undefined;
     return groupId ? { ...portal, section: titleOf.get(groupId) ?? groupId, groupId } : portal;
   });
-  const titles = groupRows.filter((group) => chosen.has(group.id)).sort((a, b) => a.sort - b.sort).map((group) => group.title);
-  save(db, projectId, 'dialogue', { status: 'ready', data: { ...data, view: { groupIds: ids, titles } }, error: null }, key);
-  return key;
+  save(db, projectId, 'dialogue', { status: 'ready', data: { ...data, view: { label, nodes: chosen.size } }, error: null }, key);
 }
 
 /** Projects laid out before section layouts existed: their scenes span several sections but no section layout is stored. */

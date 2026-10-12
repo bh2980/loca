@@ -14,7 +14,7 @@ import { mentions } from './context.ts';
 import { createRunInSteps, selectRunUnits } from '../engine/runner.ts';
 import { snapshotProfiles } from './routes.ts';
 import { readWebPage, webSearch } from './web.ts';
-import { sceneView } from './layout.ts';
+import { pickNodes, saveView, sectionWithMost, viewSection, VIEW_LIMIT } from './graph-views.ts';
 import { applyBatch, checkScript, findLines, lineContext, normalizeBatch, runStats, sceneStats, scenesWith, validateBatch } from './script-query.ts';
 
 /** Lines of a batch proposal checked and applied per step when it is accepted. */
@@ -118,28 +118,25 @@ export function agentTools(db: Db, projectId: string, author: { profileId: strin
       inputSchema: z.object({ speakers: z.array(z.string().min(1)).min(1) }),
       execute: ({ speakers }) => scenesWith(db, projectId, speakers),
     }),
-    show_scenes_graph: tool({
+    show_graph: tool({
       description:
-        'Open a dialogue graph of only some scenes for the user (the whole graph is too large to read). Pick the scenes with scenes (ids, keys or titles; use list_scenes / scenes_with to find them) and/or speakers (scenes where all of them speak). Lines that continue in other scenes end in labels naming those scenes. Returns a link the user clicks; tell them what you chose.',
-      inputSchema: z.object({ scenes: z.array(z.string().min(1)).max(200).default([]), speakers: z.array(z.string().min(1)).default([]) }),
-      execute: async ({ scenes, speakers }) => {
-        const rows = db.select({ id: s.groups.id, key: s.groups.key, title: s.groups.title }).from(s.groups).where(eq(s.groups.projectId, projectId)).all();
-        const wanted = new Set<string>();
-        const unknown: string[] = [];
-        for (const scene of scenes) {
-          const lower = scene.toLowerCase();
-          const match = rows.filter((row) => row.id === scene || row.key === scene || row.title.toLowerCase() === lower);
-          if (match.length) for (const row of match) wanted.add(row.id);
-          else unknown.push(scene);
-        }
-        if (speakers.length) {
-          const keys = new Set(scenesWith(db, projectId, speakers).map((scene) => scene.key));
-          for (const row of rows) if (keys.has(row.key)) wanted.add(row.id);
-        }
-        if (!wanted.size) return { ok: false, error: unknown.length ? `찾지 못한 장면: ${unknown.slice(0, 5).join(', ')}` : '보여 줄 장면이 없습니다.' };
-        if (wanted.size > 200) return { ok: false, error: `장면이 ${wanted.size}개라 너무 많습니다. 200개 이하로 좁혀 주세요.` };
-        const section = await sceneView(db, projectId, [...wanted]);
-        return { ok: true, scenes: rows.filter((row) => wanted.has(row.id)).map((row) => row.title), unknown, open: { to: '/p/$projectId/graph', search: { scope: 'dialogue', section } } };
+        'Show the user part of the dialogue graph (the whole graph is too large to read): pick nodes by scenes (ids, keys or titles), speakers (lines they speak), lines (line keys) and/or q (text in lines); they add up. around adds the nodes that many steps before and after. mode "mark" highlights them in the graph (shown in the section holding most of them); mode "only" lays them out on their own, with labels where lines continue elsewhere. Use list_scenes, scenes_with or find_lines first when unsure. Returns a link the user clicks; tell them what you picked and why.',
+      inputSchema: z.object({
+        scenes: z.array(z.string().min(1)).max(500).default([]),
+        speakers: z.array(z.string().min(1)).default([]),
+        lines: z.array(z.string().min(1)).max(5000).default([]),
+        q: z.string().optional(),
+        around: z.number().int().min(0).max(5).default(0),
+        mode: z.enum(['mark', 'only']).default('mark'),
+        label: z.string().max(80).describe('A few words for the user on what this view shows, e.g. "Juliet ↔ Josef 대화".'),
+      }),
+      execute: async ({ mode, label, ...pick }) => {
+        const { nodeIds, unknown, scenes } = pickNodes(db, projectId, pick);
+        if (!nodeIds.length) return { ok: false, error: unknown.length ? `찾지 못함: ${unknown.slice(0, 5).join(', ')}` : '조건에 맞는 노드가 없습니다.' };
+        if (nodeIds.length > VIEW_LIMIT) return { ok: false, error: `노드가 ${nodeIds.length.toLocaleString()}개라 너무 많습니다. ${VIEW_LIMIT.toLocaleString()}개 이하로 좁혀 주세요.` };
+        const id = saveView(db, projectId, nodeIds, label);
+        const search = mode === 'only' ? { scope: 'dialogue', section: await viewSection(db, projectId, id) } : { scope: 'dialogue', mark: id, section: sectionWithMost(db, projectId, nodeIds) ?? undefined };
+        return { ok: true, nodes: nodeIds.length, scenes, unknown, label, open: { to: '/p/$projectId/graph', search } };
       },
     }),
     line_context: tool({

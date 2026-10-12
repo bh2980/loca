@@ -7,7 +7,8 @@ import type { Db } from '../db/index.ts';
 import { eachChunk, inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
-import { computeLayouts, sceneView } from '../services/layout.ts';
+import { computeLayouts } from '../services/layout.ts';
+import { readView, sectionWithMost } from '../services/graph-views.ts';
 import { describeRule, speechRuleIndex } from '../services/speech.ts';
 
 const listQuery = z.object({
@@ -317,14 +318,12 @@ export const sourceRoutes = new Hono<Env>()
       typeof c.json<{ status: string; error: string | null; layout: s.LayoutData | null; nodes: typeof nodes; nodeTypes: typeof nodeTypes; sections: typeof sections }>
     >;
   })
-  /** A dialogue graph of chosen scenes only; returns the section key to read it with (see sceneView). */
-  .post('/projects/:projectId/graph/view', validate('json', z.object({ groupIds: z.array(z.string()).min(1).max(500) })), async (c) => {
+  /** A stored view of graph nodes (see graph-views.ts): what it holds and the section showing most of it. */
+  .get('/projects/:projectId/graph/views/:id', (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
-    const known = new Set(db.select({ id: s.groups.id }).from(s.groups).where(eq(s.groups.projectId, projectId)).all().map((group) => group.id));
-    const groupIds = c.req.valid('json').groupIds.filter((id) => known.has(id));
-    if (!groupIds.length) return badRequest('없는 장면입니다.');
-    return c.json({ section: await sceneView(db, projectId, groupIds) });
+    const view = found(readView(db, projectId, c.req.param('id')), '보기');
+    return c.json({ id: view.id, label: view.label, nodeIds: view.nodeIds, section: sectionWithMost(db, projectId, view.nodeIds) });
   })
   /** Recompute stored layouts, e.g. after the layout options changed. The source graph itself is untouched. */
   .post('/projects/:projectId/graph/relayout', (c) => {

@@ -30,6 +30,9 @@ export const q = {
   unit: (unitId: string) => queryOptions({ queryKey: ['units', 'detail', unitId], queryFn: () => unwrap(client.units[':unitId'].$get({ param: { unitId } })) }),
   graphSections: (projectId: string) =>
     queryOptions({ queryKey: ['graph', projectId, 'sections'], queryFn: () => unwrap(client.projects[':projectId'].graph.sections.$get({ param: { projectId } })), staleTime: Infinity }),
+  /** A view of graph nodes made in the chat (show_graph). */
+  graphView: (projectId: string, id: string) =>
+    queryOptions({ queryKey: ['graph', projectId, 'views', id], queryFn: () => unwrap(client.projects[':projectId'].graph.views[':id'].$get({ param: { projectId, id } })), staleTime: Infinity }),
   /** `section`: one section's own dialogue layout (dialogue scope only). */
   graph: (projectId: string, scope: 'scene' | 'dialogue', section?: string) =>
     queryOptions({

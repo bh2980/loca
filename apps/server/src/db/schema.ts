@@ -182,8 +182,8 @@ export interface LayoutData {
   looseEdges?: { id: string; from: string; to: string }[];
   /** One section's dialogue graph: stand-ins ("portal:in|out:<section>") for the lines in other sections it links to. */
   portals?: { id: string; section: string; direction: 'in' | 'out'; /** In a view of chosen scenes: the scene the lines continue in. */ groupId?: string }[];
-  /** A view of chosen scenes (section "view:<hash>"): which, for the header. */
-  view?: { groupIds: string[]; titles: string[] };
+  /** A view an agent made (section "view:<id>", see graph-views.ts): what it shows, for the header. */
+  view?: { label: string; nodes: number };
 }
 
 export const graphLayouts = sqliteTable(
@@ -200,6 +200,19 @@ export const graphLayouts = sqliteTable(
   },
   (t) => [primaryKey({ columns: [t.projectId, t.scope, t.section] })],
 );
+
+/**
+ * A set of dialogue-graph nodes an agent picked for the user ("show me where Juliet talks to
+ * Josef"): highlighted in the graph (`mark=<id>`) or laid out on their own (section "view:<id>").
+ * The id is a hash of the node ids, so asking for the same set again reuses it.
+ */
+export const graphViews = sqliteTable('graph_views', {
+  id: text('id').primaryKey(),
+  projectId: projectId(),
+  label: text('label').notNull(),
+  nodeIds: json<string[]>('node_ids').notNull(),
+  createdAt: createdAt(),
+});
 
 export const terms = sqliteTable('terms', {
   id: id(),
