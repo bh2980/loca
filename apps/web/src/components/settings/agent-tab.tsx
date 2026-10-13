@@ -21,7 +21,7 @@ const toolsIn = (target: AgentToolTarget, action?: AgentToolAction) => Object.ke
  * off is invisible to the AI; changes never apply without a card.
  */
 export function AgentTab() {
-  const { projectId } = useParams({ from: '/p/$projectId/settings/ai-permissions' });
+  const { projectId } = useParams({ from: '/p/$projectId/ai/usage' });
   const queryClient = useQueryClient();
   const project = useQuery(q.project(projectId));
   const loaded = !!project.data;

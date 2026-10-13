@@ -174,6 +174,8 @@ export interface TranslationInputProps {
   continuation?: string;
   /** ⌥/: ask for a continuation of what is typed now. */
   onContinue?: () => void;
+  /** ⌥.: open the AI 번역·다듬기 popover. */
+  onAssist?: () => void;
   /** A continuation is on its way (Esc cancels it). */
   continuing?: boolean;
   /** Esc dropped the continuation, or cancelled the one on its way: not shown again until asked. */
@@ -370,6 +372,7 @@ export function TranslationInput(props: TranslationInputProps) {
       { key: 'Tab', run: (editor: EditorView) => takeGhost(editor) || takeContinuation(editor) },
       { key: 'Mod-ArrowRight', run: (editor: EditorView) => takeContinuation(editor, true) },
       { key: 'Alt-/', run: () => (latest.current.onContinue?.(), !!latest.current.onContinue) },
+      { key: 'Alt-.', run: () => (latest.current.onAssist?.(), !!latest.current.onAssist) },
       // Esc first closes the completion list or drops proposed tokens, then leaves the box.
       {
         key: 'Escape',
@@ -414,6 +417,7 @@ export function TranslationInput(props: TranslationInputProps) {
               keydown: (event) => {
                 if (!event.altKey || event.metaKey || event.ctrlKey) return false;
                 if (event.code === 'Slash' && latest.current.onContinue) return (event.preventDefault(), latest.current.onContinue(), true);
+                if (event.code === 'Period' && latest.current.onAssist) return (event.preventDefault(), latest.current.onAssist(), true);
                 const digit = /^Digit([1-9])$/.exec(event.code)?.[1];
                 if (digit && latest.current.onPick) return (event.preventDefault(), latest.current.onPick(Number(digit) - 1), true);
                 return false;

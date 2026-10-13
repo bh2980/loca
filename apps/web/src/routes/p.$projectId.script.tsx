@@ -2,13 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useDefaultLayout } from 'react-resizable-panels';
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Network, PanelLeftClose, PanelLeftOpen, Play, Sparkles, X } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Network, PanelLeftClose, PanelLeftOpen, Sparkles, X } from 'lucide-react';
 import { Page } from '@/components/page';
 import { GroupList, type GroupRow } from '@/components/script/group-list';
 import { filterChips, isFinding, LineList, linesSearchSchema, type LinesSearch } from '@/components/script/line-list';
-import { RunDialog } from '@/components/workflow/run-dialog';
 import { Button } from '@/components/ui/button';
-import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { askAgent } from '@/lib/agent';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -65,7 +63,6 @@ function Script() {
   const group = index >= 0 ? ordered[index] : undefined;
   const finalIds = new Set(statuses.data?.statuses.filter((status) => status.kind === 'final').map((status) => status.id));
   const lineTotal = project.data?.byStatus.reduce((sum, row) => sum + row.count, 0) ?? 0;
-  const done = group ? Object.entries(group.statuses).reduce((sum, [id, n]) => sum + (finalIds.has(id) ? n : 0), 0) : 0;
   const [listOpen, setListOpen] = useState(() => readListOpen());
   // The list's width is dragged by its edge and remembered, like every right-hand pane.
   const layout = useDefaultLayout({ id: 'tw-script-groups', panelIds: listOpen ? ['groups', 'lines'] : ['lines'], storage: localStorage });
@@ -83,7 +80,7 @@ function Script() {
   // 찾아가기: the filter's lines are walked one by one inside their scenes instead of listed apart.
   const finding = isFinding(search) && !search.review;
   const matches = useQuery({
-    ...q.unitMatches(projectId, { statusId: search.status, tagId: search.tag, q: search.q, speaker: search.speaker, listener: search.listener, remaining: search.remaining ? '1' : undefined, by: search.by, diverged: search.diverged ? '1' : undefined, noted: search.noted ? '1' : undefined }),
+    ...q.unitMatches(projectId, { statusId: search.status, tagIds: search.tags?.join(','), q: search.q, speaker: search.speaker, listener: search.listener, remaining: search.remaining ? '1' : undefined, by: search.by, diverged: search.diverged ? '1' : undefined, noted: search.noted ? '1' : undefined }),
     enabled: finding,
   });
   const matchRows = useMemo(() => (finding ? (matches.data?.rows ?? []) : []), [finding, matches.data]);
@@ -133,7 +130,7 @@ function Script() {
     return () => window.removeEventListener('keydown', onKey);
   });
   const findLabel = filterChips(search, statuses.data?.statuses ?? [], statuses.data?.tags ?? []).map((chip) => chip.label).concat(search.q ? [`“${search.q}”`] : [], search.remaining ? ['남은 줄'] : [], search.by ? ['AI가 정함'] : []).join(' · ');
-  const clearFilters = { q: undefined, status: undefined, tag: undefined, speaker: undefined, listener: undefined, remaining: undefined, by: undefined, diverged: undefined, noted: undefined, view: undefined, page: undefined };
+  const clearFilters = { q: undefined, status: undefined, tags: undefined, speaker: undefined, listener: undefined, remaining: undefined, by: undefined, diverged: undefined, noted: undefined, view: undefined, page: undefined };
 
   const onSearch = useCallback((next: Partial<ScriptSearch>, options?: { replace?: boolean }) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace: options?.replace }), [navigate]);
   // Moving to another scene keeps a filter being walked (찾아가기); otherwise only the list's own search and 남은 줄만.
@@ -161,10 +158,27 @@ function Script() {
           <Button variant="ghost" size="icon" disabled={index < 0 || index >= ordered.length - 1} aria-label="다음 장면" onClick={() => openGroup(ordered[index + 1]?.id)}>
             <ChevronRight />
           </Button>
+          {group?.kind === 'scene' && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" aria-label="대사 그래프에서 보기" asChild>
+                  <Link to="/p/$projectId/graph" params={{ projectId }} search={{ scope: 'dialogue', scene: group.id }}>
+                    <Network />
+                  </Link>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>대사 그래프에서 보기</TooltipContent>
+            </Tooltip>
+          )}
           {group && (
-            <span className="text-xs whitespace-nowrap text-muted-foreground tabular-nums">
-              {done}/{group.total} 완료
-            </span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" aria-label="AI로 요약" onClick={() => askAgent(`이 ${GROUP_KIND[group.kind]}을 끝까지 읽고 요약해줘.`, { send: true })}>
+                  <Sparkles />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>채팅에서 AI로 {GROUP_KIND[group.kind]} 요약</TooltipContent>
+            </Tooltip>
           )}
         </>
       ) : (
@@ -240,33 +254,7 @@ function Script() {
               )
             }
             heading={heading}
-            actions={
-              <RunDialog
-                projectId={projectId}
-                groupIds={group ? [group.id] : undefined}
-                trigger={
-                  <Button variant="outline">
-                    <Play /> AI 실행
-                  </Button>
-                }
-              />
-            }
-            menu={
-              group && (
-                <>
-                  <DropdownMenuItem onSelect={() => askAgent(`이 ${GROUP_KIND[group.kind]}을 끝까지 읽고 요약해줘.`, { send: true })}>
-                    <Sparkles /> AI로 장면 요약
-                  </DropdownMenuItem>
-                  {group.kind === 'scene' && (
-                    <DropdownMenuItem asChild>
-                      <Link to="/p/$projectId/graph" params={{ projectId }} search={{ scope: 'dialogue', scene: group.id }}>
-                        <Network /> 대사 그래프에서 보기
-                      </Link>
-                    </DropdownMenuItem>
-                  )}
-                </>
-              )
-            }
+            runGroupIds={group ? [group.id] : undefined}
           />
         </ResizablePanel>
       </ResizablePanelGroup>

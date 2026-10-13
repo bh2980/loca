@@ -9,7 +9,7 @@ import { Page } from '@/components/page';
 import { StatusBar, StatusDot } from '@/components/status';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { q } from '@/lib/queries';
+import { q, useReviewTagId } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
 export const Route = createFileRoute('/p/$projectId/')({ component: Home });
@@ -38,6 +38,7 @@ function Home() {
   const statuses = useQuery(q.statuses(projectId));
   const groups = useQuery(q.groups(projectId));
   const rules = useQuery(q.speechRules(projectId));
+  const reviewTag = useReviewTagId(projectId);
   const terms = useQuery(q.terms(projectId));
   const runs = useQuery(q.runs(projectId));
   const workflows = useQuery(q.workflows(projectId));
@@ -92,8 +93,8 @@ function Home() {
       icon: <MessageSquareQuote />,
       title: '확인 권장 말투 규칙',
       description: '대사가 많은 쌍이거나 근거가 엇갈리는 규칙. 틀리면 많은 줄의 번역이 틀립니다.',
-      count: rules.data?.filter((rule) => rule.review && rule.statusBy === 'ai').length ?? 0,
-      link: <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table' }} />,
+      count: rules.data?.filter((rule) => rule.statusBy === 'ai' && rule.tags.some((tag) => tag.id === reviewTag)).length ?? 0,
+      link: <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', ...(reviewTag && { tags: [reviewTag] }) }} />,
     },
     // What AI decided and nobody has looked at (✦, docs/DESIGN.md 3.5).
     {

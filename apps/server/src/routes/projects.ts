@@ -140,7 +140,10 @@ export const projectRoutes = new Hono<Env>()
         id: s.tags.id,
         name: s.tags.name,
         color: s.tags.color,
+        /** The app's tags: a problem type (lines) or 'review' (확인 권장, knowledge only). */
+        role: s.tags.role,
         units: sql<number>`(select count(*) from unit_tags ut where ut.tag_id = "tags"."id")`,
+        items: sql<number>`(select count(*) from knowledge_tags kt where kt.tag_id = "tags"."id")`,
       })
       .from(s.tags)
       .where(eq(s.tags.projectId, projectId))

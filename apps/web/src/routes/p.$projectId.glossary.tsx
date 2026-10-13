@@ -5,7 +5,8 @@ import { Check, Play, Plus, ScanSearch, Sparkles, CircleStop, Trash2 } from 'luc
 import { toast } from 'sonner';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { DetailPane, PaneSection } from '@/components/detail-pane';
-import { HeaderFilter } from '@/components/header-filter';
+import { HeaderFilter, MarkFilter } from '@/components/header-filter';
+import { TagChip } from '@/components/status';
 import { Page } from '@/components/page';
 import { SplitPane } from '@/components/split-pane';
 import { JobProgress } from '@/components/job-progress';
@@ -19,21 +20,37 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { confirmLabel, matches, SourceBadge, StateCell, statusOptions, type StatusFilter } from '@/components/knowledge/draft-editor';
-import { isSettled, KNOWLEDGE_SOURCES, SOURCE_LABELS, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type StatusBy } from '@tw/shared';
+import { confirmLabel, matches, SourceBadge, StateCell, TagCell, TagMenu, type ItemTag, type StatusFilter } from '@/components/knowledge/draft-editor';
+import { isSettled, KNOWLEDGE_SOURCES, REVIEW_TAG, SOURCE_LABELS, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type StatusBy } from '@tw/shared';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 
 export const Route = createFileRoute('/p/$projectId/glossary')({
-  validateSearch: (raw: Record<string, unknown>): { q?: string; term?: string; source?: KnowledgeSource; state?: StatusFilter } => ({
+  validateSearch: (raw: Record<string, unknown>): GlossarySearch => ({
     q: typeof raw.q === 'string' && raw.q ? raw.q : undefined,
     source: typeof raw.source === 'string' && (KNOWLEDGE_SOURCES as readonly string[]).includes(raw.source) ? (raw.source as KnowledgeSource) : undefined,
     state: raw.state === 'confirmed' || raw.state === 'ai' || raw.state === 'candidate' ? raw.state : undefined,
     term: typeof raw.term === 'string' && raw.term ? raw.term : undefined,
+    tags: Array.isArray(raw.tags) && raw.tags.length && raw.tags.every((id) => typeof id === 'string') ? (raw.tags as string[]) : undefined,
+    empty: raw.empty === true || raw.empty === 'true' ? true : undefined,
+    unused: raw.unused === true || raw.unused === 'true' ? true : undefined,
   }),
   component: Glossary,
 });
+
+interface GlossarySearch {
+  q?: string;
+  term?: string;
+  source?: KnowledgeSource;
+  state?: StatusFilter;
+  /** Tag ids: terms carrying all of them. */
+  tags?: string[];
+  /** #번역어 없음: no Korean form yet. */
+  empty?: true;
+  /** #대본에 안 나옴: no line uses it. */
+  unused?: true;
+}
 
 interface Term {
   id: string;
@@ -47,6 +64,7 @@ interface Term {
   evidence?: string[];
   lines: number | null;
   examples: string[];
+  tags?: ItemTag[];
 }
 
 function Glossary() {
@@ -77,7 +95,7 @@ function Glossary() {
 
   // Who wrote a term (출처) and who set its status (✦ when AI confirmed it and no person has looked yet).
   const asDraft = (term: Term) => ({ ...term, evidence: [] });
-  const all = (terms.data ?? []).filter((term) => matches(asDraft(term), search.source, search.state));
+  const all = (terms.data ?? []).filter((term) => matches(asDraft(term), search.source, search.state, search.tags) && (!search.empty || !term.target.trim()) && (!search.unused || term.lines === 0));
   const queryClient = useQueryClient();
   const decide = useMutation({
     mutationFn: ({ ids, accept }: { ids: string[]; accept: boolean }) => unwrap(client.projects[':projectId'].drafts.$post({ param: { projectId }, json: { kind: 'terms', ids, action: accept ? 'confirm' : 'discard' } })),
@@ -106,7 +124,18 @@ function Glossary() {
   useReportView('glossary-term', [selected && { kind: '용어', id: selected.id, label: `${selected.source} → ${selected.target}` }]);
 
   const select = (id?: string) => void navigate({ search: (previous) => ({ ...previous, term: id }), replace: true });
-  const setFilter = (next: { source?: KnowledgeSource | undefined; state?: StatusFilter }) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace: true });
+  const setFilter = (next: Partial<GlossarySearch>) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace: true });
+  const statuses = useQuery(q.statuses(projectId));
+  const knownTags = (statuses.data?.tags ?? []).filter((tag) => !tag.role || tag.role === REVIEW_TAG.role);
+  const pickedTags = search.tags ?? [];
+  const toggleTag = (id: string, on: boolean) => {
+    const next = on ? [...pickedTags, id] : pickedTags.filter((other) => other !== id);
+    setFilter({ tags: next.length ? next : undefined });
+  };
+  const tag = useMutation({
+    mutationFn: ({ ids, tagId, add }: { ids: string[]; tagId: string; add: boolean }) => unwrap(client.projects[':projectId']['knowledge-tags'].$post({ param: { projectId }, json: { kind: 'terms', ids, tagId, add } })),
+    onError: (error) => toast.error(error.message),
+  });
 
   // Picked undecided terms: a candidate without a Korean form cannot be confirmed (it would put an empty target in every prompt).
   const pickedTerms = rows.filter((term) => picked.has(term.id));
@@ -128,15 +157,32 @@ function Glossary() {
       cell: ({ row }) => <SourceBadge row={asDraft(row.original)} />,
     },
     {
-      id: 'state',
+      id: 'tags',
       header: () => (
-        <HeaderFilter
-          label="상태"
-          value={search.state}
-          options={statusOptions}
-          onChange={(state) => setFilter({ state: state as StatusFilter })}
+        <MarkFilter
+          label="태그"
+          groups={[
+            {
+              heading: '자동 표시',
+              options: [
+                { key: 'candidate', label: '#후보', checked: search.state === 'candidate', onChange: (on) => setFilter({ state: on ? 'candidate' : undefined }) },
+                { key: 'ai', label: '#AI가 정함', checked: search.state === 'ai', onChange: (on) => setFilter({ state: on ? 'ai' : undefined }) },
+                { key: 'empty', label: '#번역어 없음', checked: Boolean(search.empty), onChange: (on) => setFilter({ empty: on || undefined }) },
+                { key: 'unused', label: '#대본에 안 나옴', checked: Boolean(search.unused), onChange: (on) => setFilter({ unused: on || undefined }) },
+              ],
+            },
+            { heading: '태그', options: knownTags.map((item) => ({ key: item.id, label: <TagChip tag={item} />, checked: pickedTags.includes(item.id), onChange: (on: boolean) => toggleTag(item.id, on) })) },
+          ]}
+          onClear={() => setFilter({ state: undefined, tags: undefined, empty: undefined, unused: undefined })}
         />
       ),
+      meta: { width: 120 },
+      cell: ({ row }) => <TagCell tags={row.original.tags} known={knownTags} />,
+    },
+    {
+      id: 'state',
+      // Filtered through the 태그 column's marks (#후보, #AI가 정함).
+      header: '상태',
       meta: { width: 88 },
       cell: ({ row }) => (row.original.status === 'candidate' ? <Badge variant="outline">후보</Badge> : <span className="text-xs"><StateCell row={asDraft(row.original)} /></span>),
     },
@@ -199,7 +245,7 @@ function Glossary() {
           rows={terms.data && rows}
           rowId={(term) => term.id}
           loading={terms.isLoading}
-          empty={needle || search.source || search.state ? '조건에 맞는 용어가 없습니다.' : '아직 용어가 없습니다. ‘대본에서 찾기’로 후보를 찾거나 ‘용어 추가’로 직접 넣으세요.'}
+          empty={needle || search.source || search.state || search.tags?.length || search.empty || search.unused ? '조건에 맞는 용어가 없습니다.' : '아직 용어가 없습니다. ‘대본에서 찾기’로 후보를 찾거나 ‘용어 추가’로 직접 넣으세요.'}
           selected={selected?.id}
           onRowClick={(term) => select(term.id === search.term ? undefined : term.id)}
           picked={picked}
@@ -219,6 +265,7 @@ function Glossary() {
               <Button variant="ghost" className="text-destructive" disabled={discardable.length === 0 || decide.isPending} onClick={() => decide.mutate({ ids: discardable.map((term) => term.id), accept: false }, afterBulk)}>
                 <Trash2 /> 버리기 ({discardable.length.toLocaleString()})
               </Button>
+              <TagMenu tags={knownTags} rows={pickedTerms.map(asDraft)} onChange={(tagId, add) => tag.mutate({ ids: pickedTerms.map((term) => term.id), tagId, add })} />
             </>
           }
         />

@@ -8,7 +8,7 @@ import { RunDialog } from '@/components/workflow/run-dialog';
 import { Button } from '@/components/ui/button';
 import { AnalysisSteps } from '@/components/job-progress';
 import { client, unwrap } from '@/lib/api';
-import { q } from '@/lib/queries';
+import { q, useReviewTagId } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { keyLabel } from '@/lib/keys';
 
@@ -34,6 +34,7 @@ export function GettingStarted({ projectId }: { projectId: string }) {
   const connections = useQuery(q.connections());
   const jobs = useQuery(q.analysisJobs(projectId));
   const rules = useQuery(q.speechRules(projectId));
+  const reviewTag = useReviewTagId(projectId);
   const terms = useQuery(q.terms(projectId));
   const runs = useQuery(q.runs(projectId));
   const project = useQuery(q.project(projectId));
@@ -50,7 +51,7 @@ export function GettingStarted({ projectId }: { projectId: string }) {
   const reading = jobs.data.find((job) => job.status === 'running');
   const ran = runs.data.length > 0;
   if (analysed && ran) return null;
-  const toCheck = rules.data.filter((rule) => rule.review && rule.statusBy === 'ai').length;
+  const toCheck = rules.data.filter((rule) => rule.statusBy === 'ai' && rule.tags.some((tag) => tag.id === reviewTag)).length;
   const confirmedTerms = terms.data.filter((term) => term.status === 'confirmed').length;
   const candidates = terms.data.filter((term) => term.status === 'candidate').length;
   const emptyTerms = terms.data.filter((term) => term.status === 'candidate' && !term.target.trim()).length;
@@ -63,7 +64,7 @@ export function GettingStarted({ projectId }: { projectId: string }) {
       done: aiConnections.length > 0,
       action: (primary) => (
         <Button asChild variant={primary ? 'default' : 'outline'}>
-          <Link to="/p/$projectId/settings/ai" params={{ projectId }} search={{ conn: aiConnections.length ? undefined : 'new' }}>
+          <Link to="/p/$projectId/ai/connections" params={{ projectId }} search={{ conn: aiConnections.length ? undefined : 'new' }}>
             AI 연결 추가
           </Link>
         </Button>
@@ -101,7 +102,7 @@ export function GettingStarted({ projectId }: { projectId: string }) {
       optional: true,
       action: () => (
         <Button asChild variant="ghost">
-          <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table' }}>
+          <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', ...(reviewTag && { tags: [reviewTag] }) }}>
             인물·관계 보기
           </Link>
         </Button>

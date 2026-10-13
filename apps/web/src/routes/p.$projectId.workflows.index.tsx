@@ -5,8 +5,7 @@ import { Play, Plus, Trash2 } from 'lucide-react';
 import { AiButton } from '@/components/ai-button';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { JobStatusBadge } from '@/components/job-status';
-import { Page } from '@/components/page';
-import { Toolbar } from '@/components/toolbar';
+import { HeaderActions, Page } from '@/components/page';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
@@ -118,17 +117,12 @@ function Workflows() {
   return (
     <Page title="워크플로" flush>
       <div className="flex h-full min-h-0 flex-col">
-        <Toolbar
-          count={workflows.data && `${workflows.data.length.toLocaleString()}개`}
-          actions={
-            <>
-              <AiButton send={false} prompt="이런 워크플로를 만들어줘: ">
-                AI로 만들기
-              </AiButton>
-              <NewWorkflow projectId={projectId} />
-            </>
-          }
-        />
+        <HeaderActions>
+          <AiButton send={false} prompt="이런 워크플로를 만들어줘: ">
+            AI로 만들기
+          </AiButton>
+          <NewWorkflow projectId={projectId} />
+        </HeaderActions>
         <DataTable
           columns={columns}
           rows={workflows.data}

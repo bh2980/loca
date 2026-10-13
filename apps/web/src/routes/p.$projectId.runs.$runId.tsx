@@ -22,7 +22,7 @@ import { JobStatusBadge } from '@/components/job-status';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import type { InferResponseType } from 'hono/client';
-import { BatchList } from '@/components/workflow/run-dialog';
+import { BatchList } from '@/components/workflow/batch-list';
 import { Skeleton } from '@/components/ui/skeleton';
 
 type State = keyof typeof ITEM_STATE;

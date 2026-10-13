@@ -15,6 +15,7 @@ const context: BatchContext = {
   aiNotes: { characters: [], relationships: [], documents: [] },
   characters: [],
   speech: {},
+  voices: {},
   cast: [],
   relationships: [],
   terms: [],

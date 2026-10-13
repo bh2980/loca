@@ -10,6 +10,7 @@ import type { ItemData, ItemState } from '../db/schema.ts';
 import { events, type Topic } from '../events.ts';
 import { buildContext } from '../services/context.ts';
 import { resolveRoutes } from '../services/routes.ts';
+import { markConditions } from '../services/line-marks.ts';
 import { knownListener } from '../services/speech.ts';
 import type { SecretStore } from '../services/secrets.ts';
 import { runAsyncFunction, syncFunctions, type FunctionInput, type FunctionResult } from './functions/index.ts';
@@ -492,13 +493,16 @@ export class Runner {
       case 'end':
         return tx.update(s.runItems).set({ state: 'done' }).where(eq(s.runItems.id, item.id)).run();
       case 'condition': {
+        const finalStatus = tx.select({ kind: s.statuses.kind }).from(s.statuses).where(eq(s.statuses.id, unit.statusId)).get()?.kind === 'final';
+        const listenerKnown = unit.kind !== 'dialogue' || knownListener(unit) !== null;
+        const marks = [!finalStatus && 'remaining', unit.statusBy === 'ai' && 'ai', !listenerKnown && 'unknownListener', unit.note.trim() && 'noted'].filter((mark): mark is string => typeof mark === 'string');
         const data: ConditionData = {
           visits: item.visits,
           outputs: item.data.outputs ?? {},
           candidate: item.data.candidateText ?? unit.translation,
           issues: item.data.issues ?? [],
-          unit: { kind: unit.kind, speaker: unit.speaker, statusId: unit.statusId, tagIds },
-          listenerKnown: unit.kind !== 'dialogue' || knownListener(unit) !== null,
+          unit: { kind: unit.kind, speaker: unit.speaker, statusId: unit.statusId, tagIds, marks },
+          listenerKnown,
         };
         try {
           return this.route(tx, run, item, jsonLogic.apply(node.config.expression as jsonLogic.RulesLogic, data) ? 'true' : 'false');
@@ -783,7 +787,9 @@ export function selectRunUnits(db: Db, projectId: string, definition: WorkflowDe
   // A scope can name every line of a large project; long lists travel as one JSON parameter.
   if (scope.groupIds?.length) conditions.push(inList(s.units.groupId, scope.groupIds));
   if (scope.unitIds?.length) conditions.push(inList(s.units.id, scope.unitIds));
-  if (scope.tagIds?.length) conditions.push(inArray(s.units.id, db.select({ id: s.unitTags.unitId }).from(s.unitTags).where(inList(s.unitTags.tagId, scope.tagIds))));
+  // Tags and marks combine with AND, like the line list's filter: a line must carry every one picked.
+  for (const tagId of scope.tagIds ?? []) conditions.push(inArray(s.units.id, db.select({ id: s.unitTags.unitId }).from(s.unitTags).where(eq(s.unitTags.tagId, tagId))));
+  conditions.push(...markConditions(projectId, scope.marks));
   return db.select({ id: s.units.id }).from(s.units).where(and(...conditions)).all().map((row) => row.id);
 }
 

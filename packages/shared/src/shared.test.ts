@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { checkFormat } from './format-check.ts';
 import { importFileSchema, importWarnings } from './import-format.ts';
-import { politenessOf, speechLevelOf } from './knowledge.ts';
+import { politenessOf, speechLevelOf, styleInstruction, styleNames } from './knowledge.ts';
 import { termExtractionTemplate, translationTemplate } from './defaults.ts';
 import { nodePorts, validateWorkflow, workflowDefinitionSchema, workflowNodeSchema, type WorkflowDefinition } from './workflow.ts';
 
@@ -214,6 +214,7 @@ describe('speech level guess', () => {
   it.each([
     // [text, level]
     ['그렇죠?', 'haeyo'], ['이리 오시죠', 'haeyo'], ['누구시죠', 'haeyo'], ['그렇지요.', 'haeyo'],
+    ['전하, 소신이 아뢰나이다.', 'hasoseo'], ['어찌하오리까... 아니, 어찌하나이까?', 'hasoseo'], ['굽어살피소서', 'hasoseo'],
     ['갑시다', 'hasipsio'], ['조사를 시작합시다', 'hasipsio'], ['앉읍시다.', 'hasipsio'], ['합니까?', 'hasipsio'],
     ['네.', null], ['예, 수사관님.', null], ['수사관님!', null], ['응', null], ['예', null],
     ['주소.', null], ['라디오', null], ['용의자.', null], ['아버지', null], ['한국어', null], ['그러니까', null],
@@ -233,5 +234,13 @@ describe('speech level guess', () => {
     expect(politenessOf('자네도 왔는가?')).toBe('plain');
     expect(politenessOf('네.')).toBeNull();
     expect(politenessOf('OK')).toBeNull();
+  });
+});
+
+describe('styleInstruction', () => {
+  it('turns the picked axes into plain instructions and leaves 보통 out', () => {
+    expect(styleInstruction({})).toBeUndefined();
+    expect(styleInstruction({ length: 'concise', ornament: 'florid' })).toBe('Korean style: short sentences; few connectives and modifiers; rich modifiers, imagery and figures of speech.');
+    expect(styleNames({ force: 'soft' })).toEqual(['우유체']);
   });
 });

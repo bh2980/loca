@@ -16,3 +16,20 @@ export type IssueKind = keyof typeof ISSUE_KINDS;
 export const ISSUE_KIND_IDS = Object.keys(ISSUE_KINDS) as IssueKind[];
 /** For the AI review prompt: the category ids it may give. */
 export const ISSUE_CATEGORY_GUIDE = 'speech (speech level, honorifics, form of address), term (a glossary term or name rendered differently), meaning (mistranslation, omission, addition), style (unnatural or awkward Korean), format (placeholders, tags, line breaks), other';
+
+/**
+ * The knowledge items tags go on besides lines (the same project tags). A person tags them freely;
+ * the one tag kept by the app is REVIEW_TAG.
+ */
+export const KNOWLEDGE_TAG_KINDS = ['terms', 'documents', 'characters', 'relationships', 'events', 'speechRules'] as const;
+export type KnowledgeTagKind = (typeof KNOWLEDGE_TAG_KINDS)[number];
+
+/**
+ * 확인 권장: an AI item a person should look at before trusting it (a main pair, evidence spoken by
+ * someone else, a clash with a person's rule). Analysis puts it on with the reason (shown on hover);
+ * a person deciding the item (확인함, 버리기, an edit) takes it off. Knowledge only, never on lines.
+ */
+export const REVIEW_TAG = { role: 'review', name: '확인 권장', color: '#f59e0b' } as const;
+/** Roles of the tags the app keeps: the problem types on lines, and 확인 권장 on knowledge. */
+export const TAG_ROLES = [...ISSUE_KIND_IDS, REVIEW_TAG.role] as const;
+export type TagRole = IssueKind | typeof REVIEW_TAG.role;

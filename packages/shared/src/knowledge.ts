@@ -36,7 +36,7 @@ export const sourceOf = (item: { origin: KnowledgeOrigin; jobId?: string | null 
 /** Nothing left to decide: confirmed by a person. Everything else can be confirmed or discarded. */
 export const isSettled = (item: { status: KnowledgeStatus; statusBy: StatusBy }) => item.status === 'confirmed' && item.statusBy === 'human';
 
-/** What becomes of AI results per knowledge kind (설정 › AI 확정): used right away, or a candidate. */
+/** What becomes of AI results per knowledge kind (AI › 사용 방식): used right away, or a candidate. */
 export const AI_CONFIRM_KINDS = { terms: '용어', documents: '문서', characters: '인물', relationships: '관계', events: '사건', speechRules: '말투 규칙' } as const;
 export type AiConfirmKind = keyof typeof AI_CONFIRM_KINDS;
 export const aiConfirmSchema = z.object({
@@ -83,10 +83,11 @@ export const OTHERS_LISTENER = 'others';
 /** A listener as people read it: a name, or the Korean word for a special listener. */
 export const listenerLabel = (name: string) => (isSpecialListener(name) ? SPECIAL_LISTENERS[name] : name === OTHERS_LISTENER ? '그 밖의 사람' : name);
 
-/** Korean speech levels: four formal (하십시오·하오·하게·해라) and two informal (해요·해) ones. */
-export const SPEECH_LEVELS = ['hasipsio', 'hao', 'hage', 'haera', 'haeyo', 'hae', 'other'] as const;
+/** Korean speech levels: the archaic 하소서 (to a king, a god, in prayer), four formal (하십시오·하오·하게·해라) and two informal (해요·해) ones. */
+export const SPEECH_LEVELS = ['hasoseo', 'hasipsio', 'hao', 'hage', 'haera', 'haeyo', 'hae', 'other'] as const;
 export type SpeechLevel = (typeof SPEECH_LEVELS)[number];
 export const SPEECH_LEVEL_LABELS: Record<SpeechLevel, string> = {
+  hasoseo: '하소서체',
   hasipsio: '하십시오체',
   hao: '하오체',
   hage: '하게체',
@@ -96,7 +97,58 @@ export const SPEECH_LEVEL_LABELS: Record<SpeechLevel, string> = {
   other: '기타',
 };
 /** For prompts: the level ids with an example ending each. */
-export const SPEECH_LEVEL_GUIDE = 'hasipsio (하십시오체: 합니다/합니까/하십시오), hao (하오체: 하오/하구려), hage (하게체: 하네/하게/하는가), haera (해라체: 한다/하느냐/해라/하자), haeyo (해요체: 해요), hae (해체·반말: 해/해?/하지), other';
+export const SPEECH_LEVEL_GUIDE = 'hasoseo (하소서체, archaic: to a king or a god, prayers: 하나이다/하나이까/하소서), hasipsio (하십시오체: 합니다/합니까/하십시오), hao (하오체: 하오/하구려), hage (하게체: 하네/하게/하는가), haera (해라체: 한다/하느냐/해라/하자), haeyo (해요체: 해요), hae (해체·반말: 해/해?/하지), other';
+
+/**
+ * A character's written style (문체) on three axes, each a pair of opposites or neither (보통).
+ * The name stays Korean for people; the model gets plain instructions, since names like 우유체
+ * mean little to it. 개조식 is a format for UI and notes, not a person's voice, so it is not here.
+ */
+export const STYLE_AXES = {
+  length: {
+    label: '문장 길이',
+    options: {
+      concise: { name: '간결체', instruction: 'short sentences; few connectives and modifiers' },
+      elaborate: { name: '만연체', instruction: 'long, flowing sentences joined with connectives' },
+    },
+  },
+  force: {
+    label: '힘',
+    options: {
+      strong: { name: '강건체', instruction: 'firm, forceful, decisive wording' },
+      soft: { name: '우유체', instruction: 'soft, gentle, indirect wording' },
+    },
+  },
+  ornament: {
+    label: '꾸밈',
+    options: {
+      plain: { name: '건조체', instruction: 'plain and factual; no imagery' },
+      florid: { name: '화려체', instruction: 'rich modifiers, imagery and figures of speech' },
+    },
+  },
+} as const;
+export type StyleAxis = keyof typeof STYLE_AXES;
+export const characterStyleSchema = z.object({
+  length: z.enum(['concise', 'elaborate']).optional(),
+  force: z.enum(['strong', 'soft']).optional(),
+  ornament: z.enum(['plain', 'florid']).optional(),
+});
+export type CharacterStyle = z.infer<typeof characterStyleSchema>;
+/** The style as an instruction for the translation prompt, or undefined when no axis is set. */
+export function styleInstruction(style: CharacterStyle | null | undefined) {
+  const parts = (Object.keys(STYLE_AXES) as StyleAxis[]).flatMap((axis) => {
+    const value = style?.[axis];
+    return value ? [(STYLE_AXES[axis].options as Record<string, { instruction: string }>)[value].instruction] : [];
+  });
+  return parts.length ? `Korean style: ${parts.join('; ')}.` : undefined;
+}
+/** The style in Korean names (간결체 · 강건체), for screens. */
+export function styleNames(style: CharacterStyle | null | undefined) {
+  return (Object.keys(STYLE_AXES) as StyleAxis[]).flatMap((axis) => {
+    const value = style?.[axis];
+    return value ? [(STYLE_AXES[axis].options as Record<string, { name: string }>)[value].name] : [];
+  });
+}
 
 export const relationshipChangeSchema = z.object({
   /** The line key where the change shows. */
@@ -128,6 +180,8 @@ export function speechLevelOf(text: string): Exclude<SpeechLevel, 'other'> | nul
   if (!/[가-힣]$/u.test(plain)) return null;
   const before = plain.at(-2);
   const multiWord = /\s/u.test(plain);
+  // 하소서체 first: its 나이다/나이까 would otherwise read as nothing, and 소서 as 하오체.
+  if (/(나이다|나이까|소서)$/u.test(plain)) return 'hasoseo';
   // 니다/니까/ㅂ시다 only after a syllable ending in ㅂ ("합니다", "갑시다"), not "그러니까".
   if (/(니다|니까)$/u.test(plain) && finalOf(plain.at(-3)) === 17) return 'hasipsio';
   if (/십시오$/u.test(plain) || (/시다$/u.test(plain) && finalOf(plain.at(-3)) === 17) || /읍시다$/u.test(plain)) return 'hasipsio';
@@ -147,10 +201,10 @@ export function speechLevelOf(text: string): Exclude<SpeechLevel, 'other'> | nul
 }
 
 export type Politeness = 'polite' | 'plain';
-const POLITE_LEVELS: readonly SpeechLevel[] = ['hasipsio', 'hao', 'haeyo'];
+const POLITE_LEVELS: readonly SpeechLevel[] = ['hasoseo', 'hasipsio', 'hao', 'haeyo'];
 const PLAIN_LEVELS: readonly SpeechLevel[] = ['hae', 'haera', 'hage'];
 
-/** The two-axis view of a speech level: 존댓말 (하십시오·하오·해요) or 반말 (해·해라·하게). Null for other/unknown. */
+/** The two-axis view of a speech level: 존댓말 (하소서·하십시오·하오·해요) or 반말 (해·해라·하게). Null for other/unknown. */
 export const politenessOfLevel = (level: SpeechLevel | null): Politeness | null =>
   level && POLITE_LEVELS.includes(level) ? 'polite' : level && PLAIN_LEVELS.includes(level) ? 'plain' : null;
 

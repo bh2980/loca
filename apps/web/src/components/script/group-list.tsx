@@ -46,6 +46,9 @@ export type ScriptScope = { group?: string; review?: true };
  * The script's scenes down the left of the translation screen, with "모든 대사" and "검토함" on top.
  * Each scene shows only how many of its lines are done (in a final status), or a check when all are.
  */
+/** Scenes from which the list gets its own search box. */
+const SEARCH_FROM = 20;
+
 export function GroupList({ projectId, groups, finalIds, scope, lineTotal, reviewCount, gq, onFilter, marks }: {
   projectId: string;
   groups: GroupRow[] | undefined;
@@ -81,9 +84,12 @@ export function GroupList({ projectId, groups, finalIds, scope, lineTotal, revie
         <ScopeLink projectId={projectId} scope={{}} active={!scope.group && !scope.review} icon={<Rows3 />} label="모든 대사" count={lineTotal} />
         <ScopeLink projectId={projectId} scope={{ review: true }} active={Boolean(scope.review)} icon={<Inbox />} label="검토함" count={reviewCount} highlight={reviewCount > 0} />
       </div>
-      <div className="border-b p-2">
-        <SearchInput value={gq} onChange={onFilter} placeholder="장면 찾기" className="w-full" />
-      </div>
+      {/* A few scenes are read at a glance (⌘K finds scenes too); the box shows once there are many. */}
+      {(gq || (groups?.length ?? 0) >= SEARCH_FROM) && (
+        <div className="border-b p-2">
+          <SearchInput value={gq} onChange={onFilter} placeholder="장면 찾기" className="w-full" />
+        </div>
+      )}
       <div className="min-h-0 flex-1 overflow-y-auto p-1">
         {!groups && <p className="px-3 py-2 text-xs text-muted-foreground">불러오는 중…</p>}
         {groups?.length === 0 && <p className="px-3 py-2 text-sm text-muted-foreground">맞는 장면이 없습니다.</p>}
@@ -117,7 +123,7 @@ function ScriptLink({ projectId, scope, keep, className, children, ...props }: {
       // keep: a filter being walked stays on (찾아가기); the scene opens at its first match.
       search={(previous) =>
         keep
-          ? { gq: previous.gq, remaining: previous.remaining, q: previous.q, status: previous.status, tag: previous.tag, speaker: previous.speaker, listener: previous.listener, view: previous.view === 'find' ? ('find' as const) : undefined, ...scope }
+          ? { gq: previous.gq, remaining: previous.remaining, q: previous.q, status: previous.status, tags: previous.tags, speaker: previous.speaker, listener: previous.listener, view: previous.view === 'find' ? ('find' as const) : undefined, ...scope }
           : { gq: previous.gq, remaining: previous.remaining, ...scope }
       }
       className={className}

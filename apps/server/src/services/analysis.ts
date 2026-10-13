@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { markForReview } from './knowledge-tags.ts';
 import { and, desc, eq, inArray, ne, notInArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import * as ai from '@tw/ai';
@@ -20,6 +21,12 @@ import type { SecretStore } from './secrets.ts';
  * parts and five times cheaper; splitting is only for scripts larger than the model's window.
  */
 export const ANALYSIS_PART_TOKENS = 300_000;
+/** The answer was cut off at the model's output limit (an API's finishReason length, a CLI saying so). */
+export function outputCutOff(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /output token limit|exceeded the (?:maximum )?output|finishReason: length|max_?tokens|response was cut off/i.test(message);
+}
+
 /** A part split in two at a scene boundary (each scene block starts with "## "); null for a single scene. */
 export function splitPart(part: string): [string, string] | null {
   const blocks = part.split(/\n\n(?=## )/);
@@ -162,7 +169,9 @@ export class AnalysisService {
     const usage = { inputTokens: 0, outputTokens: 0 };
     const answers: { hash: string; answer: unknown }[] = [];
     try {
-      // Parts the model refuses as longer than its context window are split in two and read again.
+      // Parts the model refuses as longer than its context window, or whose answer was cut off at the
+      // model's output limit (a whole game's listeners and terms can be as long as the script), are
+      // split in two at a scene boundary and read again.
       const queue = [...parts];
       for (let index = 0; index < queue.length; index++) {
         const part = queue[index];
@@ -195,7 +204,7 @@ export class AnalysisService {
             signal,
           )
           .catch((error: unknown) => {
-            const halves = (error as { code?: string }).code === 'too-long' ? splitPart(part) : null;
+            const halves = (error as { code?: string }).code === 'too-long' || outputCutOff(error) ? splitPart(part) : null;
             if (!halves) throw error;
             return halves;
           });
@@ -332,7 +341,7 @@ export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: A
       return key ? [key] : [];
     });
   const keyOrNull = (id: string | null) => (id ? (keyOf.get(id.trim()) ?? null) : null);
-  // Each kind lands as 설정 › AI 확정 says; AI set the status either way (docs/DESIGN.md 3.5).
+  // Each kind lands as AI › 사용 방식 says; AI set the status either way (docs/DESIGN.md 3.5).
   const draft = (kind: AiConfirmKind) => ({ status: aiStatus(policy, kind), statusBy: 'ai' as const, origin: 'ai' as const, jobId });
   const counts = { listeners: 0, rulesForReview: 0, terms: 0 };
 
@@ -453,9 +462,11 @@ export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: A
       // A person's rule that says otherwise wins, so the AI one stays a candidate beside it.
       if (reasons.length) counts.rulesForReview += 1;
       const yieldsToPerson = Boolean(official && official.level !== r.level);
-      tx.insert(s.speechRules)
-        .values({ projectId, fromName: from, toName: to, level: r.level, address: r.address, note: r.note, review: reasons.length ? reasons.join(', ') : null, startKey: start, evidence, ...draft('speechRules'), ...(yieldsToPerson && { status: 'candidate' as const }) })
-        .run();
+      const rule = tx.insert(s.speechRules)
+        .values({ projectId, fromName: from, toName: to, level: r.level, address: r.address, note: r.note, startKey: start, evidence, ...draft('speechRules'), ...(yieldsToPerson && { status: 'candidate' as const }) })
+        .returning({ id: s.speechRules.id })
+        .get();
+      if (reasons.length) markForReview(tx, projectId, 'speechRules', rule.id, reasons);
     }
   });
   return {

@@ -1,10 +1,10 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { AUTO_MARKS } from '@/lib/marks';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { Check, CircleAlert, ListChecks, ListFilter, MoreHorizontal, Network, PanelRightOpen, Play, Sparkles, StickyNote, Tags, X } from 'lucide-react';
+import { Check, CircleAlert, ListFilter, Network, PanelRightOpen, Play, StickyNote, Tags, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { checkFormat, compileFormatRules, isUnsureListener, listenerLabel, type ListenerOrigin, mentions, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
-import { BulkBar } from '@/components/data-table';
+import { checkFormat, compileFormatRules, isUnsureListener, listenerLabel, SPECIAL_LISTENERS, type ListenerOrigin, mentions, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
 import { LineDetail, LINE_TABS, type LineTab } from '@/components/line-detail';
 import { SplitPane } from '@/components/split-pane';
 import { AiMark, StatusDot, TagChip } from '@/components/status';
@@ -18,13 +18,13 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { client, unwrap } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
 import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
-import { q } from '@/lib/queries';
+import { lineTags, q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { SpeakerCard } from '@/components/script/speaker-card';
 
@@ -33,7 +33,8 @@ export const PAGE_SIZE = 100;
 export interface LinesSearch {
   q?: string;
   status?: string;
-  tag?: string;
+  /** Tag ids: lines carrying all of them (with the automatic marks below, all combine). */
+  tags?: string[];
   speaker?: string;
   /** A character name, or "-" for lines whose listener is unknown. */
   listener?: string;
@@ -46,8 +47,8 @@ export interface LinesSearch {
   /** Only lines with a person's note. */
   noted?: true;
   /**
-   * How a filter shows: walked one by one inside their scenes (find, the default for speaker and
-   * listener, where the conversation matters) or listed apart (list, the default for the rest).
+   * How a filter shows: listed apart (the default: only the matching lines) or walked one by one
+   * inside their scenes (find, '장면에서 찾아가기', when the conversation around them matters).
    */
   view?: 'find' | 'list';
   page?: number;
@@ -62,7 +63,7 @@ export interface LinesSearch {
 export const linesSearchSchema = (raw: Record<string, unknown>): LinesSearch => ({
   q: typeof raw.q === 'string' && raw.q ? raw.q : undefined,
   status: typeof raw.status === 'string' ? raw.status : undefined,
-  tag: typeof raw.tag === 'string' ? raw.tag : undefined,
+  tags: Array.isArray(raw.tags) && raw.tags.length && raw.tags.every((id) => typeof id === 'string') ? (raw.tags as string[]) : undefined,
   speaker: typeof raw.speaker === 'string' && raw.speaker ? raw.speaker : undefined,
   listener: typeof raw.listener === 'string' && raw.listener ? raw.listener : undefined,
   remaining: raw.remaining === true || raw.remaining === 'true' ? true : undefined,
@@ -78,21 +79,24 @@ export const linesSearchSchema = (raw: Record<string, unknown>): LinesSearch => 
 });
 
 /** Whether any line filter is set (search, status, tag, speaker, listener, 남은 줄만, AI가 정한 것만). */
-export const hasLineFilter = (search: LinesSearch) => Boolean(search.q || search.status || search.tag || search.speaker || search.listener || search.remaining || search.by || search.diverged || search.noted);
+export const hasLineFilter = (search: LinesSearch) => Boolean(search.q || search.status || search.tags?.length || search.speaker || search.listener || search.remaining || search.by || search.diverged || search.noted);
 /** Whether the filter is walked inside the scenes rather than listed apart. */
-export const isFinding = (search: LinesSearch) => hasLineFilter(search) && (search.view === 'find' || (search.view !== 'list' && Boolean(search.speaker || search.listener)));
+export const isFinding = (search: LinesSearch) => hasLineFilter(search) && search.view === 'find';
 
 /** The set filters as removable chips (also the find bar's label). */
 export function filterChips(search: LinesSearch, statuses: { id: string; name: string }[], tags: { id: string; name: string }[]) {
   return [
     search.status && { key: 'status', label: `상태: ${statuses.find((status) => status.id === search.status)?.name ?? '?'}`, clear: { status: undefined } },
-    search.tag && { key: 'tag', label: `태그: #${tags.find((tag) => tag.id === search.tag)?.name ?? '?'}`, clear: { tag: undefined } },
+    ...(search.tags ?? []).map((id) => {
+      const rest = search.tags!.filter((other) => other !== id);
+      return { key: `tag-${id}`, label: `#${tags.find((tag) => tag.id === id)?.name ?? '?'}`, clear: { tags: rest.length ? rest : undefined } };
+    }),
     search.speaker && { key: 'speaker', label: `화자: ${search.speaker}`, clear: { speaker: undefined } },
-    search.listener && { key: 'listener', label: search.listener === '-' ? '청자 미상' : `청자: ${search.listener}`, clear: { listener: undefined } },
-    search.remaining && { key: 'remaining', label: '남은 줄', clear: { remaining: undefined } },
-    search.by && { key: 'by', label: '✦ AI가 정한 것', clear: { by: undefined } },
-    search.diverged && { key: 'diverged', label: '번역이 갈린 같은 원문', clear: { diverged: undefined } },
-    search.noted && { key: 'noted', label: '메모 있는 줄', clear: { noted: undefined } },
+    search.listener && { key: 'listener', label: search.listener === '-' ? `#${AUTO_MARKS.unknownListener}` : `청자: ${search.listener}`, clear: { listener: undefined } },
+    search.remaining && { key: 'remaining', label: `#${AUTO_MARKS.remaining}`, clear: { remaining: undefined } },
+    search.by && { key: 'by', label: `#${AUTO_MARKS.ai}`, clear: { by: undefined } },
+    search.diverged && { key: 'diverged', label: `#${AUTO_MARKS.diverged}`, clear: { diverged: undefined } },
+    search.noted && { key: 'noted', label: `#${AUTO_MARKS.noted}`, clear: { noted: undefined } },
   ].filter(Boolean) as { key: string; label: string; clear: Partial<LinesSearch> }[];
 }
 
@@ -118,8 +122,7 @@ export function LineList({
   search,
   onSearch,
   heading,
-  actions,
-  menu,
+  runGroupIds,
   onOpenScene,
   find,
   banner,
@@ -131,9 +134,8 @@ export function LineList({
   search: LinesSearch;
   onSearch: (next: Partial<LinesSearch>, options?: { replace?: boolean }) => void;
   heading: ReactNode;
-  actions?: ReactNode;
-  /** Extra items for the "더 보기" menu (what this group can do besides translating). */
-  menu?: ReactNode;
+  /** What 'AI 실행' runs when no line is picked (the open scene; none = the whole list's scope). */
+  runGroupIds?: string[];
   /** Opens a line in its own scene, without this list's filters. */
   onOpenScene?: (groupId: string, lineId: string) => void;
   /** Walking a filter inside this scene: every line shows, the matching ones are marked. */
@@ -162,7 +164,7 @@ export function LineList({
       projectId,
       find
         ? { groupId, focus: focusing, offset: page * PAGE_SIZE, limit: PAGE_SIZE }
-        : { groupId, kind, review: review ? '1' : undefined, remaining: search.remaining ? '1' : undefined, by: search.by, diverged: search.diverged ? '1' : undefined, noted: search.noted ? '1' : undefined, q: search.q, statusId: search.status, tagId: search.tag, speaker: search.speaker, listener: search.listener, focus: focusing, offset: page * PAGE_SIZE, limit: PAGE_SIZE },
+        : { groupId, kind, review: review ? '1' : undefined, remaining: search.remaining ? '1' : undefined, by: search.by, diverged: search.diverged ? '1' : undefined, noted: search.noted ? '1' : undefined, q: search.q, statusId: search.status, tagIds: search.tags?.join(','), speaker: search.speaker, listener: search.listener, focus: focusing, offset: page * PAGE_SIZE, limit: PAGE_SIZE },
     ),
   );
   useEffect(() => {
@@ -178,12 +180,12 @@ export function LineList({
   const total = lines.data?.total ?? 0;
   const showScene = !groupId;
   const speakers = useQuery(q.speakers(projectId));
+  const people = useQuery(q.characters(projectId));
   // Bumped whenever the picked line's editor should take the focus; 0 = just looking.
   const [focusTick, setFocusTick] = useState(0);
   const setEditing = (edit: boolean) => setFocusTick((tick) => (edit ? tick + 1 : 0));
 
-  // Picking several lines is a mode, so checkboxes don't clutter the everyday list.
-  const [picking, setPicking] = useState(false);
+  // Lines picked by their checkboxes; the head row above the lines acts on them.
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const knownTags = useRef(new Map<string, string[]>());
   for (const row of rows ?? []) knownTags.current.set(row.id, row.tagIds);
@@ -198,10 +200,7 @@ export function LineList({
       else next.delete(id);
       return next;
     });
-  const stopPicking = () => {
-    setPicking(false);
-    setPicked(new Set());
-  };
+  const stopPicking = () => setPicked(new Set());
   const queryClient = useQueryClient();
   const undoOnError = (error: Error, _vars: unknown, context: { undo: () => void } | undefined) => {
     context?.undo();
@@ -211,6 +210,12 @@ export function LineList({
     mutationFn: (statusId: string) => unwrap(client.projects[':projectId'].units.$patch({ param: { projectId }, json: { unitIds: [...picked], statusId } })),
     onMutate: async (statusId) => ({ undo: await optimistic(queryClient, unitChanges(picked, patchedLine({ statusId }))) }),
     onSuccess: () => toast.success(`${picked.size}개 대사의 상태를 바꿨습니다.`),
+    onError: undoOnError,
+  });
+  const setListener = useMutation({
+    mutationFn: (listener: string | null) => unwrap(client.projects[':projectId'].units.$patch({ param: { projectId }, json: { unitIds: [...picked], listener } })),
+    onMutate: async (listener) => ({ undo: await optimistic(queryClient, unitChanges(picked, patchedLine({ listener }))) }),
+    onSuccess: (_data, listener) => toast.success(`${picked.size}개 대사의 청자를 ${listener ? listenerLabel(listener) : '미상'}(으)로 바꿨습니다.`),
     onError: undoOnError,
   });
   // 확인함: the statuses stay; a person now holds them, so the ✦ goes.
@@ -338,29 +343,25 @@ export function LineList({
     >
       <Toolbar
         actions={
-          <>
-            {actions}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" aria-label="더 보기">
-                  <MoreHorizontal />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onSelect={() => (picking ? stopPicking() : setPicking(true))}>
-                  <ListChecks /> {picking ? '선택 그만하기' : '여러 줄 선택'}
-                </DropdownMenuItem>
-                {menu}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </>
+          // One 'AI 실행': the picked lines when there are any, else the open scene.
+          <RunDialog
+            projectId={projectId}
+            unitIds={picked.size ? [...picked] : undefined}
+            groupIds={picked.size ? undefined : runGroupIds}
+            trigger={
+              <Button variant="outline">
+                <Play /> {picked.size ? `AI 실행 · 고른 ${picked.size.toLocaleString()}줄` : 'AI 실행'}
+              </Button>
+            }
+          />
         }
       >
         <div className="mr-1 min-w-0">{heading}</div>
         <SearchInput value={search.q} onChange={(value) => onSearch({ q: value, page: undefined })} placeholder="찾기" className="w-44" />
         <LineFilters
+          projectId={projectId}
           statuses={statusList}
-          tags={statuses.data?.tags ?? []}
+          tags={lineTags(statuses.data?.tags)}
           speakers={(speakers.data ?? []).flatMap((row) => (row.speaker ? [{ name: row.speaker, lines: row.lines }] : []))}
           search={search}
           onSearch={(next) => onSearch({ ...next, page: undefined })}
@@ -370,13 +371,77 @@ export function LineList({
             {chip.label} <X />
           </Button>
         ))}
-        {!find && !review && (search.speaker || search.listener || search.status || search.tag) && (
-          <Button variant="ghost" onClick={() => onSearch({ view: search.speaker || search.listener ? undefined : 'find', page: undefined })}>
+        {!find && !review && hasLineFilter(search) && (
+          <Button variant="ghost" onClick={() => onSearch({ view: 'find', page: undefined })}>
             장면에서 찾아가기
           </Button>
         )}
       </Toolbar>
       {banner}
+      {/* The head row: column labels, or the picked lines' actions (short labels and a container query keep them on one row). */}
+      {!!rows?.length && (
+        <div className="flex min-h-10 shrink-0 items-center gap-3 border-b px-4 py-1 text-xs text-muted-foreground">
+          <Checkbox
+            aria-label="보이는 줄 모두 선택"
+            checked={rows.every((row) => picked.has(row.id)) ? true : rows.some((row) => picked.has(row.id)) ? 'indeterminate' : false}
+            onCheckedChange={(on) => pick(rows.map((row) => row.id), on === true)}
+          />
+          {picked.size === 0 ? (
+            <div className="grid min-w-0 flex-1 grid-cols-2 gap-6">
+              <span>원문</span>
+              <span>번역</span>
+            </div>
+          ) : (
+            <div className="@container/picked flex min-w-0 flex-1 items-center gap-2">
+              <span className="shrink-0 text-sm font-medium text-foreground tabular-nums">{picked.size.toLocaleString()}개</span>
+              <Button variant="outline" disabled={pickedByAi.length === 0 || check.isPending} aria-label="확인함" title="상태는 그대로 두고 사람이 확인한 것으로 표시합니다(✦ 없앰)" onClick={() => check.mutate(pickedByAi)}>
+                <Check />
+                <span className="hidden @lg/picked:inline">확인함</span>
+                {pickedByAi.length ? <span className="tabular-nums">{pickedByAi.length}</span> : null}
+              </Button>
+              <Select value="" onValueChange={(statusId) => setStatus.mutate(statusId)}>
+                <SelectTrigger size="sm" className="w-24 shrink-0" aria-label="상태 바꾸기">
+                  <SelectValue placeholder="상태" />
+                </SelectTrigger>
+                <SelectContent>
+                  {statusList.map((item) => (
+                    <SelectItem key={item.id} value={item.id}>
+                      <StatusDot color={item.color} /> {item.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <BulkListener speakers={[...new Set((rows ?? []).flatMap((row) => (row.speaker ? [row.speaker] : [])))]} cast={(people.data?.characters ?? []).filter((person) => person.status === 'confirmed').map((person) => person.name)} onPick={(listener) => setListener.mutate(listener)} />
+              {lineTags(statuses.data?.tags).length > 0 && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" aria-label="태그 붙이기·떼기">
+                      <Tags />
+                      <span className="hidden @md/picked:inline">태그</span>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-56">
+                    <DropdownMenuLabel className="text-xs text-muted-foreground">선택한 {picked.size}개 대사의 태그</DropdownMenuLabel>
+                    {lineTags(statuses.data?.tags).map((tag) => {
+                      const state = tagState(tag.id);
+                      return (
+                        <DropdownMenuCheckboxItem key={tag.id} checked={state === 'all'} onSelect={(event) => event.preventDefault()} onCheckedChange={() => setTag.mutate({ tagId: tag.id, add: state !== 'all' })}>
+                          <TagChip tag={tag} />
+                          {state === 'some' && <span className="ml-auto text-xs text-muted-foreground">일부</span>}
+                        </DropdownMenuCheckboxItem>
+                      );
+                    })}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+              <Button variant="ghost" className="ml-auto shrink-0" aria-label="선택 해제" title="선택 해제" onClick={stopPicking}>
+                <X />
+                <span className="hidden @xl/picked:inline">선택 해제</span>
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {!rows ? (
@@ -414,7 +479,7 @@ export function LineList({
                   style={line.id === arrived ? { animation: 'line-arrived 2s ease-out' } : undefined}
                   onAnimationEnd={() => setArrived(undefined)}
                 >
-                  {picking && <Checkbox className="mt-1" aria-label={`${line.key} 선택`} checked={picked.has(line.id)} onClick={(event) => event.stopPropagation()} onCheckedChange={(checked) => pick([line.id], Boolean(checked))} />}
+                  <Checkbox className="mt-1" aria-label={`${line.key} 선택`} checked={picked.has(line.id)} onClick={(event) => event.stopPropagation()} onCheckedChange={(checked) => pick([line.id], Boolean(checked))} />
                   <div className="grid min-w-0 flex-1 grid-cols-2 gap-6">
                     <div className="min-w-0">
                       <p className="mb-0.5 flex min-w-0 gap-1 text-xs text-muted-foreground">
@@ -424,6 +489,7 @@ export function LineList({
                         <NoteMark note={line.note} className="mt-px" />
                         {marked && <span className="shrink-0 text-warning">● {find!.label}</span>}
                         {selected && line.kind === 'dialogue' && <span className={cn('truncate', who.unknown && 'text-warning')}>→ {who.text}</span>}
+                        {!selected && line.kind === 'dialogue' && who.unknown && <span className="shrink-0 text-warning">#{AUTO_MARKS.unknownListener}</span>}
                         {selected && <LineLinks projectId={projectId} unitId={line.id} hasNote={!!line.note} onNote={() => setNoting(true)} onDetail={() => onSearch({ detail: true }, { replace: true })} />}
                       </p>
                       {selected ? (
@@ -435,8 +501,8 @@ export function LineList({
                     <div className="min-w-0">
                       {selected ? (
                         <>
-                          <TranslationEditor key={line.id} projectId={projectId} unit={line} statuses={statusList} focusKey={focusTick} onEscape={() => setEditing(false)} onDone={(advanced) => (advanced ? advanceFrom(line.id) : undefined)} />
-                          <LineNote key={line.id} unitId={line.id} note={line.note} editing={noting} onEditing={setNoting} />
+                          <TranslationEditor key={`editor-${line.id}`} projectId={projectId} unit={line} statuses={statusList} focusKey={focusTick} onEscape={() => setEditing(false)} onDone={(advanced) => (advanced ? advanceFrom(line.id) : undefined)} />
+                          <LineNote key={`note-${line.id}`} unitId={line.id} note={line.note} editing={noting} onEditing={setNoting} />
                           <LineHints projectId={projectId} line={line} />
                         </>
                       ) : (
@@ -451,7 +517,28 @@ export function LineList({
                           </Tooltip>
                           {line.statusBy === 'ai' && <AiMark by="ai" className="mt-1 -ml-1" />}
                           <div className="min-w-0">
-                            {line.translation ? <TokenText text={line.translation} source={line.source} pattern={tokenPattern} /> : <p className="text-muted-foreground">번역 없음</p>}
+                            {line.translation ? <TokenText text={line.translation} source={line.source} pattern={tokenPattern} /> : null}
+                            {line.tagIds.length > 0 && (
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {lineTags(statuses.data?.tags)
+                                  .filter((tag) => line.tagIds.includes(tag.id))
+                                  .map((tag) => (
+                                    <Button
+                                      key={tag.id}
+                                      variant="ghost"
+                                      size="inline"
+                                      className="h-auto p-0 hover:bg-transparent"
+                                      title={`#${tag.name} 줄만 보기`}
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        onSearch({ tags: [tag.id], page: undefined });
+                                      }}
+                                    >
+                                      <TagChip tag={tag} />
+                                    </Button>
+                                  ))}
+                              </div>
+                            )}
                             {review && !!line.lastRun?.issues.length && (
                               <p className="mt-1 flex items-start gap-1 text-xs text-warning">
                                 <CircleAlert className="mt-0.5 size-3 shrink-0" />
@@ -471,62 +558,6 @@ export function LineList({
         )}
       </div>
       <Pager page={page} total={total} pageSize={PAGE_SIZE} onPage={(next) => onSearch({ page: next || undefined, line: undefined })} />
-      {picking && (
-        <BulkBar count={picked.size} onClear={stopPicking}>
-          <Button variant="outline" disabled={!rows?.length} onClick={() => pick(rows?.map((row) => row.id) ?? [], true)}>
-            이 페이지 모두
-          </Button>
-          {picked.size > 0 && (
-            <>
-              <Button variant="outline" className="bg-background" disabled={pickedByAi.length === 0 || check.isPending} title="상태는 그대로 두고 사람이 확인한 것으로 표시합니다(✦ 없앰)" onClick={() => check.mutate(pickedByAi)}>
-                <Check /> 확인함{pickedByAi.length ? ` (${pickedByAi.length})` : ''}
-              </Button>
-              <RunDialog
-                projectId={projectId}
-                unitIds={[...picked]}
-                trigger={
-                  <Button>
-                    <Play /> AI 실행
-                  </Button>
-                }
-              />
-              <Select value="" onValueChange={(statusId) => setStatus.mutate(statusId)}>
-                <SelectTrigger size="sm" className="w-36 bg-background">
-                  <SelectValue placeholder="상태 바꾸기" />
-                </SelectTrigger>
-                <SelectContent>
-                  {statusList.map((item) => (
-                    <SelectItem key={item.id} value={item.id}>
-                      <StatusDot color={item.color} /> {item.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {!!statuses.data?.tags.length && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" className="bg-background">
-                      <Tags /> 태그
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start" className="w-56">
-                    <DropdownMenuLabel className="text-xs text-muted-foreground">선택한 {picked.size}개 대사의 태그</DropdownMenuLabel>
-                    {statuses.data.tags.map((tag) => {
-                      const state = tagState(tag.id);
-                      return (
-                        <DropdownMenuCheckboxItem key={tag.id} checked={state === 'all'} onSelect={(event) => event.preventDefault()} onCheckedChange={() => setTag.mutate({ tagId: tag.id, add: state !== 'all' })}>
-                          <TagChip tag={tag} />
-                          {state === 'some' && <span className="ml-auto text-xs text-muted-foreground">일부</span>}
-                        </DropdownMenuCheckboxItem>
-                      );
-                    })}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              )}
-            </>
-          )}
-        </BulkBar>
-      )}
     </SplitPane>
   );
 }
@@ -577,17 +608,23 @@ export function LineHints({ projectId, line }: { projectId: string; line: { id: 
  * Filters the list by status, tag, speaker or listener. Each choice goes into the URL and shows as
  * a removable chip next to the search, like filters that arrive from a link.
  */
-function LineFilters({ statuses, tags, speakers, search, onSearch }: {
+function LineFilters({ projectId, statuses, tags, speakers, search, onSearch }: {
+  projectId: string;
   statuses: { id: string; name: string; color: string }[];
-  tags: { id: string; name: string; role?: string | null }[];
+  tags: { id: string; name: string; color: string; role?: string | null }[];
   speakers: { name: string; lines: number }[];
   search: LinesSearch;
   onSearch: (next: Partial<LinesSearch>) => void;
 }) {
   const [needle, setNeedle] = useState('');
   const shown = speakers.filter((speaker) => !needle || speaker.name.toLowerCase().includes(needle.toLowerCase())).slice(0, 40);
-  const issueTags = tags.filter((tag) => tag.role) as { id: string; name: string; color: string }[];
+  const issueTags = tags.filter((tag) => tag.role);
   const ownTags = tags.filter((tag) => !tag.role);
+  const picked = (id: string) => Boolean(search.tags?.includes(id));
+  const toggleTag = (id: string, on: boolean) => {
+    const next = on ? [...(search.tags ?? []), id] : (search.tags ?? []).filter((other) => other !== id);
+    onSearch({ tags: next.length ? next : undefined });
+  };
   return (
     <DropdownMenu onOpenChange={(open) => !open && setNeedle('')}>
       <DropdownMenuTrigger asChild>
@@ -595,34 +632,49 @@ function LineFilters({ statuses, tags, speakers, search, onSearch }: {
           <ListFilter /> 필터
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-48">
-        <DropdownMenuCheckboxItem checked={Boolean(search.remaining)} onCheckedChange={(on) => onSearch({ remaining: on ? true : undefined })}>
-          남은 줄만
-        </DropdownMenuCheckboxItem>
-        <DropdownMenuCheckboxItem checked={Boolean(search.by)} onCheckedChange={(on) => onSearch({ by: on ? 'ai' : undefined })}>
-          AI가 정한 것만
-        </DropdownMenuCheckboxItem>
-        <DropdownMenuCheckboxItem checked={Boolean(search.diverged)} onCheckedChange={(on) => onSearch({ diverged: on ? true : undefined })}>
-          번역이 갈린 같은 원문
-        </DropdownMenuCheckboxItem>
-        <DropdownMenuCheckboxItem checked={Boolean(search.noted)} onCheckedChange={(on) => onSearch({ noted: on ? true : undefined })}>
-          메모 있는 줄
-        </DropdownMenuCheckboxItem>
+      <DropdownMenuContent align="start" className="max-h-[70svh] w-56 overflow-y-auto">
+        {/* Marks and tags in one list: each check narrows the lines further (all must hold). */}
+        <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">자동 표시</DropdownMenuLabel>
+        {(
+          [
+            ['remaining', Boolean(search.remaining), (on: boolean) => ({ remaining: on ? true : undefined })],
+            ['ai', Boolean(search.by), (on: boolean) => ({ by: on ? 'ai' : undefined })],
+            ['unknownListener', search.listener === '-', (on: boolean) => ({ listener: on ? '-' : undefined })],
+            ['diverged', Boolean(search.diverged), (on: boolean) => ({ diverged: on ? true : undefined })],
+            ['noted', Boolean(search.noted), (on: boolean) => ({ noted: on ? true : undefined })],
+          ] as const
+        ).map(([mark, checked, next]) => (
+          <DropdownMenuCheckboxItem key={mark} checked={checked} onSelect={(event) => event.preventDefault()} onCheckedChange={(on) => onSearch(next(on) as Partial<LinesSearch>)}>
+            #{AUTO_MARKS[mark]}
+          </DropdownMenuCheckboxItem>
+        ))}
         {issueTags.length > 0 && (
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>문제 유형</DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="w-56">
-              {issueTags.map((tag) => (
-                <DropdownMenuCheckboxItem key={tag.id} checked={search.tag === tag.id} onCheckedChange={(on) => onSearch({ tag: on ? tag.id : undefined })}>
-                  <StatusDot color={tag.color} /> {tag.name}
-                </DropdownMenuCheckboxItem>
-              ))}
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
+          <>
+            <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">문제 유형</DropdownMenuLabel>
+            {issueTags.map((tag) => (
+              <DropdownMenuCheckboxItem key={tag.id} checked={picked(tag.id)} onSelect={(event) => event.preventDefault()} onCheckedChange={(on) => toggleTag(tag.id, on)}>
+                <TagChip tag={tag} />
+              </DropdownMenuCheckboxItem>
+            ))}
+          </>
+        )}
+        <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">내 태그</DropdownMenuLabel>
+        {ownTags.length ? (
+          ownTags.map((tag) => (
+            <DropdownMenuCheckboxItem key={tag.id} checked={picked(tag.id)} onSelect={(event) => event.preventDefault()} onCheckedChange={(on) => toggleTag(tag.id, on)}>
+              <TagChip tag={tag} />
+            </DropdownMenuCheckboxItem>
+          ))
+        ) : (
+          <DropdownMenuItem asChild inset>
+            <Link to="/p/$projectId/settings/statuses" params={{ projectId }}>
+              태그 만들기
+            </Link>
+          </DropdownMenuItem>
         )}
         <DropdownMenuSeparator />
         <DropdownMenuSub>
-          <DropdownMenuSubTrigger>상태</DropdownMenuSubTrigger>
+          <DropdownMenuSubTrigger inset>상태</DropdownMenuSubTrigger>
           <DropdownMenuSubContent className="max-h-80 overflow-y-auto">
             {statuses.map((status) => (
               <DropdownMenuCheckboxItem key={status.id} checked={search.status === status.id} onCheckedChange={(on) => onSearch({ status: on ? status.id : undefined })}>
@@ -632,17 +684,7 @@ function LineFilters({ statuses, tags, speakers, search, onSearch }: {
           </DropdownMenuSubContent>
         </DropdownMenuSub>
         <DropdownMenuSub>
-          <DropdownMenuSubTrigger disabled={!ownTags.length}>태그</DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="max-h-80 overflow-y-auto">
-            {ownTags.map((tag) => (
-              <DropdownMenuCheckboxItem key={tag.id} checked={search.tag === tag.id} onCheckedChange={(on) => onSearch({ tag: on ? tag.id : undefined })}>
-                #{tag.name}
-              </DropdownMenuCheckboxItem>
-            ))}
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger>화자</DropdownMenuSubTrigger>
+          <DropdownMenuSubTrigger inset>화자</DropdownMenuSubTrigger>
           <DropdownMenuSubContent className="w-56">
             <Input value={needle} onChange={(event) => setNeedle(event.target.value)} onKeyDown={(event) => event.stopPropagation()} placeholder="이름 찾기" className="mb-1" aria-label="화자 찾기" />
             <div className="max-h-72 overflow-y-auto">
@@ -656,11 +698,8 @@ function LineFilters({ statuses, tags, speakers, search, onSearch }: {
           </DropdownMenuSubContent>
         </DropdownMenuSub>
         <DropdownMenuSub>
-          <DropdownMenuSubTrigger>청자</DropdownMenuSubTrigger>
+          <DropdownMenuSubTrigger inset>청자</DropdownMenuSubTrigger>
           <DropdownMenuSubContent className="max-h-80 w-56 overflow-y-auto">
-            <DropdownMenuCheckboxItem checked={search.listener === '-'} onCheckedChange={(on) => onSearch({ listener: on ? '-' : undefined })}>
-              청자 미상 (대사만)
-            </DropdownMenuCheckboxItem>
             {speakers.slice(0, 40).map((speaker) => (
               <DropdownMenuCheckboxItem key={speaker.name} checked={search.listener === speaker.name} onCheckedChange={(on) => onSearch({ listener: on ? speaker.name : undefined })}>
                 {speaker.name}에게
@@ -710,5 +749,74 @@ export function LineLinks({ projectId, unitId, hasNote, onNote, onDetail }: { pr
         </Button>,
       )}
     </span>
+  );
+}
+
+const TYPE_NAME = '__type';
+
+/**
+ * 청자 바꾸기 for the picked lines (dialogue only; narration has no listener): the speakers in this
+ * list first, then a group / the public / themself, the rest of the cast, or a typed name.
+ */
+function BulkListener({ speakers, cast, onPick }: { speakers: string[]; cast: string[]; onPick: (listener: string | null) => void }) {
+  const [typing, setTyping] = useState<string | null>(null);
+  const rest = cast.filter((name) => !speakers.includes(name));
+  if (typing !== null)
+    return (
+      <Input
+        autoFocus
+        value={typing}
+        onChange={(event) => setTyping(event.target.value)}
+        onKeyDown={(event) => {
+          event.stopPropagation();
+          if (event.key === 'Enter' && typing.trim()) {
+            onPick(typing.trim());
+            setTyping(null);
+          } else if (event.key === 'Escape') setTyping(null);
+        }}
+        onBlur={() => setTyping(null)}
+        placeholder="이름 입력 후 Enter"
+        className="h-8 w-40"
+        aria-label="청자 이름"
+      />
+    );
+  return (
+    <Select value="" onValueChange={(next) => (next === TYPE_NAME ? setTyping('') : onPick(next === '-' ? null : next))}>
+      <SelectTrigger size="sm" className="w-24 shrink-0" aria-label="청자 바꾸기">
+        <SelectValue placeholder="청자" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="-">미상</SelectItem>
+        {speakers.length > 0 && (
+          <SelectGroup>
+            <SelectLabel>이 목록에서 말하는 사람</SelectLabel>
+            {speakers.map((name) => (
+              <SelectItem key={name} value={name}>
+                {name}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        )}
+        <SelectGroup>
+          <SelectLabel>여러 사람 · 혼잣말</SelectLabel>
+          {Object.entries(SPECIAL_LISTENERS).map(([key, label]) => (
+            <SelectItem key={key} value={key}>
+              {label}
+            </SelectItem>
+          ))}
+        </SelectGroup>
+        {rest.length > 0 && (
+          <SelectGroup>
+            <SelectLabel>다른 인물</SelectLabel>
+            {rest.map((name) => (
+              <SelectItem key={name} value={name}>
+                {name}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        )}
+        <SelectItem value={TYPE_NAME}>직접 입력…</SelectItem>
+      </SelectContent>
+    </Select>
   );
 }

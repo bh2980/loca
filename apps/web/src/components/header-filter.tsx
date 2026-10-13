@@ -78,3 +78,52 @@ export function HeaderFilter({ label, value, options, onChange, groups }: {
     </Popover>
   );
 }
+
+export interface MarkOption {
+  key: string;
+  label: ReactNode;
+  checked: boolean;
+  onChange: (on: boolean) => void;
+}
+
+/**
+ * A column header that filters by marks and tags, several at once: each check narrows the rows
+ * further (all must hold). The popover stays open while ticking; '전체' clears every pick.
+ */
+export function MarkFilter({ label, groups, onClear }: { label: string; groups: { heading: string; options: MarkOption[] }[]; onClear: () => void }) {
+  const active = groups.some((group) => group.options.some((option) => option.checked));
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant="ghost" size="inline" className={cn('-mx-1 text-muted-foreground', active && 'text-primary')} aria-label={`${label} 필터`}>
+          {label}
+          <ListFilter className={active ? 'opacity-100' : 'opacity-40'} />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-64 p-0">
+        <Command>
+          <CommandList>
+            <CommandGroup>
+              <CommandItem value="__all__" onSelect={onClear}>
+                <Check className={cn('size-3.5', active ? 'opacity-0' : 'opacity-100')} />
+                전체
+              </CommandItem>
+            </CommandGroup>
+            {groups.map((group) =>
+              group.options.length ? (
+                <CommandGroup key={group.heading} heading={group.heading}>
+                  {group.options.map((option) => (
+                    <CommandItem key={option.key} value={option.key} onSelect={() => option.onChange(!option.checked)}>
+                      <Check className={cn('size-3.5', option.checked ? 'opacity-100' : 'opacity-0')} />
+                      <span className="truncate">{option.label}</span>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              ) : null,
+            )}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}

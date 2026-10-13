@@ -1,0 +1,39 @@
+import { and, eq, sql, type SQL } from 'drizzle-orm';
+import { z } from 'zod';
+import { LISTENER_MIN_CONFIDENCE } from '@tw/shared';
+import * as s from '../db/schema.ts';
+
+/**
+ * Automatic marks: facts read off a line (never stored) that the script list filters by and a run
+ * can be scoped by. Each is one SQL condition; a set of marks holds only when every one does.
+ */
+export const LINE_MARKS = ['remaining', 'ai', 'unknownListener', 'diverged', 'noted'] as const;
+export type LineMark = (typeof LINE_MARKS)[number];
+export const lineMarksSchema = z.array(z.enum(LINE_MARKS));
+
+/** A source as compared for "the same source": lower case, without spaces and punctuation at its ends ("What?" = "WHAT"). */
+export const sameSource = (column: SQL) => sql`trim(lower(${column}), ' .,!?…"''-~')`;
+
+/** The listener counts unless it is an unsure guess (by line or by scene), as isUnsureListener. */
+export const knownListenerSql = sql`(${s.units.listener} is not null and (${s.units.listenerOrigin} not in ('ai', 'scene') or ${s.units.listenerConfidence} >= ${LISTENER_MIN_CONFIDENCE}))`;
+
+function markCondition(projectId: string, mark: LineMark): SQL {
+  switch (mark) {
+    case 'remaining':
+      return sql`${s.units.statusId} in (select id from ${s.statuses} where ${s.statuses.projectId} = ${projectId} and ${s.statuses.kind} != 'final')`;
+    case 'ai':
+      return eq(s.units.statusBy, 'ai');
+    // Dialogue only (narration has no listener), as the home page counts it.
+    case 'unknownListener':
+      return and(eq(s.units.kind, 'dialogue'), sql`not ${knownListenerSql}`)!;
+    case 'diverged':
+      return sql`${s.units.translation} is not null and ${sameSource(sql`${s.units.source}`)} in (select ${sameSource(sql`u.source`)} from ${s.units} u where u.project_id = ${projectId} and u.translation is not null and u.translation != '' and ${sameSource(sql`u.source`)} != '' group by 1 having count(distinct trim(u.translation)) > 1)`;
+    case 'noted':
+      return sql`${s.units.note} != ''`;
+  }
+}
+
+/** One condition per mark, to be ANDed with the rest of a line query over `units`. */
+export function markConditions(projectId: string, marks: readonly LineMark[] | undefined): SQL[] {
+  return [...new Set(marks ?? [])].map((mark) => markCondition(projectId, mark));
+}

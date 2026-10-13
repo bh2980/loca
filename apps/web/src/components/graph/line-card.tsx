@@ -96,14 +96,14 @@ export function LineCard({ projectId, unitId, choice, position, onStep, onClose 
           <LineSourceText projectId={projectId} unitId={line.id} source={line.source} className="max-h-40 overflow-auto text-sm" />
           <TranslationEditor
             projectId={projectId}
-            key={line.id}
+            key={`editor-${line.id}`}
             unit={line}
             statuses={statuses.data?.statuses ?? []}
             focusKey={1}
             onEscape={onClose}
             onDone={(moved) => moved && onStep(1)}
           />
-          <LineNote key={line.id} unitId={line.id} note={line.note} editing={noting} onEditing={setNoting} />
+          <LineNote key={`note-${line.id}`} unitId={line.id} note={line.note} editing={noting} onEditing={setNoting} />
           <LineHints projectId={projectId} line={{ ...line, lastRun: null }} />
         </>
       )}

@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import { ISSUE_KIND_IDS, type IssueKind, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, type AiConfirm, type EditorAi, type ModelChoice, type ContextItem, type FormatRules, type NodeType, type PiOptions, type RelationshipChange, type WorkflowDefinition } from '@tw/shared';
+import { KNOWLEDGE_TAG_KINDS, TAG_ROLES, type TagRole, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, type AiConfirm, type CharacterStyle, type EditorAi, type ModelChoice, type ContextItem, type FormatRules, type NodeType, type PiOptions, type RelationshipChange, type WorkflowDefinition } from '@tw/shared';
 import type { Usage } from '@tw/ai';
 
 const id = () => text('id').primaryKey().$defaultFn(() => crypto.randomUUID());
@@ -34,7 +34,7 @@ export const projects = sqliteTable('projects', {
   /** Which agent tools this project's chat (and the CLI) may use. */
   agentSettings: json<AgentSettings>('agent_settings').notNull().default(sql`'{"disabledTools":[]}'`),
   formatRules: json<FormatRules>('format_rules').notNull().default(sql`'{"presets":["brace","printf","angleTag"],"custom":[]}'`),
-  /** What becomes of AI results per knowledge kind (설정 › AI 확정). Absent kinds: auto. */
+  /** What becomes of AI results per knowledge kind (AI › 사용 방식). Absent kinds: auto. */
   aiConfirm: json<Partial<AiConfirm>>('ai_confirm').notNull().default(sql`'{}'`),
   /** The editor's AI continuation (off by default; see editorAiSchema). */
   editorAi: json<Partial<EditorAi>>('editor_ai').notNull().default(sql`'{}'`),
@@ -60,8 +60,8 @@ export const tags = sqliteTable('tags', {
   projectId: projectId(),
   name: text('name').notNull(),
   color: text('color').notNull(),
-  /** A problem-type tag kept by the checks (ISSUE_KINDS); null for a person's own tag. */
-  role: text('role', { enum: ISSUE_KIND_IDS as [IssueKind, ...IssueKind[]] }),
+  /** A tag the app keeps: a problem type on lines (ISSUE_KINDS) or 확인 권장 on knowledge (REVIEW_TAG); null for a person's own tag. */
+  role: text('role', { enum: TAG_ROLES as unknown as [TagRole, ...TagRole[]] }),
 });
 
 export const groups = sqliteTable(
@@ -126,6 +126,22 @@ export const unitTags = sqliteTable(
     tagId: text('tag_id').notNull().references(() => tags.id, { onDelete: 'cascade' }),
   },
   (t) => [primaryKey({ columns: [t.unitId, t.tagId] }), index('unit_tags_tag').on(t.tagId)],
+);
+
+/**
+ * Tags on knowledge items (terms, documents, people, relationships, events, speech rules): the same
+ * project tags as lines. `note` says why the app put it there (확인 권장's reasons); a person's own
+ * tag has none. Rows go with their item (triggers in the migration) and with their tag (cascade).
+ */
+export const knowledgeTags = sqliteTable(
+  'knowledge_tags',
+  {
+    kind: text('kind', { enum: KNOWLEDGE_TAG_KINDS }).notNull(),
+    itemId: text('item_id').notNull(),
+    tagId: text('tag_id').notNull().references(() => tags.id, { onDelete: 'cascade' }),
+    note: text('note'),
+  },
+  (t) => [primaryKey({ columns: [t.kind, t.itemId, t.tagId] }), index('knowledge_tags_tag').on(t.tagId)],
 );
 
 export const candidates = sqliteTable(
@@ -261,6 +277,8 @@ export const aiCalls = sqliteTable(
     costUsd: real('cost_usd'),
     /** What was sent (system prompt and prompt), for work analysis and glossary fills; runs keep theirs in run steps. */
     request: text('request'),
+    /** What the call printed before it failed, for failed calls (the CLI's output or the partial text). */
+    response: text('response'),
     startedAt: integer('started_at', { mode: 'timestamp_ms' }).notNull(),
     finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),
   },
@@ -308,6 +326,8 @@ export const characters = sqliteTable('characters', {
   profile: text('profile').notNull().default(''),
   /** How the character talks (observed in the source), not the Korean rule. */
   speech: text('speech').notNull().default(''),
+  /** The Korean written style (문체) a person chose for this character's lines; axes left out are 보통. */
+  style: json<CharacterStyle>('style').notNull().default(sql`'{}'`),
   /** The player character: may be addressed even if it never speaks. */
   player: integer('player', { mode: 'boolean' }).notNull().default(false),
   ...knowledge(),
@@ -355,8 +375,6 @@ export const speechRules = sqliteTable(
     /** How the speaker addresses the listener in Korean, e.g. "수사관님". */
     address: text('address').notNull().default(''),
     note: text('note').notNull().default(''),
-    /** Why an AI rule waits for a person (main pair, conflict, evidence…); cleared when a person decides. */
-    review: text('review'),
     startKey: text('start_key'),
     ...knowledge(),
     updatedAt: updatedAt(),
@@ -449,8 +467,10 @@ export type RunStatus = 'running' | 'paused' | 'cancelled' | 'completed';
 export interface RunScope {
   groupIds?: string[];
   unitIds?: string[];
-  /** Lines carrying any of these tags. */
+  /** Lines carrying every one of these tags. */
   tagIds?: string[];
+  /** Automatic marks (services/line-marks.ts): lines must have every one of them. */
+  marks?: ('remaining' | 'ai' | 'unknownListener' | 'diverged' | 'noted')[];
   /** Run the picked lines even if their status is not one the entry node accepts. */
   ignoreStatus?: boolean;
 }

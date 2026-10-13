@@ -9,12 +9,11 @@ import { z } from 'zod';
 import { CONNECTION_CALL_DEFAULTS, CONNECTION_KIND_INFO, CONNECTION_KINDS, connectionInputSchema, type Capability, type ConnectionKind } from '@tw/shared';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { DetailPane, PaneSection } from '@/components/detail-pane';
-import { Page } from '@/components/page';
+import { HeaderActions, Page } from '@/components/page';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
 import { DeleteButton } from '@/components/settings/delete-button';
 import { PiOptionsPanel } from '@/components/settings/pi-options';
 import { SplitPane } from '@/components/split-pane';
-import { Toolbar } from '@/components/toolbar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field';
@@ -27,7 +26,7 @@ import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { keyStoreLabel } from '@/lib/keys';
 
-export const Route = createFileRoute('/p/$projectId/settings/ai')({
+export const Route = createFileRoute('/p/$projectId/ai/connections')({
   validateSearch: (raw: Record<string, unknown>): { conn?: string } => ({
     conn: typeof raw.conn === 'string' && raw.conn ? raw.conn : undefined,
   }),
@@ -69,17 +68,14 @@ function ConnectionSettings() {
     search.conn === 'new' ? <NewConnection onClose={close} /> : selected ? <ConnectionPane key={selected.id} connection={selected} onClose={close} /> : null;
 
   return (
-    <Page title="AI 연결" flush>
+    <Page title="연결" flush>
       <SplitPane id="settings-ai" defaultWidth="448px" className="h-full" pane={pane}>
         <div className="min-h-0 flex-1 overflow-auto">
-          <Toolbar
-            count={rows ? `연결 ${rows.length}` : undefined}
-            actions={
-              <Button onClick={() => open('new')}>
-                <Plus /> 연결 추가
-              </Button>
-            }
-          />
+          <HeaderActions>
+            <Button onClick={() => open('new')}>
+              <Plus /> 연결 추가
+            </Button>
+          </HeaderActions>
           <DataTable
             className="flex-none"
             columns={columns}

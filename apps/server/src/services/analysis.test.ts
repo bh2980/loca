@@ -8,6 +8,10 @@ import { AnalysisService, canonicalNames, mergeAnalysis, saveDrafts, splitPart, 
 import { importProject } from './importer.ts';
 import { memoryStore } from './secrets.ts';
 import { scriptText } from './script-text.ts';
+import { tagsOf } from './knowledge-tags.ts';
+
+/** Why a rule is marked 확인 권장 (its tag's note), or undefined. */
+const reviewOf = (db: Parameters<typeof tagsOf>[0], id: string) => tagsOf(db, 'speechRules', [id]).get(id)?.find((tag) => tag.note)?.note ?? undefined;
 
 function setup() {
   const db = openDatabase(':memory:');
@@ -80,7 +84,7 @@ describe('work analysis', () => {
     // A person reviews one rule; the rerun keeps it, replaces the rest, and does not propose the kept one again.
     db.update(s.speechRules).set({ statusBy: 'human' }).where(eq(s.speechRules.fromName, 'Alice')).run();
     level = 'haeyo';
-    // 설정 › AI 확정: speech rules from AI now wait as candidates.
+    // AI › 사용 방식: speech rules from AI now wait as candidates.
     db.update(s.projects).set({ aiConfirm: { speechRules: 'candidate' } }).where(eq(s.projects.id, projectId)).run();
     service.start(projectId, choice);
     expect((await settle(service, projectId)).status).toBe('completed');
@@ -155,7 +159,7 @@ describe('work analysis', () => {
     // Alice→Bob and Bob→Alice are the only pairs, so both are main pairs: used at once, marked for a look.
     const bob = db.select().from(s.speechRules).where(eq(s.speechRules.fromName, 'Bob')).get()!;
     expect(bob.status).toBe('confirmed');
-    expect(bob.review).toContain('주요 쌍');
+    expect(reviewOf(db, bob.id)).toContain('주요 쌍');
     expect(counts.rulesForReview).toBeGreaterThan(0);
   });
 
@@ -172,7 +176,7 @@ describe('work analysis', () => {
     expect(bob.filter((rule) => rule.level === 'hasipsio').map((rule) => rule.status)).toEqual(['rejected']);
     const doubtful = bob.find((rule) => rule.level === 'hae')!;
     expect(doubtful.status).toBe('confirmed');
-    expect(doubtful.review).toContain('근거 대사의 화자가 다름');
+    expect(reviewOf(db, doubtful.id)).toContain('근거 대사의 화자가 다름');
   });
 
   it('fills the empty fields of a person already in the cast and leaves written ones alone', () => {
@@ -193,7 +197,7 @@ describe('work analysis', () => {
     saveDrafts(db, projectId, 'job', draft('hasipsio'), keyOf);
     const ai = db.select().from(s.speechRules).where(eq(s.speechRules.fromName, 'Bob')).all().find((rule) => rule.level === 'hasipsio')!;
     expect(ai.status).toBe('candidate');
-    expect(ai.review).toContain('정식 규칙');
+    expect(reviewOf(db, ai.id)).toContain('정식 규칙');
   });
 
   it('adds terms under the auto-confirm switch, fills only empty forms of terms already there, and replaces its own untouched ones on a rerun', () => {
@@ -292,6 +296,33 @@ describe('work analysis', () => {
         prompts.push(request.prompt);
         // Two scenes in one request do not fit.
         if ((request.prompt.match(/^## /gm) ?? []).length > 1) throw new ModelError('too-long', 'prompt is too long', false);
+        return { object: draft('hae'), usage: { inputTokens: 1, outputTokens: 1 } } as never;
+      },
+    });
+    service.start(projectId, choice);
+    const job = await settle(service, projectId);
+    expect(job).toMatchObject({ status: 'completed', partsTotal: 2, partsDone: 2 });
+    expect(prompts).toHaveLength(3);
+  });
+
+  it('splits a part whose answer was cut off at the output limit, as one that is too long', async () => {
+    const { db, choice } = setup();
+    const file = importFileSchema.parse({
+      format: 'loca/v1',
+      project: { name: 'Two scenes' },
+      groups: [{ key: 'g1', title: 'Harbor' }, { key: 'g2', title: 'Deck' }],
+      units: [
+        { key: 'a1', group: 'g1', speaker: 'Alice', source: "You're late." },
+        { key: 'b1', group: 'g2', speaker: 'Bob', source: 'Aye.' },
+      ],
+    });
+    const { projectId } = importProject(db, file);
+    const prompts: string[] = [];
+    const service = new AnalysisService(db, memoryStore(), {
+      generate: async (_route, request) => {
+        prompts.push(request.prompt);
+        // What agy says when the whole game's answer does not fit its output limit.
+        if ((request.prompt.match(/^## /gm) ?? []).length > 1) throw new ModelError('cli', 'CLI가 실패를 반환했습니다: Your previous response was cut off because it exceeded the output token limit', false);
         return { object: draft('hae'), usage: { inputTokens: 1, outputTokens: 1 } } as never;
       },
     });

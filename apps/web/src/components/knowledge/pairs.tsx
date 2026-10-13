@@ -5,12 +5,12 @@ import type { ReactNode } from 'react';
 import { isSettled, isSpecialListener, listenerLabel, OTHERS_LISTENER, SPEECH_LEVEL_LABELS, type SpeechLevel } from '@tw/shared';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { DetailPane, PaneSection } from '@/components/detail-pane';
-import { candidateRow, DraftEditor, fail, matches, metaColumns, SourceBadge, type Draft, type KindSpec, type Row, type SourceFilter, type StatusFilter } from '@/components/knowledge/draft-editor';
+import { candidateRow, DraftEditor, fail, matches, metaColumns, SourceBadge, type Draft, type KnowledgeFilterState, type KindSpec, type Row, type SourceFilter, type StatusFilter } from '@/components/knowledge/draft-editor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { splitList } from '@/components/chip-input';
-import { q } from '@/lib/queries';
+import { q, useReviewTagId } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
 /**
@@ -64,13 +64,16 @@ export const pairSummary = (pair: Pair): Draft => {
     jobId: rows.find((row) => row.origin === 'ai' && row.jobId)?.jobId ?? null,
     statusBy: rows.some((row) => row.statusBy === 'ai') ? 'ai' : 'human',
     evidence: [],
+    // Every tag of its items once; reasons of the same tag joined (확인 권장 on two stretches).
+    tags: [...Map.groupBy(rows.flatMap((row) => row.tags ?? []), (tag) => tag.id).entries()].map(([id, list]) => ({ id, note: list.flatMap((tag) => (tag.note ? [tag.note] : [])).join('\n') || null })),
   };
 };
 /** Pairs with any item matching the filters. */
-export const pairMatches = (pair: Pair, source: SourceFilter, status: StatusFilter) => [pair.relationship, ...pair.rules].some((row) => row && matches(row, source, status));
+export const pairMatches = (pair: Pair, source: SourceFilter, status: StatusFilter, tags?: string[], bare?: boolean) => [pair.relationship, ...pair.rules].some((row) => row && matches(row, source, status, tags, bare));
 export const pairSettled = (pair: Pair) => [pair.relationship, ...pair.rules].every((row) => !row || isSettled(row));
 export const pairItems = (pair: Pair) => [...(pair.relationship ? [{ kind: 'relationships' as const, row: pair.relationship }] : []), ...pair.rules.map((row) => ({ kind: 'speechRules' as const, row }))];
-const reviewOf = (rule: Row) => (typeof rule.review === 'string' && rule.review ? rule.review : null);
+/** Why the app marked an item for a look (its tag's note), or null. */
+const reviewOf = (row: Row, reviewTag?: string) => row.tags?.find((tag) => tag.id === reviewTag)?.note ?? null;
 const ReviewBadge = ({ reasons }: { reasons: string }) => (
   <Badge variant="outline" className="border-warning text-warning" title={reasons}>
     확인 권장
@@ -87,27 +90,10 @@ export function PairTable({ pairs, loading, selected, picked, onPick, onOpen, bu
   onPick: (keys: string[], on: boolean) => void;
   onOpen: (key: string) => void;
   bulk: ReactNode;
-  filters: Parameters<typeof metaColumns>[1];
+  filters: KnowledgeFilterState;
 }) {
   const columns: ColumnDef<Pair, unknown>[] = [
-    {
-      id: 'pair',
-      header: '화자 → 청자',
-      meta: { width: 240, className: 'font-medium' },
-      cell: ({ row: { original: pair } }) => {
-        const reasons = pair.rules.map(reviewOf).filter((reason): reason is string => reason !== null);
-        return (
-          <>
-            {pair.from} → {listenerLabel(pair.to)}
-            {reasons.length > 0 && (
-              <span className="ml-2 align-middle">
-                <ReviewBadge reasons={reasons.join('\n')} />
-              </span>
-            )}
-          </>
-        );
-      },
-    },
+    { id: 'pair', header: '화자 → 청자', meta: { width: 240, className: 'font-medium' }, cell: ({ row: { original: pair } }) => `${pair.from} → ${listenerLabel(pair.to)}` },
     { id: 'relationship', header: '관계', meta: { width: 200 }, cell: ({ row: { original: pair } }) => (pair.relationship ? String(pair.relationship.kind) : <span className="text-muted-foreground">—</span>) },
     { id: 'speech', header: '말투', cell: ({ row: { original: pair } }) => (pair.rules.length ? levelsText(pair.rules) : <span className="text-muted-foreground">—</span>) },
     ...metaColumns<Pair>(pairSummary, filters),
@@ -147,6 +133,7 @@ export function PairDetail({ projectId, pair, relationships, speechRules, charac
   onClose: () => void;
   onDecide: (kind: 'relationships' | 'speechRules', ids: string[], action: 'confirm' | 'discard') => void;
 }) {
+  const reviewTag = useReviewTagId(projectId);
   const [openRule, setOpenRule] = useState<string | undefined>(pair.rules.length === 1 ? pair.rules[0].id : undefined);
   const [picking, setPicking] = useState(false);
   const starts = useQuery(q.linesByKeys(projectId, pair.rules.flatMap((rule) => (rule.startKey ? [String(rule.startKey)] : []))));
@@ -197,7 +184,7 @@ export function PairDetail({ projectId, pair, relationships, speechRules, charac
         <ul className="space-y-2">
           {rules.map((rule) => {
             const open = openRule === rule.id;
-            const review = reviewOf(rule);
+            const review = reviewOf(rule, reviewTag);
             return (
               <li key={rule.id} className={cn('rounded-md border', rule.status === 'candidate' && 'border-dashed border-warning')}>
                 <Collapsible open={open} onOpenChange={(next) => setOpenRule(next ? rule.id : undefined)}>

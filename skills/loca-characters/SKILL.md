@@ -27,7 +27,7 @@ loca call list_events                            # 사건
 - 기존 인물이 있으면 수정합니다(`loca call list_characters`로 id 확인). 같은 이름으로 새로 만들면 거절됩니다.
 - 프로필은 마크다운: 성격, 역할, 번역 시 주의점, 근거가 된 대사 키 몇 개. `speech`는 원문에서 어떻게 말하는지, `player`는 플레이어 캐릭터(말이 없어도 청자가 됨).
 - **한국어 말투는 프로필이 아니라 말투 규칙**으로 냅니다. 화자→청자 방향마다 하나, 말투가 바뀌는 지점(다툼·화해·승진)이 있으면 그 대사 키를 `startKey`로 한 규칙을 더 둡니다. 비꼬는 한두 줄은 구간이 아닙니다.
-  `level`: `hasipsio`(하십시오체) `hao`(하오체) `hage`(하게체) `haera`(해라체) `haeyo`(해요체) `hae`(해체·반말) `other`.
+  `level`: `hasoseo`(하소서체) `hasipsio`(하십시오체) `hao`(하오체) `hage`(하게체) `haera`(해라체) `haeyo`(해요체) `hae`(해체·반말) `other`.
 ```
 loca call save_character @"$W/alice.json"       # {"id":"...","name":"Alice","aliases":["CHAR_ALICE"],"profile":"...","speech":"...","player":false}
 loca call save_relationship @"$W/rel.json"       # {"from":"Alice","to":"Bob","kind":"동료","description":"…","mutual":true}

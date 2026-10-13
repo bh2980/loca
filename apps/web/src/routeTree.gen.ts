@@ -14,13 +14,13 @@ import { Route as PProjectIdRouteImport } from './routes/p.$projectId'
 import { Route as PProjectIdIndexRouteImport } from './routes/p.$projectId.index'
 import { Route as PProjectIdGlossaryRouteImport } from './routes/p.$projectId.glossary'
 import { Route as PProjectIdGraphRouteImport } from './routes/p.$projectId.graph'
+import { Route as PProjectIdKeysRouteImport } from './routes/p.$projectId.keys'
 import { Route as PProjectIdKnowledgeRouteImport } from './routes/p.$projectId.knowledge'
 import { Route as PProjectIdScriptRouteImport } from './routes/p.$projectId.script'
+import { Route as PProjectIdAiConnectionsRouteImport } from './routes/p.$projectId.ai.connections'
+import { Route as PProjectIdAiUsageRouteImport } from './routes/p.$projectId.ai.usage'
 import { Route as PProjectIdRunsIndexRouteImport } from './routes/p.$projectId.runs.index'
 import { Route as PProjectIdRunsRunIdRouteImport } from './routes/p.$projectId.runs.$runId'
-import { Route as PProjectIdSettingsAiRouteImport } from './routes/p.$projectId.settings.ai'
-import { Route as PProjectIdSettingsAiPermissionsRouteImport } from './routes/p.$projectId.settings.ai-permissions'
-import { Route as PProjectIdSettingsKeysRouteImport } from './routes/p.$projectId.settings.keys'
 import { Route as PProjectIdSettingsProjectRouteImport } from './routes/p.$projectId.settings.project'
 import { Route as PProjectIdSettingsStatusesRouteImport } from './routes/p.$projectId.settings.statuses'
 import { Route as PProjectIdWorkflowsIndexRouteImport } from './routes/p.$projectId.workflows.index'
@@ -51,6 +51,11 @@ const PProjectIdGraphRoute = PProjectIdGraphRouteImport.update({
   path: '/graph',
   getParentRoute: () => PProjectIdRoute,
 } as any)
+const PProjectIdKeysRoute = PProjectIdKeysRouteImport.update({
+  id: '/keys',
+  path: '/keys',
+  getParentRoute: () => PProjectIdRoute,
+} as any)
 const PProjectIdKnowledgeRoute = PProjectIdKnowledgeRouteImport.update({
   id: '/knowledge',
   path: '/knowledge',
@@ -61,6 +66,16 @@ const PProjectIdScriptRoute = PProjectIdScriptRouteImport.update({
   path: '/script',
   getParentRoute: () => PProjectIdRoute,
 } as any)
+const PProjectIdAiConnectionsRoute = PProjectIdAiConnectionsRouteImport.update({
+  id: '/ai/connections',
+  path: '/ai/connections',
+  getParentRoute: () => PProjectIdRoute,
+} as any)
+const PProjectIdAiUsageRoute = PProjectIdAiUsageRouteImport.update({
+  id: '/ai/usage',
+  path: '/ai/usage',
+  getParentRoute: () => PProjectIdRoute,
+} as any)
 const PProjectIdRunsIndexRoute = PProjectIdRunsIndexRouteImport.update({
   id: '/runs/',
   path: '/runs/',
@@ -69,22 +84,6 @@ const PProjectIdRunsIndexRoute = PProjectIdRunsIndexRouteImport.update({
 const PProjectIdRunsRunIdRoute = PProjectIdRunsRunIdRouteImport.update({
   id: '/runs/$runId',
   path: '/runs/$runId',
-  getParentRoute: () => PProjectIdRoute,
-} as any)
-const PProjectIdSettingsAiRoute = PProjectIdSettingsAiRouteImport.update({
-  id: '/settings/ai',
-  path: '/settings/ai',
-  getParentRoute: () => PProjectIdRoute,
-} as any)
-const PProjectIdSettingsAiPermissionsRoute =
-  PProjectIdSettingsAiPermissionsRouteImport.update({
-    id: '/settings/ai-permissions',
-    path: '/settings/ai-permissions',
-    getParentRoute: () => PProjectIdRoute,
-  } as any)
-const PProjectIdSettingsKeysRoute = PProjectIdSettingsKeysRouteImport.update({
-  id: '/settings/keys',
-  path: '/settings/keys',
   getParentRoute: () => PProjectIdRoute,
 } as any)
 const PProjectIdSettingsProjectRoute =
@@ -117,13 +116,13 @@ export interface FileRoutesByFullPath {
   '/p/$projectId': typeof PProjectIdRouteWithChildren
   '/p/$projectId/glossary': typeof PProjectIdGlossaryRoute
   '/p/$projectId/graph': typeof PProjectIdGraphRoute
+  '/p/$projectId/keys': typeof PProjectIdKeysRoute
   '/p/$projectId/knowledge': typeof PProjectIdKnowledgeRoute
   '/p/$projectId/script': typeof PProjectIdScriptRoute
   '/p/$projectId/': typeof PProjectIdIndexRoute
+  '/p/$projectId/ai/connections': typeof PProjectIdAiConnectionsRoute
+  '/p/$projectId/ai/usage': typeof PProjectIdAiUsageRoute
   '/p/$projectId/runs/$runId': typeof PProjectIdRunsRunIdRoute
-  '/p/$projectId/settings/ai': typeof PProjectIdSettingsAiRoute
-  '/p/$projectId/settings/ai-permissions': typeof PProjectIdSettingsAiPermissionsRoute
-  '/p/$projectId/settings/keys': typeof PProjectIdSettingsKeysRoute
   '/p/$projectId/settings/project': typeof PProjectIdSettingsProjectRoute
   '/p/$projectId/settings/statuses': typeof PProjectIdSettingsStatusesRoute
   '/p/$projectId/workflows/$workflowId': typeof PProjectIdWorkflowsWorkflowIdRoute
@@ -134,13 +133,13 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/p/$projectId/glossary': typeof PProjectIdGlossaryRoute
   '/p/$projectId/graph': typeof PProjectIdGraphRoute
+  '/p/$projectId/keys': typeof PProjectIdKeysRoute
   '/p/$projectId/knowledge': typeof PProjectIdKnowledgeRoute
   '/p/$projectId/script': typeof PProjectIdScriptRoute
   '/p/$projectId': typeof PProjectIdIndexRoute
+  '/p/$projectId/ai/connections': typeof PProjectIdAiConnectionsRoute
+  '/p/$projectId/ai/usage': typeof PProjectIdAiUsageRoute
   '/p/$projectId/runs/$runId': typeof PProjectIdRunsRunIdRoute
-  '/p/$projectId/settings/ai': typeof PProjectIdSettingsAiRoute
-  '/p/$projectId/settings/ai-permissions': typeof PProjectIdSettingsAiPermissionsRoute
-  '/p/$projectId/settings/keys': typeof PProjectIdSettingsKeysRoute
   '/p/$projectId/settings/project': typeof PProjectIdSettingsProjectRoute
   '/p/$projectId/settings/statuses': typeof PProjectIdSettingsStatusesRoute
   '/p/$projectId/workflows/$workflowId': typeof PProjectIdWorkflowsWorkflowIdRoute
@@ -153,13 +152,13 @@ export interface FileRoutesById {
   '/p/$projectId': typeof PProjectIdRouteWithChildren
   '/p/$projectId/glossary': typeof PProjectIdGlossaryRoute
   '/p/$projectId/graph': typeof PProjectIdGraphRoute
+  '/p/$projectId/keys': typeof PProjectIdKeysRoute
   '/p/$projectId/knowledge': typeof PProjectIdKnowledgeRoute
   '/p/$projectId/script': typeof PProjectIdScriptRoute
   '/p/$projectId/': typeof PProjectIdIndexRoute
+  '/p/$projectId/ai/connections': typeof PProjectIdAiConnectionsRoute
+  '/p/$projectId/ai/usage': typeof PProjectIdAiUsageRoute
   '/p/$projectId/runs/$runId': typeof PProjectIdRunsRunIdRoute
-  '/p/$projectId/settings/ai': typeof PProjectIdSettingsAiRoute
-  '/p/$projectId/settings/ai-permissions': typeof PProjectIdSettingsAiPermissionsRoute
-  '/p/$projectId/settings/keys': typeof PProjectIdSettingsKeysRoute
   '/p/$projectId/settings/project': typeof PProjectIdSettingsProjectRoute
   '/p/$projectId/settings/statuses': typeof PProjectIdSettingsStatusesRoute
   '/p/$projectId/workflows/$workflowId': typeof PProjectIdWorkflowsWorkflowIdRoute
@@ -173,13 +172,13 @@ export interface FileRouteTypes {
     | '/p/$projectId'
     | '/p/$projectId/glossary'
     | '/p/$projectId/graph'
+    | '/p/$projectId/keys'
     | '/p/$projectId/knowledge'
     | '/p/$projectId/script'
     | '/p/$projectId/'
+    | '/p/$projectId/ai/connections'
+    | '/p/$projectId/ai/usage'
     | '/p/$projectId/runs/$runId'
-    | '/p/$projectId/settings/ai'
-    | '/p/$projectId/settings/ai-permissions'
-    | '/p/$projectId/settings/keys'
     | '/p/$projectId/settings/project'
     | '/p/$projectId/settings/statuses'
     | '/p/$projectId/workflows/$workflowId'
@@ -190,13 +189,13 @@ export interface FileRouteTypes {
     | '/'
     | '/p/$projectId/glossary'
     | '/p/$projectId/graph'
+    | '/p/$projectId/keys'
     | '/p/$projectId/knowledge'
     | '/p/$projectId/script'
     | '/p/$projectId'
+    | '/p/$projectId/ai/connections'
+    | '/p/$projectId/ai/usage'
     | '/p/$projectId/runs/$runId'
-    | '/p/$projectId/settings/ai'
-    | '/p/$projectId/settings/ai-permissions'
-    | '/p/$projectId/settings/keys'
     | '/p/$projectId/settings/project'
     | '/p/$projectId/settings/statuses'
     | '/p/$projectId/workflows/$workflowId'
@@ -208,13 +207,13 @@ export interface FileRouteTypes {
     | '/p/$projectId'
     | '/p/$projectId/glossary'
     | '/p/$projectId/graph'
+    | '/p/$projectId/keys'
     | '/p/$projectId/knowledge'
     | '/p/$projectId/script'
     | '/p/$projectId/'
+    | '/p/$projectId/ai/connections'
+    | '/p/$projectId/ai/usage'
     | '/p/$projectId/runs/$runId'
-    | '/p/$projectId/settings/ai'
-    | '/p/$projectId/settings/ai-permissions'
-    | '/p/$projectId/settings/keys'
     | '/p/$projectId/settings/project'
     | '/p/$projectId/settings/statuses'
     | '/p/$projectId/workflows/$workflowId'
@@ -264,6 +263,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PProjectIdGraphRouteImport
       parentRoute: typeof PProjectIdRoute
     }
+    '/p/$projectId/keys': {
+      id: '/p/$projectId/keys'
+      path: '/keys'
+      fullPath: '/p/$projectId/keys'
+      preLoaderRoute: typeof PProjectIdKeysRouteImport
+      parentRoute: typeof PProjectIdRoute
+    }
     '/p/$projectId/knowledge': {
       id: '/p/$projectId/knowledge'
       path: '/knowledge'
@@ -278,6 +284,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PProjectIdScriptRouteImport
       parentRoute: typeof PProjectIdRoute
     }
+    '/p/$projectId/ai/connections': {
+      id: '/p/$projectId/ai/connections'
+      path: '/ai/connections'
+      fullPath: '/p/$projectId/ai/connections'
+      preLoaderRoute: typeof PProjectIdAiConnectionsRouteImport
+      parentRoute: typeof PProjectIdRoute
+    }
+    '/p/$projectId/ai/usage': {
+      id: '/p/$projectId/ai/usage'
+      path: '/ai/usage'
+      fullPath: '/p/$projectId/ai/usage'
+      preLoaderRoute: typeof PProjectIdAiUsageRouteImport
+      parentRoute: typeof PProjectIdRoute
+    }
     '/p/$projectId/runs/': {
       id: '/p/$projectId/runs/'
       path: '/runs'
@@ -290,27 +310,6 @@ declare module '@tanstack/react-router' {
       path: '/runs/$runId'
       fullPath: '/p/$projectId/runs/$runId'
       preLoaderRoute: typeof PProjectIdRunsRunIdRouteImport
-      parentRoute: typeof PProjectIdRoute
-    }
-    '/p/$projectId/settings/ai': {
-      id: '/p/$projectId/settings/ai'
-      path: '/settings/ai'
-      fullPath: '/p/$projectId/settings/ai'
-      preLoaderRoute: typeof PProjectIdSettingsAiRouteImport
-      parentRoute: typeof PProjectIdRoute
-    }
-    '/p/$projectId/settings/ai-permissions': {
-      id: '/p/$projectId/settings/ai-permissions'
-      path: '/settings/ai-permissions'
-      fullPath: '/p/$projectId/settings/ai-permissions'
-      preLoaderRoute: typeof PProjectIdSettingsAiPermissionsRouteImport
-      parentRoute: typeof PProjectIdRoute
-    }
-    '/p/$projectId/settings/keys': {
-      id: '/p/$projectId/settings/keys'
-      path: '/settings/keys'
-      fullPath: '/p/$projectId/settings/keys'
-      preLoaderRoute: typeof PProjectIdSettingsKeysRouteImport
       parentRoute: typeof PProjectIdRoute
     }
     '/p/$projectId/settings/project': {
@@ -347,13 +346,13 @@ declare module '@tanstack/react-router' {
 interface PProjectIdRouteChildren {
   PProjectIdGlossaryRoute: typeof PProjectIdGlossaryRoute
   PProjectIdGraphRoute: typeof PProjectIdGraphRoute
+  PProjectIdKeysRoute: typeof PProjectIdKeysRoute
   PProjectIdKnowledgeRoute: typeof PProjectIdKnowledgeRoute
   PProjectIdScriptRoute: typeof PProjectIdScriptRoute
   PProjectIdIndexRoute: typeof PProjectIdIndexRoute
+  PProjectIdAiConnectionsRoute: typeof PProjectIdAiConnectionsRoute
+  PProjectIdAiUsageRoute: typeof PProjectIdAiUsageRoute
   PProjectIdRunsRunIdRoute: typeof PProjectIdRunsRunIdRoute
-  PProjectIdSettingsAiRoute: typeof PProjectIdSettingsAiRoute
-  PProjectIdSettingsAiPermissionsRoute: typeof PProjectIdSettingsAiPermissionsRoute
-  PProjectIdSettingsKeysRoute: typeof PProjectIdSettingsKeysRoute
   PProjectIdSettingsProjectRoute: typeof PProjectIdSettingsProjectRoute
   PProjectIdSettingsStatusesRoute: typeof PProjectIdSettingsStatusesRoute
   PProjectIdWorkflowsWorkflowIdRoute: typeof PProjectIdWorkflowsWorkflowIdRoute
@@ -364,13 +363,13 @@ interface PProjectIdRouteChildren {
 const PProjectIdRouteChildren: PProjectIdRouteChildren = {
   PProjectIdGlossaryRoute: PProjectIdGlossaryRoute,
   PProjectIdGraphRoute: PProjectIdGraphRoute,
+  PProjectIdKeysRoute: PProjectIdKeysRoute,
   PProjectIdKnowledgeRoute: PProjectIdKnowledgeRoute,
   PProjectIdScriptRoute: PProjectIdScriptRoute,
   PProjectIdIndexRoute: PProjectIdIndexRoute,
+  PProjectIdAiConnectionsRoute: PProjectIdAiConnectionsRoute,
+  PProjectIdAiUsageRoute: PProjectIdAiUsageRoute,
   PProjectIdRunsRunIdRoute: PProjectIdRunsRunIdRoute,
-  PProjectIdSettingsAiRoute: PProjectIdSettingsAiRoute,
-  PProjectIdSettingsAiPermissionsRoute: PProjectIdSettingsAiPermissionsRoute,
-  PProjectIdSettingsKeysRoute: PProjectIdSettingsKeysRoute,
   PProjectIdSettingsProjectRoute: PProjectIdSettingsProjectRoute,
   PProjectIdSettingsStatusesRoute: PProjectIdSettingsStatusesRoute,
   PProjectIdWorkflowsWorkflowIdRoute: PProjectIdWorkflowsWorkflowIdRoute,

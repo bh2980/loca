@@ -4,7 +4,7 @@ import path from 'node:path';
 import { execa, ExecaError } from 'execa';
 import { z } from 'zod';
 import type { ConnectionKind } from '@tw/shared';
-import { ModelError, TOO_LONG } from './errors.ts';
+import { keepOutput, ModelError, TOO_LONG, withOutput } from './errors.ts';
 import { addUsage, readUsage, type GenerateRequest, type GenerateResult, type ResolvedRoute, type Usage } from './types.ts';
 
 type CliKind = Extract<ConnectionKind, 'codex' | 'claude' | 'grok' | 'antigravity' | 'opencode'>;
@@ -217,7 +217,12 @@ export async function cliGenerate<T>(route: ResolvedRoute, request: GenerateRequ
       forceKillAfterDelay: 3000,
       windowsHide: true,
     });
-    return readCliOutput(kind, result.stdout, request.schema, kind === 'codex' ? await readFile(files.result, 'utf8').catch(() => '') : '');
+    const lastMessage = kind === 'codex' ? await readFile(files.result, 'utf8').catch(() => '') : '';
+    try {
+      return readCliOutput(kind, result.stdout, request.schema, lastMessage);
+    } catch (failure) {
+      throw failure instanceof ModelError ? withOutput(failure, lastMessage, result.stdout) : failure;
+    }
   } catch (error) {
     if (error instanceof ModelError) throw error;
     if (error instanceof ExecaError) {
@@ -226,19 +231,22 @@ export async function cliGenerate<T>(route: ResolvedRoute, request: GenerateRequ
       if (error.code === 'ENOENT') throw new ModelError('config', `CLI를 찾지 못했습니다: ${cliCommand(kind, route.executable)}`, false);
       // A CLI that exits non-zero often still printed its envelope on stdout: its own error, and usage.
       const stdout = (error.stdout ?? '').toString();
+      const stderr = (error.stderr ?? '').toString();
+      // Read before the finally removes the folder.
+      const kept = keepOutput(kind === 'codex' ? await readFile(files.result, 'utf8').catch(() => '') : '', stderr, stdout);
       let usage: Usage | undefined;
       try {
         usage = unwrap(kind, stdout).usage;
       } catch (failure) {
         // Only an envelope that reported something is the CLI's own answer; otherwise fall back to the exit.
-        if (failure instanceof ModelError && failure.usage && Object.keys(failure.usage).length) throw failure;
+        if (failure instanceof ModelError && failure.usage && Object.keys(failure.usage).length) throw withOutput(failure, kept);
       }
-      const output = `${(error.stderr ?? '').toString()}\n${stdout}`;
+      const output = `${stderr}\n${stdout}`;
       const detail = (error.stderr || stdout || '').toString().trim().split('\n').slice(-3).join(' ').slice(0, 400);
       // The whole output is searched: a pretty-printed envelope can push the reason far from the last lines.
-      if (QUOTA.test(output)) throw new ModelError('rate-limit', `CLI 사용량 한도에 도달했습니다. ${detail}`, undefined, usage);
-      if (TOO_LONG.test(output)) throw new ModelError('too-long', `요청이 모델의 문맥 창보다 깁니다. ${detail}`.slice(0, 400), false, usage);
-      throw new ModelError('cli', `CLI가 실패했습니다 (exit ${error.exitCode}). ${detail}`, false, usage);
+      if (QUOTA.test(output)) throw new ModelError('rate-limit', `CLI 사용량 한도에 도달했습니다. ${detail}`, undefined, usage, kept);
+      if (TOO_LONG.test(output)) throw new ModelError('too-long', `요청이 모델의 문맥 창보다 깁니다. ${detail}`.slice(0, 400), false, usage, kept);
+      throw new ModelError('cli', `CLI가 실패했습니다 (exit ${error.exitCode}). ${detail}`, false, usage, kept);
     }
     throw new ModelError('unknown', error instanceof Error ? error.message : String(error), false);
   } finally {

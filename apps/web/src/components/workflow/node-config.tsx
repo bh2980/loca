@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { AUTO_MARKS, type AutoMark } from '@/lib/marks';
 import { useMutation } from '@tanstack/react-query';
 import { Play, Plus, Trash2, X } from 'lucide-react';
 import {
@@ -213,7 +214,7 @@ function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRefs; onCh
           <>
             {connection?.fallback && <span className="block">이 연결이 막히면 연결 설정의 ‘막히면’으로 넘깁니다.</span>}
             시간 제한·시도 횟수·최대 출력은{' '}
-            <Link to="/p/$projectId/settings/ai" params={{ projectId: refs.projectId }} search={{ conn: config.model.connectionId || undefined }} className="underline">
+            <Link to="/p/$projectId/ai/connections" params={{ projectId: refs.projectId }} search={{ conn: config.model.connectionId || undefined }} className="underline">
               AI 연결 설정
             </Link>
             에서 정합니다.
@@ -495,7 +496,7 @@ function HttpConfig({ params, refs, set }: { params: Record<string, unknown>; re
         </Field>
       </div>
       <p className="-mt-2 text-xs text-muted-foreground">주소에도 {'{{unit.key}}'} 같은 값을 넣을 수 있습니다(자동으로 URL 인코딩).</p>
-      <Field label="API 키 (선택)" hint={tools.length ? (selected ? '설정의 헤더 형식으로 키를 붙여 보냅니다' : '키가 필요 없는 공개 API면 비워 둡니다') : '키가 필요한 API면 설정 › API 키에서 먼저 추가하세요.'}>
+      <Field label="API 키 (선택)" hint={tools.length ? (selected ? 'API 키에 정한 헤더 형식으로 키를 붙여 보냅니다' : '키가 필요 없는 공개 API면 비워 둡니다') : '키가 필요한 API면 워크플로 › API 키에서 먼저 추가하세요.'}>
         <Select value={(params.connectionId as string) || 'none'} onValueChange={(value) => set('connectionId', value === 'none' ? '' : value)}>
           <SelectTrigger className="w-full">
             <SelectValue />
@@ -594,6 +595,9 @@ const hasVerdict = (node: WorkflowNode) =>
   (node.type === 'ai' && node.config.output === 'verdict') ||
   (node.type === 'function' && (node.config.fn === 'formatCheck' || node.config.fn === 'glossaryCheck' || (node.config.fn === 'http' && (node.config.params as { mode?: string }).mode === 'verdict')));
 
+/** Marks a condition can test: the ones read off the line itself (not 같은 원문 다른 번역, which compares across lines). */
+const CONDITION_MARKS: AutoMark[] = ['remaining', 'ai', 'unknownListener', 'noted'];
+
 /** Common conditions as a form; anything else is plain JSON Logic. */
 function ConditionEditor({ node, nodes, readOnly, onChange }: { node: ConditionNode; nodes: WorkflowNode[]; readOnly?: boolean; onChange: (node: WorkflowNode) => void }) {
   const [text, setText] = useState(() => JSON.stringify(node.config.expression ?? null, null, 2));
@@ -612,6 +616,7 @@ function ConditionEditor({ node, nodes, readOnly, onChange }: { node: ConditionN
   const [target, setTarget] = useState(others.find((other) => other.id === 'review')?.id ?? others[0]?.id ?? '');
   const [limit, setLimit] = useState(3);
   const [passNode, setPassNode] = useState(verdicts[0]?.id ?? '');
+  const [mark, setMark] = useState<AutoMark>('remaining');
   const label = (id: string) => {
     const other = nodes.find((candidate) => candidate.id === id);
     return other ? nodeName(other) : id;
@@ -675,12 +680,31 @@ function ConditionEditor({ node, nodes, readOnly, onChange }: { node: ConditionN
               </Button>
             </div>
           )}
+          <div className="flex flex-wrap items-center gap-1.5 text-sm">
+            줄에
+            <Select value={mark} onValueChange={(value) => setMark(value as AutoMark)}>
+              <SelectTrigger size="sm" className="w-44">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {CONDITION_MARKS.map((id) => (
+                  <SelectItem key={id} value={id}>
+                    #{AUTO_MARKS[id]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            표시가 있음
+            <Button variant="secondary" onClick={() => apply({ in: [mark, { var: 'unit.marks' }] }, `줄에 #${AUTO_MARKS[mark]} 표시가 있음`)}>
+              적용
+            </Button>
+          </div>
           <Button variant="outline" onClick={() => apply({ '==': [{ var: 'unit.kind' }, 'ui'] }, 'UI 문자열')}>
             UI 문자열인가
           </Button>
         </div>
       )}
-      <Field label="조건식 (JSON Logic)" hint="읽을 수 있는 값: visits.<노드ID>, outputs.<노드ID>.<필드>, candidate, issues, unit.kind, unit.speaker, unit.statusId, unit.tagIds">
+      <Field label="조건식 (JSON Logic)" hint="읽을 수 있는 값: visits.<노드ID>, outputs.<노드ID>.<필드>, candidate, issues, unit.kind, unit.speaker, unit.statusId, unit.tagIds, unit.marks (remaining · ai · unknownListener · noted)">
         <Textarea
           value={text}
           spellCheck={false}

@@ -176,7 +176,11 @@ export function DataTable<T>({
 }
 
 /** The bar for acting on picked rows: count, the actions, and a way out. */
-export function BulkBar({ count, onClear, children }: { count: number; onClear: () => void; children: ReactNode }) {
+export function BulkBar({ count, onClear, children }: {
+  count: number;
+  onClear: () => void;
+  children: ReactNode;
+}) {
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-2 border-t bg-muted/40 px-4 py-2 text-sm">
       <span className="font-medium tabular-nums">{count.toLocaleString()}개 선택</span>

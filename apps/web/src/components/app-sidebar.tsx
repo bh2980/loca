@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { Fragment, useEffect } from 'react';
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Check, ChevronsUpDown, Languages, Plus } from 'lucide-react';
@@ -13,9 +13,10 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
+  SidebarSeparator,
 } from '@/components/ui/sidebar';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { SECTIONS, useCurrentNav, type Section } from '@/lib/nav';
+import { holds, SECTIONS, useCurrentNav, type Section } from '@/lib/nav';
 import { q } from '@/lib/queries';
 
 /** Where each menu was left in this tab, so going back to a menu returns to that screen (sessionStorage, like drafts). */
@@ -30,7 +31,9 @@ const readLast = (projectId: string, section: string): { pathname: string; searc
 
 function SectionItem({ section, projectId, active, badge }: { section: Section; projectId: string; active: boolean; badge?: number }) {
   const first = section.tabs[0];
-  const last = active ? null : readLast(projectId, section.id);
+  const remembered = active ? null : readLast(projectId, section.id);
+  // A screen remembered before the menus changed (moved or gone) opens the menu's first tab instead.
+  const last = remembered && holds(section, remembered.pathname.replace(`/p/${projectId}`, '').replace(/\/$/, '')) ? remembered : null;
   return (
     <SidebarMenuItem>
       <SidebarMenuButton asChild isActive={active} tooltip={section.label}>
@@ -43,6 +46,9 @@ function SectionItem({ section, projectId, active, badge }: { section: Section; 
     </SidebarMenuItem>
   );
 }
+
+/** The sidebar's blocks above settings, with a line between: home | 번역 · 문맥 | 워크플로 · AI. */
+const GROUPS = ['home', 'text', 'automation'] as const;
 
 export function AppSidebar({ projectId }: { projectId: string }) {
   const navigate = useNavigate();
@@ -98,13 +104,18 @@ export function AppSidebar({ projectId }: { projectId: string }) {
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <SidebarGroup>
-          <SidebarMenu>
-            {SECTIONS.filter((section) => section.id !== 'settings').map((section) => (
-              <SectionItem key={section.id} section={section} projectId={projectId} active={section.id === current.section.id} badge={section.id === 'translate' ? project.data?.reviewCount : undefined} />
-            ))}
-          </SidebarMenu>
-        </SidebarGroup>
+        {GROUPS.map((group, index) => (
+          <Fragment key={group}>
+          {index > 0 && <SidebarSeparator className="mx-3 data-[orientation=horizontal]:w-auto" />}
+          <SidebarGroup className="py-1">
+            <SidebarMenu>
+              {SECTIONS.filter((section) => section.group === group).map((section) => (
+                <SectionItem key={section.id} section={section} projectId={projectId} active={section.id === current.section.id} badge={section.id === 'translate' ? project.data?.reviewCount : undefined} />
+              ))}
+            </SidebarMenu>
+          </SidebarGroup>
+          </Fragment>
+        ))}
       </SidebarContent>
       <SidebarFooter>
         <SidebarMenu>
