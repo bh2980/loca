@@ -86,6 +86,9 @@ export const SECTIONS: Section[] = [
 
 const under = (rest: string, path: string) => (path === '' ? rest === '' : rest === path || rest.startsWith(`${path}/`));
 
+/** Whether a path under /p/$projectId is one of the section's screens (a remembered one may have moved since). */
+export const holds = (section: Section, rest: string) => section.tabs.some((tab) => under(rest, tab.path) || tab.also?.some((path) => under(rest, path)));
+
 /** The section and tab the current URL is in. 자료 without `tab` is its first tab (문서). */
 export function useCurrentNav(projectId: string): { section: Section; tab: SectionTab } {
   const { pathname, search } = useRouterState({ select: (s) => ({ pathname: s.location.pathname, search: s.location.search as Record<string, unknown> }) });

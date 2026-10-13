@@ -16,7 +16,7 @@ import {
   SidebarSeparator,
 } from '@/components/ui/sidebar';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { SECTIONS, useCurrentNav, type Section } from '@/lib/nav';
+import { holds, SECTIONS, useCurrentNav, type Section } from '@/lib/nav';
 import { q } from '@/lib/queries';
 
 /** Where each menu was left in this tab, so going back to a menu returns to that screen (sessionStorage, like drafts). */
@@ -31,7 +31,9 @@ const readLast = (projectId: string, section: string): { pathname: string; searc
 
 function SectionItem({ section, projectId, active, badge }: { section: Section; projectId: string; active: boolean; badge?: number }) {
   const first = section.tabs[0];
-  const last = active ? null : readLast(projectId, section.id);
+  const remembered = active ? null : readLast(projectId, section.id);
+  // A screen remembered before the menus changed (moved or gone) opens the menu's first tab instead.
+  const last = remembered && holds(section, remembered.pathname.replace(`/p/${projectId}`, '').replace(/\/$/, '')) ? remembered : null;
   return (
     <SidebarMenuItem>
       <SidebarMenuButton asChild isActive={active} tooltip={section.label}>
