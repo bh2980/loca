@@ -17,7 +17,7 @@ import { AiMark, StatusDot, TagChip } from '@/components/status';
 import { TranslationEditor } from '@/components/translation-editor';
 import { client, unwrap } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
-import { q } from '@/lib/queries';
+import { lineTags, q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { useReportView } from '@/lib/view-context';
 import { editorChecks, tokenPatternOf, withoutTokens } from '@/lib/line-context';
@@ -86,7 +86,7 @@ export function LineDetail({
 
   const line = unit.data;
   const status = statuses.data?.statuses.find((item) => item.id === line?.statusId);
-  const tags = statuses.data?.tags ?? [];
+  const tags = lineTags(statuses.data?.tags);
   const lastRun = line?.history[0];
 
   return (

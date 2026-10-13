@@ -32,7 +32,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { client, unwrap } from '@/lib/api';
-import { q } from '@/lib/queries';
+import { lineTags, q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { workflowEdits } from '@/lib/workflow-edits';
 import { SplitPane } from '@/components/split-pane';
@@ -462,7 +462,7 @@ function WorkflowEditor() {
                 issues={issues.filter((issue) => issue.nodeId === selected.id)}
                 refs={{
                   statuses: statuses.data?.statuses ?? [],
-                  tags: statuses.data?.tags ?? [],
+                  tags: lineTags(statuses.data?.tags),
                   projectId,
                   connections: connections.data ?? [],
                   nodes: current.definition.nodes,

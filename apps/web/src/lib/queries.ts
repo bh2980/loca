@@ -1,4 +1,5 @@
-import { keepPreviousData, queryOptions } from '@tanstack/react-query';
+import { keepPreviousData, queryOptions, useQuery } from '@tanstack/react-query';
+import { REVIEW_TAG } from '@tw/shared';
 import { client, unwrap } from './api';
 
 /**
@@ -107,3 +108,12 @@ export const q = {
   chatSession: (sessionId: string) =>
     queryOptions({ queryKey: ['chat', 'session', sessionId], queryFn: () => unwrap(client.chat[':sessionId'].$get({ param: { sessionId } })), staleTime: Infinity }),
 };
+
+/** The id of the project's 확인 권장 tag (knowledge items an app check marked for a look), once it exists. */
+export function useReviewTagId(projectId: string) {
+  const statuses = useQuery(q.statuses(projectId));
+  return statuses.data?.tags.find((tag) => tag.role === REVIEW_TAG.role)?.id;
+}
+
+/** The tags that can be on lines: all but 확인 권장, which is knowledge's. */
+export const lineTags = <T extends { role?: string | null }>(tags: T[] | undefined) => (tags ?? []).filter((tag) => tag.role !== REVIEW_TAG.role);

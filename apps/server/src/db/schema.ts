@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import { ISSUE_KIND_IDS, type IssueKind, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, type AiConfirm, type EditorAi, type ModelChoice, type ContextItem, type FormatRules, type NodeType, type PiOptions, type RelationshipChange, type WorkflowDefinition } from '@tw/shared';
+import { KNOWLEDGE_TAG_KINDS, TAG_ROLES, type TagRole, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, type AiConfirm, type EditorAi, type ModelChoice, type ContextItem, type FormatRules, type NodeType, type PiOptions, type RelationshipChange, type WorkflowDefinition } from '@tw/shared';
 import type { Usage } from '@tw/ai';
 
 const id = () => text('id').primaryKey().$defaultFn(() => crypto.randomUUID());
@@ -60,8 +60,8 @@ export const tags = sqliteTable('tags', {
   projectId: projectId(),
   name: text('name').notNull(),
   color: text('color').notNull(),
-  /** A problem-type tag kept by the checks (ISSUE_KINDS); null for a person's own tag. */
-  role: text('role', { enum: ISSUE_KIND_IDS as [IssueKind, ...IssueKind[]] }),
+  /** A tag the app keeps: a problem type on lines (ISSUE_KINDS) or 확인 권장 on knowledge (REVIEW_TAG); null for a person's own tag. */
+  role: text('role', { enum: TAG_ROLES as unknown as [TagRole, ...TagRole[]] }),
 });
 
 export const groups = sqliteTable(
@@ -126,6 +126,22 @@ export const unitTags = sqliteTable(
     tagId: text('tag_id').notNull().references(() => tags.id, { onDelete: 'cascade' }),
   },
   (t) => [primaryKey({ columns: [t.unitId, t.tagId] }), index('unit_tags_tag').on(t.tagId)],
+);
+
+/**
+ * Tags on knowledge items (terms, documents, people, relationships, events, speech rules): the same
+ * project tags as lines. `note` says why the app put it there (확인 권장's reasons); a person's own
+ * tag has none. Rows go with their item (triggers in the migration) and with their tag (cascade).
+ */
+export const knowledgeTags = sqliteTable(
+  'knowledge_tags',
+  {
+    kind: text('kind', { enum: KNOWLEDGE_TAG_KINDS }).notNull(),
+    itemId: text('item_id').notNull(),
+    tagId: text('tag_id').notNull().references(() => tags.id, { onDelete: 'cascade' }),
+    note: text('note'),
+  },
+  (t) => [primaryKey({ columns: [t.kind, t.itemId, t.tagId] }), index('knowledge_tags_tag').on(t.tagId)],
 );
 
 export const candidates = sqliteTable(
@@ -355,8 +371,6 @@ export const speechRules = sqliteTable(
     /** How the speaker addresses the listener in Korean, e.g. "수사관님". */
     address: text('address').notNull().default(''),
     note: text('note').notNull().default(''),
-    /** Why an AI rule waits for a person (main pair, conflict, evidence…); cleared when a person decides. */
-    review: text('review'),
     startKey: text('start_key'),
     ...knowledge(),
     updatedAt: updatedAt(),

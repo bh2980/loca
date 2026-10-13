@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { markForReview } from './knowledge-tags.ts';
 import { and, desc, eq, inArray, ne, notInArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import * as ai from '@tw/ai';
@@ -461,9 +462,11 @@ export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: A
       // A person's rule that says otherwise wins, so the AI one stays a candidate beside it.
       if (reasons.length) counts.rulesForReview += 1;
       const yieldsToPerson = Boolean(official && official.level !== r.level);
-      tx.insert(s.speechRules)
-        .values({ projectId, fromName: from, toName: to, level: r.level, address: r.address, note: r.note, review: reasons.length ? reasons.join(', ') : null, startKey: start, evidence, ...draft('speechRules'), ...(yieldsToPerson && { status: 'candidate' as const }) })
-        .run();
+      const rule = tx.insert(s.speechRules)
+        .values({ projectId, fromName: from, toName: to, level: r.level, address: r.address, note: r.note, startKey: start, evidence, ...draft('speechRules'), ...(yieldsToPerson && { status: 'candidate' as const }) })
+        .returning({ id: s.speechRules.id })
+        .get();
+      if (reasons.length) markForReview(tx, projectId, 'speechRules', rule.id, reasons);
     }
   });
   return {

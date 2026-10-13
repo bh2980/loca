@@ -302,6 +302,13 @@
       "when": 1791874177472,
       "tag": "0042_editor_ai",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "6",
+      "when": 1791881541963,
+      "tag": "0043_knowledge_tags",
+      "breakpoints": true
     }
   ]
 }

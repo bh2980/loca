@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { and, asc, eq, inArray, ne, or, sql } from 'drizzle-orm';
 import { mentions } from '../services/context.ts';
 import { z } from 'zod';
-import { DOCUMENT_KINDS, KNOWLEDGE_STATUSES, modelChoiceSchema, patchOf, relationshipChangeSchema, SPEECH_LEVELS } from '@tw/shared';
+import { DOCUMENT_KINDS, KNOWLEDGE_STATUSES, KNOWLEDGE_TAG_KINDS, modelChoiceSchema, patchOf, relationshipChangeSchema, SPEECH_LEVELS } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import { eachChunk, inChunks } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
@@ -12,6 +12,7 @@ import { eventFlow, forks } from '../services/event-routes.ts';
 import { discoverAndSave, SUGGEST_BATCH } from '../services/terms.ts';
 import { addNameTerms } from '../services/terms.ts';
 import { byPerson } from '../services/status-by.ts';
+import { clearReview, withTags } from '../services/knowledge-tags.ts';
 
 export const termInput = z.object({
   source: z.string().trim().min(1),
@@ -47,7 +48,7 @@ const byProject = <T extends ProjectTable>(table: T, id: string, projectId: stri
 
 export const knowledgeRoutes = new Hono<Env>()
   // Rejected terms stay stored so "대본에서 찾기" does not propose them again, but are not listed.
-  .get('/terms', (c) => c.json(c.var.deps.db.select().from(s.terms).where(and(eq(s.terms.projectId, c.req.param('projectId')!), ne(s.terms.status, 'rejected'))).orderBy(asc(s.terms.source)).all()))
+  .get('/terms', (c) => c.json(withTags(c.var.deps.db, 'terms', c.var.deps.db.select().from(s.terms).where(and(eq(s.terms.projectId, c.req.param('projectId')!), ne(s.terms.status, 'rejected'))).orderBy(asc(s.terms.source)).all())))
   .post('/terms/discover', (c) => c.json(discoverAndSave(c.var.deps.db, c.req.param('projectId')!)))
   .get('/terms/suggest', (c) => {
     const projectId = c.req.param('projectId')!;
@@ -100,7 +101,7 @@ export const knowledgeRoutes = new Hono<Env>()
     return c.json({ ok: true });
   })
 
-  .get('/documents', (c) => c.json(c.var.deps.db.select().from(s.documents).where(and(eq(s.documents.projectId, c.req.param('projectId')!), ne(s.documents.status, 'rejected'))).orderBy(asc(s.documents.kind), asc(s.documents.title)).all()))
+  .get('/documents', (c) => c.json(withTags(c.var.deps.db, 'documents', c.var.deps.db.select().from(s.documents).where(and(eq(s.documents.projectId, c.req.param('projectId')!), ne(s.documents.status, 'rejected'))).orderBy(asc(s.documents.kind), asc(s.documents.title)).all())))
   .post('/documents', validate('json', documentInput), (c) => {
     const projectId = c.req.param('projectId')!;
     const row = c.var.deps.db.insert(s.documents).values({ ...c.req.valid('json'), projectId }).returning().get();
@@ -124,8 +125,8 @@ export const knowledgeRoutes = new Hono<Env>()
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId')!;
     return c.json({
-      characters: db.select().from(s.characters).where(and(eq(s.characters.projectId, projectId), ne(s.characters.status, 'rejected'))).orderBy(asc(s.characters.name)).all(),
-      relationships: db.select().from(s.relationships).where(and(eq(s.relationships.projectId, projectId), ne(s.relationships.status, 'rejected'))).all(),
+      characters: withTags(db, 'characters', db.select().from(s.characters).where(and(eq(s.characters.projectId, projectId), ne(s.characters.status, 'rejected'))).orderBy(asc(s.characters.name)).all()),
+      relationships: withTags(db, 'relationships', db.select().from(s.relationships).where(and(eq(s.relationships.projectId, projectId), ne(s.relationships.status, 'rejected'))).all()),
     });
   })
   .post('/characters', validate('json', characterInput), (c) => {
@@ -170,7 +171,7 @@ export const knowledgeRoutes = new Hono<Env>()
   .get('/events', (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId')!;
-    const events = db.select().from(s.storyEvents).where(and(eq(s.storyEvents.projectId, projectId), ne(s.storyEvents.status, 'rejected'))).all();
+    const events = withTags(db, 'events', db.select().from(s.storyEvents).where(and(eq(s.storyEvents.projectId, projectId), ne(s.storyEvents.status, 'rejected'))).all());
     const keys = [...new Set(events.flatMap((event) => event.evidence))];
     const lines = new Map(
       inChunks(keys, (slice) =>
@@ -209,7 +210,7 @@ export const knowledgeRoutes = new Hono<Env>()
     return c.json({ ok: true });
   })
 
-  .get('/speech-rules', (c) => c.json(c.var.deps.db.select().from(s.speechRules).where(and(eq(s.speechRules.projectId, c.req.param('projectId')!), ne(s.speechRules.status, 'rejected'))).all()))
+  .get('/speech-rules', (c) => c.json(withTags(c.var.deps.db, 'speechRules', c.var.deps.db.select().from(s.speechRules).where(and(eq(s.speechRules.projectId, c.req.param('projectId')!), ne(s.speechRules.status, 'rejected'))).all())))
   .post('/speech-rules', validate('json', speechRuleInput), (c) => {
     const projectId = c.req.param('projectId')!;
     const row = c.var.deps.db.insert(s.speechRules).values({ ...c.req.valid('json'), projectId }).returning().get();
@@ -218,7 +219,9 @@ export const knowledgeRoutes = new Hono<Env>()
   })
   .patch('/speech-rules/:id', validate('json', patchOf(speechRuleInput)), (c) => {
     const projectId = c.req.param('projectId')!;
-    found(c.var.deps.db.update(s.speechRules).set({ ...c.req.valid('json'), ...byPerson(c.var.deps.db, s.speechRules, c.req.param('id'), c.req.valid('json')), review: null }).where(byProject(s.speechRules, c.req.param('id'), projectId)).returning().get(), '말투 규칙');
+    found(c.var.deps.db.update(s.speechRules).set({ ...c.req.valid('json'), ...byPerson(c.var.deps.db, s.speechRules, c.req.param('id'), c.req.valid('json')) }).where(byProject(s.speechRules, c.req.param('id'), projectId)).returning().get(), '말투 규칙');
+    // A person edited it: they have looked.
+    clearReview(c.var.deps.db, projectId, 'speechRules', [c.req.param('id')]);
     events.changed(projectId, 'knowledge');
     return c.json({ ok: true });
   })
@@ -263,7 +266,8 @@ export const knowledgeRoutes = new Hono<Env>()
         eachChunk(ids, (slice) => {
           if (action === 'discard') {
             // Kept as rejected: a later analysis must not propose the same item again.
-            total += tx.update(table).set({ status: 'rejected', statusBy: 'human', ...(kind === 'speechRules' ? { review: null } : {}) }).where(where(slice)).run().changes;
+            total += tx.update(table).set({ status: 'rejected', statusBy: 'human' }).where(where(slice)).run().changes;
+            clearReview(tx, projectId, kind, slice);
             return;
           }
           // A confirmed relationship needs confirmed people at both ends.
@@ -273,13 +277,34 @@ export const knowledgeRoutes = new Hono<Env>()
               tx.update(s.characters).set({ status: 'confirmed', statusBy: 'human' }).where(and(eq(s.characters.projectId, projectId), inArray(s.characters.id, people))).run();
             });
           }
-          total += tx.update(table).set({ status: 'confirmed', statusBy: 'human', ...(kind === 'speechRules' ? { review: null } : {}) }).where(where(slice)).run().changes;
+          total += tx.update(table).set({ status: 'confirmed', statusBy: 'human' }).where(where(slice)).run().changes;
+          clearReview(tx, projectId, kind, slice);
         }, 2_000);
         return total;
       });
       // Terms are cached under their own topic (the glossary), not with the story knowledge.
       events.changed(projectId, kind === 'terms' ? 'terms' : 'knowledge');
       return c.json({ changed });
+    },
+  )
+  /** A person's tag on several knowledge items, or off them. The app's own tags are not put on by hand. */
+  .post(
+    '/knowledge-tags',
+    validate('json', z.object({ kind: z.enum(KNOWLEDGE_TAG_KINDS), ids: z.array(z.string()).min(1), tagId: z.string(), add: z.boolean() })),
+    (c) => {
+      const projectId = c.req.param('projectId')!;
+      const { kind, ids, tagId, add } = c.req.valid('json');
+      const { db } = c.var.deps;
+      const tag = found(db.select({ role: s.tags.role }).from(s.tags).where(and(eq(s.tags.id, tagId), eq(s.tags.projectId, projectId))).get(), '태그');
+      if (add && tag.role) badRequest('앱이 붙이는 태그는 직접 붙일 수 없습니다.');
+      db.transaction((tx) =>
+        eachChunk(ids, (slice) => {
+          if (add) tx.insert(s.knowledgeTags).values(slice.map((itemId) => ({ kind, itemId, tagId }))).onConflictDoNothing().run();
+          else tx.delete(s.knowledgeTags).where(and(eq(s.knowledgeTags.kind, kind), eq(s.knowledgeTags.tagId, tagId), inArray(s.knowledgeTags.itemId, slice))).run();
+        }, 2_000),
+      );
+      events.changed(projectId, kind === 'terms' ? 'terms' : 'knowledge');
+      return c.json({ ok: true });
     },
   );
 

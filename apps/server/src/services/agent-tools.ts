@@ -1,4 +1,5 @@
 import { tool } from 'ai';
+import { clearReview } from './knowledge-tags.ts';
 import { and, asc, count, desc, eq, inArray, like, ne, or } from 'drizzle-orm';
 import { z } from 'zod';
 import { AI_OUTPUTS, AI_PRESETS, aiNodeConfigSchema, batchChangeSchema, CONNECTION_KIND_INFO, FUNCTIONS, lineFilterSchema, NODE_TYPES, sourceOf, workflowDefinitionSchema } from '@tw/shared';
@@ -321,7 +322,8 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       execute: ({ id, ...input }) => {
         if (id) {
           // Accepted by a person: like an edit in the app, a person set it and it is no longer marked for a look.
-          if (!db.update(s.speechRules).set({ ...input, ...byPerson(db, s.speechRules, id, input), review: null }).where(and(eq(s.speechRules.id, id), eq(s.speechRules.projectId, projectId))).run().changes) return { ok: false, error: '없는 말투 규칙입니다.' };
+          if (!db.update(s.speechRules).set({ ...input, ...byPerson(db, s.speechRules, id, input) }).where(and(eq(s.speechRules.id, id), eq(s.speechRules.projectId, projectId))).run().changes) return { ok: false, error: '없는 말투 규칙입니다.' };
+          clearReview(db, projectId, 'speechRules', [id]);
         } else id = db.insert(s.speechRules).values({ ...input, projectId }).returning().get().id;
         changed('knowledge');
         return { ok: true, id };

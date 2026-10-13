@@ -11,7 +11,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
 import { client, unwrap } from '@/lib/api';
-import { q } from '@/lib/queries';
+import { lineTags, q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
 type Mode = 'all' | 'here' | 'groups' | 'units' | 'tags';
@@ -46,7 +46,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [pickedTags, setPickedTags] = useState<Set<string>>(new Set());
   const statuses = useQuery({ ...q.statuses(projectId), enabled: open });
-  const tags = statuses.data?.tags ?? [];
+  const tags = lineTags(statuses.data?.tags);
   const [filter, setFilter] = useState('');
   const [ignoreStatus, setIgnoreStatus] = useState(defaultIgnoreStatus);
   const workflows = useQuery({ ...q.workflows(projectId), enabled: open });

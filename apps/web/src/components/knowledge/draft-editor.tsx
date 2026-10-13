@@ -1,7 +1,8 @@
 import { useState, type ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Check, ChevronRight, Play, Trash2 } from 'lucide-react';
+import { Check, ChevronRight, Play, Tags, Trash2 } from 'lucide-react';
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuLabel, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
 import { aiDecided, DOCUMENT_KINDS, SPEECH_FIX_WORKFLOW, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, sourceOf, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type SpeechLevel, type StatusBy } from '@tw/shared';
 import { RunDialog } from '@/components/workflow/run-dialog';
@@ -16,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { useDraft } from '@/lib/drafts';
-import { AiMark } from '@/components/status';
+import { AiMark, TagChip } from '@/components/status';
 import { DOCUMENT_KIND } from '@/lib/labels';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
@@ -37,6 +38,19 @@ export interface Draft {
   evidence: string[];
   /** The work analysis that put it in, if any. */
   jobId?: string | null;
+  /** Project tags on it; `note` says why the app put one there (확인 권장). */
+  tags?: ItemTag[];
+}
+export interface ItemTag {
+  id: string;
+  note: string | null;
+}
+/** A project tag as the knowledge screens show and filter it. */
+export interface TagInfo {
+  id: string;
+  name: string;
+  color: string;
+  role?: string | null;
 }
 export type Row = Draft & Record<string, unknown>;
 export type Value = string | boolean | string[] | null;
@@ -77,8 +91,26 @@ export const candidateRow = (row: Draft) => (row.status === 'candidate' ? '[&>td
 export type SourceFilter = KnowledgeSource | undefined;
 /** 'ai': confirmed by AI and not looked at yet (✦), the 'AI가 정한 것만' filter. */
 export type StatusFilter = 'confirmed' | 'ai' | 'candidate' | undefined;
-export const matches = (row: Draft, source: SourceFilter, status: StatusFilter) =>
-  (!source || sourceOf(row) === source) && (!status || (status === 'ai' ? aiDecided(row) : row.status === status));
+export const matches = (row: Draft, source: SourceFilter, status: StatusFilter, tag?: string) =>
+  (!source || sourceOf(row) === source) && (!status || (status === 'ai' ? aiDecided(row) : row.status === status)) && (!tag || Boolean(row.tags?.some((item) => item.id === tag)));
+
+/** An item's tags as chips; the app's reason for one (확인 권장) shows on hover. */
+export function TagCell({ tags, known }: { tags?: ItemTag[]; known: TagInfo[] }) {
+  const shown = (tags ?? []).flatMap((item) => {
+    const info = known.find((tag) => tag.id === item.id);
+    return info ? [{ ...item, info }] : [];
+  });
+  if (!shown.length) return null;
+  return (
+    <span className="flex flex-wrap gap-1">
+      {shown.map((item) => (
+        <span key={item.id} title={item.note ?? undefined}>
+          <TagChip tag={item.info} />
+        </span>
+      ))}
+    </span>
+  );
+}
 
 export const sourceOptions: FilterOption[] = KNOWLEDGE_SOURCES.map((value) => ({ value, label: SOURCE_LABELS[value] }));
 export const statusOptions: FilterOption[] = [
@@ -106,8 +138,24 @@ export function confirmLabel(rows: Draft[]) {
 }
 
 /** 출처 and 상태 as the last two columns of a table; both filter through their header. */
-export function metaColumns<T>(draftOf: (row: T) => Draft, filters: { source: SourceFilter; status: StatusFilter; onChange: (next: { source?: SourceFilter; status?: StatusFilter }) => void }): ColumnDef<T, unknown>[] {
+export interface KnowledgeFilterState {
+  source: SourceFilter;
+  status: StatusFilter;
+  tag?: string;
+  /** The project's tags (lines' problem types left out): the 태그 column's chips and filter. */
+  tags: TagInfo[];
+  onChange: (next: { source?: SourceFilter; status?: StatusFilter; tag?: string }) => void;
+}
+const tagOptions = (tags: TagInfo[]): FilterOption[] => tags.map((tag) => ({ value: tag.id, label: `#${tag.name}` }));
+
+export function metaColumns<T>(draftOf: (row: T) => Draft, filters: KnowledgeFilterState): ColumnDef<T, unknown>[] {
   return [
+    {
+      id: 'tags',
+      meta: { width: 120 },
+      header: () => <HeaderFilter label="태그" value={filters.tag} options={tagOptions(filters.tags)} onChange={(value) => filters.onChange({ tag: value })} />,
+      cell: ({ row }) => <TagCell tags={draftOf(row.original).tags} known={filters.tags} />,
+    },
     {
       id: 'source',
       meta: { width: 88 },
@@ -124,9 +172,10 @@ export function metaColumns<T>(draftOf: (row: T) => Draft, filters: { source: So
 }
 
 /** 출처 and 상태 filters for displays without a table header (graph, timeline), in the toolbar. */
-export function KnowledgeFilters({ source, status, onChange }: { source: SourceFilter; status: StatusFilter; onChange: (next: { source?: SourceFilter; status?: StatusFilter }) => void }) {
+export function KnowledgeFilters({ source, status, tag, tags, onChange }: KnowledgeFilterState) {
   return (
     <div className="flex items-center gap-3 text-xs text-muted-foreground">
+      {tags.length > 0 && <HeaderFilter label="태그" value={tag} options={tagOptions(tags)} onChange={(value) => onChange({ tag: value })} />}
       <HeaderFilter label="출처" value={source} options={sourceOptions} onChange={(value) => onChange({ source: value as SourceFilter })} />
       <HeaderFilter label="상태" value={status} options={statusOptions} onChange={(value) => onChange({ status: value as StatusFilter })} />
     </div>
@@ -150,6 +199,36 @@ export function BulkDecide({ picked, actionable, pending, onConfirm, onDiscard }
 }
 
 /** The table of one knowledge kind (documents, people, events) with 출처 and 상태 columns. */
+/**
+ * A person's tags on the picked items (the same project tags as lines): one check per tag, '일부'
+ * when only some carry it. The app's own tags (확인 권장) are not offered: a decision takes those off.
+ */
+export function TagMenu({ tags, rows, onChange }: { tags: TagInfo[]; rows: Draft[]; onChange: (tagId: string, add: boolean) => void }) {
+  const own = tags.filter((tag) => !tag.role);
+  if (!own.length || !rows.length) return null;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" className="bg-background">
+          <Tags /> 태그
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-56">
+        <DropdownMenuLabel className="text-xs text-muted-foreground">고른 {rows.length}개의 태그</DropdownMenuLabel>
+        {own.map((tag) => {
+          const on = rows.filter((row) => row.tags?.some((item) => item.id === tag.id)).length;
+          return (
+            <DropdownMenuCheckboxItem key={tag.id} checked={on === rows.length} onSelect={(event) => event.preventDefault()} onCheckedChange={() => onChange(tag.id, on !== rows.length)}>
+              <TagChip tag={tag} />
+              {on > 0 && on < rows.length && <span className="ml-auto text-xs text-muted-foreground">일부</span>}
+            </DropdownMenuCheckboxItem>
+          );
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export function KnowledgeTable({ spec, rows, loading, selected, onOpen, picked, onPick, bulk, empty, filters }: {
   spec: KindSpec;
   rows: Row[] | undefined;
@@ -160,7 +239,7 @@ export function KnowledgeTable({ spec, rows, loading, selected, onOpen, picked, 
   onPick: (ids: string[], on: boolean) => void;
   bulk: ReactNode;
   empty: ReactNode;
-  filters: Parameters<typeof metaColumns>[1];
+  filters: KnowledgeFilterState;
 }) {
   const columns: ColumnDef<Row, unknown>[] = [
     ...spec.columns.map((column): ColumnDef<Row, unknown> => ({ id: column.head, header: column.head, meta: { width: column.width, className: column.className }, cell: ({ row }) => column.cell(row.original) })),

@@ -8,6 +8,10 @@ import { AnalysisService, canonicalNames, mergeAnalysis, saveDrafts, splitPart, 
 import { importProject } from './importer.ts';
 import { memoryStore } from './secrets.ts';
 import { scriptText } from './script-text.ts';
+import { tagsOf } from './knowledge-tags.ts';
+
+/** Why a rule is marked 확인 권장 (its tag's note), or undefined. */
+const reviewOf = (db: Parameters<typeof tagsOf>[0], id: string) => tagsOf(db, 'speechRules', [id]).get(id)?.find((tag) => tag.note)?.note ?? undefined;
 
 function setup() {
   const db = openDatabase(':memory:');
@@ -155,7 +159,7 @@ describe('work analysis', () => {
     // Alice→Bob and Bob→Alice are the only pairs, so both are main pairs: used at once, marked for a look.
     const bob = db.select().from(s.speechRules).where(eq(s.speechRules.fromName, 'Bob')).get()!;
     expect(bob.status).toBe('confirmed');
-    expect(bob.review).toContain('주요 쌍');
+    expect(reviewOf(db, bob.id)).toContain('주요 쌍');
     expect(counts.rulesForReview).toBeGreaterThan(0);
   });
 
@@ -172,7 +176,7 @@ describe('work analysis', () => {
     expect(bob.filter((rule) => rule.level === 'hasipsio').map((rule) => rule.status)).toEqual(['rejected']);
     const doubtful = bob.find((rule) => rule.level === 'hae')!;
     expect(doubtful.status).toBe('confirmed');
-    expect(doubtful.review).toContain('근거 대사의 화자가 다름');
+    expect(reviewOf(db, doubtful.id)).toContain('근거 대사의 화자가 다름');
   });
 
   it('fills the empty fields of a person already in the cast and leaves written ones alone', () => {
@@ -193,7 +197,7 @@ describe('work analysis', () => {
     saveDrafts(db, projectId, 'job', draft('hasipsio'), keyOf);
     const ai = db.select().from(s.speechRules).where(eq(s.speechRules.fromName, 'Bob')).all().find((rule) => rule.level === 'hasipsio')!;
     expect(ai.status).toBe('candidate');
-    expect(ai.review).toContain('정식 규칙');
+    expect(reviewOf(db, ai.id)).toContain('정식 규칙');
   });
 
   it('adds terms under the auto-confirm switch, fills only empty forms of terms already there, and replaces its own untouched ones on a rerun', () => {

@@ -23,7 +23,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { client, unwrap } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
 import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
-import { q } from '@/lib/queries';
+import { lineTags, q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { SpeakerCard } from '@/components/script/speaker-card';
 
@@ -349,7 +349,7 @@ export function LineList({
         <LineFilters
           projectId={projectId}
           statuses={statusList}
-          tags={statuses.data?.tags ?? []}
+          tags={lineTags(statuses.data?.tags)}
           speakers={(speakers.data ?? []).flatMap((row) => (row.speaker ? [{ name: row.speaker, lines: row.lines }] : []))}
           search={search}
           onSearch={(next) => onSearch({ ...next, page: undefined })}
@@ -396,7 +396,7 @@ export function LineList({
                   ))}
                 </SelectContent>
               </Select>
-              {!!statuses.data?.tags.length && (
+              {lineTags(statuses.data?.tags).length > 0 && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="outline">
@@ -405,7 +405,7 @@ export function LineList({
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="start" className="w-56">
                     <DropdownMenuLabel className="text-xs text-muted-foreground">선택한 {picked.size}개 대사의 태그</DropdownMenuLabel>
-                    {statuses.data.tags.map((tag) => {
+                    {lineTags(statuses.data?.tags).map((tag) => {
                       const state = tagState(tag.id);
                       return (
                         <DropdownMenuCheckboxItem key={tag.id} checked={state === 'all'} onSelect={(event) => event.preventDefault()} onCheckedChange={() => setTag.mutate({ tagId: tag.id, add: state !== 'all' })}>
