@@ -26,7 +26,7 @@ const toolNames = (group: AgentToolGroup) => Object.keys(AGENT_TOOLS).filter((na
  * its single tools. A tool switched off is invisible to the AI; changes never apply without a card.
  */
 export function AgentTab() {
-  const { projectId } = useParams({ from: '/p/$projectId/settings/agent' });
+  const { projectId } = useParams({ from: '/p/$projectId/settings/ai-permissions' });
   const queryClient = useQueryClient();
   const project = useQuery(q.project(projectId));
   const loaded = !!project.data;
@@ -50,8 +50,8 @@ export function AgentTab() {
   };
 
   return (
-    <div className="max-w-3xl space-y-4 p-4">
-      <p className="text-sm text-muted-foreground">
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">
         채팅 패널의 AI(연결 종류와 관계없이)와 터미널의 <code>loca tools</code>·<code>loca call</code>이 쓸 수 있는 도구입니다. 끈 도구는 AI에게 보이지 않습니다. CLI의 읽기 명령(lines, stats, context, export …)과 워크플로에는 영향이 없습니다.
       </p>
       <ul className="divide-y rounded-lg border">
