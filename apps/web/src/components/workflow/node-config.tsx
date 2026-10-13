@@ -279,10 +279,7 @@ function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRefs; onCh
       <div className="space-y-2.5">
         <p className="text-xs font-medium">문맥</p>
         <p className="text-xs text-muted-foreground">확정된 자료만 들어갑니다. 실제로 들어간 것은 대사 패널의 AI 문맥 탭에서 봅니다.</p>
-        <ToggleRow label="사람이 확정한 것만" checked={context.humanOnly} onChange={(value) => set({ context: { ...context, humanOnly: value } })} />
-        <p className="text-xs text-muted-foreground">
-          {context.humanOnly ? 'AI가 확정하고 아직 아무도 확인하지 않은 용어·자료(✦)는 넣지 않습니다.' : 'AI가 확정한 용어·자료(✦)도 넣습니다. 사람이 확인하지 않은 인물·관계·문서는 사실과 따로 “AI 추론”으로 전달합니다.'}
-        </p>
+        <ToggleRow label="사람이 확정한 것만 (✦ 빼기)" checked={context.humanOnly} onChange={(value) => set({ context: { ...context, humanOnly: value } })} />
         <ToggleRow label="용어집" checked={context.glossary} onChange={(value) => set({ context: { ...context, glossary: value } })} />
         <ToggleRow label="청자·말투 규칙" checked={context.speech} onChange={(value) => set({ context: { ...context, speech: value } })} />
         <ToggleRow label="앞 단계 지적 사항" checked={config.include.issues} onChange={(value) => set({ include: { ...config.include, issues: value } })} />
@@ -443,10 +440,7 @@ function SetStatusConfig({ params, refs, set, setMany }: { params: Record<string
           </SelectContent>
         </Select>
       </Field>
-      {refs.statuses.find((status) => status.id === params.statusId)?.humanOnly && (
-        <p className="text-xs text-warning">이 상태는 ‘사람만 지정’입니다. 실행하면 대사를 이 상태 대신 검토함 상태로 보내고 이유를 남깁니다(설정 › 상태·태그).</p>
-      )}
-      <p className="text-xs text-muted-foreground">이 노드가 바꾼 상태는 ‘AI가 정함’(✦)으로 남고, 사람이 바꾸거나 확인하면 사라집니다.</p>
+      {refs.statuses.find((status) => status.id === params.statusId)?.humanOnly && <p className="text-xs text-warning">사람만 지정 상태 → 실행하면 검토함으로 갑니다.</p>}
       <ToggleRow label="현재 후보를 대표 번역으로 적용" checked={params.applyCandidate as boolean} onChange={(value) => set('applyCandidate', value)} />
       {refs.tags.length > 0 && (
         <Field label="태그" hint="누를 때마다 추가 → 제거 → 그대로 순서로 바뀝니다.">

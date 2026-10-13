@@ -328,7 +328,7 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
         <span className="flex items-center gap-1.5">
           <SourceBadge row={row} />
           <span>·</span>
-          {row.status === 'candidate' ? <span>후보 · 아직 문맥에 쓰이지 않음</span> : aiDecided(row) ? <span className="inline-flex items-center gap-1">확정 <AiMark by="ai" /> AI가 정함, 아직 확인 안 함</span> : <span>확정</span>}
+          {row.status === 'candidate' ? <span>후보</span> : <span className="inline-flex items-center gap-1">확정 <AiMark by={row.statusBy} /></span>}
         </span>
       }
       onClose={onClose}

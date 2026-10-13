@@ -214,7 +214,7 @@ function StatusSettings() {
           >
             <div>
               <h2 className="text-sm font-semibold">상태</h2>
-              <p className="text-xs text-muted-foreground">‘검토함에 표시’를 켠 상태의 대사는 사람이 바꾸든 워크플로가 바꾸든 검토함에 모입니다. 검토함에서는 다른 상태 중 하나를 골라 옮기는 것으로 결정합니다. ‘사람만 지정’을 켠 상태로는 워크플로가 대사를 보내지 못하고 대신 검토함으로 보냅니다.</p>
+              <p className="text-xs text-muted-foreground">‘검토함에 표시’를 켠 상태의 대사는 사람이 바꾸든 워크플로가 바꾸든 검토함에 모입니다. 검토함에서는 다른 상태 중 하나를 골라 옮기는 것으로 결정합니다.</p>
             </div>
           </Toolbar>
           <DataTable
@@ -355,7 +355,7 @@ function StatusPane({
             <FieldLabel htmlFor="status-human">사람만 지정</FieldLabel>
             <Switch id="status-human" checked={form.humanOnly} onCheckedChange={(humanOnly) => setForm({ ...form, humanOnly })} />
           </Field>
-          <FieldDescription>켜면 워크플로가 대사를 이 상태로 보내려 할 때 대신 검토함 상태로 보내고, 이유를 대사의 지적 사항으로 남깁니다. 사람은 그대로 이 상태로 옮길 수 있습니다.</FieldDescription>
+          <FieldDescription>워크플로는 이 상태 대신 검토함으로 보냅니다.</FieldDescription>
         </FieldGroup>
       </PaneSection>
       {status && onMove && (

@@ -100,7 +100,7 @@ export function TranslationEditor({
         {dirty && <span className="text-xs text-warning">저장 안 됨</span>}
         {!dirty && unit.statusBy === 'ai' && (
           <span className="flex items-center gap-1 text-xs text-muted-foreground">
-            <AiMark by="ai" /> 상태를 AI가 정함 · 저장하거나 옮기면 사람이 정한 것이 됩니다
+            <AiMark by="ai" /> AI가 정함
           </span>
         )}
         <div className="ml-auto flex items-center gap-2">

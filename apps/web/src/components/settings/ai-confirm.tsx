@@ -15,14 +15,14 @@ export function AiConfirmNote({ projectId, kinds }: { projectId: string; kinds: 
   const group = (mode: 'auto' | 'candidate') => kinds.filter((kind) => policy[kind] === mode).map((kind) => AI_CONFIRM_KINDS[kind]);
   const auto = group('auto');
   const candidate = group('candidate');
+  // One line: the usual case (all auto) says just that; only the exceptions are named.
+  const summary = !candidate.length ? '자동 확정' : !auto.length ? '후보로만' : `자동 확정 (후보로만: ${candidate.join('·')})`;
   return (
     <p className="text-xs text-muted-foreground">
-      {auto.length > 0 && <>자동 확정(바로 문맥에 쓰임, ✦ 표시): {auto.join('·')}. </>}
-      {candidate.length > 0 && <>후보로만(확정해야 쓰임): {candidate.join('·')}. </>}
+      결과: {summary} ·{' '}
       <Link to="/p/$projectId/settings/ai-confirm" params={{ projectId }} className="underline underline-offset-2 hover:text-foreground">
-        설정 › AI 확정
+        AI 확정 설정
       </Link>
-      에서 바꿉니다.
     </p>
   );
 }
