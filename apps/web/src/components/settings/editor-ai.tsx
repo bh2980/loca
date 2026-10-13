@@ -39,7 +39,7 @@ export function EditorAiSection({ projectId }: { projectId: string }) {
         <Field>
           <FieldLabel>모델</FieldLabel>
           <ModelPicker value={settings.model} onChange={(model) => change({ model })} kinds={['openai']} />
-          <FieldDescription>API 연결(OpenAI 호환)만 고를 수 있습니다. CLI 연결은 한 번에 수 초가 걸려 타자를 따라오지 못합니다. 요청마다 모델이 바뀌는 자동 선택(openrouter/free, auto)보다 모델을 하나 고정하세요. 생각(추론)이 긴 모델은 추론 수준을 low 이하로 고르면 빨라집니다.</FieldDescription>
+          <FieldDescription>API 연결만 됩니다. 모델은 하나로 고정하세요.</FieldDescription>
         </Field>
         <Field>
           <FieldLabel htmlFor="editor-ai-cap">하루 최대 호출</FieldLabel>
