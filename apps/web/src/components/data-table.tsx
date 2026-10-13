@@ -101,7 +101,12 @@ function saveWidths(id: string | undefined, widths: ColumnSizingState) {
  * per `id` in this browser. The table fills its container and scrolls sideways only when the
  * widths the user set add up to more.
  */
-export function DataTable<T>({
+/** Keyed by `id`: another table's saved widths and columns must not carry over when one instance switches tables. */
+export function DataTable<T>(props: Parameters<typeof Table<T>>[0]) {
+  return <Table key={props.id} {...props} />;
+}
+
+function Table<T>({
   id,
   columns,
   rows,

@@ -47,6 +47,8 @@ interface TagRowData {
   name: string;
   color: string;
   units: number;
+  /** Knowledge items and terms carrying it. */
+  items?: number;
   role?: string | null;
   /** Where the tag can be put (the app's tags: fixed by their role). */
   scope: TagScope[];
@@ -244,7 +246,7 @@ function StatusSettings() {
               ? '검사·검수가 찾은 문제 유형. 고치면 떨어짐'
               : '',
     },
-    { id: 'units', header: '붙은 수', meta: { width: 88, align: 'end' }, cell: ({ row }) => (row.original.tag ? row.original.tag.units.toLocaleString() : <span className="text-muted-foreground">–</span>) },
+    { id: 'units', header: '붙은 수', meta: { width: 88, align: 'end' }, cell: ({ row }) => (row.original.tag ? (row.original.tag.units + (row.original.tag.items ?? 0)).toLocaleString() : <span className="text-muted-foreground">–</span>) },
   ];
 
   const pane =
