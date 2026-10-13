@@ -93,18 +93,21 @@ export function PairTable({ pairs, loading, selected, picked, onPick, onOpen, bu
     {
       id: 'pair',
       header: '화자 → 청자',
-      meta: { width: 240, className: 'font-medium' },
+      meta: { width: 300, className: 'font-medium' },
       cell: ({ row: { original: pair } }) => {
         const reasons = pair.rules.map(reviewOf).filter((reason): reason is string => reason !== null);
         return (
-          <>
-            {pair.from} → {listenerLabel(pair.to)}
+          // The names give way (cut with …), never the badge: it is the reason to open the row.
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="min-w-0 truncate" title={`${pair.from} → ${listenerLabel(pair.to)}`}>
+              {pair.from} → {listenerLabel(pair.to)}
+            </span>
             {reasons.length > 0 && (
-              <span className="ml-2 align-middle">
+              <span className="shrink-0">
                 <ReviewBadge reasons={reasons.join('\n')} />
               </span>
             )}
-          </>
+          </span>
         );
       },
     },
