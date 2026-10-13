@@ -20,6 +20,12 @@ import type { SecretStore } from './secrets.ts';
  * parts and five times cheaper; splitting is only for scripts larger than the model's window.
  */
 export const ANALYSIS_PART_TOKENS = 300_000;
+/** The answer was cut off at the model's output limit (an API's finishReason length, a CLI saying so). */
+export function outputCutOff(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /output token limit|exceeded the (?:maximum )?output|finishReason: length|max_?tokens|response was cut off/i.test(message);
+}
+
 /** A part split in two at a scene boundary (each scene block starts with "## "); null for a single scene. */
 export function splitPart(part: string): [string, string] | null {
   const blocks = part.split(/\n\n(?=## )/);
@@ -162,7 +168,9 @@ export class AnalysisService {
     const usage = { inputTokens: 0, outputTokens: 0 };
     const answers: { hash: string; answer: unknown }[] = [];
     try {
-      // Parts the model refuses as longer than its context window are split in two and read again.
+      // Parts the model refuses as longer than its context window, or whose answer was cut off at the
+      // model's output limit (a whole game's listeners and terms can be as long as the script), are
+      // split in two at a scene boundary and read again.
       const queue = [...parts];
       for (let index = 0; index < queue.length; index++) {
         const part = queue[index];
@@ -195,7 +203,7 @@ export class AnalysisService {
             signal,
           )
           .catch((error: unknown) => {
-            const halves = (error as { code?: string }).code === 'too-long' ? splitPart(part) : null;
+            const halves = (error as { code?: string }).code === 'too-long' || outputCutOff(error) ? splitPart(part) : null;
             if (!halves) throw error;
             return halves;
           });

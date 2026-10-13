@@ -301,6 +301,33 @@ describe('work analysis', () => {
     expect(prompts).toHaveLength(3);
   });
 
+  it('splits a part whose answer was cut off at the output limit, as one that is too long', async () => {
+    const { db, choice } = setup();
+    const file = importFileSchema.parse({
+      format: 'loca/v1',
+      project: { name: 'Two scenes' },
+      groups: [{ key: 'g1', title: 'Harbor' }, { key: 'g2', title: 'Deck' }],
+      units: [
+        { key: 'a1', group: 'g1', speaker: 'Alice', source: "You're late." },
+        { key: 'b1', group: 'g2', speaker: 'Bob', source: 'Aye.' },
+      ],
+    });
+    const { projectId } = importProject(db, file);
+    const prompts: string[] = [];
+    const service = new AnalysisService(db, memoryStore(), {
+      generate: async (_route, request) => {
+        prompts.push(request.prompt);
+        // What agy says when the whole game's answer does not fit its output limit.
+        if ((request.prompt.match(/^## /gm) ?? []).length > 1) throw new ModelError('cli', 'CLI가 실패를 반환했습니다: Your previous response was cut off because it exceeded the output token limit', false);
+        return { object: draft('hae'), usage: { inputTokens: 1, outputTokens: 1 } } as never;
+      },
+    });
+    service.start(projectId, choice);
+    const job = await settle(service, projectId);
+    expect(job).toMatchObject({ status: 'completed', partsTotal: 2, partsDone: 2 });
+    expect(prompts).toHaveLength(3);
+  });
+
   it('cuts a part between scenes, near its middle', () => {
     expect(splitPart('## a\n  L1 x\n\n## b\n  L2 y\n\n## c\n  L3 z')).toEqual(['## a\n  L1 x\n\n## b\n  L2 y', '## c\n  L3 z']);
     expect(splitPart('## a\n  L1 x')).toBeNull();
