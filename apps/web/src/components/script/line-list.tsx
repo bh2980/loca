@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
-import { Check, CircleAlert, ListChecks, MoreHorizontal, PanelRightOpen, Play, Sparkles, Tags, X } from 'lucide-react';
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Check, CircleAlert, ListChecks, ListFilter, MoreHorizontal, PanelRightOpen, Play, Sparkles, Tags, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { checkFormat, LISTENER_MIN_CONFIDENCE, listenerLabel, mentions, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
 import { BulkBar } from '@/components/data-table';
@@ -12,12 +12,14 @@ import { TranslationEditor } from '@/components/translation-editor';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Input } from '@/components/ui/input';
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { client, unwrap } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
+import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
@@ -34,6 +36,11 @@ export interface LinesSearch {
   remaining?: true;
   /** Only lines whose status a run set and no person has looked at since (✦). */
   by?: 'ai';
+  /**
+   * How a filter shows: walked one by one inside their scenes (find, the default for speaker and
+   * listener, where the conversation matters) or listed apart (list, the default for the rest).
+   */
+  view?: 'find' | 'list';
   page?: number;
   line?: string;
   /** The line's details pane is open (closed by default: the row itself is the editor). */
@@ -51,12 +58,28 @@ export const linesSearchSchema = (raw: Record<string, unknown>): LinesSearch => 
   listener: typeof raw.listener === 'string' && raw.listener ? raw.listener : undefined,
   remaining: raw.remaining === true || raw.remaining === 'true' ? true : undefined,
   by: raw.by === 'ai' ? 'ai' : undefined,
+  view: raw.view === 'find' || raw.view === 'list' ? raw.view : undefined,
   page: typeof raw.page === 'number' && raw.page > 0 ? raw.page : undefined,
   line: typeof raw.line === 'string' ? raw.line : undefined,
   detail: raw.detail === true || raw.detail === 'true' ? true : undefined,
   lineTab: typeof raw.lineTab === 'string' && LINE_TABS.includes(raw.lineTab as LineTab) && raw.lineTab !== 'checks' ? (raw.lineTab as LinesSearch['lineTab']) : undefined,
   aiNode: typeof raw.aiNode === 'string' && raw.aiNode.includes(':') ? raw.aiNode : undefined,
 });
+
+/** Whether any line filter is set (search, status, tag, speaker, listener, 남은 줄만, AI가 정한 것만). */
+export const hasLineFilter = (search: LinesSearch) => Boolean(search.q || search.status || search.tag || search.speaker || search.listener || search.remaining || search.by);
+/** Whether the filter is walked inside the scenes rather than listed apart. */
+export const isFinding = (search: LinesSearch) => hasLineFilter(search) && (search.view === 'find' || (search.view !== 'list' && Boolean(search.speaker || search.listener)));
+
+/** The set filters as removable chips (also the find bar's label). */
+export function filterChips(search: LinesSearch, statuses: { id: string; name: string }[], tags: { id: string; name: string }[]) {
+  return [
+    search.status && { key: 'status', label: `상태: ${statuses.find((status) => status.id === search.status)?.name ?? '?'}`, clear: { status: undefined } },
+    search.tag && { key: 'tag', label: `태그: #${tags.find((tag) => tag.id === search.tag)?.name ?? '?'}`, clear: { tag: undefined } },
+    search.speaker && { key: 'speaker', label: `화자: ${search.speaker}`, clear: { speaker: undefined } },
+    search.listener && { key: 'listener', label: search.listener === '-' ? '청자 미상' : `청자: ${search.listener}`, clear: { listener: undefined } },
+  ].filter(Boolean) as { key: string; label: string; clear: Partial<LinesSearch> }[];
+}
 
 /** Who the line is addressed to. Unsure AI guesses count as unknown. */
 function listenerText(line: { listener: string | null; listenerOrigin: 'import' | 'ai' | 'human' | null; listenerConfidence: number | null }) {
@@ -82,6 +105,9 @@ export function LineList({
   heading,
   actions,
   menu,
+  onOpenScene,
+  find,
+  banner,
 }: {
   projectId: string;
   groupId?: string;
@@ -93,6 +119,12 @@ export function LineList({
   actions?: ReactNode;
   /** Extra items for the "더 보기" menu (what this group can do besides translating). */
   menu?: ReactNode;
+  /** Opens a line in its own scene, without this list's filters. */
+  onOpenScene?: (groupId: string, lineId: string) => void;
+  /** Walking a filter inside this scene: every line shows, the matching ones are marked. */
+  find?: { ids: Set<string>; label: string };
+  /** Shown between the toolbar and the lines (the find bar). */
+  banner?: ReactNode;
 }) {
   const statuses = useQuery(q.statuses(projectId));
   const page = search.page ?? 0;
@@ -105,7 +137,12 @@ export function LineList({
     if (search.line && search.line !== pickedHere.current) setFocusing(search.line);
   }, [search.line]);
   const lines = useQuery(
-    q.units(projectId, { groupId, kind, review: review ? '1' : undefined, remaining: search.remaining ? '1' : undefined, by: search.by, q: search.q, statusId: search.status, tagId: search.tag, speaker: search.speaker, listener: search.listener, focus: focusing, offset: page * PAGE_SIZE, limit: PAGE_SIZE }),
+    q.units(
+      projectId,
+      find
+        ? { groupId, focus: focusing, offset: page * PAGE_SIZE, limit: PAGE_SIZE }
+        : { groupId, kind, review: review ? '1' : undefined, remaining: search.remaining ? '1' : undefined, by: search.by, q: search.q, statusId: search.status, tagId: search.tag, speaker: search.speaker, listener: search.listener, focus: focusing, offset: page * PAGE_SIZE, limit: PAGE_SIZE },
+    ),
   );
   useEffect(() => {
     if (!focusing || !lines.data || lines.isPlaceholderData) return;
@@ -119,6 +156,7 @@ export function LineList({
   const rows = lines.data?.rows;
   const total = lines.data?.total ?? 0;
   const showScene = !groupId;
+  const speakers = useQuery(q.speakers(projectId));
   // Bumped whenever the picked line's editor should take the focus; 0 = just looking.
   const [focusTick, setFocusTick] = useState(0);
   const setEditing = (edit: boolean) => setFocusTick((tick) => (edit ? tick + 1 : 0));
@@ -143,13 +181,22 @@ export function LineList({
     setPicking(false);
     setPicked(new Set());
   };
+  const queryClient = useQueryClient();
+  const undoOnError = (error: Error, _vars: unknown, context: { undo: () => void } | undefined) => {
+    context?.undo();
+    toast.error(error.message);
+  };
   const setStatus = useMutation({
     mutationFn: (statusId: string) => unwrap(client.projects[':projectId'].units.$patch({ param: { projectId }, json: { unitIds: [...picked], statusId } })),
+    onMutate: async (statusId) => ({ undo: await optimistic(queryClient, unitChanges(picked, patchedLine({ statusId }))) }),
     onSuccess: () => toast.success(`${picked.size}개 대사의 상태를 바꿨습니다.`),
+    onError: undoOnError,
   });
   // 확인함: the statuses stay; a person now holds them, so the ✦ goes.
   const check = useMutation({
     mutationFn: (unitIds: string[]) => unwrap(client.projects[':projectId'].units.$patch({ param: { projectId }, json: { unitIds, checked: true } })),
+    onMutate: async (unitIds) => ({ undo: await optimistic(queryClient, unitChanges(new Set(unitIds), patchedLine({ checked: true }))) }),
+    onError: undoOnError,
     onSuccess: (_data, unitIds) => {
       toast.success(`${unitIds.length}개 대사를 확인했습니다.`);
       if (search.by) stopPicking();
@@ -159,6 +206,8 @@ export function LineList({
   const setTag = useMutation({
     mutationFn: ({ tagId, add }: { tagId: string; add: boolean }) =>
       unwrap(client.projects[':projectId'].units.$patch({ param: { projectId }, json: add ? { unitIds: [...picked], addTagIds: [tagId] } : { unitIds: [...picked], removeTagIds: [tagId] } })),
+    onMutate: async ({ tagId, add }) => ({ undo: await optimistic(queryClient, unitChanges(picked, patchedLine(add ? { addTagIds: [tagId] } : { removeTagIds: [tagId] }))) }),
+    onError: undoOnError,
     onSuccess: (_data, { tagId, add }) => toast.success(`${picked.size}개 대사${add ? '에' : '에서'} #${tagById.get(tagId)?.name} 태그를 ${add ? '붙였습니다' : '뗐습니다'}.`),
   });
 
@@ -238,13 +287,8 @@ export function LineList({
     }
   }, [search.line, rows]);
 
-  // Filters that came from elsewhere (home, search, a glossary link) show as removable chips.
-  const chips = [
-    search.status && { key: 'status', label: `상태: ${statusById.get(search.status)?.name ?? '?'}`, clear: { status: undefined } },
-    search.tag && { key: 'tag', label: `태그: #${tagById.get(search.tag)?.name ?? '?'}`, clear: { tag: undefined } },
-    search.speaker && { key: 'speaker', label: `화자: ${search.speaker}`, clear: { speaker: undefined } },
-    search.listener && { key: 'listener', label: search.listener === '-' ? '청자 미상만' : `청자: ${search.listener}`, clear: { listener: undefined } },
-  ].filter(Boolean) as { key: string; label: string; clear: Partial<LinesSearch> }[];
+  // Set filters show as removable chips; while finding, the find bar shows them instead.
+  const chips = find ? [] : filterChips(search, statusList, statuses.data?.tags ?? []);
 
   return (
     <SplitPane
@@ -295,12 +339,25 @@ export function LineList({
           {search.by ? <Check /> : <Sparkles />} AI가 정한 것만
         </Button>
         <SearchInput value={search.q} onChange={(value) => onSearch({ q: value, page: undefined })} placeholder="찾기" className="w-44" />
+        <LineFilters
+          statuses={statusList}
+          tags={statuses.data?.tags ?? []}
+          speakers={(speakers.data ?? []).flatMap((row) => (row.speaker ? [{ name: row.speaker, lines: row.lines }] : []))}
+          search={search}
+          onSearch={(next) => onSearch({ ...next, page: undefined })}
+        />
         {chips.map((chip) => (
           <Button key={chip.key} variant="secondary" onClick={() => onSearch({ ...chip.clear, page: undefined })} aria-label={`${chip.label} 필터 지우기`}>
             {chip.label} <X />
           </Button>
         ))}
+        {!find && !review && (search.speaker || search.listener || search.status || search.tag) && (
+          <Button variant="ghost" onClick={() => onSearch({ view: search.speaker || search.listener ? undefined : 'find', page: undefined })}>
+            장면에서 찾아가기
+          </Button>
+        )}
       </Toolbar>
+      {banner}
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {!rows ? (
@@ -313,16 +370,28 @@ export function LineList({
           <p className="px-4 py-16 text-center text-sm text-muted-foreground">{search.by ? 'AI가 정하고 확인하지 않은 줄이 없습니다.' : review ? '검토할 대사가 없습니다.' : search.remaining ? '남은 줄이 없습니다. 모두 최종 상태입니다.' : '맞는 대사가 없습니다.'}</p>
         ) : (
           <ul>
-            {rows.map((line) => {
+            {rows.map((line, index) => {
               const selected = line.id === search.line;
+              const newScene = showScene && rows[index - 1]?.groupId !== line.groupId;
+              const marked = find?.ids.has(line.id);
               const status = statusById.get(line.statusId);
               const who = listenerText(line);
               return (
+                <Fragment key={line.id}>
+                {newScene && (
+                  <li className="sticky top-0 z-10 flex items-center gap-2 border-b bg-muted/80 px-4 py-1 text-xs text-muted-foreground backdrop-blur">
+                    <span className="truncate font-medium text-foreground">{line.groupTitle}</span>
+                    {onOpenScene && (
+                      <Button variant="ghost" size="inline" className="ml-auto" onClick={() => onOpenScene(line.groupId, line.id)}>
+                        장면 열기
+                      </Button>
+                    )}
+                  </li>
+                )}
                 <li
-                  key={line.id}
                   ref={selected ? selectedRow : undefined}
                   onClick={() => !selected && select(line.id, true)}
-                  className={cn('flex gap-3 border-b px-4 transition-colors', selected ? 'bg-muted/60 py-3 shadow-[inset_2px_0_0_var(--primary)]' : 'cursor-pointer py-2.5 hover:bg-muted/40')}
+                  className={cn('flex gap-3 border-b px-4 transition-colors', selected ? 'bg-muted/60 py-3 shadow-[inset_2px_0_0_var(--primary)]' : 'cursor-pointer py-2.5 hover:bg-muted/40', marked && !selected && 'bg-warning/5 shadow-[inset_2px_0_0_var(--warning)]')}
                   style={line.id === arrived ? { animation: 'line-arrived 2s ease-out' } : undefined}
                   onAnimationEnd={() => setArrived(undefined)}
                 >
@@ -331,8 +400,8 @@ export function LineList({
                     <div className="min-w-0">
                       <p className="mb-0.5 flex min-w-0 gap-1 text-xs text-muted-foreground">
                         <span className="truncate">{line.speaker ?? '지문'}</span>
+                        {marked && <span className="shrink-0 text-warning">● {find!.label}</span>}
                         {selected && line.kind === 'dialogue' && <span className={cn('truncate', who.unknown && 'text-warning')}>→ {who.text}</span>}
-                        {showScene && <span className="ml-auto truncate pl-2">{line.groupTitle}</span>}
                       </p>
                       <p className={cn('break-words whitespace-pre-wrap', selected ? 'text-base' : 'text-sm')}>{line.source}</p>
                     </div>
@@ -367,6 +436,7 @@ export function LineList({
                     </div>
                   </div>
                 </li>
+                </Fragment>
               );
             })}
           </ul>
@@ -472,5 +542,78 @@ function LineHints({ projectId, line, onDetail }: { projectId: string; line: { i
         <PanelRightOpen /> 자세히
       </Button>
     </div>
+  );
+}
+
+/**
+ * Filters the list by status, tag, speaker or listener. Each choice goes into the URL and shows as
+ * a removable chip next to the search, like filters that arrive from a link.
+ */
+function LineFilters({ statuses, tags, speakers, search, onSearch }: {
+  statuses: { id: string; name: string; color: string }[];
+  tags: { id: string; name: string }[];
+  speakers: { name: string; lines: number }[];
+  search: LinesSearch;
+  onSearch: (next: Partial<LinesSearch>) => void;
+}) {
+  const [needle, setNeedle] = useState('');
+  const shown = speakers.filter((speaker) => !needle || speaker.name.toLowerCase().includes(needle.toLowerCase())).slice(0, 40);
+  return (
+    <DropdownMenu onOpenChange={(open) => !open && setNeedle('')}>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline">
+          <ListFilter /> 필터
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-48">
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>상태</DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="max-h-80 overflow-y-auto">
+            {statuses.map((status) => (
+              <DropdownMenuCheckboxItem key={status.id} checked={search.status === status.id} onCheckedChange={(on) => onSearch({ status: on ? status.id : undefined })}>
+                <StatusDot color={status.color} /> {status.name}
+              </DropdownMenuCheckboxItem>
+            ))}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger disabled={!tags.length}>태그</DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="max-h-80 overflow-y-auto">
+            {tags.map((tag) => (
+              <DropdownMenuCheckboxItem key={tag.id} checked={search.tag === tag.id} onCheckedChange={(on) => onSearch({ tag: on ? tag.id : undefined })}>
+                #{tag.name}
+              </DropdownMenuCheckboxItem>
+            ))}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>화자</DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="w-56">
+            <Input value={needle} onChange={(event) => setNeedle(event.target.value)} onKeyDown={(event) => event.stopPropagation()} placeholder="이름 찾기" className="mb-1" aria-label="화자 찾기" />
+            <div className="max-h-72 overflow-y-auto">
+              {shown.map((speaker) => (
+                <DropdownMenuCheckboxItem key={speaker.name} checked={search.speaker === speaker.name} onCheckedChange={(on) => onSearch({ speaker: on ? speaker.name : undefined })}>
+                  <span className="min-w-0 flex-1 truncate">{speaker.name}</span>
+                  <span className="text-xs text-muted-foreground tabular-nums">{speaker.lines.toLocaleString()}</span>
+                </DropdownMenuCheckboxItem>
+              ))}
+            </div>
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>청자</DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="max-h-80 w-56 overflow-y-auto">
+            <DropdownMenuCheckboxItem checked={search.listener === '-'} onCheckedChange={(on) => onSearch({ listener: on ? '-' : undefined })}>
+              청자 미상 (대사만)
+            </DropdownMenuCheckboxItem>
+            {speakers.slice(0, 40).map((speaker) => (
+              <DropdownMenuCheckboxItem key={speaker.name} checked={search.listener === speaker.name} onCheckedChange={(on) => onSearch({ listener: on ? speaker.name : undefined })}>
+                {speaker.name}에게
+              </DropdownMenuCheckboxItem>
+            ))}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

@@ -33,6 +33,24 @@ const listQuery = z.object({
   limit: z.coerce.number().int().min(1).max(500).default(100),
 });
 
+/** The line filters shared by the list and its matches: one SQL condition. */
+function unitConditions(projectId: string, query: Omit<z.infer<typeof listQuery>, 'offset' | 'limit' | 'focus'>) {
+  const conditions: SQL[] = [eq(s.units.projectId, projectId)];
+  if (query.groupId) conditions.push(eq(s.units.groupId, query.groupId));
+  if (query.kind) conditions.push(eq(s.groups.kind, query.kind));
+  if (query.statusId) conditions.push(eq(s.units.statusId, query.statusId));
+  if (query.tagId) conditions.push(sql`${s.units.id} in (select unit_id from ${s.unitTags} where tag_id = ${query.tagId})`);
+  if (query.q) conditions.push(textFilter(query.q));
+  if (query.speaker) conditions.push(eq(s.units.speaker, query.speaker));
+  // Unknown listener: dialogue only (narration has no listener), as the home page counts it.
+  if (query.listener === '-') conditions.push(and(eq(s.units.kind, 'dialogue'), sql`not ${knownListener}`)!);
+  else if (query.listener) conditions.push(and(eq(s.units.listener, query.listener), knownListener)!);
+  if (query.review) conditions.push(sql`${s.units.statusId} in (select id from ${s.statuses} where ${s.statuses.projectId} = ${projectId} and ${s.statuses.inReview} = 1)`);
+  if (query.by) conditions.push(eq(s.units.statusBy, query.by));
+  if (query.remaining) conditions.push(sql`${s.units.statusId} in (select id from ${s.statuses} where ${s.statuses.projectId} = ${projectId} and ${s.statuses.kind} != 'final')`);
+  return and(...conditions)!;
+}
+
 const unitPatch = z.object({
   /** New text from a person: stored as a human candidate and selected. */
   translation: z.string().optional(),
@@ -135,23 +153,21 @@ export const sourceRoutes = new Hono<Env>()
     const { db } = c.var.deps;
     return c.json(found(db.select().from(s.groups).where(eq(s.groups.id, c.req.param('groupId'))).get(), '장면'));
   })
+  /**
+   * Every line a filter matches, in script order, with its scene: the translation screen walks
+   * them one by one inside their scenes (찾아가기) instead of listing them apart from their context.
+   */
+  .get('/projects/:projectId/units/matches', validate('query', listQuery.omit({ offset: true, limit: true, focus: true })), (c) => {
+    const query = c.req.valid('query');
+    const base = c.var.deps.db.select({ id: s.units.id, groupId: s.units.groupId }).from(s.units);
+    const rows = (query.kind ? base.innerJoin(s.groups, eq(s.groups.id, s.units.groupId)) : base).where(unitConditions(c.req.param('projectId'), query)).orderBy(asc(s.units.seq)).all();
+    return c.json({ rows });
+  })
   .get('/projects/:projectId/units', validate('query', listQuery), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     const query = c.req.valid('query');
-    const conditions: SQL[] = [eq(s.units.projectId, projectId)];
-    if (query.groupId) conditions.push(eq(s.units.groupId, query.groupId));
-    if (query.kind) conditions.push(eq(s.groups.kind, query.kind));
-    if (query.statusId) conditions.push(eq(s.units.statusId, query.statusId));
-    if (query.tagId) conditions.push(sql`${s.units.id} in (select unit_id from ${s.unitTags} where tag_id = ${query.tagId})`);
-    if (query.q) conditions.push(textFilter(query.q));
-    if (query.speaker) conditions.push(eq(s.units.speaker, query.speaker));
-    if (query.listener === '-') conditions.push(sql`not ${knownListener}`);
-    else if (query.listener) conditions.push(and(eq(s.units.listener, query.listener), knownListener)!);
-    if (query.review) conditions.push(sql`${s.units.statusId} in (select id from ${s.statuses} where ${s.statuses.projectId} = ${projectId} and ${s.statuses.inReview} = 1)`);
-    if (query.by) conditions.push(eq(s.units.statusBy, query.by));
-    if (query.remaining) conditions.push(sql`${s.units.statusId} in (select id from ${s.statuses} where ${s.statuses.projectId} = ${projectId} and ${s.statuses.kind} != 'final')`);
-    const where = and(...conditions);
+    const where = unitConditions(projectId, query);
     // The groups table is only needed for the kind filter; without it the count is one index range.
     const counted = db.select({ count: count() }).from(s.units);
     const total = (query.kind ? counted.innerJoin(s.groups, eq(s.groups.id, s.units.groupId)) : counted).where(where).get()!.count;
