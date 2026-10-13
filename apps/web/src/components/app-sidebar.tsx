@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { Fragment, useEffect } from 'react';
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Check, ChevronsUpDown, Languages, Plus } from 'lucide-react';
@@ -13,6 +13,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
+  SidebarSeparator,
 } from '@/components/ui/sidebar';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { SECTIONS, useCurrentNav, type Section } from '@/lib/nav';
@@ -43,6 +44,9 @@ function SectionItem({ section, projectId, active, badge }: { section: Section; 
     </SidebarMenuItem>
   );
 }
+
+/** The sidebar's blocks above settings, with a line between: home | 번역 · 문맥 | 워크플로 · AI. */
+const GROUPS = ['home', 'text', 'automation'] as const;
 
 export function AppSidebar({ projectId }: { projectId: string }) {
   const navigate = useNavigate();
@@ -98,13 +102,18 @@ export function AppSidebar({ projectId }: { projectId: string }) {
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <SidebarGroup>
-          <SidebarMenu>
-            {SECTIONS.filter((section) => section.id !== 'settings').map((section) => (
-              <SectionItem key={section.id} section={section} projectId={projectId} active={section.id === current.section.id} badge={section.id === 'translate' ? project.data?.reviewCount : undefined} />
-            ))}
-          </SidebarMenu>
-        </SidebarGroup>
+        {GROUPS.map((group, index) => (
+          <Fragment key={group}>
+          {index > 0 && <SidebarSeparator className="mx-3 data-[orientation=horizontal]:w-auto" />}
+          <SidebarGroup className="py-1">
+            <SidebarMenu>
+              {SECTIONS.filter((section) => section.group === group).map((section) => (
+                <SectionItem key={section.id} section={section} projectId={projectId} active={section.id === current.section.id} badge={section.id === 'translate' ? project.data?.reviewCount : undefined} />
+              ))}
+            </SidebarMenu>
+          </SidebarGroup>
+          </Fragment>
+        ))}
       </SidebarContent>
       <SidebarFooter>
         <SidebarMenu>

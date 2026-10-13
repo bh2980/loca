@@ -1,5 +1,5 @@
 import { useRouterState } from '@tanstack/react-router';
-import { BookOpenText, Cog, Home, Languages, Workflow, type LucideIcon } from 'lucide-react';
+import { BookOpenText, Cog, Home, Languages, Sparkles, Workflow, type LucideIcon } from 'lucide-react';
 
 /** One screen inside a menu section: shown as a tab in the top bar. */
 export interface SectionTab {
@@ -13,21 +13,25 @@ export interface SectionTab {
 }
 
 export interface Section {
-  id: 'home' | 'translate' | 'context' | 'automation' | 'settings';
+  id: 'home' | 'translate' | 'context' | 'workflows' | 'ai' | 'settings';
   label: string;
+  /** The sidebar's block: the home, the work on the text, what automates it; settings sit at the bottom. */
+  group: 'home' | 'text' | 'automation' | 'settings';
   icon: LucideIcon;
   tabs: SectionTab[];
 }
 
 /**
- * The five menus, in the order the work goes: what to do next, translating and reviewing, the
- * context AI nodes read, the workflows that move lines, and settings. A menu's screens are tabs.
+ * The menus, in the order the work goes: what to do next; translating and the context AI nodes
+ * read; the workflows that move lines and the AI they call (how it is used, connections, keys);
+ * and settings. A menu's screens are tabs.
  */
 export const SECTIONS: Section[] = [
-  { id: 'home', label: '홈', icon: Home, tabs: [{ label: '홈', path: '' }] },
+  { id: 'home', label: '홈', group: 'home', icon: Home, tabs: [{ label: '홈', path: '' }] },
   {
     id: 'translate',
     label: '번역',
+    group: 'text',
     icon: Languages,
     tabs: [
       { label: '대사', path: '/script', also: ['/reviews'] },
@@ -37,6 +41,7 @@ export const SECTIONS: Section[] = [
   {
     id: 'context',
     label: '문맥',
+    group: 'text',
     icon: BookOpenText,
     tabs: [
       { label: '문서', path: '/knowledge', search: { tab: 'documents' } },
@@ -46,8 +51,9 @@ export const SECTIONS: Section[] = [
     ],
   },
   {
-    id: 'automation',
-    label: '자동화',
+    id: 'workflows',
+    label: '워크플로',
+    group: 'automation',
     icon: Workflow,
     tabs: [
       { label: '워크플로', path: '/workflows' },
@@ -55,14 +61,23 @@ export const SECTIONS: Section[] = [
     ],
   },
   {
+    id: 'ai',
+    label: 'AI',
+    group: 'automation',
+    icon: Sparkles,
+    tabs: [
+      { label: '사용 방식', path: '/ai/usage' },
+      { label: '연결', path: '/ai/connections' },
+      { label: 'API 키', path: '/ai/keys' },
+    ],
+  },
+  {
     id: 'settings',
     label: '설정',
+    group: 'settings',
     icon: Cog,
     tabs: [
       { label: '상태·태그', path: '/settings/statuses' },
-      { label: 'AI 연결', path: '/settings/ai' },
-      { label: 'AI 권한', path: '/settings/ai-permissions' },
-      { label: 'API 키', path: '/settings/keys' },
       { label: '프로젝트', path: '/settings/project' },
     ],
   },

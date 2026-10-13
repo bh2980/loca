@@ -337,7 +337,7 @@ describe('function nodes', () => {
     expect(byKey.get('u1')!.translation).toBe('[Line 1]');
     expect(received).toEqual([{ text: '[Hi {name}]' }]);
     expect(items[0].data.outputs?.script).toEqual({ terms: 2 });
-    // New terms are added once, confirmed by AI (설정 › AI 확정 default); a known one (any case) is not added again, only filled.
+    // New terms are added once, confirmed by AI (AI › 사용 방식 default); a known one (any case) is not added again, only filled.
     const terms = db.select().from(s.terms).where(eq(s.terms.projectId, projectId)).all();
     expect(terms.map((term) => [term.source, term.target, term.note, term.status, term.statusBy])).toEqual([
       ['directorate', '총국', '기관', 'candidate', 'human'],

@@ -18,6 +18,6 @@ export function byPerson(db: Db, table: DecidedTable, id: string, body: Record<s
   return { statusBy: 'human' as const, ...(rewrote ? { origin: 'human' as const } : {}) };
 }
 
-/** The project's 설정 › AI 확정, every kind filled (absent kinds: auto). Read when AI results are saved. */
+/** The project's AI › 사용 방식, every kind filled (absent kinds: auto). Read when AI results are saved. */
 export const aiConfirmOf = (db: Db, projectId: string): AiConfirm =>
   aiConfirmSchema.parse(db.select({ aiConfirm: s.projects.aiConfirm }).from(s.projects).where(eq(s.projects.id, projectId)).get()?.aiConfirm ?? {});

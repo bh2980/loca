@@ -16,7 +16,7 @@ import { Input } from '@/components/ui/input';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 
-export const Route = createFileRoute('/p/$projectId/settings/keys')({
+export const Route = createFileRoute('/p/$projectId/ai/keys')({
   validateSearch: (raw: Record<string, unknown>): { key?: string } => ({ key: typeof raw.key === 'string' && raw.key ? raw.key : undefined }),
   component: ApiKeys,
 });

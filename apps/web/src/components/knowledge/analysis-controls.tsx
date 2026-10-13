@@ -52,7 +52,7 @@ export function JobStatus({ projectId }: { projectId: string }) {
 /** Whether an analysis has finished before, so its drafts exist. */
 export const hasAnalysis = (jobs: { status: string }[] | undefined) => (jobs ?? []).some((job) => job.status === 'completed');
 
-/** Start (or redo) a work analysis with a connection + model; how its drafts land is 설정 › AI 권한. */
+/** Start (or redo) a work analysis with a connection + model; how its drafts land is AI › 사용 방식. */
 export function StartAnalysis({ projectId, variant = 'default' }: { projectId: string; /** Outline once drafts exist and another action is the screen's primary. */ variant?: 'default' | 'outline' }) {
   const jobs = useQuery(q.analysisJobs(projectId));
   const initial = useInitialModel(['generate'], jobs.data?.[0]);

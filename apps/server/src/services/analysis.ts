@@ -340,7 +340,7 @@ export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: A
       return key ? [key] : [];
     });
   const keyOrNull = (id: string | null) => (id ? (keyOf.get(id.trim()) ?? null) : null);
-  // Each kind lands as 설정 › AI 확정 says; AI set the status either way (docs/DESIGN.md 3.5).
+  // Each kind lands as AI › 사용 방식 says; AI set the status either way (docs/DESIGN.md 3.5).
   const draft = (kind: AiConfirmKind) => ({ status: aiStatus(policy, kind), statusBy: 'ai' as const, origin: 'ai' as const, jobId });
   const counts = { listeners: 0, rulesForReview: 0, terms: 0 };
 

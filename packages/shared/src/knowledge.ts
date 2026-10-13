@@ -36,7 +36,7 @@ export const sourceOf = (item: { origin: KnowledgeOrigin; jobId?: string | null 
 /** Nothing left to decide: confirmed by a person. Everything else can be confirmed or discarded. */
 export const isSettled = (item: { status: KnowledgeStatus; statusBy: StatusBy }) => item.status === 'confirmed' && item.statusBy === 'human';
 
-/** What becomes of AI results per knowledge kind (설정 › AI 확정): used right away, or a candidate. */
+/** What becomes of AI results per knowledge kind (AI › 사용 방식): used right away, or a candidate. */
 export const AI_CONFIRM_KINDS = { terms: '용어', documents: '문서', characters: '인물', relationships: '관계', events: '사건', speechRules: '말투 규칙' } as const;
 export type AiConfirmKind = keyof typeof AI_CONFIRM_KINDS;
 export const aiConfirmSchema = z.object({

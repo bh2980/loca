@@ -34,7 +34,7 @@ export const projects = sqliteTable('projects', {
   /** Which agent tools this project's chat (and the CLI) may use. */
   agentSettings: json<AgentSettings>('agent_settings').notNull().default(sql`'{"disabledTools":[]}'`),
   formatRules: json<FormatRules>('format_rules').notNull().default(sql`'{"presets":["brace","printf","angleTag"],"custom":[]}'`),
-  /** What becomes of AI results per knowledge kind (설정 › AI 확정). Absent kinds: auto. */
+  /** What becomes of AI results per knowledge kind (AI › 사용 방식). Absent kinds: auto. */
   aiConfirm: json<Partial<AiConfirm>>('ai_confirm').notNull().default(sql`'{}'`),
   /** The editor's AI continuation (off by default; see editorAiSchema). */
   editorAi: json<Partial<EditorAi>>('editor_ai').notNull().default(sql`'{}'`),

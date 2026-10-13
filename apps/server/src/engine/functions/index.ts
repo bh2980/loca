@@ -126,7 +126,7 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     const outputs = Object.entries(input.item.data.outputs ?? {});
     const source = params.fromNodeId ? input.item.data.outputs?.[params.fromNodeId] : outputs.reverse().find(([, output]) => Array.isArray(output.terms))?.[1];
     const found = (Array.isArray(source?.terms) ? source.terms : []) as { source?: string; target?: string; note?: string }[];
-    // New terms land as 설정 › AI 확정 says (one without a Korean form stays a candidate).
+    // New terms land as AI › 사용 방식 says (one without a Korean form stays a candidate).
     const policy = aiConfirmOf(tx as unknown as Db, input.projectId);
     // Candidates count too, so the whole table is read; cached until a term is written (including by this node).
     const existing = new Set(knowledgeOf(tx as unknown as Db, input.projectId).allTermSources().map((source) => source.toLowerCase()));
@@ -166,7 +166,7 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     const found = (source?.knowledge ?? null) as KnowledgeOutput | null;
     if (!found) return { port: 'out', output: { added: 0, proposed: 0, reason: '자료 변경 출력이 없습니다.' } };
     const projectId = input.projectId;
-    // Each kind lands as 설정 › AI 확정 says; AI set the status either way.
+    // Each kind lands as AI › 사용 방식 says; AI set the status either way.
     const policy = aiConfirmOf(tx as unknown as Db, projectId);
     const ai = (kind: AiConfirmKind) => ({ origin: 'ai' as const, statusBy: 'ai' as const, status: aiStatus(policy, kind) });
     const lower = (value: string) => value.trim().toLowerCase();

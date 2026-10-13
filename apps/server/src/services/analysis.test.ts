@@ -80,7 +80,7 @@ describe('work analysis', () => {
     // A person reviews one rule; the rerun keeps it, replaces the rest, and does not propose the kept one again.
     db.update(s.speechRules).set({ statusBy: 'human' }).where(eq(s.speechRules.fromName, 'Alice')).run();
     level = 'haeyo';
-    // 설정 › AI 확정: speech rules from AI now wait as candidates.
+    // AI › 사용 방식: speech rules from AI now wait as candidates.
     db.update(s.projects).set({ aiConfirm: { speechRules: 'candidate' } }).where(eq(s.projects.id, projectId)).run();
     service.start(projectId, choice);
     expect((await settle(service, projectId)).status).toBe('completed');

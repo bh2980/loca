@@ -2,20 +2,23 @@ import { createFileRoute } from '@tanstack/react-router';
 import { Page } from '@/components/page';
 import { AiConfirmList } from '@/components/settings/ai-confirm';
 import { AgentTab } from '@/components/settings/agent-tab';
+import { EditorAiSection } from '@/components/settings/editor-ai';
 
-export const Route = createFileRoute('/p/$projectId/settings/ai-permissions')({
+export const Route = createFileRoute('/p/$projectId/ai/usage')({
   component: AiPermissions,
 });
 
 /**
- * 설정 › AI 권한: what AI may do without asking — confirm what it made (per kind of knowledge) and
- * which tools the chat AI (and loca tools / loca call) may use.
+ * AI › 사용 방식: what AI does for the person in this project, in one place — the editor's
+ * continuation, confirming what it made (per kind of knowledge) without asking, and which tools
+ * the chat AI (and loca tools / loca call) may use.
  */
 function AiPermissions() {
   const { projectId } = Route.useParams();
   return (
-    <Page title="AI 권한">
+    <Page title="사용 방식">
       <div className="max-w-3xl space-y-8 p-4">
+        <EditorAiSection projectId={projectId} />
         <section className="space-y-3">
           <div>
             <h2 className="text-sm font-semibold">AI가 만든 것을 바로 확정</h2>

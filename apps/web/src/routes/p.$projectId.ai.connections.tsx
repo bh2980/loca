@@ -27,7 +27,7 @@ import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { keyStoreLabel } from '@/lib/keys';
 
-export const Route = createFileRoute('/p/$projectId/settings/ai')({
+export const Route = createFileRoute('/p/$projectId/ai/connections')({
   validateSearch: (raw: Record<string, unknown>): { conn?: string } => ({
     conn: typeof raw.conn === 'string' && raw.conn ? raw.conn : undefined,
   }),
@@ -69,7 +69,7 @@ function ConnectionSettings() {
     search.conn === 'new' ? <NewConnection onClose={close} /> : selected ? <ConnectionPane key={selected.id} connection={selected} onClose={close} /> : null;
 
   return (
-    <Page title="AI 연결" flush>
+    <Page title="연결" flush>
       <SplitPane id="settings-ai" defaultWidth="448px" className="h-full" pane={pane}>
         <div className="min-h-0 flex-1 overflow-auto">
           <Toolbar

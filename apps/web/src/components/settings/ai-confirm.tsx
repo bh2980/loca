@@ -11,7 +11,7 @@ export const AI_CONFIRM_LABELS = { auto: '자동 확정', candidate: '후보로�
 
 /**
  * Where an AI step that writes knowledge or terms says how its results land: the project's
- * 설정 › AI 권한 (there is no switch of its own), with a link there.
+ * AI › 사용 방식 (there is no switch of its own), with a link there.
  */
 export function AiConfirmNote({ projectId, kinds }: { projectId: string; kinds: AiConfirmKind[] }) {
   const project = useQuery(q.project(projectId));
@@ -24,8 +24,8 @@ export function AiConfirmNote({ projectId, kinds }: { projectId: string; kinds: 
   return (
     <p className="text-xs text-muted-foreground">
       결과: {summary} ·{' '}
-      <Link to="/p/$projectId/settings/ai-permissions" params={{ projectId }} className="underline underline-offset-2 hover:text-foreground">
-        AI 권한 설정
+      <Link to="/p/$projectId/ai/usage" params={{ projectId }} className="underline underline-offset-2 hover:text-foreground">
+        AI 사용 방식
       </Link>
     </p>
   );

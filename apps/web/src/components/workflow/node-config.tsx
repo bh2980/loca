@@ -213,7 +213,7 @@ function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRefs; onCh
           <>
             {connection?.fallback && <span className="block">이 연결이 막히면 연결 설정의 ‘막히면’으로 넘깁니다.</span>}
             시간 제한·시도 횟수·최대 출력은{' '}
-            <Link to="/p/$projectId/settings/ai" params={{ projectId: refs.projectId }} search={{ conn: config.model.connectionId || undefined }} className="underline">
+            <Link to="/p/$projectId/ai/connections" params={{ projectId: refs.projectId }} search={{ conn: config.model.connectionId || undefined }} className="underline">
               AI 연결 설정
             </Link>
             에서 정합니다.
