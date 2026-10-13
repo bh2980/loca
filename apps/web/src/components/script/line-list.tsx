@@ -106,6 +106,9 @@ function listenerText(line: { listener: string | null; listenerOrigin: ListenerO
   return { text: listenerLabel(line.listener), unknown: false };
 }
 
+/** What a line nobody says is, shown where the speaker would be. */
+const UNSPOKEN: Record<string, string> = { dialogue: '지문', ui: 'UI', document: '문서' };
+
 const typing = (target: EventTarget | null) => target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName));
 
 /**
@@ -380,19 +383,22 @@ export function LineList({
       {banner}
       {/* The head row: column labels, or the picked lines' actions (short labels and a container query keep them on one row). */}
       {!!rows?.length && (
-        <div className="flex min-h-10 shrink-0 items-center gap-3 border-b px-4 py-1 text-xs text-muted-foreground">
-          <Checkbox
-            aria-label="보이는 줄 모두 선택"
-            checked={rows.every((row) => picked.has(row.id)) ? true : rows.some((row) => picked.has(row.id)) ? 'indeterminate' : false}
-            onCheckedChange={(on) => pick(rows.map((row) => row.id), on === true)}
-          />
+        <div className="flex min-h-10 shrink-0 items-center border-b bg-muted/30 text-xs text-muted-foreground">
+          <span className="flex w-10 shrink-0 justify-center">
+            <Checkbox
+              aria-label="보이는 줄 모두 선택"
+              checked={rows.every((row) => picked.has(row.id)) ? true : rows.some((row) => picked.has(row.id)) ? 'indeterminate' : false}
+              onCheckedChange={(on) => pick(rows.map((row) => row.id), on === true)}
+            />
+          </span>
           {picked.size === 0 ? (
-            <div className="grid min-w-0 flex-1 grid-cols-2 gap-6">
-              <span>원문</span>
-              <span>번역</span>
-            </div>
+            <>
+              <span className="min-w-0 flex-1 px-3">원문</span>
+              <span className="w-8 shrink-0 self-stretch border-x" />
+              <span className="min-w-0 flex-1 px-3">번역</span>
+            </>
           ) : (
-            <div className="@container/picked flex min-w-0 flex-1 items-center gap-2">
+            <div className="@container/picked flex min-w-0 flex-1 items-center gap-2 pr-4">
               <span className="shrink-0 text-sm font-medium text-foreground tabular-nums">{picked.size.toLocaleString()}개</span>
               <Button variant="outline" disabled={pickedByAi.length === 0 || check.isPending} aria-label="확인함" title="상태는 그대로 두고 사람이 확인한 것으로 표시합니다(✦ 없앰)" onClick={() => check.mutate(pickedByAi)}>
                 <Check />
@@ -475,17 +481,23 @@ export function LineList({
                 <li
                   ref={selected ? selectedRow : undefined}
                   onClick={() => !selected && select(line.id, true)}
-                  className={cn('flex gap-3 border-b px-4 transition-colors', selected ? 'bg-muted/60 py-3 shadow-[inset_2px_0_0_var(--primary)]' : 'cursor-pointer py-2.5 hover:bg-muted/40', marked && !selected && 'bg-warning/5 shadow-[inset_2px_0_0_var(--warning)]')}
+                  className={cn('flex border-b transition-colors', selected ? 'bg-muted/60 shadow-[inset_2px_0_0_var(--primary)]' : 'cursor-pointer hover:bg-muted/40', marked && !selected && 'bg-warning/5 shadow-[inset_2px_0_0_var(--warning)]')}
                   style={line.id === arrived ? { animation: 'line-arrived 2s ease-out' } : undefined}
                   onAnimationEnd={() => setArrived(undefined)}
                 >
-                  <Checkbox className="mt-1" aria-label={`${line.key} 선택`} checked={picked.has(line.id)} onClick={(event) => event.stopPropagation()} onCheckedChange={(checked) => pick([line.id], Boolean(checked))} />
-                  <div className="grid min-w-0 flex-1 grid-cols-2 gap-6">
-                    <div className="min-w-0">
+                  <span className="flex w-10 shrink-0 justify-center pt-3">
+                    <Checkbox aria-label={`${line.key} 선택`} checked={picked.has(line.id)} onClick={(event) => event.stopPropagation()} onCheckedChange={(checked) => pick([line.id], Boolean(checked))} />
+                  </span>
+                    <div className={cn('min-w-0 flex-1 px-3', selected ? 'py-3' : 'py-2.5')}>
+                      {/* Who says it above the text; lines nobody says (UI, documents, narration) only name their kind. */}
                       <p className="mb-0.5 flex min-w-0 gap-1 text-xs text-muted-foreground">
-                        <SpeakerCard projectId={projectId} name={line.speaker}>
-                          <span className="truncate">{line.speaker ?? '지문'}</span>
-                        </SpeakerCard>
+                        {line.speaker ? (
+                          <SpeakerCard projectId={projectId} name={line.speaker}>
+                            <span className="truncate">{line.speaker}</span>
+                          </SpeakerCard>
+                        ) : (
+                          <span className="shrink-0 text-muted-foreground/70">{UNSPOKEN[line.kind] ?? '지문'}</span>
+                        )}
                         <NoteMark note={line.note} className="mt-px" />
                         {marked && <span className="shrink-0 text-warning">● {find!.label}</span>}
                         {selected && line.kind === 'dialogue' && <span className={cn('truncate', who.unknown && 'text-warning')}>→ {who.text}</span>}
@@ -498,7 +510,19 @@ export function LineList({
                         <TokenText text={line.source} source={line.source} pattern={tokenPattern} className="text-sm" />
                       )}
                     </div>
-                    <div className="min-w-0">
+                    {/* The status column between source and translation, as CAT tools have it. */}
+                    <div className={cn('flex w-8 shrink-0 flex-col items-center gap-1 border-x', selected ? 'pt-9.5' : 'pt-8.5')}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="flex">
+                            <StatusDot color={status?.color ?? '#a1a1aa'} />
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent>{status?.name}</TooltipContent>
+                      </Tooltip>
+                      {line.statusBy === 'ai' && <AiMark by="ai" />}
+                    </div>
+                    <div className={cn('min-w-0 flex-1 px-3', selected ? 'py-3' : 'py-2.5')}>
                       {selected ? (
                         <>
                           <TranslationEditor key={`editor-${line.id}`} projectId={projectId} unit={line} statuses={statusList} focusKey={focusTick} onEscape={() => setEditing(false)} onDone={(advanced) => (advanced ? advanceFrom(line.id) : undefined)} />
@@ -506,18 +530,9 @@ export function LineList({
                           <LineHints projectId={projectId} line={line} />
                         </>
                       ) : (
-                        <div className="flex gap-2 pt-4 text-sm">
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span className="mt-1.5 flex">
-                                <StatusDot color={status?.color ?? '#a1a1aa'} />
-                              </span>
-                            </TooltipTrigger>
-                            <TooltipContent>{status?.name}</TooltipContent>
-                          </Tooltip>
-                          {line.statusBy === 'ai' && <AiMark by="ai" className="mt-1 -ml-1" />}
+                        <div className="pt-4 text-sm">
                           <div className="min-w-0">
-                            {line.translation ? <TokenText text={line.translation} source={line.source} pattern={tokenPattern} /> : null}
+                            {line.translation ? <TokenText text={line.translation} source={line.source} pattern={tokenPattern} /> : <span className="text-muted-foreground/60">—</span>}
                             {line.tagIds.length > 0 && (
                               <div className="mt-1 flex flex-wrap gap-1">
                                 {lineTags(statuses.data?.tags)
@@ -549,7 +564,6 @@ export function LineList({
                         </div>
                       )}
                     </div>
-                  </div>
                 </li>
                 </Fragment>
               );
