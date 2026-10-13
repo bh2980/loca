@@ -152,15 +152,15 @@ function GraphPage() {
     else void navigate({ search: (previous) => ({ ...previous, node: id, edit: undefined }), replace: true });
   };
   const layout = graph.data?.layout;
-  // Arriving from a line: once the layout is drawn, centre on its node (inside a folded run, the run).
+  // Arriving from a line: the canvas opens centred on its node (inside a folded run, the run; a
+  // choice, what it leads to), then `jump` is forgotten. The line's scene only picks the section; it
+  // is not highlighted (the rest of the graph would dim while one only wants to read around the line).
+  const canvasShown = graph.data?.status === 'ready' && !!layout && size.width > 0 && !marking;
   useEffect(() => {
     if (!search.jump || !search.node || !layout) return;
-    const timer = setTimeout(() => {
-      canvas.current?.focus(shown(search.node!));
-      void navigate({ search: (previous) => ({ ...previous, jump: undefined }), replace: true });
-    }, 50);
-    return () => clearTimeout(timer);
-  }, [search.jump, search.node, layout]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (search.scene) return void navigate({ search: (previous) => ({ ...previous, section: chosen, scene: undefined }), replace: true });
+    if (canvasShown) void navigate({ search: (previous) => ({ ...previous, jump: undefined }), replace: true });
+  }, [search.jump, search.node, search.scene, layout, canvasShown]); // eslint-disable-line react-hooks/exhaustive-deps
   /**
    * What the pane reads for a selection: a folded run's nodes; a choice (on its edge) followed by
    * the lines it leads to, so picking a choice shows what happens after it; else the node.
@@ -346,7 +346,7 @@ function GraphPage() {
         }
       >
         <div ref={container} className="relative min-w-0 flex-1 bg-[radial-gradient(var(--graph-grid)_1px,transparent_1px)] [background-size:20px_20px]">
-          {graph.data?.status === 'ready' && layout && size.width > 0 && !marking && (
+          {canvasShown && layout && (
             <GraphCanvas
               key={`${search.scope}:${chosen ?? 'all'}:${search.scene ?? ''}:${search.mark ?? ''}`}
               handle={canvas}
@@ -361,6 +361,7 @@ function GraphPage() {
               selectedId={search.node ? shown(search.node) : undefined}
               highlight={highlight}
               initialViewport={search.jump ? undefined : readViewport(key)}
+              initialFocus={search.jump && search.node ? shown(layout.edges.find((edge) => edge.via === search.node)?.to ?? search.node) : undefined}
               onViewportChange={(viewport) => sessionStorage.setItem(key, JSON.stringify(viewport))}
               onSelect={select}
               onOpen={dialogue ? startLine : undefined}

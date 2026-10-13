@@ -154,6 +154,8 @@ interface Props {
   /** Nodes to emphasise (e.g. the scene being inspected); others are dimmed when non-empty. */
   highlight?: Set<string>;
   initialViewport?: Viewport;
+  /** Open centred on this node instead (zoomed to a readable size), e.g. arriving from a line. */
+  initialFocus?: string;
   onViewportChange?: (viewport: Viewport) => void;
   onSelect: (id: string | undefined) => void;
   /** Enter on the canvas with a node selected. */
@@ -167,7 +169,7 @@ interface Props {
  * Draws a precomputed ELK layout. d3-zoom owns pan/zoom, Flatbush owns spatial queries,
  * so each frame only touches what is on screen. One <canvas>, no per-node DOM.
  */
-export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, hubs, info, width, height, selectedId, highlight, initialViewport, onViewportChange, onSelect, onOpen, anchor, handle }: Props) {
+export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, hubs, info, width, height, selectedId, highlight, initialViewport, initialFocus, onViewportChange, onSelect, onOpen, anchor, handle }: Props) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const minimap = useRef<HTMLCanvasElement>(null);
   const transform = useRef<ZoomTransform>(zoomIdentity);
@@ -265,6 +267,8 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
     return zoomIdentity.translate(x, y).scale(scale);
   };
 
+  const centredOn = (node: LayoutNode, k: number) => zoomIdentity.translate(width / 2 - (node.x + node.width / 2) * k, height / 2 - (node.y + node.height / 2) * k).scale(k);
+
   // ── drawing ───────────────────────────────────────────────────────
   /** Puts the floating card beside its node, inside the canvas. Done each frame, without React. */
   const placeAnchor = () => {
@@ -279,7 +283,7 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
     left = Math.max(ANCHOR_GAP, Math.min(left, width - cardW - ANCHOR_GAP));
     const top = Math.max(ANCHOR_GAP, Math.min(y, height - cardH - ANCHOR_GAP));
     card.style.transform = `translate(${Math.round(left)}px, ${Math.round(top)}px)`;
-    card.style.visibility = 'visible';
+    card.style.opacity = '1';
   };
 
   const draw = () => {
@@ -505,7 +509,12 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
       }
       return Number.isFinite(box.minX) ? box : undefined;
     };
-    const start = initialViewport ? zoomIdentity.translate(initialViewport.x, initialViewport.y).scale(initialViewport.k) : fitTransform(focusBox());
+    const target = initialFocus ? index.byId.get(initialFocus) : undefined;
+    const start = target
+      ? centredOn(target, Math.max(fitTransform().k, 0.6))
+      : initialViewport
+        ? zoomIdentity.translate(initialViewport.x, initialViewport.y).scale(initialViewport.k)
+        : fitTransform(focusBox());
     selection.call(zoom.transform, start);
     return () => void selection.on('.zoom', null);
     // The layout identity decides the starting view; size changes are handled below.
@@ -523,11 +532,12 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
     schedule();
   }, [selectedId, highlight, info, hubs]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // The card is placed again when it opens on another node or its content changes height.
+  // The card is placed again when it opens on another node or its content changes height. Until
+  // then it is transparent, not hidden: a hidden card would drop the editor's focus.
   useEffect(() => {
     const card = anchorBox.current;
     if (!card) return;
-    card.style.visibility = 'hidden';
+    card.style.opacity = '0';
     schedule();
     const observer = new ResizeObserver(() => schedule());
     observer.observe(card);
@@ -543,9 +553,7 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
     zoomBy: (factor) => behavior.current && canvas.current && select(canvas.current).transition().duration(200).call(behavior.current.scaleBy, factor),
     focus: (id) => {
       const node = index.byId.get(id);
-      if (!node) return;
-      const k = Math.max(transform.current.k, 0.6);
-      animateTo(zoomIdentity.translate(width / 2 - (node.x + node.width / 2) * k, height / 2 - (node.y + node.height / 2) * k).scale(k));
+      if (node) animateTo(centredOn(node, Math.max(transform.current.k, 0.6)));
     },
     reveal: (id, room) => {
       const node = index.byId.get(id);
@@ -612,7 +620,7 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
         }}
       />
       {anchor && (
-        <div ref={anchorBox} className="invisible absolute top-0 left-0 z-20">
+        <div ref={anchorBox} className="absolute top-0 left-0 z-20 opacity-0">
           {anchor.content}
         </div>
       )}
