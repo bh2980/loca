@@ -482,10 +482,14 @@ export function LineList({
         }
       />
       {picking && (
-        <BulkBar count={picked.size} onClear={stopPicking}>
-          <Button variant="outline" disabled={!rows?.length} onClick={() => pick(rows?.map((row) => row.id) ?? [], true)}>
-            이 페이지 모두
-          </Button>
+        <BulkBar
+          count={picked.size}
+          onClear={stopPicking}
+          all={{
+            checked: rows?.length && rows.every((row) => picked.has(row.id)) ? true : rows?.some((row) => picked.has(row.id)) ? 'indeterminate' : false,
+            onChange: (on) => pick(rows?.map((row) => row.id) ?? [], on),
+          }}
+        >
           {picked.size > 0 && (
             <>
               <Button variant="outline" className="bg-background" disabled={pickedByAi.length === 0 || check.isPending} title="상태는 그대로 두고 사람이 확인한 것으로 표시합니다(✦ 없앰)" onClick={() => check.mutate(pickedByAi)}>
@@ -620,7 +624,7 @@ function LineFilters({ statuses, tags, speakers, search, onSearch }: {
         </DropdownMenuCheckboxItem>
         {issueTags.length > 0 && (
           <DropdownMenuSub>
-            <DropdownMenuSubTrigger>문제 유형</DropdownMenuSubTrigger>
+            <DropdownMenuSubTrigger inset>문제 유형</DropdownMenuSubTrigger>
             <DropdownMenuSubContent className="w-56">
               {issueTags.map((tag) => (
                 <DropdownMenuCheckboxItem key={tag.id} checked={search.tag === tag.id} onCheckedChange={(on) => onSearch({ tag: on ? tag.id : undefined })}>
@@ -632,7 +636,7 @@ function LineFilters({ statuses, tags, speakers, search, onSearch }: {
         )}
         <DropdownMenuSeparator />
         <DropdownMenuSub>
-          <DropdownMenuSubTrigger>상태</DropdownMenuSubTrigger>
+          <DropdownMenuSubTrigger inset>상태</DropdownMenuSubTrigger>
           <DropdownMenuSubContent className="max-h-80 overflow-y-auto">
             {statuses.map((status) => (
               <DropdownMenuCheckboxItem key={status.id} checked={search.status === status.id} onCheckedChange={(on) => onSearch({ status: on ? status.id : undefined })}>
@@ -642,7 +646,7 @@ function LineFilters({ statuses, tags, speakers, search, onSearch }: {
           </DropdownMenuSubContent>
         </DropdownMenuSub>
         <DropdownMenuSub>
-          <DropdownMenuSubTrigger disabled={!ownTags.length}>태그</DropdownMenuSubTrigger>
+          <DropdownMenuSubTrigger inset disabled={!ownTags.length}>태그</DropdownMenuSubTrigger>
           <DropdownMenuSubContent className="max-h-80 overflow-y-auto">
             {ownTags.map((tag) => (
               <DropdownMenuCheckboxItem key={tag.id} checked={search.tag === tag.id} onCheckedChange={(on) => onSearch({ tag: on ? tag.id : undefined })}>
@@ -652,7 +656,7 @@ function LineFilters({ statuses, tags, speakers, search, onSearch }: {
           </DropdownMenuSubContent>
         </DropdownMenuSub>
         <DropdownMenuSub>
-          <DropdownMenuSubTrigger>화자</DropdownMenuSubTrigger>
+          <DropdownMenuSubTrigger inset>화자</DropdownMenuSubTrigger>
           <DropdownMenuSubContent className="w-56">
             <Input value={needle} onChange={(event) => setNeedle(event.target.value)} onKeyDown={(event) => event.stopPropagation()} placeholder="이름 찾기" className="mb-1" aria-label="화자 찾기" />
             <div className="max-h-72 overflow-y-auto">
@@ -666,7 +670,7 @@ function LineFilters({ statuses, tags, speakers, search, onSearch }: {
           </DropdownMenuSubContent>
         </DropdownMenuSub>
         <DropdownMenuSub>
-          <DropdownMenuSubTrigger>청자</DropdownMenuSubTrigger>
+          <DropdownMenuSubTrigger inset>청자</DropdownMenuSubTrigger>
           <DropdownMenuSubContent className="max-h-80 w-56 overflow-y-auto">
             <DropdownMenuCheckboxItem checked={search.listener === '-'} onCheckedChange={(on) => onSearch({ listener: on ? '-' : undefined })}>
               청자 미상 (대사만)
