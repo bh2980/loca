@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { DEFAULT_EDITOR_AI, type EditorAi } from '@tw/shared';
 import { ModelPicker } from '@/components/model-picker';
@@ -18,11 +18,24 @@ import { q } from '@/lib/queries';
  */
 export function EditorAiSection({ projectId }: { projectId: string }) {
   const project = useQuery(q.project(projectId));
+  const queryClient = useQueryClient();
   const settings: EditorAi = project.data?.editorAi ?? DEFAULT_EDITOR_AI;
   const [cap, setCap] = useState(String(settings.dailyCap));
+  // Shown at once: the project's cached settings change before the server answers (undone on failure).
   const save = useMutation({
     mutationFn: (editorAi: EditorAi) => unwrap(client.projects[':projectId'].$patch({ param: { projectId }, json: { editorAi } })),
-    onError: (error) => toast.error(error.message),
+    onMutate: async (editorAi) => {
+      const key = q.project(projectId).queryKey;
+      await queryClient.cancelQueries({ queryKey: key });
+      const before = queryClient.getQueryData(key);
+      queryClient.setQueryData(key, (old) => (old ? { ...old, editorAi } : old));
+      return { before };
+    },
+    onError: (error, _value, context) => {
+      if (context?.before) queryClient.setQueryData(q.project(projectId).queryKey, context.before);
+      toast.error(error.message);
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: q.project(projectId).queryKey }),
   });
   const change = (patch: Partial<EditorAi>) => save.mutate({ ...settings, ...patch });
 
