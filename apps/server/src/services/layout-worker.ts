@@ -179,6 +179,10 @@ const OPTIONS = {
   // horizontal runs like bus lines and cannot be followed; each curve stays its own line.
   'elk.edgeRouting': 'SPLINES',
   'elk.edgeLabels.placement': 'CENTER',
+  // The edge runs through its label (a choice), and the label has its own room, so it neither
+  // floats beside the line nor lies under a node.
+  'elk.edgeLabels.inline': 'true',
+  'elk.spacing.edgeLabel': '4',
   'elk.separateConnectedComponents': 'true',
   'elk.layered.cycleBreaking.strategy': 'DEPTH_FIRST',
   'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',

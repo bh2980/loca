@@ -35,15 +35,30 @@ export interface LayoutEdge {
 }
 
 /**
- * An edge label's box, centred on the middle of the line (by length) so it sits on the edge like
- * a relationship label: on a curve, the point halfway along the Bézier pieces.
+ * A labelled edge redrawn to pass through its label: start → label centre → end as two smooth
+ * curves leaving and arriving vertically (the layout kept the label's spot clear, but its own
+ * curves do not go through it).
+ */
+function throughLabel(edge: LayoutEdge): LayoutEdge {
+  if (!edge.label || !edge.labelAt || edge.points.length < 4) return edge;
+  const [lx, ly, lw, lh] = edge.labelAt;
+  const p = edge.points;
+  const [x0, y0, x3, y3] = [p[0], p[1], p[p.length - 2], p[p.length - 1]];
+  const [mx, my] = [lx + lw / 2, ly + lh / 2];
+  const a = (y0 + my) / 2, b = (my + y3) / 2;
+  return { ...edge, curved: true, points: [x0, y0, x0, a, mx, a, mx, my, mx, b, x3, b, x3, y3] };
+}
+
+/**
+ * An edge label's box: where the layout put it (the edge runs through it and nothing else is
+ * there), else centred halfway along the line.
  */
 function labelBox(edge: LayoutEdge): [number, number, number, number] | null {
   if (!edge.label) return null;
-  const width = edge.labelAt?.[2] || Math.min(240, 30 + Math.ceil(edge.label.length * 8));
-  const height = 22;
+  if (edge.labelAt) return edge.labelAt;
+  const width = Math.min(240, 30 + Math.ceil(edge.label.length * 8));
   const [x, y] = midpoint(edge);
-  return [x - width / 2, y - height / 2, width, height];
+  return [x - width / 2, y - 11, width, 22];
 }
 
 /** The point halfway along an edge: sampled along its Bézier pieces when curved, else its segments. */
@@ -144,7 +159,7 @@ interface Props {
  * Draws a precomputed ELK layout. d3-zoom owns pan/zoom, Flatbush owns spatial queries,
  * so each frame only touches what is on screen. One <canvas>, no per-node DOM.
  */
-export function GraphCanvas({ nodes, regions = [], edges, looseEdges, hubs, info, width, height, selectedId, highlight, initialViewport, onViewportChange, onSelect, handle }: Props) {
+export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, hubs, info, width, height, selectedId, highlight, initialViewport, onViewportChange, onSelect, handle }: Props) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const minimap = useRef<HTMLCanvasElement>(null);
   const transform = useRef<ZoomTransform>(zoomIdentity);
@@ -168,6 +183,8 @@ export function GraphCanvas({ nodes, regions = [], edges, looseEdges, hubs, info
   useEffect(() => {
     if (minimapOpen) schedule();
   }, [minimapOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A labelled edge (a choice) is drawn through the room the layout kept for its label.
+  const edges = useMemo(() => laidOut.map(throughLabel), [laidOut]);
   const props = useRef({ selectedId, highlight, onViewportChange, onSelect, hubs });
   props.current = { selectedId, highlight, onViewportChange, onSelect, hubs };
 
