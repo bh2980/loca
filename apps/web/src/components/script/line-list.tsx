@@ -408,6 +408,7 @@ export function LineList({
                         <span className="truncate">{line.speaker ?? '지문'}</span>
                         {marked && <span className="shrink-0 text-warning">● {find!.label}</span>}
                         {selected && line.kind === 'dialogue' && <span className={cn('truncate', who.unknown && 'text-warning')}>→ {who.text}</span>}
+                        {selected && <LineLinks projectId={projectId} unitId={line.id} onDetail={() => onSearch({ detail: true }, { replace: true })} />}
                       </p>
                       {selected ? (
                         <LineSourceText projectId={projectId} unitId={line.id} source={line.source} className="text-base" />
@@ -419,7 +420,7 @@ export function LineList({
                       {selected ? (
                         <>
                           <TranslationEditor key={line.id} projectId={projectId} unit={line} statuses={statusList} focusKey={focusTick} onEscape={() => setEditing(false)} onDone={(advanced) => (advanced ? advanceFrom(line.id) : undefined)} />
-                          <LineHints projectId={projectId} line={line} onDetail={(tab) => onSearch({ detail: true, lineTab: tab }, { replace: true })} />
+                          <LineHints projectId={projectId} line={line} />
                         </>
                       ) : (
                         <div className="flex gap-2 pt-4 text-sm">
@@ -520,10 +521,9 @@ export function LineList({
  */
 /**
  * What to keep in mind while typing a line: its speech level, the confirmed terms it uses, format
- * problems in the draft and the last run's issue. In the graph's line card (`inGraph`) the links
- * back to the graph and to the line pane are left out.
+ * problems in the draft and the last run's issue. Links to elsewhere are LineLinks, by the speaker.
  */
-export function LineHints({ projectId, line, onDetail, inGraph }: { projectId: string; line: { id: string; source: string; translation: string | null; lastRun: { issues: string[] } | null }; onDetail?: (tab?: Exclude<LineTab, 'checks'>) => void; inGraph?: boolean }) {
+export function LineHints({ projectId, line }: { projectId: string; line: { id: string; source: string; translation: string | null; lastRun: { issues: string[] } | null } }) {
   const unit = useQuery(q.unit(line.id));
   const terms = useQuery(q.terms(projectId));
   const project = useQuery(q.project(projectId));
@@ -538,7 +538,6 @@ export function LineHints({ projectId, line, onDetail, inGraph }: { projectId: s
     return (terms.data ?? []).filter((term) => term.status === 'confirmed' && term.target && mentions(plain, term.source));
   }, [terms.data, line.source, project.data?.formatRules]);
   const format = text ? checkFormat(line.source, draft, { placeholders: true, tags: true, newlines: true, emptyText: false, numbers: true, spaces: true }, project.data?.formatRules) : [];
-  const others = (unit.data?.candidates.length ?? 0) - (line.translation ? 1 : 0);
 
   const hint = (key: string, ok: boolean | null, label: ReactNode, title?: string) => (
     <span key={key} title={title} className={cn('inline-flex items-center gap-1 rounded-md border bg-background px-2 py-0.5 text-xs', ok === false && 'border-warning/40 text-warning')}>
@@ -553,24 +552,6 @@ export function LineHints({ projectId, line, onDetail, inGraph }: { projectId: s
       {used.map((term) => hint(term.id, text ? text.toLowerCase().includes(term.target.toLowerCase()) : null, `${term.source} → ${term.target}`))}
       {format.map((issue) => hint(issue.code, false, issue.message))}
       {line.lastRun?.issues.slice(0, 1).map((issue) => hint('run', false, issue))}
-      {others > 0 && onDetail && (
-        <Button variant="ghost" size="inline" className="text-muted-foreground" onClick={() => onDetail('candidates')}>
-          다른 후보 {others}개
-        </Button>
-      )}
-      {!inGraph && unit.data?.graphNodes[0] && (
-        // The other way round from the graph's "번역 화면에서 열기": this line where it sits in the flow.
-        <Button variant="ghost" size="inline" className="ml-auto text-muted-foreground" asChild>
-          <Link to="/p/$projectId/graph" params={{ projectId }} search={{ scope: 'dialogue', scene: unit.data.groupId, node: unit.data.graphNodes[0].id, jump: true }}>
-            <Network /> 그래프에서 보기
-          </Link>
-        </Button>
-      )}
-      {onDetail && (
-        <Button variant="ghost" size="inline" className={cn('text-muted-foreground', (inGraph || !unit.data?.graphNodes[0]) && 'ml-auto')} onClick={() => onDetail()}>
-          <PanelRightOpen /> 자세히
-        </Button>
-      )}
     </div>
   );
 }
@@ -666,5 +647,26 @@ function LineFilters({ statuses, tags, speakers, search, onSearch }: {
         </DropdownMenuSub>
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+/** Where else the picked line can be seen: its place in the dialogue graph, and the line pane (checks, candidates, history). */
+export function LineLinks({ projectId, unitId, onDetail }: { projectId: string; unitId: string; onDetail: () => void }) {
+  const unit = useQuery(q.unit(unitId));
+  const node = unit.data?.graphNodes[0];
+  return (
+    <span className="ml-auto flex shrink-0 items-center" onClick={(event) => event.stopPropagation()}>
+      {node && (
+        // The other way round from the graph's "번역 화면에서 열기": this line where it sits in the flow.
+        <Button variant="ghost" size="icon-xs" className="text-muted-foreground" aria-label="그래프에서 보기" title="그래프에서 보기" asChild>
+          <Link to="/p/$projectId/graph" params={{ projectId }} search={{ scope: 'dialogue', scene: unit.data!.groupId, node: node.id, jump: true }}>
+            <Network />
+          </Link>
+        </Button>
+      )}
+      <Button variant="ghost" size="icon-xs" className="text-muted-foreground" aria-label="자세히" title="자세히 (검사·후보·이력)" onClick={onDetail}>
+        <PanelRightOpen />
+      </Button>
+    </span>
   );
 }

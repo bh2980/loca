@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { ChevronDown, ChevronUp, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, PanelRightOpen, X } from 'lucide-react';
 import { LineHints } from '@/components/script/line-list';
 import { TranslationEditor } from '@/components/translation-editor';
 import { LineSourceText } from '@/components/editor/source-text';
@@ -64,6 +64,11 @@ export function LineCard({ projectId, unitId, choice, position, onStep, onClose 
         <Button variant="ghost" size="icon-xs" aria-label="다음 줄 (⌥↓)" title="다음 줄 (⌥↓)" onClick={() => onStep(1)}>
           <ChevronDown />
         </Button>
+        {line && (
+          <Button variant="ghost" size="icon-xs" aria-label="번역 화면에서 자세히" title="번역 화면에서 자세히 (검사·후보·이력)" onClick={() => void navigate({ to: '/p/$projectId/script', params: { projectId }, search: { group: line.groupId, line: line.id, detail: true } })}>
+            <PanelRightOpen />
+          </Button>
+        )}
         <Button variant="ghost" size="icon-xs" aria-label="닫기 (Esc)" title="닫기 (Esc)" onClick={onClose}>
           <X />
         </Button>
@@ -82,12 +87,7 @@ export function LineCard({ projectId, unitId, choice, position, onStep, onClose 
             onEscape={onClose}
             onDone={(moved) => moved && onStep(1)}
           />
-          <LineHints
-            projectId={projectId}
-            line={{ ...line, lastRun: null }}
-            inGraph
-            onDetail={(tab) => void navigate({ to: '/p/$projectId/script', params: { projectId }, search: { group: line.groupId, line: line.id, detail: true, lineTab: tab } })}
-          />
+          <LineHints projectId={projectId} line={{ ...line, lastRun: null }} />
         </>
       )}
     </div>
