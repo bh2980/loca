@@ -54,11 +54,15 @@ export function toModelError(error: unknown, signal?: AbortSignal): ModelError {
   }
   if (APICallError.isInstance(error)) {
     const status = error.statusCode ?? 0;
-    if (status === 401 || status === 403) return new ModelError('auth', `인증에 실패했습니다 (HTTP ${status}). API 키를 확인하세요.`);
+    // What the provider said, when it said something: a 403 is not always the key (a model limited to some apps, a region).
+    const said = providerMessage(error.responseBody);
+    const detail = said ? ` 제공자: “${said}”` : '';
+    if (status === 401) return new ModelError('auth', `인증에 실패했습니다 (HTTP 401). API 키를 확인하세요.${detail}`);
+    if (status === 403) return new ModelError('auth', said ? `요청이 거부되었습니다 (HTTP 403).${detail}` : '인증에 실패했습니다 (HTTP 403). API 키를 확인하세요.');
     if (status === 429) return new ModelError('rate-limit', '요청 한도에 도달했습니다 (HTTP 429).');
     if (status === 413 || ((status === 400 || status === 422) && TOO_LONG.test(`${error.message} ${error.responseBody ?? ''}`))) return tooLong(`(HTTP ${status})`);
     if (status >= 500 || status === 408) return new ModelError('network', `서버 오류 (HTTP ${status}).`);
-    if (status) return new ModelError('config', `요청이 거부되었습니다 (HTTP ${status}). 모델·설정을 확인하세요.`);
+    if (status) return new ModelError('config', `요청이 거부되었습니다 (HTTP ${status}). 모델·설정을 확인하세요.${detail}`);
     return new ModelError('network', 'API 서버에 연결하지 못했습니다.');
   }
   if (error instanceof APIError) {
@@ -74,4 +78,16 @@ export function toModelError(error: unknown, signal?: AbortSignal): ModelError {
   const message = error instanceof Error ? error.message : String(error);
   if (TOO_LONG.test(message)) return tooLong(message);
   return new ModelError('unknown', message);
+}
+
+/** The error message in a provider's JSON error body ({"error":{"message":…}} or {"message":…}), shortened. */
+function providerMessage(body: string | undefined) {
+  if (!body) return '';
+  try {
+    const parsed = JSON.parse(body) as { error?: { message?: unknown } | string; message?: unknown };
+    const message = typeof parsed.error === 'string' ? parsed.error : (parsed.error?.message ?? parsed.message);
+    return typeof message === 'string' ? message.slice(0, 240) : '';
+  } catch {
+    return '';
+  }
 }
