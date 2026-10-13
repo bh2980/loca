@@ -82,13 +82,22 @@ export function AgentTab() {
                   })}
                 </div>
                 <CollapsibleContent>
-                  <ul className="mb-2 ml-9 mr-2 divide-y border-t">
+                  {/* The same rows on a darker ground: each tool's switch sits in its own column, under the cell that switches them together. */}
+                  <ul className="divide-y border-t bg-muted/60">
                     {toolsIn(target).map((name) => (
-                      <li key={name} className="flex items-center gap-3 py-2 pr-2">
-                        <span className="min-w-0 flex-1 truncate text-sm">{AGENT_TOOLS[name]!.label}</span>
-                        <span className="w-20 shrink-0 text-xs text-muted-foreground">{AGENT_TOOL_ACTIONS[AGENT_TOOLS[name]!.action].label}</span>
-                        <span className="w-44 shrink-0 truncate font-mono text-xs text-muted-foreground">{name}</span>
-                        <Switch checked={!disabled.has(name)} disabled={!loaded || save.isPending} onCheckedChange={(on) => set([name], on)} aria-label={AGENT_TOOLS[name]!.label} />
+                      <li key={name} className="grid grid-cols-[minmax(0,1fr)_repeat(3,5.5rem)] items-center gap-2 px-2 py-1">
+                        <span className="flex h-8 min-w-0 items-center pl-9 text-sm" title={name}>
+                          <span className="truncate">{AGENT_TOOLS[name]!.label}</span>
+                        </span>
+                        {ACTIONS.map((action) =>
+                          AGENT_TOOLS[name]!.action === action ? (
+                            <span key={action} className="flex justify-center">
+                              <Switch checked={!disabled.has(name)} disabled={!loaded || save.isPending} onCheckedChange={(on) => set([name], on)} aria-label={AGENT_TOOLS[name]!.label} />
+                            </span>
+                          ) : (
+                            <span key={action} />
+                          ),
+                        )}
                       </li>
                     ))}
                   </ul>
