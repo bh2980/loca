@@ -90,29 +90,19 @@ export function PairTable({ pairs, loading, selected, picked, onPick, onOpen, bu
   filters: Parameters<typeof metaColumns>[1];
 }) {
   const columns: ColumnDef<Pair, unknown>[] = [
-    {
-      id: 'pair',
-      header: '화자 → 청자',
-      meta: { width: 300, className: 'font-medium' },
-      cell: ({ row: { original: pair } }) => {
-        const reasons = pair.rules.map(reviewOf).filter((reason): reason is string => reason !== null);
-        return (
-          // The names give way (cut with …), never the badge: it is the reason to open the row.
-          <span className="flex min-w-0 items-center gap-2">
-            <span className="min-w-0 truncate" title={`${pair.from} → ${listenerLabel(pair.to)}`}>
-              {pair.from} → {listenerLabel(pair.to)}
-            </span>
-            {reasons.length > 0 && (
-              <span className="shrink-0">
-                <ReviewBadge reasons={reasons.join('\n')} />
-              </span>
-            )}
-          </span>
-        );
-      },
-    },
+    { id: 'pair', header: '화자 → 청자', meta: { width: 240, className: 'font-medium' }, cell: ({ row: { original: pair } }) => `${pair.from} → ${listenerLabel(pair.to)}` },
     { id: 'relationship', header: '관계', meta: { width: 200 }, cell: ({ row: { original: pair } }) => (pair.relationship ? String(pair.relationship.kind) : <span className="text-muted-foreground">—</span>) },
     { id: 'speech', header: '말투', cell: ({ row: { original: pair } }) => (pair.rules.length ? levelsText(pair.rules) : <span className="text-muted-foreground">—</span>) },
+    // Why a person should look before trusting it (a main pair, evidence from another speaker): its own column, not squeezed after the names.
+    {
+      id: 'note',
+      header: '비고',
+      meta: { width: 120 },
+      cell: ({ row: { original: pair } }) => {
+        const reasons = pair.rules.map(reviewOf).filter((reason): reason is string => reason !== null);
+        return reasons.length ? <ReviewBadge reasons={reasons.join('\n')} /> : null;
+      },
+    },
     ...metaColumns<Pair>(pairSummary, filters),
   ];
   return (
