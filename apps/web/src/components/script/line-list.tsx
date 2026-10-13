@@ -45,8 +45,8 @@ export interface LinesSearch {
   /** Only lines with a person's note. */
   noted?: true;
   /**
-   * How a filter shows: walked one by one inside their scenes (find, the default for speaker and
-   * listener, where the conversation matters) or listed apart (list, the default for the rest).
+   * How a filter shows: listed apart (the default: only the matching lines) or walked one by one
+   * inside their scenes (find, '장면에서 찾아가기', when the conversation around them matters).
    */
   view?: 'find' | 'list';
   page?: number;
@@ -79,7 +79,7 @@ export const linesSearchSchema = (raw: Record<string, unknown>): LinesSearch => 
 /** Whether any line filter is set (search, status, tag, speaker, listener, 남은 줄만, AI가 정한 것만). */
 export const hasLineFilter = (search: LinesSearch) => Boolean(search.q || search.status || search.tag || search.speaker || search.listener || search.remaining || search.by || search.diverged || search.noted);
 /** Whether the filter is walked inside the scenes rather than listed apart. */
-export const isFinding = (search: LinesSearch) => hasLineFilter(search) && (search.view === 'find' || (search.view !== 'list' && Boolean(search.speaker || search.listener)));
+export const isFinding = (search: LinesSearch) => hasLineFilter(search) && search.view === 'find';
 
 /** The set filters as removable chips (also the find bar's label). */
 export function filterChips(search: LinesSearch, statuses: { id: string; name: string }[], tags: { id: string; name: string }[]) {
@@ -367,7 +367,7 @@ export function LineList({
           </Button>
         ))}
         {!find && !review && (search.speaker || search.listener || search.status || search.tag) && (
-          <Button variant="ghost" onClick={() => onSearch({ view: search.speaker || search.listener ? undefined : 'find', page: undefined })}>
+          <Button variant="ghost" onClick={() => onSearch({ view: 'find', page: undefined })}>
             장면에서 찾아가기
           </Button>
         )}
