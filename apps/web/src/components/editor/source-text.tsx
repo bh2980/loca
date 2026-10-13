@@ -1,6 +1,6 @@
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { splitTokens, useLineContext, type SourcePart } from '@/lib/line-context';
-import { chipLabel, type TokenUnit } from '@/lib/tokens';
+import { chipHue, chipLabel, type TokenUnit } from '@/lib/tokens';
 import { cn } from '@/lib/utils';
 import { insertIntoLine, insertUnitIntoLine } from './translation-input';
 
@@ -67,7 +67,7 @@ export function TokenChip({ part, hint, onPick }: { part: SourcePart; hint?: str
     <Tooltip>
       <TooltipTrigger asChild>
         <span
-          className={cn('token-chip', !part.token?.number && 'token-chip-stray', onPick && 'cursor-pointer hover:border-ring')}
+          className={cn('token-chip', chipHue(part.token?.number ?? 0), !part.token?.number && 'token-chip-stray', onPick && 'cursor-pointer hover:border-ring')}
           onMouseDown={onPick && ((event) => (event.preventDefault(), onPick()))}
         >
           {chipLabel(part.token?.kind ?? 'single', part.token?.number ?? 0)}

@@ -26,8 +26,15 @@
   --success: oklch(0.596 0.145 163.225);
   /* A player's choice in the dialogue flow (graph labels, the flow pane). */
   --choice: oklch(0.546 0.215 262.881);
-  /* A format token (tag, placeholder) that must come through untouched: the chips in source and translation. */
-  --token: oklch(0.496 0.265 301.924);
+  /* Format tokens (tags, placeholders) that must come through untouched: chip colours by number, so
+     a pair and its copy in the translation match at a glance (warning orange, choice blue and
+     success green are left out). */
+  --token-1: oklch(0.5 0.24 302);
+  --token-2: oklch(0.52 0.11 185);
+  --token-3: oklch(0.55 0.21 350);
+  --token-4: oklch(0.48 0.2 275);
+  --token-5: oklch(0.52 0.1 225);
+  --token-6: oklch(0.5 0.12 120);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
@@ -73,7 +80,6 @@
   --color-warning: var(--warning);
   --color-success: var(--success);
   --color-choice: var(--choice);
-  --color-token: var(--token);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -172,11 +178,20 @@
    a little smaller than the text around them, but readable. */
 @layer components {
   .token-chip, .cm-token-chip {
-    @apply mx-px rounded border border-token/30 bg-token/10 px-1 font-semibold whitespace-nowrap text-token tabular-nums;
+    @apply mx-px rounded border px-1 font-semibold whitespace-nowrap tabular-nums;
     font-size: 0.9em;
+    color: var(--chip, var(--token-1));
+    background-color: color-mix(in oklch, var(--chip, var(--token-1)) 11%, transparent);
+    border-color: color-mix(in oklch, var(--chip, var(--token-1)) 35%, transparent);
   }
+  .chip-hue-1 { --chip: var(--token-1); }
+  .chip-hue-2 { --chip: var(--token-2); }
+  .chip-hue-3 { --chip: var(--token-3); }
+  .chip-hue-4 { --chip: var(--token-4); }
+  .chip-hue-5 { --chip: var(--token-5); }
+  .chip-hue-6 { --chip: var(--token-6); }
   /* A token the source does not have (?). */
-  .token-chip-stray, .cm-token-stray { @apply border-warning/40 bg-warning/10 text-warning; }
+  .token-chip-stray, .cm-token-stray { --chip: var(--warning); }
   /* A glossary translation in use. */
   .cm-term-hit { @apply rounded-sm bg-primary/5 underline decoration-primary/40 underline-offset-4; }
 }

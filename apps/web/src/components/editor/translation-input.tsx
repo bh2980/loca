@@ -3,7 +3,7 @@ import { Compartment, EditorState, Prec, RangeSetBuilder } from '@codemirror/sta
 import { Decoration, EditorView, hoverTooltip, keymap, MatchDecorator, placeholder as placeholderText, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from '@codemirror/view';
 import { history, historyKeymap, standardKeymap } from '@codemirror/commands';
 import { autocompletion, completionStatus, type CompletionContext } from '@codemirror/autocomplete';
-import { chipLabel, numberTokens, type TokenKind, type TokenUnit } from '@/lib/tokens';
+import { chipHue, chipLabel, numberTokens, type TokenKind, type TokenUnit } from '@/lib/tokens';
 import { cn } from '@/lib/utils';
 
 /** Open editors by line, so the source next to one can put a token or term into it. */
@@ -66,7 +66,7 @@ class TokenChip extends WidgetType {
   }
   toDOM() {
     const chip = document.createElement('span');
-    chip.className = this.number ? 'cm-token-chip' : 'cm-token-chip cm-token-stray';
+    chip.className = this.number ? `cm-token-chip ${chipHue(this.number)}` : 'cm-token-chip cm-token-stray';
     chip.textContent = chipLabel(this.kind, this.number);
     return chip;
   }

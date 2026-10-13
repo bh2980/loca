@@ -83,3 +83,6 @@ export function chipLabel(kind: TokenKind, number: number) {
   const n = number ? String(number) : '?';
   return kind === 'open' ? `⟨${n}` : kind === 'close' ? `${n}⟩` : `⟨${n}⟩`;
 }
+
+/** The chip's colour class: one of six by number, so a pair and the same token in the translation match. */
+export const chipHue = (number: number) => (number ? `chip-hue-${((number - 1) % 6) + 1}` : '');
