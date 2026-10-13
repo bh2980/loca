@@ -509,7 +509,12 @@ export function LineList({
  * keep the speech rule, the confirmed terms and the source's format, and what the last run said.
  * "자세히" opens everything else in the pane.
  */
-function LineHints({ projectId, line, onDetail }: { projectId: string; line: { id: string; source: string; translation: string | null; lastRun: { issues: string[] } | null }; onDetail: (tab?: Exclude<LineTab, 'checks'>) => void }) {
+/**
+ * What to keep in mind while typing a line: its speech level, the confirmed terms it uses, format
+ * problems in the draft and the last run's issue. In the graph's line card (`inGraph`) the links
+ * back to the graph and to the line pane are left out.
+ */
+export function LineHints({ projectId, line, onDetail, inGraph }: { projectId: string; line: { id: string; source: string; translation: string | null; lastRun: { issues: string[] } | null }; onDetail?: (tab?: Exclude<LineTab, 'checks'>) => void; inGraph?: boolean }) {
   const unit = useQuery(q.unit(line.id));
   const terms = useQuery(q.terms(projectId));
   const project = useQuery(q.project(projectId));
@@ -534,12 +539,12 @@ function LineHints({ projectId, line, onDetail }: { projectId: string; line: { i
       {used.map((term) => hint(term.id, text ? text.toLowerCase().includes(term.target.toLowerCase()) : null, `${term.source} → ${term.target}`))}
       {format.map((issue) => hint(issue.code, false, issue.message))}
       {line.lastRun?.issues.slice(0, 1).map((issue) => hint('run', false, issue))}
-      {others > 0 && (
+      {others > 0 && onDetail && (
         <Button variant="ghost" size="inline" className="text-muted-foreground" onClick={() => onDetail('candidates')}>
           다른 후보 {others}개
         </Button>
       )}
-      {unit.data?.graphNodes[0] && (
+      {!inGraph && unit.data?.graphNodes[0] && (
         // The other way round from the graph's "번역 화면에서 열기": this line where it sits in the flow.
         <Button variant="ghost" size="inline" className="ml-auto text-muted-foreground" asChild>
           <Link to="/p/$projectId/graph" params={{ projectId }} search={{ scope: 'dialogue', scene: unit.data.groupId, node: unit.data.graphNodes[0].id, jump: true }}>
@@ -547,9 +552,11 @@ function LineHints({ projectId, line, onDetail }: { projectId: string; line: { i
           </Link>
         </Button>
       )}
-      <Button variant="ghost" size="inline" className={cn('text-muted-foreground', !unit.data?.graphNodes[0] && 'ml-auto')} onClick={() => onDetail()}>
-        <PanelRightOpen /> 자세히
-      </Button>
+      {onDetail && (
+        <Button variant="ghost" size="inline" className={cn('text-muted-foreground', (inGraph || !unit.data?.graphNodes[0]) && 'ml-auto')} onClick={() => onDetail()}>
+          <PanelRightOpen /> 자세히
+        </Button>
+      )}
     </div>
   );
 }

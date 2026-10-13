@@ -1,5 +1,5 @@
 import { Button } from '@/components/ui/button';
-import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from 'react';
+import { useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type Ref } from 'react';
 import { Map as MapIcon, Minimize2 } from 'lucide-react';
 import { select } from 'd3-selection';
 import 'd3-transition';
@@ -8,6 +8,8 @@ import Flatbush from 'flatbush';
 
 /** Margin inside the minimap, in its pixels. */
 const MINIMAP_PAD = 10;
+/** Space between a node and the card beside it, and between the card and the canvas edge. */
+const ANCHOR_GAP = 12;
 import { drawShape } from './shapes';
 
 /** Below this zoom node labels are unreadable, so they are not drawn. */
@@ -110,6 +112,8 @@ export interface GraphCanvasHandle {
   fit(): void;
   zoomBy(factor: number): void;
   focus(id: string): void;
+  /** Pans (zooming in to a readable size if needed) so the node and `room` px beside it are on screen. */
+  reveal(id: string, room: number): void;
 }
 
 const MIN_K = 0.01;
@@ -152,6 +156,10 @@ interface Props {
   initialViewport?: Viewport;
   onViewportChange?: (viewport: Viewport) => void;
   onSelect: (id: string | undefined) => void;
+  /** Enter on the canvas with a node selected. */
+  onOpen?: () => void;
+  /** A card that floats beside a node (right of it, or left when there is no room) and follows it as the view moves. */
+  anchor?: { id: string; content: ReactNode };
   handle?: Ref<GraphCanvasHandle>;
 }
 
@@ -159,12 +167,13 @@ interface Props {
  * Draws a precomputed ELK layout. d3-zoom owns pan/zoom, Flatbush owns spatial queries,
  * so each frame only touches what is on screen. One <canvas>, no per-node DOM.
  */
-export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, hubs, info, width, height, selectedId, highlight, initialViewport, onViewportChange, onSelect, handle }: Props) {
+export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, hubs, info, width, height, selectedId, highlight, initialViewport, onViewportChange, onSelect, onOpen, anchor, handle }: Props) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const minimap = useRef<HTMLCanvasElement>(null);
   const transform = useRef<ZoomTransform>(zoomIdentity);
   const behavior = useRef<ZoomBehavior<HTMLCanvasElement, unknown>>(null);
   const frame = useRef(0);
+  const anchorBox = useRef<HTMLDivElement>(null);
   const [minimapOpen, setMinimapOpen] = useState(() => {
     try {
       return localStorage.getItem('tw.graph.minimap') !== '0';
@@ -185,8 +194,8 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
   }, [minimapOpen]); // eslint-disable-line react-hooks/exhaustive-deps
   // A labelled edge (a choice) is drawn through the room the layout kept for its label.
   const edges = useMemo(() => laidOut.map(throughLabel), [laidOut]);
-  const props = useRef({ selectedId, highlight, onViewportChange, onSelect, hubs });
-  props.current = { selectedId, highlight, onViewportChange, onSelect, hubs };
+  const props = useRef({ selectedId, highlight, onViewportChange, onSelect, onOpen, hubs, anchorId: anchor?.id });
+  props.current = { selectedId, highlight, onViewportChange, onSelect, onOpen, hubs, anchorId: anchor?.id };
 
   const index = useMemo(() => {
     const byId = new Map(nodes.map((node) => [node.id, node]));
@@ -257,8 +266,25 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
   };
 
   // ── drawing ───────────────────────────────────────────────────────
+  /** Puts the floating card beside its node, inside the canvas. Done each frame, without React. */
+  const placeAnchor = () => {
+    const card = anchorBox.current;
+    const node = props.current.anchorId ? index.byId.get(props.current.anchorId) : undefined;
+    if (!card || !node) return;
+    const t = transform.current;
+    const x = node.x * t.k + t.x, y = node.y * t.k + t.y, w = node.width * t.k;
+    const cardW = card.offsetWidth, cardH = card.offsetHeight;
+    let left = x + w + ANCHOR_GAP;
+    if (left + cardW > width - ANCHOR_GAP) left = x - cardW - ANCHOR_GAP;
+    left = Math.max(ANCHOR_GAP, Math.min(left, width - cardW - ANCHOR_GAP));
+    const top = Math.max(ANCHOR_GAP, Math.min(y, height - cardH - ANCHOR_GAP));
+    card.style.transform = `translate(${Math.round(left)}px, ${Math.round(top)}px)`;
+    card.style.visibility = 'visible';
+  };
+
   const draw = () => {
     frame.current = 0;
+    placeAnchor();
     const element = canvas.current;
     if (!element) return;
     const context = element.getContext('2d')!;
@@ -497,6 +523,17 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
     schedule();
   }, [selectedId, highlight, info, hubs]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // The card is placed again when it opens on another node or its content changes height.
+  useEffect(() => {
+    const card = anchorBox.current;
+    if (!card) return;
+    card.style.visibility = 'hidden';
+    schedule();
+    const observer = new ResizeObserver(() => schedule());
+    observer.observe(card);
+    return () => observer.disconnect();
+  }, [anchor?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const animateTo = (target: ZoomTransform) => {
     if (behavior.current && canvas.current) select(canvas.current).transition().duration(350).call(behavior.current.transform, target);
   };
@@ -509,6 +546,20 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
       if (!node) return;
       const k = Math.max(transform.current.k, 0.6);
       animateTo(zoomIdentity.translate(width / 2 - (node.x + node.width / 2) * k, height / 2 - (node.y + node.height / 2) * k).scale(k));
+    },
+    reveal: (id, room) => {
+      const node = index.byId.get(id);
+      if (!node) return;
+      const t = transform.current;
+      const k = Math.max(t.k, 0.6);
+      const x = node.x * k + t.x, y = node.y * k + t.y, w = node.width * k, h = node.height * k;
+      const block = w + ANCHOR_GAP + room;
+      const fits = k === t.k && x >= ANCHOR_GAP && x + block <= width - ANCHOR_GAP && y >= ANCHOR_GAP && y + Math.min(h, height / 2) <= height - ANCHOR_GAP;
+      if (fits) return;
+      // The node and the card side by side in the middle; a tall node starts near the top.
+      const left = Math.max(ANCHOR_GAP, (width - block) / 2);
+      const top = h > height - 2 * PAD ? PAD : (height - h) / 2;
+      animateTo(zoomIdentity.translate(left - node.x * k, top - node.y * k).scale(k));
     },
   }));
 
@@ -556,9 +607,15 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
           } else if (event.key === '+' || event.key === '=') behavior.current && select(canvas.current!).call(behavior.current.scaleBy, 1.25);
           else if (event.key === '-') behavior.current && select(canvas.current!).call(behavior.current.scaleBy, 0.8);
           else if (event.key === 'f') animateTo(fitTransform());
+          else if (event.key === 'Enter' && props.current.selectedId) props.current.onOpen?.();
           else if (event.key === 'Escape') props.current.onSelect(undefined);
         }}
       />
+      {anchor && (
+        <div ref={anchorBox} className="invisible absolute top-0 left-0 z-20">
+          {anchor.content}
+        </div>
+      )}
       {minimapOpen ? (
         <div className="absolute bottom-3 left-3 rounded-md border bg-background/90 shadow-sm">
           <Button variant="outline" size="icon-xs" onClick={() => toggleMinimap(false)} className="absolute -top-2.5 -right-2.5 rounded-full text-muted-foreground" aria-label="미니맵 접기">

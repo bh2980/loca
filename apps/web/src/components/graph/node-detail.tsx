@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { FileText, Network } from 'lucide-react';
+import { CornerDownRight, FileText, Languages, Network } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
-import { isContentKind, listenerLabel, SPEECH_LEVEL_LABELS, type SpeechLevel } from '@tw/shared';
 import { KIND_LABEL } from './shapes';
 import { PaneHeader } from '@/components/pane-header';
 import { DetailPane } from '@/components/detail-pane';
@@ -65,9 +64,9 @@ function useSpeakerWidth() {
  * A dialogue-graph selection read like a script: one node or a folded run, its lines in order.
  * The speaker shows where it changes, each line's translation sits under it, a player's choice is
  * its own row. Node types, keys and raw metadata are left out: the flow of the lines is what this
- * pane is for.
+ * pane is for. Clicking a line opens it in the card beside the graph node for translating.
  */
-export function FlowPane({ projectId, nodeIds, title, way, marked, onClose }: {
+export function FlowPane({ projectId, nodeIds, title, way, marked, editing, onEdit, onClose }: {
   projectId: string;
   nodeIds: string[];
   title: string;
@@ -75,6 +74,9 @@ export function FlowPane({ projectId, nodeIds, title, way, marked, onClose }: {
   way?: { labels: { text: string; choice: boolean }[]; merged: boolean };
   /** A node inside the run that was asked for (from a line): its rows are marked and scrolled to. */
   marked?: string;
+  /** The line open in the translation card: its row is marked and kept in view. */
+  editing?: string;
+  onEdit: (unitId: string) => void;
   onClose: () => void;
 }) {
   const [speakerWidth, setSpeakerWidth] = useSpeakerWidth();
@@ -90,6 +92,9 @@ export function FlowPane({ projectId, nodeIds, title, way, marked, onClose }: {
   useEffect(() => {
     if (ready && marked) list.current?.querySelector('[data-marked]')?.scrollIntoView({ block: 'center' });
   }, [ready, marked]);
+  useEffect(() => {
+    if (ready && editing) list.current?.querySelector('[data-editing]')?.scrollIntoView({ block: 'nearest' });
+  }, [ready, editing]);
   useReportView('graph-node', [nodes[0] && { kind: '그래프', id: nodeIds.join(','), label: title }]);
 
   // A table: who | what, one row per line; a choice and a condition are rows of their own. The
@@ -97,15 +102,34 @@ export function FlowPane({ projectId, nodeIds, title, way, marked, onClose }: {
   const speakers = nodes.flatMap((node) => node.units.map((unit) => unit.speaker ?? '지문·문구'));
   const fitted = Math.min(180, Math.max(56, ...speakers.map((name) => name.length * 7 + 8)));
   const width = speakerWidth ?? fitted;
-  const row = (key: string, who: ReactNode, what: ReactNode, className?: string, scrollTo?: boolean) => (
-    <li key={key} data-marked={scrollTo || undefined} className={cn('grid gap-3 px-3 py-2', className)} style={{ gridTemplateColumns: `${width}px minmax(0,1fr)` }}>
+  const row = (key: string, who: ReactNode, what: ReactNode, options: { className?: string; scrollTo?: boolean; unitId?: string } = {}) => (
+    <li
+      key={key}
+      data-marked={options.scrollTo || undefined}
+      data-editing={(options.unitId && options.unitId === editing) || undefined}
+      className={cn('grid gap-3 px-3 py-2', options.unitId && 'cursor-pointer hover:bg-muted/50', options.unitId && options.unitId === editing && 'bg-primary/5 shadow-[inset_2px_0_0_var(--primary)]', options.className)}
+      style={{ gridTemplateColumns: `${width}px minmax(0,1fr)` }}
+      onClick={options.unitId ? () => onEdit(options.unitId!) : undefined}
+    >
       <span className="truncate pt-px text-xs text-muted-foreground">{who}</span>
       <div className="min-w-0 text-sm">{what}</div>
     </li>
   );
   const lines = nodes.flatMap((node) => {
-    if (node.kind === 'choice') return [row(node.id, '선택지', <span className="font-medium text-choice">▶ {node.units[0]?.source ?? node.label ?? node.key}</span>, 'bg-choice/5')];
-    if (!node.units.length) return [row(node.id, KIND_LABEL[node.kind] ?? node.kind, <span className="text-muted-foreground">{node.label ?? node.typeInfo?.label ?? ''}</span>, 'bg-muted/40')];
+    const choice = node.units[0];
+    if (node.kind === 'choice')
+      return [
+        row(
+          node.id,
+          '선택지',
+          <>
+            <p className="font-medium text-choice">▶ {choice?.source ?? node.label ?? node.key}</p>
+            {choice?.translation && <p className="text-muted-foreground">{choice.translation}</p>}
+          </>,
+          { className: 'bg-choice/5', unitId: choice?.id },
+        ),
+      ];
+    if (!node.units.length) return [row(node.id, KIND_LABEL[node.kind] ?? node.kind, <span className="text-muted-foreground">{node.label ?? node.typeInfo?.label ?? ''}</span>, { className: 'bg-muted/40' })];
     return node.units.map((unit) => {
       const here = node.id === marked;
       return row(
@@ -114,19 +138,14 @@ export function FlowPane({ projectId, nodeIds, title, way, marked, onClose }: {
         <>
           <p className="whitespace-pre-wrap">{unit.source}</p>
           {unit.translation && <p className="whitespace-pre-wrap text-muted-foreground">{unit.translation}</p>}
-          {unit.kind === 'dialogue' && (unit.heard || unit.level) && (
-            <p className="text-xs text-muted-foreground">
-              {unit.heard && `→ ${listenerLabel(unit.heard)}`}
-              {unit.heard && unit.level && ' · '}
-              {unit.level && SPEECH_LEVEL_LABELS[unit.level as SpeechLevel]}
-            </p>
-          )}
         </>,
-        here ? 'bg-primary/5 shadow-[inset_2px_0_0_var(--primary)]' : undefined,
-        here,
+        { className: here ? 'bg-primary/5 shadow-[inset_2px_0_0_var(--primary)]' : undefined, scrollTo: here, unitId: unit.id },
       );
     });
   });
+  // The line Enter or 번역하기 opens: the first one without a translation, else the first.
+  const units = nodes.flatMap((node) => node.units);
+  const start = units.find((unit) => !unit.translation) ?? units[0];
 
   return (
     <DetailPane
@@ -137,18 +156,27 @@ export function FlowPane({ projectId, nodeIds, title, way, marked, onClose }: {
       loading={loading && !nodes.length}
       bodyClassName="space-y-0 p-0"
       footer={
-        first?.group && (
-          <Button variant="outline" asChild>
-            <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: first.group.id, line: first.units[0]?.id }}>
-              <FileText /> 번역 화면에서 열기
-            </Link>
-          </Button>
+        (start || first?.group) && (
+          <>
+            {start && (
+              <Button onClick={() => onEdit(start.id)} title="노드 옆에 번역 카드를 엽니다 (Enter)">
+                <Languages /> 번역하기
+              </Button>
+            )}
+            {first?.group && (
+              <Button variant="outline" asChild>
+                <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: first.group.id, line: first.units[0]?.id }}>
+                  <FileText /> 번역 화면에서 열기
+                </Link>
+              </Button>
+            )}
+          </>
         )
       }
     >
       {way && way.labels.length > 0 && (
-        <p className="flex flex-wrap items-center gap-1 border-b bg-muted/30 px-3 py-1.5 text-xs text-muted-foreground">
-          <span>들어오는 길</span>
+        <p className="flex flex-wrap items-center gap-1 border-b bg-muted/30 px-3 py-1.5 text-xs text-muted-foreground" title="이 대사로 들어오는 길">
+          <CornerDownRight className="size-3.5" aria-label="들어오는 길" />
           {way.labels.map((label, index) => (
             <span key={index} className={cn('rounded-full border px-1.5', label.choice ? 'border-choice/30 bg-choice/10 text-choice' : 'bg-background')}>
               {label.choice ? `▶ ${label.text}` : label.text}
