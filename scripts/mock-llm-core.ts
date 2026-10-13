@@ -94,7 +94,7 @@ export function usageFor(promptChars: number, completionChars: number, options: 
   return { prompt_tokens: prompt, completion_tokens: completion, total_tokens: prompt + completion, prompt_tokens_details: { cached_tokens: Math.min(options.cachedTokens, prompt) } };
 }
 
-export type MockKind = 'analysis' | 'complete' | 'test' | 'candidate' | 'revise' | 'verdict' | 'terms' | 'glossary' | 'listener' | 'knowledge' | 'json';
+export type MockKind = 'analysis' | 'complete' | 'test' | 'candidate' | 'revise' | 'refine' | 'verdict' | 'terms' | 'glossary' | 'listener' | 'knowledge' | 'json';
 
 /** Which answer the prompt asks for. The server's CONTRACT sentence names the output; instructions tell translate from revise. */
 export function detectKind(system: string): MockKind {
@@ -107,6 +107,7 @@ export function detectKind(system: string): MockKind {
   if (system.includes('in "terms"')) return 'terms';
   if (system.includes('in "results": passed')) return 'verdict';
   if (system.includes('with the requested fields')) return 'json';
+  if (system.includes('Do not rephrase what is already correct')) return 'refine';
   return system.includes('Revise each') ? 'revise' : 'candidate';
 }
 
@@ -172,6 +173,12 @@ const stubborn = (source: string) => /orders/i.test(source);
 
 function structured(kind: Exclude<MockKind, 'analysis' | 'glossary' | 'test' | 'complete'>, system: string, rows: Row[], schema: unknown): { body: unknown; entries?: { key: string; textKey?: string } } {
   switch (kind) {
+    // The editor's 다듬기: a "[KO] " draft is marked checked (one reasoned change); anything else has nothing to fix.
+    case 'refine':
+      return {
+        body: { translations: rows.map((row) => (row.candidate?.startsWith('[KO] ') ? { id: row.id, text: row.candidate.replace('[KO] ', '[KO✓] '), changes: [{ kind: 'language', why: '모의: [KO]를 [KO✓]로' }] } : { id: row.id, text: row.candidate ?? '', changes: [] })) },
+        entries: { key: 'translations', textKey: 'text' },
+      };
     case 'candidate':
     case 'revise':
       return { body: { translations: rows.map((row) => ({ id: row.id, text: kind === 'revise' ? `[KO✓] ${row.source}` : `[KO] ${row.source}` })) }, entries: { key: 'translations', textKey: 'text' } };

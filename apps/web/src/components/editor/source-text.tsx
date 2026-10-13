@@ -1,7 +1,10 @@
+import { useMemo } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { splitTokens, useLineContext, type SourcePart } from '@/lib/line-context';
 import { chipHue, chipLabel, type TokenUnit } from '@/lib/tokens';
 import { cn } from '@/lib/utils';
+import { useDraft } from '@/lib/drafts';
+import { placeTags } from '@/lib/tag-placement';
 import { insertIntoLine, insertUnitIntoLine } from './translation-input';
 import { TermPick } from './term-pick';
 import { keyLabel } from '@/lib/keys';
@@ -11,7 +14,7 @@ import { keyLabel } from '@/lib/keys';
  * underlined (hover for the translation). With the line's editor open, clicking either puts it at
  * the cursor.
  */
-export function SourceText({ parts, units = [], unitId, className }: { parts: SourcePart[]; units?: TokenUnit[]; unitId?: string; className?: string }) {
+export function SourceText({ parts, units = [], unitId, missing = [], className }: { parts: SourcePart[]; units?: TokenUnit[]; unitId?: string; missing?: number[]; className?: string }) {
   const insert = (text: string) => unitId && insertIntoLine(unitId, text);
   return (
     <p className={cn('break-words whitespace-pre-wrap', className)}>
@@ -21,7 +24,8 @@ export function SourceText({ parts, units = [], unitId, className }: { parts: So
             <TokenChip
               key={index}
               part={part}
-              hint={unitId ? `눌러서 번역에 넣기${part.token.number && part.token.number <= 9 ? ` (${keyLabel(`Mod+${part.token.number}`)}${part.token.kind === 'single' ? '' : ', 고른 글자를 감쌈'})` : ''}` : undefined}
+              missing={!!part.token.number && missing.includes(part.token.number)}
+              hint={unitId ? `${missing.includes(part.token.number) ? '번역에 없음 · ' : ''}눌러서 넣기${part.token.number && part.token.number <= 9 ? ` (${keyLabel(`Alt+${part.token.number}`)})` : ''}` : undefined}
               onPick={
                 unitId
                   ? () => {
@@ -57,24 +61,30 @@ export function SourceText({ parts, units = [], unitId, className }: { parts: So
   );
 }
 
-/** The source of the line being edited, with its tokens and terms (see SourceText). */
-export function LineSourceText({ projectId, unitId, source, className }: { projectId: string; unitId: string; source: string; className?: string }) {
+/** The source of the line being edited, with its tokens and terms (see SourceText); tokens the draft still lacks are ringed. */
+export function LineSourceText({ projectId, unitId, source, translation, className }: { projectId: string; unitId: string; source: string; translation?: string | null; className?: string }) {
   const line = useLineContext(projectId, source);
+  const [draft] = useDraft(`line:${unitId}`, translation ?? '');
+  const missing = useMemo(() => {
+    if (!draft.trim()) return [];
+    const placement = placeTags(source, draft, line.tokenPattern);
+    return [...placement.placed, ...placement.left];
+  }, [source, draft, line.tokenPattern]);
   // Selecting words in it offers to add them to the glossary.
   return (
     <TermPick projectId={projectId} unitId={unitId}>
-      <SourceText parts={line.parts} units={line.units} unitId={unitId} className={className} />
+      <SourceText parts={line.parts} units={line.units} unitId={unitId} missing={missing} className={className} />
     </TermPick>
   );
 }
 
 /** A numbered format token (#1); the full token shows in a tooltip on hover. */
-export function TokenChip({ part, hint, onPick }: { part: SourcePart; hint?: string; onPick?: () => void }) {
+export function TokenChip({ part, hint, onPick, missing = false }: { part: SourcePart; hint?: string; onPick?: () => void; missing?: boolean }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <span
-          className={cn('token-chip', chipHue(part.token?.number ?? 0), !part.token?.number && 'token-chip-stray', onPick && 'cursor-pointer hover:border-ring')}
+          className={cn('token-chip', chipHue(part.token?.number ?? 0), !part.token?.number && 'token-chip-stray', missing && 'ring-1 ring-warning', onPick && 'cursor-pointer hover:border-ring')}
           onMouseDown={onPick && ((event) => (event.preventDefault(), onPick()))}
         >
           {chipLabel(part.token?.kind ?? 'single', part.token?.number ?? 0)}

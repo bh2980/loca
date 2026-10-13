@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { Compartment, EditorState, Prec, RangeSetBuilder, StateEffect, StateField } from '@codemirror/state';
 import { Decoration, EditorView, hoverTooltip, keymap, MatchDecorator, placeholder as placeholderText, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from '@codemirror/view';
 import { history, historyKeymap, standardKeymap } from '@codemirror/commands';
-import { autocompletion, completionStatus, type CompletionContext } from '@codemirror/autocomplete';
+import { acceptCompletion, autocompletion, completionStatus, type CompletionContext } from '@codemirror/autocomplete';
 import { chipHue, chipLabel, numberTokens, type TokenKind, type TokenUnit } from '@/lib/tokens';
 import type { TagInsert } from '@/lib/tag-placement';
 import { splitTokens, type SourcePart } from '@/lib/line-context';
@@ -10,6 +10,8 @@ import { cn } from '@/lib/utils';
 
 /** Open editors by line, so the source next to one can put a token or term into it. */
 const editors = new Map<string, EditorView>();
+/** How each open editor numbers its tokens, for inserting from outside (a source chip). */
+const numberings = new Map<string, () => { source: string; pattern: RegExp | null }>();
 
 /**
  * Proposed tokens shown as faint chips where they would go (docs/DESIGN.md J3b B): Tab puts them
@@ -100,6 +102,11 @@ const continuation = StateField.define<Continuation>({
       return Decoration.set([Decoration.widget({ widget: new ContinuationText(state.field(field)), side: 1 }).range(head)]);
     }),
 });
+/** Tab: the picked completion first (a term or token the person is choosing), then proposed tokens, then the continuation. */
+function takeOffer(view: EditorView) {
+  return (completionStatus(view.state) === 'active' && acceptCompletion(view)) || takeGhost(view) || takeContinuation(view);
+}
+
 /** Puts in the continuation, or (`word`) its first word. */
 function takeContinuation(view: EditorView, word = false) {
   const { text } = view.state.field(continuation);
@@ -139,12 +146,21 @@ export function selectionInLine(unitId: string) {
 export function insertUnitIntoLine(unitId: string, unit: TokenUnit) {
   const view = editors.get(unitId);
   if (!view) return false;
-  insertUnit(view, unit);
+  insertUnit(view, unit, numberings.get(unitId)?.());
   view.focus();
   return true;
 }
 
 /** Puts text at the cursor of the line's open editor (from a click on its source). */
+/** Replaces the whole text of the line's open editor (one undo step, so ⌘Z brings the old text back). */
+export function replaceLineText(unitId: string, text: string) {
+  const view = editors.get(unitId);
+  if (!view) return false;
+  view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text }, selection: { anchor: text.length }, userEvent: 'input.replace', scrollIntoView: true });
+  view.focus();
+  return true;
+}
+
 export function insertIntoLine(unitId: string, text: string) {
   const view = editors.get(unitId);
   if (!view) return false;
@@ -161,14 +177,14 @@ export interface TranslationInputProps {
   source: string;
   /** Any format token of the project (global regex). */
   tokenPattern: RegExp | null;
-  /** The source's tokens as units (a pair, or a single token) in order: ⌘1…⌘9 insert them. */
+  /** The source's tokens as units (a pair, or a single token) in order: ⌥1…9 insert them. */
   units: TokenUnit[];
   /** Confirmed terms the source mentions: their translations are offered while typing and marked when used. */
   terms: { source: string; target: string }[];
   onSave: () => void;
   onAdvance: () => void;
   onEscape?: () => void;
-  /** ⌘⇧T: propose the missing format tokens (shown as ghosts, Tab takes them). */
+  /** ⌥T: propose the missing format tokens (shown as ghosts, Tab takes them). */
   onPlaceTags?: () => void;
   /** The AI continuation to show after the cursor (empty = none). */
   continuation?: string;
@@ -210,9 +226,19 @@ class TokenChip extends WidgetType {
   }
 }
 
-/** Puts unit n at the selection: a single token replaces it, a pair goes around it. */
-function insertUnit(view: EditorView, unit: TokenUnit) {
+/**
+ * Puts unit n at the selection: a single token replaces it, a pair goes around it. With nothing
+ * selected a pair goes in one tag at a time: its opener at the cursor, then (once the opener is
+ * in and still unclosed) its closer wherever the cursor is next.
+ */
+function insertUnit(view: EditorView, unit: TokenUnit, numbering?: { source: string; pattern: RegExp | null }) {
   const { from, to } = view.state.selection.main;
+  if (unit.close && from === to && numbering) {
+    const unclosed = numberTokens(view.state.doc.toString(), numbering.source, numbering.pattern).some((token) => token.number === unit.number && token.kind === 'single' && token.text === unit.open);
+    const tag = unclosed ? unit.close : unit.open;
+    view.dispatch({ changes: { from, insert: tag }, selection: { anchor: from + tag.length } });
+    return;
+  }
   if (!unit.close) view.dispatch({ changes: { from, to, insert: unit.open }, selection: { anchor: from + unit.open.length } });
   else
     view.dispatch({
@@ -366,10 +392,19 @@ export function TranslationInput(props: TranslationInputProps) {
 
   useEffect(() => {
     const run = (action: () => void) => () => (action(), true);
+    // A key pressed while a Korean syllable is still composing never reaches the keymap; it runs once the composition ends.
+    let afterComposition: ((editor: EditorView) => unknown) | null = null;
+    const insertNumbered = (editor: EditorView, index: number) => {
+      const unit = latest.current.units[index];
+      if (!unit) return false;
+      insertUnit(editor, unit, { source: latest.current.source, pattern: latest.current.tokenPattern });
+      return true;
+    };
     const shortcuts = [
       { key: 'Mod-s', run: run(() => latest.current.onSave()) },
       { key: 'Mod-Enter', run: run(() => latest.current.onAdvance()) },
-      { key: 'Tab', run: (editor: EditorView) => takeGhost(editor) || takeContinuation(editor) },
+      // Tab takes what is offered: a picked completion (a glossary term, a token), then proposed tokens, then the continuation.
+      { key: 'Tab', run: (editor: EditorView) => takeOffer(editor) },
       { key: 'Mod-ArrowRight', run: (editor: EditorView) => takeContinuation(editor, true) },
       { key: 'Alt-/', run: () => (latest.current.onContinue?.(), !!latest.current.onContinue) },
       { key: 'Alt-.', run: () => (latest.current.onAssist?.(), !!latest.current.onAssist) },
@@ -387,22 +422,8 @@ export function TranslationInput(props: TranslationInputProps) {
           return true;
         },
       },
-      { key: 'Mod-Shift-t', run: () => (latest.current.onPlaceTags?.(), !!latest.current.onPlaceTags) },
       // Copy the source into the box (memoQ's Ctrl+Shift+S).
       { key: 'Mod-Shift-s', run: (editor: EditorView) => (editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: latest.current.source } }), true) },
-      ...Array.from({ length: 9 }, (_, index) => [
-        {
-          key: `Mod-${index + 1}`,
-          // Unit n: a single token at the cursor, or a pair around the selection (memoQ's F9).
-          run: (editor: EditorView) => {
-            const unit = latest.current.units[index];
-            if (!unit) return false;
-            insertUnit(editor, unit);
-            return true;
-          },
-        },
-        { key: `Alt-${index + 1}`, run: () => (latest.current.onPick?.(index), !!latest.current.onPick) },
-      ]).flat(),
     ];
     const editor = new EditorView({
       parent: host.current!,
@@ -414,13 +435,33 @@ export function TranslationInput(props: TranslationInputProps) {
           // keymap cannot name; the physical key (code) still says which they are.
           Prec.highest(
             EditorView.domEventHandlers({
-              keydown: (event) => {
-                if (!event.altKey || event.metaKey || event.ctrlKey) return false;
-                if (event.code === 'Slash' && latest.current.onContinue) return (event.preventDefault(), latest.current.onContinue(), true);
-                if (event.code === 'Period' && latest.current.onAssist) return (event.preventDefault(), latest.current.onAssist(), true);
-                const digit = /^Digit([1-9])$/.exec(event.code)?.[1];
-                if (digit && latest.current.onPick) return (event.preventDefault(), latest.current.onPick(Number(digit) - 1), true);
+              compositionend: (_event, editor) => {
+                const later = afterComposition;
+                if (!later) return false;
+                afterComposition = null;
+                // After CodeMirror applies the composed text and refreshes the completion.
+                setTimeout(() => later(editor), 0);
                 return false;
+              },
+              keydown: (event, view) => {
+                const composing = event.isComposing || event.keyCode === 229;
+                // Tab while composing: run once the composition ends (the completion then covers the whole word).
+                if (composing && event.code === 'Tab') return (event.preventDefault(), (afterComposition = takeOffer), true);
+                // ⌥ (Alt) shortcuts by physical key: ⌥ turns keys into other characters on a Mac, and a Korean
+                // input method sends them as composing keys. ⌘1…9 / ⌘⇧T never reach the page (browser tab keys).
+                if (!event.altKey || event.metaKey || event.ctrlKey) return false;
+                const digit = Number(/^Digit([1-9])$/.exec(event.code)?.[1] ?? 0);
+                let action: ((editor: EditorView) => unknown) | null = null;
+                if (digit && event.shiftKey) action = latest.current.onPick ? () => latest.current.onPick?.(digit - 1) : null; // ⌥⇧n: suggestion n
+                else if (digit) action = (editor) => insertNumbered(editor, digit - 1); // ⌥n: format token n
+                else if (event.code === 'KeyT' && !event.shiftKey) action = latest.current.onPlaceTags ? () => latest.current.onPlaceTags?.() : null;
+                else if (event.code === 'Slash') action = latest.current.onContinue ? () => latest.current.onContinue?.() : null;
+                else if (event.code === 'Period') action = latest.current.onAssist ? () => latest.current.onAssist?.() : null;
+                if (!action) return false;
+                event.preventDefault();
+                if (composing) afterComposition = action;
+                else action(view);
+                return true;
               },
             }),
           ),
@@ -440,9 +481,12 @@ export function TranslationInput(props: TranslationInputProps) {
     });
     view.current = editor;
     editors.set(props.unitId, editor);
+    const numbering = () => ({ source: latest.current.source, pattern: latest.current.tokenPattern });
+    numberings.set(props.unitId, numbering);
     return () => {
       editor.destroy();
       if (editors.get(props.unitId) === editor) editors.delete(props.unitId);
+      if (numberings.get(props.unitId) === numbering) numberings.delete(props.unitId);
     };
   }, [props.unitId]); // eslint-disable-line react-hooks/exhaustive-deps
 
