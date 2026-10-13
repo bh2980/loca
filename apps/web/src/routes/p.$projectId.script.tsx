@@ -222,7 +222,10 @@ function Script() {
             banner={
               finding && (
                 <div className="flex shrink-0 items-center gap-2 border-b bg-warning/5 px-4 py-1.5 text-sm">
-                  <span className="truncate font-medium">{findLabel}</span>
+                  {/* Says it is the whole scene, the matches marked: the list alone shows only the matches. */}
+                  <span className="truncate">
+                    장면 전체에서 <span className="font-medium">{findLabel}</span> 찾는 중
+                  </span>
                   <span className="text-xs whitespace-nowrap text-muted-foreground tabular-nums">
                     {!matches.data ? '찾는 중…' : !matchRows.length ? '해당하는 줄이 없습니다' : `${position >= 0 ? (position + 1).toLocaleString() : '–'} / ${matchRows.length.toLocaleString()}줄 · 이 장면 ${(perScene.get(search.group ?? '') ?? 0).toLocaleString()}줄`}
                   </span>
@@ -244,7 +247,7 @@ function Script() {
                       <TooltipContent>다음 줄 ({keyLabel('Alt+Down')})</TooltipContent>
                     </Tooltip>
                     <Button variant="ghost" onClick={() => onSearch({ view: 'list', group: undefined, page: undefined })}>
-                      목록으로 보기
+                      맞는 줄만 보기
                     </Button>
                     <Button variant="ghost" size="icon" aria-label="필터 지우기" onClick={() => onSearch(clearFilters)}>
                       <X />
