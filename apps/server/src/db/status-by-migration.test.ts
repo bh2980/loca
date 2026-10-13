@@ -59,3 +59,21 @@ describe('reviewed → status_by (0037/0038)', () => {
     db.$client.close();
   });
 });
+
+describe('unique term source (0048)', () => {
+  it('renames earlier duplicates instead of failing or deleting them', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'loca-db-'));
+    dirs.push(dir);
+    const file = path.join(dir, 'workbench.sqlite');
+    openDatabase(file, folderBefore('0048_terms_unique_source')).$client.close();
+    const raw = new Database(file);
+    raw.exec(`
+      insert into projects (id, name, source_language, target_language, created_at, updated_at) values ('p', 'P', 'en', 'ko', 0, 0), ('q', 'Q', 'en', 'ko', 0, 0);
+      insert into terms (id, project_id, source, target, updated_at) values ('a', 'p', 'Lieutenant', '경위', 0), ('b', 'p', 'lieutenant', '중위', 0), ('c', 'p', 'LIEUTENANT', '', 0), ('d', 'q', 'Lieutenant', '경위', 0);
+    `);
+    raw.close();
+    const db = openDatabase(file, drizzleFolder);
+    const sources = db.select({ id: s.terms.id, source: s.terms.source }).from(s.terms).all().sort((x, y) => x.id.localeCompare(y.id));
+    expect(sources.map((term) => term.source)).toEqual(['Lieutenant', expect.stringMatching(/^lieutenant \(중복 \d+\)$/), expect.stringMatching(/^LIEUTENANT \(중복 \d+\)$/), 'Lieutenant']);
+  });
+});

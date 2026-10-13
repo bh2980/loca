@@ -6,7 +6,6 @@ import { toast } from 'sonner';
 import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { setChangeListener } from '@/lib/api';
-import { noteInvalidated } from '@/lib/recent-invalidations';
 import { routeTree } from './routeTree.gen';
 import './index.css';
 
@@ -19,7 +18,6 @@ const queryClient = new QueryClient({
 
 // A write's answer names the topics it changed: refetch those queries now (the event stream says the same a moment later).
 setChangeListener((topics) => {
-  noteInvalidated(topics);
   for (const topic of topics) void queryClient.invalidateQueries({ queryKey: [topic] });
 });
 

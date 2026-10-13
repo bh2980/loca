@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouterState } from '@tanstack/react-router';
-import { wasJustInvalidated } from './recent-invalidations';
 
 const BATCH_MS = 250;
 /** No ping (sent every 20 s) for this long: the stream is dead. */
@@ -57,7 +56,7 @@ export function useLiveInvalidation() {
         const batch = [...topics];
         topics.clear();
         // A topic the write's own answer already refetched is not fetched again.
-        for (const topic of batch) if (!wasJustInvalidated(topic)) void queryClient.invalidateQueries({ queryKey: [topic] });
+        for (const topic of batch) void queryClient.invalidateQueries({ queryKey: [topic] });
       }, BATCH_MS);
     };
     connect();
