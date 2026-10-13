@@ -12,7 +12,6 @@ import { useReportView } from '@/lib/view-context';
 import { SplitPane } from '@/components/split-pane';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { DetailPane } from '@/components/detail-pane';
-import { Toolbar } from '@/components/toolbar';
 import { JobStatusBadge } from '@/components/job-status';
 import { AnalysisSteps } from '@/components/job-progress';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -153,7 +152,6 @@ function Runs() {
         className="h-full"
         pane={selected && <JobCalls key={selected.id} projectId={projectId} job={selected} onClose={() => select(undefined)} />}
       >
-        <Toolbar count={rows ? `${rows.length.toLocaleString()}건` : undefined} />
         <DataTable
           columns={columns}
           rows={rows}
