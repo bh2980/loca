@@ -2,7 +2,7 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, type UseQueryResult } from '@tanstack/react-query';
 import type { InferResponseType } from 'hono/client';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { ChevronRight, Play, Search, TriangleAlert } from 'lucide-react';
+import { ChevronRight, Play, Search } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -295,6 +295,15 @@ function Readiness({ projectId, readiness, oneScene, onLeave }: { projectId: str
       ),
     },
     {
+      ok: readiness.pairsWithoutRule.count === 0,
+      text: readiness.pairsWithoutRule.count ? `말투 규칙 없는 화자→청자 ${readiness.pairsWithoutRule.count}쌍 (${readiness.pairsWithoutRule.examples.join(', ')}${readiness.pairsWithoutRule.count > readiness.pairsWithoutRule.examples.length ? ' 등' : ''})` : '자주 말하는 쌍마다 말투 규칙 있음',
+      link: readiness.pairsWithoutRule.count > 0 && (
+        <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people' }} onClick={onLeave}>
+          규칙 정하기
+        </Link>
+      ),
+    },
+    {
       ok: readiness.unreviewedTerms.count === 0,
       text: readiness.unreviewedTerms.count ? `확인 안 한 용어 ${readiness.unreviewedTerms.count}개 (${readiness.unreviewedTerms.examples.join(', ')}${readiness.unreviewedTerms.count > readiness.unreviewedTerms.examples.length ? ' 등' : ''})` : '나오는 용어는 모두 확인됨',
       link: readiness.unreviewedTerms.count > 0 && (
@@ -384,15 +393,6 @@ function Details({ data, callsText, tokensText, onCalls, onTokens }: { data: Pla
         {data.plan.linesPerBatch && ` (한 번에 ${data.plan.linesPerBatch.min}~${data.plan.linesPerBatch.max}줄)`} · 입력 토큰 {range(data.totals.inputTokens, '')}
       </p>
       <BatchList list={data.plan.list} />
-      {data.warnings.length > 0 && (
-        <ul className="space-y-1 text-xs text-muted-foreground">
-          {data.warnings.map((warning) => (
-            <li key={warning} className="flex items-start gap-1.5">
-              <TriangleAlert className="mt-0.5 size-3.5 shrink-0" /> {warning}
-            </li>
-          ))}
-        </ul>
-      )}
       <div className="grid grid-cols-2 gap-3">
         <label className="space-y-1 text-sm">
           호출 상한 (회)

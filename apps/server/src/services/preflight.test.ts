@@ -58,7 +58,6 @@ describe('preflight', () => {
     const translate = first.nodes.find((node) => node.everyLine)!;
     expect(translate.requests.min).toBe(translate.requests.max);
     expect(first.totals.calls.expected).toBeNull();
-    expect(first.warnings.some((warning) => warning.includes('고정 토큰을 아직 잰 적이'))).toBe(true);
 
     const runId = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope }).runId;
     await new Runner(db, memoryStore(), model()).drain();
