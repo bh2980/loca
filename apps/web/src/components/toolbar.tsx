@@ -69,11 +69,14 @@ export function SearchInput({ value, onChange, placeholder, className }: { value
 }
 
 /** Server paging under a table: range, then previous / next. Hidden when everything fits on one page. */
-export function Pager({ page, total, pageSize, onPage }: { page: number; total: number; pageSize: number; onPage: (page: number) => void }) {
+export function Pager({ page, total, pageSize, onPage, start }: { page: number; total: number; pageSize: number; onPage: (page: number) => void; /** Left of the bar (e.g. a list's selection mode); the bar shows for it even on one page. */ start?: ReactNode }) {
   const pages = Math.max(1, Math.ceil(total / pageSize));
-  if (pages <= 1) return null;
+  if (pages <= 1 && !start) return null;
   return (
     <div className="flex shrink-0 items-center justify-end gap-2 border-t px-4 py-2">
+      {start && <div className="mr-auto flex items-center gap-2">{start}</div>}
+      {pages > 1 && (
+        <>
       <span className="text-xs text-muted-foreground tabular-nums">
         {(page * pageSize + 1).toLocaleString()}–{Math.min(total, (page + 1) * pageSize).toLocaleString()} / {total.toLocaleString()}
       </span>
@@ -83,6 +86,8 @@ export function Pager({ page, total, pageSize, onPage }: { page: number; total: 
       <Button variant="outline" size="icon" aria-label="다음 페이지" disabled={page + 1 >= pages} onClick={() => onPage(page + 1)}>
         <ChevronRight />
       </Button>
+        </>
+      )}
     </div>
   );
 }

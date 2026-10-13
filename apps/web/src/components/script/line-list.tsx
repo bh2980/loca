@@ -340,19 +340,16 @@ export function LineList({
         actions={
           <>
             {actions}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" aria-label="더 보기">
-                  <MoreHorizontal />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onSelect={() => (picking ? stopPicking() : setPicking(true))}>
-                  <ListChecks /> {picking ? '선택 그만하기' : '여러 줄 선택'}
-                </DropdownMenuItem>
-                {menu}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            {menu && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" aria-label="더 보기">
+                    <MoreHorizontal />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">{menu}</DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </>
         }
       >
@@ -470,7 +467,20 @@ export function LineList({
           </ul>
         )}
       </div>
-      <Pager page={page} total={total} pageSize={PAGE_SIZE} onPage={(next) => onSearch({ page: next || undefined, line: undefined })} />
+      <Pager
+        page={page}
+        total={total}
+        pageSize={PAGE_SIZE}
+        onPage={(next) => onSearch({ page: next || undefined, line: undefined })}
+        // Picking several lines starts from the list's own bar; while picking, the bulk bar takes over.
+        start={
+          !picking && Boolean(rows?.length) && (
+            <Button variant="ghost" className="text-muted-foreground" onClick={() => setPicking(true)}>
+              <ListChecks /> 여러 줄 선택
+            </Button>
+          )
+        }
+      />
       {picking && (
         <BulkBar count={picked.size} onClear={stopPicking}>
           <Button variant="outline" disabled={!rows?.length} onClick={() => pick(rows?.map((row) => row.id) ?? [], true)}>

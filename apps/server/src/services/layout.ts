@@ -49,8 +49,8 @@ function runWorker<T = LayoutData>(job: WorkerJob, onWorker: (worker: Worker) =>
   });
 }
 
-/** Bumped when layouts are made differently (2: straight runs folded, hub-only scenes by depth; 3: choices on their edges, edge labels; 4: curved edges; 5: room kept for labels); older ones are recomputed at startup. */
-export const LAYOUT_VERSION = 5;
+/** Bumped when layouts are made differently (2: straight runs folded, hub-only scenes by depth; 3: choices on their edges, edge labels; 4: curved edges; 5: room kept for labels; 6: conservative splines, not ELK's sloppy default); older ones are recomputed at startup. */
+export const LAYOUT_VERSION = 6;
 
 /** Projects with a stored layout made by an older LAYOUT_VERSION (agent views excepted: they are made again on request). */
 export function projectsWithOldLayouts(db: Db) {
