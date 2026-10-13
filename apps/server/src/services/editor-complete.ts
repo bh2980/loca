@@ -50,8 +50,8 @@ export async function completeLine(db: Db, secrets: SecretStore, unitId: string,
     throw new CompleteRefused(`오늘 자동완성 한도(${settings.dailyCap}회)를 다 썼습니다.`, 429, Math.ceil((midnight.getTime() - Date.now()) / 1000));
   }
   const { routes } = liveChoice(db, settings.model, secrets, 'generate');
-  // Thinking models answer late; unless an effort was chosen, a continuation asks for little thinking.
-  const route: ai.ResolvedRoute = { ...routes[0]!, effort: routes[0]!.effort ?? 'low' };
+  // The effort is the person's choice: "모델 기본값" sends none (a slow thinking model: pick low).
+  const route: ai.ResolvedRoute = routes[0]!;
   if (route.kind !== 'openai') throw new CompleteRefused('편집기 자동완성은 API 연결(OpenAI 호환)만 쓸 수 있습니다.', 400);
 
   const before = db
@@ -89,13 +89,7 @@ export async function completeLine(db: Db, secrets: SecretStore, unitId: string,
     logged(db, { projectId: unit.projectId, kind: 'editor', refId: unitId, label: '편집기 자동완성', request: prompt }, target, () =>
       ai.complete(target, { system: COMPLETE_SYSTEM, prompt, maxOutputTokens: 400, timeoutMs: COMPLETE_TIMEOUT_MS, signal }),
     );
-  const result = await call(route)
-    // A model that takes no reasoning effort may refuse the field we added: once more without it.
-    .catch((error: unknown) => {
-      if (!routes[0]!.effort && error instanceof ai.ModelError && error.code === 'config') return call({ ...route, effort: undefined });
-      throw error;
-    })
-    .catch((error: unknown) => {
+  const result = await call(route).catch((error: unknown) => {
     if (error instanceof ai.ModelError && error.code === 'rate-limit') throw new CompleteRefused('모델 요청 한도에 걸렸습니다. 잠시 뒤 다시.', 429, 60);
     if (error instanceof ai.ModelError && error.code === 'timeout') throw new CompleteRefused(`응답이 ${COMPLETE_TIMEOUT_MS / 1000}초 안에 오지 않아 그만뒀습니다. 더 빠른 모델을 고르세요.`, 400);
     throw error;
