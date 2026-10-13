@@ -22,7 +22,7 @@ function setup() {
   const send = (method: string, url: string, body: unknown) => app.request(`/projects/${projectId}${url}`, { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   const terms = () => db.select({ source: s.terms.source, note: s.terms.note }).from(s.terms).where(eq(s.terms.projectId, projectId)).orderBy(s.terms.source).all();
   const characters = () => db.select({ name: s.characters.name, aliases: s.characters.aliases }).from(s.characters).where(eq(s.characters.projectId, projectId)).all();
-  const tool = (input: object) => agentTools(db, projectId).save_character.execute!(input as never, { toolCallId: 't', messages: [] }) as { ok: boolean; id?: string; error?: string };
+  const tool = (input: object) => agentTools(db, projectId).save_character.execute!(input as never, { toolCallId: 't', messages: [] } as never) as { ok: boolean; id?: string; error?: string };
   return { db, projectId, send, terms, characters, tool };
 }
 
