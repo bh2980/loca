@@ -25,34 +25,44 @@ function setup(assistModel = true) {
   return { db, unit };
 }
 
-const fake = (text: string, seen: { system?: string; prompt?: string } = {}) =>
+const fake = (text: string, seen: { system?: string; prompt?: string } = {}, changes?: { kind: string; why: string }[]) =>
   (async (_route: unknown, request: { system: string; prompt: string }) => {
     seen.system = request.system;
     seen.prompt = request.prompt;
-    return { object: { translations: [{ id: '1', text }] }, usage: { inputTokens: 1, outputTokens: 1 } };
+    return { object: { translations: [{ id: '1', text, ...(changes && { changes }) }] }, usage: { inputTokens: 1, outputTokens: 1 } };
   }) as unknown as typeof ai.generate;
 
 describe('the editor AI assist', () => {
   it('is refused without a model, and refining needs a draft', async () => {
     const none = setup(false);
-    await expect(assistLine(none.db, memoryStore(), none.unit.id, { mode: 'translate', draft: '', instruction: '' }, undefined, fake('x'))).rejects.toBeInstanceOf(CompleteRefused);
+    await expect(assistLine(none.db, memoryStore(), none.unit.id, { mode: 'translate', draft: '' }, undefined, fake('x'))).rejects.toBeInstanceOf(CompleteRefused);
     const { db, unit } = setup();
-    await expect(assistLine(db, memoryStore(), unit.id, { mode: 'refine', draft: '  ', instruction: '' }, undefined, fake('x'))).rejects.toThrow('다듬을 번역이 없습니다');
+    await expect(assistLine(db, memoryStore(), unit.id, { mode: 'refine', draft: '  ' }, undefined, fake('x'))).rejects.toThrow('다듬을 번역이 없습니다');
   });
 
-  it('saves the answer as an AI candidate with a note, leaves the translation, and sends the instruction', async () => {
+  it('saves a refined draft as an AI candidate whose note says what changed and why, and leaves the translation', async () => {
     const { db, unit } = setup();
     const seen: { system?: string; prompt?: string } = {};
-    const result = await assistLine(db, memoryStore(), unit.id, { mode: 'refine', draft: '늦었네.', instruction: '더 짧게' }, undefined, fake('늦었어.', seen));
-    expect(result.text).toBe('늦었어.');
+    const result = await assistLine(db, memoryStore(), unit.id, { mode: 'refine', draft: '늦었네.' }, undefined, fake('늦으셨네요.', seen, [{ kind: 'rule', why: '말투: 상관에게 존댓말' }]));
+    if ('unchanged' in result) throw new Error('expected a candidate');
+    expect(result).toMatchObject({ text: '늦으셨네요.', reasons: ['규칙 · 말투: 상관에게 존댓말'] });
     const candidate = db.select().from(s.candidates).where(eq(s.candidates.id, result.candidateId)).get();
-    expect(candidate).toMatchObject({ unitId: unit.id, text: '늦었어.', origin: 'ai', note: '다듬기: 더 짧게' });
+    expect(candidate).toMatchObject({ unitId: unit.id, text: '늦으셨네요.', origin: 'ai', note: '다듬기 — 규칙 · 말투: 상관에게 존댓말' });
     expect(db.select().from(s.units).where(eq(s.units.id, unit.id)).get()!.translation).toBe('늦었네.');
-    expect(seen.system).toContain('더 짧게');
-    const call = db.select().from(s.aiCalls).get()!;
-    expect(call.kind).toBe('editor');
-    expect(call.request).toContain('더 짧게');
-    const translated = await assistLine(db, memoryStore(), unit.id, { mode: 'translate', draft: '', instruction: '' }, undefined, fake('지각이야.'));
+    // The draft goes in as the candidate to keep; the prompt asks for minimal, reasoned changes.
+    expect(seen.prompt).toContain('늦었네.');
+    expect(seen.system).toContain('Do not rephrase what is already correct');
+    expect(db.select().from(s.aiCalls).get()!.kind).toBe('editor');
+    const translated = await assistLine(db, memoryStore(), unit.id, { mode: 'translate', draft: '' }, undefined, fake('지각이야.'));
+    if ('unchanged' in translated) throw new Error('expected a candidate');
     expect(db.select().from(s.candidates).where(eq(s.candidates.id, translated.candidateId)).get()!.note).toBe('AI 번역');
+  });
+
+  it('makes no candidate when there is nothing to fix', async () => {
+    const { db, unit } = setup();
+    const before = db.select().from(s.candidates).all().length;
+    const result = await assistLine(db, memoryStore(), unit.id, { mode: 'refine', draft: '늦었네. ' }, undefined, fake('늦었네.'));
+    expect(result).toMatchObject({ unchanged: true });
+    expect(db.select().from(s.candidates).all()).toHaveLength(before);
   });
 });

@@ -286,7 +286,7 @@ export const sourceRoutes = new Hono<Env>()
     }
   })
   /** The editor's 'AI 번역' / '다듬기' of a line (docs/DESIGN.md J3b C): a new AI candidate. Cancelled with the request. */
-  .post('/units/:unitId/assist', validate('json', z.object({ mode: z.enum(['translate', 'refine']), draft: z.string().max(8000).default(''), instruction: z.string().max(2000).default('') })), async (c) => {
+  .post('/units/:unitId/assist', validate('json', z.object({ mode: z.enum(['translate', 'refine']), draft: z.string().max(8000).default('') })), async (c) => {
     const { db, secrets } = c.var.deps;
     try {
       return c.json(await assistLine(db, secrets, c.req.param('unitId'), c.req.valid('json'), c.req.raw.signal));

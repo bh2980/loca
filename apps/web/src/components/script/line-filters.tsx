@@ -154,7 +154,7 @@ export function LineFilters({ projectId, statuses, tags, speakers, search, onSea
           <DropdownMenuSubContent className="max-h-80 w-56 overflow-y-auto">
             {speakers.slice(0, 40).map((speaker) => (
               <DropdownMenuCheckboxItem key={speaker.name} checked={search.listener === speaker.name} onCheckedChange={(on) => onSearch({ listener: on ? speaker.name : undefined })}>
-                {speaker.name}에게
+                {speaker.name}
               </DropdownMenuCheckboxItem>
             ))}
           </DropdownMenuSubContent>

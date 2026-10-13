@@ -1,14 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { toast } from 'sonner';
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { CircleAlert, CircleCheck } from 'lucide-react';
-import { checkFormat, isUnsureListener, listenerLabel, type ListenerOrigin, mentions, SPECIAL_LISTENERS, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatRules, type KnowledgeStatus, type SpeechLevel } from '@tw/shared';
+import { checkFormat, listenerLabel, mentions, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatRules, type KnowledgeStatus, type SpeechLevel } from '@tw/shared';
 import { Badge } from '@/components/ui/badge';
 import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
 import { Button } from '@/components/ui/button';
-import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Toggle } from '@/components/ui/toggle';
 import { AiButton } from '@/components/ai-button';
 import { AiContextPanel } from '@/components/ai-context';
@@ -20,6 +19,7 @@ import { useDraft } from '@/lib/drafts';
 import { lineTags, q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { useReportView } from '@/lib/view-context';
+import { ListenerPicker } from '@/components/script/listener-picker';
 import { editorChecks, tokenPatternOf, withoutTokens } from '@/lib/line-context';
 
 const ORIGIN = { ai: 'AI', human: '사람', import: '가져옴', tool: '도구' } as const;
@@ -332,95 +332,4 @@ function LineChecks({ projectId, source, text, terms, rules, targetLanguage, spe
   );
 }
 
-const LISTENER_ORIGIN_LABELS: Record<ListenerOrigin, string> = { import: '가져오기', scene: '장면 추정', ai: 'AI 추정', human: '사람' };
-const TYPE_NAME = '__type';
-
-/**
- * Who the line addresses. Offered nearest first: the scene's other speakers (extras such as SWAT
- * included) and names typed there before, then a group / the public / themself, then the rest of
- * the cast; any other name can be typed. An unsure guess shows as 미상 with what was guessed.
- */
-function ListenerPicker({ line, cast, onPick }: {
-  line: { speaker: string | null; listener: string | null; listenerOrigin: ListenerOrigin | null; listenerConfidence: number | null; sceneNames?: string[] };
-  cast: { name: string; player: boolean }[];
-  onPick: (listener: string | null) => void;
-}) {
-  const [typing, setTyping] = useState<string | null>(null);
-  const unsure = isUnsureListener(line);
-  const value = !line.listener || unsure ? '-' : line.listener;
-  const scene = line.sceneNames ?? [];
-  const rest = cast.filter((person) => !scene.includes(person.name) && person.name !== line.speaker);
-  const listed = new Set([...scene, ...rest.map((person) => person.name), ...Object.keys(SPECIAL_LISTENERS)]);
-  const confidence = (line.listenerConfidence ?? 0).toFixed(2);
-  const hint = !line.listenerOrigin
-    ? null
-    : unsure
-      ? line.listenerOrigin === 'scene'
-        ? `장면 추정: 이 장면에서 주로 ${listenerLabel(line.listener!)}에게 (섞인 장면 · ${confidence})`
-        : `AI 추정: ${listenerLabel(line.listener!)} (${confidence}, 낮아서 미상)`
-      : `${LISTENER_ORIGIN_LABELS[line.listenerOrigin]}${line.listenerOrigin === 'ai' || line.listenerOrigin === 'scene' ? ` · ${confidence}` : ''}`;
-
-  if (typing !== null)
-    return (
-      <Input
-        autoFocus
-        value={typing}
-        onChange={(event) => setTyping(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' && typing.trim()) {
-            onPick(typing.trim());
-            setTyping(null);
-          } else if (event.key === 'Escape') setTyping(null);
-        }}
-        onBlur={() => setTyping(null)}
-        placeholder="이름 입력 후 Enter"
-        className="w-40"
-        aria-label="청자 이름"
-      />
-    );
-  return (
-    <>
-      <Select value={value} onValueChange={(next) => (next === TYPE_NAME ? setTyping('') : onPick(next === '-' ? null : next))}>
-        <SelectTrigger size="sm" className="w-40" aria-label="청자">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="-">미상</SelectItem>
-          {scene.length > 0 && (
-            <SelectGroup>
-              <SelectLabel>이 장면에서 말하는 사람 (가까운 순)</SelectLabel>
-              {scene.map((name) => (
-                <SelectItem key={name} value={name}>
-                  {name}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          )}
-          <SelectGroup>
-            <SelectLabel>여러 사람 · 혼잣말</SelectLabel>
-            {Object.entries(SPECIAL_LISTENERS).map(([key, label]) => (
-              <SelectItem key={key} value={key}>
-                {label}
-              </SelectItem>
-            ))}
-          </SelectGroup>
-          {rest.length > 0 && (
-            <SelectGroup>
-              <SelectLabel>다른 인물</SelectLabel>
-              {rest.map((person) => (
-                <SelectItem key={person.name} value={person.name}>
-                  {person.name}
-                  {person.player && ' · 플레이어'}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          )}
-          {value !== '-' && !listed.has(value) && <SelectItem value={value}>{value}</SelectItem>}
-          <SelectItem value={TYPE_NAME}>직접 입력…</SelectItem>
-        </SelectContent>
-      </Select>
-      {hint && <span className={cn('text-xs', unsure ? 'text-warning' : 'text-muted-foreground')}>{hint}</span>}
-    </>
-  );
-}
 
