@@ -179,6 +179,13 @@ describe('format check', () => {
     expect(checkFormat('Hello there', '안녕  하세요 ', extra)[0]?.message).toContain('이중 공백 · 뒤 공백');
     expect(checkFormat(' Hello', ' 안녕', extra)).toEqual([]);
   });
+  it('flags a particle after a variable unless it is the combined form', () => {
+    const extra = { ...all, particles: true };
+    expect(checkFormat('Take {item}.', '{item}을 가져가.', extra).map((issue) => issue.code)).toEqual(['particle']);
+    expect(checkFormat('Take {item}.', '{item}을(를) 가져가.', extra)).toEqual([]);
+    expect(checkFormat('Hi {name}', '{name} 씨, 안녕', extra)).toEqual([]);
+    expect(checkFormat('{name} is here', '{name}이다', extra)).toEqual([]);
+  });
   it('does not treat comparisons as tags', () => {
     expect(checkFormat('x < 3 and y > 2', 'x는 3 미만, y는 2 초과', { ...all, newlines: false })).toEqual([]);
   });

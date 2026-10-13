@@ -25,6 +25,9 @@ export function splitTokens(text: string, source: string, pattern: RegExp | null
   return parts;
 }
 
+/** The format checks the editor runs while typing (numbers, spaces; particles after variables for Korean targets). */
+export const editorChecks = (targetLanguage?: string, emptyText = false) => ({ placeholders: true, tags: true, newlines: true, emptyText, numbers: true, spaces: true, particles: Boolean(targetLanguage?.toLowerCase().startsWith('ko')) });
+
 /** One pattern for every format token of the project's rules. */
 export function tokenPatternOf(rules: Parameters<typeof compileFormatRules>[0]) {
   const compiled = compileFormatRules(rules);

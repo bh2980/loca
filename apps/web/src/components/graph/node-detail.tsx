@@ -10,6 +10,8 @@ import { KIND_LABEL } from './shapes';
 import { PaneHeader } from '@/components/pane-header';
 import { DetailPane } from '@/components/detail-pane';
 import { cn } from '@/lib/utils';
+import { TokenText } from '@/components/editor/source-text';
+import { tokenPatternOf } from '@/lib/line-context';
 
 /** Scene-graph node. Scene links are derived from the dialogue graph, which the panel says plainly. */
 export function SceneNodeDetail({ projectId, groupId, onClose }: { projectId: string; groupId: string; onClose: () => void }) {
@@ -81,6 +83,9 @@ export function FlowPane({ projectId, nodeIds, title, way, marked, editing, onEd
   onClose: () => void;
 }) {
   const [speakerWidth, setSpeakerWidth] = useSpeakerWidth();
+  // Format tokens read as numbered chips, as in the script.
+  const project = useQuery(q.project(projectId));
+  const tokens = tokenPatternOf(project.data?.formatRules ?? undefined);
   const list = useRef<HTMLDivElement>(null);
   const results = useQueries({ queries: nodeIds.map((id) => q.graphNode(id)) });
   const nodes = results.flatMap((result) => (result.data ? [result.data] : []));
@@ -139,8 +144,8 @@ export function FlowPane({ projectId, nodeIds, title, way, marked, editing, onEd
         unit.id,
         unit.speaker ?? '지문·문구',
         <>
-          <p className="whitespace-pre-wrap">{unit.source}</p>
-          {unit.translation && <p className="whitespace-pre-wrap text-muted-foreground">{unit.translation}</p>}
+          <TokenText text={unit.source} source={unit.source} pattern={tokens} />
+          {unit.translation && <TokenText text={unit.translation} source={unit.source} pattern={tokens} className="text-muted-foreground" />}
         </>,
         { className: here ? 'bg-primary/5 shadow-[inset_2px_0_0_var(--primary)]' : undefined, scrollTo: here, unitId: unit.id },
       );

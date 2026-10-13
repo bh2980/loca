@@ -29,11 +29,16 @@ const listQuery = z.object({
   remaining: z.enum(['1']).optional(),
   /** Only lines whose current status a run set and no person has looked at since (✦). */
   by: z.enum(['ai']).optional(),
+  /** Only translated lines whose source (case and end punctuation aside) is translated differently elsewhere. */
+  diverged: z.enum(['1']).optional(),
   /** A line to show: the page is the one holding it (the response says which offset it used). */
   focus: z.string().optional(),
   offset: z.coerce.number().int().min(0).default(0),
   limit: z.coerce.number().int().min(1).max(500).default(100),
 });
+
+/** A source as compared for "the same source": lower case, without spaces and punctuation at its ends ("What?" = "WHAT"). */
+const sameSource = (column: SQL) => sql`trim(lower(${column}), ' .,!?…"''-~')`;
 
 /** The line filters shared by the list and its matches: one SQL condition. */
 function unitConditions(projectId: string, query: Omit<z.infer<typeof listQuery>, 'offset' | 'limit' | 'focus'>) {
@@ -50,6 +55,10 @@ function unitConditions(projectId: string, query: Omit<z.infer<typeof listQuery>
   if (query.review) conditions.push(sql`${s.units.statusId} in (select id from ${s.statuses} where ${s.statuses.projectId} = ${projectId} and ${s.statuses.inReview} = 1)`);
   if (query.by) conditions.push(eq(s.units.statusBy, query.by));
   if (query.remaining) conditions.push(sql`${s.units.statusId} in (select id from ${s.statuses} where ${s.statuses.projectId} = ${projectId} and ${s.statuses.kind} != 'final')`);
+  if (query.diverged)
+    conditions.push(
+      sql`${s.units.translation} is not null and ${sameSource(sql`${s.units.source}`)} in (select ${sameSource(sql`u.source`)} from ${s.units} u where u.project_id = ${projectId} and u.translation is not null and u.translation != '' and ${sameSource(sql`u.source`)} != '' group by 1 having count(distinct trim(u.translation)) > 1)`,
+    );
   return and(...conditions)!;
 }
 
@@ -286,6 +295,21 @@ export const sourceRoutes = new Hono<Env>()
     }
     const sceneNames = [...distance].sort((a, b) => a[1] - b[1]).map(([name]) => name);
     return c.json({ ...unit, group, candidates, tagIds, history, graphNodes: nodes, speech, sceneNames });
+  })
+  /** Other lines with the same source (case and end punctuation aside), translated or not: what a confirmed translation may be applied to. */
+  .get('/units/:unitId/same', (c) => {
+    const { db } = c.var.deps;
+    const unit = found(db.select({ id: s.units.id, projectId: s.units.projectId, source: s.units.source }).from(s.units).where(eq(s.units.id, c.req.param('unitId'))).get(), '대사');
+    const rows = db
+      .select({ id: s.units.id, groupId: s.units.groupId, groupTitle: s.groups.title, translation: s.units.translation, speaker: s.units.speaker, listener: s.units.listener, kind: s.statuses.kind })
+      .from(s.units)
+      .innerJoin(s.groups, eq(s.groups.id, s.units.groupId))
+      .innerJoin(s.statuses, eq(s.statuses.id, s.units.statusId))
+      .where(and(eq(s.units.projectId, unit.projectId), ne(s.units.id, unit.id), sql`${sameSource(sql`${s.units.source}`)} = ${sameSource(sql`${unit.source}`)}`, sql`${sameSource(sql`${unit.source}`)} != ''`))
+      .orderBy(asc(s.units.seq))
+      .limit(200)
+      .all();
+    return c.json(rows.map(({ kind, ...row }) => ({ ...row, final: kind === 'final' })));
   })
   /** Already translated lines of the project with the same or a similar source (the editor's suggestions). */
   .get('/units/:unitId/matches', (c) => {

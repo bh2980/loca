@@ -20,6 +20,7 @@ import { useDraft } from '@/lib/drafts';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { useReportView } from '@/lib/view-context';
+import { editorChecks, tokenPatternOf, withoutTokens } from '@/lib/line-context';
 
 const ORIGIN = { ai: 'AI', human: '사람', import: '가져옴', tool: '도구' } as const;
 const STATE = { queued: '대기', running: '실행 중', done: '완료', failed: '실패', cancelled: '취소' } as const;
@@ -193,7 +194,7 @@ export function LineDetail({
               </ul>
             </PaneSection>
           )}
-          <LineChecks projectId={projectId} source={line.source} text={draft} terms={terms.data ?? []} rules={project.data?.formatRules} speech={line.speech} />
+          <LineChecks projectId={projectId} source={line.source} text={draft} terms={terms.data ?? []} rules={project.data?.formatRules} targetLanguage={project.data?.targetLanguage} speech={line.speech} />
         </>
       )}
       {line && tab === 'candidates' && (
@@ -265,9 +266,13 @@ export function LineDetail({
 }
 
 /** Glossary terms in this line, and whether the translation being edited keeps them and the source's format. */
-export function LineChecks({ projectId, source, text, terms, rules, speech }: { projectId: string; source: string; text: string; terms: { id: string; source: string; target: string; status: KnowledgeStatus }[]; rules?: FormatRules; speech?: { listener: string; ruleId: string; rule: string; level: SpeechLevel; byOrder: boolean; routeDependent?: boolean; others?: boolean } | null }) {
-  const used = useMemo(() => terms.filter((term) => mentions(source, term.source)), [terms, source]);
-  const formatIssues = text.trim() ? checkFormat(source, text, { placeholders: true, tags: true, newlines: true, emptyText: true }, rules) : [];
+export function LineChecks({ projectId, source, text, terms, rules, targetLanguage, speech }: { projectId: string; source: string; text: string; terms: { id: string; source: string; target: string; status: KnowledgeStatus }[]; rules?: FormatRules; targetLanguage?: string; speech?: { listener: string; ruleId: string; rule: string; level: SpeechLevel; byOrder: boolean; routeDependent?: boolean; others?: boolean } | null }) {
+  // Words inside format tags are not terms.
+  const used = useMemo(() => {
+    const plain = withoutTokens(source, tokenPatternOf(rules));
+    return terms.filter((term) => mentions(plain, term.source));
+  }, [terms, source, rules]);
+  const formatIssues = text.trim() ? checkFormat(source, text, editorChecks(targetLanguage, true), rules) : [];
   const kept = (target: string) => Boolean(target.trim()) && text.toLowerCase().includes(target.toLowerCase());
   const guessed = text.trim() ? speechLevelOf(text) : null;
   return (

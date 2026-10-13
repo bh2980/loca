@@ -58,13 +58,16 @@ export function TranslationEditor({
   const dirty = draft !== (unit.translation ?? '');
   const next = nextStatus(statuses, unit.statusId);
   const line = useLineContext(projectId, unit.source);
+  // The line's candidates: list rows do not carry them, the line's detail does (shared with the suggestions).
+  const detail = useQuery(q.unit(unit.id));
+  const candidates = unit.candidates ?? detail.data?.candidates ?? [];
   const suggestions = useSuggestions(unit.id, [unit.translation ?? '', draft]);
 
   const queryClient = useQueryClient();
   const save = useMutation({
-    mutationFn: ({ advance }: { advance: boolean }) => {
+    mutationFn: ({ advance }: { advance: boolean; text: string; changed: boolean }) => {
       // Saving the exact text of an existing candidate selects it instead of duplicating it.
-      const same = unit.candidates?.find((candidate) => candidate.text === draft);
+      const same = candidates.find((candidate) => candidate.text === draft);
       const text = dirty ? (same ? { candidateId: same.id } : { translation: draft }) : {};
       const statusId = advance && next ? { statusId: next.id } : {};
       if (!Object.keys(text).length && !Object.keys(statusId).length) return Promise.resolve(null);
@@ -72,12 +75,14 @@ export function TranslationEditor({
     },
     // The saved text and next status show at once, so the old translation never flashes back.
     onMutate: async ({ advance }) => {
-      const same = unit.candidates?.find((candidate) => candidate.text === draft);
+      const same = candidates.find((candidate) => candidate.text === draft);
       const change = { ...(dirty && { translation: same ? same.text : draft }), ...(advance && next && { statusId: next.id }) };
       return { undo: Object.keys(change).length ? await optimistic(queryClient, unitChanges([unit.id], patchedLine(change))) : undefined };
     },
-    onSuccess: (_data, { advance }) => {
+    onSuccess: (_data, { advance, text, changed }) => {
       clearDraft();
+      // What was saved, taken when it was sent (the optimistic update has already made it the translation).
+      if (changed && text.trim()) void offerSameSource(text);
       if (advance && next) toast.success(`${dirty ? '저장하고 ' : ''}‘${next.name}’(으)로 옮겼습니다.`);
       onDone?.(advance);
     },
@@ -86,7 +91,34 @@ export function TranslationEditor({
       toast.error(error.message);
     },
   });
-  const run = (advance: boolean) => !save.isPending && save.mutate({ advance });
+  const run = (advance: boolean) => !save.isPending && save.mutate({ advance, text: draft, changed: dirty });
+
+  /**
+   * After a new translation is saved, other lines with the same source that are not final and say
+   * something else are offered the same text (one click, never by itself). Who says it to whom is
+   * named, as the speech level may rightly differ.
+   */
+  const offerSameSource = async (text: string) => {
+    const same = await queryClient.fetchQuery({ ...q.sameSource(unit.id), staleTime: 0 }).catch(() => []);
+    const others = same.filter((line) => !line.final && (line.translation ?? '').trim() !== text.trim());
+    if (!others.length) return;
+    const who = [...new Set(others.map((line) => [line.speaker, line.listener && `→ ${listenerLabel(line.listener)}`].filter(Boolean).join(' ')).filter(Boolean))];
+    toast(`같은 원문 ${others.length}줄이 ${others.some((line) => line.translation) ? '다르게 번역돼' : '번역 없이'} 있습니다`, {
+      description: `${who.slice(0, 3).join(', ')}${who.length > 3 ? ` 외 ${who.length - 3}` : ''}${who.length ? ' · 화자·청자가 다르면 말투가 다를 수 있습니다' : ''}`,
+      duration: 10000,
+      action: {
+        label: '모두 이 번역으로',
+        onClick: async () => {
+          try {
+            for (const line of others) await unwrap(client.units[':unitId'].$patch({ param: { unitId: line.id }, json: { translation: text } }));
+            toast.success(`같은 원문 ${others.length}줄에 적용했습니다.`);
+          } catch (error) {
+            toast.error(error instanceof Error ? error.message : String(error));
+          }
+        },
+      },
+    });
+  };
 
   return (
     <div className={cn('space-y-2', className)} onClick={(event) => event.stopPropagation()}>
@@ -136,6 +168,11 @@ export function TranslationEditor({
                 <span className="mt-px w-5 shrink-0 font-mono text-xs text-muted-foreground">{keyLabel(`Alt+${index + 1}`)}</span>
                 <span className="min-w-0 flex-1">
                   <TokenText text={suggestion.text} source={unit.source} pattern={line.tokenPattern} className="block" />
+                  {/* Where it comes from under the text, so the text keeps the full width. */}
+                  <span className="block text-xs text-muted-foreground">
+                    {suggestion.label}
+                    {suggestion.detail && ` · ${suggestion.detail}`}
+                  </span>
                   {suggestion.diff && (
                     <span className="block text-xs text-muted-foreground">
                       {suggestion.diff.map((word, at) => (
@@ -147,10 +184,7 @@ export function TranslationEditor({
                     </span>
                   )}
                 </span>
-                <span className="shrink-0 text-right text-xs text-muted-foreground">
-                  {suggestion.label}
-                  {suggestion.detail && <span className="block">{suggestion.detail}</span>}
-                </span>
+
               </Button>
             </li>
           ))}

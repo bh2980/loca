@@ -11,7 +11,7 @@ import { AiMark, StatusDot, TagChip } from '@/components/status';
 import { Pager, SearchInput, Toolbar } from '@/components/toolbar';
 import { TranslationEditor } from '@/components/translation-editor';
 import { LineSourceText, TokenText } from '@/components/editor/source-text';
-import { tokenPatternOf, withoutTokens } from '@/lib/line-context';
+import { editorChecks, tokenPatternOf, withoutTokens } from '@/lib/line-context';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -39,6 +39,8 @@ export interface LinesSearch {
   remaining?: true;
   /** Only lines whose status a run set and no person has looked at since (✦). */
   by?: 'ai';
+  /** Only lines whose source is translated differently elsewhere (to make them agree, or keep them apart on purpose). */
+  diverged?: true;
   /**
    * How a filter shows: walked one by one inside their scenes (find, the default for speaker and
    * listener, where the conversation matters) or listed apart (list, the default for the rest).
@@ -61,6 +63,7 @@ export const linesSearchSchema = (raw: Record<string, unknown>): LinesSearch => 
   listener: typeof raw.listener === 'string' && raw.listener ? raw.listener : undefined,
   remaining: raw.remaining === true || raw.remaining === 'true' ? true : undefined,
   by: raw.by === 'ai' ? 'ai' : undefined,
+  diverged: raw.diverged === true || raw.diverged === 'true' ? true : undefined,
   view: raw.view === 'find' || raw.view === 'list' ? raw.view : undefined,
   page: typeof raw.page === 'number' && raw.page > 0 ? raw.page : undefined,
   line: typeof raw.line === 'string' ? raw.line : undefined,
@@ -70,7 +73,7 @@ export const linesSearchSchema = (raw: Record<string, unknown>): LinesSearch => 
 });
 
 /** Whether any line filter is set (search, status, tag, speaker, listener, 남은 줄만, AI가 정한 것만). */
-export const hasLineFilter = (search: LinesSearch) => Boolean(search.q || search.status || search.tag || search.speaker || search.listener || search.remaining || search.by);
+export const hasLineFilter = (search: LinesSearch) => Boolean(search.q || search.status || search.tag || search.speaker || search.listener || search.remaining || search.by || search.diverged);
 /** Whether the filter is walked inside the scenes rather than listed apart. */
 export const isFinding = (search: LinesSearch) => hasLineFilter(search) && (search.view === 'find' || (search.view !== 'list' && Boolean(search.speaker || search.listener)));
 
@@ -83,6 +86,7 @@ export function filterChips(search: LinesSearch, statuses: { id: string; name: s
     search.listener && { key: 'listener', label: search.listener === '-' ? '청자 미상' : `청자: ${search.listener}`, clear: { listener: undefined } },
     search.remaining && { key: 'remaining', label: '남은 줄', clear: { remaining: undefined } },
     search.by && { key: 'by', label: '✦ AI가 정한 것', clear: { by: undefined } },
+    search.diverged && { key: 'diverged', label: '번역이 갈린 같은 원문', clear: { diverged: undefined } },
   ].filter(Boolean) as { key: string; label: string; clear: Partial<LinesSearch> }[];
 }
 
@@ -149,7 +153,7 @@ export function LineList({
       projectId,
       find
         ? { groupId, focus: focusing, offset: page * PAGE_SIZE, limit: PAGE_SIZE }
-        : { groupId, kind, review: review ? '1' : undefined, remaining: search.remaining ? '1' : undefined, by: search.by, q: search.q, statusId: search.status, tagId: search.tag, speaker: search.speaker, listener: search.listener, focus: focusing, offset: page * PAGE_SIZE, limit: PAGE_SIZE },
+        : { groupId, kind, review: review ? '1' : undefined, remaining: search.remaining ? '1' : undefined, by: search.by, diverged: search.diverged ? '1' : undefined, q: search.q, statusId: search.status, tagId: search.tag, speaker: search.speaker, listener: search.listener, focus: focusing, offset: page * PAGE_SIZE, limit: PAGE_SIZE },
     ),
   );
   useEffect(() => {
@@ -373,7 +377,7 @@ export function LineList({
             ))}
           </div>
         ) : rows.length === 0 ? (
-          <p className="px-4 py-16 text-center text-sm text-muted-foreground">{search.by ? 'AI가 정하고 확인하지 않은 줄이 없습니다.' : review ? '검토할 대사가 없습니다.' : search.remaining ? '남은 줄이 없습니다. 모두 최종 상태입니다.' : '맞는 대사가 없습니다.'}</p>
+          <p className="px-4 py-16 text-center text-sm text-muted-foreground">{search.by ? 'AI가 정하고 확인하지 않은 줄이 없습니다.' : review ? '검토할 대사가 없습니다.' : search.remaining ? '남은 줄이 없습니다. 모두 최종 상태입니다.' : search.diverged ? '같은 원문이 서로 다르게 번역된 곳이 없습니다.' : '맞는 대사가 없습니다.'}</p>
         ) : (
           <ul>
             {rows.map((line, index) => {
@@ -537,7 +541,7 @@ export function LineHints({ projectId, line }: { projectId: string; line: { id: 
     const plain = [placeholder, tag].reduce((text, pattern) => withoutTokens(text, pattern), line.source);
     return (terms.data ?? []).filter((term) => term.status === 'confirmed' && term.target && mentions(plain, term.source));
   }, [terms.data, line.source, project.data?.formatRules]);
-  const format = text ? checkFormat(line.source, draft, { placeholders: true, tags: true, newlines: true, emptyText: false, numbers: true, spaces: true }, project.data?.formatRules) : [];
+  const format = text ? checkFormat(line.source, draft, editorChecks(project.data?.targetLanguage), project.data?.formatRules) : [];
 
   const hint = (key: string, ok: boolean | null, label: ReactNode, title?: string) => (
     <span key={key} title={title} className={cn('inline-flex items-center gap-1 rounded-md border bg-background px-2 py-0.5 text-xs', ok === false && 'border-warning/40 text-warning')}>
@@ -584,6 +588,9 @@ function LineFilters({ statuses, tags, speakers, search, onSearch }: {
         </DropdownMenuCheckboxItem>
         <DropdownMenuCheckboxItem checked={Boolean(search.by)} onCheckedChange={(on) => onSearch({ by: on ? 'ai' : undefined })}>
           AI가 정한 것만
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuCheckboxItem checked={Boolean(search.diverged)} onCheckedChange={(on) => onSearch({ diverged: on ? true : undefined })}>
+          번역이 갈린 같은 원문
         </DropdownMenuCheckboxItem>
         {issueTags.length > 0 && (
           <DropdownMenuSub>
