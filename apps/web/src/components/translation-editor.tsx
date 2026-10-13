@@ -1,12 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Sparkles } from 'lucide-react';
+import { Link } from '@tanstack/react-router';
+import { Sparkles, WandSparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { listenerLabel } from '@tw/shared';
 import { TokenText } from '@/components/editor/source-text';
 import { focusEndOfLine, proposeInLine, TranslationInput } from '@/components/editor/translation-input';
 import { AiMark, StatusDot } from '@/components/status';
 import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Textarea } from '@/components/ui/textarea';
 import { client, unwrap } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
 import { wordDiff } from '@/lib/diff';
@@ -97,6 +101,35 @@ export function TranslationEditor({
     if (editorAi?.enabled && editorAi.model && !draft.trim() && !continuations.has(unit.id)) ask('', false);
     return () => pending.current?.abort();
   }, [unit.id, editorAi?.enabled]); // eslint-disable-line react-hooks/exhaustive-deps
+  // AI 번역·다듬기 (docs/DESIGN.md J3b C): waited for, then a new AI candidate of the line (the text itself does not change).
+  const [assistOpen, setAssistOpen] = useState(false);
+  const [assist, setAssist] = useState<{ loading?: 'translate' | 'refine'; done?: boolean; message?: string }>({});
+  const assistPending = useRef<AbortController>(null);
+  const queryClientForAssist = useQueryClient();
+  const runAssist = (mode: 'translate' | 'refine', instruction: string) => {
+    assistPending.current?.abort();
+    const controller = (assistPending.current = new AbortController());
+    setAssistOpen(false);
+    setAssist({ loading: mode });
+    rememberInstruction(projectId, instruction);
+    void fetch(`/api/units/${unit.id}/assist`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode, draft: mode === 'refine' ? draft : '', instruction }), signal: controller.signal })
+      .then(async (response) => {
+        const body = (await response.json()) as { text?: string; error?: string; retryAfterSeconds?: number };
+        if (!response.ok || !body.text) {
+          const wait = body.retryAfterSeconds ? ` · ${body.retryAfterSeconds >= 3600 ? `${Math.ceil(body.retryAfterSeconds / 3600)}시간` : `${Math.max(1, Math.ceil(body.retryAfterSeconds / 60))}분`} 뒤` : '';
+          setAssist({ message: `${body.error ?? 'AI 응답을 받지 못했습니다.'}${wait}` });
+          return;
+        }
+        setAssist({ done: true });
+        void queryClientForAssist.invalidateQueries({ queryKey: q.unit(unit.id).queryKey });
+      })
+      .catch((error: unknown) => !controller.signal.aborted && setAssist({ message: error instanceof Error ? error.message : String(error) }));
+  };
+  useEffect(() => {
+    setAssist({});
+    setAssistOpen(false);
+    return () => assistPending.current?.abort();
+  }, [unit.id]);
   // What is shown: the rest of the AI's line after what is typed (while it still matches), up to the end of the next sentence.
   const continuation = ai.text && !ai.dismissed && ai.text.startsWith(draft) ? nextSentence(ai.text.slice(draft.length)) : '';
 
@@ -177,6 +210,7 @@ export function TranslationEditor({
         onPick={(index) => suggestions[index] && setDraft(suggestions[index].text)}
         onPlaceTags={placeMissing}
         continuation={continuation}
+        onAssist={() => setAssistOpen(true)}
         onContinue={editorAi?.enabled ? () => ask(draft) : undefined}
         continuing={ai.loading}
         onDismissContinuation={() => (pending.current?.abort(), setAi((state) => ({ ...state, loading: false, dismissed: true })))}
@@ -190,7 +224,19 @@ export function TranslationEditor({
             <Sparkles /> AI 자동완성
           </Button>
         )}
-        {ai.loading && <Waiting onCancel={() => (pending.current?.abort(), setAi({ dismissed: true }))} />}
+        <AssistPopover
+          projectId={projectId}
+          open={assistOpen}
+          onOpenChange={setAssistOpen}
+          ready={!!editorAi?.assistModel}
+          hasDraft={!!draft.trim()}
+          busy={!!assist.loading}
+          onRun={runAssist}
+        />
+        {assist.loading && <Waiting label={assist.loading === 'refine' ? '다듬는 중…' : 'AI 번역 중…'} onCancel={() => (assistPending.current?.abort(), setAssist({}))} />}
+        {assist.done && <span className="text-xs text-muted-foreground">AI 후보로 받았습니다 · {keyLabel('Alt+1')}로 넣기</span>}
+        {assist.message && <span className="text-xs text-muted-foreground">{assist.message}</span>}
+        {ai.loading && <Waiting label="자동완성 받는 중…" onCancel={() => (pending.current?.abort(), setAi({ dismissed: true }))} />}
         {ai.message && <span className="text-xs text-muted-foreground">{ai.message}</span>}
         {/* Format units the source has and the text lacks: placed by rule as ghosts (Tab takes them). */}
         {draft.trim() && tags.placed.length > 0 && (
@@ -274,7 +320,7 @@ function useSuggestions(unitId: string, shown: string[]): Suggestion[] {
   const matches = useQuery(q.lineMatches(unitId));
   const origin = { ai: 'AI 후보', human: '사람 후보', import: '가져온 후보', tool: '채팅 후보' } as const;
   const all: Suggestion[] = [
-    ...(unit.data?.candidates ?? []).map((candidate) => ({ key: `c:${candidate.id}`, text: candidate.text, label: origin[candidate.origin], detail: candidate.model ?? undefined })),
+    ...(unit.data?.candidates ?? []).map((candidate) => ({ key: `c:${candidate.id}`, text: candidate.text, label: origin[candidate.origin], detail: [candidate.note, candidate.model].filter(Boolean).join(' · ') || undefined })),
     ...(matches.data ?? []).map((match) => ({
       key: `m:${match.unitId}`,
       text: match.translation,
@@ -335,8 +381,8 @@ function nextSentence(rest: string) {
   return match ? match[0] : rest;
 }
 
-/** "자동완성 받는 중… 4초" with a way out (Esc in the box does the same). */
-function Waiting({ onCancel }: { onCancel: () => void }) {
+/** "자동완성 받는 중… 4초" (or another label) with a way out (Esc in the box does the same). */
+function Waiting({ label, onCancel }: { label: string; onCancel: () => void }) {
   const [seconds, setSeconds] = useState(0);
   useEffect(() => {
     const timer = setInterval(() => setSeconds((value) => value + 1), 1000);
@@ -344,10 +390,128 @@ function Waiting({ onCancel }: { onCancel: () => void }) {
   }, []);
   return (
     <span className="flex items-center gap-1 text-xs text-muted-foreground tabular-nums">
-      자동완성 받는 중…{seconds > 0 && ` ${seconds}초`}
+      {label}{seconds > 0 && ` ${seconds}초`}
       <Button variant="ghost" size="inline" className="text-muted-foreground" onClick={onCancel} title="취소 (Esc)">
         취소
       </Button>
     </span>
+  );
+}
+
+const recentKey = (projectId: string) => `editor-assist-recent:${projectId}`;
+
+/** The translator's last instructions of this project (newest first, at most 5): a convenience, so storage may fail. */
+function recentInstructions(projectId: string): string[] {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(recentKey(projectId)) ?? '[]');
+    return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string').slice(0, 5) : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberInstruction(projectId: string, instruction: string) {
+  const text = instruction.trim();
+  if (!text) return;
+  try {
+    localStorage.setItem(recentKey(projectId), JSON.stringify([text, ...recentInstructions(projectId).filter((item) => item !== text)].slice(0, 5)));
+  } catch {
+    // Storage is blocked or full: the recent list is only a convenience.
+  }
+}
+
+/** The button under the editor and its popover: an instruction (optional), then 다듬기 (the draft) or 새로 번역. */
+function AssistPopover({
+  projectId,
+  open,
+  onOpenChange,
+  ready,
+  hasDraft,
+  busy,
+  onRun,
+}: {
+  projectId: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  ready: boolean;
+  hasDraft: boolean;
+  busy: boolean;
+  onRun: (mode: 'translate' | 'refine', instruction: string) => void;
+}) {
+  const [instruction, setInstruction] = useState('');
+  const [recent, setRecent] = useState<string[]>([]);
+  useEffect(() => {
+    if (open) setRecent(recentInstructions(projectId));
+  }, [open, projectId]);
+  const primary: 'translate' | 'refine' = hasDraft ? 'refine' : 'translate';
+  const run = (mode: 'translate' | 'refine') => !busy && onRun(mode, instruction.trim());
+  return (
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <PopoverTrigger asChild>
+        <Button variant="ghost" size="inline" className="text-muted-foreground" disabled={busy} title={`AI가 번역하거나 다듬어 이 줄의 AI 후보로 보입니다 (${keyLabel('Alt+.')})`}>
+          <WandSparkles /> AI 번역·다듬기
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-96 space-y-3">
+        {ready ? (
+          <>
+            <div className="space-y-1">
+              <Label htmlFor="assist-instruction">지시 (선택)</Label>
+              <Textarea
+                id="assist-instruction"
+                rows={3}
+                value={instruction}
+                placeholder="예: 더 짧게, 반말로, 존댓말 유지하고 자연스럽게"
+                onChange={(event) => setInstruction(event.target.value)}
+                onKeyDown={(event) => {
+                  event.stopPropagation();
+                  if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+                    event.preventDefault();
+                    run(primary);
+                  }
+                }}
+              />
+            </div>
+            {recent.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {recent.map((item) => (
+                  <Button key={item} variant="outline" size="sm" className="max-w-full truncate text-xs font-normal" title={item} onClick={() => setInstruction(item)}>
+                    {item}
+                  </Button>
+                ))}
+              </div>
+            )}
+            <div className="flex justify-end gap-2">
+              {hasDraft ? (
+                <>
+                  <Button variant="outline" size="sm" onClick={() => run('translate')}>
+                    새로 번역
+                  </Button>
+                  <Button size="sm" onClick={() => run('refine')}>
+                    다듬기
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button variant="outline" size="sm" disabled title="다듬을 번역이 없습니다">
+                    다듬기
+                  </Button>
+                  <Button size="sm" onClick={() => run('translate')}>
+                    새로 번역
+                  </Button>
+                </>
+              )}
+            </div>
+          </>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            <Link to="/p/$projectId/ai/usage" params={{ projectId }} className="underline">
+              AI › 사용 방식
+            </Link>
+            에서 모델을 고르세요
+          </p>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }
