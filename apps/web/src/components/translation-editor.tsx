@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { listenerLabel } from '@tw/shared';
 import { TokenText } from '@/components/editor/source-text';
-import { proposeInLine, TranslationInput } from '@/components/editor/translation-input';
+import { focusEndOfLine, proposeInLine, TranslationInput } from '@/components/editor/translation-input';
 import { AiMark, StatusDot } from '@/components/status';
 import { Button } from '@/components/ui/button';
 import { client, unwrap } from '@/lib/api';
@@ -70,7 +71,7 @@ export function TranslationEditor({
   const editorAi = project.data?.editorAi;
   const [ai, setAi] = useState<{ text?: string; loading?: boolean; message?: string; dismissed?: boolean }>(() => ({ text: continuations.get(unit.id) }));
   const pending = useRef<AbortController>(null);
-  const ask = (prefix: string) => {
+  const ask = (prefix: string, focus = true) => {
     pending.current?.abort();
     const controller = (pending.current = new AbortController());
     setAi({ loading: true });
@@ -86,11 +87,14 @@ export function TranslationEditor({
         const text = body.text.startsWith(prefix) ? body.text : `${prefix}${prefix && !/\s$/.test(prefix) ? ' ' : ''}${body.text}`;
         continuations.set(unit.id, text);
         setAi({ text });
+        // The continuation shows at the end of the text, so the cursor goes there (the button took the focus).
+        if (focus) requestAnimationFrame(() => focusEndOfLine(unit.id));
       })
       .catch((error: unknown) => !controller.signal.aborted && setAi({ message: error instanceof Error ? error.message : String(error) }));
   };
   useEffect(() => {
-    if (editorAi?.enabled && editorAi.model && !draft.trim() && !continuations.has(unit.id)) ask('');
+    // Asked by itself when the line opens: it does not take the focus (↑↓ may still be moving through lines).
+    if (editorAi?.enabled && editorAi.model && !draft.trim() && !continuations.has(unit.id)) ask('', false);
     return () => pending.current?.abort();
   }, [unit.id, editorAi?.enabled]); // eslint-disable-line react-hooks/exhaustive-deps
   // What is shown: the rest of the AI's line after what is typed (while it still matches), up to the end of the next sentence.
@@ -180,6 +184,11 @@ export function TranslationEditor({
       />
       <div className="flex flex-wrap items-center gap-2">
         {dirty && <span className="text-xs text-warning">저장 안 됨</span>}
+        {editorAi?.enabled && editorAi.model && !ai.loading && (
+          <Button variant="ghost" size="inline" className="text-muted-foreground" title={`AI가 이어질 번역을 흐린 글씨로 보입니다 (${keyLabel('Alt+/')}) · Tab으로 받기`} onClick={() => ask(draft)}>
+            <Sparkles /> AI 자동완성
+          </Button>
+        )}
         {ai.loading && <span className="text-xs text-muted-foreground">자동완성 받는 중…</span>}
         {ai.message && <span className="text-xs text-muted-foreground">{ai.message}</span>}
         {/* Format units the source has and the text lacks: placed by rule as ghosts (Tab takes them). */}

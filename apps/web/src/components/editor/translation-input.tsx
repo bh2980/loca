@@ -119,6 +119,14 @@ export function proposeInLine(unitId: string, inserts: TagInsert[]) {
   return true;
 }
 
+/** Focuses the line's open editor with the cursor at the end (where a continuation shows). */
+export function focusEndOfLine(unitId: string) {
+  const view = editors.get(unitId);
+  if (!view) return;
+  view.focus();
+  view.dispatch({ selection: { anchor: view.state.doc.length } });
+}
+
 /** The text selected in the line's open editor, if any (to prefill a term's translation). */
 export function selectionInLine(unitId: string) {
   const view = editors.get(unitId);
@@ -395,6 +403,19 @@ export function TranslationInput(props: TranslationInputProps) {
         doc: props.value,
         extensions: [
           Prec.highest(keymap.of(shortcuts)),
+          // With a Korean input method on, ⌥/ and ⌥1… arrive as composing keys (keyCode 229) that the
+          // keymap cannot name; the physical key (code) still says which they are.
+          Prec.highest(
+            EditorView.domEventHandlers({
+              keydown: (event) => {
+                if (!event.altKey || event.metaKey || event.ctrlKey) return false;
+                if (event.code === 'Slash' && latest.current.onContinue) return (event.preventDefault(), latest.current.onContinue(), true);
+                const digit = /^Digit([1-9])$/.exec(event.code)?.[1];
+                if (digit && latest.current.onPick) return (event.preventDefault(), latest.current.onPick(Number(digit) - 1), true);
+                return false;
+              },
+            }),
+          ),
           ghost,
           continuation,
           history(),
