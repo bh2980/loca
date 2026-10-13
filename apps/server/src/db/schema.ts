@@ -629,7 +629,8 @@ export const proposals = sqliteTable(
     input: json<Record<string, unknown>>('input').notNull(),
     /** What the check at proposing time left out or warns about (see proposal-check.ts). */
     report: json<ProposalReport>('report'),
-    status: text('status', { enum: ['pending', 'accepted', 'rejected', 'failed'] }).notNull().default('pending'),
+    /** running: accepted and its tool still applying (see decideProposal); never left so across a restart. */
+    status: text('status', { enum: ['pending', 'running', 'accepted', 'rejected', 'failed'] }).notNull().default('pending'),
     result: json<unknown>('result'),
     createdAt: createdAt(),
     decidedAt: integer('decided_at', { mode: 'timestamp_ms' }),
