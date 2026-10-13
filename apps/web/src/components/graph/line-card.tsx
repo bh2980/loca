@@ -1,7 +1,7 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { ChevronDown, ChevronUp, PanelRightOpen, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, PanelRightOpen, StickyNote, X } from 'lucide-react';
 import { LineHints } from '@/components/script/line-list';
 import { TranslationEditor } from '@/components/translation-editor';
 import { LineSourceText } from '@/components/editor/source-text';
@@ -10,6 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { q } from '@/lib/queries';
 import { keyLabel } from '@/lib/keys';
 import { SpeakerCard } from '@/components/script/speaker-card';
+import { LineNote } from '@/components/script/line-note';
 
 /** The card's width; the graph keeps this much room beside the node when it opens. */
 export const LINE_CARD_WIDTH = 384;
@@ -34,6 +35,8 @@ export function LineCard({ projectId, unitId, choice, position, onStep, onClose 
   const statuses = useQuery(q.statuses(projectId));
   const navigate = useNavigate();
   const line = unit.data;
+  const [noting, setNoting] = useState(false);
+  useEffect(() => setNoting(false), [unitId]);
   // While the next line loads its editor is gone; the card holds the focus so ⌥↓ and Esc keep working.
   const card = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -72,6 +75,11 @@ export function LineCard({ projectId, unitId, choice, position, onStep, onClose 
         <Button variant="ghost" size="icon-xs" aria-label={`다음 줄 (${keyLabel('Alt+Down')})`} title={`다음 줄 (${keyLabel('Alt+Down')})`} onClick={() => onStep(1)}>
           <ChevronDown />
         </Button>
+        {line && !line.note && (
+          <Button variant="ghost" size="icon-xs" aria-label="메모 남기기" title="메모 남기기" onClick={() => setNoting(true)}>
+            <StickyNote />
+          </Button>
+        )}
         {line && (
           <Button variant="ghost" size="icon-xs" aria-label="번역 화면에서 자세히" title="번역 화면에서 자세히 (검사·후보·이력)" onClick={() => void navigate({ to: '/p/$projectId/script', params: { projectId }, search: { group: line.groupId, line: line.id, detail: true } })}>
             <PanelRightOpen />
@@ -95,6 +103,7 @@ export function LineCard({ projectId, unitId, choice, position, onStep, onClose 
             onEscape={onClose}
             onDone={(moved) => moved && onStep(1)}
           />
+          <LineNote key={line.id} unitId={line.id} note={line.note} editing={noting} onEditing={setNoting} />
           <LineHints projectId={projectId} line={{ ...line, lastRun: null }} />
         </>
       )}

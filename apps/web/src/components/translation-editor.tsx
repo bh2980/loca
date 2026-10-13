@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { listenerLabel } from '@tw/shared';
@@ -7,6 +8,7 @@ import { AiMark, StatusDot } from '@/components/status';
 import { Button } from '@/components/ui/button';
 import { client, unwrap } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
+import { wordDiff } from '@/lib/diff';
 import { useLineContext } from '@/lib/line-context';
 import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
 import { q } from '@/lib/queries';
@@ -160,6 +162,7 @@ export function TranslationEditor({
           )}
         </div>
       </div>
+      {!dirty && <PreviousDiff unitId={unit.id} openAtFirst={unit.statusBy === 'ai'} />}
       {suggestions.length > 0 && (
         <ol className="divide-y rounded-md border bg-background text-sm">
           {suggestions.map((suggestion, index) => (
@@ -224,4 +227,43 @@ function useSuggestions(unitId: string, shown: string[]): Suggestion[] {
   ];
   const seen = new Set(shown.map((text) => text.trim()).filter(Boolean));
   return all.filter((suggestion) => !seen.has(suggestion.text.trim()) && (seen.add(suggestion.text.trim()), true)).slice(0, 3);
+}
+
+/**
+ * What the current translation changed from the one before it (the previous candidate with other
+ * text), word by word: removed words struck through, added ones marked. Open from the start when a
+ * run set the line (to check what the AI changed); otherwise one click away.
+ */
+function PreviousDiff({ unitId, openAtFirst }: { unitId: string; openAtFirst: boolean }) {
+  const unit = useQuery(q.unit(unitId));
+  const [open, setOpen] = useState(openAtFirst);
+  const candidates = unit.data?.candidates ?? []; // newest first
+  const at = candidates.findIndex((candidate) => candidate.id === unit.data?.candidateId);
+  const current = candidates[at];
+  const previous = at >= 0 ? candidates.slice(at + 1).find((candidate) => candidate.text.trim() !== current.text.trim()) : undefined;
+  if (!current || !previous) return null;
+  const origin = { ai: 'AI', human: '사람', import: '가져온 번역', tool: '채팅' } as const;
+  if (!open)
+    return (
+      <Button variant="ghost" size="inline" className="text-muted-foreground" onClick={() => setOpen(true)}>
+        이전 번역과 비교
+      </Button>
+    );
+  return (
+    <div className="rounded-md border bg-background px-3 py-2 text-sm">
+      <p className="mb-1 flex items-center gap-2 text-xs text-muted-foreground">
+        이전 번역({origin[previous.origin]})에서 바뀐 곳
+        <Button variant="ghost" size="inline" className="ml-auto" onClick={() => setOpen(false)}>
+          접기
+        </Button>
+      </p>
+      <p className="break-words whitespace-pre-wrap">
+        {wordDiff(previous.text, current.text).map((part, index) => (
+          <span key={index} className={cn(part.change === 'removed' && 'text-destructive line-through decoration-destructive/60', part.change === 'added' && 'rounded-sm bg-success/15 text-success')}>
+            {part.text}
+          </span>
+        ))}
+      </p>
+    </div>
+  );
 }
