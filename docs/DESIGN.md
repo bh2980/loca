@@ -529,6 +529,7 @@ ACP 도입 자체는 목표가 아니다. CLI를 고른 사용자도 대량 번�
   - `loca tags` (`list_tags`): 프로젝트 태그와 기본 표시의 붙는 곳·종류·색·쓰인 대사/항목 수. 태그를 붙이는 import·저장은 붙는 곳 검사(`attachUnitTags`)를 거치고 거절 이유가 그대로 출력된다.
   - `loca plan <워크플로> [-g --key --mark --tag --ignore-status]` (`plan_run`): 실행 창의 준비 상태·요청 수 추정을 읽기만 한다(`preflight`).
   - 변경 제안 검사: `save_terms`의 이미 있는 원문·한 요청 안 중복은 제안을 올릴 때 거절 이유와 함께 빠지고, `loca call`·`loca import --dry-run`이 빠진 줄과 이유를 모두 보인다.
+  - 수정 제안은 보낸 필드만 바꾼다 [구현됨: 2026-10-14]: `save_*`에 id가 있으면 입력은 전부 선택이고 기본값이 없다(넣지 않은 상태·메모·번역은 그대로). 새로 만들 때만 원래 스키마의 필수값·기본값을 쓴다. 용어·자료의 태그는 `tag_items`(붙는 곳이 맞지 않는 태그·앱 태그는 거절, 하나라도 거절되면 아무것도 안 바뀜), 대사는 `propose_changes`. 태그 만들기(`save_status` type tag)는 `scope`(대사·자료·용어집)를 받는다.
 - 청자·말투: `loca lines --listener <이름|->`, `loca check speech`, `loca export`의 `listener`·`speechRule`, import 줄의 `listener`(수락하면 사람이 정한 청자). 도구 `list_speech_rules`·`list_events`·`save_speech_rule`·`save_event`, `read_line`의 청자·말투 규칙, `list_characters`의 말투 특징·플레이어·상태·출처. 에이전트가 기존 자료를 고치면 그 항목은 정식이 된다(수락 카드를 거치므로). [1차]
 
 ## 8. 데이터 모델 [구현됨] (SQLite + Drizzle)

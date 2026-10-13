@@ -2,6 +2,7 @@ import { and, eq, inArray, ne } from 'drizzle-orm';
 import { batchChangeSchema, type BatchChange } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
+import { inChunks } from '../db/chunk.ts';
 import { normalizeBatch, validateBatch, type BatchReport } from './script-query.ts';
 
 /** Lines checked per step; the event loop is handed back in between (a 50k-line check takes about a second). */
@@ -70,6 +71,16 @@ export async function prepareProposal(db: Db, projectId: string, tool: string, i
   const byId = BY_ID[tool];
   const id = byId && input[byId.field];
   if (byId && typeof id === 'string' && id && !byId.exists(db, projectId, id)) return { ok: false, error: `없는 ${byId.what}입니다 (${byId.field}=${id}). 목록 도구로 id를 확인하세요.` };
+  if (tool === 'tag_items') {
+    const tables = { terms: s.terms, characters: s.characters, relationships: s.relationships, speechRules: s.speechRules, events: s.storyEvents, documents: s.documents } as const;
+    const table = tables[input.kind as keyof typeof tables];
+    const ids = (input.ids as string[] | undefined) ?? [];
+    if (!table) return { ok: false, error: `태그를 붙일 수 없는 종류입니다: ${String(input.kind)}` };
+    const found = new Set(inChunks(ids, (slice) => db.select({ id: table.id }).from(table).where(and(eq(table.projectId, projectId), inArray(table.id, slice))).all()).map((row) => row.id));
+    const missing = ids.filter((itemId) => !found.has(itemId));
+    if (missing.length) return { ok: false, error: `없는 항목 id가 있습니다: ${missing.slice(0, 5).join(', ')}. 목록 도구로 id를 확인하세요.` };
+    return { ok: true, input, report: null };
+  }
   if (tool === 'save_terms') {
     const ids = ((input.terms as { id?: string }[] | undefined) ?? []).flatMap((term) => (term.id ? [term.id] : []));
     const found = new Set(ids.length ? db.select({ id: s.terms.id }).from(s.terms).where(and(eq(s.terms.projectId, projectId), inArray(s.terms.id, ids))).all().map((row) => row.id) : []);
@@ -77,9 +88,11 @@ export async function prepareProposal(db: Db, projectId: string, tool: string, i
     if (missing.length) return { ok: false, error: `없는 용어 id가 있습니다: ${missing.slice(0, 5).join(', ')}` };
     // A source already in the glossary (or twice in this call) is refused here, as saveTerm would on acceptance; the rest go on.
     const taken = new Map(db.select({ id: s.terms.id, source: s.terms.source, target: s.terms.target }).from(s.terms).where(and(eq(s.terms.projectId, projectId), ne(s.terms.status, 'rejected'))).all().map((term) => [term.source.toLowerCase(), term] as const));
-    const inputTerms = (input.terms as { id?: string; source: string }[] | undefined) ?? [];
+    const inputTerms = (input.terms as { id?: string; source?: string }[] | undefined) ?? [];
     const dropped: { key: string; reason: string }[] = [];
     const kept = inputTerms.filter((term) => {
+      // An edit that leaves the source as it is has nothing to collide with.
+      if (term.source === undefined) return true;
       const holder = taken.get(term.source.trim().toLowerCase());
       if (holder && holder.id !== term.id) {
         dropped.push({ key: term.source, reason: holder.id.startsWith('new:') ? '같은 요청에 두 번 나옵니다.' : `이미 있는 용어입니다: ${holder.source}${holder.target ? ` → ${holder.target}` : ''}` });

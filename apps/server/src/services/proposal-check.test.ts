@@ -22,6 +22,13 @@ describe('proposal check', () => {
     expect(await prepareProposal(db, projectId, 'save_character', { id: 'nope', name: 'X' })).toEqual({ ok: false, error: expect.stringContaining('없는 인물') });
     expect(await prepareProposal(db, projectId, 'save_terms', { terms: [{ id: 'gone', source: 'a', target: 'b' }] })).toEqual({ ok: false, error: expect.stringContaining('gone') });
     expect(await prepareProposal(db, projectId, 'save_character', { name: 'New' })).toMatchObject({ ok: true, report: null });
+    expect(await prepareProposal(db, projectId, 'tag_items', { kind: 'terms', ids: ['gone'], add: ['x'] })).toEqual({ ok: false, error: expect.stringContaining('gone') });
+  });
+
+  it('lets a term edit leave its source out (nothing to collide with)', async () => {
+    const { db, projectId } = setup();
+    const term = db.insert(s.terms).values({ projectId, source: 'Relay', target: '중계' }).returning().get();
+    expect(await prepareProposal(db, projectId, 'save_terms', { terms: [{ id: term.id, note: '역 이름' }] })).toMatchObject({ ok: true, report: null });
   });
 
   it('keeps the lines of a batch that can change, fills in revs and reports the rest', async () => {

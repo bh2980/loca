@@ -55,6 +55,7 @@ export const AGENT_TOOLS: Record<string, { target: AgentToolTarget; action: Agen
   edit_workflow_node: tool('workflows', 'change', '열린 편집기의 노드 수정'),
   start_run: tool('workflows', 'run', '워크플로 실행'),
   save_status: tool('settings', 'change', '상태·태그 만들기'),
+  tag_items: tool('settings', 'change', '용어·자료에 태그 붙이기·떼기'),
   web_search: tool('web', 'read', '웹 검색'),
   read_web_page: tool('web', 'read', '웹 페이지 읽기'),
 };

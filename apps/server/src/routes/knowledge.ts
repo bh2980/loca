@@ -1,5 +1,4 @@
 import { Hono } from 'hono';
-import { scopeRefusal } from '../services/tag-scope.ts';
 import { and, asc, eq, inArray, ne, or } from 'drizzle-orm';
 import { z } from 'zod';
 import { characterStyleSchema, DOCUMENT_KINDS, KNOWLEDGE_STATUSES, KNOWLEDGE_TAG_KINDS, modelChoiceSchema, patchOf, relationshipChangeSchema, SPEECH_LEVELS } from '@tw/shared';
@@ -13,7 +12,7 @@ import { fillTermUsage, termUsage } from '../services/term-usage.ts';
 import { saveCharacter } from '../services/characters.ts';
 import { saveTerm, SUGGEST_BATCH } from '../services/terms.ts';
 import { byPerson } from '../services/status-by.ts';
-import { clearReview, withTags } from '../services/knowledge-tags.ts';
+import { clearReview, setKnowledgeTag, withTags } from '../services/knowledge-tags.ts';
 
 export const termInput = z.object({
   source: z.string().trim().min(1),
@@ -291,16 +290,9 @@ export const knowledgeRoutes = new Hono<Env>()
       const projectId = c.req.param('projectId')!;
       const { kind, ids, tagId, add } = c.req.valid('json');
       const { db } = c.var.deps;
-      const tag = found(db.select({ role: s.tags.role }).from(s.tags).where(and(eq(s.tags.id, tagId), eq(s.tags.projectId, projectId))).get(), '태그');
-      if (add && tag.role) badRequest('앱이 붙이는 태그는 직접 붙일 수 없습니다.');
-      const refusal = add ? scopeRefusal(db, projectId, [tagId], kind === 'terms' ? 'terms' : 'knowledge') : null;
+      found(db.select({ id: s.tags.id }).from(s.tags).where(and(eq(s.tags.id, tagId), eq(s.tags.projectId, projectId))).get(), '태그');
+      const refusal = db.transaction((tx) => setKnowledgeTag(tx, projectId, kind, ids, tagId, add));
       if (refusal) badRequest(refusal);
-      db.transaction((tx) =>
-        eachChunk(ids, (slice) => {
-          if (add) tx.insert(s.knowledgeTags).values(slice.map((itemId) => ({ kind, itemId, tagId }))).onConflictDoNothing().run();
-          else tx.delete(s.knowledgeTags).where(and(eq(s.knowledgeTags.kind, kind), eq(s.knowledgeTags.tagId, tagId), inArray(s.knowledgeTags.itemId, slice))).run();
-        }, 2_000),
-      );
       events.changed(projectId, kind === 'terms' ? 'terms' : 'knowledge');
       return c.json({ ok: true });
     },
