@@ -29,7 +29,11 @@ export const Route = createFileRoute('/p/$projectId/glossary')({
   validateSearch: (raw: Record<string, unknown>): GlossarySearch => ({
     q: typeof raw.q === 'string' && raw.q ? raw.q : undefined,
     source: typeof raw.source === 'string' && (KNOWLEDGE_SOURCES as readonly string[]).includes(raw.source) ? (raw.source as KnowledgeSource) : undefined,
-    state: raw.state === 'confirmed' || raw.state === 'ai' || raw.state === 'candidate' ? raw.state : undefined,
+    // One value or several (a term has one state, so several picked mean any of them).
+    state: (() => {
+      const picked = (Array.isArray(raw.state) ? raw.state : [raw.state]).filter((value): value is TermState => value === 'confirmed' || value === 'ai' || value === 'candidate');
+      return picked.length ? picked : undefined;
+    })(),
     term: typeof raw.term === 'string' && raw.term ? raw.term : undefined,
     tags: Array.isArray(raw.tags) && raw.tags.length && raw.tags.every((id) => typeof id === 'string') ? (raw.tags as string[]) : undefined,
     empty: raw.empty === true || raw.empty === 'true' ? true : undefined,
@@ -38,11 +42,14 @@ export const Route = createFileRoute('/p/$projectId/glossary')({
   component: Glossary,
 });
 
+type TermState = Exclude<StatusFilter, undefined>;
+
 interface GlossarySearch {
   q?: string;
   term?: string;
   source?: KnowledgeSource;
-  state?: StatusFilter;
+  /** #후보 / #AI가 정함 (확정 from older links): a term in any of them. */
+  state?: TermState[];
   /** Tag ids: terms carrying all of them. */
   tags?: string[];
   /** #번역어 없음: no Korean form yet. */
@@ -89,7 +96,7 @@ function Glossary() {
 
   // Who wrote a term (출처) and who set its status (✦ when AI confirmed it and no person has looked yet).
   const asDraft = (term: Term) => ({ ...term, evidence: [] });
-  const all = (terms.data ?? []).filter((term) => matches(asDraft(term), search.source, search.state, search.tags) && (!search.empty || !term.target.trim()) && (!search.unused || term.lines === 0));
+  const all = (terms.data ?? []).filter((term) => (search.state ?? [undefined]).some((state) => matches(asDraft(term), search.source, state, search.tags)) && (!search.empty || !term.target.trim()) && (!search.unused || term.lines === 0));
   const queryClient = useQueryClient();
   const decide = useMutation({
     mutationFn: ({ ids, accept }: { ids: string[]; accept: boolean }) => unwrap(client.projects[':projectId'].drafts.$post({ param: { projectId }, json: { kind: 'terms', ids, action: accept ? 'confirm' : 'discard' } })),
@@ -122,6 +129,10 @@ function Glossary() {
   const statuses = useQuery(q.statuses(projectId));
   const knownTags = tagsIn(statuses.data?.tags, 'terms');
   const pickedTags = search.tags ?? [];
+  const toggleState = (state: TermState, on: boolean) => {
+    const next = on ? [...new Set([...(search.state ?? []), state])] : (search.state ?? []).filter((other) => other !== state);
+    setFilter({ state: next.length ? next : undefined });
+  };
   const toggleTag = (id: string, on: boolean) => {
     const next = on ? [...pickedTags, id] : pickedTags.filter((other) => other !== id);
     setFilter({ tags: next.length ? next : undefined });
@@ -141,7 +152,7 @@ function Glossary() {
   const termMarks = (term: Term): AutoMark[] => [...knowledgeMarks(asDraft(term), false), ...(!term.target.trim() ? ['emptyTarget' as const] : []), ...(term.lines === 0 ? ['unused' as const] : [])];
   const chips: FilterChip[] = [
     ...(search.source ? [{ key: 'source', label: SOURCE_LABELS[search.source], clear: () => setFilter({ source: undefined }) }] : []),
-    ...(search.state ? [{ key: 'state', label: search.state === 'ai' || search.state === 'candidate' ? <MarkChip mark={search.state} /> : '확정', name: search.state === 'ai' || search.state === 'candidate' ? AUTO_MARKS[search.state].name : undefined, clear: () => setFilter({ state: undefined }) }] : []),
+    ...(search.state ?? []).map((state) => ({ key: `state-${state}`, label: state === 'confirmed' ? '확정' : <MarkChip mark={state} />, name: state === 'confirmed' ? undefined : AUTO_MARKS[state].name, clear: () => toggleState(state, false) })),
     ...(search.empty ? [{ key: 'empty', label: <MarkChip mark="emptyTarget" />, name: AUTO_MARKS.emptyTarget.name, clear: () => setFilter({ empty: undefined }) }] : []),
     ...(search.unused ? [{ key: 'unused', label: <MarkChip mark="unused" />, name: AUTO_MARKS.unused.name, clear: () => setFilter({ unused: undefined }) }] : []),
     ...pickedTags.map((id) => ({ key: `tag:${id}`, label: `#${knownTags.find((tag) => tag.id === id)?.name ?? id}`, clear: () => toggleTag(id, false) })),
@@ -169,8 +180,8 @@ function Glossary() {
             {
               heading: '자동 표시',
               options: [
-                { key: 'candidate', label: <MarkChip mark="candidate" />, checked: search.state === 'candidate', onChange: (on) => setFilter({ state: on ? 'candidate' : undefined }) },
-                { key: 'ai', label: <MarkChip mark="ai" />, checked: search.state === 'ai', onChange: (on) => setFilter({ state: on ? 'ai' : undefined }) },
+                { key: 'candidate', label: <MarkChip mark="candidate" />, checked: Boolean(search.state?.includes('candidate')), onChange: (on) => toggleState('candidate', on) },
+                { key: 'ai', label: <MarkChip mark="ai" />, checked: Boolean(search.state?.includes('ai')), onChange: (on) => toggleState('ai', on) },
                 { key: 'empty', label: <MarkChip mark="emptyTarget" />, checked: Boolean(search.empty), onChange: (on) => setFilter({ empty: on || undefined }) },
                 { key: 'unused', label: <MarkChip mark="unused" />, checked: Boolean(search.unused), onChange: (on) => setFilter({ unused: on || undefined }) },
               ],
@@ -241,7 +252,7 @@ function Glossary() {
           rows={terms.data && rows}
           rowId={(term) => term.id}
           loading={terms.isLoading}
-          empty={needle || search.source || search.state || search.tags?.length || search.empty || search.unused ? '조건에 맞는 용어가 없습니다.' : '아직 용어가 없습니다. 작품 분석이 후보를 내거나 ‘용어 추가’로 직접 넣으세요.'}
+          empty={needle || search.source || search.state?.length || search.tags?.length || search.empty || search.unused ? '조건에 맞는 용어가 없습니다.' : '아직 용어가 없습니다. 작품 분석이 후보를 내거나 ‘용어 추가’로 직접 넣으세요.'}
           selected={selected?.id}
           onRowClick={(term) => select(term.id === search.term ? undefined : term.id)}
           picked={picked}

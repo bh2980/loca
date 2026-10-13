@@ -300,7 +300,7 @@ function Readiness({ projectId, readiness, oneScene, onLeave }: { projectId: str
       ok: readiness.unreviewedTerms.count === 0,
       text: readiness.unreviewedTerms.count ? `확인 안 한 용어 ${readiness.unreviewedTerms.count}개 (${readiness.unreviewedTerms.examples.join(', ')}${readiness.unreviewedTerms.count > readiness.unreviewedTerms.examples.length ? ' 등' : ''})` : '나오는 용어는 모두 확인됨',
       link: readiness.unreviewedTerms.count > 0 && (
-        <Link to="/p/$projectId/glossary" params={{ projectId }} search={{ state: 'ai' }} onClick={onLeave}>
+        <Link to="/p/$projectId/glossary" params={{ projectId }} search={{ state: ['candidate', 'ai'] }} onClick={onLeave}>
           확인하기
         </Link>
       ),

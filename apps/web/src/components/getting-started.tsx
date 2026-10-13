@@ -129,7 +129,7 @@ export function GettingStarted({ projectId }: { projectId: string }) {
       optional: true,
       action: () => (
         <Button asChild variant="ghost">
-          <Link to="/p/$projectId/glossary" params={{ projectId }} search={terms.data.length ? { state: 'candidate' } : {}}>
+          <Link to="/p/$projectId/glossary" params={{ projectId }} search={terms.data.length ? { state: ['candidate'] } : {}}>
             용어집 열기
           </Link>
         </Button>

@@ -119,7 +119,7 @@ function Home() {
       title: 'AI가 확정한 용어',
       description: '문맥에 쓰이고 있는 AI 용어.',
       count: aiDecided?.terms ?? 0,
-      link: <Link to="/p/$projectId/glossary" params={{ projectId }} search={{ state: 'ai' }} />,
+      link: <Link to="/p/$projectId/glossary" params={{ projectId }} search={{ state: ['ai'] }} />,
     },
     {
       key: 'terms',
@@ -127,7 +127,7 @@ function Home() {
       title: '후보 용어',
       description: '확정해야 번역 문맥에 들어갑니다.',
       count: terms.data?.filter((term) => term.status === 'candidate').length ?? 0,
-      link: <Link to="/p/$projectId/glossary" params={{ projectId }} search={{ state: 'candidate' } as never} />,
+      link: <Link to="/p/$projectId/glossary" params={{ projectId }} search={{ state: ['candidate'] }} />,
     },
     {
       key: 'untranslated',
