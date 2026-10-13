@@ -1,6 +1,8 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import { REVIEW_TAG, type KnowledgeTagKind } from '@tw/shared';
 import type { Db } from '../db/index.ts';
+import { eachChunk } from '../db/chunk.ts';
+import { scopeRefusal } from './tag-scope.ts';
 import * as s from '../db/schema.ts';
 
 type Tx = Pick<Db, 'select' | 'insert' | 'delete'>;
@@ -40,4 +42,22 @@ export function tagsOf(db: Db, kind: KnowledgeTagKind, itemIds: string[]) {
 export function withTags<T extends { id: string }>(db: Db, kind: KnowledgeTagKind, rows: T[]) {
   const map = tagsOf(db, kind, rows.map((row) => row.id));
   return rows.map((row) => ({ ...row, tags: map.get(row.id) ?? [] }));
+}
+
+/**
+ * A person's tag on several knowledge items (or terms), or off them: the knowledge lists and an
+ * accepted chat proposal. The app's own tags are not put on by hand, and a tag goes only where its
+ * scope allows. Returns the refusal, or null when done.
+ */
+export function setKnowledgeTag(tx: Pick<Db, 'select' | 'insert' | 'delete'>, projectId: string, kind: KnowledgeTagKind, ids: string[], tagId: string, add: boolean): string | null {
+  const tag = tx.select({ role: s.tags.role }).from(s.tags).where(and(eq(s.tags.id, tagId), eq(s.tags.projectId, projectId))).get();
+  if (!tag) return '태그를 찾을 수 없습니다.';
+  if (add && tag.role) return '앱이 붙이는 태그는 직접 붙일 수 없습니다.';
+  const refusal = add ? scopeRefusal(tx, projectId, [tagId], kind === 'terms' ? 'terms' : 'knowledge') : null;
+  if (refusal) return refusal;
+  eachChunk(ids, (slice) => {
+    if (add) tx.insert(s.knowledgeTags).values(slice.map((itemId) => ({ kind, itemId, tagId }))).onConflictDoNothing().run();
+    else tx.delete(s.knowledgeTags).where(and(eq(s.knowledgeTags.kind, kind), eq(s.knowledgeTags.tagId, tagId), inArray(s.knowledgeTags.itemId, slice))).run();
+  }, 2_000);
+  return null;
 }
