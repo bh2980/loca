@@ -258,7 +258,7 @@ export function respond(request: MockRequest, options: MockOptions, rand: () => 
   // The editor's continuation is plain text: the whole line, starting with what was typed.
   if (kind === 'complete') {
     const source = /^source: (.*)$/m.exec(request.user)?.[1] ?? '';
-    const prefix = /^TRANSLATION SO FAR: "(.*)"$/m.exec(request.user)?.[1] ?? '';
+    const prefix = /<started>([\s\S]*)<\/started>/.exec(request.user)?.[1] ?? '';
     const text = `${prefix}${prefix ? ' ' : ''}[KO] ${source}. 두 번째 문장도 있어요.`;
     return { kind, lines: 1, status: 200, finishReason: 'stop', content: text, usage: usageFor(promptChars, text.length, options), delayMs, faults };
   }

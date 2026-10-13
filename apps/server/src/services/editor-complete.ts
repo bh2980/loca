@@ -9,7 +9,7 @@ import type { SecretStore } from './secrets.ts';
 import { speechRuleIndex } from './speech.ts';
 
 export const COMPLETE_SYSTEM =
-  'You continue a Korean game translation in a translator\'s editor. Reply with the full Korean translation of LINE only, beginning exactly with TRANSLATION SO FAR when it is given. Copy the format tokens exactly. Follow the glossary and the speech level. No quotes, notes or explanations.';
+  'You continue a Korean game translation in a translator\'s editor. Reply with nothing but the Korean translation of the line: if the translator has started it (the text between <started> and </started>), your reply begins with exactly that text and goes on. Copy the format tokens exactly. Follow the glossary and the speech level. No labels, quotes, notes or explanations.';
 
 /** A continuation later than this is no help while typing. */
 const COMPLETE_TIMEOUT_MS = 15_000;
@@ -82,7 +82,7 @@ export async function completeLine(db: Db, secrets: SecretStore, unitId: string,
     ...(terms.length ? ['', 'GLOSSARY', ...terms.map((term) => `- ${term.source} → ${term.target}`)] : []),
     ...(tokens.length ? ['', `FORMAT TOKENS (copy exactly): ${tokens.join(' ')}`] : []),
     '',
-    `TRANSLATION SO FAR: ${prefix ? `"${prefix}"` : '(empty)'}`,
+    prefix ? `Started by the translator:\n<started>${prefix}</started>` : 'The translator has not started this line.',
   ].join('\n');
 
   const call = (target: ai.ResolvedRoute) =>
@@ -95,6 +95,18 @@ export async function completeLine(db: Db, secrets: SecretStore, unitId: string,
     throw error;
   });
   // The line as a whole; models sometimes wrap it in quotes or add the prefix twice.
-  const text = result.text.trim().replace(/^["“'](.*)["”']$/s, '$1');
+  const text = cleanReply(result.text, unit.source);
   return { text, callsToday: editorCallsToday(db, unit.projectId), dailyCap: settings.dailyCap };
+}
+
+/**
+ * The line from a model's reply: small models echo the prompt's labels ("TRANSLATION SO FAR: …",
+ * "<started>…"), wrap the line in quotes or add lines of their own. A one-line source keeps the
+ * first line only.
+ */
+export function cleanReply(reply: string, source: string) {
+  let text = reply.trim().replace(/<\/?started>/g, '');
+  text = text.replace(/^(?:translation so far|started by the translator|translation|korean|번역(?:문)?|한국어)\s*[:：]\s*/i, '');
+  if (!source.includes('\n')) text = text.split('\n').find((line) => line.trim()) ?? '';
+  return text.trim().replace(/^["“'](.*)["”']$/s, '$1').trim();
 }
