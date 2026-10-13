@@ -2,7 +2,7 @@
 import { type ReactNode } from 'react';
 import { Check, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { AUTO_MARK_IDS, AUTO_MARKS, type AutoMark, knowledgeMarksOf, matchesMarks, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, sourceOf, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type StatusBy } from '@tw/shared';
+import { AUTO_MARKS, type AutoMark, KNOWLEDGE_MARK_IDS, knowledgeMarksOf, matchesMarks, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, sourceOf, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type StatusBy } from '@tw/shared';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { AiMark, MarkChip, TagChip } from '@/components/status';
@@ -79,7 +79,7 @@ export const matches = (row: Draft, source: SourceFilter, marks?: readonly AutoM
   (!source || sourceOf(row) === source) && matchesMarks(knowledgeMarksOf(row), marks) && (tags ?? []).every((tag) => row.tags?.some((item) => item.id === tag));
 
 /** The marks a knowledge item can be filtered by. */
-export const KNOWLEDGE_MARK_IDS = AUTO_MARK_IDS.filter((id) => (AUTO_MARKS[id].on as readonly string[]).includes('knowledge'));
+export { KNOWLEDGE_MARK_IDS };
 
 /** An item's automatic marks then its tags, all as colored chips; the app's reason for a tag (확인 권장) shows on hover. */
 export function TagCell({ tags, known, marks }: { tags?: ItemTag[]; known: TagInfo[]; marks?: AutoMark[] }) {

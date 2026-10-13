@@ -1,4 +1,4 @@
-import { and, count, eq, inArray, ne } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, ne, sql } from 'drizzle-orm';
 import { tagScope, TAG_SCOPE_LABELS, type TagScope } from '@tw/shared';
 import { badRequest } from '../context.ts';
 import { eachChunk } from '../db/chunk.ts';
@@ -58,4 +58,24 @@ export function attachUnitTags(
     if (add.length) tx.insert(s.unitTags).values(slice.flatMap((unitId) => add.map((tagId) => ({ unitId, tagId })))).onConflictDoNothing().run();
   }, Math.max(1, Math.floor(30_000 / Math.max(1, add.length * 2))));
   return { skipped };
+}
+
+/** The project's tags with where each can be put (scope) and how many lines and knowledge items carry it. role is set on the app's own tags. */
+export function projectTags(db: Pick<Db, 'select'>, projectId: string) {
+  return db
+    .select({
+      id: s.tags.id,
+      name: s.tags.name,
+      color: s.tags.color,
+      /** The app's tags: a problem type (lines) or 'review' (확인 권장, knowledge only). */
+      role: s.tags.role,
+      scope: s.tags.scope,
+      units: sql<number>`(select count(*) from unit_tags ut where ut.tag_id = "tags"."id")`,
+      items: sql<number>`(select count(*) from knowledge_tags kt where kt.tag_id = "tags"."id")`,
+    })
+    .from(s.tags)
+    .where(eq(s.tags.projectId, projectId))
+    .orderBy(asc(s.tags.name))
+    .all()
+    .map((tag) => ({ ...tag, scope: tagScope(tag) }));
 }

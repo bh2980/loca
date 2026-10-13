@@ -1,7 +1,7 @@
-import { and, eq, inArray, ne, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, like, ne, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import * as ai from '@tw/ai';
-import { aiStatus, type AiConfirm, type ModelChoice } from '@tw/shared';
+import { aiStatus, type AiConfirm, type ModelChoice, matchesMarks, termMarksOf, TERM_MARK_IDS, type AutoMark } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import { eachChunk } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
@@ -11,6 +11,7 @@ import type { ModelPort } from '../engine/runner.ts';
 import { liveChoice, resolveRoutes } from './routes.ts';
 import type { SecretStore } from './secrets.ts';
 import { fillTermUsage } from './term-usage.ts';
+import { annotateKnowledge, knowledgeFilterInput, pickedMarks as pickedMarksOf, type KnowledgeFilter } from './knowledge-list.ts';
 import { byPerson } from './status-by.ts';
 
 type Tx = Pick<Db, 'select' | 'insert' | 'update' | 'delete'>;
@@ -270,4 +271,30 @@ export class TermService {
       events.changed(projectId, 'terms');
     }
   }
+}
+
+/** Filter of the glossary list: the knowledge filter, with the term marks (candidate, ai, emptyTarget, unused). */
+export const termFilterInput = {
+  ...knowledgeFilterInput,
+  marks: z.array(z.enum(TERM_MARK_IDS as [AutoMark, ...AutoMark[]])).optional().describe('Term marks: candidate, ai, emptyTarget (no Korean form), unused (not in the script). candidate + ai together mean either one, as in the app.'),
+  q: z.string().optional().describe('Text in the source or the translation.'),
+};
+
+/**
+ * The glossary as the glossary page lists it (not rejected terms, source order) with what the page
+ * shows: lines (나온 줄, counted first), examples, marks and tag names. `total` counts every match.
+ */
+export function listTerms(db: Db, projectId: string, input: KnowledgeFilter & { q?: string; offset?: number; limit?: number }) {
+  fillTermUsage(db, projectId);
+  const where = and(eq(s.terms.projectId, projectId), ne(s.terms.status, 'rejected'), input.q ? or(like(s.terms.source, `%${input.q}%`), like(s.terms.target, `%${input.q}%`)) : undefined);
+  const rows = db.select().from(s.terms).where(where).orderBy(asc(s.terms.source)).all();
+  const matched = annotateKnowledge(db, projectId, 'terms', rows, { tags: input.tags })
+    .map(({ marks: _marks, ...row }) => ({ ...row, marks: termMarksOf(row) }))
+    .filter((row) => matchesMarks(row.marks, pickedMarksOf(input)));
+  const offset = input.offset ?? 0;
+  const page = input.limit === undefined ? matched.slice(offset) : matched.slice(offset, offset + input.limit);
+  return {
+    total: matched.length,
+    terms: page.map(({ id, source, target, note, status, statusBy, lines, examples, marks, tags }) => ({ id, source, target, note, status, statusBy, lines, examples, marks, tags })),
+  };
 }

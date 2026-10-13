@@ -1,13 +1,13 @@
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, notInArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { agentSettingsSchema, aiConfirmSchema, editorAiSchema, formatRulesSchema, importFileSchema, importWarnings, markColorsSchema, patchOf, tagScope, TAG_SCOPES, TAG_SCOPE_LABELS, DEFAULT_TAG_COLOR, HEX_COLOR, STATUS_COLORS, summarizeImport } from '@tw/shared';
+import { agentSettingsSchema, aiConfirmSchema, editorAiSchema, formatRulesSchema, importFileSchema, importWarnings, markColorsSchema, patchOf, TAG_SCOPES, TAG_SCOPE_LABELS, DEFAULT_TAG_COLOR, HEX_COLOR, STATUS_COLORS, summarizeImport } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { forgetProjectContext } from '../services/context.ts';
 import { markConditions } from '../services/line-marks.ts';
-import { tagUseIn } from '../services/tag-scope.ts';
+import { projectTags, tagUseIn } from '../services/tag-scope.ts';
 import { importProject } from '../services/importer.ts';
 import type { DecidedTable } from '../services/status-by.ts';
 import { defaultModelChoice } from '../services/routes.ts';
@@ -139,22 +139,7 @@ export const projectRoutes = new Hono<Env>()
       .where(eq(s.statuses.projectId, projectId))
       .orderBy(asc(s.statuses.sort))
       .all();
-    const tags = db
-      .select({
-        id: s.tags.id,
-        name: s.tags.name,
-        color: s.tags.color,
-        /** The app's tags: a problem type (lines) or 'review' (확인 권장, knowledge only). */
-        role: s.tags.role,
-        scope: s.tags.scope,
-        units: sql<number>`(select count(*) from unit_tags ut where ut.tag_id = "tags"."id")`,
-        items: sql<number>`(select count(*) from knowledge_tags kt where kt.tag_id = "tags"."id")`,
-      })
-      .from(s.tags)
-      .where(eq(s.tags.projectId, projectId))
-      .orderBy(asc(s.tags.name))
-      .all();
-    return c.json({ statuses, tags: tags.map((tag) => ({ ...tag, scope: tagScope(tag) })) });
+    return c.json({ statuses, tags: projectTags(db, projectId) });
   })
   .post('/:projectId/statuses', validate('json', statusInput), (c) => {
     const { db } = c.var.deps;

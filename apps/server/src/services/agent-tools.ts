@@ -17,7 +17,11 @@ import { createRunInSteps, selectRunUnits } from '../engine/runner.ts';
 import { snapshotWorkflowModels } from './routes.ts';
 import { readWebPage, webSearch } from './web.ts';
 import { pickNodes, saveView, sectionWithMost, viewSection, VIEW_LIMIT } from './graph-views.ts';
-import { addNameTerms, saveTerm } from './terms.ts';
+import { addNameTerms, listTerms, saveTerm, termFilterInput } from './terms.ts';
+import { annotateKnowledge, knowledgeFilterInput } from './knowledge-list.ts';
+import { findTerm, termUsage } from './term-usage.ts';
+import { tagOverview } from './tag-overview.ts';
+import { planRun } from './run-plan.ts';
 import { applyBatch, checkScript, findLines, lineContext, normalizeBatch, runStats, sceneStats, scenesWith, validateBatch } from './script-query.ts';
 
 /** Lines of a batch proposal checked and applied per step when it is accepted. */
@@ -112,9 +116,9 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
     }),
     find_lines: tool({
       description:
-        'Find lines with any combination of filters: q (text), speakers (character name/alias/speaker key — all their lines), listeners (lines addressed to them; "-" = listener unknown, the same as marks unknownListener), mentions (lines that mention a character, incl. {ALIAS} placeholders), groups (scene/group key, id or title), sections (chapter/folder), groupKind, kind, statuses, tags, marks (automatic marks all of which the line has: ' + LINE_MARK_IDS.join(', ') + '), translated, keys. Returns total and one page with each line\'s key and rev; page with offset until total. Prefer one broad call over many small ones.',
+        'Find lines with any combination of filters: q (text), speakers (character name/alias/speaker key — all their lines), listeners (lines addressed to them; "-" = listener unknown, the same as marks unknownListener), mentions (lines that mention a character, incl. {ALIAS} placeholders), groups (scene/group key, id or title), sections (chapter/folder), groupKind, kind, statuses, tags, marks (automatic marks all of which the line has: ' + LINE_MARK_IDS.join(', ') + '), translated, keys. Returns total and one page with each line\'s key, rev and marks (the automatic marks it carries); page with offset until total. Prefer one broad call over many small ones.',
       inputSchema: lineFilterSchema,
-      execute: (filter) => findLines(db, projectId, filter),
+      execute: (filter) => findLines(db, projectId, filter, { diverged: true }),
     }),
     scenes_with: tool({
       description: 'Scenes/groups where every given speaker has lines (e.g. where Alice and Bob talk), with line counts per speaker.',
@@ -169,61 +173,67 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
     }),
     list_characters: tool({
       description:
-        'Stored characters (profile, how they speak, whether they are the player character) and their relationships (with changes). Each item says its status (confirmed = used as AI context, candidate = not yet), statusBy (ai = AI set that status and no person has looked yet, human = a person decided) and source (who wrote the content: analysis, workflow, script, import, human).',
-      inputSchema: z.object({}),
-      execute: () => {
-        const characters = db.select().from(s.characters).where(eq(s.characters.projectId, projectId)).all();
-        const names = new Map(characters.map((character) => [character.id, character.name]));
+        'Stored characters (profile, how they speak, whether they are the player character) and their relationships (with changes). Each item says its status (confirmed = used as AI context, candidate = not yet), statusBy (ai = AI set that status and no person has looked yet, human = a person decided), source (who wrote the content: analysis, workflow, script, import, human), marks (candidate, ai, noEvidence) and tags. Filter with marks / unreviewed (candidate or AI-decided, i.e. not yet seen by a person) / tags.',
+      inputSchema: z.object(knowledgeFilterInput),
+      execute: (filter) => {
+        const characters = db.select().from(s.characters).where(and(eq(s.characters.projectId, projectId), ne(s.characters.status, 'rejected'))).all();
+        const names = new Map(db.select({ id: s.characters.id, name: s.characters.name }).from(s.characters).where(eq(s.characters.projectId, projectId)).all().map((character) => [character.id, character.name]));
+        const relationships = db.select().from(s.relationships).where(and(eq(s.relationships.projectId, projectId), ne(s.relationships.status, 'rejected'))).all();
         return {
-          characters: characters.map(({ id, name, aliases, profile, speech, player, status, origin, jobId, statusBy }) => ({ id, name, aliases, profile, speech, player, status, statusBy, source: sourceOf({ origin, jobId }) })),
-          relationships: db
-            .select()
-            .from(s.relationships)
-            .where(eq(s.relationships.projectId, projectId))
-            .all()
-            .map((rel) => ({ id: rel.id, from: names.get(rel.fromId), to: names.get(rel.toId), kind: rel.kind, description: rel.description, mutual: rel.mutual, changes: rel.changes, status: rel.status, source: sourceOf(rel) })),
+          characters: annotateKnowledge(db, projectId, 'characters', characters, filter).map(({ id, name, aliases, profile, speech, player, status, origin, jobId, statusBy, marks, tags }) => ({ id, name, aliases, profile, speech, player, status, statusBy, source: sourceOf({ origin, jobId }), marks, tags })),
+          relationships: annotateKnowledge(db, projectId, 'relationships', relationships, filter).map((rel) => ({ id: rel.id, from: names.get(rel.fromId), to: names.get(rel.toId), kind: rel.kind, description: rel.description, mutual: rel.mutual, changes: rel.changes, status: rel.status, statusBy: rel.statusBy, source: sourceOf(rel), marks: rel.marks, tags: rel.tags })),
         };
       },
     }),
     list_speech_rules: tool({
       description:
-        'Korean speech rules per speaker → listener direction: level (hasoseo 하소서체, hasipsio 하십시오체, hao 하오체, hage 하게체, haera 해라체, haeyo 해요체, hae 해체/반말, other), form of address, and startKey (the rule applies from that line on; null = from the beginning; several rules for a pair are stretches in script order). Only confirmed rules reach translation prompts.',
-      inputSchema: z.object({ speaker: z.string().optional(), listener: z.string().optional() }),
-      execute: ({ speaker, listener }) =>
-        db
-          .select()
-          .from(s.speechRules)
-          .where(eq(s.speechRules.projectId, projectId))
-          .all()
+        'Korean speech rules per speaker → listener direction: level (hasoseo 하소서체, hasipsio 하십시오체, hao 하오체, hage 하게체, haera 해라체, haeyo 해요체, hae 해체/반말, other), form of address, and startKey (the rule applies from that line on; null = from the beginning; several rules for a pair are stretches in script order). Only confirmed rules reach translation prompts. Each rule has status, statusBy, marks (candidate, ai, noEvidence) and tags; filter with marks / unreviewed / tags.',
+      inputSchema: z.object({ speaker: z.string().optional(), listener: z.string().optional(), ...knowledgeFilterInput }),
+      execute: ({ speaker, listener, ...filter }) =>
+        annotateKnowledge(db, projectId, 'speechRules', db.select().from(s.speechRules).where(and(eq(s.speechRules.projectId, projectId), ne(s.speechRules.status, 'rejected'))).all(), filter)
           .filter((rule) => (!speaker || rule.fromName.toLowerCase() === speaker.toLowerCase()) && (!listener || rule.toName.toLowerCase() === listener.toLowerCase()))
-          .map(({ id, fromName, toName, level, address, note, startKey, status, origin, jobId, statusBy, evidence }) => ({ id, from: fromName, to: toName, level, address, note, startKey, status, statusBy, source: sourceOf({ origin, jobId }), evidence })),
+          .map(({ id, fromName, toName, level, address, note, startKey, status, origin, jobId, statusBy, evidence, marks, tags }) => ({ id, from: fromName, to: toName, level, address, note, startKey, status, statusBy, source: sourceOf({ origin, jobId }), evidence, marks, tags })),
     }),
     list_events: tool({
-      description: 'Stored story events: summary, cause, outcome, participants and the lines that show them, with status and source.',
-      inputSchema: z.object({}),
-      execute: () =>
-        db
-          .select()
-          .from(s.storyEvents)
-          .where(eq(s.storyEvents.projectId, projectId))
-          .all()
-          .map(({ id, title, summary, cause, outcome, participants, evidence, status, origin, jobId, statusBy }) => ({ id, title, summary, cause, outcome, participants, evidence, status, statusBy, source: sourceOf({ origin, jobId }) })),
+      description: 'Stored story events: summary, cause, outcome, participants and the lines that show them, with status, statusBy, source, marks (candidate, ai, noEvidence) and tags. Filter with marks / unreviewed / tags.',
+      inputSchema: z.object(knowledgeFilterInput),
+      execute: (filter) =>
+        annotateKnowledge(db, projectId, 'events', db.select().from(s.storyEvents).where(and(eq(s.storyEvents.projectId, projectId), ne(s.storyEvents.status, 'rejected'))).all(), filter).map(
+          ({ id, title, summary, cause, outcome, participants, evidence, status, origin, jobId, statusBy, marks, tags }) => ({ id, title, summary, cause, outcome, participants, evidence, status, statusBy, source: sourceOf({ origin, jobId }), marks, tags }),
+        ),
     }),
     read_documents: tool({
-      description: 'Story, world-building, style and note documents (full text).',
-      inputSchema: z.object({ ids: z.array(z.string()).optional() }),
-      execute: ({ ids }) => db.select().from(s.documents).where(and(eq(s.documents.projectId, projectId), ids?.length ? inList(s.documents.id, ids) : undefined)).all(),
+      description: 'Story, world-building, style and note documents (full text) with status, statusBy, marks (candidate, ai, noEvidence) and tags. Filter with ids / marks / unreviewed / tags.',
+      inputSchema: z.object({ ids: z.array(z.string()).optional(), ...knowledgeFilterInput }),
+      execute: ({ ids, ...filter }) =>
+        annotateKnowledge(db, projectId, 'documents', db.select().from(s.documents).where(and(eq(s.documents.projectId, projectId), ne(s.documents.status, 'rejected'), ids?.length ? inList(s.documents.id, ids) : undefined)).all(), filter),
     }),
     list_terms: tool({
-      description: 'Glossary entries (not rejected ones), optionally filtered. Returns total and one page; use offset to page through.',
-      inputSchema: z.object({ q: z.string().optional(), ...page }),
-      execute: ({ q, offset, limit }) => {
-        const where = and(eq(s.terms.projectId, projectId), ne(s.terms.status, 'rejected'), q ? or(like(s.terms.source, `%${q}%`), like(s.terms.target, `%${q}%`)) : undefined);
-        return {
-          total: db.select({ count: count() }).from(s.terms).where(where).get()!.count,
-          terms: db.select({ id: s.terms.id, source: s.terms.source, target: s.terms.target, note: s.terms.note, status: s.terms.status }).from(s.terms).where(where).orderBy(asc(s.terms.source)).limit(limit).offset(offset).all(),
-        };
+      description:
+        'Glossary entries (not rejected ones) as the glossary page lists them: source, target, note, status (candidate = not used yet), statusBy (ai = no person has decided), lines (how many script lines use it, 나온 줄), examples (keys of its first lines), marks (candidate, ai, emptyTarget = no Korean form, unused = not in the script) and tags. Filter with q, marks (candidate + ai = either), unreviewed (candidate or AI-decided), tags (all). Returns total and one page; use offset to page through.',
+      inputSchema: z.object({ ...termFilterInput, ...page }),
+      execute: (input) => listTerms(db, projectId, input),
+    }),
+    term_usage: tool({
+      description: 'The script lines whose source uses one glossary term (whole word, any case; the same match as the glossary page): what to re-run or check after changing it. term is its id or its source.',
+      inputSchema: z.object({ term: z.string().min(1), limit: z.number().int().min(1).max(1000).default(100) }),
+      execute: ({ term, limit }) => {
+        const found = findTerm(db, projectId, term);
+        if (!found) return { error: `용어를 찾을 수 없습니다: ${term}` };
+        const rows = termUsage(db, projectId, found);
+        return { term: { id: found.id, source: found.source, target: found.target, status: found.status }, count: rows.length, lines: rows.slice(0, limit).map((row) => ({ key: row.key, scene: row.groupTitle, speaker: row.speaker, source: row.source, translation: row.translation })) };
       },
+    }),
+    list_tags: tool({
+      description: 'The project\'s tags and the built-in automatic marks (#name in the app), each with where it can be put (scope/places: lines 대사, knowledge 자료, terms 용어집), whether it is built in, its color and how many lines and knowledge items carry it. A tag can only be put where its scope allows; other places are refused.',
+      inputSchema: z.object({}),
+      execute: () => tagOverview(db, projectId),
+    }),
+    plan_run: tool({
+      description:
+        'The run dialog\'s preview for a workflow and scope, without starting anything or calling a model: lines in scope, batches, requests and tokens per AI node, and readiness (dialogue lines with unknown listener, speech rules and glossary terms no person has confirmed, with their names, and frequent speaker pairs without a rule). workflow is an id or name; scope: groups (key/id/title), keys (line keys), tags (all), marks (all) — combined with AND like the dialog; none = every line the entry node accepts. Use it before proposing start_run.',
+      inputSchema: z.object({ workflow: z.string().min(1), groups: z.array(z.string()).optional(), keys: z.array(z.string()).optional(), tags: z.array(z.string()).optional(), marks: lineMarksSchema.optional(), ignoreStatus: z.boolean().optional() }),
+      execute: (input) => planRun(db, projectId, input),
     }),
     harness_reference: tool({
       description: 'How workflows work: node types, their exits, the condition data model, available AI connections (with each default model and the efforts it takes), statuses and tags. Read this before proposing a workflow.',

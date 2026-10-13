@@ -26,7 +26,7 @@ export const scriptRoutes = new Hono<Env>()
     );
   })
   .get('/projects/:projectId/speakers/:name/first', (c) => c.json(firstAppearance(c.var.deps.db, c.req.param('projectId'), c.req.param('name'))))
-  .post('/projects/:projectId/lines/find', validate('json', lineFilterSchema), (c) => c.json(findLines(c.var.deps.db, c.req.param('projectId'), c.req.valid('json'))))
+  .post('/projects/:projectId/lines/find', validate('json', lineFilterSchema), (c) => c.json(findLines(c.var.deps.db, c.req.param('projectId'), c.req.valid('json'), { diverged: true })))
   .post('/projects/:projectId/scenes/with', validate('json', z.object({ speakers: z.array(z.string().min(1)).min(1) })), (c) =>
     c.json(scenesWith(c.var.deps.db, c.req.param('projectId'), c.req.valid('json').speakers)),
   )

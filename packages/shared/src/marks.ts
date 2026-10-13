@@ -32,6 +32,11 @@ export type MarkColors = z.infer<typeof markColorsSchema>;
 
 export const markColor = (mark: AutoMark, colors?: MarkColors | null) => colors?.[mark] ?? AUTO_MARKS[mark].color;
 
+/** The marks that apply to `scope`. */
+export const marksOn = (scope: TagScope): AutoMark[] => AUTO_MARK_IDS.filter((id) => (AUTO_MARKS[id].on as readonly string[]).includes(scope));
+export const KNOWLEDGE_MARK_IDS = marksOn('knowledge');
+export const TERM_MARK_IDS = marksOn('terms');
+
 /** The marks that apply to lines (what the line filter, run scope and workflow conditions offer). */
 export type LineMark = { [K in AutoMark]: 'lines' extends (typeof AUTO_MARKS)[K]['on'][number] ? K : never }[AutoMark];
 export const LINE_MARK_IDS = AUTO_MARK_IDS.filter((id): id is LineMark => (AUTO_MARKS[id].on as readonly string[]).includes('lines'));

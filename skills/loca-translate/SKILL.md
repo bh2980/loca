@@ -24,7 +24,9 @@ loca 앱이 켜져 있어야 합니다(기본 `http://127.0.0.1:4317`, 다르면
    ```
    loca export --section "Chapter 1" --untranslated --context 4 --terms -o "$W/ch1.jsonl"
    ```
-   한 줄 = 한 대사: `key`, `rev`, `group`, `speaker`, `listener`(누구에게 하는 말인지, 알 때만), `speechRule`(그 화자→청자의 확정 말투 규칙, 있을 때만), `source`, `translation`, `before`(앞 대사), `terms`(지켜야 할 용어).
+   한 줄 = 한 대사: `key`, `rev`, `group`, `speaker`, `listener`(누구에게 하는 말인지, 알 때만), `speechRule`(그 화자→청자의 확정 말투 규칙, 있을 때만), `source`, `translation`, `marks`(남은 줄·AI가 정함·청자 미상·메모·같은 원문 다른 번역), `before`(앞 대사), `terms`(지켜야 할 용어).
+   `unknownListener`가 붙은 줄은 청자(말투)를 모르는 줄이니 추측하지 말고 사용자에게 알립니다. `diverged`는 같은 원문이 다르게 번역된 줄이니 맞춰 줍니다.
+   번역 전에 `loca plan <워크플로> -g <장면>`으로 준비 상태(확인 안 한 용어·말투 규칙)를 봅니다.
 3. 인물 말투가 필요하면 함께 읽습니다: `loca call list_characters`
 4. 번역해서 **새 파일**(`$W/ch1.out.jsonl`)에 씁니다. 줄마다 `key`와 `rev`를 그대로 두고 `translation`만 채웁니다. 다른 필드는 남겨도 무시됩니다.
    - `{PLAYER_NAME}` 같은 자리표시자와 `<b>` 같은 태그는 원문과 같은 개수로 유지합니다.

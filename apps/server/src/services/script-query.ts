@@ -1,5 +1,5 @@
 import { and, asc, count, desc, eq, gte, inArray, like, or, sql, type SQL } from 'drizzle-orm';
-import { checkFormat, mentions, type BatchChange, type CheckKind, type LineFilter } from '@tw/shared';
+import { checkFormat, lineMarksOf, mentions, type BatchChange, type CheckKind, type LineFilter, type LineMark } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import { inChunks, inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
@@ -31,6 +31,8 @@ export interface LineRow {
   translation: string | null;
   status: string;
   tags: string[];
+  /** The automatic marks the line carries (lineMarksOf); 같은 원문 다른 번역 only when the query was asked for it (`diverged`). */
+  marks: LineMark[];
 }
 
 function lookups(db: Db, projectId: string) {
@@ -56,7 +58,7 @@ function lookups(db: Db, projectId: string) {
 
 /** Lines matching a filter, in script order. `total` counts every match, not just this page. */
 /** With `all`, every matching line in one query (no count, no paging): see allLines. `seq` limits it to a stretch of the script. */
-export function findLines(db: Db, projectId: string, filter: LineFilter, options: { all?: boolean; seq?: [number, number] } = {}): { total: number; rows: LineRow[] } {
+export function findLines(db: Db, projectId: string, filter: LineFilter, options: { all?: boolean; seq?: [number, number]; diverged?: boolean } = {}): { total: number; rows: LineRow[] } {
   const { namesOf, statusId, tagId, statuses, tags } = lookups(db, projectId);
   const where: SQL[] = [eq(s.units.projectId, projectId)];
   if (filter.q) where.push(or(like(s.units.source, `%${filter.q}%`), like(s.units.translation, `%${filter.q}%`), like(s.units.speaker, `%${filter.q}%`), like(s.units.key, `%${filter.q}%`))!);
@@ -108,6 +110,9 @@ export function findLines(db: Db, projectId: string, filter: LineFilter, options
   const tagRows = inChunks(ids, (slice) => db.select().from(s.unitTags).where(inArray(s.unitTags.unitId, slice)).all());
   const tagName = new Map(tags.map((tag) => [tag.id, tag.name]));
   const statusName = new Map(statuses.map((status) => [status.id, status.name]));
+  const finalStatus = new Set(statuses.filter((status) => status.kind === 'final').map((status) => status.id));
+  // Same source, different translation compares across the project: one extra query, only when asked.
+  const diverged = options.diverged && page.length ? new Set(db.select({ id: s.units.id }).from(s.units).where(and(eq(s.units.projectId, projectId), ...markConditions(projectId, ['diverged']))).all().map((row) => row.id)) : null;
   return {
     total,
     rows: page.map(({ unit, group }) => ({
@@ -122,6 +127,7 @@ export function findLines(db: Db, projectId: string, filter: LineFilter, options
       translation: unit.translation,
       status: statusName.get(unit.statusId) ?? unit.statusId,
       tags: tagRows.filter((row) => row.unitId === unit.id).map((row) => tagName.get(row.tagId) ?? row.tagId),
+      marks: [...lineMarksOf(unit, finalStatus.has(unit.statusId)), ...(diverged?.has(unit.id) ? (['diverged'] as const) : [])],
     })),
   };
 }
@@ -198,7 +204,7 @@ export function lineContext(db: Db, projectId: string, key: string, around: numb
     };
   }
   return {
-    line: findLines(db, projectId, { keys: [key], offset: 0, limit: 1 }).rows[0],
+    line: findLines(db, projectId, { keys: [key], offset: 0, limit: 1 }, { diverged: true }).rows[0],
     before: siblings.slice(Math.max(0, index - around), index),
     after: siblings.slice(index + 1, index + 1 + around),
     graph,
@@ -320,7 +326,7 @@ function unitsByKey(db: Pick<Db, 'select'>, projectId: string, keys: string[]) {
 
 /** Lines plus what a translator needs, one object per line (written as JSONL by the CLI). */
 export function exportLines(db: Db, projectId: string, filter: LineFilter, options: { before: number; terms: boolean; all: boolean }) {
-  const lines = options.all ? allLines(db, projectId, filter) : findLines(db, projectId, filter).rows;
+  const lines = findLines(db, projectId, filter, { all: options.all, diverged: true }).rows;
   const terms = options.terms ? knowledgeOf(db, projectId).terms() : null;
   const groupLines = new Map<string, { id: string; speaker: string | null; source: string; translation: string | null }[]>();
   const units = new Map(inChunks(lines.map((line) => line.id), (slice) => db.select({ id: s.units.id, groupId: s.units.groupId }).from(s.units).where(inArray(s.units.id, slice)).all()).map((row) => [row.id, row.groupId]));
@@ -350,6 +356,7 @@ export function exportLines(db: Db, projectId: string, filter: LineFilter, optio
       translation: line.translation,
       status: line.status,
       tags: line.tags,
+      marks: line.marks,
       ...(options.before > 0 ? { before } : {}),
       ...(options.terms ? { terms: used } : {}),
     };
@@ -412,7 +419,7 @@ export function validateBatch(db: Db, projectId: string, batch: BatchChange): Ba
     else if (seen.has(change.key)) report.errors.push({ key: change.key, reason: '같은 키가 두 번 나옵니다.' });
     else if (change.rev !== undefined && change.rev !== unit.updatedAt.getTime()) report.conflicts.push({ key: change.key, reason: '읽은 뒤에 다른 곳에서 바뀌었습니다.' });
     else if (change.status && !statusId(change.status)) report.errors.push({ key: change.key, reason: `없는 상태입니다: ${change.status}` });
-    else if ([...change.addTags, ...change.removeTags].some((tag) => !tagId(tag))) report.errors.push({ key: change.key, reason: '없는 태그가 있습니다.' });
+    else if ([...change.addTags, ...change.removeTags].some((tag) => !tagId(tag))) report.errors.push({ key: change.key, reason: `이 프로젝트에 없는 태그입니다: ${[...change.addTags, ...change.removeTags].filter((tag) => !tagId(tag)).join(', ')}` });
     else if ((tagRefusal = scopeRefusal(db, projectId, change.addTags.map((tag) => tagId(tag)!), 'lines'))) report.errors.push({ key: change.key, reason: tagRefusal });
     else if (change.translation === undefined && change.listener === undefined && !change.status && !change.addTags.length && !change.removeTags.length) report.errors.push({ key: change.key, reason: '바꿀 내용이 없습니다.' });
     else {

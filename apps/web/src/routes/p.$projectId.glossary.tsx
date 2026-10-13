@@ -16,7 +16,7 @@ import { JobProgress } from '@/components/job-progress';
 import { FilterChips, SearchInput, Toolbar, type FilterChip } from '@/components/toolbar';
 import { Button } from '@/components/ui/button';
 import { BulkDecide, matches, SourceBadge, TagCell } from '@/components/knowledge/table';
-import { AUTO_MARK_IDS, AUTO_MARKS, type AutoMark, isSettled, matchesMarks, parseMarks, termMarksOf, KNOWLEDGE_SOURCES, SOURCE_LABELS, type KnowledgeSource } from '@tw/shared';
+import { AUTO_MARKS, type AutoMark, isSettled, matchesMarks, parseMarks, TERM_MARK_IDS, termMarksOf, KNOWLEDGE_SOURCES, SOURCE_LABELS, type KnowledgeSource } from '@tw/shared';
 import { client, unwrap } from '@/lib/api';
 import { q, tagsIn } from '@/lib/queries';
 import { usePicked } from '@/lib/use-picked';
@@ -33,9 +33,6 @@ export const Route = createFileRoute('/p/$projectId/glossary')({
   }),
   component: Glossary,
 });
-
-/** The marks a term can be filtered by. */
-const TERM_MARK_IDS = AUTO_MARK_IDS.filter((id) => (AUTO_MARKS[id].on as readonly string[]).includes('terms'));
 
 interface GlossarySearch {
   q?: string;

@@ -508,6 +508,13 @@ ACP 도입 자체는 목표가 아니다. CLI를 고른 사용자도 대량 번�
 - **워크플로 실행 제안**: 에이전트는 실행을 제안할 수 있고 수락해야 시작된다.
 - **loca CLI**: 실행 중인 앱의 로컬 API를 부른다(DB를 직접 건드리지 않아 화면이 갱신된다). `context <키>`(AI 노드가 보낼 문맥 미리보기)가 있고, `format schema|check`(표준 파일 규격·검사)와 `workspace new|list|clean`(에이전트 임시 파일을 두는 `.loca/`, 스스로 git에서 빠짐)은 앱 없이 동작한다 [구현됨]. 읽기는 바로 답하고, 쓰기(가져오기·변경 도구)는 **제안 1건**이 된다. 배치 가져오기는 대사별 rev(updatedAt)로 충돌을 검사하고 수락 시점에 다시 확인해 그사이 바뀐 줄은 건너뛴다. 명령은 `README.md`와 `loca --help`.
 - CLI와 채팅 도구는 같은 서버 기능(`services/script-query.ts`)을 쓴다. `skills/`는 CLI 명령과 함께 고친다.
+- **앱과 같은 규칙, 같은 서버 기능** (CLI가 주 인터페이스이고 웹은 그것을 보여 준다): 화면에 먼저 생긴 규칙은 CLI·도구에도 같은 공유 판정(`packages/shared/src/marks.ts`, `services/preflight.ts`, `term-usage.ts`, `tag-scope.ts`)으로 있다. 새 명령은 읽기 도구(`loca call`로도 부름)를 얇게 감싼 것이다.
+  - `loca lines|line|export`와 `find_lines`: 줄마다 `marks`(남은 줄·AI가 정함·청자 미상·메모·같은 원문 다른 번역)를 싣고 사람용 출력은 `#이름`으로 보인다.
+  - `loca terms [-q --mark --unreviewed --tag --limit --jsonl]` (`list_terms`): 원문·번역어·상태·정한 쪽·나온 줄·표시·태그. `--mark candidate ai`는 둘 중 하나(앱과 같음). `loca terms usage <원문|id>` (`term_usage`): 용어 창의 사용처와 같은 매칭.
+  - `loca knowledge documents|characters|relationships|events|speech-rules [--mark --unreviewed --tag]` (`read_documents`·`list_characters`·`list_events`·`list_speech_rules`): 항목마다 상태·표시·태그. `--unreviewed` = 후보 또는 AI가 정함.
+  - `loca tags` (`list_tags`): 프로젝트 태그와 기본 표시의 붙는 곳·종류·색·쓰인 대사/항목 수. 태그를 붙이는 import·저장은 붙는 곳 검사(`attachUnitTags`)를 거치고 거절 이유가 그대로 출력된다.
+  - `loca plan <워크플로> [-g --key --mark --tag --ignore-status]` (`plan_run`): 실행 창의 준비 상태·요청 수 추정을 읽기만 한다(`preflight`).
+  - 변경 제안 검사: `save_terms`의 이미 있는 원문·한 요청 안 중복은 제안을 올릴 때 거절 이유와 함께 빠지고, `loca call`·`loca import --dry-run`이 빠진 줄과 이유를 모두 보인다.
 - 청자·말투: `loca lines --listener <이름|->`, `loca check speech`, `loca export`의 `listener`·`speechRule`, import 줄의 `listener`(수락하면 사람이 정한 청자). 도구 `list_speech_rules`·`list_events`·`save_speech_rule`·`save_event`, `read_line`의 청자·말투 규칙, `list_characters`의 말투 특징·플레이어·상태·출처. 에이전트가 기존 자료를 고치면 그 항목은 정식이 된다(수락 카드를 거치므로). [1차]
 
 ## 8. 데이터 모델 [구현됨] (SQLite + Drizzle)

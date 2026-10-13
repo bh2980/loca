@@ -57,6 +57,10 @@ pnpm loca lines --speaker "Alice" --listener "Bob"   # Alice가 Bob에게 한 �
 pnpm loca check terms
 pnpm loca check speech               # 화자→청자 말투 규칙과 어미가 다른 번역 (추정)
 pnpm loca context tower.1                # AI 노드가 이 대사에 보낼 문맥 (모델 호출 없음)
+pnpm loca terms --unreviewed             # 용어집: 나온 줄·표시(#)·태그. usage <용어>는 쓰인 대사
+pnpm loca knowledge speech-rules --unreviewed   # 작품 자료(documents|characters|relationships|events|speech-rules)
+pnpm loca tags                           # 태그와 기본 표시의 붙는 곳·쓰인 수
+pnpm loca plan "기본 번역" -g "<장면>"      # 실행 미리보기: 대사·요청 수·준비 상태 (읽기만)
 W=$(pnpm --silent loca workspace new ch1)     # .loca/ch1 작업 폴더 (git에 안 올라감)
 pnpm loca export --section "Chapter 1" --untranslated --context 4 --terms -o "$W/ch1.jsonl"
 pnpm loca import "$W/ch1.out.jsonl" --dry-run

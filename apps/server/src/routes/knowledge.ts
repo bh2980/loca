@@ -1,7 +1,6 @@
 import { Hono } from 'hono';
 import { scopeRefusal } from '../services/tag-scope.ts';
-import { and, asc, eq, inArray, ne, or, sql } from 'drizzle-orm';
-import { mentions } from '../services/context.ts';
+import { and, asc, eq, inArray, ne, or } from 'drizzle-orm';
 import { z } from 'zod';
 import { characterStyleSchema, DOCUMENT_KINDS, KNOWLEDGE_STATUSES, KNOWLEDGE_TAG_KINDS, modelChoiceSchema, patchOf, relationshipChangeSchema, SPEECH_LEVELS } from '@tw/shared';
 import { badRequest, found, notFound, validate, type Env } from '../context.ts';
@@ -10,7 +9,7 @@ import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { graphOrder, ruleLines } from '../services/speech.ts';
 import { eventFlow, forks } from '../services/event-routes.ts';
-import { fillTermUsage } from '../services/term-usage.ts';
+import { fillTermUsage, termUsage } from '../services/term-usage.ts';
 import { addNameTerms, saveTerm, SUGGEST_BATCH } from '../services/terms.ts';
 import { byPerson } from '../services/status-by.ts';
 import { clearReview, withTags } from '../services/knowledge-tags.ts';
@@ -77,15 +76,7 @@ export const knowledgeRoutes = new Hono<Env>()
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId')!;
     const term = found(db.select().from(s.terms).where(byProject(s.terms, c.req.param('id'), projectId)).get(), '용어');
-    const pattern = `%${term.source.replace(/[%_\\]/g, (char) => `\\${char}`)}%`;
-    const rows = db
-      .select({ id: s.units.id, key: s.units.key, groupId: s.units.groupId, groupTitle: s.groups.title, speaker: s.units.speaker, source: s.units.source, translation: s.units.translation })
-      .from(s.units)
-      .innerJoin(s.groups, eq(s.groups.id, s.units.groupId))
-      .where(and(eq(s.units.projectId, projectId), sql`${s.units.source} like ${pattern} escape '\\'`))
-      .orderBy(asc(s.units.seq))
-      .all()
-      .filter((row) => mentions(row.source, term.source));
+    const rows = termUsage(db, projectId, term);
     return c.json({ count: rows.length, unitIds: rows.map((row) => row.id), rows: rows.slice(0, 100) });
   })
   .post('/terms', validate('json', termInput), (c) => {

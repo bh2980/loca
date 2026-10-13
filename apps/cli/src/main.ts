@@ -3,7 +3,7 @@ import path from 'node:path';
 import { Command, Option } from 'commander';
 import { hc } from 'hono/client';
 import type { AppType } from '@tw/server/app';
-import { CHECK_KINDS, CONTEXT_ITEM_KINDS, importFileJsonSchema, importFileSchema, importWarnings, LINE_MARK_IDS, lineChangeSchema, summarizeImport, type LineFilterInput, type LineMark } from '@tw/shared';
+import { AUTO_MARKS, CHECK_KINDS, CONTEXT_ITEM_KINDS, importFileJsonSchema, importFileSchema, importWarnings, KNOWLEDGE_MARK_IDS, KNOWLEDGE_STATUS_LABELS, LINE_MARK_IDS, lineChangeSchema, summarizeImport, TERM_MARK_IDS, type AutoMark, type KnowledgeStatus, type LineFilterInput, type LineMark } from '@tw/shared';
 
 /**
  * loca — the workbench from a terminal, for people and for agents with a shell (codex, claude, pi).
@@ -64,6 +64,23 @@ const printJsonl = (rows: unknown[]) => {
 const short = (text: string | null | undefined, length = 80) => {
   const flat = (text ?? '').replace(/\s+/g, ' ').trim();
   return flat.length > length ? `${flat.slice(0, length - 1)}…` : flat;
+};
+
+/** Marks as the app shows them: #name. */
+const markText = (marks: readonly string[] | undefined) => (marks ?? []).map((mark) => `#${AUTO_MARKS[mark as AutoMark]?.name ?? mark}`).join(' ');
+const withMarks = (text: string, marks: readonly string[] | undefined, tags: readonly string[] = []) => [text, markText(marks), ...tags.map((tag) => `#${tag}`)].filter(Boolean).join('  ');
+
+/** A read-only agent tool (the same one the chat and `loca call` use). A tool-level error becomes a CliError. */
+async function readTool<T = Record<string, any>>(name: string, input: Record<string, unknown> = {}): Promise<T> {
+  const response = await unwrap(api().projects[':projectId'].tools[':name'].$post({ param: { projectId: await projectId(), name }, json: input }));
+  if (response.proposed) throw new CliError(`${name}은(는) 변경 도구라 읽기 명령으로 부를 수 없습니다.`);
+  const result = (response as { result?: unknown }).result as { error?: string } | undefined;
+  if (result && typeof result === 'object' && typeof result.error === 'string') throw new CliError(result.error);
+  return result as T;
+}
+/** A tool result cut for length says so (fitResult); the command tells how to narrow it. */
+const warnTruncated = (result: { truncated?: { shown: number; total: number } }, hint: string) => {
+  if (result.truncated) log(`결과가 길어 ${result.truncated.shown}/${result.truncated.total}개만 받았습니다. ${hint}`);
 };
 
 /** JSON from an argument: literal JSON, @path to a file, or - for stdin (no shell quoting needed). */
@@ -167,7 +184,7 @@ withFilters(program.command('lines').description('대사 찾기. 필터를 조�
     log(`대사 ${total.toLocaleString()}개 중 ${rows.length.toLocaleString()}개`);
     if (options.jsonl) return printJsonl(rows);
     if (globals().json) return print({ total, rows });
-    for (const row of rows) console.log(`${row.key}  [${row.status}] ${row.speaker ?? '—'}${row.listener ? ` → ${row.listener}` : ''}: ${short(row.source)}${row.translation ? `\n    → ${short(row.translation)}` : ''}`);
+    for (const row of rows) console.log(`${row.key}  [${row.status}] ${row.speaker ?? '—'}${row.listener ? ` → ${row.listener}` : ''}: ${short(row.source)}${row.translation ? `\n    → ${short(row.translation)}` : ''}${row.marks.length || row.tags.length ? `\n    ${withMarks('', row.marks, row.tags)}` : ''}`);
   });
 
 program
@@ -209,7 +226,7 @@ program
     if (!context) throw new CliError(`대사를 찾을 수 없습니다: ${key}`);
     if (globals().json) return print(context);
     for (const row of context.before) console.log(`  ${row.speaker ?? '—'}: ${short(row.source)}`);
-    console.log(`▶ ${context.line.speaker ?? '—'}${context.line.listener ? ` → ${context.line.listener}` : ''}: ${context.line.source}${context.line.translation ? `\n  → ${context.line.translation}` : ''}`);
+    console.log(`▶ ${context.line.speaker ?? '—'}${context.line.listener ? ` → ${context.line.listener}` : ''}: ${context.line.source}${context.line.translation ? `\n  → ${context.line.translation}` : ''}${context.line.marks.length ? `\n  ${markText(context.line.marks)}` : ''}`);
     for (const row of context.after) console.log(`  ${row.speaker ?? '—'}: ${short(row.source)}`);
     if (context.graph) {
       const show = (label: string, list: typeof context.graph.incoming) =>
@@ -371,9 +388,140 @@ program
     );
     if (result.proposed) {
       log(result.message);
+      // What the check left out and why (a duplicate term, a tag that cannot go there, a stale line), not just the first.
+      const report = (result as { report?: { dropped?: { key: string; reason: string }[]; warnings?: { key: string; issues: string[] }[] } | null }).report;
+      for (const entry of report?.dropped?.slice(0, 20) ?? []) log(`  뺌  ${entry.key}: ${entry.reason}`);
+      for (const entry of report?.warnings?.slice(0, 20) ?? []) log(`  경고  ${entry.key}: ${entry.issues.join(' / ')}`);
       return print({ proposalId: result.proposalId });
     }
     print(result.result);
+  });
+
+// ── glossary, knowledge, tags, run plan ──────────────────────────────
+
+const terms = program
+  .command('terms')
+  .description('용어집 목록: 원문, 번역어, 상태, 나온 줄(대본에서 쓰이는 대사 수), 표시(#), 태그. 앱 용어집 화면의 필터와 같은 규칙')
+  .option('-q, --q <글자>', '원문·번역어에 들어 있는 글자')
+  .addOption(new Option('--mark <marks...>', '자동 표시. 후보와 AI가 정함을 함께 주면 둘 중 하나').choices(TERM_MARK_IDS))
+  .option('--unreviewed', '사람이 아직 정하지 않은 용어 (--mark candidate ai와 같음)')
+  .option('--tag <tags...>', '태그 이름 (모두 붙은 용어)')
+  .option('--limit <n>', '최대 몇 개까지')
+  .option('--jsonl', '한 줄에 하나씩 JSON으로 출력')
+  .action(async (options: { q?: string; mark?: string[]; unreviewed?: boolean; tag?: string[]; limit?: string; jsonl?: boolean }) => {
+    type Term = { id: string; source: string; target: string; note: string; status: KnowledgeStatus; statusBy: string; lines: number | null; examples: string[]; marks: string[]; tags: string[] };
+    const wanted = options.limit ? Number(options.limit) : Infinity;
+    const rows: Term[] = [];
+    let total = 0;
+    // A page the tool had to cut still arrives; continue from what came.
+    while (rows.length < wanted) {
+      const page = await readTool<{ total: number; terms: Term[] }>('list_terms', { q: options.q, marks: options.mark, unreviewed: options.unreviewed || undefined, tags: options.tag, offset: rows.length, limit: Math.min(100, wanted - rows.length) });
+      total = page.total;
+      rows.push(...page.terms);
+      if (!page.terms.length || rows.length >= total) break;
+    }
+    log(`용어 ${total.toLocaleString()}개 중 ${rows.length.toLocaleString()}개`);
+    if (options.jsonl) return printJsonl(rows);
+    if (globals().json) return print({ total, terms: rows });
+    for (const term of rows)
+      console.log(`${String(term.lines ?? '?').padStart(5)}줄  ${term.source} → ${term.target || '(번역어 없음)'}  [${KNOWLEDGE_STATUS_LABELS[term.status]}]  ${withMarks('', term.marks, term.tags)}  (${term.id})${term.note ? `\n         ${short(term.note, 100)}` : ''}`);
+  });
+
+terms
+  .command('usage <용어>')
+  .description('이 용어(원문 또는 id)가 쓰인 대사. 앱 용어 창의 사용처와 같은 매칭(낱말 단위, 대소문자 무시)')
+  .option('--limit <n>', '최대 몇 줄까지', '100')
+  .option('--jsonl', '한 줄에 하나씩 JSON으로 출력')
+  .action(async (term: string, options: { limit: string; jsonl?: boolean }) => {
+    const data = await readTool<{ term: { id: string; source: string; target: string; status: KnowledgeStatus }; count: number; lines: { key: string; scene: string; speaker: string | null; source: string; translation: string | null }[]; truncated?: { shown: number; total: number } }>('term_usage', { term, limit: Number(options.limit) });
+    log(`${data.term.source}${data.term.target ? ` → ${data.term.target}` : ''}: 대사 ${data.count.toLocaleString()}줄 중 ${data.lines.length.toLocaleString()}줄`);
+    warnTruncated(data, '--limit을 줄이세요.');
+    if (options.jsonl) return printJsonl(data.lines);
+    if (globals().json) return print(data);
+    for (const line of data.lines) console.log(`${line.key}  ${line.speaker ?? '—'}: ${short(line.source)}${line.translation ? `\n    → ${short(line.translation)}` : ''}`);
+  });
+
+const KNOWLEDGE_KINDS = {
+  documents: { tool: 'read_documents', pick: undefined, label: '문서' },
+  characters: { tool: 'list_characters', pick: 'characters', label: '인물' },
+  relationships: { tool: 'list_characters', pick: 'relationships', label: '관계' },
+  events: { tool: 'list_events', pick: undefined, label: '사건' },
+  'speech-rules': { tool: 'list_speech_rules', pick: undefined, label: '말투 규칙' },
+} as const;
+
+program
+  .command('knowledge <종류>')
+  .description(`작품 자료 목록: ${Object.entries(KNOWLEDGE_KINDS).map(([kind, info]) => `${kind}(${info.label})`).join(', ')}. 상태, 표시(#), 태그 포함. 앱 작품 자료 화면의 필터와 같은 규칙`)
+  .addOption(new Option('--mark <marks...>', '자동 표시. 후보와 AI가 정함을 함께 주면 둘 중 하나').choices(KNOWLEDGE_MARK_IDS))
+  .option('--unreviewed', '사람이 아직 정하지 않은 항목 (--mark candidate ai와 같음)')
+  .option('--tag <tags...>', '태그 이름 (모두 붙은 항목)')
+  .option('--jsonl', '한 줄에 하나씩 JSON으로 출력')
+  .action(async (kind: string, options: { mark?: string[]; unreviewed?: boolean; tag?: string[]; jsonl?: boolean }) => {
+    if (!(kind in KNOWLEDGE_KINDS)) throw new CliError(`종류는 ${Object.keys(KNOWLEDGE_KINDS).join(', ')} 중 하나입니다.`);
+    const info = KNOWLEDGE_KINDS[kind as keyof typeof KNOWLEDGE_KINDS];
+    const result = await readTool<Record<string, any>>(info.tool, { marks: options.mark, unreviewed: options.unreviewed || undefined, tags: options.tag });
+    const rows: Record<string, any>[] = info.pick ? result[info.pick] : Array.isArray(result) ? result : (result.items ?? []);
+    log(`${info.label} ${rows.length.toLocaleString()}개`);
+    warnTruncated(result, '--mark, --unreviewed, --tag로 좁히세요.');
+    if (options.jsonl) return printJsonl(rows);
+    if (globals().json) return print(rows);
+    const name = (row: Record<string, any>): string =>
+      kind === 'documents' ? `[${row.kind}] ${row.title}${row.alwaysInclude ? ' (항상 문맥에)' : ''}`
+      : kind === 'characters' ? `${row.name}${row.aliases?.length ? ` (${row.aliases.join(', ')})` : ''}${row.player ? ' 플레이어' : ''}`
+      : kind === 'relationships' ? `${row.from} ${row.mutual ? '↔' : '→'} ${row.to}: ${row.kind}`
+      : kind === 'events' ? `${row.title}${row.summary ? ` — ${short(row.summary, 60)}` : ''}`
+      : `${row.from} → ${row.to}  ${row.level}${row.startKey ? ` (${row.startKey}부터)` : ''}${row.address ? `  호칭 ${row.address}` : ''}`;
+    for (const row of rows) console.log(`${name(row)}  [${KNOWLEDGE_STATUS_LABELS[row.status as KnowledgeStatus]}]  ${withMarks('', row.marks, row.tags)}  (${row.id})`);
+  });
+
+program
+  .command('tags')
+  .description('프로젝트 태그와 기본 표시(#)의 붙는 곳(대사·자료·용어집), 종류, 색, 쓰인 대사·항목 수. 태그는 붙는 곳에만 붙일 수 있고 다른 곳은 거절됩니다')
+  .action(async () => {
+    type Entry = { name: string; color: string; places: string[]; builtin: boolean; lines: number; items: number; id: string; role?: string | null; description?: string };
+    const data = await readTool<{ tags: Entry[]; marks: Entry[] }>('list_tags');
+    if (globals().json) return print(data);
+    const row = (entry: Entry, kind: string) => console.log(`  #${entry.name}  ·  붙는 곳 ${entry.places.join('·')}  ·  ${kind}  ·  ${entry.color}  ·  대사 ${entry.lines} · 자료 ${entry.items}${entry.description ? `  ·  ${entry.description}` : ''}`);
+    console.log('태그');
+    for (const tag of data.tags) row(tag, tag.builtin ? '기본' : '내 태그');
+    console.log('\n자동 표시 (앱이 대본에서 읽는 사실. 붙이는 게 아니라 조건으로 필터·실행 범위에 씁니다)');
+    for (const mark of data.marks) row({ ...mark, name: mark.name }, '자동');
+  });
+
+program
+  .command('plan <워크플로>')
+  .description('실행 전 미리보기(실행 대화상자와 같은 계산, 모델은 부르지 않고 아무것도 시작하지 않음): 범위의 대사 수, 묶음·요청 수 추정, 준비 상태(청자 미상, 확인 안 한 말투 규칙·용어, 말투 규칙 없는 쌍). 범위 조건은 모두 만족해야 합니다')
+  .option('-g, --group <groups...>', '장면·묶음 (키·id·제목)')
+  .option('--key <keys...>', '대사 키')
+  .addOption(new Option('--mark <marks...>', '자동 표시가 모두 붙은 대사').choices(LINE_MARK_IDS))
+  .option('--tag <tags...>', '태그 이름 (모두 붙은 대사)')
+  .option('--ignore-status', '진입 노드가 받지 않는 상태의 대사도 포함')
+  .action(async (workflow: string, options: { group?: string[]; key?: string[]; mark?: string[]; tag?: string[]; ignoreStatus?: boolean }) => {
+    type Names = { count: number; examples: string[]; names: string[]; more: boolean };
+    const data = await readTool<{
+      workflow: { id: string; name: string };
+      lines: { total: number; translated: number; untranslated: number };
+      plan: { batches: number; linesPerBatch: { min: number; median: number; max: number } | null };
+      nodes: { name: string; model: string | null; requests: { min: number; expected: number | null; max: number }; promptTokens: number }[];
+      totals: { calls: { min: number; expected: number | null; max: number }; inputTokens: { min: number; expected: number | null; max: number } };
+      pace: { seconds: number | null; costUsd: number | null; subscription: boolean };
+      readiness: { dialogueLines: number; unknownListenerLines: number; unreviewedRules: Names; unreviewedTerms: Names; pairsWithoutRule: { count: number; examples: string[] } };
+    }>('plan_run', { workflow, groups: options.group, keys: options.key, tags: options.tag, marks: options.mark, ignoreStatus: options.ignoreStatus });
+    if (globals().json) return print(data);
+    const range = (value: { min: number; expected: number | null; max: number }) => (value.expected !== null ? `약 ${value.expected.toLocaleString()} (${value.min.toLocaleString()}~${value.max.toLocaleString()})` : `${value.min.toLocaleString()}~${value.max.toLocaleString()}`);
+    console.log(`${data.workflow.name} 실행 미리보기`);
+    console.log(`  대사 ${data.lines.total.toLocaleString()}개 (번역 있음 ${data.lines.translated.toLocaleString()} · 없음 ${data.lines.untranslated.toLocaleString()})`);
+    const per = data.plan.linesPerBatch;
+    console.log(`  묶음 ${data.plan.batches.toLocaleString()}개${per ? ` (묶음당 ${per.min}~${per.max}줄, 중간 ${per.median})` : ''}`);
+    console.log(`  AI 요청 ${range(data.totals.calls)} · 입력 토큰 ${range(data.totals.inputTokens)}${data.pace.seconds !== null ? ` · 약 ${Math.round(data.pace.seconds / 60)}분` : ''}${data.pace.subscription ? ' · 구독' : data.pace.costUsd !== null ? ` · 약 $${data.pace.costUsd.toFixed(2)}` : ''}`);
+    for (const node of data.nodes) console.log(`    ${node.name}  ${node.model ?? '(모델 없음)'}  요청 ${range(node.requests)} · 프롬프트 약 ${node.promptTokens.toLocaleString()}토큰`);
+    const ready = data.readiness;
+    console.log('\n준비 상태');
+    console.log(`  청자 미상 대사 ${ready.unknownListenerLines.toLocaleString()} / 대사 ${ready.dialogueLines.toLocaleString()}${ready.unknownListenerLines ? '   → loca lines --mark unknownListener' : ''}`);
+    const list = (entry: Names) => `${entry.names.slice(0, 8).join(', ')}${entry.count > Math.min(8, entry.names.length) ? ` 외 ${entry.count - Math.min(8, entry.names.length)}개` : ''}`;
+    console.log(`  확인 안 한 말투 규칙 ${ready.unreviewedRules.count}개${ready.unreviewedRules.count ? `: ${list(ready.unreviewedRules)}   → loca knowledge speech-rules --unreviewed` : ''}`);
+    console.log(`  확인 안 한 용어 ${ready.unreviewedTerms.count}개${ready.unreviewedTerms.count ? `: ${list(ready.unreviewedTerms)}   → loca terms --unreviewed` : ''}`);
+    console.log(`  말투 규칙 없는 화자 쌍 ${ready.pairsWithoutRule.count}개${ready.pairsWithoutRule.count ? `: ${ready.pairsWithoutRule.examples.join(', ')}${ready.pairsWithoutRule.count > ready.pairsWithoutRule.examples.length ? ' …' : ''}` : ''}`);
   });
 
 program
