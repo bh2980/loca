@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { CornerDownRight, FileText, Languages, Network } from 'lucide-react';
+import { CornerDownRight, FileText, Network, PencilLine } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { q } from '@/lib/queries';
@@ -64,7 +64,8 @@ function useSpeakerWidth() {
  * A dialogue-graph selection read like a script: one node or a folded run, its lines in order.
  * The speaker shows where it changes, each line's translation sits under it, a player's choice is
  * its own row. Node types, keys and raw metadata are left out: the flow of the lines is what this
- * pane is for. Clicking a line opens it in the card beside the graph node for translating.
+ * pane is for. Clicking a line (a pen shows on hover) opens it in the card beside the graph node
+ * for translating; Enter on the canvas opens the first untranslated one.
  */
 export function FlowPane({ projectId, nodeIds, title, way, marked, editing, onEdit, onClose }: {
   projectId: string;
@@ -107,12 +108,14 @@ export function FlowPane({ projectId, nodeIds, title, way, marked, editing, onEd
       key={key}
       data-marked={options.scrollTo || undefined}
       data-editing={(options.unitId && options.unitId === editing) || undefined}
-      className={cn('grid gap-3 px-3 py-2', options.unitId && 'cursor-pointer hover:bg-muted/50', options.unitId && options.unitId === editing && 'bg-primary/5 shadow-[inset_2px_0_0_var(--primary)]', options.className)}
+      title={options.unitId ? '눌러서 번역 (노드 옆 카드)' : undefined}
+      className={cn('group relative grid gap-3 px-3 py-2', options.unitId && 'cursor-pointer hover:bg-muted/50', options.unitId && options.unitId === editing && 'bg-primary/5 shadow-[inset_2px_0_0_var(--primary)]', options.className)}
       style={{ gridTemplateColumns: `${width}px minmax(0,1fr)` }}
       onClick={options.unitId ? () => onEdit(options.unitId!) : undefined}
     >
       <span className="truncate pt-px text-xs text-muted-foreground">{who}</span>
       <div className="min-w-0 text-sm">{what}</div>
+      {options.unitId && <PencilLine className="absolute top-2.5 right-2 size-3.5 text-muted-foreground opacity-0 group-hover:opacity-100" />}
     </li>
   );
   const lines = nodes.flatMap((node) => {
@@ -143,9 +146,6 @@ export function FlowPane({ projectId, nodeIds, title, way, marked, editing, onEd
       );
     });
   });
-  // The line Enter or 번역하기 opens: the first one without a translation, else the first.
-  const units = nodes.flatMap((node) => node.units);
-  const start = units.find((unit) => !unit.translation) ?? units[0];
 
   return (
     <DetailPane
@@ -156,21 +156,12 @@ export function FlowPane({ projectId, nodeIds, title, way, marked, editing, onEd
       loading={loading && !nodes.length}
       bodyClassName="space-y-0 p-0"
       footer={
-        (start || first?.group) && (
-          <>
-            {start && (
-              <Button onClick={() => onEdit(start.id)} title="노드 옆에 번역 카드를 엽니다 (Enter)">
-                <Languages /> 번역하기
-              </Button>
-            )}
-            {first?.group && (
-              <Button variant="outline" asChild>
-                <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: first.group.id, line: first.units[0]?.id }}>
-                  <FileText /> 번역 화면에서 열기
-                </Link>
-              </Button>
-            )}
-          </>
+        first?.group && (
+          <Button variant="outline" asChild>
+            <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: first.group.id, line: first.units[0]?.id }}>
+              <FileText /> 번역 화면에서 열기
+            </Link>
+          </Button>
         )
       }
     >
