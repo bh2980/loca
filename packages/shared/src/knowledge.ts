@@ -83,10 +83,11 @@ export const OTHERS_LISTENER = 'others';
 /** A listener as people read it: a name, or the Korean word for a special listener. */
 export const listenerLabel = (name: string) => (isSpecialListener(name) ? SPECIAL_LISTENERS[name] : name === OTHERS_LISTENER ? '그 밖의 사람' : name);
 
-/** Korean speech levels: four formal (하십시오·하오·하게·해라) and two informal (해요·해) ones. */
-export const SPEECH_LEVELS = ['hasipsio', 'hao', 'hage', 'haera', 'haeyo', 'hae', 'other'] as const;
+/** Korean speech levels: the archaic 하소서 (to a king, a god, in prayer), four formal (하십시오·하오·하게·해라) and two informal (해요·해) ones. */
+export const SPEECH_LEVELS = ['hasoseo', 'hasipsio', 'hao', 'hage', 'haera', 'haeyo', 'hae', 'other'] as const;
 export type SpeechLevel = (typeof SPEECH_LEVELS)[number];
 export const SPEECH_LEVEL_LABELS: Record<SpeechLevel, string> = {
+  hasoseo: '하소서체',
   hasipsio: '하십시오체',
   hao: '하오체',
   hage: '하게체',
@@ -96,7 +97,7 @@ export const SPEECH_LEVEL_LABELS: Record<SpeechLevel, string> = {
   other: '기타',
 };
 /** For prompts: the level ids with an example ending each. */
-export const SPEECH_LEVEL_GUIDE = 'hasipsio (하십시오체: 합니다/합니까/하십시오), hao (하오체: 하오/하구려), hage (하게체: 하네/하게/하는가), haera (해라체: 한다/하느냐/해라/하자), haeyo (해요체: 해요), hae (해체·반말: 해/해?/하지), other';
+export const SPEECH_LEVEL_GUIDE = 'hasoseo (하소서체, archaic: to a king or a god, prayers: 하나이다/하나이까/하소서), hasipsio (하십시오체: 합니다/합니까/하십시오), hao (하오체: 하오/하구려), hage (하게체: 하네/하게/하는가), haera (해라체: 한다/하느냐/해라/하자), haeyo (해요체: 해요), hae (해체·반말: 해/해?/하지), other';
 
 export const relationshipChangeSchema = z.object({
   /** The line key where the change shows. */
@@ -128,6 +129,8 @@ export function speechLevelOf(text: string): Exclude<SpeechLevel, 'other'> | nul
   if (!/[가-힣]$/u.test(plain)) return null;
   const before = plain.at(-2);
   const multiWord = /\s/u.test(plain);
+  // 하소서체 first: its 나이다/나이까 would otherwise read as nothing, and 소서 as 하오체.
+  if (/(나이다|나이까|소서)$/u.test(plain)) return 'hasoseo';
   // 니다/니까/ㅂ시다 only after a syllable ending in ㅂ ("합니다", "갑시다"), not "그러니까".
   if (/(니다|니까)$/u.test(plain) && finalOf(plain.at(-3)) === 17) return 'hasipsio';
   if (/십시오$/u.test(plain) || (/시다$/u.test(plain) && finalOf(plain.at(-3)) === 17) || /읍시다$/u.test(plain)) return 'hasipsio';
@@ -147,10 +150,10 @@ export function speechLevelOf(text: string): Exclude<SpeechLevel, 'other'> | nul
 }
 
 export type Politeness = 'polite' | 'plain';
-const POLITE_LEVELS: readonly SpeechLevel[] = ['hasipsio', 'hao', 'haeyo'];
+const POLITE_LEVELS: readonly SpeechLevel[] = ['hasoseo', 'hasipsio', 'hao', 'haeyo'];
 const PLAIN_LEVELS: readonly SpeechLevel[] = ['hae', 'haera', 'hage'];
 
-/** The two-axis view of a speech level: 존댓말 (하십시오·하오·해요) or 반말 (해·해라·하게). Null for other/unknown. */
+/** The two-axis view of a speech level: 존댓말 (하소서·하십시오·하오·해요) or 반말 (해·해라·하게). Null for other/unknown. */
 export const politenessOfLevel = (level: SpeechLevel | null): Politeness | null =>
   level && POLITE_LEVELS.includes(level) ? 'polite' : level && PLAIN_LEVELS.includes(level) ? 'plain' : null;
 
