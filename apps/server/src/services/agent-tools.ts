@@ -187,7 +187,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
     }),
     list_speech_rules: tool({
       description:
-        'Korean speech rules per speaker → listener direction: level (hasipsio 하십시오체, hao 하오체, hage 하게체, haera 해라체, haeyo 해요체, hae 해체/반말, other), form of address, and startKey (the rule applies from that line on; null = from the beginning; several rules for a pair are stretches in script order). Only confirmed rules reach translation prompts.',
+        'Korean speech rules per speaker → listener direction: level (hasoseo 하소서체, hasipsio 하십시오체, hao 하오체, hage 하게체, haera 해라체, haeyo 해요체, hae 해체/반말, other), form of address, and startKey (the rule applies from that line on; null = from the beginning; several rules for a pair are stretches in script order). Only confirmed rules reach translation prompts.',
       inputSchema: z.object({ speaker: z.string().optional(), listener: z.string().optional() }),
       execute: ({ speaker, listener }) =>
         db
@@ -243,7 +243,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
           functions: Object.fromEntries(Object.entries(FUNCTIONS).map(([name, info]) => [name, { label: info.label, description: info.description, params: zod.toJSONSchema(info.params) }])),
           scriptContract: 'export default function run(input) where input = {unit, candidate, issues, outputs, visits}; return {port?, candidate?, data?, issues?}. Runs in a sandbox without network.',
         },
-        conditionData: 'JSON Logic over {visits: {[nodeId]: count}, outputs: {[nodeId]: output}, candidate, issues, unit: {kind, speaker, statusId, tagIds}}. Example: {"<": [{"var": "visits.review"}, 3]} or {"==": [{"var": "outputs.review.passed"}, true]}',
+        conditionData: 'JSON Logic over {visits: {[nodeId]: count}, outputs: {[nodeId]: output}, candidate, issues, unit: {kind, speaker, statusId, tagIds, marks}} (marks: any of remaining, ai, unknownListener, noted; test with {"in": ["ai", {"var": "unit.marks"}]}). Example: {"<": [{"var": "visits.review"}, 3]} or {"==": [{"var": "outputs.review.passed"}, true]}',
         rules: [
           'Exactly one entry node.',
           'Every exit except "error" must be connected; an unconnected "out" only warns (the line stops there).',

@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, inArray, like, ne, notLike, or, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
-import { isSpecialListener, LISTENER_MIN_CONFIDENCE, type NodeType } from '@tw/shared';
+import { isSpecialListener, type NodeType } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import { eachChunk, inList } from '../db/chunk.ts';
@@ -11,6 +11,7 @@ import { computeLayouts } from '../services/layout.ts';
 import { readView, sectionWithMost } from '../services/graph-views.ts';
 import { applyIssueTags } from '../services/issue-tags.ts';
 import { lineMatches } from '../services/line-matches.ts';
+import { knownListenerSql, markConditions, sameSource } from '../services/line-marks.ts';
 import { CompleteRefused, completeLine } from '../services/editor-complete.ts';
 import { describeRule, knownListener as knownListenerOf, speechRuleIndex } from '../services/speech.ts';
 
@@ -41,9 +42,6 @@ const listQuery = z.object({
   limit: z.coerce.number().int().min(1).max(500).default(100),
 });
 
-/** A source as compared for "the same source": lower case, without spaces and punctuation at its ends ("What?" = "WHAT"). */
-const sameSource = (column: SQL) => sql`trim(lower(${column}), ' .,!?…"''-~')`;
-
 /** The line filters shared by the list and its matches: one SQL condition. */
 function unitConditions(projectId: string, query: Omit<z.infer<typeof listQuery>, 'offset' | 'limit' | 'focus'>) {
   const conditions: SQL[] = [eq(s.units.projectId, projectId)];
@@ -53,17 +51,18 @@ function unitConditions(projectId: string, query: Omit<z.infer<typeof listQuery>
   for (const tagId of query.tagIds?.split(',').filter(Boolean) ?? []) conditions.push(sql`${s.units.id} in (select unit_id from ${s.unitTags} where tag_id = ${tagId})`);
   if (query.q) conditions.push(textFilter(query.q));
   if (query.speaker) conditions.push(eq(s.units.speaker, query.speaker));
-  // Unknown listener: dialogue only (narration has no listener), as the home page counts it.
-  if (query.listener === '-') conditions.push(and(eq(s.units.kind, 'dialogue'), sql`not ${knownListener}`)!);
-  else if (query.listener) conditions.push(and(eq(s.units.listener, query.listener), knownListener)!);
+  // Unknown listener ('-') is the automatic mark; a name must be a known listener.
+  if (query.listener && query.listener !== '-') conditions.push(and(eq(s.units.listener, query.listener), knownListenerSql)!);
   if (query.review) conditions.push(sql`${s.units.statusId} in (select id from ${s.statuses} where ${s.statuses.projectId} = ${projectId} and ${s.statuses.inReview} = 1)`);
-  if (query.by) conditions.push(eq(s.units.statusBy, query.by));
-  if (query.remaining) conditions.push(sql`${s.units.statusId} in (select id from ${s.statuses} where ${s.statuses.projectId} = ${projectId} and ${s.statuses.kind} != 'final')`);
-  if (query.noted) conditions.push(sql`${s.units.note} != ''`);
-  if (query.diverged)
-    conditions.push(
-      sql`${s.units.translation} is not null and ${sameSource(sql`${s.units.source}`)} in (select ${sameSource(sql`u.source`)} from ${s.units} u where u.project_id = ${projectId} and u.translation is not null and u.translation != '' and ${sameSource(sql`u.source`)} != '' group by 1 having count(distinct trim(u.translation)) > 1)`,
-    );
+  conditions.push(
+    ...markConditions(projectId, [
+      ...(query.remaining ? ['remaining' as const] : []),
+      ...(query.by ? ['ai' as const] : []),
+      ...(query.listener === '-' ? ['unknownListener' as const] : []),
+      ...(query.diverged ? ['diverged' as const] : []),
+      ...(query.noted ? ['noted' as const] : []),
+    ]),
+  );
   return and(...conditions)!;
 }
 
@@ -78,9 +77,6 @@ const unitPatch = z.object({
   /** A person's note on the line; empty clears it. Who set the status is not touched. */
   note: z.string().max(2000).optional(),
 });
-
-/** The listener counts unless it is an unsure guess (by line or by scene), as isUnsureListener. */
-const knownListener = sql`(${s.units.listener} is not null and (${s.units.listenerOrigin} not in ('ai', 'scene') or ${s.units.listenerConfidence} >= ${LISTENER_MIN_CONFIDENCE}))`;
 
 /** Trigram FTS needs 3+ characters; shorter queries fall back to LIKE over the same columns. */
 function textFilter(q: string): SQL {
@@ -156,7 +152,7 @@ export const sourceRoutes = new Hono<Env>()
       db
         .select({ groupId: s.units.groupId, count: count() })
         .from(s.units)
-        .where(and(eq(s.units.projectId, projectId), eq(s.units.kind, 'dialogue'), sql`not ${knownListener}`))
+        .where(and(eq(s.units.projectId, projectId), eq(s.units.kind, 'dialogue'), sql`not ${knownListenerSql}`))
         .groupBy(s.units.groupId)
         .all()
         .map((row) => [row.groupId, row.count]),

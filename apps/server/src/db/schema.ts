@@ -465,6 +465,8 @@ export interface RunScope {
   unitIds?: string[];
   /** Lines carrying any of these tags. */
   tagIds?: string[];
+  /** Automatic marks (services/line-marks.ts): lines must have every one of them. */
+  marks?: ('remaining' | 'ai' | 'unknownListener' | 'diverged' | 'noted')[];
   /** Run the picked lines even if their status is not one the entry node accepts. */
   ignoreStatus?: boolean;
 }

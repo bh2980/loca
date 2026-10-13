@@ -9,10 +9,11 @@ import { events } from '../events.ts';
 import { lineView } from '../engine/functions/index.ts';
 import { runScript } from '../engine/functions/sandbox.ts';
 import { createRunInSteps, selectRunUnits } from '../engine/runner.ts';
+import { lineMarksSchema } from '../services/line-marks.ts';
 import { listBatches, preflight } from '../services/preflight.ts';
 import { choiceLabel, defaultModelChoice, snapshotWorkflowModels } from '../services/routes.ts';
 
-const scopeSchema = z.object({ groupIds: z.array(z.string()).optional(), unitIds: z.array(z.string()).optional(), tagIds: z.array(z.string()).optional(), ignoreStatus: z.boolean().optional() });
+const scopeSchema = z.object({ groupIds: z.array(z.string()).optional(), unitIds: z.array(z.string()).optional(), tagIds: z.array(z.string()).optional(), marks: lineMarksSchema.optional(), ignoreStatus: z.boolean().optional() });
 
 /** Connection names now, for logs that keep only the id; a deleted connection reads as its kind. */
 const connectionNames = (db: Db) => new Map(db.select({ id: s.connections.id, name: s.connections.name }).from(s.connections).all().map((row) => [row.id, row.name]));

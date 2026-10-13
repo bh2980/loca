@@ -11,6 +11,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
 import { client, unwrap } from '@/lib/api';
+import { AUTO_MARKS, type AutoMark } from '@/lib/marks';
 import { lineTags, q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
@@ -45,6 +46,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
   const [mode, setMode] = useState<Mode | undefined>(initialMode);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [pickedTags, setPickedTags] = useState<Set<string>>(new Set());
+  const [pickedMarks, setPickedMarks] = useState<Set<string>>(new Set());
   const statuses = useQuery({ ...q.statuses(projectId), enabled: open });
   const tags = lineTags(statuses.data?.tags);
   const [filter, setFilter] = useState('');
@@ -57,8 +59,8 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
   const here = groupIds?.length ? groups.data?.filter((group) => groupIds.includes(group.id)) : undefined;
 
   const scope =
-    mode === 'units' ? { unitIds, ignoreStatus } : mode === 'here' ? { groupIds, ignoreStatus } : mode === 'groups' ? { groupIds: [...picked], ignoreStatus } : mode === 'tags' ? { tagIds: [...pickedTags], ignoreStatus } : { ignoreStatus };
-  const ready = mode === 'all' || mode === 'units' || mode === 'here' || (mode === 'groups' && picked.size > 0) || (mode === 'tags' && pickedTags.size > 0);
+    mode === 'units' ? { unitIds, ignoreStatus } : mode === 'here' ? { groupIds, ignoreStatus } : mode === 'groups' ? { groupIds: [...picked], ignoreStatus } : mode === 'tags' ? { tagIds: [...pickedTags], marks: [...pickedMarks] as AutoMark[], ignoreStatus } : { ignoreStatus };
+  const ready = mode === 'all' || mode === 'units' || mode === 'here' || (mode === 'groups' && picked.size > 0) || (mode === 'tags' && (pickedTags.size > 0 || pickedMarks.size > 0));
   const plan = useQuery({
     queryKey: ['units', 'run-preflight', workflowId, scope],
     queryFn: () => unwrap(client.workflows[':id'].preflight.$post({ param: { id: workflowId! }, json: scope })),
@@ -134,11 +136,11 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
               {unitIds?.length ? scopeButton('units', `고른 대사 ${unitIds.length}줄`) : null}
               {groupIds?.length ? scopeButton('here', here?.length === 1 ? `이 장면 · ${here[0].title}` : `이 장면들 ${groupIds.length}개`) : null}
               {scopeButton('groups', mode === 'groups' && picked.size ? `장면 ${picked.size}개` : '장면 고르기')}
-              {tags.length > 0 && scopeButton('tags', '태그로')}
+              {scopeButton('tags', '태그로')}
               {scopeButton('all', `전체${projectLines ? ` ${projectLines.toLocaleString()}줄` : ''}`)}
             </div>
             {mode === 'groups' && <ScenePicker visible={visible} picked={picked} setPicked={setPicked} filter={filter} setFilter={setFilter} />}
-            {mode === 'tags' && <TagPicker tags={tags} picked={pickedTags} setPicked={setPickedTags} />}
+            {mode === 'tags' && <TagPicker tags={tags} picked={pickedTags} setPicked={setPickedTags} marks={pickedMarks} setMarks={setPickedMarks} />}
             <p className="text-sm">
               {!mode ? (
                 <span className="text-muted-foreground">번역할 범위를 고르세요.</span>
@@ -221,25 +223,43 @@ function ScenePicker({ visible, picked, setPicked, filter, setFilter }: { visibl
   );
 }
 
-function TagPicker({ tags, picked, setPicked }: { tags: { id: string; name: string; units: number }[]; picked: Set<string>; setPicked: (update: (previous: Set<string>) => Set<string>) => void }) {
+type SetPicked = (update: (previous: Set<string>) => Set<string>) => void;
+
+/** Ticks one id in or out of a picked set. */
+const toggled = (setPicked: SetPicked, id: string, checked: boolean) =>
+  setPicked((previous) => {
+    const next = new Set(previous);
+    if (checked) next.add(id);
+    else next.delete(id);
+    return next;
+  });
+
+/** Automatic marks (a line must have every one picked) above the tags (a line with any picked tag). */
+function TagPicker({ tags, picked, setPicked, marks, setMarks }: { tags: { id: string; name: string; units: number }[]; picked: Set<string>; setPicked: SetPicked; marks: Set<string>; setMarks: SetPicked }) {
   return (
-    <div className="flex flex-wrap gap-2 rounded-md border p-2">
-      {tags.map((tag) => (
-        <label key={tag.id} className="flex items-center gap-1.5 rounded px-2 py-1 text-sm hover:bg-muted">
-          <Checkbox
-            checked={picked.has(tag.id)}
-            onCheckedChange={(checked) =>
-              setPicked((previous) => {
-                const next = new Set(previous);
-                if (checked) next.add(tag.id);
-                else next.delete(tag.id);
-                return next;
-              })
-            }
-          />
-          #{tag.name} <span className="text-xs text-muted-foreground tabular-nums">{tag.units}</span>
-        </label>
-      ))}
+    <div className="space-y-2 rounded-md border p-2">
+      <div className="space-y-1">
+        <p className="px-2 text-xs text-muted-foreground">자동 표시 (고른 것을 모두 가진 줄)</p>
+        <div className="flex flex-wrap gap-2">
+          {(Object.keys(AUTO_MARKS) as AutoMark[]).map((mark) => (
+            <label key={mark} className="flex items-center gap-1.5 rounded px-2 py-1 text-sm hover:bg-muted">
+              <Checkbox checked={marks.has(mark)} onCheckedChange={(checked) => toggled(setMarks, mark, checked === true)} />#{AUTO_MARKS[mark]}
+            </label>
+          ))}
+        </div>
+      </div>
+      {tags.length > 0 && (
+        <div className="space-y-1">
+          <p className="px-2 text-xs text-muted-foreground">태그 (고른 것 중 하나라도 가진 줄)</p>
+          <div className="flex flex-wrap gap-2">
+            {tags.map((tag) => (
+              <label key={tag.id} className="flex items-center gap-1.5 rounded px-2 py-1 text-sm hover:bg-muted">
+                <Checkbox checked={picked.has(tag.id)} onCheckedChange={(checked) => toggled(setPicked, tag.id, checked === true)} />#{tag.name} <span className="text-xs text-muted-foreground tabular-nums">{tag.units}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { AUTO_MARKS } from '@/lib/marks';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { Check, CircleAlert, ListFilter, Network, PanelRightOpen, Play, StickyNote, Tags, X } from 'lucide-react';
@@ -76,12 +77,6 @@ export const linesSearchSchema = (raw: Record<string, unknown>): LinesSearch => 
   lineTab: typeof raw.lineTab === 'string' && LINE_TABS.includes(raw.lineTab as LineTab) && raw.lineTab !== 'checks' ? (raw.lineTab as LinesSearch['lineTab']) : undefined,
   aiNode: typeof raw.aiNode === 'string' && raw.aiNode.includes(':') ? raw.aiNode : undefined,
 });
-
-/**
- * Marks the app reads off a line (not stored as tags, so they never go stale), offered with the
- * tags in the filter and combined with them: every pick narrows the list.
- */
-export const AUTO_MARKS = { remaining: '남은 줄', ai: 'AI가 정함', unknownListener: '청자 미상', diverged: '같은 원문 다른 번역', noted: '메모' } as const;
 
 /** Whether any line filter is set (search, status, tag, speaker, listener, 남은 줄만, AI가 정한 것만). */
 export const hasLineFilter = (search: LinesSearch) => Boolean(search.q || search.status || search.tags?.length || search.speaker || search.listener || search.remaining || search.by || search.diverged || search.noted);
@@ -517,6 +512,27 @@ export function LineList({
                           {line.statusBy === 'ai' && <AiMark by="ai" className="mt-1 -ml-1" />}
                           <div className="min-w-0">
                             {line.translation ? <TokenText text={line.translation} source={line.source} pattern={tokenPattern} /> : null}
+                            {line.tagIds.length > 0 && (
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {lineTags(statuses.data?.tags)
+                                  .filter((tag) => line.tagIds.includes(tag.id))
+                                  .map((tag) => (
+                                    <Button
+                                      key={tag.id}
+                                      variant="ghost"
+                                      size="inline"
+                                      className="h-auto p-0 hover:bg-transparent"
+                                      title={`#${tag.name} 줄만 보기`}
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        onSearch({ tags: [tag.id], page: undefined });
+                                      }}
+                                    >
+                                      <TagChip tag={tag} />
+                                    </Button>
+                                  ))}
+                              </div>
+                            )}
                             {review && !!line.lastRun?.issues.length && (
                               <p className="mt-1 flex items-start gap-1 text-xs text-warning">
                                 <CircleAlert className="mt-0.5 size-3 shrink-0" />
