@@ -20,6 +20,8 @@ export interface NodeEstimate {
   name: string;
   /** The node's model ("connection · model · effort"), null when none is picked. */
   model: string | null;
+  /** The same model as a choice: the node's own, or the run's pick (the run dialog's picker starts from it). */
+  choice: { connectionId: string; model: string; effort?: string };
   /** Other models sharing this node's requests (their accounts take whatever is free). */
   sharedWith: string[];
   connection: { id: string; name: string; kind: string; cli: boolean } | null;
@@ -84,6 +86,7 @@ export async function preflight(db: Db, workflow: typeof s.workflows.$inferSelec
       nodeId: node.id,
       name: nodeName(node),
       model: label(node.config.model),
+      choice: node.config.model,
       sharedWith: node.config.extraModels.flatMap((choice) => label(choice) ?? []),
       connection: connection ? { id: connection.id, name: connection.name, kind: connection.kind, cli: CONNECTION_KIND_INFO[connection.kind].transport === 'cli' } : null,
       full: requests.length,

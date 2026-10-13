@@ -2,7 +2,7 @@ import { z } from 'zod';
 import Graph from 'graphology';
 import { FUNCTIONS, functionPorts, type FunctionName, type Port } from './functions.ts';
 import { stronglyConnectedComponents } from 'graphology-components';
-import { choiceKey, draftModelChoiceSchema, EMPTY_MODEL_CHOICE, type ModelChoice } from './model-choice.ts';
+import { choiceKey, draftModelChoiceSchema, EMPTY_MODEL_CHOICE, modelChoiceSchema, type ModelChoice } from './model-choice.ts';
 
 /**
  * What an AI node pulls into its prompt. Every field maps to stored project data.
@@ -122,6 +122,18 @@ export type WorkflowNode = z.infer<typeof workflowNodeSchema>;
 export type WorkflowNodeType = WorkflowNode['type'];
 export type WorkflowEdge = z.infer<typeof workflowEdgeSchema>;
 export type WorkflowDefinition = z.infer<typeof workflowDefinitionSchema>;
+
+/**
+ * Models for one run, by AI node id (the run dialog, `start_run`, `loca plan`). A node given one
+ * runs on that model alone for this run (the models it otherwise shares batches with are left out);
+ * the workflow itself keeps its own models.
+ */
+export const runModelsSchema = z.record(z.string(), modelChoiceSchema);
+export type RunModels = z.infer<typeof runModelsSchema>;
+export function withRunModels(definition: WorkflowDefinition, models: RunModels | undefined): WorkflowDefinition {
+  if (!models || !Object.keys(models).length) return definition;
+  return { ...definition, nodes: definition.nodes.map((node) => (node.type === 'ai' && models[node.id] ? { ...node, config: { ...node.config, model: models[node.id]!, extraModels: [] } } : node)) };
+}
 export type AiNode = Extract<WorkflowNode, { type: 'ai' }>;
 export type FunctionNode = Extract<WorkflowNode, { type: 'function' }>;
 

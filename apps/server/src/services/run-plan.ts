@@ -1,5 +1,6 @@
 import { and, eq, inArray, or } from 'drizzle-orm';
-import type { LineMark } from '@tw/shared';
+import { nodeName, withRunModels, type LineMark, type RunModels, type WorkflowDefinition } from '@tw/shared';
+import { z } from 'zod';
 import { inChunks, inList } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -17,6 +18,32 @@ export interface PlanInput {
   tags?: string[];
   marks?: LineMark[];
   ignoreStatus?: boolean;
+  /** Models for this run instead of the nodes' own (see runModelInput). */
+  models?: RunModelInput;
+}
+
+/**
+ * A run's models by name, for the CLI and the chat: AI node (id or name; '*' = every AI node) →
+ * connection (id or name), model and effort.
+ */
+export const runModelInput = z.record(z.string(), z.object({ connection: z.string().min(1), model: z.string().min(1), effort: z.string().optional() }));
+export type RunModelInput = z.infer<typeof runModelInput>;
+
+/** `runModelInput` as the run takes it (by node id and connection id); what did not resolve is returned as `unknown`. */
+export function resolveRunModels(db: Db, definition: WorkflowDefinition, input: RunModelInput | undefined) {
+  const models: RunModels = {};
+  const unknown: string[] = [];
+  if (!input) return { models, unknown };
+  const connections = db.select({ id: s.connections.id, name: s.connections.name }).from(s.connections).all();
+  const ai = definition.nodes.filter((node) => node.type === 'ai');
+  for (const [key, pick] of Object.entries(input)) {
+    const connection = connections.find((row) => row.id === pick.connection) ?? connections.find((row) => row.name.toLowerCase() === pick.connection.toLowerCase());
+    if (!connection) unknown.push(`연결 ${pick.connection}`);
+    const nodes = key === '*' ? ai : ai.filter((node) => node.id === key || nodeName(node).toLowerCase() === key.toLowerCase());
+    if (!nodes.length) unknown.push(`AI 노드 ${key}`);
+    if (connection) for (const node of nodes) models[node.id] = { connectionId: connection.id, model: pick.model, ...(pick.effort && { effort: pick.effort }) };
+  }
+  return { models, unknown };
 }
 
 /** The run dialog's scope (groupIds, unitIds, tagIds, marks) from names, keys and tag names; whatever did not resolve is returned as `unknown`. */
@@ -58,7 +85,9 @@ export async function planRun(db: Db, projectId: string, input: PlanInput) {
   if (!workflow) return { ok: false as const, error: `워크플로를 찾을 수 없습니다: ${input.workflow}. 있는 것: ${workflows.map((row) => row.name).join(', ') || '(없음)'}` };
   const { scope, unknown } = resolveRunScope(db, projectId, input);
   if (unknown.length) return { ok: false as const, error: `찾지 못함: ${unknown.slice(0, 10).join(', ')}` };
-  const { plan, readiness, ...rest } = await preflight(db, workflow, scope);
+  const picked = resolveRunModels(db, workflow.definition, input.models);
+  if (picked.unknown.length) return { ok: false as const, error: `찾지 못함: ${picked.unknown.join(', ')}` };
+  const { plan, readiness, ...rest } = await preflight(db, { ...workflow, definition: withRunModels(workflow.definition, picked.models) }, scope);
   const termNames = inChunks(readiness.unreviewedTerms.ids, (ids) => db.select({ id: s.terms.id, source: s.terms.source }).from(s.terms).where(inArray(s.terms.id, ids)).all());
   const ruleNames = inChunks(readiness.unreviewedRules.ids, (ids) => db.select({ id: s.speechRules.id, from: s.speechRules.fromName, to: s.speechRules.toName }).from(s.speechRules).where(inArray(s.speechRules.id, ids)).all());
   return {

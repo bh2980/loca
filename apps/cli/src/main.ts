@@ -488,6 +488,19 @@ program
     for (const mark of data.marks) row({ ...mark, name: mark.name }, '자동');
   });
 
+/** `--model` specs ("연결:모델" for every AI node, "노드=연결:모델" for one) as plan_run / start_run take them. */
+function runModels(specs: string[] | undefined) {
+  if (!specs?.length) return undefined;
+  const models: Record<string, { connection: string; model: string }> = {};
+  for (const spec of specs) {
+    const [node, pick] = spec.includes('=') ? [spec.slice(0, spec.indexOf('=')), spec.slice(spec.indexOf('=') + 1)] : ['*', spec];
+    const colon = pick.indexOf(':');
+    if (colon < 1 || colon === pick.length - 1) throw new Error(`--model은 "연결:모델" 또는 "노드=연결:모델"입니다: ${spec}`);
+    models[node.trim()] = { connection: pick.slice(0, colon).trim(), model: pick.slice(colon + 1).trim() };
+  }
+  return models;
+}
+
 program
   .command('plan <워크플로>')
   .description('실행 전 미리보기(실행 대화상자와 같은 계산, 모델은 부르지 않고 아무것도 시작하지 않음): 범위의 대사 수, 묶음·요청 수 추정, 준비 상태(청자 미상, 확인 안 한 말투 규칙·용어, 말투 규칙 없는 쌍). 범위 조건은 모두 만족해야 합니다')
@@ -496,7 +509,8 @@ program
   .addOption(new Option('--mark <marks...>', '자동 표시가 모두 붙은 대사').choices(LINE_MARK_IDS))
   .option('--tag <tags...>', '태그 이름 (모두 붙은 대사)')
   .option('--ignore-status', '진입 노드가 받지 않는 상태의 대사도 포함')
-  .action(async (workflow: string, options: { group?: string[]; key?: string[]; mark?: string[]; tag?: string[]; ignoreStatus?: boolean }) => {
+  .option('--model <specs...>', '이번 실행만 다른 모델로: "연결:모델"(모든 AI 단계) 또는 "노드=연결:모델" (연결·노드는 이름이나 id). 워크플로는 바뀌지 않습니다')
+  .action(async (workflow: string, options: { group?: string[]; key?: string[]; mark?: string[]; tag?: string[]; ignoreStatus?: boolean; model?: string[] }) => {
     type Names = { count: number; examples: string[]; names: string[]; more: boolean };
     const data = await readTool<{
       workflow: { id: string; name: string };
@@ -506,7 +520,7 @@ program
       totals: { calls: { min: number; expected: number | null; max: number }; inputTokens: { min: number; expected: number | null; max: number } };
       pace: { seconds: number | null; costUsd: number | null; subscription: boolean };
       readiness: { dialogueLines: number; unknownListenerLines: number; unreviewedRules: Names; unreviewedTerms: Names; pairsWithoutRule: { count: number; examples: string[] } };
-    }>('plan_run', { workflow, groups: options.group, keys: options.key, tags: options.tag, marks: options.mark, ignoreStatus: options.ignoreStatus });
+    }>('plan_run', { workflow, groups: options.group, keys: options.key, tags: options.tag, marks: options.mark, ignoreStatus: options.ignoreStatus, models: runModels(options.model) });
     if (globals().json) return print(data);
     const range = (value: { min: number; expected: number | null; max: number }) => (value.expected !== null ? `약 ${value.expected.toLocaleString()} (${value.min.toLocaleString()}~${value.max.toLocaleString()})` : `${value.min.toLocaleString()}~${value.max.toLocaleString()}`);
     console.log(`${data.workflow.name} 실행 미리보기`);
