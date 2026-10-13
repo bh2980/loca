@@ -3,18 +3,18 @@ import { useMemo, type ComponentProps, type ReactNode, type RefObject } from 're
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { Check, CircleAlert, Network, PanelRightOpen, StickyNote } from 'lucide-react';
-import { checkFormat, compileFormatRules, isUnknownListener, listenerLabel, type ListenerOrigin, mentions, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
-import { AiMark, MarkChip, StatusDot, TagChip } from '@/components/status';
+import { AUTO_MARKS, checkFormat, compileFormatRules, isUnknownListener, listenerLabel, type LineMark, type ListenerOrigin, mentions, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
+import { MarkChip, StatusDot, TagChip } from '@/components/status';
 import { TranslationEditor } from '@/components/translation-editor';
 import { LineSourceText, TokenText } from '@/components/editor/source-text';
-import { LineNote, NoteMark } from '@/components/script/line-note';
+import { LineNote } from '@/components/script/line-note';
 import { editorChecks, withoutTokens } from '@/lib/line-context';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { client } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
-import { lineTags, q } from '@/lib/queries';
+import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { SpeakerCard } from '@/components/script/speaker-card';
 import type { InferResponseType } from '@/lib/api';
@@ -110,11 +110,11 @@ function LineLinks({ projectId, unitId, hasNote, onNote, onDetail }: { projectId
   );
 }
 
-type LineTag = ComponentProps<typeof TagChip>['tag'];
+type LineTag = ComponentProps<typeof TagChip>['tag'] & { role?: string | null };
 type Line = InferResponseType<(typeof client.projects)[':projectId']['units']['$get']> extends { rows: (infer Row)[] } ? Row : never;
 
 /** One line of the list: a compact row, or the open editor when picked. */
-export function LineRow({ projectId, line, newScene, selected, marked, findLabel, status, statusList, tags, tokenPattern, review, isPicked, arrived, rowRef, noting, focusTick, onPick, onSelect, onOpenScene, onArrivedEnd, onNoting, onDetail, onEscape, onDone, onFilterTag }: {
+export function LineRow({ projectId, line, newScene, selected, marked, findLabel, status, statusList, tags, tokenPattern, review, isPicked, arrived, rowRef, noting, focusTick, onPick, onSelect, onOpenScene, onArrivedEnd, onNoting, onDetail, onEscape, onDone, onFilterTag, onFilterMark }: {
   projectId: string;
   line: Line;
   /** The line starts a new scene (shown with its title above). */
@@ -142,8 +142,29 @@ export function LineRow({ projectId, line, newScene, selected, marked, findLabel
   onEscape: () => void;
   onDone: (advanced: boolean) => void;
   onFilterTag: (tagId: string) => void;
+  onFilterMark: (mark: LineMark) => void;
 }) {
   const who = listenerText(line);
+  const marks: LineMark[] = [];
+  if (isUnknownListener(line)) marks.push('unknownListener');
+  if (line.statusBy === 'ai') marks.push('ai');
+  if (line.note.trim()) marks.push('noted');
+  const attachedTags = tags.filter((tag) => line.tagIds.includes(tag.id));
+  const orderedTags = [...attachedTags.filter((tag) => tag.role), ...attachedTags.filter((tag) => !tag.role)];
+  const tagRow = marks.length || orderedTags.length ? (
+    <div className="mt-1 flex flex-wrap gap-1" role="group" aria-label="이 줄의 태그" onClick={(event) => event.stopPropagation()}>
+      {marks.map((mark) => (
+        <Button key={mark} variant="ghost" size="inline" className="h-auto p-0 hover:bg-transparent" title={`#${AUTO_MARKS[mark].name} 줄만 보기`} onClick={() => onFilterMark(mark)}>
+          <MarkChip mark={mark} projectId={projectId} />
+        </Button>
+      ))}
+      {orderedTags.map((tag) => (
+        <Button key={tag.id} variant="ghost" size="inline" className="h-auto p-0 hover:bg-transparent" title={`#${tag.name} 줄만 보기`} onClick={() => onFilterTag(tag.id)}>
+          <TagChip tag={tag} />
+        </Button>
+      ))}
+    </div>
+  ) : null;
   return (
                 <>
                 {newScene && (
@@ -169,7 +190,7 @@ export function LineRow({ projectId, line, newScene, selected, marked, findLabel
                     <div className={cn('min-w-0 flex-1 px-3', selected ? 'py-3' : 'py-2.5')}>
                       {/* Who says it above the text; lines nobody says (UI, documents, narration) only name their kind. */}
                       <p className="mb-0.5 flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
-                        {/* The line's status leads the speaker line (✦ when a run set it). */}
+                        {/* Status and speaker are metadata; all tags share the translation-side row. */}
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <span className="flex shrink-0">
@@ -178,7 +199,6 @@ export function LineRow({ projectId, line, newScene, selected, marked, findLabel
                           </TooltipTrigger>
                           <TooltipContent>{status?.name}</TooltipContent>
                         </Tooltip>
-                        {line.statusBy === 'ai' && <AiMark by="ai" />}
                         {line.speaker ? (
                           <SpeakerCard projectId={projectId} name={line.speaker}>
                             <span className="truncate">{line.speaker}</span>
@@ -186,10 +206,8 @@ export function LineRow({ projectId, line, newScene, selected, marked, findLabel
                         ) : (
                           <span className="shrink-0 text-muted-foreground/70">{UNSPOKEN[line.kind] ?? '지문'}</span>
                         )}
-                        <NoteMark note={line.note} className="mt-px" />
                         {marked && <span className="shrink-0 text-warning">● {findLabel}</span>}
-                        {selected && line.kind === 'dialogue' && <span className={cn('truncate', who.unknown && 'text-warning')}>→ {who.text}</span>}
-                        {!selected && line.kind === 'dialogue' && who.unknown && <MarkChip mark="unknownListener" projectId={projectId} className="shrink-0" />}
+                        {line.kind === 'dialogue' && !who.unknown && <span className="truncate">→ {who.text}</span>}
                         {selected && <LineLinks projectId={projectId} unitId={line.id} hasNote={!!line.note} onNote={() => onNoting(true)} onDetail={onDetail} />}
                       </p>
                       {selected ? (
@@ -201,7 +219,7 @@ export function LineRow({ projectId, line, newScene, selected, marked, findLabel
                     <div className={cn('min-w-0 flex-1 border-l px-3', selected ? 'py-3' : 'py-2.5')}>
                       {selected ? (
                         <>
-                          <TranslationEditor key={`editor-${line.id}`} projectId={projectId} unit={line} statuses={statusList} focusKey={focusTick} onEscape={onEscape} onDone={onDone} />
+                          <TranslationEditor key={`editor-${line.id}`} projectId={projectId} unit={line} statuses={statusList} focusKey={focusTick} marks={tagRow} onEscape={onEscape} onDone={onDone} />
                           <LineNote key={`note-${line.id}`} unitId={line.id} note={line.note} editing={noting} onEditing={onNoting} />
                           <LineHints projectId={projectId} line={line} />
                         </>
@@ -209,29 +227,7 @@ export function LineRow({ projectId, line, newScene, selected, marked, findLabel
                         <div className="pt-4 text-sm">
                           <div className="min-w-0">
                             {line.translation ? <TokenText text={line.translation} source={line.source} pattern={tokenPattern} /> : <span className="text-muted-foreground/60">—</span>}
-                            {(line.tagIds.length > 0 || line.statusBy === 'ai' || !!line.note) && (
-                              <div className="mt-1 flex flex-wrap gap-1">
-                                {line.statusBy === 'ai' && <MarkChip mark="ai" projectId={projectId} />}
-                                {!!line.note && <MarkChip mark="noted" projectId={projectId} />}
-                                {tags
-                                  .filter((tag) => line.tagIds.includes(tag.id))
-                                  .map((tag) => (
-                                    <Button
-                                      key={tag.id}
-                                      variant="ghost"
-                                      size="inline"
-                                      className="h-auto p-0 hover:bg-transparent"
-                                      title={`#${tag.name} 줄만 보기`}
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        onFilterTag(tag.id);
-                                      }}
-                                    >
-                                      <TagChip tag={tag} />
-                                    </Button>
-                                  ))}
-                              </div>
-                            )}
+                            {tagRow}
                             {review && !!line.lastRun?.issues.length && (
                               <p className="mt-1 flex items-start gap-1 text-xs text-warning">
                                 <CircleAlert className="mt-0.5 size-3 shrink-0" />

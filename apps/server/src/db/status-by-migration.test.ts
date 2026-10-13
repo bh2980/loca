@@ -75,5 +75,6 @@ describe('unique term source (0048)', () => {
     const db = openDatabase(file, drizzleFolder);
     const sources = db.select({ id: s.terms.id, source: s.terms.source }).from(s.terms).all().sort((x, y) => x.id.localeCompare(y.id));
     expect(sources.map((term) => term.source)).toEqual(['Lieutenant', expect.stringMatching(/^lieutenant \(중복 \d+\)$/), expect.stringMatching(/^LIEUTENANT \(중복 \d+\)$/), 'Lieutenant']);
+    db.$client.close();
   });
 });

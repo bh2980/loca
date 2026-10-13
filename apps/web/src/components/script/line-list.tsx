@@ -24,7 +24,7 @@ const typing = (target: EventTarget | null) => target instanceof HTMLElement && 
 /**
  * The translation screen's lines: source on the left, translation on the right, in script order.
  * Only the picked line opens up — its editor and a short row of hints (speech rule, terms, format,
- * what the last run flagged). Everything else (listener, tags, candidates, AI context, history)
+ * what the last run flagged). Tags stay below the translation in both modes. Other details (listener, candidates, AI context, history)
  * lives in the details pane, opened on demand. Keyboard: ↑↓ moves, ↵ edits, ⌘↵ confirms and goes on.
  */
 export function LineList({
@@ -287,6 +287,7 @@ export function LineList({
                   onEscape={() => setEditing(false)}
                   onDone={(advanced) => (advanced ? advanceFrom(line.id) : undefined)}
                   onFilterTag={(tagId) => onSearch({ tags: [tagId], page: undefined })}
+                  onFilterMark={(mark) => onSearch({ marks: [mark], page: undefined })}
                 />
               );
             })}

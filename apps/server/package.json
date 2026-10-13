@@ -6,7 +6,7 @@
     "./app": "./src/app.ts"
   },
   "scripts": {
-    "dev": "tsx watch src/main.ts",
+    "dev": "node dev.mjs",
     "start": "tsx src/main.ts",
     "typecheck": "tsc -p tsconfig.json",
     "db:generate": "drizzle-kit generate"

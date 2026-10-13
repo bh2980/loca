@@ -72,5 +72,6 @@ describe('model profiles → model choices (0035/0036)', () => {
     expect(db.select().from(s.chatSessions).get()).toMatchObject({ connectionId: 'c2', model: 'gpt-5', effort: null });
     expect(db.select().from(s.aiCalls).get()).toMatchObject({ refId: 'c1', connectionId: 'c1' });
     expect(db.$client.prepare("select name from sqlite_master where name = 'profiles'").get()).toBeUndefined();
+    db.$client.close();
   });
 });
