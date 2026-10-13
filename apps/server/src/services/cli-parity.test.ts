@@ -1,8 +1,11 @@
 import { readFileSync } from 'node:fs';
+import { Hono } from 'hono';
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { importFileSchema, lineFilterSchema } from '@tw/shared';
+import type { Env } from '../context.ts';
 import { openDatabase } from '../db/index.ts';
+import { sourceRoutes } from '../routes/source.ts';
 import * as s from '../db/schema.ts';
 import { agentCatalog } from './agent-catalog.ts';
 import { importProject } from './importer.ts';
@@ -21,6 +24,46 @@ function setup() {
 }
 
 describe('CLI parity with the app', () => {
+  it('finds the same lines as the app\'s list for text with %, _, \\ and quotes, and for several tags (all of them)', async () => {
+    const db = openDatabase(':memory:');
+    const sources = ['50% done', 'Hello world', 'a_b', 'axb', 'C:\\dir', 'Cdir', 'say "hi"', '100%% sure'];
+    const file = importFileSchema.parse({
+      format: 'loca/v1',
+      project: { name: 'P' },
+      groups: [{ key: 'g', title: 'G' }],
+      units: sources.map((source, n) => ({ key: `u${n}`, group: 'g', source, tags: n === 0 ? ['A', 'B'] : n === 1 ? ['A'] : n === 2 ? ['B'] : [] })),
+    });
+    const { projectId } = importProject(db, file);
+    const app = new Hono<Env>()
+      .use(async (c, next) => {
+        c.set('deps', { db } as never);
+        await next();
+      })
+      .route('/', sourceRoutes);
+    const appKeys = async (params: Record<string, string>) => {
+      const body = (await (await app.request(`/projects/${projectId}/units?${new URLSearchParams(params)}`)).json()) as { rows: { key: string }[] };
+      return body.rows.map((row) => row.key);
+    };
+    const cliKeys = (filter: object) => findLines(db, projectId, lineFilterSchema.parse(filter)).rows.map((row) => row.key);
+    const cases: [string, string[]][] = [
+      ['%', ['u0', 'u7']],
+      ['_', ['u2']],
+      ['\\', ['u4']],
+      [':\\d', ['u4']],
+      ['"hi"', ['u6']],
+      ['%%', ['u7']],
+    ];
+    for (const [q, keys] of cases) {
+      expect(cliKeys({ q }), q).toEqual(keys);
+      expect(await appKeys({ q }), q).toEqual(keys);
+    }
+    const tagIds = db.select().from(s.tags).where(eq(s.tags.projectId, projectId)).all();
+    const id = (name: string) => tagIds.find((tag) => tag.name === name)!.id;
+    expect(cliKeys({ tags: ['A', 'B'] })).toEqual(['u0']);
+    expect(await appKeys({ tagIds: `${id('A')},${id('B')}` })).toEqual(['u0']);
+    expect(cliKeys({ tags: ['A'] })).toEqual(['u0', 'u1']);
+  });
+
   it('lists terms with usage, marks and the app\'s either-or rule for candidate + ai', () => {
     const { db, projectId } = setup();
     db.insert(s.terms).values([

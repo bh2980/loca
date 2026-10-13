@@ -117,7 +117,7 @@ interface FilterOptions {
 
 function withFilters(command: Command) {
   return command
-    .option('-q, --q <글자>', '원문·번역·화자·키에 들어 있는 글자')
+    .option('-q, --q <글자>', '원문·번역·화자·키에 들어 있는 글자 (%·_·\\도 그 글자 그대로)')
     .option('-s, --speaker <names...>', '이 인물이 하는 대사 (이름·별칭·화자 키)')
     .option('-l, --listener <names...>', '이 인물에게 하는 대사 (청자). "-"는 청자 미상(= --mark unknownListener)')
     .option('-m, --mentions <names...>', '이 인물을 언급하는 대사 ({ALIAS} 포함)')
@@ -126,7 +126,7 @@ function withFilters(command: Command) {
     .addOption(new Option('--kind <종류>', '대사 종류').choices(['dialogue', 'document', 'ui']))
     .addOption(new Option('--group-kind <종류>', '묶음 종류').choices(['scene', 'document', 'ui']))
     .option('--status <statuses...>', '상태 이름')
-    .option('--tag <tags...>', '태그 이름')
+    .option('--tag <tags...>', '태그 이름 (모두 붙은 대사)')
     .addOption(new Option('--mark <marks...>', '자동 표시(앱의 #태그)가 모두 붙은 대사. 앱 목록의 필터와 같은 규칙').choices(LINE_MARK_IDS))
     .option('--translated', '번역이 있는 대사만')
     .option('--untranslated', '번역이 없는 대사만')

@@ -14,6 +14,7 @@ import { events } from '../events.ts';
 import { computeLayouts } from '../services/layout.ts';
 import { readView, sectionWithMost } from '../services/graph-views.ts';
 import { lineMatches } from '../services/line-matches.ts';
+import { lineTextFilter } from '../services/line-text.ts';
 import { lineMarksSchema } from '@tw/shared';
 import { knownListenerSql, markConditions, sameSource } from '../services/line-marks.ts';
 import { CompleteRefused, completeLine } from '../services/editor-complete.ts';
@@ -48,7 +49,7 @@ function unitConditions(projectId: string, query: Omit<z.infer<typeof listQuery>
   if (query.kind) conditions.push(eq(s.groups.kind, query.kind));
   if (query.statusId) conditions.push(eq(s.units.statusId, query.statusId));
   for (const tagId of query.tagIds?.split(',').filter(Boolean) ?? []) conditions.push(sql`${s.units.id} in (select unit_id from ${s.unitTags} where tag_id = ${tagId})`);
-  if (query.q) conditions.push(textFilter(query.q));
+  if (query.q) conditions.push(lineTextFilter(query.q));
   if (query.speaker) conditions.push(eq(s.units.speaker, query.speaker));
   if (query.listener) conditions.push(and(eq(s.units.listener, query.listener), knownListenerSql)!);
   if (query.review) conditions.push(sql`${s.units.statusId} in (select id from ${s.statuses} where ${s.statuses.projectId} = ${projectId} and ${s.statuses.inReview} = 1)`);
@@ -67,21 +68,6 @@ const unitPatch = z.object({
   /** A person's note on the line; empty clears it. Who set the status is not touched. */
   note: z.string().max(2000).optional(),
 });
-
-/** Trigram FTS needs 3+ characters; shorter queries fall back to LIKE over the same columns. */
-function textFilter(q: string): SQL {
-  if ([...q].length >= 3) {
-    const phrase = `"${q.replace(/"/g, '""')}"`;
-    return sql`${s.units}.rowid in (select rowid from units_fts where units_fts match ${phrase})`;
-  }
-  const pattern = `%${q.replace(/[%_]/g, (char) => `\\${char}`)}%`;
-  return or(
-    sql`${s.units.source} like ${pattern} escape '\\'`,
-    sql`${s.units.translation} like ${pattern} escape '\\'`,
-    sql`${s.units.speaker} like ${pattern} escape '\\'`,
-    sql`${s.units.key} like ${pattern} escape '\\'`,
-  )!;
-}
 
 const unitColumns = {
   id: s.units.id,

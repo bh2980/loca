@@ -116,7 +116,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
     }),
     find_lines: tool({
       description:
-        'Find lines with any combination of filters: q (text), speakers (character name/alias/speaker key — all their lines), listeners (lines addressed to them; "-" = listener unknown, the same as marks unknownListener), mentions (lines that mention a character, incl. {ALIAS} placeholders), groups (scene/group key, id or title), sections (chapter/folder), groupKind, kind, statuses, tags, marks (automatic marks all of which the line has: ' + LINE_MARK_IDS.join(', ') + '), translated, keys. Returns total and one page with each line\'s key, rev and marks (the automatic marks it carries); page with offset until total. Prefer one broad call over many small ones.',
+        'Find lines with any combination of filters: q (text as written; % and _ are plain characters), speakers (character name/alias/speaker key — all their lines), listeners (lines addressed to them; "-" = listener unknown, the same as marks unknownListener), mentions (lines that mention a character, incl. {ALIAS} placeholders), groups (scene/group key, id or title), sections (chapter/folder), groupKind, kind, statuses, tags (all of which the line carries), marks (automatic marks all of which the line has: ' + LINE_MARK_IDS.join(', ') + '), translated, keys. Returns total and one page with each line\'s key, rev and marks (the automatic marks it carries); page with offset until total. Prefer one broad call over many small ones.',
       inputSchema: lineFilterSchema,
       execute: (filter) => findLines(db, projectId, filter, { diverged: true }),
     }),
