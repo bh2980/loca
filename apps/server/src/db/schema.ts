@@ -294,7 +294,7 @@ export const terms = sqliteTable('terms', {
   /** Candidates (extracted by a workflow, found in the script) are not used as context until a person confirms them; rejected ones are not proposed again. */
   status: text('status', { enum: KNOWLEDGE_STATUSES }).notNull().default('confirmed'),
   origin: text('origin', { enum: KNOWLEDGE_ORIGINS }).notNull().default('human'),
-  /** Script lines that contain it, when it was found in the script ("대본에서 찾기"). */
+  /** Script lines whose source uses it (services/term-usage.ts); null until counted, again after its source changes. */
   lines: integer('lines'),
   /** Keys of the first lines that contain it, in script order. */
   examples: json<string[]>('examples').notNull().default(sql`'[]'`),

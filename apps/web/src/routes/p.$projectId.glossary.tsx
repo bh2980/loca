@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Play, Plus, ScanSearch, Sparkles, CircleStop, Trash2 } from 'lucide-react';
+import { Check, Play, Plus, Sparkles, CircleStop, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { DetailPane, PaneSection } from '@/components/detail-pane';
@@ -75,11 +75,6 @@ function Glossary() {
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const suggest = useQuery(q.termSuggest(projectId));
   const fill = suggest.data?.state;
-  const discover = useMutation({
-    mutationFn: () => unwrap(client.projects[':projectId'].terms.discover.$post({ param: { projectId } })),
-    onSuccess: ({ found, added, updated }) => toast.success(added > 0 ? `새 후보 ${added.toLocaleString()}개 (전체 발견 ${found.toLocaleString()}개)` : `새 후보 없음 (기존 ${updated.toLocaleString()}개 갱신)`),
-    onError: (error) => toast.error(error.message),
-  });
   const cancelFill = useMutation({
     mutationFn: () => unwrap(client.projects[':projectId'].terms.suggest.cancel.$post({ param: { projectId } })),
     onError: (error) => toast.error(error.message),
@@ -156,7 +151,7 @@ function Glossary() {
   const columns: ColumnDef<Term, unknown>[] = [
     { id: 'source', header: '원문', cell: ({ row }) => <span className="font-medium">{row.original.source}</span> },
     { id: 'target', header: '번역', cell: ({ row }) => row.original.target || <span className="text-muted-foreground">—</span> },
-    { id: 'lines', header: '줄 수', meta: { width: 72, align: 'end' }, cell: ({ row }) => row.original.lines ?? <span className="text-muted-foreground">—</span> },
+    { id: 'lines', header: () => <span title="원문에 이 용어가 나오는 대사 수">나온 줄</span>, meta: { width: 72, align: 'end' }, cell: ({ row }) => row.original.lines ?? <span className="text-muted-foreground">—</span> },
     { id: 'note', header: '메모', meta: { className: 'text-muted-foreground' }, cell: ({ row }) => row.original.note },
     {
       id: 'origin',
@@ -239,9 +234,6 @@ function Glossary() {
                   {!!suggest.data?.pending && <FillDialog projectId={projectId} pending={suggest.data.pending} calls={suggest.data.calls} batch={suggest.data.batch} />}
                 </>
               )}
-              <Button variant="outline" disabled={discover.isPending} onClick={() => discover.mutate()}>
-                <ScanSearch /> 대본에서 찾기
-              </Button>
               <Button onClick={() => select(NEW_TERM)}>
                 <Plus /> 용어 추가
               </Button>
@@ -257,7 +249,7 @@ function Glossary() {
           rows={terms.data && rows}
           rowId={(term) => term.id}
           loading={terms.isLoading}
-          empty={needle || search.source || search.state || search.tags?.length || search.empty || search.unused ? '조건에 맞는 용어가 없습니다.' : '아직 용어가 없습니다. ‘대본에서 찾기’로 후보를 찾거나 ‘용어 추가’로 직접 넣으세요.'}
+          empty={needle || search.source || search.state || search.tags?.length || search.empty || search.unused ? '조건에 맞는 용어가 없습니다.' : '아직 용어가 없습니다. 작품 분석이 후보를 내거나 ‘용어 추가’로 직접 넣으세요.'}
           selected={selected?.id}
           onRowClick={(term) => select(term.id === search.term ? undefined : term.id)}
           picked={picked}
@@ -445,7 +437,7 @@ function Examples({ projectId, keys }: { projectId: string; keys: string[] }) {
   const lines = useQuery(q.linesByKeys(projectId, shown));
   return (
     <PaneSection title="등장 예문">
-      {shown.length === 0 && <p className="text-xs text-muted-foreground">예문이 없습니다. ‘대본에서 찾기’로 다시 찾으면 채워집니다.</p>}
+      {shown.length === 0 && <p className="text-xs text-muted-foreground">원문에 이 용어가 나오는 대사가 없습니다.</p>}
       <ul className="space-y-1">
         {lines.data?.map((line) => (
           <li key={line.id}>

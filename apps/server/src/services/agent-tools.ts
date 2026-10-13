@@ -363,7 +363,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         db.transaction((tx) => {
           for (const { id, ...term } of terms) {
             if (id) {
-              if (!tx.update(s.terms).set({ ...term, ...byPerson(tx as unknown as Db, s.terms, id, term) }).where(and(eq(s.terms.id, id), eq(s.terms.projectId, projectId))).run().changes) missing.push(id);
+              if (!tx.update(s.terms).set({ ...term, ...('source' in term && term.source !== undefined && { lines: null }), ...byPerson(tx as unknown as Db, s.terms, id, term) }).where(and(eq(s.terms.id, id), eq(s.terms.projectId, projectId))).run().changes) missing.push(id);
             } else tx.insert(s.terms).values({ ...term, projectId }).run();
           }
         });

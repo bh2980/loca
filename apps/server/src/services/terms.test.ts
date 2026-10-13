@@ -5,7 +5,8 @@ import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from './importer.ts';
 import { memoryStore } from './secrets.ts';
-import { addNameTerms, discoverAndSave, NOT_A_TERM, TermService } from './terms.ts';
+import { fillTermUsage } from './term-usage.ts';
+import { addNameTerms, NOT_A_TERM, TermService } from './terms.ts';
 
 function setup() {
   const db = openDatabase(':memory:');
@@ -31,27 +32,30 @@ function setup() {
 const terms = (db: ReturnType<typeof setup>['db'], projectId: string) =>
   db.select().from(s.terms).where(eq(s.terms.projectId, projectId)).all().sort((a, b) => a.source.localeCompare(b.source));
 
-describe('glossary candidates from the script', () => {
-  it('adds new candidates with counts, and on a rerun refreshes counts without re-adding rejected ones', () => {
+/** Candidates as analysis or a person would add them (origin script, no count yet). */
+const seed = (db: ReturnType<typeof setup>['db'], projectId: string) =>
+  db.insert(s.terms).values(['Freedom Plaza', 'God', 'Nina', 'Thought'].map((source) => ({ projectId, source, status: 'candidate' as const, origin: 'script' as const, note: source === 'Nina' ? '인물 이름' : '' }))).run();
+
+describe('glossary', () => {
+  it('counts the lines using each term once, whole word, and again when its source changes', () => {
     const { db, projectId } = setup();
-    expect(discoverAndSave(db, projectId)).toEqual({ found: 4, added: 4, updated: 0 });
-    expect(terms(db, projectId).map(({ source, status, origin, lines, examples }) => ({ source, status, origin, lines, examples }))).toEqual([
-      { source: 'Freedom Plaza', status: 'candidate', origin: 'script', lines: 2, examples: ['a1', 'a2'] },
-      { source: 'God', status: 'candidate', origin: 'script', lines: 2, examples: ['a2', 'a3'] },
-      { source: 'Nina', status: 'candidate', origin: 'script', lines: 0, examples: [] },
-      { source: 'Thought', status: 'candidate', origin: 'script', lines: 2, examples: ['a3', 'a4'] },
+    seed(db, projectId);
+    fillTermUsage(db, projectId);
+    expect(terms(db, projectId).map(({ source, lines, examples }) => ({ source, lines, examples }))).toEqual([
+      { source: 'Freedom Plaza', lines: 2, examples: ['a1', 'a2'] },
+      { source: 'God', lines: 2, examples: ['a2', 'a3'] },
+      { source: 'Nina', lines: 0, examples: [] },
+      { source: 'Thought', lines: 2, examples: ['a3', 'a4'] },
     ]);
-    db.update(s.terms).set({ status: 'rejected' }).where(eq(s.terms.source, 'God')).run();
-    expect(discoverAndSave(db, projectId)).toEqual({ found: 4, added: 0, updated: 4 });
-    expect(terms(db, projectId).find((term) => term.source === 'God')?.status).toBe('rejected');
+    db.update(s.terms).set({ source: 'Plaza', lines: null }).where(eq(s.terms.source, 'Freedom Plaza')).run();
+    fillTermUsage(db, projectId);
+    expect(terms(db, projectId).find((term) => term.source === 'Plaza')).toMatchObject({ lines: 2, examples: ['a1', 'a2'] });
   });
 
-  it('marks a character\'s alias as theirs, from discovery and when the character is saved', () => {
+  it('adds a character\'s new alias as a candidate marked as theirs', () => {
     const { db, projectId } = setup();
-    db.update(s.characters).set({ aliases: ['Thought'] }).where(eq(s.characters.name, 'Nina')).run();
-    discoverAndSave(db, projectId);
-    expect(terms(db, projectId).find((term) => term.source === 'Thought')?.note).toBe('Nina의 별칭');
-    // A new alias becomes a candidate at once; a note someone wrote stays.
+    seed(db, projectId);
+    // A note someone wrote stays.
     db.update(s.terms).set({ note: '사람 메모' }).where(eq(s.terms.source, 'Thought')).run();
     expect(addNameTerms(db, projectId, { name: 'Nina', aliases: ['Thought', 'Nin'] })).toBe(1);
     expect(terms(db, projectId).filter((term) => ['Thought', 'Nin'].includes(term.source)).map(({ source, note, status }) => ({ source, note, status }))).toEqual([
@@ -62,7 +66,7 @@ describe('glossary candidates from the script', () => {
 
   it('fills empty candidates from the model with example lines, marks ordinary words and leaves a person’s edits alone', async () => {
     const { db, projectId, choice } = setup();
-    discoverAndSave(db, projectId);
+    seed(db, projectId);
     db.update(s.terms).set({ target: '니나' }).where(eq(s.terms.source, 'Nina')).run();
     const prompts: string[] = [];
     const service = new TermService(db, memoryStore(), {

@@ -9,7 +9,8 @@ import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { graphOrder, ruleLines } from '../services/speech.ts';
 import { eventFlow, forks } from '../services/event-routes.ts';
-import { discoverAndSave, SUGGEST_BATCH } from '../services/terms.ts';
+import { SUGGEST_BATCH } from '../services/terms.ts';
+import { fillTermUsage } from '../services/term-usage.ts';
 import { addNameTerms } from '../services/terms.ts';
 import { byPerson } from '../services/status-by.ts';
 import { clearReview, withTags } from '../services/knowledge-tags.ts';
@@ -48,8 +49,12 @@ const byProject = <T extends ProjectTable>(table: T, id: string, projectId: stri
 
 export const knowledgeRoutes = new Hono<Env>()
   // Rejected terms stay stored so "대본에서 찾기" does not propose them again, but are not listed.
-  .get('/terms', (c) => c.json(withTags(c.var.deps.db, 'terms', c.var.deps.db.select().from(s.terms).where(and(eq(s.terms.projectId, c.req.param('projectId')!), ne(s.terms.status, 'rejected'))).orderBy(asc(s.terms.source)).all())))
-  .post('/terms/discover', (c) => c.json(discoverAndSave(c.var.deps.db, c.req.param('projectId')!)))
+  .get('/terms', (c) => {
+    const { db } = c.var.deps;
+    const projectId = c.req.param('projectId')!;
+    fillTermUsage(db, projectId);
+    return c.json(withTags(db, 'terms', db.select().from(s.terms).where(and(eq(s.terms.projectId, projectId), ne(s.terms.status, 'rejected'))).orderBy(asc(s.terms.source)).all()));
+  })
   .get('/terms/suggest', (c) => {
     const projectId = c.req.param('projectId')!;
     const pending = c.var.deps.terms.pending(projectId).length;
@@ -90,7 +95,9 @@ export const knowledgeRoutes = new Hono<Env>()
   })
   .patch('/terms/:id', validate('json', patchOf(termInput)), (c) => {
     const projectId = c.req.param('projectId')!;
-    found(c.var.deps.db.update(s.terms).set({ ...c.req.valid('json'), ...byPerson(c.var.deps.db, s.terms, c.req.param('id'), c.req.valid('json')) }).where(byProject(s.terms, c.req.param('id'), projectId)).returning().get(), '용어');
+    // A new source is counted again (fillTermUsage).
+    const body = c.req.valid('json');
+    found(c.var.deps.db.update(s.terms).set({ ...body, ...(body.source !== undefined && { lines: null }), ...byPerson(c.var.deps.db, s.terms, c.req.param('id'), body) }).where(byProject(s.terms, c.req.param('id'), projectId)).returning().get(), '용어');
     events.changed(projectId, 'terms');
     return c.json({ ok: true });
   })
