@@ -347,6 +347,7 @@ export function LineList({
         <div className="mr-1 min-w-0">{heading}</div>
         <SearchInput value={search.q} onChange={(value) => onSearch({ q: value, page: undefined })} placeholder="찾기" className="w-44" />
         <LineFilters
+          projectId={projectId}
           statuses={statusList}
           tags={statuses.data?.tags ?? []}
           speakers={(speakers.data ?? []).flatMap((row) => (row.speaker ? [{ name: row.speaker, lines: row.lines }] : []))}
@@ -567,7 +568,8 @@ export function LineHints({ projectId, line }: { projectId: string; line: { id: 
  * Filters the list by status, tag, speaker or listener. Each choice goes into the URL and shows as
  * a removable chip next to the search, like filters that arrive from a link.
  */
-function LineFilters({ statuses, tags, speakers, search, onSearch }: {
+function LineFilters({ projectId, statuses, tags, speakers, search, onSearch }: {
+  projectId: string;
   statuses: { id: string; name: string; color: string }[];
   tags: { id: string; name: string; role?: string | null }[];
   speakers: { name: string; lines: number }[];
@@ -622,8 +624,19 @@ function LineFilters({ statuses, tags, speakers, search, onSearch }: {
           </DropdownMenuSubContent>
         </DropdownMenuSub>
         <DropdownMenuSub>
-          <DropdownMenuSubTrigger inset disabled={!ownTags.length}>태그</DropdownMenuSubTrigger>
+          <DropdownMenuSubTrigger inset>태그</DropdownMenuSubTrigger>
           <DropdownMenuSubContent className="max-h-80 overflow-y-auto">
+            {/* Opens even with none, to say so and where tags are made. */}
+            {!ownTags.length && (
+              <>
+                <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">아직 태그가 없습니다.</DropdownMenuLabel>
+                <DropdownMenuItem asChild>
+                  <Link to="/p/$projectId/settings/statuses" params={{ projectId }}>
+                    태그 만들기
+                  </Link>
+                </DropdownMenuItem>
+              </>
+            )}
             {ownTags.map((tag) => (
               <DropdownMenuCheckboxItem key={tag.id} checked={search.tag === tag.id} onCheckedChange={(on) => onSearch({ tag: on ? tag.id : undefined })}>
                 #{tag.name}

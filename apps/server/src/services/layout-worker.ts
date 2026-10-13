@@ -175,12 +175,10 @@ const labelWidth = (text: string) => Math.min(240, 30 + Math.ceil(text.length * 
 const OPTIONS = {
   'elk.algorithm': 'layered',
   'elk.direction': 'DOWN',
-  // Curves, not right angles: where branches part and meet again, right-angled edges share their
-  // horizontal runs like bus lines and cannot be followed; each curve stays its own line.
-  'elk.edgeRouting': 'SPLINES',
-  // ELK's default spline mode is SLOPPY (loose curves that can cut corners and pass near or
-  // through nodes); CONSERVATIVE keeps every curve inside the room routing gave it.
-  'elk.layered.edgeRouting.splines.mode': 'CONSERVATIVE',
+  // Straight segments with slanted bends: right-angled edges share their horizontal runs like bus
+  // lines where branches part and meet, and splines wobble (long S-curves between layers); a
+  // polyline keeps each edge its own line and straight where it can be.
+  'elk.edgeRouting': 'POLYLINE',
   'elk.edgeLabels.placement': 'CENTER',
   // The edge runs through its label (a choice), and the label has its own room, so it neither
   // floats beside the line nor lies under a node.
