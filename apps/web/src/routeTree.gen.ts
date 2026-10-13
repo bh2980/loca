@@ -14,10 +14,10 @@ import { Route as PProjectIdRouteImport } from './routes/p.$projectId'
 import { Route as PProjectIdIndexRouteImport } from './routes/p.$projectId.index'
 import { Route as PProjectIdGlossaryRouteImport } from './routes/p.$projectId.glossary'
 import { Route as PProjectIdGraphRouteImport } from './routes/p.$projectId.graph'
+import { Route as PProjectIdKeysRouteImport } from './routes/p.$projectId.keys'
 import { Route as PProjectIdKnowledgeRouteImport } from './routes/p.$projectId.knowledge'
 import { Route as PProjectIdScriptRouteImport } from './routes/p.$projectId.script'
 import { Route as PProjectIdAiConnectionsRouteImport } from './routes/p.$projectId.ai.connections'
-import { Route as PProjectIdAiKeysRouteImport } from './routes/p.$projectId.ai.keys'
 import { Route as PProjectIdAiUsageRouteImport } from './routes/p.$projectId.ai.usage'
 import { Route as PProjectIdRunsIndexRouteImport } from './routes/p.$projectId.runs.index'
 import { Route as PProjectIdRunsRunIdRouteImport } from './routes/p.$projectId.runs.$runId'
@@ -51,6 +51,11 @@ const PProjectIdGraphRoute = PProjectIdGraphRouteImport.update({
   path: '/graph',
   getParentRoute: () => PProjectIdRoute,
 } as any)
+const PProjectIdKeysRoute = PProjectIdKeysRouteImport.update({
+  id: '/keys',
+  path: '/keys',
+  getParentRoute: () => PProjectIdRoute,
+} as any)
 const PProjectIdKnowledgeRoute = PProjectIdKnowledgeRouteImport.update({
   id: '/knowledge',
   path: '/knowledge',
@@ -64,11 +69,6 @@ const PProjectIdScriptRoute = PProjectIdScriptRouteImport.update({
 const PProjectIdAiConnectionsRoute = PProjectIdAiConnectionsRouteImport.update({
   id: '/ai/connections',
   path: '/ai/connections',
-  getParentRoute: () => PProjectIdRoute,
-} as any)
-const PProjectIdAiKeysRoute = PProjectIdAiKeysRouteImport.update({
-  id: '/ai/keys',
-  path: '/ai/keys',
   getParentRoute: () => PProjectIdRoute,
 } as any)
 const PProjectIdAiUsageRoute = PProjectIdAiUsageRouteImport.update({
@@ -116,11 +116,11 @@ export interface FileRoutesByFullPath {
   '/p/$projectId': typeof PProjectIdRouteWithChildren
   '/p/$projectId/glossary': typeof PProjectIdGlossaryRoute
   '/p/$projectId/graph': typeof PProjectIdGraphRoute
+  '/p/$projectId/keys': typeof PProjectIdKeysRoute
   '/p/$projectId/knowledge': typeof PProjectIdKnowledgeRoute
   '/p/$projectId/script': typeof PProjectIdScriptRoute
   '/p/$projectId/': typeof PProjectIdIndexRoute
   '/p/$projectId/ai/connections': typeof PProjectIdAiConnectionsRoute
-  '/p/$projectId/ai/keys': typeof PProjectIdAiKeysRoute
   '/p/$projectId/ai/usage': typeof PProjectIdAiUsageRoute
   '/p/$projectId/runs/$runId': typeof PProjectIdRunsRunIdRoute
   '/p/$projectId/settings/project': typeof PProjectIdSettingsProjectRoute
@@ -133,11 +133,11 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/p/$projectId/glossary': typeof PProjectIdGlossaryRoute
   '/p/$projectId/graph': typeof PProjectIdGraphRoute
+  '/p/$projectId/keys': typeof PProjectIdKeysRoute
   '/p/$projectId/knowledge': typeof PProjectIdKnowledgeRoute
   '/p/$projectId/script': typeof PProjectIdScriptRoute
   '/p/$projectId': typeof PProjectIdIndexRoute
   '/p/$projectId/ai/connections': typeof PProjectIdAiConnectionsRoute
-  '/p/$projectId/ai/keys': typeof PProjectIdAiKeysRoute
   '/p/$projectId/ai/usage': typeof PProjectIdAiUsageRoute
   '/p/$projectId/runs/$runId': typeof PProjectIdRunsRunIdRoute
   '/p/$projectId/settings/project': typeof PProjectIdSettingsProjectRoute
@@ -152,11 +152,11 @@ export interface FileRoutesById {
   '/p/$projectId': typeof PProjectIdRouteWithChildren
   '/p/$projectId/glossary': typeof PProjectIdGlossaryRoute
   '/p/$projectId/graph': typeof PProjectIdGraphRoute
+  '/p/$projectId/keys': typeof PProjectIdKeysRoute
   '/p/$projectId/knowledge': typeof PProjectIdKnowledgeRoute
   '/p/$projectId/script': typeof PProjectIdScriptRoute
   '/p/$projectId/': typeof PProjectIdIndexRoute
   '/p/$projectId/ai/connections': typeof PProjectIdAiConnectionsRoute
-  '/p/$projectId/ai/keys': typeof PProjectIdAiKeysRoute
   '/p/$projectId/ai/usage': typeof PProjectIdAiUsageRoute
   '/p/$projectId/runs/$runId': typeof PProjectIdRunsRunIdRoute
   '/p/$projectId/settings/project': typeof PProjectIdSettingsProjectRoute
@@ -172,11 +172,11 @@ export interface FileRouteTypes {
     | '/p/$projectId'
     | '/p/$projectId/glossary'
     | '/p/$projectId/graph'
+    | '/p/$projectId/keys'
     | '/p/$projectId/knowledge'
     | '/p/$projectId/script'
     | '/p/$projectId/'
     | '/p/$projectId/ai/connections'
-    | '/p/$projectId/ai/keys'
     | '/p/$projectId/ai/usage'
     | '/p/$projectId/runs/$runId'
     | '/p/$projectId/settings/project'
@@ -189,11 +189,11 @@ export interface FileRouteTypes {
     | '/'
     | '/p/$projectId/glossary'
     | '/p/$projectId/graph'
+    | '/p/$projectId/keys'
     | '/p/$projectId/knowledge'
     | '/p/$projectId/script'
     | '/p/$projectId'
     | '/p/$projectId/ai/connections'
-    | '/p/$projectId/ai/keys'
     | '/p/$projectId/ai/usage'
     | '/p/$projectId/runs/$runId'
     | '/p/$projectId/settings/project'
@@ -207,11 +207,11 @@ export interface FileRouteTypes {
     | '/p/$projectId'
     | '/p/$projectId/glossary'
     | '/p/$projectId/graph'
+    | '/p/$projectId/keys'
     | '/p/$projectId/knowledge'
     | '/p/$projectId/script'
     | '/p/$projectId/'
     | '/p/$projectId/ai/connections'
-    | '/p/$projectId/ai/keys'
     | '/p/$projectId/ai/usage'
     | '/p/$projectId/runs/$runId'
     | '/p/$projectId/settings/project'
@@ -263,6 +263,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PProjectIdGraphRouteImport
       parentRoute: typeof PProjectIdRoute
     }
+    '/p/$projectId/keys': {
+      id: '/p/$projectId/keys'
+      path: '/keys'
+      fullPath: '/p/$projectId/keys'
+      preLoaderRoute: typeof PProjectIdKeysRouteImport
+      parentRoute: typeof PProjectIdRoute
+    }
     '/p/$projectId/knowledge': {
       id: '/p/$projectId/knowledge'
       path: '/knowledge'
@@ -282,13 +289,6 @@ declare module '@tanstack/react-router' {
       path: '/ai/connections'
       fullPath: '/p/$projectId/ai/connections'
       preLoaderRoute: typeof PProjectIdAiConnectionsRouteImport
-      parentRoute: typeof PProjectIdRoute
-    }
-    '/p/$projectId/ai/keys': {
-      id: '/p/$projectId/ai/keys'
-      path: '/ai/keys'
-      fullPath: '/p/$projectId/ai/keys'
-      preLoaderRoute: typeof PProjectIdAiKeysRouteImport
       parentRoute: typeof PProjectIdRoute
     }
     '/p/$projectId/ai/usage': {
@@ -346,11 +346,11 @@ declare module '@tanstack/react-router' {
 interface PProjectIdRouteChildren {
   PProjectIdGlossaryRoute: typeof PProjectIdGlossaryRoute
   PProjectIdGraphRoute: typeof PProjectIdGraphRoute
+  PProjectIdKeysRoute: typeof PProjectIdKeysRoute
   PProjectIdKnowledgeRoute: typeof PProjectIdKnowledgeRoute
   PProjectIdScriptRoute: typeof PProjectIdScriptRoute
   PProjectIdIndexRoute: typeof PProjectIdIndexRoute
   PProjectIdAiConnectionsRoute: typeof PProjectIdAiConnectionsRoute
-  PProjectIdAiKeysRoute: typeof PProjectIdAiKeysRoute
   PProjectIdAiUsageRoute: typeof PProjectIdAiUsageRoute
   PProjectIdRunsRunIdRoute: typeof PProjectIdRunsRunIdRoute
   PProjectIdSettingsProjectRoute: typeof PProjectIdSettingsProjectRoute
@@ -363,11 +363,11 @@ interface PProjectIdRouteChildren {
 const PProjectIdRouteChildren: PProjectIdRouteChildren = {
   PProjectIdGlossaryRoute: PProjectIdGlossaryRoute,
   PProjectIdGraphRoute: PProjectIdGraphRoute,
+  PProjectIdKeysRoute: PProjectIdKeysRoute,
   PProjectIdKnowledgeRoute: PProjectIdKnowledgeRoute,
   PProjectIdScriptRoute: PProjectIdScriptRoute,
   PProjectIdIndexRoute: PProjectIdIndexRoute,
   PProjectIdAiConnectionsRoute: PProjectIdAiConnectionsRoute,
-  PProjectIdAiKeysRoute: PProjectIdAiKeysRoute,
   PProjectIdAiUsageRoute: PProjectIdAiUsageRoute,
   PProjectIdRunsRunIdRoute: PProjectIdRunsRunIdRoute,
   PProjectIdSettingsProjectRoute: PProjectIdSettingsProjectRoute,

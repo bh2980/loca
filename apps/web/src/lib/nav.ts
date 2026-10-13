@@ -23,7 +23,7 @@ export interface Section {
 
 /**
  * The menus, in the order the work goes: what to do next; translating and the context AI nodes
- * read; the workflows that move lines and the AI they call (how it is used, connections, keys);
+ * read; the workflows that move lines and the AI they call (how it is used, connections) — API 키 is the workflows' (the HTTP call node);
  * and settings. A menu's screens are tabs.
  */
 export const SECTIONS: Section[] = [
@@ -58,6 +58,8 @@ export const SECTIONS: Section[] = [
     tabs: [
       { label: '워크플로', path: '/workflows' },
       { label: '실행 기록', path: '/runs' },
+      // Only the HTTP call node uses these (AI connections keep their own key).
+      { label: 'API 키', path: '/keys' },
     ],
   },
   {
@@ -68,7 +70,6 @@ export const SECTIONS: Section[] = [
     tabs: [
       { label: '사용 방식', path: '/ai/usage' },
       { label: '연결', path: '/ai/connections' },
-      { label: 'API 키', path: '/ai/keys' },
     ],
   },
   {
