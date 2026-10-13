@@ -1,4 +1,4 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, ne } from 'drizzle-orm';
 import { batchChangeSchema, type BatchChange } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -75,6 +75,21 @@ export async function prepareProposal(db: Db, projectId: string, tool: string, i
     const found = new Set(ids.length ? db.select({ id: s.terms.id }).from(s.terms).where(and(eq(s.terms.projectId, projectId), inArray(s.terms.id, ids))).all().map((row) => row.id) : []);
     const missing = ids.filter((termId) => !found.has(termId));
     if (missing.length) return { ok: false, error: `없는 용어 id가 있습니다: ${missing.slice(0, 5).join(', ')}` };
+    // A source already in the glossary (or twice in this call) is refused here, as saveTerm would on acceptance; the rest go on.
+    const taken = new Map(db.select({ id: s.terms.id, source: s.terms.source, target: s.terms.target }).from(s.terms).where(and(eq(s.terms.projectId, projectId), ne(s.terms.status, 'rejected'))).all().map((term) => [term.source.toLowerCase(), term] as const));
+    const inputTerms = (input.terms as { id?: string; source: string }[] | undefined) ?? [];
+    const dropped: { key: string; reason: string }[] = [];
+    const kept = inputTerms.filter((term) => {
+      const holder = taken.get(term.source.trim().toLowerCase());
+      if (holder && holder.id !== term.id) {
+        dropped.push({ key: term.source, reason: holder.id.startsWith('new:') ? '같은 요청에 두 번 나옵니다.' : `이미 있는 용어입니다: ${holder.source}${holder.target ? ` → ${holder.target}` : ''}` });
+        return false;
+      }
+      taken.set(term.source.trim().toLowerCase(), { id: term.id ?? `new:${term.source}`, source: term.source, target: '' });
+      return true;
+    });
+    if (!kept.length) return { ok: false, error: `저장할 수 있는 용어가 없습니다. 예: ${dropped[0]!.key} ${dropped[0]!.reason}` };
+    return { ok: true, input: { ...input, terms: kept }, report: dropped.length ? { dropped, warnings: [] } : null };
   }
   if (tool !== 'propose_changes') return { ok: true, input, report: null };
 

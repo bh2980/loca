@@ -3,11 +3,15 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { ArrowLeftRight, GanttChart, Network, Plus, Table2, Users } from 'lucide-react';
 import { toast } from 'sonner';
-import { OTHERS_LISTENER, DOCUMENT_KINDS, styleNames, type CharacterStyle, isSettled, KNOWLEDGE_SOURCES, listenerLabel, REVIEW_TAG, SPEECH_LEVEL_LABELS, type KnowledgeSource, type SpeechLevel } from '@tw/shared';
+import { OTHERS_LISTENER, DOCUMENT_KINDS, parseMarks, type AutoMark, styleNames, type CharacterStyle, isSettled, KNOWLEDGE_SOURCES, listenerLabel, REVIEW_TAG, SPEECH_LEVEL_LABELS, type KnowledgeSource, type SpeechLevel } from '@tw/shared';
+import { EmptyState } from '@/components/empty-state';
 import { Page } from '@/components/page';
+import { TagMenu } from '@/components/tag-menu';
 import { RelationshipGraph } from '@/components/relationship-graph';
 import { hasAnalysis, JobStatus, StartAnalysis } from '@/components/knowledge/analysis-controls';
-import { BulkDecide, DraftEditor, fail, KINDS, KnowledgeFilters, knowledgeFilterChips, KnowledgeTable, matches, TagMenu, type KnowledgeFilterState, RelationshipChanges, RuleLines, SourceBadge, text, type Kind, type KindSpec, type Row, type SourceFilter, type StatusFilter } from '@/components/knowledge/draft-editor';
+import { DraftEditor } from '@/components/knowledge/editor';
+import { RelationshipChanges, RuleLines } from '@/components/knowledge/evidence';
+import { BulkDecide, fail, KINDS, KnowledgeFilters, knowledgeFilterChips, KNOWLEDGE_MARK_IDS, KnowledgeTable, matches, type KnowledgeFilterState, SourceBadge, text, type Kind, type KindSpec, type Row, type SourceFilter } from '@/components/knowledge/table';
 import { SplitPane } from '@/components/split-pane';
 import { FilterChips, Toolbar } from '@/components/toolbar';
 import { pairKey, buildPairs, PairDetail, pairItems, pairMatches, pairSummary, PairTable, type Pair } from '@/components/knowledge/pairs';
@@ -21,6 +25,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { client, unwrap } from '@/lib/api';
 import { DOCUMENT_KIND } from '@/lib/labels';
 import { q, tagsIn, useReviewTagId } from '@/lib/queries';
+import { usePicked } from '@/lib/use-picked';
 import { cn } from '@/lib/utils';
 import { useReportView } from '@/lib/view-context';
 
@@ -31,31 +36,27 @@ interface KnowledgeSearch {
   tab?: Tab;
   /** 출처 filter: who wrote it (작품 분석, 워크플로·채팅, 대본에서 찾음, 가져오기, 사람). */
   source?: KnowledgeSource;
-  /** 상태 filter: 확정 / AI가 정한 것만 (확정 ✦) / 후보. */
-  state?: StatusFilter;
+  /** Automatic marks (#후보, #AI가 정함, #근거 없음): items carrying them; the first two together mean either (see matchesMarks). */
+  marks?: AutoMark[];
   /** 태그 filter: project tag ids (확인 권장, a person's own); items carrying all of them. */
   tags?: string[];
-  /** #근거 없음: items citing no line. */
-  bare?: true;
+  /** Only these items (a run's scope, from the run dialog's readiness list); shown as a removable chip, combined with the other filters. In 인물·관계 tables the pairs holding them. */
+  ids?: string[];
   /** Selected item id, or a pair key ("from→to") in 인물·관계 › 관계. */
   item?: string;
-  /** Inside 인물·관계 shown as tables: people instead of pairs. */
-  view?: 'characters';
-  /** 인물·관계 as tables instead of the graph; 사건 as a timeline instead of the table. */
-  /** '표' instead of the picture (relationship graph / event flow), which is the default for both. */
-  display?: 'table';
+  /** Presentation. Default is the picture (relationship graph / event flow); 'table' is the table instead (인물·관계: pairs), 'characters' the people table in 인물·관계. */
+  display?: 'table' | 'characters';
 }
 
 export const Route = createFileRoute('/p/$projectId/knowledge')({
   validateSearch: (raw: Record<string, unknown>): KnowledgeSearch => ({
     tab: typeof raw.tab === 'string' && raw.tab in TABS ? (raw.tab as Tab) : undefined,
     source: typeof raw.source === 'string' && (KNOWLEDGE_SOURCES as readonly string[]).includes(raw.source) ? (raw.source as KnowledgeSource) : undefined,
-    state: raw.state === 'confirmed' || raw.state === 'ai' || raw.state === 'candidate' ? raw.state : undefined,
+    marks: parseMarks(raw.marks, KNOWLEDGE_MARK_IDS),
     tags: Array.isArray(raw.tags) && raw.tags.length && raw.tags.every((id) => typeof id === 'string') ? (raw.tags as string[]) : undefined,
-    bare: raw.bare === true || raw.bare === 'true' ? true : undefined,
+    ids: Array.isArray(raw.ids) && raw.ids.length && raw.ids.every((id) => typeof id === 'string') ? (raw.ids as string[]) : undefined,
     item: typeof raw.item === 'string' && raw.item ? raw.item : undefined,
-    view: raw.view === 'characters' ? 'characters' : undefined,
-    display: raw.display === 'table' ? 'table' : undefined,
+    display: raw.display === 'table' || raw.display === 'characters' ? raw.display : undefined,
   }),
   component: Knowledge,
 });
@@ -72,8 +73,8 @@ function Knowledge() {
   const navigate = Route.useNavigate();
   const tab: Tab = search.tab ?? 'documents';
   // 인물·관계 is one graph (people and their relationships) or two tables (pairs / people).
-  const graph = tab === 'people' && search.display !== 'table';
-  const pairsView = tab === 'people' && !graph && search.view !== 'characters';
+  const graph = tab === 'people' && !search.display;
+  const pairsView = tab === 'people' && search.display === 'table';
   const timeline = tab === 'events' && search.display !== 'table';
   const set = (next: Partial<KnowledgeSearch>, replace = true) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace });
 
@@ -198,9 +199,10 @@ function Knowledge() {
   };
 
   const characters = people.data?.characters ?? [];
-  const shown = (row: Row) => matches(row, search.source, search.state, search.tags, search.bare);
+  const inScope = (id: string) => !search.ids || search.ids.includes(id);
+  const shown = (row: Row) => inScope(row.id) && matches(row, search.source, search.marks, search.tags);
   const pairs = useMemo(() => buildPairs(characters, specs.relationships.rows, specs.speechRules.rows), [characters, specs.relationships.rows, specs.speechRules.rows]);
-  const visiblePairs = pairs.filter((pair) => pairMatches(pair, search.source, search.state, search.tags, search.bare));
+  const visiblePairs = pairs.filter((pair) => pairMatches(pair, search.source, search.marks, search.tags) && (!search.ids || pairItems(pair).some((item) => inScope(item.row.id))));
   // A link may name a relationship or rule id; it opens the pair holding it.
   const pair = pairsView || graph ? pairs.find((candidate) => candidate.key === search.item || pairItems(candidate).some((item) => item.row.id === search.item)) : undefined;
 
@@ -215,16 +217,8 @@ function Knowledge() {
     pair && { kind: '관계·말투', id: pair.key, label: `${pair.from} → ${pair.to}` },
   ]);
 
-  const [checked, setChecked] = useState<Set<string>>(new Set());
-  // Picks belong to one list: leave it and they go.
-  useEffect(() => setChecked(new Set()), [tab, search.display, search.view]);
-  const pick = (ids: string[], on: boolean) =>
-    setChecked((previous) => {
-      const next = new Set(previous);
-      for (const id of ids) if (on) next.add(id);
-      else next.delete(id);
-      return next;
-    });
+  // Picks belong to one list (tab + presentation): each keeps its own, and Back brings them back.
+  const { picked: checked, pick, clear: clearChecked } = usePicked(`knowledge.${projectId}.${tab}.${search.display ?? 'picture'}`);
   const queryClient = useQueryClient();
   const decide = useMutation({
     mutationFn: async ({ items, action }: { items: { kind: Kind; ids: string[] }[]; action: 'confirm' | 'discard' }) => {
@@ -256,7 +250,7 @@ function Knowledge() {
       return { touched };
     },
     onSuccess: (changed, { action }) => {
-      setChecked(new Set());
+      clearChecked();
       toast.success(action === 'confirm' ? `${changed}개를 확정·확인했습니다.` : `${changed}개를 버렸습니다.`);
     },
     onError: (error, _vars, context) => {
@@ -284,7 +278,7 @@ function Knowledge() {
 
   const create = useMutation({
     mutationFn: () => spec.create!(),
-    onSuccess: (row) => set({ item: row.id, source: undefined, state: undefined }),
+    onSuccess: (row) => set({ item: row.id, source: undefined, marks: undefined }),
     onError: fail,
   });
   // Pair-specific creation: a relationship between the pair's people, a speech rule for its names.
@@ -307,22 +301,31 @@ function Knowledge() {
   const knowledgeTags = tagsIn(statuses.data?.tags, 'knowledge');
   const filters: KnowledgeFilterState = {
     source: search.source,
-    status: search.state,
+    marks: search.marks,
     tags: search.tags,
-    bare: search.bare,
     known: knowledgeTags,
-    onChange: (next) => set({ ...('source' in next && { source: next.source }), ...('status' in next && { state: next.status }), ...('tags' in next && { tags: next.tags }), ...('bare' in next && { bare: next.bare || undefined }), item: undefined }),
+    onChange: (next) => set({ ...('source' in next && { source: next.source }), ...('marks' in next && { marks: next.marks }), ...('tags' in next && { tags: next.tags }), item: undefined }),
   };
-  const filtered = Boolean(search.source || search.state || search.tags?.length || search.bare);
+  const filtered = Boolean(search.source || search.marks?.length || search.tags?.length || search.ids);
+  const chips = [...knowledgeFilterChips(filters), ...(search.ids ? [{ key: 'ids', label: `이번 실행 범위 ${search.ids.length}개`, clear: () => set({ ids: undefined, item: undefined }) }] : [])];
   const bulk = (
     <>
       <BulkDecide picked={checked.size} actionable={checkedRows} pending={decide.isPending} onConfirm={() => decide.mutate({ items: checkedItems(), action: 'confirm' })} onDiscard={() => decide.mutate({ items: checkedItems(), action: 'discard' })} />
-      <TagMenu tags={knowledgeTags} rows={pickedRows().map((item) => item.row)} onChange={(tagId, add) => tag.mutate({ items: pickedRows(), tagId, add })} />
+      {/* A person's tags only: the app's own (확인 권장) come off when a person decides. */}
+      <TagMenu
+        tags={knowledgeTags.filter((item) => !item.role)}
+        heading={`고른 ${checked.size}개의 태그`}
+        state={(tagId) => {
+          const on = pickedRows().filter(({ row }) => row.tags?.some((item) => item.id === tagId)).length;
+          return on === 0 ? 'none' : on === pickedRows().length ? 'all' : 'some';
+        }}
+        onToggle={(tagId, add) => tag.mutate({ items: pickedRows(), tagId, add })}
+      />
     </>
   );
   const total = graph ? `인물 ${characters.length.toLocaleString()}명 · 관계 ${visiblePairs.length.toLocaleString()}쌍` : pairsView ? `${visiblePairs.length.toLocaleString()}쌍` : `${rows.length.toLocaleString()}${tab === 'people' ? '명' : '개'}`;
   const count = pending ? undefined : `${total}${unofficialHere > 0 ? ` · 확인 필요 ${unofficialHere.toLocaleString()}` : ''}`;
-  const empty = filtered ? `조건에 맞는 ${KINDS[tableKind]} 항목이 없습니다.` : `${KINDS[tableKind]} 항목이 없습니다. “추가”로 직접 만들거나 “작품 분석”으로 초안을 받으세요.`;
+  const empty = <EmptyState noun={`${KINDS[tableKind]} 항목`} filtered={filtered} hint="“추가”로 직접 만들거나 “작품 분석”으로 초안을 받으세요." />;
 
   return (
     <Page title="자료" flush>
@@ -374,7 +377,7 @@ function Knowledge() {
             <ViewSwitch
               label="보기"
               value={graph ? 'graph' : 'table'}
-              onChange={(value) => set({ display: value === 'table' ? 'table' : undefined, view: undefined, item: undefined }, false)}
+              onChange={(value) => set({ display: value === 'table' ? 'table' : undefined, item: undefined }, false)}
               items={[
                 { value: 'graph', label: '그래프', icon: <Network /> },
                 { value: 'table', label: '표', icon: <Table2 /> },
@@ -384,8 +387,8 @@ function Knowledge() {
           {tab === 'people' && !graph && (
             <ViewSwitch
               label="표 종류"
-              value={search.view ?? 'pairs'}
-              onChange={(value) => set({ view: value === 'characters' ? 'characters' : undefined, item: undefined }, false)}
+              value={search.display === 'characters' ? 'characters' : 'pairs'}
+              onChange={(value) => set({ display: value === 'characters' ? 'characters' : 'table', item: undefined }, false)}
               items={[
                 { value: 'pairs', label: '관계', icon: <ArrowLeftRight /> },
                 { value: 'characters', label: '인물', icon: <Users /> },
@@ -404,7 +407,7 @@ function Knowledge() {
             />
           )}
           {(graph || timeline) && <KnowledgeFilters {...filters} />}
-          <FilterChips chips={knowledgeFilterChips(filters)} />
+          <FilterChips chips={chips} />
           <div className="min-w-0 truncate text-xs text-muted-foreground">
             <JobStatus projectId={projectId} />
           </div>
@@ -433,6 +436,7 @@ function Knowledge() {
             ) : (
               <EventFlow
                 projectId={projectId}
+                filtered={filtered}
                 events={rows.map((row) => ({ ...(row as unknown as FlowEvent), title: text(row.title), summary: text(row.summary), participants: row.participants as string[] }))}
                 selected={search.item}
                 onOpen={(id) => set({ item: id })}

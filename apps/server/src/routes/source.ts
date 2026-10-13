@@ -2,7 +2,10 @@ import { Hono } from 'hono';
 import { and, asc, count, desc, eq, inArray, like, ne, notLike, or, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { isSpecialListener, type NodeType } from '@tw/shared';
-import { scopeRefusal } from '../services/tag-scope.ts';
+import { attachUnitTags } from '../services/tag-scope.ts';
+import { assertProjectRefs } from '../services/project-refs.ts';
+import { humanLinePatch } from '../services/line-patch.ts';
+import { refusesListener, setHumanListener } from '../services/listeners.ts';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import { eachChunk, inList } from '../db/chunk.ts';
@@ -10,8 +13,8 @@ import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { computeLayouts } from '../services/layout.ts';
 import { readView, sectionWithMost } from '../services/graph-views.ts';
-import { applyIssueTags } from '../services/issue-tags.ts';
 import { lineMatches } from '../services/line-matches.ts';
+import { lineMarksSchema } from '@tw/shared';
 import { knownListenerSql, markConditions, sameSource } from '../services/line-marks.ts';
 import { CompleteRefused, completeLine } from '../services/editor-complete.ts';
 import { assistLine } from '../services/editor-assist.ts';
@@ -26,18 +29,12 @@ const listQuery = z.object({
   tagIds: z.string().optional(),
   q: z.string().trim().optional(),
   speaker: z.string().optional(),
-  /** A character name, or "-" for lines whose listener is unknown (none, or an unsure AI guess). */
+  /** A character name (a known listener). */
   listener: z.string().optional(),
   /** Only lines whose status is shown in the review inbox. */
   review: z.enum(['1']).optional(),
-  /** Only lines not yet in a final status. */
-  remaining: z.enum(['1']).optional(),
-  /** Only lines whose current status a run set and no person has looked at since (✦). */
-  by: z.enum(['ai']).optional(),
-  /** Only translated lines whose source (case and end punctuation aside) is translated differently elsewhere. */
-  diverged: z.enum(['1']).optional(),
-  /** Only lines with a person's note. */
-  noted: z.enum(['1']).optional(),
+  /** Automatic marks, comma-separated: lines carrying every one of them (line-marks.ts). */
+  marks: z.string().optional().transform((value) => value?.split(',').filter(Boolean)).pipe(lineMarksSchema.optional()),
   /** A line to show: the page is the one holding it (the response says which offset it used). */
   focus: z.string().optional(),
   offset: z.coerce.number().int().min(0).default(0),
@@ -53,18 +50,9 @@ function unitConditions(projectId: string, query: Omit<z.infer<typeof listQuery>
   for (const tagId of query.tagIds?.split(',').filter(Boolean) ?? []) conditions.push(sql`${s.units.id} in (select unit_id from ${s.unitTags} where tag_id = ${tagId})`);
   if (query.q) conditions.push(textFilter(query.q));
   if (query.speaker) conditions.push(eq(s.units.speaker, query.speaker));
-  // Unknown listener ('-') is the automatic mark; a name must be a known listener.
-  if (query.listener && query.listener !== '-') conditions.push(and(eq(s.units.listener, query.listener), knownListenerSql)!);
+  if (query.listener) conditions.push(and(eq(s.units.listener, query.listener), knownListenerSql)!);
   if (query.review) conditions.push(sql`${s.units.statusId} in (select id from ${s.statuses} where ${s.statuses.projectId} = ${projectId} and ${s.statuses.inReview} = 1)`);
-  conditions.push(
-    ...markConditions(projectId, [
-      ...(query.remaining ? ['remaining' as const] : []),
-      ...(query.by ? ['ai' as const] : []),
-      ...(query.listener === '-' ? ['unknownListener' as const] : []),
-      ...(query.diverged ? ['diverged' as const] : []),
-      ...(query.noted ? ['noted' as const] : []),
-    ]),
-  );
+  conditions.push(...markConditions(projectId, query.marks));
   return and(...conditions)!;
 }
 
@@ -256,20 +244,14 @@ export const sourceRoutes = new Hono<Env>()
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     const body = c.req.valid('json');
-    const refusal = scopeRefusal(db, projectId, body.addTagIds, 'lines');
-    if (refusal) return badRequest(refusal);
+    assertProjectRefs(db, projectId, { unitIds: body.unitIds, statusId: body.statusId, tagIds: [...body.addTagIds, ...body.removeTagIds] });
     db.transaction((tx) => {
+      // A person setting the status (or confirming what a run set) makes it theirs.
+      const patch = humanLinePatch(tx, null, { statusId: body.statusId, checked: body.checked });
       // Chunked: a selection can be a whole project, and SQLite caps bound variables per statement.
-      eachChunk(body.unitIds, (slice) => {
-        // A person setting the status (or confirming what a run set) makes it theirs.
-        if (body.statusId || body.checked) tx.update(s.units).set({ ...(body.statusId && { statusId: body.statusId }), statusBy: 'human', statusRunId: null }).where(and(eq(s.units.projectId, projectId), inArray(s.units.id, slice))).run();
-        if (body.removeTagIds.length) tx.delete(s.unitTags).where(and(inArray(s.unitTags.unitId, slice), inArray(s.unitTags.tagId, body.removeTagIds))).run();
-        if (body.listener !== undefined) tx.update(s.units).set({ listener: body.listener, listenerOrigin: 'human', listenerConfidence: null }).where(and(eq(s.units.projectId, projectId), eq(s.units.kind, 'dialogue'), inArray(s.units.id, slice))).run();
-      });
-      if (body.addTagIds.length)
-        eachChunk(body.unitIds, (slice) => {
-          tx.insert(s.unitTags).values(slice.flatMap((unitId) => body.addTagIds.map((tagId) => ({ unitId, tagId })))).onConflictDoNothing().run();
-        }, Math.max(1, Math.floor(30_000 / (body.addTagIds.length * 2))));
+      if (Object.keys(patch).length) eachChunk(body.unitIds, (slice) => tx.update(s.units).set(patch).where(and(eq(s.units.projectId, projectId), inArray(s.units.id, slice))).run());
+      attachUnitTags(tx, projectId, body.unitIds, { add: body.addTagIds, remove: body.removeTagIds }, { onMisplaced: 'refuse' });
+      if (body.listener !== undefined) setHumanListener(tx, body.unitIds, body.listener);
     });
     events.changed(projectId, 'units', 'statuses');
     return c.json({ ok: true });
@@ -354,30 +336,26 @@ export const sourceRoutes = new Hono<Env>()
     const unitId = c.req.param('unitId');
     const body = c.req.valid('json');
     const unit = found(db.select().from(s.units).where(eq(s.units.id, unitId)).get(), '대사');
+    assertProjectRefs(db, unit.projectId, { statusId: body.statusId, tagIds: body.tagIds, candidateId: body.candidateId });
+    if (refusesListener(unit, body.listener)) badRequest('나레이션에는 청자가 없습니다.');
     db.transaction((tx) => {
-      const patch: Partial<typeof s.units.$inferInsert> = {};
+      const change: Parameters<typeof humanLinePatch>[2] = { statusId: body.statusId };
       if (body.translation !== undefined) {
         const candidate = tx.insert(s.candidates).values({ unitId, text: body.translation, origin: 'human' }).returning().get();
-        patch.translation = body.translation;
-        patch.candidateId = candidate.id;
+        change.translation = body.translation;
+        change.candidateId = candidate.id;
       } else if (body.candidateId) {
         const candidate = found(tx.select().from(s.candidates).where(and(eq(s.candidates.id, body.candidateId), eq(s.candidates.unitId, unitId))).get(), '후보');
-        patch.translation = candidate.text;
-        patch.candidateId = candidate.id;
+        change.translation = candidate.text;
+        change.candidateId = candidate.id;
       }
-      if (body.statusId) patch.statusId = body.statusId;
-      // Problem-type tags described the old text.
-      if (patch.translation !== undefined && patch.translation !== unit.translation) applyIssueTags(tx, unit.projectId, unitId, { clear: 'all' });
-      // A person's translation or status: the line's status is theirs now (docs/DESIGN.md 3.5).
-      if (patch.statusId || patch.translation !== undefined) Object.assign(patch, { statusBy: 'human', statusRunId: null });
-      if (body.listener !== undefined) Object.assign(patch, { listener: body.listener, listenerOrigin: 'human', listenerConfidence: null });
+      const patch = humanLinePatch(tx, unit, change);
       if (body.note !== undefined) patch.note = body.note.trim();
       if (Object.keys(patch).length) tx.update(s.units).set(patch).where(eq(s.units.id, unitId)).run();
+      if (body.listener !== undefined) setHumanListener(tx, [unitId], body.listener);
       if (body.tagIds) {
-        const refusal = scopeRefusal(tx, unit.projectId, body.tagIds, 'lines');
-        if (refusal) return badRequest(refusal);
-        tx.delete(s.unitTags).where(eq(s.unitTags.unitId, unitId)).run();
-        if (body.tagIds.length) tx.insert(s.unitTags).values(body.tagIds.map((tagId) => ({ unitId, tagId }))).run();
+        const current = tx.select({ tagId: s.unitTags.tagId }).from(s.unitTags).where(eq(s.unitTags.unitId, unitId)).all().map((row) => row.tagId);
+        attachUnitTags(tx, unit.projectId, [unitId], { add: body.tagIds, remove: current.filter((id) => !body.tagIds!.includes(id)) }, { onMisplaced: 'refuse' });
       }
     });
     events.changed(unit.projectId, 'units', 'statuses');

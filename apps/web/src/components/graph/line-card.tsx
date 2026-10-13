@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { ChevronDown, ChevronUp, PanelRightOpen, StickyNote, X } from 'lucide-react';
-import { LineHints } from '@/components/script/line-list';
+import { LineHints } from '@/components/script/line-row';
 import { TranslationEditor } from '@/components/translation-editor';
 import { LineSourceText } from '@/components/editor/source-text';
 import { Button } from '@/components/ui/button';

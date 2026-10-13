@@ -9,6 +9,7 @@ import { Page } from '@/components/page';
 import { StatusBar, StatusDot } from '@/components/status';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { AUTO_MARKS, termMarksOf } from '@tw/shared';
 import { q, useReviewTagId } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
@@ -51,7 +52,6 @@ function Home() {
   const finalIds = new Set(statusList.filter((status) => status.kind === 'final').map((status) => status.id));
   const done = Object.entries(counts).reduce((sum, [id, value]) => sum + (finalIds.has(id) ? value : 0), 0);
   const initial = statusList.find((status) => status.kind === 'initial');
-  const finals = statusList.filter((status) => status.kind === 'final');
   const aiDecided = project.data?.aiDecided;
   const stopped = runs.data?.filter((run) => run.status === 'paused') ?? [];
   const recent = [
@@ -86,48 +86,55 @@ function Home() {
       title: '청자 미상 대사',
       description: '누구에게 하는 말인지 모르면 말투 규칙을 쓸 수 없습니다. 대사 패널에서 고르거나 청자 추정 워크플로를 돌리세요.',
       count: groups.data?.reduce((sum, group) => sum + group.unknownListeners, 0) ?? 0,
-      link: <Link to="/p/$projectId/script" params={{ projectId }} search={{ listener: '-' }} />,
+      link: <Link to="/p/$projectId/script" params={{ projectId }} search={{ marks: ['unknownListener'] }} />,
     },
     {
       key: 'rules',
       icon: <MessageSquareQuote />,
       title: '확인 권장 말투 규칙',
       description: '대사가 많은 쌍이거나 근거가 엇갈리는 규칙. 틀리면 많은 줄의 번역이 틀립니다.',
-      count: rules.data?.filter((rule) => rule.statusBy === 'ai' && rule.tags.some((tag) => tag.id === reviewTag)).length ?? 0,
+      count: rules.data?.filter((rule) => rule.tags.some((tag) => tag.id === reviewTag)).length ?? 0,
       link: <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', ...(reviewTag && { tags: [reviewTag] }) }} />,
     },
-    // What AI decided and nobody has looked at (✦, docs/DESIGN.md 3.5).
+    // What AI decided and nobody has looked at (✦, docs/DESIGN.md 3.5): each count is the #AI가 정함 mark of what its link opens.
     {
       key: 'ai-lines',
       icon: <Sparkles />,
-      title: 'AI가 확정한 대사',
-      description: '워크플로가 최종 상태로 보낸 줄.',
+      title: `${AUTO_MARKS.ai.name} 대사`,
+      description: '워크플로가 상태를 정하고 아직 사람이 확인하지 않은 줄.',
       count: aiDecided?.lines ?? 0,
-      link: <Link to="/p/$projectId/script" params={{ projectId }} search={{ by: 'ai', status: finals.length === 1 ? finals[0].id : undefined }} />,
+      link: <Link to="/p/$projectId/script" params={{ projectId }} search={{ marks: ['ai'] }} />,
     },
-    {
-      key: 'ai-knowledge',
+    ...(
+      [
+        ['documents', '문서', { tab: 'documents' }],
+        ['characters', '인물', { tab: 'people', display: 'characters' }],
+        ['pairs', '관계·말투 규칙', { tab: 'people' }],
+        ['events', '사건', { tab: 'events' }],
+      ] as const
+    ).map(([key, name, where]) => ({
+      key: `ai-${key}`,
       icon: <Sparkles />,
-      title: 'AI가 확정한 자료',
-      description: '문맥에 쓰이고 있는 AI 자료.',
-      count: aiDecided?.knowledge ?? 0,
-      link: <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', state: 'ai' }} />,
-    },
+      title: `${AUTO_MARKS.ai.name} ${name}`,
+      description: key === 'pairs' ? '문맥에 쓰이지만 아직 사람이 확인하지 않은 AI 자료(관계·말투 규칙 항목 수). 표는 쌍으로 묶어 보여 줍니다.' : '문맥에 쓰이지만 아직 사람이 확인하지 않은 AI 자료.',
+      count: aiDecided?.knowledge[key] ?? 0,
+      link: <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ display: 'table', ...where, marks: ['ai'] }} />,
+    })),
     {
       key: 'ai-terms',
       icon: <Sparkles />,
-      title: 'AI가 확정한 용어',
-      description: '문맥에 쓰이고 있는 AI 용어.',
+      title: `${AUTO_MARKS.ai.name} 용어`,
+      description: '문맥에 쓰이고 있지만 아직 사람이 확인하지 않은 AI 용어.',
       count: aiDecided?.terms ?? 0,
-      link: <Link to="/p/$projectId/glossary" params={{ projectId }} search={{ state: 'ai' }} />,
+      link: <Link to="/p/$projectId/glossary" params={{ projectId }} search={{ marks: ['ai'] }} />,
     },
     {
       key: 'terms',
       icon: <BookMarked />,
       title: '후보 용어',
       description: '확정해야 번역 문맥에 들어갑니다.',
-      count: terms.data?.filter((term) => term.status === 'candidate').length ?? 0,
-      link: <Link to="/p/$projectId/glossary" params={{ projectId }} search={{ state: 'candidate' } as never} />,
+      count: terms.data?.filter((term) => termMarksOf(term).includes('candidate')).length ?? 0,
+      link: <Link to="/p/$projectId/glossary" params={{ projectId }} search={{ marks: ['candidate'] }} />,
     },
     {
       key: 'untranslated',

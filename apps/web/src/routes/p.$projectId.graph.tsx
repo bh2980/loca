@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Maximize, Minus, Plus, Search } from 'lucide-react';
+import { Maximize, Minus, Plus } from 'lucide-react';
 import { GraphCanvas, type GraphCanvasHandle, type NodeInfo, type Viewport } from '@/components/graph/graph-canvas';
 import { LINE_CARD_WIDTH, LineCard } from '@/components/graph/line-card';
 import { FlowPane, SceneNodeDetail } from '@/components/graph/node-detail';
@@ -11,7 +11,7 @@ import { TypeLegend } from '@/components/graph/type-legend';
 import { Page } from '@/components/page';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
-import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
+import { SearchInput } from '@/components/toolbar';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
@@ -19,6 +19,7 @@ import { Switch } from '@/components/ui/switch';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { useSize } from '@/hooks/use-size';
 import { q } from '@/lib/queries';
+import { useReportView } from '@/lib/view-context';
 import { SplitPane } from '@/components/split-pane';
 import { PaneHeader } from '@/components/pane-header';
 
@@ -39,6 +40,8 @@ interface GraphSearch {
   mark?: string;
   /** The line open in the translation card beside its node (dialogue graph). */
   edit?: string;
+  /** Node finder text (matches are listed under the box). */
+  q?: string;
 }
 
 export const Route = createFileRoute('/p/$projectId/graph')({
@@ -52,6 +55,7 @@ export const Route = createFileRoute('/p/$projectId/graph')({
     mark: typeof raw.mark === 'string' && raw.mark ? raw.mark : undefined,
     jump: raw.jump === true || raw.jump === 'true' ? true : undefined,
     edit: typeof raw.edit === 'string' && raw.edit ? raw.edit : undefined,
+    q: typeof raw.q === 'string' && raw.q ? raw.q : undefined,
   }),
   component: GraphPage,
 });
@@ -87,7 +91,8 @@ function GraphPage() {
   const marking = dialogue && !!search.mark && mark.isPending;
   const [container, size] = useSize<HTMLDivElement>();
   const canvas = useRef<GraphCanvasHandle>(null);
-  const [find, setFind] = useState('');
+  const find = search.q ?? '';
+  const setFind = (q: string | undefined) => void navigate({ search: (previous) => ({ ...previous, q }), replace: true });
 
   const info = useMemo(() => {
     const types = graph.data?.nodeTypes ?? {};
@@ -207,6 +212,9 @@ function GraphPage() {
   // Where the card stands: the node's box (a folded run's block); a choice has no box of its own, so it stands by what it leads to.
   const anchorOf = (nodeId: string) => shown(layout?.edges.find((edge) => edge.via === nodeId)?.to ?? nodeId);
   const anchorId = editAt >= 0 ? anchorOf(flowLines[editAt].nodeId) : undefined;
+  // The line open in the translation card (the selected node reports itself from its pane).
+  const editUnit = useQuery({ ...q.unit(search.edit ?? ''), enabled: !!search.edit });
+  useReportView('graph-line', [editUnit.data && { kind: '대사', id: editUnit.data.id, label: `${editUnit.data.key} · ${editUnit.data.source.slice(0, 40)}` }]);
   const edit = (unitId: string | undefined) => void navigate({ search: (previous) => ({ ...previous, edit: unitId }), replace: true });
   // After stepping past the selection's end, the next selection opens on its first (or last) line
   // once its lines have arrived.
@@ -402,12 +410,7 @@ function GraphPage() {
             <>
               <div className="absolute top-3 left-3 flex w-[28rem] items-start gap-2">
                 <div className="min-w-0 flex-1">
-                <InputGroup className="bg-background shadow-sm">
-                  <InputGroupAddon>
-                    <Search />
-                  </InputGroupAddon>
-                  <InputGroupInput value={find} onChange={(event) => setFind(event.target.value)} placeholder="노드 찾기 (키·라벨·첫 대사)" />
-                </InputGroup>
+                <SearchInput value={search.q} onChange={setFind} placeholder="노드 찾기 (키·라벨·첫 대사)" className="w-full bg-background shadow-sm" />
                 {matches.length > 0 && (
                   <ul className="mt-1 max-h-72 overflow-auto rounded-md border bg-popover p-1 text-sm shadow-md">
                     {matches.map((node) => (
@@ -419,7 +422,7 @@ function GraphPage() {
                           onClick={() => {
                             select(node.id);
                             canvas.current?.focus(shown(node.id));
-                            setFind('');
+                            setFind(undefined);
                           }}
                         >
                           <span className="text-xs text-muted-foreground">{KIND_LABEL[node.kind] ?? node.kind}</span> {node.preview ?? node.label ?? node.key}

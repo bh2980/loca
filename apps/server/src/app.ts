@@ -4,7 +4,7 @@ import { compress } from 'hono/compress';
 import { HTTPException } from 'hono/http-exception';
 import { streamSSE } from 'hono/streaming';
 import type { Deps, Env } from './context.ts';
-import { events, type ChangeEvent } from './events.ts';
+import { events, trackChanges, type ChangeEvent } from './events.ts';
 import { connectionRoutes, modelTestRoutes } from './routes/ai-settings.ts';
 import { chatRoutes } from './routes/chat.ts';
 import { knowledgeRoutes } from './routes/knowledge.ts';
@@ -20,7 +20,8 @@ export function createApp(deps: Deps) {
   const api = new Hono<Env>()
     .use(async (c, next) => {
       c.set('deps', deps);
-      await next();
+      const changed = await trackChanges(next);
+      if (changed.size) c.res.headers.set('x-changed', [...changed].join(','));
     })
     .get('/events', (c) =>
       streamSSE(c, async (stream) => {

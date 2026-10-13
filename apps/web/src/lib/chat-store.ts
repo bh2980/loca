@@ -1,4 +1,5 @@
 import { Chat } from '@ai-sdk/react';
+import { apiFetch, notifyChanged } from './api';
 import { DefaultChatTransport, lastAssistantMessageIsCompleteWithApprovalResponses, lastAssistantMessageIsCompleteWithToolCalls, type UIMessage } from 'ai';
 
 /** What is on screen when a message is sent; the panel keeps it current while it is open. */
@@ -13,6 +14,9 @@ export interface ChatView {
  * cut off a reply that is still coming in. A conversation is created once per session from what
  * the server saved, and keeps its messages, status and stream until the session is deleted.
  */
+/** Every topic: an approved chat tool can write almost anywhere (statuses, runs, graph views…), so a finished turn refetches them all rather than keep a list in step with the tools. */
+const CHAT_TOPICS = ['projects', 'units', 'graph', 'statuses', 'terms', 'knowledge', 'workflows', 'runs', 'chat', 'proposals', 'analysis', 'calls'];
+
 const chats = new Map<string, { chat: Chat<UIMessage>; view: { current: ChatView | null } }>();
 
 export function chatFor(sessionId: string, saved: UIMessage[]) {
@@ -22,8 +26,11 @@ export function chatFor(sessionId: string, saved: UIMessage[]) {
   const chat = new Chat<UIMessage>({
     id: sessionId,
     messages: saved,
+    // A streamed answer cannot carry x-changed, so what a turn changed is refetched when it ends.
+    onFinish: () => notifyChanged(CHAT_TOPICS),
     transport: new DefaultChatTransport({
       api: `/api/chat/${sessionId}/stream`,
+      fetch: apiFetch,
       // The view is read at send time, so it describes what is on screen right now.
       prepareSendMessagesRequest: ({ messages }) => ({ body: { messages, view: view.current ?? undefined } }),
     }),

@@ -1,8 +1,7 @@
 import { tool } from 'ai';
-import { clearReview } from './knowledge-tags.ts';
 import { and, asc, count, desc, eq, inArray, like, ne, or } from 'drizzle-orm';
 import { z } from 'zod';
-import { AI_OUTPUTS, AI_PRESETS, aiNodeConfigSchema, batchChangeSchema, CONNECTION_KIND_INFO, FUNCTIONS, lineFilterSchema, NODE_TYPES, sourceOf, workflowDefinitionSchema } from '@tw/shared';
+import { AI_OUTPUTS, AI_PRESETS, aiNodeConfigSchema, AUTO_MARKS, batchChangeSchema, CONDITION_MARK_IDS, CONNECTION_KIND_INFO, FUNCTIONS, LINE_MARK_IDS, lineFilterSchema, lineMarksSchema, NODE_TYPES, sourceOf, workflowDefinitionSchema } from '@tw/shared';
 import { z as zod } from 'zod';
 import type { Db } from '../db/index.ts';
 import { byPerson } from './status-by.ts';
@@ -12,14 +11,18 @@ import { events } from '../events.ts';
 import { characterInput, documentInput, eventInput, relationshipInput, speechRuleInput, termInput } from '../routes/knowledge.ts';
 import { describeRule, knownListener, speechRuleIndex } from './speech.ts';
 import { workflowIssues } from '../routes/workflows.ts';
+import { statusInput, tagInput } from '../routes/projects.ts';
 import { mentions } from './context.ts';
 import { createRunInSteps, selectRunUnits } from '../engine/runner.ts';
 import { snapshotWorkflowModels } from './routes.ts';
 import { readWebPage, webSearch } from './web.ts';
 import { pickNodes, saveView, sectionWithMost, viewSection, VIEW_LIMIT } from './graph-views.ts';
-import { addNameTerms } from './terms.ts';
+import { addNameTerms, listTerms, saveTerm, termFilterInput } from './terms.ts';
+import { annotateKnowledge, knowledgeFilterInput } from './knowledge-list.ts';
+import { findTerm, termUsage } from './term-usage.ts';
+import { tagOverview } from './tag-overview.ts';
+import { planRun } from './run-plan.ts';
 import { applyBatch, checkScript, findLines, lineContext, normalizeBatch, runStats, sceneStats, scenesWith, validateBatch } from './script-query.ts';
-import { lineMarksSchema } from './line-marks.ts';
 
 /** Lines of a batch proposal checked and applied per step when it is accepted. */
 const APPLY_CHUNK = 500;
@@ -113,9 +116,9 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
     }),
     find_lines: tool({
       description:
-        'Find lines with any combination of filters: q (text), speakers (character name/alias/speaker key — all their lines), listeners (lines addressed to them; "-" = listener unknown), mentions (lines that mention a character, incl. {ALIAS} placeholders), groups (scene/group key, id or title), sections (chapter/folder), groupKind, kind, statuses, tags, translated, keys. Returns total and one page with each line\'s key and rev; page with offset until total. Prefer one broad call over many small ones.',
+        'Find lines with any combination of filters: q (text), speakers (character name/alias/speaker key — all their lines), listeners (lines addressed to them; "-" = listener unknown, the same as marks unknownListener), mentions (lines that mention a character, incl. {ALIAS} placeholders), groups (scene/group key, id or title), sections (chapter/folder), groupKind, kind, statuses, tags, marks (automatic marks all of which the line has: ' + LINE_MARK_IDS.join(', ') + '), translated, keys. Returns total and one page with each line\'s key, rev and marks (the automatic marks it carries); page with offset until total. Prefer one broad call over many small ones.',
       inputSchema: lineFilterSchema,
-      execute: (filter) => findLines(db, projectId, filter),
+      execute: (filter) => findLines(db, projectId, filter, { diverged: true }),
     }),
     scenes_with: tool({
       description: 'Scenes/groups where every given speaker has lines (e.g. where Alice and Bob talk), with line counts per speaker.',
@@ -170,61 +173,67 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
     }),
     list_characters: tool({
       description:
-        'Stored characters (profile, how they speak, whether they are the player character) and their relationships (with changes). Each item says its status (confirmed = used as AI context, candidate = not yet), statusBy (ai = AI set that status and no person has looked yet, human = a person decided) and source (who wrote the content: analysis, workflow, script, import, human).',
-      inputSchema: z.object({}),
-      execute: () => {
-        const characters = db.select().from(s.characters).where(eq(s.characters.projectId, projectId)).all();
-        const names = new Map(characters.map((character) => [character.id, character.name]));
+        'Stored characters (profile, how they speak, whether they are the player character) and their relationships (with changes). Each item says its status (confirmed = used as AI context, candidate = not yet), statusBy (ai = AI set that status and no person has looked yet, human = a person decided), source (who wrote the content: analysis, workflow, script, import, human), marks (candidate, ai, noEvidence) and tags. Filter with marks / unreviewed (candidate or AI-decided, i.e. not yet seen by a person) / tags.',
+      inputSchema: z.object(knowledgeFilterInput),
+      execute: (filter) => {
+        const characters = db.select().from(s.characters).where(and(eq(s.characters.projectId, projectId), ne(s.characters.status, 'rejected'))).all();
+        const names = new Map(db.select({ id: s.characters.id, name: s.characters.name }).from(s.characters).where(eq(s.characters.projectId, projectId)).all().map((character) => [character.id, character.name]));
+        const relationships = db.select().from(s.relationships).where(and(eq(s.relationships.projectId, projectId), ne(s.relationships.status, 'rejected'))).all();
         return {
-          characters: characters.map(({ id, name, aliases, profile, speech, player, status, origin, jobId, statusBy }) => ({ id, name, aliases, profile, speech, player, status, statusBy, source: sourceOf({ origin, jobId }) })),
-          relationships: db
-            .select()
-            .from(s.relationships)
-            .where(eq(s.relationships.projectId, projectId))
-            .all()
-            .map((rel) => ({ id: rel.id, from: names.get(rel.fromId), to: names.get(rel.toId), kind: rel.kind, description: rel.description, mutual: rel.mutual, changes: rel.changes, status: rel.status, source: sourceOf(rel) })),
+          characters: annotateKnowledge(db, projectId, 'characters', characters, filter).map(({ id, name, aliases, profile, speech, player, status, origin, jobId, statusBy, marks, tags }) => ({ id, name, aliases, profile, speech, player, status, statusBy, source: sourceOf({ origin, jobId }), marks, tags })),
+          relationships: annotateKnowledge(db, projectId, 'relationships', relationships, filter).map((rel) => ({ id: rel.id, from: names.get(rel.fromId), to: names.get(rel.toId), kind: rel.kind, description: rel.description, mutual: rel.mutual, changes: rel.changes, status: rel.status, statusBy: rel.statusBy, source: sourceOf(rel), marks: rel.marks, tags: rel.tags })),
         };
       },
     }),
     list_speech_rules: tool({
       description:
-        'Korean speech rules per speaker → listener direction: level (hasoseo 하소서체, hasipsio 하십시오체, hao 하오체, hage 하게체, haera 해라체, haeyo 해요체, hae 해체/반말, other), form of address, and startKey (the rule applies from that line on; null = from the beginning; several rules for a pair are stretches in script order). Only confirmed rules reach translation prompts.',
-      inputSchema: z.object({ speaker: z.string().optional(), listener: z.string().optional() }),
-      execute: ({ speaker, listener }) =>
-        db
-          .select()
-          .from(s.speechRules)
-          .where(eq(s.speechRules.projectId, projectId))
-          .all()
+        'Korean speech rules per speaker → listener direction: level (hasoseo 하소서체, hasipsio 하십시오체, hao 하오체, hage 하게체, haera 해라체, haeyo 해요체, hae 해체/반말, other), form of address, and startKey (the rule applies from that line on; null = from the beginning; several rules for a pair are stretches in script order). Only confirmed rules reach translation prompts. Each rule has status, statusBy, marks (candidate, ai, noEvidence) and tags; filter with marks / unreviewed / tags.',
+      inputSchema: z.object({ speaker: z.string().optional(), listener: z.string().optional(), ...knowledgeFilterInput }),
+      execute: ({ speaker, listener, ...filter }) =>
+        annotateKnowledge(db, projectId, 'speechRules', db.select().from(s.speechRules).where(and(eq(s.speechRules.projectId, projectId), ne(s.speechRules.status, 'rejected'))).all(), filter)
           .filter((rule) => (!speaker || rule.fromName.toLowerCase() === speaker.toLowerCase()) && (!listener || rule.toName.toLowerCase() === listener.toLowerCase()))
-          .map(({ id, fromName, toName, level, address, note, startKey, status, origin, jobId, statusBy, evidence }) => ({ id, from: fromName, to: toName, level, address, note, startKey, status, statusBy, source: sourceOf({ origin, jobId }), evidence })),
+          .map(({ id, fromName, toName, level, address, note, startKey, status, origin, jobId, statusBy, evidence, marks, tags }) => ({ id, from: fromName, to: toName, level, address, note, startKey, status, statusBy, source: sourceOf({ origin, jobId }), evidence, marks, tags })),
     }),
     list_events: tool({
-      description: 'Stored story events: summary, cause, outcome, participants and the lines that show them, with status and source.',
-      inputSchema: z.object({}),
-      execute: () =>
-        db
-          .select()
-          .from(s.storyEvents)
-          .where(eq(s.storyEvents.projectId, projectId))
-          .all()
-          .map(({ id, title, summary, cause, outcome, participants, evidence, status, origin, jobId, statusBy }) => ({ id, title, summary, cause, outcome, participants, evidence, status, statusBy, source: sourceOf({ origin, jobId }) })),
+      description: 'Stored story events: summary, cause, outcome, participants and the lines that show them, with status, statusBy, source, marks (candidate, ai, noEvidence) and tags. Filter with marks / unreviewed / tags.',
+      inputSchema: z.object(knowledgeFilterInput),
+      execute: (filter) =>
+        annotateKnowledge(db, projectId, 'events', db.select().from(s.storyEvents).where(and(eq(s.storyEvents.projectId, projectId), ne(s.storyEvents.status, 'rejected'))).all(), filter).map(
+          ({ id, title, summary, cause, outcome, participants, evidence, status, origin, jobId, statusBy, marks, tags }) => ({ id, title, summary, cause, outcome, participants, evidence, status, statusBy, source: sourceOf({ origin, jobId }), marks, tags }),
+        ),
     }),
     read_documents: tool({
-      description: 'Story, world-building, style and note documents (full text).',
-      inputSchema: z.object({ ids: z.array(z.string()).optional() }),
-      execute: ({ ids }) => db.select().from(s.documents).where(and(eq(s.documents.projectId, projectId), ids?.length ? inList(s.documents.id, ids) : undefined)).all(),
+      description: 'Story, world-building, style and note documents (full text) with status, statusBy, marks (candidate, ai, noEvidence) and tags. Filter with ids / marks / unreviewed / tags.',
+      inputSchema: z.object({ ids: z.array(z.string()).optional(), ...knowledgeFilterInput }),
+      execute: ({ ids, ...filter }) =>
+        annotateKnowledge(db, projectId, 'documents', db.select().from(s.documents).where(and(eq(s.documents.projectId, projectId), ne(s.documents.status, 'rejected'), ids?.length ? inList(s.documents.id, ids) : undefined)).all(), filter),
     }),
     list_terms: tool({
-      description: 'Glossary entries (not rejected ones), optionally filtered. Returns total and one page; use offset to page through.',
-      inputSchema: z.object({ q: z.string().optional(), ...page }),
-      execute: ({ q, offset, limit }) => {
-        const where = and(eq(s.terms.projectId, projectId), ne(s.terms.status, 'rejected'), q ? or(like(s.terms.source, `%${q}%`), like(s.terms.target, `%${q}%`)) : undefined);
-        return {
-          total: db.select({ count: count() }).from(s.terms).where(where).get()!.count,
-          terms: db.select({ id: s.terms.id, source: s.terms.source, target: s.terms.target, note: s.terms.note, status: s.terms.status }).from(s.terms).where(where).orderBy(asc(s.terms.source)).limit(limit).offset(offset).all(),
-        };
+      description:
+        'Glossary entries (not rejected ones) as the glossary page lists them: source, target, note, status (candidate = not used yet), statusBy (ai = no person has decided), lines (how many script lines use it, 나온 줄), examples (keys of its first lines), marks (candidate, ai, emptyTarget = no Korean form, unused = not in the script) and tags. Filter with q, marks (candidate + ai = either), unreviewed (candidate or AI-decided), tags (all). Returns total and one page; use offset to page through.',
+      inputSchema: z.object({ ...termFilterInput, ...page }),
+      execute: (input) => listTerms(db, projectId, input),
+    }),
+    term_usage: tool({
+      description: 'The script lines whose source uses one glossary term (whole word, any case; the same match as the glossary page): what to re-run or check after changing it. term is its id or its source.',
+      inputSchema: z.object({ term: z.string().min(1), limit: z.number().int().min(1).max(1000).default(100) }),
+      execute: ({ term, limit }) => {
+        const found = findTerm(db, projectId, term);
+        if (!found) return { error: `용어를 찾을 수 없습니다: ${term}` };
+        const rows = termUsage(db, projectId, found);
+        return { term: { id: found.id, source: found.source, target: found.target, status: found.status }, count: rows.length, lines: rows.slice(0, limit).map((row) => ({ key: row.key, scene: row.groupTitle, speaker: row.speaker, source: row.source, translation: row.translation })) };
       },
+    }),
+    list_tags: tool({
+      description: 'The project\'s tags and the built-in automatic marks (#name in the app), each with where it can be put (scope/places: lines 대사, knowledge 자료, terms 용어집), whether it is built in, its color and how many lines and knowledge items carry it. A tag can only be put where its scope allows; other places are refused.',
+      inputSchema: z.object({}),
+      execute: () => tagOverview(db, projectId),
+    }),
+    plan_run: tool({
+      description:
+        'The run dialog\'s preview for a workflow and scope, without starting anything or calling a model: lines in scope, batches, requests and tokens per AI node, and readiness (dialogue lines with unknown listener, speech rules and glossary terms no person has confirmed, with their names, and frequent speaker pairs without a rule). workflow is an id or name; scope: groups (key/id/title), keys (line keys), tags (all), marks (all) — combined with AND like the dialog; none = every line the entry node accepts. Use it before proposing start_run.',
+      inputSchema: z.object({ workflow: z.string().min(1), groups: z.array(z.string()).optional(), keys: z.array(z.string()).optional(), tags: z.array(z.string()).optional(), marks: lineMarksSchema.optional(), ignoreStatus: z.boolean().optional() }),
+      execute: (input) => planRun(db, projectId, input),
     }),
     harness_reference: tool({
       description: 'How workflows work: node types, their exits, the condition data model, available AI connections (with each default model and the efforts it takes), statuses and tags. Read this before proposing a workflow.',
@@ -244,7 +253,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
           functions: Object.fromEntries(Object.entries(FUNCTIONS).map(([name, info]) => [name, { label: info.label, description: info.description, params: zod.toJSONSchema(info.params) }])),
           scriptContract: 'export default function run(input) where input = {unit, candidate, issues, outputs, visits}; return {port?, candidate?, data?, issues?}. Runs in a sandbox without network.',
         },
-        conditionData: 'JSON Logic over {visits: {[nodeId]: count}, outputs: {[nodeId]: output}, candidate, issues, unit: {kind, speaker, statusId, tagIds, marks}} (marks: any of remaining, ai, unknownListener, noted; test with {"in": ["ai", {"var": "unit.marks"}]}). Example: {"<": [{"var": "visits.review"}, 3]} or {"==": [{"var": "outputs.review.passed"}, true]}',
+        conditionData: `JSON Logic over {visits: {[nodeId]: count}, outputs: {[nodeId]: output}, candidate, issues, unit: {kind, speaker, statusId, tagIds, marks}} (marks: any of ${CONDITION_MARK_IDS.join(', ')}; test with {"in": ["ai", {"var": "unit.marks"}]}). Example: {"<": [{"var": "visits.review"}, 3]} or {"==": [{"var": "outputs.review.passed"}, true]}`,
         rules: [
           'Exactly one entry node.',
           'Every exit except "error" must be connected; an unconnected "out" only warns (the line stops there).',
@@ -292,7 +301,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         const existing = !id && characterByName(input.name);
         if (existing) return { ok: false, error: `같은 이름의 인물이 이미 있습니다. id=${existing.id}로 수정 제안을 다시 하세요.` };
         if (id) {
-          if (!db.update(s.characters).set({ ...input, ...byPerson(db, s.characters, id, input) }).where(and(eq(s.characters.id, id), eq(s.characters.projectId, projectId))).run().changes) return { ok: false, error: '없는 인물입니다.' };
+          if (!db.update(s.characters).set({ ...input, ...byPerson(db, s.characters, projectId, id, input) }).where(and(eq(s.characters.id, id), eq(s.characters.projectId, projectId))).run().changes) return { ok: false, error: '없는 인물입니다.' };
         } else id = db.insert(s.characters).values({ ...input, projectId }).returning().get().id;
         const saved = db.select({ name: s.characters.name, aliases: s.characters.aliases }).from(s.characters).where(eq(s.characters.id, id)).get();
         if (saved) addNameTerms(db, projectId, saved);
@@ -309,7 +318,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         if (!a || !b) return { ok: false, error: `인물을 먼저 만들어야 합니다: ${!a ? from : to}` };
         const values = { ...input, fromId: a.id, toId: b.id };
         if (id) {
-          if (!db.update(s.relationships).set({ ...values, ...byPerson(db, s.relationships, id, values) }).where(and(eq(s.relationships.id, id), eq(s.relationships.projectId, projectId))).run().changes) return { ok: false, error: '없는 관계입니다.' };
+          if (!db.update(s.relationships).set({ ...values, ...byPerson(db, s.relationships, projectId, id, values) }).where(and(eq(s.relationships.id, id), eq(s.relationships.projectId, projectId))).run().changes) return { ok: false, error: '없는 관계입니다.' };
         } else id = db.insert(s.relationships).values({ ...values, projectId }).returning().get().id;
         changed('knowledge');
         return { ok: true, id };
@@ -322,9 +331,8 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       needsApproval: true,
       execute: ({ id, ...input }) => {
         if (id) {
-          // Accepted by a person: like an edit in the app, a person set it and it is no longer marked for a look.
-          if (!db.update(s.speechRules).set({ ...input, ...byPerson(db, s.speechRules, id, input) }).where(and(eq(s.speechRules.id, id), eq(s.speechRules.projectId, projectId))).run().changes) return { ok: false, error: '없는 말투 규칙입니다.' };
-          clearReview(db, projectId, 'speechRules', [id]);
+          // Accepted by a person: like an edit in the app (byPerson also takes 확인 권장 off).
+          if (!db.update(s.speechRules).set({ ...input, ...byPerson(db, s.speechRules, projectId, id, input) }).where(and(eq(s.speechRules.id, id), eq(s.speechRules.projectId, projectId))).run().changes) return { ok: false, error: '없는 말투 규칙입니다.' };
         } else id = db.insert(s.speechRules).values({ ...input, projectId }).returning().get().id;
         changed('knowledge');
         return { ok: true, id };
@@ -336,7 +344,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       needsApproval: true,
       execute: ({ id, ...input }) => {
         if (id) {
-          if (!db.update(s.storyEvents).set({ ...input, ...byPerson(db, s.storyEvents, id, input) }).where(and(eq(s.storyEvents.id, id), eq(s.storyEvents.projectId, projectId))).run().changes) return { ok: false, error: '없는 사건입니다.' };
+          if (!db.update(s.storyEvents).set({ ...input, ...byPerson(db, s.storyEvents, projectId, id, input) }).where(and(eq(s.storyEvents.id, id), eq(s.storyEvents.projectId, projectId))).run().changes) return { ok: false, error: '없는 사건입니다.' };
         } else id = db.insert(s.storyEvents).values({ ...input, projectId }).returning().get().id;
         changed('knowledge');
         return { ok: true, id };
@@ -348,7 +356,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       needsApproval: true,
       execute: ({ id, ...input }) => {
         if (id) {
-          if (!db.update(s.documents).set({ ...input, ...byPerson(db, s.documents, id, input) }).where(and(eq(s.documents.id, id), eq(s.documents.projectId, projectId))).run().changes) return { ok: false, error: '없는 문서입니다.' };
+          if (!db.update(s.documents).set({ ...input, ...byPerson(db, s.documents, projectId, id, input) }).where(and(eq(s.documents.id, id), eq(s.documents.projectId, projectId))).run().changes) return { ok: false, error: '없는 문서입니다.' };
         } else id = db.insert(s.documents).values({ ...input, projectId }).returning().get().id;
         changed('knowledge');
         return { ok: true, id };
@@ -359,16 +367,16 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       inputSchema: z.object({ terms: z.array(termInput.extend({ id: z.string().optional() })).min(1).max(200) }),
       needsApproval: true,
       execute: ({ terms }) => {
-        const missing: string[] = [];
+        const skipped: { id?: string; source?: string; reason: string }[] = [];
+        // A refused term (a duplicate source) is reported and the rest are saved.
         db.transaction((tx) => {
           for (const { id, ...term } of terms) {
-            if (id) {
-              if (!tx.update(s.terms).set({ ...term, ...('source' in term && term.source !== undefined && { lines: null }), ...byPerson(tx as unknown as Db, s.terms, id, term) }).where(and(eq(s.terms.id, id), eq(s.terms.projectId, projectId))).run().changes) missing.push(id);
-            } else tx.insert(s.terms).values({ ...term, projectId }).run();
+            const saved = saveTerm(tx, projectId, term, { id, by: 'person' });
+            if (!saved.ok) skipped.push({ id, source: term.source, reason: saved.error });
           }
         });
         changed('terms');
-        return { ok: true, count: terms.length - missing.length, ...(missing.length && { skipped: missing.map((id) => ({ id, reason: '없는 용어' })) }) };
+        return { ok: true, count: terms.length - skipped.length, ...(skipped.length && { skipped }) };
       },
     }),
     save_workflow: tool({
@@ -423,7 +431,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
     }),
     start_run: tool({
       description:
-        'Start a workflow run (AI calls cost money/quota, so the user approves it first). Scope: groupIds (scenes/groups), unitIds (lines), tagIds (lines with all of these tags), marks (automatic marks the lines must all have: remaining = status not final, ai = status set by a run, unknownListener = listener unknown or unsure, diverged = same source translated differently elsewhere, noted = has a note); none = every line the entry node accepts. ignoreStatus also runs lines whose status the entry does not accept. Read project_overview for workflow ids; tell the user how many lines it will run.',
+        'Start a workflow run (AI calls cost money/quota, so the user approves it first). Scope: groupIds (scenes/groups), unitIds (lines), tagIds (lines with all of these tags), marks (automatic marks the lines must all have: ' + LINE_MARK_IDS.map((id) => `${id} = ${AUTO_MARKS[id].description}`).join(', ') + '); none = every line the entry node accepts. ignoreStatus also runs lines whose status the entry does not accept. Read project_overview for workflow ids; tell the user how many lines it will run.',
       inputSchema: z.object({
         workflowId: z.string(),
         groupIds: z.array(z.string()).optional(),
@@ -483,12 +491,16 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       needsApproval: true,
       execute: ({ type, name, color, kind }) => {
         if (type === 'tag') {
-          const id = db.insert(s.tags).values({ projectId, name, color }).returning().get().id;
+          const parsed = tagInput.safeParse({ name, color });
+          if (!parsed.success) return { ok: false, error: `태그 이름이나 색이 올바르지 않습니다: ${parsed.error.issues[0]?.message ?? ''}` };
+          const id = db.insert(s.tags).values({ ...parsed.data, projectId }).returning().get().id;
           changed('statuses');
           return { ok: true, id };
         }
+        const parsed = statusInput.safeParse({ name, color, kind });
+        if (!parsed.success) return { ok: false, error: `상태 이름이나 색이 올바르지 않습니다: ${parsed.error.issues[0]?.message ?? ''}` };
         const sort = db.select({ count: count() }).from(s.statuses).where(eq(s.statuses.projectId, projectId)).get()!.count;
-        const id = db.insert(s.statuses).values({ projectId, name, color, kind, sort }).returning().get().id;
+        const id = db.insert(s.statuses).values({ ...parsed.data, projectId, sort }).returning().get().id;
         changed('statuses');
         return { ok: true, id };
       },

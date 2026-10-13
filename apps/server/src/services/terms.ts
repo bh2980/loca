@@ -1,7 +1,7 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, like, ne, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import * as ai from '@tw/ai';
-import type { ModelChoice } from '@tw/shared';
+import { aiStatus, type AiConfirm, type ModelChoice, matchesMarks, termMarksOf, TERM_MARK_IDS, type AutoMark } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import { eachChunk } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
@@ -11,6 +11,75 @@ import type { ModelPort } from '../engine/runner.ts';
 import { liveChoice, resolveRoutes } from './routes.ts';
 import type { SecretStore } from './secrets.ts';
 import { fillTermUsage } from './term-usage.ts';
+import { annotateKnowledge, knowledgeFilterInput, pickedMarks as pickedMarksOf, type KnowledgeFilter } from './knowledge-list.ts';
+import { byPerson } from './status-by.ts';
+
+type Tx = Pick<Db, 'select' | 'insert' | 'update' | 'delete'>;
+
+/** The project's term whose source equals `source` in any case (the unique index's rule), if any. */
+const termBySource = (tx: Pick<Db, 'select'>, projectId: string, source: string) =>
+  tx.select().from(s.terms).where(and(eq(s.terms.projectId, projectId), sql`lower(${s.terms.source}) = lower(${source})`)).get();
+
+export interface TermSave {
+  source?: string;
+  target?: string;
+  note?: string;
+  status?: 'candidate' | 'confirmed';
+}
+
+/**
+ * A person's term (the glossary page, a pane, the chat): created, or with `id` changed. One source
+ * is one term whatever its case; a term already there is refused. A rejected term (hidden, kept so
+ * it is not proposed again) does not block: it is revived by a create and dropped by a rename onto it.
+ * A new source is counted again (fillTermUsage).
+ */
+export function saveTerm(tx: Tx, projectId: string, term: TermSave, options: { id?: string; by: 'person' }) {
+  const source = term.source?.trim();
+  const mine = options.id ? tx.select().from(s.terms).where(and(eq(s.terms.id, options.id), eq(s.terms.projectId, projectId))).get() : undefined;
+  if (options.id && !mine) return { ok: false as const, reason: 'missing' as const, error: '용어를 찾을 수 없습니다.' };
+  const same = source ? termBySource(tx, projectId, source) : undefined;
+  if (same && same.id !== mine?.id && same.status !== 'rejected') return { ok: false as const, reason: 'duplicate' as const, error: `이미 있는 용어입니다: ${same.source}${same.target ? ` → ${same.target}` : ''}` };
+  const values = { ...term, ...(source !== undefined && { source }) };
+  if (!mine) {
+    // Revive a rejected term of the same source instead of adding a second.
+    if (same) {
+      const row = tx.update(s.terms).set({ ...values, status: term.status ?? 'confirmed', lines: null, origin: 'human', statusBy: 'human', runId: null, jobId: null }).where(eq(s.terms.id, same.id)).returning().get();
+      return { ok: true as const, row };
+    }
+    return { ok: true as const, row: tx.insert(s.terms).values({ ...values, source: source ?? '', projectId }).returning().get() };
+  }
+  if (same && same.id !== mine.id) tx.delete(s.terms).where(eq(s.terms.id, same.id)).run();
+  const changesSource = source !== undefined && source !== mine.source;
+  const row = tx.update(s.terms).set({ ...values, ...(changesSource && { lines: null }), ...byPerson(tx, s.terms, projectId, mine.id, values) }).where(eq(s.terms.id, mine.id)).returning().get();
+  return { ok: true as const, row };
+}
+
+/**
+ * A term an AI found (the work analysis, an addTerms node). A source already in the glossary keeps
+ * what it has: only an empty translation, note or examples are filled, and a rejected one stays as
+ * the person left it. A new one lands as AI › 사용 방식 says (without a Korean form: a candidate).
+ */
+export function upsertAiTerm(
+  tx: Tx,
+  projectId: string,
+  term: { source: string; target?: string; note?: string; examples?: string[] },
+  options: { policy: AiConfirm; runId?: string; jobId?: string },
+): 'added' | 'filled' | 'unchanged' {
+  const source = term.source.trim();
+  const target = term.target?.trim() ?? '';
+  const note = term.note?.trim() ?? '';
+  const examples = term.examples ?? [];
+  const known = termBySource(tx, projectId, source);
+  if (known) {
+    if (known.status === 'rejected') return 'unchanged';
+    const fill = { ...(!known.target.trim() && target && { target }), ...(!known.note.trim() && note && { note }), ...(!known.examples.length && examples.length && { examples }) };
+    if (!Object.keys(fill).length) return 'unchanged';
+    tx.update(s.terms).set(fill).where(eq(s.terms.id, known.id)).run();
+    return 'filled';
+  }
+  tx.insert(s.terms).values({ projectId, source, target, note, examples, status: target ? aiStatus(options.policy, 'terms') : 'candidate', statusBy: 'ai', origin: 'ai', runId: options.runId ?? null, jobId: options.jobId ?? null }).run();
+  return 'added';
+}
 
 /**
  * The note on an alias's glossary term. Only terms a line mentions reach a translation prompt, so
@@ -20,8 +89,7 @@ import { fillTermUsage } from './term-usage.ts';
 export const aliasNote = (name: string) => `${name}의 별칭`;
 
 /**
- * A character's names and aliases as glossary candidates (found in the script by code, origin
- * script), called when a character is saved so a new alias needs no rediscovery. Known terms keep
+ * A character's names and aliases as glossary candidates (origin script), called when a character is saved so a new alias needs no rediscovery. Known terms keep
  * what they have; an alias term with no note gets "X의 별칭".
  */
 export function addNameTerms(db: Db, projectId: string, character: { name: string; aliases: string[] }) {
@@ -44,8 +112,8 @@ export function addNameTerms(db: Db, projectId: string, character: { name: strin
   return added;
 }
 
-/** Candidates per model request in "빈 번역 AI로 채우기". */
 export const NOT_A_TERM = '일반어로 보임';
+/** Candidates per model request in "빈 번역 AI로 채우기". */
 export const SUGGEST_BATCH = 100;
 const suggestSchema = z.object({
   terms: z.array(z.object({ source: z.string(), isTerm: z.boolean(), target: z.string(), note: z.string() })),
@@ -203,4 +271,30 @@ export class TermService {
       events.changed(projectId, 'terms');
     }
   }
+}
+
+/** Filter of the glossary list: the knowledge filter, with the term marks (candidate, ai, emptyTarget, unused). */
+export const termFilterInput = {
+  ...knowledgeFilterInput,
+  marks: z.array(z.enum(TERM_MARK_IDS as [AutoMark, ...AutoMark[]])).optional().describe('Term marks: candidate, ai, emptyTarget (no Korean form), unused (not in the script). candidate + ai together mean either one, as in the app.'),
+  q: z.string().optional().describe('Text in the source or the translation.'),
+};
+
+/**
+ * The glossary as the glossary page lists it (not rejected terms, source order) with what the page
+ * shows: lines (나온 줄, counted first), examples, marks and tag names. `total` counts every match.
+ */
+export function listTerms(db: Db, projectId: string, input: KnowledgeFilter & { q?: string; offset?: number; limit?: number }) {
+  fillTermUsage(db, projectId);
+  const where = and(eq(s.terms.projectId, projectId), ne(s.terms.status, 'rejected'), input.q ? or(like(s.terms.source, `%${input.q}%`), like(s.terms.target, `%${input.q}%`)) : undefined);
+  const rows = db.select().from(s.terms).where(where).orderBy(asc(s.terms.source)).all();
+  const matched = annotateKnowledge(db, projectId, 'terms', rows, { tags: input.tags })
+    .map(({ marks: _marks, ...row }) => ({ ...row, marks: termMarksOf(row) }))
+    .filter((row) => matchesMarks(row.marks, pickedMarksOf(input)));
+  const offset = input.offset ?? 0;
+  const page = input.limit === undefined ? matched.slice(offset) : matched.slice(offset, offset + input.limit);
+  return {
+    total: matched.length,
+    terms: page.map(({ id, source, target, note, status, statusBy, lines, examples, marks, tags }) => ({ id, source, target, note, status, statusBy, lines, examples, marks, tags })),
+  };
 }

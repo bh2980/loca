@@ -1,20 +1,21 @@
 import { Hono } from 'hono';
-import { and, asc, count, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, notInArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { agentSettingsSchema, aiConfirmSchema, editorAiSchema, formatRulesSchema, importFileSchema, importWarnings, markColorsSchema, patchOf, tagScope, TAG_SCOPES, TAG_SCOPE_LABELS, DEFAULT_TAG_COLOR, HEX_COLOR, STATUS_COLORS, summarizeImport } from '@tw/shared';
+import { agentSettingsSchema, aiConfirmSchema, editorAiSchema, formatRulesSchema, importFileSchema, importWarnings, markColorsSchema, patchOf, TAG_SCOPES, TAG_SCOPE_LABELS, DEFAULT_TAG_COLOR, HEX_COLOR, STATUS_COLORS, summarizeImport } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { forgetProjectContext } from '../services/context.ts';
-import { tagUseIn } from '../services/tag-scope.ts';
+import { markConditions } from '../services/line-marks.ts';
+import { projectTags, tagUseIn } from '../services/tag-scope.ts';
 import { importProject } from '../services/importer.ts';
 import type { DecidedTable } from '../services/status-by.ts';
 import { defaultModelChoice } from '../services/routes.ts';
 import { cancelLayout, computeLayouts } from '../services/layout.ts';
 import { editorCallsToday } from '../services/editor-complete.ts';
 
-const statusInput = z.object({ name: z.string().trim().min(1).max(40), color: z.string().regex(HEX_COLOR).default(STATUS_COLORS[0]), kind: z.enum(['initial', 'normal', 'final']).default('normal'), inReview: z.boolean().default(false), humanOnly: z.boolean().default(false) });
-const tagInput = z.object({
+export const statusInput = z.object({ name: z.string().trim().min(1).max(40), color: z.string().regex(HEX_COLOR).default(STATUS_COLORS[0]), kind: z.enum(['initial', 'normal', 'final']).default('normal'), inReview: z.boolean().default(false), humanOnly: z.boolean().default(false) });
+export const tagInput = z.object({
   name: z.string().trim().min(1).max(40),
   color: z.string().regex(HEX_COLOR).default(DEFAULT_TAG_COLOR),
   /** Where the tag can be put; at least one place. */
@@ -70,21 +71,18 @@ export const projectRoutes = new Hono<Env>()
       .innerJoin(s.statuses, eq(s.statuses.id, s.units.statusId))
       .where(and(eq(s.units.projectId, projectId), eq(s.statuses.inReview, true)))
       .get()!.count;
-    // What AI decided and no person has looked at (✦): lines a run sent to a final status, confirmed knowledge and terms.
-    const aiLines = db
-      .select({ count: count() })
-      .from(s.units)
-      .innerJoin(s.statuses, eq(s.statuses.id, s.units.statusId))
-      .where(and(eq(s.units.projectId, projectId), eq(s.units.statusBy, 'ai'), eq(s.statuses.kind, 'final')))
-      .get()!.count;
-    const aiConfirmed = (table: DecidedTable) => {
-      const t = table as typeof s.terms;
-      return db.select({ count: count() }).from(t).where(and(eq(t.projectId, projectId), eq(t.statusBy, 'ai'), eq(t.status, 'confirmed'))).get()!.count;
-    };
+    // What AI decided and no person has looked at (✦): the #AI가 정함 mark of lines, knowledge and terms (shared aiDecided / markConditions), so each count is what its link lists.
+    const aiLines = db.select({ count: count() }).from(s.units).where(and(eq(s.units.projectId, projectId), ...markConditions(projectId, ['ai']))).get()!.count;
+    const aiConfirmed = (...tables: DecidedTable[]) =>
+      tables.reduce((sum, table) => {
+        const t = table as typeof s.terms;
+        return sum + db.select({ count: count() }).from(t).where(and(eq(t.projectId, projectId), eq(t.statusBy, 'ai'), notInArray(t.status, ['candidate', 'rejected']))).get()!.count;
+      }, 0);
+    // Knowledge by the tab that lists it (자료 › 문서 / 인물 / 관계·말투 / 사건; the pairs table lists the pairs holding these items), so a count opens the tab it counts.
     const aiDecided = {
       lines: aiLines,
       terms: aiConfirmed(s.terms),
-      knowledge: [s.documents, s.characters, s.relationships, s.storyEvents, s.speechRules].reduce((sum, table) => sum + aiConfirmed(table), 0),
+      knowledge: { documents: aiConfirmed(s.documents), characters: aiConfirmed(s.characters), pairs: aiConfirmed(s.relationships, s.speechRules), events: aiConfirmed(s.storyEvents) },
     };
     return c.json({ ...project, aiConfirm: aiConfirmSchema.parse(project.aiConfirm), editorAi: editorAiSchema.parse(project.editorAi), editorCallsToday: editorCallsToday(db, projectId), byStatus, groupCount, reviewCount, aiDecided });
   })
@@ -141,22 +139,7 @@ export const projectRoutes = new Hono<Env>()
       .where(eq(s.statuses.projectId, projectId))
       .orderBy(asc(s.statuses.sort))
       .all();
-    const tags = db
-      .select({
-        id: s.tags.id,
-        name: s.tags.name,
-        color: s.tags.color,
-        /** The app's tags: a problem type (lines) or 'review' (확인 권장, knowledge only). */
-        role: s.tags.role,
-        scope: s.tags.scope,
-        units: sql<number>`(select count(*) from unit_tags ut where ut.tag_id = "tags"."id")`,
-        items: sql<number>`(select count(*) from knowledge_tags kt where kt.tag_id = "tags"."id")`,
-      })
-      .from(s.tags)
-      .where(eq(s.tags.projectId, projectId))
-      .orderBy(asc(s.tags.name))
-      .all();
-    return c.json({ statuses, tags: tags.map((tag) => ({ ...tag, scope: tagScope(tag) })) });
+    return c.json({ statuses, tags: projectTags(db, projectId) });
   })
   .post('/:projectId/statuses', validate('json', statusInput), (c) => {
     const { db } = c.var.deps;
@@ -191,7 +174,7 @@ export const projectRoutes = new Hono<Env>()
     if (moveTo === id) badRequest('삭제할 상태로는 옮길 수 없습니다.');
     found(db.select().from(s.statuses).where(and(eq(s.statuses.id, moveTo), eq(s.statuses.projectId, projectId))).get(), '옮길 상태');
     db.transaction((tx) => {
-      tx.update(s.units).set({ statusId: moveTo }).where(eq(s.units.statusId, id)).run();
+      tx.update(s.units).set({ statusId: moveTo }).where(and(eq(s.units.projectId, projectId), eq(s.units.statusId, id))).run();
       tx.delete(s.statuses).where(and(eq(s.statuses.id, id), eq(s.statuses.projectId, projectId))).run();
     });
     events.changed(projectId, 'statuses', 'units', 'workflows');
@@ -210,12 +193,12 @@ export const projectRoutes = new Hono<Env>()
     const tag = found(db.select({ role: s.tags.role }).from(s.tags).where(and(eq(s.tags.id, c.req.param('id')), eq(s.tags.projectId, projectId))).get(), '태그');
     const body = c.req.valid('json');
     // The app's own tags (problem types, 확인 권장) keep their names and places: only the color changes.
-    if (tag.role && body.name !== undefined) return badRequest('앱이 쓰는 태그는 이름을 바꿀 수 없습니다. 색만 바꿀 수 있습니다.');
-    if (tag.role && body.scope !== undefined) return badRequest('앱이 쓰는 태그는 붙는 곳을 바꿀 수 없습니다.');
+    if (tag.role && body.name !== undefined) badRequest('앱이 쓰는 태그는 이름을 바꿀 수 없습니다. 색만 바꿀 수 있습니다.');
+    if (tag.role && body.scope !== undefined) badRequest('앱이 쓰는 태그는 붙는 곳을 바꿀 수 없습니다.');
     // A place can't be taken away while the tag is still on something there.
     for (const place of body.scope ? TAG_SCOPES.filter((place) => !body.scope!.includes(place)) : []) {
       const used = tagUseIn(db, c.req.param('id'), place);
-      if (used) return badRequest(`‘${TAG_SCOPE_LABELS[place]}’에서 빼려면 먼저 이 태그가 붙은 ${TAG_SCOPE_LABELS[place]} ${used.toLocaleString('ko-KR')}개에서 떼어 주세요.`);
+      if (used) badRequest(`‘${TAG_SCOPE_LABELS[place]}’에서 빼려면 먼저 이 태그가 붙은 ${TAG_SCOPE_LABELS[place]} ${used.toLocaleString('ko-KR')}개에서 떼어 주세요.`);
     }
     found(db.update(s.tags).set(c.req.valid('json')).where(and(eq(s.tags.id, c.req.param('id')), eq(s.tags.projectId, projectId))).returning().get(), '태그');
     events.changed(projectId, 'statuses', 'units');
@@ -225,7 +208,7 @@ export const projectRoutes = new Hono<Env>()
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     const tag = found(db.select({ role: s.tags.role }).from(s.tags).where(and(eq(s.tags.id, c.req.param('id')), eq(s.tags.projectId, projectId))).get(), '태그');
-    if (tag.role) return badRequest('앱이 쓰는 태그는 지울 수 없습니다.');
+    if (tag.role) badRequest('앱이 쓰는 태그는 지울 수 없습니다.');
     db.delete(s.tags).where(and(eq(s.tags.id, c.req.param('id')), eq(s.tags.projectId, projectId))).run();
     events.changed(projectId, 'statuses', 'units', 'workflows');
     return c.json({ ok: true });

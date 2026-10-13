@@ -5,10 +5,12 @@ import * as s from '../db/schema.ts';
 
 type Tx = Pick<Db, 'select' | 'insert' | 'delete'>;
 
+/** The project's 확인 권장 tag, if something ever needed it. */
+const findReviewTagId = (tx: Pick<Db, 'select'>, projectId: string) => tx.select({ id: s.tags.id }).from(s.tags).where(and(eq(s.tags.projectId, projectId), eq(s.tags.role, REVIEW_TAG.role))).get()?.id;
+
 /** The project's 확인 권장 tag, made the first time something needs it. */
 function reviewTagId(tx: Tx, projectId: string) {
-  const found = tx.select({ id: s.tags.id }).from(s.tags).where(and(eq(s.tags.projectId, projectId), eq(s.tags.role, REVIEW_TAG.role))).get();
-  return found?.id ?? tx.insert(s.tags).values({ projectId, name: REVIEW_TAG.name, color: REVIEW_TAG.color, role: REVIEW_TAG.role }).returning({ id: s.tags.id }).get().id;
+  return findReviewTagId(tx, projectId) ?? tx.insert(s.tags).values({ projectId, name: REVIEW_TAG.name, color: REVIEW_TAG.color, role: REVIEW_TAG.role }).returning({ id: s.tags.id }).get().id;
 }
 
 /** Puts 확인 권장 on an item with why (shown on hover). */
@@ -20,8 +22,8 @@ export function markForReview(tx: Tx, projectId: string, kind: KnowledgeTagKind,
 /** A person decided these items (확인함, 버리기, an edit): 확인 권장 comes off. */
 export function clearReview(tx: Tx, projectId: string, kind: KnowledgeTagKind, itemIds: string[]) {
   if (!itemIds.length) return;
-  const tag = tx.select({ id: s.tags.id }).from(s.tags).where(and(eq(s.tags.projectId, projectId), eq(s.tags.role, REVIEW_TAG.role))).get();
-  if (tag) tx.delete(s.knowledgeTags).where(and(eq(s.knowledgeTags.kind, kind), eq(s.knowledgeTags.tagId, tag.id), inArray(s.knowledgeTags.itemId, itemIds))).run();
+  const tagId = findReviewTagId(tx, projectId);
+  if (tagId) tx.delete(s.knowledgeTags).where(and(eq(s.knowledgeTags.kind, kind), eq(s.knowledgeTags.tagId, tagId), inArray(s.knowledgeTags.itemId, itemIds))).run();
 }
 
 /** Each item's tags (id and the app's note), for the knowledge lists. */

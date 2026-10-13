@@ -2,10 +2,12 @@ import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { ChevronRight, Plus } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { isSettled, isSpecialListener, listenerLabel, OTHERS_LISTENER, SPEECH_LEVEL_LABELS, type SpeechLevel } from '@tw/shared';
+import { type AutoMark, isSpecialListener, knowledgeMarksOf, listenerLabel, matchesMarks, OTHERS_LISTENER, SPEECH_LEVEL_LABELS, type SpeechLevel } from '@tw/shared';
+import { EmptyState } from '@/components/empty-state';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { DetailPane, PaneSection } from '@/components/detail-pane';
-import { candidateRow, DraftEditor, fail, matches, metaColumns, SourceBadge, type Draft, type KnowledgeFilterState, type KindSpec, type Row, type SourceFilter, type StatusFilter } from '@/components/knowledge/draft-editor';
+import { DraftEditor } from '@/components/knowledge/editor';
+import { candidateRow, fail, matches, metaColumns, SourceBadge, type Draft, type KnowledgeFilterState, type KindSpec, type Row, type SourceFilter } from '@/components/knowledge/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -68,9 +70,11 @@ export const pairSummary = (pair: Pair): Draft => {
     tags: [...Map.groupBy(rows.flatMap((row) => row.tags ?? []), (tag) => tag.id).entries()].map(([id, list]) => ({ id, note: list.flatMap((tag) => (tag.note ? [tag.note] : [])).join('\n') || null })),
   };
 };
-/** Pairs with any item matching the filters. */
-export const pairMatches = (pair: Pair, source: SourceFilter, status: StatusFilter, tags?: string[], bare?: boolean) => [pair.relationship, ...pair.rules].some((row) => row && matches(row, source, status, tags, bare));
-export const pairSettled = (pair: Pair) => [pair.relationship, ...pair.rules].every((row) => !row || isSettled(row));
+/** The marks any item of a pair carries: what its row shows and the marks filter reads. */
+export const pairMarks = (pair: Pair): AutoMark[] => [...new Set([pair.relationship, ...pair.rules].flatMap((row) => (row ? knowledgeMarksOf(row) : [])))];
+/** Pairs matching the filters: by source and tags through any one item, by marks through the pair's marks. */
+export const pairMatches = (pair: Pair, source: SourceFilter, marks?: readonly AutoMark[], tags?: string[]) =>
+  matchesMarks(pairMarks(pair), marks) && [pair.relationship, ...pair.rules].some((row) => row && matches(row, source, undefined, tags));
 export const pairItems = (pair: Pair) => [...(pair.relationship ? [{ kind: 'relationships' as const, row: pair.relationship }] : []), ...pair.rules.map((row) => ({ kind: 'speechRules' as const, row }))];
 /** Why the app marked an item for a look (its tag's note), or null. */
 const reviewOf = (row: Row, reviewTag?: string) => row.tags?.find((tag) => tag.id === reviewTag)?.note ?? null;
@@ -86,7 +90,7 @@ export function PairTable({ pairs, loading, selected, picked, onPick, onOpen, bu
   pairs: Pair[] | undefined;
   loading: boolean;
   selected?: string;
-  picked: Set<string>;
+  picked: ReadonlySet<string>;
   onPick: (keys: string[], on: boolean) => void;
   onOpen: (key: string) => void;
   bulk: ReactNode;
@@ -96,7 +100,7 @@ export function PairTable({ pairs, loading, selected, picked, onPick, onOpen, bu
     { id: 'pair', header: '화자 → 청자', meta: { width: 240, className: 'font-medium', hideable: false }, cell: ({ row: { original: pair } }) => `${pair.from} → ${listenerLabel(pair.to)}` },
     { id: 'relationship', header: '관계', meta: { width: 200 }, cell: ({ row: { original: pair } }) => (pair.relationship ? String(pair.relationship.kind) : <span className="text-muted-foreground">—</span>) },
     { id: 'speech', header: '말투', cell: ({ row: { original: pair } }) => (pair.rules.length ? levelsText(pair.rules) : <span className="text-muted-foreground">—</span>) },
-    ...metaColumns<Pair>(pairSummary, filters),
+    ...metaColumns<Pair>(pairSummary, filters, pairMarks),
   ];
   return (
     <DataTable id="knowledge-pairs"
@@ -110,7 +114,7 @@ export function PairTable({ pairs, loading, selected, picked, onPick, onOpen, bu
       picked={picked}
       onPick={onPick}
       bulk={bulk}
-      empty="관계나 말투 규칙이 있는 쌍이 없습니다. “작품 분석”으로 초안을 받거나 인물을 추가하세요."
+      empty={<EmptyState noun="관계나 말투 규칙이 있는 쌍" filtered={Boolean(filters.source || filters.marks?.length || filters.tags?.length)} hint="“작품 분석”으로 초안을 받거나 인물을 추가하세요." />}
     />
   );
 }

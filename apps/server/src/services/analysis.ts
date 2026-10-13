@@ -13,6 +13,8 @@ import type { ModelPort } from '../engine/runner.ts';
 import { liveChoice, resolveRoutes } from './routes.ts';
 import { packBlocks, scriptText } from './script-text.ts';
 import { knownListener } from './speech.ts';
+import { clampConfidence, setAiListener } from './listeners.ts';
+import { upsertAiTerm } from './terms.ts';
 import type { SecretStore } from './secrets.ts';
 
 /**
@@ -415,20 +417,10 @@ export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: A
     // Terms follow the auto-confirm switch like the rest, except one without a Korean form: it stays a
     // candidate (an empty target would reach every prompt). A term already in the glossary keeps what it
     // has; the analysis only fills its empty form and note.
-    const glossary = new Map(tx.select({ id: s.terms.id, source: s.terms.source, target: s.terms.target, note: s.terms.note, status: s.terms.status, examples: s.terms.examples }).from(s.terms).where(eq(s.terms.projectId, projectId)).all().map((t) => [t.source.toLowerCase(), t]));
     for (const t of analysis.terms) {
       const note = [TERM_KIND_LABELS[t.kind], t.meaning].filter(Boolean).join(' · ');
-      const examples = keys(t.evidence).slice(0, 3);
-      const known = glossary.get(t.source.trim().toLowerCase());
-      if (known) {
-        if (known.status === 'rejected') continue;
-        const fill = { ...(!known.target.trim() && t.target.trim() && { target: t.target.trim() }), ...(!known.note.trim() && note && { note }), ...(!known.examples.length && examples.length && { examples }) };
-        if (Object.keys(fill).length) tx.update(s.terms).set(fill).where(eq(s.terms.id, known.id)).run();
-        continue;
-      }
-      const row = tx.insert(s.terms).values({ projectId, source: t.source.trim(), target: t.target.trim(), note, status: t.target.trim() ? aiStatus(policy, 'terms') : 'candidate', statusBy: 'ai', origin: 'ai', jobId, examples }).returning({ id: s.terms.id, source: s.terms.source, target: s.terms.target, note: s.terms.note, status: s.terms.status, examples: s.terms.examples }).get();
-      glossary.set(row.source.toLowerCase(), row);
-      counts.terms += 1;
+      const result = upsertAiTerm(tx, projectId, { source: t.source, target: t.target, note, examples: keys(t.evidence).slice(0, 3) }, { policy, jobId });
+      if (result === 'added') counts.terms += 1;
     }
 
     // Scene listeners first: the main pairs below are counted on the listeners lines end up with.
@@ -504,20 +496,20 @@ function applySceneListeners(tx: Tx, projectId: string, entries: Analysis['scene
     const groupId = groupByKey.get(entry.scene.trim());
     if (!groupId) continue;
     const listener = entry.listener && !isSpecialListener(entry.listener) ? canon(entry.listener) : entry.listener;
-    wanted.set(`${groupId}|${person(canon(entry.speaker))}`, { listener, confidence: Math.min(1, Math.max(0, entry.confidence)) });
+    wanted.set(`${groupId}|${person(canon(entry.speaker))}`, { listener, confidence: clampConfidence(entry.confidence) });
   }
   const changed = new Set<string>();
   const lines = tx
-    .select({ id: s.units.id, groupId: s.units.groupId, speaker: s.units.speaker, listener: s.units.listener, origin: s.units.listenerOrigin, confidence: s.units.listenerConfidence })
+    .select({ id: s.units.id, kind: s.units.kind, groupId: s.units.groupId, speaker: s.units.speaker, listener: s.units.listener, listenerOrigin: s.units.listenerOrigin })
     .from(s.units)
     .where(and(eq(s.units.projectId, projectId), eq(s.units.kind, 'dialogue')))
     .all();
   for (const line of lines) {
-    if (!line.speaker || line.origin === 'import' || line.origin === 'human' || line.origin === 'ai') continue;
+    // A per-line AI guess stays over the scene's default.
+    if (!line.speaker || line.listenerOrigin === 'ai') continue;
     const found = wanted.get(`${line.groupId}|${person(line.speaker)}`);
     if (!found || found.listener === null) continue;
-    tx.update(s.units).set({ listener: found.listener, listenerOrigin: 'scene', listenerConfidence: found.confidence }).where(eq(s.units.id, line.id)).run();
-    changed.add(line.id);
+    if (setAiListener(tx, line, found.listener, found.confidence, 'scene')) changed.add(line.id);
   }
   // Exceptions name the listener of one line: a per-line AI guess, over the scene default (and an
   // older analysis's guess), never over an imported or a person's listener.
@@ -525,11 +517,10 @@ function applySceneListeners(tx: Tx, projectId: string, entries: Analysis['scene
     for (const exception of entry.exceptions) {
       const key = keyOf.get(exception.line.trim());
       if (!key) continue;
-      const line = tx.select({ id: s.units.id, origin: s.units.listenerOrigin, kind: s.units.kind }).from(s.units).where(and(eq(s.units.projectId, projectId), eq(s.units.key, key))).get();
-      if (!line || line.kind !== 'dialogue' || line.origin === 'import' || line.origin === 'human') continue;
+      const line = tx.select({ id: s.units.id, kind: s.units.kind, listener: s.units.listener, listenerOrigin: s.units.listenerOrigin }).from(s.units).where(and(eq(s.units.projectId, projectId), eq(s.units.key, key))).get();
+      if (!line) continue;
       const listener = exception.listener && !isSpecialListener(exception.listener) ? canon(exception.listener) : exception.listener;
-      tx.update(s.units).set({ listener, listenerOrigin: 'ai', listenerConfidence: Math.min(1, Math.max(0, exception.confidence)) }).where(eq(s.units.id, line.id)).run();
-      changed.add(line.id);
+      if (setAiListener(tx, line, listener, exception.confidence, 'ai')) changed.add(line.id);
     }
   }
   return changed.size;

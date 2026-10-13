@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { lineMarksSchema } from './marks.ts';
 
 /**
  * One filter for every way of reading the script: the CLI (loca lines / export / check), the
@@ -11,7 +12,7 @@ export const lineFilterSchema = z.object({
   q: z.string().trim().min(1).optional(),
   /** Lines spoken by any of these. */
   speakers: z.array(z.string().min(1)).optional(),
-  /** Lines addressed to any of these (name or alias); "-" = lines whose listener is unknown. */
+  /** Lines addressed to any of these (name or alias); "-" = the #청자 미상 mark (dialogue whose listener is unknown). */
   listeners: z.array(z.string().min(1)).optional(),
   /** Lines whose source mentions any of these characters (by name, alias or {ALIAS} placeholder). */
   mentions: z.array(z.string().min(1)).optional(),
@@ -21,6 +22,8 @@ export const lineFilterSchema = z.object({
   kind: z.enum(['dialogue', 'document', 'ui']).optional(),
   statuses: z.array(z.string().min(1)).optional(),
   tags: z.array(z.string().min(1)).optional(),
+  /** Automatic marks (the app's built-in tags) the lines must all have; same rules as the script list. */
+  marks: lineMarksSchema.optional(),
   translated: z.boolean().optional(),
   keys: z.array(z.string().min(1)).optional(),
   offset: z.number().int().min(0).default(0),

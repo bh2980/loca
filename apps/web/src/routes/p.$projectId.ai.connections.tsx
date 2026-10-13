@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { z } from 'zod';
 import { CONNECTION_CALL_DEFAULTS, CONNECTION_KIND_INFO, CONNECTION_KINDS, connectionInputSchema, type Capability, type ConnectionKind } from '@tw/shared';
+import { EmptyState } from '@/components/empty-state';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { DetailPane, PaneSection } from '@/components/detail-pane';
 import { HeaderActions, Page } from '@/components/page';
@@ -23,6 +24,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Spinner } from '@/components/ui/spinner';
 import { client, unwrap, type InferResponseType } from '@/lib/api';
 import { q } from '@/lib/queries';
+import { useReportView } from '@/lib/view-context';
 import { cn } from '@/lib/utils';
 import { keyStoreLabel } from '@/lib/keys';
 
@@ -51,6 +53,7 @@ function ConnectionSettings() {
   const close = () => open(undefined);
   const selected = search.conn && search.conn !== 'new' ? connections.data?.find((connection) => connection.id === search.conn) : undefined;
   const rows = connections.data?.filter((connection) => connection.kind !== 'http');
+  useReportView('ai-connection', [selected && { kind: 'AI 연결', id: selected.id, label: selected.name }]);
 
   const columns: ColumnDef<ConnectionRow, unknown>[] = [
     { id: 'name', header: '이름', meta: { hideable: false }, cell: ({ row }) => <span className="font-medium">{row.original.name}</span> },
@@ -82,7 +85,7 @@ function ConnectionSettings() {
             rows={rows}
             rowId={(row) => row.id}
             selected={selected?.id}
-            empty="연결이 없습니다. “연결 추가”로 시작하세요."
+            empty={<EmptyState noun="연결" hint="“연결 추가”로 시작하세요." />}
             onRowClick={(row) => open(row.id)}
           />
         </div>
@@ -120,7 +123,6 @@ function CapabilityBadges({ kind }: { kind: ConnectionKind }) {
 
 function NewConnection({ onClose }: { onClose: () => void }) {
   const navigate = Route.useNavigate();
-  const queryClient = useQueryClient();
   const form = useForm<ConnectionFormInput, unknown, ConnectionFormOutput>({
     resolver: zodResolver(connectionFormSchema),
     defaultValues: { kind: 'openai', name: '', baseUrl: CONNECTION_KIND_INFO.openai.defaultBaseUrl, executable: '', apiKey: '' },
@@ -142,7 +144,6 @@ function NewConnection({ onClose }: { onClose: () => void }) {
         }),
       ),
     onSuccess: (row) => {
-      void queryClient.invalidateQueries({ queryKey: ['connections'] });
       toast.success('연결을 추가했습니다.');
       void navigate({ search: (previous) => ({ ...previous, conn: row.id }) });
     },
@@ -226,33 +227,37 @@ function NewConnection({ onClose }: { onClose: () => void }) {
 }
 
 function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; onClose: () => void }) {
-  const queryClient = useQueryClient();
   const info = CONNECTION_KIND_INFO[connection.kind];
   const isHttp = info.transport === 'http';
   const isTool = connection.kind === 'http';
-  const invalidate = () => void queryClient.invalidateQueries({ queryKey: ['connections'] });
   const [apiKey, setApiKey] = useState('');
   const [probeResult, setProbeResult] = useState<{ ok: boolean; detail: string } | null>(null);
   const [models, setModels] = useState<{ list: string[] | null; detail?: string } | null>(null);
   const [login, setLogin] = useState<string | null>(null);
 
   const editSchema = connectionInputSchema.omit({ kind: true });
+  const saved = {
+    name: connection.name,
+    baseUrl: connection.baseUrl ?? undefined,
+    executable: connection.executable ?? '',
+    headerTemplate: connection.headerTemplate ?? '',
+    concurrency: isTool ? undefined : (connection.concurrency ?? 2),
+    defaultModel: connection.defaultModel,
+    defaultEffort: connection.defaultEffort,
+    timeoutSeconds: connection.timeoutSeconds,
+    maxAttempts: connection.maxAttempts,
+    maxOutputTokens: connection.maxOutputTokens,
+    fallback: connection.fallback,
+  };
+  // `values` follows the saved connection (changed from chat or another window); fields being edited keep the person's input.
   const form = useForm<z.input<typeof editSchema>, unknown, z.output<typeof editSchema>>({
     resolver: zodResolver(editSchema),
-    defaultValues: {
-      name: connection.name,
-      baseUrl: connection.baseUrl ?? undefined,
-      executable: connection.executable ?? '',
-      headerTemplate: connection.headerTemplate ?? '',
-      concurrency: isTool ? undefined : (connection.concurrency ?? 2),
-      defaultModel: connection.defaultModel,
-      defaultEffort: connection.defaultEffort,
-      timeoutSeconds: connection.timeoutSeconds,
-      maxAttempts: connection.maxAttempts,
-      maxOutputTokens: connection.maxOutputTokens,
-      fallback: connection.fallback,
-    },
+    values: saved,
+    resetOptions: { keepDirtyValues: true },
   });
+  const dirtyFields: Record<string, unknown> = form.formState.dirtyFields;
+  // Only the fields the person changed are sent, so a value changed elsewhere meanwhile is not overwritten.
+  const onlyDirty = <T extends object>(json: T) => Object.fromEntries(Object.entries(json).filter(([key]) => dirtyFields[key])) as T;
   const number = { setValueAs: (value: string) => (value === '' ? undefined : Number(value)) };
   const errors = form.formState.errors;
   const need: Capability[] = info.capabilities.includes('judge') ? ['judge'] : ['generate'];
@@ -262,7 +267,7 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
       unwrap(
         client.connections[':id'].$patch({
           param: { id: connection.id },
-          json: {
+          json: onlyDirty({
             name: values.name,
             baseUrl: isHttp ? values.baseUrl : undefined,
             executable: isHttp ? undefined : (values.executable ?? ''),
@@ -276,13 +281,12 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
               maxOutputTokens: values.maxOutputTokens,
               fallback: values.fallback ?? null,
             }),
-          },
+          }),
         }),
       ),
     onSuccess: () => {
       // What was saved is the new baseline: 저장 stays off until something changes again.
       form.reset(form.getValues());
-      invalidate();
       toast.success('저장했습니다.');
     },
     onError: (error) => toast.error(errorMessage(error)),
@@ -291,7 +295,6 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
     mutationFn: () => unwrap(client.connections[':id'].key.$put({ param: { id: connection.id }, json: { apiKey } })),
     onSuccess: () => {
       setApiKey('');
-      invalidate();
       toast.success('키를 저장했습니다.');
     },
     onError: (error) => toast.error(errorMessage(error)),
@@ -299,7 +302,6 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
   const deleteKey = useMutation({
     mutationFn: () => unwrap(client.connections[':id'].key.$delete({ param: { id: connection.id } })),
     onSuccess: () => {
-      invalidate();
       toast.success('키를 삭제했습니다.');
     },
     onError: (error) => toast.error(errorMessage(error)),
@@ -327,7 +329,6 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
   const remove = useMutation({
     mutationFn: () => unwrap(client.connections[':id'].$delete({ param: { id: connection.id } })),
     onSuccess: () => {
-      invalidate();
       toast.success('연결을 삭제했습니다.');
       onClose();
     },

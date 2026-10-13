@@ -1,18 +1,16 @@
 import { Hono } from 'hono';
 import { scopeRefusal } from '../services/tag-scope.ts';
-import { and, asc, eq, inArray, ne, or, sql } from 'drizzle-orm';
-import { mentions } from '../services/context.ts';
+import { and, asc, eq, inArray, ne, or } from 'drizzle-orm';
 import { z } from 'zod';
 import { characterStyleSchema, DOCUMENT_KINDS, KNOWLEDGE_STATUSES, KNOWLEDGE_TAG_KINDS, modelChoiceSchema, patchOf, relationshipChangeSchema, SPEECH_LEVELS } from '@tw/shared';
-import { badRequest, found, validate, type Env } from '../context.ts';
+import { badRequest, found, notFound, validate, type Env } from '../context.ts';
 import { eachChunk, inChunks } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { graphOrder, ruleLines } from '../services/speech.ts';
 import { eventFlow, forks } from '../services/event-routes.ts';
-import { SUGGEST_BATCH } from '../services/terms.ts';
-import { fillTermUsage } from '../services/term-usage.ts';
-import { addNameTerms } from '../services/terms.ts';
+import { fillTermUsage, termUsage } from '../services/term-usage.ts';
+import { addNameTerms, saveTerm, SUGGEST_BATCH } from '../services/terms.ts';
 import { byPerson } from '../services/status-by.ts';
 import { clearReview, withTags } from '../services/knowledge-tags.ts';
 
@@ -46,15 +44,16 @@ const DRAFT_TABLES = { documents: s.documents, characters: s.characters, relatio
 export const draftKinds = Object.keys(DRAFT_TABLES) as (keyof typeof DRAFT_TABLES)[];
 
 type ProjectTable = typeof s.terms | (typeof DRAFT_TABLES)[keyof typeof DRAFT_TABLES];
+/** A project's rows a person sees: rejected ones stay stored (so an analysis does not propose them again) but are not listed. */
+const visible = <T extends ProjectTable>(table: T, projectId: string) => and(eq(table.projectId, projectId), ne(table.status, 'rejected'));
 const byProject = <T extends ProjectTable>(table: T, id: string, projectId: string) => and(eq(table.id, id), eq(table.projectId, projectId));
 
 export const knowledgeRoutes = new Hono<Env>()
-  // Rejected terms stay stored so "대본에서 찾기" does not propose them again, but are not listed.
   .get('/terms', (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId')!;
     fillTermUsage(db, projectId);
-    return c.json(withTags(db, 'terms', db.select().from(s.terms).where(and(eq(s.terms.projectId, projectId), ne(s.terms.status, 'rejected'))).orderBy(asc(s.terms.source)).all()));
+    return c.json(withTags(db, 'terms', db.select().from(s.terms).where(visible(s.terms, projectId)).orderBy(asc(s.terms.source)).all()));
   })
   .get('/terms/suggest', (c) => {
     const projectId = c.req.param('projectId')!;
@@ -65,7 +64,7 @@ export const knowledgeRoutes = new Hono<Env>()
     try {
       return c.json(c.var.deps.terms.start(c.req.param('projectId')!, c.req.valid('json')));
     } catch (error) {
-      return badRequest(error instanceof Error ? error.message : String(error));
+      badRequest(error instanceof Error ? error.message : String(error));
     }
   })
   .post('/terms/suggest/cancel', (c) => {
@@ -77,28 +76,23 @@ export const knowledgeRoutes = new Hono<Env>()
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId')!;
     const term = found(db.select().from(s.terms).where(byProject(s.terms, c.req.param('id'), projectId)).get(), '용어');
-    const pattern = `%${term.source.replace(/[%_\\]/g, (char) => `\\${char}`)}%`;
-    const rows = db
-      .select({ id: s.units.id, key: s.units.key, groupId: s.units.groupId, groupTitle: s.groups.title, speaker: s.units.speaker, source: s.units.source, translation: s.units.translation })
-      .from(s.units)
-      .innerJoin(s.groups, eq(s.groups.id, s.units.groupId))
-      .where(and(eq(s.units.projectId, projectId), sql`${s.units.source} like ${pattern} escape '\\'`))
-      .orderBy(asc(s.units.seq))
-      .all()
-      .filter((row) => mentions(row.source, term.source));
+    const rows = termUsage(db, projectId, term);
     return c.json({ count: rows.length, unitIds: rows.map((row) => row.id), rows: rows.slice(0, 100) });
   })
   .post('/terms', validate('json', termInput), (c) => {
     const projectId = c.req.param('projectId')!;
-    const row = c.var.deps.db.insert(s.terms).values({ ...c.req.valid('json'), projectId }).returning().get();
+    const saved = c.var.deps.db.transaction((tx) => saveTerm(tx, projectId, c.req.valid('json'), { by: 'person' }));
+    if (!saved.ok) badRequest(saved.error);
     events.changed(projectId, 'terms');
-    return c.json(row, 201);
+    return c.json(saved.row, 201);
   })
   .patch('/terms/:id', validate('json', patchOf(termInput)), (c) => {
     const projectId = c.req.param('projectId')!;
-    // A new source is counted again (fillTermUsage).
-    const body = c.req.valid('json');
-    found(c.var.deps.db.update(s.terms).set({ ...body, ...(body.source !== undefined && { lines: null }), ...byPerson(c.var.deps.db, s.terms, c.req.param('id'), body) }).where(byProject(s.terms, c.req.param('id'), projectId)).returning().get(), '용어');
+    const saved = c.var.deps.db.transaction((tx) => saveTerm(tx, projectId, c.req.valid('json'), { id: c.req.param('id'), by: 'person' }));
+    if (!saved.ok) {
+      if (saved.reason === 'missing') notFound('용어');
+      badRequest(saved.error);
+    }
     events.changed(projectId, 'terms');
     return c.json({ ok: true });
   })
@@ -109,7 +103,7 @@ export const knowledgeRoutes = new Hono<Env>()
     return c.json({ ok: true });
   })
 
-  .get('/documents', (c) => c.json(withTags(c.var.deps.db, 'documents', c.var.deps.db.select().from(s.documents).where(and(eq(s.documents.projectId, c.req.param('projectId')!), ne(s.documents.status, 'rejected'))).orderBy(asc(s.documents.kind), asc(s.documents.title)).all())))
+  .get('/documents', (c) => c.json(withTags(c.var.deps.db, 'documents', c.var.deps.db.select().from(s.documents).where(visible(s.documents, c.req.param('projectId')!)).orderBy(asc(s.documents.kind), asc(s.documents.title)).all())))
   .post('/documents', validate('json', documentInput), (c) => {
     const projectId = c.req.param('projectId')!;
     const row = c.var.deps.db.insert(s.documents).values({ ...c.req.valid('json'), projectId }).returning().get();
@@ -118,7 +112,7 @@ export const knowledgeRoutes = new Hono<Env>()
   })
   .patch('/documents/:id', validate('json', patchOf(documentInput)), (c) => {
     const projectId = c.req.param('projectId')!;
-    found(c.var.deps.db.update(s.documents).set({ ...c.req.valid('json'), ...byPerson(c.var.deps.db, s.documents, c.req.param('id'), c.req.valid('json')) }).where(byProject(s.documents, c.req.param('id'), projectId)).returning().get(), '문서');
+    found(c.var.deps.db.update(s.documents).set({ ...c.req.valid('json'), ...byPerson(c.var.deps.db, s.documents, projectId, c.req.param('id'), c.req.valid('json')) }).where(byProject(s.documents, c.req.param('id'), projectId)).returning().get(), '문서');
     events.changed(projectId, 'knowledge');
     return c.json({ ok: true });
   })
@@ -133,8 +127,8 @@ export const knowledgeRoutes = new Hono<Env>()
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId')!;
     return c.json({
-      characters: withTags(db, 'characters', db.select().from(s.characters).where(and(eq(s.characters.projectId, projectId), ne(s.characters.status, 'rejected'))).orderBy(asc(s.characters.name)).all()),
-      relationships: withTags(db, 'relationships', db.select().from(s.relationships).where(and(eq(s.relationships.projectId, projectId), ne(s.relationships.status, 'rejected'))).all()),
+      characters: withTags(db, 'characters', db.select().from(s.characters).where(visible(s.characters, projectId)).orderBy(asc(s.characters.name)).all()),
+      relationships: withTags(db, 'relationships', db.select().from(s.relationships).where(visible(s.relationships, projectId)).all()),
     });
   })
   .post('/characters', validate('json', characterInput), (c) => {
@@ -146,7 +140,7 @@ export const knowledgeRoutes = new Hono<Env>()
   })
   .patch('/characters/:id', validate('json', patchOf(characterInput)), (c) => {
     const projectId = c.req.param('projectId')!;
-    const row = found(c.var.deps.db.update(s.characters).set({ ...c.req.valid('json'), ...byPerson(c.var.deps.db, s.characters, c.req.param('id'), c.req.valid('json')) }).where(byProject(s.characters, c.req.param('id'), projectId)).returning().get(), '인물');
+    const row = found(c.var.deps.db.update(s.characters).set({ ...c.req.valid('json'), ...byPerson(c.var.deps.db, s.characters, projectId, c.req.param('id'), c.req.valid('json')) }).where(byProject(s.characters, c.req.param('id'), projectId)).returning().get(), '인물');
     if (c.req.valid('json').name !== undefined || c.req.valid('json').aliases !== undefined) addNameTerms(c.var.deps.db, projectId, row);
     events.changed(projectId, 'knowledge');
     return c.json({ ok: true });
@@ -165,7 +159,7 @@ export const knowledgeRoutes = new Hono<Env>()
   })
   .patch('/relationships/:id', validate('json', patchOf(relationshipInput)), (c) => {
     const projectId = c.req.param('projectId')!;
-    found(c.var.deps.db.update(s.relationships).set({ ...c.req.valid('json'), ...byPerson(c.var.deps.db, s.relationships, c.req.param('id'), c.req.valid('json')) }).where(byProject(s.relationships, c.req.param('id'), projectId)).returning().get(), '관계');
+    found(c.var.deps.db.update(s.relationships).set({ ...c.req.valid('json'), ...byPerson(c.var.deps.db, s.relationships, projectId, c.req.param('id'), c.req.valid('json')) }).where(byProject(s.relationships, c.req.param('id'), projectId)).returning().get(), '관계');
     events.changed(projectId, 'knowledge');
     return c.json({ ok: true });
   })
@@ -179,7 +173,7 @@ export const knowledgeRoutes = new Hono<Env>()
   .get('/events', (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId')!;
-    const events = withTags(db, 'events', db.select().from(s.storyEvents).where(and(eq(s.storyEvents.projectId, projectId), ne(s.storyEvents.status, 'rejected'))).all());
+    const events = withTags(db, 'events', db.select().from(s.storyEvents).where(visible(s.storyEvents, projectId)).all());
     const keys = [...new Set(events.flatMap((event) => event.evidence))];
     const lines = new Map(
       inChunks(keys, (slice) =>
@@ -207,7 +201,7 @@ export const knowledgeRoutes = new Hono<Env>()
   })
   .patch('/events/:id', validate('json', patchOf(eventInput)), (c) => {
     const projectId = c.req.param('projectId')!;
-    found(c.var.deps.db.update(s.storyEvents).set({ ...c.req.valid('json'), ...byPerson(c.var.deps.db, s.storyEvents, c.req.param('id'), c.req.valid('json')) }).where(byProject(s.storyEvents, c.req.param('id'), projectId)).returning().get(), '사건');
+    found(c.var.deps.db.update(s.storyEvents).set({ ...c.req.valid('json'), ...byPerson(c.var.deps.db, s.storyEvents, projectId, c.req.param('id'), c.req.valid('json')) }).where(byProject(s.storyEvents, c.req.param('id'), projectId)).returning().get(), '사건');
     events.changed(projectId, 'knowledge');
     return c.json({ ok: true });
   })
@@ -218,7 +212,7 @@ export const knowledgeRoutes = new Hono<Env>()
     return c.json({ ok: true });
   })
 
-  .get('/speech-rules', (c) => c.json(withTags(c.var.deps.db, 'speechRules', c.var.deps.db.select().from(s.speechRules).where(and(eq(s.speechRules.projectId, c.req.param('projectId')!), ne(s.speechRules.status, 'rejected'))).all())))
+  .get('/speech-rules', (c) => c.json(withTags(c.var.deps.db, 'speechRules', c.var.deps.db.select().from(s.speechRules).where(visible(s.speechRules, c.req.param('projectId')!)).all())))
   .post('/speech-rules', validate('json', speechRuleInput), (c) => {
     const projectId = c.req.param('projectId')!;
     const row = c.var.deps.db.insert(s.speechRules).values({ ...c.req.valid('json'), projectId }).returning().get();
@@ -227,9 +221,7 @@ export const knowledgeRoutes = new Hono<Env>()
   })
   .patch('/speech-rules/:id', validate('json', patchOf(speechRuleInput)), (c) => {
     const projectId = c.req.param('projectId')!;
-    found(c.var.deps.db.update(s.speechRules).set({ ...c.req.valid('json'), ...byPerson(c.var.deps.db, s.speechRules, c.req.param('id'), c.req.valid('json')) }).where(byProject(s.speechRules, c.req.param('id'), projectId)).returning().get(), '말투 규칙');
-    // A person edited it: they have looked.
-    clearReview(c.var.deps.db, projectId, 'speechRules', [c.req.param('id')]);
+    found(c.var.deps.db.update(s.speechRules).set({ ...c.req.valid('json'), ...byPerson(c.var.deps.db, s.speechRules, projectId, c.req.param('id'), c.req.valid('json')) }).where(byProject(s.speechRules, c.req.param('id'), projectId)).returning().get(), '말투 규칙');
     events.changed(projectId, 'knowledge');
     return c.json({ ok: true });
   })
@@ -251,7 +243,7 @@ export const knowledgeRoutes = new Hono<Env>()
     try {
       return c.json(c.var.deps.analysis.start(c.req.param('projectId')!, c.req.valid('json').model, c.req.valid('json').resume), 201);
     } catch (error) {
-      return badRequest(error instanceof Error ? error.message : String(error));
+      badRequest(error instanceof Error ? error.message : String(error));
     }
   })
   .post('/analysis/:jobId/cancel', (c) => {

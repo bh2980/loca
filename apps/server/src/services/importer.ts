@@ -1,5 +1,6 @@
 import { DEFAULT_STATUSES, listenerTemplate, SPEECH_FIX_WORKFLOW, speechFixTemplate, termExtractionTemplate, translationTemplate, type DraftModelChoice, type ImportFile } from '@tw/shared';
 import type { Db } from '../db/index.ts';
+import { attachUnitTags } from './tag-scope.ts';
 
 /** Colors for tags that came with the file, in turn. */
 const TAG_COLORS = ['#0ea5e9', '#14b8a6', '#84cc16', '#a855f7', '#f43f5e', '#f59e0b'];
@@ -99,7 +100,9 @@ export function importProject(db: Db, file: ImportFile, model: DraftModelChoice 
     const tagNames = [...new Set(file.units.flatMap((unit) => unit.tags))];
     if (tagNames.length) {
       const tagIds = new Map(tagNames.map((name, index) => [name, tx.insert(s.tags).values({ projectId, name, color: TAG_COLORS[index % TAG_COLORS.length] }).returning({ id: s.tags.id }).get().id]));
-      insertMany(tx, s.unitTags, file.units.flatMap((unit) => unit.tags.map((name) => ({ unitId: unitIds.get(unit.key)!, tagId: tagIds.get(name)! }))));
+      const unitsOf = new Map<string, string[]>();
+      for (const unit of file.units) for (const name of unit.tags) unitsOf.set(name, [...(unitsOf.get(name) ?? []), unitIds.get(unit.key)!]);
+      for (const [name, tagId] of tagIds) attachUnitTags(tx, projectId, unitsOf.get(name) ?? [], { add: [tagId] }, { onMisplaced: 'skip' });
     }
 
     if (file.graph) {

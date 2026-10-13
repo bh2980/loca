@@ -103,7 +103,7 @@ export function StartAnalysis({ projectId, variant = 'default' }: { projectId: s
             </p>
           </div>
         )}
-        <Button className="w-full" disabled={!model?.model || start.isPending} onClick={() => start.mutate()}>
+        <Button variant="outline" className="w-full" disabled={!model?.model || start.isPending} onClick={() => start.mutate()}>
           <Play /> 시작
         </Button>
       </PopoverContent>

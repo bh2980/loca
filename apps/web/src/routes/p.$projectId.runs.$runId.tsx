@@ -5,6 +5,7 @@ import { nodeName as nameOf, type WorkflowNode } from '@tw/shared';
 import { ContextItemList } from '@/components/ai-context';
 import { LineDetail } from '@/components/line-detail';
 import { Page } from '@/components/page';
+import { EmptyState } from '@/components/empty-state';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { HeaderFilter } from '@/components/header-filter';
 import { Pager, Toolbar } from '@/components/toolbar';
@@ -31,7 +32,7 @@ interface RunSearch {
   node?: string;
   page?: number;
   line?: string;
-  view?: 'items' | 'steps' | 'plan';
+  tab?: 'steps' | 'plan';
   lineTab?: 'candidates' | 'context';
   aiNode?: string;
 }
@@ -42,7 +43,7 @@ export const Route = createFileRoute('/p/$projectId/runs/$runId')({
     node: typeof raw.node === 'string' ? raw.node : undefined,
     page: typeof raw.page === 'number' && raw.page > 0 ? raw.page : undefined,
     line: typeof raw.line === 'string' ? raw.line : undefined,
-    view: raw.view === 'steps' || raw.view === 'plan' ? raw.view : undefined,
+    tab: raw.tab === 'steps' || raw.tab === 'plan' ? raw.tab : undefined,
     lineTab: raw.lineTab === 'context' || raw.lineTab === 'candidates' ? raw.lineTab : undefined,
     aiNode: typeof raw.aiNode === 'string' && raw.aiNode.includes(':') ? raw.aiNode : undefined,
   }),
@@ -59,8 +60,8 @@ function RunDetail() {
   const navigate = Route.useNavigate();
   const run = useQuery(q.run(runId));
   const items = useQuery(q.runItems(runId, { state: search.state, nodeId: search.node, offset: (search.page ?? 0) * PAGE }));
-  const steps = useQuery({ ...q.runSteps(runId), enabled: search.view === 'steps' });
-  const plan = useQuery({ ...q.runPlan(runId), enabled: search.view === 'plan' });
+  const steps = useQuery({ ...q.runSteps(runId), enabled: search.tab === 'steps' });
+  const plan = useQuery({ ...q.runPlan(runId), enabled: search.tab === 'plan' });
   const control = useMutation({ mutationFn: (action: 'pause' | 'resume' | 'cancel') => unwrap(client.runs[':id'][':action{pause|resume|cancel}'].$post({ param: { id: runId, action } })) });
   const setSearch = (next: Partial<RunSearch>, replace = false) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace });
   useReportView('run', [run.data && { kind: '실행', id: run.data.id, label: run.data.workflowName }]);
@@ -76,7 +77,7 @@ function RunDetail() {
       </Page>
     );
   const data = run.data;
-  const view = search.view ?? 'items';
+  const view = search.tab ?? 'items';
   const nodeById = new Map<string, WorkflowNode>(data.definition.nodes.map((node) => [node.id, node]));
   const totals = data.nodes.reduce<Record<string, number>>((acc, row) => ((acc[row.state] = (acc[row.state] ?? 0) + row.count), acc), {});
   const nodeTotals = data.nodes.reduce<Record<string, number>>((acc, row) => ((acc[row.nodeId] = (acc[row.nodeId] ?? 0) + row.count), acc), {});
@@ -214,7 +215,7 @@ function RunDetail() {
             </Link>
           </Button>
           <JobStatusBadge status={data.status} />
-          <ToggleGroup type="single" variant="outline" value={view} onValueChange={(value) => value && setSearch({ view: value === 'steps' || value === 'plan' ? value : undefined }, true)}>
+          <ToggleGroup type="single" variant="outline" value={view} onValueChange={(value) => value && setSearch({ tab: value === 'steps' || value === 'plan' ? value : undefined }, true)}>
             <ToggleGroupItem value="items">대사별</ToggleGroupItem>
             <ToggleGroupItem value="steps">AI 호출</ToggleGroupItem>
             <ToggleGroupItem value="plan">번역 계획</ToggleGroupItem>
@@ -265,7 +266,7 @@ function RunDetail() {
             loading={!items.data}
             selected={items.data?.rows.find((item) => item.unitId === search.line)?.id}
             onRowClick={(item) => setSearch({ line: search.line === item.unitId ? undefined : item.unitId }, true)}
-            empty={filtered ? '조건에 맞는 대사가 없습니다.' : '이 실행에 대사가 없습니다.'}
+            empty={<EmptyState noun="대사" filtered={filtered} />}
             footer={<Pager page={search.page ?? 0} total={total} pageSize={PAGE} onPage={(page) => setSearch({ page: page || undefined })} />}
           />
         ) : view === 'plan' ? (
@@ -277,7 +278,7 @@ function RunDetail() {
                   <BatchList list={plan.data} defaultOpen />
                 </>
               ) : (
-                <p className="py-12 text-center text-sm text-muted-foreground">이 실행에는 저장된 번역 계획이 없습니다(계획을 저장하기 전에 시작한 실행).</p>
+                <EmptyState noun="저장된 번역 계획" hint="계획을 저장하기 전에 시작한 실행입니다." />
               )
             ) : plan.isError ? (
               <p className="py-12 text-center text-sm text-destructive">번역 계획을 불러오지 못했습니다: {plan.error.message}</p>

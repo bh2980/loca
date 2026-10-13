@@ -10,6 +10,8 @@
 | `loca-characters` | 인물 대사 읽기, 프로필·관계·말투 규칙·사건 제안, 대사의 청자 고치기 |
 | `loca-import-format` | 게임 추출 결과를 표준 파일(`loca/v1`)로 바꾸는 변환기 만들기와 `loca format check` |
 
+읽기 명령은 앱 화면과 같은 규칙을 씁니다: 줄의 `marks`(#표시), `loca terms`·`knowledge`·`tags`·`plan`. `--mark candidate ai`처럼 후보와 AI가 정함을 함께 주면 둘 중 하나, `--unreviewed`는 사람이 아직 안 본 항목입니다.
+
 임시 파일은 `loca workspace new <작업>`이 만드는 `.loca/<작업>/`에 둡니다(git에 올라가지 않음).
 
 ## 설치

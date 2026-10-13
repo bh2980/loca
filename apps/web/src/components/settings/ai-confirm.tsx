@@ -7,7 +7,7 @@ import { client, unwrap } from '@/lib/api';
 import { optimistic } from '@/lib/optimistic';
 import { q } from '@/lib/queries';
 
-export const AI_CONFIRM_LABELS = { auto: '자동 확정', candidate: '후보로만' } as const;
+const AI_CONFIRM_LABELS = { auto: '자동 확정', candidate: '후보로만' } as const;
 
 /**
  * Where an AI step that writes knowledge or terms says how its results land: the project's

@@ -1,21 +1,22 @@
 import { and, eq, sql, type SQL } from 'drizzle-orm';
-import { z } from 'zod';
-import { LISTENER_MIN_CONFIDENCE } from '@tw/shared';
+import { LISTENER_MIN_CONFIDENCE, type LineMark } from '@tw/shared';
 import * as s from '../db/schema.ts';
 
 /**
  * Automatic marks: facts read off a line (never stored) that the script list filters by and a run
  * can be scoped by. Each is one SQL condition; a set of marks holds only when every one does.
  */
-export const LINE_MARKS = ['remaining', 'ai', 'unknownListener', 'diverged', 'noted'] as const;
-export type LineMark = (typeof LINE_MARKS)[number];
-export const lineMarksSchema = z.array(z.enum(LINE_MARKS));
+export type { LineMark };
 
 /** A source as compared for "the same source": lower case, without spaces and punctuation at its ends ("What?" = "WHAT"). */
 export const sameSource = (column: SQL) => sql`trim(lower(${column}), ' .,!?…"''-~')`;
 
-/** The listener counts unless it is an unsure guess (by line or by scene), as isUnsureListener. */
-export const knownListenerSql = sql`(${s.units.listener} is not null and (${s.units.listenerOrigin} not in ('ai', 'scene') or ${s.units.listenerConfidence} >= ${LISTENER_MIN_CONFIDENCE}))`;
+/**
+ * The listener counts unless it is an unsure guess (by line or by scene): the SQL twin of
+ * isUnsureListener / isUnknownListener in shared, nulls included (no origin = not a guess, no
+ * confidence = 0). line-marks.test.ts checks the two agree.
+ */
+export const knownListenerSql = sql`(${s.units.listener} is not null and (coalesce(${s.units.listenerOrigin}, '') not in ('ai', 'scene') or coalesce(${s.units.listenerConfidence}, 0) >= ${LISTENER_MIN_CONFIDENCE}))`;
 
 function markCondition(projectId: string, mark: LineMark): SQL {
   switch (mark) {

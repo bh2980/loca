@@ -1,5 +1,7 @@
-import { and, count, eq, inArray, ne } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, ne, sql } from 'drizzle-orm';
 import { tagScope, TAG_SCOPE_LABELS, type TagScope } from '@tw/shared';
+import { badRequest } from '../context.ts';
+import { eachChunk } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 
@@ -21,4 +23,59 @@ export function tagUseIn(db: Pick<Db, 'select'>, tagId: string, scope: TagScope)
   if (scope === 'lines') return db.select({ n: count() }).from(s.unitTags).where(eq(s.unitTags.tagId, tagId)).get()!.n;
   const kind = scope === 'terms' ? eq(s.knowledgeTags.kind, 'terms') : ne(s.knowledgeTags.kind, 'terms');
   return db.select({ n: count() }).from(s.knowledgeTags).where(and(eq(s.knowledgeTags.tagId, tagId), kind)).get()!.n;
+}
+
+/**
+ * Puts tags on lines and takes tags off them, for every path that tags lines (the list, the line
+ * pane, an accepted proposal, a workflow, an import). A tag to add must be the project's and may be
+ * put on lines: one that is not is refused (400) or, with 'skip', left off and returned so the
+ * caller can say so. `unitIds` are the project's lines; removal is limited to them anyway.
+ */
+export function attachUnitTags(
+  tx: Pick<Db, 'select' | 'insert' | 'delete'>,
+  projectId: string,
+  unitIds: readonly string[],
+  change: { add?: readonly string[]; remove?: readonly string[] },
+  options: { onMisplaced: 'refuse' | 'skip' },
+) {
+  let add = [...new Set(change.add)];
+  const skipped: { id: string; name: string }[] = [];
+  if (add.length) {
+    const tags = new Map(tx.select({ id: s.tags.id, name: s.tags.name, role: s.tags.role, scope: s.tags.scope }).from(s.tags).where(and(eq(s.tags.projectId, projectId), inArray(s.tags.id, add))).all().map((tag) => [tag.id, tag]));
+    const unknown = add.filter((id) => !tags.has(id));
+    const misplaced = [...tags.values()].filter((tag) => !tagScope(tag).includes('lines'));
+    if (options.onMisplaced === 'refuse') {
+      if (unknown.length) badRequest('이 프로젝트에 없는 태그입니다.');
+      if (misplaced.length) badRequest(scopeRefusal(tx, projectId, add, 'lines')!);
+    }
+    skipped.push(...unknown.map((id) => ({ id, name: id })), ...misplaced.map((tag) => ({ id: tag.id, name: tag.name })));
+    const out = new Set(skipped.map((tag) => tag.id));
+    add = add.filter((id) => !out.has(id));
+  }
+  const remove = [...new Set(change.remove)];
+  eachChunk(unitIds, (slice) => {
+    if (remove.length) tx.delete(s.unitTags).where(and(inArray(s.unitTags.unitId, slice), inArray(s.unitTags.tagId, remove), inArray(s.unitTags.unitId, tx.select({ id: s.units.id }).from(s.units).where(eq(s.units.projectId, projectId))))).run();
+    if (add.length) tx.insert(s.unitTags).values(slice.flatMap((unitId) => add.map((tagId) => ({ unitId, tagId })))).onConflictDoNothing().run();
+  }, Math.max(1, Math.floor(30_000 / Math.max(1, add.length * 2))));
+  return { skipped };
+}
+
+/** The project's tags with where each can be put (scope) and how many lines and knowledge items carry it. role is set on the app's own tags. */
+export function projectTags(db: Pick<Db, 'select'>, projectId: string) {
+  return db
+    .select({
+      id: s.tags.id,
+      name: s.tags.name,
+      color: s.tags.color,
+      /** The app's tags: a problem type (lines) or 'review' (확인 권장, knowledge only). */
+      role: s.tags.role,
+      scope: s.tags.scope,
+      units: sql<number>`(select count(*) from unit_tags ut where ut.tag_id = "tags"."id")`,
+      items: sql<number>`(select count(*) from knowledge_tags kt where kt.tag_id = "tags"."id")`,
+    })
+    .from(s.tags)
+    .where(eq(s.tags.projectId, projectId))
+    .orderBy(asc(s.tags.name))
+    .all()
+    .map((tag) => ({ ...tag, scope: tagScope(tag) }));
 }

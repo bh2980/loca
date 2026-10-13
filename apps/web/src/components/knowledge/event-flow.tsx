@@ -4,6 +4,7 @@ import ELK, { type ElkNode } from 'elkjs/lib/elk.bundled.js';
 import '@xyflow/react/dist/style.css';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { EmptyState } from '@/components/empty-state';
 
 const elk = new ELK();
 const CARD = { width: 288, height: 92 };
@@ -55,7 +56,7 @@ const nodeTypes = { event: EventCard, section: SectionTitle };
  * such link keep script order without a line. Cards can be dragged; positions are remembered in
  * this browser until "배치 되돌리기". Events whose evidence is not in the script sit in a last block.
  */
-export function EventFlow({ projectId, events, selected, onOpen, badge }: { projectId: string; events: FlowEvent[]; selected?: string; onOpen: (id?: string) => void; badge: (event: FlowEvent) => ReactNode }) {
+export function EventFlow({ projectId, events, selected, onOpen, badge, filtered }: { projectId: string; events: FlowEvent[]; /** Filters are set (so none matching is not the same as none yet). */ filtered?: boolean; selected?: string; onOpen: (id?: string) => void; badge: (event: FlowEvent) => ReactNode }) {
   const placed = useMemo(() => events.filter((event) => event.at).sort((a, b) => a.at!.seq - b.at!.seq), [events]);
   const sections = useMemo(() => [...Map.groupBy(placed, (event) => event.at!.section ?? '').entries()], [placed]);
   const unplaced = useMemo(() => events.filter((event) => !event.at), [events]);
@@ -149,7 +150,7 @@ export function EventFlow({ projectId, events, selected, onOpen, badge }: { proj
     [events, sectionOf],
   );
 
-  if (!events.length) return <p className="px-6 py-12 text-center text-sm text-muted-foreground">사건이 없습니다. “작품 분석”으로 초안을 받거나 표에서 추가하세요.</p>;
+  if (!events.length) return <EmptyState noun="사건" filtered={filtered} hint="“작품 분석”으로 초안을 받거나 표에서 추가하세요." />;
   if (!layout) return <div className="flex h-full items-center justify-center text-sm text-muted-foreground">배치 계산 중…</div>;
   return (
     <div ref={frame} className="h-full">

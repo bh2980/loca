@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Textarea } from '@/components/ui/textarea';
-import { client, unwrap } from '@/lib/api';
+import { apiFetch, client, unwrap } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
 import { wordDiff } from '@/lib/diff';
 import { placeTags } from '@/lib/tag-placement';
@@ -79,7 +79,7 @@ export function TranslationEditor({
     pending.current?.abort();
     const controller = (pending.current = new AbortController());
     setAi({ loading: true });
-    void fetch(`/api/units/${unit.id}/complete`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prefix }), signal: controller.signal })
+    void apiFetch(`/api/units/${unit.id}/complete`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prefix }), signal: controller.signal })
       .then(async (response) => {
         const body = (await response.json()) as { text?: string; error?: string; retryAfterSeconds?: number };
         if (!response.ok || !body.text) {
@@ -105,14 +105,13 @@ export function TranslationEditor({
   const [assistOpen, setAssistOpen] = useState(false);
   const [assist, setAssist] = useState<{ loading?: 'translate' | 'refine'; done?: boolean; message?: string }>({});
   const assistPending = useRef<AbortController>(null);
-  const queryClientForAssist = useQueryClient();
   const runAssist = (mode: 'translate' | 'refine', instruction: string) => {
     assistPending.current?.abort();
     const controller = (assistPending.current = new AbortController());
     setAssistOpen(false);
     setAssist({ loading: mode });
     rememberInstruction(projectId, instruction);
-    void fetch(`/api/units/${unit.id}/assist`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode, draft: mode === 'refine' ? draft : '', instruction }), signal: controller.signal })
+    void apiFetch(`/api/units/${unit.id}/assist`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode, draft: mode === 'refine' ? draft : '', instruction }), signal: controller.signal })
       .then(async (response) => {
         const body = (await response.json()) as { text?: string; error?: string; retryAfterSeconds?: number };
         if (!response.ok || !body.text) {
@@ -121,7 +120,6 @@ export function TranslationEditor({
           return;
         }
         setAssist({ done: true });
-        void queryClientForAssist.invalidateQueries({ queryKey: q.unit(unit.id).queryKey });
       })
       .catch((error: unknown) => !controller.signal.aborted && setAssist({ message: error instanceof Error ? error.message : String(error) }));
   };
@@ -475,7 +473,7 @@ function AssistPopover({
             {recent.length > 0 && (
               <div className="flex flex-wrap gap-1">
                 {recent.map((item) => (
-                  <Button key={item} variant="outline" size="sm" className="max-w-full truncate text-xs font-normal" title={item} onClick={() => setInstruction(item)}>
+                  <Button key={item} variant="outline" className="max-w-full truncate text-xs font-normal" title={item} onClick={() => setInstruction(item)}>
                     {item}
                   </Button>
                 ))}
@@ -484,19 +482,19 @@ function AssistPopover({
             <div className="flex justify-end gap-2">
               {hasDraft ? (
                 <>
-                  <Button variant="outline" size="sm" onClick={() => run('translate')}>
+                  <Button variant="outline" onClick={() => run('translate')}>
                     새로 번역
                   </Button>
-                  <Button size="sm" onClick={() => run('refine')}>
+                  <Button onClick={() => run('refine')}>
                     다듬기
                   </Button>
                 </>
               ) : (
                 <>
-                  <Button variant="outline" size="sm" disabled title="다듬을 번역이 없습니다">
+                  <Button variant="outline" disabled title="다듬을 번역이 없습니다">
                     다듬기
                   </Button>
-                  <Button size="sm" onClick={() => run('translate')}>
+                  <Button onClick={() => run('translate')}>
                     새로 번역
                   </Button>
                 </>

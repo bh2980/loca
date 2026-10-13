@@ -3,6 +3,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { EmptyState } from '@/components/empty-state';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { DetailPane } from '@/components/detail-pane';
 import { HeaderActions, Page } from '@/components/page';
@@ -14,6 +15,7 @@ import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui
 import { Input } from '@/components/ui/input';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
+import { useReportView } from '@/lib/view-context';
 
 export const Route = createFileRoute('/p/$projectId/keys')({
   validateSearch: (raw: Record<string, unknown>): { key?: string } => ({ key: typeof raw.key === 'string' && raw.key ? raw.key : undefined }),
@@ -35,6 +37,7 @@ function ApiKeys() {
   const connections = useQuery(q.connections());
   const keys = connections.data?.filter((connection) => connection.kind === 'http') ?? [];
   const selected = keys.find((row) => row.id === search.key);
+  useReportView('api-key', [selected && { kind: 'API 키', id: selected.id, label: selected.name }]);
   const open = (key?: string) => void navigate({ search: { key }, replace: true });
 
   const columns: ColumnDef<KeyRow, unknown>[] = [
@@ -61,7 +64,7 @@ function ApiKeys() {
           rows={connections.data ? keys : undefined}
           rowId={(row) => row.id}
           selected={search.key}
-          empty="API 키가 없습니다."
+          empty={<EmptyState noun="API 키" hint="‘API 키 추가’로 시작하세요." />}
           onRowClick={(row) => open(row.id === search.key ? undefined : row.id)}
         />
         <p className="max-w-2xl px-4 py-3 text-xs text-muted-foreground">워크플로의 ‘HTTP 호출’ 노드가 키가 필요한 API를 부를 때 고릅니다. 주소는 노드에 적고, 키는 여기(OS 키체인)에만 둡니다. 공개 API는 키가 필요 없습니다.</p>

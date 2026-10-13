@@ -11,6 +11,7 @@ import { client, unwrap } from '@/lib/api';
 import { q, useReviewTagId } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { keyLabel } from '@/lib/keys';
+import { termMarksOf } from '@tw/shared';
 
 interface Step {
   key: string;
@@ -60,10 +61,11 @@ export function GettingStarted({ projectId }: { projectId: string }) {
         </Button>
       </HeaderActions>
     );
-  const toCheck = rules.data.filter((rule) => rule.statusBy === 'ai' && rule.tags.some((tag) => tag.id === reviewTag)).length;
+  const toCheck = rules.data.filter((rule) => rule.tags.some((tag) => tag.id === reviewTag)).length;
+  // Counted by the glossary's own marks (#후보, #번역어 없음 on any term), the same ones its links filter by.
   const confirmedTerms = terms.data.filter((term) => term.status === 'confirmed').length;
-  const candidates = terms.data.filter((term) => term.status === 'candidate').length;
-  const emptyTerms = terms.data.filter((term) => term.status === 'candidate' && !term.target.trim()).length;
+  const candidates = terms.data.filter((term) => termMarksOf(term).includes('candidate')).length;
+  const emptyTerms = terms.data.filter((term) => termMarksOf(term).includes('emptyTarget')).length;
 
   const steps: Step[] = [
     {
@@ -124,12 +126,12 @@ export function GettingStarted({ projectId }: { projectId: string }) {
         ? analysed
           ? '작품 분석이 용어를 찾지 못했습니다. 용어집에서 직접 추가할 수 있습니다.'
           : '작품 분석이 용어 후보도 만듭니다.'
-        : `용어 후보 ${candidates.toLocaleString()}개${emptyTerms ? ` (번역이 빈 것 ${emptyTerms.toLocaleString()}개)` : ''}. 용어집에서 빈 번역을 AI로 채우고, 확인해서 확정하세요. 확정한 용어만 번역 문맥에 들어갑니다.`,
+        : `용어 후보 ${candidates.toLocaleString()}개${emptyTerms ? ` · 번역어가 없는 용어 ${emptyTerms.toLocaleString()}개 (후보 아닌 것 포함)` : ''}. 용어집에서 빈 번역을 AI로 채우고, 확인해서 확정하세요. 확정한 용어만 번역 문맥에 들어갑니다.`,
       done: confirmedTerms > 0,
       optional: true,
       action: () => (
         <Button asChild variant="ghost">
-          <Link to="/p/$projectId/glossary" params={{ projectId }} search={terms.data.length ? { state: 'candidate' } : {}}>
+          <Link to="/p/$projectId/glossary" params={{ projectId }} search={terms.data.length ? { marks: ['candidate'] } : {}}>
             용어집 열기
           </Link>
         </Button>

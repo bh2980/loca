@@ -3,6 +3,7 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Play, Plus, Trash2 } from 'lucide-react';
 import { AiButton } from '@/components/ai-button';
+import { EmptyState } from '@/components/empty-state';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { JobStatusBadge } from '@/components/job-status';
 import { HeaderActions, Page } from '@/components/page';
@@ -129,7 +130,7 @@ function Workflows() {
           rows={workflows.data}
           rowId={(workflow) => workflow.id}
           loading={workflows.isLoading}
-          empty="아직 워크플로가 없습니다. ‘새 워크플로’나 ‘AI로 만들기’로 시작하세요."
+          empty={<EmptyState noun="워크플로" hint="‘새 워크플로’나 ‘AI로 만들기’로 시작하세요." />}
           onRowClick={(workflow) => void navigate({ to: '/p/$projectId/workflows/$workflowId', params: { projectId, workflowId: workflow.id } })}
         />
       </div>

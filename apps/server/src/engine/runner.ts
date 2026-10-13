@@ -2,7 +2,7 @@ import { and, asc, desc, eq, inArray, isNull, ne, notInArray, or, sql } from 'dr
 import { alias } from 'drizzle-orm/sqlite-core';
 import jsonLogic from 'json-logic-js';
 import * as ai from '@tw/ai';
-import { type IssueKind, batchConfigSchema, FUNCTIONS, choiceKey, nodeModels, nodeName, type AiNode, type ConditionData, type FunctionName, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import { type IssueKind, batchConfigSchema, FUNCTIONS, choiceKey, isUnknownListener, lineMarksOf, nodeModels, nodeName, type AiNode, type ConditionData, type FunctionName, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
 import { inChunks, inList } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -11,7 +11,6 @@ import { events, type Topic } from '../events.ts';
 import { buildContext } from '../services/context.ts';
 import { resolveRoutes } from '../services/routes.ts';
 import { markConditions } from '../services/line-marks.ts';
-import { knownListener } from '../services/speech.ts';
 import type { SecretStore } from '../services/secrets.ts';
 import { runAsyncFunction, syncFunctions, type FunctionInput, type FunctionResult } from './functions/index.ts';
 import { packGroups, planBatches } from './batches.ts';
@@ -494,8 +493,8 @@ export class Runner {
         return tx.update(s.runItems).set({ state: 'done' }).where(eq(s.runItems.id, item.id)).run();
       case 'condition': {
         const finalStatus = tx.select({ kind: s.statuses.kind }).from(s.statuses).where(eq(s.statuses.id, unit.statusId)).get()?.kind === 'final';
-        const listenerKnown = unit.kind !== 'dialogue' || knownListener(unit) !== null;
-        const marks = [!finalStatus && 'remaining', unit.statusBy === 'ai' && 'ai', !listenerKnown && 'unknownListener', unit.note.trim() && 'noted'].filter((mark): mark is string => typeof mark === 'string');
+        const listenerKnown = !isUnknownListener(unit);
+        const marks = lineMarksOf(unit, finalStatus);
         const data: ConditionData = {
           visits: item.visits,
           outputs: item.data.outputs ?? {},

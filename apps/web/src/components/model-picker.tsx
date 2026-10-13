@@ -22,7 +22,7 @@ export interface ModelValue {
 const DEFAULT_EFFORT = '__default';
 
 /** A connection's models, as it lists them (APIs can list hundreds; CLIs may list none). */
-export function useModels(connectionId: string | undefined) {
+function useModels(connectionId: string | undefined) {
   return useQuery({
     queryKey: ['connections', connectionId, 'models'],
     queryFn: () => unwrap(client.connections[':id'].models.$get({ param: { id: connectionId! } })),
@@ -33,7 +33,7 @@ export function useModels(connectionId: string | undefined) {
 }
 
 /** "connection · model · effort" for a value, or null when nothing (or a deleted connection) is picked. */
-export function useModelLabel(value: ModelValue | null | undefined) {
+function useModelLabel(value: ModelValue | null | undefined) {
   const connections = useQuery(q.connections());
   const connection = value?.connectionId ? connections.data?.find((item) => item.id === value.connectionId) : undefined;
   if (!value?.connectionId || !value.model) return null;

@@ -26,7 +26,7 @@ export const scriptRoutes = new Hono<Env>()
     );
   })
   .get('/projects/:projectId/speakers/:name/first', (c) => c.json(firstAppearance(c.var.deps.db, c.req.param('projectId'), c.req.param('name'))))
-  .post('/projects/:projectId/lines/find', validate('json', lineFilterSchema), (c) => c.json(findLines(c.var.deps.db, c.req.param('projectId'), c.req.valid('json'))))
+  .post('/projects/:projectId/lines/find', validate('json', lineFilterSchema), (c) => c.json(findLines(c.var.deps.db, c.req.param('projectId'), c.req.valid('json'), { diverged: true })))
   .post('/projects/:projectId/scenes/with', validate('json', z.object({ speakers: z.array(z.string().min(1)).min(1) })), (c) =>
     c.json(scenesWith(c.var.deps.db, c.req.param('projectId'), c.req.valid('json').speakers)),
   )
@@ -83,13 +83,13 @@ export const scriptRoutes = new Hono<Env>()
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     const tool = agentCatalog(db, projectId).find((candidate) => candidate.name === c.req.param('name'));
-    if (!tool) return badRequest(`없거나 꺼진 도구입니다: ${c.req.param('name')}`);
+    if (!tool) badRequest(`없거나 꺼진 도구입니다: ${c.req.param('name')}`);
     const input = c.req.valid('json');
     const parsed = tool.schema.safeParse(input);
-    if (!parsed.success) return badRequest(`입력이 맞지 않습니다: ${parsed.error.issues.map((issue) => `${issue.path.join('.')} ${issue.message}`).join('; ')}`);
+    if (!parsed.success) badRequest(`입력이 맞지 않습니다: ${parsed.error.issues.map((issue) => `${issue.path.join('.')} ${issue.message}`).join('; ')}`);
     if (tool.changes) {
       const prepared = await prepareProposal(db, projectId, tool.name, parsed.data as Record<string, unknown>);
-      if (!prepared.ok) return badRequest(prepared.error);
+      if (!prepared.ok) badRequest(prepared.error);
       const proposal = propose(db, { projectId, sessionId: null, source: 'cli', tool: tool.name, input: prepared.input, report: prepared.report });
       return c.json({ proposed: true, proposalId: proposal.id, message: proposedText(proposal.id) + reportText(prepared.report), report: prepared.report });
     }

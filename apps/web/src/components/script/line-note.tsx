@@ -10,7 +10,7 @@ import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
 import { cn } from '@/lib/utils';
 
 /** Saves a line's note (empty removes it), shown at once. */
-export function useSaveNote(unitId: string) {
+function useSaveNote(unitId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (note: string) => unwrap(client.units[':unitId'].$patch({ param: { unitId }, json: { note } })),

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef, type ColumnOrderState, type ColumnSizingState, type RowData, type VisibilityState } from '@tanstack/react-table';
-import { X } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { PickedBar } from '@/components/picked-bar';
+import { EmptyState } from '@/components/empty-state';
 import { ColumnMenu } from '@/components/column-menu';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -95,7 +95,7 @@ function saveWidths(id: string | undefined, widths: ColumnSizingState) {
 
 /**
  * Every list in the app. The header stays put while the body scrolls; a row opens its detail in
- * the right-hand pane; checkboxes pick rows for the bulk bar at the bottom. While the first load
+ * the right-hand pane; checkboxes pick rows, and the header row then shows their actions (as on the script list). While the first load
  * is pending it shows skeleton rows, never an empty table. Columns start at their `meta.width` or
  * share what is left; dragging a header's right edge sets a width (double-click resets it), kept
  * per `id` in this browser. The table fills its container and scrolls sideways only when the
@@ -135,9 +135,9 @@ function Table<T>({
   selected?: string;
   onRowClick?: (row: T) => void;
   /** Picked rows (checkboxes). Giving `onPick` turns the checkbox column on. */
-  picked?: Set<string>;
+  picked?: ReadonlySet<string>;
   onPick?: (ids: string[], on: boolean) => void;
-  /** Actions for the picked rows, shown in a bar under the table. */
+  /** Actions for the picked rows, shown in place of the header row while rows are picked. */
   bulk?: ReactNode;
   rowClassName?: (row: T) => string | undefined;
   /** Under the table, above the bulk bar (paging). */
@@ -211,6 +211,7 @@ function Table<T>({
   const ids = rows?.map(rowId) ?? [];
   const pickedCount = picked ? ids.filter((id) => picked.has(id)).length : 0;
   const pickable = Boolean(onPick && picked);
+  const bulking = Boolean(bulk && picked && picked.size > 0);
   const visibleColumns = table.getVisibleLeafColumns();
   const menuWidth = id ? 36 : 0;
   const span = visibleColumns.length + (pickable ? 1 : 0) + (id ? 1 : 0);
@@ -241,7 +242,14 @@ function Table<T>({
                     />
                   </th>
                 )}
-                {group.headers.map((header, index) => (
+                {/* Picked rows: the header row turns into their actions, as on the script list. */}
+                {bulking ? (
+                  <th colSpan={group.headers.length + (id ? 1 : 0)} className="h-9 border-b px-3 text-left align-middle font-normal">
+                    <PickedBar count={picked!.size} onClear={() => onPick?.([...picked!], false)}>
+                      {bulk}
+                    </PickedBar>
+                  </th>
+                ) : group.headers.map((header, index) => (
                   <th
                     key={header.id}
                     className={cn(
@@ -265,7 +273,7 @@ function Table<T>({
                     )}
                   </th>
                 ))}
-                {id && (
+                {id && !bulking && (
                   <th className="sticky right-0 h-9 border-b bg-background px-1 text-right align-middle">
                     <ColumnMenu
                       items={menuItems}
@@ -331,31 +339,9 @@ function Table<T>({
                 })}
           </tbody>
         </table>
-        {!loading && rows && rows.length === 0 && <div className="px-4 py-12 text-center text-sm text-muted-foreground">{empty ?? '항목이 없습니다.'}</div>}
+        {!loading && rows && rows.length === 0 && (empty ?? <EmptyState noun="항목" />)}
       </div>
       {footer}
-      {picked && picked.size > 0 && bulk && (
-        <BulkBar count={picked.size} onClear={() => onPick?.([...picked], false)}>
-          {bulk}
-        </BulkBar>
-      )}
-    </div>
-  );
-}
-
-/** The bar for acting on picked rows: count, the actions, and a way out. */
-export function BulkBar({ count, onClear, children }: {
-  count: number;
-  onClear: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <div className="flex shrink-0 flex-wrap items-center gap-2 border-t bg-muted/40 px-4 py-2 text-sm">
-      <span className="font-medium tabular-nums">{count.toLocaleString()}개 선택</span>
-      {children}
-      <Button variant="ghost" className="ml-auto" onClick={onClear}>
-        <X /> 선택 해제
-      </Button>
     </div>
   );
 }

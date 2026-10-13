@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { createFileRoute, Link, Outlet } from '@tanstack/react-router';
+import { useQuery } from '@tanstack/react-query';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { ApiError } from '@/lib/api';
 import { MessageSquare } from 'lucide-react';
@@ -59,6 +60,10 @@ function ProjectLayout() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // Changes sent from the CLI wait in the chat panel: the chat button counts them so they are not missed while it is closed.
+  const proposals = useQuery(q.proposals(projectId));
+  const waiting = (proposals.data ?? []).filter((proposal) => proposal.status === 'pending').length;
+
   return (
     <SidebarProvider className="h-svh overflow-hidden">
       <AppSidebar projectId={projectId} />
@@ -75,12 +80,17 @@ function ProjectLayout() {
                 <ShortcutHelp />
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button variant={chatOpen ? 'secondary' : 'ghost'} size="icon" onClick={chatDock.toggle} aria-pressed={chatOpen} aria-label={unread ? '에이전트 채팅 (새 답 있음)' : '에이전트 채팅'} className="relative">
+                    <Button variant={chatOpen ? 'secondary' : 'ghost'} size="icon" onClick={chatDock.toggle} aria-pressed={chatOpen} aria-label={`에이전트 채팅${unread ? ' (새 답 있음)' : ''}${waiting ? ` (CLI 제안 ${waiting}개 대기)` : ''}`} className="relative">
                       <MessageSquare />
-                      {unread && <span className="absolute top-1.5 right-1.5 size-2 rounded-full bg-primary ring-2 ring-background" />}
+                      {waiting > 0 ? (
+                        <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-xs leading-none text-primary-foreground tabular-nums ring-2 ring-background">{waiting}</span>
+                      ) : (
+                        unread && <span className="absolute top-1.5 right-1.5 size-2 rounded-full bg-primary ring-2 ring-background" />
+                      )}
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
+                    {waiting > 0 && `CLI에서 온 제안 ${waiting}개가 수락을 기다립니다 · `}
                     {unread && '새 답이 왔습니다 · '}에이전트 채팅 {chatOpen ? '닫기' : '열기'} <Kbd>{keyLabel('Mod+I')}</Kbd>
                   </TooltipContent>
                 </Tooltip>

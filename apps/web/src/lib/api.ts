@@ -1,8 +1,25 @@
 import { hc, type InferResponseType } from 'hono/client';
 import type { AppType } from '@tw/server/app';
 
+/** Told the topics a request changed (its x-changed header), to refetch them at once; set by main.tsx. */
+let onChanged: (topics: string[]) => void = () => {};
+export const setChangeListener = (listener: (topics: string[]) => void) => {
+  onChanged = listener;
+};
+
+/** Refetch these topics now, for changes whose response could not say so (a streamed chat turn). */
+export const notifyChanged = (topics: string[]) => onChanged(topics);
+
+/** Every call through the client: a write's own answer says what it changed, so the screens never wait on the event stream. */
+export async function apiFetch(input: RequestInfo | URL, init?: RequestInit) {
+  const response = await fetch(input, init);
+  const changed = response.headers.get('x-changed');
+  if (changed) onChanged(changed.split(','));
+  return response;
+}
+
 /** Typed client generated from the server's Hono routes. */
-export const client = hc<AppType>('/').api;
+export const client = hc<AppType>('/', { fetch: apiFetch }).api;
 
 export class ApiError extends Error {
   constructor(

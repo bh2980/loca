@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { DEFAULT_EDITOR_AI, type EditorAi } from '@tw/shared';
@@ -10,6 +9,7 @@ import { Switch } from '@/components/ui/switch';
 import { client, unwrap } from '@/lib/api';
 import { keyLabel } from '@/lib/keys';
 import { q } from '@/lib/queries';
+import { useFormFrom } from '@/lib/use-form-from';
 
 /**
  * The editor's AI (docs/DESIGN.md J3b): the model for 'AI 번역·다듬기' (any connection, a CLI too:
@@ -20,7 +20,8 @@ export function EditorAiSection({ projectId }: { projectId: string }) {
   const project = useQuery(q.project(projectId));
   const queryClient = useQueryClient();
   const settings: EditorAi = project.data?.editorAi ?? DEFAULT_EDITOR_AI;
-  const [cap, setCap] = useState(String(settings.dailyCap));
+  // Follows the saved cap (changed elsewhere) until it is being typed.
+  const { draft: cap, setDraft: setCap } = useFormFrom(String(settings.dailyCap));
   // Shown at once: the project's cached settings change before the server answers (undone on failure).
   const save = useMutation({
     mutationFn: (editorAi: EditorAi) => unwrap(client.projects[':projectId'].$patch({ param: { projectId }, json: { editorAi } })),
