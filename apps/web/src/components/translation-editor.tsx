@@ -178,7 +178,8 @@ export function TranslationEditor({
         onPlaceTags={placeMissing}
         continuation={continuation}
         onContinue={editorAi?.enabled ? () => ask(draft) : undefined}
-        onDismissContinuation={() => setAi((state) => ({ ...state, dismissed: true }))}
+        continuing={ai.loading}
+        onDismissContinuation={() => (pending.current?.abort(), setAi((state) => ({ ...state, loading: false, dismissed: true })))}
         focusKey={focusKey}
         placeholder="번역을 입력하세요. 저장하면 사람 후보가 되고 대표 번역이 됩니다."
       />
@@ -189,7 +190,7 @@ export function TranslationEditor({
             <Sparkles /> AI 자동완성
           </Button>
         )}
-        {ai.loading && <span className="text-xs text-muted-foreground">자동완성 받는 중…</span>}
+        {ai.loading && <Waiting onCancel={() => (pending.current?.abort(), setAi({ dismissed: true }))} />}
         {ai.message && <span className="text-xs text-muted-foreground">{ai.message}</span>}
         {/* Format units the source has and the text lacks: placed by rule as ghosts (Tab takes them). */}
         {draft.trim() && tags.placed.length > 0 && (
@@ -332,4 +333,21 @@ const continuations = new Map<string, string>();
 function nextSentence(rest: string) {
   const match = /^\s*[\s\S]*?[.!?…。]+["'”’)\]]*(?=\s|$)/u.exec(rest);
   return match ? match[0] : rest;
+}
+
+/** "자동완성 받는 중… 4초" with a way out (Esc in the box does the same). */
+function Waiting({ onCancel }: { onCancel: () => void }) {
+  const [seconds, setSeconds] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setSeconds((value) => value + 1), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  return (
+    <span className="flex items-center gap-1 text-xs text-muted-foreground tabular-nums">
+      자동완성 받는 중…{seconds > 0 && ` ${seconds}초`}
+      <Button variant="ghost" size="inline" className="text-muted-foreground" onClick={onCancel} title="취소 (Esc)">
+        취소
+      </Button>
+    </span>
+  );
 }

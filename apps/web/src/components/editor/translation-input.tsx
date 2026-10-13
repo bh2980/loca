@@ -174,7 +174,9 @@ export interface TranslationInputProps {
   continuation?: string;
   /** ⌥/: ask for a continuation of what is typed now. */
   onContinue?: () => void;
-  /** Esc dropped the continuation: not shown again until asked. */
+  /** A continuation is on its way (Esc cancels it). */
+  continuing?: boolean;
+  /** Esc dropped the continuation, or cancelled the one on its way: not shown again until asked. */
   onDismissContinuation?: () => void;
   /** ⌥1…⌥9: take the nth suggestion. */
   onPick?: (index: number) => void;
@@ -375,6 +377,8 @@ export function TranslationInput(props: TranslationInputProps) {
           if (completionStatus(editor.state) !== null) return false;
           if (editor.state.field(ghost)) return (editor.dispatch({ effects: setGhost.of(null) }), true);
           if (editor.state.field(continuation).text) return (editor.dispatch({ effects: setContinuation.of(NO_CONTINUATION) }), latest.current.onDismissContinuation?.(), true);
+          // A continuation on its way: Esc cancels it (the box keeps the focus).
+          if (latest.current.continuing) return (latest.current.onDismissContinuation?.(), true);
           editor.contentDOM.blur();
           latest.current.onEscape?.();
           return true;
