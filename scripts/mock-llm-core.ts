@@ -94,12 +94,13 @@ export function usageFor(promptChars: number, completionChars: number, options: 
   return { prompt_tokens: prompt, completion_tokens: completion, total_tokens: prompt + completion, prompt_tokens_details: { cached_tokens: Math.min(options.cachedTokens, prompt) } };
 }
 
-export type MockKind = 'analysis' | 'test' | 'candidate' | 'revise' | 'verdict' | 'terms' | 'glossary' | 'listener' | 'knowledge' | 'json';
+export type MockKind = 'analysis' | 'complete' | 'test' | 'candidate' | 'revise' | 'verdict' | 'terms' | 'glossary' | 'listener' | 'knowledge' | 'json';
 
 /** Which answer the prompt asks for. The server's CONTRACT sentence names the output; instructions tell translate from revise. */
 export function detectKind(system: string): MockKind {
   if (system.includes('complete script of a game')) return 'analysis';
   if (system.startsWith('Translate the text into')) return 'test';
+  if (system.includes('continue a Korean game translation')) return 'complete';
   if (system.includes('Korean localization glossary')) return 'glossary';
   if (system.includes('"relationships" (with "change"')) return 'knowledge';
   if (system.includes('in "listeners"')) return 'listener';
@@ -169,7 +170,7 @@ function jsonRows(rows: Row[], schema: unknown) {
 /** Lines mentioning "orders" never pass review, so they end up waiting for a person. */
 const stubborn = (source: string) => /orders/i.test(source);
 
-function structured(kind: Exclude<MockKind, 'analysis' | 'glossary' | 'test'>, system: string, rows: Row[], schema: unknown): { body: unknown; entries?: { key: string; textKey?: string } } {
+function structured(kind: Exclude<MockKind, 'analysis' | 'glossary' | 'test' | 'complete'>, system: string, rows: Row[], schema: unknown): { body: unknown; entries?: { key: string; textKey?: string } } {
   switch (kind) {
     case 'candidate':
     case 'revise':
@@ -254,6 +255,13 @@ export function respond(request: MockRequest, options: MockOptions, rand: () => 
     return { kind, lines: 0, status: 429, retryAfterSeconds: 1, finishReason: 'stop', content: body, usage: usageFor(0, 0, { fixedTokens: 0, cachedTokens: 0 }), delayMs: Math.min(delayMs, 50), faults: ['429'] };
   }
 
+  // The editor's continuation is plain text: the whole line, starting with what was typed.
+  if (kind === 'complete') {
+    const source = /^source: (.*)$/m.exec(request.user)?.[1] ?? '';
+    const prefix = /^TRANSLATION SO FAR: "(.*)"$/m.exec(request.user)?.[1] ?? '';
+    const text = `${prefix}${prefix ? ' ' : ''}[KO] ${source}. 두 번째 문장도 있어요.`;
+    return { kind, lines: 1, status: 200, finishReason: 'stop', content: text, usage: usageFor(promptChars, text.length, options), delayMs, faults };
+  }
   let rows: Row[] = [];
   let lines = 0;
   let body: unknown;

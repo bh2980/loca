@@ -26,7 +26,7 @@
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
-import { envGetter, hashString, headerGetter, makeRand, resolveOptions, respond, usageFor, type Usage } from './mock-llm-core.ts';
+import { detectKind, envGetter, hashString, headerGetter, makeRand, resolveOptions, respond, usageFor, type Usage } from './mock-llm-core.ts';
 
 const port = Number(process.env.MOCK_LLM_PORT ?? 4398);
 const app = new Hono();
@@ -89,9 +89,10 @@ app.post('/v1/chat/completions', async (c) => {
   const system = body.messages.filter((message) => message.role === 'system').map(text).join('\n');
   const last = body.messages.at(-1);
 
-  if (body.response_format) {
+  // Structured requests, and the editor's plain-text continuation.
+  if (body.response_format || detectKind(system) === 'complete') {
     const options = requestOptions(c.req.raw.headers);
-    const schema = (body.response_format as { json_schema?: { schema?: unknown } }).json_schema?.schema;
+    const schema = (body.response_format as { json_schema?: { schema?: unknown } } | undefined)?.json_schema?.schema;
     const rand = c.req.header('x-mock-seed') ? makeRand(options.seed ^ hashString(system + text(last))) : random;
     const outcome = respond({ system, user: text(last), schema }, options, rand);
     stats.record(outcome.kind, outcome.status, outcome.lines, outcome.usage);

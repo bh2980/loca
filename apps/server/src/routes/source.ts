@@ -11,6 +11,7 @@ import { computeLayouts } from '../services/layout.ts';
 import { readView, sectionWithMost } from '../services/graph-views.ts';
 import { applyIssueTags } from '../services/issue-tags.ts';
 import { lineMatches } from '../services/line-matches.ts';
+import { CompleteRefused, completeLine } from '../services/editor-complete.ts';
 import { describeRule, knownListener as knownListenerOf, speechRuleIndex } from '../services/speech.ts';
 
 const listQuery = z.object({
@@ -301,6 +302,16 @@ export const sourceRoutes = new Hono<Env>()
     }
     const sceneNames = [...distance].sort((a, b) => a[1] - b[1]).map(([name]) => name);
     return c.json({ ...unit, group, candidates, tagIds, history, graphNodes: nodes, speech, sceneNames });
+  })
+  /** The editor's AI continuation of a line (docs/DESIGN.md J3b A): the whole line, starting with `prefix`. Cancelled with the request. */
+  .post('/units/:unitId/complete', validate('json', z.object({ prefix: z.string().max(4000).default('') })), async (c) => {
+    const { db, secrets } = c.var.deps;
+    try {
+      return c.json(await completeLine(db, secrets, c.req.param('unitId'), c.req.valid('json').prefix, c.req.raw.signal));
+    } catch (error) {
+      if (error instanceof CompleteRefused) return c.json({ error: error.message, retryAfterSeconds: error.retryAfterSeconds }, error.status);
+      throw error;
+    }
   })
   /** Other lines with the same source (case and end punctuation aside), translated or not: what a confirmed translation may be applied to. */
   .get('/units/:unitId/same', (c) => {

@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import { ISSUE_KIND_IDS, type IssueKind, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, type AiConfirm, type ModelChoice, type ContextItem, type FormatRules, type NodeType, type PiOptions, type RelationshipChange, type WorkflowDefinition } from '@tw/shared';
+import { ISSUE_KIND_IDS, type IssueKind, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, type AiConfirm, type EditorAi, type ModelChoice, type ContextItem, type FormatRules, type NodeType, type PiOptions, type RelationshipChange, type WorkflowDefinition } from '@tw/shared';
 import type { Usage } from '@tw/ai';
 
 const id = () => text('id').primaryKey().$defaultFn(() => crypto.randomUUID());
@@ -36,6 +36,8 @@ export const projects = sqliteTable('projects', {
   formatRules: json<FormatRules>('format_rules').notNull().default(sql`'{"presets":["brace","printf","angleTag"],"custom":[]}'`),
   /** What becomes of AI results per knowledge kind (설정 › AI 확정). Absent kinds: auto. */
   aiConfirm: json<Partial<AiConfirm>>('ai_confirm').notNull().default(sql`'{}'`),
+  /** The editor's AI continuation (off by default; see editorAiSchema). */
+  editorAi: json<Partial<EditorAi>>('editor_ai').notNull().default(sql`'{}'`),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
@@ -230,7 +232,7 @@ export const graphViews = sqliteTable('graph_views', {
 });
 
 /** Where a model request came from: a workflow run, work analysis, glossary fill, a model test or a chat turn. */
-export const AI_CALL_KINDS = ['run', 'analysis', 'terms', 'test', 'chat'] as const;
+export const AI_CALL_KINDS = ['run', 'analysis', 'terms', 'test', 'chat', 'editor'] as const;
 
 /**
  * Every request sent to a model, one row per attempt (a fallback is its own row), written when it
