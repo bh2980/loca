@@ -4,7 +4,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { execa, ExecaError } from 'execa';
 import type { ConnectionKind } from '@tw/shared';
-import { cliCommand, opencodeUsage } from './cli.ts';
+import { cliCommand, execaCli, opencodeUsage } from './cli.ts';
 import { ModelError } from './errors.ts';
 import { readUsage, type ResolvedRoute, type Usage } from './types.ts';
 
@@ -170,7 +170,7 @@ export async function cliChat(route: ResolvedRoute, turn: CliChatTurn): Promise<
   const { args, input } = command(kind, route, turn, newId);
   const cwd = await mkdtemp(path.join(tmpdir(), 'loca-chat-'));
   try {
-    const result = await execa(cliCommand(kind, route.executable), args, { cwd, input, timeout: turn.timeoutMs, cancelSignal: turn.signal, reject: false, stripFinalNewline: false });
+    const result = await execaCli(cliCommand(kind, route.executable), args, { cwd, input, timeout: turn.timeoutMs, cancelSignal: turn.signal, reject: false, stripFinalNewline: false });
     if (turn.signal?.aborted) throw new ModelError('cancelled', '중단했습니다.', false);
     if (result.timedOut) throw new ModelError('timeout', 'CLI 응답 시간이 초과되었습니다.');
     const stdout = String(result.stdout ?? '');
