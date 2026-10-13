@@ -3,7 +3,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { AUTO_MARK_IDS, AUTO_MARKS, markColor, REVIEW_TAG, STATUS_COLORS, type AutoMark, type MarkColors } from '@tw/shared';
+import { AUTO_MARK_IDS, AUTO_MARKS, markColor, DEFAULT_STATUS_COLOR, DEFAULT_TAG_COLOR, REVIEW_TAG, STATUS_COLORS, type AutoMark, type MarkColors } from '@tw/shared';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { DetailPane, FieldRow, PaneSection } from '@/components/detail-pane';
 import { Page } from '@/components/page';
@@ -52,7 +52,7 @@ type StatusForm = { name: string; color: string; kind: Kind; inReview: boolean; 
 
 function Swatches({ value, onChange }: { value: string; onChange: (color: string) => void }) {
   return (
-    <div className="flex flex-wrap gap-1" role="radiogroup" aria-label="색상">
+    <div className="flex flex-wrap items-center gap-1" role="radiogroup" aria-label="색상">
       {STATUS_COLORS.map((color) => (
         <Button
           key={color}
@@ -68,6 +68,11 @@ function Swatches({ value, onChange }: { value: string; onChange: (color: string
           <StatusDot color={color} className="size-4" />
         </Button>
       ))}
+      {/* Any other color: the browser's picker, shown filled when the color is not in the palette. */}
+      <label className={cn('relative flex size-8 cursor-pointer items-center justify-center rounded-md hover:bg-muted', !STATUS_COLORS.includes(value) && 'bg-muted ring-1 ring-foreground/40')} title="다른 색">
+        <span aria-hidden className="size-4 rounded-full border" style={STATUS_COLORS.includes(value) ? { background: 'conic-gradient(#ef4444, #eab308, #22c55e, #06b6d4, #3b82f6, #d946ef, #ef4444)' } : { backgroundColor: value }} />
+        <Input type="color" aria-label="다른 색" value={value} onChange={(event) => onChange(event.target.value)} className="absolute inset-0 size-full cursor-pointer opacity-0" />
+      </label>
     </div>
   );
 }
@@ -370,7 +375,7 @@ function StatusPane({
   onMove?: (delta: number) => void;
   onDelete?: () => void;
 }) {
-  const [form, setForm] = useState<StatusForm>({ name: status?.name ?? '', color: status?.color ?? STATUS_COLORS[1], kind: status?.kind ?? 'normal', inReview: status?.inReview ?? false, humanOnly: status?.humanOnly ?? false });
+  const [form, setForm] = useState<StatusForm>({ name: status?.name ?? '', color: status?.color ?? DEFAULT_STATUS_COLOR, kind: status?.kind ?? 'normal', inReview: status?.inReview ?? false, humanOnly: status?.humanOnly ?? false });
   const dirty = !status || form.name !== status.name || form.color !== status.color || form.kind !== status.kind || form.inReview !== status.inReview || form.humanOnly !== status.humanOnly;
   return (
     <DetailPane
@@ -490,7 +495,7 @@ function MarkPane({ mark, color, pending, onClose, onSave }: { mark: AutoMark; c
 }
 
 function TagPane({ tag, pending, onClose, onSave, onDelete }: { tag?: TagRowData; pending: boolean; onClose: () => void; onSave: (form: { name: string; color: string }) => void; onDelete?: () => void }) {
-  const [form, setForm] = useState({ name: tag?.name ?? '', color: tag?.color ?? STATUS_COLORS[2] });
+  const [form, setForm] = useState({ name: tag?.name ?? '', color: tag?.color ?? DEFAULT_TAG_COLOR });
   const dirty = !tag || form.name !== tag.name || form.color !== tag.color;
   return (
     <DetailPane

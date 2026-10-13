@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { agentSettingsSchema, aiConfirmSchema, editorAiSchema, formatRulesSchema, importFileSchema, importWarnings, markColorsSchema, patchOf, STATUS_COLORS, summarizeImport } from '@tw/shared';
+import { agentSettingsSchema, aiConfirmSchema, editorAiSchema, formatRulesSchema, importFileSchema, importWarnings, markColorsSchema, patchOf, DEFAULT_TAG_COLOR, HEX_COLOR, STATUS_COLORS, summarizeImport } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
@@ -12,8 +12,8 @@ import { defaultModelChoice } from '../services/routes.ts';
 import { cancelLayout, computeLayouts } from '../services/layout.ts';
 import { editorCallsToday } from '../services/editor-complete.ts';
 
-const statusInput = z.object({ name: z.string().trim().min(1).max(40), color: z.string().default(STATUS_COLORS[0]), kind: z.enum(['initial', 'normal', 'final']).default('normal'), inReview: z.boolean().default(false), humanOnly: z.boolean().default(false) });
-const tagInput = z.object({ name: z.string().trim().min(1).max(40), color: z.string().default(STATUS_COLORS[2]) });
+const statusInput = z.object({ name: z.string().trim().min(1).max(40), color: z.string().regex(HEX_COLOR).default(STATUS_COLORS[0]), kind: z.enum(['initial', 'normal', 'final']).default('normal'), inReview: z.boolean().default(false), humanOnly: z.boolean().default(false) });
+const tagInput = z.object({ name: z.string().trim().min(1).max(40), color: z.string().regex(HEX_COLOR).default(DEFAULT_TAG_COLOR) });
 
 export const projectRoutes = new Hono<Env>()
   .get('/', (c) => {
