@@ -5,6 +5,7 @@ import { createRouter, RouterProvider } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { setChangeListener } from '@/lib/api';
 import { routeTree } from './routeTree.gen';
 import './index.css';
 
@@ -13,6 +14,11 @@ const queryClient = new QueryClient({
     queries: { staleTime: 30_000, refetchOnWindowFocus: false, retry: 1 },
     mutations: { onError: (error) => toast.error(error.message) },
   },
+});
+
+// A write's answer names the topics it changed: refetch those queries now (the event stream says the same a moment later).
+setChangeListener((topics) => {
+  for (const topic of topics) void queryClient.invalidateQueries({ queryKey: [topic] });
 });
 
 const router = createRouter({

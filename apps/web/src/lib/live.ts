@@ -3,6 +3,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useRouterState } from '@tanstack/react-router';
 
 const BATCH_MS = 250;
+/** No ping (sent every 20 s) for this long: the stream is dead. */
+const SILENCE_MS = 45_000;
 
 /**
  * The server pushes "topics changed" over SSE; we refetch only queries whose key starts with
@@ -19,8 +21,31 @@ export function useLiveInvalidation() {
     const topics = new Set<string>();
     let timer: ReturnType<typeof setTimeout> | undefined;
     let opened = false;
-    const source = new EventSource('/api/events');
-    source.addEventListener('change', (event) => {
+    let source: EventSource;
+    // The server pings every 20 s. A stream that goes quiet longer (a restarted server behind the
+    // dev proxy can leave it open but dead) is reopened, which refetches everything (see 'open').
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
+    const alive = () => {
+      clearTimeout(watchdog);
+      watchdog = setTimeout(() => {
+        source.close();
+        connect();
+      }, SILENCE_MS);
+    };
+    const connect = () => {
+      source = new EventSource('/api/events');
+      alive();
+      source.addEventListener('ping', alive);
+      source.addEventListener('change', onChange);
+      // Only a reconnect may have missed events; the first open has nothing stale.
+      source.addEventListener('open', () => {
+        alive();
+        if (opened) void queryClient.invalidateQueries();
+        opened = true;
+      });
+    };
+    const onChange = (event: Event) => {
+      alive();
       const data = JSON.parse((event as MessageEvent<string>).data) as { projectId?: string; topics: string[] };
       if (data.projectId && data.projectId !== openProjectId) return;
       for (const topic of data.topics) topics.add(topic);
@@ -30,15 +55,12 @@ export function useLiveInvalidation() {
         topics.clear();
         for (const topic of batch) void queryClient.invalidateQueries({ queryKey: [topic] });
       }, BATCH_MS);
-    });
-    // Only a reconnect may have missed events; the first open has nothing stale.
-    source.addEventListener('open', () => {
-      if (opened) void queryClient.invalidateQueries();
-      opened = true;
-    });
+    };
+    connect();
     return () => {
       source.close();
       clearTimeout(timer);
+      clearTimeout(watchdog);
     };
   }, [queryClient, openProjectId]);
 }

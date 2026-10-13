@@ -398,19 +398,20 @@ function TermEditor({ projectId, term, onClose, onDecide, deciding }: { projectI
               defaultIgnoreStatus
               trigger={
                 <Button variant="outline">
-                  <Play /> 다시 실행
+                  <Play /> 워크플로 실행 · {usage.data.count}줄
                 </Button>
               }
             />
           )
         }
       >
-        <p className="mb-2 text-xs text-muted-foreground">번역이나 메모를 바꿨다면 이 대사들을 워크플로로 다시 돌려 새 용어를 반영하세요.</p>
+        <p className="mb-2 text-xs text-muted-foreground">번역어를 바꿨다면 이 대사들만 골라 워크플로를 실행해 새 번역어를 반영합니다(실행 창에서 워크플로를 고름).</p>
         <ul className="max-h-60 space-y-1 overflow-auto">
           {usage.data?.rows.map((row) => (
             <li key={row.id}>
               <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: row.groupId, line: row.id }} className="block rounded px-2 py-1 text-xs hover:bg-muted">
                 <span className="text-muted-foreground">{row.groupTitle} · </span>
+                {row.speaker && <span className="font-medium">{row.speaker}: </span>}
                 {row.source}
                 {row.translation && <span className="block text-muted-foreground">{row.translation}</span>}
               </Link>
@@ -418,31 +419,7 @@ function TermEditor({ projectId, term, onClose, onDecide, deciding }: { projectI
           ))}
         </ul>
       </PaneSection>
-      <Examples projectId={projectId} keys={term.examples} />
     </DetailPane>
-  );
-}
-
-/** The first lines containing the term: speaker, source and current translation, each opening in the script. */
-function Examples({ projectId, keys }: { projectId: string; keys: string[] }) {
-  const shown = keys.slice(0, 3);
-  const lines = useQuery(q.linesByKeys(projectId, shown));
-  return (
-    <PaneSection title="등장 예문">
-      {shown.length === 0 && <p className="text-xs text-muted-foreground">원문에 이 용어가 나오는 대사가 없습니다.</p>}
-      <ul className="space-y-1">
-        {lines.data?.map((line) => (
-          <li key={line.id}>
-            <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.groupId, line: line.id }} className="block rounded px-2 py-1 text-xs hover:bg-muted">
-              <span className="text-muted-foreground">{line.groupTitle} · </span>
-              {line.speaker && <span className="font-medium">{line.speaker}: </span>}
-              {line.source}
-              <span className="block text-muted-foreground">{line.translation || '번역 없음'}</span>
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </PaneSection>
   );
 }
 

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Events, withImplied, type ChangeEvent } from './events.ts';
+import { Events, events, trackChanges, withImplied, type ChangeEvent } from './events.ts';
 
 describe('Events coalescing', () => {
   beforeEach(() => void vi.useFakeTimers());
@@ -66,5 +66,19 @@ describe('implied topics', () => {
     // A speech rule or character change reaches the line hints (units), their counts and workflow checks.
     expect([...withImplied(['knowledge'])].sort()).toEqual(['knowledge', 'statuses', 'units', 'workflows']);
     expect([...withImplied(['chat'])]).toEqual(['chat']);
+  });
+});
+
+describe('changes a request made', () => {
+  it('are gathered with what they imply, so the response can name them', async () => {
+    const own = new Events(0, 0);
+    const topics = await trackChanges(async () => {
+      await Promise.resolve();
+      events.changed('p', 'terms');
+      own.changed('p', 'chat');
+    });
+    expect([...topics].sort()).toEqual(['chat', 'statuses', 'terms', 'units', 'workflows']);
+    // Outside a request nothing is gathered.
+    expect(await trackChanges(async () => {})).toEqual(new Set());
   });
 });

@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { EventEmitter } from 'node:events';
 
 /** Query families the web client caches. A change event tells it which ones to refetch. */
@@ -76,6 +77,9 @@ export class Events extends EventEmitter<{ change: [ChangeEvent] }> {
 
   /** Coalesced per project: callers keep calling this as often as they like. */
   changed(projectId: string | undefined, ...topics: Topic[]) {
+    // The request making the change also answers with its topics (see trackChanges).
+    const touched = requestTopics.getStore();
+    if (touched) for (const topic of withImplied(topics)) touched.add(topic);
     const now = Date.now();
     const entry = this.pending.get(projectId);
     if (entry) clearTimeout(entry.timer);
@@ -100,6 +104,21 @@ export class Events extends EventEmitter<{ change: [ChangeEvent] }> {
     this.pending.delete(projectId);
     if (entry.topics.size) this.emit('change', { projectId, topics: [...entry.topics] });
   }
+}
+
+/** Topics a request changed, gathered while it runs. */
+const requestTopics = new AsyncLocalStorage<Set<Topic>>();
+
+/**
+ * Runs a request and returns the topics it changed, so its response can carry them (header
+ * x-changed) and the client refetch at once, without waiting on the event stream, which can be
+ * silently gone (a restarted server behind a proxy). Changes made later by work the request
+ * started (a run, an analysis) still go out as events.
+ */
+export async function trackChanges(run: () => Promise<void>) {
+  const topics = new Set<Topic>();
+  await requestTopics.run(topics, run);
+  return topics;
 }
 
 export const events = new Events();
