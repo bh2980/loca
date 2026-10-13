@@ -123,7 +123,7 @@ function ScriptLink({ projectId, scope, keep, className, children, ...props }: {
       // keep: a filter being walked stays on (찾아가기); the scene opens at its first match.
       search={(previous) =>
         keep
-          ? { gq: previous.gq, remaining: previous.remaining, q: previous.q, status: previous.status, tag: previous.tag, speaker: previous.speaker, listener: previous.listener, view: previous.view === 'find' ? ('find' as const) : undefined, ...scope }
+          ? { gq: previous.gq, remaining: previous.remaining, q: previous.q, status: previous.status, tags: previous.tags, speaker: previous.speaker, listener: previous.listener, view: previous.view === 'find' ? ('find' as const) : undefined, ...scope }
           : { gq: previous.gq, remaining: previous.remaining, ...scope }
       }
       className={className}

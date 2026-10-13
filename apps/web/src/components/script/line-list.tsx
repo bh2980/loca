@@ -32,7 +32,8 @@ export const PAGE_SIZE = 100;
 export interface LinesSearch {
   q?: string;
   status?: string;
-  tag?: string;
+  /** Tag ids: lines carrying all of them (with the automatic marks below, all combine). */
+  tags?: string[];
   speaker?: string;
   /** A character name, or "-" for lines whose listener is unknown. */
   listener?: string;
@@ -61,7 +62,7 @@ export interface LinesSearch {
 export const linesSearchSchema = (raw: Record<string, unknown>): LinesSearch => ({
   q: typeof raw.q === 'string' && raw.q ? raw.q : undefined,
   status: typeof raw.status === 'string' ? raw.status : undefined,
-  tag: typeof raw.tag === 'string' ? raw.tag : undefined,
+  tags: Array.isArray(raw.tags) && raw.tags.length && raw.tags.every((id) => typeof id === 'string') ? (raw.tags as string[]) : undefined,
   speaker: typeof raw.speaker === 'string' && raw.speaker ? raw.speaker : undefined,
   listener: typeof raw.listener === 'string' && raw.listener ? raw.listener : undefined,
   remaining: raw.remaining === true || raw.remaining === 'true' ? true : undefined,
@@ -76,8 +77,14 @@ export const linesSearchSchema = (raw: Record<string, unknown>): LinesSearch => 
   aiNode: typeof raw.aiNode === 'string' && raw.aiNode.includes(':') ? raw.aiNode : undefined,
 });
 
+/**
+ * Marks the app reads off a line (not stored as tags, so they never go stale), offered with the
+ * tags in the filter and combined with them: every pick narrows the list.
+ */
+export const AUTO_MARKS = { remaining: '남은 줄', ai: 'AI가 정함', unknownListener: '청자 미상', diverged: '같은 원문 다른 번역', noted: '메모' } as const;
+
 /** Whether any line filter is set (search, status, tag, speaker, listener, 남은 줄만, AI가 정한 것만). */
-export const hasLineFilter = (search: LinesSearch) => Boolean(search.q || search.status || search.tag || search.speaker || search.listener || search.remaining || search.by || search.diverged || search.noted);
+export const hasLineFilter = (search: LinesSearch) => Boolean(search.q || search.status || search.tags?.length || search.speaker || search.listener || search.remaining || search.by || search.diverged || search.noted);
 /** Whether the filter is walked inside the scenes rather than listed apart. */
 export const isFinding = (search: LinesSearch) => hasLineFilter(search) && search.view === 'find';
 
@@ -85,13 +92,16 @@ export const isFinding = (search: LinesSearch) => hasLineFilter(search) && searc
 export function filterChips(search: LinesSearch, statuses: { id: string; name: string }[], tags: { id: string; name: string }[]) {
   return [
     search.status && { key: 'status', label: `상태: ${statuses.find((status) => status.id === search.status)?.name ?? '?'}`, clear: { status: undefined } },
-    search.tag && { key: 'tag', label: `태그: #${tags.find((tag) => tag.id === search.tag)?.name ?? '?'}`, clear: { tag: undefined } },
+    ...(search.tags ?? []).map((id) => {
+      const rest = search.tags!.filter((other) => other !== id);
+      return { key: `tag-${id}`, label: `#${tags.find((tag) => tag.id === id)?.name ?? '?'}`, clear: { tags: rest.length ? rest : undefined } };
+    }),
     search.speaker && { key: 'speaker', label: `화자: ${search.speaker}`, clear: { speaker: undefined } },
-    search.listener && { key: 'listener', label: search.listener === '-' ? '청자 미상' : `청자: ${search.listener}`, clear: { listener: undefined } },
-    search.remaining && { key: 'remaining', label: '남은 줄', clear: { remaining: undefined } },
-    search.by && { key: 'by', label: '✦ AI가 정한 것', clear: { by: undefined } },
-    search.diverged && { key: 'diverged', label: '번역이 갈린 같은 원문', clear: { diverged: undefined } },
-    search.noted && { key: 'noted', label: '메모 있는 줄', clear: { noted: undefined } },
+    search.listener && { key: 'listener', label: search.listener === '-' ? `#${AUTO_MARKS.unknownListener}` : `청자: ${search.listener}`, clear: { listener: undefined } },
+    search.remaining && { key: 'remaining', label: `#${AUTO_MARKS.remaining}`, clear: { remaining: undefined } },
+    search.by && { key: 'by', label: `#${AUTO_MARKS.ai}`, clear: { by: undefined } },
+    search.diverged && { key: 'diverged', label: `#${AUTO_MARKS.diverged}`, clear: { diverged: undefined } },
+    search.noted && { key: 'noted', label: `#${AUTO_MARKS.noted}`, clear: { noted: undefined } },
   ].filter(Boolean) as { key: string; label: string; clear: Partial<LinesSearch> }[];
 }
 
@@ -159,7 +169,7 @@ export function LineList({
       projectId,
       find
         ? { groupId, focus: focusing, offset: page * PAGE_SIZE, limit: PAGE_SIZE }
-        : { groupId, kind, review: review ? '1' : undefined, remaining: search.remaining ? '1' : undefined, by: search.by, diverged: search.diverged ? '1' : undefined, noted: search.noted ? '1' : undefined, q: search.q, statusId: search.status, tagId: search.tag, speaker: search.speaker, listener: search.listener, focus: focusing, offset: page * PAGE_SIZE, limit: PAGE_SIZE },
+        : { groupId, kind, review: review ? '1' : undefined, remaining: search.remaining ? '1' : undefined, by: search.by, diverged: search.diverged ? '1' : undefined, noted: search.noted ? '1' : undefined, q: search.q, statusId: search.status, tagIds: search.tags?.join(','), speaker: search.speaker, listener: search.listener, focus: focusing, offset: page * PAGE_SIZE, limit: PAGE_SIZE },
     ),
   );
   useEffect(() => {
@@ -366,7 +376,7 @@ export function LineList({
             {chip.label} <X />
           </Button>
         ))}
-        {!find && !review && (search.speaker || search.listener || search.status || search.tag) && (
+        {!find && !review && hasLineFilter(search) && (
           <Button variant="ghost" onClick={() => onSearch({ view: 'find', page: undefined })}>
             장면에서 찾아가기
           </Button>
@@ -579,15 +589,20 @@ export function LineHints({ projectId, line }: { projectId: string; line: { id: 
 function LineFilters({ projectId, statuses, tags, speakers, search, onSearch }: {
   projectId: string;
   statuses: { id: string; name: string; color: string }[];
-  tags: { id: string; name: string; role?: string | null }[];
+  tags: { id: string; name: string; color: string; role?: string | null }[];
   speakers: { name: string; lines: number }[];
   search: LinesSearch;
   onSearch: (next: Partial<LinesSearch>) => void;
 }) {
   const [needle, setNeedle] = useState('');
   const shown = speakers.filter((speaker) => !needle || speaker.name.toLowerCase().includes(needle.toLowerCase())).slice(0, 40);
-  const issueTags = tags.filter((tag) => tag.role) as { id: string; name: string; color: string }[];
+  const issueTags = tags.filter((tag) => tag.role);
   const ownTags = tags.filter((tag) => !tag.role);
+  const picked = (id: string) => Boolean(search.tags?.includes(id));
+  const toggleTag = (id: string, on: boolean) => {
+    const next = on ? [...(search.tags ?? []), id] : (search.tags ?? []).filter((other) => other !== id);
+    onSearch({ tags: next.length ? next : undefined });
+  };
   return (
     <DropdownMenu onOpenChange={(open) => !open && setNeedle('')}>
       <DropdownMenuTrigger asChild>
@@ -595,30 +610,45 @@ function LineFilters({ projectId, statuses, tags, speakers, search, onSearch }: 
           <ListFilter /> 필터
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-48">
-        <DropdownMenuCheckboxItem checked={Boolean(search.remaining)} onCheckedChange={(on) => onSearch({ remaining: on ? true : undefined })}>
-          남은 줄만
-        </DropdownMenuCheckboxItem>
-        <DropdownMenuCheckboxItem checked={Boolean(search.by)} onCheckedChange={(on) => onSearch({ by: on ? 'ai' : undefined })}>
-          AI가 정한 것만
-        </DropdownMenuCheckboxItem>
-        <DropdownMenuCheckboxItem checked={Boolean(search.diverged)} onCheckedChange={(on) => onSearch({ diverged: on ? true : undefined })}>
-          번역이 갈린 같은 원문
-        </DropdownMenuCheckboxItem>
-        <DropdownMenuCheckboxItem checked={Boolean(search.noted)} onCheckedChange={(on) => onSearch({ noted: on ? true : undefined })}>
-          메모 있는 줄
-        </DropdownMenuCheckboxItem>
+      <DropdownMenuContent align="start" className="max-h-[70svh] w-56 overflow-y-auto">
+        {/* Marks and tags in one list: each check narrows the lines further (all must hold). */}
+        <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">자동 표시</DropdownMenuLabel>
+        {(
+          [
+            ['remaining', Boolean(search.remaining), (on: boolean) => ({ remaining: on ? true : undefined })],
+            ['ai', Boolean(search.by), (on: boolean) => ({ by: on ? 'ai' : undefined })],
+            ['unknownListener', search.listener === '-', (on: boolean) => ({ listener: on ? '-' : undefined })],
+            ['diverged', Boolean(search.diverged), (on: boolean) => ({ diverged: on ? true : undefined })],
+            ['noted', Boolean(search.noted), (on: boolean) => ({ noted: on ? true : undefined })],
+          ] as const
+        ).map(([mark, checked, next]) => (
+          <DropdownMenuCheckboxItem key={mark} checked={checked} onSelect={(event) => event.preventDefault()} onCheckedChange={(on) => onSearch(next(on) as Partial<LinesSearch>)}>
+            #{AUTO_MARKS[mark]}
+          </DropdownMenuCheckboxItem>
+        ))}
         {issueTags.length > 0 && (
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger inset>문제 유형</DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="w-56">
-              {issueTags.map((tag) => (
-                <DropdownMenuCheckboxItem key={tag.id} checked={search.tag === tag.id} onCheckedChange={(on) => onSearch({ tag: on ? tag.id : undefined })}>
-                  <StatusDot color={tag.color} /> {tag.name}
-                </DropdownMenuCheckboxItem>
-              ))}
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
+          <>
+            <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">문제 유형</DropdownMenuLabel>
+            {issueTags.map((tag) => (
+              <DropdownMenuCheckboxItem key={tag.id} checked={picked(tag.id)} onSelect={(event) => event.preventDefault()} onCheckedChange={(on) => toggleTag(tag.id, on)}>
+                <TagChip tag={tag} />
+              </DropdownMenuCheckboxItem>
+            ))}
+          </>
+        )}
+        <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">내 태그</DropdownMenuLabel>
+        {ownTags.length ? (
+          ownTags.map((tag) => (
+            <DropdownMenuCheckboxItem key={tag.id} checked={picked(tag.id)} onSelect={(event) => event.preventDefault()} onCheckedChange={(on) => toggleTag(tag.id, on)}>
+              <TagChip tag={tag} />
+            </DropdownMenuCheckboxItem>
+          ))
+        ) : (
+          <DropdownMenuItem asChild inset>
+            <Link to="/p/$projectId/settings/statuses" params={{ projectId }}>
+              태그 만들기
+            </Link>
+          </DropdownMenuItem>
         )}
         <DropdownMenuSeparator />
         <DropdownMenuSub>
@@ -627,27 +657,6 @@ function LineFilters({ projectId, statuses, tags, speakers, search, onSearch }: 
             {statuses.map((status) => (
               <DropdownMenuCheckboxItem key={status.id} checked={search.status === status.id} onCheckedChange={(on) => onSearch({ status: on ? status.id : undefined })}>
                 <StatusDot color={status.color} /> {status.name}
-              </DropdownMenuCheckboxItem>
-            ))}
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger inset>태그</DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="max-h-80 overflow-y-auto">
-            {/* Opens even with none, to say so and where tags are made. */}
-            {!ownTags.length && (
-              <>
-                <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">아직 태그가 없습니다.</DropdownMenuLabel>
-                <DropdownMenuItem asChild>
-                  <Link to="/p/$projectId/settings/statuses" params={{ projectId }}>
-                    태그 만들기
-                  </Link>
-                </DropdownMenuItem>
-              </>
-            )}
-            {ownTags.map((tag) => (
-              <DropdownMenuCheckboxItem key={tag.id} checked={search.tag === tag.id} onCheckedChange={(on) => onSearch({ tag: on ? tag.id : undefined })}>
-                #{tag.name}
               </DropdownMenuCheckboxItem>
             ))}
           </DropdownMenuSubContent>
@@ -669,9 +678,6 @@ function LineFilters({ projectId, statuses, tags, speakers, search, onSearch }: 
         <DropdownMenuSub>
           <DropdownMenuSubTrigger inset>청자</DropdownMenuSubTrigger>
           <DropdownMenuSubContent className="max-h-80 w-56 overflow-y-auto">
-            <DropdownMenuCheckboxItem checked={search.listener === '-'} onCheckedChange={(on) => onSearch({ listener: on ? '-' : undefined })}>
-              청자 미상 (대사만)
-            </DropdownMenuCheckboxItem>
             {speakers.slice(0, 40).map((speaker) => (
               <DropdownMenuCheckboxItem key={speaker.name} checked={search.listener === speaker.name} onCheckedChange={(on) => onSearch({ listener: on ? speaker.name : undefined })}>
                 {speaker.name}에게

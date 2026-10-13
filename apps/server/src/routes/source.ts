@@ -19,7 +19,8 @@ const listQuery = z.object({
   /** Kind of the containing group (scene / document / ui). */
   kind: z.enum(['scene', 'document', 'ui']).optional(),
   statusId: z.string().optional(),
-  tagId: z.string().optional(),
+  /** Tag ids, comma-separated: lines carrying every one of them. */
+  tagIds: z.string().optional(),
   q: z.string().trim().optional(),
   speaker: z.string().optional(),
   /** A character name, or "-" for lines whose listener is unknown (none, or an unsure AI guess). */
@@ -49,7 +50,7 @@ function unitConditions(projectId: string, query: Omit<z.infer<typeof listQuery>
   if (query.groupId) conditions.push(eq(s.units.groupId, query.groupId));
   if (query.kind) conditions.push(eq(s.groups.kind, query.kind));
   if (query.statusId) conditions.push(eq(s.units.statusId, query.statusId));
-  if (query.tagId) conditions.push(sql`${s.units.id} in (select unit_id from ${s.unitTags} where tag_id = ${query.tagId})`);
+  for (const tagId of query.tagIds?.split(',').filter(Boolean) ?? []) conditions.push(sql`${s.units.id} in (select unit_id from ${s.unitTags} where tag_id = ${tagId})`);
   if (query.q) conditions.push(textFilter(query.q));
   if (query.speaker) conditions.push(eq(s.units.speaker, query.speaker));
   // Unknown listener: dialogue only (narration has no listener), as the home page counts it.
