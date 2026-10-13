@@ -13,7 +13,7 @@ loca check format           # 자리표시자·태그·줄바꿈 (프로젝트 �
 loca check length --kind ui --ratio 1.5   # 원문보다 1.5배 넘게 긴 UI 문자열
 loca check speech           # 화자→청자의 확정 말투 규칙과 번역 끝 어미가 다른 곳 (어미로 추정)
 ```
-범위는 `lines`와 같은 필터로 좁힙니다(`--section`, `--speaker`, `--listener`, `--group`, `--status`, `--tag`). speech 결과는 어미로 추정한 것이라 짧은 말·인용은 직접 확인합니다. 많으면 `--jsonl`로 작업 폴더(`W=$(loca workspace new review)`)의 파일에 받아 읽습니다.
+범위는 `lines`와 같은 필터로 좁힙니다(`--section`, `--speaker`, `--listener`, `--group`, `--status`, `--tag` — 태그를 여럿 주면 모두 붙은 대사). speech 결과는 어미로 추정한 것이라 짧은 말·인용은 직접 확인합니다. 많으면 `--jsonl`로 작업 폴더(`W=$(loca workspace new review)`)의 파일에 받아 읽습니다.
 
 ## 실행 전 준비 상태
 ```

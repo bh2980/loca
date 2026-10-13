@@ -5,6 +5,7 @@
       "linesInScope": 9040,
       "status": "completed",
       "notice": null,
+      "unfinishedLines": 0,
       "calls": 434,
       "failedCalls": 0,
       "callsByNode": {
@@ -28,6 +29,7 @@
       "linesInScope": 9040,
       "status": "completed",
       "notice": null,
+      "unfinishedLines": 0,
       "calls": 480,
       "failedCalls": 21,
       "callsByNode": {
@@ -51,6 +53,7 @@
       "linesInScope": 9040,
       "status": "completed",
       "notice": null,
+      "unfinishedLines": 0,
       "calls": 106,
       "failedCalls": 0,
       "callsByNode": {
@@ -72,6 +75,7 @@
       "linesInScope": 9040,
       "status": "completed",
       "notice": null,
+      "unfinishedLines": 0,
       "calls": 176,
       "failedCalls": 0,
       "callsByNode": {
@@ -93,6 +97,7 @@
       "linesInScope": 9040,
       "status": "completed",
       "notice": null,
+      "unfinishedLines": 0,
       "calls": 91,
       "failedCalls": 0,
       "callsByNode": {

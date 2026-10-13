@@ -8,7 +8,7 @@ import { lineMarksSchema } from './marks.ts';
  * tags may be names or ids; groups may be keys, ids or titles.
  */
 export const lineFilterSchema = z.object({
-  /** Text in source, translation, speaker or key. */
+  /** Text in source, translation, speaker or key, as written (%, _ and \ are plain characters); the app's list search. */
   q: z.string().trim().min(1).optional(),
   /** Lines spoken by any of these. */
   speakers: z.array(z.string().min(1)).optional(),
@@ -21,6 +21,7 @@ export const lineFilterSchema = z.object({
   groupKind: z.enum(['scene', 'document', 'ui']).optional(),
   kind: z.enum(['dialogue', 'document', 'ui']).optional(),
   statuses: z.array(z.string().min(1)).optional(),
+  /** Lines carrying every one of these tags, as in the app's list. */
   tags: z.array(z.string().min(1)).optional(),
   /** Automatic marks (the app's built-in tags) the lines must all have; same rules as the script list. */
   marks: lineMarksSchema.optional(),

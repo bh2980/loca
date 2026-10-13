@@ -9,6 +9,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
 import { client, unwrap } from '@/lib/api';
 import { useFormFrom } from '@/lib/use-form-from';
+import { ChangedElsewhere } from '@/components/changed-elsewhere';
 
 const FILE_TOOLS: PiBuiltinTool[] = ['edit', 'write', 'bash'];
 
@@ -31,7 +32,7 @@ function Row({ label, hint, checked, onChange }: { label: string; hint?: string;
  */
 export function PiOptionsPanel({ connectionId, options }: { connectionId: string; options: PiOptions | null }) {
   const saved = piOptionsSchema.parse(options ?? {});
-  const { draft, setDraft, dirty, reset } = useFormFrom<PiOptions>(saved);
+  const { draft, setDraft, dirty, reset, conflicts, keepMine, takeSaved } = useFormFrom<PiOptions>(saved, `pi-options.${connectionId}`);
   const resources = useQuery({
     queryKey: ['connections', connectionId, 'pi-resources'],
     queryFn: () => unwrap(client.connections[':id']['pi-resources'].$get({ param: { id: connectionId } })),
@@ -53,6 +54,7 @@ export function PiOptionsPanel({ connectionId, options }: { connectionId: string
         <h3 className="text-sm font-semibold">pi에서 불러올 것</h3>
         <p className="text-xs text-muted-foreground">작업실 도구(대본·용어·제안 카드)는 항상 붙습니다. 그 밖에 pi에 설치한 것을 여기서 켜고 끕니다.</p>
       </div>
+      {conflicts.length > 0 && <ChangedElsewhere onTakeSaved={takeSaved} onKeepMine={keepMine} />}
 
       <section>
         <Row label="패키지·확장" hint="웹 검색(pi-web-access), 라우터, 다중 계정, 가드레일 등 pi에 설치한 것" checked={draft.extensions} onChange={(value) => update({ extensions: value })} />

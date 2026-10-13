@@ -10,7 +10,8 @@ import { events } from '../events.ts';
 import { graphOrder, ruleLines } from '../services/speech.ts';
 import { eventFlow, forks } from '../services/event-routes.ts';
 import { fillTermUsage, termUsage } from '../services/term-usage.ts';
-import { addNameTerms, saveTerm, SUGGEST_BATCH } from '../services/terms.ts';
+import { saveCharacter } from '../services/characters.ts';
+import { saveTerm, SUGGEST_BATCH } from '../services/terms.ts';
 import { byPerson } from '../services/status-by.ts';
 import { clearReview, withTags } from '../services/knowledge-tags.ts';
 
@@ -133,16 +134,11 @@ export const knowledgeRoutes = new Hono<Env>()
   })
   .post('/characters', validate('json', characterInput), (c) => {
     const projectId = c.req.param('projectId')!;
-    const row = c.var.deps.db.insert(s.characters).values({ ...c.req.valid('json'), projectId }).returning().get();
-    addNameTerms(c.var.deps.db, projectId, row);
-    events.changed(projectId, 'knowledge');
-    return c.json(row, 201);
+    return c.json(saveCharacter(c.var.deps.db, projectId, c.req.valid('json')), 201);
   })
   .patch('/characters/:id', validate('json', patchOf(characterInput)), (c) => {
     const projectId = c.req.param('projectId')!;
-    const row = found(c.var.deps.db.update(s.characters).set({ ...c.req.valid('json'), ...byPerson(c.var.deps.db, s.characters, projectId, c.req.param('id'), c.req.valid('json')) }).where(byProject(s.characters, c.req.param('id'), projectId)).returning().get(), '인물');
-    if (c.req.valid('json').name !== undefined || c.req.valid('json').aliases !== undefined) addNameTerms(c.var.deps.db, projectId, row);
-    events.changed(projectId, 'knowledge');
+    found(saveCharacter(c.var.deps.db, projectId, c.req.valid('json'), c.req.param('id')), '인물');
     return c.json({ ok: true });
   })
   .delete('/characters/:id', (c) => {

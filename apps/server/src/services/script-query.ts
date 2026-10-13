@@ -8,6 +8,7 @@ import { attachUnitTags, scopeRefusal } from './tag-scope.ts';
 import { humanLinePatch } from './line-patch.ts';
 import { refusesListener, setHumanListener } from './listeners.ts';
 import { knownListenerSql, markConditions } from './line-marks.ts';
+import { lineTextFilter } from './line-text.ts';
 import { describeRule, knowledgeOf, knownListener, speechMismatch, speechRuleIndex } from './speech.ts';
 
 /**
@@ -61,7 +62,7 @@ function lookups(db: Db, projectId: string) {
 export function findLines(db: Db, projectId: string, filter: LineFilter, options: { all?: boolean; seq?: [number, number]; diverged?: boolean } = {}): { total: number; rows: LineRow[] } {
   const { namesOf, statusId, tagId, statuses, tags } = lookups(db, projectId);
   const where: SQL[] = [eq(s.units.projectId, projectId)];
-  if (filter.q) where.push(or(like(s.units.source, `%${filter.q}%`), like(s.units.translation, `%${filter.q}%`), like(s.units.speaker, `%${filter.q}%`), like(s.units.key, `%${filter.q}%`))!);
+  if (filter.q) where.push(lineTextFilter(filter.q));
   if (filter.speakers?.length) where.push(inList(s.units.speaker, filter.speakers.flatMap(namesOf)));
   if (filter.listeners?.length) {
     // The app's rules (services/line-marks.ts): '-' is the #청자 미상 mark (dialogue only), a name must be a known listener.
@@ -73,8 +74,8 @@ export function findLines(db: Db, projectId: string, filter: LineFilter, options
   if (filter.groupKind) where.push(eq(s.groups.kind, filter.groupKind));
   if (filter.kind) where.push(eq(s.units.kind, filter.kind));
   if (filter.statuses?.length) where.push(inList(s.units.statusId, filter.statuses.map((value) => statusId(value) ?? value)));
-  if (filter.tags?.length)
-    where.push(inArray(s.units.id, db.select({ id: s.unitTags.unitId }).from(s.unitTags).where(inList(s.unitTags.tagId, filter.tags.map((value) => tagId(value) ?? value)))));
+  // Several tags: lines carrying every one of them, as in the app's list.
+  for (const tag of filter.tags ?? []) where.push(sql`${s.units.id} in (select unit_id from ${s.unitTags} where tag_id = ${tagId(tag) ?? tag})`);
   where.push(...markConditions(projectId, filter.marks));
   if (filter.translated !== undefined) where.push(filter.translated ? sql`${s.units.translation} is not null and ${s.units.translation} != ''` : sql`(${s.units.translation} is null or ${s.units.translation} = '')`);
   if (filter.keys?.length) where.push(inList(s.units.key, filter.keys));

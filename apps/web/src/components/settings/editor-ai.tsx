@@ -21,7 +21,7 @@ export function EditorAiSection({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient();
   const settings: EditorAi = project.data?.editorAi ?? DEFAULT_EDITOR_AI;
   // Follows the saved cap (changed elsewhere) until it is being typed.
-  const { draft: cap, setDraft: setCap } = useFormFrom(String(settings.dailyCap));
+  const { draft: cap, setDraft: setCap } = useFormFrom(String(settings.dailyCap), `editor-ai-cap.${projectId}`);
   // Shown at once: the project's cached settings change before the server answers (undone on failure).
   const save = useMutation({
     mutationFn: (editorAi: EditorAi) => unwrap(client.projects[':projectId'].$patch({ param: { projectId }, json: { editorAi } })),
