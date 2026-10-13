@@ -10,8 +10,8 @@ import { SplitPane } from '@/components/split-pane';
 import { AiMark, StatusDot, TagChip } from '@/components/status';
 import { Pager, SearchInput, Toolbar } from '@/components/toolbar';
 import { TranslationEditor } from '@/components/translation-editor';
-import { LineSourceText } from '@/components/editor/source-text';
-import { withoutTokens } from '@/lib/line-context';
+import { LineSourceText, TokenText } from '@/components/editor/source-text';
+import { tokenPatternOf, withoutTokens } from '@/lib/line-context';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -132,6 +132,9 @@ export function LineList({
   banner?: ReactNode;
 }) {
   const statuses = useQuery(q.statuses(projectId));
+  // Format tokens read as numbered chips (#1) in every row; the full token is on hover.
+  const projectInfo = useQuery(q.project(projectId));
+  const tokenPattern = useMemo(() => tokenPatternOf(projectInfo.data?.formatRules ?? undefined), [projectInfo.data?.formatRules]);
   const page = search.page ?? 0;
   // Lines picked here (click, keys); any other line in the URL arrived from elsewhere (a link).
   const pickedHere = useRef<string | undefined>(undefined);
@@ -409,7 +412,7 @@ export function LineList({
                       {selected ? (
                         <LineSourceText projectId={projectId} unitId={line.id} source={line.source} className="text-base" />
                       ) : (
-                        <p className="text-sm break-words whitespace-pre-wrap">{line.source}</p>
+                        <TokenText text={line.source} source={line.source} pattern={tokenPattern} className="text-sm" />
                       )}
                     </div>
                     <div className="min-w-0">
@@ -430,7 +433,7 @@ export function LineList({
                           </Tooltip>
                           {line.statusBy === 'ai' && <AiMark by="ai" className="mt-1 -ml-1" />}
                           <div className="min-w-0">
-                            <p className={cn('break-words whitespace-pre-wrap', !line.translation && 'text-muted-foreground')}>{line.translation ?? '번역 없음'}</p>
+                            {line.translation ? <TokenText text={line.translation} source={line.source} pattern={tokenPattern} /> : <p className="text-muted-foreground">번역 없음</p>}
                             {review && !!line.lastRun?.issues.length && (
                               <p className="mt-1 flex items-start gap-1 text-xs text-warning">
                                 <CircleAlert className="mt-0.5 size-3 shrink-0" />

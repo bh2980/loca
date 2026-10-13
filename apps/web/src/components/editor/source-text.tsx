@@ -1,5 +1,5 @@
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { tokenLabel, useLineContext, type SourcePart } from '@/lib/line-context';
+import { chipLabel, splitTokens, useLineContext, type SourcePart } from '@/lib/line-context';
 import { cn } from '@/lib/utils';
 import { insertIntoLine } from './translation-input';
 
@@ -13,16 +13,14 @@ export function SourceText({ parts, unitId, className }: { parts: SourcePart[]; 
   return (
     <p className={cn('break-words whitespace-pre-wrap', className)}>
       {parts.map((part, index) => {
-        if (part.token)
+        if (part.token !== undefined)
           return (
-            <span
+            <TokenChip
               key={index}
-              title={`${part.text}${unitId ? '\n눌러서 번역에 넣기 (⌘1…⌘9)' : ''}`}
-              className={cn('rounded-sm border bg-muted px-0.5 font-mono text-xs text-muted-foreground', unitId && 'cursor-pointer hover:border-ring')}
-              onMouseDown={(event) => unitId && (event.preventDefault(), insert(part.text))}
-            >
-              {tokenLabel(part.text)}
-            </span>
+              part={part}
+              hint={unitId ? `눌러서 번역에 넣기${part.token && part.token <= 9 ? ` (⌘${part.token})` : ''}` : undefined}
+              onPick={unitId ? () => insert(part.text) : undefined}
+            />
           );
         if (part.term)
           return (
@@ -51,4 +49,28 @@ export function SourceText({ parts, unitId, className }: { parts: SourcePart[]; 
 export function LineSourceText({ projectId, unitId, source, className }: { projectId: string; unitId: string; source: string; className?: string }) {
   const line = useLineContext(projectId, source);
   return <SourceText parts={line.parts} unitId={unitId} className={className} />;
+}
+
+/** A numbered format token (#1); the full token shows on hover. */
+export function TokenChip({ part, hint, onPick }: { part: SourcePart; hint?: string; onPick?: () => void }) {
+  return (
+    <span
+      title={hint ? `${part.text}\n${hint}` : part.text}
+      className={cn('mx-px rounded-sm border bg-muted px-1 font-mono text-xs text-muted-foreground', !part.token && 'border-warning/40 bg-warning/10 text-warning', onPick && 'cursor-pointer hover:border-ring')}
+      onMouseDown={onPick && ((event) => (event.preventDefault(), onPick()))}
+    >
+      {chipLabel(part.token ?? 0)}
+    </span>
+  );
+}
+
+/** Read-only text (a line in the list, a translation) with its format tokens as numbered chips. */
+export function TokenText({ text, source, pattern, className }: { text: string; source: string; pattern: RegExp | null; className?: string }) {
+  const parts = splitTokens(text, source, pattern);
+  return (
+    // A span (block), so it can sit inside a button as well as a list row.
+    <span className={cn('block break-words whitespace-pre-wrap', className)}>
+      {parts.map((part, index) => (part.token !== undefined ? <TokenChip key={index} part={part} /> : <span key={index}>{part.text}</span>))}
+    </span>
+  );
 }

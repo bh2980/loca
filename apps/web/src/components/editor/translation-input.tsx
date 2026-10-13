@@ -3,7 +3,7 @@ import { Compartment, EditorState, Prec } from '@codemirror/state';
 import { Decoration, EditorView, keymap, MatchDecorator, placeholder as placeholderText, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from '@codemirror/view';
 import { history, historyKeymap, standardKeymap } from '@codemirror/commands';
 import { autocompletion, completionStatus, type CompletionContext } from '@codemirror/autocomplete';
-import { tokenLabel } from '@/lib/line-context';
+import { chipLabel, tokenNumbering } from '@/lib/line-context';
 import { cn } from '@/lib/utils';
 
 /** Open editors by line, so the source next to one can put a token or term into it. */
@@ -43,26 +43,47 @@ export interface TranslationInputProps {
 
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-/** A format token drawn as a short chip (<d target="…"> → <d>); the full text is its tooltip. */
+/** A format token drawn as its number in the source (#1, or #? when the source lacks it); the full text is its tooltip. */
 class TokenChip extends WidgetType {
-  constructor(readonly token: string) {
+  constructor(
+    readonly token: string,
+    readonly number: number,
+  ) {
     super();
   }
   eq(other: TokenChip) {
-    return other.token === this.token;
+    return other.token === this.token && other.number === this.number;
   }
   toDOM() {
     const chip = document.createElement('span');
-    chip.className = 'cm-token-chip';
-    chip.textContent = tokenLabel(this.token);
+    chip.className = this.number ? 'cm-token-chip' : 'cm-token-chip cm-token-stray';
+    chip.textContent = chipLabel(this.number);
     chip.title = this.token;
     return chip;
   }
 }
 
-/** A decoration plugin over every match of `pattern`: a mark with `className`, or (`chip`) a token chip in its place. */
-function marker(pattern: RegExp, className: string, chip = false) {
-  const decorator = new MatchDecorator({ regexp: pattern, decoration: (match) => (chip ? Decoration.replace({ widget: new TokenChip(match[0]) }) : Decoration.mark({ class: className })) });
+/** A decoration plugin over every match of `pattern`: a mark with `className`. */
+function marker(pattern: RegExp, className: string) {
+  const decorator = new MatchDecorator({ regexp: pattern, decoration: () => Decoration.mark({ class: className }) });
+  return plugin(decorator);
+}
+
+/** Token chips numbered from the source: the nth copy of a token in the text takes the nth number. */
+function chips(pattern: RegExp, source: string) {
+  const numberOf = tokenNumbering(source, pattern);
+  const decorator = new MatchDecorator({
+    regexp: pattern,
+    decoration: (match, view, pos) => {
+      const before = view.state.doc.sliceString(0, pos).split(match[0]).length - 1;
+      return Decoration.replace({ widget: new TokenChip(match[0], numberOf(match[0], before)) });
+    },
+  });
+  // Numbers depend on the whole text, so any edit renumbers every chip (texts are short).
+  return plugin(decorator, true);
+}
+
+function plugin(decorator: MatchDecorator, whole = false) {
   return ViewPlugin.fromClass(
     class {
       decorations: DecorationSet;
@@ -70,7 +91,7 @@ function marker(pattern: RegExp, className: string, chip = false) {
         this.decorations = decorator.createDeco(view);
       }
       update(update: ViewUpdate) {
-        this.decorations = decorator.updateDeco(update, this.decorations);
+        this.decorations = whole ? (update.docChanged ? decorator.createDeco(update.view) : this.decorations) : decorator.updateDeco(update, this.decorations);
       }
     },
     { decorations: (plugin) => plugin.decorations },
@@ -78,17 +99,17 @@ function marker(pattern: RegExp, className: string, chip = false) {
 }
 
 /** What depends on the line's source and the glossary: token chips (moved over and deleted whole), term marks, completion. */
-function context(props: Pick<TranslationInputProps, 'tokenPattern' | 'tokens' | 'terms'>) {
+function context(props: Pick<TranslationInputProps, 'tokenPattern' | 'tokens' | 'terms' | 'source'>) {
   const extensions = [];
   if (props.tokenPattern) {
-    const chips = marker(new RegExp(props.tokenPattern.source, 'gu'), 'cm-token-chip', true);
-    extensions.push(chips, EditorView.atomicRanges.of((view) => view.plugin(chips)?.decorations ?? Decoration.none));
+    const tokens = chips(new RegExp(props.tokenPattern.source, 'gu'), props.source);
+    extensions.push(tokens, EditorView.atomicRanges.of((view) => view.plugin(tokens)?.decorations ?? Decoration.none));
   }
   const targets = [...new Set(props.terms.map((term) => term.target))].sort((a, b) => b.length - a.length);
   if (targets.length) extensions.push(marker(new RegExp(targets.map(escape).join('|'), 'gu'), 'cm-term-hit'));
   const options = [
     ...props.terms.map((term) => ({ label: term.target, detail: term.source, type: 'keyword', boost: 2 })),
-    ...[...new Set(props.tokens)].map((token) => ({ label: token, detail: '서식', type: 'variable' })),
+    ...props.tokens.map((token, index) => ({ label: token, displayLabel: chipLabel(index + 1), detail: token.length > 24 ? `${token.slice(0, 23)}…` : token, type: 'variable' })),
   ];
   if (options.length)
     extensions.push(

@@ -167,8 +167,10 @@
 
 /* The translation editor (CodeMirror): its own look is in translation-input.tsx; these are its marks. */
 @layer components {
-  /* A format token, drawn short (<d target="…"> → <d>): one unit you cannot half-delete. */
-  .cm-token-chip { @apply rounded-sm border bg-muted px-0.5 font-mono text-xs text-muted-foreground; }
+  /* A format token, drawn as its number in the source (#1): one unit you cannot half-delete. */
+  .cm-token-chip { @apply mx-px rounded-sm border bg-muted px-1 font-mono text-xs text-muted-foreground; }
+  /* A token the source does not have (#?). */
+  .cm-token-stray { @apply border-warning/40 bg-warning/10 text-warning; }
   /* A glossary translation in use. */
   .cm-term-hit { @apply rounded-sm bg-primary/5 underline decoration-primary/40 underline-offset-4; }
 }

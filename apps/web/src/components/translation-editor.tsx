@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { listenerLabel } from '@tw/shared';
+import { TokenText } from '@/components/editor/source-text';
 import { TranslationInput } from '@/components/editor/translation-input';
 import { AiMark, StatusDot } from '@/components/status';
 import { Button } from '@/components/ui/button';
@@ -133,7 +134,7 @@ export function TranslationEditor({
               <Button variant="ghost" size="row" className="h-auto items-start gap-2 rounded-none py-1.5 text-left font-normal" title={`번역 칸에 넣기 (⌥${index + 1})`} onClick={() => setDraft(suggestion.text)}>
                 <span className="mt-px w-5 shrink-0 font-mono text-xs text-muted-foreground">⌥{index + 1}</span>
                 <span className="min-w-0 flex-1">
-                  <span className="block break-words whitespace-pre-wrap">{suggestion.text}</span>
+                  <TokenText text={suggestion.text} source={unit.source} pattern={line.tokenPattern} className="block" />
                   {suggestion.diff && (
                     <span className="block text-xs text-muted-foreground">
                       {suggestion.diff.map((word, at) => (
