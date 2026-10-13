@@ -3,6 +3,8 @@ import type { ConnectionKind } from '@tw/shared';
 
 /** A connection + model with secrets already resolved by the caller. */
 export interface ResolvedRoute {
+  /** The stored connection it came from, for logs; absent for routes built outside the app (tests, scripts). */
+  connectionId?: string;
   kind: ConnectionKind;
   baseUrl?: string;
   executable?: string;

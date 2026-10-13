@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, inArray, like, ne, notLike, or, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
-import { LISTENER_MIN_CONFIDENCE, type NodeType } from '@tw/shared';
+import { isSpecialListener, LISTENER_MIN_CONFIDENCE, type NodeType } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import { eachChunk, inList } from '../db/chunk.ts';
@@ -25,9 +25,31 @@ const listQuery = z.object({
   review: z.enum(['1']).optional(),
   /** Only lines not yet in a final status. */
   remaining: z.enum(['1']).optional(),
+  /** Only lines whose current status a run set and no person has looked at since (✦). */
+  by: z.enum(['ai']).optional(),
+  /** A line to show: the page is the one holding it (the response says which offset it used). */
+  focus: z.string().optional(),
   offset: z.coerce.number().int().min(0).default(0),
   limit: z.coerce.number().int().min(1).max(500).default(100),
 });
+
+/** The line filters shared by the list and its matches: one SQL condition. */
+function unitConditions(projectId: string, query: Omit<z.infer<typeof listQuery>, 'offset' | 'limit' | 'focus'>) {
+  const conditions: SQL[] = [eq(s.units.projectId, projectId)];
+  if (query.groupId) conditions.push(eq(s.units.groupId, query.groupId));
+  if (query.kind) conditions.push(eq(s.groups.kind, query.kind));
+  if (query.statusId) conditions.push(eq(s.units.statusId, query.statusId));
+  if (query.tagId) conditions.push(sql`${s.units.id} in (select unit_id from ${s.unitTags} where tag_id = ${query.tagId})`);
+  if (query.q) conditions.push(textFilter(query.q));
+  if (query.speaker) conditions.push(eq(s.units.speaker, query.speaker));
+  // Unknown listener: dialogue only (narration has no listener), as the home page counts it.
+  if (query.listener === '-') conditions.push(and(eq(s.units.kind, 'dialogue'), sql`not ${knownListener}`)!);
+  else if (query.listener) conditions.push(and(eq(s.units.listener, query.listener), knownListener)!);
+  if (query.review) conditions.push(sql`${s.units.statusId} in (select id from ${s.statuses} where ${s.statuses.projectId} = ${projectId} and ${s.statuses.inReview} = 1)`);
+  if (query.by) conditions.push(eq(s.units.statusBy, query.by));
+  if (query.remaining) conditions.push(sql`${s.units.statusId} in (select id from ${s.statuses} where ${s.statuses.projectId} = ${projectId} and ${s.statuses.kind} != 'final')`);
+  return and(...conditions)!;
+}
 
 const unitPatch = z.object({
   /** New text from a person: stored as a human candidate and selected. */
@@ -39,8 +61,8 @@ const unitPatch = z.object({
   listener: z.string().trim().min(1).nullable().optional(),
 });
 
-/** The listener counts only when it is not an unsure AI guess. */
-const knownListener = sql`(${s.units.listener} is not null and (${s.units.listenerOrigin} is not 'ai' or ${s.units.listenerConfidence} >= ${LISTENER_MIN_CONFIDENCE}))`;
+/** The listener counts unless it is an unsure guess (by line or by scene), as isUnsureListener. */
+const knownListener = sql`(${s.units.listener} is not null and (${s.units.listenerOrigin} not in ('ai', 'scene') or ${s.units.listenerConfidence} >= ${LISTENER_MIN_CONFIDENCE}))`;
 
 /** Trigram FTS needs 3+ characters; shorter queries fall back to LIKE over the same columns. */
 function textFilter(q: string): SQL {
@@ -70,6 +92,8 @@ const unitColumns = {
   source: s.units.source,
   translation: s.units.translation,
   statusId: s.units.statusId,
+  statusBy: s.units.statusBy,
+  statusRunId: s.units.statusRunId,
   updatedAt: s.units.updatedAt,
 };
 
@@ -129,25 +153,33 @@ export const sourceRoutes = new Hono<Env>()
     const { db } = c.var.deps;
     return c.json(found(db.select().from(s.groups).where(eq(s.groups.id, c.req.param('groupId'))).get(), '장면'));
   })
+  /**
+   * Every line a filter matches, in script order, with its scene: the translation screen walks
+   * them one by one inside their scenes (찾아가기) instead of listing them apart from their context.
+   */
+  .get('/projects/:projectId/units/matches', validate('query', listQuery.omit({ offset: true, limit: true, focus: true })), (c) => {
+    const query = c.req.valid('query');
+    const base = c.var.deps.db.select({ id: s.units.id, groupId: s.units.groupId }).from(s.units);
+    const rows = (query.kind ? base.innerJoin(s.groups, eq(s.groups.id, s.units.groupId)) : base).where(unitConditions(c.req.param('projectId'), query)).orderBy(asc(s.units.seq)).all();
+    return c.json({ rows });
+  })
   .get('/projects/:projectId/units', validate('query', listQuery), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     const query = c.req.valid('query');
-    const conditions: SQL[] = [eq(s.units.projectId, projectId)];
-    if (query.groupId) conditions.push(eq(s.units.groupId, query.groupId));
-    if (query.kind) conditions.push(eq(s.groups.kind, query.kind));
-    if (query.statusId) conditions.push(eq(s.units.statusId, query.statusId));
-    if (query.tagId) conditions.push(sql`${s.units.id} in (select unit_id from ${s.unitTags} where tag_id = ${query.tagId})`);
-    if (query.q) conditions.push(textFilter(query.q));
-    if (query.speaker) conditions.push(eq(s.units.speaker, query.speaker));
-    if (query.listener === '-') conditions.push(sql`not ${knownListener}`);
-    else if (query.listener) conditions.push(and(eq(s.units.listener, query.listener), knownListener)!);
-    if (query.review) conditions.push(sql`${s.units.statusId} in (select id from ${s.statuses} where ${s.statuses.projectId} = ${projectId} and ${s.statuses.inReview} = 1)`);
-    if (query.remaining) conditions.push(sql`${s.units.statusId} in (select id from ${s.statuses} where ${s.statuses.projectId} = ${projectId} and ${s.statuses.kind} != 'final')`);
-    const where = and(...conditions);
+    const where = unitConditions(projectId, query);
     // The groups table is only needed for the kind filter; without it the count is one index range.
     const counted = db.select({ count: count() }).from(s.units);
     const total = (query.kind ? counted.innerJoin(s.groups, eq(s.groups.id, s.units.groupId)) : counted).where(where).get()!.count;
+    // Opened at a given line (a link from elsewhere): start at the page that holds it.
+    let offset = query.offset;
+    if (query.focus) {
+      const target = db.select({ seq: s.units.seq }).from(s.units).where(and(eq(s.units.id, query.focus), eq(s.units.projectId, projectId))).get();
+      if (target) {
+        const before = (query.kind ? db.select({ count: count() }).from(s.units).innerJoin(s.groups, eq(s.groups.id, s.units.groupId)) : db.select({ count: count() }).from(s.units)).where(and(where, sql`${s.units.seq} < ${target.seq}`)).get()!.count;
+        offset = Math.floor(before / query.limit) * query.limit;
+      }
+    }
     const rows = db
       .select({ ...unitColumns, groupTitle: s.groups.title, origin: s.candidates.origin, model: s.candidates.model })
       .from(s.units)
@@ -156,7 +188,7 @@ export const sourceRoutes = new Hono<Env>()
       .where(where)
       .orderBy(asc(s.units.seq))
       .limit(query.limit)
-      .offset(query.offset)
+      .offset(offset)
       .all();
     const ids = rows.map((row) => row.id);
     const tagRows = ids.length ? db.select().from(s.unitTags).where(inArray(s.unitTags.unitId, ids)).all() : [];
@@ -172,7 +204,7 @@ export const sourceRoutes = new Hono<Env>()
         .orderBy(desc(s.runs.createdAt))
         .all())
         if (!lastRun.has(item.unitId)) lastRun.set(item.unitId, { runId: item.runId, workflowName: item.workflowName, issues: item.data.issues ?? [] });
-    return c.json({ total, rows: rows.map((row) => ({ ...row, tagIds: (tags.get(row.id) ?? []).map((tag) => tag.tagId), lastRun: lastRun.get(row.id) ?? null })) });
+    return c.json({ total, offset, rows: rows.map((row) => ({ ...row, tagIds: (tags.get(row.id) ?? []).map((tag) => tag.tagId), lastRun: lastRun.get(row.id) ?? null })) });
   })
   /** Lines by key, in script order: evidence cited by knowledge drafts. */
   .post('/projects/:projectId/units/by-keys', validate('json', z.object({ keys: z.array(z.string()).max(500) })), (c) => {
@@ -188,14 +220,28 @@ export const sourceRoutes = new Hono<Env>()
         .all(),
     );
   })
-  .patch('/projects/:projectId/units', validate('json', z.object({ unitIds: z.array(z.string()).min(1), statusId: z.string().optional(), addTagIds: z.array(z.string()).default([]), removeTagIds: z.array(z.string()).default([]) })), (c) => {
+  .patch(
+    '/projects/:projectId/units',
+    validate(
+      'json',
+      z.object({
+        unitIds: z.array(z.string()).min(1),
+        statusId: z.string().optional(),
+        /** 확인함: a person looked at the lines; their statuses stay, but a person now holds them (no ✦). */
+        checked: z.literal(true).optional(),
+        addTagIds: z.array(z.string()).default([]),
+        removeTagIds: z.array(z.string()).default([]),
+      }),
+    ),
+    (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     const body = c.req.valid('json');
     db.transaction((tx) => {
       // Chunked: a selection can be a whole project, and SQLite caps bound variables per statement.
       eachChunk(body.unitIds, (slice) => {
-        if (body.statusId) tx.update(s.units).set({ statusId: body.statusId }).where(and(eq(s.units.projectId, projectId), inArray(s.units.id, slice))).run();
+        // A person setting the status (or confirming what a run set) makes it theirs.
+        if (body.statusId || body.checked) tx.update(s.units).set({ ...(body.statusId && { statusId: body.statusId }), statusBy: 'human', statusRunId: null }).where(and(eq(s.units.projectId, projectId), inArray(s.units.id, slice))).run();
         if (body.removeTagIds.length) tx.delete(s.unitTags).where(and(inArray(s.unitTags.unitId, slice), inArray(s.unitTags.tagId, body.removeTagIds))).run();
       });
       if (body.addTagIds.length)
@@ -205,7 +251,8 @@ export const sourceRoutes = new Hono<Env>()
     });
     events.changed(projectId, 'units', 'statuses');
     return c.json({ ok: true });
-  })
+    },
+  )
   .get('/units/:unitId', (c) => {
     const { db } = c.var.deps;
     const unitId = c.req.param('unitId');
@@ -223,8 +270,20 @@ export const sourceRoutes = new Hono<Env>()
       .all();
     const nodes = db.select({ id: s.graphNodes.id, key: s.graphNodes.key }).from(s.graphNodes).where(sql`exists (select 1 from json_each(${s.graphNodes.unitIds}) where value = ${unitId})`).all();
     const resolved = speechRuleIndex(db, unit.projectId).resolve([unit]).get(unit.key);
-    const speech = resolved ? { listener: resolved.listener, ruleId: resolved.rule.id, rule: describeRule(resolved.rule), level: resolved.rule.level, byOrder: resolved.byOrder, routeDependent: !!resolved.routeDependent } : null;
-    return c.json({ ...unit, group, candidates, tagIds, history, graphNodes: nodes, speech });
+    const speech = resolved ? { listener: resolved.listener, ruleId: resolved.rule.id, rule: describeRule(resolved.rule), level: resolved.rule.level, byOrder: resolved.byOrder, routeDependent: !!resolved.routeDependent, others: !!resolved.others } : null;
+    // Who this line may address, nearest first: the scene's other speakers (extras included) and
+    // names people already typed as a listener there, for the listener picker.
+    const sceneLines = db.select({ seq: s.units.seq, speaker: s.units.speaker, listener: s.units.listener, origin: s.units.listenerOrigin }).from(s.units).where(eq(s.units.groupId, unit.groupId)).all();
+    const distance = new Map<string, number>();
+    for (const other of sceneLines) {
+      for (const name of [other.speaker, other.origin === 'human' ? other.listener : null]) {
+        if (!name || name === unit.speaker || isSpecialListener(name)) continue;
+        const far = Math.abs(other.seq - unit.seq);
+        if (far < (distance.get(name) ?? Infinity)) distance.set(name, far);
+      }
+    }
+    const sceneNames = [...distance].sort((a, b) => a[1] - b[1]).map(([name]) => name);
+    return c.json({ ...unit, group, candidates, tagIds, history, graphNodes: nodes, speech, sceneNames });
   })
   .patch('/units/:unitId', validate('json', unitPatch), (c) => {
     const { db } = c.var.deps;
@@ -243,6 +302,8 @@ export const sourceRoutes = new Hono<Env>()
         patch.candidateId = candidate.id;
       }
       if (body.statusId) patch.statusId = body.statusId;
+      // A person's translation or status: the line's status is theirs now (docs/DESIGN.md 3.5).
+      if (patch.statusId || patch.translation !== undefined) Object.assign(patch, { statusBy: 'human', statusRunId: null });
       if (body.listener !== undefined) Object.assign(patch, { listener: body.listener, listenerOrigin: 'human', listenerConfidence: null });
       if (Object.keys(patch).length) tx.update(s.units).set(patch).where(eq(s.units.id, unitId)).run();
       if (body.tagIds) {

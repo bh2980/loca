@@ -5,12 +5,13 @@ import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from './importer.ts';
 import { memoryStore } from './secrets.ts';
-import { discoverAndSave, NOT_A_TERM, TermService } from './terms.ts';
+import { addNameTerms, discoverAndSave, NOT_A_TERM, TermService } from './terms.ts';
 
 function setup() {
   const db = openDatabase(':memory:');
   const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1' }).returning().get();
-  const profile = db.insert(s.profiles).values({ name: 'fake', connectionId: connection.id, model: 'm', maxOutputTokens: 1000, timeoutSeconds: 30, maxAttempts: 1 }).returning().get();
+  db.update(s.connections).set({ maxOutputTokens: 1000, timeoutSeconds: 30, maxAttempts: 1 }).where(eq(s.connections.id, connection.id)).run();
+  const choice = { connectionId: connection.id, model: 'm' };
   const file = importFileSchema.parse({
     format: 'loca/v1',
     project: { name: 'Test' },
@@ -24,7 +25,7 @@ function setup() {
     characters: [{ name: 'Nina' }],
   });
   const { projectId } = importProject(db, file);
-  return { db, projectId, profileId: profile.id };
+  return { db, projectId, choice };
 }
 
 const terms = (db: ReturnType<typeof setup>['db'], projectId: string) =>
@@ -45,8 +46,22 @@ describe('glossary candidates from the script', () => {
     expect(terms(db, projectId).find((term) => term.source === 'God')?.status).toBe('rejected');
   });
 
+  it('marks a character\'s alias as theirs, from discovery and when the character is saved', () => {
+    const { db, projectId } = setup();
+    db.update(s.characters).set({ aliases: ['Thought'] }).where(eq(s.characters.name, 'Nina')).run();
+    discoverAndSave(db, projectId);
+    expect(terms(db, projectId).find((term) => term.source === 'Thought')?.note).toBe('Nina의 별칭');
+    // A new alias becomes a candidate at once; a note someone wrote stays.
+    db.update(s.terms).set({ note: '사람 메모' }).where(eq(s.terms.source, 'Thought')).run();
+    expect(addNameTerms(db, projectId, { name: 'Nina', aliases: ['Thought', 'Nin'] })).toBe(1);
+    expect(terms(db, projectId).filter((term) => ['Thought', 'Nin'].includes(term.source)).map(({ source, note, status }) => ({ source, note, status }))).toEqual([
+      { source: 'Nin', note: 'Nina의 별칭', status: 'candidate' },
+      { source: 'Thought', note: '사람 메모', status: 'candidate' },
+    ]);
+  });
+
   it('fills empty candidates from the model with example lines, marks ordinary words and leaves a person’s edits alone', async () => {
-    const { db, projectId, profileId } = setup();
+    const { db, projectId, choice } = setup();
     discoverAndSave(db, projectId);
     db.update(s.terms).set({ target: '니나' }).where(eq(s.terms.source, 'Nina')).run();
     const prompts: string[] = [];
@@ -66,7 +81,7 @@ describe('glossary candidates from the script', () => {
       },
     });
     expect(service.pending(projectId).map((term) => term.source)).toEqual(['Freedom Plaza', 'God', 'Thought']);
-    service.start(projectId, profileId);
+    service.start(projectId, choice);
     for (let i = 0; i < 50 && service.state(projectId)?.running; i++) await new Promise((resolve) => setTimeout(resolve, 5));
     expect(service.state(projectId)).toMatchObject({ running: false, done: 3, total: 3, usage: { inputTokens: 100, outputTokens: 20 } });
     // The job is kept for 실행 기록, and its request is in the AI log under it.

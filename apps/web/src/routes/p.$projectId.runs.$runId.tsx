@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, OctagonAlert, Pause, Play, Square } from 'lucide-react';
+import { ChevronLeft, ChevronRight, OctagonAlert, Pause, Play, CircleStop } from 'lucide-react';
 import { nodeName as nameOf, type WorkflowNode } from '@tw/shared';
 import { ContextItemList } from '@/components/ai-context';
 import { LineDetail } from '@/components/line-detail';
@@ -63,7 +63,7 @@ function RunDetail() {
   const plan = useQuery({ ...q.runPlan(runId), enabled: search.view === 'plan' });
   const control = useMutation({ mutationFn: (action: 'pause' | 'resume' | 'cancel') => unwrap(client.runs[':id'][':action{pause|resume|cancel}'].$post({ param: { id: runId, action } })) });
   const setSearch = (next: Partial<RunSearch>, replace = false) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace });
-  useReportView('run', [run.data && { kind: '실행', id: run.data.id, label: `${run.data.workflowName} v${run.data.workflowVersion}` }]);
+  useReportView('run', [run.data && { kind: '실행', id: run.data.id, label: run.data.workflowName }]);
 
   if (!run.data)
     return (
@@ -152,7 +152,7 @@ function RunDetail() {
     <AlertDialog>
       <AlertDialogTrigger asChild>
         <Button variant="ghost" className="text-destructive hover:text-destructive">
-          <Square /> 실행 취소
+          <CircleStop /> 실행 취소
         </Button>
       </AlertDialogTrigger>
       <AlertDialogContent>
@@ -169,7 +169,7 @@ function RunDetail() {
   );
 
   return (
-    <Page title={`${data.workflowName} v${data.workflowVersion}`} flush>
+    <Page title={data.workflowName} flush>
       <SplitPane
         id="run-lines"
         defaultWidth="400px"
@@ -235,7 +235,7 @@ function RunDetail() {
             </Alert>
           )}
           <p className="truncate text-xs text-muted-foreground">
-            {new Date(data.createdAt).toLocaleString()} 시작 · 프로필 {data.profiles.map((profile) => `${profile.name}(${profile.models.join(' → ')})`).join(', ') || '없음'}
+            {new Date(data.createdAt).toLocaleString()} 시작 · 모델 {data.models.map((model) => (model.routes.length > 1 ? `${model.label} (막히면 → ${model.routes.slice(1).map((route) => `${route.name} · ${route.model}`).join(' → ')})` : model.label)).join(', ') || '없음'}
           </p>
           <div className="space-y-1.5">
             <div className="flex flex-wrap items-baseline justify-between gap-x-4 text-sm">
@@ -304,7 +304,7 @@ function RunDetail() {
                           <span className="w-32 truncate text-left font-medium">{nodeName(step.nodeId)}</span>
                           <Badge variant={step.ok ? 'outline' : 'destructive'}>{step.ok ? '성공' : '실패'}</Badge>
                           <span className="text-muted-foreground">대사 {step.unitIds.length}</span>
-                          <span className="min-w-0 truncate text-muted-foreground">{[data.profiles.find((profile) => profile.id === step.profileId)?.name, step.model].filter(Boolean).join(' · ')}</span>
+                          <span className="min-w-0 truncate text-muted-foreground">{[data.models.flatMap((model) => model.routes).find((route) => route.connectionId === step.connectionId)?.name, step.model].filter(Boolean).join(' · ')}</span>
                           <span className="ml-auto text-xs text-muted-foreground tabular-nums">
                             {((new Date(step.finishedAt).getTime() - new Date(step.startedAt).getTime()) / 1000).toFixed(1)}s
                             {step.inputTokens != null && ` · 입력 ${step.inputTokens.toLocaleString()}${step.cachedInputTokens ? `(캐시 ${step.cachedInputTokens.toLocaleString()})` : ''} · 출력 ${(step.outputTokens ?? 0).toLocaleString()}`}

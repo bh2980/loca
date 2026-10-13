@@ -1,34 +1,35 @@
 import { useEffect, useRef, useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { useMutation, useQuery } from '@tanstack/react-query';
-import { Check, Play, Plus, ScanSearch, Sparkles, Square, Trash2 } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Check, Play, Plus, ScanSearch, Sparkles, CircleStop, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { DetailPane, PaneSection } from '@/components/detail-pane';
 import { HeaderFilter } from '@/components/header-filter';
 import { Page } from '@/components/page';
 import { SplitPane } from '@/components/split-pane';
+import { JobProgress } from '@/components/job-progress';
 import { SearchInput, Toolbar } from '@/components/toolbar';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
+import { ModelPicker, useInitialModel, type ModelValue } from '@/components/model-picker';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { matches, SourceBadge } from '@/components/knowledge/draft-editor';
-import { isSettled, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus } from '@tw/shared';
+import { confirmLabel, matches, SourceBadge, StateCell, statusOptions, type StatusFilter } from '@/components/knowledge/draft-editor';
+import { isSettled, KNOWLEDGE_SOURCES, SOURCE_LABELS, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type StatusBy } from '@tw/shared';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 
 export const Route = createFileRoute('/p/$projectId/glossary')({
-  validateSearch: (raw: Record<string, unknown>): { q?: string; term?: string; source?: KnowledgeSource; state?: 'confirmed' | 'candidate' } => ({
+  validateSearch: (raw: Record<string, unknown>): { q?: string; term?: string; source?: KnowledgeSource; state?: StatusFilter } => ({
     q: typeof raw.q === 'string' && raw.q ? raw.q : undefined,
     source: typeof raw.source === 'string' && (KNOWLEDGE_SOURCES as readonly string[]).includes(raw.source) ? (raw.source as KnowledgeSource) : undefined,
-    state: raw.state === 'confirmed' || raw.state === 'candidate' ? raw.state : undefined,
+    state: raw.state === 'confirmed' || raw.state === 'ai' || raw.state === 'candidate' ? raw.state : undefined,
     term: typeof raw.term === 'string' && raw.term ? raw.term : undefined,
   }),
   component: Glossary,
@@ -41,7 +42,8 @@ interface Term {
   note: string;
   status: KnowledgeStatus;
   origin: KnowledgeOrigin;
-  reviewed: boolean;
+  statusBy: StatusBy;
+  jobId?: string | null;
   evidence?: string[];
   lines: number | null;
   examples: string[];
@@ -73,13 +75,27 @@ function Glossary() {
     }
   }, [fill]);
 
-  // AI terms (a workflow's "add terms") show as AI 후보 or, when auto-confirmed, AI until a person promotes them.
+  // Who wrote a term (출처) and who set its status (✦ when AI confirmed it and no person has looked yet).
   const asDraft = (term: Term) => ({ ...term, evidence: [] });
   const all = (terms.data ?? []).filter((term) => matches(asDraft(term), search.source, search.state));
+  const queryClient = useQueryClient();
   const decide = useMutation({
     mutationFn: ({ ids, accept }: { ids: string[]; accept: boolean }) => unwrap(client.projects[':projectId'].drafts.$post({ param: { projectId }, json: { kind: 'terms', ids, action: accept ? 'confirm' : 'discard' } })),
+    // The table changes at once; the server's terms event brings the saved rows, and a failure puts them back.
+    onMutate: async ({ ids, accept }) => {
+      const key = q.terms(projectId).queryKey;
+      await queryClient.cancelQueries({ queryKey: key });
+      const before = queryClient.getQueryData(key);
+      const picked = new Set(ids);
+      // Discarded terms leave the list (the server does not send rejected ones); confirmed ones become official.
+      queryClient.setQueryData(key, (list) => (accept ? list?.map((term) => (picked.has(term.id) ? { ...term, status: 'confirmed' as const, statusBy: 'human' as const } : term)) : list?.filter((term) => !picked.has(term.id))));
+      return { before };
+    },
     onSuccess: ({ changed }, { accept }) => toast.success(accept ? `${changed}개를 정식 용어로 올렸습니다.` : `${changed}개 후보를 버렸습니다.`),
-    onError: (error) => toast.error(error.message),
+    onError: (error, _vars, context) => {
+      if (context?.before) queryClient.setQueryData(q.terms(projectId).queryKey, context.before);
+      toast.error(error.message);
+    },
   });
   const needle = search.q?.toLowerCase();
   const filtered = needle ? all.filter((term) => [term.source, term.target, term.note].some((text) => text.toLowerCase().includes(needle))) : all;
@@ -90,9 +106,9 @@ function Glossary() {
   useReportView('glossary-term', [selected && { kind: '용어', id: selected.id, label: `${selected.source} → ${selected.target}` }]);
 
   const select = (id?: string) => void navigate({ search: (previous) => ({ ...previous, term: id }), replace: true });
-  const setFilter = (next: { source?: KnowledgeSource | undefined; state?: 'confirmed' | 'candidate' | undefined }) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace: true });
+  const setFilter = (next: { source?: KnowledgeSource | undefined; state?: StatusFilter }) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace: true });
 
-  // Picked candidates: a term without a Korean form cannot be official (it would put an empty target in every prompt).
+  // Picked undecided terms: a candidate without a Korean form cannot be confirmed (it would put an empty target in every prompt).
   const pickedTerms = rows.filter((term) => picked.has(term.id));
   const promotable = pickedTerms.filter((term) => !isSettled(term) && term.target.trim());
   const discardable = pickedTerms.filter((term) => !isSettled(term));
@@ -117,12 +133,12 @@ function Glossary() {
         <HeaderFilter
           label="상태"
           value={search.state}
-          options={(['confirmed', 'candidate'] as const).map((value) => ({ value, label: KNOWLEDGE_STATUS_LABELS[value] }))}
-          onChange={(state) => setFilter({ state: state as 'confirmed' | 'candidate' | undefined })}
+          options={statusOptions}
+          onChange={(state) => setFilter({ state: state as StatusFilter })}
         />
       ),
       meta: { width: 88 },
-      cell: ({ row }) => (isSettled(row.original) ? <span className="text-xs text-muted-foreground">{KNOWLEDGE_STATUS_LABELS.confirmed}</span> : <Badge variant="outline">후보</Badge>),
+      cell: ({ row }) => (row.original.status === 'candidate' ? <Badge variant="outline">후보</Badge> : <span className="text-xs"><StateCell row={asDraft(row.original)} /></span>),
     },
   ];
 
@@ -154,10 +170,11 @@ function Glossary() {
           actions={
             <>
               {fill?.running ? (
-                <span className="flex items-center gap-2 text-sm tabular-nums">
-                  <Sparkles className="size-4 animate-pulse" /> 용어 번역 채우는 중 {fill.done.toLocaleString()}/{fill.total.toLocaleString()}
-                  <Button variant="ghost" disabled={cancelFill.isPending} onClick={() => cancelFill.mutate()}>
-                    <Square /> 중단
+                <span className="flex items-center gap-2 text-xs text-muted-foreground tabular-nums">
+                  <JobProgress done={fill.done} total={fill.total} running className="w-20" />
+                  용어 번역 채우는 중 {fill.done.toLocaleString()}/{fill.total.toLocaleString()}
+                  <Button variant="ghost" size="inline" disabled={cancelFill.isPending} onClick={() => cancelFill.mutate()}>
+                    <CircleStop /> 중단
                   </Button>
                 </span>
               ) : (
@@ -196,8 +213,8 @@ function Glossary() {
           }
           bulk={
             <>
-              <Button variant="outline" disabled={promotable.length === 0 || decide.isPending} title={promotable.length < discardable.length ? '번역이 빈 후보는 번역을 채운 뒤 정식으로 올릴 수 있습니다.' : undefined} onClick={() => decide.mutate({ ids: promotable.map((term) => term.id), accept: true }, afterBulk)}>
-                <Check /> 정식으로 올리기 ({promotable.length.toLocaleString()})
+              <Button variant="outline" disabled={promotable.length === 0 || decide.isPending} title={promotable.length < discardable.length ? '번역이 빈 후보는 번역을 채운 뒤 확정할 수 있습니다.' : undefined} onClick={() => decide.mutate({ ids: promotable.map((term) => term.id), accept: true }, afterBulk)}>
+                <Check /> {confirmLabel(promotable.map(asDraft))} ({promotable.length.toLocaleString()})
               </Button>
               <Button variant="ghost" className="text-destructive" disabled={discardable.length === 0 || decide.isPending} onClick={() => decide.mutate({ ids: discardable.map((term) => term.id), accept: false }, afterBulk)}>
                 <Trash2 /> 버리기 ({discardable.length.toLocaleString()})
@@ -287,7 +304,8 @@ function TermEditor({ projectId, term, onClose, onDecide, deciding }: { projectI
       subtitle={
         <span className="flex items-center gap-2">
           <SourceBadge row={{ ...term, evidence: [] }} />
-          {candidate && <span>후보 · 아직 문맥에 쓰이지 않음</span>}
+          <span>·</span>
+          {term.status === 'candidate' ? <span>후보 · 아직 문맥에 쓰이지 않음</span> : <StateCell row={{ ...term, evidence: [] }} />}
         </span>
       }
       onClose={onClose}
@@ -315,8 +333,8 @@ function TermEditor({ projectId, term, onClose, onDecide, deciding }: { projectI
               <Button variant="ghost" className="text-destructive" disabled={deciding} onClick={() => onDecide(false)}>
                 버리기
               </Button>
-              <Button variant="outline" disabled={deciding || dirty || !term.target.trim()} title={term.target.trim() ? (dirty ? '먼저 저장하세요.' : undefined) : '번역을 채운 뒤 정식으로 올릴 수 있습니다.'} onClick={() => onDecide(true)}>
-                <Check /> 정식으로 올리기
+              <Button variant="outline" disabled={deciding || dirty || !term.target.trim()} title={term.target.trim() ? (dirty ? '먼저 저장하세요.' : undefined) : '번역을 채운 뒤 확정할 수 있습니다.'} onClick={() => onDecide(true)}>
+                <Check /> {confirmLabel([{ ...term, evidence: [] }])}
               </Button>
             </>
           )}
@@ -385,13 +403,14 @@ function Examples({ projectId, keys }: { projectId: string; keys: string[] }) {
   );
 }
 
-/** Confirm a batched AI fill of the empty translations: the expected number of requests, and the profile to use. */
+/** Confirm a batched AI fill of the empty translations: the expected number of requests, and the AI to use. */
 function FillDialog({ projectId, pending, calls, batch }: { projectId: string; pending: number; calls: number; batch: number }) {
-  const profiles = useQuery(q.profiles());
   const [open, setOpen] = useState(false);
-  const [profileId, setProfileId] = useState<string>();
+  const initial = useInitialModel(['generate']);
+  const [picked, setPicked] = useState<ModelValue | null>(null);
+  const model = picked ?? initial;
   const start = useMutation({
-    mutationFn: () => unwrap(client.projects[':projectId'].terms.suggest.$post({ param: { projectId }, json: { profileId: profileId! } })),
+    mutationFn: () => unwrap(client.projects[':projectId'].terms.suggest.$post({ param: { projectId }, json: model! })),
     onSuccess: () => {
       setOpen(false);
       toast.success('용어 번역 채우기를 시작했습니다. 후보로 들어옵니다.');
@@ -412,20 +431,9 @@ function FillDialog({ projectId, pending, calls, batch }: { projectId: string; p
             번역이 빈 후보 {pending.toLocaleString()}개 · 예상 요청 {calls.toLocaleString()}회 (요청당 {batch}개, 예문 2줄씩)
           </DialogDescription>
         </DialogHeader>
-        <Select value={profileId} onValueChange={setProfileId}>
-          <SelectTrigger className="w-full" aria-label="모델 프로필">
-            <SelectValue placeholder="모델 프로필 선택" />
-          </SelectTrigger>
-          <SelectContent>
-            {profiles.data?.map((profile) => (
-              <SelectItem key={profile.id} value={profile.id}>
-                {profile.name} · {profile.model}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <ModelPicker value={model} onChange={setPicked} />
         <DialogFooter>
-          <Button disabled={!profileId || start.isPending} onClick={() => start.mutate()}>
+          <Button disabled={!model?.model || start.isPending} onClick={() => start.mutate()}>
             <Play /> 시작
           </Button>
         </DialogFooter>

@@ -20,7 +20,7 @@ loca call list_characters                        # 인물(말투 특징·플레�
 loca call list_speech_rules '{"speaker":"Alice"}'  # 화자→청자 말투 규칙과 구간
 loca call list_events                            # 사건
 ```
-각 항목에는 `status`(confirmed = 번역 문맥에 쓰임, candidate = 아직 안 쓰임)와 `source`(ai = AI가 넣고 아무도 손대지 않음, official = 정식)가 있습니다. AI 항목도 확정이면 이미 번역에 쓰이고 있으니, 틀린 것을 발견하면 고쳐서 제안합니다(고친 항목은 정식이 됩니다).
+각 항목에는 `status`(confirmed = 번역 문맥에 쓰임, candidate = 아직 안 쓰임), `statusBy`(ai = AI가 그 상태로 정했고 아직 사람이 보지 않음, human = 사람이 정함), `source`(내용을 만든 쪽: analysis 작품 분석 / workflow 워크플로·채팅 / script 대본에서 찾음 / import 가져오기 / human 사람)가 있습니다. AI가 확정한 항목도 이미 번역에 쓰이고 있으니, 틀린 것을 발견하면 고쳐서 제안합니다(사람이 수락하면 정한 쪽이 사람이 되고, 내용을 고쳤으면 출처도 사람이 됩니다).
 파일로 받아 읽고, 인물마다 핵심만 추립니다.
 
 ## 프로필 제안

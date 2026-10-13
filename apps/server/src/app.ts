@@ -5,7 +5,7 @@ import { HTTPException } from 'hono/http-exception';
 import { streamSSE } from 'hono/streaming';
 import type { Deps, Env } from './context.ts';
 import { events, type ChangeEvent } from './events.ts';
-import { connectionRoutes, profileRoutes } from './routes/ai-settings.ts';
+import { connectionRoutes, modelTestRoutes } from './routes/ai-settings.ts';
 import { chatRoutes } from './routes/chat.ts';
 import { knowledgeRoutes } from './routes/knowledge.ts';
 import { projectRoutes } from './routes/projects.ts';
@@ -42,7 +42,7 @@ export function createApp(deps: Deps) {
     .route('/', proposalRoutes)
     .route('/', scriptRoutes)
     .route('/connections', connectionRoutes)
-    .route('/profiles', profileRoutes);
+    .route('/', modelTestRoutes);
 
   return new Hono()
     // A local app: refuse other hosts so a web page cannot reach the API via DNS rebinding.

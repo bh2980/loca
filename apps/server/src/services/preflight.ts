@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray, isNotNull, ne, sql } from 'drizzle-orm';
-import { batchConfigSchema, CONNECTION_KIND_INFO, estimateTokens, extraProfilesOf, LISTENER_MIN_CONFIDENCE, nodeName, type AiNode, type WorkflowDefinition } from '@tw/shared';
+import { batchConfigSchema, CONNECTION_KIND_INFO, estimateTokens, isUnsureListener, nodeName, type AiNode, type WorkflowDefinition } from '@tw/shared';
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -8,6 +8,7 @@ import { buildPrompt } from '../engine/prompts.ts';
 import { planRun, sceneLinks, selectRunUnits } from '../engine/runner.ts';
 import { mainPairs } from './analysis.ts';
 import { buildContext } from './context.ts';
+import { choiceLabel } from './routes.ts';
 import { speechRuleIndex } from './speech.ts';
 
 /** Prompts built per node to estimate request size; more would only slow the preview down. */
@@ -18,8 +19,9 @@ const HISTORY = 60;
 export interface NodeEstimate {
   nodeId: string;
   name: string;
-  profile: string | null;
-  /** Other profiles sharing this node's requests (their accounts take whatever is free). */
+  /** The node's model ("connection · model · effort"), null when none is picked. */
+  model: string | null;
+  /** Other models sharing this node's requests (their accounts take whatever is free). */
   sharedWith: string[];
   connection: { id: string; name: string; kind: string; cli: boolean } | null;
   /** Requests if every planned line reaches this node once. */
@@ -71,21 +73,24 @@ export async function preflight(db: Db, workflow: typeof s.workflows.$inferSelec
   function estimateNode(node: AiNode): NodeEstimate {
     const config = batchConfigSchema.parse(node.config.batch ?? {});
     const requests = packGroups(groups, config);
-    const profile = node.config.profileId ? db.select().from(s.profiles).where(eq(s.profiles.id, node.config.profileId)).get() : undefined;
-    const connection = profile ? db.select().from(s.connections).where(eq(s.connections.id, profile.connectionId)).get() : undefined;
+    const label = (choice: { connectionId: string; model: string; effort?: string }) => {
+      const row = choice.connectionId && choice.model ? db.select({ name: s.connections.name }).from(s.connections).where(eq(s.connections.id, choice.connectionId)).get() : undefined;
+      return row ? choiceLabel(row.name, choice) : null;
+    };
+    const connection = node.config.model.connectionId ? db.select().from(s.connections).where(eq(s.connections.id, node.config.model.connectionId)).get() : undefined;
     const historyRate = rateFromHistory(db, workflow.id, node.id);
     const all = everyLine.has(node.id);
     const max = requests.length * (all ? 1 : definition.settings.maxVisitsPerNode);
     return {
       nodeId: node.id,
       name: nodeName(node),
-      profile: profile?.name ?? null,
-      sharedWith: extraProfilesOf(node).flatMap((id) => db.select({ name: s.profiles.name }).from(s.profiles).where(eq(s.profiles.id, id)).get()?.name ?? []),
+      model: label(node.config.model),
+      sharedWith: node.config.extraModels.flatMap((choice) => label(choice) ?? []),
       connection: connection ? { id: connection.id, name: connection.name, kind: connection.kind, cli: CONNECTION_KIND_INFO[connection.kind].transport === 'cli' } : null,
       full: requests.length,
       requests: { min: all ? requests.length : 0, expected: all ? requests.length : historyRate === null ? null : Math.round(historyRate * units.length), max },
       everyLine: all,
-      promptTokens: samplePrompt(db, projectId, node, profile?.instructions ?? '', { source: project.sourceLanguage, target: project.targetLanguage }, requests),
+      promptTokens: samplePrompt(db, projectId, node, { source: project.sourceLanguage, target: project.targetLanguage }, requests),
       overheadTokens: connection ? overheadOf(db, connection.id) : null,
       historyRate,
     };
@@ -103,7 +108,7 @@ export async function preflight(db: Db, workflow: typeof s.workflows.$inferSelec
 
   const unmeasured = estimates.some((estimate) => estimate.connection && estimate.overheadTokens === null);
   const dialogue = units.filter((unit) => unit.kind === 'dialogue');
-  const unknownListener = dialogue.filter((unit) => !unit.listener || (unit.listenerOrigin === 'ai' && (unit.listenerConfidence ?? 0) < LISTENER_MIN_CONFIDENCE)).length;
+  const unknownListener = dialogue.filter((unit) => !unit.listener || isUnsureListener(unit)).length;
   const rules = db.select({ status: s.speechRules.status, count: sql<number>`count(*)` }).from(s.speechRules).where(eq(s.speechRules.projectId, projectId)).groupBy(s.speechRules.status).all();
   const analysis = db.select({ finishedAt: s.analysisJobs.finishedAt, model: s.analysisJobs.model }).from(s.analysisJobs).where(and(eq(s.analysisJobs.projectId, projectId), eq(s.analysisJobs.status, 'completed'))).orderBy(desc(s.analysisJobs.finishedAt)).limit(1).get();
 
@@ -189,28 +194,19 @@ function rateFromHistory(db: Db, workflowId: string, nodeId: string): number | n
 /** Median input the connection reported beyond our own prompt, over recent successful calls. */
 function overheadOf(db: Db, connectionId: string): number | null {
   const steps = db
-    .select({ input: s.runSteps.inputTokens, prompt: s.runSteps.prompt, profiles: s.runs.profiles, profileId: s.runSteps.profileId, nodeId: s.runSteps.nodeId, definition: s.runs.definition })
+    .select({ input: s.runSteps.inputTokens, prompt: s.runSteps.prompt })
     .from(s.runSteps)
-    .innerJoin(s.runs, eq(s.runs.id, s.runSteps.runId))
-    .where(and(eq(s.runSteps.ok, true), isNotNull(s.runSteps.inputTokens), isNotNull(s.runSteps.prompt)))
+    .where(and(eq(s.runSteps.connectionId, connectionId), eq(s.runSteps.ok, true), isNotNull(s.runSteps.inputTokens), isNotNull(s.runSteps.prompt)))
     .orderBy(desc(s.runSteps.finishedAt))
-    .limit(HISTORY * 5)
-    .all()
-    .filter((step) => {
-      const node = step.definition.nodes.find((candidate) => candidate.id === step.nodeId);
-      if (node?.type !== 'ai') return false;
-      // Steps record their profile; older ones only say so when the node had a single profile.
-      const profileId = step.profileId ?? (extraProfilesOf(node).length ? null : node.config.profileId);
-      return !!profileId && step.profiles[profileId]?.routes[0]?.connectionId === connectionId;
-    })
-    .slice(0, HISTORY);
+    .limit(HISTORY)
+    .all();
   if (!steps.length) return null;
   const extra = steps.map((step) => Math.max(0, step.input! - estimateTokens(step.prompt!))).sort((a, b) => a - b);
   return extra[Math.floor(extra.length / 2)];
 }
 
 /** Average estimated tokens of the prompt a node would send, built for a few of its real requests. */
-function samplePrompt(db: Db, projectId: string, node: AiNode, instructions: string, languages: { source: string; target: string }, requests: { id: string }[][]): number {
+function samplePrompt(db: Db, projectId: string, node: AiNode, languages: { source: string; target: string }, requests: { id: string }[][]): number {
   if (!requests.length) return 0;
   const step = Math.max(1, Math.floor(requests.length / SAMPLE));
   const picked = requests.filter((_, index) => index % step === 0).slice(0, SAMPLE);
@@ -218,7 +214,7 @@ function samplePrompt(db: Db, projectId: string, node: AiNode, instructions: str
     const rows = db.select().from(s.units).where(inArray(s.units.id, request.map((line) => line.id))).all().sort((a, b) => a.seq - b.seq);
     const context = buildContext(db, projectId, rows, node.config.context);
     const lines = rows.map((row, index) => ({ id: String(index + 1), unitId: row.id, groupId: row.groupId, key: row.key, speaker: row.speaker, source: row.source, candidate: row.translation ?? undefined }));
-    const { system, prompt } = buildPrompt(node, instructions, languages, context, lines);
+    const { system, prompt } = buildPrompt(node, languages, context, lines);
     return estimateTokens(`${system}\n\n${prompt}`);
   });
   return Math.round(sizes.reduce((total, size) => total + size, 0) / sizes.length);

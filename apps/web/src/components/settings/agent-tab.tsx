@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Switch } from '@/components/ui/switch';
 import { client, unwrap } from '@/lib/api';
+import { optimistic } from '@/lib/optimistic';
 import { q } from '@/lib/queries';
 
 /** The tool groups shown to the user, in order. */
@@ -32,8 +33,14 @@ export function AgentTab() {
   const disabled = new Set(project.data?.agentSettings.disabledTools ?? []);
   const save = useMutation({
     mutationFn: (next: Set<string>) => unwrap(client.projects[':projectId'].$patch({ param: { projectId }, json: { agentSettings: { disabledTools: [...next] } } })),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['units', 'project', projectId] }),
-    onError: (error) => toast.error(error.message),
+    // Switches flip at once; the projects change event brings the saved settings.
+    onMutate: async (next) => ({
+      undo: await optimistic(queryClient, [{ key: ['units', 'project', projectId], update: (data: { agentSettings: object }) => ({ ...data, agentSettings: { ...data.agentSettings, disabledTools: [...next] } }) }]),
+    }),
+    onError: (error, _next, context) => {
+      context?.undo();
+      toast.error(error.message);
+    },
   });
   const set = (names: string[], on: boolean) => {
     const next = new Set(disabled);

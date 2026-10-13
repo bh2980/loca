@@ -1,4 +1,5 @@
 import { createUIMessageStream, createUIMessageStreamResponse, type UIMessage } from 'ai';
+import { readToEnd } from './chat-turns.ts';
 import { eq } from 'drizzle-orm';
 import * as ai from '@tw/ai';
 import { startCall } from './ai-calls.ts';
@@ -61,6 +62,8 @@ export async function piChatResponse(input: {
   view: string | null;
   messages: UIMessage[];
   signal: AbortSignal;
+  /** Called once the reply has been read to its end (see readToEnd). */
+  onEnd: () => void;
 }): Promise<Response> {
   const { db, chat, route, messages } = input;
   let live = sessions.get(chat.id);
@@ -70,7 +73,7 @@ export async function piChatResponse(input: {
     live = undefined;
   }
   if (!live) {
-    const tools: ai.PiToolSpec[] = agentCatalog(db, chat.projectId, { profileId: chat.profileId, model: route.model }).map((tool) => ({
+    const tools: ai.PiToolSpec[] = agentCatalog(db, chat.projectId, { model: route.model }).map((tool) => ({
       name: tool.name,
       label: tool.name,
       description: tool.changes ? `${tool.description} (변경 도구: 바로 실행되지 않고 사용자 수락을 기다리는 제안으로 올라갑니다.)` : tool.description,
@@ -113,7 +116,7 @@ export async function piChatResponse(input: {
       // Steps mirror pi turns (one model call and its tool calls), so the client sees that a turn
       // ended in text and does not resubmit as if a tool result were still waiting for the model.
       const usage: ai.Usage = {};
-      const finish = startCall(db, { projectId: chat.projectId, kind: 'chat', refId: chat.id, label: '채팅 (pi)', profileId: chat.profileId }, route);
+      const finish = startCall(db, { projectId: chat.projectId, kind: 'chat', refId: chat.id, label: '채팅 (pi)' }, route);
       const unsubscribe = current.pi.subscribe((event) => {
         if (event.type === 'turn_start') writer.write({ type: 'start-step' });
         else if (event.type === 'turn_end') {
@@ -163,10 +166,10 @@ export async function piChatResponse(input: {
     },
     onError: (error) => (error instanceof Error ? error.message : String(error)),
   });
-  return createUIMessageStreamResponse({ stream });
+  return createUIMessageStreamResponse({ stream, ...readToEnd(input.onEnd) });
 }
 
-/** A deleted chat or a changed profile frees its pi session. */
+/** A deleted chat or a changed model frees its pi session. */
 export function closePiChat(chatId: string) {
   sessions.get(chatId)?.pi.dispose();
   sessions.delete(chatId);

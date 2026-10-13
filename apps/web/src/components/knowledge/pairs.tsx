@@ -1,14 +1,16 @@
 import { useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { ChevronRight, Plus } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { isSettled, listenerLabel, SPEECH_LEVEL_LABELS, sourceOf, type SpeechLevel } from '@tw/shared';
+import { isSettled, isSpecialListener, listenerLabel, OTHERS_LISTENER, SPEECH_LEVEL_LABELS, type SpeechLevel } from '@tw/shared';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { DetailPane, PaneSection } from '@/components/detail-pane';
 import { candidateRow, DraftEditor, fail, matches, metaColumns, SourceBadge, type Draft, type KindSpec, type Row, type SourceFilter, type StatusFilter } from '@/components/knowledge/draft-editor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { splitList } from '@/components/chip-input';
+import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
 /**
@@ -57,8 +59,10 @@ export const pairSummary = (pair: Pair): Draft => {
   return {
     id: pair.key,
     status: rows.some((row) => row.status === 'candidate') ? 'candidate' : 'confirmed',
-    origin: rows.some((row) => sourceOf(row) !== 'official') ? 'ai' : 'human',
-    reviewed: false,
+    origin: rows.some((row) => row.origin === 'ai') ? 'ai' : 'human',
+    // Carries the analysis job when an AI item came from one, so 출처 says 작품 분석, not 워크플로·채팅.
+    jobId: rows.find((row) => row.origin === 'ai' && row.jobId)?.jobId ?? null,
+    statusBy: rows.some((row) => row.statusBy === 'ai') ? 'ai' : 'human',
     evidence: [],
   };
 };
@@ -125,10 +129,18 @@ export function PairTable({ pairs, loading, selected, picked, onPick, onOpen, bu
   );
 }
 
-/** Right pane for a pair: ① the relationship, ② its speech rules by stretch, each editable in place. */
-export function PairDetail({ projectId, pair, relationships, speechRules, characters, onClose, onDecide }: {
+/**
+ * Right pane for a pair. Speech comes first, because it is what translation uses: one row per
+ * stretch ("처음부터 · 하게체", "this line on · 해체"), each opening its own editor. A new stretch
+ * starts at a line picked from this pair's lines, never a typed key. The relationship (a fact of
+ * the story, not a translation decision) sits folded underneath.
+ */
+export function PairDetail({ projectId, pair, relationships, speechRules, characters, others, onOpenPair, onClose, onDecide }: {
   projectId: string;
   pair: Pair;
+  /** The speaker's "그 밖의 사람" pair, if it has one (its rule covers listeners without their own). */
+  others?: Pair;
+  onOpenPair?: (key: string) => void;
   relationships: KindSpec;
   speechRules: KindSpec;
   characters: { id: string; name: string }[];
@@ -136,68 +148,77 @@ export function PairDetail({ projectId, pair, relationships, speechRules, charac
   onDecide: (kind: 'relationships' | 'speechRules', ids: string[], action: 'confirm' | 'discard') => void;
 }) {
   const [openRule, setOpenRule] = useState<string | undefined>(pair.rules.length === 1 ? pair.rules[0].id : undefined);
+  const [picking, setPicking] = useState(false);
+  const starts = useQuery(q.linesByKeys(projectId, pair.rules.flatMap((rule) => (rule.startKey ? [String(rule.startKey)] : []))));
+  const startOf = new Map(starts.data?.map((line, index) => [line.key, { ...line, order: index }]));
+  const rules = [...pair.rules].sort((a, b) => (a.startKey ? (startOf.get(String(a.startKey))?.order ?? 1e9) + 1 : 0) - (b.startKey ? (startOf.get(String(b.startKey))?.order ?? 1e9) + 1 : 0));
+  // In the pair the speaker and listener are given; where a stretch starts is chosen by picking a line.
+  const ruleSpec = { ...speechRules, fields: speechRules.fields.filter((field) => !['fromName', 'toName', 'startKey'].includes(field.name)) };
   const addRelationship = useMutation({ mutationFn: () => relationships.create!(), onError: fail });
-  const addRule = useMutation({ mutationFn: () => speechRules.create!(), onSuccess: (row) => setOpenRule(row.id), onError: fail });
+  const addStretch = useMutation({
+    mutationFn: (key: string) => {
+      const before = rules.at(-1);
+      return speechRules.createWith!({ fromName: pair.from, toName: pair.to, level: String(before?.level ?? 'haeyo'), address: String(before?.address ?? ''), startKey: key });
+    },
+    onSuccess: (row) => {
+      setPicking(false);
+      setOpenRule(row.id);
+    },
+    onError: fail,
+  });
+  const startLabel = (rule: Row) => {
+    if (!rule.startKey) return '처음부터';
+    const line = startOf.get(String(rule.startKey));
+    return line ? `“${line.source.length > 28 ? `${line.source.slice(0, 27)}…` : line.source}”부터` : `${String(rule.startKey)}부터`;
+  };
   return (
     <DetailPane kicker="관계·말투" title={`${pair.from} → ${listenerLabel(pair.to)}`} onClose={onClose}>
       <PaneSection
-        title="관계 · 이야기 속 사실"
+        title="말투"
         actions={
-          pair.relationship ? (
-            <span className="flex items-center gap-1.5">
-              <SourceBadge row={pair.relationship} />
-              {pair.relationship.status === 'candidate' && <span className="border-b border-dashed border-warning text-xs text-warning">후보</span>}
-            </span>
-          ) : undefined
+          speechRules.createWith && (
+            <Button variant="ghost" onClick={() => setPicking((value) => !value)} aria-pressed={picking}>
+              <Plus /> 말투가 바뀌는 지점 추가
+            </Button>
+          )
         }
       >
-        {pair.relationship ? (
-          <DraftEditor
-            key={pair.relationship.id}
-            embedded
-            projectId={projectId}
-            kind="relationships"
-            spec={relationships}
-            row={pair.relationship}
-            characters={characters}
-            onDecide={(action) => onDecide('relationships', [pair.relationship!.id], action)}
-          />
-        ) : (
-          <Button variant="outline" disabled={!pair.fromId || !pair.toId || !relationships.create || addRelationship.isPending} title={!pair.fromId || !pair.toId ? '두 사람이 모두 인물 목록에 있어야 합니다' : undefined} onClick={() => addRelationship.mutate()}>
-            <Plus /> 관계 추가
-          </Button>
+        {picking && <StretchPicker projectId={projectId} from={pair.from} to={pair.to} taken={new Set(pair.rules.map((rule) => String(rule.startKey ?? '')))} onPick={(key) => addStretch.mutate(key)} onCancel={() => setPicking(false)} />}
+        {rules.length === 0 && (
+          <p className="text-xs text-muted-foreground">
+            {pair.to === OTHERS_LISTENER
+              ? `${pair.from}의 그 밖의 사람 규칙이 없습니다.`
+              : others?.rules.length
+                ? `이 쌍의 규칙이 없어 ${pair.from}의 ‘그 밖의 사람’ 규칙(${SPEECH_LEVEL_LABELS[others.rules[0].level as SpeechLevel]})이 쓰입니다.`
+                : '이 쌍의 말투 규칙이 없습니다. 규칙이 없으면 번역에는 청자만 들어갑니다.'}
+          </p>
         )}
-      </PaneSection>
-      <PaneSection
-        title="말투 규칙 · 번역 결정, 구간별"
-        actions={
-          <Button variant="ghost" disabled={addRule.isPending} onClick={() => addRule.mutate()}>
-            <Plus /> 구간 추가
-          </Button>
-        }
-      >
-        {pair.rules.length === 0 && <p className="text-xs text-muted-foreground">이 쌍의 말투 규칙이 없습니다. 규칙이 없으면 번역 문맥에는 청자만 들어갑니다.</p>}
+        {pair.to === OTHERS_LISTENER && <p className="text-xs text-muted-foreground">{pair.from}가 자기 규칙이 없는 상대(엑스트라, 처음 보는 사람 등)에게 쓰는 말투입니다.</p>}
         <ul className="space-y-2">
-          {pair.rules.map((rule) => {
+          {rules.map((rule) => {
             const open = openRule === rule.id;
             const review = reviewOf(rule);
             return (
               <li key={rule.id} className={cn('rounded-md border', rule.status === 'candidate' && 'border-dashed border-warning')}>
                 <Collapsible open={open} onOpenChange={(next) => setOpenRule(next ? rule.id : undefined)}>
                   <CollapsibleTrigger asChild>
-                    <Button variant="ghost" className="w-full justify-start">
+                    <Button variant="ghost" size="row" className="px-3 py-2">
                       <ChevronRight className={cn('text-muted-foreground transition-transform', open && 'rotate-90')} />
-                      <span>{SPEECH_LEVEL_LABELS[rule.level as SpeechLevel]}</span>
-                      {review && <ReviewBadge reasons={review} />}
-                      {rule.address ? <span className="truncate font-normal text-muted-foreground">호칭 “{String(rule.address)}”</span> : null}
-                      <span className="ml-auto shrink-0 text-xs font-normal text-muted-foreground">{rule.startKey ? `${String(rule.startKey)}부터` : '처음부터'}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-xs text-muted-foreground">{startLabel(rule)}</span>
+                        <span className="flex items-center gap-2">
+                          <span className="font-medium">{SPEECH_LEVEL_LABELS[rule.level as SpeechLevel]}</span>
+                          {rule.address ? <span className="truncate text-muted-foreground">호칭 {splitList(rule.address).map((form) => `“${form}”`).join(' · ')}</span> : null}
+                          {review && <ReviewBadge reasons={review} />}
+                        </span>
+                      </span>
                       <SourceBadge row={rule} />
                     </Button>
                   </CollapsibleTrigger>
-                  {review && <p className="px-3 pb-2 pl-9 text-xs text-muted-foreground">확인 권장: {review}</p>}
                   <CollapsibleContent>
-                    <div className="border-t p-3">
-                      <DraftEditor embedded projectId={projectId} kind="speechRules" spec={speechRules} row={rule} characters={characters} onDecide={(action) => onDecide('speechRules', [rule.id], action)} />
+                    <div className="space-y-3 border-t p-3">
+                      {review && <p className="text-xs text-warning">확인 권장: {review}</p>}
+                      <DraftEditor embedded projectId={projectId} kind="speechRules" spec={ruleSpec} row={rule} characters={characters} onDecide={(action) => onDecide('speechRules', [rule.id], action)} />
                     </div>
                   </CollapsibleContent>
                 </Collapsible>
@@ -205,7 +226,77 @@ export function PairDetail({ projectId, pair, relationships, speechRules, charac
             );
           })}
         </ul>
+        {pair.to !== OTHERS_LISTENER && !isSpecialListener(pair.to) && onOpenPair && (
+          <Button
+            variant="ghost"
+            size="inline"
+            className="mt-2 text-muted-foreground"
+            onClick={() => (others ? onOpenPair(others.key) : speechRules.createWith?.({ fromName: pair.from, toName: OTHERS_LISTENER, level: 'haeyo', address: '' }).then(() => onOpenPair(pairKey(pair.from, OTHERS_LISTENER))))}
+          >
+            {others?.rules.length ? `${pair.from} → 그 밖의 사람: ${SPEECH_LEVEL_LABELS[others.rules[0].level as SpeechLevel]}` : `${pair.from} → 그 밖의 사람 말투 정하기`}
+          </Button>
+        )}
       </PaneSection>
+      <Collapsible>
+        <CollapsibleTrigger asChild>
+          <Button variant="ghost" size="row" className="group/rel -mx-2 w-[calc(100%+1rem)] text-xs font-medium text-muted-foreground">
+            <ChevronRight className="transition-transform group-data-[state=open]/rel:rotate-90" />
+            관계{pair.relationship ? ` · ${String(pair.relationship.kind ?? '')}` : ' 없음'}
+            {pair.relationship && <span className="ml-auto"><SourceBadge row={pair.relationship} /></span>}
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="pt-2">
+          {pair.relationship ? (
+            <DraftEditor
+              key={pair.relationship.id}
+              embedded
+              projectId={projectId}
+              kind="relationships"
+              spec={relationships}
+              row={pair.relationship}
+              characters={characters}
+              onDecide={(action) => onDecide('relationships', [pair.relationship!.id], action)}
+            />
+          ) : (
+            <Button variant="outline" disabled={!pair.fromId || !pair.toId || !relationships.create || addRelationship.isPending} title={!pair.fromId || !pair.toId ? '두 사람이 모두 인물 목록에 있어야 합니다' : undefined} onClick={() => addRelationship.mutate()}>
+              <Plus /> 관계 추가
+            </Button>
+          )}
+        </CollapsibleContent>
+      </Collapsible>
     </DetailPane>
+  );
+}
+
+/** This pair's lines (by listener), to pick the one where the speech changes. */
+function StretchPicker({ projectId, from, to, taken, onPick, onCancel }: { projectId: string; from: string; to: string; taken: Set<string>; onPick: (key: string) => void; onCancel: () => void }) {
+  const lines = useQuery(q.units(projectId, { speaker: from, listener: to, limit: 300 }));
+  return (
+    <div className="mb-3 rounded-md border bg-muted/30 p-2">
+      <div className="mb-1 flex items-center gap-2 px-1">
+        <p className="text-xs font-medium">말투가 바뀌기 시작하는 대사를 고르세요</p>
+        <Button variant="ghost" size="inline" className="ml-auto text-muted-foreground" onClick={onCancel}>
+          취소
+        </Button>
+      </div>
+      {!lines.data ? (
+        <p className="px-1 py-2 text-xs text-muted-foreground">불러오는 중…</p>
+      ) : lines.data.rows.length === 0 ? (
+        <p className="px-1 py-2 text-xs text-muted-foreground">청자가 {listenerLabel(to)}로 정해진 {from}의 대사가 없습니다.</p>
+      ) : (
+        <ul className="max-h-64 overflow-auto">
+          {lines.data.rows.map((line) => (
+            <li key={line.id}>
+              <Button variant="ghost" size="row" className="text-xs" disabled={taken.has(line.key)} onClick={() => onPick(line.key)}>
+                <span className="min-w-0">
+                  <span className="text-muted-foreground">{line.groupTitle} · </span>
+                  {line.source}
+                </span>
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

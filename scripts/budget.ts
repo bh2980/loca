@@ -11,11 +11,11 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as ai from '../packages/ai/src/index.ts';
-import { importFileSchema, knowledgeTemplate, nodeProfileIds } from '../packages/shared/src/index.ts';
+import { importFileSchema, knowledgeTemplate } from '../packages/shared/src/index.ts';
 import { openDatabase } from '../apps/server/src/db/index.ts';
 import * as s from '../apps/server/src/db/schema.ts';
 import { importProject } from '../apps/server/src/services/importer.ts';
-import { snapshotProfiles } from '../apps/server/src/services/routes.ts';
+import { snapshotWorkflowModels } from '../apps/server/src/services/routes.ts';
 import { memoryStore } from '../apps/server/src/services/secrets.ts';
 import { createRun, Runner, type ModelPort } from '../apps/server/src/engine/runner.ts';
 import { DEFAULT_OPTIONS, PROFILES, makeRand, respond, type MockOptions } from './mock-llm-core.ts';
@@ -91,20 +91,15 @@ function mockPort(options: MockOptions): ModelPort {
 async function runScenario(scenario: Scenario, size: number): Promise<Metrics> {
   const options = scenario.profiles.reduce<MockOptions>((all, name) => ({ ...all, ...PROFILES[name] }), { ...DEFAULT_OPTIONS, seed: SEED });
   const db = openDatabase(':memory:');
-  const connection = db.insert(s.connections).values({ kind: 'openai', name: 'mock', baseUrl: 'http://localhost:1/v1' }).returning().get();
-  const profile = db
-    .insert(s.profiles)
-    .values({ name: 'mock', connectionId: connection.id, model: 'mock', maxOutputTokens: 8000, timeoutSeconds: 30, maxAttempts: 1 })
-    .returning()
-    .get();
+  const connection = db.insert(s.connections).values({ kind: 'openai', name: 'mock', baseUrl: 'http://localhost:1/v1', maxOutputTokens: 8000, timeoutSeconds: 30, maxAttempts: 1 }).returning().get();
+  const choice = { connectionId: connection.id, model: 'mock' };
   const { file } = realistic(size);
-  const { projectId } = importProject(db, importFileSchema.parse(file), profile.id);
+  const { projectId } = importProject(db, importFileSchema.parse(file), choice);
   // New projects no longer get "자료 갱신"; it stays a template of "새 워크플로", so the scenario adds it itself.
-  if (scenario.workflow === '자료 갱신') db.insert(s.workflows).values({ projectId, name: scenario.workflow, definition: knowledgeTemplate({ profileId: profile.id }) }).run();
+  if (scenario.workflow === '자료 갱신') db.insert(s.workflows).values({ projectId, name: scenario.workflow, definition: knowledgeTemplate({ model: choice }) }).run();
   const workflow = db.select().from(s.workflows).all().find((row) => row.projectId === projectId && row.name === scenario.workflow);
   if (!workflow) throw new Error(`workflow "${scenario.workflow}" is not among the imported templates`);
-  const profileIds = [...new Set(workflow.definition.nodes.flatMap((node) => (node.type === 'ai' ? nodeProfileIds(node) : [])))];
-  const { runId } = createRun(db, { projectId, workflow, profiles: snapshotProfiles(db, profileIds.length ? profileIds : [profile.id]), scope: { ignoreStatus: true } });
+  const { runId } = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: { ignoreStatus: true } });
 
   const started = performance.now();
   await new Runner(db, memoryStore(), mockPort(options)).drain(1_000_000);

@@ -1,11 +1,11 @@
 import { z } from 'zod';
 
 /**
- * AI drafts are candidates until a person confirms them; only confirmed knowledge reaches AI nodes.
- * A discarded AI item stays as "rejected" so a later analysis does not propose it again.
+ * Where a knowledge item or term stands: 확정 (used as AI context), 후보 (waiting) or 버림 (discarded,
+ * kept so a later analysis does not propose it again).
  */
 export const KNOWLEDGE_STATUSES = ['candidate', 'confirmed', 'rejected'] as const;
-/** "script": found in the script by code (glossary candidates), not written by AI or a person. */
+/** Who made the content. "script": found in the script by code (glossary candidates). */
 export const KNOWLEDGE_ORIGINS = ['human', 'ai', 'import', 'script'] as const;
 export type KnowledgeStatus = (typeof KNOWLEDGE_STATUSES)[number];
 export type KnowledgeOrigin = (typeof KNOWLEDGE_ORIGINS)[number];
@@ -13,27 +13,60 @@ export const KNOWLEDGE_STATUS_LABELS: Record<KnowledgeStatus, string> = { candid
 export const KNOWLEDGE_ORIGIN_LABELS: Record<KnowledgeOrigin, string> = { human: '사람', ai: 'AI', import: '가져오기', script: '대본에서 찾음' };
 
 /**
- * Two separate facts about an item: where it stands (확정 used as context / 후보 waiting) and whose
- * it is — AI's (added by AI, nobody has edited or promoted it) or official (a person's, imported,
- * or AI's that a person took over). Auto-confirmed analysis gives confirmed AI items.
+ * Who put something in its current status — a line's (user-defined) status, a knowledge item's or a
+ * term's 후보/확정/버림. AI: a workflow node, the work analysis. 사람: an edit, a confirm, an accepted
+ * chat or CLI proposal, an import. Statuses are never split into AI and human versions.
  */
-/**
- * Where an item stands: put in by the work analysis (it carries the analysis job), put in by AI
- * elsewhere (a workflow node, the chat), or official (a person wrote, edited or confirmed it, or it
- * came with the import). The two AI kinds differ a lot in grain, so they are told apart.
- */
-export const KNOWLEDGE_SOURCES = ['analysis', 'ai', 'official'] as const;
-export type KnowledgeSource = (typeof KNOWLEDGE_SOURCES)[number];
-export const SOURCE_LABELS: Record<KnowledgeSource, string> = { analysis: '작품 분석', ai: '워크플로·채팅', official: '정식' };
-export const sourceOf = (item: { origin: KnowledgeOrigin; reviewed: boolean; jobId?: string | null }): KnowledgeSource => (item.origin === 'ai' && !item.reviewed ? (item.jobId ? 'analysis' : 'ai') : 'official');
-/** Nothing left to decide: confirmed and official. Everything else can be promoted or discarded. */
-export const isSettled = (item: { status: KnowledgeStatus; origin: KnowledgeOrigin; reviewed: boolean }) => item.status === 'confirmed' && sourceOf(item) === 'official';
+export const STATUS_BY = ['ai', 'human'] as const;
+export type StatusBy = (typeof STATUS_BY)[number];
+export const STATUS_BY_LABELS: Record<StatusBy, string> = { ai: 'AI', human: '사람' };
+/** AI set it and no person has looked since: shown with the ✦ mark, and what 확인함 is for. */
+export const aiDecided = (item: { status?: string; statusBy: StatusBy }) => item.statusBy === 'ai' && item.status !== 'candidate';
 
-/** Where a line's listener came from. A person's choice always wins over the AI's. */
-export const LISTENER_ORIGINS = ['import', 'ai', 'human'] as const;
+/**
+ * Who made the content, for the 출처 column: the work analysis (it carries the job), AI elsewhere
+ * (a workflow node, the chat), the script finder, an import, or a person. Separate from who set the
+ * status: a person can confirm an analysis item without rewriting it.
+ */
+export const KNOWLEDGE_SOURCES = ['analysis', 'workflow', 'script', 'import', 'human'] as const;
+export type KnowledgeSource = (typeof KNOWLEDGE_SOURCES)[number];
+export const SOURCE_LABELS: Record<KnowledgeSource, string> = { analysis: '작품 분석', workflow: '워크플로·채팅', script: '대본에서 찾음', import: '가져오기', human: '사람' };
+export const sourceOf = (item: { origin: KnowledgeOrigin; jobId?: string | null }): KnowledgeSource =>
+  item.origin === 'ai' ? (item.jobId ? 'analysis' : 'workflow') : item.origin;
+/** Nothing left to decide: confirmed by a person. Everything else can be confirmed or discarded. */
+export const isSettled = (item: { status: KnowledgeStatus; statusBy: StatusBy }) => item.status === 'confirmed' && item.statusBy === 'human';
+
+/** What becomes of AI results per knowledge kind (설정 › AI 확정): used right away, or a candidate. */
+export const AI_CONFIRM_KINDS = { terms: '용어', documents: '문서', characters: '인물', relationships: '관계', events: '사건', speechRules: '말투 규칙' } as const;
+export type AiConfirmKind = keyof typeof AI_CONFIRM_KINDS;
+export const aiConfirmSchema = z.object({
+  terms: z.enum(['auto', 'candidate']).default('auto'),
+  documents: z.enum(['auto', 'candidate']).default('auto'),
+  characters: z.enum(['auto', 'candidate']).default('auto'),
+  relationships: z.enum(['auto', 'candidate']).default('auto'),
+  events: z.enum(['auto', 'candidate']).default('auto'),
+  speechRules: z.enum(['auto', 'candidate']).default('auto'),
+});
+export type AiConfirm = z.infer<typeof aiConfirmSchema>;
+export const DEFAULT_AI_CONFIRM: AiConfirm = aiConfirmSchema.parse({});
+/** The status an AI result of this kind lands in. */
+export const aiStatus = (policy: AiConfirm, kind: AiConfirmKind) => (policy[kind] === 'auto' ? ('confirmed' as const) : ('candidate' as const));
+
+/**
+ * Where a line's listener came from. A person's choice always wins over the AI's. "scene": the work
+ * analysis's whom-a-speaker-mostly-addresses for a whole scene, copied to the speaker's lines there;
+ * "ai": a guess for this very line (a listener workflow node).
+ */
+export const LISTENER_ORIGINS = ['import', 'scene', 'ai', 'human'] as const;
 export type ListenerOrigin = (typeof LISTENER_ORIGINS)[number];
 /** AI listeners below this confidence count as unknown (experiment sample: 99% right at >= 0.9). */
 export const LISTENER_MIN_CONFIDENCE = 0.9;
+/**
+ * A guess that does not count: below the bar, by line or by scene. A low scene guess means the
+ * speaker addresses several people there ("mostly X"), so it is a hint about the scene, not the line.
+ */
+export const isUnsureListener = (line: { listenerOrigin: ListenerOrigin | null; listenerConfidence: number | null }) =>
+  (line.listenerOrigin === 'ai' || line.listenerOrigin === 'scene') && (line.listenerConfidence ?? 0) < LISTENER_MIN_CONFIDENCE;
 /**
  * Listeners that are not one person: everyone present, an unspecified audience (broadcasts,
  * notices, posts), and the speaker themself (thinking aloud). Speech rules can name them as the
@@ -42,8 +75,13 @@ export const LISTENER_MIN_CONFIDENCE = 0.9;
 export const SPECIAL_LISTENERS = { group: '여럿', public: '불특정 다수', self: '혼잣말' } as const;
 export type SpecialListener = keyof typeof SPECIAL_LISTENERS;
 export const isSpecialListener = (name: string | null | undefined): name is SpecialListener => !!name && Object.hasOwn(SPECIAL_LISTENERS, name);
+/**
+ * A speech rule's listener for "everyone else": the speaker's level toward anyone without a rule of
+ * their own (extras such as SWAT, a passer-by). Only rules use it; a line's listener is never "others".
+ */
+export const OTHERS_LISTENER = 'others';
 /** A listener as people read it: a name, or the Korean word for a special listener. */
-export const listenerLabel = (name: string) => (isSpecialListener(name) ? SPECIAL_LISTENERS[name] : name);
+export const listenerLabel = (name: string) => (isSpecialListener(name) ? SPECIAL_LISTENERS[name] : name === OTHERS_LISTENER ? '그 밖의 사람' : name);
 
 /** Korean speech levels: four formal (하십시오·하오·하게·해라) and two informal (해요·해) ones. */
 export const SPEECH_LEVELS = ['hasipsio', 'hao', 'hage', 'haera', 'haeyo', 'hae', 'other'] as const;
@@ -118,3 +156,8 @@ export const politenessOfLevel = (level: SpeechLevel | null): Politeness | null 
 
 /** Whether the text ends politely or plainly; speakers mix neighbouring levels, so this is the reliable axis. */
 export const politenessOf = (text: string): Politeness | null => politenessOfLevel(speechLevelOf(text));
+
+/** What kind of glossary term the work analysis says a name or word is (shown in the term's note). */
+export const TERM_KINDS = ['person', 'place', 'organization', 'item', 'concept', 'title', 'ui', 'other'] as const;
+export type TermKind = (typeof TERM_KINDS)[number];
+export const TERM_KIND_LABELS: Record<TermKind, string> = { person: '인물', place: '장소', organization: '조직', item: '물건·기술', concept: '개념·은어', title: '호칭·직함', ui: 'UI', other: '' };

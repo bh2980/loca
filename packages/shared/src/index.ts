@@ -9,3 +9,4 @@ export * from './agent.ts';
 export * from './script.ts';
 export * from './context.ts';
 export * from './knowledge.ts';
+export * from './model-choice.ts';

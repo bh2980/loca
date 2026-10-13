@@ -52,7 +52,7 @@ export function ChangePreview({ name, input }: { name: string; input: Record<str
     case 'save_relationship':
       return <dl className="space-y-1">{field('작업', action)}{field('관계', `${input.from} → ${input.to} (${input.kind})`)}{field('양방향', input.mutual ? '예' : '아니오')}{field('설명', input.description)}</dl>;
     case 'save_document':
-      return <dl className="space-y-1">{field('작업', action)}{field('제목', input.title)}{field('종류', input.kind)}{field('항상 포함', input.alwaysInclude ? '예' : '아니오')}{markdown(input.body)}</dl>;
+      return <dl className="space-y-1">{field('작업', action)}{field('제목', input.title)}{field('종류', input.kind)}{field('번역 문맥에 넣기', input.alwaysInclude ? '예' : '아니오')}{markdown(input.body)}</dl>;
     case 'save_terms': {
       const terms = (input.terms as { source: string; target: string; id?: string }[]) ?? [];
       return (
@@ -65,8 +65,6 @@ export function ChangePreview({ name, input }: { name: string; input: Record<str
         </ul>
       );
     }
-    case 'save_profile':
-      return <dl className="space-y-1">{field('작업', action)}{field('이름', input.name)}{field('모델', input.model)}{field('추론', input.effort)}{markdown(input.instructions)}</dl>;
     case 'save_workflow': {
       const definition = input.definition as { nodes?: { type: string; label?: string }[]; edges?: unknown[] } | undefined;
       return (

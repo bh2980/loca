@@ -1,0 +1,1 @@
+ALTER TABLE `terms` ADD `job_id` text;

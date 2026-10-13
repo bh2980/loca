@@ -6,10 +6,11 @@ import { Controller, useForm, useWatch } from 'react-hook-form';
 import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { z } from 'zod';
-import { CONNECTION_KIND_INFO, CONNECTION_KINDS, connectionInputSchema, type Capability, type ConnectionKind } from '@tw/shared';
+import { CONNECTION_CALL_DEFAULTS, CONNECTION_KIND_INFO, CONNECTION_KINDS, connectionInputSchema, type Capability, type ConnectionKind } from '@tw/shared';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { DetailPane, PaneSection } from '@/components/detail-pane';
 import { Page } from '@/components/page';
+import { ModelPicker, type ModelValue } from '@/components/model-picker';
 import { DeleteButton } from '@/components/settings/delete-button';
 import { PiOptionsPanel } from '@/components/settings/pi-options';
 import { SplitPane } from '@/components/split-pane';
@@ -18,6 +19,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
 import { client, unwrap, type InferResponseType } from '@/lib/api';
@@ -37,14 +39,14 @@ const errorMessage = (error: unknown) => (error instanceof Error ? error.message
 type ConnectionRow = InferResponseType<typeof client.connections.$get>[number];
 
 /**
- * How AI is called: API, CLI or pi connections. The model profiles under them have their own tab.
- * The pane on the right edits the selected connection ("conn" in the URL).
+ * How AI is called: API, CLI or pi connections, each with its default model, call settings and
+ * fallback. Places that use AI pick a connection + model + effort (ModelPicker). The pane on the
+ * right edits the selected connection ("conn" in the URL).
  */
 function ConnectionSettings() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const connections = useQuery(q.connections());
-  const profiles = useQuery(q.profiles());
   const open = (conn?: string) => void navigate({ search: (previous) => ({ ...previous, conn }), replace: true });
   const close = () => open(undefined);
   const selected = search.conn && search.conn !== 'new' ? connections.data?.find((connection) => connection.id === search.conn) : undefined;
@@ -53,12 +55,7 @@ function ConnectionSettings() {
   const columns: ColumnDef<ConnectionRow, unknown>[] = [
     { id: 'name', header: '이름', cell: ({ row }) => <span className="font-medium">{row.original.name}</span> },
     { id: 'kind', header: '종류', meta: { width: 200, className: 'text-muted-foreground' }, cell: ({ row }) => CONNECTION_KIND_INFO[row.original.kind].label },
-    {
-      id: 'profiles',
-      header: '프로필 수',
-      meta: { width: 96, align: 'end', className: 'tabular-nums' },
-      cell: ({ row }) => (profiles.data ? profiles.data.filter((profile) => profile.connectionId === row.original.id).length : ''),
-    },
+    { id: 'model', header: '기본 모델', meta: { width: 240, className: 'font-mono text-xs text-muted-foreground' }, cell: ({ row }) => [row.original.defaultModel, row.original.defaultEffort].filter(Boolean).join(' · ') },
     {
       id: 'state',
       header: '상태',
@@ -245,13 +242,49 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
   const editSchema = connectionInputSchema.omit({ kind: true });
   const form = useForm<z.input<typeof editSchema>, unknown, z.output<typeof editSchema>>({
     resolver: zodResolver(editSchema),
-    defaultValues: { name: connection.name, baseUrl: connection.baseUrl ?? undefined, executable: connection.executable ?? '', headerTemplate: connection.headerTemplate ?? '', concurrency: isTool ? undefined : (connection.concurrency ?? 2) },
+    defaultValues: {
+      name: connection.name,
+      baseUrl: connection.baseUrl ?? undefined,
+      executable: connection.executable ?? '',
+      headerTemplate: connection.headerTemplate ?? '',
+      concurrency: isTool ? undefined : (connection.concurrency ?? 2),
+      defaultModel: connection.defaultModel,
+      defaultEffort: connection.defaultEffort,
+      timeoutSeconds: connection.timeoutSeconds,
+      maxAttempts: connection.maxAttempts,
+      maxOutputTokens: connection.maxOutputTokens,
+      fallback: connection.fallback,
+    },
   });
+  const number = { setValueAs: (value: string) => (value === '' ? undefined : Number(value)) };
+  const errors = form.formState.errors;
+  const need: Capability[] = info.capabilities.includes('judge') ? ['judge'] : ['generate'];
 
   const save = useMutation({
     mutationFn: (values: z.output<typeof editSchema>) =>
-      unwrap(client.connections[':id'].$patch({ param: { id: connection.id }, json: { name: values.name, baseUrl: isHttp ? values.baseUrl : undefined, executable: isHttp ? undefined : (values.executable ?? ''), headerTemplate: connection.kind === 'http' ? (values.headerTemplate ?? '') : undefined, concurrency: isTool ? undefined : values.concurrency } })),
+      unwrap(
+        client.connections[':id'].$patch({
+          param: { id: connection.id },
+          json: {
+            name: values.name,
+            baseUrl: isHttp ? values.baseUrl : undefined,
+            executable: isHttp ? undefined : (values.executable ?? ''),
+            headerTemplate: connection.kind === 'http' ? (values.headerTemplate ?? '') : undefined,
+            ...(!isTool && {
+              concurrency: values.concurrency,
+              defaultModel: values.defaultModel ?? null,
+              defaultEffort: values.defaultEffort ?? null,
+              timeoutSeconds: values.timeoutSeconds,
+              maxAttempts: values.maxAttempts,
+              maxOutputTokens: values.maxOutputTokens,
+              fallback: values.fallback ?? null,
+            }),
+          },
+        }),
+      ),
     onSuccess: () => {
+      // What was saved is the new baseline: 저장 stays off until something changes again.
+      form.reset(form.getValues());
       invalidate();
       toast.success('저장했습니다.');
     },
@@ -318,7 +351,7 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
             {save.isPending && <Spinner />}
             저장
           </Button>
-          <DeleteButton label={`연결 '${connection.name}'`} description="이 연결을 쓰는 프로필이 있으면 삭제되지 않습니다. 저장된 API 키도 함께 삭제됩니다." pending={remove.isPending} onConfirm={() => remove.mutate()} />
+          <DeleteButton label={`연결 '${connection.name}'`} description="워크플로 노드·대화·다른 연결의 ‘막히면’이 이 연결을 쓰고 있으면 삭제되지 않습니다. 저장된 API 키도 함께 삭제됩니다." pending={remove.isPending} onConfirm={() => remove.mutate()} />
         </>
       }
     >
@@ -363,6 +396,79 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
         </form>
       </PaneSection>
 
+      {!isTool && (
+        <>
+          <PaneSection title="기본 모델">
+            <Controller
+              control={form.control}
+              name="defaultModel"
+              render={({ field }) => (
+                <ModelPicker
+                  lockConnection
+                  need={need}
+                  value={{ connectionId: connection.id, model: field.value ?? '', effort: form.getValues('defaultEffort') ?? undefined }}
+                  onChange={(next) => {
+                    field.onChange(next.model || null);
+                    form.setValue('defaultEffort', next.effort ?? null, { shouldDirty: true });
+                  }}
+                />
+              )}
+            />
+            <p className="mt-2 text-sm text-muted-foreground">이 연결을 고르면 먼저 채워지는 모델입니다. 템플릿·가져온 프로젝트의 AI 노드도 이 모델로 시작합니다.</p>
+          </PaneSection>
+
+          <PaneSection title="호출 조건">
+            <div className="grid grid-cols-2 gap-4">
+              <Field data-invalid={!!errors.timeoutSeconds}>
+                <FieldLabel htmlFor="edit-timeout">시간 제한(초)</FieldLabel>
+                <Input id="edit-timeout" form="edit-connection-form" type="number" {...form.register('timeoutSeconds', number)} aria-invalid={!!errors.timeoutSeconds} />
+                <FieldError errors={[errors.timeoutSeconds]} />
+              </Field>
+              <Field data-invalid={!!errors.maxAttempts}>
+                <FieldLabel htmlFor="edit-attempts">최대 시도 횟수</FieldLabel>
+                <Input id="edit-attempts" form="edit-connection-form" type="number" {...form.register('maxAttempts', number)} aria-invalid={!!errors.maxAttempts} />
+                <FieldError errors={[errors.maxAttempts]} />
+              </Field>
+              <Field data-invalid={!!errors.maxOutputTokens}>
+                <FieldLabel htmlFor="edit-output">최대 출력 토큰</FieldLabel>
+                <Input id="edit-output" form="edit-connection-form" type="number" {...form.register('maxOutputTokens', number)} aria-invalid={!!errors.maxOutputTokens} />
+                <FieldError errors={[errors.maxOutputTokens]} />
+              </Field>
+            </div>
+            <p className="mt-2 text-sm text-muted-foreground">
+              이 연결로 가는 모든 요청(워크플로·작품 분석·용어 채우기·채팅)에 적용됩니다. 기본값: {CONNECTION_CALL_DEFAULTS.timeoutSeconds}초, {CONNECTION_CALL_DEFAULTS.maxAttempts}번, {CONNECTION_CALL_DEFAULTS.maxOutputTokens.toLocaleString()} 토큰.
+            </p>
+          </PaneSection>
+
+          <PaneSection
+            title="막히면"
+            actions={
+              <Controller
+                control={form.control}
+                name="fallback"
+                render={({ field }) =>
+                  field.value ? (
+                    <Button type="button" variant="ghost" onClick={() => field.onChange(null)}>
+                      빼기
+                    </Button>
+                  ) : (
+                    <></>
+                  )
+                }
+              />
+            }
+          >
+            <p className="mb-2 text-sm text-muted-foreground">요청 한도·네트워크·시간 초과로 시도를 다 써도 실패하면 이 연결·모델로 넘깁니다. 그 연결의 ‘막히면’도 이어서 따릅니다. 채팅에는 쓰지 않습니다.</p>
+            <Controller
+              control={form.control}
+              name="fallback"
+              render={({ field }) => <ModelPicker exclude={connection.id} value={field.value} onChange={(next: ModelValue) => field.onChange(next.model ? next : { ...next, model: '' })} />}
+            />
+            <FieldError errors={[errors.fallback?.model ?? errors.fallback]} />
+          </PaneSection>
+        </>
+      )}
+
       {isHttp && (
         <PaneSection title="API 키">
           <Field>
@@ -387,7 +493,9 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
         </PaneSection>
       )}
 
-      <PaneSection title="시험">
+      {!isTool && <ModelTest connectionId={connection.id} need={need} defaultModel={connection.defaultModel} defaultEffort={connection.defaultEffort} />}
+
+      <PaneSection title="연결 시험">
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" disabled={probe.isPending} onClick={() => probe.mutate()}>
             {probe.isPending && <Spinner />}
@@ -436,5 +544,60 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
         )}
       </PaneSection>
     </DetailPane>
+  );
+}
+
+/** A one-off translation through this connection with a model of it; nothing is written to any project. */
+function ModelTest({ connectionId, need, defaultModel, defaultEffort }: { connectionId: string; need: Capability[]; defaultModel: string | null; defaultEffort: string | null }) {
+  const [picked, setChoice] = useState<ModelValue | null>(null);
+  // The connection's default model until another is picked (it may be set after this pane opened).
+  const choice = picked ?? { connectionId, model: defaultModel ?? '', ...(defaultEffort && { effort: defaultEffort }) };
+  const [source, setSource] = useState('');
+  const test = useMutation({
+    mutationFn: () => unwrap(client.connections[':id'].test.$post({ param: { id: connectionId }, json: { model: choice.model, effort: choice.effort, source, targetLanguage: 'ko' } })),
+    onError: (error) => toast.error(errorMessage(error)),
+  });
+  const tests = useQuery(q.connectionTests(connectionId));
+  const result = test.data;
+  return (
+    <PaneSection title="모델 시험">
+      <div className="flex flex-col gap-2">
+        <p className="text-sm text-muted-foreground">한 문장을 번역해 봅니다. 저장된 호출 조건과 ‘막히면’으로 실행되고, 결과는 프로젝트에 저장되지 않습니다.</p>
+        <ModelPicker lockConnection need={need} value={choice} onChange={setChoice} />
+        <Textarea rows={3} value={source} onChange={(event) => setSource(event.target.value)} placeholder="번역해 볼 원문 문장" />
+        <Button type="button" variant="outline" className="self-start" disabled={!source.trim() || !choice.model || test.isPending} onClick={() => test.mutate()}>
+          {test.isPending && <Spinner />}
+          시험 실행
+        </Button>
+        {result &&
+          (result.ok ? (
+            <div className="rounded-md border p-3 text-sm">
+              <p className="whitespace-pre-wrap">{result.text}</p>
+              <p className="mt-2 font-mono text-xs text-muted-foreground">
+                {result.model}
+                {result.fellBack && ' (막혀서 넘김)'} · {result.ms.toLocaleString()}ms · {result.attempts.length}회 시도
+              </p>
+            </div>
+          ) : (
+            <p className="rounded-md border border-destructive/40 p-3 text-sm break-words text-destructive">
+              {result.detail} <span className="font-mono text-xs">({result.ms.toLocaleString()}ms)</span>
+            </p>
+          ))}
+        {!!tests.data?.length && (
+          <ul className="mt-1 flex flex-col gap-1 text-sm">
+            {tests.data.map((call) => (
+              <li key={call.id} className="flex items-baseline justify-between gap-3">
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  {new Date(call.startedAt).toLocaleString()} · {call.model}
+                </span>
+                <span className={cn('min-w-0 truncate text-xs', call.status === 'failed' ? 'text-destructive' : 'text-muted-foreground')}>
+                  {call.status === 'running' ? '진행 중' : call.status === 'failed' ? `실패${call.error ? `: ${call.error}` : ''}` : `${((new Date(call.finishedAt!).getTime() - new Date(call.startedAt).getTime()) / 1000).toFixed(1)}초`}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </PaneSection>
   );
 }

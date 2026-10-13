@@ -1,4 +1,5 @@
 import { createUIMessageStream, createUIMessageStreamResponse, type UIMessage } from 'ai';
+import { readToEnd } from './chat-turns.ts';
 import { eq } from 'drizzle-orm';
 import * as ai from '@tw/ai';
 import { logged } from './ai-calls.ts';
@@ -18,7 +19,8 @@ import { decisionsSince, propose, proposedText } from './proposals.ts';
  * at once, changes as proposals for this chat) and resumes the session with the results.
  * The browser receives the AI SDK UI message stream like any other chat.
  */
-const MAX_ROUNDS = 8;
+/** Tool rounds in one turn before stopping to report, the same allowance the API chat gets (stepCountIs(30)): a guard against a looping model, not a budget. */
+const MAX_ROUNDS = 30;
 const RESULT_LIMIT = 20_000;
 const TOOL_BLOCK = /```loca-tools[ \t]*\r?\n([\s\S]*?)```/g;
 
@@ -57,7 +59,7 @@ export function readToolCalls(text: string): { visible: string; calls: { tool: s
 
 const textOf = (message: UIMessage) => message.parts.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('\n');
 
-/** Earlier conversation, for a new CLI session (first use, or after the profile changed). */
+/** Earlier conversation, for a new CLI session (first use, or after the model changed). */
 function transcript(messages: UIMessage[]) {
   const lines = messages
     .slice(0, -1)
@@ -86,12 +88,14 @@ export async function cliChatResponse(input: {
   messages: UIMessage[];
   timeoutMs: number;
   signal: AbortSignal;
+  /** Called once the reply has been read to its end (see readToEnd). */
+  onEnd: () => void;
   /** The CLI call; tests pass a fake. */
   turn?: CliTurn;
 }): Promise<Response> {
   const { db, chat, route, messages } = input;
   const run = input.turn ?? ai.cliChat;
-  const tools = agentCatalog(db, chat.projectId, { profileId: chat.profileId, model: route.model });
+  const tools = agentCatalog(db, chat.projectId, { model: route.model });
   const byName = new Map(tools.map((tool) => [tool.name, tool]));
   const system = [input.system, toolProtocol(tools)].join('\n\n');
   // The CLI session is reused while the connection kind and model stay the same.
@@ -99,15 +103,17 @@ export async function cliChatResponse(input: {
   const last = messages.at(-1);
   let prompt = [saved ? null : transcript(messages), saved ? decisions(db, chat.id, saved.lastTurnAt) : null, input.view, last ? textOf(last) : ''].filter(Boolean).join('\n\n');
   let sessionId = saved?.id;
+  let totalsBefore = saved?.totals;
 
   const stream = createUIMessageStream({
     originalMessages: messages,
     execute: async ({ writer }) => {
       for (let round = 0; round < MAX_ROUNDS; round++) {
         writer.write({ type: 'start-step' });
-        const answer = await logged(db, { projectId: chat.projectId, kind: 'chat', refId: chat.id, label: `채팅 (CLI${round ? ` · 도구 결과 후 ${round}` : ''})`, profileId: chat.profileId }, route, () => run(route, { sessionId, system, prompt, timeoutMs: input.timeoutMs, signal: input.signal }));
+        const answer = await logged(db, { projectId: chat.projectId, kind: 'chat', refId: chat.id, label: `채팅 (CLI${round ? ` · 도구 결과 후 ${round}` : ''})` }, route, () => run(route, { sessionId, system, prompt, timeoutMs: input.timeoutMs, signal: input.signal, totalsBefore }));
         sessionId = answer.sessionId;
-        db.update(s.chatSessions).set({ agentSession: { kind: route.kind, model: route.model, id: sessionId, lastTurnAt: Date.now() } }).where(eq(s.chatSessions.id, chat.id)).run();
+        totalsBefore = answer.totals;
+        db.update(s.chatSessions).set({ agentSession: { kind: route.kind, model: route.model, id: sessionId, lastTurnAt: Date.now(), totals: totalsBefore } }).where(eq(s.chatSessions.id, chat.id)).run();
         const { visible, calls, error } = readToolCalls(answer.text);
         if (visible) {
           const id = crypto.randomUUID();
@@ -158,5 +164,5 @@ export async function cliChatResponse(input: {
     },
     onError: (error) => (error instanceof Error ? error.message : String(error)),
   });
-  return createUIMessageStreamResponse({ stream });
+  return createUIMessageStreamResponse({ stream, ...readToEnd(input.onEnd) });
 }

@@ -2,13 +2,14 @@ import { createHash } from 'node:crypto';
 import { and, desc, eq, inArray, ne, notInArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import * as ai from '@tw/ai';
-import { isSpecialListener, SPEECH_LEVEL_GUIDE, SPEECH_LEVEL_LABELS, SPEECH_LEVELS } from '@tw/shared';
+import { aiStatus, DEFAULT_AI_CONFIRM, isSpecialListener, SPEECH_LEVEL_GUIDE, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, TERM_KIND_LABELS, TERM_KINDS, type AiConfirm, type AiConfirmKind, type ModelChoice } from '@tw/shared';
+import { aiConfirmOf } from './status-by.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { logged } from './ai-calls.ts';
 import type { ModelPort } from '../engine/runner.ts';
-import { resolveRoutes, snapshotProfiles } from './routes.ts';
+import { liveChoice, resolveRoutes } from './routes.ts';
 import { packBlocks, scriptText } from './script-text.ts';
 import { knownListener } from './speech.ts';
 import type { SecretStore } from './secrets.ts';
@@ -30,7 +31,7 @@ export function splitPart(part: string): [string, string] | null {
   return [blocks.slice(0, cut).join('\n\n'), blocks.slice(cut).join('\n\n')];
 }
 
-/** A whole-script read takes minutes; the profile's per-call timeout is for single scenes. */
+/** A whole-script read takes minutes; the connection's per-call timeout is for single scenes. */
 const MIN_TIMEOUT_MS = 30 * 60_000;
 
 const ids = z.array(z.string()).default([]);
@@ -53,12 +54,29 @@ export const analysisSchema = z.object({
   speechRules: z
     .array(z.object({ from: z.string().min(1), to: z.string().min(1), level: z.enum(SPEECH_LEVELS), address: z.string().default(''), note: z.string().default(''), start: z.string().nullable().default(null), evidence: ids }))
     .default([]),
-  /** Per scene, whom each speaker mostly addresses: lines inherit it unless their listener is known. */
-  sceneListeners: z.array(z.object({ scene: z.string().min(1), speaker: z.string().min(1), listener: z.string().nullable(), confidence: z.number().min(0).max(1).default(0.5) })).default([]),
+  /** Names and words whose Korean form must stay the same everywhere: they become glossary candidates. */
+  terms: z
+    .array(z.object({ source: z.string().min(1), kind: z.enum(TERM_KINDS).catch('other'), meaning: z.string().default(''), target: z.string().default(''), evidence: ids }))
+    .default([]),
+  /**
+   * Per scene, whom each speaker mostly addresses (lines inherit it unless their listener is known),
+   * plus the speaker's lines there that address someone else: a whole scene at the cost of its exceptions.
+   */
+  sceneListeners: z
+    .array(
+      z.object({
+        scene: z.string().min(1),
+        speaker: z.string().min(1),
+        listener: z.string().nullable(),
+        confidence: z.number().min(0).max(1).default(0.5),
+        exceptions: z.array(z.object({ line: z.string().min(1), listener: z.string().nullable(), confidence: z.number().min(0).max(1).default(0.5) })).default([]),
+      }),
+    )
+    .default([]),
 });
 export type Analysis = z.infer<typeof analysisSchema>;
 
-const SYSTEM = `You are reading the complete script of a game so that translators into Korean get the background they need.
+export const SYSTEM = `You are reading the complete script of a game so that translators into Korean get the background they need.
 Script format: "## <section> — <scene> [<scene key>]" headers; lines "L<n> <Speaker>: <text>"; "[문서]" and "[UI]" are in-game documents and interface text; "▶ <label>" before a line means it follows that player choice or condition. Lines after different choices are alternatives, never one conversation.
 
 Rules:
@@ -68,11 +86,12 @@ Rules:
 - characters: everyone who speaks or is addressed often. "speech" describes how they talk in the source. Mark the player character (the one the player controls or who is addressed as "you" by the game, even if it never speaks) with "player": true. Name everyone as the source does, in the source language; an unnamed player character gets the role the game uses (e.g. "Detective", "Captain"), never a translated name.
 - relationships: one per direction that matters; "changes" give the line id ("at") where the relationship changes and why.
 - events: what happened, its cause and its outcome, the people involved; include events that later lines refer back to.
-- speechRules: for every speaker → listener direction with several lines (the listener may also be "group", "public" or "self" as in sceneListeners: how the speaker talks to several people present, to an unspecified audience, or to themself), the Korean speech level the translation should use, one of: ${SPEECH_LEVEL_GUIDE}. Decide from the relationship (age, rank, intimacy, hostility, era and setting) as a Korean translator would; narration-like or written addresses often take 해라체, close friends 해체. "address" is how the speaker should address the listener in Korean (e.g. "수사관님", "언니"), empty if none. If the level changes at some point (falling out, reconciliation, promotion), give one rule per stretch: "start" is the line id where the new stretch begins (null for the first). Do not mark a single sarcastic or emotional line as a change. "note" says why.
-- sceneListeners: for each scene and each speaker in it, whom that speaker mostly addresses there ("scene" is the key in [brackets]; "listener" a character name; "group" when the speaker addresses several people present at once (a meeting, a group call); "public" for an unspecified audience (a broadcast, announcement, speech, post or advert); "self" for thinking aloud, a diary or muttering; or null when you cannot tell) and your confidence from 0 to 1. Give a high confidence only when nearly every line of that speaker in the scene addresses that listener; mixed or unclear → lower. In a group scene where a speaker mostly talks to everyone, "group" with high confidence is right even if a few lines answer one person. Skip scenes with a single obvious speaker talking to nobody in particular.
+- speechRules: for every speaker → listener direction with several lines (the listener may also be "group", "public" or "self" as in sceneListeners: how the speaker talks to several people present, to an unspecified audience, or to themself), the Korean speech level the translation should use, one of: ${SPEECH_LEVEL_GUIDE}. Decide from the relationship (age, rank, intimacy, hostility, era and setting) as a Korean translator would; narration-like or written addresses often take 해라체, close friends 해체. "address" is how the speaker should address the listener in Korean (e.g. "수사관님", "언니"); when several forms are used, separate them with commas (e.g. "행크 경위님, 경위님"); empty if none. If the level changes at some point (falling out, reconciliation, promotion), give one rule per stretch: "start" is the line id where the new stretch begins (null for the first). Do not mark a single sarcastic or emotional line as a change. "note" says why.
+- sceneListeners: for each scene and each speaker in it, whom that speaker mostly addresses there ("scene" is the key in [brackets]; "listener" a character name, or for an extra outside the cast (a SWAT officer, a passer-by) their name exactly as it appears as a speaker; "group" when the speaker addresses several people present at once (a meeting, a group call); "public" for an unspecified audience (a broadcast, announcement, speech, post or advert); "self" for thinking aloud, a diary or muttering; or null when you cannot tell) and your confidence from 0 to 1. In "exceptions", list each line of that speaker in the scene that addresses someone else (an extra, a third person, the group, themself), with its line id, its listener (same names as above) and your confidence; "confidence" then says how sure you are that every OTHER line of that speaker there addresses "listener". Name listeners by name, never by a role ("the negotiator", "the suspect") when the script shows who that is. List exceptions only where the text shows it (a vocative, an order to someone else, an answer to another speaker); do not list a line just because you are unsure. In a group scene where a speaker mostly talks to everyone, "group" is right and the few lines answering one person are exceptions. Skip scenes with a single obvious speaker talking to nobody in particular.
+- terms: names and words whose Korean form must stay the same across the whole translation: people, places, organizations, products and technology, coined words and in-world concepts (also lower-case ones, such as a slang word, a species or a drug), ranks and titles, and interface words that recur. Not ordinary words. "source" exactly as the script writes it, "kind" one of ${TERM_KINDS.join(', ')}, "meaning" one short Korean sentence, "target" the Korean form a translator should use (names by Korean loanword convention), "evidence" a few lines where it appears. At most about 150, the most important first.
 - Keep the whole answer under about 15,000 words.`;
 
-const RETURN = 'Return only JSON with "overview", "characters", "relationships", "events", "speechRules" and "sceneListeners".';
+export const RETURN = 'Return only JSON with "overview", "characters", "relationships", "events", "speechRules", "terms" and "sceneListeners".';
 
 type Job = typeof s.analysisJobs.$inferSelect;
 
@@ -105,11 +124,9 @@ export class AnalysisService {
    * Starts an analysis. With `resume`, parts whose script text is unchanged since the latest
    * unfinished (failed or cancelled) job reuse that job's answers, so only the rest is read again.
    */
-  start(projectId: string, profileId: string, autoConfirm = true, resume = false): Job {
+  start(projectId: string, choice: ModelChoice, resume = false): Job {
     if (this.db.select().from(s.analysisJobs).where(and(eq(s.analysisJobs.projectId, projectId), eq(s.analysisJobs.status, 'running'))).get()) throw new Error('이미 진행 중인 작품 분석이 있습니다.');
-    const profile = snapshotProfiles(this.db, [profileId])[profileId];
-    if (!profile) throw new Error('모델 프로필을 찾을 수 없습니다.');
-    if (profile.routes[0]?.kind === 'systemone') throw new Error('System One 프로필은 판정 전용이라 작품 분석에 쓸 수 없습니다.');
+    const { snapshot } = liveChoice(this.db, choice, this.secrets, 'generate');
     const { blocks, keyOf } = scriptText(this.db, projectId);
     if (!blocks.length) throw new Error('분석할 대본이 없습니다.');
     const parts = packBlocks(blocks, this.partTokens);
@@ -117,11 +134,12 @@ export class AnalysisService {
       ? this.db.select().from(s.analysisJobs).where(and(eq(s.analysisJobs.projectId, projectId), inArray(s.analysisJobs.status, ['failed', 'cancelled']))).orderBy(desc(s.analysisJobs.createdAt)).limit(1).get()
       : undefined;
     const reused = new Map((previous?.parts ?? []).map((part) => [part.hash, part.answer]));
-    const job = this.db.insert(s.analysisJobs).values({ projectId, profileId, model: profile.routes[0]?.model ?? null, status: 'running', partsTotal: parts.length }).returning().get();
+    const input = { lines: keyOf.size, scenes: blocks.length, tokens: Math.round(Buffer.byteLength(parts.join('\n\n')) / 4) };
+    const job = this.db.insert(s.analysisJobs).values({ projectId, connectionId: choice.connectionId, model: choice.model, effort: choice.effort ?? null, status: 'running', partsTotal: parts.length, input }).returning().get();
     const abort = new AbortController();
     this.aborts.set(job.id, abort);
     events.changed(projectId, 'runs', 'analysis');
-    this.run(job, profile, parts, keyOf, autoConfirm, abort.signal, reused)
+    this.run(job, snapshot, parts, keyOf, abort.signal, reused)
       .catch((error) => console.error('analysis job failed', error))
       .finally(() => this.aborts.delete(job.id));
     return job;
@@ -133,10 +151,10 @@ export class AnalysisService {
     if (job) events.changed(job.projectId, 'runs', 'analysis');
   }
 
-  private async run(job: Job, profile: s.ProfileSnapshot, parts: string[], keyOf: Map<string, string>, autoConfirm: boolean, signal: AbortSignal, reused = new Map<string, unknown>()) {
-    const routes = resolveRoutes(profile, this.secrets);
+  private async run(job: Job, model: s.AiSnapshot, parts: string[], keyOf: Map<string, string>, signal: AbortSignal, reused = new Map<string, unknown>()) {
+    const routes = resolveRoutes(model, this.secrets);
     // People a person made or imported (or took over from AI) keep their names: the model must reuse them.
-    const kept = this.db.select().from(s.characters).where(eq(s.characters.projectId, job.projectId)).all().filter((c) => c.origin !== 'ai' || c.reviewed);
+    const kept = this.db.select().from(s.characters).where(eq(s.characters.projectId, job.projectId)).all().filter((c) => c.statusBy === 'human');
     const cast = kept.length
       ? `\n\nKNOWN CHARACTERS (names as stored; the script's speaker names). For these people use exactly these names in every field and put other names they go by in "aliases"; only people not listed here get new names:\n${kept.map((c) => `- ${c.name}${c.aliases.length ? ` (also: ${c.aliases.join(', ')})` : ''}`).join('\n')}`
       : '';
@@ -159,18 +177,19 @@ export class AnalysisService {
         }
         const known: string = merged ? `\n\nALREADY KNOWN from earlier parts (reuse these names; return only what this part adds or changes):\n${summarize(merged)}` : '';
         const where = queue.length > 1 ? `\nThis is part ${index + 1} of ${queue.length} of the script, in order.` : '';
+        const system = SYSTEM;
+        const prompt = `${RETURN}${where}${cast}${known}\n\nSCRIPT:\n${part}`;
         const result = await ai
           .withFallback(
             routes,
-            profile.maxAttempts,
+            model.maxAttempts,
             (route) =>
-              logged(this.db, { projectId: job.projectId, kind: 'analysis', refId: job.id, label: `작품 분석 ${index + 1}/${queue.length}`, profileId: profile.id }, route, () => this.model.generate<Analysis>(route, {
-                system: [SYSTEM, profile.instructions].filter(Boolean).join('\n\n'),
-                prompt: `${RETURN}${where}${cast}${known}\n\nSCRIPT:\n${part}`,
+              logged(this.db, { projectId: job.projectId, kind: 'analysis', refId: job.id, label: `작품 분석 ${index + 1}/${queue.length}`, request: `${system}\n\n---\n\n${prompt}` }, route, () => this.model.generate<Analysis>(route, {
+                system,
+                prompt,
                 schema: analysisSchema,
-                maxOutputTokens: profile.maxOutputTokens,
-                temperature: profile.temperature ?? undefined,
-                timeoutMs: Math.max(profile.timeoutSeconds * 1000, MIN_TIMEOUT_MS),
+                maxOutputTokens: model.maxOutputTokens,
+                timeoutMs: Math.max(model.timeoutSeconds * 1000, MIN_TIMEOUT_MS),
                 signal,
               })),
             signal,
@@ -196,9 +215,10 @@ export class AnalysisService {
         events.changed(job.projectId, 'runs', 'analysis');
       }
       if (signal.aborted || !merged) return;
-      const counts = saveDrafts(this.db, job.projectId, job.id, merged, keyOf, autoConfirm);
+      const counts = saveDrafts(this.db, job.projectId, job.id, merged, keyOf, aiConfirmOf(this.db, job.projectId));
       this.db.update(s.analysisJobs).set({ status: 'completed', result: counts, usage, finishedAt: new Date() }).where(eq(s.analysisJobs.id, job.id)).run();
-      events.changed(job.projectId, 'runs', 'analysis', 'knowledge');
+      // The drafts include term candidates and scene listeners (units), besides the story knowledge.
+      events.changed(job.projectId, 'runs', 'analysis', 'knowledge', 'terms', 'units');
     } catch (error) {
       if (signal.aborted) return;
       this.db.update(s.analysisJobs).set({ status: 'failed', error: error instanceof Error ? error.message : String(error), usage, finishedAt: new Date() }).where(eq(s.analysisJobs.id, job.id)).run();
@@ -265,6 +285,12 @@ export function mergeAnalysis(base: Analysis, next: Analysis): Analysis {
     if (!existing) events.push(e);
     else Object.assign(existing, { summary: existing.summary || e.summary, outcome: existing.outcome || e.outcome, participants: [...new Set([...existing.participants, ...e.participants])], evidence: [...existing.evidence, ...e.evidence] });
   }
+  const terms = base.terms.map((t) => ({ ...t, evidence: [...t.evidence] }));
+  for (const t of next.terms) {
+    const existing = terms.find((old) => same(old.source, t.source));
+    if (!existing) terms.push(t);
+    else Object.assign(existing, { target: existing.target || t.target, meaning: existing.meaning || t.meaning, evidence: [...existing.evidence, ...t.evidence] });
+  }
   const join = (a: string, b: string) => (a && b && !same(a, b) ? `${a}\n\n${b}` : a || b);
   return {
     overview: {
@@ -277,6 +303,7 @@ export function mergeAnalysis(base: Analysis, next: Analysis): Analysis {
     relationships,
     events,
     speechRules,
+    terms,
     sceneListeners: [...base.sceneListeners, ...next.sceneListeners],
   };
 }
@@ -285,7 +312,7 @@ export function mergeAnalysis(base: Analysis, next: Analysis): Analysis {
 export const MAIN_PAIR_SHARE = 0.8;
 
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
-type Stored = typeof s.documents | typeof s.characters | typeof s.relationships | typeof s.storyEvents | typeof s.speechRules;
+type Stored = typeof s.documents | typeof s.characters | typeof s.relationships | typeof s.storyEvents | typeof s.speechRules | typeof s.terms;
 
 /**
  * Stores an analysis. Items earlier analyses wrote that no person has touched are replaced; items a
@@ -296,7 +323,7 @@ type Stored = typeof s.documents | typeof s.characters | typeof s.relationships 
  * rule's speaker's. Scene listeners fill lines whose listener nobody set. Evidence ids that are not
  * lines are dropped and counted.
  */
-export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: Analysis, keyOf: Map<string, string>, autoConfirm = false): Record<string, number> {
+export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: Analysis, keyOf: Map<string, string>, policy: AiConfirm = DEFAULT_AI_CONFIRM): Record<string, number> {
   let invalidEvidence = 0;
   const keys = (list: string[]) =>
     list.flatMap((id) => {
@@ -305,15 +332,15 @@ export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: A
       return key ? [key] : [];
     });
   const keyOrNull = (id: string | null) => (id ? (keyOf.get(id.trim()) ?? null) : null);
-  const status = autoConfirm ? ('confirmed' as const) : ('candidate' as const);
-  const draft = { status, origin: 'ai' as const, jobId };
-  const counts = { listeners: 0, rulesForReview: 0 };
+  // Each kind lands as 설정 › AI 확정 says; AI set the status either way (docs/DESIGN.md 3.5).
+  const draft = (kind: AiConfirmKind) => ({ status: aiStatus(policy, kind), statusBy: 'ai' as const, origin: 'ai' as const, jobId });
+  const counts = { listeners: 0, rulesForReview: 0, terms: 0 };
 
   db.transaction((tx) => {
     // Only what earlier analyses wrote and nobody touched is replaced; workflow-made items and rejected ones stay.
     const analysisJobs = tx.select({ id: s.analysisJobs.id }).from(s.analysisJobs).where(eq(s.analysisJobs.projectId, projectId)).all().map((job) => job.id);
     const stale = (table: Stored) =>
-      and(eq(table.projectId, projectId), eq(table.origin, 'ai'), eq(table.reviewed, false), ne(table.status, 'rejected'), analysisJobs.length ? inArray(table.jobId, analysisJobs) : sql`0`);
+      and(eq(table.projectId, projectId), eq(table.origin, 'ai'), eq(table.statusBy, 'ai'), ne(table.status, 'rejected'), analysisJobs.length ? inArray(table.jobId, analysisJobs) : sql`0`);
     tx.delete(s.relationships).where(stale(s.relationships)).run();
     // A draft character that a kept relationship points to stays (deleting it would take the relationship with it).
     const kept = tx.select({ fromId: s.relationships.fromId, toId: s.relationships.toId }).from(s.relationships).where(eq(s.relationships.projectId, projectId)).all().flatMap((r) => [r.fromId, r.toId]);
@@ -321,12 +348,13 @@ export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: A
     tx.delete(s.documents).where(stale(s.documents)).run();
     tx.delete(s.storyEvents).where(stale(s.storyEvents)).run();
     tx.delete(s.speechRules).where(stale(s.speechRules)).run();
+    tx.delete(s.terms).where(stale(s.terms)).run();
 
     const { overview } = analysis;
     const body = [overview.setting && `## 배경\n${overview.setting}`, overview.mainConflict && `## 주요 갈등\n${overview.mainConflict}`, overview.plot && `## 줄거리\n${overview.plot}`].filter(Boolean).join('\n\n');
     const title = '작품 개요 (AI 분석)';
     const documentRejected = tx.select({ id: s.documents.id }).from(s.documents).where(and(eq(s.documents.projectId, projectId), eq(s.documents.title, title), eq(s.documents.status, 'rejected'), eq(s.documents.body, body))).get();
-    if (body && !documentRejected) tx.insert(s.documents).values({ projectId, kind: 'story', title, body, evidence: keys(overview.evidence), ...draft }).run();
+    if (body && !documentRejected) tx.insert(s.documents).values({ projectId, kind: 'story', title, body, evidence: keys(overview.evidence), ...draft('documents') }).run();
 
     // People: a stored person (any status) keeps their name; rejected ones are not proposed again but nothing new points at them.
     const stored = tx.select({ id: s.characters.id, name: s.characters.name, aliases: s.characters.aliases, status: s.characters.status, profile: s.characters.profile, speech: s.characters.speech, evidence: s.characters.evidence }).from(s.characters).where(eq(s.characters.projectId, projectId)).all();
@@ -351,7 +379,7 @@ export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: A
         if (fill && Object.keys(fill).length) tx.update(s.characters).set(fill).where(eq(s.characters.id, known.id)).run();
         continue;
       }
-      const row = tx.insert(s.characters).values({ projectId, name: c.name, aliases: c.aliases, profile: c.profile, speech: c.speech, player: c.player, evidence: keys(c.evidence), ...draft }).returning({ id: s.characters.id }).get();
+      const row = tx.insert(s.characters).values({ projectId, name: c.name, aliases: c.aliases, profile: c.profile, speech: c.speech, player: c.player, evidence: keys(c.evidence), ...draft('characters') }).returning({ id: s.characters.id }).get();
       for (const name of namesOf(c)) if (!idByName.has(name.toLowerCase())) idByName.set(name.toLowerCase(), row.id);
     }
 
@@ -365,18 +393,37 @@ export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: A
         const at = keyOrNull(change.at);
         return at ? [{ at, change: change.change, cause: change.cause }] : [];
       });
-      tx.insert(s.relationships).values({ projectId, fromId, toId, kind: r.kind, description: r.description, changes, evidence: keys(r.evidence), ...draft }).run();
+      tx.insert(s.relationships).values({ projectId, fromId, toId, kind: r.kind, description: r.description, changes, evidence: keys(r.evidence), ...draft('relationships') }).run();
     }
 
     const eventTitles = new Set(tx.select({ title: s.storyEvents.title }).from(s.storyEvents).where(eq(s.storyEvents.projectId, projectId)).all().map((e) => e.title.toLowerCase()));
     for (const e of analysis.events) {
       if (eventTitles.has(e.title.toLowerCase())) continue;
       eventTitles.add(e.title.toLowerCase());
-      tx.insert(s.storyEvents).values({ projectId, title: e.title, summary: e.summary, cause: e.cause, outcome: e.outcome, participants: e.participants.map(canon), evidence: keys(e.evidence), ...draft }).run();
+      tx.insert(s.storyEvents).values({ projectId, title: e.title, summary: e.summary, cause: e.cause, outcome: e.outcome, participants: e.participants.map(canon), evidence: keys(e.evidence), ...draft('events') }).run();
+    }
+
+    // Terms follow the auto-confirm switch like the rest, except one without a Korean form: it stays a
+    // candidate (an empty target would reach every prompt). A term already in the glossary keeps what it
+    // has; the analysis only fills its empty form and note.
+    const glossary = new Map(tx.select({ id: s.terms.id, source: s.terms.source, target: s.terms.target, note: s.terms.note, status: s.terms.status, examples: s.terms.examples }).from(s.terms).where(eq(s.terms.projectId, projectId)).all().map((t) => [t.source.toLowerCase(), t]));
+    for (const t of analysis.terms) {
+      const note = [TERM_KIND_LABELS[t.kind], t.meaning].filter(Boolean).join(' · ');
+      const examples = keys(t.evidence).slice(0, 3);
+      const known = glossary.get(t.source.trim().toLowerCase());
+      if (known) {
+        if (known.status === 'rejected') continue;
+        const fill = { ...(!known.target.trim() && t.target.trim() && { target: t.target.trim() }), ...(!known.note.trim() && note && { note }), ...(!known.examples.length && examples.length && { examples }) };
+        if (Object.keys(fill).length) tx.update(s.terms).set(fill).where(eq(s.terms.id, known.id)).run();
+        continue;
+      }
+      const row = tx.insert(s.terms).values({ projectId, source: t.source.trim(), target: t.target.trim(), note, status: t.target.trim() ? aiStatus(policy, 'terms') : 'candidate', statusBy: 'ai', origin: 'ai', jobId, examples }).returning({ id: s.terms.id, source: s.terms.source, target: s.terms.target, note: s.terms.note, status: s.terms.status, examples: s.terms.examples }).get();
+      glossary.set(row.source.toLowerCase(), row);
+      counts.terms += 1;
     }
 
     // Scene listeners first: the main pairs below are counted on the listeners lines end up with.
-    counts.listeners = applySceneListeners(tx, projectId, analysis.sceneListeners, live, canon);
+    counts.listeners = applySceneListeners(tx, projectId, analysis.sceneListeners, live, canon, keyOf);
     const main = mainPairs(tx, projectId, live);
     const person = personKey(live);
 
@@ -395,7 +442,7 @@ export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: A
       // Evidence lines should be the rule's speaker talking; mostly someone else's means the rule is doubtful.
       const foreign = evidence.filter((line) => person(speakerOf.get(line) ?? '') !== person(from)).length;
       // An official rule (imported, a person's) for the same pair and stretch that says otherwise.
-      const official = existingRules.find((old) => (old.origin !== 'ai' || old.reviewed) && old.status === 'confirmed' && person(old.fromName) === person(from) && person(old.toName) === person(to) && old.startKey === start);
+      const official = existingRules.find((old) => old.statusBy === 'human' && old.status === 'confirmed' && person(old.fromName) === person(from) && person(old.toName) === person(to) && old.startKey === start);
       const reasons = [
         official && official.level !== r.level && `정식 규칙(${SPEECH_LEVEL_LABELS[official.level]})과 다름`,
         r.conflict && '다른 부분의 분석과 엇갈림',
@@ -407,7 +454,7 @@ export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: A
       if (reasons.length) counts.rulesForReview += 1;
       const yieldsToPerson = Boolean(official && official.level !== r.level);
       tx.insert(s.speechRules)
-        .values({ projectId, fromName: from, toName: to, level: r.level, address: r.address, note: r.note, review: reasons.length ? reasons.join(', ') : null, startKey: start, evidence, ...draft, status: yieldsToPerson ? 'candidate' : status })
+        .values({ projectId, fromName: from, toName: to, level: r.level, address: r.address, note: r.note, review: reasons.length ? reasons.join(', ') : null, startKey: start, evidence, ...draft('speechRules'), ...(yieldsToPerson && { status: 'candidate' as const }) })
         .run();
     }
   });
@@ -419,6 +466,7 @@ export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: A
     speechRules: analysis.speechRules.length,
     listeners: counts.listeners,
     rulesForReview: counts.rulesForReview,
+    terms: counts.terms,
     invalidEvidence,
   };
 }
@@ -432,10 +480,11 @@ function personKey(people: { name: string; aliases: string[] }[]) {
 
 /**
  * Fills, per scene, the listener of a speaker's lines from the analysis, for dialogue lines whose
- * listener nobody set (no listener, or an AI one with lower confidence). Imported and human
- * listeners are never touched. Returns the number of lines changed.
+ * listener nobody set (none, or an earlier scene guess). It is stored as a scene guess: below the bar it
+ * says "mostly X here" (the speaker addresses several people) and the line still counts as unknown.
+ * Imported, human and per-line AI listeners are never touched. Returns the number of lines changed.
  */
-function applySceneListeners(tx: Tx, projectId: string, entries: Analysis['sceneListeners'], people: { name: string; aliases: string[] }[], canon: (name: string) => string) {
+function applySceneListeners(tx: Tx, projectId: string, entries: Analysis['sceneListeners'], people: { name: string; aliases: string[] }[], canon: (name: string) => string, keyOf: Map<string, string>) {
   if (!entries.length) return 0;
   const person = personKey(people);
   const groupByKey = new Map(tx.select({ id: s.groups.id, key: s.groups.key }).from(s.groups).where(eq(s.groups.projectId, projectId)).all().map((group) => [group.key, group.id]));
@@ -446,21 +495,33 @@ function applySceneListeners(tx: Tx, projectId: string, entries: Analysis['scene
     const listener = entry.listener && !isSpecialListener(entry.listener) ? canon(entry.listener) : entry.listener;
     wanted.set(`${groupId}|${person(canon(entry.speaker))}`, { listener, confidence: Math.min(1, Math.max(0, entry.confidence)) });
   }
-  let changed = 0;
+  const changed = new Set<string>();
   const lines = tx
     .select({ id: s.units.id, groupId: s.units.groupId, speaker: s.units.speaker, listener: s.units.listener, origin: s.units.listenerOrigin, confidence: s.units.listenerConfidence })
     .from(s.units)
     .where(and(eq(s.units.projectId, projectId), eq(s.units.kind, 'dialogue')))
     .all();
   for (const line of lines) {
-    if (!line.speaker || line.origin === 'import' || line.origin === 'human') continue;
+    if (!line.speaker || line.origin === 'import' || line.origin === 'human' || line.origin === 'ai') continue;
     const found = wanted.get(`${line.groupId}|${person(line.speaker)}`);
     if (!found || found.listener === null) continue;
-    if (line.listener && line.origin === 'ai' && (line.confidence ?? 0) >= found.confidence) continue;
-    tx.update(s.units).set({ listener: found.listener, listenerOrigin: 'ai', listenerConfidence: found.confidence }).where(eq(s.units.id, line.id)).run();
-    changed += 1;
+    tx.update(s.units).set({ listener: found.listener, listenerOrigin: 'scene', listenerConfidence: found.confidence }).where(eq(s.units.id, line.id)).run();
+    changed.add(line.id);
   }
-  return changed;
+  // Exceptions name the listener of one line: a per-line AI guess, over the scene default (and an
+  // older analysis's guess), never over an imported or a person's listener.
+  for (const entry of entries) {
+    for (const exception of entry.exceptions) {
+      const key = keyOf.get(exception.line.trim());
+      if (!key) continue;
+      const line = tx.select({ id: s.units.id, origin: s.units.listenerOrigin, kind: s.units.kind }).from(s.units).where(and(eq(s.units.projectId, projectId), eq(s.units.key, key))).get();
+      if (!line || line.kind !== 'dialogue' || line.origin === 'import' || line.origin === 'human') continue;
+      const listener = exception.listener && !isSpecialListener(exception.listener) ? canon(exception.listener) : exception.listener;
+      tx.update(s.units).set({ listener, listenerOrigin: 'ai', listenerConfidence: Math.min(1, Math.max(0, exception.confidence)) }).where(eq(s.units.id, line.id)).run();
+      changed.add(line.id);
+    }
+  }
+  return changed.size;
 }
 
 /** The speaker → listener pairs (stored-person keys) that together cover MAIN_PAIR_SHARE of dialogue lines with a known listener. */

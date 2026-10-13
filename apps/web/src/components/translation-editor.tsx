@@ -1,11 +1,12 @@
 import { useEffect, useRef } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { StatusDot } from '@/components/status';
+import { AiMark, StatusDot } from '@/components/status';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { client, unwrap } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
+import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
 import { cn } from '@/lib/utils';
 
 interface Status {
@@ -36,7 +37,7 @@ export function TranslationEditor({
   focusKey,
   className,
 }: {
-  unit: { id: string; translation: string | null; statusId: string; candidates?: { id: string; text: string }[] };
+  unit: { id: string; translation: string | null; statusId: string; statusBy?: 'ai' | 'human'; candidates?: { id: string; text: string }[] };
   statuses: Status[];
   onDone?: (moved: boolean) => void;
   onEscape?: () => void;
@@ -55,6 +56,7 @@ export function TranslationEditor({
     element?.setSelectionRange(element.value.length, element.value.length);
   }, [focusKey]);
 
+  const queryClient = useQueryClient();
   const save = useMutation({
     mutationFn: ({ advance }: { advance: boolean }) => {
       // Saving the exact text of an existing candidate selects it instead of duplicating it.
@@ -64,12 +66,21 @@ export function TranslationEditor({
       if (!Object.keys(text).length && !Object.keys(statusId).length) return Promise.resolve(null);
       return unwrap(client.units[':unitId'].$patch({ param: { unitId: unit.id }, json: { ...text, ...statusId } }));
     },
+    // The saved text and next status show at once, so the old translation never flashes back.
+    onMutate: async ({ advance }) => {
+      const same = unit.candidates?.find((candidate) => candidate.text === draft);
+      const change = { ...(dirty && { translation: same ? same.text : draft }), ...(advance && next && { statusId: next.id }) };
+      return { undo: Object.keys(change).length ? await optimistic(queryClient, unitChanges([unit.id], patchedLine(change))) : undefined };
+    },
     onSuccess: (_data, { advance }) => {
       clearDraft();
       if (advance && next) toast.success(`${dirty ? '저장하고 ' : ''}‘${next.name}’(으)로 옮겼습니다.`);
       onDone?.(advance);
     },
-    onError: (error) => toast.error(error.message),
+    onError: (error, _vars, context) => {
+      context?.undo?.();
+      toast.error(error.message);
+    },
   });
   const run = (advance: boolean) => !save.isPending && save.mutate({ advance });
 
@@ -98,6 +109,11 @@ export function TranslationEditor({
       />
       <div className="flex flex-wrap items-center gap-2">
         {dirty && <span className="text-xs text-warning">저장 안 됨</span>}
+        {!dirty && unit.statusBy === 'ai' && (
+          <span className="flex items-center gap-1 text-xs text-muted-foreground">
+            <AiMark by="ai" /> AI가 정함
+          </span>
+        )}
         <div className="ml-auto flex items-center gap-2">
           {dirty && (
             <Button variant="ghost" onClick={clearDraft}>

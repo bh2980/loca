@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { and, asc, eq, inArray, ne, or, sql } from 'drizzle-orm';
 import { mentions } from '../services/context.ts';
 import { z } from 'zod';
-import { DOCUMENT_KINDS, KNOWLEDGE_STATUSES, patchOf, relationshipChangeSchema, SPEECH_LEVELS } from '@tw/shared';
+import { DOCUMENT_KINDS, KNOWLEDGE_STATUSES, modelChoiceSchema, patchOf, relationshipChangeSchema, SPEECH_LEVELS } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import { eachChunk, inChunks } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
@@ -10,6 +10,8 @@ import { events } from '../events.ts';
 import { graphOrder, ruleLines } from '../services/speech.ts';
 import { eventFlow, forks } from '../services/event-routes.ts';
 import { discoverAndSave, SUGGEST_BATCH } from '../services/terms.ts';
+import { addNameTerms } from '../services/terms.ts';
+import { byPerson } from '../services/status-by.ts';
 
 export const termInput = z.object({
   source: z.string().trim().min(1),
@@ -52,9 +54,9 @@ export const knowledgeRoutes = new Hono<Env>()
     const pending = c.var.deps.terms.pending(projectId).length;
     return c.json({ state: c.var.deps.terms.state(projectId), pending, calls: Math.ceil(pending / SUGGEST_BATCH), batch: SUGGEST_BATCH });
   })
-  .post('/terms/suggest', validate('json', z.object({ profileId: z.string().min(1) })), (c) => {
+  .post('/terms/suggest', validate('json', modelChoiceSchema), (c) => {
     try {
-      return c.json(c.var.deps.terms.start(c.req.param('projectId')!, c.req.valid('json').profileId));
+      return c.json(c.var.deps.terms.start(c.req.param('projectId')!, c.req.valid('json')));
     } catch (error) {
       return badRequest(error instanceof Error ? error.message : String(error));
     }
@@ -87,7 +89,7 @@ export const knowledgeRoutes = new Hono<Env>()
   })
   .patch('/terms/:id', validate('json', patchOf(termInput)), (c) => {
     const projectId = c.req.param('projectId')!;
-    found(c.var.deps.db.update(s.terms).set({ ...c.req.valid('json'), reviewed: true }).where(byProject(s.terms, c.req.param('id'), projectId)).returning().get(), '용어');
+    found(c.var.deps.db.update(s.terms).set({ ...c.req.valid('json'), ...byPerson(c.var.deps.db, s.terms, c.req.param('id'), c.req.valid('json')) }).where(byProject(s.terms, c.req.param('id'), projectId)).returning().get(), '용어');
     events.changed(projectId, 'terms');
     return c.json({ ok: true });
   })
@@ -107,7 +109,7 @@ export const knowledgeRoutes = new Hono<Env>()
   })
   .patch('/documents/:id', validate('json', patchOf(documentInput)), (c) => {
     const projectId = c.req.param('projectId')!;
-    found(c.var.deps.db.update(s.documents).set({ ...c.req.valid('json'), reviewed: true }).where(byProject(s.documents, c.req.param('id'), projectId)).returning().get(), '문서');
+    found(c.var.deps.db.update(s.documents).set({ ...c.req.valid('json'), ...byPerson(c.var.deps.db, s.documents, c.req.param('id'), c.req.valid('json')) }).where(byProject(s.documents, c.req.param('id'), projectId)).returning().get(), '문서');
     events.changed(projectId, 'knowledge');
     return c.json({ ok: true });
   })
@@ -129,12 +131,14 @@ export const knowledgeRoutes = new Hono<Env>()
   .post('/characters', validate('json', characterInput), (c) => {
     const projectId = c.req.param('projectId')!;
     const row = c.var.deps.db.insert(s.characters).values({ ...c.req.valid('json'), projectId }).returning().get();
+    addNameTerms(c.var.deps.db, projectId, row);
     events.changed(projectId, 'knowledge');
     return c.json(row, 201);
   })
   .patch('/characters/:id', validate('json', patchOf(characterInput)), (c) => {
     const projectId = c.req.param('projectId')!;
-    found(c.var.deps.db.update(s.characters).set({ ...c.req.valid('json'), reviewed: true }).where(byProject(s.characters, c.req.param('id'), projectId)).returning().get(), '인물');
+    const row = found(c.var.deps.db.update(s.characters).set({ ...c.req.valid('json'), ...byPerson(c.var.deps.db, s.characters, c.req.param('id'), c.req.valid('json')) }).where(byProject(s.characters, c.req.param('id'), projectId)).returning().get(), '인물');
+    if (c.req.valid('json').name !== undefined || c.req.valid('json').aliases !== undefined) addNameTerms(c.var.deps.db, projectId, row);
     events.changed(projectId, 'knowledge');
     return c.json({ ok: true });
   })
@@ -152,7 +156,7 @@ export const knowledgeRoutes = new Hono<Env>()
   })
   .patch('/relationships/:id', validate('json', patchOf(relationshipInput)), (c) => {
     const projectId = c.req.param('projectId')!;
-    found(c.var.deps.db.update(s.relationships).set({ ...c.req.valid('json'), reviewed: true }).where(byProject(s.relationships, c.req.param('id'), projectId)).returning().get(), '관계');
+    found(c.var.deps.db.update(s.relationships).set({ ...c.req.valid('json'), ...byPerson(c.var.deps.db, s.relationships, c.req.param('id'), c.req.valid('json')) }).where(byProject(s.relationships, c.req.param('id'), projectId)).returning().get(), '관계');
     events.changed(projectId, 'knowledge');
     return c.json({ ok: true });
   })
@@ -194,7 +198,7 @@ export const knowledgeRoutes = new Hono<Env>()
   })
   .patch('/events/:id', validate('json', patchOf(eventInput)), (c) => {
     const projectId = c.req.param('projectId')!;
-    found(c.var.deps.db.update(s.storyEvents).set({ ...c.req.valid('json'), reviewed: true }).where(byProject(s.storyEvents, c.req.param('id'), projectId)).returning().get(), '사건');
+    found(c.var.deps.db.update(s.storyEvents).set({ ...c.req.valid('json'), ...byPerson(c.var.deps.db, s.storyEvents, c.req.param('id'), c.req.valid('json')) }).where(byProject(s.storyEvents, c.req.param('id'), projectId)).returning().get(), '사건');
     events.changed(projectId, 'knowledge');
     return c.json({ ok: true });
   })
@@ -214,7 +218,7 @@ export const knowledgeRoutes = new Hono<Env>()
   })
   .patch('/speech-rules/:id', validate('json', patchOf(speechRuleInput)), (c) => {
     const projectId = c.req.param('projectId')!;
-    found(c.var.deps.db.update(s.speechRules).set({ ...c.req.valid('json'), reviewed: true, review: null }).where(byProject(s.speechRules, c.req.param('id'), projectId)).returning().get(), '말투 규칙');
+    found(c.var.deps.db.update(s.speechRules).set({ ...c.req.valid('json'), ...byPerson(c.var.deps.db, s.speechRules, c.req.param('id'), c.req.valid('json')), review: null }).where(byProject(s.speechRules, c.req.param('id'), projectId)).returning().get(), '말투 규칙');
     events.changed(projectId, 'knowledge');
     return c.json({ ok: true });
   })
@@ -224,14 +228,17 @@ export const knowledgeRoutes = new Hono<Env>()
     events.changed(projectId, 'knowledge');
     return c.json({ ok: true });
   })
-  /** Make several AI items official (confirmed and reviewed) or discard them; official knowledge is never touched here. */
+  /**
+   * A person decides several items: confirm (a candidate becomes 확정; an AI-confirmed one is marked
+   * 확인함) or discard. Either way a person set the status now. Items a person already decided are skipped.
+   */
   /** The lines a speech rule governs (its pair, its stretch), with the speech levels their translations end in. */
   .get('/speech-rules/:id/lines', (c) => c.json(found(ruleLines(c.var.deps.db, c.req.param('projectId')!, c.req.param('id')) ?? undefined, '말투 규칙')))
   /** Work analysis jobs, newest first. */
   .get('/analysis', (c) => c.json(c.var.deps.analysis.list(c.req.param('projectId')!)))
-  .post('/analysis', validate('json', z.object({ profileId: z.string().min(1), autoConfirm: z.boolean().default(true), resume: z.boolean().default(false) })), (c) => {
+  .post('/analysis', validate('json', z.object({ model: modelChoiceSchema, resume: z.boolean().default(false) })), (c) => {
     try {
-      return c.json(c.var.deps.analysis.start(c.req.param('projectId')!, c.req.valid('json').profileId, c.req.valid('json').autoConfirm, c.req.valid('json').resume), 201);
+      return c.json(c.var.deps.analysis.start(c.req.param('projectId')!, c.req.valid('json').model, c.req.valid('json').resume), 201);
     } catch (error) {
       return badRequest(error instanceof Error ? error.message : String(error));
     }
@@ -247,8 +254,8 @@ export const knowledgeRoutes = new Hono<Env>()
       const projectId = c.req.param('projectId')!;
       const { kind, ids, action } = c.req.valid('json');
       const table = DRAFT_TABLES[kind];
-      // Anything not yet official: AI candidates and AI items confirmed automatically.
-      const where = (slice: string[]) => and(eq(table.projectId, projectId), inArray(table.id, slice), or(eq(table.status, 'candidate'), and(eq(table.origin, 'ai'), eq(table.reviewed, false))));
+      // Anything a person has not decided: candidates and items AI confirmed.
+      const where = (slice: string[]) => and(eq(table.projectId, projectId), inArray(table.id, slice), or(eq(table.status, 'candidate'), eq(table.statusBy, 'ai')));
       const { db } = c.var.deps;
       // Chunked inside the one transaction: a bulk action can cover thousands of drafts.
       const changed = db.transaction((tx) => {
@@ -256,21 +263,22 @@ export const knowledgeRoutes = new Hono<Env>()
         eachChunk(ids, (slice) => {
           if (action === 'discard') {
             // Kept as rejected: a later analysis must not propose the same item again.
-            total += tx.update(table).set({ status: 'rejected', reviewed: true, ...(kind === 'speechRules' ? { review: null } : {}) }).where(where(slice)).run().changes;
+            total += tx.update(table).set({ status: 'rejected', statusBy: 'human', ...(kind === 'speechRules' ? { review: null } : {}) }).where(where(slice)).run().changes;
             return;
           }
           // A confirmed relationship needs confirmed people at both ends.
           if (kind === 'relationships') {
             const ends = tx.select({ fromId: s.relationships.fromId, toId: s.relationships.toId }).from(s.relationships).where(where(slice)).all().flatMap((r) => [r.fromId, r.toId]);
             eachChunk(ends, (people) => {
-              tx.update(s.characters).set({ status: 'confirmed' }).where(and(eq(s.characters.projectId, projectId), inArray(s.characters.id, people))).run();
+              tx.update(s.characters).set({ status: 'confirmed', statusBy: 'human' }).where(and(eq(s.characters.projectId, projectId), inArray(s.characters.id, people))).run();
             });
           }
-          total += tx.update(table).set({ status: 'confirmed', reviewed: true, ...(kind === 'speechRules' ? { review: null } : {}) }).where(where(slice)).run().changes;
+          total += tx.update(table).set({ status: 'confirmed', statusBy: 'human', ...(kind === 'speechRules' ? { review: null } : {}) }).where(where(slice)).run().changes;
         }, 2_000);
         return total;
       });
-      events.changed(projectId, 'knowledge');
+      // Terms are cached under their own topic (the glossary), not with the story knowledge.
+      events.changed(projectId, kind === 'terms' ? 'terms' : 'knowledge');
       return c.json({ changed });
     },
   );

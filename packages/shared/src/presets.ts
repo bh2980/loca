@@ -56,7 +56,8 @@ export const AI_PRESETS: Record<string, { label: string; output: AiOutput; instr
     instructions:
       'For each line, decide who the speaker is addressing, so a Korean translator can pick the right speech level. ' +
       'Read the whole batch as a scene: who is present, turn-taking, vocatives, questions and answers. ' +
-      'Name the listener exactly as in the cast list (the player character included, even if it never speaks); use "group" for several people present, ' +
+      'Name the listener as in the cast list (the player character included, even if it never speaks). Someone not in the cast — an extra such as a SWAT officer or a passer-by — is named ' +
+      'exactly as they appear as a speaker in the lines (e.g. "SWAT 2"), or as the lines call them when they never speak; never put a cast member in an extra\'s place. Use "group" for several people present, ' +
       '"public" for an unspecified audience (broadcast, announcement, post), "self" for thinking aloud, and null when you cannot tell. Give a confidence from 0 to 1; never guess with high confidence.',
   },
   terms: {

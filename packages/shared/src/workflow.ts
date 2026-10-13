@@ -2,6 +2,7 @@ import { z } from 'zod';
 import Graph from 'graphology';
 import { FUNCTIONS, functionPorts, type FunctionName, type Port } from './functions.ts';
 import { stronglyConnectedComponents } from 'graphology-components';
+import { choiceKey, draftModelChoiceSchema, EMPTY_MODEL_CHOICE, type ModelChoice } from './model-choice.ts';
 
 /**
  * What an AI node pulls into its prompt. Every field maps to stored project data.
@@ -10,6 +11,11 @@ import { stronglyConnectedComponents } from 'graphology-components';
  * and documents did nothing or hurt, so they are opt-in per node.
  */
 export const contextConfigSchema = z.object({
+  /**
+   * Leave out terms and knowledge that AI confirmed and no person has looked at (✦), e.g. for a
+   * review that should check against what people decided. Off: AI-confirmed items are used too.
+   */
+  humanOnly: z.boolean().default(false),
   glossary: z.boolean().default(true),
   documents: z.boolean().default(false),
   characters: z.boolean().default(false),
@@ -59,10 +65,12 @@ export const jsonFieldSchema = z.object({
   description: z.string().default(''),
 });
 
-const aiConfig = z.object({
-  profileId: z.string().default(''),
-  /** More profiles sharing this node's work: each request goes to whichever account has a free slot. */
-  extraProfileIds: z.array(z.string()).default([]),
+export const aiNodeConfigSchema = z.object({
+  model: draftModelChoiceSchema.default({ ...EMPTY_MODEL_CHOICE }),
+  /** More models sharing this node's work: each request goes to whichever account has a free slot. */
+  extraModels: z.array(draftModelChoiceSchema).default([]),
+  /** Empty = the model's default. Only some API models take it. */
+  temperature: z.number().min(0).max(2).optional(),
   instructions: z.string().default(''),
   output: z.enum(['candidate', 'verdict', 'terms', 'listener', 'knowledge', 'json']).default('candidate'),
   fields: z.array(jsonFieldSchema).default([]),
@@ -76,7 +84,7 @@ const aiConfig = z.object({
 
 export const workflowNodeSchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('entry'), config: z.object({ statusIds: z.array(z.string()).default([]) }) }),
-  z.object({ ...base, type: z.literal('ai'), config: aiConfig }),
+  z.object({ ...base, type: z.literal('ai'), config: aiNodeConfigSchema }),
   z.object({ ...base, type: z.literal('function'), config: z.object({ fn: z.string(), params: z.record(z.string(), z.unknown()).default({}) }) }),
   z.object({
     ...base,
@@ -117,10 +125,15 @@ export type WorkflowDefinition = z.infer<typeof workflowDefinitionSchema>;
 export type AiNode = Extract<WorkflowNode, { type: 'ai' }>;
 export type FunctionNode = Extract<WorkflowNode, { type: 'function' }>;
 
-/** Every profile an AI node may send a request with, its own first. */
-export const nodeProfileIds = (node: AiNode) => [...new Set([node.config.profileId, ...extraProfilesOf(node)].filter(Boolean))];
-/** Saved workflows may predate the setting; read it through this. */
-export const extraProfilesOf = (node: AiNode): string[] => node.config.extraProfileIds ?? [];
+/** Every model an AI node may send a request with (picked ones only, each once), its own first. */
+export function nodeModels(node: AiNode): ModelChoice[] {
+  const seen = new Set<string>();
+  return [node.config.model, ...node.config.extraModels].flatMap((choice) => {
+    if (!choice.connectionId || !choice.model || seen.has(choiceKey(choice))) return [];
+    seen.add(choiceKey(choice));
+    return [{ connectionId: choice.connectionId, model: choice.model, ...(choice.effort && { effort: choice.effort }) }];
+  });
+}
 
 /** Functions that change the line itself (its status, tags or representative translation). */
 const LINE_CHANGING_FUNCTIONS = new Set(['setStatus']);
@@ -133,7 +146,7 @@ export interface NodeTypeInfo {
 
 export const NODE_TYPES: Record<WorkflowNodeType, NodeTypeInfo> = {
   entry: { label: '진입', description: '선택한 상태의 대사가 흐름에 들어옵니다.', hasInput: false },
-  ai: { label: 'AI', description: '프로필·지시문·문맥으로 AI를 호출해 후보·판정·용어·데이터를 받습니다.', hasInput: true },
+  ai: { label: 'AI', description: '고른 모델·지시문·문맥으로 AI를 호출해 후보·판정·용어·데이터를 받습니다.', hasInput: true },
   function: { label: '함수', description: '형식 검사·상태 변경·HTTP 호출·스크립트 등 정해진 동작을 실행합니다.', hasInput: true },
   condition: { label: '조건', description: '방문 횟수·앞 노드의 출력 등으로 분기합니다.', hasInput: true },
   end: { label: '종료', description: '대사의 흐름을 마칩니다.', hasInput: true },
@@ -189,7 +202,8 @@ export interface WorkflowIssue {
 }
 
 export interface WorkflowRefs {
-  profileIds: Set<string>;
+  /** AI connections (not HTTP tool keys) by id, with their kind. */
+  connections: Map<string, string>;
   statusIds: Set<string>;
   tagIds: Set<string>;
   /** HTTP tool connections usable by the http function. */
@@ -268,10 +282,11 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
       else error(`'${port.label}' 출구가 연결되지 않았습니다.`, { nodeId: node.id });
     }
     if (node.type === 'ai') {
-      if (!refs.profileIds.has(node.config.profileId))
-        error(node.config.profileId ? '삭제된 모델 프로필입니다.' : '모델 프로필을 선택하세요.', { nodeId: node.id });
-      if (extraProfilesOf(node).some((id) => !id)) error('함께 나눌 프로필을 고르거나 그 칸을 지우세요.', { nodeId: node.id });
-      else if (extraProfilesOf(node).some((id) => !refs.profileIds.has(id))) error('함께 나눌 프로필 중 삭제된 것이 있습니다.', { nodeId: node.id });
+      const { model, extraModels } = node.config;
+      if (!model.connectionId || !model.model) error('AI 연결과 모델을 고르세요.', { nodeId: node.id });
+      else if (!refs.connections.has(model.connectionId)) error('고른 AI 연결이 삭제되었습니다. 다시 고르세요.', { nodeId: node.id });
+      if (extraModels.some((choice) => !choice.connectionId || !choice.model)) error('함께 나눌 모델을 고르거나 그 칸을 지우세요.', { nodeId: node.id });
+      else if (extraModels.some((choice) => !refs.connections.has(choice.connectionId))) error('함께 나눌 모델 중 연결이 삭제된 것이 있습니다.', { nodeId: node.id });
       if (node.config.output === 'json' && !node.config.fields.length) error('자유 형식 출력에는 필드가 하나 이상 필요합니다.', { nodeId: node.id });
     }
     if (node.type === 'entry')

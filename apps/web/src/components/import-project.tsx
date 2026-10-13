@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Spinner } from '@/components/ui/spinner';
 import { client, unwrap } from '@/lib/api';
+import { cn } from '@/lib/utils';
 
 type Validation = Awaited<ReturnType<typeof validate>>;
 const validate = (body: unknown) => unwrap(client.projects.validate.$post({ json: body }));
@@ -26,8 +27,9 @@ export function ImportProjectDialog({ trigger }: { trigger?: React.ReactNode }) 
     },
   });
 
-  async function pick(input: HTMLInputElement) {
-    const picked = input.files?.[0];
+  const [dragging, setDragging] = useState(false);
+
+  async function load(picked: File | undefined) {
     if (!picked) return;
     setResult(null);
     setChecking(true);
@@ -59,10 +61,24 @@ export function ImportProjectDialog({ trigger }: { trigger?: React.ReactNode }) 
             게임 추출기가 만든 <code className="text-xs">loca/v1</code> 형식의 JSON 파일을 선택하세요.
           </DialogDescription>
         </DialogHeader>
-        <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed px-4 py-8 text-sm text-muted-foreground hover:bg-muted/50">
+        {/* Click to pick, or drop the file here. */}
+        <label
+          className={cn('flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed px-4 py-8 text-sm text-muted-foreground hover:bg-muted/50', dragging && 'border-primary bg-muted/60 text-foreground')}
+          onDragOver={(event) => {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'copy';
+            setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(event) => {
+            event.preventDefault();
+            setDragging(false);
+            void load(event.dataTransfer.files[0]);
+          }}
+        >
           <FileUp className="size-5" />
-          {file ? <span className="font-medium text-foreground">{file.name}</span> : '파일 선택'}
-          <input type="file" accept=".json,application/json" className="sr-only" onChange={(event) => void pick(event.currentTarget)} />
+          {file ? <span className="font-medium text-foreground">{file.name}</span> : dragging ? '여기에 놓기' : '파일을 끌어다 놓거나 눌러서 선택'}
+          <input type="file" accept=".json,application/json" className="sr-only" onChange={(event) => void load(event.currentTarget.files?.[0])} />
         </label>
         {checking && (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">

@@ -1,5 +1,5 @@
 import { and, asc, eq } from 'drizzle-orm';
-import { LISTENER_MIN_CONFIDENCE, SPEECH_LEVEL_LABELS, politenessOfLevel, speechLevelOf, termMatcher, type Politeness, type SpeechLevel } from '@tw/shared';
+import { isSpecialListener, isUnsureListener, OTHERS_LISTENER, SPEECH_LEVEL_LABELS, politenessOfLevel, speechLevelOf, termMatcher, type Politeness, type SpeechLevel } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { buildGraphOrder } from './graph-order.ts';
@@ -9,14 +9,14 @@ interface LineLike {
   key: string;
   speaker: string | null;
   listener: string | null;
-  listenerOrigin: 'import' | 'ai' | 'human' | null;
+  listenerOrigin: 'import' | 'scene' | 'ai' | 'human' | null;
   listenerConfidence: number | null;
 }
 
 /** The listener a rule may use: an unsure AI guess counts as unknown. */
 export function knownListener(line: Pick<LineLike, 'listener' | 'listenerOrigin' | 'listenerConfidence'>): string | null {
   if (!line.listener) return null;
-  if (line.listenerOrigin === 'ai' && (line.listenerConfidence ?? 0) < LISTENER_MIN_CONFIDENCE) return null;
+  if (isUnsureListener(line)) return null;
   return line.listener;
 }
 
@@ -166,6 +166,8 @@ export interface Resolved {
   rule: Rule;
   byOrder: boolean;
   routeDependent?: true;
+  /** The speaker's rule for everyone else (no rule names this listener). */
+  others?: true;
 }
 
 /**
@@ -202,12 +204,16 @@ export function speechRuleIndex(db: Db, projectId: string) {
       for (const line of lines) {
         const listener = knownListener(line);
         if (!line.speaker || !listener) continue;
-        const list = byPair.get(`${norm(line.speaker)}|${norm(listener)}`);
+        // Nobody's own rule: the speaker's rule for everyone else (not for a group, the public or themself).
+        const own = byPair.get(`${norm(line.speaker)}|${norm(listener)}`);
+        const others = !own?.length && !isSpecialListener(listener) ? byPair.get(`${norm(line.speaker)}|${OTHERS_LISTENER}`) : undefined;
+        const list = own?.length ? own : others;
         if (!list?.length) continue;
+        const fallback = others ? { others: true as const } : {};
         const base = list.filter((rule) => !rule.startKey).at(-1);
         const starts = list.filter((rule) => rule.startKey);
         if (!starts.length || !graph) {
-          if (base) result.set(line.key, { listener, rule: base, byOrder: false });
+          if (base) result.set(line.key, { listener, rule: base, byOrder: false, ...fallback });
           continue;
         }
         const passed = starts.map((rule) => ({ rule, passage: graph.passage(rule.startKey!, line.key) }));
@@ -218,7 +224,7 @@ export function speechRuleIndex(db: Db, projectId: string) {
         };
         if (passed.some(({ passage }) => passage === 'unknown')) {
           const rule = byScriptOrder(list);
-          if (rule) result.set(line.key, { listener, rule, byOrder: true });
+          if (rule) result.set(line.key, { listener, rule, byOrder: true, ...fallback });
           continue;
         }
         // Starts certainly passed all dominate the line, so they lie on one chain: the deepest is the latest.
@@ -229,11 +235,11 @@ export function speechRuleIndex(db: Db, projectId: string) {
           uncertain?.add(line.key);
           // Starts on branches that never reach this line are left out even here.
           const rule = byScriptOrder(list.filter((candidate) => !candidate.startKey || passed.some((entry) => entry.rule === candidate && entry.passage !== 'none')));
-          if (rule) result.set(line.key, { listener, rule, byOrder: true, routeDependent: true });
+          if (rule) result.set(line.key, { listener, rule, byOrder: true, routeDependent: true, ...fallback });
           continue;
         }
         const rule = latest ?? base;
-        if (rule) result.set(line.key, { listener, rule, byOrder: false });
+        if (rule) result.set(line.key, { listener, rule, byOrder: false, ...fallback });
       }
       return result;
     },
@@ -241,7 +247,11 @@ export function speechRuleIndex(db: Db, projectId: string) {
 }
 
 /** How a rule reads in a prompt or a check. */
-export const describeRule = (rule: Rule) => [SPEECH_LEVEL_LABELS[rule.level], rule.address && `호칭 "${rule.address}"`].filter(Boolean).join(', ');
+/** "하게체, 호칭 "행크 경위님" 또는 "경위님"": the level and every form of address (kept comma-separated). */
+export const describeRule = (rule: Rule) => {
+  const forms = rule.address.split(',').map((form) => form.trim()).filter(Boolean);
+  return [SPEECH_LEVEL_LABELS[rule.level], forms.length && `호칭 ${forms.map((form) => `"${form}"`).join(' 또는 ')}`].filter(Boolean).join(', ');
+};
 
 /** "해요체", "해체": the level name without its 반말 hint. */
 const levelName = (level: SpeechLevel) => SPEECH_LEVEL_LABELS[level].replace(/\(.*\)/u, '');
@@ -287,5 +297,7 @@ export function ruleLines(db: Db, projectId: string, ruleId: string) {
   }
   // Of these, lines whose stretch depends on the route (picked by script order).
   const routeDependent = rows.filter((line) => uncertain.has(line.key)).length;
-  return { count: rows.length, routeDependent, unitIds: rows.map((line) => line.id), levels, rows: rows.slice(0, 100).map(({ listenerOrigin: _o, listenerConfidence: _c, ...line }) => line) };
+  // Only translated lines have endings to fix; untranslated ones get the rule when they are translated.
+  const translatedIds = rows.filter((line) => line.translation?.trim()).map((line) => line.id);
+  return { count: rows.length, routeDependent, unitIds: rows.map((line) => line.id), translatedIds, levels, rows: rows.slice(0, 100).map(({ listenerOrigin: _o, listenerConfidence: _c, ...line }) => line) };
 }

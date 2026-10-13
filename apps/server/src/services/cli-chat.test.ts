@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { importFileSchema } from '@tw/shared';
 import type * as ai from '@tw/ai';
@@ -50,6 +50,7 @@ describe('CLI chat', () => {
       messages: [user('앨리스 프로필 만들어줘')],
       timeoutMs: 1000,
       signal: new AbortController().signal,
+      onEnd: () => {},
       turn,
     });
     const body = await response.text();
@@ -68,5 +69,25 @@ describe('CLI chat', () => {
     expect(body).toContain('"proposalId"');
     expect(body).toContain('밥의 인물 추가를 제안했습니다');
     expect(db.select().from(s.chatSessions).where(eq(s.chatSessions.id, chat.id)).get()!.agentSession).toMatchObject({ kind: 'grok', model: 'grok-4.7', id: 'cli-1' });
+  });
+
+  it('finishes and saves a reply nobody reads any more (the page was reloaded)', async () => {
+    const { db, chat } = setup();
+    const onEnd = vi.fn();
+    await cliChatResponse({
+      db,
+      chat,
+      route: { kind: 'grok', model: 'grok-4.7' },
+      system: 'test',
+      view: null,
+      messages: [user('안녕')],
+      timeoutMs: 1000,
+      signal: new AbortController().signal,
+      onEnd,
+      turn: async () => ({ sessionId: 'cli-1', text: '안녕하세요.', usage: {} }),
+    });
+    // The response body is never read.
+    await vi.waitFor(() => expect(onEnd).toHaveBeenCalledOnce());
+    expect(JSON.stringify(db.select().from(s.chatSessions).where(eq(s.chatSessions.id, chat.id)).get()!.messages)).toContain('안녕하세요.');
   });
 });

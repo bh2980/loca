@@ -1,13 +1,14 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import * as ai from '@tw/ai';
+import type { ModelChoice } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import { eachChunk } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { logged } from './ai-calls.ts';
 import type { ModelPort } from '../engine/runner.ts';
-import { resolveRoutes, snapshotProfiles } from './routes.ts';
+import { liveChoice, resolveRoutes } from './routes.ts';
 import type { SecretStore } from './secrets.ts';
 import { discoverTerms } from './term-discovery.ts';
 
@@ -16,22 +17,55 @@ import { discoverTerms } from './term-discovery.ts';
  * with origin "script". A term already in the glossary (any status, rejected included) is not
  * added again; its occurrence count and examples are refreshed instead.
  */
+/**
+ * The note on an alias's glossary term. Only terms a line mentions reach a translation prompt, so
+ * this is how "Anderson" in a line is known to be Hank, without putting character profiles in
+ * (experiments: whole profiles made translations worse).
+ */
+export const aliasNote = (name: string) => `${name}의 별칭`;
+
+/**
+ * A character's names and aliases as glossary candidates (found in the script by code, origin
+ * script), called when a character is saved so a new alias needs no rediscovery. Known terms keep
+ * what they have; an alias term with no note gets "X의 별칭".
+ */
+export function addNameTerms(db: Db, projectId: string, character: { name: string; aliases: string[] }) {
+  const names = [character.name, ...character.aliases].map((name) => name.trim()).filter((name) => name && !/^[A-Z0-9_]+$/.test(name));
+  if (!names.length) return 0;
+  const existing = new Map(db.select({ id: s.terms.id, source: s.terms.source, note: s.terms.note }).from(s.terms).where(eq(s.terms.projectId, projectId)).all().map((term) => [term.source.toLowerCase(), term]));
+  let added = 0;
+  for (const name of new Set(names)) {
+    const alias = name.toLowerCase() !== character.name.trim().toLowerCase();
+    const note = alias ? aliasNote(character.name.trim()) : '인물 이름';
+    const known = existing.get(name.toLowerCase());
+    if (known) {
+      if (alias && !known.note.trim()) db.update(s.terms).set({ note }).where(eq(s.terms.id, known.id)).run();
+      continue;
+    }
+    db.insert(s.terms).values({ projectId, source: name, status: 'candidate', origin: 'script', note }).run();
+    added++;
+  }
+  events.changed(projectId, 'terms');
+  return added;
+}
+
 export function discoverAndSave(db: Db, projectId: string) {
   const units = db.select({ key: s.units.key, source: s.units.source }).from(s.units).where(eq(s.units.projectId, projectId)).orderBy(s.units.seq).all();
   const characters = db.select({ name: s.characters.name, aliases: s.characters.aliases }).from(s.characters).where(and(eq(s.characters.projectId, projectId), inArray(s.characters.status, ['candidate', 'confirmed']))).all();
   const found = discoverTerms(units, characters);
-  const existing = new Map(db.select({ id: s.terms.id, source: s.terms.source }).from(s.terms).where(eq(s.terms.projectId, projectId)).all().map((term) => [term.source.toLowerCase(), term.id]));
+  const existing = new Map(db.select({ id: s.terms.id, source: s.terms.source, note: s.terms.note }).from(s.terms).where(eq(s.terms.projectId, projectId)).all().map((term) => [term.source.toLowerCase(), term]));
   let added = 0;
   let updated = 0;
   db.transaction((tx) => {
     for (const term of found) {
-      const id = existing.get(term.source.toLowerCase());
-      if (id) {
-        tx.update(s.terms).set({ lines: term.lines, examples: term.examples }).where(eq(s.terms.id, id)).run();
+      const known = existing.get(term.source.toLowerCase());
+      if (known) {
+        // An alias's term says whose it is, unless someone already wrote a note.
+        tx.update(s.terms).set({ lines: term.lines, examples: term.examples, ...(term.aliasOf && !known.note.trim() && { note: aliasNote(term.aliasOf) }) }).where(eq(s.terms.id, known.id)).run();
         updated++;
         continue;
       }
-      tx.insert(s.terms).values({ projectId, source: term.source, status: 'candidate', origin: 'script', note: term.kind === 'character' ? '인물 이름' : '', lines: term.lines, examples: term.examples }).run();
+      tx.insert(s.terms).values({ projectId, source: term.source, status: 'candidate', origin: 'script', note: term.aliasOf ? aliasNote(term.aliasOf) : term.kind === 'character' ? '인물 이름' : '', lines: term.lines, examples: term.examples }).run();
       added++;
     }
   });
@@ -107,22 +141,20 @@ export class TermService {
     return this.states.get(projectId) ?? null;
   }
 
-  start(projectId: string, profileId: string) {
+  start(projectId: string, choice: ModelChoice) {
     if (this.states.get(projectId)?.running) throw new Error('이미 용어 번역을 채우는 중입니다.');
-    const profile = snapshotProfiles(this.db, [profileId])[profileId];
-    if (!profile) throw new Error('모델 프로필을 찾을 수 없습니다.');
-    if (profile.routes[0]?.kind === 'systemone') throw new Error('System One 프로필은 판정 전용이라 용어 번역에 쓸 수 없습니다.');
+    const { snapshot } = liveChoice(this.db, choice, this.secrets, 'generate');
     const pending = this.pending(projectId);
     if (!pending.length) throw new Error('번역이 비어 있는 용어 후보가 없습니다.');
     const batches = Array.from({ length: Math.ceil(pending.length / SUGGEST_BATCH) }, (_, index) => pending.slice(index * SUGGEST_BATCH, (index + 1) * SUGGEST_BATCH));
     const id = crypto.randomUUID();
-    this.db.insert(s.termJobs).values({ id, projectId, profileId, status: 'running', total: pending.length, usage: { inputTokens: 0, outputTokens: 0 } }).run();
+    this.db.insert(s.termJobs).values({ id, projectId, connectionId: choice.connectionId, model: choice.model, effort: choice.effort ?? null, status: 'running', total: pending.length, usage: { inputTokens: 0, outputTokens: 0 } }).run();
     const state: SuggestState = { id, running: true, done: 0, total: pending.length, usage: { inputTokens: 0, outputTokens: 0 } };
     this.states.set(projectId, state);
     const abort = new AbortController();
     this.aborts.set(projectId, abort);
     events.changed(projectId, 'terms');
-    this.run(projectId, profile, batches, state, abort.signal)
+    this.run(projectId, snapshot, batches, state, abort.signal)
       .catch((error) => (state.error = error instanceof Error ? error.message : String(error)))
       .finally(() => {
         state.running = false;
@@ -137,8 +169,8 @@ export class TermService {
     this.aborts.get(projectId)?.abort();
   }
 
-  private async run(projectId: string, profile: s.ProfileSnapshot, batches: Candidate[][], state: SuggestState, signal: AbortSignal) {
-    const routes = resolveRoutes(profile, this.secrets);
+  private async run(projectId: string, model: s.AiSnapshot, batches: Candidate[][], state: SuggestState, signal: AbortSignal) {
+    const routes = resolveRoutes(model, this.secrets);
     const confirmed = this.db
       .select({ source: s.terms.source, target: s.terms.target })
       .from(s.terms)
@@ -163,17 +195,18 @@ export class TermService {
           }),
         })),
       };
+      const system = SYSTEM;
+      const prompt = JSON.stringify(input);
       const result = await ai.withFallback(
         routes,
-        profile.maxAttempts,
+        model.maxAttempts,
         (route) =>
-          logged(this.db, { projectId, kind: 'terms', refId: state.id, label: `용어 AI 채우기 · ${batch.length.toLocaleString()}개`, profileId: profile.id }, route, () => this.model.generate<z.infer<typeof suggestSchema>>(route, {
-            system: [SYSTEM, profile.instructions].filter(Boolean).join('\n\n'),
-            prompt: JSON.stringify(input),
+          logged(this.db, { projectId, kind: 'terms', refId: state.id, label: `용어 AI 채우기 · ${batch.length.toLocaleString()}개`, request: `${system}\n\n---\n\n${prompt}` }, route, () => this.model.generate<z.infer<typeof suggestSchema>>(route, {
+            system,
+            prompt,
             schema: suggestSchema,
-            maxOutputTokens: profile.maxOutputTokens,
-            temperature: profile.temperature ?? undefined,
-            timeoutMs: profile.timeoutSeconds * 1000,
+            maxOutputTokens: model.maxOutputTokens,
+            timeoutMs: model.timeoutSeconds * 1000,
             signal,
           })),
         signal,

@@ -1,16 +1,19 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { useMemo } from 'react';
+import { toast } from 'sonner';
+import { useMemo, useState } from 'react';
 import { CircleAlert, CircleCheck } from 'lucide-react';
-import { checkFormat, isSpecialListener, KNOWLEDGE_ORIGIN_LABELS, LISTENER_MIN_CONFIDENCE, listenerLabel, mentions, SPECIAL_LISTENERS, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatRules, type KnowledgeStatus, type SpeechLevel } from '@tw/shared';
+import { checkFormat, isUnsureListener, listenerLabel, type ListenerOrigin, mentions, SPECIAL_LISTENERS, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatRules, type KnowledgeStatus, type SpeechLevel } from '@tw/shared';
 import { Badge } from '@/components/ui/badge';
+import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
 import { Button } from '@/components/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
 import { Toggle } from '@/components/ui/toggle';
 import { AiButton } from '@/components/ai-button';
 import { AiContextPanel } from '@/components/ai-context';
 import { DetailPane, FieldRow, PaneSection } from '@/components/detail-pane';
-import { StatusDot, TagChip } from '@/components/status';
+import { AiMark, StatusDot, TagChip } from '@/components/status';
 import { TranslationEditor } from '@/components/translation-editor';
 import { client, unwrap } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
@@ -60,8 +63,24 @@ export function LineDetail({
   const [draft, setDraft] = useDraft(`line:${unitId}`, unit.data?.translation ?? '');
   useReportView('line-detail', [unit.data && { kind: '대사', id: unit.data.id, label: `${unit.data.key} · ${unit.data.source.slice(0, 40)}` }]);
 
+  const queryClient = useQueryClient();
   const patch = useMutation({
     mutationFn: (json: { statusId?: string; tagIds?: string[]; listener?: string | null }) => unwrap(client.units[':unitId'].$patch({ param: { unitId }, json })),
+    // The pick shows at once (pane and list); a failure puts it back.
+    onMutate: async (json) => ({ undo: await optimistic(queryClient, unitChanges([unitId], patchedLine(json))) }),
+    onError: (error, _json, context) => {
+      context?.undo();
+      toast.error(error.message);
+    },
+  });
+  // 확인함: the status a run set stays, a person now holds it.
+  const check = useMutation({
+    mutationFn: () => unwrap(client.projects[':projectId'].units.$patch({ param: { projectId }, json: { unitIds: [unitId], checked: true } })),
+    onMutate: async () => ({ undo: await optimistic(queryClient, unitChanges([unitId], patchedLine({ checked: true }))) }),
+    onError: (error, _vars, context) => {
+      context?.undo();
+      toast.error(error.message);
+    },
   });
 
   const line = unit.data;
@@ -93,34 +112,7 @@ export function LineDetail({
             <div className="space-y-1">
               {line.kind === 'dialogue' && (
                 <FieldRow label="청자">
-                  <Select value={line.listener ?? '-'} onValueChange={(value) => patch.mutate({ listener: value === '-' ? null : value })}>
-                    <SelectTrigger size="sm" className="w-40" aria-label="청자">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="-">미상</SelectItem>
-                      {Object.entries(SPECIAL_LISTENERS).map(([value, label]) => (
-                        <SelectItem key={value} value={value}>
-                          {label}
-                        </SelectItem>
-                      ))}
-                      {people.data?.characters
-                        .filter((c) => c.status === 'confirmed' || c.name === line.listener)
-                        .map((c) => (
-                          <SelectItem key={c.id} value={c.name}>
-                            {c.name}
-                            {c.player && ' · 플레이어'}
-                          </SelectItem>
-                        ))}
-                      {line.listener && !isSpecialListener(line.listener) && !people.data?.characters.some((c) => c.name === line.listener) && <SelectItem value={line.listener}>{line.listener}</SelectItem>}
-                    </SelectContent>
-                  </Select>
-                  {line.listenerOrigin && (
-                    <span className={cn('text-xs', line.listenerOrigin === 'ai' && (line.listenerConfidence ?? 0) < LISTENER_MIN_CONFIDENCE ? 'text-warning' : 'text-muted-foreground')}>
-                      {KNOWLEDGE_ORIGIN_LABELS[line.listenerOrigin === 'import' ? 'import' : line.listenerOrigin]}
-                      {line.listenerOrigin === 'ai' && ` 추정 · 확신 ${(line.listenerConfidence ?? 0).toFixed(2)}${(line.listenerConfidence ?? 0) < LISTENER_MIN_CONFIDENCE ? ' (낮아서 미상)' : ''}`}
-                    </span>
-                  )}
+                  <ListenerPicker line={line} cast={(people.data?.characters ?? []).filter((c) => c.status === 'confirmed').map((c) => ({ name: c.name, player: c.player }))} onPick={(listener) => patch.mutate({ listener })} />
                 </FieldRow>
               )}
               <FieldRow label="상태">
@@ -136,6 +128,14 @@ export function LineDetail({
                     ))}
                   </SelectContent>
                 </Select>
+                {line.statusBy === 'ai' && (
+                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <AiMark by="ai" /> 실행이 정함
+                    <Button variant="ghost" size="inline" disabled={check.isPending} title="상태는 그대로 두고 사람이 확인한 것으로 표시합니다" onClick={() => check.mutate()}>
+                      확인함
+                    </Button>
+                  </span>
+                )}
               </FieldRow>
               {tags.length > 0 && (
                 <FieldRow label="태그">
@@ -265,7 +265,7 @@ export function LineDetail({
 }
 
 /** Glossary terms in this line, and whether the translation being edited keeps them and the source's format. */
-export function LineChecks({ projectId, source, text, terms, rules, speech }: { projectId: string; source: string; text: string; terms: { id: string; source: string; target: string; status: KnowledgeStatus }[]; rules?: FormatRules; speech?: { listener: string; ruleId: string; rule: string; level: SpeechLevel; byOrder: boolean; routeDependent?: boolean } | null }) {
+export function LineChecks({ projectId, source, text, terms, rules, speech }: { projectId: string; source: string; text: string; terms: { id: string; source: string; target: string; status: KnowledgeStatus }[]; rules?: FormatRules; speech?: { listener: string; ruleId: string; rule: string; level: SpeechLevel; byOrder: boolean; routeDependent?: boolean; others?: boolean } | null }) {
   const used = useMemo(() => terms.filter((term) => mentions(source, term.source)), [terms, source]);
   const formatIssues = text.trim() ? checkFormat(source, text, { placeholders: true, tags: true, newlines: true, emptyText: true }, rules) : [];
   const kept = (target: string) => Boolean(target.trim()) && text.toLowerCase().includes(target.toLowerCase());
@@ -273,7 +273,7 @@ export function LineChecks({ projectId, source, text, terms, rules, speech }: { 
   return (
     <>
       {speech && (
-        <PaneSection title={`말투 규칙 → ${listenerLabel(speech.listener)}${speech.routeDependent ? ' (루트에 따라 달라 대본 순서 기준)' : speech.byOrder ? ' (그래프 밖이라 대본 순서 기준)' : ''}`}>
+        <PaneSection title={`말투 규칙 → ${listenerLabel(speech.listener)}${speech.others ? ' (그 밖의 사람 규칙)' : ''}${speech.routeDependent ? ' (루트에 따라 달라 대본 순서 기준)' : speech.byOrder ? ' (그래프 밖이라 대본 순서 기준)' : ''}`}>
           <div className="flex items-center gap-2 text-sm">
             <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', item: speech.ruleId }} className="min-w-0 truncate hover:underline">
               {speech.rule}
@@ -326,3 +326,96 @@ export function LineChecks({ projectId, source, text, terms, rules, speech }: { 
     </>
   );
 }
+
+const LISTENER_ORIGIN_LABELS: Record<ListenerOrigin, string> = { import: '가져오기', scene: '장면 추정', ai: 'AI 추정', human: '사람' };
+const TYPE_NAME = '__type';
+
+/**
+ * Who the line addresses. Offered nearest first: the scene's other speakers (extras such as SWAT
+ * included) and names typed there before, then a group / the public / themself, then the rest of
+ * the cast; any other name can be typed. An unsure guess shows as 미상 with what was guessed.
+ */
+function ListenerPicker({ line, cast, onPick }: {
+  line: { speaker: string | null; listener: string | null; listenerOrigin: ListenerOrigin | null; listenerConfidence: number | null; sceneNames?: string[] };
+  cast: { name: string; player: boolean }[];
+  onPick: (listener: string | null) => void;
+}) {
+  const [typing, setTyping] = useState<string | null>(null);
+  const unsure = isUnsureListener(line);
+  const value = !line.listener || unsure ? '-' : line.listener;
+  const scene = line.sceneNames ?? [];
+  const rest = cast.filter((person) => !scene.includes(person.name) && person.name !== line.speaker);
+  const listed = new Set([...scene, ...rest.map((person) => person.name), ...Object.keys(SPECIAL_LISTENERS)]);
+  const confidence = (line.listenerConfidence ?? 0).toFixed(2);
+  const hint = !line.listenerOrigin
+    ? null
+    : unsure
+      ? line.listenerOrigin === 'scene'
+        ? `장면 추정: 이 장면에서 주로 ${listenerLabel(line.listener!)}에게 (섞인 장면 · ${confidence})`
+        : `AI 추정: ${listenerLabel(line.listener!)} (${confidence}, 낮아서 미상)`
+      : `${LISTENER_ORIGIN_LABELS[line.listenerOrigin]}${line.listenerOrigin === 'ai' || line.listenerOrigin === 'scene' ? ` · ${confidence}` : ''}`;
+
+  if (typing !== null)
+    return (
+      <Input
+        autoFocus
+        value={typing}
+        onChange={(event) => setTyping(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' && typing.trim()) {
+            onPick(typing.trim());
+            setTyping(null);
+          } else if (event.key === 'Escape') setTyping(null);
+        }}
+        onBlur={() => setTyping(null)}
+        placeholder="이름 입력 후 Enter"
+        className="w-40"
+        aria-label="청자 이름"
+      />
+    );
+  return (
+    <>
+      <Select value={value} onValueChange={(next) => (next === TYPE_NAME ? setTyping('') : onPick(next === '-' ? null : next))}>
+        <SelectTrigger size="sm" className="w-40" aria-label="청자">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="-">미상</SelectItem>
+          {scene.length > 0 && (
+            <SelectGroup>
+              <SelectLabel>이 장면에서 말하는 사람 (가까운 순)</SelectLabel>
+              {scene.map((name) => (
+                <SelectItem key={name} value={name}>
+                  {name}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          )}
+          <SelectGroup>
+            <SelectLabel>여러 사람 · 혼잣말</SelectLabel>
+            {Object.entries(SPECIAL_LISTENERS).map(([key, label]) => (
+              <SelectItem key={key} value={key}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+          {rest.length > 0 && (
+            <SelectGroup>
+              <SelectLabel>다른 인물</SelectLabel>
+              {rest.map((person) => (
+                <SelectItem key={person.name} value={person.name}>
+                  {person.name}
+                  {person.player && ' · 플레이어'}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          )}
+          {value !== '-' && !listed.has(value) && <SelectItem value={value}>{value}</SelectItem>}
+          <SelectItem value={TYPE_NAME}>직접 입력…</SelectItem>
+        </SelectContent>
+      </Select>
+      {hint && <span className={cn('text-xs', unsure ? 'text-warning' : 'text-muted-foreground')}>{hint}</span>}
+    </>
+  );
+}
+

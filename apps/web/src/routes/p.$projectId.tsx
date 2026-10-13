@@ -14,7 +14,9 @@ import { Separator } from '@/components/ui/separator';
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { chatDock, useChatDockOpen } from '@/lib/chat-dock';
+import { useChatUnread } from '@/lib/chat-unread';
 import { q } from '@/lib/queries';
+import { useJobNotices } from '@/lib/job-notices';
 import { useCurrentNav } from '@/lib/nav';
 import { cn } from '@/lib/utils';
 
@@ -39,6 +41,8 @@ export const Route = createFileRoute('/p/$projectId')({
 function ProjectLayout() {
   const { projectId } = Route.useParams();
   const chatOpen = useChatDockOpen();
+  const unread = useChatUnread(projectId, chatOpen);
+  useJobNotices(projectId);
   const layout = useDefaultLayout({ id: 'tw-main-chat', panelIds: chatOpen ? ['main', 'chat'] : ['main'], storage: localStorage });
 
   useEffect(() => {
@@ -66,12 +70,13 @@ function ProjectLayout() {
                 <CommandSearch projectId={projectId} />
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button variant={chatOpen ? 'secondary' : 'ghost'} size="icon" onClick={chatDock.toggle} aria-pressed={chatOpen} aria-label="에이전트 채팅">
+                    <Button variant={chatOpen ? 'secondary' : 'ghost'} size="icon" onClick={chatDock.toggle} aria-pressed={chatOpen} aria-label={unread ? '에이전트 채팅 (새 답 있음)' : '에이전트 채팅'} className="relative">
                       <MessageSquare />
+                      {unread && <span className="absolute top-1.5 right-1.5 size-2 rounded-full bg-primary ring-2 ring-background" />}
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
-                    에이전트 채팅 {chatOpen ? '닫기' : '열기'} <Kbd>⌘I</Kbd>
+                    {unread && '새 답이 왔습니다 · '}에이전트 채팅 {chatOpen ? '닫기' : '열기'} <Kbd>⌘I</Kbd>
                   </TooltipContent>
                 </Tooltip>
               </div>

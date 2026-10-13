@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { STATUS_COLORS } from '@tw/shared';
@@ -19,6 +19,7 @@ import { Switch } from '@/components/ui/switch';
 import { client, unwrap } from '@/lib/api';
 import { STATUS_KIND } from '@/lib/labels';
 import { q } from '@/lib/queries';
+import { optimistic } from '@/lib/optimistic';
 import { cn } from '@/lib/utils';
 
 type StatusSearch = { status?: string; tag?: string };
@@ -37,6 +38,7 @@ interface StatusRowData {
   kind: Kind;
   units: number;
   inReview: boolean;
+  humanOnly: boolean;
 }
 interface TagRowData {
   id: string;
@@ -44,7 +46,7 @@ interface TagRowData {
   color: string;
   units: number;
 }
-type StatusForm = { name: string; color: string; kind: Kind; inReview: boolean };
+type StatusForm = { name: string; color: string; kind: Kind; inReview: boolean; humanOnly: boolean };
 
 function Swatches({ value, onChange }: { value: string; onChange: (color: string) => void }) {
   return (
@@ -85,9 +87,19 @@ function StatusSettings() {
   const selectedTag = search.tag && search.tag !== 'new' ? tags?.find((tag) => tag.id === search.tag) : undefined;
 
   const fail = (error: Error) => toast.error(error.message);
+  const queryClient = useQueryClient();
   const reorder = useMutation({
     mutationFn: (ids: string[]) => unwrap(client.projects[':projectId'].statuses.order.$put({ param: { projectId }, json: { ids } })),
-    onError: fail,
+    // The row moves at once; a failure moves it back.
+    onMutate: async (ids) => ({
+      undo: await optimistic(queryClient, [
+        { key: q.statuses(projectId).queryKey, update: (data: { statuses: { id: string }[] }) => ({ ...data, statuses: [...data.statuses].sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id)) }) },
+      ]),
+    }),
+    onError: (error, _ids, context) => {
+      context?.undo();
+      fail(error);
+    },
   });
   const create = useMutation({
     mutationFn: (json: StatusForm) => unwrap(client.projects[':projectId'].statuses.$post({ param: { projectId }, json })),
@@ -158,6 +170,7 @@ function StatusSettings() {
     },
     { id: 'kind', header: '종류', meta: { width: 112, className: 'text-muted-foreground' }, cell: ({ row }) => STATUS_KIND[row.original.kind] },
     { id: 'review', header: '검토함에 표시', meta: { width: 120 }, cell: ({ row }) => (row.original.inReview ? '표시' : <span className="text-muted-foreground">–</span>) },
+    { id: 'human', header: '사람만 지정', meta: { width: 104 }, cell: ({ row }) => (row.original.humanOnly ? '사람만' : <span className="text-muted-foreground">–</span>) },
     { id: 'units', header: '대사 수', meta: { width: 96, align: 'end' }, cell: ({ row }) => row.original.units.toLocaleString() },
   ];
   const tagColumns: ColumnDef<TagRowData, unknown>[] = [
@@ -298,8 +311,8 @@ function StatusPane({
   onMove?: (delta: number) => void;
   onDelete?: () => void;
 }) {
-  const [form, setForm] = useState<StatusForm>({ name: status?.name ?? '', color: status?.color ?? STATUS_COLORS[1], kind: status?.kind ?? 'normal', inReview: status?.inReview ?? false });
-  const dirty = !status || form.name !== status.name || form.color !== status.color || form.kind !== status.kind || form.inReview !== status.inReview;
+  const [form, setForm] = useState<StatusForm>({ name: status?.name ?? '', color: status?.color ?? STATUS_COLORS[1], kind: status?.kind ?? 'normal', inReview: status?.inReview ?? false, humanOnly: status?.humanOnly ?? false });
+  const dirty = !status || form.name !== status.name || form.color !== status.color || form.kind !== status.kind || form.inReview !== status.inReview || form.humanOnly !== status.humanOnly;
   return (
     <DetailPane
       kicker="상태"
@@ -349,6 +362,11 @@ function StatusPane({
             <Switch id="status-review" checked={form.inReview} onCheckedChange={(inReview) => setForm({ ...form, inReview })} />
           </Field>
           <FieldDescription>켜면 이 상태의 대사가 검토함에 모입니다.</FieldDescription>
+          <Field orientation="horizontal">
+            <FieldLabel htmlFor="status-human">사람만 지정</FieldLabel>
+            <Switch id="status-human" checked={form.humanOnly} onCheckedChange={(humanOnly) => setForm({ ...form, humanOnly })} />
+          </Field>
+          <FieldDescription>워크플로는 이 상태 대신 검토함으로 보냅니다.</FieldDescription>
         </FieldGroup>
       </PaneSection>
       {status && onMove && (

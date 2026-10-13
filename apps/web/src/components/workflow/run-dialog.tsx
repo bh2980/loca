@@ -121,7 +121,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
       <DialogContent className={step === 2 ? 'sm:max-w-3xl' : 'sm:max-w-lg'}>
         <DialogHeader>
           <DialogTitle>{step === 1 ? '워크플로 실행 · 범위 고르기' : '워크플로 실행 · 번역 준비'}</DialogTitle>
-          <DialogDescription>저장된 버전과 현재 AI 프로필 설정을 고정해서 실행합니다.{dirty && ' 저장하지 않은 편집은 포함되지 않습니다.'}</DialogDescription>
+          <DialogDescription>저장된 버전과 노드마다 고른 AI 모델(지금의 연결 설정 포함)을 고정해서 실행합니다.{dirty && ' 저장하지 않은 편집은 포함되지 않습니다.'}</DialogDescription>
         </DialogHeader>
 
         {step === 1 && (
@@ -134,7 +134,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
             <SelectContent>
               {workflows.data?.map((workflow) => (
                 <SelectItem key={workflow.id} value={workflow.id} disabled={workflow.errorCount > 0}>
-                  {workflow.name} <span className="text-muted-foreground">v{workflow.version}{workflow.errorCount > 0 && ' · 오류 있음'}</span>
+                  {workflow.name} {workflow.errorCount > 0 && <span className="text-muted-foreground">· 오류 있음</span>}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -313,7 +313,7 @@ function PlanStep({ plan, callsText, tokensText, onCalls, onTokens }: { plan: Pl
             <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground tabular-nums">
               {node.connection ? (
                 <>
-                  <span>{node.connection.name}</span>
+                  <span>{node.model ?? node.connection.name}</span>
                   {node.connection.cli && <Badge variant="outline">CLI</Badge>}
                   {node.sharedWith.length > 0 && <span>함께: {node.sharedWith.join(', ')}</span>}
                 </>

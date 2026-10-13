@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import { KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, LISTENER_ORIGINS, SPEECH_LEVELS, type AgentSettings, type ContextItem, type FormatRules, type NodeType, type PiOptions, type RelationshipChange, type WorkflowDefinition } from '@tw/shared';
+import { KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, type AiConfirm, type ModelChoice, type ContextItem, type FormatRules, type NodeType, type PiOptions, type RelationshipChange, type WorkflowDefinition } from '@tw/shared';
+import type { Usage } from '@tw/ai';
 
 const id = () => text('id').primaryKey().$defaultFn(() => crypto.randomUUID());
 const createdAt = () => integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date());
@@ -17,8 +18,8 @@ const knowledge = () => ({
   origin: text('origin', { enum: KNOWLEDGE_ORIGINS }).notNull().default('human'),
   evidence: json<string[]>('evidence').notNull().default(sql`'[]'`),
   jobId: text('job_id'),
-  /** A person edited or confirmed this AI item: a new analysis leaves it alone. */
-  reviewed: integer('reviewed', { mode: 'boolean' }).notNull().default(false),
+  /** Who put it in its current status (docs/DESIGN.md 3.5). An AI item a person never touched stays "ai"; a new analysis may replace it. */
+  statusBy: text('status_by', { enum: STATUS_BY }).notNull().default('human'),
 });
 
 export const projects = sqliteTable('projects', {
@@ -33,6 +34,8 @@ export const projects = sqliteTable('projects', {
   /** Which agent tools this project's chat (and the CLI) may use. */
   agentSettings: json<AgentSettings>('agent_settings').notNull().default(sql`'{"disabledTools":[]}'`),
   formatRules: json<FormatRules>('format_rules').notNull().default(sql`'{"presets":["brace","printf","angleTag"],"custom":[]}'`),
+  /** What becomes of AI results per knowledge kind (설정 › AI 확정). Absent kinds: auto. */
+  aiConfirm: json<Partial<AiConfirm>>('ai_confirm').notNull().default(sql`'{}'`),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
@@ -46,6 +49,8 @@ export const statuses = sqliteTable('statuses', {
   sort: integer('sort').notNull(),
   /** Lines in this status are listed in the review inbox, however they got there. */
   inReview: integer('in_review', { mode: 'boolean' }).notNull().default(false),
+  /** Only a person may put a line here: a run that tries sends it to the review inbox instead. */
+  humanOnly: integer('human_only', { mode: 'boolean' }).notNull().default(false),
 });
 
 export const tags = sqliteTable('tags', {
@@ -94,6 +99,9 @@ export const units = sqliteTable(
     translation: text('translation'),
     candidateId: text('candidate_id'),
     statusId: text('status_id').notNull().references(() => statuses.id),
+    /** Who set the current status: a run (statusRunId) or a person (an edit, a confirm, an accepted proposal, the import). */
+    statusBy: text('status_by', { enum: STATUS_BY }).notNull().default('human'),
+    statusRunId: text('status_run_id'),
     meta: json<Record<string, unknown>>('meta'),
     updatedAt: updatedAt(),
   },
@@ -121,7 +129,6 @@ export const candidates = sqliteTable(
     unitId: text('unit_id').notNull().references(() => units.id, { onDelete: 'cascade' }),
     text: text('text').notNull(),
     origin: text('origin', { enum: ['ai', 'human', 'import', 'tool'] }).notNull(),
-    profileId: text('profile_id'),
     model: text('model'),
     runId: text('run_id'),
     nodeId: text('node_id'),
@@ -216,7 +223,7 @@ export const graphViews = sqliteTable('graph_views', {
   createdAt: createdAt(),
 });
 
-/** Where a model request came from: a workflow run, work analysis, glossary fill, a profile test or a chat turn. */
+/** Where a model request came from: a workflow run, work analysis, glossary fill, a model test or a chat turn. */
 export const AI_CALL_KINDS = ['run', 'analysis', 'terms', 'test', 'chat'] as const;
 
 /**
@@ -227,14 +234,15 @@ export const aiCalls = sqliteTable(
   'ai_calls',
   {
     id: id(),
-    /** Null for calls outside a project (a profile test). */
+    /** Null for calls outside a project (a model test). */
     projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
     kind: text('kind', { enum: AI_CALL_KINDS }).notNull(),
-    /** The run, analysis job, chat or profile it belongs to. */
+    /** The run, analysis job or chat it belongs to; the connection for a model test. */
     refId: text('ref_id'),
     /** What it was for, as people read it ("AI 번역 · 60줄", "작품 분석 1/3"). */
     label: text('label').notNull(),
-    profileId: text('profile_id'),
+    /** The connection the request went through (a fallback's own, when it took over). */
+    connectionId: text('connection_id'),
     connectionKind: text('connection_kind'),
     model: text('model'),
     status: text('status', { enum: ['running', 'ok', 'failed'] }).notNull().default('running'),
@@ -243,6 +251,8 @@ export const aiCalls = sqliteTable(
     cachedInputTokens: integer('cached_input_tokens'),
     outputTokens: integer('output_tokens'),
     costUsd: real('cost_usd'),
+    /** What was sent (system prompt and prompt), for work analysis and glossary fills; runs keep theirs in run steps. */
+    request: text('request'),
     startedAt: integer('started_at', { mode: 'timestamp_ms' }).notNull(),
     finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),
   },
@@ -264,8 +274,10 @@ export const terms = sqliteTable('terms', {
   examples: json<string[]>('examples').notNull().default(sql`'[]'`),
   /** The workflow run that added it, for AI terms. */
   runId: text('run_id'),
-  /** A person edited or promoted this AI term. */
-  reviewed: integer('reviewed', { mode: 'boolean' }).notNull().default(false),
+  /** The work analysis that proposed it, for AI terms. */
+  jobId: text('job_id'),
+  /** Who put it in its current status (see knowledge()). */
+  statusBy: text('status_by', { enum: STATUS_BY }).notNull().default('human'),
   updatedAt: updatedAt(),
 });
 
@@ -351,8 +363,9 @@ export const analysisJobs = sqliteTable(
   {
     id: id(),
     projectId: projectId(),
-    profileId: text('profile_id'),
+    connectionId: text('connection_id'),
     model: text('model'),
+    effort: text('effort'),
     status: text('status', { enum: ['running', 'completed', 'failed', 'cancelled'] }).notNull(),
     partsDone: integer('parts_done').notNull().default(0),
     partsTotal: integer('parts_total').notNull().default(1),
@@ -361,6 +374,8 @@ export const analysisJobs = sqliteTable(
     result: json<Record<string, number>>('result'),
     /** Per part: a hash of its script text and the model's answer, so a failed job can be resumed. */
     parts: json<{ hash: string; answer: unknown }[]>('parts'),
+    /** What the analysis reads: lines, scenes and an estimate of the tokens sent (UTF-8 bytes / 4). */
+    input: json<{ lines: number; scenes: number; tokens: number }>('input'),
     error: text('error'),
     createdAt: createdAt(),
     finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),
@@ -374,7 +389,9 @@ export const termJobs = sqliteTable(
   {
     id: id(),
     projectId: projectId(),
-    profileId: text('profile_id'),
+    connectionId: text('connection_id'),
+    model: text('model'),
+    effort: text('effort'),
     status: text('status', { enum: ['running', 'completed', 'failed', 'cancelled'] }).notNull(),
     done: integer('done').notNull().default(0),
     total: integer('total').notNull(),
@@ -386,7 +403,7 @@ export const termJobs = sqliteTable(
   (t) => [index('term_jobs_project').on(t.projectId, t.createdAt)],
 );
 
-/** App-wide: connections and profiles are shared by every project. Secrets live in the OS keyring. */
+/** App-wide: connections are shared by every project. Secrets live in the OS keyring. */
 export const connections = sqliteTable('connections', {
   id: id(),
   kind: text('kind', { enum: ['openai', 'pi', 'systemone', 'codex', 'claude', 'grok', 'antigravity', 'opencode', 'http'] }).notNull(),
@@ -399,28 +416,15 @@ export const connections = sqliteTable('connections', {
   options: json<PiOptions>('options'),
   /** Model calls this account takes at once, shared by every run. */
   concurrency: integer('concurrency').notNull().default(2),
-});
-
-export interface FallbackRoute {
-  connectionId: string;
-  model: string;
-  effort?: string;
-}
-
-export const profiles = sqliteTable('profiles', {
-  id: id(),
-  name: text('name').notNull(),
-  description: text('description').notNull().default(''),
-  connectionId: text('connection_id').notNull().references(() => connections.id),
-  model: text('model').notNull(),
-  effort: text('effort'),
-  instructions: text('instructions').notNull().default(''),
-  temperature: real('temperature'),
-  maxOutputTokens: integer('max_output_tokens').notNull(),
-  timeoutSeconds: integer('timeout_seconds').notNull(),
-  maxAttempts: integer('max_attempts').notNull(),
-  fallbacks: json<FallbackRoute[]>('fallbacks').notNull().default(sql`'[]'`),
-  updatedAt: updatedAt(),
+  /** Filled in when the connection is picked somewhere; templates and imported workflows use it. */
+  defaultModel: text('default_model'),
+  defaultEffort: text('default_effort'),
+  /** How every call through this connection is made, wherever it is picked. */
+  timeoutSeconds: integer('timeout_seconds').notNull().default(300),
+  maxAttempts: integer('max_attempts').notNull().default(2),
+  maxOutputTokens: integer('max_output_tokens').notNull().default(16000),
+  /** Where calls go when this connection keeps failing transiently; that connection's own fallback is followed in turn. */
+  fallback: json<ModelChoice>('fallback'),
 });
 
 export const workflows = sqliteTable('workflows', {
@@ -442,15 +446,29 @@ export interface RunScope {
   /** Run the picked lines even if their status is not one the entry node accepts. */
   ignoreStatus?: boolean;
 }
-export interface ProfileSnapshot {
-  id: string;
+/** One connection + model a call can go to, frozen with the connection's details. */
+export interface RouteSnapshot {
+  connectionId: string;
+  /** The connection's name when it was used, for display. */
   name: string;
-  instructions: string;
-  temperature: number | null;
+  kind: string;
+  baseUrl: string | null;
+  executable: string | null;
+  model: string;
+  effort: string | null;
+  piOptions?: PiOptions | null;
+}
+/**
+ * A model choice as it was resolved when work started: the picked route first, then the
+ * connection's fallbacks, with the picked connection's call settings.
+ */
+export interface AiSnapshot {
+  /** "connection · model · effort", as people read it. */
+  label: string;
   maxOutputTokens: number;
   timeoutSeconds: number;
   maxAttempts: number;
-  routes: { connectionId: string; kind: string; baseUrl: string | null; executable: string | null; model: string; effort: string | null; piOptions?: PiOptions | null }[];
+  routes: RouteSnapshot[];
 }
 
 export const runs = sqliteTable(
@@ -462,7 +480,8 @@ export const runs = sqliteTable(
     workflowName: text('workflow_name').notNull(),
     workflowVersion: integer('workflow_version').notNull(),
     definition: json<WorkflowDefinition>('definition').notNull(),
-    profiles: json<Record<string, ProfileSnapshot>>('profiles').notNull(),
+    /** Every model the run's AI nodes picked, resolved, keyed by choiceKey. */
+    models: json<Record<string, AiSnapshot>>('models').notNull().default(sql`'{}'`),
     scope: json<RunScope>('scope').notNull(),
     status: text('status', { enum: ['running', 'paused', 'cancelled', 'completed'] }).notNull(),
     total: integer('total').notNull(),
@@ -523,8 +542,8 @@ export const runSteps = sqliteTable(
     nodeId: text('node_id').notNull(),
     unitIds: json<string[]>('unit_ids').notNull(),
     ok: integer('ok', { mode: 'boolean' }).notNull(),
-    /** The profile the call went out with: a node can share its work over several. */
-    profileId: text('profile_id'),
+    /** The connection the call went out through: a node can share its work over several, and a fallback can take over. */
+    connectionId: text('connection_id'),
     model: text('model'),
     prompt: text('prompt'),
     /** What went into the prompt besides the lines, why, and what was dropped for the cap. */
@@ -585,10 +604,14 @@ export const chatSessions = sqliteTable('chat_sessions', {
   id: id(),
   projectId: projectId(),
   title: text('title').notNull(),
-  profileId: text('profile_id'),
+  /** The AI this conversation talks to (picked in the composer). */
+  connectionId: text('connection_id'),
+  model: text('model'),
+  effort: text('effort'),
   messages: json<unknown[]>('messages').notNull().default(sql`'[]'`),
   /** An agent CLI's own session for this chat (resumed each turn), and when it last took a turn. */
-  agentSession: json<{ kind: string; model: string; id: string; lastTurnAt: number }>('agent_session'),
+  /** `totals`: the CLI's running usage for the conversation, when it reports one (see cliChat). */
+  agentSession: json<{ kind: string; model: string; id: string; lastTurnAt: number; totals?: Usage }>('agent_session'),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });

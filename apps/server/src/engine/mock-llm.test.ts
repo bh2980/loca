@@ -33,7 +33,7 @@ const node = (output: AiNode['config']['output'], extra: Partial<AiNode['config'
   workflowNodeSchema.parse({ id: 'n', type: 'ai', position: { x: 0, y: 0 }, config: { output, ...extra } }) as AiNode;
 
 function ask(ai: AiNode, options: Partial<MockOptions> = {}, input: PromptLine[] = lines) {
-  const { system, prompt } = buildPrompt(ai, ai.config.instructions, { source: 'en', target: 'ko' }, context, input);
+  const { system, prompt } = buildPrompt(ai, { source: 'en', target: 'ko' }, context, input);
   const schema = z.toJSONSchema(outputSchema(ai));
   return respond({ system, user: prompt, schema }, { ...DEFAULT_OPTIONS, ...options });
 }

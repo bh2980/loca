@@ -1,8 +1,10 @@
-import { and, eq } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import { get } from 'es-toolkit/compat';
 import {
   addTermsParams,
+  aiStatus,
   applyKnowledgeParams,
+  type AiConfirmKind,
   checkFormat,
   formatCheckParams,
   httpParams,
@@ -15,6 +17,7 @@ import type { Db } from '../../db/index.ts';
 import * as s from '../../db/schema.ts';
 import type { SecretStore } from '../../services/secrets.ts';
 import { runScript } from './sandbox.ts';
+import { aiConfirmOf } from '../../services/status-by.ts';
 import { knowledgeOf, speechMismatch, speechRuleIndex } from '../../services/speech.ts';
 import type { KnowledgeOutput } from '../prompts.ts';
 
@@ -88,8 +91,21 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
 
   setStatus(tx, raw, input) {
     const params = setStatusParams.parse(raw);
+    // A run sets the line's status, so AI set it (docs/DESIGN.md 3.5); a person's change later makes it theirs.
     const patch: Partial<typeof s.units.$inferInsert> = {};
-    if (params.statusId) patch.statusId = params.statusId;
+    const issues: string[] = [];
+    if (params.statusId) {
+      const target = tx.select({ name: s.statuses.name, humanOnly: s.statuses.humanOnly }).from(s.statuses).where(eq(s.statuses.id, params.statusId)).get();
+      if (target?.humanOnly) {
+        // Only a person may set it: the line waits in the review inbox instead, saying why.
+        const inbox = tx.select({ id: s.statuses.id }).from(s.statuses).where(and(eq(s.statuses.projectId, input.projectId), eq(s.statuses.inReview, true), eq(s.statuses.humanOnly, false))).orderBy(asc(s.statuses.sort)).get();
+        if (inbox) {
+          patch.statusId = inbox.id;
+          issues.push(`‘${target.name}’은(는) 사람만 지정할 수 있어 검토함으로 보냈습니다.`);
+        } else issues.push(`‘${target.name}’은(는) 사람만 지정할 수 있어 상태를 바꾸지 않았습니다(검토함에 표시하는 상태가 없음).`);
+      } else patch.statusId = params.statusId;
+      if (patch.statusId) Object.assign(patch, { statusBy: 'ai', statusRunId: input.runId });
+    }
     if (params.applyCandidate && input.item.data.candidateId) {
       patch.candidateId = input.item.data.candidateId;
       patch.translation = input.item.data.candidateText;
@@ -98,7 +114,7 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     if (params.removeTagIds.length)
       for (const tagId of params.removeTagIds) tx.delete(s.unitTags).where(and(eq(s.unitTags.unitId, input.unit.id), eq(s.unitTags.tagId, tagId))).run();
     if (params.addTagIds.length) tx.insert(s.unitTags).values(params.addTagIds.map((tagId) => ({ unitId: input.unit.id, tagId }))).onConflictDoNothing().run();
-    return { port: 'out' };
+    return issues.length ? { port: 'out', issues } : { port: 'out' };
   },
 
   addTerms(tx, raw, input) {
@@ -106,19 +122,37 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     const outputs = Object.entries(input.item.data.outputs ?? {});
     const source = params.fromNodeId ? input.item.data.outputs?.[params.fromNodeId] : outputs.reverse().find(([, output]) => Array.isArray(output.terms))?.[1];
     const found = (Array.isArray(source?.terms) ? source.terms : []) as { source?: string; target?: string; note?: string }[];
+    // New terms land as 설정 › AI 확정 says (one without a Korean form stays a candidate).
+    const policy = aiConfirmOf(tx as unknown as Db, input.projectId);
     // Candidates count too, so the whole table is read; cached until a term is written (including by this node).
     const existing = new Set(knowledgeOf(tx as unknown as Db, input.projectId).allTermSources().map((source) => source.toLowerCase()));
     let added = 0;
+    let filled = 0;
     for (const term of found) {
       const key = term.source?.trim();
-      if (!key || existing.has(key.toLowerCase())) continue;
+      if (!key) continue;
+      if (existing.has(key.toLowerCase())) {
+        // Like the work analysis: a term already in the glossary keeps what it has; only its empty
+        // translation and note are filled. A rejected term stays as the person left it.
+        const target = term.target?.trim() ?? '';
+        const note = term.note?.trim() ?? '';
+        if (!target && !note) continue;
+        const known = tx.select({ id: s.terms.id, target: s.terms.target, note: s.terms.note, status: s.terms.status }).from(s.terms).where(and(eq(s.terms.projectId, input.projectId), sql`lower(${s.terms.source}) = ${key.toLowerCase()}`)).get();
+        if (!known || known.status === 'rejected') continue;
+        const fill = { ...(!known.target.trim() && target && { target }), ...(!known.note.trim() && note && { note }) };
+        if (Object.keys(fill).length) {
+          tx.update(s.terms).set(fill).where(eq(s.terms.id, known.id)).run();
+          filled++;
+        }
+        continue;
+      }
       existing.add(key.toLowerCase());
       tx.insert(s.terms)
-        .values({ projectId: input.projectId, source: key, target: term.target?.trim() ?? '', note: term.note ?? '', status: params.autoConfirm ? 'confirmed' : 'candidate', origin: 'ai', runId: input.runId })
+        .values({ projectId: input.projectId, source: key, target: term.target?.trim() ?? '', note: term.note ?? '', status: term.target?.trim() ? aiStatus(policy, 'terms') : 'candidate', statusBy: 'ai', origin: 'ai', runId: input.runId })
         .run();
       added++;
     }
-    return { port: 'out', output: { added } };
+    return { port: 'out', output: { added, filled } };
   },
 
   applyKnowledge(tx, raw, input) {
@@ -128,8 +162,9 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     const found = (source?.knowledge ?? null) as KnowledgeOutput | null;
     if (!found) return { port: 'out', output: { added: 0, proposed: 0, reason: '자료 변경 출력이 없습니다.' } };
     const projectId = input.projectId;
-    const status = params.autoConfirm ? ('confirmed' as const) : ('candidate' as const);
-    const ai = { origin: 'ai' as const, status };
+    // Each kind lands as 설정 › AI 확정 says; AI set the status either way.
+    const policy = aiConfirmOf(tx as unknown as Db, projectId);
+    const ai = (kind: AiConfirmKind) => ({ origin: 'ai' as const, statusBy: 'ai' as const, status: aiStatus(policy, kind) });
     const lower = (value: string) => value.trim().toLowerCase();
     let added = 0;
     let proposed = 0;
@@ -141,7 +176,7 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     const idOf = new Map(people.flatMap((c) => [c.name, ...c.aliases].map((name) => [lower(name), c.id] as const)));
     for (const person of found.characters) {
       if ([person.name, ...person.aliases].some((name) => idOf.has(lower(name)))) continue;
-      const row = tx.insert(s.characters).values({ projectId, name: person.name, aliases: person.aliases, profile: person.profile, evidence: [input.unit.key], ...ai }).returning({ id: s.characters.id }).get();
+      const row = tx.insert(s.characters).values({ projectId, name: person.name, aliases: person.aliases, profile: person.profile, evidence: [input.unit.key], ...ai('characters') }).returning({ id: s.characters.id }).get();
       for (const name of [person.name, ...person.aliases]) idOf.set(lower(name), row.id);
       added++;
     }
@@ -154,12 +189,12 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
       const change = rel.change && rel.at ? { at: rel.at, change: rel.change, cause: '' } : null;
       const same = rels.filter((existing) => existing.fromId === fromId && existing.toId === toId);
       if (!same.length) {
-        rels.push(tx.insert(s.relationships).values({ projectId, fromId, toId, kind: rel.kind, description: rel.description, changes: change ? [change] : [], evidence: change ? [change.at] : [], ...ai }).returning().get());
+        rels.push(tx.insert(s.relationships).values({ projectId, fromId, toId, kind: rel.kind, description: rel.description, changes: change ? [change] : [], evidence: change ? [change.at] : [], ...ai('relationships') }).returning().get());
         added++;
         continue;
       }
       if (!change || same.some((existing) => existing.changes.some((known) => known.at === change.at))) continue;
-      const open = same.find((existing) => existing.origin === 'ai' && !existing.reviewed);
+      const open = same.find((existing) => existing.origin === 'ai' && existing.statusBy === 'ai');
       if (open) {
         // An unchecked AI relationship just gains the change.
         tx.update(s.relationships).set({ changes: [...open.changes, change], evidence: [...open.evidence, change.at] }).where(eq(s.relationships.id, open.id)).run();
@@ -167,7 +202,7 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
         added++;
       } else {
         // Official knowledge is never edited by AI: the change waits as a candidate beside it.
-        rels.push(tx.insert(s.relationships).values({ projectId, fromId, toId, kind: rel.kind, description: `변경 제안: ${rel.change}`, changes: [change], evidence: [change.at], origin: 'ai', status: 'candidate' }).returning().get());
+        rels.push(tx.insert(s.relationships).values({ projectId, fromId, toId, kind: rel.kind, description: `변경 제안: ${rel.change}`, changes: [change], evidence: [change.at], origin: 'ai', statusBy: 'ai', status: 'candidate' }).returning().get());
         proposed++;
       }
     }
@@ -176,7 +211,7 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     for (const event of found.events) {
       if (titles.has(lower(event.title))) continue;
       titles.add(lower(event.title));
-      tx.insert(s.storyEvents).values({ projectId, title: event.title, summary: event.summary, outcome: event.outcome, participants: event.participants, evidence: event.evidence, ...ai }).run();
+      tx.insert(s.storyEvents).values({ projectId, title: event.title, summary: event.summary, outcome: event.outcome, participants: event.participants, evidence: event.evidence, ...ai('events') }).run();
       added++;
     }
 
@@ -185,10 +220,10 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
       const pair = rules.filter((existing) => lower(existing.fromName) === lower(rule.from) && lower(existing.toName) === lower(rule.to));
       if (pair.some((existing) => existing.startKey === rule.start && existing.level === rule.level)) continue;
       // A different level for a stretch a person already decided is a proposal, not a new rule.
-      const disagrees = pair.some((existing) => existing.startKey === rule.start && (existing.origin !== 'ai' || existing.reviewed));
+      const disagrees = pair.some((existing) => existing.startKey === rule.start && existing.statusBy === 'human');
       rules.push(
         tx.insert(s.speechRules)
-          .values({ projectId, fromName: rule.from, toName: rule.to, level: rule.level, address: rule.address, note: rule.note, startKey: rule.start, evidence: rule.start ? [rule.start] : [input.unit.key], origin: 'ai', status: disagrees ? 'candidate' : status })
+          .values({ projectId, fromName: rule.from, toName: rule.to, level: rule.level, address: rule.address, note: rule.note, startKey: rule.start, evidence: rule.start ? [rule.start] : [input.unit.key], ...ai('speechRules'), ...(disagrees && { status: 'candidate' as const }) })
           .returning()
           .get(),
       );

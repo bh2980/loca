@@ -449,6 +449,8 @@ export function applyBatch(db: Db, projectId: string, batch: BatchChange) {
         patch.candidateId = candidate.id;
       }
       if (change.status) patch.statusId = statusId(change.status)!;
+      // Applied from the CLI or an accepted proposal: a person decided this translation or status.
+      if (patch.statusId || patch.translation !== undefined) Object.assign(patch, { statusBy: 'human', statusRunId: null });
       // Accepting a proposal is a person's decision about the listener.
       if (change.listener !== undefined) Object.assign(patch, { listener: change.listener, listenerOrigin: 'human', listenerConfidence: null });
       if (Object.keys(patch).length) tx.update(s.units).set(patch).where(eq(s.units.id, unit.id)).run();

@@ -55,7 +55,6 @@ for (const [tool, field, what, exists] of [
   ['start_run', 'workflowId', '워크플로', scoped(s.workflows)],
   ['propose_translation', 'unitId', '대사', scoped(s.units)],
   ['save_group_summary', 'groupId', '장면', scoped(s.groups)],
-  ['save_profile', 'id', '프로필', (db: Db, _projectId: string, id: string) => Boolean(db.select({ id: s.profiles.id }).from(s.profiles).where(eq(s.profiles.id, id)).get())],
 ] as const)
   BY_ID[tool] = { field, what, exists };
 

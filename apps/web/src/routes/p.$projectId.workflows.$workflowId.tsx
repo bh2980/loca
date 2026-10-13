@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import {
@@ -18,9 +18,9 @@ import {
   applyNodeChanges,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { ChevronLeft, LayoutGrid, Plus, RotateCcw, Save, Trash2 } from 'lucide-react';
+import { ChevronLeft, LayoutGrid, Pencil, Plus, RotateCcw, Save, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { AI_OUTPUTS, AI_PRESETS, FUNCTIONS, FUNCTION_NAMES, nodeName, nodeProfileIds, workflowNodeSchema, type FunctionName, type WorkflowDefinition, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
+import { AI_OUTPUTS, AI_PRESETS, FUNCTIONS, FUNCTION_NAMES, nodeModels, nodeName, workflowNodeSchema, type FunctionName, type WorkflowDefinition, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
 import { Page } from '@/components/page';
 import { autoLayout } from '@/components/workflow/auto-layout';
 import { NodeConfig } from '@/components/workflow/node-config';
@@ -36,6 +36,44 @@ import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { workflowEdits } from '@/lib/workflow-edits';
 import { SplitPane } from '@/components/split-pane';
+
+/** When the workflow was last saved: 10. 13. 오전 06:16. Runs keep their own copy of what they ran. */
+const savedAt = (at: string) => new Date(at).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+/**
+ * The workflow's name reads as a title; the pencil turns it into an ordinary field (Enter or
+ * leaving keeps it, Esc puts it back). The rename is part of the unsaved edit like any other.
+ */
+function NameField({ name, onRename }: { name: string; onRename: (name: string) => void }) {
+  const [editing, setEditing] = useState<string | null>(null);
+  // Esc closes the field, and the blur that follows must not keep what was typed.
+  const cancelled = useRef(false);
+  const done = (keep: boolean) => {
+    if (!keep) cancelled.current = true;
+    if (keep && !cancelled.current && editing?.trim() && editing.trim() !== name) onRename(editing.trim());
+    setEditing(null);
+  };
+  if (editing !== null)
+    return (
+      <Input
+        autoFocus
+        value={editing}
+        onChange={(event) => setEditing(event.target.value)}
+        onBlur={() => done(true)}
+        onKeyDown={(event) => (event.key === 'Enter' ? done(true) : event.key === 'Escape' && done(false))}
+        className="h-8 w-60"
+        aria-label="워크플로 이름"
+      />
+    );
+  return (
+    <span className="flex min-w-0 items-center gap-0.5">
+      <span className="truncate font-medium text-foreground">{name}</span>
+      <Button variant="ghost" size="icon-xs" aria-label="이름 바꾸기" onClick={() => ((cancelled.current = false), setEditing(name))}>
+        <Pencil />
+      </Button>
+    </span>
+  );
+}
 
 export const Route = createFileRoute('/p/$projectId/workflows/$workflowId')({
   validateSearch: (raw: Record<string, unknown>): { node?: string } => ({ node: typeof raw.node === 'string' ? raw.node : undefined }),
@@ -70,7 +108,6 @@ function WorkflowEditor() {
   const flow = useReactFlow();
   const workflow = useQuery(q.workflow(workflowId));
   const statuses = useQuery(q.statuses(projectId));
-  const profiles = useQuery(q.profiles());
   const connections = useQuery(q.connections());
   const runs = useQuery(q.runs(projectId));
   const activeRun = runs.data?.find((run) => run.workflowId === workflowId && (run.status === 'running' || run.status === 'paused'));
@@ -119,20 +156,27 @@ function WorkflowEditor() {
     onSuccess: (row) => {
       discard();
       setIssues(row.issues);
-      toast.success(`v${row.version} 저장했습니다.`);
+      toast.success('저장했습니다.');
     },
   });
 
   const statusName = new Map(statuses.data?.statuses.map((status) => [status.id, status.name]));
-  const profileName = new Map(profiles.data?.map((profile) => [profile.id, profile.name]));
   const connectionName = new Map(connections.data?.map((connection) => [connection.id, connection.name]));
+  // A new AI node starts with the model the workflow already uses, else the first connection's default.
+  const newNodeModel = () => {
+    const used = current?.definition.nodes.find((node) => node.type === 'ai' && node.config.model.model);
+    if (used?.type === 'ai') return used.config.model;
+    const connection = connections.data?.find((item) => item.defaultModel && item.kind !== 'http' && item.kind !== 'systemone');
+    return connection ? { connectionId: connection.id, model: connection.defaultModel!, ...(connection.defaultEffort && { effort: connection.defaultEffort }) } : { connectionId: '', model: '' };
+  };
   const summary = (node: WorkflowNode): string => {
     switch (node.type) {
       case 'entry':
         return node.config.statusIds.length ? node.config.statusIds.map((id) => statusName.get(id) ?? '삭제된 상태').join(', ') : '범위 안의 모든 대사';
       case 'ai': {
         const batch = node.config.batch.mode === 'unit' ? '하나씩' : node.config.batch.mode === 'group' ? `장면별 ≤${node.config.batch.size}` : `${node.config.batch.size}개씩`;
-        return `${AI_OUTPUTS[node.config.output].label} · ${profileName.get(node.config.profileId) ?? '프로필 없음'}${nodeProfileIds(node).length > 1 ? ` 외 ${nodeProfileIds(node).length - 1}개` : ''} · ${batch}`;
+        const model = node.config.model.model ? `${connectionName.get(node.config.model.connectionId) ?? '삭제된 연결'} · ${node.config.model.model}` : '모델 없음';
+        return `${AI_OUTPUTS[node.config.output].label} · ${model}${nodeModels(node).length > 1 ? ` 외 ${nodeModels(node).length - 1}개` : ''} · ${batch}`;
       }
       case 'function': {
         const params = node.config.params as Record<string, unknown>;
@@ -191,7 +235,7 @@ function WorkflowEditor() {
           })(),
         },
       })),
-    [current?.definition, search.node, issues, liveCounts, statuses.data, profiles.data, connections.data, measured], // eslint-disable-line react-hooks/exhaustive-deps
+    [current?.definition, search.node, issues, liveCounts, statuses.data, connections.data, measured], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const edges: Edge[] = useMemo(
     () => {
@@ -219,7 +263,7 @@ function WorkflowEditor() {
   const select = (id: string | undefined) => void navigate({ search: { node: id }, replace: true });
   const selected = current?.definition.nodes.find((node) => node.id === search.node);
   useReportView('workflow', [
-    workflow.data && { kind: '워크플로', id: workflow.data.id, label: `${workflow.data.name} v${workflow.data.version}` },
+    workflow.data && { kind: '워크플로', id: workflow.data.id, label: workflow.data.name },
     selected && { kind: '워크플로 노드', id: selected.id, label: `${nodeName(selected)} (${selected.type})`, detail: `저장 전 설정: ${JSON.stringify(selected.config).slice(0, 5000)}` },
   ]);
 
@@ -327,14 +371,8 @@ function WorkflowEditor() {
       }
       meta={
         <span className="flex items-center gap-2">
-          <Input
-            value={current.name}
-            onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))}
-            className="h-8 w-60 border-transparent px-1 font-medium text-foreground shadow-none hover:border-input focus-visible:border-input"
-            aria-label="워크플로 이름"
-          />
-          <Badge variant="outline">v{workflow.data.version}</Badge>
-          {draft && <Badge variant="secondary">저장 안 됨</Badge>}
+          <NameField name={current.name} onRename={(name) => setDraft((value) => ({ ...value, name }))} />
+          {draft ? <Badge variant="secondary">저장 안 됨</Badge> : <span className="text-xs text-muted-foreground">{savedAt(workflow.data.updatedAt)} 저장</span>}
           {errorCount > 0 && <span className="truncate text-destructive">오류 {errorCount}개 — 저장한 버전에 오류가 없어야 실행할 수 있습니다.</span>}
         </span>
       }
@@ -354,14 +392,14 @@ function WorkflowEditor() {
                   icon={nodeIcon({ type: 'ai', config: { output: preset.output } } as WorkflowNode)}
                   title={preset.label}
                   description={AI_OUTPUTS[preset.output].description}
-                  onSelect={() => addNode({ type: 'ai', label: preset.label, config: { profileId: profiles.data?.[0]?.id ?? '', output: preset.output, instructions: preset.instructions, include: preset.include } }, key)}
+                  onSelect={() => addNode({ type: 'ai', label: preset.label, config: { model: newNodeModel(), output: preset.output, instructions: preset.instructions, include: preset.include } }, key)}
                 />
               ))}
               <PaletteItem
                 icon={nodeIcon({ type: 'ai', config: { output: 'json' } } as WorkflowNode)}
                 title="AI 자유 형식"
                 description="필드를 직접 정해 대사마다 채우게 합니다."
-                onSelect={() => addNode({ type: 'ai', config: { profileId: profiles.data?.[0]?.id ?? '', output: 'json', fields: [{ name: 'note', type: 'string', description: '' }] } }, 'ai')}
+                onSelect={() => addNode({ type: 'ai', config: { model: newNodeModel(), output: 'json', fields: [{ name: 'note', type: 'string', description: '' }] } }, 'ai')}
               />
               <DropdownMenuSeparator />
               <DropdownMenuLabel className="text-xs text-muted-foreground">함수</DropdownMenuLabel>
@@ -404,7 +442,7 @@ function WorkflowEditor() {
     >
       {stale && (
         <div className="flex items-center gap-3 border-b bg-warning/10 px-6 py-2 text-sm text-warning">
-          다른 곳에서 v{workflow.data.version}을 저장했습니다. 이 편집은 v{draft!.baseVersion} 기준입니다.
+          편집하는 동안 다른 곳에서 이 워크플로를 저장했습니다({savedAt(workflow.data.updatedAt)}). 이 편집은 그 전 내용을 바탕으로 합니다.
           <Button variant="outline" onClick={discard}>
             편집 버리고 최신 불러오기
           </Button>
@@ -426,7 +464,6 @@ function WorkflowEditor() {
                   statuses: statuses.data?.statuses ?? [],
                   tags: statuses.data?.tags ?? [],
                   projectId,
-                  profiles: profiles.data ?? [],
                   connections: connections.data ?? [],
                   nodes: current.definition.nodes,
                 }}
