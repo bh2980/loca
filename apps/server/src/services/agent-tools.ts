@@ -17,7 +17,8 @@ import { createRunInSteps, selectRunUnits } from '../engine/runner.ts';
 import { snapshotWorkflowModels } from './routes.ts';
 import { readWebPage, webSearch } from './web.ts';
 import { pickNodes, saveView, sectionWithMost, viewSection, VIEW_LIMIT } from './graph-views.ts';
-import { addNameTerms, listTerms, saveTerm, termFilterInput } from './terms.ts';
+import { saveCharacter } from './characters.ts';
+import { listTerms, saveTerm, termFilterInput } from './terms.ts';
 import { annotateKnowledge, knowledgeFilterInput } from './knowledge-list.ts';
 import { findTerm, termUsage } from './term-usage.ts';
 import { tagOverview } from './tag-overview.ts';
@@ -300,13 +301,9 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       execute: ({ id, ...input }) => {
         const existing = !id && characterByName(input.name);
         if (existing) return { ok: false, error: `같은 이름의 인물이 이미 있습니다. id=${existing.id}로 수정 제안을 다시 하세요.` };
-        if (id) {
-          if (!db.update(s.characters).set({ ...input, ...byPerson(db, s.characters, projectId, id, input) }).where(and(eq(s.characters.id, id), eq(s.characters.projectId, projectId))).run().changes) return { ok: false, error: '없는 인물입니다.' };
-        } else id = db.insert(s.characters).values({ ...input, projectId }).returning().get().id;
-        const saved = db.select({ name: s.characters.name, aliases: s.characters.aliases }).from(s.characters).where(eq(s.characters.id, id)).get();
-        if (saved) addNameTerms(db, projectId, saved);
-        changed('knowledge');
-        return { ok: true, id };
+        const saved = id ? saveCharacter(db, projectId, input, id) : saveCharacter(db, projectId, input);
+        if (!saved) return { ok: false, error: '없는 인물입니다.' };
+        return { ok: true, id: saved.id };
       },
     }),
     save_relationship: tool({

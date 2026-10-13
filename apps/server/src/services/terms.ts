@@ -89,27 +89,33 @@ export function upsertAiTerm(
 export const aliasNote = (name: string) => `${name}의 별칭`;
 
 /**
- * A character's names and aliases as glossary candidates (origin script), called when a character is saved so a new alias needs no rediscovery. Known terms keep
- * what they have; an alias term with no note gets "X의 별칭".
+ * A character's names and aliases as glossary candidates (origin script), written with the character
+ * (services/characters.ts) so a new alias needs no rediscovery. One spelling is one term whatever its
+ * case (the unique index's rule): known terms keep what they have; an alias term with no note gets
+ * "X의 별칭". Returns how many terms it wrote; the caller announces them once committed.
  */
-export function addNameTerms(db: Db, projectId: string, character: { name: string; aliases: string[] }) {
+export function addNameTerms(tx: Tx, projectId: string, character: { name: string; aliases: string[] }) {
   const names = [character.name, ...character.aliases].map((name) => name.trim()).filter((name) => name && !/^[A-Z0-9_]+$/.test(name));
   if (!names.length) return 0;
-  const existing = new Map(db.select({ id: s.terms.id, source: s.terms.source, note: s.terms.note }).from(s.terms).where(eq(s.terms.projectId, projectId)).all().map((term) => [term.source.toLowerCase(), term]));
-  let added = 0;
-  for (const name of new Set(names)) {
+  const existing = new Map(tx.select({ id: s.terms.id, source: s.terms.source, note: s.terms.note }).from(s.terms).where(eq(s.terms.projectId, projectId)).all().map((term) => [term.source.toLowerCase(), term]));
+  let written = 0;
+  for (const name of names) {
     const alias = name.toLowerCase() !== character.name.trim().toLowerCase();
     const note = alias ? aliasNote(character.name.trim()) : '인물 이름';
     const known = existing.get(name.toLowerCase());
     if (known) {
-      if (alias && !known.note.trim()) db.update(s.terms).set({ note }).where(eq(s.terms.id, known.id)).run();
+      if (alias && !known.note.trim()) {
+        tx.update(s.terms).set({ note }).where(eq(s.terms.id, known.id)).run();
+        known.note = note;
+        written++;
+      }
       continue;
     }
-    db.insert(s.terms).values({ projectId, source: name, status: 'candidate', origin: 'script', note }).run();
-    added++;
+    // Remembered at once: "Mira" and "mira" in one save are one term.
+    existing.set(name.toLowerCase(), tx.insert(s.terms).values({ projectId, source: name, status: 'candidate', origin: 'script', note }).returning({ id: s.terms.id, source: s.terms.source, note: s.terms.note }).get());
+    written++;
   }
-  events.changed(projectId, 'terms');
-  return added;
+  return written;
 }
 
 export const NOT_A_TERM = '일반어로 보임';
