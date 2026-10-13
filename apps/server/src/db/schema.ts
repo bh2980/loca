@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import { KNOWLEDGE_TAG_KINDS, TAG_ROLES, type TagRole, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, type AiConfirm, type CharacterStyle, type EditorAi, type ModelChoice, type ContextItem, type FormatRules, type NodeType, type PiOptions, type RelationshipChange, type WorkflowDefinition } from '@tw/shared';
+import { KNOWLEDGE_TAG_KINDS, TAG_ROLES, type TagRole, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, type AiConfirm, type CharacterStyle, type EditorAi, type MarkColors, type ModelChoice, type ContextItem, type FormatRules, type NodeType, type PiOptions, type RelationshipChange, type WorkflowDefinition } from '@tw/shared';
 import type { Usage } from '@tw/ai';
 
 const id = () => text('id').primaryKey().$defaultFn(() => crypto.randomUUID());
@@ -38,6 +38,8 @@ export const projects = sqliteTable('projects', {
   aiConfirm: json<Partial<AiConfirm>>('ai_confirm').notNull().default(sql`'{}'`),
   /** The editor's AI continuation (off by default; see editorAiSchema). */
   editorAi: json<Partial<EditorAi>>('editor_ai').notNull().default(sql`'{}'`),
+  /** Colors the project picked for automatic marks (AUTO_MARKS); others keep their default. */
+  markColors: json<MarkColors>('mark_colors').notNull().default(sql`'{}'`),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
@@ -62,6 +64,8 @@ export const tags = sqliteTable('tags', {
   color: text('color').notNull(),
   /** A tag the app keeps: a problem type on lines (ISSUE_KINDS) or 확인 권장 on knowledge (REVIEW_TAG); null for a person's own tag. */
   role: text('role', { enum: TAG_ROLES as unknown as [TagRole, ...TagRole[]] }),
+  /** Where a person's own tag can be put (the app's tags derive theirs from the role: tagScope). */
+  scope: json<TagScope[]>('scope').notNull().default(sql`'["lines","knowledge","terms"]'`),
 });
 
 export const groups = sqliteTable(
@@ -294,7 +298,7 @@ export const terms = sqliteTable('terms', {
   /** Candidates (extracted by a workflow, found in the script) are not used as context until a person confirms them; rejected ones are not proposed again. */
   status: text('status', { enum: KNOWLEDGE_STATUSES }).notNull().default('confirmed'),
   origin: text('origin', { enum: KNOWLEDGE_ORIGINS }).notNull().default('human'),
-  /** Script lines that contain it, when it was found in the script ("대본에서 찾기"). */
+  /** Script lines whose source uses it (services/term-usage.ts); null until counted, again after its source changes. */
   lines: integer('lines'),
   /** Keys of the first lines that contain it, in script order. */
   examples: json<string[]>('examples').notNull().default(sql`'[]'`),

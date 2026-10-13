@@ -1,3 +1,4 @@
+import type { TagScope } from './marks.ts';
 /**
  * Problem-type tags: what kind of problem a check found in a line's current translation. A check
  * that fails puts its kind on the line, the same check passing takes it off, and a new translation
@@ -33,3 +34,12 @@ export const REVIEW_TAG = { role: 'review', name: '확인 권장', color: '#f59e
 /** Roles of the tags the app keeps: the problem types on lines, and 확인 권장 on knowledge. */
 export const TAG_ROLES = [...ISSUE_KIND_IDS, REVIEW_TAG.role] as const;
 export type TagRole = IssueKind | typeof REVIEW_TAG.role;
+
+/**
+ * Where a tag can be put: the app's tags have a fixed place (problem types on lines, 확인 권장 on
+ * knowledge); a person's own tag has the places they chose.
+ */
+export function tagScope(tag: { role: TagRole | null; scope: readonly TagScope[] }): TagScope[] {
+  if (!tag.role) return [...tag.scope];
+  return tag.role === REVIEW_TAG.role ? ['knowledge'] : ['lines'];
+}

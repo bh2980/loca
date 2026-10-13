@@ -12,7 +12,11 @@ export const DEFAULT_STATUSES: { key: string; name: string; color: string; kind:
   { key: 'confirmed', name: '확정', color: '#22c55e', kind: 'final', inReview: false },
 ];
 
-export const STATUS_COLORS = ['#a1a1aa', '#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#ef4444', '#14b8a6', '#22c55e'];
+/** Colors offered for statuses, tags and automatic marks (Tailwind 500s and two grays), by hue; any hex works too. */
+export const STATUS_COLORS = ['#a1a1aa', '#64748b', '#ef4444', '#f43f5e', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e', '#10b981', '#14b8a6', '#06b6d4', '#0ea5e9', '#3b82f6', '#6366f1', '#8b5cf6', '#a855f7', '#d946ef', '#ec4899', '#a16207'];
+export const DEFAULT_STATUS_COLOR = '#3b82f6';
+export const DEFAULT_TAG_COLOR = '#8b5cf6';
+export const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
 /**
  * The default translation flow, expressed as an ordinary user workflow:

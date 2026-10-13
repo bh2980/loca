@@ -3,17 +3,19 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { STATUS_COLORS } from '@tw/shared';
+import { AUTO_MARK_IDS, AUTO_MARKS, markColor, DEFAULT_STATUS_COLOR, DEFAULT_TAG_COLOR, REVIEW_TAG, STATUS_COLORS, TAG_SCOPES, TAG_SCOPE_LABELS, type AutoMark, type MarkColors, type TagScope } from '@tw/shared';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { DetailPane, FieldRow, PaneSection } from '@/components/detail-pane';
 import { Page } from '@/components/page';
 import { SplitPane } from '@/components/split-pane';
-import { StatusDot } from '@/components/status';
+import { chipStyle, MarkChip, StatusDot, TagChip } from '@/components/status';
 import { Toolbar } from '@/components/toolbar';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { client, unwrap } from '@/lib/api';
@@ -22,11 +24,11 @@ import { q } from '@/lib/queries';
 import { optimistic } from '@/lib/optimistic';
 import { cn } from '@/lib/utils';
 
-type StatusSearch = { status?: string; tag?: string };
+type StatusSearch = { status?: string; tag?: string; mark?: AutoMark };
 const param = (value: unknown) => (typeof value === 'string' && value ? value : undefined);
 
 export const Route = createFileRoute('/p/$projectId/settings/statuses')({
-  validateSearch: (raw: Record<string, unknown>): StatusSearch => ({ status: param(raw.status), tag: param(raw.tag) }),
+  validateSearch: (raw: Record<string, unknown>): StatusSearch => ({ status: param(raw.status), tag: param(raw.tag), mark: AUTO_MARK_IDS.find((id) => id === raw.mark) }),
   component: StatusSettings,
 });
 
@@ -45,12 +47,20 @@ interface TagRowData {
   name: string;
   color: string;
   units: number;
+  /** Knowledge items and terms carrying it. */
+  items?: number;
+  role?: string | null;
+  /** Where the tag can be put (the app's tags: fixed by their role). */
+  scope: TagScope[];
 }
+/** All three places read as 어디든. */
+const scopeLabel = (scope: readonly TagScope[]) => (TAG_SCOPES.every((place) => scope.includes(place)) ? '어디든' : TAG_SCOPES.filter((place) => scope.includes(place)).map((place) => TAG_SCOPE_LABELS[place]).join(' · '));
+type TagForm = { name: string; color: string; scope: TagScope[] };
 type StatusForm = { name: string; color: string; kind: Kind; inReview: boolean; humanOnly: boolean };
 
 function Swatches({ value, onChange }: { value: string; onChange: (color: string) => void }) {
   return (
-    <div className="flex flex-wrap gap-1" role="radiogroup" aria-label="색상">
+    <div className="flex flex-wrap items-center gap-1" role="radiogroup" aria-label="색상">
       {STATUS_COLORS.map((color) => (
         <Button
           key={color}
@@ -66,6 +76,11 @@ function Swatches({ value, onChange }: { value: string; onChange: (color: string
           <StatusDot color={color} className="size-4" />
         </Button>
       ))}
+      {/* Any other color: the browser's picker, shown filled when the color is not in the palette. */}
+      <label className={cn('relative flex size-8 cursor-pointer items-center justify-center rounded-md hover:bg-muted', !STATUS_COLORS.includes(value) && 'bg-muted ring-1 ring-foreground/40')} title="다른 색">
+        <span aria-hidden className="size-4 rounded-full border" style={STATUS_COLORS.includes(value) ? { background: 'conic-gradient(#ef4444, #eab308, #22c55e, #06b6d4, #3b82f6, #d946ef, #ef4444)' } : { backgroundColor: value }} />
+        <Input type="color" aria-label="다른 색" value={value} onChange={(event) => onChange(event.target.value)} className="absolute inset-0 size-full cursor-pointer opacity-0" />
+      </label>
     </div>
   );
 }
@@ -77,6 +92,8 @@ function StatusSettings() {
   const data = useQuery(q.statuses(projectId));
   const statuses = data.data ? (data.data.statuses as StatusRowData[]) : undefined;
   const tags = data.data ? (data.data.tags as TagRowData[]) : undefined;
+  const project = useQuery(q.project(projectId));
+  const markColors = (project.data?.markColors ?? {}) as MarkColors;
   const [removing, setRemoving] = useState<StatusRowData | null>(null);
   const [moveTo, setMoveTo] = useState<string>('');
 
@@ -84,6 +101,7 @@ function StatusSettings() {
   const open = (next: StatusSearch) => void navigate({ search: next, replace: true });
   const close = () => open({});
   const selectedStatus = search.status && search.status !== 'new' ? statuses?.find((status) => status.id === search.status) : undefined;
+  const selectedMark = search.mark;
   const selectedTag = search.tag && search.tag !== 'new' ? tags?.find((tag) => tag.id === search.tag) : undefined;
 
   const fail = (error: Error) => toast.error(error.message);
@@ -126,7 +144,7 @@ function StatusSettings() {
     onError: fail,
   });
   const createTag = useMutation({
-    mutationFn: (json: { name: string; color: string }) => unwrap(client.projects[':projectId'].tags.$post({ param: { projectId }, json })),
+    mutationFn: (json: TagForm) => unwrap(client.projects[':projectId'].tags.$post({ param: { projectId }, json })),
     onSuccess: () => {
       close();
       toast.success('태그를 추가했습니다.');
@@ -134,10 +152,26 @@ function StatusSettings() {
     onError: fail,
   });
   const updateTag = useMutation({
-    mutationFn: (variables: { id: string; json: { name?: string; color?: string } }) =>
+    mutationFn: (variables: { id: string; json: Partial<TagForm> }) =>
       unwrap(client.projects[':projectId'].tags[':id'].$patch({ param: { projectId, id: variables.id }, json: variables.json })),
     onSuccess: () => toast.success('저장했습니다.'),
     onError: fail,
+  });
+  const saveMarkColor = useMutation({
+    mutationFn: (variables: { mark: AutoMark; color: string }) => {
+      // A color equal to the default is not stored, so a later default change still reaches the project.
+      const next: MarkColors = { ...markColors, [variables.mark]: variables.color };
+      if (variables.color === AUTO_MARKS[variables.mark].color) delete next[variables.mark];
+      return unwrap(client.projects[':projectId'].$patch({ param: { projectId }, json: { markColors: next } }));
+    },
+    onMutate: async (variables) => ({
+      undo: await optimistic(queryClient, [{ key: q.project(projectId).queryKey, update: (data: { markColors?: MarkColors }) => ({ ...data, markColors: { ...data.markColors, [variables.mark]: variables.color } }) }]),
+    }),
+    onSuccess: () => toast.success('저장했습니다.'),
+    onError: (error, _variables, context) => {
+      context?.undo();
+      fail(error);
+    },
   });
   const removeTag = useMutation({
     mutationFn: (id: string) => unwrap(client.projects[':projectId'].tags[':id'].$delete({ param: { projectId, id } })),
@@ -161,6 +195,7 @@ function StatusSettings() {
     {
       id: 'name',
       header: '이름',
+      meta: { hideable: false },
       cell: ({ row }) => (
         <span className="inline-flex items-center gap-2 font-medium">
           <StatusDot color={row.original.color} className="size-2.5" />
@@ -173,22 +208,51 @@ function StatusSettings() {
     { id: 'human', header: '사람만 지정', meta: { width: 104 }, cell: ({ row }) => (row.original.humanOnly ? '사람만' : <span className="text-muted-foreground">–</span>) },
     { id: 'units', header: '대사 수', meta: { width: 96, align: 'end' }, cell: ({ row }) => row.original.units.toLocaleString() },
   ];
-  const tagColumns: ColumnDef<TagRowData, unknown>[] = [
+  // One table: the built-in tags first (marks the app reads off, then tags the app puts on), then the person's own.
+  type AnyTag = { id: string; mark?: AutoMark; tag?: TagRowData };
+  const allTags: AnyTag[] | undefined = tags && [
+    ...AUTO_MARK_IDS.map((mark) => ({ id: `mark:${mark}`, mark })),
+    ...tags.filter((tag) => tag.role).map((tag) => ({ id: tag.id, tag })),
+    ...tags.filter((tag) => !tag.role).map((tag) => ({ id: tag.id, tag })),
+  ];
+  const tagColumns: ColumnDef<AnyTag, unknown>[] = [
     {
       id: 'name',
       header: '이름',
+      meta: { width: 220, hideable: false },
       cell: ({ row }) => (
-        <span className="inline-flex items-center gap-2 font-medium">
-          <StatusDot color={row.original.color} className="size-2.5" />#{row.original.name}
-          {(row.original as { role?: string | null }).role && <span className="text-xs font-normal text-muted-foreground" title="검사·검수가 문제를 찾으면 붙이고, 고치면 뗍니다.">자동 · 문제 유형</span>}
+        <span className="inline-flex items-center gap-2">
+          {row.original.mark ? <MarkChip mark={row.original.mark} projectId={projectId} /> : <TagChip tag={row.original.tag!} />}
+          {(row.original.mark || row.original.tag?.role) && <span className="text-xs text-muted-foreground">기본</span>}
         </span>
       ),
     },
-    { id: 'units', header: '대사 수', meta: { width: 96, align: 'end' }, cell: ({ row }) => row.original.units.toLocaleString() },
+    {
+      id: 'on',
+      header: '붙는 곳',
+      meta: { width: 140, className: 'text-muted-foreground' },
+      cell: ({ row }) => scopeLabel(row.original.mark ? AUTO_MARKS[row.original.mark].on : row.original.tag!.scope),
+    },
+    {
+      id: 'description',
+      header: '뜻',
+      meta: { className: 'text-muted-foreground' },
+      cell: ({ row }) =>
+        row.original.mark
+          ? AUTO_MARKS[row.original.mark].description
+          : row.original.tag?.role === REVIEW_TAG.role
+            ? '분석이 확인이 필요하다고 본 자료. 사람이 정하거나 고치면 떨어짐'
+            : row.original.tag?.role
+              ? '검사·검수가 찾은 문제 유형. 고치면 떨어짐'
+              : '',
+    },
+    { id: 'units', header: '붙은 수', meta: { width: 88, align: 'end' }, cell: ({ row }) => (row.original.tag ? (row.original.tag.units + (row.original.tag.items ?? 0)).toLocaleString() : <span className="text-muted-foreground">–</span>) },
   ];
 
   const pane =
-    search.status === 'new' ? (
+    selectedMark ? (
+      <MarkPane key={selectedMark} mark={selectedMark} color={markColor(selectedMark, markColors)} pending={saveMarkColor.isPending} onClose={close} onSave={(color) => saveMarkColor.mutate({ mark: selectedMark, color })} />
+    ) : search.status === 'new' ? (
       <StatusPane key="new" pending={create.isPending} onClose={close} onSave={(json) => create.mutate(json)} />
     ) : selectedStatus ? (
       <StatusPane
@@ -209,7 +273,7 @@ function StatusSettings() {
     ) : search.tag === 'new' ? (
       <TagPane key="new" pending={createTag.isPending} onClose={close} onSave={(json) => createTag.mutate(json)} />
     ) : selectedTag ? (
-      <TagPane key={selectedTag.id} tag={selectedTag} pending={updateTag.isPending} onClose={close} onSave={(json) => updateTag.mutate({ id: selectedTag.id, json })} onDelete={() => removeTag.mutate(selectedTag.id)} />
+      <TagPane key={selectedTag.id} tag={selectedTag} pending={updateTag.isPending} onClose={close} onSave={(json) => updateTag.mutate({ id: selectedTag.id, json: selectedTag.role ? { color: json.color } : json })} onDelete={() => removeTag.mutate(selectedTag.id)} />
     ) : null;
 
   return (
@@ -229,7 +293,7 @@ function StatusSettings() {
               <p className="text-xs text-muted-foreground">‘검토함에 표시’를 켠 상태의 대사는 사람이 바꾸든 워크플로가 바꾸든 검토함에 모입니다. 검토함에서는 다른 상태 중 하나를 골라 옮기는 것으로 결정합니다.</p>
             </div>
           </Toolbar>
-          <DataTable
+          <DataTable id="statuses"
             className="flex-none"
             columns={statusColumns}
             rows={statuses}
@@ -240,7 +304,7 @@ function StatusSettings() {
           />
           <Toolbar
             className="mt-8 border-t"
-            count={tags ? `${tags.length}개` : undefined}
+            count={allTags ? `${allTags.length}개` : undefined}
             actions={
               <Button variant="outline" onClick={() => open({ tag: 'new' })}>
                 <Plus /> 추가
@@ -249,10 +313,18 @@ function StatusSettings() {
           >
             <div>
               <h2 className="text-sm font-semibold">태그</h2>
-              <p className="text-xs text-muted-foreground">상태와 별개로 대사에 여러 개 붙이는 표시입니다(예: #재검토, #폰트확인). 스크립트에서 골라 붙이거나 상태 변경 노드로 붙이고, 워크플로 실행 범위나 조건에 씁니다.</p>
+              <p className="text-xs text-muted-foreground">상태와 별개로 여러 개 붙는 표시입니다. 필터·실행 범위·워크플로 조건에서 고릅니다. ‘기본’은 앱이 붙이거나 읽어 내는 태그로, 지우거나 이름을 바꿀 수 없고 색만 바꿉니다. 내 태그(예: #재검토)는 대사를 골라 붙이거나 상태 변경 노드로 붙입니다.</p>
             </div>
           </Toolbar>
-          <DataTable className="flex-none" columns={tagColumns} rows={tags} rowId={(row) => row.id} selected={search.tag} empty="태그가 없습니다." onRowClick={(row) => open({ tag: row.id })} />
+          <DataTable
+            id="tags"
+            className="flex-none"
+            columns={tagColumns}
+            rows={allTags}
+            rowId={(row) => row.id}
+            selected={search.mark ? `mark:${search.mark}` : search.tag}
+            onRowClick={(row) => open(row.mark ? { mark: row.mark } : { tag: row.id })}
+          />
         </div>
       </SplitPane>
 
@@ -312,7 +384,7 @@ function StatusPane({
   onMove?: (delta: number) => void;
   onDelete?: () => void;
 }) {
-  const [form, setForm] = useState<StatusForm>({ name: status?.name ?? '', color: status?.color ?? STATUS_COLORS[1], kind: status?.kind ?? 'normal', inReview: status?.inReview ?? false, humanOnly: status?.humanOnly ?? false });
+  const [form, setForm] = useState<StatusForm>({ name: status?.name ?? '', color: status?.color ?? DEFAULT_STATUS_COLOR, kind: status?.kind ?? 'normal', inReview: status?.inReview ?? false, humanOnly: status?.humanOnly ?? false });
   const dirty = !status || form.name !== status.name || form.color !== status.color || form.kind !== status.kind || form.inReview !== status.inReview || form.humanOnly !== status.humanOnly;
   return (
     <DetailPane
@@ -386,9 +458,54 @@ function StatusPane({
   );
 }
 
-function TagPane({ tag, pending, onClose, onSave, onDelete }: { tag?: TagRowData; pending: boolean; onClose: () => void; onSave: (form: { name: string; color: string }) => void; onDelete?: () => void }) {
-  const [form, setForm] = useState({ name: tag?.name ?? '', color: tag?.color ?? STATUS_COLORS[2] });
-  const dirty = !tag || form.name !== tag.name || form.color !== tag.color;
+/** A built-in automatic tag: only its color is the project's to change. */
+function MarkPane({ mark, color, pending, onClose, onSave }: { mark: AutoMark; color: string; pending: boolean; onClose: () => void; onSave: (color: string) => void }) {
+  const [draft, setDraft] = useState(color);
+  const info = AUTO_MARKS[mark];
+  return (
+    <DetailPane
+      kicker="기본 태그"
+      title={`#${info.name}`}
+      subtitle={`붙는 곳: ${scopeLabel(info.on)}`}
+      onClose={onClose}
+      footer={
+        <>
+          <Button disabled={draft === color || pending} onClick={() => onSave(draft)}>
+            저장
+          </Button>
+          <Button variant="outline" disabled={draft === info.color} onClick={() => setDraft(info.color)}>
+            기본 색으로
+          </Button>
+        </>
+      }
+    >
+      <PaneSection title="설정">
+        <FieldGroup className="gap-4">
+          <Field>
+            <FieldLabel>뜻</FieldLabel>
+            <FieldDescription>{info.description}. 앱이 읽어 내므로 이름을 바꾸거나 지울 수 없습니다.</FieldDescription>
+          </Field>
+          <Field>
+            <FieldLabel>색상</FieldLabel>
+            <Swatches value={draft} onChange={setDraft} />
+          </Field>
+          <Field>
+            <FieldLabel>미리보기</FieldLabel>
+            <span>
+              <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium" style={chipStyle(draft)}>
+                #{info.name}
+              </span>
+            </span>
+          </Field>
+        </FieldGroup>
+      </PaneSection>
+    </DetailPane>
+  );
+}
+
+function TagPane({ tag, pending, onClose, onSave, onDelete }: { tag?: TagRowData; pending: boolean; onClose: () => void; onSave: (form: TagForm) => void; onDelete?: () => void }) {
+  const [form, setForm] = useState<TagForm>({ name: tag?.name ?? '', color: tag?.color ?? DEFAULT_TAG_COLOR, scope: tag?.scope ?? [...TAG_SCOPES] });
+  const dirty = !tag || form.name !== tag.name || form.color !== tag.color || (!tag.role && form.scope.length !== tag.scope.length) || (!tag.role && form.scope.some((place) => !tag.scope.includes(place)));
   return (
     <DetailPane
       kicker="태그"
@@ -400,7 +517,7 @@ function TagPane({ tag, pending, onClose, onSave, onDelete }: { tag?: TagRowData
           <Button disabled={!form.name.trim() || !dirty || pending} onClick={() => onSave(form)}>
             {tag ? '저장' : '추가'}
           </Button>
-          {tag && onDelete && (
+          {tag && onDelete && !tag.role && (
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button variant="outline" className="text-destructive">
@@ -426,11 +543,33 @@ function TagPane({ tag, pending, onClose, onSave, onDelete }: { tag?: TagRowData
         <FieldGroup className="gap-4">
           <Field>
             <FieldLabel htmlFor="tag-name">이름</FieldLabel>
-            <Input id="tag-name" value={form.name} placeholder="새 태그 이름" onChange={(event) => setForm({ ...form, name: event.target.value })} />
+            <Input id="tag-name" value={form.name} placeholder="새 태그 이름" disabled={!!tag?.role} onChange={(event) => setForm({ ...form, name: event.target.value })} />
           </Field>
           <Field>
             <FieldLabel>색상</FieldLabel>
             <Swatches value={form.color} onChange={(color) => setForm({ ...form, color })} />
+          </Field>
+          <Field>
+            <FieldLabel>붙는 곳</FieldLabel>
+            {tag?.role ? (
+              <p className="text-sm">{scopeLabel(tag.scope)}</p>
+            ) : (
+              <div className="flex flex-wrap gap-4">
+                {TAG_SCOPES.map((place) => (
+                  <div key={place} className="flex items-center gap-2">
+                    <Checkbox
+                      id={`tag-scope-${place}`}
+                      checked={form.scope.includes(place)}
+                      // At least one place stays.
+                      disabled={form.scope.length === 1 && form.scope.includes(place)}
+                      onCheckedChange={(on) => setForm({ ...form, scope: TAG_SCOPES.filter((other) => (other === place ? on === true : form.scope.includes(other))) })}
+                    />
+                    <Label htmlFor={`tag-scope-${place}`}>{TAG_SCOPE_LABELS[place]}</Label>
+                  </div>
+                ))}
+              </div>
+            )}
+            <FieldDescription>{tag?.role ? '앱이 쓰는 태그라 붙는 곳을 바꿀 수 없습니다.' : '이 태그를 붙일 수 있고 메뉴·필터에 나오는 곳입니다. 이미 붙은 곳은 태그를 먼저 떼야 뺄 수 있습니다.'}</FieldDescription>
           </Field>
         </FieldGroup>
       </PaneSection>

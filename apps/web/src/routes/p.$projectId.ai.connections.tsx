@@ -53,7 +53,7 @@ function ConnectionSettings() {
   const rows = connections.data?.filter((connection) => connection.kind !== 'http');
 
   const columns: ColumnDef<ConnectionRow, unknown>[] = [
-    { id: 'name', header: '이름', cell: ({ row }) => <span className="font-medium">{row.original.name}</span> },
+    { id: 'name', header: '이름', meta: { hideable: false }, cell: ({ row }) => <span className="font-medium">{row.original.name}</span> },
     { id: 'kind', header: '종류', meta: { width: 200, className: 'text-muted-foreground' }, cell: ({ row }) => CONNECTION_KIND_INFO[row.original.kind].label },
     { id: 'model', header: '기본 모델', meta: { width: 240, className: 'font-mono text-xs text-muted-foreground' }, cell: ({ row }) => [row.original.defaultModel, row.original.defaultEffort].filter(Boolean).join(' · ') },
     {
@@ -76,7 +76,7 @@ function ConnectionSettings() {
               <Plus /> 연결 추가
             </Button>
           </HeaderActions>
-          <DataTable
+          <DataTable id="connections"
             className="flex-none"
             columns={columns}
             rows={rows}

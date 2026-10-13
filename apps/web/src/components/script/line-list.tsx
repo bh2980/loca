@@ -1,13 +1,12 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { AUTO_MARKS } from '@/lib/marks';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { Check, CircleAlert, ListFilter, Network, PanelRightOpen, Play, StickyNote, Tags, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { checkFormat, compileFormatRules, isUnsureListener, listenerLabel, SPECIAL_LISTENERS, type ListenerOrigin, mentions, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
+import { AUTO_MARKS, type AutoMark, checkFormat, compileFormatRules, isUnsureListener, listenerLabel, SPECIAL_LISTENERS, type ListenerOrigin, mentions, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
 import { LineDetail, LINE_TABS, type LineTab } from '@/components/line-detail';
 import { SplitPane } from '@/components/split-pane';
-import { AiMark, StatusDot, TagChip } from '@/components/status';
+import { AiMark, MarkChip, StatusDot, TagChip } from '@/components/status';
 import { Pager, SearchInput, Toolbar } from '@/components/toolbar';
 import { TranslationEditor } from '@/components/translation-editor';
 import { LineSourceText, TokenText } from '@/components/editor/source-text';
@@ -92,12 +91,12 @@ export function filterChips(search: LinesSearch, statuses: { id: string; name: s
       return { key: `tag-${id}`, label: `#${tags.find((tag) => tag.id === id)?.name ?? '?'}`, clear: { tags: rest.length ? rest : undefined } };
     }),
     search.speaker && { key: 'speaker', label: `화자: ${search.speaker}`, clear: { speaker: undefined } },
-    search.listener && { key: 'listener', label: search.listener === '-' ? `#${AUTO_MARKS.unknownListener}` : `청자: ${search.listener}`, clear: { listener: undefined } },
-    search.remaining && { key: 'remaining', label: `#${AUTO_MARKS.remaining}`, clear: { remaining: undefined } },
-    search.by && { key: 'by', label: `#${AUTO_MARKS.ai}`, clear: { by: undefined } },
-    search.diverged && { key: 'diverged', label: `#${AUTO_MARKS.diverged}`, clear: { diverged: undefined } },
-    search.noted && { key: 'noted', label: `#${AUTO_MARKS.noted}`, clear: { noted: undefined } },
-  ].filter(Boolean) as { key: string; label: string; clear: Partial<LinesSearch> }[];
+    search.listener && { key: 'listener', label: search.listener === '-' ? `#${AUTO_MARKS.unknownListener.name}` : `청자: ${search.listener}`, ...(search.listener === '-' && { mark: 'unknownListener' as const }), clear: { listener: undefined } },
+    search.remaining && { key: 'remaining', label: `#${AUTO_MARKS.remaining.name}`, mark: 'remaining' as const, clear: { remaining: undefined } },
+    search.by && { key: 'by', label: `#${AUTO_MARKS.ai.name}`, mark: 'ai' as const, clear: { by: undefined } },
+    search.diverged && { key: 'diverged', label: `#${AUTO_MARKS.diverged.name}`, mark: 'diverged' as const, clear: { diverged: undefined } },
+    search.noted && { key: 'noted', label: `#${AUTO_MARKS.noted.name}`, mark: 'noted' as const, clear: { noted: undefined } },
+  ].filter(Boolean) as { key: string; label: string; /** Set for automatic marks: shown as the mark's chip. */ mark?: AutoMark; clear: Partial<LinesSearch> }[];
 }
 
 /** Who the line is addressed to. Unsure AI guesses count as unknown. */
@@ -105,6 +104,9 @@ function listenerText(line: { listener: string | null; listenerOrigin: ListenerO
   if (!line.listener || isUnsureListener(line)) return { text: '청자 미상', unknown: true };
   return { text: listenerLabel(line.listener), unknown: false };
 }
+
+/** What a line nobody says is, shown where the speaker would be. */
+const UNSPOKEN: Record<string, string> = { dialogue: '지문', ui: 'UI', document: '문서' };
 
 const typing = (target: EventTarget | null) => target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName));
 
@@ -368,7 +370,7 @@ export function LineList({
         />
         {chips.map((chip) => (
           <Button key={chip.key} variant="secondary" onClick={() => onSearch({ ...chip.clear, page: undefined })} aria-label={`${chip.label} 필터 지우기`}>
-            {chip.label} <X />
+            {chip.mark ? <MarkChip mark={chip.mark} /> : chip.label} <X />
           </Button>
         ))}
         {!find && !review && hasLineFilter(search) && (
@@ -380,19 +382,21 @@ export function LineList({
       {banner}
       {/* The head row: column labels, or the picked lines' actions (short labels and a container query keep them on one row). */}
       {!!rows?.length && (
-        <div className="flex min-h-10 shrink-0 items-center gap-3 border-b px-4 py-1 text-xs text-muted-foreground">
-          <Checkbox
-            aria-label="보이는 줄 모두 선택"
-            checked={rows.every((row) => picked.has(row.id)) ? true : rows.some((row) => picked.has(row.id)) ? 'indeterminate' : false}
-            onCheckedChange={(on) => pick(rows.map((row) => row.id), on === true)}
-          />
+        <div className="flex min-h-10 shrink-0 items-center border-b bg-muted/30 text-xs text-muted-foreground">
+          <span className="flex w-10 shrink-0 justify-center">
+            <Checkbox
+              aria-label="보이는 줄 모두 선택"
+              checked={rows.every((row) => picked.has(row.id)) ? true : rows.some((row) => picked.has(row.id)) ? 'indeterminate' : false}
+              onCheckedChange={(on) => pick(rows.map((row) => row.id), on === true)}
+            />
+          </span>
           {picked.size === 0 ? (
-            <div className="grid min-w-0 flex-1 grid-cols-2 gap-6">
-              <span>원문</span>
-              <span>번역</span>
-            </div>
+            <>
+              <span className="min-w-0 flex-1 px-3">원문</span>
+              <span className="min-w-0 flex-1 self-stretch border-l px-3 leading-10">번역</span>
+            </>
           ) : (
-            <div className="@container/picked flex min-w-0 flex-1 items-center gap-2">
+            <div className="@container/picked flex min-w-0 flex-1 items-center gap-2 pr-4">
               <span className="shrink-0 text-sm font-medium text-foreground tabular-nums">{picked.size.toLocaleString()}개</span>
               <Button variant="outline" disabled={pickedByAi.length === 0 || check.isPending} aria-label="확인함" title="상태는 그대로 두고 사람이 확인한 것으로 표시합니다(✦ 없앰)" onClick={() => check.mutate(pickedByAi)}>
                 <Check />
@@ -475,21 +479,37 @@ export function LineList({
                 <li
                   ref={selected ? selectedRow : undefined}
                   onClick={() => !selected && select(line.id, true)}
-                  className={cn('flex gap-3 border-b px-4 transition-colors', selected ? 'bg-muted/60 py-3 shadow-[inset_2px_0_0_var(--primary)]' : 'cursor-pointer py-2.5 hover:bg-muted/40', marked && !selected && 'bg-warning/5 shadow-[inset_2px_0_0_var(--warning)]')}
+                  className={cn('flex border-b transition-colors', selected ? 'bg-muted/60 shadow-[inset_2px_0_0_var(--primary)]' : 'cursor-pointer hover:bg-muted/40', marked && !selected && 'bg-warning/5 shadow-[inset_2px_0_0_var(--warning)]')}
                   style={line.id === arrived ? { animation: 'line-arrived 2s ease-out' } : undefined}
                   onAnimationEnd={() => setArrived(undefined)}
                 >
-                  <Checkbox className="mt-1" aria-label={`${line.key} 선택`} checked={picked.has(line.id)} onClick={(event) => event.stopPropagation()} onCheckedChange={(checked) => pick([line.id], Boolean(checked))} />
-                  <div className="grid min-w-0 flex-1 grid-cols-2 gap-6">
-                    <div className="min-w-0">
-                      <p className="mb-0.5 flex min-w-0 gap-1 text-xs text-muted-foreground">
-                        <SpeakerCard projectId={projectId} name={line.speaker}>
-                          <span className="truncate">{line.speaker ?? '지문'}</span>
-                        </SpeakerCard>
+                  <span className="flex w-10 shrink-0 justify-center pt-3">
+                    <Checkbox aria-label={`${line.key} 선택`} checked={picked.has(line.id)} onClick={(event) => event.stopPropagation()} onCheckedChange={(checked) => pick([line.id], Boolean(checked))} />
+                  </span>
+                    <div className={cn('min-w-0 flex-1 px-3', selected ? 'py-3' : 'py-2.5')}>
+                      {/* Who says it above the text; lines nobody says (UI, documents, narration) only name their kind. */}
+                      <p className="mb-0.5 flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+                        {/* The line's status leads the speaker line (✦ when a run set it). */}
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="flex shrink-0">
+                              <StatusDot color={status?.color ?? '#a1a1aa'} />
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent>{status?.name}</TooltipContent>
+                        </Tooltip>
+                        {line.statusBy === 'ai' && <AiMark by="ai" />}
+                        {line.speaker ? (
+                          <SpeakerCard projectId={projectId} name={line.speaker}>
+                            <span className="truncate">{line.speaker}</span>
+                          </SpeakerCard>
+                        ) : (
+                          <span className="shrink-0 text-muted-foreground/70">{UNSPOKEN[line.kind] ?? '지문'}</span>
+                        )}
                         <NoteMark note={line.note} className="mt-px" />
                         {marked && <span className="shrink-0 text-warning">● {find!.label}</span>}
                         {selected && line.kind === 'dialogue' && <span className={cn('truncate', who.unknown && 'text-warning')}>→ {who.text}</span>}
-                        {!selected && line.kind === 'dialogue' && who.unknown && <span className="shrink-0 text-warning">#{AUTO_MARKS.unknownListener}</span>}
+                        {!selected && line.kind === 'dialogue' && who.unknown && <MarkChip mark="unknownListener" projectId={projectId} className="shrink-0" />}
                         {selected && <LineLinks projectId={projectId} unitId={line.id} hasNote={!!line.note} onNote={() => setNoting(true)} onDetail={() => onSearch({ detail: true }, { replace: true })} />}
                       </p>
                       {selected ? (
@@ -498,7 +518,7 @@ export function LineList({
                         <TokenText text={line.source} source={line.source} pattern={tokenPattern} className="text-sm" />
                       )}
                     </div>
-                    <div className="min-w-0">
+                    <div className={cn('min-w-0 flex-1 border-l px-3', selected ? 'py-3' : 'py-2.5')}>
                       {selected ? (
                         <>
                           <TranslationEditor key={`editor-${line.id}`} projectId={projectId} unit={line} statuses={statusList} focusKey={focusTick} onEscape={() => setEditing(false)} onDone={(advanced) => (advanced ? advanceFrom(line.id) : undefined)} />
@@ -506,20 +526,13 @@ export function LineList({
                           <LineHints projectId={projectId} line={line} />
                         </>
                       ) : (
-                        <div className="flex gap-2 pt-4 text-sm">
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span className="mt-1.5 flex">
-                                <StatusDot color={status?.color ?? '#a1a1aa'} />
-                              </span>
-                            </TooltipTrigger>
-                            <TooltipContent>{status?.name}</TooltipContent>
-                          </Tooltip>
-                          {line.statusBy === 'ai' && <AiMark by="ai" className="mt-1 -ml-1" />}
+                        <div className="pt-4 text-sm">
                           <div className="min-w-0">
-                            {line.translation ? <TokenText text={line.translation} source={line.source} pattern={tokenPattern} /> : null}
-                            {line.tagIds.length > 0 && (
+                            {line.translation ? <TokenText text={line.translation} source={line.source} pattern={tokenPattern} /> : <span className="text-muted-foreground/60">—</span>}
+                            {(line.tagIds.length > 0 || line.statusBy === 'ai' || !!line.note) && (
                               <div className="mt-1 flex flex-wrap gap-1">
+                                {line.statusBy === 'ai' && <MarkChip mark="ai" projectId={projectId} />}
+                                {!!line.note && <MarkChip mark="noted" projectId={projectId} />}
                                 {lineTags(statuses.data?.tags)
                                   .filter((tag) => line.tagIds.includes(tag.id))
                                   .map((tag) => (
@@ -549,7 +562,6 @@ export function LineList({
                         </div>
                       )}
                     </div>
-                  </div>
                 </li>
                 </Fragment>
               );
@@ -645,7 +657,7 @@ function LineFilters({ projectId, statuses, tags, speakers, search, onSearch }: 
           ] as const
         ).map(([mark, checked, next]) => (
           <DropdownMenuCheckboxItem key={mark} checked={checked} onSelect={(event) => event.preventDefault()} onCheckedChange={(on) => onSearch(next(on) as Partial<LinesSearch>)}>
-            #{AUTO_MARKS[mark]}
+            <MarkChip mark={mark} projectId={projectId} />
           </DropdownMenuCheckboxItem>
         ))}
         {issueTags.length > 0 && (

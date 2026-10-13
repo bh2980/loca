@@ -56,6 +56,7 @@ const columns: ColumnDef<Row, unknown>[] = [
   {
     id: 'title',
     header: '작업',
+    meta: { hideable: false },
     cell: ({ row }) => (
       <>
         <span className="mr-1.5 text-xs text-muted-foreground">{JOB_KIND[row.original.kind]}</span>
@@ -152,7 +153,7 @@ function Runs() {
         className="h-full"
         pane={selected && <JobCalls key={selected.id} projectId={projectId} job={selected} onClose={() => select(undefined)} />}
       >
-        <DataTable
+        <DataTable id="runs"
           columns={columns}
           rows={rows}
           rowId={(row) => row.id}

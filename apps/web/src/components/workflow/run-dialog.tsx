@@ -11,7 +11,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
 import { client, unwrap } from '@/lib/api';
-import { AUTO_MARKS, type AutoMark } from '@/lib/marks';
+import { LINE_MARK_IDS, type LineMark } from '@tw/shared';
+import { MarkChip } from '@/components/status';
 import { lineTags, q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
@@ -59,7 +60,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
   const here = groupIds?.length ? groups.data?.filter((group) => groupIds.includes(group.id)) : undefined;
 
   const scope =
-    mode === 'units' ? { unitIds, ignoreStatus } : mode === 'here' ? { groupIds, ignoreStatus } : mode === 'groups' ? { groupIds: [...picked], ignoreStatus } : mode === 'tags' ? { tagIds: [...pickedTags], marks: [...pickedMarks] as AutoMark[], ignoreStatus } : { ignoreStatus };
+    mode === 'units' ? { unitIds, ignoreStatus } : mode === 'here' ? { groupIds, ignoreStatus } : mode === 'groups' ? { groupIds: [...picked], ignoreStatus } : mode === 'tags' ? { tagIds: [...pickedTags], marks: [...pickedMarks] as LineMark[], ignoreStatus } : { ignoreStatus };
   const ready = mode === 'all' || mode === 'units' || mode === 'here' || (mode === 'groups' && picked.size > 0) || (mode === 'tags' && (pickedTags.size > 0 || pickedMarks.size > 0));
   const plan = useQuery({
     queryKey: ['units', 'run-preflight', workflowId, scope],
@@ -241,9 +242,10 @@ function TagPicker({ tags, picked, setPicked, marks, setMarks }: { tags: { id: s
       <div className="space-y-1">
         <p className="px-2 text-xs text-muted-foreground">고른 표시와 태그를 모두 가진 줄 · 자동 표시</p>
         <div className="flex flex-wrap gap-2">
-          {(Object.keys(AUTO_MARKS) as AutoMark[]).map((mark) => (
+          {LINE_MARK_IDS.map((mark) => (
             <label key={mark} className="flex items-center gap-1.5 rounded px-2 py-1 text-sm hover:bg-muted">
-              <Checkbox checked={marks.has(mark)} onCheckedChange={(checked) => toggled(setMarks, mark, checked === true)} />#{AUTO_MARKS[mark]}
+              <Checkbox checked={marks.has(mark)} onCheckedChange={(checked) => toggled(setMarks, mark, checked === true)} />
+              <MarkChip mark={mark} />
             </label>
           ))}
         </div>
@@ -271,7 +273,7 @@ function Readiness({ projectId, readiness, oneScene, onLeave }: { projectId: str
       ok: readiness.unknownListenerLines === 0,
       text: readiness.unknownListenerLines ? `청자를 모르는 대사 ${readiness.unknownListenerLines.toLocaleString()}줄 (말투 규칙이 안 걸림)` : '대사마다 청자가 정해짐',
       link: readiness.unknownListenerLines > 0 && (
-        <Link to="/p/$projectId/script" params={{ projectId }} search={{ listener: '-', view: 'find', ...(oneScene && { group: oneScene }) }} onClick={onLeave}>
+        <Link to="/p/$projectId/script" params={{ projectId }} search={{ listener: '-', ...(oneScene && { group: oneScene }) }} onClick={onLeave}>
           청자 정하기
         </Link>
       ),

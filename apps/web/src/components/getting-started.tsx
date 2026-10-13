@@ -1,11 +1,11 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Check, CircleStop, Play, ScanSearch } from 'lucide-react';
-import { toast } from 'sonner';
+import { Check, CircleStop, Play, X } from 'lucide-react';
 import { hasAnalysis, StartAnalysis } from '@/components/knowledge/analysis-controls';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { Button } from '@/components/ui/button';
+import { HeaderActions } from '@/components/page';
 import { AnalysisSteps } from '@/components/job-progress';
 import { client, unwrap } from '@/lib/api';
 import { q, useReviewTagId } from '@/lib/queries';
@@ -28,7 +28,8 @@ interface Step {
 /**
  * The order of work for a new project, on its home page: each step checks itself off from the
  * project's own data, and only the next required step carries the primary button. It disappears
- * once a translation run has happened and the analysis exists (the work is under way).
+ * once a translation run has happened and the analysis exists (the work is under way), or when the
+ * person closes it (kept per project in this browser; '시작하기' in the header brings it back).
  */
 export function GettingStarted({ projectId }: { projectId: string }) {
   const connections = useQuery(q.connections());
@@ -38,11 +39,11 @@ export function GettingStarted({ projectId }: { projectId: string }) {
   const terms = useQuery(q.terms(projectId));
   const runs = useQuery(q.runs(projectId));
   const project = useQuery(q.project(projectId));
-  const discover = useMutation({
-    mutationFn: () => unwrap(client.projects[':projectId'].terms.discover.$post({ param: { projectId } })),
-    onSuccess: (result) => toast.success(`용어 후보 ${result.added.toLocaleString()}개를 찾았습니다`, { description: '용어집에서 번역을 채우고 확정하세요.' }),
-    onError: (error) => toast.error(error.message),
-  });
+  const [hidden, setHidden] = useState(() => readHidden(projectId));
+  const hide = (value: boolean) => {
+    setHidden(value);
+    writeHidden(projectId, value);
+  };
   const cancel = useMutation({ mutationFn: (jobId: string) => unwrap(client.projects[':projectId'].analysis[':jobId'].cancel.$post({ param: { projectId, jobId } })) });
   if (!connections.data || !jobs.data || !rules.data || !terms.data || !runs.data || !project.data) return null;
 
@@ -51,6 +52,14 @@ export function GettingStarted({ projectId }: { projectId: string }) {
   const reading = jobs.data.find((job) => job.status === 'running');
   const ran = runs.data.length > 0;
   if (analysed && ran) return null;
+  if (hidden)
+    return (
+      <HeaderActions>
+        <Button variant="ghost" onClick={() => hide(false)}>
+          시작하기
+        </Button>
+      </HeaderActions>
+    );
   const toCheck = rules.data.filter((rule) => rule.statusBy === 'ai' && rule.tags.some((tag) => tag.id === reviewTag)).length;
   const confirmedTerms = terms.data.filter((term) => term.status === 'confirmed').length;
   const candidates = terms.data.filter((term) => term.status === 'candidate').length;
@@ -113,23 +122,18 @@ export function GettingStarted({ projectId }: { projectId: string }) {
       title: '용어 정하기',
       why: !terms.data.length
         ? analysed
-          ? '작품 분석이 용어를 찾지 못했습니다. 대본에서 고유명사·약어·화자 이름을 코드로 찾아 후보로 넣을 수 있습니다(AI 비용 없음).'
-          : '작품 분석이 용어 후보도 만듭니다. 분석 전에 대본에서 고유명사·약어·화자 이름을 코드로 먼저 찾아 둘 수도 있습니다(AI 비용 없음, 몇 초).'
+          ? '작품 분석이 용어를 찾지 못했습니다. 용어집에서 직접 추가할 수 있습니다.'
+          : '작품 분석이 용어 후보도 만듭니다.'
         : `용어 후보 ${candidates.toLocaleString()}개${emptyTerms ? ` (번역이 빈 것 ${emptyTerms.toLocaleString()}개)` : ''}. 용어집에서 빈 번역을 AI로 채우고, 확인해서 확정하세요. 확정한 용어만 번역 문맥에 들어갑니다.`,
       done: confirmedTerms > 0,
       optional: true,
-      action: () =>
-        terms.data.length ? (
-          <Button asChild variant="ghost">
-            <Link to="/p/$projectId/glossary" params={{ projectId }} search={{ state: 'candidate' }}>
-              용어집 열기
-            </Link>
-          </Button>
-        ) : (
-          <Button variant="outline" disabled={discover.isPending} onClick={() => discover.mutate()}>
-            <ScanSearch /> 대본에서 용어 찾기
-          </Button>
-        ),
+      action: () => (
+        <Button asChild variant="ghost">
+          <Link to="/p/$projectId/glossary" params={{ projectId }} search={terms.data.length ? { state: 'candidate' } : {}}>
+            용어집 열기
+          </Link>
+        </Button>
+      ),
     },
     {
       key: 'run',
@@ -166,8 +170,12 @@ export function GettingStarted({ projectId }: { projectId: string }) {
 
   return (
     <section>
-      <h2 className="mb-1 text-base font-semibold">시작하기</h2>
-      <p className="mb-3 text-sm text-muted-foreground">이 순서로 하면 됩니다. 단계는 프로젝트 상태를 보고 저절로 체크됩니다.</p>
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-base font-semibold">시작하기</h2>
+        <Button variant="ghost" size="icon" aria-label="시작하기 닫기" title="닫기 (머리줄의 '시작하기'로 다시 열기)" onClick={() => hide(true)}>
+          <X />
+        </Button>
+      </div>
       <ol className="divide-y rounded-lg border">
         {steps.map((step, i) => {
           const current = step === next;
@@ -191,4 +199,23 @@ export function GettingStarted({ projectId }: { projectId: string }) {
       </ol>
     </section>
   );
+}
+
+const hiddenKey = (projectId: string) => `getting-started-hidden:${projectId}`;
+
+function readHidden(projectId: string) {
+  try {
+    return localStorage.getItem(hiddenKey(projectId)) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function writeHidden(projectId: string, hidden: boolean) {
+  try {
+    if (hidden) localStorage.setItem(hiddenKey(projectId), '1');
+    else localStorage.removeItem(hiddenKey(projectId));
+  } catch {
+    // Storage unavailable: closed until the page reloads.
+  }
 }

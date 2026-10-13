@@ -81,7 +81,7 @@ const ReviewBadge = ({ reasons }: { reasons: string }) => (
 );
 const levelsText = (rules: Row[]) => rules.map((rule) => SPEECH_LEVEL_LABELS[rule.level as SpeechLevel]).join(' → ');
 
-/** The speaker → listener pairs as a table; 출처 and 상태 filter through their headers. */
+/** The speaker → listener pairs as a table; 출처 filters through its header, 후보 and AI가 정함 through the 태그 column. */
 export function PairTable({ pairs, loading, selected, picked, onPick, onOpen, bulk, filters }: {
   pairs: Pair[] | undefined;
   loading: boolean;
@@ -93,13 +93,13 @@ export function PairTable({ pairs, loading, selected, picked, onPick, onOpen, bu
   filters: KnowledgeFilterState;
 }) {
   const columns: ColumnDef<Pair, unknown>[] = [
-    { id: 'pair', header: '화자 → 청자', meta: { width: 240, className: 'font-medium' }, cell: ({ row: { original: pair } }) => `${pair.from} → ${listenerLabel(pair.to)}` },
+    { id: 'pair', header: '화자 → 청자', meta: { width: 240, className: 'font-medium', hideable: false }, cell: ({ row: { original: pair } }) => `${pair.from} → ${listenerLabel(pair.to)}` },
     { id: 'relationship', header: '관계', meta: { width: 200 }, cell: ({ row: { original: pair } }) => (pair.relationship ? String(pair.relationship.kind) : <span className="text-muted-foreground">—</span>) },
     { id: 'speech', header: '말투', cell: ({ row: { original: pair } }) => (pair.rules.length ? levelsText(pair.rules) : <span className="text-muted-foreground">—</span>) },
     ...metaColumns<Pair>(pairSummary, filters),
   ];
   return (
-    <DataTable
+    <DataTable id="knowledge-pairs"
       columns={columns}
       rows={pairs}
       loading={loading}

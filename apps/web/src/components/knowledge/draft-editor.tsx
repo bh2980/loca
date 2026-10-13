@@ -4,7 +4,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Check, ChevronRight, Play, Tags, Trash2 } from 'lucide-react';
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuLabel, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
-import { aiDecided, DOCUMENT_KINDS, STYLE_AXES, type StyleAxis, SPEECH_FIX_WORKFLOW, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, sourceOf, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type SpeechLevel, type StatusBy } from '@tw/shared';
+import { aiDecided, AUTO_MARKS, type AutoMark, DOCUMENT_KINDS, STYLE_AXES, type StyleAxis, SPEECH_FIX_WORKFLOW, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, sourceOf, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type SpeechLevel, type StatusBy } from '@tw/shared';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
@@ -17,11 +17,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { useDraft } from '@/lib/drafts';
-import { AiMark, TagChip } from '@/components/status';
+import { AiMark, MarkChip, TagChip } from '@/components/status';
 import { DOCUMENT_KIND } from '@/lib/labels';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { DataTable, type ColumnDef } from '@/components/data-table';
+import type { FilterChip } from '@/components/toolbar';
 import { DetailPane, PaneSection } from '@/components/detail-pane';
 import { HeaderFilter, MarkFilter, type FilterOption } from '@/components/header-filter';
 
@@ -91,24 +92,31 @@ export const candidateRow = (row: Draft) => (row.status === 'candidate' ? '[&>td
 export type SourceFilter = KnowledgeSource | undefined;
 /** 'ai': confirmed by AI and not looked at yet (✦), the 'AI가 정한 것만' filter. */
 export type StatusFilter = 'confirmed' | 'ai' | 'candidate' | undefined;
-/** Marks the app reads off a knowledge item, offered with the tags in the 태그 filter. */
-export const KNOWLEDGE_MARKS = { candidate: '후보', ai: 'AI가 정함', bare: '근거 없음' } as const;
-
 export const matches = (row: Draft, source: SourceFilter, status: StatusFilter, tags?: string[], bare?: boolean) =>
   (!source || sourceOf(row) === source) &&
   (!status || (status === 'ai' ? aiDecided(row) : row.status === status)) &&
   (tags ?? []).every((tag) => row.tags?.some((item) => item.id === tag)) &&
   (!bare || !row.evidence.length);
 
-/** An item's tags as chips; the app's reason for one (확인 권장) shows on hover. */
-export function TagCell({ tags, known }: { tags?: ItemTag[]; known: TagInfo[] }) {
+/** The automatic marks (#후보, #AI가 정함, #근거 없음) an item carries; `bare` is off where evidence is not tracked. */
+export const knowledgeMarks = (row: Draft, bare = true): AutoMark[] => [
+  ...(row.status === 'candidate' ? ['candidate' as const] : []),
+  ...(aiDecided(row) ? ['ai' as const] : []),
+  ...(bare && !row.evidence.length ? ['noEvidence' as const] : []),
+];
+
+/** An item's automatic marks then its tags, all as colored chips; the app's reason for a tag (확인 권장) shows on hover. */
+export function TagCell({ tags, known, marks }: { tags?: ItemTag[]; known: TagInfo[]; marks?: AutoMark[] }) {
   const shown = (tags ?? []).flatMap((item) => {
     const info = known.find((tag) => tag.id === item.id);
     return info ? [{ ...item, info }] : [];
   });
-  if (!shown.length) return null;
+  if (!shown.length && !marks?.length) return null;
   return (
     <span className="flex flex-wrap gap-1">
+      {marks?.map((mark) => (
+        <MarkChip key={mark} mark={mark} />
+      ))}
       {shown.map((item) => (
         <span key={item.id} title={item.note ?? undefined}>
           <TagChip tag={item.info} />
@@ -158,16 +166,17 @@ export interface KnowledgeFilterState {
 }
 
 /** The 태그 filter: the app's marks, then the tags; every pick narrows the rows. */
-export function TagFilter({ filters, marks = ['candidate', 'ai', 'bare'] }: { filters: KnowledgeFilterState; marks?: (keyof typeof KNOWLEDGE_MARKS)[] }) {
+export function TagFilter({ filters, marks = ['candidate', 'ai', 'noEvidence'] }: { filters: KnowledgeFilterState; marks?: AutoMark[] }) {
   const picked = filters.tags ?? [];
   const toggle = (id: string, on: boolean) => {
     const next = on ? [...picked, id] : picked.filter((other) => other !== id);
     filters.onChange({ tags: next.length ? next : undefined });
   };
-  const mark = (key: keyof typeof KNOWLEDGE_MARKS) =>
-    key === 'bare'
-      ? { key, label: `#${KNOWLEDGE_MARKS[key]}`, checked: Boolean(filters.bare), onChange: (on: boolean) => filters.onChange({ bare: on || undefined }) }
-      : { key, label: `#${KNOWLEDGE_MARKS[key]}`, checked: filters.status === key, onChange: (on: boolean) => filters.onChange({ status: on ? key : undefined }) };
+  // The URL keeps its names: ?state=candidate|ai, ?bare.
+  const mark = (key: AutoMark) =>
+    key === 'noEvidence'
+      ? { key, label: <MarkChip mark={key} />, checked: Boolean(filters.bare), onChange: (on: boolean) => filters.onChange({ bare: on || undefined }) }
+      : { key, label: <MarkChip mark={key} />, checked: filters.status === key, onChange: (on: boolean) => filters.onChange({ status: on ? (key as 'ai' | 'candidate') : undefined }) };
   return (
     <MarkFilter
       label="태그"
@@ -184,23 +193,34 @@ export function metaColumns<T>(draftOf: (row: T) => Draft, filters: KnowledgeFil
   return [
     {
       id: 'tags',
-      meta: { width: 120 },
+      meta: { width: 150, label: '태그' },
       header: () => <TagFilter filters={filters} />,
-      cell: ({ row }) => <TagCell tags={draftOf(row.original).tags} known={filters.known} />,
+      cell: ({ row }) => <TagCell tags={draftOf(row.original).tags} known={filters.known} marks={knowledgeMarks(draftOf(row.original))} />,
     },
     {
       id: 'source',
-      meta: { width: 88 },
+      meta: { width: 88, label: '출처' },
       header: () => <HeaderFilter label="출처" value={filters.source} options={sourceOptions} onChange={(value) => filters.onChange({ source: value as SourceFilter })} />,
       cell: ({ row }) => <SourceBadge row={draftOf(row.original)} />,
     },
-    {
-      id: 'state',
-      meta: { width: 80 },
-      // Filtered through the 태그 column's marks (#후보, #AI가 정함), not twice.
-      header: '상태',
-      cell: ({ row }) => <StateCell row={draftOf(row.original)} />,
-    },
+  ];
+}
+
+/** The knowledge filters that are set, as removable chips for the toolbar. */
+export function knowledgeFilterChips(filters: KnowledgeFilterState): FilterChip[] {
+  return [
+    ...(filters.source ? [{ key: 'source', label: SOURCE_LABELS[filters.source], clear: () => filters.onChange({ source: undefined }) }] : []),
+    ...(filters.status && filters.status !== 'confirmed' ? [{ key: 'status', label: <MarkChip mark={filters.status as 'ai' | 'candidate'} />, name: AUTO_MARKS[filters.status as 'ai' | 'candidate'].name, clear: () => filters.onChange({ status: undefined }) }] : []),
+    ...(filters.status === 'confirmed' ? [{ key: 'status', label: KNOWLEDGE_STATUS_LABELS.confirmed, clear: () => filters.onChange({ status: undefined }) }] : []),
+    ...(filters.bare ? [{ key: 'bare', label: <MarkChip mark="noEvidence" />, name: AUTO_MARKS.noEvidence.name, clear: () => filters.onChange({ bare: undefined }) }] : []),
+    ...(filters.tags ?? []).map((id) => ({
+      key: `tag:${id}`,
+      label: `#${filters.known.find((tag) => tag.id === id)?.name ?? id}`,
+      clear: () => {
+        const next = (filters.tags ?? []).filter((other) => other !== id);
+        filters.onChange({ tags: next.length ? next : undefined });
+      },
+    })),
   ];
 }
 
@@ -261,7 +281,9 @@ export function TagMenu({ tags, rows, onChange }: { tags: TagInfo[]; rows: Draft
   );
 }
 
-export function KnowledgeTable({ spec, rows, loading, selected, onOpen, picked, onPick, bulk, empty, filters }: {
+export function KnowledgeTable({ id, spec, rows, loading, selected, onOpen, picked, onPick, bulk, empty, filters }: {
+  /** Keeps the column widths per kind (see DataTable). */
+  id?: string;
   spec: KindSpec;
   rows: Row[] | undefined;
   loading: boolean;
@@ -274,10 +296,10 @@ export function KnowledgeTable({ spec, rows, loading, selected, onOpen, picked, 
   filters: KnowledgeFilterState;
 }) {
   const columns: ColumnDef<Row, unknown>[] = [
-    ...spec.columns.map((column): ColumnDef<Row, unknown> => ({ id: column.head, header: column.head, meta: { width: column.width, className: column.className }, cell: ({ row }) => column.cell(row.original) })),
+    ...spec.columns.map((column, index): ColumnDef<Row, unknown> => ({ id: column.head, header: column.head, meta: { width: column.width, className: column.className, hideable: index === 0 ? false : undefined }, cell: ({ row }) => column.cell(row.original) })),
     ...metaColumns<Row>((row) => row, filters),
   ];
-  return <DataTable columns={columns} rows={rows} loading={loading} rowId={(row) => row.id} selected={selected} onRowClick={(row) => onOpen(row.id)} rowClassName={candidateRow} picked={picked} onPick={onPick} bulk={bulk} empty={empty} />;
+  return <DataTable id={id} columns={columns} rows={rows} loading={loading} rowId={(row) => row.id} selected={selected} onRowClick={(row) => onOpen(row.id)} rowClassName={candidateRow} picked={picked} onPick={onPick} bulk={bulk} empty={empty} />;
 }
 
 export function DiscardButton({ count, onConfirm, disabled }: { count: number; onConfirm: () => void; disabled?: boolean }) {

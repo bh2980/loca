@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { AUTO_MARKS, type AutoMark } from '@/lib/marks';
+import { AUTO_MARKS, type AutoMark } from '@tw/shared';
 import { useMutation } from '@tanstack/react-query';
 import { Play, Plus, Trash2, X } from 'lucide-react';
 import {
@@ -16,7 +16,7 @@ import {
   type WorkflowIssue,
   type WorkflowNode,
 } from '@tw/shared';
-import { StatusDot, TagChip } from '@/components/status';
+import { MarkChip, StatusDot, TagChip } from '@/components/status';
 import { AiConfirmNote } from '@/components/settings/ai-confirm';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -689,13 +689,13 @@ function ConditionEditor({ node, nodes, readOnly, onChange }: { node: ConditionN
               <SelectContent>
                 {CONDITION_MARKS.map((id) => (
                   <SelectItem key={id} value={id}>
-                    #{AUTO_MARKS[id]}
+                    <MarkChip mark={id} />
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
             표시가 있음
-            <Button variant="secondary" onClick={() => apply({ in: [mark, { var: 'unit.marks' }] }, `줄에 #${AUTO_MARKS[mark]} 표시가 있음`)}>
+            <Button variant="secondary" onClick={() => apply({ in: [mark, { var: 'unit.marks' }] }, `줄에 #${AUTO_MARKS[mark].name} 표시가 있음`)}>
               적용
             </Button>
           </div>
