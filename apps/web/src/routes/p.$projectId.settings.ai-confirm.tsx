@@ -71,7 +71,7 @@ function AiConfirmSettings() {
     {
       id: 'from',
       header: '넣는 곳 · 참고',
-      meta: { className: 'text-muted-foreground' },
+      meta: { className: 'text-muted-foreground', wrap: true },
       cell: ({ row }) => (
         <span className="text-xs">
           {WRITERS[row.original.kind]}
