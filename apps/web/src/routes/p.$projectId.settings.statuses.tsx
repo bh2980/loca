@@ -222,7 +222,7 @@ function StatusSettings() {
       id: 'on',
       header: '붙는 곳',
       meta: { width: 140, className: 'text-muted-foreground' },
-      cell: ({ row }) => (row.original.mark ? AUTO_MARKS[row.original.mark].on.map((where) => ON_LABELS[where]).join(' · ') : row.original.tag?.role === REVIEW_TAG.role ? '자료' : '대사'),
+      cell: ({ row }) => (row.original.mark ? AUTO_MARKS[row.original.mark].on.map((where) => ON_LABELS[where]).join(' · ') : row.original.tag?.role === REVIEW_TAG.role ? '자료' : row.original.tag?.role ? '대사' : '어디든'),
     },
     {
       id: 'description',
