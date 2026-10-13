@@ -84,13 +84,30 @@ function GraphPage() {
   const info = useMemo(() => {
     const types = graph.data?.nodeTypes ?? {};
     // Control nodes are labelled by what the game's node class means, not by its raw name.
-    const map = new Map<string, NodeInfo>((graph.data?.nodes ?? []).map((node) => [node.id, { ...node, label: node.label ?? (node.type ? (types[node.type]?.label ?? node.type) : null) }]));
+    // A line card leads with who speaks and shows the line; the node key is in the side pane.
+    const lineCard = (node: { speaker?: string | null; text?: string | null; total?: number }) =>
+      node.text ? { title: `${node.speaker ?? '지문·화면 문구'}${(node.total ?? 0) > 1 ? ` · ${node.total}줄` : ''}`, body: node.text } : {};
+    const map = new Map<string, NodeInfo>(
+      (graph.data?.nodes ?? []).map((node) => [node.id, { ...node, label: node.label ?? (node.type ? (types[node.type]?.label ?? node.type) : null), ...(node.kind === 'script' && lineCard(node)) }]),
+    );
+    const totals = new Map((graph.data?.nodes ?? []).map((node) => [node.id, node] as const));
     // Stand-ins for lines that continue in (or come from) another section.
     for (const portal of graph.data?.layout?.portals ?? []) map.set(portal.id, { id: portal.id, kind: 'portal', label: `${portal.direction === 'out' ? '→' : '←'} ${portal.section}`, preview: null, key: portal.id });
     // A folded straight run reads as its first line, with how many nodes it holds.
+    // A folded straight run of lines: how many lines it holds, and its first spoken line.
     for (const chain of graph.data?.layout?.chains ?? []) {
       const first = map.get(chain.nodeIds[0]);
-      map.set(chain.id, { id: chain.id, kind: 'chain', label: `이어진 노드 ${chain.nodeIds.length}개`, preview: first?.preview ?? first?.label ?? null, key: `${first?.key ?? ''} 외 ${chain.nodeIds.length - 1}개` });
+      const spoken = chain.nodeIds.map((id) => totals.get(id)).find((node) => node?.text);
+      const lines = chain.nodeIds.reduce((sum, id) => sum + (totals.get(id)?.total ?? 0), 0);
+      map.set(chain.id, {
+        id: chain.id,
+        kind: 'chain',
+        label: `이어진 대사 ${lines}줄`,
+        title: lines ? `이어진 대사 ${lines}줄` : `이어진 노드 ${chain.nodeIds.length}개`,
+        body: spoken ? `${spoken.speaker ? `${spoken.speaker}: ` : ''}${spoken.text}` : (first?.label ?? null),
+        preview: spoken?.preview ?? first?.preview ?? first?.label ?? null,
+        key: `${first?.key ?? ''} 외 ${chain.nodeIds.length - 1}개`,
+      });
     }
     return map;
   }, [graph.data]);

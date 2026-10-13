@@ -338,7 +338,7 @@ export const sourceRoutes = new Hono<Env>()
         status: layout?.status ?? 'missing',
         error: layout?.error ?? null,
         layout: db.select({ data: s.graphLayouts.data }).from(s.graphLayouts).where(where).get()?.data ?? null,
-        nodes: nodes.map((node) => ({ ...node, type: null as string | null, kind: 'scene', groupId: node.id, preview: `${node.total}개 대사` })),
+        nodes: nodes.map((node) => ({ ...node, type: null as string | null, kind: 'scene', groupId: node.id, preview: `${node.total}개 대사`, speaker: null as string | null, text: null as string | null })),
         nodeTypes: {} as Record<string, NodeType>,
         sections: [] as { name: string; nodes: number; groupIds: string[] }[],
       });
@@ -348,7 +348,9 @@ export const sourceRoutes = new Hono<Env>()
     // 50k-node layout (15 MB) held the server for a quarter of a second. A section's layout is
     // small, so its node ids are read from it to send only that section's nodes.
     const raw = db.select({ data: sql<string | null>`${s.graphLayouts.data}` }).from(s.graphLayouts).where(where).get()?.data ?? 'null';
-    const only = section && raw !== 'null' ? (JSON.parse(raw) as s.LayoutData).nodes.map((node) => node.id).filter((id) => !id.startsWith('portal:')) : null;
+    // Nodes folded into a straight run are not layout nodes themselves but are shown through it: send them too.
+    const parsed = section && raw !== 'null' ? (JSON.parse(raw) as s.LayoutData) : null;
+    const only = parsed ? [...parsed.nodes.map((node) => node.id).filter((id) => !id.startsWith('portal:')), ...(parsed.chains ?? []).flatMap((chain) => chain.nodeIds)] : null;
     // One preview line per node keeps the payload small; details load on selection.
     const nodes = db
       .select({
@@ -360,6 +362,9 @@ export const sourceRoutes = new Hono<Env>()
         groupId: s.graphNodes.groupId,
         total: sql<number>`json_array_length(${s.graphNodes.unitIds})`,
         preview: sql<string | null>`(select coalesce(u.speaker || ': ', '') || substr(u.source, 1, 90) from units u where u.id = json_extract("graph_nodes"."unit_ids", '$[0]'))`,
+        // The first line apart, so a card can lead with who speaks.
+        speaker: sql<string | null>`(select u.speaker from units u where u.id = json_extract("graph_nodes"."unit_ids", '$[0]'))`,
+        text: sql<string | null>`(select substr(u.source, 1, 120) from units u where u.id = json_extract("graph_nodes"."unit_ids", '$[0]'))`,
       })
       .from(s.graphNodes)
       .where(and(eq(s.graphNodes.projectId, projectId), only ? inList(s.graphNodes.id, only) : undefined))

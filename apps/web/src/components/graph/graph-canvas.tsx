@@ -33,6 +33,9 @@ export interface NodeInfo {
   label: string | null;
   preview: string | null;
   key: string;
+  /** A card's first line (who speaks, or what a folded run holds) and the text under it. */
+  title?: string;
+  body?: string | null;
 }
 export interface Viewport {
   x: number;
@@ -539,10 +542,10 @@ function drawLabel(context: CanvasRenderingContext2D, meta: NodeInfo, node: Layo
     context.rect(node.x + 10, node.y + 6, node.width - 20, node.height - 12);
     context.clip();
     context.font = '600 12px Pretendard, system-ui, sans-serif';
-    context.fillText(meta.kind === 'scene' || meta.kind === 'chain' ? (meta.label ?? meta.key) : meta.key, node.x + 12, node.y + 22);
+    context.fillText(meta.title ?? (meta.kind === 'scene' || meta.kind === 'chain' ? (meta.label ?? meta.key) : meta.key), node.x + 12, node.y + 22);
     context.font = '12px Pretendard, system-ui, sans-serif';
     context.fillStyle = '#52525b';
-    wrapText(context, meta.preview ?? meta.label ?? '', node.x + 12, node.y + 42, node.width - 24, 16, 2);
+    wrapText(context, meta.body ?? meta.preview ?? meta.label ?? '', node.x + 12, node.y + 42, node.width - 24, 16, 2);
   } else if (meta.kind === 'portal') {
     // Section stand-in: the name sits inside the box.
     context.font = '11px Pretendard, system-ui, sans-serif';
