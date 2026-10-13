@@ -68,8 +68,8 @@ export const SECTIONS: Section[] = [
     group: 'automation',
     icon: Sparkles,
     tabs: [
-      { label: '사용 방식', path: '/ai/usage' },
       { label: '연결', path: '/ai/connections' },
+      { label: '사용 방식', path: '/ai/usage' },
     ],
   },
   {
@@ -78,8 +78,8 @@ export const SECTIONS: Section[] = [
     group: 'settings',
     icon: Cog,
     tabs: [
-      { label: '상태·태그', path: '/settings/statuses' },
       { label: '프로젝트', path: '/settings/project' },
+      { label: '상태·태그', path: '/settings/statuses' },
     ],
   },
 ];
