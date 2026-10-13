@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { Check, CircleAlert, Languages, Sparkles, WandSparkles } from 'lucide-react';
 import { toast } from 'sonner';
-import { checkFormat, listenerLabel, type FormatIssue, type FormatRules } from '@tw/shared';
+import { checkFormat, listenerLabel, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatIssue, type FormatRules } from '@tw/shared';
 import { TokenChip, TokenText } from '@/components/editor/source-text';
 import { focusEndOfLine, insertUnitIntoLine, proposeInLine, replaceLineText, TranslationInput } from '@/components/editor/translation-input';
 import { AiMark, StatusDot } from '@/components/status';
@@ -239,7 +239,7 @@ export function TranslationEditor({
           </Button>
         </div>
       )}
-      <DraftChecks unitId={unit.id} source={unit.source} draft={draft} units={line.units} tags={tags} rules={project.data?.formatRules ?? undefined} targetLanguage={project.data?.targetLanguage} onPlace={placeMissing} />
+      <DraftChecks unitId={unit.id} source={unit.source} draft={draft} units={line.units} terms={line.terms} tags={tags} rules={project.data?.formatRules ?? undefined} targetLanguage={project.data?.targetLanguage} onPlace={placeMissing} />
       <div className="flex flex-wrap items-center gap-2">
         {dirty && <span className="text-xs text-warning">저장 안 됨</span>}
         {editorAi?.enabled && editorAi.model && !ai.loading && (
@@ -451,23 +451,32 @@ const CHECK_LABELS: Partial<Record<FormatIssue['code'], string>> = { number: '�
  * it at the cursor; the same chips are ringed in the source), one icon and word per other problem
  * (the full sentence in its tooltip), or a quiet ✓ when all pass.
  */
-function DraftChecks({ unitId, source, draft, units, tags, rules, targetLanguage, onPlace }: {
+function DraftChecks({ unitId, source, draft, units, terms, tags, rules, targetLanguage, onPlace }: {
   unitId: string;
   source: string;
   draft: string;
   units: TokenUnit[];
+  /** Confirmed terms the source uses (the chips under the source). */
+  terms: { source: string; target: string }[];
   tags: ReturnType<typeof placeTags>;
   rules?: FormatRules;
   targetLanguage?: string;
   onPlace: () => void;
 }) {
+  const unit = useQuery(q.unit(unitId));
   if (!draft.trim()) return null;
+  // Terms and speech are shown by their rule under the source too; here they count toward the one verdict.
+  const lower = draft.toLowerCase();
+  const unusedTerms = terms.filter((term) => !lower.includes(term.target.toLowerCase()));
+  const speech = unit.data?.speech;
+  const guessed = speechLevelOf(draft.trim());
+  const speechOff = !!speech && speech.level !== 'other' && !!guessed && guessed !== speech.level;
   const missing = units.filter((unit) => tags.placed.includes(unit.number) || tags.left.includes(unit.number));
   // Missing tokens are shown as chips; the tag/placeholder sentence is only needed when nothing is missing (an extra or broken token).
   const issues = checkFormat(source, draft, editorChecks(targetLanguage), rules).filter((issue) => issue.code !== 'empty' && !(missing.length && (issue.code === 'tag' || issue.code === 'placeholder')));
-  if (!missing.length && !issues.length)
+  if (!missing.length && !issues.length && !unusedTerms.length && !speechOff)
     return (
-      <p className="flex items-center gap-1 text-xs text-muted-foreground" title="서식 · 숫자 · 공백 · 줄바꿈 · 조사 검사 통과">
+      <p className="flex items-center gap-1 text-xs text-muted-foreground" title="용어 · 말투 · 서식 · 숫자 · 공백 · 줄바꿈 · 조사 검사 통과">
         <Check className="size-3 text-success" /> 검사 통과
       </p>
     );
@@ -487,6 +496,16 @@ function DraftChecks({ unitId, source, draft, units, tags, rules, targetLanguage
         <Button variant="ghost" size="inline" className="text-xs text-muted-foreground" title={`자리를 찾은 ${tags.placed.length}개 넣기 (${keyLabel('Alt+T')}, Tab으로 받기)`} onClick={onPlace}>
           제자리에 넣기
         </Button>
+      )}
+      {unusedTerms.length > 0 && (
+        <span className="inline-flex items-center gap-1" title={`번역에 없는 용어: ${unusedTerms.map((term) => `${term.source} → ${term.target}`).join(', ')}`}>
+          <CircleAlert className="size-3" />용어 {unusedTerms.length}
+        </span>
+      )}
+      {speechOff && (
+        <span className="inline-flex items-center gap-1" title={`말투 규칙은 ${SPEECH_LEVEL_LABELS[speech!.level]}, 지금 번역은 ${SPEECH_LEVEL_LABELS[guessed!]}`}>
+          <CircleAlert className="size-3" />말투
+        </span>
       )}
       {issues.map((issue) => (
         <span key={issue.code} className="inline-flex items-center gap-1" title={issue.message}>
