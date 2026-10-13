@@ -4,7 +4,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Check, ChevronRight, Play, Tags, Trash2 } from 'lucide-react';
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuLabel, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
-import { aiDecided, AUTO_MARKS, type AutoMark, DOCUMENT_KINDS, STYLE_AXES, type StyleAxis, SPEECH_FIX_WORKFLOW, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, sourceOf, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type SpeechLevel, type StatusBy } from '@tw/shared';
+import { AUTO_MARK_IDS, AUTO_MARKS, type AutoMark, knowledgeMarksOf, matchesMarks, DOCUMENT_KINDS, STYLE_AXES, type StyleAxis, SPEECH_FIX_WORKFLOW, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, sourceOf, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type SpeechLevel, type StatusBy } from '@tw/shared';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
@@ -90,20 +90,12 @@ export function SourceBadge({ row }: { row: Draft }) {
 export const candidateRow = (row: Draft) => (row.status === 'candidate' ? '[&>td:first-child]:border-l-2 [&>td:first-child]:border-dashed [&>td:first-child]:border-l-warning' : undefined);
 
 export type SourceFilter = KnowledgeSource | undefined;
-/** 'ai': confirmed by AI and not looked at yet (✦), the 'AI가 정한 것만' filter. */
-export type StatusFilter = 'confirmed' | 'ai' | 'candidate' | undefined;
-export const matches = (row: Draft, source: SourceFilter, status: StatusFilter, tags?: string[], bare?: boolean) =>
-  (!source || sourceOf(row) === source) &&
-  (!status || (status === 'ai' ? aiDecided(row) : row.status === status)) &&
-  (tags ?? []).every((tag) => row.tags?.some((item) => item.id === tag)) &&
-  (!bare || !row.evidence.length);
+/** `marks` is the page's marks param: rules of matchesMarks (#후보 and #AI가 정함 together mean either). */
+export const matches = (row: Draft, source: SourceFilter, marks?: readonly AutoMark[], tags?: string[]) =>
+  (!source || sourceOf(row) === source) && matchesMarks(knowledgeMarksOf(row), marks) && (tags ?? []).every((tag) => row.tags?.some((item) => item.id === tag));
 
-/** The automatic marks (#후보, #AI가 정함, #근거 없음) an item carries; `bare` is off where evidence is not tracked. */
-export const knowledgeMarks = (row: Draft, bare = true): AutoMark[] => [
-  ...(row.status === 'candidate' ? ['candidate' as const] : []),
-  ...(aiDecided(row) ? ['ai' as const] : []),
-  ...(bare && !row.evidence.length ? ['noEvidence' as const] : []),
-];
+/** The marks a knowledge item can be filtered by. */
+export const KNOWLEDGE_MARK_IDS = AUTO_MARK_IDS.filter((id) => (AUTO_MARKS[id].on as readonly string[]).includes('knowledge'));
 
 /** An item's automatic marks then its tags, all as colored chips; the app's reason for a tag (확인 권장) shows on hover. */
 export function TagCell({ tags, known, marks }: { tags?: ItemTag[]; known: TagInfo[]; marks?: AutoMark[] }) {
@@ -127,11 +119,6 @@ export function TagCell({ tags, known, marks }: { tags?: ItemTag[]; known: TagIn
 }
 
 export const sourceOptions: FilterOption[] = KNOWLEDGE_SOURCES.map((value) => ({ value, label: SOURCE_LABELS[value] }));
-export const statusOptions: FilterOption[] = [
-  { value: 'confirmed', label: KNOWLEDGE_STATUS_LABELS.confirmed },
-  { value: 'ai', label: 'AI가 정한 것만 (확정 ✦)' },
-  { value: 'candidate', label: KNOWLEDGE_STATUS_LABELS.candidate },
-];
 
 /** 상태 cell: 확정 (used as context, ✦ when AI confirmed it) or 후보 (not yet). */
 export function StateCell({ row }: { row: Draft }) {
@@ -151,51 +138,49 @@ export function confirmLabel(rows: Draft[]) {
   return candidates && checked ? '확정·확인함' : candidates ? '확정' : '확인함';
 }
 
-/** 출처 and 상태 as the last two columns of a table; both filter through their header. */
+/** 출처 and 태그 as the last two columns of a table; both filter through their header. */
 export interface KnowledgeFilterState {
   source: SourceFilter;
-  /** 상태 as marks: #후보 (candidate) or #AI가 정함 (ai); 'confirmed' is still accepted from links. */
-  status: StatusFilter;
+  /** Picked automatic marks (the marks URL param). */
+  marks?: AutoMark[];
   /** Picked tag ids: items carrying all of them. */
   tags?: string[];
-  /** #근거 없음: items citing no line. */
-  bare?: boolean;
   /** The project's tags (lines' problem types left out): the 태그 column's chips and filter. */
   known: TagInfo[];
-  onChange: (next: { source?: SourceFilter; status?: StatusFilter; tags?: string[]; bare?: boolean }) => void;
+  onChange: (next: { source?: SourceFilter; marks?: AutoMark[]; tags?: string[] }) => void;
 }
 
-/** The 태그 filter: the app's marks, then the tags; every pick narrows the rows. */
-export function TagFilter({ filters, marks = ['candidate', 'ai', 'noEvidence'] }: { filters: KnowledgeFilterState; marks?: AutoMark[] }) {
+/** The 태그 filter: the app's marks, then the tags; every pick narrows the rows (marks of one field widen, see matchesMarks). */
+export function TagFilter({ filters, marks = KNOWLEDGE_MARK_IDS }: { filters: KnowledgeFilterState; marks?: readonly AutoMark[] }) {
   const picked = filters.tags ?? [];
   const toggle = (id: string, on: boolean) => {
     const next = on ? [...picked, id] : picked.filter((other) => other !== id);
     filters.onChange({ tags: next.length ? next : undefined });
   };
-  // The URL keeps its names: ?state=candidate|ai, ?bare.
-  const mark = (key: AutoMark) =>
-    key === 'noEvidence'
-      ? { key, label: <MarkChip mark={key} />, checked: Boolean(filters.bare), onChange: (on: boolean) => filters.onChange({ bare: on || undefined }) }
-      : { key, label: <MarkChip mark={key} />, checked: filters.status === key, onChange: (on: boolean) => filters.onChange({ status: on ? (key as 'ai' | 'candidate') : undefined }) };
+  const pickedMarks = filters.marks ?? [];
+  const toggleMark = (key: AutoMark, on: boolean) => {
+    const next = on ? [...pickedMarks, key] : pickedMarks.filter((other) => other !== key);
+    filters.onChange({ marks: next.length ? next : undefined });
+  };
   return (
     <MarkFilter
       label="태그"
       groups={[
-        { heading: '자동 표시', options: marks.map(mark) },
+        { heading: '자동 표시', options: marks.map((key) => ({ key, label: <MarkChip mark={key} />, checked: pickedMarks.includes(key), onChange: (on: boolean) => toggleMark(key, on) })) },
         { heading: '태그', options: filters.known.map((tag) => ({ key: tag.id, label: <TagChip tag={tag} />, checked: picked.includes(tag.id), onChange: (on: boolean) => toggle(tag.id, on) })) },
       ]}
-      onClear={() => filters.onChange({ status: undefined, tags: undefined, bare: undefined })}
+      onClear={() => filters.onChange({ marks: undefined, tags: undefined })}
     />
   );
 }
 
-export function metaColumns<T>(draftOf: (row: T) => Draft, filters: KnowledgeFilterState): ColumnDef<T, unknown>[] {
+export function metaColumns<T>(draftOf: (row: T) => Draft, filters: KnowledgeFilterState, marksOf: (row: T) => AutoMark[] = (row) => knowledgeMarksOf(draftOf(row))): ColumnDef<T, unknown>[] {
   return [
     {
       id: 'tags',
       meta: { width: 150, label: '태그' },
       header: () => <TagFilter filters={filters} />,
-      cell: ({ row }) => <TagCell tags={draftOf(row.original).tags} known={filters.known} marks={knowledgeMarks(draftOf(row.original))} />,
+      cell: ({ row }) => <TagCell tags={draftOf(row.original).tags} known={filters.known} marks={marksOf(row.original)} />,
     },
     {
       id: 'source',
@@ -210,9 +195,15 @@ export function metaColumns<T>(draftOf: (row: T) => Draft, filters: KnowledgeFil
 export function knowledgeFilterChips(filters: KnowledgeFilterState): FilterChip[] {
   return [
     ...(filters.source ? [{ key: 'source', label: SOURCE_LABELS[filters.source], clear: () => filters.onChange({ source: undefined }) }] : []),
-    ...(filters.status && filters.status !== 'confirmed' ? [{ key: 'status', label: <MarkChip mark={filters.status as 'ai' | 'candidate'} />, name: AUTO_MARKS[filters.status as 'ai' | 'candidate'].name, clear: () => filters.onChange({ status: undefined }) }] : []),
-    ...(filters.status === 'confirmed' ? [{ key: 'status', label: KNOWLEDGE_STATUS_LABELS.confirmed, clear: () => filters.onChange({ status: undefined }) }] : []),
-    ...(filters.bare ? [{ key: 'bare', label: <MarkChip mark="noEvidence" />, name: AUTO_MARKS.noEvidence.name, clear: () => filters.onChange({ bare: undefined }) }] : []),
+    ...(filters.marks ?? []).map((mark) => ({
+      key: `mark:${mark}`,
+      label: <MarkChip mark={mark} />,
+      name: AUTO_MARKS[mark].name,
+      clear: () => {
+        const next = (filters.marks ?? []).filter((other) => other !== mark);
+        filters.onChange({ marks: next.length ? next : undefined });
+      },
+    })),
     ...(filters.tags ?? []).map((id) => ({
       key: `tag:${id}`,
       label: `#${filters.known.find((tag) => tag.id === id)?.name ?? id}`,

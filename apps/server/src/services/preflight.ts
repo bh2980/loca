@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray, isNotNull, ne, sql } from 'drizzle-orm';
-import { batchConfigSchema, CONNECTION_KIND_INFO, estimateTokens, isUnsureListener, nodeName, termMatcher, type AiNode, type WorkflowDefinition } from '@tw/shared';
+import { batchConfigSchema, CONNECTION_KIND_INFO, estimateTokens, isUnknownListener, isUnreviewed, nodeName, termMatcher, type AiNode, type WorkflowDefinition } from '@tw/shared';
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -135,34 +135,36 @@ export async function preflight(db: Db, workflow: typeof s.workflows.$inferSelec
 /**
  * What in this run's own lines would make the translation worse, for a person to fix first:
  * dialogue whose listener is unknown, speech rules its speaker → listener pairs use that no person
- * has looked at (candidates, or set by AI), and glossary terms its lines mention that are not
+ * has looked at (isUnreviewed in shared: candidates, or set by AI), and glossary terms its lines mention that are not
  * confirmed by a person.
  */
 function readinessOf(db: Db, projectId: string, units: { kind: string; speaker: string | null; source: string; listener: string | null; listenerOrigin: string | null; listenerConfidence: number | null }[], index: ReturnType<typeof speechRuleIndex>) {
   const dialogue = units.filter((unit) => unit.kind === 'dialogue');
-  const unknownListener = dialogue.filter((unit) => !unit.listener || isUnsureListener(unit as never)).length;
+  const unknownListener = dialogue.filter((unit) => isUnknownListener(unit as never)).length;
   const pairs = new Map<string, number>();
   const names = new Map<string, string>();
-  for (const unit of dialogue) if (unit.speaker && unit.listener && !isUnsureListener(unit as never)) {
+  for (const unit of dialogue) if (unit.speaker && unit.listener && !isUnknownListener(unit as never)) {
     const key = `${index.norm(unit.speaker)}|${index.norm(unit.listener)}`;
     pairs.set(key, (pairs.get(key) ?? 0) + 1);
     names.set(key, `${unit.speaker} → ${unit.listener}`);
   }
   const rules = db
-    .select({ from: s.speechRules.fromName, to: s.speechRules.toName })
+    .select({ from: s.speechRules.fromName, to: s.speechRules.toName, status: s.speechRules.status, statusBy: s.speechRules.statusBy })
     .from(s.speechRules)
-    .where(and(eq(s.speechRules.projectId, projectId), ne(s.speechRules.status, 'rejected'), sql`(${s.speechRules.status} = 'candidate' or ${s.speechRules.statusBy} = 'ai')`))
+    .where(eq(s.speechRules.projectId, projectId))
     .all()
+    .filter(isUnreviewed)
     .filter((rule) => pairs.has(`${index.norm(rule.from)}|${index.norm(rule.to)}`));
   const unreviewedRules = [...new Map(rules.map((rule) => [`${index.norm(rule.from)}|${index.norm(rule.to)}`, rule])).values()];
   // Pairs that speak often in these lines (5+) with no rule at all: their speech level is the model's guess.
   const ruled = new Set(db.select({ from: s.speechRules.fromName, to: s.speechRules.toName }).from(s.speechRules).where(and(eq(s.speechRules.projectId, projectId), ne(s.speechRules.status, 'rejected'))).all().map((rule) => `${index.norm(rule.from)}|${index.norm(rule.to)}`));
   const withoutRule = [...pairs].filter(([key, lines]) => lines >= 5 && !ruled.has(key)).sort((a, b) => b[1] - a[1]);
   const terms = db
-    .select({ source: s.terms.source })
+    .select({ source: s.terms.source, status: s.terms.status, statusBy: s.terms.statusBy })
     .from(s.terms)
-    .where(and(eq(s.terms.projectId, projectId), ne(s.terms.status, 'rejected'), sql`(${s.terms.status} = 'candidate' or ${s.terms.statusBy} = 'ai')`))
-    .all();
+    .where(eq(s.terms.projectId, projectId))
+    .all()
+    .filter(isUnreviewed);
   const mentioned = terms.length ? termMatcher(terms, (term) => term.source) : null;
   const unreviewedTerms = mentioned ? new Set(units.flatMap((unit) => mentioned.find(unit.source).map((term) => term.source))) : new Set<string>();
   return {

@@ -3,11 +3,11 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { ArrowLeftRight, GanttChart, Network, Plus, Table2, Users } from 'lucide-react';
 import { toast } from 'sonner';
-import { OTHERS_LISTENER, DOCUMENT_KINDS, styleNames, type CharacterStyle, isSettled, KNOWLEDGE_SOURCES, listenerLabel, REVIEW_TAG, SPEECH_LEVEL_LABELS, type KnowledgeSource, type SpeechLevel } from '@tw/shared';
+import { OTHERS_LISTENER, DOCUMENT_KINDS, parseMarks, type AutoMark, styleNames, type CharacterStyle, isSettled, KNOWLEDGE_SOURCES, listenerLabel, REVIEW_TAG, SPEECH_LEVEL_LABELS, type KnowledgeSource, type SpeechLevel } from '@tw/shared';
 import { Page } from '@/components/page';
 import { RelationshipGraph } from '@/components/relationship-graph';
 import { hasAnalysis, JobStatus, StartAnalysis } from '@/components/knowledge/analysis-controls';
-import { BulkDecide, DraftEditor, fail, KINDS, KnowledgeFilters, knowledgeFilterChips, KnowledgeTable, matches, TagMenu, type KnowledgeFilterState, RelationshipChanges, RuleLines, SourceBadge, text, type Kind, type KindSpec, type Row, type SourceFilter, type StatusFilter } from '@/components/knowledge/draft-editor';
+import { BulkDecide, DraftEditor, fail, KINDS, KnowledgeFilters, knowledgeFilterChips, KNOWLEDGE_MARK_IDS, KnowledgeTable, matches, TagMenu, type KnowledgeFilterState, RelationshipChanges, RuleLines, SourceBadge, text, type Kind, type KindSpec, type Row, type SourceFilter } from '@/components/knowledge/draft-editor';
 import { SplitPane } from '@/components/split-pane';
 import { FilterChips, Toolbar } from '@/components/toolbar';
 import { pairKey, buildPairs, PairDetail, pairItems, pairMatches, pairSummary, PairTable, type Pair } from '@/components/knowledge/pairs';
@@ -31,12 +31,10 @@ interface KnowledgeSearch {
   tab?: Tab;
   /** 출처 filter: who wrote it (작품 분석, 워크플로·채팅, 대본에서 찾음, 가져오기, 사람). */
   source?: KnowledgeSource;
-  /** 상태 filter: 확정 / AI가 정한 것만 (확정 ✦) / 후보. */
-  state?: StatusFilter;
+  /** Automatic marks (#후보, #AI가 정함, #근거 없음): items carrying them; the first two together mean either (see matchesMarks). */
+  marks?: AutoMark[];
   /** 태그 filter: project tag ids (확인 권장, a person's own); items carrying all of them. */
   tags?: string[];
-  /** #근거 없음: items citing no line. */
-  bare?: true;
   /** Selected item id, or a pair key ("from→to") in 인물·관계 › 관계. */
   item?: string;
   /** Inside 인물·관계 shown as tables: people instead of pairs. */
@@ -50,9 +48,8 @@ export const Route = createFileRoute('/p/$projectId/knowledge')({
   validateSearch: (raw: Record<string, unknown>): KnowledgeSearch => ({
     tab: typeof raw.tab === 'string' && raw.tab in TABS ? (raw.tab as Tab) : undefined,
     source: typeof raw.source === 'string' && (KNOWLEDGE_SOURCES as readonly string[]).includes(raw.source) ? (raw.source as KnowledgeSource) : undefined,
-    state: raw.state === 'confirmed' || raw.state === 'ai' || raw.state === 'candidate' ? raw.state : undefined,
+    marks: parseMarks(raw.marks, KNOWLEDGE_MARK_IDS),
     tags: Array.isArray(raw.tags) && raw.tags.length && raw.tags.every((id) => typeof id === 'string') ? (raw.tags as string[]) : undefined,
-    bare: raw.bare === true || raw.bare === 'true' ? true : undefined,
     item: typeof raw.item === 'string' && raw.item ? raw.item : undefined,
     view: raw.view === 'characters' ? 'characters' : undefined,
     display: raw.display === 'table' ? 'table' : undefined,
@@ -198,9 +195,9 @@ function Knowledge() {
   };
 
   const characters = people.data?.characters ?? [];
-  const shown = (row: Row) => matches(row, search.source, search.state, search.tags, search.bare);
+  const shown = (row: Row) => matches(row, search.source, search.marks, search.tags);
   const pairs = useMemo(() => buildPairs(characters, specs.relationships.rows, specs.speechRules.rows), [characters, specs.relationships.rows, specs.speechRules.rows]);
-  const visiblePairs = pairs.filter((pair) => pairMatches(pair, search.source, search.state, search.tags, search.bare));
+  const visiblePairs = pairs.filter((pair) => pairMatches(pair, search.source, search.marks, search.tags));
   // A link may name a relationship or rule id; it opens the pair holding it.
   const pair = pairsView || graph ? pairs.find((candidate) => candidate.key === search.item || pairItems(candidate).some((item) => item.row.id === search.item)) : undefined;
 
@@ -284,7 +281,7 @@ function Knowledge() {
 
   const create = useMutation({
     mutationFn: () => spec.create!(),
-    onSuccess: (row) => set({ item: row.id, source: undefined, state: undefined }),
+    onSuccess: (row) => set({ item: row.id, source: undefined, marks: undefined }),
     onError: fail,
   });
   // Pair-specific creation: a relationship between the pair's people, a speech rule for its names.
@@ -307,13 +304,12 @@ function Knowledge() {
   const knowledgeTags = tagsIn(statuses.data?.tags, 'knowledge');
   const filters: KnowledgeFilterState = {
     source: search.source,
-    status: search.state,
+    marks: search.marks,
     tags: search.tags,
-    bare: search.bare,
     known: knowledgeTags,
-    onChange: (next) => set({ ...('source' in next && { source: next.source }), ...('status' in next && { state: next.status }), ...('tags' in next && { tags: next.tags }), ...('bare' in next && { bare: next.bare || undefined }), item: undefined }),
+    onChange: (next) => set({ ...('source' in next && { source: next.source }), ...('marks' in next && { marks: next.marks }), ...('tags' in next && { tags: next.tags }), item: undefined }),
   };
-  const filtered = Boolean(search.source || search.state || search.tags?.length || search.bare);
+  const filtered = Boolean(search.source || search.marks?.length || search.tags?.length);
   const bulk = (
     <>
       <BulkDecide picked={checked.size} actionable={checkedRows} pending={decide.isPending} onConfirm={() => decide.mutate({ items: checkedItems(), action: 'confirm' })} onDiscard={() => decide.mutate({ items: checkedItems(), action: 'discard' })} />

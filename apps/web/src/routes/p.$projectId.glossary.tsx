@@ -19,8 +19,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { confirmLabel, knowledgeMarks, matches, SourceBadge, StateCell, TagCell, TagMenu, type ItemTag, type StatusFilter } from '@/components/knowledge/draft-editor';
-import { AUTO_MARKS, type AutoMark, isSettled, KNOWLEDGE_SOURCES, REVIEW_TAG, SOURCE_LABELS, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type StatusBy } from '@tw/shared';
+import { confirmLabel, matches, SourceBadge, StateCell, TagCell, TagMenu, type ItemTag } from '@/components/knowledge/draft-editor';
+import { AUTO_MARK_IDS, AUTO_MARKS, type AutoMark, isSettled, matchesMarks, parseMarks, termMarksOf, KNOWLEDGE_SOURCES, REVIEW_TAG, SOURCE_LABELS, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type StatusBy } from '@tw/shared';
 import { client, unwrap } from '@/lib/api';
 import { q, tagsIn } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
@@ -29,33 +29,24 @@ export const Route = createFileRoute('/p/$projectId/glossary')({
   validateSearch: (raw: Record<string, unknown>): GlossarySearch => ({
     q: typeof raw.q === 'string' && raw.q ? raw.q : undefined,
     source: typeof raw.source === 'string' && (KNOWLEDGE_SOURCES as readonly string[]).includes(raw.source) ? (raw.source as KnowledgeSource) : undefined,
-    // One value or several (a term has one state, so several picked mean any of them).
-    state: (() => {
-      const picked = (Array.isArray(raw.state) ? raw.state : [raw.state]).filter((value): value is TermState => value === 'confirmed' || value === 'ai' || value === 'candidate');
-      return picked.length ? picked : undefined;
-    })(),
+    marks: parseMarks(raw.marks, TERM_MARK_IDS),
     term: typeof raw.term === 'string' && raw.term ? raw.term : undefined,
     tags: Array.isArray(raw.tags) && raw.tags.length && raw.tags.every((id) => typeof id === 'string') ? (raw.tags as string[]) : undefined,
-    empty: raw.empty === true || raw.empty === 'true' ? true : undefined,
-    unused: raw.unused === true || raw.unused === 'true' ? true : undefined,
   }),
   component: Glossary,
 });
 
-type TermState = Exclude<StatusFilter, undefined>;
+/** The marks a term can be filtered by. */
+const TERM_MARK_IDS = AUTO_MARK_IDS.filter((id) => (AUTO_MARKS[id].on as readonly string[]).includes('terms'));
 
 interface GlossarySearch {
   q?: string;
   term?: string;
   source?: KnowledgeSource;
-  /** #후보 / #AI가 정함 (확정 from older links): a term in any of them. */
-  state?: TermState[];
+  /** Automatic marks (the marks URL param): #후보 and #AI가 정함 together mean either, the rest all hold (see matchesMarks). */
+  marks?: AutoMark[];
   /** Tag ids: terms carrying all of them. */
   tags?: string[];
-  /** #번역어 없음: no Korean form yet. */
-  empty?: true;
-  /** #대본에 안 나옴: no line uses it. */
-  unused?: true;
 }
 
 interface Term {
@@ -96,7 +87,7 @@ function Glossary() {
 
   // Who wrote a term (출처) and who set its status (✦ when AI confirmed it and no person has looked yet).
   const asDraft = (term: Term) => ({ ...term, evidence: [] });
-  const all = (terms.data ?? []).filter((term) => (search.state ?? [undefined]).some((state) => matches(asDraft(term), search.source, state, search.tags)) && (!search.empty || !term.target.trim()) && (!search.unused || term.lines === 0));
+  const all = (terms.data ?? []).filter((term) => matches(asDraft(term), search.source, undefined, search.tags) && matchesMarks(termMarksOf(term), search.marks));
   const queryClient = useQueryClient();
   const decide = useMutation({
     mutationFn: ({ ids, accept }: { ids: string[]; accept: boolean }) => unwrap(client.projects[':projectId'].drafts.$post({ param: { projectId }, json: { kind: 'terms', ids, action: accept ? 'confirm' : 'discard' } })),
@@ -129,9 +120,9 @@ function Glossary() {
   const statuses = useQuery(q.statuses(projectId));
   const knownTags = tagsIn(statuses.data?.tags, 'terms');
   const pickedTags = search.tags ?? [];
-  const toggleState = (state: TermState, on: boolean) => {
-    const next = on ? [...new Set([...(search.state ?? []), state])] : (search.state ?? []).filter((other) => other !== state);
-    setFilter({ state: next.length ? next : undefined });
+  const toggleMark = (mark: AutoMark, on: boolean) => {
+    const next = on ? [...new Set([...(search.marks ?? []), mark])] : (search.marks ?? []).filter((other) => other !== mark);
+    setFilter({ marks: next.length ? next : undefined });
   };
   const toggleTag = (id: string, on: boolean) => {
     const next = on ? [...pickedTags, id] : pickedTags.filter((other) => other !== id);
@@ -148,13 +139,9 @@ function Glossary() {
   const discardable = pickedTerms.filter((term) => !isSettled(term));
   const afterBulk = { onSuccess: () => setPicked(new Set()) };
 
-  // Automatic marks a term carries, the same ones the 태그 header filters by.
-  const termMarks = (term: Term): AutoMark[] => [...knowledgeMarks(asDraft(term), false), ...(!term.target.trim() ? ['emptyTarget' as const] : []), ...(term.lines === 0 ? ['unused' as const] : [])];
   const chips: FilterChip[] = [
     ...(search.source ? [{ key: 'source', label: SOURCE_LABELS[search.source], clear: () => setFilter({ source: undefined }) }] : []),
-    ...(search.state ?? []).map((state) => ({ key: `state-${state}`, label: state === 'confirmed' ? '확정' : <MarkChip mark={state} />, name: state === 'confirmed' ? undefined : AUTO_MARKS[state].name, clear: () => toggleState(state, false) })),
-    ...(search.empty ? [{ key: 'empty', label: <MarkChip mark="emptyTarget" />, name: AUTO_MARKS.emptyTarget.name, clear: () => setFilter({ empty: undefined }) }] : []),
-    ...(search.unused ? [{ key: 'unused', label: <MarkChip mark="unused" />, name: AUTO_MARKS.unused.name, clear: () => setFilter({ unused: undefined }) }] : []),
+    ...(search.marks ?? []).map((mark) => ({ key: `mark:${mark}`, label: <MarkChip mark={mark} />, name: AUTO_MARKS[mark].name, clear: () => toggleMark(mark, false) })),
     ...pickedTags.map((id) => ({ key: `tag:${id}`, label: `#${knownTags.find((tag) => tag.id === id)?.name ?? id}`, clear: () => toggleTag(id, false) })),
   ];
 
@@ -179,20 +166,15 @@ function Glossary() {
           groups={[
             {
               heading: '자동 표시',
-              options: [
-                { key: 'candidate', label: <MarkChip mark="candidate" />, checked: Boolean(search.state?.includes('candidate')), onChange: (on) => toggleState('candidate', on) },
-                { key: 'ai', label: <MarkChip mark="ai" />, checked: Boolean(search.state?.includes('ai')), onChange: (on) => toggleState('ai', on) },
-                { key: 'empty', label: <MarkChip mark="emptyTarget" />, checked: Boolean(search.empty), onChange: (on) => setFilter({ empty: on || undefined }) },
-                { key: 'unused', label: <MarkChip mark="unused" />, checked: Boolean(search.unused), onChange: (on) => setFilter({ unused: on || undefined }) },
-              ],
+              options: TERM_MARK_IDS.map((mark) => ({ key: mark, label: <MarkChip mark={mark} />, checked: Boolean(search.marks?.includes(mark)), onChange: (on: boolean) => toggleMark(mark, on) })),
             },
             { heading: '태그', options: knownTags.map((item) => ({ key: item.id, label: <TagChip tag={item} />, checked: pickedTags.includes(item.id), onChange: (on: boolean) => toggleTag(item.id, on) })) },
           ]}
-          onClear={() => setFilter({ state: undefined, tags: undefined, empty: undefined, unused: undefined })}
+          onClear={() => setFilter({ marks: undefined, tags: undefined })}
         />
       ),
       meta: { width: 150, label: '태그' },
-      cell: ({ row }) => <TagCell tags={row.original.tags} known={knownTags} marks={termMarks(row.original)} />,
+      cell: ({ row }) => <TagCell tags={row.original.tags} known={knownTags} marks={termMarksOf(row.original)} />,
     },
   ];
 
@@ -252,7 +234,7 @@ function Glossary() {
           rows={terms.data && rows}
           rowId={(term) => term.id}
           loading={terms.isLoading}
-          empty={needle || search.source || search.state?.length || search.tags?.length || search.empty || search.unused ? '조건에 맞는 용어가 없습니다.' : '아직 용어가 없습니다. 작품 분석이 후보를 내거나 ‘용어 추가’로 직접 넣으세요.'}
+          empty={needle || search.source || search.marks?.length || search.tags?.length ? '조건에 맞는 용어가 없습니다.' : '아직 용어가 없습니다. 작품 분석이 후보를 내거나 ‘용어 추가’로 직접 넣으세요.'}
           selected={selected?.id}
           onRowClick={(term) => select(term.id === search.term ? undefined : term.id)}
           picked={picked}

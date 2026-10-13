@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { Check, CircleAlert, ListFilter, Network, PanelRightOpen, Play, StickyNote, Tags, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { AUTO_MARKS, type AutoMark, checkFormat, compileFormatRules, isUnsureListener, listenerLabel, SPECIAL_LISTENERS, type ListenerOrigin, mentions, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
+import { AUTO_MARKS, type AutoMark, checkFormat, compileFormatRules, isUnknownListener, LINE_MARK_IDS, type LineMark, listenerLabel, parseMarks, SPECIAL_LISTENERS, type ListenerOrigin, mentions, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
 import { LineDetail, LINE_TABS, type LineTab } from '@/components/line-detail';
 import { SplitPane } from '@/components/split-pane';
 import { AiMark, MarkChip, StatusDot, TagChip } from '@/components/status';
@@ -35,16 +35,10 @@ export interface LinesSearch {
   /** Tag ids: lines carrying all of them (with the automatic marks below, all combine). */
   tags?: string[];
   speaker?: string;
-  /** A character name, or "-" for lines whose listener is unknown. */
+  /** A character name (a known listener); unknown listeners are the unknownListener mark. */
   listener?: string;
-  /** Only lines not in a final status yet. */
-  remaining?: true;
-  /** Only lines whose status a run set and no person has looked at since (✦). */
-  by?: 'ai';
-  /** Only lines whose source is translated differently elsewhere (to make them agree, or keep them apart on purpose). */
-  diverged?: true;
-  /** Only lines with a person's note. */
-  noted?: true;
+  /** Automatic marks (LINE_MARK_IDS): lines carrying every one of them. */
+  marks?: LineMark[];
   /**
    * How a filter shows: listed apart (the default: only the matching lines) or walked one by one
    * inside their scenes (find, '장면에서 찾아가기', when the conversation around them matters).
@@ -65,10 +59,7 @@ export const linesSearchSchema = (raw: Record<string, unknown>): LinesSearch => 
   tags: Array.isArray(raw.tags) && raw.tags.length && raw.tags.every((id) => typeof id === 'string') ? (raw.tags as string[]) : undefined,
   speaker: typeof raw.speaker === 'string' && raw.speaker ? raw.speaker : undefined,
   listener: typeof raw.listener === 'string' && raw.listener ? raw.listener : undefined,
-  remaining: raw.remaining === true || raw.remaining === 'true' ? true : undefined,
-  by: raw.by === 'ai' ? 'ai' : undefined,
-  diverged: raw.diverged === true || raw.diverged === 'true' ? true : undefined,
-  noted: raw.noted === true || raw.noted === 'true' ? true : undefined,
+  marks: parseMarks(raw.marks, LINE_MARK_IDS),
   view: raw.view === 'find' || raw.view === 'list' ? raw.view : undefined,
   page: typeof raw.page === 'number' && raw.page > 0 ? raw.page : undefined,
   line: typeof raw.line === 'string' ? raw.line : undefined,
@@ -77,8 +68,8 @@ export const linesSearchSchema = (raw: Record<string, unknown>): LinesSearch => 
   aiNode: typeof raw.aiNode === 'string' && raw.aiNode.includes(':') ? raw.aiNode : undefined,
 });
 
-/** Whether any line filter is set (search, status, tag, speaker, listener, 남은 줄만, AI가 정한 것만). */
-export const hasLineFilter = (search: LinesSearch) => Boolean(search.q || search.status || search.tags?.length || search.speaker || search.listener || search.remaining || search.by || search.diverged || search.noted);
+/** Whether any line filter is set (search, status, tag, speaker, listener, automatic marks). */
+export const hasLineFilter = (search: LinesSearch) => Boolean(search.q || search.status || search.tags?.length || search.speaker || search.listener || search.marks?.length);
 /** Whether the filter is walked inside the scenes rather than listed apart. */
 export const isFinding = (search: LinesSearch) => hasLineFilter(search) && search.view === 'find';
 
@@ -91,17 +82,17 @@ export function filterChips(search: LinesSearch, statuses: { id: string; name: s
       return { key: `tag-${id}`, label: `#${tags.find((tag) => tag.id === id)?.name ?? '?'}`, clear: { tags: rest.length ? rest : undefined } };
     }),
     search.speaker && { key: 'speaker', label: `화자: ${search.speaker}`, clear: { speaker: undefined } },
-    search.listener && { key: 'listener', label: search.listener === '-' ? `#${AUTO_MARKS.unknownListener.name}` : `청자: ${search.listener}`, ...(search.listener === '-' && { mark: 'unknownListener' as const }), clear: { listener: undefined } },
-    search.remaining && { key: 'remaining', label: `#${AUTO_MARKS.remaining.name}`, mark: 'remaining' as const, clear: { remaining: undefined } },
-    search.by && { key: 'by', label: `#${AUTO_MARKS.ai.name}`, mark: 'ai' as const, clear: { by: undefined } },
-    search.diverged && { key: 'diverged', label: `#${AUTO_MARKS.diverged.name}`, mark: 'diverged' as const, clear: { diverged: undefined } },
-    search.noted && { key: 'noted', label: `#${AUTO_MARKS.noted.name}`, mark: 'noted' as const, clear: { noted: undefined } },
+    search.listener && { key: 'listener', label: `청자: ${search.listener}`, clear: { listener: undefined } },
+    ...(search.marks ?? []).map((mark) => {
+      const rest = search.marks!.filter((other) => other !== mark);
+      return { key: `mark-${mark}`, label: `#${AUTO_MARKS[mark].name}`, mark, clear: { marks: rest.length ? rest : undefined } };
+    }),
   ].filter(Boolean) as { key: string; label: string; /** Set for automatic marks: shown as the mark's chip. */ mark?: AutoMark; clear: Partial<LinesSearch> }[];
 }
 
 /** Who the line is addressed to. Unsure AI guesses count as unknown. */
-function listenerText(line: { listener: string | null; listenerOrigin: ListenerOrigin | null; listenerConfidence: number | null }) {
-  if (!line.listener || isUnsureListener(line)) return { text: '청자 미상', unknown: true };
+function listenerText(line: { kind: string; listener: string | null; listenerOrigin: ListenerOrigin | null; listenerConfidence: number | null }) {
+  if (isUnknownListener(line) || !line.listener) return { text: '청자 미상', unknown: true };
   return { text: listenerLabel(line.listener), unknown: false };
 }
 
@@ -166,7 +157,7 @@ export function LineList({
       projectId,
       find
         ? { groupId, focus: focusing, offset: page * PAGE_SIZE, limit: PAGE_SIZE }
-        : { groupId, kind, review: review ? '1' : undefined, remaining: search.remaining ? '1' : undefined, by: search.by, diverged: search.diverged ? '1' : undefined, noted: search.noted ? '1' : undefined, q: search.q, statusId: search.status, tagIds: search.tags?.join(','), speaker: search.speaker, listener: search.listener, focus: focusing, offset: page * PAGE_SIZE, limit: PAGE_SIZE },
+        : { groupId, kind, review: review ? '1' : undefined, marks: search.marks?.join(','), q: search.q, statusId: search.status, tagIds: search.tags?.join(','), speaker: search.speaker, listener: search.listener, focus: focusing, offset: page * PAGE_SIZE, limit: PAGE_SIZE },
     ),
   );
   useEffect(() => {
@@ -227,7 +218,7 @@ export function LineList({
     onError: undoOnError,
     onSuccess: (_data, unitIds) => {
       toast.success(`${unitIds.length}개 대사를 확인했습니다.`);
-      if (search.by) stopPicking();
+      if (search.marks?.includes('ai')) stopPicking();
     },
   });
   const pickedByAi = (rows ?? []).filter((row) => picked.has(row.id) && row.statusBy === 'ai').map((row) => row.id);
@@ -270,11 +261,11 @@ export function LineList({
       onSearch({ page: page - 1 || undefined, line: undefined });
     }
   };
-  // After ⌘↵ the line may leave the list (검토함, 남은 줄만); the next line is the one after it as it was.
+  // After ⌘↵ the line may leave the list (검토함, #남은 줄); the next line is the one after it as it was.
   const advanceFrom = (id: string) => {
     if (!rows) return;
     const index = rows.findIndex((row) => row.id === id);
-    const shrinking = review || search.remaining || search.by;
+    const shrinking = review || search.marks?.some((mark) => mark === 'remaining' || mark === 'ai');
     if (index >= 0 && index + 1 < rows.length) select(rows[index + 1].id, true);
     else if (shrinking && index > 0 && page + 1 >= Math.ceil(total / PAGE_SIZE)) select(rows[index - 1].id, true);
     else move(1, true);
@@ -455,7 +446,7 @@ export function LineList({
             ))}
           </div>
         ) : rows.length === 0 ? (
-          <p className="px-4 py-16 text-center text-sm text-muted-foreground">{search.by ? 'AI가 정하고 확인하지 않은 줄이 없습니다.' : review ? '검토할 대사가 없습니다.' : search.remaining ? '남은 줄이 없습니다. 모두 최종 상태입니다.' : search.diverged ? '같은 원문이 서로 다르게 번역된 곳이 없습니다.' : '맞는 대사가 없습니다.'}</p>
+          <p className="px-4 py-16 text-center text-sm text-muted-foreground">{review ? '검토할 대사가 없습니다.' : search.marks?.length ? `${search.marks.map((mark) => `#${AUTO_MARKS[mark].name}`).join(' · ')}에 맞는 줄이 없습니다.` : '맞는 대사가 없습니다.'}</p>
         ) : (
           <ul>
             {rows.map((line, index) => {
@@ -637,6 +628,10 @@ function LineFilters({ projectId, statuses, tags, speakers, search, onSearch }: 
     const next = on ? [...(search.tags ?? []), id] : (search.tags ?? []).filter((other) => other !== id);
     onSearch({ tags: next.length ? next : undefined });
   };
+  const toggleMark = (mark: LineMark, on: boolean) => {
+    const next = on ? [...(search.marks ?? []), mark] : (search.marks ?? []).filter((other) => other !== mark);
+    onSearch({ marks: next.length ? next : undefined });
+  };
   return (
     <DropdownMenu onOpenChange={(open) => !open && setNeedle('')}>
       <DropdownMenuTrigger asChild>
@@ -647,16 +642,8 @@ function LineFilters({ projectId, statuses, tags, speakers, search, onSearch }: 
       <DropdownMenuContent align="start" className="max-h-[70svh] w-56 overflow-y-auto">
         {/* Marks and tags in one list: each check narrows the lines further (all must hold). */}
         <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">자동 표시</DropdownMenuLabel>
-        {(
-          [
-            ['remaining', Boolean(search.remaining), (on: boolean) => ({ remaining: on ? true : undefined })],
-            ['ai', Boolean(search.by), (on: boolean) => ({ by: on ? 'ai' : undefined })],
-            ['unknownListener', search.listener === '-', (on: boolean) => ({ listener: on ? '-' : undefined })],
-            ['diverged', Boolean(search.diverged), (on: boolean) => ({ diverged: on ? true : undefined })],
-            ['noted', Boolean(search.noted), (on: boolean) => ({ noted: on ? true : undefined })],
-          ] as const
-        ).map(([mark, checked, next]) => (
-          <DropdownMenuCheckboxItem key={mark} checked={checked} onSelect={(event) => event.preventDefault()} onCheckedChange={(on) => onSearch(next(on) as Partial<LinesSearch>)}>
+        {LINE_MARK_IDS.map((mark) => (
+          <DropdownMenuCheckboxItem key={mark} checked={Boolean(search.marks?.includes(mark))} onSelect={(event) => event.preventDefault()} onCheckedChange={(on) => toggleMark(mark, on)}>
             <MarkChip mark={mark} projectId={projectId} />
           </DropdownMenuCheckboxItem>
         ))}

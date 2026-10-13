@@ -1,11 +1,12 @@
 import { Hono } from 'hono';
-import { and, asc, count, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, notInArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { agentSettingsSchema, aiConfirmSchema, editorAiSchema, formatRulesSchema, importFileSchema, importWarnings, markColorsSchema, patchOf, tagScope, TAG_SCOPES, TAG_SCOPE_LABELS, DEFAULT_TAG_COLOR, HEX_COLOR, STATUS_COLORS, summarizeImport } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { forgetProjectContext } from '../services/context.ts';
+import { markConditions } from '../services/line-marks.ts';
 import { tagUseIn } from '../services/tag-scope.ts';
 import { importProject } from '../services/importer.ts';
 import type { DecidedTable } from '../services/status-by.ts';
@@ -70,21 +71,18 @@ export const projectRoutes = new Hono<Env>()
       .innerJoin(s.statuses, eq(s.statuses.id, s.units.statusId))
       .where(and(eq(s.units.projectId, projectId), eq(s.statuses.inReview, true)))
       .get()!.count;
-    // What AI decided and no person has looked at (✦): lines a run sent to a final status, confirmed knowledge and terms.
-    const aiLines = db
-      .select({ count: count() })
-      .from(s.units)
-      .innerJoin(s.statuses, eq(s.statuses.id, s.units.statusId))
-      .where(and(eq(s.units.projectId, projectId), eq(s.units.statusBy, 'ai'), eq(s.statuses.kind, 'final')))
-      .get()!.count;
-    const aiConfirmed = (table: DecidedTable) => {
-      const t = table as typeof s.terms;
-      return db.select({ count: count() }).from(t).where(and(eq(t.projectId, projectId), eq(t.statusBy, 'ai'), eq(t.status, 'confirmed'))).get()!.count;
-    };
+    // What AI decided and no person has looked at (✦): the #AI가 정함 mark of lines, knowledge and terms (shared aiDecided / markConditions), so each count is what its link lists.
+    const aiLines = db.select({ count: count() }).from(s.units).where(and(eq(s.units.projectId, projectId), ...markConditions(projectId, ['ai']))).get()!.count;
+    const aiConfirmed = (...tables: DecidedTable[]) =>
+      tables.reduce((sum, table) => {
+        const t = table as typeof s.terms;
+        return sum + db.select({ count: count() }).from(t).where(and(eq(t.projectId, projectId), eq(t.statusBy, 'ai'), notInArray(t.status, ['candidate', 'rejected']))).get()!.count;
+      }, 0);
+    // Knowledge by the tab that lists it (자료 › 문서 / 인물 / 관계·말투 / 사건; the pairs table lists the pairs holding these items), so a count opens the tab it counts.
     const aiDecided = {
       lines: aiLines,
       terms: aiConfirmed(s.terms),
-      knowledge: [s.documents, s.characters, s.relationships, s.storyEvents, s.speechRules].reduce((sum, table) => sum + aiConfirmed(table), 0),
+      knowledge: { documents: aiConfirmed(s.documents), characters: aiConfirmed(s.characters), pairs: aiConfirmed(s.relationships, s.speechRules), events: aiConfirmed(s.storyEvents) },
     };
     return c.json({ ...project, aiConfirm: aiConfirmSchema.parse(project.aiConfirm), editorAi: editorAiSchema.parse(project.editorAi), editorCallsToday: editorCallsToday(db, projectId), byStatus, groupCount, reviewCount, aiDecided });
   })

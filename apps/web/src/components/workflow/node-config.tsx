@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { AUTO_MARKS, type AutoMark } from '@tw/shared';
+import { AUTO_MARKS, type AutoMark, CONDITION_MARK_IDS } from '@tw/shared';
 import { useMutation } from '@tanstack/react-query';
 import { Play, Plus, Trash2, X } from 'lucide-react';
 import {
@@ -595,9 +595,6 @@ const hasVerdict = (node: WorkflowNode) =>
   (node.type === 'ai' && node.config.output === 'verdict') ||
   (node.type === 'function' && (node.config.fn === 'formatCheck' || node.config.fn === 'glossaryCheck' || (node.config.fn === 'http' && (node.config.params as { mode?: string }).mode === 'verdict')));
 
-/** Marks a condition can test: the ones read off the line itself (not 같은 원문 다른 번역, which compares across lines). */
-const CONDITION_MARKS: AutoMark[] = ['remaining', 'ai', 'unknownListener', 'noted'];
-
 /** Common conditions as a form; anything else is plain JSON Logic. */
 function ConditionEditor({ node, nodes, readOnly, onChange }: { node: ConditionNode; nodes: WorkflowNode[]; readOnly?: boolean; onChange: (node: WorkflowNode) => void }) {
   const [text, setText] = useState(() => JSON.stringify(node.config.expression ?? null, null, 2));
@@ -616,7 +613,7 @@ function ConditionEditor({ node, nodes, readOnly, onChange }: { node: ConditionN
   const [target, setTarget] = useState(others.find((other) => other.id === 'review')?.id ?? others[0]?.id ?? '');
   const [limit, setLimit] = useState(3);
   const [passNode, setPassNode] = useState(verdicts[0]?.id ?? '');
-  const [mark, setMark] = useState<AutoMark>('remaining');
+  const [mark, setMark] = useState<AutoMark>(CONDITION_MARK_IDS[0]);
   const label = (id: string) => {
     const other = nodes.find((candidate) => candidate.id === id);
     return other ? nodeName(other) : id;
@@ -687,7 +684,7 @@ function ConditionEditor({ node, nodes, readOnly, onChange }: { node: ConditionN
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {CONDITION_MARKS.map((id) => (
+                {CONDITION_MARK_IDS.map((id) => (
                   <SelectItem key={id} value={id}>
                     <MarkChip mark={id} />
                   </SelectItem>
@@ -704,7 +701,7 @@ function ConditionEditor({ node, nodes, readOnly, onChange }: { node: ConditionN
           </Button>
         </div>
       )}
-      <Field label="조건식 (JSON Logic)" hint="읽을 수 있는 값: visits.<노드ID>, outputs.<노드ID>.<필드>, candidate, issues, unit.kind, unit.speaker, unit.statusId, unit.tagIds, unit.marks (remaining · ai · unknownListener · noted)">
+      <Field label="조건식 (JSON Logic)" hint={`읽을 수 있는 값: visits.<노드ID>, outputs.<노드ID>.<필드>, candidate, issues, unit.kind, unit.speaker, unit.statusId, unit.tagIds, unit.marks (${CONDITION_MARK_IDS.join(' · ')})`}>
         <Textarea
           value={text}
           spellCheck={false}

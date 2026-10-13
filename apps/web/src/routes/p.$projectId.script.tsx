@@ -80,7 +80,7 @@ function Script() {
   // 찾아가기: the filter's lines are walked one by one inside their scenes instead of listed apart.
   const finding = isFinding(search) && !search.review;
   const matches = useQuery({
-    ...q.unitMatches(projectId, { statusId: search.status, tagIds: search.tags?.join(','), q: search.q, speaker: search.speaker, listener: search.listener, remaining: search.remaining ? '1' : undefined, by: search.by, diverged: search.diverged ? '1' : undefined, noted: search.noted ? '1' : undefined }),
+    ...q.unitMatches(projectId, { statusId: search.status, tagIds: search.tags?.join(','), q: search.q, speaker: search.speaker, listener: search.listener, marks: search.marks?.join(',') }),
     enabled: finding,
   });
   const matchRows = useMemo(() => (finding ? (matches.data?.rows ?? []) : []), [finding, matches.data]);
@@ -129,13 +129,13 @@ function Script() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   });
-  const findLabel = filterChips(search, statuses.data?.statuses ?? [], statuses.data?.tags ?? []).map((chip) => chip.label).concat(search.q ? [`“${search.q}”`] : [], search.remaining ? ['남은 줄'] : [], search.by ? ['AI가 정함'] : []).join(' · ');
-  const clearFilters = { q: undefined, status: undefined, tags: undefined, speaker: undefined, listener: undefined, remaining: undefined, by: undefined, diverged: undefined, noted: undefined, view: undefined, page: undefined };
+  const findLabel = filterChips(search, statuses.data?.statuses ?? [], statuses.data?.tags ?? []).map((chip) => chip.label).concat(search.q ? [`“${search.q}”`] : []).join(' · ');
+  const clearFilters = { q: undefined, status: undefined, tags: undefined, speaker: undefined, listener: undefined, marks: undefined, view: undefined, page: undefined };
 
   const onSearch = useCallback((next: Partial<ScriptSearch>, options?: { replace?: boolean }) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace: options?.replace }), [navigate]);
-  // Moving to another scene keeps a filter being walked (찾아가기); otherwise only the list's own search and 남은 줄만.
+  // Moving to another scene keeps a filter being walked (찾아가기); otherwise only the list's own search and marks.
   const openGroup = (id: string | undefined) =>
-    void navigate({ search: (previous) => (finding ? { ...previous, group: id, line: undefined, page: undefined, detail: undefined } : { gq: previous.gq, remaining: previous.remaining, group: id }) });
+    void navigate({ search: (previous) => (finding ? { ...previous, group: id, line: undefined, page: undefined, detail: undefined } : { gq: previous.gq, marks: previous.marks, group: id }) });
 
   const heading = (
     <span className="flex min-w-0 items-center gap-1">

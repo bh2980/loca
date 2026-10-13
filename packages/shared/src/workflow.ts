@@ -186,7 +186,7 @@ export interface ConditionData {
   outputs: Record<string, Record<string, unknown>>;
   candidate: string | null;
   issues: string[];
-  /** marks: automatic marks the line has right now: remaining (status not final), ai (status set by a run), unknownListener, noted. */
+  /** marks: the line's automatic marks right now (lineMarksOf in marks.ts; diverged is only known to the list filter). */
   unit: { kind: string; speaker: string | null; statusId: string; tagIds: string[]; marks: string[] };
   /**
    * The line needs no listener estimate: its listener came from the import or a person, or is an AI guess

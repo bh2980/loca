@@ -12,7 +12,7 @@ import { computeLayouts } from '../services/layout.ts';
 import { readView, sectionWithMost } from '../services/graph-views.ts';
 import { applyIssueTags } from '../services/issue-tags.ts';
 import { lineMatches } from '../services/line-matches.ts';
-import { knownListenerSql, markConditions, sameSource } from '../services/line-marks.ts';
+import { knownListenerSql, lineMarksSchema, markConditions, sameSource } from '../services/line-marks.ts';
 import { CompleteRefused, completeLine } from '../services/editor-complete.ts';
 import { assistLine } from '../services/editor-assist.ts';
 import { describeRule, knownListener as knownListenerOf, speechRuleIndex } from '../services/speech.ts';
@@ -26,18 +26,12 @@ const listQuery = z.object({
   tagIds: z.string().optional(),
   q: z.string().trim().optional(),
   speaker: z.string().optional(),
-  /** A character name, or "-" for lines whose listener is unknown (none, or an unsure AI guess). */
+  /** A character name (a known listener). */
   listener: z.string().optional(),
   /** Only lines whose status is shown in the review inbox. */
   review: z.enum(['1']).optional(),
-  /** Only lines not yet in a final status. */
-  remaining: z.enum(['1']).optional(),
-  /** Only lines whose current status a run set and no person has looked at since (✦). */
-  by: z.enum(['ai']).optional(),
-  /** Only translated lines whose source (case and end punctuation aside) is translated differently elsewhere. */
-  diverged: z.enum(['1']).optional(),
-  /** Only lines with a person's note. */
-  noted: z.enum(['1']).optional(),
+  /** Automatic marks, comma-separated: lines carrying every one of them (line-marks.ts). */
+  marks: z.string().optional().transform((value) => value?.split(',').filter(Boolean)).pipe(lineMarksSchema.optional()),
   /** A line to show: the page is the one holding it (the response says which offset it used). */
   focus: z.string().optional(),
   offset: z.coerce.number().int().min(0).default(0),
@@ -53,18 +47,9 @@ function unitConditions(projectId: string, query: Omit<z.infer<typeof listQuery>
   for (const tagId of query.tagIds?.split(',').filter(Boolean) ?? []) conditions.push(sql`${s.units.id} in (select unit_id from ${s.unitTags} where tag_id = ${tagId})`);
   if (query.q) conditions.push(textFilter(query.q));
   if (query.speaker) conditions.push(eq(s.units.speaker, query.speaker));
-  // Unknown listener ('-') is the automatic mark; a name must be a known listener.
-  if (query.listener && query.listener !== '-') conditions.push(and(eq(s.units.listener, query.listener), knownListenerSql)!);
+  if (query.listener) conditions.push(and(eq(s.units.listener, query.listener), knownListenerSql)!);
   if (query.review) conditions.push(sql`${s.units.statusId} in (select id from ${s.statuses} where ${s.statuses.projectId} = ${projectId} and ${s.statuses.inReview} = 1)`);
-  conditions.push(
-    ...markConditions(projectId, [
-      ...(query.remaining ? ['remaining' as const] : []),
-      ...(query.by ? ['ai' as const] : []),
-      ...(query.listener === '-' ? ['unknownListener' as const] : []),
-      ...(query.diverged ? ['diverged' as const] : []),
-      ...(query.noted ? ['noted' as const] : []),
-    ]),
-  );
+  conditions.push(...markConditions(projectId, query.marks));
   return and(...conditions)!;
 }
 

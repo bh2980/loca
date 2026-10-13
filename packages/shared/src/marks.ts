@@ -36,6 +36,9 @@ export const markColor = (mark: AutoMark, colors?: MarkColors | null) => colors?
 export type LineMark = { [K in AutoMark]: 'lines' extends (typeof AUTO_MARKS)[K]['on'][number] ? K : never }[AutoMark];
 export const LINE_MARK_IDS = AUTO_MARK_IDS.filter((id): id is LineMark => (AUTO_MARKS[id].on as readonly string[]).includes('lines'));
 
+/** The line marks read off the line itself (lineMarksOf: what workflow conditions can test). 같은 원문 다른 번역 compares across lines, so only the list filter and run scope know it. */
+export const CONDITION_MARK_IDS = LINE_MARK_IDS.filter((id) => id !== 'diverged');
+
 /**
  * Marks that are values of one field: a knowledge item or a term is either a candidate or decided
  * by AI, never both. Picked together they mean either one; marks of different groups (or none) must
@@ -78,7 +81,7 @@ export function termMarksOf(term: { status: KnowledgeStatus; statusBy: StatusBy;
 }
 
 /** The `marks` URL param: a list of mark ids (also accepts one id or a comma list), unknown ids dropped. */
-export function parseMarks(raw: unknown, allowed: readonly AutoMark[] = AUTO_MARK_IDS): AutoMark[] | undefined {
-  const values = (Array.isArray(raw) ? raw : typeof raw === 'string' ? raw.split(',') : []).filter((value): value is AutoMark => typeof value === 'string' && (allowed as readonly string[]).includes(value));
+export function parseMarks<T extends AutoMark = AutoMark>(raw: unknown, allowed: readonly T[] = AUTO_MARK_IDS as unknown as readonly T[]): T[] | undefined {
+  const values = (Array.isArray(raw) ? raw : typeof raw === 'string' ? raw.split(',') : []).filter((value): value is T => typeof value === 'string' && (allowed as readonly string[]).includes(value));
   return values.length ? [...new Set(values)] : undefined;
 }

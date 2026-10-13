@@ -39,7 +39,7 @@ describe('who set it (docs/DESIGN.md 3.5)', () => {
     await send('PATCH', `/projects/${projectId}/units`, { unitIds: [units[1].id], checked: true });
     expect(by().map((row) => row.statusBy)).toEqual(['human', 'human', 'ai']);
     // 'AI가 정한 것만' lists what is left.
-    const listed = (await (await send('GET', `/projects/${projectId}/units?by=ai`, undefined)).json()) as { rows: { key: string; statusBy: string }[] };
+    const listed = (await (await send('GET', `/projects/${projectId}/units?marks=ai`, undefined)).json()) as { rows: { key: string; statusBy: string }[] };
     expect(listed.rows.map((row) => [row.key, row.statusBy])).toEqual([['u2', 'ai']]);
   });
 
@@ -54,5 +54,22 @@ describe('who set it (docs/DESIGN.md 3.5)', () => {
       ['Ghost', 'confirmed', 'human', 'ai'],
       ['Vera', 'confirmed', 'human', 'human'],
     ]);
+  });
+});
+
+describe('units list marks', () => {
+  it('several marks must all hold; a named listener stays its own filter', async () => {
+    const { db, projectId, send } = setup();
+    const units = db.select().from(s.units).where(eq(s.units.projectId, projectId)).orderBy(s.units.seq).all();
+    db.update(s.units).set({ kind: 'dialogue', listener: 'Bob', listenerOrigin: 'human' }).where(eq(s.units.id, units[0].id)).run();
+    db.update(s.units).set({ kind: 'dialogue', listener: null }).where(eq(s.units.id, units[1].id)).run();
+    db.update(s.units).set({ kind: 'dialogue', listener: null }).where(eq(s.units.id, units[2].id)).run();
+    db.update(s.units).set({ note: '메모' }).where(eq(s.units.id, units[0].id)).run();
+    db.update(s.units).set({ note: '메모' }).where(eq(s.units.id, units[1].id)).run();
+    const keys = async (query: string) => ((await (await send('GET', `/projects/${projectId}/units?${query}`, undefined)).json()) as { rows: { key: string }[] }).rows.map((row) => row.key);
+    expect(await keys('marks=unknownListener')).toEqual(['u1', 'u2']);
+    expect(await keys('marks=noted')).toEqual(['u0', 'u1']);
+    expect(await keys('marks=unknownListener,noted')).toEqual(['u1']);
+    expect(await keys('listener=Bob&marks=noted')).toEqual(['u0']);
   });
 });

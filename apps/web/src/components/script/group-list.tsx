@@ -1,4 +1,5 @@
 import { Fragment, useMemo, useState, type ReactNode } from 'react';
+import type { LineMark } from '@tw/shared';
 import { Link } from '@tanstack/react-router';
 import { Check, ChevronRight, Inbox, Rows3 } from 'lucide-react';
 import { SearchInput } from '@/components/toolbar';
@@ -114,7 +115,7 @@ export function GroupList({ projectId, groups, finalIds, scope, lineTotal, revie
   );
 }
 
-/** A link that changes what the center shows, keeping the list's own search and "남은 줄만". */
+/** A link that changes what the center shows, keeping the list's own search and its automatic marks. */
 function ScriptLink({ projectId, scope, keep, className, children, ...props }: { projectId: string; scope: ScriptScope; keep?: boolean; className?: string; children: ReactNode; title?: string; 'aria-current'?: 'page' }) {
   return (
     <Link
@@ -123,8 +124,8 @@ function ScriptLink({ projectId, scope, keep, className, children, ...props }: {
       // keep: a filter being walked stays on (찾아가기); the scene opens at its first match.
       search={(previous) =>
         keep
-          ? { gq: previous.gq, remaining: previous.remaining, q: previous.q, status: previous.status, tags: previous.tags, speaker: previous.speaker, listener: previous.listener, view: previous.view === 'find' ? ('find' as const) : undefined, ...scope }
-          : { gq: previous.gq, remaining: previous.remaining, ...scope }
+          ? { gq: previous.gq, marks: previous.marks as LineMark[] | undefined, q: previous.q, status: previous.status, tags: previous.tags, speaker: previous.speaker, listener: previous.listener, view: previous.view === 'find' ? ('find' as const) : undefined, ...scope }
+          : { gq: previous.gq, marks: previous.marks as LineMark[] | undefined, ...scope }
       }
       className={className}
       {...props}
