@@ -176,6 +176,7 @@ export function ModelPicker({
                 {value?.model && !list.includes(value.model) && <p className="text-xs text-muted-foreground">지금: {value.model}</p>}
               </Field>
             )}
+            {connection?.kind === 'antigravity' && <p className="text-xs text-muted-foreground">추론 수준은 모델 이름에 들어 있습니다(…-high / -medium / -low).</p>}
             {connection && efforts.length > 0 && (
               <Field>
                 <FieldLabel>추론 수준</FieldLabel>
