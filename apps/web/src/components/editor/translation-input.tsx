@@ -5,6 +5,7 @@ import { history, historyKeymap, standardKeymap } from '@codemirror/commands';
 import { autocompletion, completionStatus, type CompletionContext } from '@codemirror/autocomplete';
 import { chipHue, chipLabel, numberTokens, type TokenKind, type TokenUnit } from '@/lib/tokens';
 import type { TagInsert } from '@/lib/tag-placement';
+import { splitTokens, type SourcePart } from '@/lib/line-context';
 import { cn } from '@/lib/utils';
 
 /** Open editors by line, so the source next to one can put a token or term into it. */
@@ -46,6 +47,66 @@ function takeGhost(view: EditorView) {
   const inserts = view.state.field(ghost);
   if (!inserts?.length) return false;
   view.dispatch({ changes: inserts.map((insert) => ({ from: insert.at, insert: insert.text })), effects: setGhost.of(null) });
+  return true;
+}
+
+/**
+ * The AI continuation (docs/DESIGN.md J3b A): faint text after the cursor while it is at the end
+ * of the text. Tab takes it, ⌘→ one word. The text comes from the editor's owner (the `continuation`
+ * prop); an edit clears it until the owner sets it again.
+ */
+interface Continuation {
+  text: string;
+  /** The text cut into plain runs and numbered tokens, drawn as faint chips like the rest. */
+  parts: SourcePart[];
+}
+const NO_CONTINUATION: Continuation = { text: '', parts: [] };
+const setContinuation = StateEffect.define<Continuation>();
+class ContinuationText extends WidgetType {
+  constructor(readonly value: Continuation) {
+    super();
+  }
+  eq(other: ContinuationText) {
+    return other.value.text === this.value.text;
+  }
+  toDOM() {
+    const span = document.createElement('span');
+    span.className = 'cm-continuation';
+    span.title = 'Tab으로 받기';
+    for (const part of this.value.parts) {
+      if (!part.token) {
+        span.append(part.text);
+        continue;
+      }
+      const chip = document.createElement('span');
+      chip.className = `cm-token-chip cm-token-ghost ${chipHue(part.token.number)}`;
+      chip.textContent = chipLabel(part.token.kind, part.token.number);
+      span.append(chip);
+    }
+    return span;
+  }
+}
+const continuation = StateField.define<Continuation>({
+  create: () => NO_CONTINUATION,
+  update(value, transaction) {
+    for (const effect of transaction.effects) if (effect.is(setContinuation)) return effect.value;
+    return transaction.docChanged ? NO_CONTINUATION : value;
+  },
+  provide: (field) =>
+    EditorView.decorations.compute([field, 'selection'], (state) => {
+      const { text } = state.field(field);
+      const { empty, head } = state.selection.main;
+      if (!text || !empty || head !== state.doc.length || state.field(ghost)) return Decoration.none;
+      return Decoration.set([Decoration.widget({ widget: new ContinuationText(state.field(field)), side: 1 }).range(head)]);
+    }),
+});
+/** Puts in the continuation, or (`word`) its first word. */
+function takeContinuation(view: EditorView, word = false) {
+  const { text } = view.state.field(continuation);
+  const { empty, head } = view.state.selection.main;
+  if (!text || !empty || head !== view.state.doc.length) return false;
+  const taken = word ? (/^\s*\S+\s?/u.exec(text)?.[0] ?? text) : text;
+  view.dispatch({ changes: { from: head, insert: taken }, selection: { anchor: head + taken.length } });
   return true;
 }
 
@@ -101,6 +162,12 @@ export interface TranslationInputProps {
   onEscape?: () => void;
   /** ⌘⇧T: propose the missing format tokens (shown as ghosts, Tab takes them). */
   onPlaceTags?: () => void;
+  /** The AI continuation to show after the cursor (empty = none). */
+  continuation?: string;
+  /** ⌥/: ask for a continuation of what is typed now. */
+  onContinue?: () => void;
+  /** Esc dropped the continuation: not shown again until asked. */
+  onDismissContinuation?: () => void;
   /** ⌥1…⌥9: take the nth suggestion. */
   onPick?: (index: number) => void;
   /** Changing this to a non-zero number puts the cursor at the end of the text. */
@@ -290,13 +357,16 @@ export function TranslationInput(props: TranslationInputProps) {
     const shortcuts = [
       { key: 'Mod-s', run: run(() => latest.current.onSave()) },
       { key: 'Mod-Enter', run: run(() => latest.current.onAdvance()) },
-      { key: 'Tab', run: takeGhost },
+      { key: 'Tab', run: (editor: EditorView) => takeGhost(editor) || takeContinuation(editor) },
+      { key: 'Mod-ArrowRight', run: (editor: EditorView) => takeContinuation(editor, true) },
+      { key: 'Alt-/', run: () => (latest.current.onContinue?.(), !!latest.current.onContinue) },
       // Esc first closes the completion list or drops proposed tokens, then leaves the box.
       {
         key: 'Escape',
         run: (editor: EditorView) => {
           if (completionStatus(editor.state) !== null) return false;
           if (editor.state.field(ghost)) return (editor.dispatch({ effects: setGhost.of(null) }), true);
+          if (editor.state.field(continuation).text) return (editor.dispatch({ effects: setContinuation.of(NO_CONTINUATION) }), latest.current.onDismissContinuation?.(), true);
           editor.contentDOM.blur();
           latest.current.onEscape?.();
           return true;
@@ -326,6 +396,7 @@ export function TranslationInput(props: TranslationInputProps) {
         extensions: [
           Prec.highest(keymap.of(shortcuts)),
           ghost,
+          continuation,
           history(),
           keymap.of([...standardKeymap, ...historyKeymap]),
           EditorView.lineWrapping,
@@ -357,6 +428,14 @@ export function TranslationInput(props: TranslationInputProps) {
     const editor = view.current;
     if (editor && editor.state.doc.toString() !== props.value) editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: props.value } });
   }, [props.value]);
+
+  // The continuation follows the owner's prop (it recomputes it as the text changes); after the
+  // text effect above, whose replacement would otherwise clear it.
+  useEffect(() => {
+    const editor = view.current;
+    const text = props.continuation ?? '';
+    if (editor && editor.state.field(continuation).text !== text) editor.dispatch({ effects: setContinuation.of(text ? { text, parts: splitTokens(text, props.source, props.tokenPattern) } : NO_CONTINUATION) });
+  }, [props.continuation, props.value]);
 
   useEffect(() => {
     const editor = view.current;

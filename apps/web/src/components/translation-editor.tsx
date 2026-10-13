@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { listenerLabel } from '@tw/shared';
@@ -65,6 +65,37 @@ export function TranslationEditor({
   const detail = useQuery(q.unit(unit.id));
   const candidates = unit.candidates ?? detail.data?.candidates ?? [];
   const suggestions = useSuggestions(unit.id, [unit.translation ?? '', draft]);
+  // The AI continuation (docs/DESIGN.md J3b A): asked once when the line opens empty, or with ⌥/.
+  const project = useQuery(q.project(projectId));
+  const editorAi = project.data?.editorAi;
+  const [ai, setAi] = useState<{ text?: string; loading?: boolean; message?: string; dismissed?: boolean }>(() => ({ text: continuations.get(unit.id) }));
+  const pending = useRef<AbortController>(null);
+  const ask = (prefix: string) => {
+    pending.current?.abort();
+    const controller = (pending.current = new AbortController());
+    setAi({ loading: true });
+    void fetch(`/api/units/${unit.id}/complete`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prefix }), signal: controller.signal })
+      .then(async (response) => {
+        const body = (await response.json()) as { text?: string; error?: string; retryAfterSeconds?: number };
+        if (!response.ok || !body.text) {
+          const wait = body.retryAfterSeconds ? ` · ${body.retryAfterSeconds >= 3600 ? `${Math.ceil(body.retryAfterSeconds / 3600)}시간` : `${Math.max(1, Math.ceil(body.retryAfterSeconds / 60))}분`} 뒤` : '';
+          setAi({ message: `${body.error ?? '자동완성을 받지 못했습니다.'}${wait}` });
+          return;
+        }
+        // The line should start with what was typed; a model that sent only the rest gets it put after.
+        const text = body.text.startsWith(prefix) ? body.text : `${prefix}${prefix && !/\s$/.test(prefix) ? ' ' : ''}${body.text}`;
+        continuations.set(unit.id, text);
+        setAi({ text });
+      })
+      .catch((error: unknown) => !controller.signal.aborted && setAi({ message: error instanceof Error ? error.message : String(error) }));
+  };
+  useEffect(() => {
+    if (editorAi?.enabled && editorAi.model && !draft.trim() && !continuations.has(unit.id)) ask('');
+    return () => pending.current?.abort();
+  }, [unit.id, editorAi?.enabled]); // eslint-disable-line react-hooks/exhaustive-deps
+  // What is shown: the rest of the AI's line after what is typed (while it still matches), up to the end of the next sentence.
+  const continuation = ai.text && !ai.dismissed && ai.text.startsWith(draft) ? nextSentence(ai.text.slice(draft.length)) : '';
+
   // Missing format units the rules can place (docs/DESIGN.md J3b B).
   const tags = useMemo(() => placeTags(unit.source, draft, line.tokenPattern, line.terms), [unit.source, draft, line.tokenPattern, line.terms]);
   const placeMissing = () => tags.inserts.length > 0 && proposeInLine(unit.id, tags.inserts);
@@ -141,11 +172,16 @@ export function TranslationEditor({
         onEscape={onEscape}
         onPick={(index) => suggestions[index] && setDraft(suggestions[index].text)}
         onPlaceTags={placeMissing}
+        continuation={continuation}
+        onContinue={editorAi?.enabled ? () => ask(draft) : undefined}
+        onDismissContinuation={() => setAi((state) => ({ ...state, dismissed: true }))}
         focusKey={focusKey}
         placeholder="번역을 입력하세요. 저장하면 사람 후보가 되고 대표 번역이 됩니다."
       />
       <div className="flex flex-wrap items-center gap-2">
         {dirty && <span className="text-xs text-warning">저장 안 됨</span>}
+        {ai.loading && <span className="text-xs text-muted-foreground">자동완성 받는 중…</span>}
+        {ai.message && <span className="text-xs text-muted-foreground">{ai.message}</span>}
         {/* Format units the source has and the text lacks: placed by rule as ghosts (Tab takes them). */}
         {draft.trim() && tags.placed.length > 0 && (
           <Button variant="ghost" size="inline" className="text-token-1" title={`빠진 서식 넣기 (${keyLabel('Mod+Shift+T')}) · 제자리에 흐리게 보이고 Tab으로 넣음`} onClick={placeMissing}>
@@ -278,4 +314,13 @@ function PreviousDiff({ unitId, openAtFirst }: { unitId: string; openAtFirst: bo
       </p>
     </div>
   );
+}
+
+/** The AI's line per line, kept while the page is open so going back to a line does not ask again. */
+const continuations = new Map<string, string>();
+
+/** Up to the end of the next sentence (its punctuation and closing quote included). */
+function nextSentence(rest: string) {
+  const match = /^\s*[\s\S]*?[.!?…。]+["'”’)\]]*(?=\s|$)/u.exec(rest);
+  return match ? match[0] : rest;
 }

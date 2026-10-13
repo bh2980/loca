@@ -195,6 +195,8 @@
   .token-chip-stray, .cm-token-stray { --chip: var(--warning); }
   /* A proposed token, not in the text yet (Tab puts it in). */
   .cm-token-ghost { @apply border-dashed opacity-60; }
+  /* The AI continuation after the cursor (Tab takes it). */
+  .cm-continuation { @apply text-muted-foreground/70 italic; }
   /* A glossary translation in use. */
   .cm-term-hit { @apply rounded-sm bg-primary/5 underline decoration-primary/40 underline-offset-4; }
 }

@@ -32,6 +32,10 @@ const SECTIONS: { title: string; keys: [string, string][] }[] = [
       ['Mod+1…9', '원문의 n번째 서식 넣기 (쌍은 고른 글자를 감쌈)'],
       ['Alt+1…3', '제안 가져오기'],
       ['Mod+Shift+S', '원문 복사'],
+      ['Mod+Shift+T', '빠진 서식 넣기 (흐린 칩, Tab으로 받기)'],
+      ['Alt+/', 'AI 자동완성 부르기 (설정에서 켰을 때)'],
+      ['Tab', '흐린 글씨 받기 (서식 칩·자동완성)'],
+      ['Mod+ArrowRight', '자동완성 한 낱말만 받기'],
     ],
   },
   {
