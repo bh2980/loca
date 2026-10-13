@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, inArray, like, ne, notLike, or, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
-import { LISTENER_MIN_CONFIDENCE, type NodeType } from '@tw/shared';
+import { isSpecialListener, LISTENER_MIN_CONFIDENCE, type NodeType } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import { eachChunk, inList } from '../db/chunk.ts';
@@ -61,8 +61,8 @@ const unitPatch = z.object({
   listener: z.string().trim().min(1).nullable().optional(),
 });
 
-/** The listener counts only when it is not an unsure AI guess. */
-const knownListener = sql`(${s.units.listener} is not null and (${s.units.listenerOrigin} is not 'ai' or ${s.units.listenerConfidence} >= ${LISTENER_MIN_CONFIDENCE}))`;
+/** The listener counts unless it is an unsure guess (by line or by scene), as isUnsureListener. */
+const knownListener = sql`(${s.units.listener} is not null and (${s.units.listenerOrigin} not in ('ai', 'scene') or ${s.units.listenerConfidence} >= ${LISTENER_MIN_CONFIDENCE}))`;
 
 /** Trigram FTS needs 3+ characters; shorter queries fall back to LIKE over the same columns. */
 function textFilter(q: string): SQL {
@@ -270,8 +270,20 @@ export const sourceRoutes = new Hono<Env>()
       .all();
     const nodes = db.select({ id: s.graphNodes.id, key: s.graphNodes.key }).from(s.graphNodes).where(sql`exists (select 1 from json_each(${s.graphNodes.unitIds}) where value = ${unitId})`).all();
     const resolved = speechRuleIndex(db, unit.projectId).resolve([unit]).get(unit.key);
-    const speech = resolved ? { listener: resolved.listener, ruleId: resolved.rule.id, rule: describeRule(resolved.rule), level: resolved.rule.level, byOrder: resolved.byOrder, routeDependent: !!resolved.routeDependent } : null;
-    return c.json({ ...unit, group, candidates, tagIds, history, graphNodes: nodes, speech });
+    const speech = resolved ? { listener: resolved.listener, ruleId: resolved.rule.id, rule: describeRule(resolved.rule), level: resolved.rule.level, byOrder: resolved.byOrder, routeDependent: !!resolved.routeDependent, others: !!resolved.others } : null;
+    // Who this line may address, nearest first: the scene's other speakers (extras included) and
+    // names people already typed as a listener there, for the listener picker.
+    const sceneLines = db.select({ seq: s.units.seq, speaker: s.units.speaker, listener: s.units.listener, origin: s.units.listenerOrigin }).from(s.units).where(eq(s.units.groupId, unit.groupId)).all();
+    const distance = new Map<string, number>();
+    for (const other of sceneLines) {
+      for (const name of [other.speaker, other.origin === 'human' ? other.listener : null]) {
+        if (!name || name === unit.speaker || isSpecialListener(name)) continue;
+        const far = Math.abs(other.seq - unit.seq);
+        if (far < (distance.get(name) ?? Infinity)) distance.set(name, far);
+      }
+    }
+    const sceneNames = [...distance].sort((a, b) => a[1] - b[1]).map(([name]) => name);
+    return c.json({ ...unit, group, candidates, tagIds, history, graphNodes: nodes, speech, sceneNames });
   })
   .patch('/units/:unitId', validate('json', unitPatch), (c) => {
     const { db } = c.var.deps;

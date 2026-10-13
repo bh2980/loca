@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { ChevronRight, Plus } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { isSettled, listenerLabel, SPEECH_LEVEL_LABELS, type SpeechLevel } from '@tw/shared';
+import { isSettled, isSpecialListener, listenerLabel, OTHERS_LISTENER, SPEECH_LEVEL_LABELS, type SpeechLevel } from '@tw/shared';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { DetailPane, PaneSection } from '@/components/detail-pane';
 import { candidateRow, DraftEditor, fail, matches, metaColumns, SourceBadge, type Draft, type KindSpec, type Row, type SourceFilter, type StatusFilter } from '@/components/knowledge/draft-editor';
@@ -135,9 +135,12 @@ export function PairTable({ pairs, loading, selected, picked, onPick, onOpen, bu
  * starts at a line picked from this pair's lines, never a typed key. The relationship (a fact of
  * the story, not a translation decision) sits folded underneath.
  */
-export function PairDetail({ projectId, pair, relationships, speechRules, characters, onClose, onDecide }: {
+export function PairDetail({ projectId, pair, relationships, speechRules, characters, others, onOpenPair, onClose, onDecide }: {
   projectId: string;
   pair: Pair;
+  /** The speaker's "그 밖의 사람" pair, if it has one (its rule covers listeners without their own). */
+  others?: Pair;
+  onOpenPair?: (key: string) => void;
   relationships: KindSpec;
   speechRules: KindSpec;
   characters: { id: string; name: string }[];
@@ -181,7 +184,16 @@ export function PairDetail({ projectId, pair, relationships, speechRules, charac
         }
       >
         {picking && <StretchPicker projectId={projectId} from={pair.from} to={pair.to} taken={new Set(pair.rules.map((rule) => String(rule.startKey ?? '')))} onPick={(key) => addStretch.mutate(key)} onCancel={() => setPicking(false)} />}
-        {rules.length === 0 && <p className="text-xs text-muted-foreground">이 쌍의 말투 규칙이 없습니다. 규칙이 없으면 번역에는 청자만 들어갑니다.</p>}
+        {rules.length === 0 && (
+          <p className="text-xs text-muted-foreground">
+            {pair.to === OTHERS_LISTENER
+              ? `${pair.from}의 그 밖의 사람 규칙이 없습니다.`
+              : others?.rules.length
+                ? `이 쌍의 규칙이 없어 ${pair.from}의 ‘그 밖의 사람’ 규칙(${SPEECH_LEVEL_LABELS[others.rules[0].level as SpeechLevel]})이 쓰입니다.`
+                : '이 쌍의 말투 규칙이 없습니다. 규칙이 없으면 번역에는 청자만 들어갑니다.'}
+          </p>
+        )}
+        {pair.to === OTHERS_LISTENER && <p className="text-xs text-muted-foreground">{pair.from}가 자기 규칙이 없는 상대(엑스트라, 처음 보는 사람 등)에게 쓰는 말투입니다.</p>}
         <ul className="space-y-2">
           {rules.map((rule) => {
             const open = openRule === rule.id;
@@ -214,6 +226,16 @@ export function PairDetail({ projectId, pair, relationships, speechRules, charac
             );
           })}
         </ul>
+        {pair.to !== OTHERS_LISTENER && !isSpecialListener(pair.to) && onOpenPair && (
+          <Button
+            variant="ghost"
+            size="inline"
+            className="mt-2 text-muted-foreground"
+            onClick={() => (others ? onOpenPair(others.key) : speechRules.createWith?.({ fromName: pair.from, toName: OTHERS_LISTENER, level: 'haeyo', address: '' }).then(() => onOpenPair(pairKey(pair.from, OTHERS_LISTENER))))}
+          >
+            {others?.rules.length ? `${pair.from} → 그 밖의 사람: ${SPEECH_LEVEL_LABELS[others.rules[0].level as SpeechLevel]}` : `${pair.from} → 그 밖의 사람 말투 정하기`}
+          </Button>
+        )}
       </PaneSection>
       <Collapsible>
         <CollapsibleTrigger asChild>

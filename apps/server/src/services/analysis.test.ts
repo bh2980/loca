@@ -123,15 +123,28 @@ describe('work analysis', () => {
     expect(map.get('michael')).toBeUndefined();
   });
 
-  it('fills scene listeners without touching imported ones, and holds main-pair rules for a person', () => {
+  it('leaves a per-line guess to the line and a mixed scene as a hint', () => {
+    const { db, projectId } = setup();
+    // A guess a listener node made for this very line is more specific than the scene's.
+    db.update(s.units).set({ listener: 'Guard', listenerOrigin: 'ai', listenerConfidence: 0.6 }).where(eq(s.units.key, 'a1')).run();
+    const { keyOf } = scriptText(db, projectId);
+    const analysis = { ...draft('hasipsio'), sceneListeners: [{ scene: 'g1', speaker: 'Alice', listener: 'Bob', confidence: 0.8 }] };
+    saveDrafts(db, projectId, 'job', analysis, keyOf);
+    const lines = new Map(db.select().from(s.units).where(eq(s.units.projectId, projectId)).all().map((unit) => [unit.key, unit]));
+    expect(lines.get('a1')).toMatchObject({ listener: 'Guard', listenerOrigin: 'ai' });
+    // Alice mostly addresses Bob here (0.8): kept as a scene hint, which counts as unknown.
+    expect(lines.get('a3')).toMatchObject({ listener: 'Bob', listenerOrigin: 'scene', listenerConfidence: 0.8 });
+  });
+
+  it('fills scene listeners as scene guesses without touching imported ones, and holds main-pair rules for a person', () => {
     const { db, projectId } = setup();
     db.update(s.units).set({ listener: 'Captain', listenerOrigin: 'import' }).where(eq(s.units.key, 'a3')).run();
     const { keyOf } = scriptText(db, projectId);
     const analysis = { ...draft('hasipsio'), sceneListeners: [{ scene: 'g1', speaker: 'Alice', listener: 'Bob', confidence: 0.95 }, { scene: 'g1', speaker: 'Bob', listener: 'Alice', confidence: 0.95 }] };
     const counts = saveDrafts(db, projectId, 'job', analysis, keyOf);
     const lines = new Map(db.select().from(s.units).where(eq(s.units.projectId, projectId)).all().map((unit) => [unit.key, unit]));
-    expect(lines.get('a1')).toMatchObject({ listener: 'Bob', listenerOrigin: 'ai', listenerConfidence: 0.95 });
-    expect(lines.get('a2')).toMatchObject({ listener: 'Alice', listenerOrigin: 'ai' });
+    expect(lines.get('a1')).toMatchObject({ listener: 'Bob', listenerOrigin: 'scene', listenerConfidence: 0.95 });
+    expect(lines.get('a2')).toMatchObject({ listener: 'Alice', listenerOrigin: 'scene' });
     expect(lines.get('a3')).toMatchObject({ listener: 'Captain', listenerOrigin: 'import' });
     expect(counts.listeners).toBe(2);
     // Alice→Bob and Bob→Alice are the only pairs, so both are main pairs: used at once, marked for a look.

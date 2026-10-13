@@ -52,11 +52,21 @@ export const DEFAULT_AI_CONFIRM: AiConfirm = aiConfirmSchema.parse({});
 /** The status an AI result of this kind lands in. */
 export const aiStatus = (policy: AiConfirm, kind: AiConfirmKind) => (policy[kind] === 'auto' ? ('confirmed' as const) : ('candidate' as const));
 
-/** Where a line's listener came from. A person's choice always wins over the AI's. */
-export const LISTENER_ORIGINS = ['import', 'ai', 'human'] as const;
+/**
+ * Where a line's listener came from. A person's choice always wins over the AI's. "scene": the work
+ * analysis's whom-a-speaker-mostly-addresses for a whole scene, copied to the speaker's lines there;
+ * "ai": a guess for this very line (a listener workflow node).
+ */
+export const LISTENER_ORIGINS = ['import', 'scene', 'ai', 'human'] as const;
 export type ListenerOrigin = (typeof LISTENER_ORIGINS)[number];
 /** AI listeners below this confidence count as unknown (experiment sample: 99% right at >= 0.9). */
 export const LISTENER_MIN_CONFIDENCE = 0.9;
+/**
+ * A guess that does not count: below the bar, by line or by scene. A low scene guess means the
+ * speaker addresses several people there ("mostly X"), so it is a hint about the scene, not the line.
+ */
+export const isUnsureListener = (line: { listenerOrigin: ListenerOrigin | null; listenerConfidence: number | null }) =>
+  (line.listenerOrigin === 'ai' || line.listenerOrigin === 'scene') && (line.listenerConfidence ?? 0) < LISTENER_MIN_CONFIDENCE;
 /**
  * Listeners that are not one person: everyone present, an unspecified audience (broadcasts,
  * notices, posts), and the speaker themself (thinking aloud). Speech rules can name them as the
@@ -65,8 +75,13 @@ export const LISTENER_MIN_CONFIDENCE = 0.9;
 export const SPECIAL_LISTENERS = { group: '여럿', public: '불특정 다수', self: '혼잣말' } as const;
 export type SpecialListener = keyof typeof SPECIAL_LISTENERS;
 export const isSpecialListener = (name: string | null | undefined): name is SpecialListener => !!name && Object.hasOwn(SPECIAL_LISTENERS, name);
+/**
+ * A speech rule's listener for "everyone else": the speaker's level toward anyone without a rule of
+ * their own (extras such as SWAT, a passer-by). Only rules use it; a line's listener is never "others".
+ */
+export const OTHERS_LISTENER = 'others';
 /** A listener as people read it: a name, or the Korean word for a special listener. */
-export const listenerLabel = (name: string) => (isSpecialListener(name) ? SPECIAL_LISTENERS[name] : name);
+export const listenerLabel = (name: string) => (isSpecialListener(name) ? SPECIAL_LISTENERS[name] : name === OTHERS_LISTENER ? '그 밖의 사람' : name);
 
 /** Korean speech levels: four formal (하십시오·하오·하게·해라) and two informal (해요·해) ones. */
 export const SPEECH_LEVELS = ['hasipsio', 'hao', 'hage', 'haera', 'haeyo', 'hae', 'other'] as const;

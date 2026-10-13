@@ -74,7 +74,7 @@ Rules:
 - relationships: one per direction that matters; "changes" give the line id ("at") where the relationship changes and why.
 - events: what happened, its cause and its outcome, the people involved; include events that later lines refer back to.
 - speechRules: for every speaker → listener direction with several lines (the listener may also be "group", "public" or "self" as in sceneListeners: how the speaker talks to several people present, to an unspecified audience, or to themself), the Korean speech level the translation should use, one of: ${SPEECH_LEVEL_GUIDE}. Decide from the relationship (age, rank, intimacy, hostility, era and setting) as a Korean translator would; narration-like or written addresses often take 해라체, close friends 해체. "address" is how the speaker should address the listener in Korean (e.g. "수사관님", "언니"); when several forms are used, separate them with commas (e.g. "행크 경위님, 경위님"); empty if none. If the level changes at some point (falling out, reconciliation, promotion), give one rule per stretch: "start" is the line id where the new stretch begins (null for the first). Do not mark a single sarcastic or emotional line as a change. "note" says why.
-- sceneListeners: for each scene and each speaker in it, whom that speaker mostly addresses there ("scene" is the key in [brackets]; "listener" a character name; "group" when the speaker addresses several people present at once (a meeting, a group call); "public" for an unspecified audience (a broadcast, announcement, speech, post or advert); "self" for thinking aloud, a diary or muttering; or null when you cannot tell) and your confidence from 0 to 1. Give a high confidence only when nearly every line of that speaker in the scene addresses that listener; mixed or unclear → lower. In a group scene where a speaker mostly talks to everyone, "group" with high confidence is right even if a few lines answer one person. Skip scenes with a single obvious speaker talking to nobody in particular.
+- sceneListeners: for each scene and each speaker in it, whom that speaker mostly addresses there ("scene" is the key in [brackets]; "listener" a character name, or for an extra outside the cast (a SWAT officer, a passer-by) their name exactly as it appears as a speaker; "group" when the speaker addresses several people present at once (a meeting, a group call); "public" for an unspecified audience (a broadcast, announcement, speech, post or advert); "self" for thinking aloud, a diary or muttering; or null when you cannot tell) and your confidence from 0 to 1. Give a high confidence only when nearly every line of that speaker in the scene addresses that listener; mixed or unclear → lower. In a group scene where a speaker mostly talks to everyone, "group" with high confidence is right even if a few lines answer one person. Skip scenes with a single obvious speaker talking to nobody in particular.
 - terms: names and words whose Korean form must stay the same across the whole translation: people, places, organizations, products and technology, coined words and in-world concepts (also lower-case ones, such as a slang word, a species or a drug), ranks and titles, and interface words that recur. Not ordinary words. "source" exactly as the script writes it, "kind" one of ${TERM_KINDS.join(', ')}, "meaning" one short Korean sentence, "target" the Korean form a translator should use (names by Korean loanword convention), "evidence" a few lines where it appears. At most about 150, the most important first.
 - Keep the whole answer under about 15,000 words.`;
 
@@ -467,8 +467,9 @@ function personKey(people: { name: string; aliases: string[] }[]) {
 
 /**
  * Fills, per scene, the listener of a speaker's lines from the analysis, for dialogue lines whose
- * listener nobody set (no listener, or an AI one with lower confidence). Imported and human
- * listeners are never touched. Returns the number of lines changed.
+ * listener nobody set (none, or an earlier scene guess). It is stored as a scene guess: below the bar it
+ * says "mostly X here" (the speaker addresses several people) and the line still counts as unknown.
+ * Imported, human and per-line AI listeners are never touched. Returns the number of lines changed.
  */
 function applySceneListeners(tx: Tx, projectId: string, entries: Analysis['sceneListeners'], people: { name: string; aliases: string[] }[], canon: (name: string) => string) {
   if (!entries.length) return 0;
@@ -488,11 +489,10 @@ function applySceneListeners(tx: Tx, projectId: string, entries: Analysis['scene
     .where(and(eq(s.units.projectId, projectId), eq(s.units.kind, 'dialogue')))
     .all();
   for (const line of lines) {
-    if (!line.speaker || line.origin === 'import' || line.origin === 'human') continue;
+    if (!line.speaker || line.origin === 'import' || line.origin === 'human' || line.origin === 'ai') continue;
     const found = wanted.get(`${line.groupId}|${person(line.speaker)}`);
     if (!found || found.listener === null) continue;
-    if (line.listener && line.origin === 'ai' && (line.confidence ?? 0) >= found.confidence) continue;
-    tx.update(s.units).set({ listener: found.listener, listenerOrigin: 'ai', listenerConfidence: found.confidence }).where(eq(s.units.id, line.id)).run();
+    tx.update(s.units).set({ listener: found.listener, listenerOrigin: 'scene', listenerConfidence: found.confidence }).where(eq(s.units.id, line.id)).run();
     changed += 1;
   }
   return changed;

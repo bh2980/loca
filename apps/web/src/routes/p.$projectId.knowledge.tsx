@@ -3,14 +3,14 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { ArrowLeftRight, GanttChart, Network, Plus, Table2, Users } from 'lucide-react';
 import { toast } from 'sonner';
-import { DOCUMENT_KINDS, isSettled, KNOWLEDGE_SOURCES, listenerLabel, SPEECH_LEVEL_LABELS, type KnowledgeSource, type SpeechLevel } from '@tw/shared';
+import { OTHERS_LISTENER, DOCUMENT_KINDS, isSettled, KNOWLEDGE_SOURCES, listenerLabel, SPEECH_LEVEL_LABELS, type KnowledgeSource, type SpeechLevel } from '@tw/shared';
 import { Page } from '@/components/page';
 import { RelationshipGraph } from '@/components/relationship-graph';
 import { hasAnalysis, JobStatus, StartAnalysis } from '@/components/knowledge/analysis-controls';
 import { BulkDecide, DraftEditor, fail, KINDS, KnowledgeFilters, KnowledgeTable, matches, RelationshipChanges, RuleLines, SourceBadge, text, type Kind, type KindSpec, type Row, type SourceFilter, type StatusFilter } from '@/components/knowledge/draft-editor';
 import { SplitPane } from '@/components/split-pane';
 import { Toolbar } from '@/components/toolbar';
-import { buildPairs, PairDetail, pairItems, pairMatches, pairSummary, PairTable, type Pair } from '@/components/knowledge/pairs';
+import { pairKey, buildPairs, PairDetail, pairItems, pairMatches, pairSummary, PairTable, type Pair } from '@/components/knowledge/pairs';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -172,7 +172,7 @@ function Knowledge() {
       ],
       fields: [
         { name: 'fromName', label: '화자', type: 'text' },
-        { name: 'toName', label: '청자 (여럿 group · 불특정 다수 public · 혼잣말 self)', type: 'text' },
+        { name: 'toName', label: '청자 (여럿 group · 불특정 다수 public · 혼잣말 self · 그 밖의 사람 others)', type: 'text' },
         { name: 'level', label: '말투', type: 'level' },
         { name: 'address', label: '호칭', type: 'chips', suggestions: (rules.data ?? []).flatMap((rule) => splitList(rule.address)) },
         { name: 'startKey', label: '시작 대사 키 (비우면 처음부터)', type: 'key' },
@@ -289,6 +289,8 @@ function Knowledge() {
               pair={pair}
               {...pairSpecs(pair)}
               characters={characters}
+              others={pairs.find((other) => other.key === pairKey(pair.from, OTHERS_LISTENER))}
+              onOpenPair={(key) => set({ item: key })}
               onClose={() => set({ item: undefined })}
               onDecide={(kind, ids, action) => decide.mutate({ items: [{ kind, ids }], action })}
             />

@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from '
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, CircleAlert, ListChecks, ListFilter, MoreHorizontal, PanelRightOpen, Play, Sparkles, Tags, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { checkFormat, LISTENER_MIN_CONFIDENCE, listenerLabel, mentions, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
+import { checkFormat, isUnsureListener, listenerLabel, type ListenerOrigin, mentions, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
 import { BulkBar } from '@/components/data-table';
 import { LineDetail, LINE_TABS, type LineTab } from '@/components/line-detail';
 import { SplitPane } from '@/components/split-pane';
@@ -82,8 +82,8 @@ export function filterChips(search: LinesSearch, statuses: { id: string; name: s
 }
 
 /** Who the line is addressed to. Unsure AI guesses count as unknown. */
-function listenerText(line: { listener: string | null; listenerOrigin: 'import' | 'ai' | 'human' | null; listenerConfidence: number | null }) {
-  if (!line.listener || (line.listenerOrigin === 'ai' && (line.listenerConfidence ?? 0) < LISTENER_MIN_CONFIDENCE)) return { text: '청자 미상', unknown: true };
+function listenerText(line: { listener: string | null; listenerOrigin: ListenerOrigin | null; listenerConfidence: number | null }) {
+  if (!line.listener || isUnsureListener(line)) return { text: '청자 미상', unknown: true };
   return { text: listenerLabel(line.listener), unknown: false };
 }
 

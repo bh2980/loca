@@ -109,6 +109,22 @@ describe('knowledge snapshot cache', () => {
     const aliased = { ...line('l0'), speaker: 'CHAR_A' };
     expect(speechRuleIndex(db, projectId).resolve([aliased]).get('l0')?.rule.level).toBe('hae');
   });
+
+  it('falls back to the speaker\'s rule for everyone else, and counts no unsure guess', () => {
+    const { db, projectId } = setup(4);
+    const line = (listener: string, origin: 'scene' | 'ai' | 'human' = 'human', confidence: number | null = null) => ({ ...db.select().from(s.units).where(eq(s.units.key, 'l1')).get()!, speaker: 'Alice', listener, listenerOrigin: origin, listenerConfidence: confidence });
+    db.insert(s.speechRules).values({ projectId, fromName: 'Alice', toName: 'Bob', level: 'haeyo', startKey: null }).run();
+    db.insert(s.speechRules).values({ projectId, fromName: 'Alice', toName: 'others', level: 'hae', startKey: null }).run();
+    const resolve = (input: ReturnType<typeof line>) => speechRuleIndex(db, projectId).resolve([input]).get('l1');
+    // Bob has his own rule; an extra (SWAT) takes the rule for everyone else and says so.
+    expect(resolve(line('Bob'))).toMatchObject({ rule: { level: 'haeyo' } });
+    expect(resolve(line('SWAT'))).toMatchObject({ listener: 'SWAT', rule: { level: 'hae' }, others: true });
+    // Not for a group, the public or themself.
+    expect(resolve(line('group'))).toBeUndefined();
+    // A mixed-scene guess ("mostly SWAT here") is a hint, not the line's listener.
+    expect(resolve(line('SWAT', 'scene', 0.8))).toBeUndefined();
+    expect(resolve(line('SWAT', 'scene', 0.95))).toMatchObject({ rule: { level: 'hae' } });
+  });
 });
 
 describe('checkScript terms speed', () => {

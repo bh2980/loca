@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray, isNotNull, ne, sql } from 'drizzle-orm';
-import { batchConfigSchema, CONNECTION_KIND_INFO, estimateTokens, LISTENER_MIN_CONFIDENCE, nodeName, type AiNode, type WorkflowDefinition } from '@tw/shared';
+import { batchConfigSchema, CONNECTION_KIND_INFO, estimateTokens, isUnsureListener, nodeName, type AiNode, type WorkflowDefinition } from '@tw/shared';
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -108,7 +108,7 @@ export async function preflight(db: Db, workflow: typeof s.workflows.$inferSelec
 
   const unmeasured = estimates.some((estimate) => estimate.connection && estimate.overheadTokens === null);
   const dialogue = units.filter((unit) => unit.kind === 'dialogue');
-  const unknownListener = dialogue.filter((unit) => !unit.listener || (unit.listenerOrigin === 'ai' && (unit.listenerConfidence ?? 0) < LISTENER_MIN_CONFIDENCE)).length;
+  const unknownListener = dialogue.filter((unit) => !unit.listener || isUnsureListener(unit)).length;
   const rules = db.select({ status: s.speechRules.status, count: sql<number>`count(*)` }).from(s.speechRules).where(eq(s.speechRules.projectId, projectId)).groupBy(s.speechRules.status).all();
   const analysis = db.select({ finishedAt: s.analysisJobs.finishedAt, model: s.analysisJobs.model }).from(s.analysisJobs).where(and(eq(s.analysisJobs.projectId, projectId), eq(s.analysisJobs.status, 'completed'))).orderBy(desc(s.analysisJobs.finishedAt)).limit(1).get();
 
