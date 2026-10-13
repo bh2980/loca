@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { ArrowLeftRight, GanttChart, Network, Plus, Table2, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { OTHERS_LISTENER, DOCUMENT_KINDS, isSettled, KNOWLEDGE_SOURCES, listenerLabel, SPEECH_LEVEL_LABELS, type KnowledgeSource, type SpeechLevel } from '@tw/shared';
@@ -215,17 +215,44 @@ function Knowledge() {
       else next.delete(id);
       return next;
     });
+  const queryClient = useQueryClient();
   const decide = useMutation({
     mutationFn: async ({ items, action }: { items: { kind: Kind; ids: string[] }[]; action: 'confirm' | 'discard' }) => {
       let changed = 0;
       for (const { kind, ids } of items) if (ids.length) changed += (await unwrap(api.drafts.$post({ param: { projectId }, json: { kind, ids, action } }))).changed;
       return changed;
     },
+    // Shown at once: the rows turn confirmed (or go) in the cached lists before the server answers;
+    // the refetch that the change sets off (knowledge, then lines and counts) only catches up.
+    onMutate: async ({ items, action }) => {
+      const touched: { key: QueryKey; before: unknown }[] = [];
+      const edit = async (key: QueryKey, update: (old: unknown) => unknown) => {
+        await queryClient.cancelQueries({ queryKey: key });
+        touched.push({ key, before: queryClient.getQueryData(key) });
+        queryClient.setQueryData(key, (old: unknown) => (old === undefined ? old : update(old)));
+      };
+      const decided = (ids: Set<string>) => (rows: { id: string }[]) =>
+        action === 'discard' ? rows.filter((row) => !ids.has(row.id)) : rows.map((row) => (ids.has(row.id) ? { ...row, status: 'confirmed', statusBy: 'human', review: null } : row));
+      for (const { kind, ids } of items) {
+        if (!ids.length) continue;
+        const apply = decided(new Set(ids));
+        if (kind === 'characters' || kind === 'relationships')
+          await edit(q.characters(projectId).queryKey, (old) => {
+            const data = old as { characters: { id: string }[]; relationships: { id: string; fromId: string; toId: string }[] };
+            return kind === 'characters' ? { ...data, characters: apply(data.characters) } : { ...data, relationships: apply(data.relationships) };
+          });
+        else await edit((kind === 'documents' ? q.documents(projectId) : kind === 'events' ? q.storyEvents(projectId) : q.speechRules(projectId)).queryKey, (old) => apply(old as { id: string }[]));
+      }
+      return { touched };
+    },
     onSuccess: (changed, { action }) => {
       setChecked(new Set());
       toast.success(action === 'confirm' ? `${changed}개를 확정·확인했습니다.` : `${changed}개를 버렸습니다.`);
     },
-    onError: fail,
+    onError: (error, _vars, context) => {
+      for (const { key, before } of context?.touched ?? []) queryClient.setQueryData(key, before);
+      fail(error);
+    },
   });
   // Bulk actions over the checked rows (pairs expand to their relationship and rules).
   const checkedItems = (): { kind: Kind; ids: string[] }[] => {
