@@ -42,6 +42,8 @@ export const importUnitSchema = z.object({
   listener: z.string().optional(),
   source: z.string(),
   translation: z.string().optional(),
+  /** Labels from the game data (category, voiced, a length limit…): they become the project's tags. */
+  tags: z.array(z.string().trim().min(1)).default([]),
   meta,
 });
 

@@ -2,7 +2,7 @@ import { and, asc, desc, eq, inArray, isNull, ne, notInArray, or, sql } from 'dr
 import { alias } from 'drizzle-orm/sqlite-core';
 import jsonLogic from 'json-logic-js';
 import * as ai from '@tw/ai';
-import { batchConfigSchema, FUNCTIONS, choiceKey, nodeModels, nodeName, type AiNode, type ConditionData, type FunctionName, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import { type IssueKind, batchConfigSchema, FUNCTIONS, choiceKey, nodeModels, nodeName, type AiNode, type ConditionData, type FunctionName, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
 import { inChunks, inList } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -15,6 +15,7 @@ import type { SecretStore } from '../services/secrets.ts';
 import { runAsyncFunction, syncFunctions, type FunctionInput, type FunctionResult } from './functions/index.ts';
 import { packGroups, planBatches } from './batches.ts';
 import { buildPrompt, outputSchema, PER_LINE_OUTPUTS, type KnowledgeOutput, type PromptLine } from './prompts.ts';
+import { applyIssueTags } from '../services/issue-tags.ts';
 import { logged } from '../services/ai-calls.ts';
 
 export interface ModelPort {
@@ -214,6 +215,7 @@ export class Runner {
       data.issues = []; // a new candidate answers the previous issues
     }
     if (outcome.issues?.length) data.issues = outcome.issues;
+    if (outcome.issueTags) applyIssueTags(tx, run.projectId, item.unitId, outcome.issueTags);
     this.route(tx, run, { ...item, data }, outcome.port, outcome.error);
   }
 
@@ -713,9 +715,16 @@ export class Runner {
         });
       case 'verdict':
         return lines.map((line) => {
-          const result = value.results?.find((entry) => entry.id === line.id) as { passed: boolean; issues: string[] } | undefined;
+          const result = value.results?.find((entry) => entry.id === line.id) as { passed: boolean; issues: string[]; categories?: IssueKind[] } | undefined;
           if (!result) return missing('판정');
-          return { port: result.passed ? 'pass' : 'fail', issues: result.passed ? undefined : result.issues, output: { passed: result.passed, issues: result.issues } };
+          // A review covers every kind: passing clears them, failing names what it found (기타 when it did not say).
+          const kinds = result.categories?.length ? [...new Set(result.categories)] : (['other'] as IssueKind[]);
+          return {
+            port: result.passed ? 'pass' : 'fail',
+            issues: result.passed ? undefined : result.issues,
+            output: { passed: result.passed, issues: result.issues, ...(!result.passed && { categories: kinds }) },
+            issueTags: result.passed ? { clear: 'all' } : { add: kinds },
+          };
         });
       case 'terms':
         // Terms describe the whole batch; every line carries them so later nodes and scripts can read them.

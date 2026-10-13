@@ -9,6 +9,7 @@ import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { computeLayouts } from '../services/layout.ts';
 import { readView, sectionWithMost } from '../services/graph-views.ts';
+import { applyIssueTags } from '../services/issue-tags.ts';
 import { describeRule, speechRuleIndex } from '../services/speech.ts';
 
 const listQuery = z.object({
@@ -302,6 +303,8 @@ export const sourceRoutes = new Hono<Env>()
         patch.candidateId = candidate.id;
       }
       if (body.statusId) patch.statusId = body.statusId;
+      // Problem-type tags described the old text.
+      if (patch.translation !== undefined && patch.translation !== unit.translation) applyIssueTags(tx, unit.projectId, unitId, { clear: 'all' });
       // A person's translation or status: the line's status is theirs now (docs/DESIGN.md 3.5).
       if (patch.statusId || patch.translation !== undefined) Object.assign(patch, { statusBy: 'human', statusRunId: null });
       if (body.listener !== undefined) Object.assign(patch, { listener: body.listener, listenerOrigin: 'human', listenerConfidence: null });

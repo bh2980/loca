@@ -281,6 +281,13 @@
       "when": 1791853548596,
       "tag": "0039_scene_listener",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "6",
+      "when": 1791859996918,
+      "tag": "0040_issue_tags",
+      "breakpoints": true
     }
   ]
 }

@@ -5,6 +5,9 @@ import { select } from 'd3-selection';
 import 'd3-transition';
 import { zoom as d3zoom, zoomIdentity, type ZoomBehavior, type ZoomTransform } from 'd3-zoom';
 import Flatbush from 'flatbush';
+
+/** Margin inside the minimap, in its pixels. */
+const MINIMAP_PAD = 10;
 import { drawShape } from './shapes';
 
 /** Below this zoom node labels are unreadable, so they are not drawn. */
@@ -315,19 +318,24 @@ export function GraphCanvas({ nodes, regions = [], edges, looseEdges, hubs, info
     if (!frame.current) frame.current = requestAnimationFrame(draw);
   };
 
-  // Minimap: a once-rendered overview with the current viewport on top.
+  // Minimap: the screen's shape, with the whole graph fitted and centered in it (as the graph first
+  // opens) and the current viewport drawn on top. Rendered once per size; the box follows the screen.
   const overview = useMemo(() => {
-    const size = 168;
-    const w = index.bounds.maxX - index.bounds.minX, h = index.bounds.maxY - index.bounds.minY;
-    const scale = Math.min(size / w, size / h);
+    const long = 176;
+    const aspect = width > 0 && height > 0 ? width / height : 1;
+    const boxW = Math.round(aspect >= 1 ? long : long * aspect);
+    const boxH = Math.round(aspect >= 1 ? long / aspect : long);
+    const w = Math.max(1, index.bounds.maxX - index.bounds.minX), h = Math.max(1, index.bounds.maxY - index.bounds.minY);
+    const scale = Math.min((boxW - 2 * MINIMAP_PAD) / w, (boxH - 2 * MINIMAP_PAD) / h);
+    const offX = (boxW - w * scale) / 2, offY = (boxH - h * scale) / 2;
     const off = document.createElement('canvas');
-    off.width = Math.ceil(w * scale) || 1;
-    off.height = Math.ceil(h * scale) || 1;
+    off.width = boxW || 1;
+    off.height = boxH || 1;
     const context = off.getContext('2d')!;
     context.fillStyle = '#a1a1aa';
-    for (const node of nodes) context.fillRect((node.x - index.bounds.minX) * scale, (node.y - index.bounds.minY) * scale, Math.max(1, node.width * scale), Math.max(1, node.height * scale));
-    return { image: off, scale };
-  }, [nodes, index]);
+    for (const node of nodes) context.fillRect(offX + (node.x - index.bounds.minX) * scale, offY + (node.y - index.bounds.minY) * scale, Math.max(1, node.width * scale), Math.max(1, node.height * scale));
+    return { image: off, scale, offX, offY };
+  }, [nodes, index, width, height]);
 
   const drawMinimap = () => {
     const element = minimap.current;
@@ -344,7 +352,7 @@ export function GraphCanvas({ nodes, regions = [], edges, looseEdges, hubs, info
     const s = overview.scale;
     context.strokeStyle = '#3b6cf6';
     context.lineWidth = 1.5;
-    context.strokeRect(((-t.x / t.k) - index.bounds.minX) * s, ((-t.y / t.k) - index.bounds.minY) * s, (width / t.k) * s, (height / t.k) * s);
+    context.strokeRect(overview.offX + ((-t.x / t.k) - index.bounds.minX) * s, overview.offY + ((-t.y / t.k) - index.bounds.minY) * s, (width / t.k) * s, (height / t.k) * s);
   };
 
   // ── interaction ───────────────────────────────────────────────────
@@ -459,8 +467,8 @@ export function GraphCanvas({ nodes, regions = [], edges, looseEdges, hubs, info
         aria-label="미니맵"
         onClick={(event) => {
           const rect = event.currentTarget.getBoundingClientRect();
-          const x = (event.clientX - rect.left) / overview.scale + index.bounds.minX;
-          const y = (event.clientY - rect.top) / overview.scale + index.bounds.minY;
+          const x = (event.clientX - rect.left - overview.offX) / overview.scale + index.bounds.minX;
+          const y = (event.clientY - rect.top - overview.offY) / overview.scale + index.bounds.minY;
           const k = transform.current.k;
           animateTo(zoomIdentity.translate(width / 2 - x * k, height / 2 - y * k).scale(k));
         }}

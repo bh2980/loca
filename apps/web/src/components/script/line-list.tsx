@@ -13,7 +13,7 @@ import { RunDialog } from '@/components/workflow/run-dialog';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
-import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -78,6 +78,8 @@ export function filterChips(search: LinesSearch, statuses: { id: string; name: s
     search.tag && { key: 'tag', label: `태그: #${tags.find((tag) => tag.id === search.tag)?.name ?? '?'}`, clear: { tag: undefined } },
     search.speaker && { key: 'speaker', label: `화자: ${search.speaker}`, clear: { speaker: undefined } },
     search.listener && { key: 'listener', label: search.listener === '-' ? '청자 미상' : `청자: ${search.listener}`, clear: { listener: undefined } },
+    search.remaining && { key: 'remaining', label: '남은 줄', clear: { remaining: undefined } },
+    search.by && { key: 'by', label: '✦ AI가 정한 것', clear: { by: undefined } },
   ].filter(Boolean) as { key: string; label: string; clear: Partial<LinesSearch> }[];
 }
 
@@ -256,10 +258,14 @@ export function LineList({
   moveRef.current = move;
   const selectedRef = useRef(search.line);
   selectedRef.current = search.line;
+  // While a filter is walked, ⌥↑↓ go to the previous/next match (the script page handles them).
+  const findingRef = useRef(Boolean(find));
+  findingRef.current = Boolean(find);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.metaKey || event.ctrlKey) return;
       const inField = typing(event.target);
+      if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && event.altKey && findingRef.current) return;
       if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && (event.altKey || !inField)) {
         if (!inField && document.querySelector('[role="dialog"], [role="menu"], [role="listbox"]')) return;
         event.preventDefault();
@@ -332,12 +338,6 @@ export function LineList({
         }
       >
         <div className="mr-1 min-w-0">{heading}</div>
-        <Button variant={search.remaining ? 'secondary' : 'outline'} aria-pressed={Boolean(search.remaining)} onClick={() => onSearch({ remaining: search.remaining ? undefined : true, page: undefined })}>
-          {search.remaining && <Check />} 남은 줄만
-        </Button>
-        <Button variant={search.by ? 'secondary' : 'outline'} aria-pressed={Boolean(search.by)} title="워크플로가 상태를 정했고 아직 사람이 확인하지 않은 줄(✦)" onClick={() => onSearch({ by: search.by ? undefined : 'ai', page: undefined })}>
-          {search.by ? <Check /> : <Sparkles />} AI가 정한 것만
-        </Button>
         <SearchInput value={search.q} onChange={(value) => onSearch({ q: value, page: undefined })} placeholder="찾기" className="w-44" />
         <LineFilters
           statuses={statusList}
@@ -551,13 +551,15 @@ function LineHints({ projectId, line, onDetail }: { projectId: string; line: { i
  */
 function LineFilters({ statuses, tags, speakers, search, onSearch }: {
   statuses: { id: string; name: string; color: string }[];
-  tags: { id: string; name: string }[];
+  tags: { id: string; name: string; role?: string | null }[];
   speakers: { name: string; lines: number }[];
   search: LinesSearch;
   onSearch: (next: Partial<LinesSearch>) => void;
 }) {
   const [needle, setNeedle] = useState('');
   const shown = speakers.filter((speaker) => !needle || speaker.name.toLowerCase().includes(needle.toLowerCase())).slice(0, 40);
+  const issueTags = tags.filter((tag) => tag.role) as { id: string; name: string; color: string }[];
+  const ownTags = tags.filter((tag) => !tag.role);
   return (
     <DropdownMenu onOpenChange={(open) => !open && setNeedle('')}>
       <DropdownMenuTrigger asChild>
@@ -566,6 +568,25 @@ function LineFilters({ statuses, tags, speakers, search, onSearch }: {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-48">
+        <DropdownMenuCheckboxItem checked={Boolean(search.remaining)} onCheckedChange={(on) => onSearch({ remaining: on ? true : undefined })}>
+          남은 줄만
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuCheckboxItem checked={Boolean(search.by)} onCheckedChange={(on) => onSearch({ by: on ? 'ai' : undefined })}>
+          AI가 정한 것만
+        </DropdownMenuCheckboxItem>
+        {issueTags.length > 0 && (
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>문제 유형</DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="w-56">
+              {issueTags.map((tag) => (
+                <DropdownMenuCheckboxItem key={tag.id} checked={search.tag === tag.id} onCheckedChange={(on) => onSearch({ tag: on ? tag.id : undefined })}>
+                  <StatusDot color={tag.color} /> {tag.name}
+                </DropdownMenuCheckboxItem>
+              ))}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        )}
+        <DropdownMenuSeparator />
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>상태</DropdownMenuSubTrigger>
           <DropdownMenuSubContent className="max-h-80 overflow-y-auto">
@@ -577,9 +598,9 @@ function LineFilters({ statuses, tags, speakers, search, onSearch }: {
           </DropdownMenuSubContent>
         </DropdownMenuSub>
         <DropdownMenuSub>
-          <DropdownMenuSubTrigger disabled={!tags.length}>태그</DropdownMenuSubTrigger>
+          <DropdownMenuSubTrigger disabled={!ownTags.length}>태그</DropdownMenuSubTrigger>
           <DropdownMenuSubContent className="max-h-80 overflow-y-auto">
-            {tags.map((tag) => (
+            {ownTags.map((tag) => (
               <DropdownMenuCheckboxItem key={tag.id} checked={search.tag === tag.id} onCheckedChange={(on) => onSearch({ tag: on ? tag.id : undefined })}>
                 #{tag.name}
               </DropdownMenuCheckboxItem>

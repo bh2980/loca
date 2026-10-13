@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import { KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, type AiConfirm, type ModelChoice, type ContextItem, type FormatRules, type NodeType, type PiOptions, type RelationshipChange, type WorkflowDefinition } from '@tw/shared';
+import { ISSUE_KIND_IDS, type IssueKind, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, type AiConfirm, type ModelChoice, type ContextItem, type FormatRules, type NodeType, type PiOptions, type RelationshipChange, type WorkflowDefinition } from '@tw/shared';
 import type { Usage } from '@tw/ai';
 
 const id = () => text('id').primaryKey().$defaultFn(() => crypto.randomUUID());
@@ -58,6 +58,8 @@ export const tags = sqliteTable('tags', {
   projectId: projectId(),
   name: text('name').notNull(),
   color: text('color').notNull(),
+  /** A problem-type tag kept by the checks (ISSUE_KINDS); null for a person's own tag. */
+  role: text('role', { enum: ISSUE_KIND_IDS as [IssueKind, ...IssueKind[]] }),
 });
 
 export const groups = sqliteTable(

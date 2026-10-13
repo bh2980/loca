@@ -19,6 +19,7 @@ import type { SecretStore } from '../../services/secrets.ts';
 import { runScript } from './sandbox.ts';
 import { aiConfirmOf } from '../../services/status-by.ts';
 import { knowledgeOf, speechMismatch, speechRuleIndex } from '../../services/speech.ts';
+import type { IssueTagChange } from '../../services/issue-tags.ts';
 import type { KnowledgeOutput } from '../prompts.ts';
 
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
@@ -34,6 +35,8 @@ export interface FunctionResult {
   output?: Record<string, unknown>;
   /** Problems to hand to a later revise step. */
   issues?: string[];
+  /** Problem-type tags this check puts on the line or takes off (services/issue-tags.ts). */
+  issueTags?: IssueTagChange;
 }
 
 export interface FunctionInput {
@@ -66,7 +69,7 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     const text = candidateOf(input);
     const rules = tx.select({ formatRules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, input.projectId)).get()?.formatRules;
     const issues = text === null ? [NEEDS_CANDIDATE] : checkFormat(input.unit.source, text, params, rules).map((issue) => issue.message);
-    return { port: issues.length ? 'fail' : 'pass', issues, output: { passed: !issues.length, issues } };
+    return { port: issues.length ? 'fail' : 'pass', issues, output: { passed: !issues.length, issues }, ...(text !== null && { issueTags: issues.length ? { add: ['format'] } : { clear: ['format'] } }) };
   },
 
   glossaryCheck(tx, _raw, input) {
@@ -77,7 +80,7 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
       .matcher.find(input.unit.source)
       .filter((term) => !text.toLowerCase().includes(term.target.toLowerCase()))
       .map((term) => `용어 "${term.source}"은(는) "${term.target}"(으)로 옮겨야 합니다.`);
-    return { port: issues.length ? 'fail' : 'pass', issues, output: { passed: !issues.length, issues } };
+    return { port: issues.length ? 'fail' : 'pass', issues, output: { passed: !issues.length, issues }, issueTags: issues.length ? { add: ['term'] } : { clear: ['term'] } };
   },
 
   speechCheck(tx, _raw, input) {
@@ -86,7 +89,8 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     const found = speechRuleIndex(tx as unknown as Db, input.projectId).resolve([input.unit]).get(input.unit.key);
     const issue = found ? speechMismatch(found.rule, text) : null;
     const issues = issue ? [issue] : [];
-    return { port: issues.length ? 'fail' : 'pass', issues, output: { passed: !issues.length, issues } };
+    // Only a line with a speech rule is checked for it; without one, nothing is said either way.
+    return { port: issues.length ? 'fail' : 'pass', issues, output: { passed: !issues.length, issues }, ...(found && { issueTags: issues.length ? { add: ['speech'] } : { clear: ['speech'] } }) };
   },
 
   setStatus(tx, raw, input) {

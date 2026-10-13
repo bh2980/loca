@@ -179,7 +179,7 @@ function structured(kind: Exclude<MockKind, 'analysis' | 'glossary' | 'test'>, s
         body: {
           results: rows.map((row) => {
             const failed = stubborn(row.source) || (row.source.trim().endsWith('?') && !!row.candidate?.startsWith('[KO]'));
-            return { id: row.id, passed: !failed, issues: failed ? [stubborn(row.source) ? '“orders”의 대상(누구의 명령인지)이 번역에서 모호합니다.' : '의문문 어조가 자연스럽지 않습니다.'] : [] };
+            return { id: row.id, passed: !failed, issues: failed ? [stubborn(row.source) ? '“orders”의 대상(누구의 명령인지)이 번역에서 모호합니다.' : '의문문 어조가 자연스럽지 않습니다.'] : [], categories: failed ? [stubborn(row.source) ? 'meaning' : 'style'] : [] };
           }),
         },
         entries: { key: 'results' },
