@@ -149,7 +149,13 @@ function GraphPage() {
     // scene the lines continue in, shown in its own section), not a node to inspect.
     if (target?.groupId) void navigate({ search: { scope: 'dialogue', scene: target.groupId } });
     else if (target) void navigate({ search: (previous) => ({ ...previous, section: target.section, node: undefined, scene: undefined }) });
-    else void navigate({ search: (previous) => ({ ...previous, node: id, edit: undefined }), replace: true });
+    else {
+      // While the translation card is open, picking another node keeps translating there (its first
+      // line without a translation); clicking empty canvas or Esc ends it.
+      if (id && search.edit && search.node && shown(id) === anchorOf(search.node)) return;
+      if (id && search.edit && dialogue) setFollow({ node: id, direction: 0 });
+      void navigate({ search: (previous) => ({ ...previous, node: id, edit: undefined }), replace: true });
+    }
   };
   const layout = graph.data?.layout;
   // Arriving from a line: the canvas opens centred on its node (inside a folded run, the run; a
@@ -204,11 +210,13 @@ function GraphPage() {
   const edit = (unitId: string | undefined) => void navigate({ search: (previous) => ({ ...previous, edit: unitId }), replace: true });
   // After stepping past the selection's end, the next selection opens on its first (or last) line
   // once its lines have arrived.
-  const [follow, setFollow] = useState<{ node: string; direction: 1 | -1 }>();
+  // direction 0: a node picked while translating opens on its first line without a translation.
+  const [follow, setFollow] = useState<{ node: string; direction: 1 | -1 | 0 }>();
   useEffect(() => {
     if (!follow || follow.node !== search.node || !flowReady) return;
     setFollow(undefined);
-    const line = follow.direction === 1 ? flowLines[0] : flowLines[flowLines.length - 1];
+    const untranslated = flowNodes.flatMap((result) => result.data?.units ?? []).find((unit) => !unit.translation);
+    const line = follow.direction === 0 ? (flowLines.find((item) => item.unitId === untranslated?.id) ?? flowLines[0]) : follow.direction === 1 ? flowLines[0] : flowLines[flowLines.length - 1];
     if (line) edit(line.unitId);
   }, [follow, search.node, flowReady]); // eslint-disable-line react-hooks/exhaustive-deps
   const lineTotals = useMemo(() => new Map((graph.data?.nodes ?? []).map((node) => [node.id, node.total ?? 0] as const)), [graph.data]);
