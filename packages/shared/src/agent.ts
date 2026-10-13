@@ -1,53 +1,62 @@
 import { z } from 'zod';
 
 /**
- * The project agent's tools, as the settings page lists them. The same switches apply to the
- * in-app chat (API or pi) and to the CLI.
+ * The project agent's tools, as the settings page lists them: what each acts on (target) and how far
+ * it goes (action). The same switches apply to the chat panel (API or pi) and to the terminal
+ * (loca tools / loca call).
  */
-export const AGENT_TOOL_GROUPS = {
-  read: { label: '읽기', description: '대본·장면·대사·인물·말투 규칙·사건·용어·문서·워크플로·실행 기록을 읽습니다.' },
-  change: { label: '변경 제안', description: '인물·관계·말투 규칙·사건·문서·용어·번역 후보·장면 요약·상태·프로필·워크플로를 만들거나 고칩니다. 항상 수락 카드를 거칩니다.' },
-  run: { label: '워크플로 실행', description: '워크플로 실행을 제안합니다. 수락하면 시작되고 AI 비용이 듭니다.' },
-  web: { label: '웹 검색', description: '인터넷을 검색하고 페이지를 읽습니다(기본: 키 없는 Exa).' },
-  editor: { label: '편집기 연동', description: '열려 있는 워크플로 편집기의 노드를 고칩니다(API 채팅만).' },
+export const AGENT_TOOL_TARGETS = {
+  script: '대본·번역',
+  knowledge: '자료(인물·관계·말투·사건·문서)',
+  terms: '용어집',
+  workflows: '워크플로',
+  settings: '상태·태그',
+  web: '웹',
 } as const;
-export type AgentToolGroup = keyof typeof AGENT_TOOL_GROUPS;
+export type AgentToolTarget = keyof typeof AGENT_TOOL_TARGETS;
+export const AGENT_TOOL_ACTIONS = {
+  read: { label: '읽기', description: '읽기만 합니다.' },
+  change: { label: '변경 제안', description: '만들거나 고치자는 제안. 항상 수락·거절 카드를 거칩니다(편집기 연동은 열린 편집기에 넣고 저장은 사람이).' },
+  run: { label: '실행', description: '워크플로 실행을 제안합니다. 수락하면 시작되고 AI 비용이 듭니다.' },
+} as const;
+export type AgentToolAction = keyof typeof AGENT_TOOL_ACTIONS;
 
-export const AGENT_TOOLS: Record<string, { group: AgentToolGroup; label: string }> = {
-  project_overview: { group: 'read', label: '프로젝트 개요 조회' },
-  list_scenes: { group: 'read', label: '장면 목록 조회' },
-  read_scene: { group: 'read', label: '장면 읽기' },
-  read_line: { group: 'read', label: '대사 읽기' },
-  find_lines: { group: 'read', label: '대사 찾기' },
-  scenes_with: { group: 'read', label: '같이 나오는 장면 찾기' },
-  line_context: { group: 'read', label: '대사 앞뒤·분기 보기' },
-  show_graph: { group: 'read', label: '그래프에서 보여 주기' },
-  check_script: { group: 'read', label: '번역 점검' },
-  script_stats: { group: 'read', label: '진행·실행 통계' },
-  list_speakers: { group: 'read', label: '화자 목록 조회' },
-  list_characters: { group: 'read', label: '인물 조회' },
-  list_speech_rules: { group: 'read', label: '말투 규칙 조회' },
-  list_events: { group: 'read', label: '사건 조회' },
-  read_documents: { group: 'read', label: '참조 문서 읽기' },
-  list_terms: { group: 'read', label: '용어집 조회' },
-  harness_reference: { group: 'read', label: '워크플로 구조 확인' },
-  read_workflow: { group: 'read', label: '워크플로 읽기' },
-  read_run: { group: 'read', label: '실행 기록 읽기' },
-  save_character: { group: 'change', label: '인물 저장' },
-  save_relationship: { group: 'change', label: '관계 저장' },
-  save_speech_rule: { group: 'change', label: '말투 규칙 저장' },
-  save_event: { group: 'change', label: '사건 저장' },
-  save_document: { group: 'change', label: '참조 문서 저장' },
-  save_terms: { group: 'change', label: '용어 저장' },
-  propose_translation: { group: 'change', label: '번역 후보 추가' },
-  propose_changes: { group: 'change', label: '여러 대사 한꺼번에 변경' },
-  save_group_summary: { group: 'change', label: '장면 요약 저장' },
-  save_status: { group: 'change', label: '상태·태그 만들기' },
-  save_workflow: { group: 'change', label: '워크플로 저장' },
-  start_run: { group: 'run', label: '워크플로 실행' },
-  web_search: { group: 'web', label: '웹 검색' },
-  read_web_page: { group: 'web', label: '웹 페이지 읽기' },
-  edit_workflow_node: { group: 'editor', label: '워크플로 노드 수정' },
+const tool = (target: AgentToolTarget, action: AgentToolAction, label: string) => ({ target, action, label });
+export const AGENT_TOOLS: Record<string, { target: AgentToolTarget; action: AgentToolAction; label: string }> = {
+  project_overview: tool('script', 'read', '프로젝트 개요 조회'),
+  list_scenes: tool('script', 'read', '장면 목록 조회'),
+  read_scene: tool('script', 'read', '장면 읽기'),
+  read_line: tool('script', 'read', '대사 읽기'),
+  find_lines: tool('script', 'read', '대사 찾기'),
+  scenes_with: tool('script', 'read', '같이 나오는 장면 찾기'),
+  line_context: tool('script', 'read', '대사 앞뒤·분기 보기'),
+  show_graph: tool('script', 'read', '그래프에서 보여 주기'),
+  check_script: tool('script', 'read', '번역 점검'),
+  script_stats: tool('script', 'read', '진행·실행 통계'),
+  list_speakers: tool('script', 'read', '화자 목록 조회'),
+  propose_translation: tool('script', 'change', '번역 후보 추가'),
+  propose_changes: tool('script', 'change', '여러 대사 한꺼번에 변경'),
+  save_group_summary: tool('script', 'change', '장면 요약 저장'),
+  list_characters: tool('knowledge', 'read', '인물 조회'),
+  list_speech_rules: tool('knowledge', 'read', '말투 규칙 조회'),
+  list_events: tool('knowledge', 'read', '사건 조회'),
+  read_documents: tool('knowledge', 'read', '참조 문서 읽기'),
+  save_character: tool('knowledge', 'change', '인물 저장'),
+  save_relationship: tool('knowledge', 'change', '관계 저장'),
+  save_speech_rule: tool('knowledge', 'change', '말투 규칙 저장'),
+  save_event: tool('knowledge', 'change', '사건 저장'),
+  save_document: tool('knowledge', 'change', '참조 문서 저장'),
+  list_terms: tool('terms', 'read', '용어집 조회'),
+  save_terms: tool('terms', 'change', '용어 저장'),
+  harness_reference: tool('workflows', 'read', '워크플로 구조 확인'),
+  read_workflow: tool('workflows', 'read', '워크플로 읽기'),
+  read_run: tool('workflows', 'read', '실행 기록 읽기'),
+  save_workflow: tool('workflows', 'change', '워크플로 저장'),
+  edit_workflow_node: tool('workflows', 'change', '열린 편집기의 노드 수정'),
+  start_run: tool('workflows', 'run', '워크플로 실행'),
+  save_status: tool('settings', 'change', '상태·태그 만들기'),
+  web_search: tool('web', 'read', '웹 검색'),
+  read_web_page: tool('web', 'read', '웹 페이지 읽기'),
 };
 
 export const agentSettingsSchema = z.object({

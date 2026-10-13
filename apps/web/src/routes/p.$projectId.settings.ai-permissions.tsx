@@ -24,7 +24,7 @@ function AiPermissions() {
           <AiConfirmList projectId={projectId} />
         </section>
         <section className="space-y-3">
-          <h2 className="text-sm font-semibold">채팅 AI가 쓸 수 있는 도구</h2>
+          <h2 className="text-sm font-semibold">AI 에이전트 도구 (채팅·터미널)</h2>
           <AgentTab />
         </section>
       </div>
