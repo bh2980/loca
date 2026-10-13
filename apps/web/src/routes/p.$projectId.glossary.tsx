@@ -23,7 +23,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { confirmLabel, knowledgeMarks, matches, SourceBadge, StateCell, TagCell, TagMenu, type ItemTag, type StatusFilter } from '@/components/knowledge/draft-editor';
 import { AUTO_MARKS, type AutoMark, isSettled, KNOWLEDGE_SOURCES, REVIEW_TAG, SOURCE_LABELS, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type StatusBy } from '@tw/shared';
 import { client, unwrap } from '@/lib/api';
-import { q } from '@/lib/queries';
+import { q, tagsIn } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 
 export const Route = createFileRoute('/p/$projectId/glossary')({
@@ -121,7 +121,7 @@ function Glossary() {
   const select = (id?: string) => void navigate({ search: (previous) => ({ ...previous, term: id }), replace: true });
   const setFilter = (next: Partial<GlossarySearch>) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace: true });
   const statuses = useQuery(q.statuses(projectId));
-  const knownTags = (statuses.data?.tags ?? []).filter((tag) => !tag.role || tag.role === REVIEW_TAG.role);
+  const knownTags = tagsIn(statuses.data?.tags, 'terms');
   const pickedTags = search.tags ?? [];
   const toggleTag = (id: string, on: boolean) => {
     const next = on ? [...pickedTags, id] : pickedTags.filter((other) => other !== id);

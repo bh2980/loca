@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { and, asc, count, desc, eq, inArray, like, ne, notLike, or, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { isSpecialListener, type NodeType } from '@tw/shared';
+import { scopeRefusal } from '../services/tag-scope.ts';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import { eachChunk, inList } from '../db/chunk.ts';
@@ -255,6 +256,8 @@ export const sourceRoutes = new Hono<Env>()
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     const body = c.req.valid('json');
+    const refusal = scopeRefusal(db, projectId, body.addTagIds, 'lines');
+    if (refusal) return badRequest(refusal);
     db.transaction((tx) => {
       // Chunked: a selection can be a whole project, and SQLite caps bound variables per statement.
       eachChunk(body.unitIds, (slice) => {
@@ -371,6 +374,8 @@ export const sourceRoutes = new Hono<Env>()
       if (body.note !== undefined) patch.note = body.note.trim();
       if (Object.keys(patch).length) tx.update(s.units).set(patch).where(eq(s.units.id, unitId)).run();
       if (body.tagIds) {
+        const refusal = scopeRefusal(tx, unit.projectId, body.tagIds, 'lines');
+        if (refusal) return badRequest(refusal);
         tx.delete(s.unitTags).where(eq(s.unitTags.unitId, unitId)).run();
         if (body.tagIds.length) tx.insert(s.unitTags).values(body.tagIds.map((tagId) => ({ unitId, tagId }))).run();
       }

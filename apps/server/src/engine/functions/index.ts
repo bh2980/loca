@@ -16,6 +16,7 @@ import {
 import type { Db } from '../../db/index.ts';
 import * as s from '../../db/schema.ts';
 import type { SecretStore } from '../../services/secrets.ts';
+import { outOfScopeTags } from '../../services/tag-scope.ts';
 import { runScript } from './sandbox.ts';
 import { aiConfirmOf } from '../../services/status-by.ts';
 import { knowledgeOf, speechMismatch, speechRuleIndex } from '../../services/speech.ts';
@@ -117,7 +118,13 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     if (Object.keys(patch).length) tx.update(s.units).set(patch).where(eq(s.units.id, input.unit.id)).run();
     if (params.removeTagIds.length)
       for (const tagId of params.removeTagIds) tx.delete(s.unitTags).where(and(eq(s.unitTags.unitId, input.unit.id), eq(s.unitTags.tagId, tagId))).run();
-    if (params.addTagIds.length) tx.insert(s.unitTags).values(params.addTagIds.map((tagId) => ({ unitId: input.unit.id, tagId }))).onConflictDoNothing().run();
+    if (params.addTagIds.length) {
+      // A tag that no longer belongs on lines (its places were narrowed after the node was set up) is skipped, with a notice.
+      const misplaced = new Set(outOfScopeTags(tx, input.projectId, params.addTagIds, 'lines').map((tag) => tag.id));
+      for (const tag of outOfScopeTags(tx, input.projectId, params.addTagIds, 'lines')) issues.push(`‘${tag.name}’ 태그는 대사에 붙일 수 없어 붙이지 않았습니다.`);
+      const addIds = params.addTagIds.filter((id) => !misplaced.has(id));
+      if (addIds.length) tx.insert(s.unitTags).values(addIds.map((tagId) => ({ unitId: input.unit.id, tagId }))).onConflictDoNothing().run();
+    }
     return issues.length ? { port: 'out', issues } : { port: 'out' };
   },
 

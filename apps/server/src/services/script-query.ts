@@ -5,6 +5,7 @@ import { inChunks, inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { applyIssueTags } from './issue-tags.ts';
+import { outOfScopeTags, scopeRefusal } from './tag-scope.ts';
 import { knownListenerSql, markConditions } from './line-marks.ts';
 import { describeRule, knowledgeOf, knownListener, speechMismatch, speechRuleIndex } from './speech.ts';
 
@@ -403,11 +404,13 @@ export function validateBatch(db: Db, projectId: string, batch: BatchChange): Ba
   const seen = new Set<string>();
   for (const change of batch.changes) {
     const unit = units.get(change.key);
+    let tagRefusal: string | null = null;
     if (!unit) report.errors.push({ key: change.key, reason: '없는 대사 키입니다.' });
     else if (seen.has(change.key)) report.errors.push({ key: change.key, reason: '같은 키가 두 번 나옵니다.' });
     else if (change.rev !== undefined && change.rev !== unit.updatedAt.getTime()) report.conflicts.push({ key: change.key, reason: '읽은 뒤에 다른 곳에서 바뀌었습니다.' });
     else if (change.status && !statusId(change.status)) report.errors.push({ key: change.key, reason: `없는 상태입니다: ${change.status}` });
     else if ([...change.addTags, ...change.removeTags].some((tag) => !tagId(tag))) report.errors.push({ key: change.key, reason: '없는 태그가 있습니다.' });
+    else if ((tagRefusal = scopeRefusal(db, projectId, change.addTags.map((tag) => tagId(tag)!), 'lines'))) report.errors.push({ key: change.key, reason: tagRefusal });
     else if (change.translation === undefined && change.listener === undefined && !change.status && !change.addTags.length && !change.removeTags.length) report.errors.push({ key: change.key, reason: '바꿀 내용이 없습니다.' });
     else {
       report.changes++;
@@ -460,6 +463,9 @@ export function applyBatch(db: Db, projectId: string, batch: BatchChange) {
       const remove = change.removeTags.map((tag) => tagId(tag)!).filter(Boolean);
       if (remove.length) tx.delete(s.unitTags).where(and(eq(s.unitTags.unitId, unit.id), inArray(s.unitTags.tagId, remove))).run();
       const add = change.addTags.map((tag) => tagId(tag)!).filter(Boolean);
+      // Checked in validateBatch; a tag whose place changed since is skipped here, never put where it doesn't belong.
+      const misplaced = new Set(outOfScopeTags(tx, projectId, add, 'lines').map((tag) => tag.id));
+      if (misplaced.size) add.splice(0, add.length, ...add.filter((id) => !misplaced.has(id)));
       if (add.length) tx.insert(s.unitTags).values(add.map((id) => ({ unitId: unit.id, tagId: id }))).onConflictDoNothing().run();
       applied.push(change.key);
     }

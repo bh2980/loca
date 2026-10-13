@@ -1,0 +1,1 @@
+ALTER TABLE `tags` ADD `scope` text DEFAULT '["lines","knowledge","terms"]' NOT NULL;

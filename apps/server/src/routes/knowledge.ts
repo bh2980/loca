@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { scopeRefusal } from '../services/tag-scope.ts';
 import { and, asc, eq, inArray, ne, or, sql } from 'drizzle-orm';
 import { mentions } from '../services/context.ts';
 import { z } from 'zod';
@@ -304,6 +305,8 @@ export const knowledgeRoutes = new Hono<Env>()
       const { db } = c.var.deps;
       const tag = found(db.select({ role: s.tags.role }).from(s.tags).where(and(eq(s.tags.id, tagId), eq(s.tags.projectId, projectId))).get(), '태그');
       if (add && tag.role) badRequest('앱이 붙이는 태그는 직접 붙일 수 없습니다.');
+      const refusal = add ? scopeRefusal(db, projectId, [tagId], kind === 'terms' ? 'terms' : 'knowledge') : null;
+      if (refusal) badRequest(refusal);
       db.transaction((tx) =>
         eachChunk(ids, (slice) => {
           if (add) tx.insert(s.knowledgeTags).values(slice.map((itemId) => ({ kind, itemId, tagId }))).onConflictDoNothing().run();

@@ -1,5 +1,5 @@
 import { keepPreviousData, queryOptions, useQuery } from '@tanstack/react-query';
-import { REVIEW_TAG, type MarkColors } from '@tw/shared';
+import { REVIEW_TAG, type MarkColors, type TagScope } from '@tw/shared';
 import { client, unwrap } from './api';
 
 /**
@@ -121,5 +121,7 @@ export function useMarkColors(projectId: string | undefined): MarkColors | undef
   return project.data?.markColors as MarkColors | undefined;
 }
 
-/** The tags that can be on lines: all but 확인 권장, which is knowledge's. */
-export const lineTags = <T extends { role?: string | null }>(tags: T[] | undefined) => (tags ?? []).filter((tag) => tag.role !== REVIEW_TAG.role);
+/** The tags that can be put in a place (the server sends each tag's effective scope). */
+export const tagsIn = <T extends { scope: readonly TagScope[] }>(tags: T[] | undefined, scope: TagScope) => (tags ?? []).filter((tag) => tag.scope.includes(scope));
+/** The tags that can be on lines. */
+export const lineTags = <T extends { scope: readonly TagScope[] }>(tags: T[] | undefined) => tagsIn(tags, 'lines');

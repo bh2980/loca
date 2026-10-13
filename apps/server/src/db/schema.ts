@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import { KNOWLEDGE_TAG_KINDS, TAG_ROLES, type TagRole, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, type AiConfirm, type CharacterStyle, type EditorAi, type MarkColors, type ModelChoice, type ContextItem, type FormatRules, type NodeType, type PiOptions, type RelationshipChange, type WorkflowDefinition } from '@tw/shared';
+import { KNOWLEDGE_TAG_KINDS, TAG_ROLES, type TagRole, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, type AiConfirm, type CharacterStyle, type EditorAi, type MarkColors, type ModelChoice, type ContextItem, type FormatRules, type NodeType, type PiOptions, type RelationshipChange, type WorkflowDefinition } from '@tw/shared';
 import type { Usage } from '@tw/ai';
 
 const id = () => text('id').primaryKey().$defaultFn(() => crypto.randomUUID());
@@ -64,6 +64,8 @@ export const tags = sqliteTable('tags', {
   color: text('color').notNull(),
   /** A tag the app keeps: a problem type on lines (ISSUE_KINDS) or 확인 권장 on knowledge (REVIEW_TAG); null for a person's own tag. */
   role: text('role', { enum: TAG_ROLES as unknown as [TagRole, ...TagRole[]] }),
+  /** Where a person's own tag can be put (the app's tags derive theirs from the role: tagScope). */
+  scope: json<TagScope[]>('scope').notNull().default(sql`'["lines","knowledge","terms"]'`),
 });
 
 export const groups = sqliteTable(

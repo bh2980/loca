@@ -3,7 +3,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { AUTO_MARK_IDS, AUTO_MARKS, markColor, DEFAULT_STATUS_COLOR, DEFAULT_TAG_COLOR, REVIEW_TAG, STATUS_COLORS, type AutoMark, type MarkColors } from '@tw/shared';
+import { AUTO_MARK_IDS, AUTO_MARKS, markColor, DEFAULT_STATUS_COLOR, DEFAULT_TAG_COLOR, REVIEW_TAG, STATUS_COLORS, TAG_SCOPES, TAG_SCOPE_LABELS, type AutoMark, type MarkColors, type TagScope } from '@tw/shared';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { DetailPane, FieldRow, PaneSection } from '@/components/detail-pane';
 import { Page } from '@/components/page';
@@ -13,7 +13,9 @@ import { Toolbar } from '@/components/toolbar';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { client, unwrap } from '@/lib/api';
@@ -46,8 +48,12 @@ interface TagRowData {
   color: string;
   units: number;
   role?: string | null;
+  /** Where the tag can be put (the app's tags: fixed by their role). */
+  scope: TagScope[];
 }
-const ON_LABELS = { lines: '대사', knowledge: '자료', terms: '용어집' } as const;
+/** All three places read as 어디든. */
+const scopeLabel = (scope: readonly TagScope[]) => (TAG_SCOPES.every((place) => scope.includes(place)) ? '어디든' : TAG_SCOPES.filter((place) => scope.includes(place)).map((place) => TAG_SCOPE_LABELS[place]).join(' · '));
+type TagForm = { name: string; color: string; scope: TagScope[] };
 type StatusForm = { name: string; color: string; kind: Kind; inReview: boolean; humanOnly: boolean };
 
 function Swatches({ value, onChange }: { value: string; onChange: (color: string) => void }) {
@@ -136,7 +142,7 @@ function StatusSettings() {
     onError: fail,
   });
   const createTag = useMutation({
-    mutationFn: (json: { name: string; color: string }) => unwrap(client.projects[':projectId'].tags.$post({ param: { projectId }, json })),
+    mutationFn: (json: TagForm) => unwrap(client.projects[':projectId'].tags.$post({ param: { projectId }, json })),
     onSuccess: () => {
       close();
       toast.success('태그를 추가했습니다.');
@@ -144,7 +150,7 @@ function StatusSettings() {
     onError: fail,
   });
   const updateTag = useMutation({
-    mutationFn: (variables: { id: string; json: { name?: string; color?: string } }) =>
+    mutationFn: (variables: { id: string; json: Partial<TagForm> }) =>
       unwrap(client.projects[':projectId'].tags[':id'].$patch({ param: { projectId, id: variables.id }, json: variables.json })),
     onSuccess: () => toast.success('저장했습니다.'),
     onError: fail,
@@ -222,7 +228,7 @@ function StatusSettings() {
       id: 'on',
       header: '붙는 곳',
       meta: { width: 140, className: 'text-muted-foreground' },
-      cell: ({ row }) => (row.original.mark ? AUTO_MARKS[row.original.mark].on.map((where) => ON_LABELS[where]).join(' · ') : row.original.tag?.role === REVIEW_TAG.role ? '자료' : row.original.tag?.role ? '대사' : '어디든'),
+      cell: ({ row }) => scopeLabel(row.original.mark ? AUTO_MARKS[row.original.mark].on : row.original.tag!.scope),
     },
     {
       id: 'description',
@@ -264,7 +270,7 @@ function StatusSettings() {
     ) : search.tag === 'new' ? (
       <TagPane key="new" pending={createTag.isPending} onClose={close} onSave={(json) => createTag.mutate(json)} />
     ) : selectedTag ? (
-      <TagPane key={selectedTag.id} tag={selectedTag} pending={updateTag.isPending} onClose={close} onSave={(json) => updateTag.mutate({ id: selectedTag.id, json })} onDelete={() => removeTag.mutate(selectedTag.id)} />
+      <TagPane key={selectedTag.id} tag={selectedTag} pending={updateTag.isPending} onClose={close} onSave={(json) => updateTag.mutate({ id: selectedTag.id, json: selectedTag.role ? { color: json.color } : json })} onDelete={() => removeTag.mutate(selectedTag.id)} />
     ) : null;
 
   return (
@@ -457,7 +463,7 @@ function MarkPane({ mark, color, pending, onClose, onSave }: { mark: AutoMark; c
     <DetailPane
       kicker="기본 태그"
       title={`#${info.name}`}
-      subtitle={info.on.map((where) => ON_LABELS[where]).join(' · ')}
+      subtitle={`붙는 곳: ${scopeLabel(info.on)}`}
       onClose={onClose}
       footer={
         <>
@@ -494,9 +500,9 @@ function MarkPane({ mark, color, pending, onClose, onSave }: { mark: AutoMark; c
   );
 }
 
-function TagPane({ tag, pending, onClose, onSave, onDelete }: { tag?: TagRowData; pending: boolean; onClose: () => void; onSave: (form: { name: string; color: string }) => void; onDelete?: () => void }) {
-  const [form, setForm] = useState({ name: tag?.name ?? '', color: tag?.color ?? DEFAULT_TAG_COLOR });
-  const dirty = !tag || form.name !== tag.name || form.color !== tag.color;
+function TagPane({ tag, pending, onClose, onSave, onDelete }: { tag?: TagRowData; pending: boolean; onClose: () => void; onSave: (form: TagForm) => void; onDelete?: () => void }) {
+  const [form, setForm] = useState<TagForm>({ name: tag?.name ?? '', color: tag?.color ?? DEFAULT_TAG_COLOR, scope: tag?.scope ?? [...TAG_SCOPES] });
+  const dirty = !tag || form.name !== tag.name || form.color !== tag.color || (!tag.role && form.scope.length !== tag.scope.length) || (!tag.role && form.scope.some((place) => !tag.scope.includes(place)));
   return (
     <DetailPane
       kicker="태그"
@@ -539,6 +545,28 @@ function TagPane({ tag, pending, onClose, onSave, onDelete }: { tag?: TagRowData
           <Field>
             <FieldLabel>색상</FieldLabel>
             <Swatches value={form.color} onChange={(color) => setForm({ ...form, color })} />
+          </Field>
+          <Field>
+            <FieldLabel>붙는 곳</FieldLabel>
+            {tag?.role ? (
+              <p className="text-sm">{scopeLabel(tag.scope)}</p>
+            ) : (
+              <div className="flex flex-wrap gap-4">
+                {TAG_SCOPES.map((place) => (
+                  <div key={place} className="flex items-center gap-2">
+                    <Checkbox
+                      id={`tag-scope-${place}`}
+                      checked={form.scope.includes(place)}
+                      // At least one place stays.
+                      disabled={form.scope.length === 1 && form.scope.includes(place)}
+                      onCheckedChange={(on) => setForm({ ...form, scope: TAG_SCOPES.filter((other) => (other === place ? on === true : form.scope.includes(other))) })}
+                    />
+                    <Label htmlFor={`tag-scope-${place}`}>{TAG_SCOPE_LABELS[place]}</Label>
+                  </div>
+                ))}
+              </div>
+            )}
+            <FieldDescription>{tag?.role ? '앱이 쓰는 태그라 붙는 곳을 바꿀 수 없습니다.' : '이 태그를 붙일 수 있고 메뉴·필터에 나오는 곳입니다. 이미 붙은 곳은 태그를 먼저 떼야 뺄 수 있습니다.'}</FieldDescription>
           </Field>
         </FieldGroup>
       </PaneSection>

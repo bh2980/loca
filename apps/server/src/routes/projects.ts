@@ -1,11 +1,12 @@
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { agentSettingsSchema, aiConfirmSchema, editorAiSchema, formatRulesSchema, importFileSchema, importWarnings, markColorsSchema, patchOf, DEFAULT_TAG_COLOR, HEX_COLOR, STATUS_COLORS, summarizeImport } from '@tw/shared';
+import { agentSettingsSchema, aiConfirmSchema, editorAiSchema, formatRulesSchema, importFileSchema, importWarnings, markColorsSchema, patchOf, tagScope, TAG_SCOPES, TAG_SCOPE_LABELS, DEFAULT_TAG_COLOR, HEX_COLOR, STATUS_COLORS, summarizeImport } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { forgetProjectContext } from '../services/context.ts';
+import { tagUseIn } from '../services/tag-scope.ts';
 import { importProject } from '../services/importer.ts';
 import type { DecidedTable } from '../services/status-by.ts';
 import { defaultModelChoice } from '../services/routes.ts';
@@ -13,7 +14,12 @@ import { cancelLayout, computeLayouts } from '../services/layout.ts';
 import { editorCallsToday } from '../services/editor-complete.ts';
 
 const statusInput = z.object({ name: z.string().trim().min(1).max(40), color: z.string().regex(HEX_COLOR).default(STATUS_COLORS[0]), kind: z.enum(['initial', 'normal', 'final']).default('normal'), inReview: z.boolean().default(false), humanOnly: z.boolean().default(false) });
-const tagInput = z.object({ name: z.string().trim().min(1).max(40), color: z.string().regex(HEX_COLOR).default(DEFAULT_TAG_COLOR) });
+const tagInput = z.object({
+  name: z.string().trim().min(1).max(40),
+  color: z.string().regex(HEX_COLOR).default(DEFAULT_TAG_COLOR),
+  /** Where the tag can be put; at least one place. */
+  scope: z.array(z.enum(TAG_SCOPES)).min(1).refine((scope) => new Set(scope).size === scope.length, '같은 곳이 두 번 나옵니다.').default([...TAG_SCOPES]),
+});
 
 export const projectRoutes = new Hono<Env>()
   .get('/', (c) => {
@@ -142,6 +148,7 @@ export const projectRoutes = new Hono<Env>()
         color: s.tags.color,
         /** The app's tags: a problem type (lines) or 'review' (확인 권장, knowledge only). */
         role: s.tags.role,
+        scope: s.tags.scope,
         units: sql<number>`(select count(*) from unit_tags ut where ut.tag_id = "tags"."id")`,
         items: sql<number>`(select count(*) from knowledge_tags kt where kt.tag_id = "tags"."id")`,
       })
@@ -149,7 +156,7 @@ export const projectRoutes = new Hono<Env>()
       .where(eq(s.tags.projectId, projectId))
       .orderBy(asc(s.tags.name))
       .all();
-    return c.json({ statuses, tags });
+    return c.json({ statuses, tags: tags.map((tag) => ({ ...tag, scope: tagScope(tag) })) });
   })
   .post('/:projectId/statuses', validate('json', statusInput), (c) => {
     const { db } = c.var.deps;
@@ -201,8 +208,15 @@ export const projectRoutes = new Hono<Env>()
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     const tag = found(db.select({ role: s.tags.role }).from(s.tags).where(and(eq(s.tags.id, c.req.param('id')), eq(s.tags.projectId, projectId))).get(), '태그');
-    // The app's own tags (problem types, 확인 권장) keep their names: only the color changes.
-    if (tag.role && c.req.valid('json').name !== undefined) return badRequest('앱이 쓰는 태그는 이름을 바꿀 수 없습니다. 색만 바꿀 수 있습니다.');
+    const body = c.req.valid('json');
+    // The app's own tags (problem types, 확인 권장) keep their names and places: only the color changes.
+    if (tag.role && body.name !== undefined) return badRequest('앱이 쓰는 태그는 이름을 바꿀 수 없습니다. 색만 바꿀 수 있습니다.');
+    if (tag.role && body.scope !== undefined) return badRequest('앱이 쓰는 태그는 붙는 곳을 바꿀 수 없습니다.');
+    // A place can't be taken away while the tag is still on something there.
+    for (const place of body.scope ? TAG_SCOPES.filter((place) => !body.scope!.includes(place)) : []) {
+      const used = tagUseIn(db, c.req.param('id'), place);
+      if (used) return badRequest(`‘${TAG_SCOPE_LABELS[place]}’에서 빼려면 먼저 이 태그가 붙은 ${TAG_SCOPE_LABELS[place]} ${used.toLocaleString('ko-KR')}개에서 떼어 주세요.`);
+    }
     found(db.update(s.tags).set(c.req.valid('json')).where(and(eq(s.tags.id, c.req.param('id')), eq(s.tags.projectId, projectId))).returning().get(), '태그');
     events.changed(projectId, 'statuses', 'units');
     return c.json({ ok: true });
