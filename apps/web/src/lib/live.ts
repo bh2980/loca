@@ -55,7 +55,8 @@ export function useLiveInvalidation() {
         timer = undefined;
         const batch = [...topics];
         topics.clear();
-        // A topic the write's own answer already refetched is not fetched again.
+        // Refetched even when the write's own answer (x-changed) already did: the event may also
+        // carry a background change made right after that save, which skipping would lose.
         for (const topic of batch) void queryClient.invalidateQueries({ queryKey: [topic] });
       }, BATCH_MS);
     };
