@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { client, unwrap } from '@/lib/api';
-import { ChangePreview, LABEL } from './tool-part';
+import { ChangePreview, LABEL } from './change-preview';
 
 export interface Proposal {
   id: string;
