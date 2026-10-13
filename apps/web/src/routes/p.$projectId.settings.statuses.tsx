@@ -180,6 +180,7 @@ function StatusSettings() {
       cell: ({ row }) => (
         <span className="inline-flex items-center gap-2 font-medium">
           <StatusDot color={row.original.color} className="size-2.5" />#{row.original.name}
+          {(row.original as { role?: string | null }).role && <span className="text-xs font-normal text-muted-foreground" title="검사·검수가 문제를 찾으면 붙이고, 고치면 뗍니다.">자동 · 문제 유형</span>}
         </span>
       ),
     },

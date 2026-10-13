@@ -1,9 +1,11 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
+import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { Maximize, Minus, Plus, Search } from 'lucide-react';
 import { GraphCanvas, type GraphCanvasHandle, type NodeInfo, type Viewport } from '@/components/graph/graph-canvas';
-import { DialogueNodeDetail, SceneNodeDetail } from '@/components/graph/node-detail';
+import { LINE_CARD_WIDTH, LineCard } from '@/components/graph/line-card';
+import { FlowPane, SceneNodeDetail } from '@/components/graph/node-detail';
 import { KIND_LABEL } from '@/components/graph/shapes';
 import { TypeLegend } from '@/components/graph/type-legend';
 import { Page } from '@/components/page';
@@ -31,8 +33,12 @@ interface GraphSearch {
   type?: string;
   /** Also draw scene links hidden by the simplification (reachable through other scenes). */
   links?: 'all';
+  /** Arrived from a line ("그래프에서 보기"): open centred on `node`, then forget it. */
+  jump?: true;
   /** A stored view (made in the chat) whose nodes are highlighted. */
   mark?: string;
+  /** The line open in the translation card beside its node (dialogue graph). */
+  edit?: string;
 }
 
 export const Route = createFileRoute('/p/$projectId/graph')({
@@ -44,6 +50,8 @@ export const Route = createFileRoute('/p/$projectId/graph')({
     type: typeof raw.type === 'string' ? raw.type : undefined,
     links: raw.links === 'all' ? 'all' : undefined,
     mark: typeof raw.mark === 'string' && raw.mark ? raw.mark : undefined,
+    jump: raw.jump === true || raw.jump === 'true' ? true : undefined,
+    edit: typeof raw.edit === 'string' && raw.edit ? raw.edit : undefined,
   }),
   component: GraphPage,
 });
@@ -84,13 +92,30 @@ function GraphPage() {
   const info = useMemo(() => {
     const types = graph.data?.nodeTypes ?? {};
     // Control nodes are labelled by what the game's node class means, not by its raw name.
-    const map = new Map<string, NodeInfo>((graph.data?.nodes ?? []).map((node) => [node.id, { ...node, label: node.label ?? (node.type ? (types[node.type]?.label ?? node.type) : null) }]));
+    // A line card leads with who speaks and shows the line; the node key is in the side pane.
+    const lineCard = (node: { speaker?: string | null; text?: string | null; total?: number }) =>
+      node.text ? { title: `${node.speaker ?? '지문·화면 문구'}${(node.total ?? 0) > 1 ? ` · ${node.total}줄` : ''}`, body: node.text } : {};
+    const map = new Map<string, NodeInfo>(
+      (graph.data?.nodes ?? []).map((node) => [node.id, { ...node, label: node.label ?? (node.type ? (types[node.type]?.label ?? node.type) : null), ...(node.kind === 'script' && lineCard(node)), ...(node.kind === 'choice' && { title: `▶ ${node.text ?? ''} 고르면`, body: node.text }) }]),
+    );
+    const totals = new Map((graph.data?.nodes ?? []).map((node) => [node.id, node] as const));
     // Stand-ins for lines that continue in (or come from) another section.
     for (const portal of graph.data?.layout?.portals ?? []) map.set(portal.id, { id: portal.id, kind: 'portal', label: `${portal.direction === 'out' ? '→' : '←'} ${portal.section}`, preview: null, key: portal.id });
     // A folded straight run reads as its first line, with how many nodes it holds.
+    // A folded straight run of lines: how many lines it holds, and its first spoken line.
     for (const chain of graph.data?.layout?.chains ?? []) {
       const first = map.get(chain.nodeIds[0]);
-      map.set(chain.id, { id: chain.id, kind: 'chain', label: `이어진 노드 ${chain.nodeIds.length}개`, preview: first?.preview ?? first?.label ?? null, key: `${first?.key ?? ''} 외 ${chain.nodeIds.length - 1}개` });
+      const spoken = chain.nodeIds.map((id) => totals.get(id)).find((node) => node?.text);
+      const lines = chain.nodeIds.reduce((sum, id) => sum + (totals.get(id)?.total ?? 0), 0);
+      map.set(chain.id, {
+        id: chain.id,
+        kind: 'chain',
+        label: `이어진 대사 ${lines}줄`,
+        title: lines ? `이어진 대사 ${lines}줄` : `이어진 노드 ${chain.nodeIds.length}개`,
+        body: spoken ? `${spoken.speaker ? `${spoken.speaker}: ` : ''}${spoken.text}` : (first?.label ?? null),
+        preview: spoken?.preview ?? first?.preview ?? first?.label ?? null,
+        key: `${first?.key ?? ''} 외 ${chain.nodeIds.length - 1}개`,
+      });
     }
     return map;
   }, [graph.data]);
@@ -124,9 +149,128 @@ function GraphPage() {
     // scene the lines continue in, shown in its own section), not a node to inspect.
     if (target?.groupId) void navigate({ search: { scope: 'dialogue', scene: target.groupId } });
     else if (target) void navigate({ search: (previous) => ({ ...previous, section: target.section, node: undefined, scene: undefined }) });
-    else void navigate({ search: (previous) => ({ ...previous, node: id }), replace: true });
+    else {
+      // While the translation card is open, picking another node keeps translating there (its first
+      // line without a translation); clicking empty canvas or Esc ends it.
+      if (id && search.edit && search.node && shown(id) === anchorOf(search.node)) return;
+      if (id && search.edit && dialogue) setFollow({ node: id, direction: 0 });
+      void navigate({ search: (previous) => ({ ...previous, node: id, edit: undefined }), replace: true });
+    }
   };
   const layout = graph.data?.layout;
+  // Arriving from a line: the canvas opens centred on its node (inside a folded run, the run; a
+  // choice, what it leads to), then `jump` is forgotten. The line's scene only picks the section; it
+  // is not highlighted (the rest of the graph would dim while one only wants to read around the line).
+  const canvasShown = graph.data?.status === 'ready' && !!layout && size.width > 0 && !marking;
+  useEffect(() => {
+    if (!search.jump || !search.node || !layout) return;
+    if (search.scene) return void navigate({ search: (previous) => ({ ...previous, section: chosen, scene: undefined }), replace: true });
+    if (canvasShown) void navigate({ search: (previous) => ({ ...previous, jump: undefined }), replace: true });
+  }, [search.jump, search.node, search.scene, layout, canvasShown]); // eslint-disable-line react-hooks/exhaustive-deps
+  /**
+   * What the pane reads for a selection: a folded run's nodes; a choice (on its edge) followed by
+   * the lines it leads to, so picking a choice shows what happens after it; else the node.
+   */
+  const flowOf = (id: string) => {
+    const run = (target: string) => layout?.chains?.find((chain) => chain.id === target)?.nodeIds ?? [target];
+    if (id.startsWith('chain:')) return run(id);
+    // A node inside a folded run reads with the whole run (its own lines marked).
+    if (chainOf.has(id)) return run(chainOf.get(id)!);
+    const way = layout?.edges.find((edge) => edge.via === id);
+    return way ? [id, ...run(way.to)] : [id];
+  };
+  /**
+   * The way into a selection, nearest last: the labels (choices, conditions) on the single path
+   * back to the previous meeting point. `merged`: lines arrive here from several ways.
+   */
+  const wayInto = (id: string) => {
+    const edges = layout?.edges ?? [];
+    const via = edges.find((edge) => edge.via === id);
+    // A choice is the pane's first row already; the way starts before it.
+    const labels: { text: string; choice: boolean }[] = [];
+    let at = via ? via.from : shown(id);
+    for (let step = 0; step < 40 && labels.length < 3; step++) {
+      const into = edges.filter((edge) => edge.to === at);
+      if (into.length !== 1) return { labels: labels.reverse(), merged: into.length > 1 };
+      if (into[0].label) labels.push({ text: into[0].label, choice: Boolean(into[0].via) });
+      at = into[0].from;
+    }
+    return { labels: labels.reverse(), merged: false };
+  };
+  // ── translating in the graph: the card beside the node ──────────
+  // The selection's lines in order (choices included: their text is translated too).
+  const flowIds = dialogue && search.node && layout ? flowOf(search.node) : [];
+  const flowNodes = useQueries({ queries: flowIds.map((id) => q.graphNode(id)) });
+  const flowReady = flowIds.length > 0 && flowNodes.every((result) => result.data);
+  const flowLines = flowNodes.flatMap((result) => (result.data ? result.data.units.map((unit) => ({ unitId: unit.id, nodeId: result.data.id, choice: result.data.kind === 'choice' })) : []));
+  const editAt = flowLines.findIndex((line) => line.unitId === search.edit);
+  // Where the card stands: the node's box (a folded run's block); a choice has no box of its own, so it stands by what it leads to.
+  const anchorOf = (nodeId: string) => shown(layout?.edges.find((edge) => edge.via === nodeId)?.to ?? nodeId);
+  const anchorId = editAt >= 0 ? anchorOf(flowLines[editAt].nodeId) : undefined;
+  const edit = (unitId: string | undefined) => void navigate({ search: (previous) => ({ ...previous, edit: unitId }), replace: true });
+  // After stepping past the selection's end, the next selection opens on its first (or last) line
+  // once its lines have arrived.
+  // direction 0: a node picked while translating opens on its first line without a translation.
+  const [follow, setFollow] = useState<{ node: string; direction: 1 | -1 | 0 }>();
+  useEffect(() => {
+    if (!follow || follow.node !== search.node || !flowReady) return;
+    setFollow(undefined);
+    const untranslated = flowNodes.flatMap((result) => result.data?.units ?? []).find((unit) => !unit.translation);
+    const line = follow.direction === 0 ? (flowLines.find((item) => item.unitId === untranslated?.id) ?? flowLines[0]) : follow.direction === 1 ? flowLines[0] : flowLines[flowLines.length - 1];
+    if (line) edit(line.unitId);
+  }, [follow, search.node, flowReady]); // eslint-disable-line react-hooks/exhaustive-deps
+  const lineTotals = useMemo(() => new Map((graph.data?.nodes ?? []).map((node) => [node.id, node.total ?? 0] as const)), [graph.data]);
+  /** The selection one step along the flow from `from`, or why there is none (a fork, a merge, the end). */
+  const neighbour = (from: string, direction: 1 | -1): { target: string } | { stop: string } => {
+    const edges = layout?.edges ?? [];
+    const via = edges.find((edge) => edge.via === from);
+    if (direction === 1) {
+      const out = edges.filter((edge) => edge.from === (via ? shown(via.to) : shown(from)));
+      if (out.length !== 1) return { stop: out.length ? `여기서 길이 ${out.length}갈래로 나뉩니다. 그래프에서 이어질 쪽을 고르세요.` : '이 흐름의 마지막 대사입니다.' };
+      return { target: out[0].via ?? out[0].to };
+    }
+    if (via) return { target: via.from };
+    const into = edges.filter((edge) => edge.to === shown(from));
+    if (into.length !== 1) return { stop: into.length ? `여러 길(${into.length}갈래)이 이리로 모입니다. 그래프에서 앞 노드를 고르세요.` : '이 흐름의 첫 대사입니다.' };
+    return { target: into[0].from };
+  };
+  /**
+   * ⌥↓/⌥↑ in the card: the next line of the selection, then on along the flow while it does not
+   * fork. Nodes without lines (conditions) are passed through; where the way stops, the card stays.
+   */
+  const step = (direction: 1 | -1) => {
+    const next = flowLines[editAt + direction];
+    if (editAt >= 0 && next) return edit(next.unitId);
+    if (!search.node || !layout) return;
+    let at = search.node;
+    for (let hops = 0; hops < 50; hops++) {
+      const found = neighbour(at, direction);
+      if ('stop' in found) return void toast(found.stop);
+      if (portals.has(found.target)) return void toast('다음 대사는 다른 구역에 이어집니다. 그래프의 이름표를 눌러 넘어가세요.');
+      at = found.target;
+      if (flowOf(at).some((id) => (lineTotals.get(id) ?? 0) > 0)) break;
+    }
+    const target = at;
+    setFollow({ node: target, direction });
+    canvas.current?.reveal(anchorOf(target), LINE_CARD_WIDTH);
+    void navigate({ search: (previous) => ({ ...previous, node: target, edit: undefined }), replace: true });
+  };
+  // The lines either side are loaded ahead, so stepping shows them at once.
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    for (const line of [flowLines[editAt - 1], flowLines[editAt + 1]]) if (line && editAt >= 0) void queryClient.prefetchQuery(q.unit(line.unitId));
+  }, [search.edit, flowReady]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The card opens beside its node with room for itself; the graph pans only when it has to.
+  useEffect(() => {
+    if (anchorId) canvas.current?.reveal(anchorId, LINE_CARD_WIDTH);
+  }, [anchorId, search.edit]);
+  // Enter on the canvas, like the pane's 번역하기: the first line without a translation, else the first.
+  const startLine = () => {
+    const units = flowNodes.flatMap((result) => result.data?.units ?? []);
+    const line = units.find((unit) => !unit.translation) ?? units[0];
+    if (line) edit(line.id);
+  };
+
   const hubs = useMemo(() => new Map((search.scope === 'scene' ? (layout?.hubs ?? []) : []).map((hub) => [hub.id, hub])), [layout, search.scope]);
   const looseEdges = layout?.looseEdges;
   const hidden = search.scope === 'scene' ? (layout?.hiddenEdges ?? []) : [];
@@ -189,32 +333,28 @@ function GraphPage() {
                     장면에 속하지 않는 노드 {hubs.get(search.node)!.nodes.toLocaleString()}개가 장면 {hubs.get(search.node)!.scenes.toLocaleString()}개를 잇습니다. 대사 그래프에서 파생한 연결입니다.
                   </p>
                 </aside>
-              ) : search.node.startsWith('chain:') ? (
-                <ChainDetail
-                  title={info.get(search.node)?.label ?? ''}
-                  nodes={(layout?.chains?.find((chain) => chain.id === search.node)?.nodeIds ?? []).map((id) => info.get(id)).filter((node): node is NodeInfo => !!node)}
-                  onPick={(id) => select(id)}
+              ) : search.scope === 'dialogue' ? (
+                // One pane for a node and a folded run alike: their lines, read in order.
+                <FlowPane
+                  key={search.node}
+                  projectId={projectId}
+                  nodeIds={flowOf(search.node)}
+                  way={wayInto(search.node)}
+                  marked={chainOf.has(search.node) ? search.node : undefined}
+                  editing={search.edit}
+                  onEdit={edit}
+                  title={info.get(chainOf.get(search.node) ?? search.node)?.title ?? info.get(chainOf.get(search.node) ?? search.node)?.label ?? ''}
                   onClose={() => select(undefined)}
                 />
               ) : search.scope === 'scene' ? (
                 <SceneNodeDetail projectId={projectId} groupId={search.node} onClose={() => select(undefined)} />
-              ) : (
-                <DialogueNodeDetail
-                  projectId={projectId}
-                  nodeId={search.node}
-                  onClose={() => select(undefined)}
-                  onSelect={(id) => {
-                    select(id);
-                    canvas.current?.focus(shown(id));
-                  }}
-                />
-              )}
+              ) : null}
             </div>
           )
         }
       >
         <div ref={container} className="relative min-w-0 flex-1 bg-[radial-gradient(var(--graph-grid)_1px,transparent_1px)] [background-size:20px_20px]">
-          {graph.data?.status === 'ready' && layout && size.width > 0 && !marking && (
+          {canvasShown && layout && (
             <GraphCanvas
               key={`${search.scope}:${chosen ?? 'all'}:${search.scene ?? ''}:${search.mark ?? ''}`}
               handle={canvas}
@@ -228,9 +368,19 @@ function GraphPage() {
               height={size.height}
               selectedId={search.node ? shown(search.node) : undefined}
               highlight={highlight}
-              initialViewport={readViewport(key)}
+              initialViewport={search.jump ? undefined : readViewport(key)}
+              initialFocus={search.jump && search.node ? shown(layout.edges.find((edge) => edge.via === search.node)?.to ?? search.node) : undefined}
               onViewportChange={(viewport) => sessionStorage.setItem(key, JSON.stringify(viewport))}
               onSelect={select}
+              onOpen={dialogue ? startLine : undefined}
+              anchor={
+                anchorId && search.edit
+                  ? {
+                      id: anchorId,
+                      content: <LineCard projectId={projectId} unitId={search.edit} choice={flowLines[editAt].choice} position={`${editAt + 1} / ${flowLines.length}`} onStep={step} onClose={() => edit(undefined)} />,
+                    }
+                  : undefined
+              }
             />
           )}
           {(graph.isPending || graph.data?.status === 'pending') && (
@@ -345,26 +495,5 @@ function GraphPage() {
         </div>
       </SplitPane>
     </Page>
-  );
-}
-
-/** A folded straight run: its nodes in order; picking one opens it (the block stays selected on the canvas). */
-function ChainDetail({ title, nodes, onPick, onClose }: { title: string; nodes: NodeInfo[]; onPick: (id: string) => void; onClose: () => void }) {
-  return (
-    <aside className="flex h-full flex-col text-sm">
-      <PaneHeader kicker="한 길로만 이어지는 노드를 한 덩어리로 접었습니다" title={title} onClose={onClose} />
-      <ScrollArea className="min-h-0 flex-1">
-        <ol className="divide-y">
-          {nodes.map((node) => (
-            <li key={node.id}>
-              <Button variant="ghost" size="row" className="rounded-none px-4 py-2" onClick={() => onPick(node.id)}>
-                <span className="w-14 shrink-0 text-xs text-muted-foreground">{KIND_LABEL[node.kind] ?? node.kind}</span>
-                <span className="min-w-0 flex-1 line-clamp-2">{node.preview ?? node.label ?? node.key}</span>
-              </Button>
-            </li>
-          ))}
-        </ol>
-      </ScrollArea>
-    </aside>
   );
 }

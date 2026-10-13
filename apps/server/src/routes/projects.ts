@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { agentSettingsSchema, aiConfirmSchema, formatRulesSchema, importFileSchema, importWarnings, patchOf, STATUS_COLORS, summarizeImport } from '@tw/shared';
+import { agentSettingsSchema, aiConfirmSchema, editorAiSchema, formatRulesSchema, importFileSchema, importWarnings, patchOf, STATUS_COLORS, summarizeImport } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
@@ -10,6 +10,7 @@ import { importProject } from '../services/importer.ts';
 import type { DecidedTable } from '../services/status-by.ts';
 import { defaultModelChoice } from '../services/routes.ts';
 import { cancelLayout, computeLayouts } from '../services/layout.ts';
+import { editorCallsToday } from '../services/editor-complete.ts';
 
 const statusInput = z.object({ name: z.string().trim().min(1).max(40), color: z.string().default(STATUS_COLORS[0]), kind: z.enum(['initial', 'normal', 'final']).default('normal'), inReview: z.boolean().default(false), humanOnly: z.boolean().default(false) });
 const tagInput = z.object({ name: z.string().trim().min(1).max(40), color: z.string().default(STATUS_COLORS[2]) });
@@ -79,9 +80,9 @@ export const projectRoutes = new Hono<Env>()
       terms: aiConfirmed(s.terms),
       knowledge: [s.documents, s.characters, s.relationships, s.storyEvents, s.speechRules].reduce((sum, table) => sum + aiConfirmed(table), 0),
     };
-    return c.json({ ...project, aiConfirm: aiConfirmSchema.parse(project.aiConfirm), byStatus, groupCount, reviewCount, aiDecided });
+    return c.json({ ...project, aiConfirm: aiConfirmSchema.parse(project.aiConfirm), editorAi: editorAiSchema.parse(project.editorAi), editorCallsToday: editorCallsToday(db, projectId), byStatus, groupCount, reviewCount, aiDecided });
   })
-  .patch('/:projectId', validate('json', z.object({ name: z.string().trim().min(1).optional(), description: z.string().optional(), formatRules: formatRulesSchema.optional(), agentSettings: agentSettingsSchema.optional(), aiConfirm: aiConfirmSchema.optional() })), (c) => {
+  .patch('/:projectId', validate('json', z.object({ name: z.string().trim().min(1).optional(), description: z.string().optional(), formatRules: formatRulesSchema.optional(), agentSettings: agentSettingsSchema.optional(), aiConfirm: aiConfirmSchema.optional(), editorAi: editorAiSchema.optional() })), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     found(db.update(s.projects).set(c.req.valid('json')).where(eq(s.projects.id, projectId)).returning().get(), '프로젝트');

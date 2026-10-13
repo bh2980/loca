@@ -1,19 +1,23 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, CircleAlert, ListChecks, ListFilter, MoreHorizontal, PanelRightOpen, Play, Sparkles, Tags, X } from 'lucide-react';
+import { Link } from '@tanstack/react-router';
+import { Check, CircleAlert, ListChecks, ListFilter, MoreHorizontal, Network, PanelRightOpen, Play, Sparkles, StickyNote, Tags, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { checkFormat, isUnsureListener, listenerLabel, type ListenerOrigin, mentions, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
+import { checkFormat, compileFormatRules, isUnsureListener, listenerLabel, type ListenerOrigin, mentions, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
 import { BulkBar } from '@/components/data-table';
 import { LineDetail, LINE_TABS, type LineTab } from '@/components/line-detail';
 import { SplitPane } from '@/components/split-pane';
 import { AiMark, StatusDot, TagChip } from '@/components/status';
 import { Pager, SearchInput, Toolbar } from '@/components/toolbar';
 import { TranslationEditor } from '@/components/translation-editor';
+import { LineSourceText, TokenText } from '@/components/editor/source-text';
+import { LineNote, NoteMark } from '@/components/script/line-note';
+import { editorChecks, tokenPatternOf, withoutTokens } from '@/lib/line-context';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
-import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -22,6 +26,7 @@ import { useDraft } from '@/lib/drafts';
 import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
+import { SpeakerCard } from '@/components/script/speaker-card';
 
 export const PAGE_SIZE = 100;
 
@@ -36,6 +41,10 @@ export interface LinesSearch {
   remaining?: true;
   /** Only lines whose status a run set and no person has looked at since (✦). */
   by?: 'ai';
+  /** Only lines whose source is translated differently elsewhere (to make them agree, or keep them apart on purpose). */
+  diverged?: true;
+  /** Only lines with a person's note. */
+  noted?: true;
   /**
    * How a filter shows: walked one by one inside their scenes (find, the default for speaker and
    * listener, where the conversation matters) or listed apart (list, the default for the rest).
@@ -58,6 +67,8 @@ export const linesSearchSchema = (raw: Record<string, unknown>): LinesSearch => 
   listener: typeof raw.listener === 'string' && raw.listener ? raw.listener : undefined,
   remaining: raw.remaining === true || raw.remaining === 'true' ? true : undefined,
   by: raw.by === 'ai' ? 'ai' : undefined,
+  diverged: raw.diverged === true || raw.diverged === 'true' ? true : undefined,
+  noted: raw.noted === true || raw.noted === 'true' ? true : undefined,
   view: raw.view === 'find' || raw.view === 'list' ? raw.view : undefined,
   page: typeof raw.page === 'number' && raw.page > 0 ? raw.page : undefined,
   line: typeof raw.line === 'string' ? raw.line : undefined,
@@ -67,7 +78,7 @@ export const linesSearchSchema = (raw: Record<string, unknown>): LinesSearch => 
 });
 
 /** Whether any line filter is set (search, status, tag, speaker, listener, 남은 줄만, AI가 정한 것만). */
-export const hasLineFilter = (search: LinesSearch) => Boolean(search.q || search.status || search.tag || search.speaker || search.listener || search.remaining || search.by);
+export const hasLineFilter = (search: LinesSearch) => Boolean(search.q || search.status || search.tag || search.speaker || search.listener || search.remaining || search.by || search.diverged || search.noted);
 /** Whether the filter is walked inside the scenes rather than listed apart. */
 export const isFinding = (search: LinesSearch) => hasLineFilter(search) && (search.view === 'find' || (search.view !== 'list' && Boolean(search.speaker || search.listener)));
 
@@ -78,6 +89,10 @@ export function filterChips(search: LinesSearch, statuses: { id: string; name: s
     search.tag && { key: 'tag', label: `태그: #${tags.find((tag) => tag.id === search.tag)?.name ?? '?'}`, clear: { tag: undefined } },
     search.speaker && { key: 'speaker', label: `화자: ${search.speaker}`, clear: { speaker: undefined } },
     search.listener && { key: 'listener', label: search.listener === '-' ? '청자 미상' : `청자: ${search.listener}`, clear: { listener: undefined } },
+    search.remaining && { key: 'remaining', label: '남은 줄', clear: { remaining: undefined } },
+    search.by && { key: 'by', label: '✦ AI가 정한 것', clear: { by: undefined } },
+    search.diverged && { key: 'diverged', label: '번역이 갈린 같은 원문', clear: { diverged: undefined } },
+    search.noted && { key: 'noted', label: '메모 있는 줄', clear: { noted: undefined } },
   ].filter(Boolean) as { key: string; label: string; clear: Partial<LinesSearch> }[];
 }
 
@@ -127,6 +142,12 @@ export function LineList({
   banner?: ReactNode;
 }) {
   const statuses = useQuery(q.statuses(projectId));
+  // Format tokens read as numbered chips (#1) in every row; the full token is on hover.
+  const projectInfo = useQuery(q.project(projectId));
+  const tokenPattern = useMemo(() => tokenPatternOf(projectInfo.data?.formatRules ?? undefined), [projectInfo.data?.formatRules]);
+  // Writing a note on the picked line (closed when another line is picked).
+  const [noting, setNoting] = useState(false);
+  useEffect(() => setNoting(false), [search.line]);
   const page = search.page ?? 0;
   // Lines picked here (click, keys); any other line in the URL arrived from elsewhere (a link).
   const pickedHere = useRef<string | undefined>(undefined);
@@ -141,7 +162,7 @@ export function LineList({
       projectId,
       find
         ? { groupId, focus: focusing, offset: page * PAGE_SIZE, limit: PAGE_SIZE }
-        : { groupId, kind, review: review ? '1' : undefined, remaining: search.remaining ? '1' : undefined, by: search.by, q: search.q, statusId: search.status, tagId: search.tag, speaker: search.speaker, listener: search.listener, focus: focusing, offset: page * PAGE_SIZE, limit: PAGE_SIZE },
+        : { groupId, kind, review: review ? '1' : undefined, remaining: search.remaining ? '1' : undefined, by: search.by, diverged: search.diverged ? '1' : undefined, noted: search.noted ? '1' : undefined, q: search.q, statusId: search.status, tagId: search.tag, speaker: search.speaker, listener: search.listener, focus: focusing, offset: page * PAGE_SIZE, limit: PAGE_SIZE },
     ),
   );
   useEffect(() => {
@@ -256,10 +277,14 @@ export function LineList({
   moveRef.current = move;
   const selectedRef = useRef(search.line);
   selectedRef.current = search.line;
+  // While a filter is walked, ⌥↑↓ go to the previous/next match (the script page handles them).
+  const findingRef = useRef(Boolean(find));
+  findingRef.current = Boolean(find);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.metaKey || event.ctrlKey) return;
       const inField = typing(event.target);
+      if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && event.altKey && findingRef.current) return;
       if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && (event.altKey || !inField)) {
         if (!inField && document.querySelector('[role="dialog"], [role="menu"], [role="listbox"]')) return;
         event.preventDefault();
@@ -332,12 +357,6 @@ export function LineList({
         }
       >
         <div className="mr-1 min-w-0">{heading}</div>
-        <Button variant={search.remaining ? 'secondary' : 'outline'} aria-pressed={Boolean(search.remaining)} onClick={() => onSearch({ remaining: search.remaining ? undefined : true, page: undefined })}>
-          {search.remaining && <Check />} 남은 줄만
-        </Button>
-        <Button variant={search.by ? 'secondary' : 'outline'} aria-pressed={Boolean(search.by)} title="워크플로가 상태를 정했고 아직 사람이 확인하지 않은 줄(✦)" onClick={() => onSearch({ by: search.by ? undefined : 'ai', page: undefined })}>
-          {search.by ? <Check /> : <Sparkles />} AI가 정한 것만
-        </Button>
         <SearchInput value={search.q} onChange={(value) => onSearch({ q: value, page: undefined })} placeholder="찾기" className="w-44" />
         <LineFilters
           statuses={statusList}
@@ -367,7 +386,7 @@ export function LineList({
             ))}
           </div>
         ) : rows.length === 0 ? (
-          <p className="px-4 py-16 text-center text-sm text-muted-foreground">{search.by ? 'AI가 정하고 확인하지 않은 줄이 없습니다.' : review ? '검토할 대사가 없습니다.' : search.remaining ? '남은 줄이 없습니다. 모두 최종 상태입니다.' : '맞는 대사가 없습니다.'}</p>
+          <p className="px-4 py-16 text-center text-sm text-muted-foreground">{search.by ? 'AI가 정하고 확인하지 않은 줄이 없습니다.' : review ? '검토할 대사가 없습니다.' : search.remaining ? '남은 줄이 없습니다. 모두 최종 상태입니다.' : search.diverged ? '같은 원문이 서로 다르게 번역된 곳이 없습니다.' : '맞는 대사가 없습니다.'}</p>
         ) : (
           <ul>
             {rows.map((line, index) => {
@@ -399,17 +418,26 @@ export function LineList({
                   <div className="grid min-w-0 flex-1 grid-cols-2 gap-6">
                     <div className="min-w-0">
                       <p className="mb-0.5 flex min-w-0 gap-1 text-xs text-muted-foreground">
-                        <span className="truncate">{line.speaker ?? '지문'}</span>
+                        <SpeakerCard projectId={projectId} name={line.speaker}>
+                          <span className="truncate">{line.speaker ?? '지문'}</span>
+                        </SpeakerCard>
+                        <NoteMark note={line.note} className="mt-px" />
                         {marked && <span className="shrink-0 text-warning">● {find!.label}</span>}
                         {selected && line.kind === 'dialogue' && <span className={cn('truncate', who.unknown && 'text-warning')}>→ {who.text}</span>}
+                        {selected && <LineLinks projectId={projectId} unitId={line.id} hasNote={!!line.note} onNote={() => setNoting(true)} onDetail={() => onSearch({ detail: true }, { replace: true })} />}
                       </p>
-                      <p className={cn('break-words whitespace-pre-wrap', selected ? 'text-base' : 'text-sm')}>{line.source}</p>
+                      {selected ? (
+                        <LineSourceText projectId={projectId} unitId={line.id} source={line.source} className="text-base" />
+                      ) : (
+                        <TokenText text={line.source} source={line.source} pattern={tokenPattern} className="text-sm" />
+                      )}
                     </div>
                     <div className="min-w-0">
                       {selected ? (
                         <>
-                          <TranslationEditor key={line.id} unit={line} statuses={statusList} focusKey={focusTick} onEscape={() => setEditing(false)} onDone={(advanced) => (advanced ? advanceFrom(line.id) : undefined)} />
-                          <LineHints projectId={projectId} line={line} onDetail={(tab) => onSearch({ detail: true, lineTab: tab }, { replace: true })} />
+                          <TranslationEditor key={line.id} projectId={projectId} unit={line} statuses={statusList} focusKey={focusTick} onEscape={() => setEditing(false)} onDone={(advanced) => (advanced ? advanceFrom(line.id) : undefined)} />
+                          <LineNote key={line.id} unitId={line.id} note={line.note} editing={noting} onEditing={setNoting} />
+                          <LineHints projectId={projectId} line={line} />
                         </>
                       ) : (
                         <div className="flex gap-2 pt-4 text-sm">
@@ -423,7 +451,7 @@ export function LineList({
                           </Tooltip>
                           {line.statusBy === 'ai' && <AiMark by="ai" className="mt-1 -ml-1" />}
                           <div className="min-w-0">
-                            <p className={cn('break-words whitespace-pre-wrap', !line.translation && 'text-muted-foreground')}>{line.translation ?? '번역 없음'}</p>
+                            {line.translation ? <TokenText text={line.translation} source={line.source} pattern={tokenPattern} /> : <p className="text-muted-foreground">번역 없음</p>}
                             {review && !!line.lastRun?.issues.length && (
                               <p className="mt-1 flex items-start gap-1 text-xs text-warning">
                                 <CircleAlert className="mt-0.5 size-3 shrink-0" />
@@ -508,7 +536,11 @@ export function LineList({
  * keep the speech rule, the confirmed terms and the source's format, and what the last run said.
  * "자세히" opens everything else in the pane.
  */
-function LineHints({ projectId, line, onDetail }: { projectId: string; line: { id: string; source: string; translation: string | null; lastRun: { issues: string[] } | null }; onDetail: (tab?: Exclude<LineTab, 'checks'>) => void }) {
+/**
+ * What to keep in mind while typing a line: its speech level, the confirmed terms it uses, format
+ * problems in the draft and the last run's issue. Links to elsewhere are LineLinks, by the speaker.
+ */
+export function LineHints({ projectId, line }: { projectId: string; line: { id: string; source: string; translation: string | null; lastRun: { issues: string[] } | null } }) {
   const unit = useQuery(q.unit(line.id));
   const terms = useQuery(q.terms(projectId));
   const project = useQuery(q.project(projectId));
@@ -516,9 +548,13 @@ function LineHints({ projectId, line, onDetail }: { projectId: string; line: { i
   const text = draft.trim();
   const speech = unit.data?.speech;
   const guessed = text ? speechLevelOf(text) : null;
-  const used = useMemo(() => (terms.data ?? []).filter((term) => term.status === 'confirmed' && term.target && mentions(line.source, term.source)), [terms.data, line.source]);
-  const format = text ? checkFormat(line.source, draft, { placeholders: true, tags: true, newlines: true, emptyText: false }, project.data?.formatRules) : [];
-  const others = (unit.data?.candidates.length ?? 0) - (line.translation ? 1 : 0);
+  // Words inside format tags (<d target="data_cassandra_…">) are not terms.
+  const used = useMemo(() => {
+    const { placeholder, tag } = compileFormatRules(project.data?.formatRules ?? undefined);
+    const plain = [placeholder, tag].reduce((text, pattern) => withoutTokens(text, pattern), line.source);
+    return (terms.data ?? []).filter((term) => term.status === 'confirmed' && term.target && mentions(plain, term.source));
+  }, [terms.data, line.source, project.data?.formatRules]);
+  const format = text ? checkFormat(line.source, draft, editorChecks(project.data?.targetLanguage), project.data?.formatRules) : [];
 
   const hint = (key: string, ok: boolean | null, label: ReactNode, title?: string) => (
     <span key={key} title={title} className={cn('inline-flex items-center gap-1 rounded-md border bg-background px-2 py-0.5 text-xs', ok === false && 'border-warning/40 text-warning')}>
@@ -533,14 +569,6 @@ function LineHints({ projectId, line, onDetail }: { projectId: string; line: { i
       {used.map((term) => hint(term.id, text ? text.toLowerCase().includes(term.target.toLowerCase()) : null, `${term.source} → ${term.target}`))}
       {format.map((issue) => hint(issue.code, false, issue.message))}
       {line.lastRun?.issues.slice(0, 1).map((issue) => hint('run', false, issue))}
-      {others > 0 && (
-        <Button variant="ghost" size="inline" className="text-muted-foreground" onClick={() => onDetail('candidates')}>
-          다른 후보 {others}개
-        </Button>
-      )}
-      <Button variant="ghost" size="inline" className="ml-auto text-muted-foreground" onClick={() => onDetail()}>
-        <PanelRightOpen /> 자세히
-      </Button>
     </div>
   );
 }
@@ -551,13 +579,15 @@ function LineHints({ projectId, line, onDetail }: { projectId: string; line: { i
  */
 function LineFilters({ statuses, tags, speakers, search, onSearch }: {
   statuses: { id: string; name: string; color: string }[];
-  tags: { id: string; name: string }[];
+  tags: { id: string; name: string; role?: string | null }[];
   speakers: { name: string; lines: number }[];
   search: LinesSearch;
   onSearch: (next: Partial<LinesSearch>) => void;
 }) {
   const [needle, setNeedle] = useState('');
   const shown = speakers.filter((speaker) => !needle || speaker.name.toLowerCase().includes(needle.toLowerCase())).slice(0, 40);
+  const issueTags = tags.filter((tag) => tag.role) as { id: string; name: string; color: string }[];
+  const ownTags = tags.filter((tag) => !tag.role);
   return (
     <DropdownMenu onOpenChange={(open) => !open && setNeedle('')}>
       <DropdownMenuTrigger asChild>
@@ -566,6 +596,31 @@ function LineFilters({ statuses, tags, speakers, search, onSearch }: {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-48">
+        <DropdownMenuCheckboxItem checked={Boolean(search.remaining)} onCheckedChange={(on) => onSearch({ remaining: on ? true : undefined })}>
+          남은 줄만
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuCheckboxItem checked={Boolean(search.by)} onCheckedChange={(on) => onSearch({ by: on ? 'ai' : undefined })}>
+          AI가 정한 것만
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuCheckboxItem checked={Boolean(search.diverged)} onCheckedChange={(on) => onSearch({ diverged: on ? true : undefined })}>
+          번역이 갈린 같은 원문
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuCheckboxItem checked={Boolean(search.noted)} onCheckedChange={(on) => onSearch({ noted: on ? true : undefined })}>
+          메모 있는 줄
+        </DropdownMenuCheckboxItem>
+        {issueTags.length > 0 && (
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>문제 유형</DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="w-56">
+              {issueTags.map((tag) => (
+                <DropdownMenuCheckboxItem key={tag.id} checked={search.tag === tag.id} onCheckedChange={(on) => onSearch({ tag: on ? tag.id : undefined })}>
+                  <StatusDot color={tag.color} /> {tag.name}
+                </DropdownMenuCheckboxItem>
+              ))}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        )}
+        <DropdownMenuSeparator />
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>상태</DropdownMenuSubTrigger>
           <DropdownMenuSubContent className="max-h-80 overflow-y-auto">
@@ -577,9 +632,9 @@ function LineFilters({ statuses, tags, speakers, search, onSearch }: {
           </DropdownMenuSubContent>
         </DropdownMenuSub>
         <DropdownMenuSub>
-          <DropdownMenuSubTrigger disabled={!tags.length}>태그</DropdownMenuSubTrigger>
+          <DropdownMenuSubTrigger disabled={!ownTags.length}>태그</DropdownMenuSubTrigger>
           <DropdownMenuSubContent className="max-h-80 overflow-y-auto">
-            {tags.map((tag) => (
+            {ownTags.map((tag) => (
               <DropdownMenuCheckboxItem key={tag.id} checked={search.tag === tag.id} onCheckedChange={(on) => onSearch({ tag: on ? tag.id : undefined })}>
                 #{tag.name}
               </DropdownMenuCheckboxItem>
@@ -615,5 +670,45 @@ function LineFilters({ statuses, tags, speakers, search, onSearch }: {
         </DropdownMenuSub>
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+/** Where else the picked line can be seen: its place in the dialogue graph, and the line pane (checks, candidates, history). */
+export function LineLinks({ projectId, unitId, hasNote, onNote, onDetail }: { projectId: string; unitId: string; hasNote: boolean; onNote: () => void; onDetail: () => void }) {
+  const unit = useQuery(q.unit(unitId));
+  const node = unit.data?.graphNodes[0];
+  const tip = (label: string, button: ReactNode) => (
+    <Tooltip>
+      <TooltipTrigger asChild>{button}</TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
+  return (
+    // Full-size icon buttons on the small speaker line; the negative margin keeps the line's height.
+    <span className="-my-2 ml-auto flex shrink-0 items-center" onClick={(event) => event.stopPropagation()}>
+      {node &&
+        tip(
+          '그래프에서 보기',
+          // The other way round from the graph's "번역 화면에서 열기": this line where it sits in the flow.
+          <Button variant="ghost" size="icon-sm" className="text-muted-foreground" aria-label="그래프에서 보기" asChild>
+            <Link to="/p/$projectId/graph" params={{ projectId }} search={{ scope: 'dialogue', scene: unit.data!.groupId, node: node.id, jump: true }}>
+              <Network />
+            </Link>
+          </Button>,
+        )}
+      {!hasNote &&
+        tip(
+          '메모 남기기',
+          <Button variant="ghost" size="icon-sm" className="text-muted-foreground" aria-label="메모 남기기" onClick={onNote}>
+            <StickyNote />
+          </Button>,
+        )}
+      {tip(
+        '자세히 · 검사·후보·이력',
+        <Button variant="ghost" size="icon-sm" className="text-muted-foreground" aria-label="자세히" onClick={onDetail}>
+          <PanelRightOpen />
+        </Button>,
+      )}
+    </span>
   );
 }

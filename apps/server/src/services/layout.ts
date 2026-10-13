@@ -3,10 +3,12 @@ import { and, asc, eq, ne, notLike, sql } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
 import { graphEdges, graphLayouts, graphNodes, groups, projects, type LayoutData } from '../db/schema.ts';
 import { events } from '../events.ts';
+import { foldChoices } from './choices.ts';
 import type { LayoutJob, SceneSource, SectionLayouts, WorkerJob } from './layout-worker.ts';
 
 const NODE_SIZE: Record<string, [number, number]> = {
   script: [260, 76],
+  choice: [260, 56],
   condition: [132, 76],
   wait: [132, 60],
   event: [132, 60],
@@ -47,8 +49,8 @@ function runWorker<T = LayoutData>(job: WorkerJob, onWorker: (worker: Worker) =>
   });
 }
 
-/** Bumped when layouts are made differently (2: straight runs folded, hub-only scenes by depth); older ones are recomputed at startup. */
-export const LAYOUT_VERSION = 2;
+/** Bumped when layouts are made differently (2: straight runs folded, hub-only scenes by depth; 3: choices on their edges, edge labels; 4: curved edges; 5: room kept for labels); older ones are recomputed at startup. */
+export const LAYOUT_VERSION = 5;
 
 /** Projects with a stored layout made by an older LAYOUT_VERSION (agent views excepted: they are made again on request). */
 export function projectsWithOldLayouts(db: Db) {
@@ -72,15 +74,27 @@ function save(db: Db, projectId: string, scope: 'dialogue' | 'scene', given: Par
 export function sectionSource(db: Db, projectId: string) {
   const groupRows = db.select({ id: groups.id, section: groups.section }).from(groups).where(eq(groups.projectId, projectId)).orderBy(asc(groups.sort), asc(groups.key)).all();
   const sectionOf = new Map(groupRows.map((group) => [group.id, group.section || null]));
-  const nodes = db.select({ id: graphNodes.id, kind: graphNodes.kind, groupId: graphNodes.groupId }).from(graphNodes).where(eq(graphNodes.projectId, projectId)).all();
+  const { nodes, edges } = dialogueSource(db, projectId);
   return {
     nodes: nodes.map((node) => {
       const [width, height] = NODE_SIZE[node.kind] ?? NODE_SIZE.unknown;
-      return { id: node.id, width, height, group: node.groupId, section: node.groupId ? (sectionOf.get(node.groupId) ?? null) : null };
+      return { id: node.id, width, height, group: node.groupId, section: node.groupId ? (sectionOf.get(node.groupId) ?? null) : null, ...(node.kind === 'choice' && { keep: true }) };
     }),
-    edges: db.select({ id: graphEdges.id, from: graphEdges.fromId, to: graphEdges.toId }).from(graphEdges).where(eq(graphEdges.projectId, projectId)).all(),
+    edges,
     order: [...new Set(groupRows.flatMap((group) => (group.section ? [group.section] : [])))],
   };
+}
+
+/** The dialogue graph to lay out: choices with one way in and out folded into their edge's label. */
+function dialogueSource(db: Db, projectId: string) {
+  const nodes = db.select({ id: graphNodes.id, kind: graphNodes.kind, groupId: graphNodes.groupId }).from(graphNodes).where(eq(graphNodes.projectId, projectId)).all();
+  const edges = db.select({ id: graphEdges.id, from: graphEdges.fromId, to: graphEdges.toId, label: graphEdges.label }).from(graphEdges).where(eq(graphEdges.projectId, projectId)).all();
+  const choices = db
+    .select({ id: graphNodes.id, text: sql<string | null>`(select u.source from units u where u.id = json_extract(${graphNodes.unitIds}, '$[0]'))` })
+    .from(graphNodes)
+    .where(and(eq(graphNodes.projectId, projectId), eq(graphNodes.kind, 'choice')))
+    .all();
+  return foldChoices(nodes, edges, new Map(choices.flatMap((choice) => (choice.text ? [[choice.id, choice.text] as const] : []))));
 }
 
 /** What the worker needs to derive and lay out the scene graph (see SceneSource). */
@@ -98,12 +112,12 @@ export function sceneSource(db: Db, projectId: string): SceneSource {
 }
 
 export function dialogueJob(db: Db, projectId: string): LayoutJob {
-  const nodes = db.select({ id: graphNodes.id, kind: graphNodes.kind, groupId: graphNodes.groupId }).from(graphNodes).where(eq(graphNodes.projectId, projectId)).all();
-  const edges = db.select({ id: graphEdges.id, from: graphEdges.fromId, to: graphEdges.toId }).from(graphEdges).where(eq(graphEdges.projectId, projectId)).all();
+  const { nodes, edges } = dialogueSource(db, projectId);
   return {
     nodes: nodes.map((node) => {
       const [width, height] = NODE_SIZE[node.kind] ?? NODE_SIZE.unknown;
-      return { id: node.id, width, height, group: node.groupId };
+      // A player's choice stays its own box, never folded into a run of lines.
+      return { id: node.id, width, height, group: node.groupId, ...(node.kind === 'choice' && { keep: true }) };
     }),
     edges,
   };

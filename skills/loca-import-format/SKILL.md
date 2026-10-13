@@ -35,8 +35,8 @@ loca는 게임 내부 형식을 모릅니다. 게임마다 **변환기**가 추�
 | `format` | `"loca/v1"` | 다른 값은 거부됩니다 |
 | `project` | `name`, `description`, `sourceLanguage`(기본 `en`), `targetLanguage`(기본 `ko`), `formatRules` | 아래 ‘자리표시자·태그’ |
 | `groups[]` | 묶음: `key`, `kind`(`scene`/`document`/`ui`), `title`, `description`, `section`, `order`, `meta` | 아래 ‘묶음 나누기’ |
-| `units[]` | 대사·문구: `key`, `group`, `order`, `kind`(`dialogue`/`document`/`ui`), `speaker`, `listener`, `source`, `translation`, `meta` | `translation`이 있으면 현재 번역이 되고 상태는 기본 상태 세트의 ‘AI 초벌’로 들어갑니다. 공식·기존 번역일 때만 넣습니다. `listener`(누구에게 하는 말인지, 인물 이름)는 게임 데이터가 확실히 알 때만 |
-| `graph.nodeTypes` | 게임의 노드 클래스 이름 → `{ kind, label, description }` | `kind`: `script`(대사 있음)·`condition`·`wait`·`event`·`state`·`connector`·`unknown` |
+| `units[]` | 대사·문구: `key`, `group`, `order`, `kind`(`dialogue`/`document`/`ui`), `speaker`, `listener`, `source`, `translation`, `tags`, `meta` | `translation`이 있으면 현재 번역이 되고 상태는 기본 상태 세트의 ‘AI 초벌’로 들어갑니다. 공식·기존 번역일 때만 넣습니다. `listener`(누구에게 하는 말인지, 인물 이름)는 게임 데이터가 확실히 알 때만. `tags`는 게임 데이터의 분류(예: `["UI", "음성", "20자 제한"]`)로, 같은 이름은 프로젝트 태그 하나가 되어 필터·실행 범위·워크플로 조건에 쓰입니다 |
+| `graph.nodeTypes` | 게임의 노드 클래스 이름 → `{ kind, label, description }` | `kind`: `script`(대사 있음)·`choice`(플레이어가 고르는 선택지, 문구가 대사로 들어감)·`condition`·`wait`·`event`·`state`·`connector`·`unknown` |
 | `graph.nodes[]` | `key`, `type`, `kind`, `label`, `units`(이 노드가 보여 주는 대사 key, 순서대로), `group`, `meta` | 대사가 없는 컨테이너 노드는 `group`으로 장면을 알려 줍니다 |
 | `graph.edges[]` | `from`, `to`, `kind`, `label` | 선택지 문구나 조건은 `label`에 |
 | `characters[]` | `name`, `aliases`, `profile`, `speech`, `player` | 화자 표기가 여럿이면 하나를 `name`, 나머지를 `aliases`로. 말 없는 주인공처럼 대사를 듣기만 하는 플레이어 캐릭터도 넣고 `player: true` |

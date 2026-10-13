@@ -11,6 +11,8 @@ export interface SectionNode {
   section: string | null;
   /** The node's scene, passed through to the layout job. */
   group?: string | null;
+  /** Never folded into a run (a player's choice). */
+  keep?: boolean;
 }
 
 export interface SectionJob {
@@ -57,11 +59,11 @@ export function assignSections(nodes: SectionNode[], edges: { from: string; to: 
  * sections becomes an edge to a portal in the section it leaves and from a portal in the section
  * it enters, so each section is laid out on its own and still shows where its lines lead.
  */
-export function sectionJobs(nodes: SectionNode[], edges: { id: string; from: string; to: string }[], order: string[]): SectionJob[] {
+export function sectionJobs(nodes: SectionNode[], edges: LayoutJob['edges'], order: string[]): SectionJob[] {
   const section = assignSections(nodes, edges);
   const names = [...new Set([...order.filter((name) => [...section.values()].includes(name)), ...section.values()])];
   const jobs = new Map<string, SectionJob>(names.map((name) => [name, { name, job: { nodes: [], edges: [] }, portals: [] }]));
-  for (const node of nodes) jobs.get(section.get(node.id)!)!.job.nodes.push({ id: node.id, width: node.width, height: node.height, group: node.group ?? null });
+  for (const node of nodes) jobs.get(section.get(node.id)!)!.job.nodes.push({ id: node.id, width: node.width, height: node.height, group: node.group ?? null, ...(node.keep && { keep: true }) });
   const portal = (owner: SectionJob, other: string, direction: 'in' | 'out') => {
     const id = `portal:${direction}:${other}`;
     if (!owner.portals.some((entry) => entry.id === id)) {
@@ -80,7 +82,8 @@ export function sectionJobs(nodes: SectionNode[], edges: { id: string; from: str
     }
     const leaving = jobs.get(from)!;
     const entering = jobs.get(to)!;
-    leaving.job.edges.push({ id: `${edge.id}:out`, from: edge.from, to: portal(leaving, to, 'out') });
+    // A choice leading into another section is said on the way out.
+    leaving.job.edges.push({ id: `${edge.id}:out`, from: edge.from, to: portal(leaving, to, 'out'), ...(edge.label && { label: edge.label }), ...(edge.via && { via: edge.via }) });
     entering.job.edges.push({ id: `${edge.id}:in`, from: portal(entering, from, 'in'), to: edge.to });
   }
   return [...jobs.values()].filter((job) => job.job.nodes.some((node) => !node.id.startsWith('portal:')));

@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import { KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, type AiConfirm, type ModelChoice, type ContextItem, type FormatRules, type NodeType, type PiOptions, type RelationshipChange, type WorkflowDefinition } from '@tw/shared';
+import { ISSUE_KIND_IDS, type IssueKind, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, type AiConfirm, type EditorAi, type ModelChoice, type ContextItem, type FormatRules, type NodeType, type PiOptions, type RelationshipChange, type WorkflowDefinition } from '@tw/shared';
 import type { Usage } from '@tw/ai';
 
 const id = () => text('id').primaryKey().$defaultFn(() => crypto.randomUUID());
@@ -36,6 +36,8 @@ export const projects = sqliteTable('projects', {
   formatRules: json<FormatRules>('format_rules').notNull().default(sql`'{"presets":["brace","printf","angleTag"],"custom":[]}'`),
   /** What becomes of AI results per knowledge kind (설정 › AI 확정). Absent kinds: auto. */
   aiConfirm: json<Partial<AiConfirm>>('ai_confirm').notNull().default(sql`'{}'`),
+  /** The editor's AI continuation (off by default; see editorAiSchema). */
+  editorAi: json<Partial<EditorAi>>('editor_ai').notNull().default(sql`'{}'`),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
@@ -58,6 +60,8 @@ export const tags = sqliteTable('tags', {
   projectId: projectId(),
   name: text('name').notNull(),
   color: text('color').notNull(),
+  /** A problem-type tag kept by the checks (ISSUE_KINDS); null for a person's own tag. */
+  role: text('role', { enum: ISSUE_KIND_IDS as [IssueKind, ...IssueKind[]] }),
 });
 
 export const groups = sqliteTable(
@@ -102,6 +106,8 @@ export const units = sqliteTable(
     /** Who set the current status: a run (statusRunId) or a person (an edit, a confirm, an accepted proposal, the import). */
     statusBy: text('status_by', { enum: STATUS_BY }).notNull().default('human'),
     statusRunId: text('status_run_id'),
+    /** A person's note on the line (a doubt, a question for the developer); empty = none. */
+    note: text('note').notNull().default(''),
     meta: json<Record<string, unknown>>('meta'),
     updatedAt: updatedAt(),
   },
@@ -173,7 +179,9 @@ export interface LayoutData {
   width: number;
   height: number;
   nodes: { id: string; x: number; y: number; width: number; height: number }[];
-  edges: { id: string; from: string; to: string; points: number[] }[];
+  /** `label`: a choice or condition written on the edge; `via`: the choice node it stands for. */
+  /** `curved`: points are a start and (control, control, end) triples, drawn as Bézier curves. */
+  edges: { id: string; from: string; to: string; points: number[]; label?: string; via?: string; labelAt?: [x: number, y: number, width: number, height: number]; curved?: true }[];
   /** Labelled areas drawn behind nodes, e.g. the block of unconnected lines. */
   regions?: { label: string; x: number; y: number; width: number; height: number }[];
   /** Scene links left out of the drawing because another path already connects them (see reduceSceneEdges). */
@@ -224,7 +232,7 @@ export const graphViews = sqliteTable('graph_views', {
 });
 
 /** Where a model request came from: a workflow run, work analysis, glossary fill, a model test or a chat turn. */
-export const AI_CALL_KINDS = ['run', 'analysis', 'terms', 'test', 'chat'] as const;
+export const AI_CALL_KINDS = ['run', 'analysis', 'terms', 'test', 'chat', 'editor'] as const;
 
 /**
  * Every request sent to a model, one row per attempt (a fallback is its own row), written when it

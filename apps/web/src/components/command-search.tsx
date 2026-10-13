@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Kbd } from '@/components/ui/kbd';
 import { q } from '@/lib/queries';
+import { keyLabel } from '@/lib/keys';
 
 /** ⌘K: find any line (source, translation, speaker, key) or scene and jump to it. */
 export function CommandSearch({ projectId }: { projectId: string }) {
@@ -36,7 +37,7 @@ export function CommandSearch({ projectId }: { projectId: string }) {
     <>
       <Button variant="outline" className="w-56 justify-start text-muted-foreground" onClick={() => setOpen(true)}>
         <Search /> 원문·번역·화자·ID 검색
-        <Kbd className="ml-auto">⌘K</Kbd>
+        <Kbd className="ml-auto">{keyLabel('Mod+K')}</Kbd>
       </Button>
       <CommandDialog open={open} onOpenChange={setOpen} shouldFilter={false} title="검색" description="원문, 번역, 화자, ID, 장면 제목으로 찾습니다.">
         <CommandInput value={text} onValueChange={setText} placeholder="찾을 내용을 입력하세요" />

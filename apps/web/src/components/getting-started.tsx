@@ -10,6 +10,7 @@ import { AnalysisSteps } from '@/components/job-progress';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
+import { keyLabel } from '@/lib/keys';
 
 interface Step {
   key: string;
@@ -149,7 +150,7 @@ export function GettingStarted({ projectId }: { projectId: string }) {
     {
       key: 'review',
       title: '검토하고 확정',
-      why: '검수에서 걸린 줄은 검토함에 모입니다. 번역 화면에서 고치고 ⌘↵로 확정합니다.',
+      why: `검수에서 걸린 줄은 검토함에 모입니다. 번역 화면에서 고치고 ${keyLabel('Mod+Enter')}로 확정합니다.`,
       done: false,
       action: () => (
         <Button asChild variant="ghost">

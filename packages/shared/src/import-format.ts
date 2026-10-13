@@ -11,7 +11,8 @@ export const IMPORT_FORMAT = 'loca/v1' as const;
 
 export const GROUP_KINDS = ['scene', 'document', 'ui'] as const;
 export const UNIT_KINDS = ['dialogue', 'document', 'ui'] as const;
-export const GRAPH_NODE_KINDS = ['script', 'condition', 'wait', 'event', 'state', 'connector', 'unknown'] as const;
+/** script: lines; choice: an option the player picks (its text is a line too); the rest carry no text. */
+export const GRAPH_NODE_KINDS = ['script', 'choice', 'condition', 'wait', 'event', 'state', 'connector', 'unknown'] as const;
 /** Content nodes carry text to translate; control nodes (branches, waits, events…) shape the flow. */
 export const CONTENT_KINDS = new Set<string>(['script', 'scene']);
 export const isContentKind = (kind: string) => CONTENT_KINDS.has(kind);
@@ -42,6 +43,8 @@ export const importUnitSchema = z.object({
   listener: z.string().optional(),
   source: z.string(),
   translation: z.string().optional(),
+  /** Labels from the game data (category, voiced, a length limit…): they become the project's tags. */
+  tags: z.array(z.string().trim().min(1)).default([]),
   meta,
 });
 

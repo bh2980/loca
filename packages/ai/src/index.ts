@@ -3,10 +3,10 @@ import type { LanguageModel } from 'ai';
 import { CONNECTION_KIND_INFO } from '@tw/shared';
 import { cliGenerate, cliModels, cliVersion } from './cli.ts';
 import { ModelError, toModelError } from './errors.ts';
-import { openaiChatModel, openaiGenerate, openaiModels } from './openai.ts';
+import { openaiChatModel, openaiComplete, openaiGenerate, openaiModels } from './openai.ts';
 import { piGenerate, piModelsWith, piProbe } from './pi.ts';
 import { systemOneAsk, systemOneJudge, systemOneModels } from './systemone.ts';
-import type { AskRequest, AskResult, GenerateRequest, GenerateResult, JudgeRequest, JudgeResult, ResolvedRoute, Usage } from './types.ts';
+import type { AskRequest, AskResult, CompleteRequest, CompleteResult, GenerateRequest, GenerateResult, JudgeRequest, JudgeResult, ResolvedRoute, Usage } from './types.ts';
 
 export * from './types.ts';
 export { ModelError, type ModelErrorCode } from './errors.ts';
@@ -21,6 +21,12 @@ export function generate<T>(route: ResolvedRoute, request: GenerateRequest<T>): 
   if (route.kind === 'http') throw new ModelError('config', 'HTTP 도구 연결은 AI 노드에 쓸 수 없습니다.', false);
   if (route.kind === 'pi') return piGenerate(route, request);
   return cliGenerate(route, request);
+}
+
+/** Plain text for the editor (API connections only: CLI and pi take seconds per call). */
+export function complete(route: ResolvedRoute, request: CompleteRequest): Promise<CompleteResult> {
+  if (route.kind !== 'openai') throw new ModelError('config', '편집기 자동완성은 API 연결(OpenAI 호환)만 쓸 수 있습니다.', false);
+  return openaiComplete(route, request);
 }
 
 export function judge(route: ResolvedRoute, request: JudgeRequest): Promise<JudgeResult> {

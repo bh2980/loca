@@ -1,0 +1,1 @@
+ALTER TABLE `projects` ADD `editor_ai` text DEFAULT '{}' NOT NULL;

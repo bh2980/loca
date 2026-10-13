@@ -50,7 +50,9 @@ export const CONNECTION_KIND_INFO: Record<ConnectionKind, ConnectionKindInfo> = 
   },
   codex: { label: 'Codex CLI', transport: 'cli', capabilities: ['generate', 'chat'], needsKey: false, efforts: ['minimal', 'low', 'medium', 'high', 'xhigh'] },
   claude: { label: 'Claude Code CLI', transport: 'cli', capabilities: ['generate', 'chat'], needsKey: false, efforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
-  grok: { label: 'Grok CLI', transport: 'cli', capabilities: ['generate', 'chat'], needsKey: false, efforts: [] },
+  // grok 4.x: --reasoning-effort low|medium|high|xhigh (its own default is high).
+  grok: { label: 'Grok CLI', transport: 'cli', capabilities: ['generate', 'chat'], needsKey: false, efforts: ['low', 'medium', 'high', 'xhigh'] },
+  // agy names the effort in the model id (gemini-3.8-flash-high / -medium / -low): picked with the model.
   antigravity: { label: 'Antigravity CLI', transport: 'cli', capabilities: ['generate', 'chat'], needsKey: false, efforts: [] },
   // opencode's own free models (opencode/…) are only served through its CLI; opencode Go models too.
   opencode: { label: 'opencode CLI', transport: 'cli', capabilities: ['generate', 'chat'], needsKey: false, efforts: [] },

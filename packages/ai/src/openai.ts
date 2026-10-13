@@ -1,7 +1,7 @@
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { generateText, Output, type LanguageModel } from 'ai';
 import { ModelError, readAiSdkUsage, toModelError } from './errors.ts';
-import type { GenerateRequest, GenerateResult, ResolvedRoute } from './types.ts';
+import type { CompleteRequest, CompleteResult, GenerateRequest, GenerateResult, ResolvedRoute } from './types.ts';
 
 const PROVIDER = 'workbench';
 
@@ -40,6 +40,23 @@ export async function openaiGenerate<T>(route: ResolvedRoute, request: GenerateR
       object: result.output as T,
       usage: readAiSdkUsage(result.usage),
     };
+  } catch (error) {
+    throw toModelError(error, request.signal);
+  }
+}
+
+export async function openaiComplete(route: ResolvedRoute, request: CompleteRequest): Promise<CompleteResult> {
+  try {
+    const result = await generateText({
+      model: openaiChatModel(route),
+      system: request.system,
+      prompt: request.prompt,
+      maxOutputTokens: request.maxOutputTokens,
+      providerOptions: openaiProviderOptions(route),
+      maxRetries: 0,
+      abortSignal: request.signal ? AbortSignal.any([request.signal, AbortSignal.timeout(request.timeoutMs)]) : AbortSignal.timeout(request.timeoutMs),
+    });
+    return { text: result.text, usage: readAiSdkUsage(result.usage) };
   } catch (error) {
     throw toModelError(error, request.signal);
   }

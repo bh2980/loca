@@ -5,6 +5,7 @@ import { Download, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { type FormatRules } from '@tw/shared';
 import { FormatRulesSection } from '@/components/format-rules';
+import { EditorAiSection } from '@/components/settings/editor-ai';
 import { Page } from '@/components/page';
 import { SettingsSection } from '@/components/settings/section';
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
@@ -86,6 +87,8 @@ function ProjectForm({ projectId, project }: { projectId: string; project: { nam
           </SettingsSection>
 
           <FormatRulesSection projectId={projectId} rules={project.formatRules} />
+
+          <EditorAiSection projectId={projectId} />
 
           <SettingsSection title="번역 결과 내보내기" description="모든 대사의 키, 원문, 번역, 상태를 JSON 파일로 내려받습니다. 원본 게임 파일은 바뀌지 않습니다.">
             <Button variant="outline" asChild>

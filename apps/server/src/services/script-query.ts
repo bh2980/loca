@@ -4,6 +4,7 @@ import type { Db } from '../db/index.ts';
 import { inChunks, inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
+import { applyIssueTags } from './issue-tags.ts';
 import { describeRule, knowledgeOf, knownListener, speechMismatch, speechRuleIndex } from './speech.ts';
 
 /**
@@ -449,6 +450,7 @@ export function applyBatch(db: Db, projectId: string, batch: BatchChange) {
         patch.candidateId = candidate.id;
       }
       if (change.status) patch.statusId = statusId(change.status)!;
+      if (patch.translation !== undefined && patch.translation !== unit.translation) applyIssueTags(tx, projectId, unit.id, { clear: 'all' });
       // Applied from the CLI or an accepted proposal: a person decided this translation or status.
       if (patch.statusId || patch.translation !== undefined) Object.assign(patch, { statusBy: 'human', statusRunId: null });
       // Accepting a proposal is a person's decision about the listener.

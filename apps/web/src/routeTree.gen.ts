@@ -18,9 +18,8 @@ import { Route as PProjectIdKnowledgeRouteImport } from './routes/p.$projectId.k
 import { Route as PProjectIdScriptRouteImport } from './routes/p.$projectId.script'
 import { Route as PProjectIdRunsIndexRouteImport } from './routes/p.$projectId.runs.index'
 import { Route as PProjectIdRunsRunIdRouteImport } from './routes/p.$projectId.runs.$runId'
-import { Route as PProjectIdSettingsAgentRouteImport } from './routes/p.$projectId.settings.agent'
 import { Route as PProjectIdSettingsAiRouteImport } from './routes/p.$projectId.settings.ai'
-import { Route as PProjectIdSettingsAiConfirmRouteImport } from './routes/p.$projectId.settings.ai-confirm'
+import { Route as PProjectIdSettingsAiPermissionsRouteImport } from './routes/p.$projectId.settings.ai-permissions'
 import { Route as PProjectIdSettingsKeysRouteImport } from './routes/p.$projectId.settings.keys'
 import { Route as PProjectIdSettingsProjectRouteImport } from './routes/p.$projectId.settings.project'
 import { Route as PProjectIdSettingsStatusesRouteImport } from './routes/p.$projectId.settings.statuses'
@@ -72,20 +71,15 @@ const PProjectIdRunsRunIdRoute = PProjectIdRunsRunIdRouteImport.update({
   path: '/runs/$runId',
   getParentRoute: () => PProjectIdRoute,
 } as any)
-const PProjectIdSettingsAgentRoute = PProjectIdSettingsAgentRouteImport.update({
-  id: '/settings/agent',
-  path: '/settings/agent',
-  getParentRoute: () => PProjectIdRoute,
-} as any)
 const PProjectIdSettingsAiRoute = PProjectIdSettingsAiRouteImport.update({
   id: '/settings/ai',
   path: '/settings/ai',
   getParentRoute: () => PProjectIdRoute,
 } as any)
-const PProjectIdSettingsAiConfirmRoute =
-  PProjectIdSettingsAiConfirmRouteImport.update({
-    id: '/settings/ai-confirm',
-    path: '/settings/ai-confirm',
+const PProjectIdSettingsAiPermissionsRoute =
+  PProjectIdSettingsAiPermissionsRouteImport.update({
+    id: '/settings/ai-permissions',
+    path: '/settings/ai-permissions',
     getParentRoute: () => PProjectIdRoute,
   } as any)
 const PProjectIdSettingsKeysRoute = PProjectIdSettingsKeysRouteImport.update({
@@ -127,9 +121,8 @@ export interface FileRoutesByFullPath {
   '/p/$projectId/script': typeof PProjectIdScriptRoute
   '/p/$projectId/': typeof PProjectIdIndexRoute
   '/p/$projectId/runs/$runId': typeof PProjectIdRunsRunIdRoute
-  '/p/$projectId/settings/agent': typeof PProjectIdSettingsAgentRoute
   '/p/$projectId/settings/ai': typeof PProjectIdSettingsAiRoute
-  '/p/$projectId/settings/ai-confirm': typeof PProjectIdSettingsAiConfirmRoute
+  '/p/$projectId/settings/ai-permissions': typeof PProjectIdSettingsAiPermissionsRoute
   '/p/$projectId/settings/keys': typeof PProjectIdSettingsKeysRoute
   '/p/$projectId/settings/project': typeof PProjectIdSettingsProjectRoute
   '/p/$projectId/settings/statuses': typeof PProjectIdSettingsStatusesRoute
@@ -145,9 +138,8 @@ export interface FileRoutesByTo {
   '/p/$projectId/script': typeof PProjectIdScriptRoute
   '/p/$projectId': typeof PProjectIdIndexRoute
   '/p/$projectId/runs/$runId': typeof PProjectIdRunsRunIdRoute
-  '/p/$projectId/settings/agent': typeof PProjectIdSettingsAgentRoute
   '/p/$projectId/settings/ai': typeof PProjectIdSettingsAiRoute
-  '/p/$projectId/settings/ai-confirm': typeof PProjectIdSettingsAiConfirmRoute
+  '/p/$projectId/settings/ai-permissions': typeof PProjectIdSettingsAiPermissionsRoute
   '/p/$projectId/settings/keys': typeof PProjectIdSettingsKeysRoute
   '/p/$projectId/settings/project': typeof PProjectIdSettingsProjectRoute
   '/p/$projectId/settings/statuses': typeof PProjectIdSettingsStatusesRoute
@@ -165,9 +157,8 @@ export interface FileRoutesById {
   '/p/$projectId/script': typeof PProjectIdScriptRoute
   '/p/$projectId/': typeof PProjectIdIndexRoute
   '/p/$projectId/runs/$runId': typeof PProjectIdRunsRunIdRoute
-  '/p/$projectId/settings/agent': typeof PProjectIdSettingsAgentRoute
   '/p/$projectId/settings/ai': typeof PProjectIdSettingsAiRoute
-  '/p/$projectId/settings/ai-confirm': typeof PProjectIdSettingsAiConfirmRoute
+  '/p/$projectId/settings/ai-permissions': typeof PProjectIdSettingsAiPermissionsRoute
   '/p/$projectId/settings/keys': typeof PProjectIdSettingsKeysRoute
   '/p/$projectId/settings/project': typeof PProjectIdSettingsProjectRoute
   '/p/$projectId/settings/statuses': typeof PProjectIdSettingsStatusesRoute
@@ -186,9 +177,8 @@ export interface FileRouteTypes {
     | '/p/$projectId/script'
     | '/p/$projectId/'
     | '/p/$projectId/runs/$runId'
-    | '/p/$projectId/settings/agent'
     | '/p/$projectId/settings/ai'
-    | '/p/$projectId/settings/ai-confirm'
+    | '/p/$projectId/settings/ai-permissions'
     | '/p/$projectId/settings/keys'
     | '/p/$projectId/settings/project'
     | '/p/$projectId/settings/statuses'
@@ -204,9 +194,8 @@ export interface FileRouteTypes {
     | '/p/$projectId/script'
     | '/p/$projectId'
     | '/p/$projectId/runs/$runId'
-    | '/p/$projectId/settings/agent'
     | '/p/$projectId/settings/ai'
-    | '/p/$projectId/settings/ai-confirm'
+    | '/p/$projectId/settings/ai-permissions'
     | '/p/$projectId/settings/keys'
     | '/p/$projectId/settings/project'
     | '/p/$projectId/settings/statuses'
@@ -223,9 +212,8 @@ export interface FileRouteTypes {
     | '/p/$projectId/script'
     | '/p/$projectId/'
     | '/p/$projectId/runs/$runId'
-    | '/p/$projectId/settings/agent'
     | '/p/$projectId/settings/ai'
-    | '/p/$projectId/settings/ai-confirm'
+    | '/p/$projectId/settings/ai-permissions'
     | '/p/$projectId/settings/keys'
     | '/p/$projectId/settings/project'
     | '/p/$projectId/settings/statuses'
@@ -304,13 +292,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PProjectIdRunsRunIdRouteImport
       parentRoute: typeof PProjectIdRoute
     }
-    '/p/$projectId/settings/agent': {
-      id: '/p/$projectId/settings/agent'
-      path: '/settings/agent'
-      fullPath: '/p/$projectId/settings/agent'
-      preLoaderRoute: typeof PProjectIdSettingsAgentRouteImport
-      parentRoute: typeof PProjectIdRoute
-    }
     '/p/$projectId/settings/ai': {
       id: '/p/$projectId/settings/ai'
       path: '/settings/ai'
@@ -318,11 +299,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PProjectIdSettingsAiRouteImport
       parentRoute: typeof PProjectIdRoute
     }
-    '/p/$projectId/settings/ai-confirm': {
-      id: '/p/$projectId/settings/ai-confirm'
-      path: '/settings/ai-confirm'
-      fullPath: '/p/$projectId/settings/ai-confirm'
-      preLoaderRoute: typeof PProjectIdSettingsAiConfirmRouteImport
+    '/p/$projectId/settings/ai-permissions': {
+      id: '/p/$projectId/settings/ai-permissions'
+      path: '/settings/ai-permissions'
+      fullPath: '/p/$projectId/settings/ai-permissions'
+      preLoaderRoute: typeof PProjectIdSettingsAiPermissionsRouteImport
       parentRoute: typeof PProjectIdRoute
     }
     '/p/$projectId/settings/keys': {
@@ -370,9 +351,8 @@ interface PProjectIdRouteChildren {
   PProjectIdScriptRoute: typeof PProjectIdScriptRoute
   PProjectIdIndexRoute: typeof PProjectIdIndexRoute
   PProjectIdRunsRunIdRoute: typeof PProjectIdRunsRunIdRoute
-  PProjectIdSettingsAgentRoute: typeof PProjectIdSettingsAgentRoute
   PProjectIdSettingsAiRoute: typeof PProjectIdSettingsAiRoute
-  PProjectIdSettingsAiConfirmRoute: typeof PProjectIdSettingsAiConfirmRoute
+  PProjectIdSettingsAiPermissionsRoute: typeof PProjectIdSettingsAiPermissionsRoute
   PProjectIdSettingsKeysRoute: typeof PProjectIdSettingsKeysRoute
   PProjectIdSettingsProjectRoute: typeof PProjectIdSettingsProjectRoute
   PProjectIdSettingsStatusesRoute: typeof PProjectIdSettingsStatusesRoute
@@ -388,9 +368,8 @@ const PProjectIdRouteChildren: PProjectIdRouteChildren = {
   PProjectIdScriptRoute: PProjectIdScriptRoute,
   PProjectIdIndexRoute: PProjectIdIndexRoute,
   PProjectIdRunsRunIdRoute: PProjectIdRunsRunIdRoute,
-  PProjectIdSettingsAgentRoute: PProjectIdSettingsAgentRoute,
   PProjectIdSettingsAiRoute: PProjectIdSettingsAiRoute,
-  PProjectIdSettingsAiConfirmRoute: PProjectIdSettingsAiConfirmRoute,
+  PProjectIdSettingsAiPermissionsRoute: PProjectIdSettingsAiPermissionsRoute,
   PProjectIdSettingsKeysRoute: PProjectIdSettingsKeysRoute,
   PProjectIdSettingsProjectRoute: PProjectIdSettingsProjectRoute,
   PProjectIdSettingsStatusesRoute: PProjectIdSettingsStatusesRoute,

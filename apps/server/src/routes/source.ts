@@ -9,7 +9,10 @@ import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { computeLayouts } from '../services/layout.ts';
 import { readView, sectionWithMost } from '../services/graph-views.ts';
-import { describeRule, speechRuleIndex } from '../services/speech.ts';
+import { applyIssueTags } from '../services/issue-tags.ts';
+import { lineMatches } from '../services/line-matches.ts';
+import { CompleteRefused, completeLine } from '../services/editor-complete.ts';
+import { describeRule, knownListener as knownListenerOf, speechRuleIndex } from '../services/speech.ts';
 
 const listQuery = z.object({
   groupId: z.string().optional(),
@@ -27,11 +30,18 @@ const listQuery = z.object({
   remaining: z.enum(['1']).optional(),
   /** Only lines whose current status a run set and no person has looked at since (✦). */
   by: z.enum(['ai']).optional(),
+  /** Only translated lines whose source (case and end punctuation aside) is translated differently elsewhere. */
+  diverged: z.enum(['1']).optional(),
+  /** Only lines with a person's note. */
+  noted: z.enum(['1']).optional(),
   /** A line to show: the page is the one holding it (the response says which offset it used). */
   focus: z.string().optional(),
   offset: z.coerce.number().int().min(0).default(0),
   limit: z.coerce.number().int().min(1).max(500).default(100),
 });
+
+/** A source as compared for "the same source": lower case, without spaces and punctuation at its ends ("What?" = "WHAT"). */
+const sameSource = (column: SQL) => sql`trim(lower(${column}), ' .,!?…"''-~')`;
 
 /** The line filters shared by the list and its matches: one SQL condition. */
 function unitConditions(projectId: string, query: Omit<z.infer<typeof listQuery>, 'offset' | 'limit' | 'focus'>) {
@@ -48,6 +58,11 @@ function unitConditions(projectId: string, query: Omit<z.infer<typeof listQuery>
   if (query.review) conditions.push(sql`${s.units.statusId} in (select id from ${s.statuses} where ${s.statuses.projectId} = ${projectId} and ${s.statuses.inReview} = 1)`);
   if (query.by) conditions.push(eq(s.units.statusBy, query.by));
   if (query.remaining) conditions.push(sql`${s.units.statusId} in (select id from ${s.statuses} where ${s.statuses.projectId} = ${projectId} and ${s.statuses.kind} != 'final')`);
+  if (query.noted) conditions.push(sql`${s.units.note} != ''`);
+  if (query.diverged)
+    conditions.push(
+      sql`${s.units.translation} is not null and ${sameSource(sql`${s.units.source}`)} in (select ${sameSource(sql`u.source`)} from ${s.units} u where u.project_id = ${projectId} and u.translation is not null and u.translation != '' and ${sameSource(sql`u.source`)} != '' group by 1 having count(distinct trim(u.translation)) > 1)`,
+    );
   return and(...conditions)!;
 }
 
@@ -59,6 +74,8 @@ const unitPatch = z.object({
   tagIds: z.array(z.string()).optional(),
   /** A person's choice of listener (null = unknown); it replaces any AI or imported listener. */
   listener: z.string().trim().min(1).nullable().optional(),
+  /** A person's note on the line; empty clears it. Who set the status is not touched. */
+  note: z.string().max(2000).optional(),
 });
 
 /** The listener counts unless it is an unsure guess (by line or by scene), as isUnsureListener. */
@@ -93,6 +110,7 @@ const unitColumns = {
   translation: s.units.translation,
   statusId: s.units.statusId,
   statusBy: s.units.statusBy,
+  note: s.units.note,
   statusRunId: s.units.statusRunId,
   updatedAt: s.units.updatedAt,
 };
@@ -285,6 +303,38 @@ export const sourceRoutes = new Hono<Env>()
     const sceneNames = [...distance].sort((a, b) => a[1] - b[1]).map(([name]) => name);
     return c.json({ ...unit, group, candidates, tagIds, history, graphNodes: nodes, speech, sceneNames });
   })
+  /** The editor's AI continuation of a line (docs/DESIGN.md J3b A): the whole line, starting with `prefix`. Cancelled with the request. */
+  .post('/units/:unitId/complete', validate('json', z.object({ prefix: z.string().max(4000).default('') })), async (c) => {
+    const { db, secrets } = c.var.deps;
+    try {
+      return c.json(await completeLine(db, secrets, c.req.param('unitId'), c.req.valid('json').prefix, c.req.raw.signal));
+    } catch (error) {
+      if (error instanceof CompleteRefused) return c.json({ error: error.message, retryAfterSeconds: error.retryAfterSeconds }, error.status);
+      throw error;
+    }
+  })
+  /** Other lines with the same source (case and end punctuation aside), translated or not: what a confirmed translation may be applied to. */
+  .get('/units/:unitId/same', (c) => {
+    const { db } = c.var.deps;
+    const unit = found(db.select({ id: s.units.id, projectId: s.units.projectId, source: s.units.source }).from(s.units).where(eq(s.units.id, c.req.param('unitId'))).get(), '대사');
+    const rows = db
+      .select({ id: s.units.id, groupId: s.units.groupId, groupTitle: s.groups.title, translation: s.units.translation, speaker: s.units.speaker, listener: s.units.listener, kind: s.statuses.kind })
+      .from(s.units)
+      .innerJoin(s.groups, eq(s.groups.id, s.units.groupId))
+      .innerJoin(s.statuses, eq(s.statuses.id, s.units.statusId))
+      .where(and(eq(s.units.projectId, unit.projectId), ne(s.units.id, unit.id), sql`${sameSource(sql`${s.units.source}`)} = ${sameSource(sql`${unit.source}`)}`, sql`${sameSource(sql`${unit.source}`)} != ''`))
+      .orderBy(asc(s.units.seq))
+      .limit(200)
+      .all();
+    return c.json(rows.map(({ kind, ...row }) => ({ ...row, final: kind === 'final' })));
+  })
+  /** Already translated lines of the project with the same or a similar source (the editor's suggestions). */
+  .get('/units/:unitId/matches', (c) => {
+    const { db } = c.var.deps;
+    const unit = found(db.select({ id: s.units.id, projectId: s.units.projectId, source: s.units.source }).from(s.units).where(eq(s.units.id, c.req.param('unitId'))).get(), '대사');
+    const rules = db.select({ rules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, unit.projectId)).get()?.rules;
+    return c.json(lineMatches(db, unit, rules));
+  })
   .patch('/units/:unitId', validate('json', unitPatch), (c) => {
     const { db } = c.var.deps;
     const unitId = c.req.param('unitId');
@@ -302,9 +352,12 @@ export const sourceRoutes = new Hono<Env>()
         patch.candidateId = candidate.id;
       }
       if (body.statusId) patch.statusId = body.statusId;
+      // Problem-type tags described the old text.
+      if (patch.translation !== undefined && patch.translation !== unit.translation) applyIssueTags(tx, unit.projectId, unitId, { clear: 'all' });
       // A person's translation or status: the line's status is theirs now (docs/DESIGN.md 3.5).
       if (patch.statusId || patch.translation !== undefined) Object.assign(patch, { statusBy: 'human', statusRunId: null });
       if (body.listener !== undefined) Object.assign(patch, { listener: body.listener, listenerOrigin: 'human', listenerConfidence: null });
+      if (body.note !== undefined) patch.note = body.note.trim();
       if (Object.keys(patch).length) tx.update(s.units).set(patch).where(eq(s.units.id, unitId)).run();
       if (body.tagIds) {
         tx.delete(s.unitTags).where(eq(s.unitTags.unitId, unitId)).run();
@@ -335,7 +388,7 @@ export const sourceRoutes = new Hono<Env>()
         status: layout?.status ?? 'missing',
         error: layout?.error ?? null,
         layout: db.select({ data: s.graphLayouts.data }).from(s.graphLayouts).where(where).get()?.data ?? null,
-        nodes: nodes.map((node) => ({ ...node, type: null as string | null, kind: 'scene', groupId: node.id, preview: `${node.total}개 대사` })),
+        nodes: nodes.map((node) => ({ ...node, type: null as string | null, kind: 'scene', groupId: node.id, preview: `${node.total}개 대사`, speaker: null as string | null, text: null as string | null })),
         nodeTypes: {} as Record<string, NodeType>,
         sections: [] as { name: string; nodes: number; groupIds: string[] }[],
       });
@@ -345,7 +398,9 @@ export const sourceRoutes = new Hono<Env>()
     // 50k-node layout (15 MB) held the server for a quarter of a second. A section's layout is
     // small, so its node ids are read from it to send only that section's nodes.
     const raw = db.select({ data: sql<string | null>`${s.graphLayouts.data}` }).from(s.graphLayouts).where(where).get()?.data ?? 'null';
-    const only = section && raw !== 'null' ? (JSON.parse(raw) as s.LayoutData).nodes.map((node) => node.id).filter((id) => !id.startsWith('portal:')) : null;
+    // Nodes folded into a straight run or into an edge (a choice) are not layout nodes but are shown through them: send them too.
+    const parsed = section && raw !== 'null' ? (JSON.parse(raw) as s.LayoutData) : null;
+    const only = parsed ? [...parsed.nodes.map((node) => node.id).filter((id) => !id.startsWith('portal:')), ...(parsed.chains ?? []).flatMap((chain) => chain.nodeIds), ...parsed.edges.flatMap((edge) => (edge.via ? [edge.via] : []))] : null;
     // One preview line per node keeps the payload small; details load on selection.
     const nodes = db
       .select({
@@ -357,6 +412,9 @@ export const sourceRoutes = new Hono<Env>()
         groupId: s.graphNodes.groupId,
         total: sql<number>`json_array_length(${s.graphNodes.unitIds})`,
         preview: sql<string | null>`(select coalesce(u.speaker || ': ', '') || substr(u.source, 1, 90) from units u where u.id = json_extract("graph_nodes"."unit_ids", '$[0]'))`,
+        // The first line apart, so a card can lead with who speaks.
+        speaker: sql<string | null>`(select u.speaker from units u where u.id = json_extract("graph_nodes"."unit_ids", '$[0]'))`,
+        text: sql<string | null>`(select substr(u.source, 1, 120) from units u where u.id = json_extract("graph_nodes"."unit_ids", '$[0]'))`,
       })
       .from(s.graphNodes)
       .where(and(eq(s.graphNodes.projectId, projectId), only ? inList(s.graphNodes.id, only) : undefined))
@@ -398,7 +456,13 @@ export const sourceRoutes = new Hono<Env>()
       ...node,
       typeInfo,
       group,
-      units: lines.sort((a, b) => order.get(a.id)! - order.get(b.id)!),
+      // Each line with whom it addresses and the speech level its rule asks for (the pane shows them small).
+      units: (() => {
+        const resolved = speechRuleIndex(db, node.projectId).resolve(lines);
+        return lines
+          .sort((a, b) => order.get(a.id)! - order.get(b.id)!)
+          .map((line) => ({ ...line, heard: knownListenerOf(line), level: resolved.get(line.key)?.rule.level ?? null }));
+      })(),
       incoming: neighbour('in'),
       outgoing: neighbour('out'),
     });

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useParams } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Check, ChevronsUpDown } from 'lucide-react';
-import { CONNECTION_KIND_INFO, type Capability } from '@tw/shared';
+import { CONNECTION_KIND_INFO, type Capability, type ConnectionKind } from '@tw/shared';
 import { Button } from '@/components/ui/button';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Field, FieldLabel } from '@/components/ui/field';
@@ -62,6 +62,7 @@ export function ModelPicker({
   onChange,
   need = ['generate'],
   exclude,
+  kinds,
   lockConnection,
   compact,
   id,
@@ -73,6 +74,8 @@ export function ModelPicker({
   need?: Capability[];
   /** A connection that may not be picked (a connection's own fallback). */
   exclude?: string;
+  /** Only connections of these kinds (the editor's continuation: API connections). */
+  kinds?: ConnectionKind[];
   /** Only the model and effort of `value.connectionId` (a connection's own default model, its test). */
   lockConnection?: boolean;
   compact?: boolean;
@@ -81,7 +84,7 @@ export function ModelPicker({
 }) {
   const params = useParams({ strict: false });
   const connections = useQuery(q.connections());
-  const usable = (connections.data ?? []).filter((item) => item.id !== exclude && CONNECTION_KIND_INFO[item.kind].capabilities.some((capability) => need.includes(capability)));
+  const usable = (connections.data ?? []).filter((item) => item.id !== exclude && (!kinds || kinds.includes(item.kind)) && CONNECTION_KIND_INFO[item.kind].capabilities.some((capability) => need.includes(capability)));
   const connection = usable.find((item) => item.id === value?.connectionId);
   const efforts = connection ? CONNECTION_KIND_INFO[connection.kind].efforts : [];
   const fullLabel = useModelLabel(value);
@@ -176,6 +179,7 @@ export function ModelPicker({
                 {value?.model && !list.includes(value.model) && <p className="text-xs text-muted-foreground">지금: {value.model}</p>}
               </Field>
             )}
+            {connection?.kind === 'antigravity' && <p className="text-xs text-muted-foreground">추론 수준은 모델 이름에 들어 있습니다(…-high / -medium / -low).</p>}
             {connection && efforts.length > 0 && (
               <Field>
                 <FieldLabel>추론 수준</FieldLabel>

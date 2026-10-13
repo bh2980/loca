@@ -1,5 +1,8 @@
 import { DEFAULT_STATUSES, listenerTemplate, SPEECH_FIX_WORKFLOW, speechFixTemplate, termExtractionTemplate, translationTemplate, type DraftModelChoice, type ImportFile } from '@tw/shared';
 import type { Db } from '../db/index.ts';
+
+/** Colors for tags that came with the file, in turn. */
+const TAG_COLORS = ['#0ea5e9', '#14b8a6', '#84cc16', '#a855f7', '#f43f5e', '#f59e0b'];
 import * as s from '../db/schema.ts';
 
 const CHUNK = 400;
@@ -92,6 +95,12 @@ export function importProject(db: Db, file: ImportFile, model: DraftModelChoice 
       });
     insertMany(tx, s.units, unitRows);
     insertMany(tx, s.candidates, candidateRows);
+    // Tags from the game data: one project tag per distinct name.
+    const tagNames = [...new Set(file.units.flatMap((unit) => unit.tags))];
+    if (tagNames.length) {
+      const tagIds = new Map(tagNames.map((name, index) => [name, tx.insert(s.tags).values({ projectId, name, color: TAG_COLORS[index % TAG_COLORS.length] }).returning({ id: s.tags.id }).get().id]));
+      insertMany(tx, s.unitTags, file.units.flatMap((unit) => unit.tags.map((name) => ({ unitId: unitIds.get(unit.key)!, tagId: tagIds.get(name)! }))));
+    }
 
     if (file.graph) {
       const nodeIds = new Map<string, string>();

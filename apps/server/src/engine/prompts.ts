@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { SPEECH_LEVEL_GUIDE, SPEECH_LEVELS, type AiNode, type JsonField } from '@tw/shared';
+import { ISSUE_CATEGORY_GUIDE, ISSUE_KIND_IDS, type IssueKind, SPEECH_LEVEL_GUIDE, SPEECH_LEVELS, type AiNode, type JsonField } from '@tw/shared';
 import type { BatchContext, LineContext } from '../services/context.ts';
 
 const hasBranches = (context: BatchContext) => Object.values(context.preceding).some((preceding) => preceding.branches.length > 0);
@@ -31,7 +31,7 @@ export function outputSchema(node: AiNode, ids?: string[]): z.ZodType<unknown> {
     case 'candidate':
       return z.object({ translations: perLine({ text: z.string() }) });
     case 'verdict':
-      return z.object({ results: perLine({ passed: z.boolean(), issues: z.array(z.string()) }) });
+      return z.object({ results: perLine({ passed: z.boolean(), issues: z.array(z.string()), categories: z.array(z.enum(ISSUE_KIND_IDS as [IssueKind, ...IssueKind[]])).default([]) }) });
     case 'terms':
       return z.object({ terms: z.array(z.object({ source: z.string(), target: z.string(), note: z.string() })) });
     case 'knowledge':
@@ -52,7 +52,7 @@ export const PER_LINE_OUTPUTS = new Set<AiNode['config']['output']>(['candidate'
 
 const CONTRACT: Record<AiNode['config']['output'], string> = {
   candidate: 'Return one translation per line id in "translations".',
-  verdict: 'Return one result per line id in "results": passed, and concrete issues (empty when passed).',
+  verdict: `Return one result per line id in "results": passed, concrete issues (empty when passed), and the categories of those issues: ${ISSUE_CATEGORY_GUIDE}.`,
   terms: 'Return the terms found across all lines in "terms" (source, target, note). Return an empty list when there are none.',
   knowledge: `Return what these lines add in "characters", "relationships" (with "change" and the line id "at" where it shows), "events" (with evidence line ids) and "speechRules" (level is one of: ${SPEECH_LEVEL_GUIDE}; "start" is the line id where the new level begins). Empty lists when nothing is new.`,
   listener: 'Return one entry per line id in "listeners": listener (a cast name, "group", "public", "self" or null) and confidence (0 to 1).',

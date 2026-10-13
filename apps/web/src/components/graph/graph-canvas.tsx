@@ -1,10 +1,15 @@
 import { Button } from '@/components/ui/button';
-import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from 'react';
+import { useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type Ref } from 'react';
 import { Map as MapIcon, Minimize2 } from 'lucide-react';
 import { select } from 'd3-selection';
 import 'd3-transition';
 import { zoom as d3zoom, zoomIdentity, type ZoomBehavior, type ZoomTransform } from 'd3-zoom';
 import Flatbush from 'flatbush';
+
+/** Margin inside the minimap, in its pixels. */
+const MINIMAP_PAD = 10;
+/** Space between a node and the card beside it, and between the card and the canvas edge. */
+const ANCHOR_GAP = 12;
 import { drawShape } from './shapes';
 
 /** Below this zoom node labels are unreadable, so they are not drawn. */
@@ -22,6 +27,70 @@ export interface LayoutEdge {
   from: string;
   to: string;
   points: number[];
+  /** What the edge says: a player's choice (with `via`, the choice node it stands for) or a condition. */
+  label?: string;
+  via?: string;
+  /** Where the layout put the label: x, y, width, height. */
+  labelAt?: [number, number, number, number];
+  /** Points are a start and (control, control, end) triples: drawn as Bézier curves. */
+  curved?: true;
+}
+
+/**
+ * A labelled edge redrawn to pass through its label: start → label centre → end as two smooth
+ * curves leaving and arriving vertically (the layout kept the label's spot clear, but its own
+ * curves do not go through it).
+ */
+function throughLabel(edge: LayoutEdge): LayoutEdge {
+  if (!edge.label || !edge.labelAt || edge.points.length < 4) return edge;
+  const [lx, ly, lw, lh] = edge.labelAt;
+  const p = edge.points;
+  const [x0, y0, x3, y3] = [p[0], p[1], p[p.length - 2], p[p.length - 1]];
+  const [mx, my] = [lx + lw / 2, ly + lh / 2];
+  const a = (y0 + my) / 2, b = (my + y3) / 2;
+  return { ...edge, curved: true, points: [x0, y0, x0, a, mx, a, mx, my, mx, b, x3, b, x3, y3] };
+}
+
+/**
+ * An edge label's box: where the layout put it (the edge runs through it and nothing else is
+ * there), else centred halfway along the line.
+ */
+function labelBox(edge: LayoutEdge): [number, number, number, number] | null {
+  if (!edge.label) return null;
+  if (edge.labelAt) return edge.labelAt;
+  const width = Math.min(240, 30 + Math.ceil(edge.label.length * 8));
+  const [x, y] = midpoint(edge);
+  return [x - width / 2, y - 11, width, 22];
+}
+
+/** The point halfway along an edge: sampled along its Bézier pieces when curved, else its segments. */
+function midpoint(edge: LayoutEdge): [number, number] {
+  const p = edge.points;
+  const samples: [number, number][] = [];
+  if (edge.curved) {
+    samples.push([p[0], p[1]]);
+    for (let i = 2; i + 5 < p.length; i += 6) {
+      const [x0, y0] = samples[samples.length - 1];
+      for (let s = 1; s <= 12; s++) {
+        const u = s / 12, v = 1 - u;
+        samples.push([
+          v * v * v * x0 + 3 * v * v * u * p[i] + 3 * v * u * u * p[i + 2] + u * u * u * p[i + 4],
+          v * v * v * y0 + 3 * v * v * u * p[i + 1] + 3 * v * u * u * p[i + 3] + u * u * u * p[i + 5],
+        ]);
+      }
+    }
+  } else for (let i = 0; i + 1 < p.length; i += 2) samples.push([p[i], p[i + 1]]);
+  if (samples.length < 2) return samples[0] ?? [0, 0];
+  const lengths = samples.slice(1).map(([x, y], i) => Math.hypot(x - samples[i][0], y - samples[i][1]));
+  let half = lengths.reduce((sum, length) => sum + length, 0) / 2;
+  for (let i = 0; i < lengths.length; i++) {
+    if (half <= lengths[i] && lengths[i] > 0) {
+      const f = half / lengths[i];
+      return [samples[i][0] + (samples[i + 1][0] - samples[i][0]) * f, samples[i][1] + (samples[i + 1][1] - samples[i][1]) * f];
+    }
+    half -= lengths[i];
+  }
+  return samples[samples.length - 1];
 }
 export interface NodeInfo {
   id: string;
@@ -30,6 +99,9 @@ export interface NodeInfo {
   label: string | null;
   preview: string | null;
   key: string;
+  /** A card's first line (who speaks, or what a folded run holds) and the text under it. */
+  title?: string;
+  body?: string | null;
 }
 export interface Viewport {
   x: number;
@@ -40,6 +112,8 @@ export interface GraphCanvasHandle {
   fit(): void;
   zoomBy(factor: number): void;
   focus(id: string): void;
+  /** Pans (zooming in to a readable size if needed) so the node and `room` px beside it are on screen. */
+  reveal(id: string, room: number): void;
 }
 
 const MIN_K = 0.01;
@@ -80,8 +154,14 @@ interface Props {
   /** Nodes to emphasise (e.g. the scene being inspected); others are dimmed when non-empty. */
   highlight?: Set<string>;
   initialViewport?: Viewport;
+  /** Open centred on this node instead (zoomed to a readable size), e.g. arriving from a line. */
+  initialFocus?: string;
   onViewportChange?: (viewport: Viewport) => void;
   onSelect: (id: string | undefined) => void;
+  /** Enter on the canvas with a node selected. */
+  onOpen?: () => void;
+  /** A card that floats beside a node (right of it, or left when there is no room) and follows it as the view moves. */
+  anchor?: { id: string; content: ReactNode };
   handle?: Ref<GraphCanvasHandle>;
 }
 
@@ -89,12 +169,13 @@ interface Props {
  * Draws a precomputed ELK layout. d3-zoom owns pan/zoom, Flatbush owns spatial queries,
  * so each frame only touches what is on screen. One <canvas>, no per-node DOM.
  */
-export function GraphCanvas({ nodes, regions = [], edges, looseEdges, hubs, info, width, height, selectedId, highlight, initialViewport, onViewportChange, onSelect, handle }: Props) {
+export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, hubs, info, width, height, selectedId, highlight, initialViewport, initialFocus, onViewportChange, onSelect, onOpen, anchor, handle }: Props) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const minimap = useRef<HTMLCanvasElement>(null);
   const transform = useRef<ZoomTransform>(zoomIdentity);
   const behavior = useRef<ZoomBehavior<HTMLCanvasElement, unknown>>(null);
   const frame = useRef(0);
+  const anchorBox = useRef<HTMLDivElement>(null);
   const [minimapOpen, setMinimapOpen] = useState(() => {
     try {
       return localStorage.getItem('tw.graph.minimap') !== '0';
@@ -113,8 +194,10 @@ export function GraphCanvas({ nodes, regions = [], edges, looseEdges, hubs, info
   useEffect(() => {
     if (minimapOpen) schedule();
   }, [minimapOpen]); // eslint-disable-line react-hooks/exhaustive-deps
-  const props = useRef({ selectedId, highlight, onViewportChange, onSelect, hubs });
-  props.current = { selectedId, highlight, onViewportChange, onSelect, hubs };
+  // A labelled edge (a choice) is drawn through the room the layout kept for its label.
+  const edges = useMemo(() => laidOut.map(throughLabel), [laidOut]);
+  const props = useRef({ selectedId, highlight, onViewportChange, onSelect, onOpen, hubs, anchorId: anchor?.id });
+  props.current = { selectedId, highlight, onViewportChange, onSelect, onOpen, hubs, anchorId: anchor?.id };
 
   const index = useMemo(() => {
     const byId = new Map(nodes.map((node) => [node.id, node]));
@@ -147,6 +230,8 @@ export function GraphCanvas({ nodes, regions = [], edges, looseEdges, hubs, info
         set.add(String(i));
         adjacent.set(end, set);
       }
+      // A choice folded into its edge: selecting the choice lights that edge.
+      if (edge.via) adjacent.set(edge.via, new Set([String(i)]));
     });
     // Loose edges as one flat array of segments (bottom centre -> top centre); edges whose ends are not placed are skipped.
     const segments: number[] = [];
@@ -182,9 +267,28 @@ export function GraphCanvas({ nodes, regions = [], edges, looseEdges, hubs, info
     return zoomIdentity.translate(x, y).scale(scale);
   };
 
+  const centredOn = (node: LayoutNode, k: number) => zoomIdentity.translate(width / 2 - (node.x + node.width / 2) * k, height / 2 - (node.y + node.height / 2) * k).scale(k);
+
   // ── drawing ───────────────────────────────────────────────────────
+  /** Puts the floating card beside its node, inside the canvas. Done each frame, without React. */
+  const placeAnchor = () => {
+    const card = anchorBox.current;
+    const node = props.current.anchorId ? index.byId.get(props.current.anchorId) : undefined;
+    if (!card || !node) return;
+    const t = transform.current;
+    const x = node.x * t.k + t.x, y = node.y * t.k + t.y, w = node.width * t.k;
+    const cardW = card.offsetWidth, cardH = card.offsetHeight;
+    let left = x + w + ANCHOR_GAP;
+    if (left + cardW > width - ANCHOR_GAP) left = x - cardW - ANCHOR_GAP;
+    left = Math.max(ANCHOR_GAP, Math.min(left, width - cardW - ANCHOR_GAP));
+    const top = Math.max(ANCHOR_GAP, Math.min(y, height - cardH - ANCHOR_GAP));
+    card.style.transform = `translate(${Math.round(left)}px, ${Math.round(top)}px)`;
+    card.style.opacity = '1';
+  };
+
   const draw = () => {
     frame.current = 0;
+    placeAnchor();
     const element = canvas.current;
     if (!element) return;
     const context = element.getContext('2d')!;
@@ -263,7 +367,7 @@ export function GraphCanvas({ nodes, regions = [], edges, looseEdges, hubs, info
     context.beginPath();
     for (const i of visibleEdges) {
       if (selectedEdges?.has(String(i))) continue;
-      tracePolyline(context, edges[i].points);
+      traceEdge(context, edges[i]);
     }
     context.stroke();
     context.globalAlpha = 1;
@@ -272,9 +376,35 @@ export function GraphCanvas({ nodes, regions = [], edges, looseEdges, hubs, info
       context.strokeStyle = selectColor;
       context.lineWidth = Math.max(2, 2.4 / t.k);
       context.beginPath();
-      for (const key of selectedEdges) tracePolyline(context, edges[Number(key)].points);
+      for (const key of selectedEdges) traceEdge(context, edges[Number(key)]);
       context.stroke();
       for (const key of selectedEdges) arrowHead(context, edges[Number(key)].points, 9, selectColor, 1);
+    }
+
+    // Edge labels (a choice reads as the label of the way it opens), once they can be read.
+    if (t.k >= DETAIL_K) {
+      context.font = '500 11px Pretendard, system-ui, sans-serif';
+      context.textBaseline = 'middle';
+      for (const i of visibleEdges) {
+        const edge = edges[i];
+        const box = labelBox(edge);
+        if (!box) continue;
+        const [x, y, w, h] = box;
+        context.globalAlpha = dimmed && !selectedEdges?.has(String(i)) ? 0.45 : 1;
+        context.beginPath();
+        context.roundRect(x, y, w, h, h / 2);
+        context.fillStyle = edge.via ? '#eff6ff' : '#ffffff';
+        context.fill();
+        context.lineWidth = 1;
+        context.strokeStyle = edge.via ? '#93c5fd' : '#e4e4e7';
+        context.stroke();
+        context.fillStyle = edge.via ? '#1d4ed8' : '#52525b';
+        let text = `${edge.via ? '▶ ' : ''}${edge.label}`;
+        while (text.length > 2 && context.measureText(text).width > w - 14) text = `${text.slice(0, -2)}…`;
+        context.fillText(text, x + 7, y + h / 2 + 0.5);
+      }
+      context.globalAlpha = 1;
+      context.textBaseline = 'alphabetic';
     }
 
     const visible = (index.nodeIndex?.search(view.minX, view.minY, view.maxX, view.maxY) ?? []);
@@ -315,19 +445,24 @@ export function GraphCanvas({ nodes, regions = [], edges, looseEdges, hubs, info
     if (!frame.current) frame.current = requestAnimationFrame(draw);
   };
 
-  // Minimap: a once-rendered overview with the current viewport on top.
+  // Minimap: the screen's shape, with the whole graph fitted and centered in it (as the graph first
+  // opens) and the current viewport drawn on top. Rendered once per size; the box follows the screen.
   const overview = useMemo(() => {
-    const size = 168;
-    const w = index.bounds.maxX - index.bounds.minX, h = index.bounds.maxY - index.bounds.minY;
-    const scale = Math.min(size / w, size / h);
+    const long = 176;
+    const aspect = width > 0 && height > 0 ? width / height : 1;
+    const boxW = Math.round(aspect >= 1 ? long : long * aspect);
+    const boxH = Math.round(aspect >= 1 ? long / aspect : long);
+    const w = Math.max(1, index.bounds.maxX - index.bounds.minX), h = Math.max(1, index.bounds.maxY - index.bounds.minY);
+    const scale = Math.min((boxW - 2 * MINIMAP_PAD) / w, (boxH - 2 * MINIMAP_PAD) / h);
+    const offX = (boxW - w * scale) / 2, offY = (boxH - h * scale) / 2;
     const off = document.createElement('canvas');
-    off.width = Math.ceil(w * scale) || 1;
-    off.height = Math.ceil(h * scale) || 1;
+    off.width = boxW || 1;
+    off.height = boxH || 1;
     const context = off.getContext('2d')!;
     context.fillStyle = '#a1a1aa';
-    for (const node of nodes) context.fillRect((node.x - index.bounds.minX) * scale, (node.y - index.bounds.minY) * scale, Math.max(1, node.width * scale), Math.max(1, node.height * scale));
-    return { image: off, scale };
-  }, [nodes, index]);
+    for (const node of nodes) context.fillRect(offX + (node.x - index.bounds.minX) * scale, offY + (node.y - index.bounds.minY) * scale, Math.max(1, node.width * scale), Math.max(1, node.height * scale));
+    return { image: off, scale, offX, offY };
+  }, [nodes, index, width, height]);
 
   const drawMinimap = () => {
     const element = minimap.current;
@@ -344,7 +479,7 @@ export function GraphCanvas({ nodes, regions = [], edges, looseEdges, hubs, info
     const s = overview.scale;
     context.strokeStyle = '#3b6cf6';
     context.lineWidth = 1.5;
-    context.strokeRect(((-t.x / t.k) - index.bounds.minX) * s, ((-t.y / t.k) - index.bounds.minY) * s, (width / t.k) * s, (height / t.k) * s);
+    context.strokeRect(overview.offX + ((-t.x / t.k) - index.bounds.minX) * s, overview.offY + ((-t.y / t.k) - index.bounds.minY) * s, (width / t.k) * s, (height / t.k) * s);
   };
 
   // ── interaction ───────────────────────────────────────────────────
@@ -374,7 +509,12 @@ export function GraphCanvas({ nodes, regions = [], edges, looseEdges, hubs, info
       }
       return Number.isFinite(box.minX) ? box : undefined;
     };
-    const start = initialViewport ? zoomIdentity.translate(initialViewport.x, initialViewport.y).scale(initialViewport.k) : fitTransform(focusBox());
+    const target = initialFocus ? index.byId.get(initialFocus) : undefined;
+    const start = target
+      ? centredOn(target, Math.max(fitTransform().k, 0.6))
+      : initialViewport
+        ? zoomIdentity.translate(initialViewport.x, initialViewport.y).scale(initialViewport.k)
+        : fitTransform(focusBox());
     selection.call(zoom.transform, start);
     return () => void selection.on('.zoom', null);
     // The layout identity decides the starting view; size changes are handled below.
@@ -392,6 +532,18 @@ export function GraphCanvas({ nodes, regions = [], edges, looseEdges, hubs, info
     schedule();
   }, [selectedId, highlight, info, hubs]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // The card is placed again when it opens on another node or its content changes height. Until
+  // then it is transparent, not hidden: a hidden card would drop the editor's focus.
+  useEffect(() => {
+    const card = anchorBox.current;
+    if (!card) return;
+    card.style.opacity = '0';
+    schedule();
+    const observer = new ResizeObserver(() => schedule());
+    observer.observe(card);
+    return () => observer.disconnect();
+  }, [anchor?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const animateTo = (target: ZoomTransform) => {
     if (behavior.current && canvas.current) select(canvas.current).transition().duration(350).call(behavior.current.transform, target);
   };
@@ -401,9 +553,21 @@ export function GraphCanvas({ nodes, regions = [], edges, looseEdges, hubs, info
     zoomBy: (factor) => behavior.current && canvas.current && select(canvas.current).transition().duration(200).call(behavior.current.scaleBy, factor),
     focus: (id) => {
       const node = index.byId.get(id);
+      if (node) animateTo(centredOn(node, Math.max(transform.current.k, 0.6)));
+    },
+    reveal: (id, room) => {
+      const node = index.byId.get(id);
       if (!node) return;
-      const k = Math.max(transform.current.k, 0.6);
-      animateTo(zoomIdentity.translate(width / 2 - (node.x + node.width / 2) * k, height / 2 - (node.y + node.height / 2) * k).scale(k));
+      const t = transform.current;
+      const k = Math.max(t.k, 0.6);
+      const x = node.x * k + t.x, y = node.y * k + t.y, w = node.width * k, h = node.height * k;
+      const block = w + ANCHOR_GAP + room;
+      const fits = k === t.k && x >= ANCHOR_GAP && x + block <= width - ANCHOR_GAP && y >= ANCHOR_GAP && y + Math.min(h, height / 2) <= height - ANCHOR_GAP;
+      if (fits) return;
+      // The node and the card side by side in the middle; a tall node starts near the top.
+      const left = Math.max(ANCHOR_GAP, (width - block) / 2);
+      const top = h > height - 2 * PAD ? PAD : (height - h) / 2;
+      animateTo(zoomIdentity.translate(left - node.x * k, top - node.y * k).scale(k));
     },
   }));
 
@@ -418,6 +582,12 @@ export function GraphCanvas({ nodes, regions = [], edges, looseEdges, hubs, info
     const rect = canvas.current!.getBoundingClientRect();
     const t = transform.current;
     const x = (clientX - rect.left - t.x) / t.k, y = (clientY - rect.top - t.y) / t.k;
+    // A choice's label stands for its node: clicking it opens the choice.
+    if (t.k >= DETAIL_K)
+      for (const i of index.edgeIndex?.search(x - 100, y - 20, x + 100, y + 20) ?? []) {
+        const box = edges[i].via ? labelBox(edges[i]) : null;
+        if (box && x >= box[0] && x <= box[0] + box[2] && y >= box[1] && y <= box[1] + box[3]) return edges[i].via;
+      }
     const found = (index.nodeIndex?.search(x, y, x, y) ?? []);
     return found.length ? nodes[found[found.length - 1]].id : undefined;
   };
@@ -445,9 +615,15 @@ export function GraphCanvas({ nodes, regions = [], edges, looseEdges, hubs, info
           } else if (event.key === '+' || event.key === '=') behavior.current && select(canvas.current!).call(behavior.current.scaleBy, 1.25);
           else if (event.key === '-') behavior.current && select(canvas.current!).call(behavior.current.scaleBy, 0.8);
           else if (event.key === 'f') animateTo(fitTransform());
+          else if (event.key === 'Enter' && props.current.selectedId) props.current.onOpen?.();
           else if (event.key === 'Escape') props.current.onSelect(undefined);
         }}
       />
+      {anchor && (
+        <div ref={anchorBox} className="absolute top-0 left-0 z-20 opacity-0">
+          {anchor.content}
+        </div>
+      )}
       {minimapOpen ? (
         <div className="absolute bottom-3 left-3 rounded-md border bg-background/90 shadow-sm">
           <Button variant="outline" size="icon-xs" onClick={() => toggleMinimap(false)} className="absolute -top-2.5 -right-2.5 rounded-full text-muted-foreground" aria-label="미니맵 접기">
@@ -459,8 +635,8 @@ export function GraphCanvas({ nodes, regions = [], edges, looseEdges, hubs, info
         aria-label="미니맵"
         onClick={(event) => {
           const rect = event.currentTarget.getBoundingClientRect();
-          const x = (event.clientX - rect.left) / overview.scale + index.bounds.minX;
-          const y = (event.clientY - rect.top) / overview.scale + index.bounds.minY;
+          const x = (event.clientX - rect.left - overview.offX) / overview.scale + index.bounds.minX;
+          const y = (event.clientY - rect.top - overview.offY) / overview.scale + index.bounds.minY;
           const k = transform.current.k;
           animateTo(zoomIdentity.translate(width / 2 - x * k, height / 2 - y * k).scale(k));
         }}
@@ -500,6 +676,13 @@ function drawHub(context: CanvasRenderingContext2D, node: LayoutNode, hub: HubIn
   }
 }
 
+function traceEdge(context: CanvasRenderingContext2D, edge: LayoutEdge) {
+  const p = edge.points;
+  if (!edge.curved) return tracePolyline(context, p);
+  context.moveTo(p[0], p[1]);
+  for (let i = 2; i + 5 < p.length; i += 6) context.bezierCurveTo(p[i], p[i + 1], p[i + 2], p[i + 3], p[i + 4], p[i + 5]);
+}
+
 function tracePolyline(context: CanvasRenderingContext2D, points: number[]) {
   if (points.length < 4) return;
   context.moveTo(points[0], points[1]);
@@ -526,15 +709,26 @@ function arrowHead(context: CanvasRenderingContext2D, points: number[], size: nu
 function drawLabel(context: CanvasRenderingContext2D, meta: NodeInfo, node: LayoutNode) {
   context.save();
   context.fillStyle = '#18181b';
-  if (meta.kind === 'script' || meta.kind === 'scene' || meta.kind === 'chain') {
+  if (meta.kind === 'choice') {
+    // A choice: its text in the pill, after the play mark.
+    context.beginPath();
+    context.rect(node.x + 14, node.y + 4, node.width - 28, node.height - 8);
+    context.clip();
+    context.font = '500 11px Pretendard, system-ui, sans-serif';
+    context.fillStyle = '#2563eb';
+    context.fillText('▶ 선택지', node.x + 22, node.y + 22);
+    context.font = '600 13px Pretendard, system-ui, sans-serif';
+    context.fillStyle = '#1e3a8a';
+    context.fillText(meta.body ?? meta.preview ?? meta.label ?? '', node.x + 22, node.y + 40);
+  } else if (meta.kind === 'script' || meta.kind === 'scene' || meta.kind === 'chain') {
     context.beginPath();
     context.rect(node.x + 10, node.y + 6, node.width - 20, node.height - 12);
     context.clip();
     context.font = '600 12px Pretendard, system-ui, sans-serif';
-    context.fillText(meta.kind === 'scene' || meta.kind === 'chain' ? (meta.label ?? meta.key) : meta.key, node.x + 12, node.y + 22);
+    context.fillText(meta.title ?? (meta.kind === 'scene' || meta.kind === 'chain' ? (meta.label ?? meta.key) : meta.key), node.x + 12, node.y + 22);
     context.font = '12px Pretendard, system-ui, sans-serif';
     context.fillStyle = '#52525b';
-    wrapText(context, meta.preview ?? meta.label ?? '', node.x + 12, node.y + 42, node.width - 24, 16, 2);
+    wrapText(context, meta.body ?? meta.preview ?? meta.label ?? '', node.x + 12, node.y + 42, node.width - 24, 16, 2);
   } else if (meta.kind === 'portal') {
     // Section stand-in: the name sits inside the box.
     context.font = '11px Pretendard, system-ui, sans-serif';

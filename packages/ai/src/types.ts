@@ -87,6 +87,20 @@ export interface GenerateRequest<T> {
   signal?: AbortSignal;
 }
 
+/** Plain text from a prompt (the editor's continuation): no schema, so no format to break. */
+export interface CompleteRequest {
+  system: string;
+  prompt: string;
+  maxOutputTokens: number;
+  timeoutMs: number;
+  signal?: AbortSignal;
+}
+
+export interface CompleteResult {
+  text: string;
+  usage: Usage;
+}
+
 export interface GenerateResult<T> {
   object: T;
   usage: Usage;

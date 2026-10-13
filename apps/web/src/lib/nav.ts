@@ -60,9 +60,8 @@ export const SECTIONS: Section[] = [
     icon: Cog,
     tabs: [
       { label: '상태·태그', path: '/settings/statuses' },
-      { label: 'AI 확정', path: '/settings/ai-confirm' },
       { label: 'AI 연결', path: '/settings/ai' },
-      { label: 'AI 도구 권한', path: '/settings/agent' },
+      { label: 'AI 권한', path: '/settings/ai-permissions' },
       { label: 'API 키', path: '/settings/keys' },
       { label: '프로젝트', path: '/settings/project' },
     ],

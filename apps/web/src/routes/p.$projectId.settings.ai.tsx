@@ -25,6 +25,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { client, unwrap, type InferResponseType } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
+import { keyStoreLabel } from '@/lib/keys';
 
 export const Route = createFileRoute('/p/$projectId/settings/ai')({
   validateSearch: (raw: Record<string, unknown>): { conn?: string } => ({
@@ -211,7 +212,7 @@ function NewConnection({ onClose }: { onClose: () => void }) {
               <Field>
                 <FieldLabel htmlFor="conn-key">API 키 (선택)</FieldLabel>
                 <Input id="conn-key" type="password" autoComplete="off" {...form.register('apiKey')} />
-                <FieldDescription>API 키는 Windows 자격 증명 관리자(OS 키체인)에 저장되며 DB·내보내기에 포함되지 않습니다.</FieldDescription>
+                <FieldDescription>API 키는 {keyStoreLabel}에 저장되며 DB·내보내기에 포함되지 않습니다.</FieldDescription>
               </Field>
             </>
           ) : info.transport === 'sdk' ? (
@@ -482,7 +483,7 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
                 키 삭제
               </Button>
             </div>
-            <FieldDescription>API 키는 Windows 자격 증명 관리자(OS 키체인)에 저장되며 DB·내보내기에 포함되지 않습니다.</FieldDescription>
+            <FieldDescription>API 키는 {keyStoreLabel}에 저장되며 DB·내보내기에 포함되지 않습니다.</FieldDescription>
           </Field>
         </PaneSection>
       )}
