@@ -49,9 +49,12 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
     setDraft(JSON.stringify({ ...form, [name]: value }));
   };
   const save = useMutation({
-    mutationFn: () => spec.save(row.id, form),
-    onSuccess: () => {
-      clear();
+    // Sends the draft as it was when saving began; typing goes on while it is on its way.
+    mutationFn: (sent: string) => spec.save(row.id, JSON.parse(sent) as Record<string, Value>),
+    onSuccess: (_data, sent) => {
+      // Edits typed after it stay a draft, and now differ from what was just saved (not from an outside change).
+      if (clearDraft(sent)) clearBase();
+      else setBase(sent);
       toast.success('저장했습니다. 사람이 고친 항목이라 다시 분석해도 바뀌지 않습니다.');
     },
     onError: fail,
@@ -101,7 +104,7 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
           </Button>
         </span>
       )}
-      <Button variant="outline" className={dirty ? undefined : 'ml-auto'} disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
+      <Button variant="outline" className={dirty ? undefined : 'ml-auto'} disabled={!dirty || save.isPending} onClick={() => save.mutate(draft)}>
         저장
       </Button>
       <Button disabled={dirty} title={dirty ? '먼저 저장하세요' : row.status === 'candidate' ? '이대로 확정해 문맥에 씁니다' : '상태는 그대로 두고 사람이 확인한 것으로 표시합니다'} onClick={() => onDecide('confirm')}>
@@ -135,7 +138,7 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
           </Button>
         </span>
       )}
-      <Button className={dirty ? undefined : 'ml-auto'} disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
+      <Button className={dirty ? undefined : 'ml-auto'} disabled={!dirty || save.isPending} onClick={() => save.mutate(draft)}>
         저장
       </Button>
     </>

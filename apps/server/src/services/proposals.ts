@@ -38,32 +38,56 @@ export function listedProposal(proposal: typeof s.proposals.$inferSelect) {
 export const proposedText = (id: string) =>
   `제안을 올렸습니다 (proposal ${id}). 아직 반영되지 않았습니다. 사용자가 작업실 채팅 패널에서 수락하면 반영됩니다. 같은 제안을 반복하지 마세요.`;
 
-/** Accept runs the tool the agent asked for with the stored input; reject only records the decision. */
+/**
+ * Accept runs the tool the agent asked for with the stored input; reject only records the decision.
+ * The decision is claimed first with one conditional UPDATE (pending → running, or pending → rejected), so
+ * of two requests for the same proposal (two windows, a resent click, accept against reject) only one runs
+ * the tool; the other gets the row as it stands (running, or already decided) instead of running it again.
+ */
 export async function decideProposal(db: Db, id: string, accept: boolean) {
   const proposal = db.select().from(s.proposals).where(eq(s.proposals.id, id)).get();
   if (!proposal) throw new Error('제안을 찾을 수 없습니다.');
-  if (proposal.status !== 'pending') throw new Error('이미 결정한 제안입니다.');
-  let status: 'accepted' | 'rejected' | 'failed' = accept ? 'accepted' : 'rejected';
-  let result: unknown = null;
-  if (accept) {
-    const tool = agentCatalog(db, proposal.projectId).find((candidate) => candidate.name === proposal.tool && candidate.changes);
-    try {
-      if (!tool) throw new Error(`알 수 없는 도구입니다: ${proposal.tool}`);
-      result = await tool.run(proposal.input);
-      if (result && typeof result === 'object' && (result as { ok?: boolean }).ok === false) status = 'failed';
-    } catch (error) {
-      status = 'failed';
-      result = { ok: false, error: error instanceof Error ? error.message : String(error) };
-    }
-  }
-  const row = db
+  const claimed = db
     .update(s.proposals)
-    .set({ status, result, decidedAt: new Date() })
+    .set(accept ? { status: 'running' } : { status: 'rejected', decidedAt: new Date() })
     .where(and(eq(s.proposals.id, id), eq(s.proposals.status, 'pending')))
     .returning()
     .get();
+  if (!claimed) return db.select().from(s.proposals).where(eq(s.proposals.id, id)).get()!;
+  events.changed(proposal.projectId, 'proposals');
+  if (!accept) return claimed;
+  let status: 'accepted' | 'failed' = 'accepted';
+  let result: unknown = null;
+  const tool = agentCatalog(db, proposal.projectId).find((candidate) => candidate.name === proposal.tool && candidate.changes);
+  try {
+    if (!tool) throw new Error(`알 수 없는 도구입니다: ${proposal.tool}`);
+    result = await tool.run(proposal.input);
+    if (result && typeof result === 'object' && (result as { ok?: boolean }).ok === false) status = 'failed';
+  } catch (error) {
+    status = 'failed';
+    result = { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+  const row = db.update(s.proposals).set({ status, result, decidedAt: new Date() }).where(eq(s.proposals.id, id)).returning().get();
   events.changed(proposal.projectId, 'proposals');
   return row;
+}
+
+export const INTERRUPTED_PROPOSAL = '적용하는 중에 서버가 꺼져 결과를 알 수 없습니다. 일부만 반영됐을 수 있으니 내용을 확인하고, 필요하면 다시 제안하세요.';
+
+/**
+ * Proposals a stopped server was still applying. They are closed as failed, not run again: the tool may
+ * have changed part of the project before the stop, and running it twice is what the claim above prevents.
+ * The message tells the person (and the agent, through decisionsSince) to check what landed.
+ */
+export function closeInterruptedProposals(db: Db) {
+  const rows = db
+    .update(s.proposals)
+    .set({ status: 'failed', result: { ok: false, error: INTERRUPTED_PROPOSAL }, decidedAt: new Date() })
+    .where(eq(s.proposals.status, 'running'))
+    .returning()
+    .all();
+  for (const projectId of new Set(rows.map((row) => row.projectId))) events.changed(projectId, 'proposals');
+  return rows.length;
 }
 
 /**

@@ -26,7 +26,11 @@ const write = (key: string, value: string | null) => {
   listeners.get(key)?.forEach((listener) => listener());
 };
 
-export function useDraft(key: string, saved: string): [string, (value: string) => void, () => void] {
+/**
+ * The third item clears the draft. After a save, pass what was sent: the draft is cleared only if it
+ * is still that text, so edits typed while the save was on its way are kept. Says whether it cleared.
+ */
+export function useDraft(key: string, saved: string): [string, (value: string) => void, (sent?: string) => boolean] {
   const subscribe = useCallback(
     (listener: () => void) => {
       const set = listeners.get(key) ?? new Set();
@@ -40,6 +44,10 @@ export function useDraft(key: string, saved: string): [string, (value: string) =
   );
   const draft = useSyncExternalStore(subscribe, () => read(key));
   const setDraft = useCallback((value: string) => write(key, value), [key]);
-  const clear = useCallback(() => write(key, null), [key]);
+  const clear = useCallback((sent?: string) => {
+    if (sent !== undefined && read(key) !== sent) return false;
+    write(key, null);
+    return true;
+  }, [key]);
   return [draft ?? saved, setDraft, clear];
 }

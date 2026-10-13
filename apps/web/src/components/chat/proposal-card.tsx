@@ -10,14 +10,15 @@ export interface Proposal {
   id: string;
   tool: string;
   input: Record<string, unknown>;
-  status: 'pending' | 'accepted' | 'rejected' | 'failed';
+  /** running: accepted, the change still being applied (another window or a resent click may have started it). */
+  status: 'pending' | 'running' | 'accepted' | 'rejected' | 'failed';
   result: unknown;
   source: 'pi' | 'cli';
   /** What the check left out when the proposal was made, and warnings about what it kept (first entries; counts when trimmed). */
   report?: { dropped: { key: string; reason: string }[]; warnings: { key: string; issues: string[] }[]; counts?: { dropped: number; warnings: number } } | null;
 }
 
-const STATUS = { accepted: '적용됨', rejected: '거절함', failed: '실패' } as const;
+const STATUS = { running: '적용 중', accepted: '적용됨', rejected: '거절함', failed: '실패' } as const;
 
 /** A change an agent proposed (pi chat or the CLI). Accepting runs it now; nothing changes before that. */
 export function ProposalCard({ proposal }: { proposal: Proposal }) {
