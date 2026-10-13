@@ -20,11 +20,20 @@ pnpm build && pnpm start
 
 `http://127.0.0.1:4317` 을 엽니다. 데이터는 `.workbench/workbench.sqlite`에 저장되고 API 키는 Windows 자격 증명 관리자(macOS는 키체인)에 저장됩니다.
 
+Windows PowerShell 5.1에서는 `&&` 대신 두 명령을 각각 실행합니다. 빌드가 성공한 뒤 시작하세요.
+
+```powershell
+pnpm build
+pnpm start
+```
+
 개발 모드(API 4317 + Vite 4318, 저장 시 자동 재시작):
 
 ```bash
 pnpm dev
 ```
+
+API가 준비되면 Vite가 개발 주소 `http://127.0.0.1:4318`을 표시합니다. API 준비는 최대 30초 기다리며, 실패하면 API 주소와 서버 로그 확인 안내를 출력합니다. 파일 감시는 Node의 `--watch`를 사용하며, Windows·macOS에서는 `--watch-path`로 서버 소스와 공유 패키지만 감시합니다. Linux에서는 기본 모듈 감시를 사용합니다.
 
 | 환경 변수 | 기본값 | 설명 |
 |---|---|---|
@@ -35,10 +44,10 @@ pnpm dev
 ## 시작하기
 
 1. 첫 화면에서 **표준 파일 가져오기** → `samples/relay-station.json` (작은 예시)
-2. 설정 › AI 연결·프로필 → 연결 추가(OpenAI 호환 API, System One, Codex/Claude/Grok/Antigravity/opencode CLI) → 프로필 만들기. opencode CLI로는 opencode의 무료 모델(`opencode/…`)과 opencode Go 모델을 쓸 수 있습니다
-3. 워크플로 → 기본 번역 → AI 노드에 프로필 지정 → 저장 → 실행
+2. AI › 연결 → 연결 추가(OpenAI 호환 API, System One, Codex/Claude/Grok/Antigravity/opencode CLI) → 기본 모델 선택. opencode CLI로는 opencode의 무료 모델(`opencode/…`)과 opencode Go 모델을 쓸 수 있습니다
+3. 워크플로 → 기본 번역 → AI 노드에 연결·모델 지정 → 저장 → 실행
 4. 실행 기록에서 진행을 보고, 검토함에서 ‘사람 확인 필요’ 같은 검토 상태의 대사를 고치고 다음 상태로 옮김
-5. 우측 **에이전트**(⌘I)에게 "대본을 읽고 인물 프로필을 만들어줘"처럼 요청 → 제안 카드 수락
+5. 우측 **에이전트**(Windows: Ctrl+I, macOS: ⌘I)에게 "대본을 읽고 인물 프로필을 만들어줘"처럼 요청 → 제안 카드 수락
 
 실제 모델 없이 흐름을 확인하려면 모의 서버를 띄우고 연결 주소를 `http://127.0.0.1:4398/v1`(모델 `mock`)로 지정합니다.
 
@@ -115,3 +124,5 @@ scripts         샘플 생성(pnpm samples), 모의 LLM(pnpm mock-llm)
 ```bash
 pnpm typecheck && pnpm test
 ```
+
+Windows에서도 전체 검사는 `pnpm verify`로 실행합니다. 격리된 데이터와 mock LLM으로 재현하는 방법과 확인 결과는 [Windows 검증 기록](docs/WINDOWS-VALIDATION.md)에 있습니다.

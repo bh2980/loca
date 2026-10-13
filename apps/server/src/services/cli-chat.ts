@@ -73,7 +73,7 @@ function transcript(messages: UIMessage[]) {
 function decisions(db: Db, chatId: string, since: number) {
   const decided = decisionsSince(db, chatId, new Date(since));
   if (!decided.length) return null;
-  const word = { accepted: '수락되어 반영됨', rejected: '사용자가 거절함', failed: '수락했지만 실패함', pending: '' } as const;
+  const word = { accepted: '수락되어 반영됨', rejected: '사용자가 거절함', failed: '수락했지만 실패함', pending: '', running: '' } as const;
   return `지난 제안의 결과:\n${decided.map((proposal) => `- ${proposal.tool} (${proposal.id}): ${word[proposal.status]}`).join('\n')}`;
 }
 

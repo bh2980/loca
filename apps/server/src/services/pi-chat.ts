@@ -47,10 +47,10 @@ function decisions(db: Db, chatId: string, live: Live) {
     .from(s.proposals)
     .where(eq(s.proposals.sessionId, chatId))
     .all()
-    .filter((proposal) => proposal.status !== 'pending' && !live.reported.has(proposal.id));
+    .filter((proposal) => proposal.status !== 'pending' && proposal.status !== 'running' && !live.reported.has(proposal.id));
   for (const proposal of decided) live.reported.add(proposal.id);
   if (!decided.length) return null;
-  const word = { accepted: '수락되어 반영됨', rejected: '사용자가 거절함', failed: '수락했지만 실패함', pending: '' } as const;
+  const word = { accepted: '수락되어 반영됨', rejected: '사용자가 거절함', failed: '수락했지만 실패함', pending: '', running: '' } as const;
   return `지난 제안의 결과:\n${decided.map((proposal) => `- ${proposal.tool} (${proposal.id}): ${word[proposal.status]}${proposal.status === 'failed' ? ` — ${JSON.stringify(proposal.result).slice(0, 200)}` : ''}`).join('\n')}`;
 }
 

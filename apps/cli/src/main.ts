@@ -530,7 +530,7 @@ program
   .action(async (id: string) => {
     const proposal = await unwrap(api().projects[':projectId'].proposals[':id'].$get({ param: { projectId: await projectId(), id } }));
     if (globals().json) return print(proposal);
-    const word = { pending: '대기 중', accepted: '수락되어 반영됨', rejected: '거절됨', failed: '수락했지만 실패' } as const;
+    const word = { pending: '대기 중', running: '수락되어 적용하는 중', accepted: '수락되어 반영됨', rejected: '거절됨', failed: '수락했지만 실패' } as const;
     console.log(`${proposal.tool}: ${word[proposal.status]}${proposal.result ? `\n${JSON.stringify(proposal.result)}` : ''}`);
   });
 

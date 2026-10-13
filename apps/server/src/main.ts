@@ -11,6 +11,7 @@ import { Runner } from './engine/runner.ts';
 import { AnalysisService } from './services/analysis.ts';
 import { TermService } from './services/terms.ts';
 import { closeStaleCalls } from './services/ai-calls.ts';
+import { closeInterruptedProposals } from './services/proposals.ts';
 import { computeLayouts, projectsMissingSections, projectsWithOldLayouts } from './services/layout.ts';
 import { keyringStore, memoryStore } from './services/secrets.ts';
 
@@ -26,6 +27,8 @@ const db = openDatabase(path.join(config.dataDir, 'workbench.sqlite'));
 const secrets = process.env.WORKBENCH_SECRETS === 'memory' ? memoryStore() : keyringStore;
 // Requests a stopped server never heard back from are closed as failed in the AI log.
 closeStaleCalls(db);
+// Proposals a stopped server was still applying are closed as failed, not run again (see closeInterruptedProposals).
+closeInterruptedProposals(db);
 const runner = new Runner(db, secrets);
 runner.start();
 

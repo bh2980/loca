@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { Sparkles, WandSparkles } from 'lucide-react';
@@ -51,6 +51,7 @@ export function TranslationEditor({
   onDone,
   onEscape,
   focusKey,
+  marks,
   className,
 }: {
   projectId: string;
@@ -60,6 +61,8 @@ export function TranslationEditor({
   onEscape?: () => void;
   /** Changing this to a non-zero number puts the cursor at the end of the text. */
   focusKey?: number;
+  /** List rows supply their single shared tag row directly below the input. */
+  marks?: ReactNode;
   className?: string;
 }) {
   const [draft, setDraft, clearDraft] = useDraft(`line:${unit.id}`, unit.translation ?? '');
@@ -137,25 +140,27 @@ export function TranslationEditor({
 
   const queryClient = useQueryClient();
   const save = useMutation({
-    mutationFn: ({ advance }: { advance: boolean; text: string; changed: boolean }) => {
+    // Everything sent is what was typed when saving began (text, changed): typing goes on while it is on its way.
+    mutationFn: ({ advance, text: sent, changed }: { advance: boolean; text: string; changed: boolean }) => {
       // Saving the exact text of an existing candidate selects it instead of duplicating it.
-      const same = candidates.find((candidate) => candidate.text === draft);
-      const text = dirty ? (same ? { candidateId: same.id } : { translation: draft }) : {};
+      const same = candidates.find((candidate) => candidate.text === sent);
+      const text = changed ? (same ? { candidateId: same.id } : { translation: sent }) : {};
       const statusId = advance && next ? { statusId: next.id } : {};
       if (!Object.keys(text).length && !Object.keys(statusId).length) return Promise.resolve(null);
       return unwrap(client.units[':unitId'].$patch({ param: { unitId: unit.id }, json: { ...text, ...statusId } }));
     },
     // The saved text and next status show at once, so the old translation never flashes back.
-    onMutate: async ({ advance }) => {
-      const same = candidates.find((candidate) => candidate.text === draft);
-      const change = { ...(dirty && { translation: same ? same.text : draft }), ...(advance && next && { statusId: next.id }) };
+    onMutate: async ({ advance, text: sent, changed }) => {
+      const same = candidates.find((candidate) => candidate.text === sent);
+      const change = { ...(changed && { translation: same ? same.text : sent }), ...(advance && next && { statusId: next.id }) };
       return { undo: Object.keys(change).length ? await optimistic(queryClient, unitChanges([unit.id], patchedLine(change))) : undefined };
     },
     onSuccess: (_data, { advance, text, changed }) => {
-      clearDraft();
+      // Only the draft that was sent: anything typed after it stays a draft.
+      clearDraft(text);
       // What was saved, taken when it was sent (the optimistic update has already made it the translation).
       if (changed && text.trim()) void offerSameSource(text);
-      if (advance && next) toast.success(`${dirty ? '저장하고 ' : ''}‘${next.name}’(으)로 옮겼습니다.`);
+      if (advance && next) toast.success(`${changed ? '저장하고 ' : ''}‘${next.name}’(으)로 옮겼습니다.`);
       onDone?.(advance);
     },
     onError: (error, _vars, context) => {
@@ -215,6 +220,7 @@ export function TranslationEditor({
         focusKey={focusKey}
         placeholder="번역을 입력하세요. 저장하면 사람 후보가 되고 대표 번역이 됩니다."
       />
+      {marks}
       <div className="flex flex-wrap items-center gap-2">
         {dirty && <span className="text-xs text-warning">저장 안 됨</span>}
         {editorAi?.enabled && editorAi.model && !ai.loading && (
@@ -243,14 +249,14 @@ export function TranslationEditor({
           </Button>
         )}
         {draft.trim() && tags.left.length > 0 && <span className="text-xs text-muted-foreground">서식 {tags.left.length}개는 자리를 못 찾음</span>}
-        {!dirty && unit.statusBy === 'ai' && (
+        {marks === undefined && !dirty && unit.statusBy === 'ai' && (
           <span className="flex items-center gap-1 text-xs text-muted-foreground">
             <AiMark by="ai" /> AI가 정함
           </span>
         )}
         <div className="ml-auto flex items-center gap-2">
           {dirty && (
-            <Button variant="ghost" onClick={clearDraft}>
+            <Button variant="ghost" onClick={() => clearDraft()}>
               되돌리기
             </Button>
           )}

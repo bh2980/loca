@@ -1,4 +1,5 @@
 import { Worker } from 'node:worker_threads';
+import { z } from 'zod';
 import { and, asc, eq, ne, notLike, sql } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
 import { graphEdges, graphLayouts, graphNodes, groups, projects, type LayoutData } from '../db/schema.ts';
@@ -26,6 +27,11 @@ class Cancelled extends Error {}
 /** Projects whose layout is being computed: the live worker, and whether another run was asked for meanwhile. */
 const active = new Map<string, { worker: Worker | null; rerun: boolean; cancelled: boolean }>();
 
+const workerResultSchema = z.discriminatedUnion('ok', [
+  z.object({ ok: z.literal(true), data: z.record(z.string(), z.unknown()) }),
+  z.object({ ok: z.literal(false), error: z.string() }),
+]);
+
 function runWorker<T = LayoutData>(job: WorkerJob, onWorker: (worker: Worker) => void): Promise<T> {
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL('./layout-worker.ts', import.meta.url), {
@@ -43,7 +49,13 @@ function runWorker<T = LayoutData>(job: WorkerJob, onWorker: (worker: Worker) =>
       done();
     };
     const timer = setTimeout(() => finish(() => reject(new Error('레이아웃 계산이 5분을 넘어 중단했습니다. 그래프가 너무 크거나 복잡합니다.'))), LAYOUT_TIMEOUT_MS);
-    worker.once('message', (message: { ok: true; data: T } | { ok: false; error: string }) => finish(() => (message.ok ? resolve(message.data) : reject(new Error(message.error)))));
+    worker.on('message', (message: unknown) => {
+      // Node's --watch also sends watch:import/watch:require messages through this port.
+      // They are dependency notifications, not the layout's result; keep waiting for that.
+      const result = workerResultSchema.safeParse(message);
+      if (!result.success) return;
+      finish(() => (result.data.ok ? resolve(result.data.data as T) : reject(new Error(result.data.error))));
+    });
     worker.once('error', (error) => finish(() => reject(new Error(`레이아웃 작업이 오류로 멈췄습니다: ${error.message}`))));
     worker.once('exit', (code) => finish(() => reject(new Error(`레이아웃 작업이 결과 없이 종료했습니다 (코드 ${code}). 메모리가 부족했을 수 있습니다.`))));
   });
