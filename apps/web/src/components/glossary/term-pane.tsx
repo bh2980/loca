@@ -15,6 +15,7 @@ import { confirmLabel, SourceBadge, StateCell, type ItemTag } from '@/components
 import { isSettled, type KnowledgeOrigin, type KnowledgeStatus, type StatusBy } from '@tw/shared';
 import { client, unwrap } from '@/lib/api';
 import { changedFields, useFormFrom } from '@/lib/use-form-from';
+import { ChangedElsewhere } from '@/components/changed-elsewhere';
 import { q } from '@/lib/queries';
 
 export interface Term {
@@ -81,10 +82,13 @@ export function NewTermPane({ projectId, onClose, onCreated }: { projectId: stri
   );
 }
 
+const TERM_FIELD_LABEL = { source: '원문', target: '번역', note: '메모' };
+
 export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { projectId: string; term: Term; onClose: () => void; onDecide: (accept: boolean) => void; deciding: boolean }) {
-  // Follows the saved term (a change from chat or a workflow shows) until the person has edited it.
+  // Fields the person has not edited follow the saved term (a change from chat or a workflow shows);
+  // the unsaved edit is kept per term, so moving to another term and back (or Back) keeps it.
   const saved = { source: term.source, target: term.target, note: term.note };
-  const { draft: form, setDraft: setForm, dirty } = useFormFrom(saved);
+  const { draft: form, setDraft: setForm, dirty, conflicts, keepMine, takeSaved } = useFormFrom(saved, `term.${projectId}.${term.id}`);
   const candidate = !isSettled(term);
   const save = useMutation({
     mutationFn: () => unwrap(client.projects[':projectId'].terms[':id'].$patch({ param: { projectId, id: term.id }, json: changedFields(form, saved) })),
@@ -149,6 +153,7 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
         </>
       }
     >
+      {conflicts.length > 0 && <ChangedElsewhere fields={conflicts.map((field) => TERM_FIELD_LABEL[field as keyof typeof TERM_FIELD_LABEL])} onTakeSaved={takeSaved} onKeepMine={keepMine} />}
       <TermFields form={form} onChange={setForm} />
       <PaneSection
         title={`이 용어가 나오는 대사 ${usage.data?.count ?? '…'}개`}

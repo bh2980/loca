@@ -9,10 +9,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { STATUS_KIND } from '@/lib/labels';
 import { changedFields, useFormFrom } from '@/lib/use-form-from';
+import { ChangedElsewhere } from '@/components/changed-elsewhere';
 import { type Kind, type StatusForm, type StatusRowData } from '@/components/settings/status-types';
 import { Swatches } from '@/components/settings/swatches';
 
 /** Add or edit one status: its fields are a draft until saved; the order buttons act at once. */
+const STATUS_FIELD_LABEL: Record<keyof StatusForm, string> = { name: '이름', color: '색상', kind: '종류', inReview: '검토함에 표시', humanOnly: '사람만 지정' };
+
 export function StatusPane({
   status,
   index = 0,
@@ -36,7 +39,7 @@ export function StatusPane({
   onDelete?: () => void;
 }) {
   const saved: StatusForm = { name: status?.name ?? '', color: status?.color ?? DEFAULT_STATUS_COLOR, kind: status?.kind ?? 'normal', inReview: status?.inReview ?? false, humanOnly: status?.humanOnly ?? false };
-  const { draft: form, setDraft: setForm, dirty: changed } = useFormFrom(saved);
+  const { draft: form, setDraft: setForm, dirty: changed, conflicts, keepMine, takeSaved } = useFormFrom(saved, status && `status.${status.id}`);
   const dirty = !status || changed;
   return (
     <DetailPane
@@ -57,6 +60,7 @@ export function StatusPane({
         </>
       }
     >
+      {conflicts.length > 0 && <ChangedElsewhere fields={conflicts.map((field) => STATUS_FIELD_LABEL[field as keyof StatusForm])} onTakeSaved={takeSaved} onKeepMine={keepMine} />}
       <PaneSection title="설정">
         <FieldGroup className="gap-4">
           <Field>

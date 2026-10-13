@@ -16,6 +16,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { changedFields, useFormFrom } from '@/lib/use-form-from';
+import { ChangedElsewhere } from '@/components/changed-elsewhere';
 
 export const Route = createFileRoute('/p/$projectId/settings/project')({
   component: ProjectSettings,
@@ -39,9 +40,9 @@ function ProjectSettings() {
 function ProjectForm({ projectId, project }: { projectId: string; project: { name: string; description: string | null; sourceLanguage: string; targetLanguage: string; formatRules: FormatRules } }) {
   const navigate = useNavigate();
   const [confirmName, setConfirmName] = useState('');
-  // Follows the saved project (a rename from chat shows) until the person has edited the form.
+  // Fields the person has not edited follow the saved project (a rename from chat shows); the unsaved edit survives leaving the page.
   const saved = { name: project.name, description: project.description ?? '' };
-  const { draft: form, setDraft: setForm, dirty } = useFormFrom(saved);
+  const { draft: form, setDraft: setForm, dirty, conflicts, keepMine, takeSaved } = useFormFrom(saved, `project.${projectId}`);
   const { name, description } = form;
 
   const save = useMutation({
@@ -63,6 +64,7 @@ function ProjectForm({ projectId, project }: { projectId: string; project: { nam
       <div className="h-full overflow-auto">
         <div className="max-w-3xl space-y-8 px-6 py-6">
           <SettingsSection title="기본 정보">
+            {conflicts.length > 0 && <ChangedElsewhere fields={conflicts.map((field) => (field === 'name' ? '이름' : '설명'))} onTakeSaved={takeSaved} onKeepMine={keepMine} />}
             <FieldGroup className="gap-4">
               <Field>
                 <FieldLabel htmlFor="project-name">이름</FieldLabel>

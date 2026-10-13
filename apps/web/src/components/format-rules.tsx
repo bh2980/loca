@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { client, unwrap } from '@/lib/api';
 import { useFormFrom } from '@/lib/use-form-from';
+import { ChangedElsewhere } from '@/components/changed-elsewhere';
 
 const KIND = { placeholder: '자리표시자', tag: '서식 태그' } as const;
 
@@ -19,7 +20,7 @@ const KIND = { placeholder: '자리표시자', tag: '서식 태그' } as const;
  * are checkboxes; anything else is a regular expression. A sample box shows what gets matched.
  */
 export function FormatRulesSection({ projectId, rules }: { projectId: string; rules: FormatRules }) {
-  const { draft, setDraft, dirty, reset } = useFormFrom<FormatRules>(rules);
+  const { draft, setDraft, dirty, reset, conflicts, keepMine, takeSaved } = useFormFrom<FormatRules>(rules, `format-rules.${projectId}`);
   const [sample, setSample] = useState('Hello {name}, %d left. <b>[PLAYER]</b> \\N[1]');
   const invalid = draft.custom.some((rule) => !rule.pattern.trim() || formatPatternError(rule.pattern));
   const compiled = compileFormatRules({ ...draft, custom: draft.custom.filter((rule) => rule.pattern.trim()) });
@@ -39,6 +40,7 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
       title="형식 규칙"
       description="형식 검사(워크플로의 형식 검사 함수, 대사 패널)가 원문과 번역에서 같은 개수만큼 있어야 하는 토큰을 무엇으로 볼지 정합니다. 이 게임 문자열에 쓰이는 형식만 켜세요. 대괄호 변수와 BBCode는 비슷하게 생겼으니 둘 중 하나만 켜는 것이 좋습니다."
     >
+      {conflicts.length > 0 && <ChangedElsewhere onTakeSaved={takeSaved} onKeepMine={keepMine} />}
       <div className="grid gap-2 sm:grid-cols-2">
         {FORMAT_PRESET_IDS.map((id) => {
           const preset = FORMAT_PRESETS[id];

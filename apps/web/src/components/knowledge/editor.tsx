@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { useDraft } from '@/lib/drafts';
+import { ChangedElsewhere } from '@/components/changed-elsewhere';
 import { AiMark } from '@/components/status';
 import { DOCUMENT_KIND } from '@/lib/labels';
 import { DetailPane, PaneSection } from '@/components/detail-pane';
@@ -61,19 +62,7 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
 
   const body = (
     <>
-      {changedElsewhere && (
-        <div className="flex flex-wrap items-center gap-2 rounded-md border border-warning/40 bg-warning/5 px-3 py-2 text-xs">
-          <span className="text-warning">고치는 동안 이 항목이 다른 곳에서 바뀌었습니다. 아래는 아직 저장하지 않은 내 수정입니다.</span>
-          <span className="ml-auto flex gap-1">
-            <Button variant="outline" size="inline" className="px-2" onClick={clear}>
-              바뀐 내용 불러오기
-            </Button>
-            <Button variant="ghost" size="inline" className="px-2" onClick={() => setBase(saved)}>
-              내 수정 유지
-            </Button>
-          </span>
-        </div>
-      )}
+      {changedElsewhere && <ChangedElsewhere onTakeSaved={clear} onKeepMine={() => setBase(saved)} />}
       <PaneSection title="내용">
         <div className="flex flex-col gap-4">
           {spec.fields.map((field) => (

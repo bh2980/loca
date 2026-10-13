@@ -11,11 +11,14 @@ import { Label } from '@/components/ui/label';
 import { scopeLabel, type TagForm, type TagRowData } from '@/components/settings/status-types';
 import { Swatches } from '@/components/settings/swatches';
 import { changedFields, useFormFrom } from '@/lib/use-form-from';
+import { ChangedElsewhere } from '@/components/changed-elsewhere';
+
+const TAG_FIELD_LABEL: Record<keyof TagForm, string> = { name: '이름', color: '색상', scope: '붙는 곳' };
 
 export function TagPane({ tag, pending, onClose, onSave, onDelete }: { tag?: TagRowData; pending: boolean; onClose: () => void; onSave: (form: TagForm, changed: Partial<TagForm>) => void; onDelete?: () => void }) {
   // Scope in the fixed place order so the comparison does not depend on how it was stored.
   const saved: TagForm = { name: tag?.name ?? '', color: tag?.color ?? DEFAULT_TAG_COLOR, scope: TAG_SCOPES.filter((place) => !tag || tag.scope.includes(place)) };
-  const { draft: form, setDraft: setForm, dirty: changed } = useFormFrom(saved);
+  const { draft: form, setDraft: setForm, dirty: changed, conflicts, keepMine, takeSaved } = useFormFrom(saved, tag && `tag.${tag.id}`);
   const dirty = !tag || changed;
   return (
     <DetailPane
@@ -50,6 +53,7 @@ export function TagPane({ tag, pending, onClose, onSave, onDelete }: { tag?: Tag
         </>
       }
     >
+      {conflicts.length > 0 && <ChangedElsewhere fields={conflicts.map((field) => TAG_FIELD_LABEL[field as keyof TagForm])} onTakeSaved={takeSaved} onKeepMine={keepMine} />}
       <PaneSection title="설정">
         <FieldGroup className="gap-4">
           <Field>
