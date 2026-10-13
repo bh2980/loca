@@ -394,8 +394,7 @@ export function LineList({
           {picked.size === 0 ? (
             <>
               <span className="min-w-0 flex-1 px-3">원문</span>
-              <span className="w-8 shrink-0 self-stretch border-x" />
-              <span className="min-w-0 flex-1 px-3">번역</span>
+              <span className="min-w-0 flex-1 self-stretch border-l px-3 leading-10">번역</span>
             </>
           ) : (
             <div className="@container/picked flex min-w-0 flex-1 items-center gap-2 pr-4">
@@ -490,7 +489,17 @@ export function LineList({
                   </span>
                     <div className={cn('min-w-0 flex-1 px-3', selected ? 'py-3' : 'py-2.5')}>
                       {/* Who says it above the text; lines nobody says (UI, documents, narration) only name their kind. */}
-                      <p className="mb-0.5 flex min-w-0 gap-1 text-xs text-muted-foreground">
+                      <p className="mb-0.5 flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+                        {/* The line's status leads the speaker line (✦ when a run set it). */}
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="flex shrink-0">
+                              <StatusDot color={status?.color ?? '#a1a1aa'} />
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent>{status?.name}</TooltipContent>
+                        </Tooltip>
+                        {line.statusBy === 'ai' && <AiMark by="ai" />}
                         {line.speaker ? (
                           <SpeakerCard projectId={projectId} name={line.speaker}>
                             <span className="truncate">{line.speaker}</span>
@@ -510,19 +519,7 @@ export function LineList({
                         <TokenText text={line.source} source={line.source} pattern={tokenPattern} className="text-sm" />
                       )}
                     </div>
-                    {/* The status column between source and translation, as CAT tools have it. */}
-                    <div className={cn('flex w-8 shrink-0 flex-col items-center gap-1 border-x', selected ? 'pt-9.5' : 'pt-8.5')}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span className="flex">
-                            <StatusDot color={status?.color ?? '#a1a1aa'} />
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent>{status?.name}</TooltipContent>
-                      </Tooltip>
-                      {line.statusBy === 'ai' && <AiMark by="ai" />}
-                    </div>
-                    <div className={cn('min-w-0 flex-1 px-3', selected ? 'py-3' : 'py-2.5')}>
+                    <div className={cn('min-w-0 flex-1 border-l px-3', selected ? 'py-3' : 'py-2.5')}>
                       {selected ? (
                         <>
                           <TranslationEditor key={`editor-${line.id}`} projectId={projectId} unit={line} statuses={statusList} focusKey={focusTick} onEscape={() => setEditing(false)} onDone={(advanced) => (advanced ? advanceFrom(line.id) : undefined)} />
