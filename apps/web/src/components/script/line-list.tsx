@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, CircleAlert, ListChecks, ListFilter, MoreHorizontal, PanelRightOpen, Play, Sparkles, Tags, X } from 'lucide-react';
+import { Link } from '@tanstack/react-router';
+import { Check, CircleAlert, ListChecks, ListFilter, MoreHorizontal, Network, PanelRightOpen, Play, Sparkles, Tags, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { checkFormat, isUnsureListener, listenerLabel, type ListenerOrigin, mentions, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
 import { BulkBar } from '@/components/data-table';
@@ -538,7 +539,15 @@ function LineHints({ projectId, line, onDetail }: { projectId: string; line: { i
           다른 후보 {others}개
         </Button>
       )}
-      <Button variant="ghost" size="inline" className="ml-auto text-muted-foreground" onClick={() => onDetail()}>
+      {unit.data?.graphNodes[0] && (
+        // The other way round from the graph's "번역 화면에서 열기": this line where it sits in the flow.
+        <Button variant="ghost" size="inline" className="ml-auto text-muted-foreground" asChild>
+          <Link to="/p/$projectId/graph" params={{ projectId }} search={{ scope: 'dialogue', scene: unit.data.groupId, node: unit.data.graphNodes[0].id, jump: true }}>
+            <Network /> 그래프에서 보기
+          </Link>
+        </Button>
+      )}
+      <Button variant="ghost" size="inline" className={cn('text-muted-foreground', !unit.data?.graphNodes[0] && 'ml-auto')} onClick={() => onDetail()}>
         <PanelRightOpen /> 자세히
       </Button>
     </div>

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Maximize, Minus, Plus, Search } from 'lucide-react';
@@ -31,6 +31,8 @@ interface GraphSearch {
   type?: string;
   /** Also draw scene links hidden by the simplification (reachable through other scenes). */
   links?: 'all';
+  /** Arrived from a line ("그래프에서 보기"): open centred on `node`, then forget it. */
+  jump?: true;
   /** A stored view (made in the chat) whose nodes are highlighted. */
   mark?: string;
 }
@@ -44,6 +46,7 @@ export const Route = createFileRoute('/p/$projectId/graph')({
     type: typeof raw.type === 'string' ? raw.type : undefined,
     links: raw.links === 'all' ? 'all' : undefined,
     mark: typeof raw.mark === 'string' && raw.mark ? raw.mark : undefined,
+    jump: raw.jump === true || raw.jump === 'true' ? true : undefined,
   }),
   component: GraphPage,
 });
@@ -144,6 +147,15 @@ function GraphPage() {
     else void navigate({ search: (previous) => ({ ...previous, node: id }), replace: true });
   };
   const layout = graph.data?.layout;
+  // Arriving from a line: once the layout is drawn, centre on its node (inside a folded run, the run).
+  useEffect(() => {
+    if (!search.jump || !search.node || !layout) return;
+    const timer = setTimeout(() => {
+      canvas.current?.focus(shown(search.node!));
+      void navigate({ search: (previous) => ({ ...previous, jump: undefined }), replace: true });
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [search.jump, search.node, layout]); // eslint-disable-line react-hooks/exhaustive-deps
   /**
    * What the pane reads for a selection: a folded run's nodes; a choice (on its edge) followed by
    * the lines it leads to, so picking a choice shows what happens after it; else the node.
@@ -151,8 +163,27 @@ function GraphPage() {
   const flowOf = (id: string) => {
     const run = (target: string) => layout?.chains?.find((chain) => chain.id === target)?.nodeIds ?? [target];
     if (id.startsWith('chain:')) return run(id);
+    // A node inside a folded run reads with the whole run (its own lines marked).
+    if (chainOf.has(id)) return run(chainOf.get(id)!);
     const way = layout?.edges.find((edge) => edge.via === id);
     return way ? [id, ...run(way.to)] : [id];
+  };
+  /**
+   * The way into a selection, nearest last: the labels (choices, conditions) on the single path
+   * back to the previous meeting point. `merged`: lines arrive here from several ways.
+   */
+  const wayInto = (id: string) => {
+    const edges = layout?.edges ?? [];
+    const via = edges.find((edge) => edge.via === id);
+    const labels: { text: string; choice: boolean }[] = via ? [{ text: via.label ?? '', choice: true }] : [];
+    let at = via ? via.from : shown(id);
+    for (let step = 0; step < 40 && labels.length < 3; step++) {
+      const into = edges.filter((edge) => edge.to === at);
+      if (into.length !== 1) return { labels: labels.reverse(), merged: into.length > 1 };
+      if (into[0].label) labels.push({ text: into[0].label, choice: Boolean(into[0].via) });
+      at = into[0].from;
+    }
+    return { labels: labels.reverse(), merged: false };
   };
   const hubs = useMemo(() => new Map((search.scope === 'scene' ? (layout?.hubs ?? []) : []).map((hub) => [hub.id, hub])), [layout, search.scope]);
   const looseEdges = layout?.looseEdges;
@@ -222,7 +253,9 @@ function GraphPage() {
                   key={search.node}
                   projectId={projectId}
                   nodeIds={flowOf(search.node)}
-                  title={info.get(search.node)?.title ?? info.get(search.node)?.label ?? ''}
+                  way={wayInto(search.node)}
+                  marked={chainOf.has(search.node) ? search.node : undefined}
+                  title={info.get(chainOf.get(search.node) ?? search.node)?.title ?? info.get(chainOf.get(search.node) ?? search.node)?.label ?? ''}
                   onClose={() => select(undefined)}
                 />
               ) : search.scope === 'scene' ? (
@@ -247,7 +280,7 @@ function GraphPage() {
               height={size.height}
               selectedId={search.node ? shown(search.node) : undefined}
               highlight={highlight}
-              initialViewport={readViewport(key)}
+              initialViewport={search.jump ? undefined : readViewport(key)}
               onViewportChange={(viewport) => sessionStorage.setItem(key, JSON.stringify(viewport))}
               onSelect={select}
             />

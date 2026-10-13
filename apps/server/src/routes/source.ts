@@ -10,7 +10,7 @@ import { events } from '../events.ts';
 import { computeLayouts } from '../services/layout.ts';
 import { readView, sectionWithMost } from '../services/graph-views.ts';
 import { applyIssueTags } from '../services/issue-tags.ts';
-import { describeRule, speechRuleIndex } from '../services/speech.ts';
+import { describeRule, knownListener as knownListenerOf, speechRuleIndex } from '../services/speech.ts';
 
 const listQuery = z.object({
   groupId: z.string().optional(),
@@ -406,7 +406,13 @@ export const sourceRoutes = new Hono<Env>()
       ...node,
       typeInfo,
       group,
-      units: lines.sort((a, b) => order.get(a.id)! - order.get(b.id)!),
+      // Each line with whom it addresses and the speech level its rule asks for (the pane shows them small).
+      units: (() => {
+        const resolved = speechRuleIndex(db, node.projectId).resolve(lines);
+        return lines
+          .sort((a, b) => order.get(a.id)! - order.get(b.id)!)
+          .map((line) => ({ ...line, heard: knownListenerOf(line), level: resolved.get(line.key)?.rule.level ?? null }));
+      })(),
       incoming: neighbour('in'),
       outgoing: neighbour('out'),
     });

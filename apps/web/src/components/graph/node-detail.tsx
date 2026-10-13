@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { FileText, Network } from 'lucide-react';
@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
-import { isContentKind } from '@tw/shared';
+import { isContentKind, listenerLabel, SPEECH_LEVEL_LABELS, type SpeechLevel } from '@tw/shared';
 import { KIND_LABEL } from './shapes';
 import { PaneHeader } from '@/components/pane-header';
 import { DetailPane } from '@/components/detail-pane';
@@ -40,23 +40,65 @@ export function SceneNodeDetail({ projectId, groupId, onClose }: { projectId: st
   );
 }
 
+/** The flow pane's speaker column width, once dragged (localStorage, per browser); undefined = fit the names. */
+function useSpeakerWidth() {
+  const [width, setWidth] = useState<number | undefined>(() => {
+    try {
+      return Number(localStorage.getItem('tw.graph.speakerWidth')) || undefined;
+    } catch {
+      return undefined;
+    }
+  });
+  const set = (next: number | undefined) => {
+    setWidth(next);
+    try {
+      if (next) localStorage.setItem('tw.graph.speakerWidth', String(Math.round(next)));
+      else localStorage.removeItem('tw.graph.speakerWidth');
+    } catch {
+      /* private mode */
+    }
+  };
+  return [width, set] as const;
+}
+
 /**
  * A dialogue-graph selection read like a script: one node or a folded run, its lines in order.
  * The speaker shows where it changes, each line's translation sits under it, a player's choice is
  * its own row. Node types, keys and raw metadata are left out: the flow of the lines is what this
  * pane is for.
  */
-export function FlowPane({ projectId, nodeIds, title, onClose }: { projectId: string; nodeIds: string[]; title: string; onClose: () => void }) {
+export function FlowPane({ projectId, nodeIds, title, way, marked, onClose }: {
+  projectId: string;
+  nodeIds: string[];
+  title: string;
+  /** The choices and conditions on the way in (nearest last); `merged` when several ways arrive. */
+  way?: { labels: { text: string; choice: boolean }[]; merged: boolean };
+  /** A node inside the run that was asked for (from a line): its rows are marked and scrolled to. */
+  marked?: string;
+  onClose: () => void;
+}) {
+  const [speakerWidth, setSpeakerWidth] = useSpeakerWidth();
+  const list = useRef<HTMLDivElement>(null);
   const results = useQueries({ queries: nodeIds.map((id) => q.graphNode(id)) });
   const nodes = results.flatMap((result) => (result.data ? [result.data] : []));
   const loading = results.some((result) => result.isPending);
   const first = nodes.find((node) => node.units.length);
   const lineCount = nodes.reduce((sum, node) => sum + (node.kind === 'choice' ? 0 : node.units.length), 0);
+  const translated = nodes.reduce((sum, node) => sum + (node.kind === 'choice' ? 0 : node.units.filter((unit) => unit.translation).length), 0);
+  // Scrolled to once, when the lines of the asked-for node have arrived.
+  const ready = !results.some((result) => result.isPending);
+  useEffect(() => {
+    if (ready && marked) list.current?.querySelector('[data-marked]')?.scrollIntoView({ block: 'center' });
+  }, [ready, marked]);
   useReportView('graph-node', [nodes[0] && { kind: '그래프', id: nodeIds.join(','), label: title }]);
 
-  // A table: who | what, one row per line; a choice and a condition are rows of their own.
-  const row = (key: string, who: ReactNode, what: ReactNode, className?: string) => (
-    <li key={key} className={cn('grid grid-cols-[4.5rem_minmax(0,1fr)] gap-2 px-3 py-1.5', className)}>
+  // A table: who | what, one row per line; a choice and a condition are rows of their own. The
+  // speaker column fits the longest name until someone drags its edge (then that width is kept).
+  const speakers = nodes.flatMap((node) => node.units.map((unit) => unit.speaker ?? '지문·문구'));
+  const fitted = Math.min(180, Math.max(56, ...speakers.map((name) => name.length * 7 + 8)));
+  const width = speakerWidth ?? fitted;
+  const row = (key: string, who: ReactNode, what: ReactNode, className?: string, scrollTo?: boolean) => (
+    <li key={key} data-marked={scrollTo || undefined} className={cn('grid gap-3 px-3 py-2', className)} style={{ gridTemplateColumns: `${width}px minmax(0,1fr)` }}>
       <span className="truncate pt-px text-xs text-muted-foreground">{who}</span>
       <div className="min-w-0 text-sm">{what}</div>
     </li>
@@ -64,23 +106,33 @@ export function FlowPane({ projectId, nodeIds, title, onClose }: { projectId: st
   const lines = nodes.flatMap((node) => {
     if (node.kind === 'choice') return [row(node.id, '선택지', <span className="font-medium text-choice">▶ {node.units[0]?.source ?? node.label ?? node.key}</span>, 'bg-choice/5')];
     if (!node.units.length) return [row(node.id, KIND_LABEL[node.kind] ?? node.kind, <span className="text-muted-foreground">{node.label ?? node.typeInfo?.label ?? ''}</span>, 'bg-muted/40')];
-    return node.units.map((unit) =>
-      row(
+    return node.units.map((unit) => {
+      const here = node.id === marked;
+      return row(
         unit.id,
         unit.speaker ?? '지문·문구',
         <>
           <p className="whitespace-pre-wrap">{unit.source}</p>
           {unit.translation && <p className="whitespace-pre-wrap text-muted-foreground">{unit.translation}</p>}
+          {unit.kind === 'dialogue' && (unit.heard || unit.level) && (
+            <p className="text-xs text-muted-foreground">
+              {unit.heard && `→ ${listenerLabel(unit.heard)}`}
+              {unit.heard && unit.level && ' · '}
+              {unit.level && SPEECH_LEVEL_LABELS[unit.level as SpeechLevel]}
+            </p>
+          )}
         </>,
-      ),
-    );
+        here ? 'bg-primary/5 shadow-[inset_2px_0_0_var(--primary)]' : undefined,
+        here,
+      );
+    });
   });
 
   return (
     <DetailPane
       kicker={first?.group?.title ?? '대사 그래프'}
       title={title}
-      subtitle={lineCount ? `대사 ${lineCount}줄` : undefined}
+      subtitle={lineCount ? `대사 ${lineCount}줄 · 번역 ${translated}줄` : undefined}
       onClose={onClose}
       loading={loading && !nodes.length}
       bodyClassName="space-y-0 p-0"
@@ -94,7 +146,36 @@ export function FlowPane({ projectId, nodeIds, title, onClose }: { projectId: st
         )
       }
     >
-      <ol className="divide-y border-b">{lines}</ol>
+      {way && way.labels.length > 0 && (
+        <p className="flex flex-wrap items-center gap-1 border-b bg-muted/30 px-3 py-1.5 text-xs text-muted-foreground">
+          <span>들어오는 길</span>
+          {way.labels.map((label, index) => (
+            <span key={index} className={cn('rounded-full border px-1.5', label.choice ? 'border-choice/30 bg-choice/10 text-choice' : 'bg-background')}>
+              {label.choice ? `▶ ${label.text}` : label.text}
+            </span>
+          ))}
+        </p>
+      )}
+      <div ref={list} className="relative">
+        {/* The speaker column's edge: drag to widen or narrow it. */}
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="화자 칸 폭"
+          className="absolute top-0 bottom-0 z-10 w-2 cursor-col-resize hover:bg-border/60"
+          style={{ left: width + 12 + 2 }}
+          onPointerDown={(event) => {
+            const start = event.clientX;
+            const from = width;
+            const move = (next: PointerEvent) => setSpeakerWidth(Math.min(260, Math.max(40, from + next.clientX - start)));
+            const up = () => (window.removeEventListener('pointermove', move), window.removeEventListener('pointerup', up));
+            window.addEventListener('pointermove', move);
+            window.addEventListener('pointerup', up);
+          }}
+          onDoubleClick={() => setSpeakerWidth(undefined)}
+        />
+        <ol className="divide-y border-b">{lines}</ol>
+      </div>
     </DetailPane>
   );
 }
