@@ -98,13 +98,14 @@ export function LineHints({ projectId, line, part }: { projectId: string; line: 
   if (!rule && !about.length && !items.some(Boolean)) return null;
   return (
     <div className="mt-2 space-y-1.5" onClick={(event) => event.stopPropagation()}>
+      {/* Under the source: its term chips first (they match the underlines), then who is talking. */}
+      {items.some(Boolean) && <div className="flex flex-wrap items-center gap-1.5">{items}</div>}
       {rule}
       {about.map((item) => (
         <p key={item.key} className="line-clamp-1 text-xs text-muted-foreground" title={item.text}>
           {item.label} · {item.text}
         </p>
       ))}
-      {items.some(Boolean) && <div className="flex flex-wrap items-center gap-1.5">{items}</div>}
     </div>
   );
 }
