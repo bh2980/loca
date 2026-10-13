@@ -1,30 +1,27 @@
 import { useState } from 'react';
+import { MarkPane } from '@/components/settings/mark-pane';
+import { StatusPane } from '@/components/settings/status-pane';
+import { TagPane } from '@/components/settings/tag-pane';
+import { scopeLabel, type StatusForm, type StatusRowData, type TagForm, type TagRowData } from '@/components/settings/status-types';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
-import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
-import { AUTO_MARK_IDS, AUTO_MARKS, markColor, DEFAULT_STATUS_COLOR, DEFAULT_TAG_COLOR, REVIEW_TAG, STATUS_COLORS, TAG_SCOPES, TAG_SCOPE_LABELS, type AutoMark, type MarkColors, type TagScope } from '@tw/shared';
+import { AUTO_MARK_IDS, AUTO_MARKS, markColor, REVIEW_TAG, type AutoMark, type MarkColors } from '@tw/shared';
 import { EmptyState } from '@/components/empty-state';
 import { DataTable, type ColumnDef } from '@/components/data-table';
-import { DetailPane, FieldRow, PaneSection } from '@/components/detail-pane';
 import { Page } from '@/components/page';
 import { SplitPane } from '@/components/split-pane';
-import { chipStyle, MarkChip, StatusDot, TagChip } from '@/components/status';
+import { MarkChip, StatusDot, TagChip } from '@/components/status';
 import { Toolbar } from '@/components/toolbar';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
-import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
 import { client, unwrap } from '@/lib/api';
 import { STATUS_KIND } from '@/lib/labels';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { optimistic } from '@/lib/optimistic';
-import { cn } from '@/lib/utils';
 
 type StatusSearch = { status?: string; tag?: string; mark?: AutoMark };
 const param = (value: unknown) => (typeof value === 'string' && value ? value : undefined);
@@ -33,59 +30,6 @@ export const Route = createFileRoute('/p/$projectId/settings/statuses')({
   validateSearch: (raw: Record<string, unknown>): StatusSearch => ({ status: param(raw.status), tag: param(raw.tag), mark: AUTO_MARK_IDS.find((id) => id === raw.mark) }),
   component: StatusSettings,
 });
-
-type Kind = keyof typeof STATUS_KIND;
-interface StatusRowData {
-  id: string;
-  name: string;
-  color: string;
-  kind: Kind;
-  units: number;
-  inReview: boolean;
-  humanOnly: boolean;
-}
-interface TagRowData {
-  id: string;
-  name: string;
-  color: string;
-  units: number;
-  /** Knowledge items and terms carrying it. */
-  items?: number;
-  role?: string | null;
-  /** Where the tag can be put (the app's tags: fixed by their role). */
-  scope: TagScope[];
-}
-/** All three places read as 어디든. */
-const scopeLabel = (scope: readonly TagScope[]) => (TAG_SCOPES.every((place) => scope.includes(place)) ? '어디든' : TAG_SCOPES.filter((place) => scope.includes(place)).map((place) => TAG_SCOPE_LABELS[place]).join(' · '));
-type TagForm = { name: string; color: string; scope: TagScope[] };
-type StatusForm = { name: string; color: string; kind: Kind; inReview: boolean; humanOnly: boolean };
-
-function Swatches({ value, onChange }: { value: string; onChange: (color: string) => void }) {
-  return (
-    <div className="flex flex-wrap items-center gap-1" role="radiogroup" aria-label="색상">
-      {STATUS_COLORS.map((color) => (
-        <Button
-          key={color}
-          type="button"
-          variant="ghost"
-          size="icon"
-          role="radio"
-          aria-checked={value === color}
-          aria-label={color}
-          onClick={() => onChange(color)}
-          className={cn(value === color && 'bg-muted ring-1 ring-foreground/40')}
-        >
-          <StatusDot color={color} className="size-4" />
-        </Button>
-      ))}
-      {/* Any other color: the browser's picker, shown filled when the color is not in the palette. */}
-      <label className={cn('relative flex size-8 cursor-pointer items-center justify-center rounded-md hover:bg-muted', !STATUS_COLORS.includes(value) && 'bg-muted ring-1 ring-foreground/40')} title="다른 색">
-        <span aria-hidden className="size-4 rounded-full border" style={STATUS_COLORS.includes(value) ? { background: 'conic-gradient(#ef4444, #eab308, #22c55e, #06b6d4, #3b82f6, #d946ef, #ef4444)' } : { backgroundColor: value }} />
-        <Input type="color" aria-label="다른 색" value={value} onChange={(event) => onChange(event.target.value)} className="absolute inset-0 size-full cursor-pointer opacity-0" />
-      </label>
-    </div>
-  );
-}
 
 function StatusSettings() {
   const { projectId } = Route.useParams();
@@ -369,217 +313,3 @@ function StatusSettings() {
   );
 }
 
-/** Add or edit one status: its fields are a draft until saved; the order buttons act at once. */
-function StatusPane({
-  status,
-  index = 0,
-  count = 0,
-  pending,
-  reordering,
-  onClose,
-  onSave,
-  onMove,
-  onDelete,
-}: {
-  status?: StatusRowData;
-  index?: number;
-  count?: number;
-  pending: boolean;
-  reordering?: boolean;
-  onClose: () => void;
-  onSave: (form: StatusForm) => void;
-  onMove?: (delta: number) => void;
-  onDelete?: () => void;
-}) {
-  const [form, setForm] = useState<StatusForm>({ name: status?.name ?? '', color: status?.color ?? DEFAULT_STATUS_COLOR, kind: status?.kind ?? 'normal', inReview: status?.inReview ?? false, humanOnly: status?.humanOnly ?? false });
-  const dirty = !status || form.name !== status.name || form.color !== status.color || form.kind !== status.kind || form.inReview !== status.inReview || form.humanOnly !== status.humanOnly;
-  return (
-    <DetailPane
-      kicker="상태"
-      title={status ? status.name : '상태 추가'}
-      subtitle={status ? `대사 ${status.units.toLocaleString()}개` : undefined}
-      onClose={onClose}
-      footer={
-        <>
-          <Button disabled={!form.name.trim() || !dirty || pending} onClick={() => onSave(form)}>
-            {status ? '저장' : '추가'}
-          </Button>
-          {onDelete && (
-            <Button variant="outline" className="text-destructive" disabled={count < 2} onClick={onDelete}>
-              <Trash2 /> 삭제
-            </Button>
-          )}
-        </>
-      }
-    >
-      <PaneSection title="설정">
-        <FieldGroup className="gap-4">
-          <Field>
-            <FieldLabel htmlFor="status-name">이름</FieldLabel>
-            <Input id="status-name" value={form.name} placeholder="새 상태 이름" onChange={(event) => setForm({ ...form, name: event.target.value })} />
-          </Field>
-          <Field>
-            <FieldLabel>색상</FieldLabel>
-            <Swatches value={form.color} onChange={(color) => setForm({ ...form, color })} />
-          </Field>
-          <Field>
-            <FieldLabel>종류</FieldLabel>
-            <Select value={form.kind} onValueChange={(kind) => setForm({ ...form, kind: kind as Kind })}>
-              <SelectTrigger className="w-full" aria-label="종류">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {(Object.keys(STATUS_KIND) as Kind[]).map((kind) => (
-                  <SelectItem key={kind} value={kind}>
-                    {STATUS_KIND[kind]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-          <Field orientation="horizontal">
-            <FieldLabel htmlFor="status-review">검토함에 표시</FieldLabel>
-            <Switch id="status-review" checked={form.inReview} onCheckedChange={(inReview) => setForm({ ...form, inReview })} />
-          </Field>
-          <FieldDescription>켜면 이 상태의 대사가 검토함에 모입니다.</FieldDescription>
-          <Field orientation="horizontal">
-            <FieldLabel htmlFor="status-human">사람만 지정</FieldLabel>
-            <Switch id="status-human" checked={form.humanOnly} onCheckedChange={(humanOnly) => setForm({ ...form, humanOnly })} />
-          </Field>
-          <FieldDescription>워크플로는 이 상태 대신 검토함으로 보냅니다.</FieldDescription>
-        </FieldGroup>
-      </PaneSection>
-      {status && onMove && (
-        <PaneSection title="순서">
-          <FieldRow label={`${index + 1} / ${count}`}>
-            <Button variant="outline" size="icon" disabled={index === 0 || reordering} onClick={() => onMove(-1)} aria-label={`${status.name} 위로`}>
-              <ArrowUp />
-            </Button>
-            <Button variant="outline" size="icon" disabled={index === count - 1 || reordering} onClick={() => onMove(1)} aria-label={`${status.name} 아래로`}>
-              <ArrowDown />
-            </Button>
-          </FieldRow>
-        </PaneSection>
-      )}
-    </DetailPane>
-  );
-}
-
-/** A built-in automatic tag: only its color is the project's to change. */
-function MarkPane({ mark, color, pending, onClose, onSave }: { mark: AutoMark; color: string; pending: boolean; onClose: () => void; onSave: (color: string) => void }) {
-  const [draft, setDraft] = useState(color);
-  const info = AUTO_MARKS[mark];
-  return (
-    <DetailPane
-      kicker="기본 태그"
-      title={`#${info.name}`}
-      subtitle={`붙는 곳: ${scopeLabel(info.on)}`}
-      onClose={onClose}
-      footer={
-        <>
-          <Button disabled={draft === color || pending} onClick={() => onSave(draft)}>
-            저장
-          </Button>
-          <Button variant="outline" disabled={draft === info.color} onClick={() => setDraft(info.color)}>
-            기본 색으로
-          </Button>
-        </>
-      }
-    >
-      <PaneSection title="설정">
-        <FieldGroup className="gap-4">
-          <Field>
-            <FieldLabel>뜻</FieldLabel>
-            <FieldDescription>{info.description}. 앱이 읽어 내므로 이름을 바꾸거나 지울 수 없습니다.</FieldDescription>
-          </Field>
-          <Field>
-            <FieldLabel>색상</FieldLabel>
-            <Swatches value={draft} onChange={setDraft} />
-          </Field>
-          <Field>
-            <FieldLabel>미리보기</FieldLabel>
-            <span>
-              <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium" style={chipStyle(draft)}>
-                #{info.name}
-              </span>
-            </span>
-          </Field>
-        </FieldGroup>
-      </PaneSection>
-    </DetailPane>
-  );
-}
-
-function TagPane({ tag, pending, onClose, onSave, onDelete }: { tag?: TagRowData; pending: boolean; onClose: () => void; onSave: (form: TagForm) => void; onDelete?: () => void }) {
-  const [form, setForm] = useState<TagForm>({ name: tag?.name ?? '', color: tag?.color ?? DEFAULT_TAG_COLOR, scope: tag?.scope ?? [...TAG_SCOPES] });
-  const dirty = !tag || form.name !== tag.name || form.color !== tag.color || (!tag.role && form.scope.length !== tag.scope.length) || (!tag.role && form.scope.some((place) => !tag.scope.includes(place)));
-  return (
-    <DetailPane
-      kicker="태그"
-      title={tag ? `#${tag.name}` : '태그 추가'}
-      subtitle={tag ? `대사 ${tag.units.toLocaleString()}개` : undefined}
-      onClose={onClose}
-      footer={
-        <>
-          <Button disabled={!form.name.trim() || !dirty || pending} onClick={() => onSave(form)}>
-            {tag ? '저장' : '추가'}
-          </Button>
-          {tag && onDelete && !tag.role && (
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button variant="outline" className="text-destructive">
-                  <Trash2 /> 삭제
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>“#{tag.name}” 태그를 삭제할까요?</AlertDialogTitle>
-                  <AlertDialogDescription>대사 {tag.units.toLocaleString()}개에서 이 태그가 제거됩니다. 이 태그를 쓰는 워크플로 노드는 수정해야 합니다.</AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>취소</AlertDialogCancel>
-                  <AlertDialogAction onClick={onDelete}>삭제</AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          )}
-        </>
-      }
-    >
-      <PaneSection title="설정">
-        <FieldGroup className="gap-4">
-          <Field>
-            <FieldLabel htmlFor="tag-name">이름</FieldLabel>
-            <Input id="tag-name" value={form.name} placeholder="새 태그 이름" disabled={!!tag?.role} onChange={(event) => setForm({ ...form, name: event.target.value })} />
-          </Field>
-          <Field>
-            <FieldLabel>색상</FieldLabel>
-            <Swatches value={form.color} onChange={(color) => setForm({ ...form, color })} />
-          </Field>
-          <Field>
-            <FieldLabel>붙는 곳</FieldLabel>
-            {tag?.role ? (
-              <p className="text-sm">{scopeLabel(tag.scope)}</p>
-            ) : (
-              <div className="flex flex-wrap gap-4">
-                {TAG_SCOPES.map((place) => (
-                  <div key={place} className="flex items-center gap-2">
-                    <Checkbox
-                      id={`tag-scope-${place}`}
-                      checked={form.scope.includes(place)}
-                      // At least one place stays.
-                      disabled={form.scope.length === 1 && form.scope.includes(place)}
-                      onCheckedChange={(on) => setForm({ ...form, scope: TAG_SCOPES.filter((other) => (other === place ? on === true : form.scope.includes(other))) })}
-                    />
-                    <Label htmlFor={`tag-scope-${place}`}>{TAG_SCOPE_LABELS[place]}</Label>
-                  </div>
-                ))}
-              </div>
-            )}
-            <FieldDescription>{tag?.role ? '앱이 쓰는 태그라 붙는 곳을 바꿀 수 없습니다.' : '이 태그를 붙일 수 있고 메뉴·필터에 나오는 곳입니다. 이미 붙은 곳은 태그를 먼저 떼야 뺄 수 있습니다.'}</FieldDescription>
-          </Field>
-        </FieldGroup>
-      </PaneSection>
-    </DetailPane>
-  );
-}

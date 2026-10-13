@@ -7,6 +7,9 @@ export const setChangeListener = (listener: (topics: string[]) => void) => {
   onChanged = listener;
 };
 
+/** Refetch these topics now, for changes whose response could not say so (a streamed chat turn). */
+export const notifyChanged = (topics: string[]) => onChanged(topics);
+
 /** Every call through the client: a write's own answer says what it changed, so the screens never wait on the event stream. */
 export async function apiFetch(input: RequestInfo | URL, init?: RequestInit) {
   const response = await fetch(input, init);

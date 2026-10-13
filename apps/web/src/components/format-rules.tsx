@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { compileFormatRules, FORMAT_PRESET_IDS, FORMAT_PRESETS, formatPatternError, matchTokens, type FormatRules } from '@tw/shared';
@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { client, unwrap } from '@/lib/api';
+import { useFormFrom } from '@/lib/use-form-from';
 
 const KIND = { placeholder: '자리표시자', tag: '서식 태그' } as const;
 
@@ -18,21 +19,15 @@ const KIND = { placeholder: '자리표시자', tag: '서식 태그' } as const;
  * are checkboxes; anything else is a regular expression. A sample box shows what gets matched.
  */
 export function FormatRulesSection({ projectId, rules }: { projectId: string; rules: FormatRules }) {
-  const [draft, setDraft] = useState<FormatRules>(rules);
+  const { draft, setDraft, dirty, reset } = useFormFrom<FormatRules>(rules);
   const [sample, setSample] = useState('Hello {name}, %d left. <b>[PLAYER]</b> \\N[1]');
-  const dirty = JSON.stringify(draft) !== JSON.stringify(rules);
   const invalid = draft.custom.some((rule) => !rule.pattern.trim() || formatPatternError(rule.pattern));
   const compiled = compileFormatRules({ ...draft, custom: draft.custom.filter((rule) => rule.pattern.trim()) });
   const found = { placeholder: matchTokens(sample, compiled.placeholder), tag: matchTokens(sample, compiled.tag) };
 
-  const queryClient = useQueryClient();
   const save = useMutation({
     mutationFn: () => unwrap(client.projects[':projectId'].$patch({ param: { projectId }, json: { formatRules: draft } })),
-    onSuccess: () => {
-      // The project query lives under the units topic (it carries counts), so refresh it here.
-      void queryClient.invalidateQueries({ queryKey: ['units', 'project', projectId] });
-      toast.success('형식 규칙을 저장했습니다.');
-    },
+    onSuccess: () => toast.success('형식 규칙을 저장했습니다.'),
     onError: (error) => toast.error(error.message),
   });
   const togglePreset = (id: (typeof FORMAT_PRESET_IDS)[number], on: boolean) =>
@@ -106,7 +101,7 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
           형식 규칙 저장
         </Button>
         {dirty && (
-          <Button variant="ghost" onClick={() => setDraft(rules)}>
+          <Button variant="ghost" onClick={reset}>
             되돌리기
           </Button>
         )}

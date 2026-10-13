@@ -26,6 +26,7 @@ export type Topic =
  * - projects → units: the project query (name, format rules, agent settings) lives under units with its status counts.
  * - units → statuses: statuses and tags carry line counts.
  * - statuses, connections → workflows: a workflow's error count checks its statuses, tags and HTTP connections.
+ * - calls → runs: the jobs list (keyed 'runs') shows call counts read from ai_calls.
  */
 const IMPLIES: Partial<Record<Topic, Topic[]>> = {
   knowledge: ['units'],
@@ -35,6 +36,7 @@ const IMPLIES: Partial<Record<Topic, Topic[]>> = {
   units: ['statuses'],
   statuses: ['workflows'],
   connections: ['workflows'],
+  calls: ['runs'],
 };
 
 /** A topic with everything it implies, transitively. */

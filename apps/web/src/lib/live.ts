@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouterState } from '@tanstack/react-router';
+import { wasJustInvalidated } from './recent-invalidations';
 
 const BATCH_MS = 250;
 /** No ping (sent every 20 s) for this long: the stream is dead. */
@@ -47,13 +48,16 @@ export function useLiveInvalidation() {
     const onChange = (event: Event) => {
       alive();
       const data = JSON.parse((event as MessageEvent<string>).data) as { projectId?: string; topics: string[] };
-      if (data.projectId && data.projectId !== openProjectId) return;
-      for (const topic of data.topics) topics.add(topic);
+      // Another project's events are ignored, except the project list, which every page shows.
+      const foreign = data.projectId && data.projectId !== openProjectId;
+      if (foreign && !data.topics.includes('projects')) return;
+      for (const topic of foreign ? ['projects'] : data.topics) topics.add(topic);
       timer ??= setTimeout(() => {
         timer = undefined;
         const batch = [...topics];
         topics.clear();
-        for (const topic of batch) void queryClient.invalidateQueries({ queryKey: [topic] });
+        // A topic the write's own answer already refetched is not fetched again.
+        for (const topic of batch) if (!wasJustInvalidated(topic)) void queryClient.invalidateQueries({ queryKey: [topic] });
       }, BATCH_MS);
     };
     connect();

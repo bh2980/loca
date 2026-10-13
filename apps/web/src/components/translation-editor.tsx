@@ -105,7 +105,6 @@ export function TranslationEditor({
   const [assistOpen, setAssistOpen] = useState(false);
   const [assist, setAssist] = useState<{ loading?: 'translate' | 'refine'; done?: boolean; message?: string }>({});
   const assistPending = useRef<AbortController>(null);
-  const queryClientForAssist = useQueryClient();
   const runAssist = (mode: 'translate' | 'refine', instruction: string) => {
     assistPending.current?.abort();
     const controller = (assistPending.current = new AbortController());
@@ -121,7 +120,6 @@ export function TranslationEditor({
           return;
         }
         setAssist({ done: true });
-        void queryClientForAssist.invalidateQueries({ queryKey: q.unit(unit.id).queryKey });
       })
       .catch((error: unknown) => !controller.signal.aborted && setAssist({ message: error instanceof Error ? error.message : String(error) }));
   };

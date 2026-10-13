@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { Download, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { type FormatRules } from '@tw/shared';
@@ -15,6 +15,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
+import { changedFields, useFormFrom } from '@/lib/use-form-from';
 
 export const Route = createFileRoute('/p/$projectId/settings/project')({
   component: ProjectSettings,
@@ -37,14 +38,14 @@ function ProjectSettings() {
 
 function ProjectForm({ projectId, project }: { projectId: string; project: { name: string; description: string | null; sourceLanguage: string; targetLanguage: string; formatRules: FormatRules } }) {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const [name, setName] = useState(project.name);
-  const [description, setDescription] = useState(project.description ?? '');
   const [confirmName, setConfirmName] = useState('');
-  const dirty = name !== project.name || description !== (project.description ?? '');
+  // Follows the saved project (a rename from chat shows) until the person has edited the form.
+  const saved = { name: project.name, description: project.description ?? '' };
+  const { draft: form, setDraft: setForm, dirty } = useFormFrom(saved);
+  const { name, description } = form;
 
   const save = useMutation({
-    mutationFn: () => unwrap(client.projects[':projectId'].$patch({ param: { projectId }, json: { name, description } })),
+    mutationFn: () => unwrap(client.projects[':projectId'].$patch({ param: { projectId }, json: changedFields(form, saved) })),
     onSuccess: () => toast.success('저장했습니다.'),
     onError: (error) => toast.error(error.message),
   });
@@ -65,11 +66,11 @@ function ProjectForm({ projectId, project }: { projectId: string; project: { nam
             <FieldGroup className="gap-4">
               <Field>
                 <FieldLabel htmlFor="project-name">이름</FieldLabel>
-                <Input id="project-name" value={name} onChange={(event) => setName(event.target.value)} />
+                <Input id="project-name" value={name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
               </Field>
               <Field>
                 <FieldLabel htmlFor="project-description">설명</FieldLabel>
-                <Textarea id="project-description" rows={3} value={description} onChange={(event) => setDescription(event.target.value)} />
+                <Textarea id="project-description" rows={3} value={description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
               </Field>
               <Field>
                 <FieldLabel>언어</FieldLabel>

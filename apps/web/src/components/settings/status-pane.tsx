@@ -1,0 +1,109 @@
+/** Right-hand pane to add or edit one status. */
+import { useState } from 'react';
+import { ArrowDown, ArrowUp, Trash2 } from 'lucide-react';
+import { DEFAULT_STATUS_COLOR } from '@tw/shared';
+import { DetailPane, FieldRow, PaneSection } from '@/components/detail-pane';
+import { Button } from '@/components/ui/button';
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
+import { STATUS_KIND } from '@/lib/labels';
+import { type Kind, type StatusForm, type StatusRowData } from '@/components/settings/status-types';
+import { Swatches } from '@/components/settings/swatches';
+
+/** Add or edit one status: its fields are a draft until saved; the order buttons act at once. */
+export function StatusPane({
+  status,
+  index = 0,
+  count = 0,
+  pending,
+  reordering,
+  onClose,
+  onSave,
+  onMove,
+  onDelete,
+}: {
+  status?: StatusRowData;
+  index?: number;
+  count?: number;
+  pending: boolean;
+  reordering?: boolean;
+  onClose: () => void;
+  onSave: (form: StatusForm) => void;
+  onMove?: (delta: number) => void;
+  onDelete?: () => void;
+}) {
+  const [form, setForm] = useState<StatusForm>({ name: status?.name ?? '', color: status?.color ?? DEFAULT_STATUS_COLOR, kind: status?.kind ?? 'normal', inReview: status?.inReview ?? false, humanOnly: status?.humanOnly ?? false });
+  const dirty = !status || form.name !== status.name || form.color !== status.color || form.kind !== status.kind || form.inReview !== status.inReview || form.humanOnly !== status.humanOnly;
+  return (
+    <DetailPane
+      kicker="상태"
+      title={status ? status.name : '상태 추가'}
+      subtitle={status ? `대사 ${status.units.toLocaleString()}개` : undefined}
+      onClose={onClose}
+      footer={
+        <>
+          <Button disabled={!form.name.trim() || !dirty || pending} onClick={() => onSave(form)}>
+            {status ? '저장' : '추가'}
+          </Button>
+          {onDelete && (
+            <Button variant="outline" className="text-destructive" disabled={count < 2} onClick={onDelete}>
+              <Trash2 /> 삭제
+            </Button>
+          )}
+        </>
+      }
+    >
+      <PaneSection title="설정">
+        <FieldGroup className="gap-4">
+          <Field>
+            <FieldLabel htmlFor="status-name">이름</FieldLabel>
+            <Input id="status-name" value={form.name} placeholder="새 상태 이름" onChange={(event) => setForm({ ...form, name: event.target.value })} />
+          </Field>
+          <Field>
+            <FieldLabel>색상</FieldLabel>
+            <Swatches value={form.color} onChange={(color) => setForm({ ...form, color })} />
+          </Field>
+          <Field>
+            <FieldLabel>종류</FieldLabel>
+            <Select value={form.kind} onValueChange={(kind) => setForm({ ...form, kind: kind as Kind })}>
+              <SelectTrigger className="w-full" aria-label="종류">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(Object.keys(STATUS_KIND) as Kind[]).map((kind) => (
+                  <SelectItem key={kind} value={kind}>
+                    {STATUS_KIND[kind]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field orientation="horizontal">
+            <FieldLabel htmlFor="status-review">검토함에 표시</FieldLabel>
+            <Switch id="status-review" checked={form.inReview} onCheckedChange={(inReview) => setForm({ ...form, inReview })} />
+          </Field>
+          <FieldDescription>켜면 이 상태의 대사가 검토함에 모입니다.</FieldDescription>
+          <Field orientation="horizontal">
+            <FieldLabel htmlFor="status-human">사람만 지정</FieldLabel>
+            <Switch id="status-human" checked={form.humanOnly} onCheckedChange={(humanOnly) => setForm({ ...form, humanOnly })} />
+          </Field>
+          <FieldDescription>워크플로는 이 상태 대신 검토함으로 보냅니다.</FieldDescription>
+        </FieldGroup>
+      </PaneSection>
+      {status && onMove && (
+        <PaneSection title="순서">
+          <FieldRow label={`${index + 1} / ${count}`}>
+            <Button variant="outline" size="icon" disabled={index === 0 || reordering} onClick={() => onMove(-1)} aria-label={`${status.name} 위로`}>
+              <ArrowUp />
+            </Button>
+            <Button variant="outline" size="icon" disabled={index === count - 1 || reordering} onClick={() => onMove(1)} aria-label={`${status.name} 아래로`}>
+              <ArrowDown />
+            </Button>
+          </FieldRow>
+        </PaneSection>
+      )}
+    </DetailPane>
+  );
+}

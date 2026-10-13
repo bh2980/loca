@@ -1,5 +1,4 @@
-import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { TriangleAlert } from 'lucide-react';
 import { toast } from 'sonner';
 import { PI_BUILTIN_TOOLS, piOptionsSchema, type PiBuiltinTool, type PiOptions } from '@tw/shared';
@@ -9,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
 import { client, unwrap } from '@/lib/api';
+import { useFormFrom } from '@/lib/use-form-from';
 
 const FILE_TOOLS: PiBuiltinTool[] = ['edit', 'write', 'bash'];
 
@@ -30,10 +30,8 @@ function Row({ label, hint, checked, onChange }: { label: string; hint?: string;
  * tools and pi-side instructions are opt-in.
  */
 export function PiOptionsPanel({ connectionId, options }: { connectionId: string; options: PiOptions | null }) {
-  const queryClient = useQueryClient();
   const saved = piOptionsSchema.parse(options ?? {});
-  const [draft, setDraft] = useState<PiOptions>(saved);
-  const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
+  const { draft, setDraft, dirty, reset } = useFormFrom<PiOptions>(saved);
   const resources = useQuery({
     queryKey: ['connections', connectionId, 'pi-resources'],
     queryFn: () => unwrap(client.connections[':id']['pi-resources'].$get({ param: { id: connectionId } })),
@@ -41,10 +39,7 @@ export function PiOptionsPanel({ connectionId, options }: { connectionId: string
   });
   const save = useMutation({
     mutationFn: () => unwrap(client.connections[':id'].$patch({ param: { id: connectionId }, json: { options: draft } })),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['connections'] });
-      toast.success('pi 설정을 저장했습니다. 다음 메시지부터 적용됩니다.');
-    },
+    onSuccess: () => toast.success('pi 설정을 저장했습니다. 다음 메시지부터 적용됩니다.'),
     onError: (error) => toast.error(error.message),
   });
   const update = (patch: Partial<PiOptions>) => setDraft((current) => ({ ...current, ...patch }));
@@ -135,7 +130,7 @@ export function PiOptionsPanel({ connectionId, options }: { connectionId: string
           {save.isPending && <Spinner />} 저장
         </Button>
         {dirty && (
-          <Button variant="ghost" onClick={() => setDraft(saved)}>
+          <Button variant="ghost" onClick={reset}>
             되돌리기
           </Button>
         )}

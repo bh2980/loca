@@ -60,7 +60,6 @@ export function ChatPanel({ projectId }: { projectId: string }) {
       // unpick it, and a waiting AI-button request would start yet another one, again and again.
       queryClient.setQueryData(q.chatSessions(projectId).queryKey, (list) => (list ? [{ id: session.id, title: session.title, connectionId: session.connectionId, model: session.model, effort: session.effort, updatedAt: session.updatedAt, calls: 0, tokens: 0 }, ...list.filter((item) => item.id !== session.id)] : list));
       setSessionId(session.id);
-      void queryClient.invalidateQueries({ queryKey: ['chat', projectId] });
     },
   });
 
@@ -71,7 +70,6 @@ export function ChatPanel({ projectId }: { projectId: string }) {
     onSuccess: (_data, id) => {
       dropChat(id);
       if (id === sessionId) setSessionId(null);
-      void queryClient.invalidateQueries({ queryKey: ['chat', projectId] });
     },
   });
 
@@ -183,7 +181,6 @@ function Conversation({ projectId, sessionId, model }: { projectId: string; sess
         queryClient.setQueryData(q.chatSessions(projectId).queryKey, (list) => list?.map((item) => (item.id === sessionId ? { ...item, connectionId: next.connectionId, model: next.model || null, effort: next.effort ?? null } : item)));
         if (!next.model) return;
         await unwrap(client.chat[':sessionId'].$patch({ param: { sessionId }, json: { model: next } }));
-        void queryClient.invalidateQueries({ queryKey: ['chat'] });
       }}
     />
   );

@@ -6,7 +6,8 @@ import { type AutoMark, isSpecialListener, knowledgeMarksOf, listenerLabel, matc
 import { EmptyState } from '@/components/empty-state';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { DetailPane, PaneSection } from '@/components/detail-pane';
-import { candidateRow, DraftEditor, fail, matches, metaColumns, SourceBadge, type Draft, type KnowledgeFilterState, type KindSpec, type Row, type SourceFilter } from '@/components/knowledge/draft-editor';
+import { DraftEditor } from '@/components/knowledge/editor';
+import { candidateRow, fail, matches, metaColumns, SourceBadge, type Draft, type KnowledgeFilterState, type KindSpec, type Row, type SourceFilter } from '@/components/knowledge/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
