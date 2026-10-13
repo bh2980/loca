@@ -2,13 +2,10 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, type UseQueryResult } from '@tanstack/react-query';
 import type { InferResponseType } from 'hono/client';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { ChevronRight, Play, Search } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
+import { Play, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -19,21 +16,14 @@ import { cn } from '@/lib/utils';
 
 type Mode = 'all' | 'here' | 'groups' | 'units' | 'tags';
 
-const range = (value: { min: number; expected: number | null; max: number }, unit: string) =>
-  value.expected !== null ? `${value.expected.toLocaleString()}${unit}` : `${value.min.toLocaleString()}~${value.max.toLocaleString()}${unit}`;
-
-/** A cap field: empty means no cap; anything else must be a positive whole number. */
-const parseCap = (text: string) => {
-  const value = Number(text.replace(/,/g, '').trim());
-  return text.trim() !== '' && Number.isInteger(value) && value > 0 ? value : undefined;
-};
-
 /**
  * Start a workflow (docs/DESIGN.md J6): one screen with what a person decides on before pressing
  * start — which lines (the scene in view, picked scenes, tagged lines, picked lines or the whole
  * project, never preselected), what in those lines would spoil the translation and where to fix it,
- * how long and how much in plain words, and which models. Batches, tokens and caps are under
- * "자세히". The count is exactly what will run: scope ∩ entry statuses (unless ignored).
+ * how long and how much in plain words, and which models. Nothing more: the batches are the run
+ * page's 번역 계획, and the run is capped at the suggested limits (1.3× the estimate; it pauses
+ * there, the run page shows them). The count is exactly what will run: scope ∩ entry statuses
+ * (unless ignored).
  */
 export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, unitIds, dirty, disabled, trigger, defaultIgnoreStatus = false, preferWorkflow }: {
   projectId: string;
@@ -51,8 +41,6 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
 }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  // undefined = untouched: the field shows the server's suggestion.
-  const [caps, setCaps] = useState<{ calls?: string; tokens?: string }>({});
   const initialMode: Mode | undefined = unitIds?.length ? 'units' : groupIds?.length ? 'here' : undefined;
   const [mode, setMode] = useState<Mode | undefined>(initialMode);
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -78,14 +66,10 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
   });
   const data = ready ? plan.data : undefined;
   const suggested = data?.suggestedLimits;
-  const callsText = caps.calls ?? (suggested?.maxCalls ? String(suggested.maxCalls) : '');
-  const tokensText = caps.tokens ?? (suggested?.maxInputTokens ? String(suggested.maxInputTokens) : '');
-  const callsCap = parseCap(callsText);
-  const tokensCap = parseCap(tokensText);
-  const capsInvalid = (callsText.trim() !== '' && callsCap === undefined) || (tokensText.trim() !== '' && tokensCap === undefined);
   const start = useMutation({
     mutationFn: () => {
-      const limits = { ...(callsCap ? { maxCalls: callsCap } : {}), ...(tokensCap ? { maxInputTokens: tokensCap } : {}) };
+      // A safety net, not a choice: the suggested caps, past which the run pauses.
+      const limits = { ...(suggested?.maxCalls ? { maxCalls: suggested.maxCalls } : {}), ...(suggested?.maxInputTokens ? { maxInputTokens: suggested.maxInputTokens } : {}) };
       return unwrap(client.workflows[':id'].runs.$post({ param: { id: workflowId! }, json: { ...scope, ...(Object.keys(limits).length ? { limits } : {}) } }));
     },
     onSuccess: (run) => {
@@ -108,7 +92,6 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
       onOpenChange={(next) => {
         setOpen(next);
         if (next) {
-          setCaps({});
           setMode(initialMode);
           setPicked(new Set());
         }
@@ -182,18 +165,6 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
           {ready && plan.isError && <p className="text-sm text-destructive">계획을 계산하지 못했습니다: {plan.error.message}</p>}
           {ready && plan.isPending && <Skeleton className="h-24 w-full" />}
 
-          {data && total ? (
-            <Collapsible>
-              <CollapsibleTrigger asChild>
-                <Button variant="ghost" className="group -ml-2 text-muted-foreground">
-                  <ChevronRight className="transition-transform group-data-[state=open]:rotate-90" /> 자세히 (단계별 요청, 묶음, 상한)
-                </Button>
-              </CollapsibleTrigger>
-              <CollapsibleContent className="mt-2 space-y-4">
-                <Details data={data} callsText={callsText} tokensText={tokensText} onCalls={(value) => setCaps((previous) => ({ ...previous, calls: value }))} onTokens={(value) => setCaps((previous) => ({ ...previous, tokens: value }))} />
-              </CollapsibleContent>
-            </Collapsible>
-          ) : null}
         </div>
 
         {start.isError && <p className="text-sm text-destructive">{start.error.message}</p>}
@@ -201,7 +172,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
           <Button variant="outline" onClick={() => setOpen(false)}>
             취소
           </Button>
-          <Button disabled={!total || capsInvalid || !workflowId || start.isPending} onClick={() => start.mutate()}>
+          <Button disabled={!total || !workflowId || start.isPending} onClick={() => start.mutate()}>
             {start.isPending ? <Spinner /> : <Play />} {total ? `${total.toLocaleString()}줄 실행 시작` : '실행 시작'}
           </Button>
         </DialogFooter>
@@ -362,90 +333,5 @@ function Pace({ data }: { data: PlanData }) {
         {models.length === 1 ? `모델: ${models[0]} (모든 단계)` : `모델: ${data.nodes.map((node) => `${node.name} ${node.model ?? '없음'}`).join(' · ')}`}
       </p>
     </section>
-  );
-}
-
-/** The numbers behind the estimate, for whoever wants them: requests per step, the batches, the caps. */
-function Details({ data, callsText, tokensText, onCalls, onTokens }: { data: PlanData; callsText: string; tokensText: string; onCalls: (value: string) => void; onTokens: (value: string) => void }) {
-  return (
-    <>
-      <ul className="divide-y rounded-md border">
-        {data.nodes.map((node) => (
-          <li key={node.nodeId} className="space-y-0.5 px-3 py-2 text-sm">
-            <div className="flex items-center gap-2">
-              <span className="min-w-0 flex-1 truncate">{node.name}</span>
-              <span className="shrink-0 tabular-nums">
-                요청 {range(node.requests, '회')}
-                {!node.everyLine && <span className="ml-1 text-xs text-muted-foreground">· 걸린 줄만</span>}
-              </span>
-            </div>
-            <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground tabular-nums">
-              <span>{node.model ?? '연결 없음'}</span>
-              {node.connection?.cli && <Badge variant="outline">CLI</Badge>}
-              {node.sharedWith.length > 0 && <span>함께: {node.sharedWith.join(', ')}</span>}
-              <span>요청당 약 {(node.promptTokens + (node.overheadTokens ?? 0)).toLocaleString()}토큰</span>
-            </p>
-          </li>
-        ))}
-      </ul>
-      <p className="text-xs text-muted-foreground">
-        장면을 묶어 {data.plan.batches.toLocaleString()}번에 나눠 보냅니다
-        {data.plan.linesPerBatch && ` (한 번에 ${data.plan.linesPerBatch.min}~${data.plan.linesPerBatch.max}줄)`} · 입력 토큰 {range(data.totals.inputTokens, '')}
-      </p>
-      <BatchList list={data.plan.list} />
-      <div className="grid grid-cols-2 gap-3">
-        <label className="space-y-1 text-sm">
-          호출 상한 (회)
-          <Input inputMode="numeric" value={callsText} onChange={(event) => onCalls(event.target.value)} placeholder="상한 없음" />
-        </label>
-        <label className="space-y-1 text-sm">
-          입력 토큰 상한
-          <Input inputMode="numeric" value={tokensText} onChange={(event) => onTokens(event.target.value)} placeholder="상한 없음" />
-        </label>
-      </div>
-      <p className="text-xs text-muted-foreground">닿으면 실행이 일시정지합니다. 예상의 1.3배로 채워 두었습니다.</p>
-    </>
-  );
-}
-
-const JOINED = { link: '그래프로 이어짐', speaker: '화자 겹침', fill: '덜 찬 묶음 채움' } as const;
-
-/** The plan batch by batch: which scenes travel in one request, and why each joined the one before. */
-export function BatchList({ list, defaultOpen = false }: { list: NonNullable<Plan['data']>['plan']['list']; defaultOpen?: boolean }) {
-  if (!list.total) return null;
-  return (
-    <Collapsible defaultOpen={defaultOpen}>
-      <CollapsibleTrigger asChild>
-        <Button variant="ghost" className="group -ml-2">
-          <ChevronRight className="transition-transform group-data-[state=open]:rotate-90" />
-          묶음 구성 보기 ({list.total.toLocaleString()}개)
-        </Button>
-      </CollapsibleTrigger>
-      <CollapsibleContent>
-        <ul className="mt-2 divide-y rounded-md border">
-          {list.batches.map((batch, index) => (
-            <li key={index} className="space-y-1 px-3 py-2 text-sm">
-              <p className="text-xs text-muted-foreground tabular-nums">
-                #{index + 1} · {batch.lines.toLocaleString()}줄 · 원문 토큰 {batch.tokens.toLocaleString()}
-              </p>
-              <ul className="space-y-0.5">
-                {batch.scenes.map((scene) => (
-                  <li key={scene.groupId}>
-                    {scene.title} <span className="tabular-nums text-muted-foreground">({scene.lines})</span>
-                    {scene.joined && (
-                      <span className="ml-1.5 text-xs text-muted-foreground">
-                        ← {JOINED[scene.joined.why]}
-                        {scene.joined.why === 'speaker' && `: ${scene.joined.speakers.join(', ')}`}
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </li>
-          ))}
-        </ul>
-        {list.total > list.batches.length && <p className="mt-1 text-xs text-muted-foreground">앞 {list.batches.length.toLocaleString()}개만 보여 줍니다.</p>}
-      </CollapsibleContent>
-    </Collapsible>
   );
 }
