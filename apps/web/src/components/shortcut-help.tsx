@@ -10,7 +10,7 @@ const SECTIONS: { title: string; keys: [string, string][] }[] = [
   {
     title: '어디서나',
     keys: [
-      ['Mod+K', '원문·번역·화자·ID 검색'],
+      ['Mod+K', '장면·용어·인물·자료·대사 검색'],
       ['Mod+I', '에이전트 채팅 열기·닫기'],
       ['?', '이 단축키 목록'],
     ],

@@ -1,10 +1,9 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { Check, CircleAlert, ListChecks, ListFilter, MoreHorizontal, Network, PanelRightOpen, Play, Sparkles, StickyNote, Tags, X } from 'lucide-react';
+import { Check, CircleAlert, ListFilter, Network, PanelRightOpen, Play, StickyNote, Tags, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { checkFormat, compileFormatRules, isUnsureListener, listenerLabel, type ListenerOrigin, mentions, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
-import { BulkBar } from '@/components/data-table';
 import { LineDetail, LINE_TABS, type LineTab } from '@/components/line-detail';
 import { SplitPane } from '@/components/split-pane';
 import { AiMark, StatusDot, TagChip } from '@/components/status';
@@ -118,8 +117,7 @@ export function LineList({
   search,
   onSearch,
   heading,
-  actions,
-  menu,
+  runGroupIds,
   onOpenScene,
   find,
   banner,
@@ -131,9 +129,8 @@ export function LineList({
   search: LinesSearch;
   onSearch: (next: Partial<LinesSearch>, options?: { replace?: boolean }) => void;
   heading: ReactNode;
-  actions?: ReactNode;
-  /** Extra items for the "더 보기" menu (what this group can do besides translating). */
-  menu?: ReactNode;
+  /** What 'AI 실행' runs when no line is picked (the open scene; none = the whole list's scope). */
+  runGroupIds?: string[];
   /** Opens a line in its own scene, without this list's filters. */
   onOpenScene?: (groupId: string, lineId: string) => void;
   /** Walking a filter inside this scene: every line shows, the matching ones are marked. */
@@ -182,8 +179,7 @@ export function LineList({
   const [focusTick, setFocusTick] = useState(0);
   const setEditing = (edit: boolean) => setFocusTick((tick) => (edit ? tick + 1 : 0));
 
-  // Picking several lines is a mode, so checkboxes don't clutter the everyday list.
-  const [picking, setPicking] = useState(false);
+  // Lines picked by their checkboxes; the head row above the lines acts on them.
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const knownTags = useRef(new Map<string, string[]>());
   for (const row of rows ?? []) knownTags.current.set(row.id, row.tagIds);
@@ -198,10 +194,7 @@ export function LineList({
       else next.delete(id);
       return next;
     });
-  const stopPicking = () => {
-    setPicking(false);
-    setPicked(new Set());
-  };
+  const stopPicking = () => setPicked(new Set());
   const queryClient = useQueryClient();
   const undoOnError = (error: Error, _vars: unknown, context: { undo: () => void } | undefined) => {
     context?.undo();
@@ -338,19 +331,17 @@ export function LineList({
     >
       <Toolbar
         actions={
-          <>
-            {actions}
-            {menu && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" aria-label="더 보기">
-                    <MoreHorizontal />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">{menu}</DropdownMenuContent>
-              </DropdownMenu>
-            )}
-          </>
+          // One 'AI 실행': the picked lines when there are any, else the open scene.
+          <RunDialog
+            projectId={projectId}
+            unitIds={picked.size ? [...picked] : undefined}
+            groupIds={picked.size ? undefined : runGroupIds}
+            trigger={
+              <Button variant="outline">
+                <Play /> {picked.size ? `AI 실행 · 고른 ${picked.size.toLocaleString()}줄` : 'AI 실행'}
+              </Button>
+            }
+          />
         }
       >
         <div className="mr-1 min-w-0">{heading}</div>
@@ -374,6 +365,64 @@ export function LineList({
         )}
       </Toolbar>
       {banner}
+      {!!rows?.length && (
+        <div className="flex min-h-10 shrink-0 items-center gap-3 border-b px-4 py-1 text-xs text-muted-foreground">
+          <Checkbox
+            aria-label="보이는 줄 모두 선택"
+            checked={rows.every((row) => picked.has(row.id)) ? true : rows.some((row) => picked.has(row.id)) ? 'indeterminate' : false}
+            onCheckedChange={(on) => pick(rows.map((row) => row.id), on === true)}
+          />
+          {picked.size === 0 ? (
+            <div className="grid min-w-0 flex-1 grid-cols-2 gap-6">
+              <span>원문</span>
+              <span>번역</span>
+            </div>
+          ) : (
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+              <span className="text-sm font-medium text-foreground tabular-nums">{picked.size.toLocaleString()}개 선택</span>
+              <Button variant="outline" disabled={pickedByAi.length === 0 || check.isPending} title="상태는 그대로 두고 사람이 확인한 것으로 표시합니다(✦ 없앰)" onClick={() => check.mutate(pickedByAi)}>
+                <Check /> 확인함{pickedByAi.length ? ` (${pickedByAi.length})` : ''}
+              </Button>
+              <Select value="" onValueChange={(statusId) => setStatus.mutate(statusId)}>
+                <SelectTrigger size="sm" className="w-36">
+                  <SelectValue placeholder="상태 바꾸기" />
+                </SelectTrigger>
+                <SelectContent>
+                  {statusList.map((item) => (
+                    <SelectItem key={item.id} value={item.id}>
+                      <StatusDot color={item.color} /> {item.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {!!statuses.data?.tags.length && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline">
+                      <Tags /> 태그
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-56">
+                    <DropdownMenuLabel className="text-xs text-muted-foreground">선택한 {picked.size}개 대사의 태그</DropdownMenuLabel>
+                    {statuses.data.tags.map((tag) => {
+                      const state = tagState(tag.id);
+                      return (
+                        <DropdownMenuCheckboxItem key={tag.id} checked={state === 'all'} onSelect={(event) => event.preventDefault()} onCheckedChange={() => setTag.mutate({ tagId: tag.id, add: state !== 'all' })}>
+                          <TagChip tag={tag} />
+                          {state === 'some' && <span className="ml-auto text-xs text-muted-foreground">일부</span>}
+                        </DropdownMenuCheckboxItem>
+                      );
+                    })}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+              <Button variant="ghost" className="ml-auto" onClick={stopPicking}>
+                <X /> 선택 해제
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {!rows ? (
@@ -411,7 +460,7 @@ export function LineList({
                   style={line.id === arrived ? { animation: 'line-arrived 2s ease-out' } : undefined}
                   onAnimationEnd={() => setArrived(undefined)}
                 >
-                  {picking && <Checkbox className="mt-1" aria-label={`${line.key} 선택`} checked={picked.has(line.id)} onClick={(event) => event.stopPropagation()} onCheckedChange={(checked) => pick([line.id], Boolean(checked))} />}
+                  <Checkbox className="mt-1" aria-label={`${line.key} 선택`} checked={picked.has(line.id)} onClick={(event) => event.stopPropagation()} onCheckedChange={(checked) => pick([line.id], Boolean(checked))} />
                   <div className="grid min-w-0 flex-1 grid-cols-2 gap-6">
                     <div className="min-w-0">
                       <p className="mb-0.5 flex min-w-0 gap-1 text-xs text-muted-foreground">
@@ -448,7 +497,7 @@ export function LineList({
                           </Tooltip>
                           {line.statusBy === 'ai' && <AiMark by="ai" className="mt-1 -ml-1" />}
                           <div className="min-w-0">
-                            {line.translation ? <TokenText text={line.translation} source={line.source} pattern={tokenPattern} /> : <p className="text-muted-foreground">번역 없음</p>}
+                            {line.translation ? <TokenText text={line.translation} source={line.source} pattern={tokenPattern} /> : null}
                             {review && !!line.lastRun?.issues.length && (
                               <p className="mt-1 flex items-start gap-1 text-xs text-warning">
                                 <CircleAlert className="mt-0.5 size-3 shrink-0" />
@@ -467,80 +516,7 @@ export function LineList({
           </ul>
         )}
       </div>
-      <Pager
-        page={page}
-        total={total}
-        pageSize={PAGE_SIZE}
-        onPage={(next) => onSearch({ page: next || undefined, line: undefined })}
-        // Picking several lines starts from the list's own bar; while picking, the bulk bar takes over.
-        start={
-          !picking && Boolean(rows?.length) && (
-            <Button variant="ghost" className="text-muted-foreground" onClick={() => setPicking(true)}>
-              <ListChecks /> 여러 줄 선택
-            </Button>
-          )
-        }
-      />
-      {picking && (
-        <BulkBar
-          count={picked.size}
-          onClear={stopPicking}
-          all={{
-            checked: rows?.length && rows.every((row) => picked.has(row.id)) ? true : rows?.some((row) => picked.has(row.id)) ? 'indeterminate' : false,
-            onChange: (on) => pick(rows?.map((row) => row.id) ?? [], on),
-          }}
-        >
-          {picked.size > 0 && (
-            <>
-              <Button variant="outline" className="bg-background" disabled={pickedByAi.length === 0 || check.isPending} title="상태는 그대로 두고 사람이 확인한 것으로 표시합니다(✦ 없앰)" onClick={() => check.mutate(pickedByAi)}>
-                <Check /> 확인함{pickedByAi.length ? ` (${pickedByAi.length})` : ''}
-              </Button>
-              <RunDialog
-                projectId={projectId}
-                unitIds={[...picked]}
-                trigger={
-                  <Button>
-                    <Play /> AI 실행
-                  </Button>
-                }
-              />
-              <Select value="" onValueChange={(statusId) => setStatus.mutate(statusId)}>
-                <SelectTrigger size="sm" className="w-36 bg-background">
-                  <SelectValue placeholder="상태 바꾸기" />
-                </SelectTrigger>
-                <SelectContent>
-                  {statusList.map((item) => (
-                    <SelectItem key={item.id} value={item.id}>
-                      <StatusDot color={item.color} /> {item.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {!!statuses.data?.tags.length && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" className="bg-background">
-                      <Tags /> 태그
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start" className="w-56">
-                    <DropdownMenuLabel className="text-xs text-muted-foreground">선택한 {picked.size}개 대사의 태그</DropdownMenuLabel>
-                    {statuses.data.tags.map((tag) => {
-                      const state = tagState(tag.id);
-                      return (
-                        <DropdownMenuCheckboxItem key={tag.id} checked={state === 'all'} onSelect={(event) => event.preventDefault()} onCheckedChange={() => setTag.mutate({ tagId: tag.id, add: state !== 'all' })}>
-                          <TagChip tag={tag} />
-                          {state === 'some' && <span className="ml-auto text-xs text-muted-foreground">일부</span>}
-                        </DropdownMenuCheckboxItem>
-                      );
-                    })}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              )}
-            </>
-          )}
-        </BulkBar>
-      )}
+      <Pager page={page} total={total} pageSize={PAGE_SIZE} onPage={(next) => onSearch({ page: next || undefined, line: undefined })} />
     </SplitPane>
   );
 }
