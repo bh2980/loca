@@ -104,6 +104,8 @@ export const units = sqliteTable(
     /** Who set the current status: a run (statusRunId) or a person (an edit, a confirm, an accepted proposal, the import). */
     statusBy: text('status_by', { enum: STATUS_BY }).notNull().default('human'),
     statusRunId: text('status_run_id'),
+    /** A person's note on the line (a doubt, a question for the developer); empty = none. */
+    note: text('note').notNull().default(''),
     meta: json<Record<string, unknown>>('meta'),
     updatedAt: updatedAt(),
   },

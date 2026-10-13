@@ -31,6 +31,8 @@ const listQuery = z.object({
   by: z.enum(['ai']).optional(),
   /** Only translated lines whose source (case and end punctuation aside) is translated differently elsewhere. */
   diverged: z.enum(['1']).optional(),
+  /** Only lines with a person's note. */
+  noted: z.enum(['1']).optional(),
   /** A line to show: the page is the one holding it (the response says which offset it used). */
   focus: z.string().optional(),
   offset: z.coerce.number().int().min(0).default(0),
@@ -55,6 +57,7 @@ function unitConditions(projectId: string, query: Omit<z.infer<typeof listQuery>
   if (query.review) conditions.push(sql`${s.units.statusId} in (select id from ${s.statuses} where ${s.statuses.projectId} = ${projectId} and ${s.statuses.inReview} = 1)`);
   if (query.by) conditions.push(eq(s.units.statusBy, query.by));
   if (query.remaining) conditions.push(sql`${s.units.statusId} in (select id from ${s.statuses} where ${s.statuses.projectId} = ${projectId} and ${s.statuses.kind} != 'final')`);
+  if (query.noted) conditions.push(sql`${s.units.note} != ''`);
   if (query.diverged)
     conditions.push(
       sql`${s.units.translation} is not null and ${sameSource(sql`${s.units.source}`)} in (select ${sameSource(sql`u.source`)} from ${s.units} u where u.project_id = ${projectId} and u.translation is not null and u.translation != '' and ${sameSource(sql`u.source`)} != '' group by 1 having count(distinct trim(u.translation)) > 1)`,
@@ -70,6 +73,8 @@ const unitPatch = z.object({
   tagIds: z.array(z.string()).optional(),
   /** A person's choice of listener (null = unknown); it replaces any AI or imported listener. */
   listener: z.string().trim().min(1).nullable().optional(),
+  /** A person's note on the line; empty clears it. Who set the status is not touched. */
+  note: z.string().max(2000).optional(),
 });
 
 /** The listener counts unless it is an unsure guess (by line or by scene), as isUnsureListener. */
@@ -104,6 +109,7 @@ const unitColumns = {
   translation: s.units.translation,
   statusId: s.units.statusId,
   statusBy: s.units.statusBy,
+  note: s.units.note,
   statusRunId: s.units.statusRunId,
   updatedAt: s.units.updatedAt,
 };
@@ -340,6 +346,7 @@ export const sourceRoutes = new Hono<Env>()
       // A person's translation or status: the line's status is theirs now (docs/DESIGN.md 3.5).
       if (patch.statusId || patch.translation !== undefined) Object.assign(patch, { statusBy: 'human', statusRunId: null });
       if (body.listener !== undefined) Object.assign(patch, { listener: body.listener, listenerOrigin: 'human', listenerConfidence: null });
+      if (body.note !== undefined) patch.note = body.note.trim();
       if (Object.keys(patch).length) tx.update(s.units).set(patch).where(eq(s.units.id, unitId)).run();
       if (body.tagIds) {
         tx.delete(s.unitTags).where(eq(s.unitTags.unitId, unitId)).run();

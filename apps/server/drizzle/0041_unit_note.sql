@@ -1,0 +1,1 @@
+ALTER TABLE `units` ADD `note` text DEFAULT '' NOT NULL;

@@ -83,7 +83,7 @@ function Script() {
   // 찾아가기: the filter's lines are walked one by one inside their scenes instead of listed apart.
   const finding = isFinding(search) && !search.review;
   const matches = useQuery({
-    ...q.unitMatches(projectId, { statusId: search.status, tagId: search.tag, q: search.q, speaker: search.speaker, listener: search.listener, remaining: search.remaining ? '1' : undefined, by: search.by, diverged: search.diverged ? '1' : undefined }),
+    ...q.unitMatches(projectId, { statusId: search.status, tagId: search.tag, q: search.q, speaker: search.speaker, listener: search.listener, remaining: search.remaining ? '1' : undefined, by: search.by, diverged: search.diverged ? '1' : undefined, noted: search.noted ? '1' : undefined }),
     enabled: finding,
   });
   const matchRows = useMemo(() => (finding ? (matches.data?.rows ?? []) : []), [finding, matches.data]);
@@ -133,7 +133,7 @@ function Script() {
     return () => window.removeEventListener('keydown', onKey);
   });
   const findLabel = filterChips(search, statuses.data?.statuses ?? [], statuses.data?.tags ?? []).map((chip) => chip.label).concat(search.q ? [`“${search.q}”`] : [], search.remaining ? ['남은 줄'] : [], search.by ? ['AI가 정함'] : []).join(' · ');
-  const clearFilters = { q: undefined, status: undefined, tag: undefined, speaker: undefined, listener: undefined, remaining: undefined, by: undefined, diverged: undefined, view: undefined, page: undefined };
+  const clearFilters = { q: undefined, status: undefined, tag: undefined, speaker: undefined, listener: undefined, remaining: undefined, by: undefined, diverged: undefined, noted: undefined, view: undefined, page: undefined };
 
   const onSearch = useCallback((next: Partial<ScriptSearch>, options?: { replace?: boolean }) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace: options?.replace }), [navigate]);
   // Moving to another scene keeps a filter being walked (찾아가기); otherwise only the list's own search and 남은 줄만.

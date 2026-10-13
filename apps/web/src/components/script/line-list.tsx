@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { Check, CircleAlert, ListChecks, ListFilter, MoreHorizontal, Network, PanelRightOpen, Play, Sparkles, Tags, X } from 'lucide-react';
+import { Check, CircleAlert, ListChecks, ListFilter, MoreHorizontal, Network, PanelRightOpen, Play, Sparkles, StickyNote, Tags, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { checkFormat, compileFormatRules, isUnsureListener, listenerLabel, type ListenerOrigin, mentions, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
 import { BulkBar } from '@/components/data-table';
@@ -11,6 +11,7 @@ import { AiMark, StatusDot, TagChip } from '@/components/status';
 import { Pager, SearchInput, Toolbar } from '@/components/toolbar';
 import { TranslationEditor } from '@/components/translation-editor';
 import { LineSourceText, TokenText } from '@/components/editor/source-text';
+import { LineNote, NoteMark } from '@/components/script/line-note';
 import { editorChecks, tokenPatternOf, withoutTokens } from '@/lib/line-context';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { Button } from '@/components/ui/button';
@@ -41,6 +42,8 @@ export interface LinesSearch {
   by?: 'ai';
   /** Only lines whose source is translated differently elsewhere (to make them agree, or keep them apart on purpose). */
   diverged?: true;
+  /** Only lines with a person's note. */
+  noted?: true;
   /**
    * How a filter shows: walked one by one inside their scenes (find, the default for speaker and
    * listener, where the conversation matters) or listed apart (list, the default for the rest).
@@ -64,6 +67,7 @@ export const linesSearchSchema = (raw: Record<string, unknown>): LinesSearch => 
   remaining: raw.remaining === true || raw.remaining === 'true' ? true : undefined,
   by: raw.by === 'ai' ? 'ai' : undefined,
   diverged: raw.diverged === true || raw.diverged === 'true' ? true : undefined,
+  noted: raw.noted === true || raw.noted === 'true' ? true : undefined,
   view: raw.view === 'find' || raw.view === 'list' ? raw.view : undefined,
   page: typeof raw.page === 'number' && raw.page > 0 ? raw.page : undefined,
   line: typeof raw.line === 'string' ? raw.line : undefined,
@@ -73,7 +77,7 @@ export const linesSearchSchema = (raw: Record<string, unknown>): LinesSearch => 
 });
 
 /** Whether any line filter is set (search, status, tag, speaker, listener, 남은 줄만, AI가 정한 것만). */
-export const hasLineFilter = (search: LinesSearch) => Boolean(search.q || search.status || search.tag || search.speaker || search.listener || search.remaining || search.by || search.diverged);
+export const hasLineFilter = (search: LinesSearch) => Boolean(search.q || search.status || search.tag || search.speaker || search.listener || search.remaining || search.by || search.diverged || search.noted);
 /** Whether the filter is walked inside the scenes rather than listed apart. */
 export const isFinding = (search: LinesSearch) => hasLineFilter(search) && (search.view === 'find' || (search.view !== 'list' && Boolean(search.speaker || search.listener)));
 
@@ -87,6 +91,7 @@ export function filterChips(search: LinesSearch, statuses: { id: string; name: s
     search.remaining && { key: 'remaining', label: '남은 줄', clear: { remaining: undefined } },
     search.by && { key: 'by', label: '✦ AI가 정한 것', clear: { by: undefined } },
     search.diverged && { key: 'diverged', label: '번역이 갈린 같은 원문', clear: { diverged: undefined } },
+    search.noted && { key: 'noted', label: '메모 있는 줄', clear: { noted: undefined } },
   ].filter(Boolean) as { key: string; label: string; clear: Partial<LinesSearch> }[];
 }
 
@@ -139,6 +144,9 @@ export function LineList({
   // Format tokens read as numbered chips (#1) in every row; the full token is on hover.
   const projectInfo = useQuery(q.project(projectId));
   const tokenPattern = useMemo(() => tokenPatternOf(projectInfo.data?.formatRules ?? undefined), [projectInfo.data?.formatRules]);
+  // Writing a note on the picked line (closed when another line is picked).
+  const [noting, setNoting] = useState(false);
+  useEffect(() => setNoting(false), [search.line]);
   const page = search.page ?? 0;
   // Lines picked here (click, keys); any other line in the URL arrived from elsewhere (a link).
   const pickedHere = useRef<string | undefined>(undefined);
@@ -153,7 +161,7 @@ export function LineList({
       projectId,
       find
         ? { groupId, focus: focusing, offset: page * PAGE_SIZE, limit: PAGE_SIZE }
-        : { groupId, kind, review: review ? '1' : undefined, remaining: search.remaining ? '1' : undefined, by: search.by, diverged: search.diverged ? '1' : undefined, q: search.q, statusId: search.status, tagId: search.tag, speaker: search.speaker, listener: search.listener, focus: focusing, offset: page * PAGE_SIZE, limit: PAGE_SIZE },
+        : { groupId, kind, review: review ? '1' : undefined, remaining: search.remaining ? '1' : undefined, by: search.by, diverged: search.diverged ? '1' : undefined, noted: search.noted ? '1' : undefined, q: search.q, statusId: search.status, tagId: search.tag, speaker: search.speaker, listener: search.listener, focus: focusing, offset: page * PAGE_SIZE, limit: PAGE_SIZE },
     ),
   );
   useEffect(() => {
@@ -410,9 +418,10 @@ export function LineList({
                     <div className="min-w-0">
                       <p className="mb-0.5 flex min-w-0 gap-1 text-xs text-muted-foreground">
                         <span className="truncate">{line.speaker ?? '지문'}</span>
+                        <NoteMark note={line.note} className="mt-px" />
                         {marked && <span className="shrink-0 text-warning">● {find!.label}</span>}
                         {selected && line.kind === 'dialogue' && <span className={cn('truncate', who.unknown && 'text-warning')}>→ {who.text}</span>}
-                        {selected && <LineLinks projectId={projectId} unitId={line.id} onDetail={() => onSearch({ detail: true }, { replace: true })} />}
+                        {selected && <LineLinks projectId={projectId} unitId={line.id} hasNote={!!line.note} onNote={() => setNoting(true)} onDetail={() => onSearch({ detail: true }, { replace: true })} />}
                       </p>
                       {selected ? (
                         <LineSourceText projectId={projectId} unitId={line.id} source={line.source} className="text-base" />
@@ -424,6 +433,7 @@ export function LineList({
                       {selected ? (
                         <>
                           <TranslationEditor key={line.id} projectId={projectId} unit={line} statuses={statusList} focusKey={focusTick} onEscape={() => setEditing(false)} onDone={(advanced) => (advanced ? advanceFrom(line.id) : undefined)} />
+                          <LineNote key={line.id} unitId={line.id} note={line.note} editing={noting} onEditing={setNoting} />
                           <LineHints projectId={projectId} line={line} />
                         </>
                       ) : (
@@ -592,6 +602,9 @@ function LineFilters({ statuses, tags, speakers, search, onSearch }: {
         <DropdownMenuCheckboxItem checked={Boolean(search.diverged)} onCheckedChange={(on) => onSearch({ diverged: on ? true : undefined })}>
           번역이 갈린 같은 원문
         </DropdownMenuCheckboxItem>
+        <DropdownMenuCheckboxItem checked={Boolean(search.noted)} onCheckedChange={(on) => onSearch({ noted: on ? true : undefined })}>
+          메모 있는 줄
+        </DropdownMenuCheckboxItem>
         {issueTags.length > 0 && (
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>문제 유형</DropdownMenuSubTrigger>
@@ -658,7 +671,7 @@ function LineFilters({ statuses, tags, speakers, search, onSearch }: {
 }
 
 /** Where else the picked line can be seen: its place in the dialogue graph, and the line pane (checks, candidates, history). */
-export function LineLinks({ projectId, unitId, onDetail }: { projectId: string; unitId: string; onDetail: () => void }) {
+export function LineLinks({ projectId, unitId, hasNote, onNote, onDetail }: { projectId: string; unitId: string; hasNote: boolean; onNote: () => void; onDetail: () => void }) {
   const unit = useQuery(q.unit(unitId));
   const node = unit.data?.graphNodes[0];
   const tip = (label: string, button: ReactNode) => (
@@ -678,6 +691,13 @@ export function LineLinks({ projectId, unitId, onDetail }: { projectId: string; 
             <Link to="/p/$projectId/graph" params={{ projectId }} search={{ scope: 'dialogue', scene: unit.data!.groupId, node: node.id, jump: true }}>
               <Network />
             </Link>
+          </Button>,
+        )}
+      {!hasNote &&
+        tip(
+          '메모 남기기',
+          <Button variant="ghost" size="icon-sm" className="text-muted-foreground" aria-label="메모 남기기" onClick={onNote}>
+            <StickyNote />
           </Button>,
         )}
       {tip(
