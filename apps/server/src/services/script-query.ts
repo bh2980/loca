@@ -109,6 +109,9 @@ export function findLines(db: Db, projectId: string, filter: LineFilter, options
   const ids = page.map(({ unit }) => unit.id);
   const tagRows = inChunks(ids, (slice) => db.select().from(s.unitTags).where(inArray(s.unitTags.unitId, slice)).all());
   const tagName = new Map(tags.map((tag) => [tag.id, tag.name]));
+  // Grouped once: filtering every tag row per line was quadratic on a whole game.
+  const tagsByUnit = new Map<string, string[]>();
+  for (const row of tagRows) tagsByUnit.set(row.unitId, [...(tagsByUnit.get(row.unitId) ?? []), tagName.get(row.tagId) ?? row.tagId]);
   const statusName = new Map(statuses.map((status) => [status.id, status.name]));
   const finalStatus = new Set(statuses.filter((status) => status.kind === 'final').map((status) => status.id));
   // Same source, different translation compares across the project: one extra query, only when asked.
@@ -126,7 +129,7 @@ export function findLines(db: Db, projectId: string, filter: LineFilter, options
       source: unit.source,
       translation: unit.translation,
       status: statusName.get(unit.statusId) ?? unit.statusId,
-      tags: tagRows.filter((row) => row.unitId === unit.id).map((row) => tagName.get(row.tagId) ?? row.tagId),
+      tags: tagsByUnit.get(unit.id) ?? [],
       marks: [...lineMarksOf(unit, finalStatus.has(unit.statusId)), ...(diverged?.has(unit.id) ? (['diverged'] as const) : [])],
     })),
   };
