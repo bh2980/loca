@@ -175,7 +175,9 @@ const labelWidth = (text: string) => Math.min(240, 30 + Math.ceil(text.length * 
 const OPTIONS = {
   'elk.algorithm': 'layered',
   'elk.direction': 'DOWN',
-  'elk.edgeRouting': 'ORTHOGONAL',
+  // Curves, not right angles: where branches part and meet again, right-angled edges share their
+  // horizontal runs like bus lines and cannot be followed; each curve stays its own line.
+  'elk.edgeRouting': 'SPLINES',
   'elk.edgeLabels.placement': 'CENTER',
   'elk.separateConnectedComponents': 'true',
   'elk.layered.cycleBreaking.strategy': 'DEPTH_FIRST',
@@ -265,7 +267,9 @@ async function layout(job: LayoutJob): Promise<LayoutData> {
       }
       const original = ends.get(edge.id)!;
       const label = edge.labels?.[0];
-      return { id: edge.id, from: original.from, to: original.to, points: points.map((value) => Math.round(value)), ...(label?.x !== undefined && { labelAt: [Math.round(label.x), Math.round(label.y ?? 0), Math.round(label.width ?? 0), Math.round(label.height ?? 0)] as [number, number, number, number] }) };
+      // Spline routing gives start, then (control, control, end) triples per piece: drawn as Béziers.
+      const curved = (edge.sections ?? []).length === 1 && points.length >= 8 && (points.length / 2 - 1) % 3 === 0;
+      return { id: edge.id, from: original.from, to: original.to, points: points.map((value) => Math.round(value)), ...(curved && { curved: true as const }), ...(label?.x !== undefined && { labelAt: [Math.round(label.x), Math.round(label.y ?? 0), Math.round(label.width ?? 0), Math.round(label.height ?? 0)] as [number, number, number, number] }) };
     }),
     regions: [
       ...(loose ? [{ label: `연결 없는 노드 ${isolated.length.toLocaleString()}개`, x: offsetX, y: 0, width: loose.width ?? 0, height: loose.height ?? 0 }] : []),

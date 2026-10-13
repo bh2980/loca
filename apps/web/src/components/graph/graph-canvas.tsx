@@ -30,6 +30,8 @@ export interface LayoutEdge {
   via?: string;
   /** Where the layout put the label: x, y, width, height. */
   labelAt?: [number, number, number, number];
+  /** Points are a start and (control, control, end) triples: drawn as Bézier curves. */
+  curved?: true;
 }
 
 /** An edge label's box: where the layout put it, else centred on the middle of the line. */
@@ -285,7 +287,7 @@ export function GraphCanvas({ nodes, regions = [], edges, looseEdges, hubs, info
     context.beginPath();
     for (const i of visibleEdges) {
       if (selectedEdges?.has(String(i))) continue;
-      tracePolyline(context, edges[i].points);
+      traceEdge(context, edges[i]);
     }
     context.stroke();
     context.globalAlpha = 1;
@@ -294,7 +296,7 @@ export function GraphCanvas({ nodes, regions = [], edges, looseEdges, hubs, info
       context.strokeStyle = selectColor;
       context.lineWidth = Math.max(2, 2.4 / t.k);
       context.beginPath();
-      for (const key of selectedEdges) tracePolyline(context, edges[Number(key)].points);
+      for (const key of selectedEdges) traceEdge(context, edges[Number(key)]);
       context.stroke();
       for (const key of selectedEdges) arrowHead(context, edges[Number(key)].points, 9, selectColor, 1);
     }
@@ -557,6 +559,13 @@ function drawHub(context: CanvasRenderingContext2D, node: LayoutNode, hub: HubIn
     context.fillText(`연결점 · 장면 ${hub.scenes}개`, node.x + node.width / 2, node.y + node.height / 2);
     context.restore();
   }
+}
+
+function traceEdge(context: CanvasRenderingContext2D, edge: LayoutEdge) {
+  const p = edge.points;
+  if (!edge.curved) return tracePolyline(context, p);
+  context.moveTo(p[0], p[1]);
+  for (let i = 2; i + 5 < p.length; i += 6) context.bezierCurveTo(p[i], p[i + 1], p[i + 2], p[i + 3], p[i + 4], p[i + 5]);
 }
 
 function tracePolyline(context: CanvasRenderingContext2D, points: number[]) {
