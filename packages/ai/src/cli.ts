@@ -1,15 +1,22 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { execa, ExecaError } from 'execa';
+import { execa, ExecaError, type Options } from 'execa';
 import { z } from 'zod';
 import type { ConnectionKind } from '@tw/shared';
+import { cliSpawn } from './spawn.ts';
 import { keepOutput, ModelError, TOO_LONG, withOutput } from './errors.ts';
 import { addUsage, readUsage, type GenerateRequest, type GenerateResult, type ResolvedRoute, type Usage } from './types.ts';
 
 type CliKind = Extract<ConnectionKind, 'codex' | 'claude' | 'grok' | 'antigravity' | 'opencode'>;
 
 const COMMAND: Record<CliKind, string> = { codex: 'codex', claude: 'claude', grok: 'grok', antigravity: 'agy', opencode: 'opencode' };
+
+/** execa for a CLI: on Windows an npm shim runs as `node <script>` (see cliSpawn). */
+export function execaCli<O extends Options>(command: string, args: readonly string[], options: O) {
+  const spawn = cliSpawn(command, [...args]);
+  return execa(spawn.file, spawn.args, { ...options, ...(spawn.windowsVerbatimArguments && { windowsVerbatimArguments: true }) });
+}
 
 export const cliCommand = (kind: CliKind, executable?: string) => executable?.trim() || COMMAND[kind];
 
@@ -208,7 +215,7 @@ export async function cliGenerate<T>(route: ResolvedRoute, request: GenerateRequ
     (kind === 'opencode' ? `\n\nAnswer with one JSON value that follows this JSON Schema, and nothing else:\n${JSON.stringify(schema)}` : '');
   try {
     await Promise.all([writeFile(files.schema, JSON.stringify(schema)), writeFile(files.prompt, prompt), ...(kind === 'codex' ? [writeFile(files.instructions, instructions)] : [])]);
-    const result = await execa(cliCommand(kind, route.executable), args(kind, route, schema, files, request.timeoutMs), {
+    const result = await execaCli(cliCommand(kind, route.executable), args(kind, route, schema, files, request.timeoutMs), {
       cwd: dir,
       input: kind === 'grok' ? undefined : kind === 'antigravity' ? `${JSON.stringify({ event: 'user', message: { role: 'user', content: prompt } })}\n` : prompt,
       timeout: request.timeoutMs,
@@ -256,7 +263,7 @@ export async function cliGenerate<T>(route: ResolvedRoute, request: GenerateRequ
 
 export async function cliVersion(kind: CliKind, executable?: string): Promise<string> {
   try {
-    const result = await execa(cliCommand(kind, executable), ['--version'], { timeout: 15_000, windowsHide: true });
+    const result = await execaCli(cliCommand(kind, executable), ['--version'], { timeout: 15_000, windowsHide: true });
     return result.stdout.trim().split('\n')[0].slice(0, 120);
   } catch (error) {
     if (error instanceof ExecaError && error.code === 'ENOENT')
@@ -299,7 +306,7 @@ export async function cliModels(kind: CliKind, executable?: string): Promise<str
   if (!parse) return null;
   try {
     // grok exits non-zero when signed out but still prints the list, so the exit code is not trusted.
-    const result = await execa(cliCommand(kind, executable), MODEL_ARGS[kind]!, { timeout: 60_000, windowsHide: true, reject: false, stdin: 'ignore' });
+    const result = await execaCli(cliCommand(kind, executable), MODEL_ARGS[kind]!, { timeout: 60_000, windowsHide: true, reject: false, stdin: 'ignore' });
     if (result.failed && 'code' in result && result.code === 'ENOENT') throw new ModelError('config', `CLI를 찾지 못했습니다: ${cliCommand(kind, executable)}`, false);
     let models: string[] = [];
     try {
@@ -341,7 +348,7 @@ export async function openLoginTerminal(kind: CliKind, executable?: string): Pro
 export async function cliLoginStatus(kind: CliKind, executable?: string): Promise<'signed-in' | 'signed-out' | 'unknown'> {
   const statusArgs = kind === 'codex' ? ['login', 'status'] : kind === 'claude' ? ['auth', 'status'] : undefined;
   if (!statusArgs) return 'unknown';
-  const result = await execa(cliCommand(kind, executable), statusArgs, { timeout: 20_000, reject: false, windowsHide: true });
+  const result = await execaCli(cliCommand(kind, executable), statusArgs, { timeout: 20_000, reject: false, windowsHide: true });
   if (result.failed && result.exitCode === undefined) return 'unknown';
   return result.exitCode === 0 ? 'signed-in' : 'signed-out';
 }
