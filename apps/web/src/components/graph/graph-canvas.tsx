@@ -34,15 +34,46 @@ export interface LayoutEdge {
   curved?: true;
 }
 
-/** An edge label's box: where the layout put it, else centred on the middle of the line. */
+/**
+ * An edge label's box, centred on the middle of the line (by length) so it sits on the edge like
+ * a relationship label: on a curve, the point halfway along the Bézier pieces.
+ */
 function labelBox(edge: LayoutEdge): [number, number, number, number] | null {
   if (!edge.label) return null;
-  if (edge.labelAt) return edge.labelAt;
-  const width = Math.min(240, 30 + Math.ceil(edge.label.length * 8));
+  const width = edge.labelAt?.[2] || Math.min(240, 30 + Math.ceil(edge.label.length * 8));
+  const height = 22;
+  const [x, y] = midpoint(edge);
+  return [x - width / 2, y - height / 2, width, height];
+}
+
+/** The point halfway along an edge: sampled along its Bézier pieces when curved, else its segments. */
+function midpoint(edge: LayoutEdge): [number, number] {
   const p = edge.points;
-  const half = Math.floor(p.length / 4) * 2;
-  const [x1, y1, x2, y2] = [p[half - 2] ?? p[0], p[half - 1] ?? p[1], p[half] ?? p[0], p[half + 1] ?? p[1]];
-  return [(x1 + x2) / 2 - width / 2, (y1 + y2) / 2 - 11, width, 22];
+  const samples: [number, number][] = [];
+  if (edge.curved) {
+    samples.push([p[0], p[1]]);
+    for (let i = 2; i + 5 < p.length; i += 6) {
+      const [x0, y0] = samples[samples.length - 1];
+      for (let s = 1; s <= 12; s++) {
+        const u = s / 12, v = 1 - u;
+        samples.push([
+          v * v * v * x0 + 3 * v * v * u * p[i] + 3 * v * u * u * p[i + 2] + u * u * u * p[i + 4],
+          v * v * v * y0 + 3 * v * v * u * p[i + 1] + 3 * v * u * u * p[i + 3] + u * u * u * p[i + 5],
+        ]);
+      }
+    }
+  } else for (let i = 0; i + 1 < p.length; i += 2) samples.push([p[i], p[i + 1]]);
+  if (samples.length < 2) return samples[0] ?? [0, 0];
+  const lengths = samples.slice(1).map(([x, y], i) => Math.hypot(x - samples[i][0], y - samples[i][1]));
+  let half = lengths.reduce((sum, length) => sum + length, 0) / 2;
+  for (let i = 0; i < lengths.length; i++) {
+    if (half <= lengths[i] && lengths[i] > 0) {
+      const f = half / lengths[i];
+      return [samples[i][0] + (samples[i + 1][0] - samples[i][0]) * f, samples[i][1] + (samples[i + 1][1] - samples[i][1]) * f];
+    }
+    half -= lengths[i];
+  }
+  return samples[samples.length - 1];
 }
 export interface NodeInfo {
   id: string;
