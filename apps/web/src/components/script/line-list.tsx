@@ -482,8 +482,8 @@ export function LineList({
                     <div className="min-w-0">
                       {selected ? (
                         <>
-                          <TranslationEditor key={line.id} projectId={projectId} unit={line} statuses={statusList} focusKey={focusTick} onEscape={() => setEditing(false)} onDone={(advanced) => (advanced ? advanceFrom(line.id) : undefined)} />
-                          <LineNote key={line.id} unitId={line.id} note={line.note} editing={noting} onEditing={setNoting} />
+                          <TranslationEditor key={`editor-${line.id}`} projectId={projectId} unit={line} statuses={statusList} focusKey={focusTick} onEscape={() => setEditing(false)} onDone={(advanced) => (advanced ? advanceFrom(line.id) : undefined)} />
+                          <LineNote key={`note-${line.id}`} unitId={line.id} note={line.note} editing={noting} onEditing={setNoting} />
                           <LineHints projectId={projectId} line={line} />
                         </>
                       ) : (
