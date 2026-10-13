@@ -20,20 +20,25 @@ import { memoryStore } from '../apps/server/src/services/secrets.ts';
 import { createRun, Runner, type ModelPort } from '../apps/server/src/engine/runner.ts';
 import { DEFAULT_OPTIONS, PROFILES, makeRand, respond, type MockOptions } from './mock-llm-core.ts';
 import { realistic } from './realistic-sample.ts';
+import { compare } from './budget-compare.ts';
 
 const BASELINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'budget-baseline.json');
 const DEFAULT_SIZE = 9000;
 const SEED = 7;
-const TOLERANCE = { calls: 0.1, inputPerLine: 0.1, failedShare: 0.02 };
 
 interface Scenario {
   name: string;
   workflow: string;
   profiles: string[];
+  /** Workflow settings this scenario overrides. */
+  settings?: { maxConsecutiveFailures?: number };
 }
 const SCENARIOS: Scenario[] = [
   { name: 'translate-cli', workflow: '기본 번역', profiles: ['cli-like'] },
-  { name: 'translate-faulty', workflow: '기본 번역', profiles: ['cli-like', 'faulty'] },
+  // ~6% of calls fail here, and which ones depends on timing (batches gather on the clock), so three
+  // failures in a row — the default pause guard — came up in about 1 run in 4 and made its cost
+  // incomparable. This scenario measures what faults cost in a finished run; the guard has its own tests.
+  { name: 'translate-faulty', workflow: '기본 번역', profiles: ['cli-like', 'faulty'], settings: { maxConsecutiveFailures: 10 } },
   { name: 'listener-cli', workflow: '청자 추정', profiles: ['cli-like'] },
   { name: 'terms-cli', workflow: '용어 추출', profiles: ['cli-like'] },
   { name: 'knowledge-cli', workflow: '자료 갱신', profiles: ['cli-like'] },
@@ -43,6 +48,8 @@ export interface Metrics {
   linesInScope: number;
   status: string;
   notice: string | null;
+  /** Lines with work still queued or running when the run stopped. */
+  unfinishedLines: number;
   calls: number;
   failedCalls: number;
   callsByNode: Record<string, number>;
@@ -97,8 +104,10 @@ async function runScenario(scenario: Scenario, size: number): Promise<Metrics> {
   const { projectId } = importProject(db, importFileSchema.parse(file), choice);
   // New projects no longer get "자료 갱신"; it stays a template of "새 워크플로", so the scenario adds it itself.
   if (scenario.workflow === '자료 갱신') db.insert(s.workflows).values({ projectId, name: scenario.workflow, definition: knowledgeTemplate({ model: choice }) }).run();
-  const workflow = db.select().from(s.workflows).all().find((row) => row.projectId === projectId && row.name === scenario.workflow);
+  let workflow = db.select().from(s.workflows).all().find((row) => row.projectId === projectId && row.name === scenario.workflow);
   if (!workflow) throw new Error(`workflow "${scenario.workflow}" is not among the imported templates`);
+  // The run takes its definition from here (a snapshot), so the override needs no write.
+  if (scenario.settings) workflow = { ...workflow, definition: { ...workflow.definition, settings: { ...workflow.definition.settings, ...scenario.settings } } };
   const { runId } = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: { ignoreStatus: true } });
 
   const started = performance.now();
@@ -108,7 +117,9 @@ async function runScenario(scenario: Scenario, size: number): Promise<Metrics> {
   // The database is fresh per scenario, so every row belongs to this run.
   const run = db.select().from(s.runs).all().find((row) => row.id === runId)!;
   const steps = db.select({ nodeId: s.runSteps.nodeId, ok: s.runSteps.ok, units: s.runSteps.unitIds, input: s.runSteps.inputTokens, cached: s.runSteps.cachedInputTokens, output: s.runSteps.outputTokens }).from(s.runSteps).all();
-  const failed = new Set(db.select({ unitId: s.runItems.unitId, state: s.runItems.state }).from(s.runItems).all().filter((item) => item.state === 'failed').map((item) => item.unitId));
+  const items = db.select({ unitId: s.runItems.unitId, state: s.runItems.state }).from(s.runItems).all();
+  const failed = new Set(items.filter((item) => item.state === 'failed').map((item) => item.unitId));
+  const unfinished = new Set(items.filter((item) => item.state === 'queued' || item.state === 'running').map((item) => item.unitId));
 
   const label = (id: string) => workflow.definition.nodes.find((node) => node.id === id)?.label ?? id;
   const callsByNode: Record<string, number> = {};
@@ -121,6 +132,7 @@ async function runScenario(scenario: Scenario, size: number): Promise<Metrics> {
     linesInScope: lines,
     status: run.status,
     notice: run.notice,
+    unfinishedLines: unfinished.size,
     calls,
     failedCalls: steps.filter((step) => !step.ok).length,
     callsByNode,
@@ -140,23 +152,8 @@ async function runScenario(scenario: Scenario, size: number): Promise<Metrics> {
 
 interface Baseline {
   size: number;
-  scenarios: Record<string, Pick<Metrics, 'calls' | 'inputPerLine' | 'failedLineShare'> & Partial<Metrics>>;
-}
-
-/** Regressions (fail) and improvements (note) of one scenario against its baseline. */
-export function compare(now: Metrics, base: Baseline['scenarios'][string]) {
-  const regressions: string[] = [];
-  const improvements: string[] = [];
-  const relative = (name: string, a: number, b: number, tolerance: number) => {
-    if (a > b * (1 + tolerance)) regressions.push(`${name} ${b} → ${a} (+${(((a - b) / b) * 100).toFixed(0)}%, allowed +${tolerance * 100}%)`);
-    else if (a < b * (1 - tolerance)) improvements.push(`${name} ${b} → ${a}`);
-  };
-  relative('model calls', now.calls, base.calls, TOLERANCE.calls);
-  relative('input tokens per line', now.inputPerLine, base.inputPerLine, TOLERANCE.inputPerLine);
-  const delta = now.failedLineShare - base.failedLineShare;
-  if (delta > TOLERANCE.failedShare) regressions.push(`failed-line share ${pct(base.failedLineShare)} → ${pct(now.failedLineShare)} (allowed +${TOLERANCE.failedShare * 100} points)`);
-  else if (delta < -TOLERANCE.failedShare) improvements.push(`failed-line share ${pct(base.failedLineShare)} → ${pct(now.failedLineShare)}`);
-  return { regressions, improvements };
+  /** Each scenario's expected end (status, unfinishedLines) and the costs of that run. */
+  scenarios: Record<string, Pick<Metrics, 'status' | 'calls' | 'inputPerLine' | 'failedLineShare'> & Partial<Metrics>>;
 }
 
 const pct = (value: number) => `${(value * 100).toFixed(1)}%`;
@@ -167,6 +164,7 @@ function table(results: Record<string, Metrics>) {
   const rows: [string, (m: Metrics) => string][] = [
     ['lines in scope', (m) => num(m.linesInScope)],
     ['run status', (m) => m.status],
+    ['unfinished lines', (m) => num(m.unfinishedLines)],
     ['model calls', (m) => num(m.calls)],
     ['  failed calls', (m) => num(m.failedCalls)],
     ['calls per 100 lines', (m) => String(m.callsPer100Lines)],
