@@ -26,9 +26,18 @@ export function StatusBadge({ status, className }: { status?: StatusLike; classN
   );
 }
 
+/**
+ * A tag's chip colors: a light tint of the color behind text darkened toward the foreground, so
+ * light colors (amber, gray) stay readable; in dark mode the foreground is light and the mix follows.
+ */
+export const chipStyle = (color: string) => ({
+  backgroundColor: `color-mix(in oklab, ${color} 16%, transparent)`,
+  color: `color-mix(in oklab, ${color} 55%, var(--foreground))`,
+});
+
 export function TagChip({ tag }: { tag: StatusLike }) {
   return (
-    <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium" style={{ backgroundColor: `${tag.color}1f`, color: tag.color }}>
+    <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium" style={chipStyle(tag.color)}>
       #{tag.name}
     </span>
   );
@@ -43,7 +52,7 @@ export function MarkChip({ mark, projectId, className }: { mark: AutoMark; proje
   const colors = useMarkColors(projectId ?? params.projectId);
   const color = markColor(mark, colors);
   return (
-    <span className={cn('inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium whitespace-nowrap', className)} style={{ backgroundColor: `${color}1f`, color }} title={AUTO_MARKS[mark].description}>
+    <span className={cn('inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium whitespace-nowrap', className)} style={chipStyle(color)} title={AUTO_MARKS[mark].description}>
       #{AUTO_MARKS[mark].name}
     </span>
   );

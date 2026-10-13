@@ -8,7 +8,7 @@ import { DataTable, type ColumnDef } from '@/components/data-table';
 import { DetailPane, FieldRow, PaneSection } from '@/components/detail-pane';
 import { Page } from '@/components/page';
 import { SplitPane } from '@/components/split-pane';
-import { MarkChip, StatusDot } from '@/components/status';
+import { chipStyle, MarkChip, StatusDot, TagChip } from '@/components/status';
 import { Toolbar } from '@/components/toolbar';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
@@ -194,29 +194,45 @@ function StatusSettings() {
     { id: 'human', header: '사람만 지정', meta: { width: 104 }, cell: ({ row }) => (row.original.humanOnly ? '사람만' : <span className="text-muted-foreground">–</span>) },
     { id: 'units', header: '대사 수', meta: { width: 96, align: 'end' }, cell: ({ row }) => row.original.units.toLocaleString() },
   ];
-  const tagColumns: ColumnDef<TagRowData, unknown>[] = [
+  // One table: the built-in tags first (marks the app reads off, then tags the app puts on), then the person's own.
+  type AnyTag = { id: string; mark?: AutoMark; tag?: TagRowData };
+  const allTags: AnyTag[] | undefined = tags && [
+    ...AUTO_MARK_IDS.map((mark) => ({ id: `mark:${mark}`, mark })),
+    ...tags.filter((tag) => tag.role).map((tag) => ({ id: tag.id, tag })),
+    ...tags.filter((tag) => !tag.role).map((tag) => ({ id: tag.id, tag })),
+  ];
+  const tagColumns: ColumnDef<AnyTag, unknown>[] = [
     {
       id: 'name',
       header: '이름',
+      meta: { width: 220 },
       cell: ({ row }) => (
-        <span className="inline-flex items-center gap-2 font-medium">
-          <StatusDot color={row.original.color} className="size-2.5" />#{row.original.name}
-          {row.original.role && (
-            <span className="text-xs font-normal text-muted-foreground" title={row.original.role === REVIEW_TAG.role ? '앱이 확인이 필요한 자료에 붙입니다. 지우거나 이름을 바꿀 수 없고, 색은 바꿀 수 있습니다.' : '검사·검수가 문제를 찾으면 붙이고, 고치면 뗍니다. 지우거나 이름을 바꿀 수 없고, 색은 바꿀 수 있습니다.'}>
-              기본 · {row.original.role === REVIEW_TAG.role ? '확인 권장' : '문제 유형'}
-            </span>
-          )}
+        <span className="inline-flex items-center gap-2">
+          {row.original.mark ? <MarkChip mark={row.original.mark} projectId={projectId} /> : <TagChip tag={row.original.tag!} />}
+          {(row.original.mark || row.original.tag?.role) && <span className="text-xs text-muted-foreground">기본</span>}
         </span>
       ),
     },
-    { id: 'units', header: '대사 수', meta: { width: 96, align: 'end' }, cell: ({ row }) => row.original.units.toLocaleString() },
-  ];
-
-  const markRows = AUTO_MARK_IDS.map((id) => ({ id }));
-  const markColumns: ColumnDef<{ id: AutoMark }, unknown>[] = [
-    { id: 'name', header: '이름', meta: { width: 200 }, cell: ({ row }) => <MarkChip mark={row.original.id} projectId={projectId} /> },
-    { id: 'on', header: '붙는 곳', meta: { width: 160, className: 'text-muted-foreground' }, cell: ({ row }) => AUTO_MARKS[row.original.id].on.map((where) => ON_LABELS[where]).join(' · ') },
-    { id: 'description', header: '뜻', meta: { className: 'text-muted-foreground' }, cell: ({ row }) => AUTO_MARKS[row.original.id].description },
+    {
+      id: 'on',
+      header: '붙는 곳',
+      meta: { width: 140, className: 'text-muted-foreground' },
+      cell: ({ row }) => (row.original.mark ? AUTO_MARKS[row.original.mark].on.map((where) => ON_LABELS[where]).join(' · ') : row.original.tag?.role === REVIEW_TAG.role ? '자료' : '대사'),
+    },
+    {
+      id: 'description',
+      header: '뜻',
+      meta: { className: 'text-muted-foreground' },
+      cell: ({ row }) =>
+        row.original.mark
+          ? AUTO_MARKS[row.original.mark].description
+          : row.original.tag?.role === REVIEW_TAG.role
+            ? '분석이 확인이 필요하다고 본 자료. 사람이 정하거나 고치면 떨어짐'
+            : row.original.tag?.role
+              ? '검사·검수가 찾은 문제 유형. 고치면 떨어짐'
+              : '',
+    },
+    { id: 'units', header: '붙은 수', meta: { width: 88, align: 'end' }, cell: ({ row }) => (row.original.tag ? row.original.tag.units.toLocaleString() : <span className="text-muted-foreground">–</span>) },
   ];
 
   const pane =
@@ -274,7 +290,7 @@ function StatusSettings() {
           />
           <Toolbar
             className="mt-8 border-t"
-            count={tags ? `${tags.length}개` : undefined}
+            count={allTags ? `${allTags.length}개` : undefined}
             actions={
               <Button variant="outline" onClick={() => open({ tag: 'new' })}>
                 <Plus /> 추가
@@ -283,17 +299,18 @@ function StatusSettings() {
           >
             <div>
               <h2 className="text-sm font-semibold">태그</h2>
-              <p className="text-xs text-muted-foreground">상태와 별개로 대사에 여러 개 붙이는 표시입니다(예: #재검토, #폰트확인). 스크립트에서 골라 붙이거나 상태 변경 노드로 붙이고, 워크플로 실행 범위나 조건에 씁니다.</p>
+              <p className="text-xs text-muted-foreground">상태와 별개로 여러 개 붙는 표시입니다. 필터·실행 범위·워크플로 조건에서 고릅니다. ‘기본’은 앱이 붙이거나 읽어 내는 태그로, 지우거나 이름을 바꿀 수 없고 색만 바꿉니다. 내 태그(예: #재검토)는 대사를 골라 붙이거나 상태 변경 노드로 붙입니다.</p>
             </div>
           </Toolbar>
-          <DataTable id="tags" className="flex-none" columns={tagColumns} rows={tags} rowId={(row) => row.id} selected={search.tag} empty="태그가 없습니다." onRowClick={(row) => open({ tag: row.id })} />
-          <Toolbar className="mt-8 border-t" count={`${markRows.length}개`}>
-            <div>
-              <h2 className="text-sm font-semibold">기본 태그 (자동)</h2>
-              <p className="text-xs text-muted-foreground">앱이 대사·자료·용어에서 읽어 내는 사실입니다. 붙이거나 떼지 않고, 지울 수 없으며, 색만 바꿀 수 있습니다. 필터와 실행 범위에서 다른 태그처럼 고릅니다.</p>
-            </div>
-          </Toolbar>
-          <DataTable id="marks" className="flex-none" columns={markColumns} rows={markRows} rowId={(row) => row.id} selected={search.mark} onRowClick={(row) => open({ mark: row.id })} />
+          <DataTable
+            id="tags"
+            className="flex-none"
+            columns={tagColumns}
+            rows={allTags}
+            rowId={(row) => row.id}
+            selected={search.mark ? `mark:${search.mark}` : search.tag}
+            onRowClick={(row) => open(row.mark ? { mark: row.mark } : { tag: row.id })}
+          />
         </div>
       </SplitPane>
 
@@ -461,7 +478,7 @@ function MarkPane({ mark, color, pending, onClose, onSave }: { mark: AutoMark; c
           <Field>
             <FieldLabel>미리보기</FieldLabel>
             <span>
-              <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium" style={{ backgroundColor: `${draft}1f`, color: draft }}>
+              <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium" style={chipStyle(draft)}>
                 #{info.name}
               </span>
             </span>
