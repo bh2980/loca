@@ -238,7 +238,7 @@ function JobCalls({ projectId, job, onClose }: { projectId: string; job: { id: s
                 {call.inputTokens != null && ` · 입력 ${call.inputTokens.toLocaleString()}${call.cachedInputTokens ? `(캐시 ${call.cachedInputTokens.toLocaleString()})` : ''} / 출력 ${(call.outputTokens ?? 0).toLocaleString()}`}
               </p>
               {call.error && <p className="text-xs break-words text-destructive">{call.error}</p>}
-              {call.hasRequest && <SentRequest projectId={projectId} callId={call.id} />}
+              {(call.hasRequest || call.hasResponse) && <SentRequest projectId={projectId} callId={call.id} hasRequest={call.hasRequest} hasResponse={call.hasResponse} />}
             </li>
           ))}
         </ul>
@@ -248,33 +248,42 @@ function JobCalls({ projectId, job, onClose }: { projectId: string; job: { id: s
   );
 }
 
-/** What a request sent, on demand: its size first, the text when opened (it can be a whole script). */
-function SentRequest({ projectId, callId }: { projectId: string; callId: string }) {
+/** What a request sent and what a failed one printed, on demand: sizes first, the text when opened (it can be a whole script). */
+function SentRequest({ projectId, callId, hasRequest, hasResponse }: { projectId: string; callId: string; hasRequest: boolean; hasResponse: boolean }) {
   const [open, setOpen] = useState(false);
   const request = useQuery({ ...q.aiCallRequest(projectId, callId), enabled: open });
-  const text = request.data?.request ?? '';
   return (
     <Collapsible open={open} onOpenChange={setOpen} className="pt-1">
       <CollapsibleTrigger asChild>
         <Button variant="ghost" size="inline" className="-ml-1 text-muted-foreground">
-          <ChevronRight className={cn('transition-transform', open && 'rotate-90')} /> 보낸 내용
+          <ChevronRight className={cn('transition-transform', open && 'rotate-90')} /> {hasRequest ? (hasResponse ? '보낸 내용 · 받은 출력' : '보낸 내용') : '받은 출력'}
         </Button>
       </CollapsibleTrigger>
-      <CollapsibleContent className="mt-1 space-y-1">
+      <CollapsibleContent className="mt-1 space-y-2">
         {!request.data ? (
           <Skeleton className="h-16" />
         ) : (
           <>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span className="tabular-nums">{text.length.toLocaleString()}자 · 약 {Math.round(new TextEncoder().encode(text).length / 4).toLocaleString()} 토큰 (추정)</span>
-              <Button variant="ghost" size="inline" className="ml-auto" onClick={() => void navigator.clipboard.writeText(text).then(() => toast.success('보낸 내용을 복사했습니다'))}>
-                <Copy /> 복사
-              </Button>
-            </div>
-            <pre className="max-h-96 overflow-auto rounded-md border bg-muted/40 p-2 font-mono text-xs break-words whitespace-pre-wrap">{text}</pre>
+            {request.data.request != null && <CallText label="보낸 내용" text={request.data.request} />}
+            {request.data.response != null && <CallText label="받은 출력 (실패 전까지)" text={request.data.response} />}
           </>
         )}
       </CollapsibleContent>
     </Collapsible>
+  );
+}
+
+function CallText({ label, text }: { label: string; text: string }) {
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <span>{label}</span>
+        <span className="tabular-nums">{text.length.toLocaleString()}자 · 약 {Math.round(new TextEncoder().encode(text).length / 4).toLocaleString()} 토큰 (추정)</span>
+        <Button variant="ghost" size="inline" className="ml-auto" onClick={() => void navigator.clipboard.writeText(text).then(() => toast.success(`${label}을 복사했습니다`))}>
+          <Copy /> 복사
+        </Button>
+      </div>
+      <pre className="max-h-96 overflow-auto rounded-md border bg-muted/40 p-2 font-mono text-xs break-words whitespace-pre-wrap">{text}</pre>
+    </div>
   );
 }

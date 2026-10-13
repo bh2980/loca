@@ -108,6 +108,7 @@ describe.each(KINDS)('fake $kind CLI', ({ kind, bin, anthropicStyle, reportsCost
       expect(error.transient).toBe(false);
       expect(error.usage?.inputTokens, variable).toBeGreaterThan(FIXED);
       expect(error.usage?.cachedInputTokens, variable).toBe(CACHED);
+      expect(error.output, variable).toBeTruthy();
     }
   });
 
@@ -125,6 +126,7 @@ describe.each(KINDS)('fake $kind CLI', ({ kind, bin, anthropicStyle, reportsCost
     const error = await failure(cliGenerate(route(kind, bin), request()));
     expect(error.code).toBe('cli');
     expect(error.message).toContain('exit 3');
+    expect(error.output).toContain('fake CLI crashed');
   });
 
   it('kills the process on timeout', async () => {

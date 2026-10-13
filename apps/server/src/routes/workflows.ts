@@ -162,8 +162,8 @@ export const workflowRoutes = new Hono<Env>()
     const { kind, status, ref, limit } = c.req.valid('query');
     const where = and(eq(s.aiCalls.projectId, projectId), kind ? eq(s.aiCalls.kind, kind) : undefined, status ? eq(s.aiCalls.status, status) : undefined, ref ? eq(s.aiCalls.refId, ref) : undefined);
     // What was sent can be a whole script; it is fetched one call at a time (below), not listed.
-    const { request: _request, ...listed } = getTableColumns(s.aiCalls);
-    const calls = db.select({ ...listed, hasRequest: sql<boolean>`${s.aiCalls.request} is not null` }).from(s.aiCalls).where(where).orderBy(desc(s.aiCalls.startedAt)).limit(limit).all();
+    const { request: _request, response: _response, ...listed } = getTableColumns(s.aiCalls);
+    const calls = db.select({ ...listed, hasRequest: sql<boolean>`${s.aiCalls.request} is not null`, hasResponse: sql<boolean>`${s.aiCalls.response} is not null` }).from(s.aiCalls).where(where).orderBy(desc(s.aiCalls.startedAt)).limit(limit).all();
     const names = connectionNames(db);
     const totals = db
       .select({
@@ -178,12 +178,12 @@ export const workflowRoutes = new Hono<Env>()
       .where(eq(s.aiCalls.projectId, projectId))
       .groupBy(s.aiCalls.kind)
       .all();
-    return c.json({ calls: calls.map((call) => ({ ...call, hasRequest: Boolean(call.hasRequest), connectionName: connectionName(names, call.connectionId, call.connectionKind) })), totals });
+    return c.json({ calls: calls.map((call) => ({ ...call, hasRequest: Boolean(call.hasRequest), hasResponse: Boolean(call.hasResponse), connectionName: connectionName(names, call.connectionId, call.connectionKind) })), totals });
   })
-  /** What one model request sent (system prompt, then the prompt), when it was kept. */
+  /** What one model request sent (system prompt, then the prompt) and, for a failed one, what it printed before failing; each when kept. */
   .get('/projects/:projectId/ai-calls/:id/request', (c) => {
-    const row = found(c.var.deps.db.select({ request: s.aiCalls.request }).from(s.aiCalls).where(and(eq(s.aiCalls.id, c.req.param('id')), eq(s.aiCalls.projectId, c.req.param('projectId')))).get(), 'AI 호출');
-    return c.json({ request: row.request });
+    const row = found(c.var.deps.db.select({ request: s.aiCalls.request, response: s.aiCalls.response }).from(s.aiCalls).where(and(eq(s.aiCalls.id, c.req.param('id')), eq(s.aiCalls.projectId, c.req.param('projectId')))).get(), 'AI 호출');
+    return c.json({ request: row.request, response: row.response });
   })
   /**
    * How fast a model has answered before, for "보통 약 N분": the median seconds per 1,000 input tokens

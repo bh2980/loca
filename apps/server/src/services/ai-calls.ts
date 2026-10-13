@@ -36,7 +36,7 @@ export function startCall(db: Db, meta: CallMeta, route: Pick<ai.ResolvedRoute, 
     done = true;
     const error = outcome.error === undefined ? null : outcome.error instanceof Error ? outcome.error.message : String(outcome.error);
     db.update(s.aiCalls)
-      .set({ status: error === null ? 'ok' : 'failed', error, ...usageOf(outcome.usage ?? (outcome.error as { usage?: ai.Usage } | undefined)?.usage), finishedAt: new Date() })
+      .set({ status: error === null ? 'ok' : 'failed', error, response: (outcome.error as { output?: string } | undefined)?.output ?? null, ...usageOf(outcome.usage ?? (outcome.error as { usage?: ai.Usage } | undefined)?.usage), finishedAt: new Date() })
       .where(eq(s.aiCalls.id, id))
       .run();
     events.changed(meta.projectId ?? undefined, ...topics);

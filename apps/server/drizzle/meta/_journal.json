@@ -316,6 +316,13 @@
       "when": 1791901430712,
       "tag": "0044_character_style",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "6",
+      "when": 1791903872769,
+      "tag": "0045_ai_call_output",
+      "breakpoints": true
     }
   ]
 }

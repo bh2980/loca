@@ -23,6 +23,8 @@ export class ModelError extends Error {
     readonly transient = code === 'rate-limit' || code === 'network' || code === 'timeout',
     /** What the call used before it failed, when the connection reported it. */
     readonly usage?: Usage,
+    /** What the call printed before it failed (raw CLI output or the partial text), kept for the run record. */
+    readonly output?: string,
   ) {
     super(message);
     this.name = 'ModelError';
@@ -32,6 +34,14 @@ export class ModelError extends Error {
 /** How providers and CLIs word a request that does not fit the model's context window. */
 export const TOO_LONG = /context(_| )?(length|window)|maximum context|prompt is too long|input is too long|too many (input )?tokens|exceeds? (the )?(model'?s? )?(max(imum)?|context)|request (entity )?too large/i;
 const tooLong = (message: string) => new ModelError('too-long', `요청이 모델의 문맥 창보다 깁니다. ${message}`.slice(0, 400), false);
+
+const OUTPUT_KEPT = 200_000;
+/** The tail of what a failed call printed (the end is where it stopped), or undefined when it printed nothing. */
+export const keepOutput = (...parts: (string | undefined)[]) => parts.filter((part) => part?.trim()).join('\n').slice(-OUTPUT_KEPT) || undefined;
+
+/** The same error carrying `output`, for failures raised where the output was not at hand. */
+export const withOutput = (error: ModelError, ...parts: (string | undefined)[]) =>
+  error.output ? error : new ModelError(error.code, error.message, error.transient, error.usage, keepOutput(...parts));
 
 /** AI SDK 7 `LanguageModelUsage` → `Usage`. */
 export function readAiSdkUsage(usage: LanguageModelUsage | undefined): Usage {
@@ -50,7 +60,7 @@ export function toModelError(error: unknown, signal?: AbortSignal): ModelError {
   if (signal?.aborted) return new ModelError('cancelled', '작업이 취소되었습니다.');
   if (NoObjectGeneratedError.isInstance(error)) {
     const usage = readAiSdkUsage(error.usage);
-    return new ModelError('invalid-output', `모델이 형식에 맞는 결과를 만들지 못했습니다 (finishReason: ${error.finishReason ?? 'unknown'}). ${error.message}`.slice(0, 400), false, usage);
+    return new ModelError('invalid-output', `모델이 형식에 맞는 결과를 만들지 못했습니다 (finishReason: ${error.finishReason ?? 'unknown'}). ${error.message}`.slice(0, 400), false, usage, keepOutput(error.text));
   }
   if (APICallError.isInstance(error)) {
     const status = error.statusCode ?? 0;

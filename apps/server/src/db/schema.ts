@@ -277,6 +277,8 @@ export const aiCalls = sqliteTable(
     costUsd: real('cost_usd'),
     /** What was sent (system prompt and prompt), for work analysis and glossary fills; runs keep theirs in run steps. */
     request: text('request'),
+    /** What the call printed before it failed, for failed calls (the CLI's output or the partial text). */
+    response: text('response'),
     startedAt: integer('started_at', { mode: 'timestamp_ms' }).notNull(),
     finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),
   },
