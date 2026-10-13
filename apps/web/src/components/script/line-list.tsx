@@ -378,6 +378,7 @@ export function LineList({
         )}
       </Toolbar>
       {banner}
+      {/* The head row: column labels, or the picked lines' actions (short labels and a container query keep them on one row). */}
       {!!rows?.length && (
         <div className="flex min-h-10 shrink-0 items-center gap-3 border-b px-4 py-1 text-xs text-muted-foreground">
           <Checkbox
@@ -391,14 +392,16 @@ export function LineList({
               <span>번역</span>
             </div>
           ) : (
-            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-              <span className="text-sm font-medium text-foreground tabular-nums">{picked.size.toLocaleString()}개 선택</span>
-              <Button variant="outline" disabled={pickedByAi.length === 0 || check.isPending} title="상태는 그대로 두고 사람이 확인한 것으로 표시합니다(✦ 없앰)" onClick={() => check.mutate(pickedByAi)}>
-                <Check /> 확인함{pickedByAi.length ? ` (${pickedByAi.length})` : ''}
+            <div className="@container/picked flex min-w-0 flex-1 items-center gap-2">
+              <span className="shrink-0 text-sm font-medium text-foreground tabular-nums">{picked.size.toLocaleString()}개</span>
+              <Button variant="outline" disabled={pickedByAi.length === 0 || check.isPending} aria-label="확인함" title="상태는 그대로 두고 사람이 확인한 것으로 표시합니다(✦ 없앰)" onClick={() => check.mutate(pickedByAi)}>
+                <Check />
+                <span className="hidden @lg/picked:inline">확인함</span>
+                {pickedByAi.length ? <span className="tabular-nums">{pickedByAi.length}</span> : null}
               </Button>
               <Select value="" onValueChange={(statusId) => setStatus.mutate(statusId)}>
-                <SelectTrigger size="sm" className="w-36">
-                  <SelectValue placeholder="상태 바꾸기" />
+                <SelectTrigger size="sm" className="w-24 shrink-0" aria-label="상태 바꾸기">
+                  <SelectValue placeholder="상태" />
                 </SelectTrigger>
                 <SelectContent>
                   {statusList.map((item) => (
@@ -412,8 +415,9 @@ export function LineList({
               {lineTags(statuses.data?.tags).length > 0 && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="outline">
-                      <Tags /> 태그
+                    <Button variant="outline" aria-label="태그 붙이기·떼기">
+                      <Tags />
+                      <span className="hidden @md/picked:inline">태그</span>
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="start" className="w-56">
@@ -430,8 +434,9 @@ export function LineList({
                   </DropdownMenuContent>
                 </DropdownMenu>
               )}
-              <Button variant="ghost" className="ml-auto" onClick={stopPicking}>
-                <X /> 선택 해제
+              <Button variant="ghost" className="ml-auto shrink-0" aria-label="선택 해제" title="선택 해제" onClick={stopPicking}>
+                <X />
+                <span className="hidden @xl/picked:inline">선택 해제</span>
               </Button>
             </div>
           )}
@@ -484,6 +489,7 @@ export function LineList({
                         <NoteMark note={line.note} className="mt-px" />
                         {marked && <span className="shrink-0 text-warning">● {find!.label}</span>}
                         {selected && line.kind === 'dialogue' && <span className={cn('truncate', who.unknown && 'text-warning')}>→ {who.text}</span>}
+                        {!selected && line.kind === 'dialogue' && who.unknown && <span className="shrink-0 text-warning">#{AUTO_MARKS.unknownListener}</span>}
                         {selected && <LineLinks projectId={projectId} unitId={line.id} hasNote={!!line.note} onNote={() => setNoting(true)} onDetail={() => onSearch({ detail: true }, { replace: true })} />}
                       </p>
                       {selected ? (
@@ -776,8 +782,8 @@ function BulkListener({ speakers, cast, onPick }: { speakers: string[]; cast: st
     );
   return (
     <Select value="" onValueChange={(next) => (next === TYPE_NAME ? setTyping('') : onPick(next === '-' ? null : next))}>
-      <SelectTrigger size="sm" className="w-36">
-        <SelectValue placeholder="청자 바꾸기" />
+      <SelectTrigger size="sm" className="w-24 shrink-0" aria-label="청자 바꾸기">
+        <SelectValue placeholder="청자" />
       </SelectTrigger>
       <SelectContent>
         <SelectItem value="-">미상</SelectItem>

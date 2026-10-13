@@ -465,7 +465,7 @@ export type RunStatus = 'running' | 'paused' | 'cancelled' | 'completed';
 export interface RunScope {
   groupIds?: string[];
   unitIds?: string[];
-  /** Lines carrying any of these tags. */
+  /** Lines carrying every one of these tags. */
   tagIds?: string[];
   /** Automatic marks (services/line-marks.ts): lines must have every one of them. */
   marks?: ('remaining' | 'ai' | 'unknownListener' | 'diverged' | 'noted')[];

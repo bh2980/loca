@@ -2,6 +2,7 @@ import { AGENT_TOOLS } from '@tw/shared';
 import { useNavigate, useParams } from '@tanstack/react-router';
 import { Check, ChevronRight, CircleAlert, Network, Wrench, X } from 'lucide-react';
 import { toast } from 'sonner';
+import { AUTO_MARKS, type AutoMark } from '@/lib/marks';
 import { workflowEdits, type WorkflowNodeEdit } from '@/lib/workflow-edits';
 import { ProposalCard, type Proposal } from './proposal-card';
 import { Markdown } from './markdown';
@@ -109,7 +110,7 @@ export function ChangePreview({ name, input }: { name: string; input: Record<str
     }
     case 'start_run': {
       const count = (key: string) => ((input[key] as unknown[] | undefined) ?? []).length;
-      const scope = [count('groupIds') && `장면·묶음 ${count('groupIds')}개`, count('unitIds') && `대사 ${count('unitIds')}개`, count('tagIds') && `태그 ${count('tagIds')}개`].filter(Boolean).join(', ') || '진입 조건에 맞는 모든 대사';
+      const scope = [count('groupIds') && `장면·묶음 ${count('groupIds')}개`, count('unitIds') && `대사 ${count('unitIds')}개`, count('tagIds') && `태그 ${count('tagIds')}개`, ...((input.marks as AutoMark[] | undefined) ?? []).map((mark) => `#${AUTO_MARKS[mark] ?? mark}`)].filter(Boolean).join(', ') || '진입 조건에 맞는 모든 대사';
       return (
         <dl className="space-y-1">
           {field('워크플로', input.workflowId)}

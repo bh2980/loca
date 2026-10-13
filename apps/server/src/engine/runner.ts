@@ -787,8 +787,8 @@ export function selectRunUnits(db: Db, projectId: string, definition: WorkflowDe
   // A scope can name every line of a large project; long lists travel as one JSON parameter.
   if (scope.groupIds?.length) conditions.push(inList(s.units.groupId, scope.groupIds));
   if (scope.unitIds?.length) conditions.push(inList(s.units.id, scope.unitIds));
-  if (scope.tagIds?.length) conditions.push(inArray(s.units.id, db.select({ id: s.unitTags.unitId }).from(s.unitTags).where(inList(s.unitTags.tagId, scope.tagIds))));
-  // Marks are facts about a line and always combine with AND (tags: any of them).
+  // Tags and marks combine with AND, like the line list's filter: a line must carry every one picked.
+  for (const tagId of scope.tagIds ?? []) conditions.push(inArray(s.units.id, db.select({ id: s.unitTags.unitId }).from(s.unitTags).where(eq(s.unitTags.tagId, tagId))));
   conditions.push(...markConditions(projectId, scope.marks));
   return db.select({ id: s.units.id }).from(s.units).where(and(...conditions)).all().map((row) => row.id);
 }

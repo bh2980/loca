@@ -234,12 +234,12 @@ const toggled = (setPicked: SetPicked, id: string, checked: boolean) =>
     return next;
   });
 
-/** Automatic marks (a line must have every one picked) above the tags (a line with any picked tag). */
+/** Automatic marks above the tags; a line must have every one picked, as in the line list's filter. */
 function TagPicker({ tags, picked, setPicked, marks, setMarks }: { tags: { id: string; name: string; units: number }[]; picked: Set<string>; setPicked: SetPicked; marks: Set<string>; setMarks: SetPicked }) {
   return (
     <div className="space-y-2 rounded-md border p-2">
       <div className="space-y-1">
-        <p className="px-2 text-xs text-muted-foreground">자동 표시 (고른 것을 모두 가진 줄)</p>
+        <p className="px-2 text-xs text-muted-foreground">고른 표시와 태그를 모두 가진 줄 · 자동 표시</p>
         <div className="flex flex-wrap gap-2">
           {(Object.keys(AUTO_MARKS) as AutoMark[]).map((mark) => (
             <label key={mark} className="flex items-center gap-1.5 rounded px-2 py-1 text-sm hover:bg-muted">
@@ -250,7 +250,7 @@ function TagPicker({ tags, picked, setPicked, marks, setMarks }: { tags: { id: s
       </div>
       {tags.length > 0 && (
         <div className="space-y-1">
-          <p className="px-2 text-xs text-muted-foreground">태그 (고른 것 중 하나라도 가진 줄)</p>
+          <p className="px-2 text-xs text-muted-foreground">태그</p>
           <div className="flex flex-wrap gap-2">
             {tags.map((tag) => (
               <label key={tag.id} className="flex items-center gap-1.5 rounded px-2 py-1 text-sm hover:bg-muted">

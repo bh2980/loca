@@ -19,6 +19,7 @@ import { readWebPage, webSearch } from './web.ts';
 import { pickNodes, saveView, sectionWithMost, viewSection, VIEW_LIMIT } from './graph-views.ts';
 import { addNameTerms } from './terms.ts';
 import { applyBatch, checkScript, findLines, lineContext, normalizeBatch, runStats, sceneStats, scenesWith, validateBatch } from './script-query.ts';
+import { lineMarksSchema } from './line-marks.ts';
 
 /** Lines of a batch proposal checked and applied per step when it is accepted. */
 const APPLY_CHUNK = 500;
@@ -422,12 +423,13 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
     }),
     start_run: tool({
       description:
-        'Start a workflow run (AI calls cost money/quota, so the user approves it first). Scope: groupIds (scenes/groups), unitIds (lines), tagIds (lines with any of these tags); none = every line the entry node accepts. ignoreStatus also runs lines whose status the entry does not accept. Read project_overview for workflow ids; tell the user how many lines it will run.',
+        'Start a workflow run (AI calls cost money/quota, so the user approves it first). Scope: groupIds (scenes/groups), unitIds (lines), tagIds (lines with all of these tags), marks (automatic marks the lines must all have: remaining = status not final, ai = status set by a run, unknownListener = listener unknown or unsure, diverged = same source translated differently elsewhere, noted = has a note); none = every line the entry node accepts. ignoreStatus also runs lines whose status the entry does not accept. Read project_overview for workflow ids; tell the user how many lines it will run.',
       inputSchema: z.object({
         workflowId: z.string(),
         groupIds: z.array(z.string()).optional(),
         unitIds: z.array(z.string()).optional(),
         tagIds: z.array(z.string()).optional(),
+        marks: lineMarksSchema.optional(),
         ignoreStatus: z.boolean().optional(),
       }),
       needsApproval: true,
