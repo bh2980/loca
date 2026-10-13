@@ -123,10 +123,9 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
       </DialogTrigger>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>{workflow ? `${workflow.name} 실행` : '워크플로 실행'}</DialogTitle>
-          <DialogDescription>
-            저장된 워크플로와 지금의 모델 설정으로 실행합니다.{dirty && ' 저장하지 않은 편집은 들어가지 않습니다.'}
-          </DialogDescription>
+          {/* With the workflow picker below, the title would only repeat its name. */}
+          <DialogTitle>{fixedWorkflowId && workflow ? `${workflow.name} 실행` : '워크플로 실행'}</DialogTitle>
+          {dirty ? <DialogDescription className="text-warning">저장하지 않은 편집은 들어가지 않습니다.</DialogDescription> : <DialogDescription className="sr-only">실행할 범위를 고르고 시작합니다.</DialogDescription>}
         </DialogHeader>
 
         {/* Side padding so focus rings and the picked scope are not cut by the scroll box. */}
@@ -174,11 +173,11 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
             {mode === 'all' && Boolean(total) && <p className="text-xs text-warning">프로젝트 전체입니다. 처음이면 장면 하나로 먼저 시험해 보세요.</p>}
             <label className="flex items-center gap-2 text-xs text-muted-foreground">
               <Checkbox checked={ignoreStatus} onCheckedChange={(checked) => setIgnoreStatus(Boolean(checked))} />
-              이미 진행된 줄도 다시 돌리기 (워크플로의 시작 상태 조건 무시)
+              이미 진행된 줄도 다시
             </label>
           </section>
 
-          {data && total ? <Readiness projectId={projectId} readiness={data.readiness} oneScene={mode === 'here' && here?.length === 1 ? here[0].id : undefined} /> : null}
+          {data && total ? <Readiness projectId={projectId} readiness={data.readiness} oneScene={mode === 'here' && here?.length === 1 ? here[0].id : undefined} onLeave={() => setOpen(false)} /> : null}
           {data && total ? <Pace data={data} /> : null}
           {ready && plan.isError && <p className="text-sm text-destructive">계획을 계산하지 못했습니다: {plan.error.message}</p>}
           {ready && plan.isPending && <Skeleton className="h-24 w-full" />}
@@ -275,14 +274,14 @@ function TagPicker({ tags, picked, setPicked }: { tags: { id: string; name: stri
 }
 
 /** What in these lines would make the translation worse, each with where to fix it. */
-function Readiness({ projectId, readiness, oneScene }: { projectId: string; readiness: PlanData['readiness']; oneScene?: string }) {
+function Readiness({ projectId, readiness, oneScene, onLeave }: { projectId: string; readiness: PlanData['readiness']; oneScene?: string; /** A link was followed: the dialog closes. */ onLeave: () => void }) {
   const rows: { ok: boolean; text: ReactNode; link?: ReactNode }[] = [
     {
       ok: readiness.unknownListenerLines === 0,
       text: readiness.unknownListenerLines ? `청자를 모르는 대사 ${readiness.unknownListenerLines.toLocaleString()}줄 (말투 규칙이 안 걸림)` : '대사마다 청자가 정해짐',
       link: readiness.unknownListenerLines > 0 && (
-        <Link to="/p/$projectId/script" params={{ projectId }} search={{ listener: '-', view: 'find', ...(oneScene && { group: oneScene }) }}>
-          찾아가기
+        <Link to="/p/$projectId/script" params={{ projectId }} search={{ listener: '-', view: 'find', ...(oneScene && { group: oneScene }) }} onClick={onLeave}>
+          청자 정하기
         </Link>
       ),
     },
@@ -290,7 +289,7 @@ function Readiness({ projectId, readiness, oneScene }: { projectId: string; read
       ok: readiness.unreviewedRules.count === 0,
       text: readiness.unreviewedRules.count ? `확인 안 한 말투 규칙 ${readiness.unreviewedRules.count}개 (${readiness.unreviewedRules.examples.join(', ')}${readiness.unreviewedRules.count > readiness.unreviewedRules.examples.length ? ' 등' : ''})` : '쓰이는 말투 규칙은 모두 확인됨',
       link: readiness.unreviewedRules.count > 0 && (
-        <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', state: 'ai' }}>
+        <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', state: 'ai' }} onClick={onLeave}>
           확인하기
         </Link>
       ),
@@ -299,7 +298,7 @@ function Readiness({ projectId, readiness, oneScene }: { projectId: string; read
       ok: readiness.unreviewedTerms.count === 0,
       text: readiness.unreviewedTerms.count ? `확인 안 한 용어 ${readiness.unreviewedTerms.count}개 (${readiness.unreviewedTerms.examples.join(', ')}${readiness.unreviewedTerms.count > readiness.unreviewedTerms.examples.length ? ' 등' : ''})` : '나오는 용어는 모두 확인됨',
       link: readiness.unreviewedTerms.count > 0 && (
-        <Link to="/p/$projectId/glossary" params={{ projectId }} search={{ state: 'ai' }}>
+        <Link to="/p/$projectId/glossary" params={{ projectId }} search={{ state: 'ai' }} onClick={onLeave}>
           확인하기
         </Link>
       ),
@@ -312,16 +311,17 @@ function Readiness({ projectId, readiness, oneScene }: { projectId: string; read
         {rows.map((row, index) => (
           <li key={index} className="flex items-center gap-2 px-3 py-1.5">
             <span className={cn('size-2 shrink-0 rounded-full', row.ok ? 'bg-success' : 'bg-warning')} />
-            <span className={cn('min-w-0 flex-1', row.ok && 'text-muted-foreground')}>{row.text}</span>
+            <span className={cn('min-w-0 flex-1 truncate', row.ok && 'text-muted-foreground')} title={typeof row.text === 'string' ? row.text : undefined}>
+              {row.text}
+            </span>
             {row.link && (
-              <Button variant="ghost" size="inline" asChild>
+              <Button variant="ghost" size="inline" className="shrink-0" asChild>
                 {row.link}
               </Button>
             )}
           </li>
         ))}
       </ul>
-      {rows.some((row) => !row.ok) && <p className="text-xs text-muted-foreground">고치지 않고 시작해도 됩니다. 고치면 그만큼 번역이 정확해집니다.</p>}
     </section>
   );
 }
@@ -333,14 +333,21 @@ function Pace({ data }: { data: PlanData }) {
   const calls = data.totals.calls;
   const callText = calls.expected !== null ? `${calls.expected.toLocaleString()}회` : `${calls.min.toLocaleString()}~${calls.max.toLocaleString()}회`;
   const { seconds, costUsd, subscription } = data.pace;
-  const money = subscription && (costUsd === 0 || costUsd === null) ? '구독 사용 (추가 비용 없음)' : costUsd === null ? '비용은 첫 실행 뒤에 압니다' : costUsd < 0.01 ? '1센트 미만' : `약 $${costUsd.toFixed(2)}${subscription ? ' + 구독 사용' : ''}`;
+  // Only what is known: no time without history, no cost the provider never reported.
+  const money = subscription && !costUsd ? '구독 사용' : costUsd === null ? null : costUsd < 0.01 ? '1센트 미만' : `약 $${costUsd.toFixed(2)}${subscription ? ' + 구독' : ''}`;
   const models = [...new Set(data.nodes.map((node) => node.model ?? '모델 없음'))];
   return (
     <section className="space-y-1">
       <h3 className="text-xs text-muted-foreground">얼마나</h3>
       <p className="text-sm">
         AI 요청 <b className="font-medium tabular-nums">{callText}</b>
-        {calls.expected === null && calls.max > calls.min && <span className="text-muted-foreground"> (검수에서 걸린 줄이 많을수록 늘어남)</span>} · {seconds === null ? '시간은 첫 실행 뒤에 압니다' : <>약 <b className="font-medium">{duration(seconds)}</b></>} · {money}
+        {seconds !== null && (
+          <>
+            {' · 약 '}
+            <b className="font-medium">{duration(seconds)}</b>
+          </>
+        )}
+        {money && ` · ${money}`}
       </p>
       <p className="text-xs text-muted-foreground">
         {models.length === 1 ? `모델: ${models[0]} (모든 단계)` : `모델: ${data.nodes.map((node) => `${node.name} ${node.model ?? '없음'}`).join(' · ')}`}
@@ -360,12 +367,7 @@ function Details({ data, callsText, tokensText, onCalls, onTokens }: { data: Pla
               <span className="min-w-0 flex-1 truncate">{node.name}</span>
               <span className="shrink-0 tabular-nums">
                 요청 {range(node.requests, '회')}
-                {!node.everyLine && (
-                  <span className="ml-1 text-xs text-muted-foreground">
-                    · 앞 단계에서 걸린 줄만{node.requests.max > node.full ? ` (최대 ${Math.round(node.requests.max / Math.max(1, node.full))}번 반복)` : ''}
-                    {node.requests.expected === null && ' · 이력이 쌓이면 좁혀짐'}
-                  </span>
-                )}
+                {!node.everyLine && <span className="ml-1 text-xs text-muted-foreground">· 걸린 줄만</span>}
               </span>
             </div>
             <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground tabular-nums">
