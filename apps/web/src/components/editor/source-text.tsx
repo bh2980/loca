@@ -51,16 +51,24 @@ export function LineSourceText({ projectId, unitId, source, className }: { proje
   return <SourceText parts={line.parts} unitId={unitId} className={className} />;
 }
 
-/** A numbered format token (#1); the full token shows on hover. */
+/** A numbered format token (#1); the full token shows in a tooltip on hover. */
 export function TokenChip({ part, hint, onPick }: { part: SourcePart; hint?: string; onPick?: () => void }) {
   return (
-    <span
-      title={hint ? `${part.text}\n${hint}` : part.text}
-      className={cn('mx-px rounded-sm border bg-muted px-1 font-mono text-xs text-muted-foreground', !part.token && 'border-warning/40 bg-warning/10 text-warning', onPick && 'cursor-pointer hover:border-ring')}
-      onMouseDown={onPick && ((event) => (event.preventDefault(), onPick()))}
-    >
-      {chipLabel(part.token ?? 0)}
-    </span>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          className={cn('mx-px rounded-sm border bg-muted px-1 font-mono text-xs text-muted-foreground', !part.token && 'border-warning/40 bg-warning/10 text-warning', onPick && 'cursor-pointer hover:border-ring')}
+          onMouseDown={onPick && ((event) => (event.preventDefault(), onPick()))}
+        >
+          {chipLabel(part.token ?? 0)}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-sm">
+        <span className="font-mono break-all">{part.text}</span>
+        {!part.token && <span className="block opacity-70">원문에 없는 서식</span>}
+        {hint && <span className="block opacity-70">{hint}</span>}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 

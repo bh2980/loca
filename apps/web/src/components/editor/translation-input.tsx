@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { Compartment, EditorState, Prec } from '@codemirror/state';
-import { Decoration, EditorView, keymap, MatchDecorator, placeholder as placeholderText, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from '@codemirror/view';
+import { Decoration, EditorView, hoverTooltip, keymap, MatchDecorator, placeholder as placeholderText, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from '@codemirror/view';
 import { history, historyKeymap, standardKeymap } from '@codemirror/commands';
 import { autocompletion, completionStatus, type CompletionContext } from '@codemirror/autocomplete';
 import { chipLabel, tokenNumbering } from '@/lib/line-context';
@@ -58,7 +58,6 @@ class TokenChip extends WidgetType {
     const chip = document.createElement('span');
     chip.className = this.number ? 'cm-token-chip' : 'cm-token-chip cm-token-stray';
     chip.textContent = chipLabel(this.number);
-    chip.title = this.token;
     return chip;
   }
 }
@@ -103,7 +102,33 @@ function context(props: Pick<TranslationInputProps, 'tokenPattern' | 'tokens' | 
   const extensions = [];
   if (props.tokenPattern) {
     const tokens = chips(new RegExp(props.tokenPattern.source, 'gu'), props.source);
-    extensions.push(tokens, EditorView.atomicRanges.of((view) => view.plugin(tokens)?.decorations ?? Decoration.none));
+    extensions.push(
+      tokens,
+      EditorView.atomicRanges.of((view) => view.plugin(tokens)?.decorations ?? Decoration.none),
+      // The full token in a tooltip as soon as the pointer is on its chip.
+      hoverTooltip(
+        (view, pos) => {
+          const hits: { from: number; to: number; chip: TokenChip }[] = [];
+          view.plugin(tokens)?.decorations.between(pos - 1, pos + 1, (from, to, decoration) => {
+            if (decoration.spec.widget instanceof TokenChip) hits.push({ from, to, chip: decoration.spec.widget });
+          });
+          const hit = hits[0];
+          if (!hit) return null;
+          return {
+            pos: hit.from,
+            end: hit.to,
+            above: true,
+            create: () => {
+              const dom = document.createElement('div');
+              dom.textContent = hit.chip.token;
+              if (!hit.chip.number) dom.append(Object.assign(document.createElement('div'), { textContent: '원문에 없는 서식', className: 'cm-chip-tip-note' }));
+              return { dom };
+            },
+          };
+        },
+        { hoverTime: 80 },
+      ),
+    );
   }
   const targets = [...new Set(props.terms.map((term) => term.target))].sort((a, b) => b.length - a.length);
   if (targets.length) extensions.push(marker(new RegExp(targets.map(escape).join('|'), 'gu'), 'cm-term-hit'));
@@ -140,6 +165,9 @@ const theme = EditorView.theme({
   '.cm-tooltip.cm-tooltip-autocomplete > ul': { fontFamily: 'inherit', minWidth: '10rem', maxWidth: '20rem' },
   '.cm-tooltip.cm-tooltip-autocomplete > ul > li': { display: 'flex', gap: '0.5rem', padding: '0.25rem 0.5rem' },
   '.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected]': { backgroundColor: 'var(--accent)', color: 'var(--accent-foreground)' },
+  // A chip's tooltip looks like the app's tooltips (dark, small).
+  '.cm-tooltip.cm-tooltip-hover': { backgroundColor: 'var(--foreground)', color: 'var(--background)', border: 'none', borderRadius: '6px', padding: '0.375rem 0.75rem', fontSize: '0.75rem', fontFamily: 'var(--font-mono, monospace)', maxWidth: '24rem', wordBreak: 'break-all' },
+  '.cm-chip-tip-note': { fontFamily: 'var(--font-sans)', opacity: '0.7' },
   '.cm-completionDetail': { marginLeft: 'auto', color: 'var(--muted-foreground)', fontStyle: 'normal', fontSize: '0.75rem' },
 });
 
