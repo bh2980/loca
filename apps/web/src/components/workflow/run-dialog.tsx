@@ -338,7 +338,8 @@ function Pace({ data }: { data: PlanData }) {
     <section className="space-y-1">
       <h3 className="text-xs text-muted-foreground">얼마나</h3>
       <p className="text-sm">
-        AI 요청 <b className="font-medium tabular-nums">{callText}</b> · {seconds === null ? '시간은 첫 실행 뒤에 압니다' : <>약 <b className="font-medium">{duration(seconds)}</b></>} · {money}
+        AI 요청 <b className="font-medium tabular-nums">{callText}</b>
+        {calls.expected === null && calls.max > calls.min && <span className="text-muted-foreground"> (검수에서 걸린 줄이 많을수록 늘어남)</span>} · {seconds === null ? '시간은 첫 실행 뒤에 압니다' : <>약 <b className="font-medium">{duration(seconds)}</b></>} · {money}
       </p>
       <p className="text-xs text-muted-foreground">
         {models.length === 1 ? `모델: ${models[0]} (모든 단계)` : `모델: ${data.nodes.map((node) => `${node.name} ${node.model ?? '없음'}`).join(' · ')}`}
@@ -358,7 +359,12 @@ function Details({ data, callsText, tokensText, onCalls, onTokens }: { data: Pla
               <span className="min-w-0 flex-1 truncate">{node.name}</span>
               <span className="shrink-0 tabular-nums">
                 요청 {range(node.requests, '회')}
-                {!node.everyLine && node.requests.expected === null && <span className="ml-1 text-xs text-muted-foreground">(실패한 줄만, 이력 없음)</span>}
+                {!node.everyLine && (
+                  <span className="ml-1 text-xs text-muted-foreground">
+                    · 앞 단계에서 걸린 줄만{node.requests.max > node.full ? ` (최대 ${Math.round(node.requests.max / Math.max(1, node.full))}번 반복)` : ''}
+                    {node.requests.expected === null && ' · 이력이 쌓이면 좁혀짐'}
+                  </span>
+                )}
               </span>
             </div>
             <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground tabular-nums">
