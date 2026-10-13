@@ -1,4 +1,4 @@
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Check, Wrench, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -21,9 +21,21 @@ const STATUS = { accepted: '적용됨', rejected: '거절함', failed: '실패' 
 
 /** A change an agent proposed (pi chat or the CLI). Accepting runs it now; nothing changes before that. */
 export function ProposalCard({ proposal }: { proposal: Proposal }) {
+  const queryClient = useQueryClient();
+  // Shown decided at once: the card turns 적용됨/거절함 before the server answers (back to pending on
+  // failure), and takes the server's row (failed, skipped) as soon as it comes instead of waiting for the refetch.
+  const patch = (update: (row: Proposal) => Proposal) => queryClient.setQueriesData<Proposal[]>({ queryKey: ['proposals'] }, (list) => list?.map((row) => (row.id === proposal.id ? update(row) : row)));
   const decide = useMutation({
     mutationFn: (action: 'accept' | 'reject') => unwrap(client.proposals[':id'][':action{accept|reject}'].$post({ param: { id: proposal.id, action } })),
-    onError: (error) => toast.error(error.message),
+    onMutate: async (action) => {
+      await queryClient.cancelQueries({ queryKey: ['proposals'] });
+      patch((row) => ({ ...row, status: action === 'accept' ? 'accepted' : 'rejected' }));
+    },
+    onSuccess: (row) => patch((old) => ({ ...old, ...(row as Partial<Proposal>) })),
+    onError: (error) => {
+      patch((row) => ({ ...row, status: 'pending' }));
+      toast.error(error.message);
+    },
   });
   const failure = proposal.status === 'failed' ? String((proposal.result as { error?: string } | null)?.error ?? '') : '';
   const skipped = proposal.status === 'accepted' ? ((proposal.result as { skipped?: unknown[] } | null)?.skipped?.length ?? 0) : 0;
