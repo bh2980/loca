@@ -1,8 +1,8 @@
-import { AGENT_TOOLS } from '@tw/shared';
+import { AGENT_TOOLS, type AutoMark } from '@tw/shared';
 import { useNavigate, useParams } from '@tanstack/react-router';
 import { Check, ChevronRight, CircleAlert, Network, Wrench, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { AUTO_MARKS, type AutoMark } from '@/lib/marks';
+import { MarkChip } from '@/components/status';
 import { workflowEdits, type WorkflowNodeEdit } from '@/lib/workflow-edits';
 import { ProposalCard, type Proposal } from './proposal-card';
 import { Markdown } from './markdown';
@@ -110,11 +110,20 @@ export function ChangePreview({ name, input }: { name: string; input: Record<str
     }
     case 'start_run': {
       const count = (key: string) => ((input[key] as unknown[] | undefined) ?? []).length;
-      const scope = [count('groupIds') && `장면·묶음 ${count('groupIds')}개`, count('unitIds') && `대사 ${count('unitIds')}개`, count('tagIds') && `태그 ${count('tagIds')}개`, ...((input.marks as AutoMark[] | undefined) ?? []).map((mark) => `#${AUTO_MARKS[mark] ?? mark}`)].filter(Boolean).join(', ') || '진입 조건에 맞는 모든 대사';
+      const scope = [count('groupIds') && `장면·묶음 ${count('groupIds')}개`, count('unitIds') && `대사 ${count('unitIds')}개`, count('tagIds') && `태그 ${count('tagIds')}개`].filter(Boolean).join(', ');
+      const marks = (input.marks as AutoMark[] | undefined) ?? [];
       return (
         <dl className="space-y-1">
           {field('워크플로', input.workflowId)}
-          {field('범위', scope)}
+          <div className="grid grid-cols-[5rem_1fr] gap-2">
+            <dt className="text-muted-foreground">범위</dt>
+            <dd className="flex min-w-0 flex-wrap items-center gap-1 break-words">
+              {scope || marks.length === 0 ? scope || '진입 조건에 맞는 모든 대사' : null}
+              {marks.map((mark) => (
+                <MarkChip key={mark} mark={mark} />
+              ))}
+            </dd>
+          </div>
           {field('상태 조건', input.ignoreStatus ? '무시하고 실행' : '진입 상태에 맞는 대사만')}
           <p className="text-muted-foreground">수락하면 바로 실행이 시작되고 AI 호출 비용이 듭니다.</p>
         </dl>

@@ -1,5 +1,8 @@
+import { useParams } from '@tanstack/react-router';
 import { Sparkles } from 'lucide-react';
+import { AUTO_MARKS, markColor, type AutoMark } from '@tw/shared';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useMarkColors } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
 export interface StatusLike {
@@ -27,6 +30,21 @@ export function TagChip({ tag }: { tag: StatusLike }) {
   return (
     <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium" style={{ backgroundColor: `${tag.color}1f`, color: tag.color }}>
       #{tag.name}
+    </span>
+  );
+}
+
+/**
+ * An automatic mark as a tag: the same chip, in the project's color for it (설정 › 상태·태그).
+ * The project comes from the route unless given (the chat panel sits outside it on some pages).
+ */
+export function MarkChip({ mark, projectId, className }: { mark: AutoMark; projectId?: string; className?: string }) {
+  const params = useParams({ strict: false }) as { projectId?: string };
+  const colors = useMarkColors(projectId ?? params.projectId);
+  const color = markColor(mark, colors);
+  return (
+    <span className={cn('inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium whitespace-nowrap', className)} style={{ backgroundColor: `${color}1f`, color }} title={AUTO_MARKS[mark].description}>
+      #{AUTO_MARKS[mark].name}
     </span>
   );
 }

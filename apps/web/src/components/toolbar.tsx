@@ -89,14 +89,16 @@ export function Pager({ page, total, pageSize, onPage }: { page: number; total: 
 
 export interface FilterChip {
   key: string;
-  label: string;
+  label: ReactNode;
+  /** Plain text for the clear button's name when the label is not text. */
+  name?: string;
   clear: () => void;
 }
 
 /** The filters that are set, as removable chips next to the search (same look as the script list's). */
 export function FilterChips({ chips }: { chips: FilterChip[] }) {
   return chips.map((chip) => (
-    <Button key={chip.key} variant="secondary" onClick={chip.clear} aria-label={`${chip.label} 필터 지우기`}>
+    <Button key={chip.key} variant="secondary" onClick={chip.clear} aria-label={`${chip.name ?? chip.label} 필터 지우기`}>
       {chip.label} <X />
     </Button>
   ));

@@ -1,13 +1,12 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { AUTO_MARKS } from '@/lib/marks';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { Check, CircleAlert, ListFilter, Network, PanelRightOpen, Play, StickyNote, Tags, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { checkFormat, compileFormatRules, isUnsureListener, listenerLabel, SPECIAL_LISTENERS, type ListenerOrigin, mentions, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
+import { AUTO_MARKS, type AutoMark, checkFormat, compileFormatRules, isUnsureListener, listenerLabel, SPECIAL_LISTENERS, type ListenerOrigin, mentions, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
 import { LineDetail, LINE_TABS, type LineTab } from '@/components/line-detail';
 import { SplitPane } from '@/components/split-pane';
-import { AiMark, StatusDot, TagChip } from '@/components/status';
+import { AiMark, MarkChip, StatusDot, TagChip } from '@/components/status';
 import { Pager, SearchInput, Toolbar } from '@/components/toolbar';
 import { TranslationEditor } from '@/components/translation-editor';
 import { LineSourceText, TokenText } from '@/components/editor/source-text';
@@ -92,12 +91,12 @@ export function filterChips(search: LinesSearch, statuses: { id: string; name: s
       return { key: `tag-${id}`, label: `#${tags.find((tag) => tag.id === id)?.name ?? '?'}`, clear: { tags: rest.length ? rest : undefined } };
     }),
     search.speaker && { key: 'speaker', label: `화자: ${search.speaker}`, clear: { speaker: undefined } },
-    search.listener && { key: 'listener', label: search.listener === '-' ? `#${AUTO_MARKS.unknownListener}` : `청자: ${search.listener}`, clear: { listener: undefined } },
-    search.remaining && { key: 'remaining', label: `#${AUTO_MARKS.remaining}`, clear: { remaining: undefined } },
-    search.by && { key: 'by', label: `#${AUTO_MARKS.ai}`, clear: { by: undefined } },
-    search.diverged && { key: 'diverged', label: `#${AUTO_MARKS.diverged}`, clear: { diverged: undefined } },
-    search.noted && { key: 'noted', label: `#${AUTO_MARKS.noted}`, clear: { noted: undefined } },
-  ].filter(Boolean) as { key: string; label: string; clear: Partial<LinesSearch> }[];
+    search.listener && { key: 'listener', label: search.listener === '-' ? `#${AUTO_MARKS.unknownListener.name}` : `청자: ${search.listener}`, ...(search.listener === '-' && { mark: 'unknownListener' as const }), clear: { listener: undefined } },
+    search.remaining && { key: 'remaining', label: `#${AUTO_MARKS.remaining.name}`, mark: 'remaining' as const, clear: { remaining: undefined } },
+    search.by && { key: 'by', label: `#${AUTO_MARKS.ai.name}`, mark: 'ai' as const, clear: { by: undefined } },
+    search.diverged && { key: 'diverged', label: `#${AUTO_MARKS.diverged.name}`, mark: 'diverged' as const, clear: { diverged: undefined } },
+    search.noted && { key: 'noted', label: `#${AUTO_MARKS.noted.name}`, mark: 'noted' as const, clear: { noted: undefined } },
+  ].filter(Boolean) as { key: string; label: string; /** Set for automatic marks: shown as the mark's chip. */ mark?: AutoMark; clear: Partial<LinesSearch> }[];
 }
 
 /** Who the line is addressed to. Unsure AI guesses count as unknown. */
@@ -371,7 +370,7 @@ export function LineList({
         />
         {chips.map((chip) => (
           <Button key={chip.key} variant="secondary" onClick={() => onSearch({ ...chip.clear, page: undefined })} aria-label={`${chip.label} 필터 지우기`}>
-            {chip.label} <X />
+            {chip.mark ? <MarkChip mark={chip.mark} /> : chip.label} <X />
           </Button>
         ))}
         {!find && !review && hasLineFilter(search) && (
@@ -510,7 +509,7 @@ export function LineList({
                         <NoteMark note={line.note} className="mt-px" />
                         {marked && <span className="shrink-0 text-warning">● {find!.label}</span>}
                         {selected && line.kind === 'dialogue' && <span className={cn('truncate', who.unknown && 'text-warning')}>→ {who.text}</span>}
-                        {!selected && line.kind === 'dialogue' && who.unknown && <span className="shrink-0 text-warning">#{AUTO_MARKS.unknownListener}</span>}
+                        {!selected && line.kind === 'dialogue' && who.unknown && <MarkChip mark="unknownListener" projectId={projectId} className="shrink-0" />}
                         {selected && <LineLinks projectId={projectId} unitId={line.id} hasNote={!!line.note} onNote={() => setNoting(true)} onDetail={() => onSearch({ detail: true }, { replace: true })} />}
                       </p>
                       {selected ? (
@@ -530,8 +529,10 @@ export function LineList({
                         <div className="pt-4 text-sm">
                           <div className="min-w-0">
                             {line.translation ? <TokenText text={line.translation} source={line.source} pattern={tokenPattern} /> : <span className="text-muted-foreground/60">—</span>}
-                            {line.tagIds.length > 0 && (
+                            {(line.tagIds.length > 0 || line.statusBy === 'ai' || !!line.note) && (
                               <div className="mt-1 flex flex-wrap gap-1">
+                                {line.statusBy === 'ai' && <MarkChip mark="ai" projectId={projectId} />}
+                                {!!line.note && <MarkChip mark="noted" projectId={projectId} />}
                                 {lineTags(statuses.data?.tags)
                                   .filter((tag) => line.tagIds.includes(tag.id))
                                   .map((tag) => (
@@ -656,7 +657,7 @@ function LineFilters({ projectId, statuses, tags, speakers, search, onSearch }: 
           ] as const
         ).map(([mark, checked, next]) => (
           <DropdownMenuCheckboxItem key={mark} checked={checked} onSelect={(event) => event.preventDefault()} onCheckedChange={(on) => onSearch(next(on) as Partial<LinesSearch>)}>
-            #{AUTO_MARKS[mark]}
+            <MarkChip mark={mark} projectId={projectId} />
           </DropdownMenuCheckboxItem>
         ))}
         {issueTags.length > 0 && (

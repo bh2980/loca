@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { agentSettingsSchema, aiConfirmSchema, editorAiSchema, formatRulesSchema, importFileSchema, importWarnings, patchOf, STATUS_COLORS, summarizeImport } from '@tw/shared';
+import { agentSettingsSchema, aiConfirmSchema, editorAiSchema, formatRulesSchema, importFileSchema, importWarnings, markColorsSchema, patchOf, STATUS_COLORS, summarizeImport } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
@@ -82,7 +82,7 @@ export const projectRoutes = new Hono<Env>()
     };
     return c.json({ ...project, aiConfirm: aiConfirmSchema.parse(project.aiConfirm), editorAi: editorAiSchema.parse(project.editorAi), editorCallsToday: editorCallsToday(db, projectId), byStatus, groupCount, reviewCount, aiDecided });
   })
-  .patch('/:projectId', validate('json', z.object({ name: z.string().trim().min(1).optional(), description: z.string().optional(), formatRules: formatRulesSchema.optional(), agentSettings: agentSettingsSchema.optional(), aiConfirm: aiConfirmSchema.optional(), editorAi: editorAiSchema.optional() })), (c) => {
+  .patch('/:projectId', validate('json', z.object({ name: z.string().trim().min(1).optional(), description: z.string().optional(), formatRules: formatRulesSchema.optional(), agentSettings: agentSettingsSchema.optional(), aiConfirm: aiConfirmSchema.optional(), editorAi: editorAiSchema.optional(), markColors: markColorsSchema.optional() })), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     found(db.update(s.projects).set(c.req.valid('json')).where(eq(s.projects.id, projectId)).returning().get(), '프로젝트');
@@ -200,6 +200,9 @@ export const projectRoutes = new Hono<Env>()
   .patch('/:projectId/tags/:id', validate('json', patchOf(tagInput)), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
+    const tag = found(db.select({ role: s.tags.role }).from(s.tags).where(and(eq(s.tags.id, c.req.param('id')), eq(s.tags.projectId, projectId))).get(), '태그');
+    // The app's own tags (problem types, 확인 권장) keep their names: only the color changes.
+    if (tag.role && c.req.valid('json').name !== undefined) return badRequest('앱이 쓰는 태그는 이름을 바꿀 수 없습니다. 색만 바꿀 수 있습니다.');
     found(db.update(s.tags).set(c.req.valid('json')).where(and(eq(s.tags.id, c.req.param('id')), eq(s.tags.projectId, projectId))).returning().get(), '태그');
     events.changed(projectId, 'statuses', 'units');
     return c.json({ ok: true });
@@ -207,6 +210,8 @@ export const projectRoutes = new Hono<Env>()
   .delete('/:projectId/tags/:id', (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
+    const tag = found(db.select({ role: s.tags.role }).from(s.tags).where(and(eq(s.tags.id, c.req.param('id')), eq(s.tags.projectId, projectId))).get(), '태그');
+    if (tag.role) return badRequest('앱이 쓰는 태그는 지울 수 없습니다.');
     db.delete(s.tags).where(and(eq(s.tags.id, c.req.param('id')), eq(s.tags.projectId, projectId))).run();
     events.changed(projectId, 'statuses', 'units', 'workflows');
     return c.json({ ok: true });

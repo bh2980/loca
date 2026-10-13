@@ -1,0 +1,1 @@
+ALTER TABLE `projects` ADD `mark_colors` text DEFAULT '{}' NOT NULL;

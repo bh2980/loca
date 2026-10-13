@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { DetailPane, PaneSection } from '@/components/detail-pane';
 import { HeaderFilter, MarkFilter } from '@/components/header-filter';
-import { TagChip } from '@/components/status';
+import { MarkChip, TagChip } from '@/components/status';
 import { Page } from '@/components/page';
 import { SplitPane } from '@/components/split-pane';
 import { JobProgress } from '@/components/job-progress';
@@ -21,7 +21,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { confirmLabel, knowledgeMarks, matches, SourceBadge, StateCell, TagCell, TagMenu, type ItemTag, type StatusFilter } from '@/components/knowledge/draft-editor';
-import { isSettled, KNOWLEDGE_SOURCES, REVIEW_TAG, SOURCE_LABELS, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type StatusBy } from '@tw/shared';
+import { AUTO_MARKS, type AutoMark, isSettled, KNOWLEDGE_SOURCES, REVIEW_TAG, SOURCE_LABELS, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type StatusBy } from '@tw/shared';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
@@ -139,12 +139,12 @@ function Glossary() {
   const afterBulk = { onSuccess: () => setPicked(new Set()) };
 
   // Automatic marks a term carries, the same ones the 태그 header filters by.
-  const termMarks = (term: Term) => [...knowledgeMarks(asDraft(term), false), ...(!term.target.trim() ? ['번역어 없음'] : []), ...(term.lines === 0 ? ['대본에 안 나옴'] : [])];
+  const termMarks = (term: Term): AutoMark[] => [...knowledgeMarks(asDraft(term), false), ...(!term.target.trim() ? ['emptyTarget' as const] : []), ...(term.lines === 0 ? ['unused' as const] : [])];
   const chips: FilterChip[] = [
     ...(search.source ? [{ key: 'source', label: SOURCE_LABELS[search.source], clear: () => setFilter({ source: undefined }) }] : []),
-    ...(search.state ? [{ key: 'state', label: search.state === 'ai' ? '#AI가 정함' : search.state === 'candidate' ? '#후보' : '확정', clear: () => setFilter({ state: undefined }) }] : []),
-    ...(search.empty ? [{ key: 'empty', label: '#번역어 없음', clear: () => setFilter({ empty: undefined }) }] : []),
-    ...(search.unused ? [{ key: 'unused', label: '#대본에 안 나옴', clear: () => setFilter({ unused: undefined }) }] : []),
+    ...(search.state ? [{ key: 'state', label: search.state === 'ai' || search.state === 'candidate' ? <MarkChip mark={search.state} /> : '확정', name: search.state === 'ai' || search.state === 'candidate' ? AUTO_MARKS[search.state].name : undefined, clear: () => setFilter({ state: undefined }) }] : []),
+    ...(search.empty ? [{ key: 'empty', label: <MarkChip mark="emptyTarget" />, name: AUTO_MARKS.emptyTarget.name, clear: () => setFilter({ empty: undefined }) }] : []),
+    ...(search.unused ? [{ key: 'unused', label: <MarkChip mark="unused" />, name: AUTO_MARKS.unused.name, clear: () => setFilter({ unused: undefined }) }] : []),
     ...pickedTags.map((id) => ({ key: `tag:${id}`, label: `#${knownTags.find((tag) => tag.id === id)?.name ?? id}`, clear: () => toggleTag(id, false) })),
   ];
 
@@ -170,10 +170,10 @@ function Glossary() {
             {
               heading: '자동 표시',
               options: [
-                { key: 'candidate', label: '#후보', checked: search.state === 'candidate', onChange: (on) => setFilter({ state: on ? 'candidate' : undefined }) },
-                { key: 'ai', label: '#AI가 정함', checked: search.state === 'ai', onChange: (on) => setFilter({ state: on ? 'ai' : undefined }) },
-                { key: 'empty', label: '#번역어 없음', checked: Boolean(search.empty), onChange: (on) => setFilter({ empty: on || undefined }) },
-                { key: 'unused', label: '#대본에 안 나옴', checked: Boolean(search.unused), onChange: (on) => setFilter({ unused: on || undefined }) },
+                { key: 'candidate', label: <MarkChip mark="candidate" />, checked: search.state === 'candidate', onChange: (on) => setFilter({ state: on ? 'candidate' : undefined }) },
+                { key: 'ai', label: <MarkChip mark="ai" />, checked: search.state === 'ai', onChange: (on) => setFilter({ state: on ? 'ai' : undefined }) },
+                { key: 'empty', label: <MarkChip mark="emptyTarget" />, checked: Boolean(search.empty), onChange: (on) => setFilter({ empty: on || undefined }) },
+                { key: 'unused', label: <MarkChip mark="unused" />, checked: Boolean(search.unused), onChange: (on) => setFilter({ unused: on || undefined }) },
               ],
             },
             { heading: '태그', options: knownTags.map((item) => ({ key: item.id, label: <TagChip tag={item} />, checked: pickedTags.includes(item.id), onChange: (on: boolean) => toggleTag(item.id, on) })) },

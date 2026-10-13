@@ -1,5 +1,5 @@
 import { keepPreviousData, queryOptions, useQuery } from '@tanstack/react-query';
-import { REVIEW_TAG } from '@tw/shared';
+import { REVIEW_TAG, type MarkColors } from '@tw/shared';
 import { client, unwrap } from './api';
 
 /**
@@ -113,6 +113,12 @@ export const q = {
 export function useReviewTagId(projectId: string) {
   const statuses = useQuery(q.statuses(projectId));
   return statuses.data?.tags.find((tag) => tag.role === REVIEW_TAG.role)?.id;
+}
+
+/** The project's own colors for automatic marks (defaults fill the rest, see markColor). */
+export function useMarkColors(projectId: string | undefined): MarkColors | undefined {
+  const project = useQuery({ ...q.project(projectId ?? ''), enabled: !!projectId });
+  return project.data?.markColors as MarkColors | undefined;
 }
 
 /** The tags that can be on lines: all but 확인 권장, which is knowledge's. */

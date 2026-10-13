@@ -4,7 +4,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Check, ChevronRight, Play, Tags, Trash2 } from 'lucide-react';
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuLabel, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
-import { aiDecided, DOCUMENT_KINDS, STYLE_AXES, type StyleAxis, SPEECH_FIX_WORKFLOW, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, sourceOf, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type SpeechLevel, type StatusBy } from '@tw/shared';
+import { aiDecided, AUTO_MARKS, type AutoMark, DOCUMENT_KINDS, STYLE_AXES, type StyleAxis, SPEECH_FIX_WORKFLOW, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, sourceOf, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type SpeechLevel, type StatusBy } from '@tw/shared';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
@@ -17,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { useDraft } from '@/lib/drafts';
-import { AiMark, TagChip } from '@/components/status';
+import { AiMark, MarkChip, TagChip } from '@/components/status';
 import { DOCUMENT_KIND } from '@/lib/labels';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
@@ -92,9 +92,6 @@ export const candidateRow = (row: Draft) => (row.status === 'candidate' ? '[&>td
 export type SourceFilter = KnowledgeSource | undefined;
 /** 'ai': confirmed by AI and not looked at yet (✦), the 'AI가 정한 것만' filter. */
 export type StatusFilter = 'confirmed' | 'ai' | 'candidate' | undefined;
-/** Marks the app reads off a knowledge item, offered with the tags in the 태그 filter. */
-export const KNOWLEDGE_MARKS = { candidate: '후보', ai: 'AI가 정함', bare: '근거 없음' } as const;
-
 export const matches = (row: Draft, source: SourceFilter, status: StatusFilter, tags?: string[], bare?: boolean) =>
   (!source || sourceOf(row) === source) &&
   (!status || (status === 'ai' ? aiDecided(row) : row.status === status)) &&
@@ -102,14 +99,14 @@ export const matches = (row: Draft, source: SourceFilter, status: StatusFilter, 
   (!bare || !row.evidence.length);
 
 /** The automatic marks (#후보, #AI가 정함, #근거 없음) an item carries; `bare` is off where evidence is not tracked. */
-export const knowledgeMarks = (row: Draft, bare = true): string[] => [
-  ...(row.status === 'candidate' ? [KNOWLEDGE_MARKS.candidate] : []),
-  ...(aiDecided(row) ? [KNOWLEDGE_MARKS.ai] : []),
-  ...(bare && !row.evidence.length ? [KNOWLEDGE_MARKS.bare] : []),
+export const knowledgeMarks = (row: Draft, bare = true): AutoMark[] => [
+  ...(row.status === 'candidate' ? ['candidate' as const] : []),
+  ...(aiDecided(row) ? ['ai' as const] : []),
+  ...(bare && !row.evidence.length ? ['noEvidence' as const] : []),
 ];
 
-/** An item's automatic marks (muted outline) then its tags as chips; the app's reason for a tag (확인 권장) shows on hover. */
-export function TagCell({ tags, known, marks }: { tags?: ItemTag[]; known: TagInfo[]; marks?: string[] }) {
+/** An item's automatic marks then its tags, all as colored chips; the app's reason for a tag (확인 권장) shows on hover. */
+export function TagCell({ tags, known, marks }: { tags?: ItemTag[]; known: TagInfo[]; marks?: AutoMark[] }) {
   const shown = (tags ?? []).flatMap((item) => {
     const info = known.find((tag) => tag.id === item.id);
     return info ? [{ ...item, info }] : [];
@@ -118,9 +115,7 @@ export function TagCell({ tags, known, marks }: { tags?: ItemTag[]; known: TagIn
   return (
     <span className="flex flex-wrap gap-1">
       {marks?.map((mark) => (
-        <span key={mark} className="inline-flex items-center rounded border px-1.5 py-0.5 text-xs text-muted-foreground">
-          #{mark}
-        </span>
+        <MarkChip key={mark} mark={mark} />
       ))}
       {shown.map((item) => (
         <span key={item.id} title={item.note ?? undefined}>
@@ -171,16 +166,17 @@ export interface KnowledgeFilterState {
 }
 
 /** The 태그 filter: the app's marks, then the tags; every pick narrows the rows. */
-export function TagFilter({ filters, marks = ['candidate', 'ai', 'bare'] }: { filters: KnowledgeFilterState; marks?: (keyof typeof KNOWLEDGE_MARKS)[] }) {
+export function TagFilter({ filters, marks = ['candidate', 'ai', 'noEvidence'] }: { filters: KnowledgeFilterState; marks?: AutoMark[] }) {
   const picked = filters.tags ?? [];
   const toggle = (id: string, on: boolean) => {
     const next = on ? [...picked, id] : picked.filter((other) => other !== id);
     filters.onChange({ tags: next.length ? next : undefined });
   };
-  const mark = (key: keyof typeof KNOWLEDGE_MARKS) =>
-    key === 'bare'
-      ? { key, label: `#${KNOWLEDGE_MARKS[key]}`, checked: Boolean(filters.bare), onChange: (on: boolean) => filters.onChange({ bare: on || undefined }) }
-      : { key, label: `#${KNOWLEDGE_MARKS[key]}`, checked: filters.status === key, onChange: (on: boolean) => filters.onChange({ status: on ? key : undefined }) };
+  // The URL keeps its names: ?state=candidate|ai, ?bare.
+  const mark = (key: AutoMark) =>
+    key === 'noEvidence'
+      ? { key, label: <MarkChip mark={key} />, checked: Boolean(filters.bare), onChange: (on: boolean) => filters.onChange({ bare: on || undefined }) }
+      : { key, label: <MarkChip mark={key} />, checked: filters.status === key, onChange: (on: boolean) => filters.onChange({ status: on ? (key as 'ai' | 'candidate') : undefined }) };
   return (
     <MarkFilter
       label="태그"
@@ -221,9 +217,9 @@ export function metaColumns<T>(draftOf: (row: T) => Draft, filters: KnowledgeFil
 export function knowledgeFilterChips(filters: KnowledgeFilterState): FilterChip[] {
   return [
     ...(filters.source ? [{ key: 'source', label: SOURCE_LABELS[filters.source], clear: () => filters.onChange({ source: undefined }) }] : []),
-    ...(filters.status && filters.status !== 'confirmed' ? [{ key: 'status', label: `#${KNOWLEDGE_MARKS[filters.status]}`, clear: () => filters.onChange({ status: undefined }) }] : []),
+    ...(filters.status && filters.status !== 'confirmed' ? [{ key: 'status', label: <MarkChip mark={filters.status as 'ai' | 'candidate'} />, name: AUTO_MARKS[filters.status as 'ai' | 'candidate'].name, clear: () => filters.onChange({ status: undefined }) }] : []),
     ...(filters.status === 'confirmed' ? [{ key: 'status', label: KNOWLEDGE_STATUS_LABELS.confirmed, clear: () => filters.onChange({ status: undefined }) }] : []),
-    ...(filters.bare ? [{ key: 'bare', label: `#${KNOWLEDGE_MARKS.bare}`, clear: () => filters.onChange({ bare: undefined }) }] : []),
+    ...(filters.bare ? [{ key: 'bare', label: <MarkChip mark="noEvidence" />, name: AUTO_MARKS.noEvidence.name, clear: () => filters.onChange({ bare: undefined }) }] : []),
     ...(filters.tags ?? []).map((id) => ({
       key: `tag:${id}`,
       label: `#${filters.known.find((tag) => tag.id === id)?.name ?? id}`,
