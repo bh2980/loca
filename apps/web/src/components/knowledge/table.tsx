@@ -2,13 +2,15 @@
 import { type ReactNode } from 'react';
 import { Check, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { AUTO_MARKS, type AutoMark, KNOWLEDGE_MARK_IDS, knowledgeMarksOf, matchesMarks, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, sourceOf, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type StatusBy } from '@tw/shared';
+import type { InferResponseType } from 'hono/client';
+import { AUTO_MARKS, type CharacterStyle, type DOCUMENT_KINDS, type SpeechLevel, type AutoMark, KNOWLEDGE_MARK_IDS, knowledgeMarksOf, matchesMarks, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, sourceOf, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type StatusBy } from '@tw/shared';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { AiMark, MarkChip, TagChip } from '@/components/status';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import type { FilterChip } from '@/components/toolbar';
 import { HeaderFilter, MarkFilter, markTagGroups, type FilterOption } from '@/components/header-filter';
+import type { client } from '@/lib/api';
 
 export const KINDS = { documents: '문서', characters: '인물', relationships: '관계', events: '사건', speechRules: '말투 규칙' } as const;
 export type Kind = keyof typeof KINDS;
@@ -37,30 +39,84 @@ export interface TagInfo {
   color: string;
   role?: string | null;
 }
+/** A knowledge row as the shared table and editor see it: the common fields, the rest by name. */
 export type Row = Draft & Record<string, unknown>;
-export type Value = string | boolean | string[] | Record<string, string> | null;
+
+type KnowledgeApi = (typeof client.projects)[':projectId'];
+type CharactersList = InferResponseType<KnowledgeApi['characters']['$get'], 200>;
+/** Each kind's rows as its list endpoint returns them. */
+export type DocumentRow = InferResponseType<KnowledgeApi['documents']['$get'], 200>[number];
+export type CharacterRow = CharactersList['characters'][number];
+export type RelationshipRow = CharactersList['relationships'][number];
+export type EventRow = InferResponseType<KnowledgeApi['events']['$get'], 200>[number];
+export type SpeechRuleRow = InferResponseType<KnowledgeApi['speech-rules']['$get'], 200>[number];
+
+/** The value each field type edits: what its input shows and what it writes back. */
+interface FieldValues {
+  text: string;
+  long: string;
+  /** Several values as an array. */
+  list: string[];
+  /** Several values kept as one comma-separated string (forms of address). */
+  chips: string;
+  bool: boolean;
+  level: SpeechLevel;
+  /** A line key; empty is null. */
+  key: string | null;
+  docKind: (typeof DOCUMENT_KINDS)[number];
+  /** A character id. */
+  character: string;
+  style: CharacterStyle;
+}
+export type FieldType = keyof FieldValues;
 export interface Field {
   name: string;
   label: string;
-  /** 'chips' is several values kept as one comma-separated string (forms of address); 'list' an array. */
-  type: 'text' | 'long' | 'list' | 'chips' | 'bool' | 'level' | 'key' | 'docKind' | 'character' | 'style';
+  type: FieldType;
   /** Values offered while typing a 'list' or 'chips' field. */
   suggestions?: string[];
 }
-export interface KindSpec {
-  rows: Row[];
-  columns: { head: string; cell: (row: Row) => ReactNode; className?: string; /** Fixed px width; columns without one share the rest. */ width?: number }[];
-  fields: Field[];
-  label: (row: Row) => string;
-  save: (id: string, json: Record<string, Value>) => Promise<unknown>;
-  /** Creates an empty item (a person's, official) and returns its id; absent when it cannot be made yet. */
-  create?: () => Promise<{ id: string }>;
-  /** Creates an item with these fields (a new speech stretch from a picked line). */
-  createWith?: (json: Record<string, Value>) => Promise<{ id: string }>;
-  remove: (id: string) => Promise<unknown>;
-  /** Shown under the fields (read-only facts such as relationship changes, a rule's lines). */
-  extra?: (row: Row) => ReactNode;
+/**
+ * A field of rows R: `name` is one of R's keys and `type` one whose value is exactly that key's
+ * type, so the input can show the row's value and what it writes back is a valid value again.
+ */
+export type FieldOf<R> = {
+  [K in keyof R & string]: { [T in FieldType]: [R[K]] extends [FieldValues[T]] ? ([FieldValues[T]] extends [R[K]] ? Field & { name: K; type: T } : never) : never }[FieldType];
+}[keyof R & string];
+/** What the editor saves for these fields: each field's value, under its name. */
+export type FormOf<R, F extends Field> = { [K in F['name'] & keyof R]: R[K] };
+
+interface Column<R> {
+  head: string;
+  cell(row: R): ReactNode;
+  className?: string;
+  /** Fixed px width; columns without one share the rest. */
+  width?: number;
 }
+/**
+ * One kind as the shared table and editor use it. Write it with `defineKind`, which checks the
+ * fields against the kind's rows and the saved form against its API; this is the same spec seen
+ * without its row type, so a screen can hold any kind. Its callbacks are methods on purpose: a
+ * method may take a narrower row than Row (TypeScript checks method parameters both ways), and a
+ * kind's callbacks are only ever given its own rows and its own form.
+ */
+export interface KindSpec<R extends Draft = Row, F extends Field = Field> {
+  rows: R[];
+  columns: Column<R>[];
+  fields: readonly F[];
+  label(row: R): string;
+  save(id: string, json: FormOf<R, F>): Promise<unknown>;
+  /** Creates an empty item (a person's, official) and returns its id; absent when it cannot be made yet. */
+  create?(): Promise<{ id: string }>;
+  remove(id: string): Promise<unknown>;
+  /** Shown under the fields (read-only facts such as relationship changes, a rule's lines). */
+  extra?(row: R): ReactNode;
+}
+/**
+ * A kind's spec, typed by its rows (inferred from `rows`) and fields. `save` is checked here as a
+ * plain function (not a method), so a save that cannot take this kind's form fails to compile.
+ */
+export const defineKind = <R extends Row, const F extends FieldOf<R>>(spec: KindSpec<R, F> & { save: (id: string, json: FormOf<R, F>) => Promise<unknown> }): KindSpec<R, F> => spec;
 
 export const fail = (error: Error) => toast.error(error.message);
 export const text = (value: unknown) => (typeof value === 'string' ? value : '');
