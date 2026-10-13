@@ -26,6 +26,8 @@
   --success: oklch(0.596 0.145 163.225);
   /* A player's choice in the dialogue flow (graph labels, the flow pane). */
   --choice: oklch(0.546 0.215 262.881);
+  /* A format token (tag, placeholder) that must come through untouched: the chips in source and translation. */
+  --token: oklch(0.496 0.265 301.924);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
@@ -71,6 +73,7 @@
   --color-warning: var(--warning);
   --color-success: var(--success);
   --color-choice: var(--choice);
+  --color-token: var(--token);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -169,7 +172,7 @@
    a little smaller than the text around them, but readable. */
 @layer components {
   .token-chip, .cm-token-chip {
-    @apply mx-px rounded border border-foreground/15 bg-secondary px-1 font-semibold whitespace-nowrap text-foreground/75 tabular-nums;
+    @apply mx-px rounded border border-token/30 bg-token/10 px-1 font-semibold whitespace-nowrap text-token tabular-nums;
     font-size: 0.9em;
   }
   /* A token the source does not have (?). */

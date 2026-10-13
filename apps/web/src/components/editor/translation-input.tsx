@@ -208,7 +208,7 @@ const theme = EditorView.theme({
   '.cm-tooltip.cm-tooltip-autocomplete > ul > li': { display: 'flex', gap: '0.5rem', padding: '0.25rem 0.5rem' },
   '.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected]': { backgroundColor: 'var(--accent)', color: 'var(--accent-foreground)' },
   // A chip's tooltip looks like the app's tooltips (dark, small).
-  '.cm-tooltip.cm-tooltip-hover': { backgroundColor: 'var(--foreground)', color: 'var(--background)', border: 'none', borderRadius: '6px', padding: '0.375rem 0.75rem', fontSize: '0.75rem', fontFamily: 'var(--font-mono, monospace)', maxWidth: '24rem', wordBreak: 'break-all' },
+  '.cm-tooltip.cm-tooltip-hover': { backgroundColor: 'var(--foreground)', color: 'var(--background)', border: 'none', borderRadius: '6px', padding: '0.375rem 0.75rem', fontSize: '0.875rem', fontFamily: 'var(--font-mono, monospace)', maxWidth: '28rem', wordBreak: 'break-all' },
   '.cm-chip-tip-note': { fontFamily: 'var(--font-sans)', opacity: '0.7' },
   '.cm-completionDetail': { marginLeft: 'auto', color: 'var(--muted-foreground)', fontStyle: 'normal', fontSize: '0.75rem' },
 });

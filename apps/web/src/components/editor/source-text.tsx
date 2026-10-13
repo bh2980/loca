@@ -73,7 +73,7 @@ export function TokenChip({ part, hint, onPick }: { part: SourcePart; hint?: str
           {chipLabel(part.token?.kind ?? 'single', part.token?.number ?? 0)}
         </span>
       </TooltipTrigger>
-      <TooltipContent className="max-w-sm">
+      <TooltipContent className="max-w-md text-sm">
         <span className="font-mono break-all">{part.text}</span>
         {!part.token?.number && <span className="block opacity-70">원문에 없는 서식</span>}
         {hint && <span className="block opacity-70">{hint}</span>}
