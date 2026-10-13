@@ -99,6 +99,57 @@ export const SPEECH_LEVEL_LABELS: Record<SpeechLevel, string> = {
 /** For prompts: the level ids with an example ending each. */
 export const SPEECH_LEVEL_GUIDE = 'hasoseo (하소서체, archaic: to a king or a god, prayers: 하나이다/하나이까/하소서), hasipsio (하십시오체: 합니다/합니까/하십시오), hao (하오체: 하오/하구려), hage (하게체: 하네/하게/하는가), haera (해라체: 한다/하느냐/해라/하자), haeyo (해요체: 해요), hae (해체·반말: 해/해?/하지), other';
 
+/**
+ * A character's written style (문체) on three axes, each a pair of opposites or neither (보통).
+ * The name stays Korean for people; the model gets plain instructions, since names like 우유체
+ * mean little to it. 개조식 is a format for UI and notes, not a person's voice, so it is not here.
+ */
+export const STYLE_AXES = {
+  length: {
+    label: '문장 길이',
+    options: {
+      concise: { name: '간결체', instruction: 'short sentences; few connectives and modifiers' },
+      elaborate: { name: '만연체', instruction: 'long, flowing sentences joined with connectives' },
+    },
+  },
+  force: {
+    label: '힘',
+    options: {
+      strong: { name: '강건체', instruction: 'firm, forceful, decisive wording' },
+      soft: { name: '우유체', instruction: 'soft, gentle, indirect wording' },
+    },
+  },
+  ornament: {
+    label: '꾸밈',
+    options: {
+      plain: { name: '건조체', instruction: 'plain and factual; no imagery' },
+      florid: { name: '화려체', instruction: 'rich modifiers, imagery and figures of speech' },
+    },
+  },
+} as const;
+export type StyleAxis = keyof typeof STYLE_AXES;
+export const characterStyleSchema = z.object({
+  length: z.enum(['concise', 'elaborate']).optional(),
+  force: z.enum(['strong', 'soft']).optional(),
+  ornament: z.enum(['plain', 'florid']).optional(),
+});
+export type CharacterStyle = z.infer<typeof characterStyleSchema>;
+/** The style as an instruction for the translation prompt, or undefined when no axis is set. */
+export function styleInstruction(style: CharacterStyle | null | undefined) {
+  const parts = (Object.keys(STYLE_AXES) as StyleAxis[]).flatMap((axis) => {
+    const value = style?.[axis];
+    return value ? [(STYLE_AXES[axis].options as Record<string, { instruction: string }>)[value].instruction] : [];
+  });
+  return parts.length ? `Korean style: ${parts.join('; ')}.` : undefined;
+}
+/** The style in Korean names (간결체 · 강건체), for screens. */
+export function styleNames(style: CharacterStyle | null | undefined) {
+  return (Object.keys(STYLE_AXES) as StyleAxis[]).flatMap((axis) => {
+    const value = style?.[axis];
+    return value ? [(STYLE_AXES[axis].options as Record<string, { name: string }>)[value].name] : [];
+  });
+}
+
 export const relationshipChangeSchema = z.object({
   /** The line key where the change shows. */
   at: z.string().min(1),

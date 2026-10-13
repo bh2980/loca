@@ -3,7 +3,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { ArrowLeftRight, GanttChart, Network, Plus, Table2, Users } from 'lucide-react';
 import { toast } from 'sonner';
-import { OTHERS_LISTENER, DOCUMENT_KINDS, isSettled, KNOWLEDGE_SOURCES, listenerLabel, REVIEW_TAG, SPEECH_LEVEL_LABELS, type KnowledgeSource, type SpeechLevel } from '@tw/shared';
+import { OTHERS_LISTENER, DOCUMENT_KINDS, styleNames, type CharacterStyle, isSettled, KNOWLEDGE_SOURCES, listenerLabel, REVIEW_TAG, SPEECH_LEVEL_LABELS, type KnowledgeSource, type SpeechLevel } from '@tw/shared';
 import { Page } from '@/components/page';
 import { RelationshipGraph } from '@/components/relationship-graph';
 import { hasAnalysis, JobStatus, StartAnalysis } from '@/components/knowledge/analysis-controls';
@@ -113,6 +113,7 @@ function Knowledge() {
         { head: '이름', cell: (row) => <span className="font-medium">{text(row.name)}{row.player ? <Badge variant="outline" className="ml-2">플레이어</Badge> : null}</span>, width: 220 },
         { head: '별칭', cell: (row) => (row.aliases as string[]).join(', '), width: 180 },
         { head: '프로필', cell: (row) => <span className="line-clamp-1 text-muted-foreground">{text(row.profile)}</span> },
+        { head: '문체', cell: (row) => <span className="text-muted-foreground">{styleNames(row.style as CharacterStyle).join(' · ')}</span>, width: 180 },
       ],
       fields: [
         { name: 'name', label: '이름', type: 'text' },
@@ -120,6 +121,7 @@ function Knowledge() {
         { name: 'player', label: '플레이어 캐릭터', type: 'bool' },
         { name: 'profile', label: '프로필', type: 'long' },
         { name: 'speech', label: '말투 특징 (원문 관찰)', type: 'long' },
+        { name: 'style', label: '문체 (이 인물 대사의 번역에 지시로 들어감)', type: 'style' },
       ],
       label: (row) => text(row.name),
       save: (id, json) => unwrap(api.characters[':id'].$patch({ ...param(id), json: json as never })),

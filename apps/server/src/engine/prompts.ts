@@ -130,6 +130,7 @@ export function buildPrompt(
     cast: context.cast.length ? context.cast : undefined,
     glossary: context.terms.length ? context.terms : undefined,
     characters: context.characters.length ? context.characters : undefined,
+    voices: Object.keys(context.voices).length ? context.voices : undefined,
     relationships: context.relationships.length ? context.relationships : undefined,
     aiNotes: hasAiNotes(context) ? { ...(context.aiNotes.characters.length && { characters: context.aiNotes.characters }), ...(context.aiNotes.relationships.length && { relationships: context.aiNotes.relationships }), ...(context.aiNotes.documents.length && { documents: context.aiNotes.documents }) } : undefined,
     previousScenes: context.previousScenes.length ? context.previousScenes : undefined,

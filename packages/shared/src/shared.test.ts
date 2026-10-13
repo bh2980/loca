@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { checkFormat } from './format-check.ts';
 import { importFileSchema, importWarnings } from './import-format.ts';
-import { politenessOf, speechLevelOf } from './knowledge.ts';
+import { politenessOf, speechLevelOf, styleInstruction, styleNames } from './knowledge.ts';
 import { termExtractionTemplate, translationTemplate } from './defaults.ts';
 import { nodePorts, validateWorkflow, workflowDefinitionSchema, workflowNodeSchema, type WorkflowDefinition } from './workflow.ts';
 
@@ -234,5 +234,13 @@ describe('speech level guess', () => {
     expect(politenessOf('자네도 왔는가?')).toBe('plain');
     expect(politenessOf('네.')).toBeNull();
     expect(politenessOf('OK')).toBeNull();
+  });
+});
+
+describe('styleInstruction', () => {
+  it('turns the picked axes into plain instructions and leaves 보통 out', () => {
+    expect(styleInstruction({})).toBeUndefined();
+    expect(styleInstruction({ length: 'concise', ornament: 'florid' })).toBe('Korean style: short sentences; few connectives and modifiers; rich modifiers, imagery and figures of speech.');
+    expect(styleNames({ force: 'soft' })).toEqual(['우유체']);
   });
 });

@@ -1,0 +1,1 @@
+ALTER TABLE `characters` ADD `style` text DEFAULT '{}' NOT NULL;

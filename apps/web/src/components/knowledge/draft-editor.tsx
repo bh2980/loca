@@ -4,7 +4,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Check, ChevronRight, Play, Tags, Trash2 } from 'lucide-react';
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuLabel, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
-import { aiDecided, DOCUMENT_KINDS, SPEECH_FIX_WORKFLOW, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, sourceOf, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type SpeechLevel, type StatusBy } from '@tw/shared';
+import { aiDecided, DOCUMENT_KINDS, STYLE_AXES, type StyleAxis, SPEECH_FIX_WORKFLOW, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, sourceOf, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type SpeechLevel, type StatusBy } from '@tw/shared';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
@@ -53,12 +53,12 @@ export interface TagInfo {
   role?: string | null;
 }
 export type Row = Draft & Record<string, unknown>;
-export type Value = string | boolean | string[] | null;
+export type Value = string | boolean | string[] | Record<string, string> | null;
 export interface Field {
   name: string;
   label: string;
   /** 'chips' is several values kept as one comma-separated string (forms of address); 'list' an array. */
-  type: 'text' | 'long' | 'list' | 'chips' | 'bool' | 'level' | 'key' | 'docKind' | 'character';
+  type: 'text' | 'long' | 'list' | 'chips' | 'bool' | 'level' | 'key' | 'docKind' | 'character' | 'style';
   /** Values offered while typing a 'list' or 'chips' field. */
   suggestions?: string[];
 }
@@ -450,6 +450,8 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
   );
 }
 
+const NORMAL = '__normal';
+
 export function FieldInput({ field, value, characters, onChange }: { field: Field; value: Value; characters: { id: string; name: string }[]; onChange: (value: Value) => void }) {
   const id = `field-${field.name}`;
   if (field.type === 'bool')
@@ -481,6 +483,37 @@ export function FieldInput({ field, value, characters, onChange }: { field: Fiel
         <ChipInput id={id} value={(value as string[] | null) ?? []} onChange={onChange} suggestions={field.suggestions} placeholder="쉼표나 Enter로 추가" />
       ) : field.type === 'chips' ? (
         <ChipInput id={id} value={splitList(value)} onChange={(chips) => onChange(joinList(chips))} suggestions={field.suggestions} placeholder="쉼표나 Enter로 추가" />
+      ) : field.type === 'style' ? (
+        // One pick per axis; 보통 leaves the axis out of the prompt.
+        <div className="grid grid-cols-3 gap-2">
+          {(Object.keys(STYLE_AXES) as StyleAxis[]).map((axis) => {
+            const current = (value as Record<string, string> | null)?.[axis] ?? NORMAL;
+            return (
+              <div key={axis} className="space-y-1">
+                <span className="text-xs text-muted-foreground">{STYLE_AXES[axis].label}</span>
+                <Select
+                  value={current}
+                  onValueChange={(next) => {
+                    const { [axis]: _dropped, ...rest } = (value as Record<string, string> | null) ?? {};
+                    onChange(next === NORMAL ? rest : { ...rest, [axis]: next });
+                  }}
+                >
+                  <SelectTrigger id={axis === 'length' ? id : undefined} className="w-full" aria-label={STYLE_AXES[axis].label}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NORMAL}>보통</SelectItem>
+                    {Object.entries(STYLE_AXES[axis].options).map(([option, { name }]) => (
+                      <SelectItem key={option} value={option}>
+                        {name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            );
+          })}
+        </div>
       ) : field.type === 'level' ? (
         <Select value={text(value)} onValueChange={onChange}>
           <SelectTrigger id={id} className="w-full">

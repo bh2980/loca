@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { listenerLabel, SPEECH_LEVEL_LABELS } from '@tw/shared';
+import { listenerLabel, SPEECH_LEVEL_LABELS, styleNames } from '@tw/shared';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 import { q } from '@/lib/queries';
 
@@ -44,6 +44,12 @@ function SpeakerInfo({ projectId, name }: { projectId: string; name: string }) {
         <p className="line-clamp-2">
           <span className="text-xs text-muted-foreground">말버릇 </span>
           {character.speech}
+        </p>
+      )}
+      {styleNames(character?.style).length > 0 && (
+        <p>
+          <span className="text-xs text-muted-foreground">문체 </span>
+          {styleNames(character?.style).join(' · ')}
         </p>
       )}
       {own.length > 0 && (

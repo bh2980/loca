@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray, lt } from 'drizzle-orm';
-import { CONTEXT_PRIORITY, contextConfigSchema, estimateTokens, listenerLabel, mentions, termMatcher, type ContextConfig, type ContextItem, type ContextItemKind } from '@tw/shared';
+import { CONTEXT_PRIORITY, contextConfigSchema, estimateTokens, listenerLabel, mentions, styleInstruction, termMatcher, type ContextConfig, type ContextItem, type ContextItemKind } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import { documents as documentsTable, graphEdges, graphNodes, groups, units } from '../db/schema.ts';
 import { cachedKnowledge, describeRule, knowledgeOf, knownListener, speechRuleIndex } from './speech.ts';
@@ -32,6 +32,8 @@ export interface BatchContext {
   previousScenes: { title: string; description: string }[];
   documents: { kind: string; title: string; body: string }[];
   characters: { name: string; aliases: string[]; profile: string }[];
+  /** Per speaker in the batch whose written style (문체) a person chose: the style as an instruction. */
+  voices: Record<string, string>;
   /** Per unit id: who the line is addressed to and the confirmed speech rule for that pair. */
   speech: Record<string, { listener: string; rule?: string; note?: string; byOrder?: true }>;
   /** Every confirmed character, for naming people who are not mentioned in the batch. */
@@ -206,7 +208,7 @@ export function buildContext(
   const text = batch.map((unit) => `${unit.speaker ?? ''}\n${unit.source}`).join('\n');
   const groupIds = [...new Set(batch.map((unit) => unit.groupId))];
   const sceneRows = db.select().from(groups).where(inArray(groups.id, groupIds)).all();
-  const result: BatchContext = { scenes: Object.fromEntries(sceneRows.map((row) => [row.id, { title: row.title }])), previousScenes: [], documents: [], characters: [], cast: [], relationships: [], aiNotes: { characters: [], relationships: [], documents: [] }, terms: [], speech: {}, preceding: {}, items: [], budget: { limit: config.maxTokens, used: 0 } };
+  const result: BatchContext = { scenes: Object.fromEntries(sceneRows.map((row) => [row.id, { title: row.title }])), previousScenes: [], documents: [], characters: [], cast: [], relationships: [], aiNotes: { characters: [], relationships: [], documents: [] }, terms: [], speech: {}, voices: {}, preceding: {}, items: [], budget: { limit: config.maxTokens, used: 0 } };
   const candidates: Record<ContextItemKind, Candidate[]> = { term: [], speech: [], cast: [], preceding: [], character: [], relationship: [], scene: [], previousScene: [], document: [] };
 
   // '사람이 확정한 것만': AI-confirmed terms and knowledge stay out of this node's prompt.
@@ -305,6 +307,16 @@ export function buildContext(
   if (config.cast) {
     const cast = knowledge.characters().rows.filter(trusted).map(({ name, aliases, player }) => ({ name, aliases, ...(player ? { player: true as const } : {}) }));
     if (cast.length) candidates.cast.push({ item: { kind: 'cast', label: `${cast.length}명`, reason: config.humanOnly ? '사람이 확정한 인물 전체 (이름·별칭·플레이어 여부)' : '확정된 인물 전체 (이름·별칭·플레이어 여부)' }, payload: cast, keep: () => (result.cast = cast) });
+  }
+
+  // How the batch's speakers talk goes with how they address each other: the style a person chose
+  // for a speaker (문체), one short line per name, whenever speech is on (characters may be off).
+  if (config.speech) {
+    const speakers = new Set(batch.flatMap((unit) => (unit.speaker ? [unit.speaker.toLowerCase()] : [])));
+    for (const character of knowledge.characters().rows.filter(trusted)) {
+      const style = styleInstruction(character.style);
+      if (style && [character.name, ...character.aliases].some((name) => speakers.has(name.toLowerCase()))) result.voices[character.name] = style;
+    }
   }
 
   const confirmedCast = config.characters || config.relationships ? knowledge.characters() : null;
