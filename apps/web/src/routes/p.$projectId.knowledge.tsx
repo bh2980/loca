@@ -4,10 +4,12 @@ import { useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/
 import { ArrowLeftRight, GanttChart, Network, Plus, Table2, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { OTHERS_LISTENER, DOCUMENT_KINDS, parseMarks, type AutoMark, styleNames, type CharacterStyle, isSettled, KNOWLEDGE_SOURCES, listenerLabel, REVIEW_TAG, SPEECH_LEVEL_LABELS, type KnowledgeSource, type SpeechLevel } from '@tw/shared';
+import { EmptyState } from '@/components/empty-state';
 import { Page } from '@/components/page';
+import { TagMenu } from '@/components/tag-menu';
 import { RelationshipGraph } from '@/components/relationship-graph';
 import { hasAnalysis, JobStatus, StartAnalysis } from '@/components/knowledge/analysis-controls';
-import { BulkDecide, DraftEditor, fail, KINDS, KnowledgeFilters, knowledgeFilterChips, KNOWLEDGE_MARK_IDS, KnowledgeTable, matches, TagMenu, type KnowledgeFilterState, RelationshipChanges, RuleLines, SourceBadge, text, type Kind, type KindSpec, type Row, type SourceFilter } from '@/components/knowledge/draft-editor';
+import { BulkDecide, DraftEditor, fail, KINDS, KnowledgeFilters, knowledgeFilterChips, KNOWLEDGE_MARK_IDS, KnowledgeTable, matches, type KnowledgeFilterState, RelationshipChanges, RuleLines, SourceBadge, text, type Kind, type KindSpec, type Row, type SourceFilter } from '@/components/knowledge/draft-editor';
 import { SplitPane } from '@/components/split-pane';
 import { FilterChips, Toolbar } from '@/components/toolbar';
 import { pairKey, buildPairs, PairDetail, pairItems, pairMatches, pairSummary, PairTable, type Pair } from '@/components/knowledge/pairs';
@@ -313,12 +315,21 @@ function Knowledge() {
   const bulk = (
     <>
       <BulkDecide picked={checked.size} actionable={checkedRows} pending={decide.isPending} onConfirm={() => decide.mutate({ items: checkedItems(), action: 'confirm' })} onDiscard={() => decide.mutate({ items: checkedItems(), action: 'discard' })} />
-      <TagMenu tags={knowledgeTags} rows={pickedRows().map((item) => item.row)} onChange={(tagId, add) => tag.mutate({ items: pickedRows(), tagId, add })} />
+      {/* A person's tags only: the app's own (확인 권장) come off when a person decides. */}
+      <TagMenu
+        tags={knowledgeTags.filter((item) => !item.role)}
+        heading={`고른 ${checked.size}개의 태그`}
+        state={(tagId) => {
+          const on = pickedRows().filter(({ row }) => row.tags?.some((item) => item.id === tagId)).length;
+          return on === 0 ? 'none' : on === pickedRows().length ? 'all' : 'some';
+        }}
+        onToggle={(tagId, add) => tag.mutate({ items: pickedRows(), tagId, add })}
+      />
     </>
   );
   const total = graph ? `인물 ${characters.length.toLocaleString()}명 · 관계 ${visiblePairs.length.toLocaleString()}쌍` : pairsView ? `${visiblePairs.length.toLocaleString()}쌍` : `${rows.length.toLocaleString()}${tab === 'people' ? '명' : '개'}`;
   const count = pending ? undefined : `${total}${unofficialHere > 0 ? ` · 확인 필요 ${unofficialHere.toLocaleString()}` : ''}`;
-  const empty = filtered ? `조건에 맞는 ${KINDS[tableKind]} 항목이 없습니다.` : `${KINDS[tableKind]} 항목이 없습니다. “추가”로 직접 만들거나 “작품 분석”으로 초안을 받으세요.`;
+  const empty = <EmptyState noun={`${KINDS[tableKind]} 항목`} filtered={filtered} hint="“추가”로 직접 만들거나 “작품 분석”으로 초안을 받으세요." />;
 
   return (
     <Page title="자료" flush>
@@ -429,6 +440,7 @@ function Knowledge() {
             ) : (
               <EventFlow
                 projectId={projectId}
+                filtered={filtered}
                 events={rows.map((row) => ({ ...(row as unknown as FlowEvent), title: text(row.title), summary: text(row.summary), participants: row.participants as string[] }))}
                 selected={search.item}
                 onOpen={(id) => set({ item: id })}

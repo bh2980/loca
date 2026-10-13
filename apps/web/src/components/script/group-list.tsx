@@ -31,7 +31,7 @@ const readFolded = (projectId: string): string[] => {
 };
 
 /** Consecutive groups of the same section, in script order. */
-export function sectionsOf(groups: GroupRow[]) {
+function sectionsOf(groups: GroupRow[]) {
   const sections: { key: string; name: string | null; groups: GroupRow[] }[] = [];
   for (const group of [...groups].sort((a, b) => a.sort - b.sort)) {
     const last = sections.at(-1);

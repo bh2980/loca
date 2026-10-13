@@ -266,7 +266,7 @@ export function LineDetail({
 }
 
 /** Glossary terms in this line, and whether the translation being edited keeps them and the source's format. */
-export function LineChecks({ projectId, source, text, terms, rules, targetLanguage, speech }: { projectId: string; source: string; text: string; terms: { id: string; source: string; target: string; status: KnowledgeStatus }[]; rules?: FormatRules; targetLanguage?: string; speech?: { listener: string; ruleId: string; rule: string; level: SpeechLevel; byOrder: boolean; routeDependent?: boolean; others?: boolean } | null }) {
+function LineChecks({ projectId, source, text, terms, rules, targetLanguage, speech }: { projectId: string; source: string; text: string; terms: { id: string; source: string; target: string; status: KnowledgeStatus }[]; rules?: FormatRules; targetLanguage?: string; speech?: { listener: string; ruleId: string; rule: string; level: SpeechLevel; byOrder: boolean; routeDependent?: boolean; others?: boolean } | null }) {
   // Words inside format tags are not terms.
   const used = useMemo(() => {
     const plain = withoutTokens(source, tokenPatternOf(rules));

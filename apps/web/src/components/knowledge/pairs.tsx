@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { ChevronRight, Plus } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { type AutoMark, isSettled, isSpecialListener, knowledgeMarksOf, listenerLabel, matchesMarks, OTHERS_LISTENER, SPEECH_LEVEL_LABELS, type SpeechLevel } from '@tw/shared';
+import { type AutoMark, isSpecialListener, knowledgeMarksOf, listenerLabel, matchesMarks, OTHERS_LISTENER, SPEECH_LEVEL_LABELS, type SpeechLevel } from '@tw/shared';
+import { EmptyState } from '@/components/empty-state';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { DetailPane, PaneSection } from '@/components/detail-pane';
 import { candidateRow, DraftEditor, fail, matches, metaColumns, SourceBadge, type Draft, type KnowledgeFilterState, type KindSpec, type Row, type SourceFilter } from '@/components/knowledge/draft-editor';
@@ -73,7 +74,6 @@ export const pairMarks = (pair: Pair): AutoMark[] => [...new Set([pair.relations
 /** Pairs matching the filters: by source and tags through any one item, by marks through the pair's marks. */
 export const pairMatches = (pair: Pair, source: SourceFilter, marks?: readonly AutoMark[], tags?: string[]) =>
   matchesMarks(pairMarks(pair), marks) && [pair.relationship, ...pair.rules].some((row) => row && matches(row, source, undefined, tags));
-export const pairSettled = (pair: Pair) => [pair.relationship, ...pair.rules].every((row) => !row || isSettled(row));
 export const pairItems = (pair: Pair) => [...(pair.relationship ? [{ kind: 'relationships' as const, row: pair.relationship }] : []), ...pair.rules.map((row) => ({ kind: 'speechRules' as const, row }))];
 /** Why the app marked an item for a look (its tag's note), or null. */
 const reviewOf = (row: Row, reviewTag?: string) => row.tags?.find((tag) => tag.id === reviewTag)?.note ?? null;
@@ -113,7 +113,7 @@ export function PairTable({ pairs, loading, selected, picked, onPick, onOpen, bu
       picked={picked}
       onPick={onPick}
       bulk={bulk}
-      empty="관계나 말투 규칙이 있는 쌍이 없습니다. “작품 분석”으로 초안을 받거나 인물을 추가하세요."
+      empty={<EmptyState noun="관계나 말투 규칙이 있는 쌍" filtered={Boolean(filters.source || filters.marks?.length || filters.tags?.length)} hint="“작품 분석”으로 초안을 받거나 인물을 추가하세요." />}
     />
   );
 }

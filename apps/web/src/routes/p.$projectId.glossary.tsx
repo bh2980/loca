@@ -5,8 +5,10 @@ import { Check, Play, Plus, Sparkles, CircleStop, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { DetailPane, PaneSection } from '@/components/detail-pane';
-import { HeaderFilter, MarkFilter } from '@/components/header-filter';
+import { HeaderFilter, MarkFilter, markTagGroups } from '@/components/header-filter';
 import { MarkChip, TagChip } from '@/components/status';
+import { EmptyState } from '@/components/empty-state';
+import { TagMenu } from '@/components/tag-menu';
 import { Page } from '@/components/page';
 import { SplitPane } from '@/components/split-pane';
 import { JobProgress } from '@/components/job-progress';
@@ -19,7 +21,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { confirmLabel, matches, SourceBadge, StateCell, TagCell, TagMenu, type ItemTag } from '@/components/knowledge/draft-editor';
+import { BulkDecide, confirmLabel, matches, SourceBadge, StateCell, TagCell, type ItemTag } from '@/components/knowledge/draft-editor';
 import { AUTO_MARK_IDS, AUTO_MARKS, type AutoMark, isSettled, matchesMarks, parseMarks, termMarksOf, KNOWLEDGE_SOURCES, REVIEW_TAG, SOURCE_LABELS, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type StatusBy } from '@tw/shared';
 import { client, unwrap } from '@/lib/api';
 import { q, tagsIn } from '@/lib/queries';
@@ -142,7 +144,10 @@ function Glossary() {
   const chips: FilterChip[] = [
     ...(search.source ? [{ key: 'source', label: SOURCE_LABELS[search.source], clear: () => setFilter({ source: undefined }) }] : []),
     ...(search.marks ?? []).map((mark) => ({ key: `mark:${mark}`, label: <MarkChip mark={mark} />, name: AUTO_MARKS[mark].name, clear: () => toggleMark(mark, false) })),
-    ...pickedTags.map((id) => ({ key: `tag:${id}`, label: `#${knownTags.find((tag) => tag.id === id)?.name ?? id}`, clear: () => toggleTag(id, false) })),
+    ...pickedTags.map((id) => {
+      const known = knownTags.find((tag) => tag.id === id);
+      return { key: `tag:${id}`, label: known ? <TagChip tag={known} /> : `#${id}`, name: `#${known?.name ?? id}`, clear: () => toggleTag(id, false) };
+    }),
   ];
 
   const columns: ColumnDef<Term, unknown>[] = [
@@ -163,13 +168,7 @@ function Glossary() {
       header: () => (
         <MarkFilter
           label="태그"
-          groups={[
-            {
-              heading: '자동 표시',
-              options: TERM_MARK_IDS.map((mark) => ({ key: mark, label: <MarkChip mark={mark} />, checked: Boolean(search.marks?.includes(mark)), onChange: (on: boolean) => toggleMark(mark, on) })),
-            },
-            { heading: '태그', options: knownTags.map((item) => ({ key: item.id, label: <TagChip tag={item} />, checked: pickedTags.includes(item.id), onChange: (on: boolean) => toggleTag(item.id, on) })) },
-          ]}
+          groups={markTagGroups({ marks: TERM_MARK_IDS, picked: search.marks, onToggle: toggleMark, tags: knownTags, pickedTags, onToggleTag: toggleTag })}
           onClear={() => setFilter({ marks: undefined, tags: undefined })}
         />
       ),
@@ -234,7 +233,7 @@ function Glossary() {
           rows={terms.data && rows}
           rowId={(term) => term.id}
           loading={terms.isLoading}
-          empty={needle || search.source || search.marks?.length || search.tags?.length ? '조건에 맞는 용어가 없습니다.' : '아직 용어가 없습니다. 작품 분석이 후보를 내거나 ‘용어 추가’로 직접 넣으세요.'}
+          empty={<EmptyState noun="용어" filtered={Boolean(needle || search.source || search.marks?.length || search.tags?.length)} hint="작품 분석이 후보를 내거나 ‘용어 추가’로 직접 넣으세요." />}
           selected={selected?.id}
           onRowClick={(term) => select(term.id === search.term ? undefined : term.id)}
           picked={picked}
@@ -248,13 +247,25 @@ function Glossary() {
           }
           bulk={
             <>
-              <Button variant="outline" disabled={promotable.length === 0 || decide.isPending} title={promotable.length < discardable.length ? '번역이 빈 후보는 번역을 채운 뒤 확정할 수 있습니다.' : undefined} onClick={() => decide.mutate({ ids: promotable.map((term) => term.id), accept: true }, afterBulk)}>
-                <Check /> {confirmLabel(promotable.map(asDraft))} ({promotable.length.toLocaleString()})
-              </Button>
-              <Button variant="ghost" className="text-destructive" disabled={discardable.length === 0 || decide.isPending} onClick={() => decide.mutate({ ids: discardable.map((term) => term.id), accept: false }, afterBulk)}>
-                <Trash2 /> 버리기 ({discardable.length.toLocaleString()})
-              </Button>
-              <TagMenu tags={knownTags} rows={pickedTerms.map(asDraft)} onChange={(tagId, add) => tag.mutate({ ids: pickedTerms.map((term) => term.id), tagId, add })} />
+              {/* A candidate without a Korean form cannot be confirmed (it would put an empty target in every prompt). */}
+              <BulkDecide
+                picked={pickedTerms.length}
+                actionable={discardable.map(asDraft)}
+                confirmable={promotable.map(asDraft)}
+                pending={decide.isPending}
+                confirmTitle={promotable.length < discardable.length ? '번역이 빈 후보는 번역을 채운 뒤 확정할 수 있습니다.' : undefined}
+                onConfirm={() => decide.mutate({ ids: promotable.map((term) => term.id), accept: true }, afterBulk)}
+                onDiscard={() => decide.mutate({ ids: discardable.map((term) => term.id), accept: false }, afterBulk)}
+              />
+              <TagMenu
+                tags={knownTags.filter((item) => !item.role)}
+                heading={`고른 ${pickedTerms.length}개의 태그`}
+                state={(tagId) => {
+                  const on = pickedTerms.filter((term) => term.tags?.some((item) => item.id === tagId)).length;
+                  return on === 0 ? 'none' : on === pickedTerms.length ? 'all' : 'some';
+                }}
+                onToggle={(tagId, add) => tag.mutate({ ids: pickedTerms.map((term) => term.id), tagId, add })}
+              />
             </>
           }
         />

@@ -7,6 +7,7 @@ import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { z } from 'zod';
 import { CONNECTION_CALL_DEFAULTS, CONNECTION_KIND_INFO, CONNECTION_KINDS, connectionInputSchema, type Capability, type ConnectionKind } from '@tw/shared';
+import { EmptyState } from '@/components/empty-state';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { DetailPane, PaneSection } from '@/components/detail-pane';
 import { HeaderActions, Page } from '@/components/page';
@@ -23,6 +24,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Spinner } from '@/components/ui/spinner';
 import { client, unwrap, type InferResponseType } from '@/lib/api';
 import { q } from '@/lib/queries';
+import { useReportView } from '@/lib/view-context';
 import { cn } from '@/lib/utils';
 import { keyStoreLabel } from '@/lib/keys';
 
@@ -51,6 +53,7 @@ function ConnectionSettings() {
   const close = () => open(undefined);
   const selected = search.conn && search.conn !== 'new' ? connections.data?.find((connection) => connection.id === search.conn) : undefined;
   const rows = connections.data?.filter((connection) => connection.kind !== 'http');
+  useReportView('ai-connection', [selected && { kind: 'AI 연결', id: selected.id, label: selected.name }]);
 
   const columns: ColumnDef<ConnectionRow, unknown>[] = [
     { id: 'name', header: '이름', meta: { hideable: false }, cell: ({ row }) => <span className="font-medium">{row.original.name}</span> },
@@ -82,7 +85,7 @@ function ConnectionSettings() {
             rows={rows}
             rowId={(row) => row.id}
             selected={selected?.id}
-            empty="연결이 없습니다. “연결 추가”로 시작하세요."
+            empty={<EmptyState noun="연결" hint="“연결 추가”로 시작하세요." />}
             onRowClick={(row) => open(row.id)}
           />
         </div>

@@ -475,7 +475,7 @@ function AssistPopover({
             {recent.length > 0 && (
               <div className="flex flex-wrap gap-1">
                 {recent.map((item) => (
-                  <Button key={item} variant="outline" size="sm" className="max-w-full truncate text-xs font-normal" title={item} onClick={() => setInstruction(item)}>
+                  <Button key={item} variant="outline" className="max-w-full truncate text-xs font-normal" title={item} onClick={() => setInstruction(item)}>
                     {item}
                   </Button>
                 ))}
@@ -484,19 +484,19 @@ function AssistPopover({
             <div className="flex justify-end gap-2">
               {hasDraft ? (
                 <>
-                  <Button variant="outline" size="sm" onClick={() => run('translate')}>
+                  <Button variant="outline" onClick={() => run('translate')}>
                     새로 번역
                   </Button>
-                  <Button size="sm" onClick={() => run('refine')}>
+                  <Button onClick={() => run('refine')}>
                     다듬기
                   </Button>
                 </>
               ) : (
                 <>
-                  <Button variant="outline" size="sm" disabled title="다듬을 번역이 없습니다">
+                  <Button variant="outline" disabled title="다듬을 번역이 없습니다">
                     다듬기
                   </Button>
-                  <Button size="sm" onClick={() => run('translate')}>
+                  <Button onClick={() => run('translate')}>
                     새로 번역
                   </Button>
                 </>

@@ -5,6 +5,7 @@ import { nodeName as nameOf, type WorkflowNode } from '@tw/shared';
 import { ContextItemList } from '@/components/ai-context';
 import { LineDetail } from '@/components/line-detail';
 import { Page } from '@/components/page';
+import { EmptyState } from '@/components/empty-state';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { HeaderFilter } from '@/components/header-filter';
 import { Pager, Toolbar } from '@/components/toolbar';
@@ -265,7 +266,7 @@ function RunDetail() {
             loading={!items.data}
             selected={items.data?.rows.find((item) => item.unitId === search.line)?.id}
             onRowClick={(item) => setSearch({ line: search.line === item.unitId ? undefined : item.unitId }, true)}
-            empty={filtered ? '조건에 맞는 대사가 없습니다.' : '이 실행에 대사가 없습니다.'}
+            empty={<EmptyState noun="대사" filtered={filtered} />}
             footer={<Pager page={search.page ?? 0} total={total} pageSize={PAGE} onPage={(page) => setSearch({ page: page || undefined })} />}
           />
         ) : view === 'plan' ? (
@@ -277,7 +278,7 @@ function RunDetail() {
                   <BatchList list={plan.data} defaultOpen />
                 </>
               ) : (
-                <p className="py-12 text-center text-sm text-muted-foreground">이 실행에는 저장된 번역 계획이 없습니다(계획을 저장하기 전에 시작한 실행).</p>
+                <EmptyState noun="저장된 번역 계획" hint="계획을 저장하기 전에 시작한 실행입니다." />
               )
             ) : plan.isError ? (
               <p className="py-12 text-center text-sm text-destructive">번역 계획을 불러오지 못했습니다: {plan.error.message}</p>

@@ -4,6 +4,7 @@ import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AUTO_MARK_IDS, AUTO_MARKS, markColor, DEFAULT_STATUS_COLOR, DEFAULT_TAG_COLOR, REVIEW_TAG, STATUS_COLORS, TAG_SCOPES, TAG_SCOPE_LABELS, type AutoMark, type MarkColors, type TagScope } from '@tw/shared';
+import { EmptyState } from '@/components/empty-state';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { DetailPane, FieldRow, PaneSection } from '@/components/detail-pane';
 import { Page } from '@/components/page';
@@ -21,6 +22,7 @@ import { Switch } from '@/components/ui/switch';
 import { client, unwrap } from '@/lib/api';
 import { STATUS_KIND } from '@/lib/labels';
 import { q } from '@/lib/queries';
+import { useReportView } from '@/lib/view-context';
 import { optimistic } from '@/lib/optimistic';
 import { cn } from '@/lib/utils';
 
@@ -104,6 +106,11 @@ function StatusSettings() {
   const selectedMark = search.mark;
   const selectedTag = search.tag && search.tag !== 'new' ? tags?.find((tag) => tag.id === search.tag) : undefined;
 
+  useReportView('statuses', [
+    selectedStatus && { kind: '상태', id: selectedStatus.id, label: selectedStatus.name },
+    selectedTag && { kind: '태그', id: selectedTag.id, label: selectedTag.name },
+    selectedMark && { kind: '자동 표시', id: selectedMark, label: AUTO_MARKS[selectedMark].name },
+  ]);
   const fail = (error: Error) => toast.error(error.message);
   const queryClient = useQueryClient();
   const reorder = useMutation({
@@ -299,7 +306,7 @@ function StatusSettings() {
             rows={statuses}
             rowId={(row) => row.id}
             selected={search.status}
-            empty="상태가 없습니다."
+            empty={<EmptyState noun="상태" />}
             onRowClick={(row) => open({ status: row.id })}
           />
           <Toolbar

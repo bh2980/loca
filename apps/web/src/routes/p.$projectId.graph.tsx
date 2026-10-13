@@ -19,6 +19,7 @@ import { Switch } from '@/components/ui/switch';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { useSize } from '@/hooks/use-size';
 import { q } from '@/lib/queries';
+import { useReportView } from '@/lib/view-context';
 import { SplitPane } from '@/components/split-pane';
 import { PaneHeader } from '@/components/pane-header';
 
@@ -207,6 +208,9 @@ function GraphPage() {
   // Where the card stands: the node's box (a folded run's block); a choice has no box of its own, so it stands by what it leads to.
   const anchorOf = (nodeId: string) => shown(layout?.edges.find((edge) => edge.via === nodeId)?.to ?? nodeId);
   const anchorId = editAt >= 0 ? anchorOf(flowLines[editAt].nodeId) : undefined;
+  // The line open in the translation card (the selected node reports itself from its pane).
+  const editUnit = useQuery({ ...q.unit(search.edit ?? ''), enabled: !!search.edit });
+  useReportView('graph-line', [editUnit.data && { kind: '대사', id: editUnit.data.id, label: `${editUnit.data.key} · ${editUnit.data.source.slice(0, 40)}` }]);
   const edit = (unitId: string | undefined) => void navigate({ search: (previous) => ({ ...previous, edit: unitId }), replace: true });
   // After stepping past the selection's end, the next selection opens on its first (or last) line
   // once its lines have arrived.

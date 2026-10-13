@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef, type ColumnOrderState, type ColumnSizingState, type RowData, type VisibilityState } from '@tanstack/react-table';
-import { X } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { PickedBar } from '@/components/picked-bar';
+import { EmptyState } from '@/components/empty-state';
 import { ColumnMenu } from '@/components/column-menu';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -245,13 +245,9 @@ function Table<T>({
                 {/* Picked rows: the header row turns into their actions, as on the script list. */}
                 {bulking ? (
                   <th colSpan={group.headers.length + (id ? 1 : 0)} className="h-9 border-b px-3 text-left align-middle font-normal">
-                    <div className="flex flex-wrap items-center gap-2 text-sm">
-                      <span className="font-medium tabular-nums">{picked!.size.toLocaleString()}개 선택</span>
+                    <PickedBar count={picked!.size} onClear={() => onPick?.([...picked!], false)}>
                       {bulk}
-                      <Button variant="ghost" className="ml-auto" aria-label="선택 해제" onClick={() => onPick?.([...picked!], false)}>
-                        <X /> 선택 해제
-                      </Button>
-                    </div>
+                    </PickedBar>
                   </th>
                 ) : group.headers.map((header, index) => (
                   <th
@@ -343,7 +339,7 @@ function Table<T>({
                 })}
           </tbody>
         </table>
-        {!loading && rows && rows.length === 0 && <div className="px-4 py-12 text-center text-sm text-muted-foreground">{empty ?? '항목이 없습니다.'}</div>}
+        {!loading && rows && rows.length === 0 && (empty ?? <EmptyState noun="항목" />)}
       </div>
       {footer}
     </div>

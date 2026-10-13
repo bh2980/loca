@@ -1,7 +1,9 @@
 import { useState, type ReactNode } from 'react';
 import { Check, ListFilter } from 'lucide-react';
+import type { AutoMark } from '@tw/shared';
 import { Button } from '@/components/ui/button';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
+import { MarkChip, TagChip } from '@/components/status';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 
@@ -86,11 +88,42 @@ export interface MarkOption {
   onChange: (on: boolean) => void;
 }
 
+export interface MarkGroup {
+  heading: string;
+  options: MarkOption[];
+}
+
+/**
+ * The option groups of every mark-and-tag filter (knowledge tables, glossary, script lines):
+ * the automatic marks, then the tags, as chips. With `issueHeading`, tags that have a role
+ * (problem types) get a group of their own and `tagHeading` keeps the rest.
+ */
+export function markTagGroups({ marks, picked, onToggle, tags, pickedTags, onToggleTag, projectId, tagHeading = '태그', issueHeading }: {
+  marks: readonly AutoMark[];
+  picked: readonly AutoMark[] | undefined;
+  onToggle: (mark: AutoMark, on: boolean) => void;
+  tags: { id: string; name: string; color: string; role?: string | null }[];
+  pickedTags: readonly string[] | undefined;
+  onToggleTag: (tagId: string, on: boolean) => void;
+  projectId?: string;
+  tagHeading?: string;
+  issueHeading?: string;
+}): MarkGroup[] {
+  const tagOptions = (list: typeof tags): MarkOption[] => list.map((tag) => ({ key: tag.id, label: <TagChip tag={tag} />, checked: Boolean(pickedTags?.includes(tag.id)), onChange: (on) => onToggleTag(tag.id, on) }));
+  // Groups with nothing to pick are left out (a project without problem-type tags shows no such heading).
+  const groups: MarkGroup[] = [
+    { heading: '자동 표시', options: marks.map((mark) => ({ key: mark, label: <MarkChip mark={mark} projectId={projectId} />, checked: Boolean(picked?.includes(mark)), onChange: (on) => onToggle(mark, on) })) },
+    ...(issueHeading ? [{ heading: issueHeading, options: tagOptions(tags.filter((tag) => tag.role)) }] : []),
+    { heading: tagHeading, options: tagOptions(issueHeading ? tags.filter((tag) => !tag.role) : tags) },
+  ];
+  return groups.filter((group) => group.options.length > 0);
+}
+
 /**
  * A column header that filters by marks and tags, several at once: each check narrows the rows
  * further (all must hold). The popover stays open while ticking; '전체' clears every pick.
  */
-export function MarkFilter({ label, groups, onClear }: { label: string; groups: { heading: string; options: MarkOption[] }[]; onClear: () => void }) {
+export function MarkFilter({ label, groups, onClear }: { label: string; groups: MarkGroup[]; onClear: () => void }) {
   const active = groups.some((group) => group.options.some((option) => option.checked));
   return (
     <Popover>

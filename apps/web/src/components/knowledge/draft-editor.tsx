@@ -1,8 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Check, ChevronRight, Play, Tags, Trash2 } from 'lucide-react';
-import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuLabel, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Check, ChevronRight, Play, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AUTO_MARK_IDS, AUTO_MARKS, type AutoMark, knowledgeMarksOf, matchesMarks, DOCUMENT_KINDS, STYLE_AXES, type StyleAxis, SPEECH_FIX_WORKFLOW, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, sourceOf, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type SpeechLevel, type StatusBy } from '@tw/shared';
 import { RunDialog } from '@/components/workflow/run-dialog';
@@ -24,7 +23,7 @@ import { cn } from '@/lib/utils';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import type { FilterChip } from '@/components/toolbar';
 import { DetailPane, PaneSection } from '@/components/detail-pane';
-import { HeaderFilter, MarkFilter, type FilterOption } from '@/components/header-filter';
+import { HeaderFilter, MarkFilter, markTagGroups, type FilterOption } from '@/components/header-filter';
 
 export const KINDS = { documents: '문서', characters: '인물', relationships: '관계', events: '사건', speechRules: '말투 규칙' } as const;
 export type Kind = keyof typeof KINDS;
@@ -118,7 +117,7 @@ export function TagCell({ tags, known, marks }: { tags?: ItemTag[]; known: TagIn
   );
 }
 
-export const sourceOptions: FilterOption[] = KNOWLEDGE_SOURCES.map((value) => ({ value, label: SOURCE_LABELS[value] }));
+const sourceOptions: FilterOption[] = KNOWLEDGE_SOURCES.map((value) => ({ value, label: SOURCE_LABELS[value] }));
 
 /** 상태 cell: 확정 (used as context, ✦ when AI confirmed it) or 후보 (not yet). */
 export function StateCell({ row }: { row: Draft }) {
@@ -151,27 +150,18 @@ export interface KnowledgeFilterState {
 }
 
 /** The 태그 filter: the app's marks, then the tags; every pick narrows the rows (marks of one field widen, see matchesMarks). */
-export function TagFilter({ filters, marks = KNOWLEDGE_MARK_IDS }: { filters: KnowledgeFilterState; marks?: readonly AutoMark[] }) {
-  const picked = filters.tags ?? [];
+function TagFilter({ filters, marks = KNOWLEDGE_MARK_IDS }: { filters: KnowledgeFilterState; marks?: readonly AutoMark[] }) {
   const toggle = (id: string, on: boolean) => {
+    const picked = filters.tags ?? [];
     const next = on ? [...picked, id] : picked.filter((other) => other !== id);
     filters.onChange({ tags: next.length ? next : undefined });
   };
-  const pickedMarks = filters.marks ?? [];
   const toggleMark = (key: AutoMark, on: boolean) => {
-    const next = on ? [...pickedMarks, key] : pickedMarks.filter((other) => other !== key);
+    const picked = filters.marks ?? [];
+    const next = on ? [...picked, key] : picked.filter((other) => other !== key);
     filters.onChange({ marks: next.length ? next : undefined });
   };
-  return (
-    <MarkFilter
-      label="태그"
-      groups={[
-        { heading: '자동 표시', options: marks.map((key) => ({ key, label: <MarkChip mark={key} />, checked: pickedMarks.includes(key), onChange: (on: boolean) => toggleMark(key, on) })) },
-        { heading: '태그', options: filters.known.map((tag) => ({ key: tag.id, label: <TagChip tag={tag} />, checked: picked.includes(tag.id), onChange: (on: boolean) => toggle(tag.id, on) })) },
-      ]}
-      onClear={() => filters.onChange({ marks: undefined, tags: undefined })}
-    />
-  );
+  return <MarkFilter label="태그" groups={markTagGroups({ marks, picked: filters.marks, onToggle: toggleMark, tags: filters.known, pickedTags: filters.tags, onToggleTag: toggle })} onClear={() => filters.onChange({ marks: undefined, tags: undefined })} />;
 }
 
 export function metaColumns<T>(draftOf: (row: T) => Draft, filters: KnowledgeFilterState, marksOf: (row: T) => AutoMark[] = (row) => knowledgeMarksOf(draftOf(row))): ColumnDef<T, unknown>[] {
@@ -191,6 +181,11 @@ export function metaColumns<T>(draftOf: (row: T) => Draft, filters: KnowledgeFil
   ];
 }
 
+const tagLabel = (known: TagInfo[], id: string) => {
+  const tag = known.find((item) => item.id === id);
+  return tag ? <TagChip tag={tag} /> : `#${id}`;
+};
+
 /** The knowledge filters that are set, as removable chips for the toolbar. */
 export function knowledgeFilterChips(filters: KnowledgeFilterState): FilterChip[] {
   return [
@@ -206,7 +201,8 @@ export function knowledgeFilterChips(filters: KnowledgeFilterState): FilterChip[
     })),
     ...(filters.tags ?? []).map((id) => ({
       key: `tag:${id}`,
-      label: `#${filters.known.find((tag) => tag.id === id)?.name ?? id}`,
+      label: tagLabel(filters.known, id),
+      name: `#${filters.known.find((tag) => tag.id === id)?.name ?? id}`,
       clear: () => {
         const next = (filters.tags ?? []).filter((other) => other !== id);
         filters.onChange({ tags: next.length ? next : undefined });
@@ -226,52 +222,24 @@ export function KnowledgeFilters(filters: KnowledgeFilterState) {
 }
 
 /**
- * The bar for picked items a person has not decided: confirm them (후보 → 확정, AI 확정 → 확인함;
- * the status stays and a person now holds it) or throw them away. Items a person decided are skipped.
+ * The actions for picked items a person has not decided: confirm them (후보 → 확정, AI 확정 →
+ * 확인함; the status stays and a person now holds it) or throw them away (always through a
+ * confirmation). Items a person decided are skipped. `confirmable` narrows what confirm acts on
+ * (terms without a translation cannot be confirmed).
  */
-export function BulkDecide({ picked, actionable, pending, onConfirm, onDiscard }: { picked: number; actionable: Draft[]; pending: boolean; onConfirm: () => void; onDiscard: () => void }) {
+export function BulkDecide({ picked, actionable, confirmable = actionable, pending, confirmTitle, onConfirm, onDiscard }: { picked: number; actionable: Draft[]; confirmable?: Draft[]; pending: boolean; confirmTitle?: string; onConfirm: () => void; onDiscard: () => void }) {
   return (
     <>
-      <Button disabled={actionable.length === 0 || pending} onClick={onConfirm}>
-        <Check /> {confirmLabel(actionable)}
+      <Button variant="outline" disabled={confirmable.length === 0 || pending} title={confirmTitle} onClick={onConfirm}>
+        <Check /> {confirmLabel(confirmable)}
       </Button>
-      <DiscardButton count={actionable.length} disabled={actionable.length === 0} onConfirm={onDiscard} />
+      <DiscardButton count={actionable.length} disabled={actionable.length === 0 || pending} onConfirm={onDiscard} />
       {picked > actionable.length && <span className="text-xs text-muted-foreground">사람이 정한 {picked - actionable.length}개는 건너뜁니다</span>}
     </>
   );
 }
 
-/** The table of one knowledge kind (documents, people, events) with 출처 and 상태 columns. */
-/**
- * A person's tags on the picked items (the same project tags as lines): one check per tag, '일부'
- * when only some carry it. The app's own tags (확인 권장) are not offered: a decision takes those off.
- */
-export function TagMenu({ tags, rows, onChange }: { tags: TagInfo[]; rows: Draft[]; onChange: (tagId: string, add: boolean) => void }) {
-  const own = tags.filter((tag) => !tag.role);
-  if (!own.length || !rows.length) return null;
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline" className="bg-background">
-          <Tags /> 태그
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-56">
-        <DropdownMenuLabel className="text-xs text-muted-foreground">고른 {rows.length}개의 태그</DropdownMenuLabel>
-        {own.map((tag) => {
-          const on = rows.filter((row) => row.tags?.some((item) => item.id === tag.id)).length;
-          return (
-            <DropdownMenuCheckboxItem key={tag.id} checked={on === rows.length} onSelect={(event) => event.preventDefault()} onCheckedChange={() => onChange(tag.id, on !== rows.length)}>
-              <TagChip tag={tag} />
-              {on > 0 && on < rows.length && <span className="ml-auto text-xs text-muted-foreground">일부</span>}
-            </DropdownMenuCheckboxItem>
-          );
-        })}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
+/** The table of one knowledge kind (documents, people, events) with 출처 and 태그 columns. */
 export function KnowledgeTable({ id, spec, rows, loading, selected, onOpen, picked, onPick, bulk, empty, filters }: {
   /** Keeps the column widths per kind (see DataTable). */
   id?: string;
@@ -293,7 +261,7 @@ export function KnowledgeTable({ id, spec, rows, loading, selected, onOpen, pick
   return <DataTable id={id} columns={columns} rows={rows} loading={loading} rowId={(row) => row.id} selected={selected} onRowClick={(row) => onOpen(row.id)} rowClassName={candidateRow} picked={picked} onPick={onPick} bulk={bulk} empty={empty} />;
 }
 
-export function DiscardButton({ count, onConfirm, disabled }: { count: number; onConfirm: () => void; disabled?: boolean }) {
+function DiscardButton({ count, onConfirm, disabled }: { count: number; onConfirm: () => void; disabled?: boolean }) {
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
@@ -465,7 +433,7 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
 
 const NORMAL = '__normal';
 
-export function FieldInput({ field, value, characters, onChange }: { field: Field; value: Value; characters: { id: string; name: string }[]; onChange: (value: Value) => void }) {
+function FieldInput({ field, value, characters, onChange }: { field: Field; value: Value; characters: { id: string; name: string }[]; onChange: (value: Value) => void }) {
   const id = `field-${field.name}`;
   if (field.type === 'bool')
     return (
@@ -566,7 +534,7 @@ function Fold({ label, children, actions }: { label: ReactNode; children: ReactN
   );
 }
 
-export function Evidence({ projectId, keys }: { projectId: string; keys: string[] }) {
+function Evidence({ projectId, keys }: { projectId: string; keys: string[] }) {
   const lines = useQuery(q.linesByKeys(projectId, keys.slice(0, 50)));
   if (!keys.length) return <p className="text-xs text-muted-foreground">근거로 든 대사가 없습니다.</p>;
   return (

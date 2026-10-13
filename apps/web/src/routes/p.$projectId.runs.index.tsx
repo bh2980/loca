@@ -10,6 +10,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { SplitPane } from '@/components/split-pane';
+import { EmptyState } from '@/components/empty-state';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { DetailPane } from '@/components/detail-pane';
 import { JobStatusBadge } from '@/components/job-status';
@@ -160,12 +161,7 @@ function Runs() {
           loading={!rows}
           selected={search.job}
           onRowClick={(row) => (row.kind === 'run' ? void navigate({ to: '/p/$projectId/runs/$runId', params: { projectId, runId: row.id } }) : select(row.id === search.job ? undefined : row.id))}
-          empty={
-            <>
-              <p className="font-medium text-foreground">아직 실행이 없습니다</p>
-              <p className="mt-1">워크플로 실행, 작품 분석, 용어 AI 채우기가 모델을 부르면 여기에 쌓입니다.</p>
-            </>
-          }
+          empty={<EmptyState noun="실행" hint="워크플로 실행, 작품 분석, 용어 AI 채우기가 모델을 부르면 여기에 쌓입니다." />}
         />
       </SplitPane>
     </Page>
