@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray, isNotNull, ne, sql } from 'drizzle-orm';
-import { batchConfigSchema, CONNECTION_KIND_INFO, estimateTokens, isUnsureListener, nodeName, type AiNode, type WorkflowDefinition } from '@tw/shared';
+import { batchConfigSchema, CONNECTION_KIND_INFO, estimateTokens, isUnsureListener, nodeName, termMatcher, type AiNode, type WorkflowDefinition } from '@tw/shared';
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -47,7 +47,7 @@ export async function preflight(db: Db, workflow: typeof s.workflows.$inferSelec
   const definition: WorkflowDefinition = workflow.definition;
   const projectId = workflow.projectId;
   const unitIds = selectRunUnits(db, projectId, definition, scope);
-  const columns = { id: s.units.id, groupId: s.units.groupId, seq: s.units.seq, kind: s.units.kind, speaker: s.units.speaker, translation: s.units.translation, listener: s.units.listener, listenerOrigin: s.units.listenerOrigin, listenerConfidence: s.units.listenerConfidence, tokens: sql<number>`(length(cast(${s.units.source} as blob)) + 3) / 4` };
+  const columns = { id: s.units.id, key: s.units.key, groupId: s.units.groupId, seq: s.units.seq, kind: s.units.kind, speaker: s.units.speaker, source: s.units.source, translation: s.units.translation, listener: s.units.listener, listenerOrigin: s.units.listenerOrigin, listenerConfidence: s.units.listenerConfidence, tokens: sql<number>`(length(cast(${s.units.source} as blob)) + 3) / 4` };
   // Most of a project: one scan kept by id is faster than ids in chunks (see planLines).
   const wanted = new Set(unitIds);
   const units = (unitIds.length < 2_000 ? inChunks(unitIds, (ids) => db.select(columns).from(s.units).where(inArray(s.units.id, ids)).all()) : db.select(columns).from(s.units).where(eq(s.units.projectId, projectId)).all().filter((unit) => wanted.has(unit.id))).sort((a, b) => a.seq - b.seq);
@@ -134,7 +134,12 @@ export async function preflight(db: Db, workflow: typeof s.workflows.$inferSelec
   const missing = [...main].filter((pair) => !covered.has(pair)).length;
   if (missing) warnings.push(`대사가 많은 화자→청자 쌍 ${main.size}개 중 ${missing}개는 확정된 말투 규칙이 없습니다.${waiting ? ` 확인을 기다리는 후보 규칙 ${waiting}개가 있습니다(자료 › 인물·관계).` : ''}`);
 
+  const readiness = readinessOf(db, projectId, units, index);
+  const pace = paceOf(db, estimates);
+
   return {
+    readiness,
+    pace,
     lines: { total: units.length, translated: units.filter((unit) => unit.translation).length, untranslated: units.filter((unit) => !unit.translation).length },
     plan: {
       batches: sizes.length,
@@ -162,6 +167,78 @@ export async function preflight(db: Db, workflow: typeof s.workflows.$inferSelec
       maxInputTokens: unmeasured ? undefined : Math.ceil((inputTokens.expected ?? inputTokens.max) * 1.3) || undefined,
     },
   };
+}
+
+/**
+ * What in this run's own lines would make the translation worse, for a person to fix first:
+ * dialogue whose listener is unknown, speech rules its speaker → listener pairs use that no person
+ * has looked at (candidates, or set by AI), and glossary terms its lines mention that are not
+ * confirmed by a person.
+ */
+function readinessOf(db: Db, projectId: string, units: { kind: string; speaker: string | null; source: string; listener: string | null; listenerOrigin: string | null; listenerConfidence: number | null }[], index: ReturnType<typeof speechRuleIndex>) {
+  const dialogue = units.filter((unit) => unit.kind === 'dialogue');
+  const unknownListener = dialogue.filter((unit) => !unit.listener || isUnsureListener(unit as never)).length;
+  const pairs = new Map<string, number>();
+  for (const unit of dialogue) if (unit.speaker && unit.listener && !isUnsureListener(unit as never)) {
+    const key = `${index.norm(unit.speaker)}|${index.norm(unit.listener)}`;
+    pairs.set(key, (pairs.get(key) ?? 0) + 1);
+  }
+  const rules = db
+    .select({ from: s.speechRules.fromName, to: s.speechRules.toName })
+    .from(s.speechRules)
+    .where(and(eq(s.speechRules.projectId, projectId), ne(s.speechRules.status, 'rejected'), sql`(${s.speechRules.status} = 'candidate' or ${s.speechRules.statusBy} = 'ai')`))
+    .all()
+    .filter((rule) => pairs.has(`${index.norm(rule.from)}|${index.norm(rule.to)}`));
+  const unreviewedRules = [...new Map(rules.map((rule) => [`${index.norm(rule.from)}|${index.norm(rule.to)}`, rule])).values()];
+  const terms = db
+    .select({ source: s.terms.source })
+    .from(s.terms)
+    .where(and(eq(s.terms.projectId, projectId), ne(s.terms.status, 'rejected'), sql`(${s.terms.status} = 'candidate' or ${s.terms.statusBy} = 'ai')`))
+    .all();
+  const mentioned = terms.length ? termMatcher(terms, (term) => term.source) : null;
+  const unreviewedTerms = mentioned ? new Set(units.flatMap((unit) => mentioned.find(unit.source).map((term) => term.source))) : new Set<string>();
+  return {
+    dialogueLines: dialogue.length,
+    unknownListenerLines: unknownListener,
+    unreviewedRules: { count: unreviewedRules.length, examples: unreviewedRules.slice(0, 3).map((rule) => `${rule.from} → ${rule.to}`) },
+    unreviewedTerms: { count: unreviewedTerms.size, examples: [...unreviewedTerms].slice(0, 3) },
+  };
+}
+
+/**
+ * How long and how much, from the connections' own recent calls in runs: the median seconds per
+ * request, spread over the connection's parallel requests, and the average cost a provider
+ * reported. CLI connections run on a subscription. null where there is no history yet.
+ */
+function paceOf(db: Db, estimates: NodeEstimate[]) {
+  let seconds: number | null = 0;
+  let cost: number | null = 0;
+  let subscription = false;
+  for (const estimate of estimates) {
+    if (!estimate.connection) continue;
+    const requests = estimate.requests.expected ?? estimate.requests.max;
+    const calls = db
+      .select({ started: s.aiCalls.startedAt, finished: s.aiCalls.finishedAt, cost: s.aiCalls.costUsd })
+      .from(s.aiCalls)
+      .where(and(eq(s.aiCalls.connectionId, estimate.connection.id), eq(s.aiCalls.kind, 'run'), eq(s.aiCalls.status, 'ok')))
+      .orderBy(desc(s.aiCalls.startedAt))
+      .limit(30)
+      .all()
+      .filter((call) => call.finished);
+    const parallel = db.select({ concurrency: s.connections.concurrency }).from(s.connections).where(eq(s.connections.id, estimate.connection.id)).get()?.concurrency ?? 1;
+    if (!calls.length) seconds = null;
+    else if (seconds !== null) {
+      const durations = calls.map((call) => (call.finished!.getTime() - call.started.getTime()) / 1000).sort((a, b) => a - b);
+      seconds += (durations[Math.floor(durations.length / 2)] * requests) / Math.max(1, parallel);
+    }
+    if (estimate.connection.cli) subscription = true;
+    else {
+      const priced = calls.filter((call) => call.cost !== null);
+      if (!priced.length) cost = null;
+      else if (cost !== null) cost += (priced.reduce((sum, call) => sum + call.cost!, 0) / priced.length) * requests;
+    }
+  }
+  return { seconds: seconds === null ? null : Math.round(seconds), costUsd: cost, subscription };
 }
 
 /**
