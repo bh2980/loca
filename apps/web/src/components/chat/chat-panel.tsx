@@ -152,8 +152,9 @@ export function ChatPanel({ projectId }: { projectId: string }) {
         </AlertDialogContent>
       </AlertDialog>
       <ExternalProposals projectId={projectId} />
+      {/* A connection picked without a model yet (one with no default) still counts, so the picker asks for the model. */}
       {current ? (
-        <Conversation key={current.id} projectId={projectId} sessionId={current.id} model={current.connectionId && current.model ? { connectionId: current.connectionId, model: current.model, ...(current.effort && { effort: current.effort }) } : null} />
+        <Conversation key={current.id} projectId={projectId} sessionId={current.id} model={current.connectionId ? { connectionId: current.connectionId, model: current.model ?? '', ...(current.effort && { effort: current.effort }) } : null} />
       ) : (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center text-sm text-muted-foreground">
           <p>프로젝트의 원문·자료·워크플로를 읽고 인물 프로필이나 참조 문서, 워크플로를 제안하는 에이전트입니다.</p>
