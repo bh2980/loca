@@ -35,6 +35,7 @@ export const markColor = (mark: AutoMark, colors?: MarkColors | null) => colors?
 /** The marks that apply to lines (what the line filter, run scope and workflow conditions offer). */
 export type LineMark = { [K in AutoMark]: 'lines' extends (typeof AUTO_MARKS)[K]['on'][number] ? K : never }[AutoMark];
 export const LINE_MARK_IDS = AUTO_MARK_IDS.filter((id): id is LineMark => (AUTO_MARKS[id].on as readonly string[]).includes('lines'));
+export const lineMarksSchema = z.array(z.enum(LINE_MARK_IDS as [LineMark, ...LineMark[]]));
 
 /** The line marks read off the line itself (lineMarksOf: what workflow conditions can test). 같은 원문 다른 번역 compares across lines, so only the list filter and run scope know it. */
 export const CONDITION_MARK_IDS = LINE_MARK_IDS.filter((id) => id !== 'diverged');

@@ -166,6 +166,13 @@ export const importFileSchema = z
       });
       return seen;
     };
+    // One term per source whatever its case (the glossary is unique that way).
+    const termSources = new Set<string>();
+    file.terms.forEach((term, index) => {
+      const lower = term.source.trim().toLowerCase();
+      if (termSources.has(lower)) issue(['terms', index, 'source'], `중복된 용어: ${term.source}`);
+      termSources.add(lower);
+    });
     const groups = unique(file.groups, 'groups');
     const units = unique(file.units, 'units');
     file.units.forEach((unit, index) => {

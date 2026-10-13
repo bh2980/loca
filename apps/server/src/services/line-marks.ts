@@ -1,6 +1,5 @@
 import { and, eq, sql, type SQL } from 'drizzle-orm';
-import { z } from 'zod';
-import { LINE_MARK_IDS, LISTENER_MIN_CONFIDENCE, type LineMark } from '@tw/shared';
+import { LISTENER_MIN_CONFIDENCE, type LineMark } from '@tw/shared';
 import * as s from '../db/schema.ts';
 
 /**
@@ -8,7 +7,6 @@ import * as s from '../db/schema.ts';
  * can be scoped by. Each is one SQL condition; a set of marks holds only when every one does.
  */
 export type { LineMark };
-export const lineMarksSchema = z.array(z.enum(LINE_MARK_IDS as [LineMark, ...LineMark[]]));
 
 /** A source as compared for "the same source": lower case, without spaces and punctuation at its ends ("What?" = "WHAT"). */
 export const sameSource = (column: SQL) => sql`trim(lower(${column}), ' .,!?…"''-~')`;

@@ -1,8 +1,7 @@
 import { tool } from 'ai';
-import { clearReview } from './knowledge-tags.ts';
 import { and, asc, count, desc, eq, inArray, like, ne, or } from 'drizzle-orm';
 import { z } from 'zod';
-import { AI_OUTPUTS, AI_PRESETS, aiNodeConfigSchema, AUTO_MARKS, batchChangeSchema, CONDITION_MARK_IDS, CONNECTION_KIND_INFO, FUNCTIONS, LINE_MARK_IDS, lineFilterSchema, NODE_TYPES, sourceOf, workflowDefinitionSchema } from '@tw/shared';
+import { AI_OUTPUTS, AI_PRESETS, aiNodeConfigSchema, AUTO_MARKS, batchChangeSchema, CONDITION_MARK_IDS, CONNECTION_KIND_INFO, FUNCTIONS, LINE_MARK_IDS, lineFilterSchema, lineMarksSchema, NODE_TYPES, sourceOf, workflowDefinitionSchema } from '@tw/shared';
 import { z as zod } from 'zod';
 import type { Db } from '../db/index.ts';
 import { byPerson } from './status-by.ts';
@@ -12,14 +11,14 @@ import { events } from '../events.ts';
 import { characterInput, documentInput, eventInput, relationshipInput, speechRuleInput, termInput } from '../routes/knowledge.ts';
 import { describeRule, knownListener, speechRuleIndex } from './speech.ts';
 import { workflowIssues } from '../routes/workflows.ts';
+import { statusInput, tagInput } from '../routes/projects.ts';
 import { mentions } from './context.ts';
 import { createRunInSteps, selectRunUnits } from '../engine/runner.ts';
 import { snapshotWorkflowModels } from './routes.ts';
 import { readWebPage, webSearch } from './web.ts';
 import { pickNodes, saveView, sectionWithMost, viewSection, VIEW_LIMIT } from './graph-views.ts';
-import { addNameTerms } from './terms.ts';
+import { addNameTerms, saveTerm } from './terms.ts';
 import { applyBatch, checkScript, findLines, lineContext, normalizeBatch, runStats, sceneStats, scenesWith, validateBatch } from './script-query.ts';
-import { lineMarksSchema } from './line-marks.ts';
 
 /** Lines of a batch proposal checked and applied per step when it is accepted. */
 const APPLY_CHUNK = 500;
@@ -113,7 +112,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
     }),
     find_lines: tool({
       description:
-        'Find lines with any combination of filters: q (text), speakers (character name/alias/speaker key — all their lines), listeners (lines addressed to them; "-" = listener unknown), mentions (lines that mention a character, incl. {ALIAS} placeholders), groups (scene/group key, id or title), sections (chapter/folder), groupKind, kind, statuses, tags, translated, keys. Returns total and one page with each line\'s key and rev; page with offset until total. Prefer one broad call over many small ones.',
+        'Find lines with any combination of filters: q (text), speakers (character name/alias/speaker key — all their lines), listeners (lines addressed to them; "-" = listener unknown, the same as marks unknownListener), mentions (lines that mention a character, incl. {ALIAS} placeholders), groups (scene/group key, id or title), sections (chapter/folder), groupKind, kind, statuses, tags, marks (automatic marks all of which the line has: ' + LINE_MARK_IDS.join(', ') + '), translated, keys. Returns total and one page with each line\'s key and rev; page with offset until total. Prefer one broad call over many small ones.',
       inputSchema: lineFilterSchema,
       execute: (filter) => findLines(db, projectId, filter),
     }),
@@ -292,7 +291,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         const existing = !id && characterByName(input.name);
         if (existing) return { ok: false, error: `같은 이름의 인물이 이미 있습니다. id=${existing.id}로 수정 제안을 다시 하세요.` };
         if (id) {
-          if (!db.update(s.characters).set({ ...input, ...byPerson(db, s.characters, id, input) }).where(and(eq(s.characters.id, id), eq(s.characters.projectId, projectId))).run().changes) return { ok: false, error: '없는 인물입니다.' };
+          if (!db.update(s.characters).set({ ...input, ...byPerson(db, s.characters, projectId, id, input) }).where(and(eq(s.characters.id, id), eq(s.characters.projectId, projectId))).run().changes) return { ok: false, error: '없는 인물입니다.' };
         } else id = db.insert(s.characters).values({ ...input, projectId }).returning().get().id;
         const saved = db.select({ name: s.characters.name, aliases: s.characters.aliases }).from(s.characters).where(eq(s.characters.id, id)).get();
         if (saved) addNameTerms(db, projectId, saved);
@@ -309,7 +308,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         if (!a || !b) return { ok: false, error: `인물을 먼저 만들어야 합니다: ${!a ? from : to}` };
         const values = { ...input, fromId: a.id, toId: b.id };
         if (id) {
-          if (!db.update(s.relationships).set({ ...values, ...byPerson(db, s.relationships, id, values) }).where(and(eq(s.relationships.id, id), eq(s.relationships.projectId, projectId))).run().changes) return { ok: false, error: '없는 관계입니다.' };
+          if (!db.update(s.relationships).set({ ...values, ...byPerson(db, s.relationships, projectId, id, values) }).where(and(eq(s.relationships.id, id), eq(s.relationships.projectId, projectId))).run().changes) return { ok: false, error: '없는 관계입니다.' };
         } else id = db.insert(s.relationships).values({ ...values, projectId }).returning().get().id;
         changed('knowledge');
         return { ok: true, id };
@@ -322,9 +321,8 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       needsApproval: true,
       execute: ({ id, ...input }) => {
         if (id) {
-          // Accepted by a person: like an edit in the app, a person set it and it is no longer marked for a look.
-          if (!db.update(s.speechRules).set({ ...input, ...byPerson(db, s.speechRules, id, input) }).where(and(eq(s.speechRules.id, id), eq(s.speechRules.projectId, projectId))).run().changes) return { ok: false, error: '없는 말투 규칙입니다.' };
-          clearReview(db, projectId, 'speechRules', [id]);
+          // Accepted by a person: like an edit in the app (byPerson also takes 확인 권장 off).
+          if (!db.update(s.speechRules).set({ ...input, ...byPerson(db, s.speechRules, projectId, id, input) }).where(and(eq(s.speechRules.id, id), eq(s.speechRules.projectId, projectId))).run().changes) return { ok: false, error: '없는 말투 규칙입니다.' };
         } else id = db.insert(s.speechRules).values({ ...input, projectId }).returning().get().id;
         changed('knowledge');
         return { ok: true, id };
@@ -336,7 +334,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       needsApproval: true,
       execute: ({ id, ...input }) => {
         if (id) {
-          if (!db.update(s.storyEvents).set({ ...input, ...byPerson(db, s.storyEvents, id, input) }).where(and(eq(s.storyEvents.id, id), eq(s.storyEvents.projectId, projectId))).run().changes) return { ok: false, error: '없는 사건입니다.' };
+          if (!db.update(s.storyEvents).set({ ...input, ...byPerson(db, s.storyEvents, projectId, id, input) }).where(and(eq(s.storyEvents.id, id), eq(s.storyEvents.projectId, projectId))).run().changes) return { ok: false, error: '없는 사건입니다.' };
         } else id = db.insert(s.storyEvents).values({ ...input, projectId }).returning().get().id;
         changed('knowledge');
         return { ok: true, id };
@@ -348,7 +346,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       needsApproval: true,
       execute: ({ id, ...input }) => {
         if (id) {
-          if (!db.update(s.documents).set({ ...input, ...byPerson(db, s.documents, id, input) }).where(and(eq(s.documents.id, id), eq(s.documents.projectId, projectId))).run().changes) return { ok: false, error: '없는 문서입니다.' };
+          if (!db.update(s.documents).set({ ...input, ...byPerson(db, s.documents, projectId, id, input) }).where(and(eq(s.documents.id, id), eq(s.documents.projectId, projectId))).run().changes) return { ok: false, error: '없는 문서입니다.' };
         } else id = db.insert(s.documents).values({ ...input, projectId }).returning().get().id;
         changed('knowledge');
         return { ok: true, id };
@@ -359,16 +357,16 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       inputSchema: z.object({ terms: z.array(termInput.extend({ id: z.string().optional() })).min(1).max(200) }),
       needsApproval: true,
       execute: ({ terms }) => {
-        const missing: string[] = [];
+        const skipped: { id?: string; source?: string; reason: string }[] = [];
+        // A refused term (a duplicate source) is reported and the rest are saved.
         db.transaction((tx) => {
           for (const { id, ...term } of terms) {
-            if (id) {
-              if (!tx.update(s.terms).set({ ...term, ...('source' in term && term.source !== undefined && { lines: null }), ...byPerson(tx as unknown as Db, s.terms, id, term) }).where(and(eq(s.terms.id, id), eq(s.terms.projectId, projectId))).run().changes) missing.push(id);
-            } else tx.insert(s.terms).values({ ...term, projectId }).run();
+            const saved = saveTerm(tx, projectId, term, { id, by: 'person' });
+            if (!saved.ok) skipped.push({ id, source: term.source, reason: saved.error });
           }
         });
         changed('terms');
-        return { ok: true, count: terms.length - missing.length, ...(missing.length && { skipped: missing.map((id) => ({ id, reason: '없는 용어' })) }) };
+        return { ok: true, count: terms.length - skipped.length, ...(skipped.length && { skipped }) };
       },
     }),
     save_workflow: tool({
@@ -483,12 +481,16 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       needsApproval: true,
       execute: ({ type, name, color, kind }) => {
         if (type === 'tag') {
-          const id = db.insert(s.tags).values({ projectId, name, color }).returning().get().id;
+          const parsed = tagInput.safeParse({ name, color });
+          if (!parsed.success) return { ok: false, error: `태그 이름이나 색이 올바르지 않습니다: ${parsed.error.issues[0]?.message ?? ''}` };
+          const id = db.insert(s.tags).values({ ...parsed.data, projectId }).returning().get().id;
           changed('statuses');
           return { ok: true, id };
         }
+        const parsed = statusInput.safeParse({ name, color, kind });
+        if (!parsed.success) return { ok: false, error: `상태 이름이나 색이 올바르지 않습니다: ${parsed.error.issues[0]?.message ?? ''}` };
         const sort = db.select({ count: count() }).from(s.statuses).where(eq(s.statuses.projectId, projectId)).get()!.count;
-        const id = db.insert(s.statuses).values({ projectId, name, color, kind, sort }).returning().get().id;
+        const id = db.insert(s.statuses).values({ ...parsed.data, projectId, sort }).returning().get().id;
         changed('statuses');
         return { ok: true, id };
       },

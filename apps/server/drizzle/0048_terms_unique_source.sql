@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX `terms_source` ON `terms` (`project_id`,lower("source"));

@@ -4,8 +4,9 @@ import type { Db } from '../db/index.ts';
 import { inChunks, inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
-import { applyIssueTags } from './issue-tags.ts';
-import { outOfScopeTags, scopeRefusal } from './tag-scope.ts';
+import { attachUnitTags, scopeRefusal } from './tag-scope.ts';
+import { humanLinePatch } from './line-patch.ts';
+import { refusesListener, setHumanListener } from './listeners.ts';
 import { knownListenerSql, markConditions } from './line-marks.ts';
 import { describeRule, knowledgeOf, knownListener, speechMismatch, speechRuleIndex } from './speech.ts';
 
@@ -72,6 +73,7 @@ export function findLines(db: Db, projectId: string, filter: LineFilter, options
   if (filter.statuses?.length) where.push(inList(s.units.statusId, filter.statuses.map((value) => statusId(value) ?? value)));
   if (filter.tags?.length)
     where.push(inArray(s.units.id, db.select({ id: s.unitTags.unitId }).from(s.unitTags).where(inList(s.unitTags.tagId, filter.tags.map((value) => tagId(value) ?? value)))));
+  where.push(...markConditions(projectId, filter.marks));
   if (filter.translated !== undefined) where.push(filter.translated ? sql`${s.units.translation} is not null and ${s.units.translation} != ''` : sql`(${s.units.translation} is null or ${s.units.translation} = '')`);
   if (filter.keys?.length) where.push(inList(s.units.key, filter.keys));
   if (options.seq) where.push(sql`${s.units.seq} >= ${options.seq[0]} and ${s.units.seq} < ${options.seq[1]}`);
@@ -406,6 +408,7 @@ export function validateBatch(db: Db, projectId: string, batch: BatchChange): Ba
     const unit = units.get(change.key);
     let tagRefusal: string | null = null;
     if (!unit) report.errors.push({ key: change.key, reason: '없는 대사 키입니다.' });
+    else if (refusesListener(unit, change.listener)) report.errors.push({ key: change.key, reason: '나레이션에는 청자가 없습니다.' });
     else if (seen.has(change.key)) report.errors.push({ key: change.key, reason: '같은 키가 두 번 나옵니다.' });
     else if (change.rev !== undefined && change.rev !== unit.updatedAt.getTime()) report.conflicts.push({ key: change.key, reason: '읽은 뒤에 다른 곳에서 바뀌었습니다.' });
     else if (change.status && !statusId(change.status)) report.errors.push({ key: change.key, reason: `없는 상태입니다: ${change.status}` });
@@ -447,26 +450,23 @@ export function applyBatch(db: Db, projectId: string, batch: BatchChange) {
         skipped.push({ key: change.key, reason: '그사이 바뀜' });
         continue;
       }
-      const patch: Partial<typeof s.units.$inferInsert> = {};
+      // Only dialogue has a listener (validateBatch reports the same).
+      if (refusesListener(unit, change.listener)) {
+        skipped.push({ key: change.key, reason: '나레이션에는 청자가 없음' });
+        continue;
+      }
+      const edit: Parameters<typeof humanLinePatch>[2] = { statusId: change.status ? statusId(change.status)! : undefined };
       if (change.translation !== undefined) {
         const candidate = tx.insert(s.candidates).values({ unitId: unit.id, text: change.translation, origin: batch.origin, model: batch.model ?? null, note: change.note }).returning().get();
-        patch.translation = change.translation;
-        patch.candidateId = candidate.id;
+        edit.translation = change.translation;
+        edit.candidateId = candidate.id;
       }
-      if (change.status) patch.statusId = statusId(change.status)!;
-      if (patch.translation !== undefined && patch.translation !== unit.translation) applyIssueTags(tx, projectId, unit.id, { clear: 'all' });
-      // Applied from the CLI or an accepted proposal: a person decided this translation or status.
-      if (patch.statusId || patch.translation !== undefined) Object.assign(patch, { statusBy: 'human', statusRunId: null });
-      // Accepting a proposal is a person's decision about the listener.
-      if (change.listener !== undefined) Object.assign(patch, { listener: change.listener, listenerOrigin: 'human', listenerConfidence: null });
+      // Applied from the CLI or an accepted proposal: a person decided this translation or status (and the listener).
+      const patch = humanLinePatch(tx, unit, edit);
       if (Object.keys(patch).length) tx.update(s.units).set(patch).where(eq(s.units.id, unit.id)).run();
-      const remove = change.removeTags.map((tag) => tagId(tag)!).filter(Boolean);
-      if (remove.length) tx.delete(s.unitTags).where(and(eq(s.unitTags.unitId, unit.id), inArray(s.unitTags.tagId, remove))).run();
-      const add = change.addTags.map((tag) => tagId(tag)!).filter(Boolean);
+      if (change.listener !== undefined) setHumanListener(tx, [unit.id], change.listener);
       // Checked in validateBatch; a tag whose place changed since is skipped here, never put where it doesn't belong.
-      const misplaced = new Set(outOfScopeTags(tx, projectId, add, 'lines').map((tag) => tag.id));
-      if (misplaced.size) add.splice(0, add.length, ...add.filter((id) => !misplaced.has(id)));
-      if (add.length) tx.insert(s.unitTags).values(add.map((id) => ({ unitId: unit.id, tagId: id }))).onConflictDoNothing().run();
+      attachUnitTags(tx, projectId, [unit.id], { add: change.addTags.map((tag) => tagId(tag)).filter((id): id is string => !!id), remove: change.removeTags.map((tag) => tagId(tag)).filter((id): id is string => !!id) }, { onMisplaced: 'skip' });
       applied.push(change.key);
     }
   });

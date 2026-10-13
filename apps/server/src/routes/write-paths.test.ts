@@ -1,0 +1,167 @@
+import { Hono } from 'hono';
+import { and, eq } from 'drizzle-orm';
+import { describe, expect, it } from 'vitest';
+import { batchChangeSchema, importFileSchema } from '@tw/shared';
+import type { Env } from '../context.ts';
+import { openDatabase } from '../db/index.ts';
+import * as s from '../db/schema.ts';
+import { importProject } from '../services/importer.ts';
+import { applyBatch, validateBatch } from '../services/script-query.ts';
+import { attachUnitTags } from '../services/tag-scope.ts';
+import { saveTerm } from '../services/terms.ts';
+import { knowledgeRoutes } from './knowledge.ts';
+import { sourceRoutes } from './source.ts';
+
+/** Two projects, so a write can be seen to stay in its own. Each has a dialogue line `a` and a narration line `n`. */
+function setup() {
+  const db = openDatabase(':memory:');
+  const project = (name: string) => {
+    const file = importFileSchema.parse({
+      format: 'loca/v1',
+      project: { name },
+      groups: [{ key: 'g', title: 'G' }],
+      units: [
+        { key: 'a', group: 'g', kind: 'dialogue', speaker: 'Alice', source: 'Hello' },
+        { key: 'n', group: 'g', kind: 'document', source: 'Rain falls.' },
+      ],
+    });
+    const { projectId } = importProject(db, file, null as never);
+    const unit = (key: string) => db.select().from(s.units).where(and(eq(s.units.projectId, projectId), eq(s.units.key, key))).get()!;
+    const status = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).get()!;
+    const tag = (name: string, scope: ('lines' | 'knowledge' | 'terms')[] = ['lines']) => db.insert(s.tags).values({ projectId, name, color: '#112233', scope }).returning().get();
+    return { projectId, unit, status, tag };
+  };
+  const mine = project('Mine');
+  const other = project('Other');
+  const app = new Hono<Env>()
+    .use(async (c, next) => {
+      c.set('deps', { db } as never);
+      await next();
+    })
+    .route('/', sourceRoutes)
+    .route('/projects/:projectId', knowledgeRoutes);
+  const send = (method: string, url: string, body: unknown) => app.request(url, { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const tagsOf = (unitId: string) => db.select().from(s.unitTags).where(eq(s.unitTags.unitId, unitId)).all().map((row) => row.tagId);
+  return { db, mine, other, send, tagsOf };
+}
+
+describe('writes stay inside the project', () => {
+  it('a bulk patch refuses another project\'s status, tags and lines, and changes nothing', async () => {
+    const { db, mine, other, send, tagsOf } = setup();
+    const foreignTag = other.tag('x');
+    const before = db.select().from(s.units).where(eq(s.units.id, other.unit('a').id)).get()!;
+    for (const body of [
+      { unitIds: [mine.unit('a').id], statusId: other.status.id },
+      { unitIds: [mine.unit('a').id], addTagIds: [foreignTag.id] },
+      { unitIds: [mine.unit('a').id], removeTagIds: [foreignTag.id] },
+      { unitIds: [mine.unit('a').id, other.unit('a').id], statusId: mine.status.id },
+    ]) {
+      const response = await send('PATCH', `/projects/${mine.projectId}/units`, body);
+      expect(response.status).toBe(400);
+    }
+    expect(tagsOf(mine.unit('a').id)).toEqual([]);
+    expect(db.select().from(s.units).where(eq(s.units.id, other.unit('a').id)).get()).toEqual(before);
+    expect(mine.unit('a').statusBy).toBe('human');
+  });
+
+  it('a single patch refuses another project\'s status, tag and candidate; repeated tag ids are fine', async () => {
+    const { db, mine, other, send, tagsOf } = setup();
+    const foreignTag = other.tag('x');
+    const ownTag = mine.tag('own');
+    const foreignCandidate = db.insert(s.candidates).values({ unitId: other.unit('a').id, text: 'x', origin: 'human' }).returning().get();
+    const unitId = mine.unit('a').id;
+    expect((await send('PATCH', `/units/${unitId}`, { statusId: other.status.id })).status).toBe(400);
+    expect((await send('PATCH', `/units/${unitId}`, { tagIds: [foreignTag.id] })).status).toBe(400);
+    expect((await send('PATCH', `/units/${unitId}`, { candidateId: foreignCandidate.id })).status).toBe(400);
+    expect((await send('PATCH', `/units/${unitId}`, { tagIds: [ownTag.id, ownTag.id] })).status).toBe(200);
+    expect(tagsOf(unitId)).toEqual([ownTag.id]);
+    // The list is replaced, not added to.
+    expect((await send('PATCH', `/units/${unitId}`, { tagIds: [] })).status).toBe(200);
+    expect(tagsOf(unitId)).toEqual([]);
+  });
+});
+
+describe('a listener is for dialogue only', () => {
+  it('one line: refused for narration; a selection: narration is left alone; an accepted batch: skipped and reported', async () => {
+    const { db, mine, send } = setup();
+    const dialogue = mine.unit('a').id;
+    const narration = mine.unit('n').id;
+    expect((await send('PATCH', `/units/${narration}`, { listener: 'Bob' })).status).toBe(400);
+    // "Unknown" is fine anywhere.
+    expect((await send('PATCH', `/units/${narration}`, { listener: null })).status).toBe(200);
+
+    expect((await send('PATCH', `/projects/${mine.projectId}/units`, { unitIds: [dialogue, narration], listener: 'Bob' })).status).toBe(200);
+    const listener = (id: string) => db.select({ listener: s.units.listener, origin: s.units.listenerOrigin }).from(s.units).where(eq(s.units.id, id)).get()!;
+    expect(listener(dialogue)).toEqual({ listener: 'Bob', origin: 'human' });
+    expect(listener(narration)).toEqual({ listener: null, origin: null });
+
+    const batch = batchChangeSchema.parse({ origin: 'human', changes: [{ key: 'n', listener: 'Bob' }, { key: 'a', listener: 'Cy' }] });
+    expect(validateBatch(db, mine.projectId, batch).errors.map((error) => error.key)).toEqual(['n']);
+    const result = applyBatch(db, mine.projectId, batch);
+    expect(result.applied).toBe(1);
+    expect(result.skipped.map((row) => row.key)).toEqual(['n']);
+    expect(listener(dialogue).listener).toBe('Cy');
+    expect(listener(narration)).toEqual({ listener: null, origin: null });
+  });
+});
+
+describe('one term per source', () => {
+  it('refuses a second term with the same source in any case, on create and on rename', async () => {
+    const { db, mine, other, send } = setup();
+    const base = `/projects/${mine.projectId}/terms`;
+    expect((await send('POST', base, { source: 'Ghost', target: '유령' })).status).toBe(201);
+    const again = await send('POST', base, { source: ' ghost ', target: '귀신' });
+    expect(again.status).toBe(400);
+    expect(await again.text()).toContain('이미 있는 용어입니다');
+    const second = (await (await send('POST', base, { source: 'Vera', target: '베라' })).json()) as { id: string };
+    expect((await send('PATCH', `${base}/${second.id}`, { source: 'GHOST' })).status).toBe(400);
+    expect((await send('PATCH', `${base}/${second.id}`, { target: '새 베라' })).status).toBe(200);
+    // Another project may have the same source.
+    expect((await send('POST', `/projects/${other.projectId}/terms`, { source: 'Ghost' })).status).toBe(201);
+    const count = db.select().from(s.terms).where(eq(s.terms.projectId, mine.projectId)).all().length;
+    expect(count).toBe(2);
+    // The database holds the same rule.
+    expect(() => db.insert(s.terms).values({ projectId: mine.projectId, source: 'GHOST' }).run()).toThrow();
+  });
+
+  it('a rejected term does not block: it is revived by a create and dropped by a rename onto it; a term saved by the chat reports a duplicate', () => {
+    const { db, mine } = setup();
+    const { projectId } = mine;
+    const rejected = db.insert(s.terms).values({ projectId, source: 'Old', status: 'rejected', origin: 'ai', statusBy: 'human' }).returning().get();
+    const revived = saveTerm(db, projectId, { source: 'old', target: '옛' }, { by: 'person' });
+    expect(revived.ok && revived.row.id).toBe(rejected.id);
+    expect(revived.ok && revived.row.status).not.toBe('rejected');
+
+    const gone = db.insert(s.terms).values({ projectId, source: 'Gone', status: 'rejected' }).returning().get();
+    const keep = db.insert(s.terms).values({ projectId, source: 'Keep' }).returning().get();
+    expect(saveTerm(db, projectId, { source: 'gone' }, { id: keep.id, by: 'person' }).ok).toBe(true);
+    expect(db.select().from(s.terms).where(eq(s.terms.id, gone.id)).get()).toBeUndefined();
+
+    const dup = saveTerm(db, projectId, { source: 'GONE' }, { by: 'person' });
+    expect(dup.ok).toBe(false);
+  });
+});
+
+describe('attachUnitTags', () => {
+  it('refuses or skips tags that are not the project\'s or not for lines, and only removes from the project\'s lines', () => {
+    const { db, mine, other, tagsOf } = setup();
+    const lineTag = mine.tag('line');
+    const termsOnly = mine.tag('terms-only', ['terms']);
+    const foreign = other.tag('foreign');
+    const unitId = mine.unit('a').id;
+
+    expect(() => attachUnitTags(db, mine.projectId, [unitId], { add: [lineTag.id, termsOnly.id] }, { onMisplaced: 'refuse' })).toThrow();
+    expect(() => attachUnitTags(db, mine.projectId, [unitId], { add: [foreign.id] }, { onMisplaced: 'refuse' })).toThrow();
+    expect(tagsOf(unitId)).toEqual([]);
+
+    const { skipped } = attachUnitTags(db, mine.projectId, [unitId, unitId], { add: [lineTag.id, termsOnly.id, foreign.id] }, { onMisplaced: 'skip' });
+    expect(skipped.map((tag) => tag.id).sort()).toEqual([termsOnly.id, foreign.id].sort());
+    expect(tagsOf(unitId)).toEqual([lineTag.id]);
+
+    // The other project's line keeps its tag even when asked for by id.
+    db.insert(s.unitTags).values({ unitId: other.unit('a').id, tagId: foreign.id }).run();
+    attachUnitTags(db, mine.projectId, [other.unit('a').id, unitId], { remove: [foreign.id, lineTag.id] }, { onMisplaced: 'skip' });
+    expect(tagsOf(other.unit('a').id)).toEqual([foreign.id]);
+    expect(tagsOf(unitId)).toEqual([]);
+  });
+});

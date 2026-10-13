@@ -108,7 +108,7 @@ export const chatRoutes = new Hono<Env>()
     try {
       live = liveChoice(db, { connectionId: session.connectionId!, model: session.model!, ...(session.effort && { effort: session.effort }) }, secrets, 'chat');
     } catch (error) {
-      return badRequest(error instanceof Error ? error.message : String(error));
+      badRequest(error instanceof Error ? error.message : String(error));
     }
     // A chat talks to one model: the connection's fallback is for workflow and analysis requests.
     const route = live.routes[0]!;
@@ -155,7 +155,7 @@ export const chatRoutes = new Hono<Env>()
         });
       } catch (error) {
         turn.end();
-        return badRequest(error instanceof Error ? error.message : String(error));
+        badRequest(error instanceof Error ? error.message : String(error));
       }
     }
     // One log row per turn (its tool steps included); usage comes with the finish.

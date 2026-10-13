@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { CONNECTION_KIND_INFO, knowledgeTemplate, listenerTemplate, speechFixTemplate, termExtractionTemplate, translationTemplate, validateWorkflow, workflowDefinitionSchema, type WorkflowDefinition } from '@tw/shared';
+import { CONNECTION_KIND_INFO, knowledgeTemplate, lineMarksSchema, listenerTemplate, speechFixTemplate, termExtractionTemplate, translationTemplate, validateWorkflow, workflowDefinitionSchema, type WorkflowDefinition } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -9,7 +9,6 @@ import { events } from '../events.ts';
 import { lineView } from '../engine/functions/index.ts';
 import { runScript } from '../engine/functions/sandbox.ts';
 import { createRunInSteps, selectRunUnits } from '../engine/runner.ts';
-import { lineMarksSchema } from '../services/line-marks.ts';
 import { listBatches, preflight } from '../services/preflight.ts';
 import { choiceLabel, defaultModelChoice, snapshotWorkflowModels } from '../services/routes.ts';
 
@@ -131,7 +130,7 @@ export const workflowRoutes = new Hono<Env>()
       const { limits, ...scope } = c.req.valid('json');
       return c.json(await createRunInSteps(db, { projectId: workflow.projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope, limits }), 201);
     } catch (error) {
-      return badRequest(error instanceof Error ? error.message : String(error));
+      badRequest(error instanceof Error ? error.message : String(error));
     }
   })
 
@@ -142,7 +141,7 @@ export const workflowRoutes = new Hono<Env>()
     const unit = unitId
       ? db.select().from(s.units).where(and(eq(s.units.id, unitId), eq(s.units.projectId, c.req.param('projectId')))).get()
       : db.select().from(s.units).where(eq(s.units.projectId, c.req.param('projectId'))).orderBy(asc(s.units.seq)).limit(1).get();
-    if (!unit) return badRequest('시험할 대사가 없습니다.');
+    if (!unit) badRequest('시험할 대사가 없습니다.');
     const input = lineView({ unit, item: { data: { path: [], outputs: {} }, visits: {} } as never, tagIds: [], projectId: unit.projectId, runId: 'test' });
     const started = Date.now();
     try {

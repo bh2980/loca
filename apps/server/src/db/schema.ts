@@ -289,27 +289,32 @@ export const aiCalls = sqliteTable(
   (table) => [index('ai_calls_project_started').on(table.projectId, table.startedAt)],
 );
 
-export const terms = sqliteTable('terms', {
-  id: id(),
-  projectId: projectId(),
-  source: text('source').notNull(),
-  target: text('target').notNull().default(''),
-  note: text('note').notNull().default(''),
-  /** Candidates (extracted by a workflow, found in the script) are not used as context until a person confirms them; rejected ones are not proposed again. */
-  status: text('status', { enum: KNOWLEDGE_STATUSES }).notNull().default('confirmed'),
-  origin: text('origin', { enum: KNOWLEDGE_ORIGINS }).notNull().default('human'),
-  /** Script lines whose source uses it (services/term-usage.ts); null until counted, again after its source changes. */
-  lines: integer('lines'),
-  /** Keys of the first lines that contain it, in script order. */
-  examples: json<string[]>('examples').notNull().default(sql`'[]'`),
-  /** The workflow run that added it, for AI terms. */
-  runId: text('run_id'),
-  /** The work analysis that proposed it, for AI terms. */
-  jobId: text('job_id'),
-  /** Who put it in its current status (see knowledge()). */
-  statusBy: text('status_by', { enum: STATUS_BY }).notNull().default('human'),
-  updatedAt: updatedAt(),
-});
+export const terms = sqliteTable(
+  'terms',
+  {
+    id: id(),
+    projectId: projectId(),
+    source: text('source').notNull(),
+    target: text('target').notNull().default(''),
+    note: text('note').notNull().default(''),
+    /** Candidates (extracted by a workflow or the work analysis) are not used as context until a person confirms them; rejected ones are not proposed again. */
+    status: text('status', { enum: KNOWLEDGE_STATUSES }).notNull().default('confirmed'),
+    origin: text('origin', { enum: KNOWLEDGE_ORIGINS }).notNull().default('human'),
+    /** Script lines whose source uses it (services/term-usage.ts); null until counted, again after its source changes. */
+    lines: integer('lines'),
+    /** Keys of the first lines that contain it, in script order. */
+    examples: json<string[]>('examples').notNull().default(sql`'[]'`),
+    /** The workflow run that added it, for AI terms. */
+    runId: text('run_id'),
+    /** The work analysis that proposed it, for AI terms. */
+    jobId: text('job_id'),
+    /** Who put it in its current status (see knowledge()). */
+    statusBy: text('status_by', { enum: STATUS_BY }).notNull().default('human'),
+    updatedAt: updatedAt(),
+  },
+  // One term per source, whatever its case.
+  (t) => [uniqueIndex('terms_source').on(t.projectId, sql`lower(${t.source})`)],
+);
 
 export const documents = sqliteTable('documents', {
   id: id(),

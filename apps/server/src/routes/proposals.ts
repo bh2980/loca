@@ -26,6 +26,6 @@ export const proposalRoutes = new Hono<Env>()
     try {
       return c.json(await decideProposal(c.var.deps.db, c.req.param('id'), c.req.param('action') === 'accept'));
     } catch (error) {
-      return badRequest(error instanceof Error ? error.message : String(error));
+      badRequest(error instanceof Error ? error.message : String(error));
     }
   });

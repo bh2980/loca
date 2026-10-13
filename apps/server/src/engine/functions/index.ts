@@ -1,4 +1,4 @@
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import { get } from 'es-toolkit/compat';
 import {
   addTermsParams,
@@ -16,7 +16,9 @@ import {
 import type { Db } from '../../db/index.ts';
 import * as s from '../../db/schema.ts';
 import type { SecretStore } from '../../services/secrets.ts';
-import { outOfScopeTags } from '../../services/tag-scope.ts';
+import { attachUnitTags } from '../../services/tag-scope.ts';
+import { cleanListener, clampConfidence, setAiListener } from '../../services/listeners.ts';
+import { upsertAiTerm } from '../../services/terms.ts';
 import { runScript } from './sandbox.ts';
 import { aiConfirmOf } from '../../services/status-by.ts';
 import { knowledgeOf, speechMismatch, speechRuleIndex } from '../../services/speech.ts';
@@ -116,15 +118,9 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
       patch.translation = input.item.data.candidateText;
     }
     if (Object.keys(patch).length) tx.update(s.units).set(patch).where(eq(s.units.id, input.unit.id)).run();
-    if (params.removeTagIds.length)
-      for (const tagId of params.removeTagIds) tx.delete(s.unitTags).where(and(eq(s.unitTags.unitId, input.unit.id), eq(s.unitTags.tagId, tagId))).run();
-    if (params.addTagIds.length) {
-      // A tag that no longer belongs on lines (its places were narrowed after the node was set up) is skipped, with a notice.
-      const misplaced = new Set(outOfScopeTags(tx, input.projectId, params.addTagIds, 'lines').map((tag) => tag.id));
-      for (const tag of outOfScopeTags(tx, input.projectId, params.addTagIds, 'lines')) issues.push(`‘${tag.name}’ 태그는 대사에 붙일 수 없어 붙이지 않았습니다.`);
-      const addIds = params.addTagIds.filter((id) => !misplaced.has(id));
-      if (addIds.length) tx.insert(s.unitTags).values(addIds.map((tagId) => ({ unitId: input.unit.id, tagId }))).onConflictDoNothing().run();
-    }
+    // A tag that no longer belongs on lines (its places were narrowed after the node was set up) is skipped, with a notice.
+    const { skipped } = attachUnitTags(tx, input.projectId, [input.unit.id], { add: params.addTagIds, remove: params.removeTagIds }, { onMisplaced: 'skip' });
+    for (const tag of skipped) issues.push(`‘${tag.name}’ 태그는 대사에 붙일 수 없어 붙이지 않았습니다.`);
     return issues.length ? { port: 'out', issues } : { port: 'out' };
   },
 
@@ -135,33 +131,13 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     const found = (Array.isArray(source?.terms) ? source.terms : []) as { source?: string; target?: string; note?: string }[];
     // New terms land as AI › 사용 방식 says (one without a Korean form stays a candidate).
     const policy = aiConfirmOf(tx as unknown as Db, input.projectId);
-    // Candidates count too, so the whole table is read; cached until a term is written (including by this node).
-    const existing = new Set(knowledgeOf(tx as unknown as Db, input.projectId).allTermSources().map((source) => source.toLowerCase()));
     let added = 0;
     let filled = 0;
     for (const term of found) {
-      const key = term.source?.trim();
-      if (!key) continue;
-      if (existing.has(key.toLowerCase())) {
-        // Like the work analysis: a term already in the glossary keeps what it has; only its empty
-        // translation and note are filled. A rejected term stays as the person left it.
-        const target = term.target?.trim() ?? '';
-        const note = term.note?.trim() ?? '';
-        if (!target && !note) continue;
-        const known = tx.select({ id: s.terms.id, target: s.terms.target, note: s.terms.note, status: s.terms.status }).from(s.terms).where(and(eq(s.terms.projectId, input.projectId), sql`lower(${s.terms.source}) = ${key.toLowerCase()}`)).get();
-        if (!known || known.status === 'rejected') continue;
-        const fill = { ...(!known.target.trim() && target && { target }), ...(!known.note.trim() && note && { note }) };
-        if (Object.keys(fill).length) {
-          tx.update(s.terms).set(fill).where(eq(s.terms.id, known.id)).run();
-          filled++;
-        }
-        continue;
-      }
-      existing.add(key.toLowerCase());
-      tx.insert(s.terms)
-        .values({ projectId: input.projectId, source: key, target: term.target?.trim() ?? '', note: term.note ?? '', status: term.target?.trim() ? aiStatus(policy, 'terms') : 'candidate', statusBy: 'ai', origin: 'ai', runId: input.runId })
-        .run();
-      added++;
+      if (!term.source?.trim()) continue;
+      const result = upsertAiTerm(tx, input.projectId, { source: term.source, target: term.target, note: term.note }, { policy, runId: input.runId });
+      if (result === 'added') added++;
+      else if (result === 'filled') filled++;
     }
     return { port: 'out', output: { added, filled } };
   },
@@ -253,9 +229,9 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     if (input.unit.kind !== 'dialogue') return { port: 'out', output: { recorded: false, reason: '대사가 아니라 청자가 필요 없습니다.' } };
     if (input.unit.listenerOrigin === 'human') return { port: 'out', output: { recorded: false, reason: '사람이 정한 청자가 있습니다.' } };
     if (input.unit.listenerOrigin === 'import' && input.unit.listener) return { port: 'out', output: { recorded: false, reason: '가져온 청자가 있습니다.' } };
-    const listener = typeof source.listener === 'string' ? source.listener : null;
-    const confidence = typeof source.confidence === 'number' ? source.confidence : 0;
-    tx.update(s.units).set({ listener, listenerOrigin: 'ai', listenerConfidence: confidence }).where(eq(s.units.id, input.unit.id)).run();
+    const listener = cleanListener(typeof source.listener === 'string' ? source.listener : null);
+    const confidence = clampConfidence(source.confidence);
+    setAiListener(tx, input.unit, listener, confidence, 'ai');
     return { port: 'out', output: { recorded: true, listener, confidence } };
   },
 };

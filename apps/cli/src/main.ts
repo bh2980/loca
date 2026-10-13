@@ -3,7 +3,7 @@ import path from 'node:path';
 import { Command, Option } from 'commander';
 import { hc } from 'hono/client';
 import type { AppType } from '@tw/server/app';
-import { CHECK_KINDS, CONTEXT_ITEM_KINDS, importFileJsonSchema, importFileSchema, importWarnings, lineChangeSchema, summarizeImport, type LineFilterInput } from '@tw/shared';
+import { CHECK_KINDS, CONTEXT_ITEM_KINDS, importFileJsonSchema, importFileSchema, importWarnings, LINE_MARK_IDS, lineChangeSchema, summarizeImport, type LineFilterInput, type LineMark } from '@tw/shared';
 
 /**
  * loca — the workbench from a terminal, for people and for agents with a shell (codex, claude, pi).
@@ -90,6 +90,7 @@ interface FilterOptions {
   groupKind?: 'scene' | 'document' | 'ui';
   status?: string[];
   tag?: string[];
+  mark?: LineMark[];
   translated?: boolean;
   untranslated?: boolean;
   key?: string[];
@@ -101,7 +102,7 @@ function withFilters(command: Command) {
   return command
     .option('-q, --q <글자>', '원문·번역·화자·키에 들어 있는 글자')
     .option('-s, --speaker <names...>', '이 인물이 하는 대사 (이름·별칭·화자 키)')
-    .option('-l, --listener <names...>', '이 인물에게 하는 대사 (청자). "-"는 청자 미상')
+    .option('-l, --listener <names...>', '이 인물에게 하는 대사 (청자). "-"는 청자 미상(= --mark unknownListener)')
     .option('-m, --mentions <names...>', '이 인물을 언급하는 대사 ({ALIAS} 포함)')
     .option('-g, --group <groups...>', '장면·묶음')
     .option('--section <sections...>', '구역(장·출처)')
@@ -109,6 +110,7 @@ function withFilters(command: Command) {
     .addOption(new Option('--group-kind <종류>', '묶음 종류').choices(['scene', 'document', 'ui']))
     .option('--status <statuses...>', '상태 이름')
     .option('--tag <tags...>', '태그 이름')
+    .addOption(new Option('--mark <marks...>', '자동 표시(앱의 #태그)가 모두 붙은 대사. 앱 목록의 필터와 같은 규칙').choices(LINE_MARK_IDS))
     .option('--translated', '번역이 있는 대사만')
     .option('--untranslated', '번역이 없는 대사만')
     .option('--key <keys...>', '대사 키')
@@ -128,6 +130,7 @@ function filterFrom(options: FilterOptions): LineFilterInput {
     groupKind: options.groupKind,
     statuses: options.status,
     tags: options.tag,
+    marks: options.mark,
     translated: options.translated ? true : options.untranslated ? false : undefined,
     keys: options.key,
     limit: options.limit ? Number(options.limit) : undefined,

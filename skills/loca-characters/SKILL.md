@@ -15,7 +15,7 @@ loca scenes --with Alice Bob                    # 둘이 함께 나오는 장면
 loca first Bob                                  # 처음 등장하는 장면
 loca line <키> --around 6                        # 특정 대사 앞뒤와 분기
 loca lines --speaker Alice --listener Bob --all --jsonl > "$W/alice-bob.jsonl"  # Alice가 Bob에게 한 말
-loca lines --listener - --group "<장면>"          # 청자를 아직 모르는 대사
+loca lines --listener - --group "<장면>"          # 청자를 아직 모르는 대사 (앱의 #청자 미상 표시와 같음: --mark unknownListener)
 loca call list_characters                        # 인물(말투 특징·플레이어 여부)과 관계(변화 지점), 상태·출처
 loca call list_speech_rules '{"speaker":"Alice"}'  # 화자→청자 말투 규칙과 구간
 loca call list_events                            # 사건
