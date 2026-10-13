@@ -13,7 +13,6 @@ import { JobProgress } from '@/components/job-progress';
 import { FilterChips, SearchInput, Toolbar, type FilterChip } from '@/components/toolbar';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
-import { Badge } from '@/components/ui/badge';
 import { ModelPicker, useInitialModel, type ModelValue } from '@/components/model-picker';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -183,13 +182,6 @@ function Glossary() {
       ),
       meta: { width: 150 },
       cell: ({ row }) => <TagCell tags={row.original.tags} known={knownTags} marks={termMarks(row.original)} />,
-    },
-    {
-      id: 'state',
-      // Filtered through the 태그 column's marks (#후보, #AI가 정함).
-      header: '상태',
-      meta: { width: 88 },
-      cell: ({ row }) => (row.original.status === 'candidate' ? <Badge variant="outline">후보</Badge> : <span className="text-xs"><StateCell row={asDraft(row.original)} /></span>),
     },
   ];
 

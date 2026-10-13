@@ -81,7 +81,7 @@ const ReviewBadge = ({ reasons }: { reasons: string }) => (
 );
 const levelsText = (rules: Row[]) => rules.map((rule) => SPEECH_LEVEL_LABELS[rule.level as SpeechLevel]).join(' → ');
 
-/** The speaker → listener pairs as a table; 출처 and 상태 filter through their headers. */
+/** The speaker → listener pairs as a table; 출처 filters through its header, 후보 and AI가 정함 through the 태그 column. */
 export function PairTable({ pairs, loading, selected, picked, onPick, onOpen, bulk, filters }: {
   pairs: Pair[] | undefined;
   loading: boolean;

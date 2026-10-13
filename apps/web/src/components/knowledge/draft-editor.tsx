@@ -203,13 +203,6 @@ export function metaColumns<T>(draftOf: (row: T) => Draft, filters: KnowledgeFil
       header: () => <HeaderFilter label="출처" value={filters.source} options={sourceOptions} onChange={(value) => filters.onChange({ source: value as SourceFilter })} />,
       cell: ({ row }) => <SourceBadge row={draftOf(row.original)} />,
     },
-    {
-      id: 'state',
-      meta: { width: 80 },
-      // Filtered through the 태그 column's marks (#후보, #AI가 정함), not twice.
-      header: '상태',
-      cell: ({ row }) => <StateCell row={draftOf(row.original)} />,
-    },
   ];
 }
 
