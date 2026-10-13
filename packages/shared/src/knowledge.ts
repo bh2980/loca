@@ -21,7 +21,7 @@ export const STATUS_BY = ['ai', 'human'] as const;
 export type StatusBy = (typeof STATUS_BY)[number];
 export const STATUS_BY_LABELS: Record<StatusBy, string> = { ai: 'AI', human: '사람' };
 /** AI set it and no person has looked since: shown with the ✦ mark, and what 확인함 is for. */
-export const aiDecided = (item: { status?: string; statusBy: StatusBy }) => item.statusBy === 'ai' && item.status !== 'candidate';
+export const aiDecided = (item: { status?: string; statusBy: StatusBy }) => item.statusBy === 'ai' && item.status !== 'candidate' && item.status !== 'rejected';
 
 /**
  * Who made the content, for the 출처 column: the work analysis (it carries the job), AI elsewhere
