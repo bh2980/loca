@@ -26,6 +26,7 @@ import { useDraft } from '@/lib/drafts';
 import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
+import { SpeakerCard } from '@/components/script/speaker-card';
 
 export const PAGE_SIZE = 100;
 
@@ -417,7 +418,9 @@ export function LineList({
                   <div className="grid min-w-0 flex-1 grid-cols-2 gap-6">
                     <div className="min-w-0">
                       <p className="mb-0.5 flex min-w-0 gap-1 text-xs text-muted-foreground">
-                        <span className="truncate">{line.speaker ?? '지문'}</span>
+                        <SpeakerCard projectId={projectId} name={line.speaker}>
+                          <span className="truncate">{line.speaker ?? '지문'}</span>
+                        </SpeakerCard>
                         <NoteMark note={line.note} className="mt-px" />
                         {marked && <span className="shrink-0 text-warning">● {find!.label}</span>}
                         {selected && line.kind === 'dialogue' && <span className={cn('truncate', who.unknown && 'text-warning')}>→ {who.text}</span>}

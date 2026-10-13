@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { q } from '@/lib/queries';
 import { keyLabel } from '@/lib/keys';
+import { SpeakerCard } from '@/components/script/speaker-card';
 
 /** The card's width; the graph keeps this much room beside the node when it opens. */
 export const LINE_CARD_WIDTH = 384;
@@ -57,7 +58,13 @@ export function LineCard({ projectId, unitId, choice, position, onStep, onClose 
       }}
     >
       <div className="flex items-center gap-1">
-        <span className="min-w-0 flex-1 truncate text-sm font-medium">{choice ? '선택지' : line ? (line.speaker ?? '지문·문구') : ''}</span>
+        <span className="min-w-0 flex-1 truncate text-sm font-medium">
+          {choice ? '선택지' : line && (
+            <SpeakerCard projectId={projectId} name={line.speaker}>
+              <span>{line.speaker ?? '지문·문구'}</span>
+            </SpeakerCard>
+          )}
+        </span>
         {position && <span className="text-xs text-muted-foreground tabular-nums">{position}</span>}
         <Button variant="ghost" size="icon-xs" aria-label={`이전 줄 (${keyLabel('Alt+Up')})`} title={`이전 줄 (${keyLabel('Alt+Up')})`} onClick={() => onStep(-1)}>
           <ChevronUp />
