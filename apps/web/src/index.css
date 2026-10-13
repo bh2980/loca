@@ -164,3 +164,11 @@
   0%, 30% { background-color: color-mix(in oklch, var(--warning) 22%, transparent); }
   100% { background-color: transparent; }
 }
+
+/* The translation editor (CodeMirror): its own look is in translation-input.tsx; these are its marks. */
+@layer components {
+  /* A format token, drawn short (<d target="…"> → <d>): one unit you cannot half-delete. */
+  .cm-token-chip { @apply rounded-sm border bg-muted px-0.5 font-mono text-xs text-muted-foreground; }
+  /* A glossary translation in use. */
+  .cm-term-hit { @apply rounded-sm bg-primary/5 underline decoration-primary/40 underline-offset-4; }
+}

@@ -5,10 +5,14 @@ export interface FormatCheckOptions {
   tags: boolean;
   newlines: boolean;
   emptyText: boolean;
+  /** Numbers (2038, 08:29, 1.5) outside format tokens must all come through (extra ones are fine). */
+  numbers?: boolean;
+  /** Doubled spaces, and spaces at either end, that the source does not have. */
+  spaces?: boolean;
 }
 
 export interface FormatIssue {
-  code: 'empty' | 'placeholder' | 'tag' | 'newline';
+  code: 'empty' | 'placeholder' | 'tag' | 'newline' | 'number' | 'space';
   message: string;
 }
 
@@ -100,6 +104,21 @@ export function checkFormat(source: string, target: string, options: FormatCheck
   }
   if (options.newlines && newlines(source) !== newlines(target))
     issues.push({ code: 'newline', message: `줄바꿈 수가 다릅니다 (원문 ${newlines(source)}, 번역 ${newlines(target)}).` });
+  if (options.numbers && target.trim()) {
+    const strip = (text: string) => [patterns.placeholder, patterns.tag].reduce((rest, pattern) => (pattern ? rest.replace(pattern, ' ') : rest), text);
+    const numbers = (text: string) => strip(text).match(/\d+(?:[.,:]\d+)*/g) ?? [];
+    // Only numbers that went missing: a translation may add some (AUG → 8월).
+    const onlySource = missing(numbers(source), numbers(target));
+    if (onlySource.length) issues.push({ code: 'number', message: `원문의 숫자가 번역에 없습니다 (${onlySource.join(' ')}).` });
+  }
+  if (options.spaces && target.trim()) {
+    const problems = [
+      / {2,}/.test(target) && !/ {2,}/.test(source) && '이중 공백',
+      /^\s/.test(target) !== /^\s/.test(source) && '앞 공백',
+      /\s$/.test(target) !== /\s$/.test(source) && '뒤 공백',
+    ].filter(Boolean);
+    if (problems.length) issues.push({ code: 'space', message: `공백이 원문과 다릅니다 (${problems.join(' · ')}).` });
+  }
   return issues;
 }
 

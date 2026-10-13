@@ -31,6 +31,8 @@ export const q = {
       placeholderData: keepPreviousData,
     }),
   unit: (unitId: string) => queryOptions({ queryKey: ['units', 'detail', unitId], queryFn: () => unwrap(client.units[':unitId'].$get({ param: { unitId } })) }),
+  /** Translated lines with the same or a similar source (the editor's suggestions). */
+  lineMatches: (unitId: string) => queryOptions({ queryKey: ['units', 'line-matches', unitId], queryFn: () => unwrap(client.units[':unitId'].matches.$get({ param: { unitId } })) }),
   graphSections: (projectId: string) =>
     queryOptions({ queryKey: ['graph', projectId, 'sections'], queryFn: () => unwrap(client.projects[':projectId'].graph.sections.$get({ param: { projectId } })), staleTime: Infinity }),
   /** A view of graph nodes made in the chat (show_graph). */

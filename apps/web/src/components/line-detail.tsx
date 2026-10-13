@@ -157,7 +157,7 @@ export function LineDetail({
                 </FieldRow>
               )}
             </div>
-            {editor && <TranslationEditor unit={line} statuses={statuses.data?.statuses ?? []} />}
+            {editor && <TranslationEditor projectId={line.projectId} unit={line} statuses={statuses.data?.statuses ?? []} />}
           </>
         )
       }

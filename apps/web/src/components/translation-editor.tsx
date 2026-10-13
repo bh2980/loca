@@ -1,12 +1,14 @@
-import { useEffect, useRef } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { listenerLabel } from '@tw/shared';
+import { TranslationInput } from '@/components/editor/translation-input';
 import { AiMark, StatusDot } from '@/components/status';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
 import { client, unwrap } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
+import { useLineContext } from '@/lib/line-context';
 import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
+import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
 interface Status {
@@ -27,9 +29,13 @@ export function nextStatus(statuses: Status[], currentId: string) {
  * The translation editor of one line. ⌘S saves the text as a person's candidate and makes it the
  * translation; ⌘↵ saves (if changed) and moves the line to the next status, then `onDone` lets
  * the list go to the next line; Esc leaves the editor (the draft stays). The text is a draft in
- * sessionStorage until saved, shared with the line pane's checks.
+ * sessionStorage until saved, shared with the line pane's checks. Format tokens are chips (⌘1…⌘9
+ * insert the source's), glossary translations are offered while typing, ⌘⇧S copies the source,
+ * and suggestions (other candidates, the same or a similar source translated elsewhere) sit
+ * under the box, ⌥1…⌥3 to take one.
  */
 export function TranslationEditor({
+  projectId,
   unit,
   statuses,
   onDone,
@@ -37,7 +43,8 @@ export function TranslationEditor({
   focusKey,
   className,
 }: {
-  unit: { id: string; translation: string | null; statusId: string; statusBy?: 'ai' | 'human'; candidates?: { id: string; text: string }[] };
+  projectId: string;
+  unit: { id: string; source: string; translation: string | null; statusId: string; statusBy?: 'ai' | 'human'; candidates?: { id: string; text: string }[] };
   statuses: Status[];
   onDone?: (moved: boolean) => void;
   onEscape?: () => void;
@@ -48,13 +55,8 @@ export function TranslationEditor({
   const [draft, setDraft, clearDraft] = useDraft(`line:${unit.id}`, unit.translation ?? '');
   const dirty = draft !== (unit.translation ?? '');
   const next = nextStatus(statuses, unit.statusId);
-  const area = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => {
-    if (!focusKey) return;
-    const element = area.current;
-    element?.focus({ preventScroll: true });
-    element?.setSelectionRange(element.value.length, element.value.length);
-  }, [focusKey]);
+  const line = useLineContext(projectId, unit.source);
+  const suggestions = useSuggestions(unit.id, [unit.translation ?? '', draft]);
 
   const queryClient = useQueryClient();
   const save = useMutation({
@@ -86,26 +88,20 @@ export function TranslationEditor({
 
   return (
     <div className={cn('space-y-2', className)} onClick={(event) => event.stopPropagation()}>
-      <Textarea
-        ref={area}
+      <TranslationInput
+        unitId={unit.id}
         value={draft}
-        onChange={(event) => setDraft(event.target.value)}
+        onChange={setDraft}
+        source={unit.source}
+        tokenPattern={line.tokenPattern}
+        tokens={line.tokens}
+        terms={line.terms}
+        onSave={() => run(false)}
+        onAdvance={() => run(true)}
+        onEscape={onEscape}
+        onPick={(index) => suggestions[index] && setDraft(suggestions[index].text)}
+        focusKey={focusKey}
         placeholder="번역을 입력하세요. 저장하면 사람 후보가 되고 대표 번역이 됩니다."
-        className="field-sizing-content min-h-16 resize-none bg-background"
-        onKeyDown={(event) => {
-          const mod = event.metaKey || event.ctrlKey;
-          if (mod && event.key.toLowerCase() === 's') {
-            event.preventDefault();
-            run(false);
-          } else if (mod && event.key === 'Enter') {
-            event.preventDefault();
-            run(true);
-          } else if (event.key === 'Escape') {
-            event.preventDefault();
-            event.currentTarget.blur();
-            onEscape?.();
-          }
-        }}
       />
       <div className="flex flex-wrap items-center gap-2">
         {dirty && <span className="text-xs text-warning">저장 안 됨</span>}
@@ -130,6 +126,66 @@ export function TranslationEditor({
           )}
         </div>
       </div>
+      {suggestions.length > 0 && (
+        <ol className="divide-y rounded-md border bg-background text-sm">
+          {suggestions.map((suggestion, index) => (
+            <li key={suggestion.key}>
+              <Button variant="ghost" size="row" className="h-auto items-start gap-2 rounded-none py-1.5 text-left font-normal" title={`번역 칸에 넣기 (⌥${index + 1})`} onClick={() => setDraft(suggestion.text)}>
+                <span className="mt-px w-5 shrink-0 font-mono text-xs text-muted-foreground">⌥{index + 1}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block break-words whitespace-pre-wrap">{suggestion.text}</span>
+                  {suggestion.diff && (
+                    <span className="block text-xs text-muted-foreground">
+                      {suggestion.diff.map((word, at) => (
+                        <span key={at} className={cn(word.changed && 'rounded-sm bg-warning/15 text-warning')}>
+                          {at > 0 && ' '}
+                          {word.text}
+                        </span>
+                      ))}
+                    </span>
+                  )}
+                </span>
+                <span className="shrink-0 text-right text-xs text-muted-foreground">
+                  {suggestion.label}
+                  {suggestion.detail && <span className="block">{suggestion.detail}</span>}
+                </span>
+              </Button>
+            </li>
+          ))}
+        </ol>
+      )}
     </div>
   );
+}
+
+interface Suggestion {
+  key: string;
+  text: string;
+  label: string;
+  detail?: string;
+  diff?: { text: string; changed: boolean }[];
+}
+
+/**
+ * What the translator might take instead of typing: the line's other candidates (AI, people,
+ * imported), then translations of the same source elsewhere (who says it to whom, as the speech
+ * level may differ), then similar sources with the words that differ marked. Texts already in
+ * the box or saved are left out.
+ */
+function useSuggestions(unitId: string, shown: string[]): Suggestion[] {
+  const unit = useQuery(q.unit(unitId));
+  const matches = useQuery(q.lineMatches(unitId));
+  const origin = { ai: 'AI 후보', human: '사람 후보', import: '가져온 후보', tool: '채팅 후보' } as const;
+  const all: Suggestion[] = [
+    ...(unit.data?.candidates ?? []).map((candidate) => ({ key: `c:${candidate.id}`, text: candidate.text, label: origin[candidate.origin], detail: candidate.model ?? undefined })),
+    ...(matches.data ?? []).map((match) => ({
+      key: `m:${match.unitId}`,
+      text: match.translation,
+      label: match.score === 100 ? `같은 원문${match.final ? '' : ' · 미확정'}` : `비슷한 줄 ${match.score}%${match.final ? '' : ' · 미확정'}`,
+      detail: [match.speaker, match.listener && `→ ${listenerLabel(match.listener)}`].filter(Boolean).join(' ') || match.groupTitle,
+      diff: match.diff,
+    })),
+  ];
+  const seen = new Set(shown.map((text) => text.trim()).filter(Boolean));
+  return all.filter((suggestion) => !seen.has(suggestion.text.trim()) && (seen.add(suggestion.text.trim()), true)).slice(0, 3);
 }

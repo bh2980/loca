@@ -4,6 +4,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { ChevronDown, ChevronUp, X } from 'lucide-react';
 import { LineHints } from '@/components/script/line-list';
 import { TranslationEditor } from '@/components/translation-editor';
+import { LineSourceText } from '@/components/editor/source-text';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { q } from '@/lib/queries';
@@ -71,8 +72,9 @@ export function LineCard({ projectId, unitId, choice, position, onStep, onClose 
         <Skeleton className="h-24" />
       ) : (
         <>
-          <p className="max-h-40 overflow-auto text-sm whitespace-pre-wrap">{line.source}</p>
+          <LineSourceText projectId={projectId} unitId={line.id} source={line.source} className="max-h-40 overflow-auto text-sm" />
           <TranslationEditor
+            projectId={projectId}
             key={line.id}
             unit={line}
             statuses={statuses.data?.statuses ?? []}

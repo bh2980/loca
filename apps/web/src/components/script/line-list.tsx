@@ -3,13 +3,15 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { Check, CircleAlert, ListChecks, ListFilter, MoreHorizontal, Network, PanelRightOpen, Play, Sparkles, Tags, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { checkFormat, isUnsureListener, listenerLabel, type ListenerOrigin, mentions, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
+import { checkFormat, compileFormatRules, isUnsureListener, listenerLabel, type ListenerOrigin, mentions, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
 import { BulkBar } from '@/components/data-table';
 import { LineDetail, LINE_TABS, type LineTab } from '@/components/line-detail';
 import { SplitPane } from '@/components/split-pane';
 import { AiMark, StatusDot, TagChip } from '@/components/status';
 import { Pager, SearchInput, Toolbar } from '@/components/toolbar';
 import { TranslationEditor } from '@/components/translation-editor';
+import { LineSourceText } from '@/components/editor/source-text';
+import { withoutTokens } from '@/lib/line-context';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -404,12 +406,16 @@ export function LineList({
                         {marked && <span className="shrink-0 text-warning">● {find!.label}</span>}
                         {selected && line.kind === 'dialogue' && <span className={cn('truncate', who.unknown && 'text-warning')}>→ {who.text}</span>}
                       </p>
-                      <p className={cn('break-words whitespace-pre-wrap', selected ? 'text-base' : 'text-sm')}>{line.source}</p>
+                      {selected ? (
+                        <LineSourceText projectId={projectId} unitId={line.id} source={line.source} className="text-base" />
+                      ) : (
+                        <p className="text-sm break-words whitespace-pre-wrap">{line.source}</p>
+                      )}
                     </div>
                     <div className="min-w-0">
                       {selected ? (
                         <>
-                          <TranslationEditor key={line.id} unit={line} statuses={statusList} focusKey={focusTick} onEscape={() => setEditing(false)} onDone={(advanced) => (advanced ? advanceFrom(line.id) : undefined)} />
+                          <TranslationEditor key={line.id} projectId={projectId} unit={line} statuses={statusList} focusKey={focusTick} onEscape={() => setEditing(false)} onDone={(advanced) => (advanced ? advanceFrom(line.id) : undefined)} />
                           <LineHints projectId={projectId} line={line} onDetail={(tab) => onSearch({ detail: true, lineTab: tab }, { replace: true })} />
                         </>
                       ) : (
@@ -522,8 +528,13 @@ export function LineHints({ projectId, line, onDetail, inGraph }: { projectId: s
   const text = draft.trim();
   const speech = unit.data?.speech;
   const guessed = text ? speechLevelOf(text) : null;
-  const used = useMemo(() => (terms.data ?? []).filter((term) => term.status === 'confirmed' && term.target && mentions(line.source, term.source)), [terms.data, line.source]);
-  const format = text ? checkFormat(line.source, draft, { placeholders: true, tags: true, newlines: true, emptyText: false }, project.data?.formatRules) : [];
+  // Words inside format tags (<d target="data_cassandra_…">) are not terms.
+  const used = useMemo(() => {
+    const { placeholder, tag } = compileFormatRules(project.data?.formatRules ?? undefined);
+    const plain = [placeholder, tag].reduce((text, pattern) => withoutTokens(text, pattern), line.source);
+    return (terms.data ?? []).filter((term) => term.status === 'confirmed' && term.target && mentions(plain, term.source));
+  }, [terms.data, line.source, project.data?.formatRules]);
+  const format = text ? checkFormat(line.source, draft, { placeholders: true, tags: true, newlines: true, emptyText: false, numbers: true, spaces: true }, project.data?.formatRules) : [];
   const others = (unit.data?.candidates.length ?? 0) - (line.translation ? 1 : 0);
 
   const hint = (key: string, ok: boolean | null, label: ReactNode, title?: string) => (

@@ -10,6 +10,7 @@ import { events } from '../events.ts';
 import { computeLayouts } from '../services/layout.ts';
 import { readView, sectionWithMost } from '../services/graph-views.ts';
 import { applyIssueTags } from '../services/issue-tags.ts';
+import { lineMatches } from '../services/line-matches.ts';
 import { describeRule, knownListener as knownListenerOf, speechRuleIndex } from '../services/speech.ts';
 
 const listQuery = z.object({
@@ -285,6 +286,13 @@ export const sourceRoutes = new Hono<Env>()
     }
     const sceneNames = [...distance].sort((a, b) => a[1] - b[1]).map(([name]) => name);
     return c.json({ ...unit, group, candidates, tagIds, history, graphNodes: nodes, speech, sceneNames });
+  })
+  /** Already translated lines of the project with the same or a similar source (the editor's suggestions). */
+  .get('/units/:unitId/matches', (c) => {
+    const { db } = c.var.deps;
+    const unit = found(db.select({ id: s.units.id, projectId: s.units.projectId, source: s.units.source }).from(s.units).where(eq(s.units.id, c.req.param('unitId'))).get(), '대사');
+    const rules = db.select({ rules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, unit.projectId)).get()?.rules;
+    return c.json(lineMatches(db, unit, rules));
   })
   .patch('/units/:unitId', validate('json', unitPatch), (c) => {
     const { db } = c.var.deps;
