@@ -3,6 +3,7 @@ import { splitTokens, useLineContext, type SourcePart } from '@/lib/line-context
 import { chipHue, chipLabel, type TokenUnit } from '@/lib/tokens';
 import { cn } from '@/lib/utils';
 import { insertIntoLine, insertUnitIntoLine } from './translation-input';
+import { keyLabel } from '@/lib/keys';
 
 /**
  * A line's source as the translator reads it: format tokens as chips and confirmed glossary terms
@@ -19,7 +20,7 @@ export function SourceText({ parts, units = [], unitId, className }: { parts: So
             <TokenChip
               key={index}
               part={part}
-              hint={unitId ? `눌러서 번역에 넣기${part.token.number && part.token.number <= 9 ? ` (⌘${part.token.number}${part.token.kind === 'single' ? '' : ', 고른 글자를 감쌈'})` : ''}` : undefined}
+              hint={unitId ? `눌러서 번역에 넣기${part.token.number && part.token.number <= 9 ? ` (${keyLabel(`Mod+${part.token.number}`)}${part.token.kind === 'single' ? '' : ', 고른 글자를 감쌈'})` : ''}` : undefined}
               onPick={
                 unitId
                   ? () => {

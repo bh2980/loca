@@ -15,6 +15,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { GROUP_KIND } from '@/lib/labels';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
+import { keyLabel } from '@/lib/keys';
 
 type Kind = GroupRow['kind'];
 interface ScriptSearch extends LinesSearch {
@@ -218,7 +219,7 @@ function Script() {
                           <ChevronUp />
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>이전 줄 (⌥↑)</TooltipContent>
+                      <TooltipContent>이전 줄 ({keyLabel('Alt+Up')})</TooltipContent>
                     </Tooltip>
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -226,7 +227,7 @@ function Script() {
                           <ChevronDown />
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>다음 줄 (⌥↓)</TooltipContent>
+                      <TooltipContent>다음 줄 ({keyLabel('Alt+Down')})</TooltipContent>
                     </Tooltip>
                     <Button variant="ghost" onClick={() => onSearch({ view: 'list', group: undefined, page: undefined })}>
                       목록으로 보기

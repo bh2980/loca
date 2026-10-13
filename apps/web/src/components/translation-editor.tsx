@@ -11,6 +11,7 @@ import { useLineContext } from '@/lib/line-context';
 import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
+import { keyLabel } from '@/lib/keys';
 
 interface Status {
   id: string;
@@ -117,11 +118,11 @@ export function TranslationEditor({
               되돌리기
             </Button>
           )}
-          <Button variant={next ? 'outline' : 'default'} disabled={!dirty || save.isPending} onClick={() => run(false)} title="저장 (⌘S)">
+          <Button variant={next ? 'outline' : 'default'} disabled={!dirty || save.isPending} onClick={() => run(false)} title={`저장 (${keyLabel('Mod+S')})`}>
             저장
           </Button>
           {next && (
-            <Button disabled={save.isPending} onClick={() => run(true)} title={`${dirty ? '저장하고 ' : ''}‘${next.name}’(으)로 옮기고 다음 줄 (⌘↵)`}>
+            <Button disabled={save.isPending} onClick={() => run(true)} title={`${dirty ? '저장하고 ' : ''}‘${next.name}’(으)로 옮기고 다음 줄 (${keyLabel('Mod+Enter')})`}>
               <StatusDot color={next.color} /> {next.name}
             </Button>
           )}
@@ -131,8 +132,8 @@ export function TranslationEditor({
         <ol className="divide-y rounded-md border bg-background text-sm">
           {suggestions.map((suggestion, index) => (
             <li key={suggestion.key}>
-              <Button variant="ghost" size="row" className="h-auto items-start gap-2 rounded-none py-1.5 text-left font-normal" title={`번역 칸에 넣기 (⌥${index + 1})`} onClick={() => setDraft(suggestion.text)}>
-                <span className="mt-px w-5 shrink-0 font-mono text-xs text-muted-foreground">⌥{index + 1}</span>
+              <Button variant="ghost" size="row" className="h-auto items-start gap-2 rounded-none py-1.5 text-left font-normal" title={`번역 칸에 넣기 (${keyLabel(`Alt+${index + 1}`)})`} onClick={() => setDraft(suggestion.text)}>
+                <span className="mt-px w-5 shrink-0 font-mono text-xs text-muted-foreground">{keyLabel(`Alt+${index + 1}`)}</span>
                 <span className="min-w-0 flex-1">
                   <TokenText text={suggestion.text} source={unit.source} pattern={line.tokenPattern} className="block" />
                   {suggestion.diff && (

@@ -19,6 +19,7 @@ import { q } from '@/lib/queries';
 import { useJobNotices } from '@/lib/job-notices';
 import { useCurrentNav } from '@/lib/nav';
 import { cn } from '@/lib/utils';
+import { keyLabel } from '@/lib/keys';
 
 export const Route = createFileRoute('/p/$projectId')({
   loader: ({ context, params }) => context.queryClient.ensureQueryData(q.project(params.projectId)),
@@ -76,7 +77,7 @@ function ProjectLayout() {
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
-                    {unread && '새 답이 왔습니다 · '}에이전트 채팅 {chatOpen ? '닫기' : '열기'} <Kbd>⌘I</Kbd>
+                    {unread && '새 답이 왔습니다 · '}에이전트 채팅 {chatOpen ? '닫기' : '열기'} <Kbd>{keyLabel('Mod+I')}</Kbd>
                   </TooltipContent>
                 </Tooltip>
               </div>

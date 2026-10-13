@@ -8,6 +8,7 @@ import { LineSourceText } from '@/components/editor/source-text';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { q } from '@/lib/queries';
+import { keyLabel } from '@/lib/keys';
 
 /** The card's width; the graph keeps this much room beside the node when it opens. */
 export const LINE_CARD_WIDTH = 384;
@@ -58,10 +59,10 @@ export function LineCard({ projectId, unitId, choice, position, onStep, onClose 
       <div className="flex items-center gap-1">
         <span className="min-w-0 flex-1 truncate text-sm font-medium">{choice ? '선택지' : line ? (line.speaker ?? '지문·문구') : ''}</span>
         {position && <span className="text-xs text-muted-foreground tabular-nums">{position}</span>}
-        <Button variant="ghost" size="icon-xs" aria-label="이전 줄 (⌥↑)" title="이전 줄 (⌥↑)" onClick={() => onStep(-1)}>
+        <Button variant="ghost" size="icon-xs" aria-label={`이전 줄 (${keyLabel('Alt+Up')})`} title={`이전 줄 (${keyLabel('Alt+Up')})`} onClick={() => onStep(-1)}>
           <ChevronUp />
         </Button>
-        <Button variant="ghost" size="icon-xs" aria-label="다음 줄 (⌥↓)" title="다음 줄 (⌥↓)" onClick={() => onStep(1)}>
+        <Button variant="ghost" size="icon-xs" aria-label={`다음 줄 (${keyLabel('Alt+Down')})`} title={`다음 줄 (${keyLabel('Alt+Down')})`} onClick={() => onStep(1)}>
           <ChevronDown />
         </Button>
         {line && (
