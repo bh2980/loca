@@ -654,19 +654,31 @@ function LineFilters({ statuses, tags, speakers, search, onSearch }: {
 export function LineLinks({ projectId, unitId, onDetail }: { projectId: string; unitId: string; onDetail: () => void }) {
   const unit = useQuery(q.unit(unitId));
   const node = unit.data?.graphNodes[0];
+  const tip = (label: string, button: ReactNode) => (
+    <Tooltip>
+      <TooltipTrigger asChild>{button}</TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
   return (
-    <span className="ml-auto flex shrink-0 items-center" onClick={(event) => event.stopPropagation()}>
-      {node && (
-        // The other way round from the graph's "번역 화면에서 열기": this line where it sits in the flow.
-        <Button variant="ghost" size="icon-xs" className="text-muted-foreground" aria-label="그래프에서 보기" title="그래프에서 보기" asChild>
-          <Link to="/p/$projectId/graph" params={{ projectId }} search={{ scope: 'dialogue', scene: unit.data!.groupId, node: node.id, jump: true }}>
-            <Network />
-          </Link>
-        </Button>
+    // Full-size icon buttons on the small speaker line; the negative margin keeps the line's height.
+    <span className="-my-2 ml-auto flex shrink-0 items-center" onClick={(event) => event.stopPropagation()}>
+      {node &&
+        tip(
+          '그래프에서 보기',
+          // The other way round from the graph's "번역 화면에서 열기": this line where it sits in the flow.
+          <Button variant="ghost" size="icon-sm" className="text-muted-foreground" aria-label="그래프에서 보기" asChild>
+            <Link to="/p/$projectId/graph" params={{ projectId }} search={{ scope: 'dialogue', scene: unit.data!.groupId, node: node.id, jump: true }}>
+              <Network />
+            </Link>
+          </Button>,
+        )}
+      {tip(
+        '자세히 · 검사·후보·이력',
+        <Button variant="ghost" size="icon-sm" className="text-muted-foreground" aria-label="자세히" onClick={onDetail}>
+          <PanelRightOpen />
+        </Button>,
       )}
-      <Button variant="ghost" size="icon-xs" className="text-muted-foreground" aria-label="자세히" title="자세히 (검사·후보·이력)" onClick={onDetail}>
-        <PanelRightOpen />
-      </Button>
     </span>
   );
 }
