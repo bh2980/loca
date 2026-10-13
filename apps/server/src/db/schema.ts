@@ -175,7 +175,8 @@ export interface LayoutData {
   width: number;
   height: number;
   nodes: { id: string; x: number; y: number; width: number; height: number }[];
-  edges: { id: string; from: string; to: string; points: number[] }[];
+  /** `label`: a choice or condition written on the edge; `via`: the choice node it stands for. */
+  edges: { id: string; from: string; to: string; points: number[]; label?: string; via?: string; labelAt?: [x: number, y: number, width: number, height: number] }[];
   /** Labelled areas drawn behind nodes, e.g. the block of unconnected lines. */
   regions?: { label: string; x: number; y: number; width: number; height: number }[];
   /** Scene links left out of the drawing because another path already connects them (see reduceSceneEdges). */

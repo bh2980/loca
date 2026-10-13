@@ -88,7 +88,7 @@ function GraphPage() {
     const lineCard = (node: { speaker?: string | null; text?: string | null; total?: number }) =>
       node.text ? { title: `${node.speaker ?? '지문·화면 문구'}${(node.total ?? 0) > 1 ? ` · ${node.total}줄` : ''}`, body: node.text } : {};
     const map = new Map<string, NodeInfo>(
-      (graph.data?.nodes ?? []).map((node) => [node.id, { ...node, label: node.label ?? (node.type ? (types[node.type]?.label ?? node.type) : null), ...(node.kind === 'script' && lineCard(node)) }]),
+      (graph.data?.nodes ?? []).map((node) => [node.id, { ...node, label: node.label ?? (node.type ? (types[node.type]?.label ?? node.type) : null), ...(node.kind === 'script' && lineCard(node)), ...(node.kind === 'choice' && { body: node.text }) }]),
     );
     const totals = new Map((graph.data?.nodes ?? []).map((node) => [node.id, node] as const));
     // Stand-ins for lines that continue in (or come from) another section.

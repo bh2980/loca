@@ -46,7 +46,7 @@ export function forks(nodes: { id: string; kind: string; unitIds: string[] }[], 
   const splits = (id: string) => {
     const ways = outs.get(id) ?? [];
     if (new Set(ways.map((way) => way.to)).size < 2) return false;
-    return kind.get(id) === 'condition' || (kind.get(id) === 'script' && ways.every((way) => way.label?.trim()));
+    return kind.get(id) === 'condition' || ((kind.get(id) === 'script' || kind.get(id) === 'choice') && ways.every((way) => way.label?.trim()));
   };
   const nodeOfKey = new Map<string, string>();
   for (const node of nodes) for (const unitId of node.unitIds) {

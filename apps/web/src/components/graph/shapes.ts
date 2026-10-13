@@ -1,7 +1,8 @@
 /**
  * Node shapes by meaning, so kind is readable without color:
  * line/scene = rounded rectangle, condition = diamond, wait = hourglass, event = circle,
- * state change = hexagon, connector/join = dot, unknown = dashed rectangle, folded run = stacked box.
+ * state change = hexagon, connector/join = dot, unknown = dashed rectangle, folded run = stacked box,
+ * a player's choice = a pill (fully rounded ends) on blue.
  */
 interface Box {
   x: number;
@@ -14,6 +15,7 @@ const FILL: Record<string, string> = {
   script: '#ffffff',
   scene: '#ffffff',
   chain: '#ffffff',
+  choice: '#eff6ff',
   condition: '#fef3c7',
   wait: '#e0e7ff',
   event: '#dcfce7',
@@ -26,6 +28,7 @@ export const KIND_LABEL: Record<string, string> = {
   script: '대사',
   scene: '장면',
   chain: '이어진 노드',
+  choice: '선택지',
   condition: '조건·분기',
   wait: '대기',
   event: '이벤트',
@@ -85,15 +88,18 @@ export function drawShape(context: CanvasRenderingContext2D, kind: string, box: 
       context.beginPath();
       context.roundRect(x, y, w, h, Math.min(10, h / 4));
       break;
+    case 'choice':
+      context.roundRect(x, y, w, h, h / 2);
+      break;
     default:
       context.roundRect(x, y, w, h, Math.min(10, h / 4));
   }
   // Zoomed out there is no outline, so white boxes need a visible fill.
-  context.fillStyle = !options.detailed && (kind === 'script' || kind === 'scene' || kind === 'chain') ? '#a1a1aa' : (FILL[kind] ?? FILL.unknown);
+  context.fillStyle = !options.detailed && (kind === 'script' || kind === 'scene' || kind === 'chain') ? '#a1a1aa' : !options.detailed && kind === 'choice' ? '#93c5fd' : (FILL[kind] ?? FILL.unknown);
   context.fill();
   if (!options.detailed && !options.selected) return;
   context.lineWidth = options.selected ? Math.max(2.5, 2.5 / options.k) : 1;
-  context.strokeStyle = options.selected ? options.selectColor : '#d4d4d8';
+  context.strokeStyle = options.selected ? options.selectColor : kind === 'choice' ? '#93c5fd' : '#d4d4d8';
   if (kind === 'unknown' && !options.selected) context.setLineDash([4, 3]);
   context.stroke();
   context.setLineDash([]);

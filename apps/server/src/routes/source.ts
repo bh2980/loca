@@ -348,9 +348,9 @@ export const sourceRoutes = new Hono<Env>()
     // 50k-node layout (15 MB) held the server for a quarter of a second. A section's layout is
     // small, so its node ids are read from it to send only that section's nodes.
     const raw = db.select({ data: sql<string | null>`${s.graphLayouts.data}` }).from(s.graphLayouts).where(where).get()?.data ?? 'null';
-    // Nodes folded into a straight run are not layout nodes themselves but are shown through it: send them too.
+    // Nodes folded into a straight run or into an edge (a choice) are not layout nodes but are shown through them: send them too.
     const parsed = section && raw !== 'null' ? (JSON.parse(raw) as s.LayoutData) : null;
-    const only = parsed ? [...parsed.nodes.map((node) => node.id).filter((id) => !id.startsWith('portal:')), ...(parsed.chains ?? []).flatMap((chain) => chain.nodeIds)] : null;
+    const only = parsed ? [...parsed.nodes.map((node) => node.id).filter((id) => !id.startsWith('portal:')), ...(parsed.chains ?? []).flatMap((chain) => chain.nodeIds), ...parsed.edges.flatMap((edge) => (edge.via ? [edge.via] : []))] : null;
     // One preview line per node keeps the payload small; details load on selection.
     const nodes = db
       .select({

@@ -7,8 +7,9 @@ import { sectionJobs, type SectionNode } from './section-graph.ts';
 
 export interface LayoutJob {
   /** `group`: the node's scene, for dialogue layouts (straight runs are folded within one scene). */
-  nodes: { id: string; width: number; height: number; group?: string | null }[];
-  edges: { id: string; from: string; to: string }[];
+  nodes: { id: string; width: number; height: number; group?: string | null; keep?: boolean }[];
+  /** `label`: what the edge says (a choice's text); `via`: the choice node folded into it. */
+  edges: { id: string; from: string; to: string; label?: string; via?: string }[];
   /**
    * Nodes joined only by drawn (not laid out) edges, placed in labelled blocks side by side (one
    * per section), each in rows from top to bottom; `{n}` in the label is the block's node count.
@@ -124,9 +125,13 @@ function withoutHubEdges(job: LayoutJob): { job: LayoutJob; loose: LayoutJob['ed
 }
 async function dialogueLayout(work: LayoutJob) {
   const groupOf = new Map(work.nodes.map((node) => [node.id, node.group]));
-  const folded = foldChains(work, (id) => groupOf.get(id));
+  const kept = new Set(work.nodes.filter((node) => node.keep).map((node) => node.id));
+  const folded = foldChains(work, (id) => groupOf.get(id), (id) => kept.has(id));
   const { job, loose } = withoutHubEdges(folded.job);
   const data = await layout(job);
+  // Labels and folded choices ride along with the laid-out edges.
+  const said = new Map(job.edges.flatMap((edge) => (edge.label || edge.via ? [[edge.id, { label: edge.label, via: edge.via }] as const] : [])));
+  data.edges = data.edges.map((edge) => (said.has(edge.id) ? { ...edge, ...said.get(edge.id) } : edge));
   if (loose.length) data.looseEdges = loose;
   if (folded.chains.length) data.chains = folded.chains;
   return data;
@@ -163,10 +168,15 @@ async function run(work: WorkerJob): Promise<LayoutData | SectionLayouts> {
  * ELK packs disconnected components itself and Brandes–Köpf keeps chains on one vertical line.
  * Runs in a worker with a large stack because ELK's cycle breaking recurses along long chains.
  */
+/** Size given to an edge label (a choice's text): about 8px a character (capitals are wide) plus the play mark, one line. */
+const LABEL_HEIGHT = 22;
+const labelWidth = (text: string) => Math.min(240, 30 + Math.ceil(text.length * 8));
+
 const OPTIONS = {
   'elk.algorithm': 'layered',
   'elk.direction': 'DOWN',
   'elk.edgeRouting': 'ORTHOGONAL',
+  'elk.edgeLabels.placement': 'CENTER',
   'elk.separateConnectedComponents': 'true',
   'elk.layered.cycleBreaking.strategy': 'DEPTH_FIRST',
   'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
@@ -195,7 +205,8 @@ async function layout(job: LayoutJob): Promise<LayoutData> {
         id: 'root',
         layoutOptions: OPTIONS,
         children: connected.map((node) => ({ id: node.id, width: node.width, height: node.height })),
-        edges: job.edges.map((edge) => ({ id: edge.id, sources: [edge.from], targets: [edge.to] })),
+        // A labelled edge gets room for its label (ELK places it and routes around it).
+        edges: job.edges.map((edge) => ({ id: edge.id, sources: [edge.from], targets: [edge.to], ...(edge.label && { labels: [{ id: `${edge.id}:label`, text: edge.label, width: labelWidth(edge.label), height: LABEL_HEIGHT }] }) })),
       })
     : { id: 'root', width: 0, height: 0, children: [], edges: [] };
 
@@ -253,7 +264,8 @@ async function layout(job: LayoutJob): Promise<LayoutData> {
         points.push(section.endPoint.x, section.endPoint.y);
       }
       const original = ends.get(edge.id)!;
-      return { id: edge.id, from: original.from, to: original.to, points: points.map((value) => Math.round(value)) };
+      const label = edge.labels?.[0];
+      return { id: edge.id, from: original.from, to: original.to, points: points.map((value) => Math.round(value)), ...(label?.x !== undefined && { labelAt: [Math.round(label.x), Math.round(label.y ?? 0), Math.round(label.width ?? 0), Math.round(label.height ?? 0)] as [number, number, number, number] }) };
     }),
     regions: [
       ...(loose ? [{ label: `연결 없는 노드 ${isolated.length.toLocaleString()}개`, x: offsetX, y: 0, width: loose.width ?? 0, height: loose.height ?? 0 }] : []),

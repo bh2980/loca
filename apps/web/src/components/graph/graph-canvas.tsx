@@ -25,6 +25,22 @@ export interface LayoutEdge {
   from: string;
   to: string;
   points: number[];
+  /** What the edge says: a player's choice (with `via`, the choice node it stands for) or a condition. */
+  label?: string;
+  via?: string;
+  /** Where the layout put the label: x, y, width, height. */
+  labelAt?: [number, number, number, number];
+}
+
+/** An edge label's box: where the layout put it, else centred on the middle of the line. */
+function labelBox(edge: LayoutEdge): [number, number, number, number] | null {
+  if (!edge.label) return null;
+  if (edge.labelAt) return edge.labelAt;
+  const width = Math.min(240, 30 + Math.ceil(edge.label.length * 8));
+  const p = edge.points;
+  const half = Math.floor(p.length / 4) * 2;
+  const [x1, y1, x2, y2] = [p[half - 2] ?? p[0], p[half - 1] ?? p[1], p[half] ?? p[0], p[half + 1] ?? p[1]];
+  return [(x1 + x2) / 2 - width / 2, (y1 + y2) / 2 - 11, width, 22];
 }
 export interface NodeInfo {
   id: string;
@@ -283,6 +299,32 @@ export function GraphCanvas({ nodes, regions = [], edges, looseEdges, hubs, info
       for (const key of selectedEdges) arrowHead(context, edges[Number(key)].points, 9, selectColor, 1);
     }
 
+    // Edge labels (a choice reads as the label of the way it opens), once they can be read.
+    if (t.k >= DETAIL_K) {
+      context.font = '500 11px Pretendard, system-ui, sans-serif';
+      context.textBaseline = 'middle';
+      for (const i of visibleEdges) {
+        const edge = edges[i];
+        const box = labelBox(edge);
+        if (!box) continue;
+        const [x, y, w, h] = box;
+        context.globalAlpha = dimmed && !selectedEdges?.has(String(i)) ? 0.45 : 1;
+        context.beginPath();
+        context.roundRect(x, y, w, h, h / 2);
+        context.fillStyle = edge.via ? '#eff6ff' : '#ffffff';
+        context.fill();
+        context.lineWidth = 1;
+        context.strokeStyle = edge.via ? '#93c5fd' : '#e4e4e7';
+        context.stroke();
+        context.fillStyle = edge.via ? '#1d4ed8' : '#52525b';
+        let text = `${edge.via ? '▶ ' : ''}${edge.label}`;
+        while (text.length > 2 && context.measureText(text).width > w - 14) text = `${text.slice(0, -2)}…`;
+        context.fillText(text, x + 7, y + h / 2 + 0.5);
+      }
+      context.globalAlpha = 1;
+      context.textBaseline = 'alphabetic';
+    }
+
     const visible = (index.nodeIndex?.search(view.minX, view.minY, view.maxX, view.maxY) ?? []);
     for (const i of visible) {
       const node = nodes[i];
@@ -429,6 +471,12 @@ export function GraphCanvas({ nodes, regions = [], edges, looseEdges, hubs, info
     const rect = canvas.current!.getBoundingClientRect();
     const t = transform.current;
     const x = (clientX - rect.left - t.x) / t.k, y = (clientY - rect.top - t.y) / t.k;
+    // A choice's label stands for its node: clicking it opens the choice.
+    if (t.k >= DETAIL_K)
+      for (const i of index.edgeIndex?.search(x - 100, y - 20, x + 100, y + 20) ?? []) {
+        const box = edges[i].via ? labelBox(edges[i]) : null;
+        if (box && x >= box[0] && x <= box[0] + box[2] && y >= box[1] && y <= box[1] + box[3]) return edges[i].via;
+      }
     const found = (index.nodeIndex?.search(x, y, x, y) ?? []);
     return found.length ? nodes[found[found.length - 1]].id : undefined;
   };
@@ -537,7 +585,18 @@ function arrowHead(context: CanvasRenderingContext2D, points: number[], size: nu
 function drawLabel(context: CanvasRenderingContext2D, meta: NodeInfo, node: LayoutNode) {
   context.save();
   context.fillStyle = '#18181b';
-  if (meta.kind === 'script' || meta.kind === 'scene' || meta.kind === 'chain') {
+  if (meta.kind === 'choice') {
+    // A choice: its text in the pill, after the play mark.
+    context.beginPath();
+    context.rect(node.x + 14, node.y + 4, node.width - 28, node.height - 8);
+    context.clip();
+    context.font = '500 11px Pretendard, system-ui, sans-serif';
+    context.fillStyle = '#2563eb';
+    context.fillText('▶ 선택지', node.x + 22, node.y + 22);
+    context.font = '600 13px Pretendard, system-ui, sans-serif';
+    context.fillStyle = '#1e3a8a';
+    context.fillText(meta.body ?? meta.preview ?? meta.label ?? '', node.x + 22, node.y + 40);
+  } else if (meta.kind === 'script' || meta.kind === 'scene' || meta.kind === 'chain') {
     context.beginPath();
     context.rect(node.x + 10, node.y + 6, node.width - 20, node.height - 12);
     context.clip();
