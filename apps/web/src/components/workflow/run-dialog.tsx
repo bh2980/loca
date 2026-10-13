@@ -121,7 +121,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
           </Button>
         )}
       </DialogTrigger>
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
           {/* With the workflow picker below, the title would only repeat its name. */}
           <DialogTitle>{fixedWorkflowId && workflow ? `${workflow.name} 실행` : '워크플로 실행'}</DialogTitle>
