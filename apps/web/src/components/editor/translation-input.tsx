@@ -9,6 +9,14 @@ import { cn } from '@/lib/utils';
 /** Open editors by line, so the source next to one can put a token or term into it. */
 const editors = new Map<string, EditorView>();
 
+/** The text selected in the line's open editor, if any (to prefill a term's translation). */
+export function selectionInLine(unitId: string) {
+  const view = editors.get(unitId);
+  if (!view) return '';
+  const { from, to } = view.state.selection.main;
+  return view.state.sliceDoc(from, to).trim();
+}
+
 /** Puts a token unit at the selection of the line's open editor (a pair goes around it). */
 export function insertUnitIntoLine(unitId: string, unit: TokenUnit) {
   const view = editors.get(unitId);

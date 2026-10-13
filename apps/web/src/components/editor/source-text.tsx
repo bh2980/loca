@@ -3,6 +3,7 @@ import { splitTokens, useLineContext, type SourcePart } from '@/lib/line-context
 import { chipHue, chipLabel, type TokenUnit } from '@/lib/tokens';
 import { cn } from '@/lib/utils';
 import { insertIntoLine, insertUnitIntoLine } from './translation-input';
+import { TermPick } from './term-pick';
 import { keyLabel } from '@/lib/keys';
 
 /**
@@ -59,7 +60,12 @@ export function SourceText({ parts, units = [], unitId, className }: { parts: So
 /** The source of the line being edited, with its tokens and terms (see SourceText). */
 export function LineSourceText({ projectId, unitId, source, className }: { projectId: string; unitId: string; source: string; className?: string }) {
   const line = useLineContext(projectId, source);
-  return <SourceText parts={line.parts} units={line.units} unitId={unitId} className={className} />;
+  // Selecting words in it offers to add them to the glossary.
+  return (
+    <TermPick projectId={projectId} unitId={unitId}>
+      <SourceText parts={line.parts} units={line.units} unitId={unitId} className={className} />
+    </TermPick>
+  );
 }
 
 /** A numbered format token (#1); the full token shows in a tooltip on hover. */
