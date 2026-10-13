@@ -21,6 +21,7 @@ import { useCurrentNav } from '@/lib/nav';
 import { cn } from '@/lib/utils';
 import { keyLabel } from '@/lib/keys';
 import { ShortcutHelp } from '@/components/shortcut-help';
+import { HEADER_ACTIONS_ID } from '@/components/page';
 
 export const Route = createFileRoute('/p/$projectId')({
   loader: ({ context, params }) => context.queryClient.ensureQueryData(q.project(params.projectId)),
@@ -69,6 +70,7 @@ function ProjectLayout() {
               <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
               <SectionTabs projectId={projectId} />
               <div className="ml-auto flex items-center gap-1.5">
+                <div id={HEADER_ACTIONS_ID} className="mr-1 flex items-center gap-2 empty:hidden" />
                 <CommandSearch projectId={projectId} />
                 <ShortcutHelp />
                 <Tooltip>

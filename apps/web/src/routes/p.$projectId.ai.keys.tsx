@@ -5,9 +5,8 @@ import { Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { DetailPane } from '@/components/detail-pane';
-import { Page } from '@/components/page';
+import { HeaderActions, Page } from '@/components/page';
 import { SplitPane } from '@/components/split-pane';
-import { Toolbar } from '@/components/toolbar';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -52,16 +51,11 @@ function ApiKeys() {
         className="h-full"
         pane={(search.key === 'new' || selected) && <KeyPane key={selected?.id ?? 'new'} row={selected} onClose={() => open(undefined)} onCreated={(id) => open(id)} />}
       >
-        <Toolbar
-          count={connections.data ? `${keys.length}개` : undefined}
-          actions={
-            <Button onClick={() => open('new')}>
-              <Plus /> API 키 추가
-            </Button>
-          }
-        >
-          <p className="max-w-2xl text-xs text-muted-foreground">워크플로의 ‘HTTP 호출’ 노드가 키가 필요한 API를 부를 때 고릅니다. 주소는 노드에 적고, 키는 여기(OS 키체인)에만 둡니다. 공개 API는 키가 필요 없습니다.</p>
-        </Toolbar>
+        <HeaderActions>
+          <Button onClick={() => open('new')}>
+            <Plus /> API 키 추가
+          </Button>
+        </HeaderActions>
         <DataTable
           columns={columns}
           rows={connections.data ? keys : undefined}
@@ -70,6 +64,7 @@ function ApiKeys() {
           empty="API 키가 없습니다."
           onRowClick={(row) => open(row.id === search.key ? undefined : row.id)}
         />
+        <p className="max-w-2xl px-4 py-3 text-xs text-muted-foreground">워크플로의 ‘HTTP 호출’ 노드가 키가 필요한 API를 부를 때 고릅니다. 주소는 노드에 적고, 키는 여기(OS 키체인)에만 둡니다. 공개 API는 키가 필요 없습니다.</p>
       </SplitPane>
     </Page>
   );

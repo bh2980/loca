@@ -1,6 +1,20 @@
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
 import { usePageTitle } from '@/lib/view-context';
+
+/** The spot in the top header (right of the tabs) where a page puts its one main action. */
+export const HEADER_ACTIONS_ID = 'page-header-actions';
+
+/**
+ * A page's main action ("연결 추가") shown in the top header beside the tabs, so a list does not
+ * get a toolbar row of its own just for one button.
+ */
+export function HeaderActions({ children }: { children: ReactNode }) {
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
+  useEffect(() => setSlot(document.getElementById(HEADER_ACTIONS_ID)), []);
+  return slot ? createPortal(children, slot) : null;
+}
 
 /**
  * Page frame. The title is shown once, in the top header; the page itself only gets a thin
