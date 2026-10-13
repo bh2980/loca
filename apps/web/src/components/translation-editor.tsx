@@ -1,14 +1,15 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { listenerLabel } from '@tw/shared';
 import { TokenText } from '@/components/editor/source-text';
-import { TranslationInput } from '@/components/editor/translation-input';
+import { proposeInLine, TranslationInput } from '@/components/editor/translation-input';
 import { AiMark, StatusDot } from '@/components/status';
 import { Button } from '@/components/ui/button';
 import { client, unwrap } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
 import { wordDiff } from '@/lib/diff';
+import { placeTags } from '@/lib/tag-placement';
 import { useLineContext } from '@/lib/line-context';
 import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
 import { q } from '@/lib/queries';
@@ -64,6 +65,9 @@ export function TranslationEditor({
   const detail = useQuery(q.unit(unit.id));
   const candidates = unit.candidates ?? detail.data?.candidates ?? [];
   const suggestions = useSuggestions(unit.id, [unit.translation ?? '', draft]);
+  // Missing format units the rules can place (docs/DESIGN.md J3b B).
+  const tags = useMemo(() => placeTags(unit.source, draft, line.tokenPattern, line.terms), [unit.source, draft, line.tokenPattern, line.terms]);
+  const placeMissing = () => tags.inserts.length > 0 && proposeInLine(unit.id, tags.inserts);
 
   const queryClient = useQueryClient();
   const save = useMutation({
@@ -136,11 +140,19 @@ export function TranslationEditor({
         onAdvance={() => run(true)}
         onEscape={onEscape}
         onPick={(index) => suggestions[index] && setDraft(suggestions[index].text)}
+        onPlaceTags={placeMissing}
         focusKey={focusKey}
         placeholder="번역을 입력하세요. 저장하면 사람 후보가 되고 대표 번역이 됩니다."
       />
       <div className="flex flex-wrap items-center gap-2">
         {dirty && <span className="text-xs text-warning">저장 안 됨</span>}
+        {/* Format units the source has and the text lacks: placed by rule as ghosts (Tab takes them). */}
+        {draft.trim() && tags.placed.length > 0 && (
+          <Button variant="ghost" size="inline" className="text-token-1" title={`빠진 서식 넣기 (${keyLabel('Mod+Shift+T')}) · 제자리에 흐리게 보이고 Tab으로 넣음`} onClick={placeMissing}>
+            서식 {tags.placed.length}개 넣기
+          </Button>
+        )}
+        {draft.trim() && tags.left.length > 0 && <span className="text-xs text-muted-foreground">서식 {tags.left.length}개는 자리를 못 찾음</span>}
         {!dirty && unit.statusBy === 'ai' && (
           <span className="flex items-center gap-1 text-xs text-muted-foreground">
             <AiMark by="ai" /> AI가 정함

@@ -80,6 +80,7 @@
   --color-warning: var(--warning);
   --color-success: var(--success);
   --color-choice: var(--choice);
+  --color-token-1: var(--token-1);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -192,6 +193,8 @@
   .chip-hue-6 { --chip: var(--token-6); }
   /* A token the source does not have (?). */
   .token-chip-stray, .cm-token-stray { --chip: var(--warning); }
+  /* A proposed token, not in the text yet (Tab puts it in). */
+  .cm-token-ghost { @apply border-dashed opacity-60; }
   /* A glossary translation in use. */
   .cm-term-hit { @apply rounded-sm bg-primary/5 underline decoration-primary/40 underline-offset-4; }
 }

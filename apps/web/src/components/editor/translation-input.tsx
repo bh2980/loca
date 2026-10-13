@@ -1,13 +1,62 @@
 import { useEffect, useRef } from 'react';
-import { Compartment, EditorState, Prec, RangeSetBuilder } from '@codemirror/state';
+import { Compartment, EditorState, Prec, RangeSetBuilder, StateEffect, StateField } from '@codemirror/state';
 import { Decoration, EditorView, hoverTooltip, keymap, MatchDecorator, placeholder as placeholderText, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from '@codemirror/view';
 import { history, historyKeymap, standardKeymap } from '@codemirror/commands';
 import { autocompletion, completionStatus, type CompletionContext } from '@codemirror/autocomplete';
 import { chipHue, chipLabel, numberTokens, type TokenKind, type TokenUnit } from '@/lib/tokens';
+import type { TagInsert } from '@/lib/tag-placement';
 import { cn } from '@/lib/utils';
 
 /** Open editors by line, so the source next to one can put a token or term into it. */
 const editors = new Map<string, EditorView>();
+
+/**
+ * Proposed tokens shown as faint chips where they would go (docs/DESIGN.md J3b B): Tab puts them
+ * in, Esc or any edit drops them. Nothing changes the text until Tab.
+ */
+const setGhost = StateEffect.define<TagInsert[] | null>();
+class GhostChip extends WidgetType {
+  constructor(readonly insert: TagInsert) {
+    super();
+  }
+  eq(other: GhostChip) {
+    return other.insert.text === this.insert.text && other.insert.number === this.insert.number && other.insert.kind === this.insert.kind;
+  }
+  toDOM() {
+    const chip = document.createElement('span');
+    chip.className = `cm-token-chip cm-token-ghost ${chipHue(this.insert.number)}`;
+    chip.textContent = chipLabel(this.insert.kind, this.insert.number);
+    chip.title = `${this.insert.text} · Tab으로 넣기`;
+    return chip;
+  }
+}
+const ghost = StateField.define<TagInsert[] | null>({
+  create: () => null,
+  update(value, transaction) {
+    for (const effect of transaction.effects) if (effect.is(setGhost)) return effect.value;
+    return transaction.docChanged ? null : value;
+  },
+  provide: (field) =>
+    EditorView.decorations.from(field, (inserts) =>
+      inserts ? Decoration.set(inserts.map((insert, index) => Decoration.widget({ widget: new GhostChip(insert), side: insert.kind === 'close' ? -1 - index : 1 + index }).range(insert.at)), true) : Decoration.none,
+    ),
+});
+/** Puts the ghost's tokens in, in one change (positions are those of the text as it was). */
+function takeGhost(view: EditorView) {
+  const inserts = view.state.field(ghost);
+  if (!inserts?.length) return false;
+  view.dispatch({ changes: inserts.map((insert) => ({ from: insert.at, insert: insert.text })), effects: setGhost.of(null) });
+  return true;
+}
+
+/** Shows proposed tokens as ghost chips in the line's open editor; Tab takes them. */
+export function proposeInLine(unitId: string, inserts: TagInsert[]) {
+  const view = editors.get(unitId);
+  if (!view) return false;
+  view.dispatch({ effects: setGhost.of(inserts.length ? inserts : null) });
+  view.focus();
+  return true;
+}
 
 /** The text selected in the line's open editor, if any (to prefill a term's translation). */
 export function selectionInLine(unitId: string) {
@@ -50,6 +99,8 @@ export interface TranslationInputProps {
   onSave: () => void;
   onAdvance: () => void;
   onEscape?: () => void;
+  /** ⌘⇧T: propose the missing format tokens (shown as ghosts, Tab takes them). */
+  onPlaceTags?: () => void;
   /** ⌥1…⌥9: take the nth suggestion. */
   onPick?: (index: number) => void;
   /** Changing this to a non-zero number puts the cursor at the end of the text. */
@@ -239,8 +290,19 @@ export function TranslationInput(props: TranslationInputProps) {
     const shortcuts = [
       { key: 'Mod-s', run: run(() => latest.current.onSave()) },
       { key: 'Mod-Enter', run: run(() => latest.current.onAdvance()) },
-      // Esc first closes the completion list, then leaves the box.
-      { key: 'Escape', run: (editor: EditorView) => completionStatus(editor.state) === null && (editor.contentDOM.blur(), latest.current.onEscape?.(), true) },
+      { key: 'Tab', run: takeGhost },
+      // Esc first closes the completion list or drops proposed tokens, then leaves the box.
+      {
+        key: 'Escape',
+        run: (editor: EditorView) => {
+          if (completionStatus(editor.state) !== null) return false;
+          if (editor.state.field(ghost)) return (editor.dispatch({ effects: setGhost.of(null) }), true);
+          editor.contentDOM.blur();
+          latest.current.onEscape?.();
+          return true;
+        },
+      },
+      { key: 'Mod-Shift-t', run: () => (latest.current.onPlaceTags?.(), !!latest.current.onPlaceTags) },
       // Copy the source into the box (memoQ's Ctrl+Shift+S).
       { key: 'Mod-Shift-s', run: (editor: EditorView) => (editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: latest.current.source } }), true) },
       ...Array.from({ length: 9 }, (_, index) => [
@@ -263,6 +325,7 @@ export function TranslationInput(props: TranslationInputProps) {
         doc: props.value,
         extensions: [
           Prec.highest(keymap.of(shortcuts)),
+          ghost,
           history(),
           keymap.of([...standardKeymap, ...historyKeymap]),
           EditorView.lineWrapping,
