@@ -17,6 +17,8 @@ export interface DiscoveredTerm {
   lines: number;
   /** "name" for a capitalized phrase or acronym, "character" for a character name or alias. */
   kind: 'name' | 'character';
+  /** For a character's alias, the character's name ("Anderson" → "Hank"). */
+  aliasOf?: string;
   /** Keys of the first lines that contain it, in script order. */
   examples: string[];
 }
@@ -103,9 +105,11 @@ export function discoverTerms(
     }
   }
 
+  const aliasOf = new Map(characters.flatMap((character) => character.aliases.filter((alias) => alias.toLowerCase() !== character.name.toLowerCase()).map((alias) => [alias.toLowerCase(), character.name] as const)));
   const termOf = (source: string, lines: Set<number> | undefined, kind: DiscoveredTerm['kind']): DiscoveredTerm => {
     const sorted = [...(lines ?? [])].sort((a, b) => a - b);
-    return { source, lines: sorted.length, kind, examples: sorted.slice(0, maxExamples).map((line) => units[line].key) };
+    const of = kind === 'character' ? aliasOf.get(source.toLowerCase()) : undefined;
+    return { source, lines: sorted.length, kind, ...(of && { aliasOf: of }), examples: sorted.slice(0, maxExamples).map((line) => units[line].key) };
   };
   const names = new Set(characters.flatMap((character) => [character.name, ...character.aliases]).filter((name) => name.trim() && !/^[A-Z0-9_]+$/.test(name)));
   const result: DiscoveredTerm[] = [];

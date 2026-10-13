@@ -16,6 +16,7 @@ import { createRunInSteps, selectRunUnits } from '../engine/runner.ts';
 import { snapshotWorkflowModels } from './routes.ts';
 import { readWebPage, webSearch } from './web.ts';
 import { pickNodes, saveView, sectionWithMost, viewSection, VIEW_LIMIT } from './graph-views.ts';
+import { addNameTerms } from './terms.ts';
 import { applyBatch, checkScript, findLines, lineContext, normalizeBatch, runStats, sceneStats, scenesWith, validateBatch } from './script-query.ts';
 
 /** Lines of a batch proposal checked and applied per step when it is accepted. */
@@ -291,6 +292,8 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         if (id) {
           if (!db.update(s.characters).set({ ...input, ...byPerson(db, s.characters, id, input) }).where(and(eq(s.characters.id, id), eq(s.characters.projectId, projectId))).run().changes) return { ok: false, error: '없는 인물입니다.' };
         } else id = db.insert(s.characters).values({ ...input, projectId }).returning().get().id;
+        const saved = db.select({ name: s.characters.name, aliases: s.characters.aliases }).from(s.characters).where(eq(s.characters.id, id)).get();
+        if (saved) addNameTerms(db, projectId, saved);
         changed('knowledge');
         return { ok: true, id };
       },

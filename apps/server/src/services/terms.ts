@@ -17,22 +17,55 @@ import { discoverTerms } from './term-discovery.ts';
  * with origin "script". A term already in the glossary (any status, rejected included) is not
  * added again; its occurrence count and examples are refreshed instead.
  */
+/**
+ * The note on an alias's glossary term. Only terms a line mentions reach a translation prompt, so
+ * this is how "Anderson" in a line is known to be Hank, without putting character profiles in
+ * (experiments: whole profiles made translations worse).
+ */
+export const aliasNote = (name: string) => `${name}의 별칭`;
+
+/**
+ * A character's names and aliases as glossary candidates (found in the script by code, origin
+ * script), called when a character is saved so a new alias needs no rediscovery. Known terms keep
+ * what they have; an alias term with no note gets "X의 별칭".
+ */
+export function addNameTerms(db: Db, projectId: string, character: { name: string; aliases: string[] }) {
+  const names = [character.name, ...character.aliases].map((name) => name.trim()).filter((name) => name && !/^[A-Z0-9_]+$/.test(name));
+  if (!names.length) return 0;
+  const existing = new Map(db.select({ id: s.terms.id, source: s.terms.source, note: s.terms.note }).from(s.terms).where(eq(s.terms.projectId, projectId)).all().map((term) => [term.source.toLowerCase(), term]));
+  let added = 0;
+  for (const name of new Set(names)) {
+    const alias = name.toLowerCase() !== character.name.trim().toLowerCase();
+    const note = alias ? aliasNote(character.name.trim()) : '인물 이름';
+    const known = existing.get(name.toLowerCase());
+    if (known) {
+      if (alias && !known.note.trim()) db.update(s.terms).set({ note }).where(eq(s.terms.id, known.id)).run();
+      continue;
+    }
+    db.insert(s.terms).values({ projectId, source: name, status: 'candidate', origin: 'script', note }).run();
+    added++;
+  }
+  events.changed(projectId, 'terms');
+  return added;
+}
+
 export function discoverAndSave(db: Db, projectId: string) {
   const units = db.select({ key: s.units.key, source: s.units.source }).from(s.units).where(eq(s.units.projectId, projectId)).orderBy(s.units.seq).all();
   const characters = db.select({ name: s.characters.name, aliases: s.characters.aliases }).from(s.characters).where(and(eq(s.characters.projectId, projectId), inArray(s.characters.status, ['candidate', 'confirmed']))).all();
   const found = discoverTerms(units, characters);
-  const existing = new Map(db.select({ id: s.terms.id, source: s.terms.source }).from(s.terms).where(eq(s.terms.projectId, projectId)).all().map((term) => [term.source.toLowerCase(), term.id]));
+  const existing = new Map(db.select({ id: s.terms.id, source: s.terms.source, note: s.terms.note }).from(s.terms).where(eq(s.terms.projectId, projectId)).all().map((term) => [term.source.toLowerCase(), term]));
   let added = 0;
   let updated = 0;
   db.transaction((tx) => {
     for (const term of found) {
-      const id = existing.get(term.source.toLowerCase());
-      if (id) {
-        tx.update(s.terms).set({ lines: term.lines, examples: term.examples }).where(eq(s.terms.id, id)).run();
+      const known = existing.get(term.source.toLowerCase());
+      if (known) {
+        // An alias's term says whose it is, unless someone already wrote a note.
+        tx.update(s.terms).set({ lines: term.lines, examples: term.examples, ...(term.aliasOf && !known.note.trim() && { note: aliasNote(term.aliasOf) }) }).where(eq(s.terms.id, known.id)).run();
         updated++;
         continue;
       }
-      tx.insert(s.terms).values({ projectId, source: term.source, status: 'candidate', origin: 'script', note: term.kind === 'character' ? '인물 이름' : '', lines: term.lines, examples: term.examples }).run();
+      tx.insert(s.terms).values({ projectId, source: term.source, status: 'candidate', origin: 'script', note: term.aliasOf ? aliasNote(term.aliasOf) : term.kind === 'character' ? '인물 이름' : '', lines: term.lines, examples: term.examples }).run();
       added++;
     }
   });

@@ -5,7 +5,7 @@ import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from './importer.ts';
 import { memoryStore } from './secrets.ts';
-import { discoverAndSave, NOT_A_TERM, TermService } from './terms.ts';
+import { addNameTerms, discoverAndSave, NOT_A_TERM, TermService } from './terms.ts';
 
 function setup() {
   const db = openDatabase(':memory:');
@@ -44,6 +44,20 @@ describe('glossary candidates from the script', () => {
     db.update(s.terms).set({ status: 'rejected' }).where(eq(s.terms.source, 'God')).run();
     expect(discoverAndSave(db, projectId)).toEqual({ found: 4, added: 0, updated: 4 });
     expect(terms(db, projectId).find((term) => term.source === 'God')?.status).toBe('rejected');
+  });
+
+  it('marks a character\'s alias as theirs, from discovery and when the character is saved', () => {
+    const { db, projectId } = setup();
+    db.update(s.characters).set({ aliases: ['Thought'] }).where(eq(s.characters.name, 'Nina')).run();
+    discoverAndSave(db, projectId);
+    expect(terms(db, projectId).find((term) => term.source === 'Thought')?.note).toBe('Nina의 별칭');
+    // A new alias becomes a candidate at once; a note someone wrote stays.
+    db.update(s.terms).set({ note: '사람 메모' }).where(eq(s.terms.source, 'Thought')).run();
+    expect(addNameTerms(db, projectId, { name: 'Nina', aliases: ['Thought', 'Nin'] })).toBe(1);
+    expect(terms(db, projectId).filter((term) => ['Thought', 'Nin'].includes(term.source)).map(({ source, note, status }) => ({ source, note, status }))).toEqual([
+      { source: 'Nin', note: 'Nina의 별칭', status: 'candidate' },
+      { source: 'Thought', note: '사람 메모', status: 'candidate' },
+    ]);
   });
 
   it('fills empty candidates from the model with example lines, marks ordinary words and leaves a person’s edits alone', async () => {
