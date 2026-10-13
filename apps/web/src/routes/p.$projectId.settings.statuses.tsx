@@ -193,6 +193,7 @@ function StatusSettings() {
     {
       id: 'name',
       header: '이름',
+      meta: { hideable: false },
       cell: ({ row }) => (
         <span className="inline-flex items-center gap-2 font-medium">
           <StatusDot color={row.original.color} className="size-2.5" />
@@ -216,7 +217,7 @@ function StatusSettings() {
     {
       id: 'name',
       header: '이름',
-      meta: { width: 220 },
+      meta: { width: 220, hideable: false },
       cell: ({ row }) => (
         <span className="inline-flex items-center gap-2">
           {row.original.mark ? <MarkChip mark={row.original.mark} projectId={projectId} /> : <TagChip tag={row.original.tag!} />}

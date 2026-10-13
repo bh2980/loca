@@ -32,6 +32,7 @@ function Workflows() {
     {
       id: 'name',
       header: '이름',
+      meta: { hideable: false },
       cell: ({ row }) => (
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -70,7 +71,7 @@ function Workflows() {
     {
       id: 'run',
       header: () => <span className="sr-only">실행</span>,
-      meta: { width: 88, className: 'py-1.5' },
+      meta: { width: 88, className: 'py-1.5', label: '실행', hideable: false },
       cell: ({ row }) => (
         <div onClick={(event) => event.stopPropagation()}>
           <RunDialog
@@ -89,7 +90,7 @@ function Workflows() {
     {
       id: 'delete',
       header: () => <span className="sr-only">삭제</span>,
-      meta: { width: 48, className: 'py-1.5' },
+      meta: { width: 48, className: 'py-1.5', label: '삭제', hideable: false },
       cell: ({ row }) => (
         <div onClick={(event) => event.stopPropagation()}>
           <AlertDialog>

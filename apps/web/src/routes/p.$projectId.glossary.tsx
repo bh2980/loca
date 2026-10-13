@@ -148,16 +148,16 @@ function Glossary() {
   ];
 
   const columns: ColumnDef<Term, unknown>[] = [
-    { id: 'source', header: '원문', cell: ({ row }) => <span className="font-medium">{row.original.source}</span> },
+    { id: 'source', header: '원문', meta: { hideable: false }, cell: ({ row }) => <span className="font-medium">{row.original.source}</span> },
     { id: 'target', header: '번역', cell: ({ row }) => row.original.target || <span className="text-muted-foreground">—</span> },
-    { id: 'lines', header: () => <span title="원문에 이 용어가 나오는 대사 수">나온 줄</span>, meta: { width: 72, align: 'end' }, cell: ({ row }) => row.original.lines ?? <span className="text-muted-foreground">—</span> },
+    { id: 'lines', header: () => <span title="원문에 이 용어가 나오는 대사 수">나온 줄</span>, meta: { width: 72, align: 'end', label: '나온 줄' }, cell: ({ row }) => row.original.lines ?? <span className="text-muted-foreground">—</span> },
     { id: 'note', header: '메모', meta: { className: 'text-muted-foreground' }, cell: ({ row }) => row.original.note },
     {
       id: 'origin',
       header: () => (
         <HeaderFilter label="출처" value={search.source} options={KNOWLEDGE_SOURCES.map((value) => ({ value, label: SOURCE_LABELS[value] }))} onChange={(source) => setFilter({ source: source as KnowledgeSource | undefined })} />
       ),
-      meta: { width: 96 },
+      meta: { width: 96, label: '출처' },
       cell: ({ row }) => <SourceBadge row={asDraft(row.original)} />,
     },
     {
@@ -180,7 +180,7 @@ function Glossary() {
           onClear={() => setFilter({ state: undefined, tags: undefined, empty: undefined, unused: undefined })}
         />
       ),
-      meta: { width: 150 },
+      meta: { width: 150, label: '태그' },
       cell: ({ row }) => <TagCell tags={row.original.tags} known={knownTags} marks={termMarks(row.original)} />,
     },
   ];

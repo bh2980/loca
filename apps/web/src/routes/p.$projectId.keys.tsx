@@ -38,7 +38,7 @@ function ApiKeys() {
   const open = (key?: string) => void navigate({ search: { key }, replace: true });
 
   const columns: ColumnDef<KeyRow, unknown>[] = [
-    { id: 'name', header: '이름', meta: { className: 'font-medium' }, cell: ({ row }) => row.original.name },
+    { id: 'name', header: '이름', meta: { className: 'font-medium', hideable: false }, cell: ({ row }) => row.original.name },
     { id: 'header', header: '키를 보내는 헤더', meta: { className: 'font-mono text-xs text-muted-foreground' }, cell: ({ row }) => row.original.headerTemplate || '–' },
     { id: 'key', header: '키', meta: { width: 96 }, cell: ({ row }) => <Badge variant={row.original.hasKey ? 'default' : 'outline'}>{row.original.hasKey ? '저장됨' : '없음'}</Badge> },
   ];

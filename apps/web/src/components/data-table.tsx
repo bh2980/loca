@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { flexRender, getCoreRowModel, useReactTable, type ColumnDef, type ColumnSizingState, type RowData } from '@tanstack/react-table';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { flexRender, getCoreRowModel, useReactTable, type ColumnDef, type ColumnOrderState, type ColumnSizingState, type RowData, type VisibilityState } from '@tanstack/react-table';
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { ColumnMenu } from '@/components/column-menu';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
@@ -19,6 +20,10 @@ declare module '@tanstack/react-table' {
     wrap?: boolean;
     /** Extra classes for the cells of this column (e.g. muted text). */
     className?: string;
+    /** Name in the 열 고르기 menu when the header is not a plain string (filter headers). */
+    label?: string;
+    /** False keeps the column always shown (the main identifying column). */
+    hideable?: false;
   }
 }
 
@@ -39,6 +44,43 @@ function loadWidths(id?: string): ColumnSizingState {
   } catch {
     return {};
   }
+}
+
+const columnsKey = (id: string) => `table-columns:${id}`;
+type SavedColumns = { order: string[]; hidden: string[] };
+
+/** Column order and hidden columns the user chose, kept per table in this browser (any failure just means defaults). */
+function loadColumns(id?: string): SavedColumns {
+  const none = { order: [], hidden: [] };
+  if (!id) return none;
+  try {
+    const raw = JSON.parse(localStorage.getItem(columnsKey(id)) ?? 'null') as Partial<SavedColumns> | null;
+    const strings = (value: unknown) => (Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []);
+    return raw && typeof raw === 'object' ? { order: strings(raw.order), hidden: strings(raw.hidden) } : none;
+  } catch {
+    return none;
+  }
+}
+
+function saveColumns(id: string | undefined, saved: SavedColumns | undefined) {
+  if (!id) return;
+  try {
+    if (saved) localStorage.setItem(columnsKey(id), JSON.stringify(saved));
+    else localStorage.removeItem(columnsKey(id));
+  } catch {
+    // Storage unavailable: the choice lasts until the page closes.
+  }
+}
+
+/** Saved order first (unknown ids dropped); a column the save has never seen goes right after the column that precedes it by default. */
+function applyOrder(defaults: string[], saved: string[]): string[] {
+  const order = saved.filter((id, index) => defaults.includes(id) && saved.indexOf(id) === index);
+  defaults.forEach((id, index) => {
+    if (order.includes(id)) return;
+    const before = index > 0 ? order.indexOf(defaults[index - 1]) : -1;
+    order.splice(before + 1, 0, id);
+  });
+  return order;
 }
 
 function saveWidths(id: string | undefined, widths: ColumnSizingState) {
@@ -98,6 +140,15 @@ export function DataTable<T>({
   className?: string;
 }) {
   const [sizing, setSizing] = useState<ColumnSizingState>(() => loadWidths(id));
+  const [saved, setSaved] = useState<SavedColumns>(() => loadColumns(id));
+  const defaultOrder = columns.map((column, index) => column.id ?? `col-${index}`);
+  const defaultKey = defaultOrder.join('\n');
+  const columnOrder: ColumnOrderState = useMemo(() => applyOrder(defaultKey ? defaultKey.split('\n') : [], saved.order), [defaultKey, saved.order]);
+  const columnVisibility: VisibilityState = useMemo(() => {
+    const unhideable = new Set(columns.filter((column) => column.meta?.hideable === false).map((column) => column.id));
+    return Object.fromEntries(saved.hidden.filter((hidden) => !unhideable.has(hidden)).map((hidden) => [hidden, false]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saved.hidden, defaultKey]);
   const table = useReactTable({
     data: rows ?? [],
     columns,
@@ -105,10 +156,20 @@ export function DataTable<T>({
     getCoreRowModel: getCoreRowModel(),
     enableColumnResizing: true,
     columnResizeMode: 'onChange',
-    state: { columnSizing: sizing },
+    state: { columnSizing: sizing, columnOrder, columnVisibility },
     onColumnSizingChange: setSizing,
   });
   useEffect(() => saveWidths(id, sizing), [id, sizing]);
+  useEffect(() => saveColumns(id, saved.order.length || saved.hidden.length ? saved : undefined), [id, saved]);
+  const labelOf = (column: ColumnDef<T, unknown>, columnId: string) => column.meta?.label ?? (typeof column.header === 'string' ? column.header : columnId);
+  const menuItems = columnOrder.map((columnId) => {
+    const column = columns.find((candidate, index) => (candidate.id ?? `col-${index}`) === columnId)!;
+    return { id: columnId, label: labelOf(column, columnId), shown: columnVisibility[columnId] !== false, hideable: column.meta?.hideable !== false };
+  });
+  const resetColumns = () => {
+    setSaved({ order: [], hidden: [] });
+    setSizing({});
+  };
   /** Drag start is the header's real width, so a column that was sharing the rest begins from what it shows. */
   const startResize = (event: React.PointerEvent<HTMLElement>, columnId: string) => {
     const cell = event.currentTarget.parentElement;
@@ -145,10 +206,12 @@ export function DataTable<T>({
   const ids = rows?.map(rowId) ?? [];
   const pickedCount = picked ? ids.filter((id) => picked.has(id)).length : 0;
   const pickable = Boolean(onPick && picked);
-  const span = columns.length + (pickable ? 1 : 0);
+  const visibleColumns = table.getVisibleLeafColumns();
+  const menuWidth = id ? 36 : 0;
+  const span = visibleColumns.length + (pickable ? 1 : 0) + (id ? 1 : 0);
   // Columns sharing the rest keep at least FLEX_MIN: widening one column scrolls the table instead of squeezing them.
   const widthOf = (column: { id: string; columnDef: ColumnDef<T, unknown> }) => sizing[column.id] ?? column.columnDef.meta?.width;
-  const minWidth = (pickable ? 40 : 0) + table.getVisibleLeafColumns().reduce((sum, column) => sum + (widthOf(column) ?? FLEX_MIN), 0);
+  const minWidth = (pickable ? 40 : 0) + menuWidth + visibleColumns.reduce((sum, column) => sum + (widthOf(column) ?? FLEX_MIN), 0);
 
   return (
     <div className={cn('flex min-h-0 flex-1 flex-col', className)}>
@@ -156,9 +219,10 @@ export function DataTable<T>({
         <table className="w-full table-fixed border-separate border-spacing-0 text-sm" style={{ minWidth }}>
           <colgroup>
             {pickable && <col className="w-10" />}
-            {table.getVisibleLeafColumns().map((column) => (
+            {visibleColumns.map((column) => (
               <col key={column.id} style={widthOf(column) ? { width: widthOf(column) } : undefined} />
             ))}
+            {id && <col style={{ width: menuWidth }} />}
           </colgroup>
           <thead className="sticky top-0 z-10 bg-background">
             {table.getHeaderGroups().map((group) => (
@@ -196,6 +260,16 @@ export function DataTable<T>({
                     )}
                   </th>
                 ))}
+                {id && (
+                  <th className="sticky right-0 h-9 border-b bg-background px-1 text-right align-middle">
+                    <ColumnMenu
+                      items={menuItems}
+                      onReorder={(order) => setSaved((previous) => ({ ...previous, order }))}
+                      onToggle={(columnId, shown) => setSaved((previous) => ({ ...previous, hidden: shown ? previous.hidden.filter((hidden) => hidden !== columnId) : [...new Set([...previous.hidden, columnId])] }))}
+                      onReset={resetColumns}
+                    />
+                  </th>
+                )}
               </tr>
             ))}
           </thead>
@@ -246,6 +320,7 @@ export function DataTable<T>({
                           </td>
                         );
                       })}
+                      {id && <td className="border-b" />}
                     </tr>
                   );
                 })}

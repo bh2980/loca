@@ -93,7 +93,7 @@ export function PairTable({ pairs, loading, selected, picked, onPick, onOpen, bu
   filters: KnowledgeFilterState;
 }) {
   const columns: ColumnDef<Pair, unknown>[] = [
-    { id: 'pair', header: '화자 → 청자', meta: { width: 240, className: 'font-medium' }, cell: ({ row: { original: pair } }) => `${pair.from} → ${listenerLabel(pair.to)}` },
+    { id: 'pair', header: '화자 → 청자', meta: { width: 240, className: 'font-medium', hideable: false }, cell: ({ row: { original: pair } }) => `${pair.from} → ${listenerLabel(pair.to)}` },
     { id: 'relationship', header: '관계', meta: { width: 200 }, cell: ({ row: { original: pair } }) => (pair.relationship ? String(pair.relationship.kind) : <span className="text-muted-foreground">—</span>) },
     { id: 'speech', header: '말투', cell: ({ row: { original: pair } }) => (pair.rules.length ? levelsText(pair.rules) : <span className="text-muted-foreground">—</span>) },
     ...metaColumns<Pair>(pairSummary, filters),

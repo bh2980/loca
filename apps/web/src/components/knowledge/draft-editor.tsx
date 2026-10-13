@@ -193,13 +193,13 @@ export function metaColumns<T>(draftOf: (row: T) => Draft, filters: KnowledgeFil
   return [
     {
       id: 'tags',
-      meta: { width: 150 },
+      meta: { width: 150, label: '태그' },
       header: () => <TagFilter filters={filters} />,
       cell: ({ row }) => <TagCell tags={draftOf(row.original).tags} known={filters.known} marks={knowledgeMarks(draftOf(row.original))} />,
     },
     {
       id: 'source',
-      meta: { width: 88 },
+      meta: { width: 88, label: '출처' },
       header: () => <HeaderFilter label="출처" value={filters.source} options={sourceOptions} onChange={(value) => filters.onChange({ source: value as SourceFilter })} />,
       cell: ({ row }) => <SourceBadge row={draftOf(row.original)} />,
     },
@@ -296,7 +296,7 @@ export function KnowledgeTable({ id, spec, rows, loading, selected, onOpen, pick
   filters: KnowledgeFilterState;
 }) {
   const columns: ColumnDef<Row, unknown>[] = [
-    ...spec.columns.map((column): ColumnDef<Row, unknown> => ({ id: column.head, header: column.head, meta: { width: column.width, className: column.className }, cell: ({ row }) => column.cell(row.original) })),
+    ...spec.columns.map((column, index): ColumnDef<Row, unknown> => ({ id: column.head, header: column.head, meta: { width: column.width, className: column.className, hideable: index === 0 ? false : undefined }, cell: ({ row }) => column.cell(row.original) })),
     ...metaColumns<Row>((row) => row, filters),
   ];
   return <DataTable id={id} columns={columns} rows={rows} loading={loading} rowId={(row) => row.id} selected={selected} onRowClick={(row) => onOpen(row.id)} rowClassName={candidateRow} picked={picked} onPick={onPick} bulk={bulk} empty={empty} />;

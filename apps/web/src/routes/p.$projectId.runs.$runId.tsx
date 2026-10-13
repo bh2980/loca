@@ -92,7 +92,7 @@ function RunDetail() {
 
   const columns: ColumnDef<Item, unknown>[] = [
     { id: 'speaker', header: '화자', meta: { width: 112 }, cell: ({ row }) => row.original.speaker ?? '—' },
-    { id: 'source', header: '원문', meta: { wrap: true }, cell: ({ row }) => row.original.source },
+    { id: 'source', header: '원문', meta: { wrap: true, hideable: false }, cell: ({ row }) => row.original.source },
     { id: 'candidate', header: '최신 후보', meta: { wrap: true, className: 'text-muted-foreground' }, cell: ({ row }) => row.original.data.candidateText ?? '—' },
     {
       id: 'node',
@@ -104,7 +104,7 @@ function RunDetail() {
           options={order.map((node) => ({ value: node.id, label: nameOf(node), hint: nodeTotals[node.id] }))}
         />
       ),
-      meta: { width: 160 },
+      meta: { width: 160, label: '위치' },
       cell: ({ row }) => nodeName(row.original.nodeId),
     },
     {
@@ -117,7 +117,7 @@ function RunDetail() {
           options={(Object.keys(ITEM_STATE) as State[]).filter((state) => totals[state]).map((state) => ({ value: state, label: ITEM_STATE[state], hint: totals[state] }))}
         />
       ),
-      meta: { width: 128 },
+      meta: { width: 128, label: '상태' },
       cell: ({ row }) => (
         <>
           {ITEM_STATE[row.original.state]}
