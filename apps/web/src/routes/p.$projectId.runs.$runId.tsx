@@ -258,7 +258,7 @@ function RunDetail() {
         </div>
 
         {view === 'items' ? (
-          <DataTable
+          <DataTable id="run-items"
             columns={columns}
             rows={items.data?.rows}
             rowId={(item) => item.id}

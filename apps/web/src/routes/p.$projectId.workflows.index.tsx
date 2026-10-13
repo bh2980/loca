@@ -123,7 +123,7 @@ function Workflows() {
           </AiButton>
           <NewWorkflow projectId={projectId} />
         </HeaderActions>
-        <DataTable
+        <DataTable id="workflows"
           columns={columns}
           rows={workflows.data}
           rowId={(workflow) => workflow.id}

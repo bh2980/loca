@@ -10,7 +10,7 @@ import { TagChip } from '@/components/status';
 import { Page } from '@/components/page';
 import { SplitPane } from '@/components/split-pane';
 import { JobProgress } from '@/components/job-progress';
-import { SearchInput, Toolbar } from '@/components/toolbar';
+import { FilterChips, SearchInput, Toolbar, type FilterChip } from '@/components/toolbar';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
@@ -20,7 +20,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { confirmLabel, matches, SourceBadge, StateCell, TagCell, TagMenu, type ItemTag, type StatusFilter } from '@/components/knowledge/draft-editor';
+import { confirmLabel, knowledgeMarks, matches, SourceBadge, StateCell, TagCell, TagMenu, type ItemTag, type StatusFilter } from '@/components/knowledge/draft-editor';
 import { isSettled, KNOWLEDGE_SOURCES, REVIEW_TAG, SOURCE_LABELS, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type StatusBy } from '@tw/shared';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
@@ -143,6 +143,16 @@ function Glossary() {
   const discardable = pickedTerms.filter((term) => !isSettled(term));
   const afterBulk = { onSuccess: () => setPicked(new Set()) };
 
+  // Automatic marks a term carries, the same ones the 태그 header filters by.
+  const termMarks = (term: Term) => [...knowledgeMarks(asDraft(term), false), ...(!term.target.trim() ? ['번역어 없음'] : []), ...(term.lines === 0 ? ['대본에 안 나옴'] : [])];
+  const chips: FilterChip[] = [
+    ...(search.source ? [{ key: 'source', label: SOURCE_LABELS[search.source], clear: () => setFilter({ source: undefined }) }] : []),
+    ...(search.state ? [{ key: 'state', label: search.state === 'ai' ? '#AI가 정함' : search.state === 'candidate' ? '#후보' : '확정', clear: () => setFilter({ state: undefined }) }] : []),
+    ...(search.empty ? [{ key: 'empty', label: '#번역어 없음', clear: () => setFilter({ empty: undefined }) }] : []),
+    ...(search.unused ? [{ key: 'unused', label: '#대본에 안 나옴', clear: () => setFilter({ unused: undefined }) }] : []),
+    ...pickedTags.map((id) => ({ key: `tag:${id}`, label: `#${knownTags.find((tag) => tag.id === id)?.name ?? id}`, clear: () => toggleTag(id, false) })),
+  ];
+
   const columns: ColumnDef<Term, unknown>[] = [
     { id: 'source', header: '원문', cell: ({ row }) => <span className="font-medium">{row.original.source}</span> },
     { id: 'target', header: '번역', cell: ({ row }) => row.original.target || <span className="text-muted-foreground">—</span> },
@@ -176,8 +186,8 @@ function Glossary() {
           onClear={() => setFilter({ state: undefined, tags: undefined, empty: undefined, unused: undefined })}
         />
       ),
-      meta: { width: 120 },
-      cell: ({ row }) => <TagCell tags={row.original.tags} known={knownTags} />,
+      meta: { width: 150 },
+      cell: ({ row }) => <TagCell tags={row.original.tags} known={knownTags} marks={termMarks(row.original)} />,
     },
     {
       id: 'state',
@@ -239,8 +249,10 @@ function Glossary() {
           }
         >
           <SearchInput value={search.q} placeholder="원문·번역·메모 검색" onChange={(value) => void navigate({ search: (previous) => ({ ...previous, q: value }), replace: true })} />
+          <FilterChips chips={chips} />
         </Toolbar>
         <DataTable
+          id="glossary"
           columns={columns}
           rows={terms.data && rows}
           rowId={(term) => term.id}

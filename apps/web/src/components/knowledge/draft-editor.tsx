@@ -22,6 +22,7 @@ import { DOCUMENT_KIND } from '@/lib/labels';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { DataTable, type ColumnDef } from '@/components/data-table';
+import type { FilterChip } from '@/components/toolbar';
 import { DetailPane, PaneSection } from '@/components/detail-pane';
 import { HeaderFilter, MarkFilter, type FilterOption } from '@/components/header-filter';
 
@@ -100,15 +101,27 @@ export const matches = (row: Draft, source: SourceFilter, status: StatusFilter, 
   (tags ?? []).every((tag) => row.tags?.some((item) => item.id === tag)) &&
   (!bare || !row.evidence.length);
 
-/** An item's tags as chips; the app's reason for one (확인 권장) shows on hover. */
-export function TagCell({ tags, known }: { tags?: ItemTag[]; known: TagInfo[] }) {
+/** The automatic marks (#후보, #AI가 정함, #근거 없음) an item carries; `bare` is off where evidence is not tracked. */
+export const knowledgeMarks = (row: Draft, bare = true): string[] => [
+  ...(row.status === 'candidate' ? [KNOWLEDGE_MARKS.candidate] : []),
+  ...(aiDecided(row) ? [KNOWLEDGE_MARKS.ai] : []),
+  ...(bare && !row.evidence.length ? [KNOWLEDGE_MARKS.bare] : []),
+];
+
+/** An item's automatic marks (muted outline) then its tags as chips; the app's reason for a tag (확인 권장) shows on hover. */
+export function TagCell({ tags, known, marks }: { tags?: ItemTag[]; known: TagInfo[]; marks?: string[] }) {
   const shown = (tags ?? []).flatMap((item) => {
     const info = known.find((tag) => tag.id === item.id);
     return info ? [{ ...item, info }] : [];
   });
-  if (!shown.length) return null;
+  if (!shown.length && !marks?.length) return null;
   return (
     <span className="flex flex-wrap gap-1">
+      {marks?.map((mark) => (
+        <span key={mark} className="inline-flex items-center rounded border px-1.5 py-0.5 text-xs text-muted-foreground">
+          #{mark}
+        </span>
+      ))}
       {shown.map((item) => (
         <span key={item.id} title={item.note ?? undefined}>
           <TagChip tag={item.info} />
@@ -184,9 +197,9 @@ export function metaColumns<T>(draftOf: (row: T) => Draft, filters: KnowledgeFil
   return [
     {
       id: 'tags',
-      meta: { width: 120 },
+      meta: { width: 150 },
       header: () => <TagFilter filters={filters} />,
-      cell: ({ row }) => <TagCell tags={draftOf(row.original).tags} known={filters.known} />,
+      cell: ({ row }) => <TagCell tags={draftOf(row.original).tags} known={filters.known} marks={knowledgeMarks(draftOf(row.original))} />,
     },
     {
       id: 'source',
@@ -201,6 +214,24 @@ export function metaColumns<T>(draftOf: (row: T) => Draft, filters: KnowledgeFil
       header: '상태',
       cell: ({ row }) => <StateCell row={draftOf(row.original)} />,
     },
+  ];
+}
+
+/** The knowledge filters that are set, as removable chips for the toolbar. */
+export function knowledgeFilterChips(filters: KnowledgeFilterState): FilterChip[] {
+  return [
+    ...(filters.source ? [{ key: 'source', label: SOURCE_LABELS[filters.source], clear: () => filters.onChange({ source: undefined }) }] : []),
+    ...(filters.status && filters.status !== 'confirmed' ? [{ key: 'status', label: `#${KNOWLEDGE_MARKS[filters.status]}`, clear: () => filters.onChange({ status: undefined }) }] : []),
+    ...(filters.status === 'confirmed' ? [{ key: 'status', label: KNOWLEDGE_STATUS_LABELS.confirmed, clear: () => filters.onChange({ status: undefined }) }] : []),
+    ...(filters.bare ? [{ key: 'bare', label: `#${KNOWLEDGE_MARKS.bare}`, clear: () => filters.onChange({ bare: undefined }) }] : []),
+    ...(filters.tags ?? []).map((id) => ({
+      key: `tag:${id}`,
+      label: `#${filters.known.find((tag) => tag.id === id)?.name ?? id}`,
+      clear: () => {
+        const next = (filters.tags ?? []).filter((other) => other !== id);
+        filters.onChange({ tags: next.length ? next : undefined });
+      },
+    })),
   ];
 }
 
@@ -261,7 +292,9 @@ export function TagMenu({ tags, rows, onChange }: { tags: TagInfo[]; rows: Draft
   );
 }
 
-export function KnowledgeTable({ spec, rows, loading, selected, onOpen, picked, onPick, bulk, empty, filters }: {
+export function KnowledgeTable({ id, spec, rows, loading, selected, onOpen, picked, onPick, bulk, empty, filters }: {
+  /** Keeps the column widths per kind (see DataTable). */
+  id?: string;
   spec: KindSpec;
   rows: Row[] | undefined;
   loading: boolean;
@@ -277,7 +310,7 @@ export function KnowledgeTable({ spec, rows, loading, selected, onOpen, picked, 
     ...spec.columns.map((column): ColumnDef<Row, unknown> => ({ id: column.head, header: column.head, meta: { width: column.width, className: column.className }, cell: ({ row }) => column.cell(row.original) })),
     ...metaColumns<Row>((row) => row, filters),
   ];
-  return <DataTable columns={columns} rows={rows} loading={loading} rowId={(row) => row.id} selected={selected} onRowClick={(row) => onOpen(row.id)} rowClassName={candidateRow} picked={picked} onPick={onPick} bulk={bulk} empty={empty} />;
+  return <DataTable id={id} columns={columns} rows={rows} loading={loading} rowId={(row) => row.id} selected={selected} onRowClick={(row) => onOpen(row.id)} rowClassName={candidateRow} picked={picked} onPick={onPick} bulk={bulk} empty={empty} />;
 }
 
 export function DiscardButton({ count, onConfirm, disabled }: { count: number; onConfirm: () => void; disabled?: boolean }) {

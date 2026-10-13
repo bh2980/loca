@@ -229,7 +229,7 @@ function StatusSettings() {
               <p className="text-xs text-muted-foreground">‘검토함에 표시’를 켠 상태의 대사는 사람이 바꾸든 워크플로가 바꾸든 검토함에 모입니다. 검토함에서는 다른 상태 중 하나를 골라 옮기는 것으로 결정합니다.</p>
             </div>
           </Toolbar>
-          <DataTable
+          <DataTable id="statuses"
             className="flex-none"
             columns={statusColumns}
             rows={statuses}
@@ -252,7 +252,7 @@ function StatusSettings() {
               <p className="text-xs text-muted-foreground">상태와 별개로 대사에 여러 개 붙이는 표시입니다(예: #재검토, #폰트확인). 스크립트에서 골라 붙이거나 상태 변경 노드로 붙이고, 워크플로 실행 범위나 조건에 씁니다.</p>
             </div>
           </Toolbar>
-          <DataTable className="flex-none" columns={tagColumns} rows={tags} rowId={(row) => row.id} selected={search.tag} empty="태그가 없습니다." onRowClick={(row) => open({ tag: row.id })} />
+          <DataTable id="tags" className="flex-none" columns={tagColumns} rows={tags} rowId={(row) => row.id} selected={search.tag} empty="태그가 없습니다." onRowClick={(row) => open({ tag: row.id })} />
         </div>
       </SplitPane>
 

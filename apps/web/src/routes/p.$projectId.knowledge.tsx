@@ -7,9 +7,9 @@ import { OTHERS_LISTENER, DOCUMENT_KINDS, styleNames, type CharacterStyle, isSet
 import { Page } from '@/components/page';
 import { RelationshipGraph } from '@/components/relationship-graph';
 import { hasAnalysis, JobStatus, StartAnalysis } from '@/components/knowledge/analysis-controls';
-import { BulkDecide, DraftEditor, fail, KINDS, KnowledgeFilters, KnowledgeTable, matches, TagMenu, type KnowledgeFilterState, RelationshipChanges, RuleLines, SourceBadge, text, type Kind, type KindSpec, type Row, type SourceFilter, type StatusFilter } from '@/components/knowledge/draft-editor';
+import { BulkDecide, DraftEditor, fail, KINDS, KnowledgeFilters, knowledgeFilterChips, KnowledgeTable, matches, TagMenu, type KnowledgeFilterState, RelationshipChanges, RuleLines, SourceBadge, text, type Kind, type KindSpec, type Row, type SourceFilter, type StatusFilter } from '@/components/knowledge/draft-editor';
 import { SplitPane } from '@/components/split-pane';
-import { Toolbar } from '@/components/toolbar';
+import { FilterChips, Toolbar } from '@/components/toolbar';
 import { pairKey, buildPairs, PairDetail, pairItems, pairMatches, pairSummary, PairTable, type Pair } from '@/components/knowledge/pairs';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -404,6 +404,7 @@ function Knowledge() {
             />
           )}
           {(graph || timeline) && <KnowledgeFilters {...filters} />}
+          <FilterChips chips={knowledgeFilterChips(filters)} />
           <div className="min-w-0 truncate text-xs text-muted-foreground">
             <JobStatus projectId={projectId} />
           </div>
@@ -452,6 +453,7 @@ function Knowledge() {
           />
         ) : (
           <KnowledgeTable
+            id={`knowledge-${tableKind}`}
             spec={spec}
             rows={pending ? undefined : rows}
             loading={pending}

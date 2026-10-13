@@ -76,7 +76,7 @@ function ConnectionSettings() {
               <Plus /> 연결 추가
             </Button>
           </HeaderActions>
-          <DataTable
+          <DataTable id="connections"
             className="flex-none"
             columns={columns}
             rows={rows}

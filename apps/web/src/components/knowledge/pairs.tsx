@@ -99,7 +99,7 @@ export function PairTable({ pairs, loading, selected, picked, onPick, onOpen, bu
     ...metaColumns<Pair>(pairSummary, filters),
   ];
   return (
-    <DataTable
+    <DataTable id="knowledge-pairs"
       columns={columns}
       rows={pairs}
       loading={loading}

@@ -56,7 +56,7 @@ function ApiKeys() {
             <Plus /> API 키 추가
           </Button>
         </HeaderActions>
-        <DataTable
+        <DataTable id="keys"
           columns={columns}
           rows={connections.data ? keys : undefined}
           rowId={(row) => row.id}

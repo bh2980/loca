@@ -1,5 +1,5 @@
-import { useEffect, useRef, type ReactNode } from 'react';
-import { flexRender, getCoreRowModel, useReactTable, type ColumnDef, type RowData } from '@tanstack/react-table';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { flexRender, getCoreRowModel, useReactTable, type ColumnDef, type ColumnSizingState, type RowData } from '@tanstack/react-table';
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -9,8 +9,10 @@ import { cn } from '@/lib/utils';
 declare module '@tanstack/react-table' {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   interface ColumnMeta<TData extends RowData, TValue> {
-    /** Fixed width in px. Columns without one share the rest of the row. */
+    /** Starting width in px. Columns without one share the rest of the row. */
     width?: number;
+    /** False keeps the column at its width (no drag handle). */
+    resizable?: boolean;
     /** Numbers and counts sit at the right edge. */
     align?: 'end';
     /** Cell text may wrap to several lines (source and translation); otherwise it is cut with "…". */
@@ -22,13 +24,43 @@ declare module '@tanstack/react-table' {
 
 export type { ColumnDef };
 
+const MIN_WIDTH = 48;
+/** The narrowest a column without a set width gets. */
+const FLEX_MIN = 140;
+const widthsKey = (id: string) => `table-widths:${id}`;
+
+/** Widths the user dragged, kept per table in this browser (a per-viewer convenience: any failure just means defaults). */
+function loadWidths(id?: string): ColumnSizingState {
+  if (!id) return {};
+  try {
+    const raw = JSON.parse(localStorage.getItem(widthsKey(id)) ?? '{}') as unknown;
+    if (!raw || typeof raw !== 'object') return {};
+    return Object.fromEntries(Object.entries(raw).filter((entry): entry is [string, number] => typeof entry[1] === 'number' && entry[1] >= MIN_WIDTH));
+  } catch {
+    return {};
+  }
+}
+
+function saveWidths(id: string | undefined, widths: ColumnSizingState) {
+  if (!id) return;
+  try {
+    if (Object.keys(widths).length) localStorage.setItem(widthsKey(id), JSON.stringify(widths));
+    else localStorage.removeItem(widthsKey(id));
+  } catch {
+    // Storage unavailable: widths last until the page closes.
+  }
+}
+
 /**
  * Every list in the app. The header stays put while the body scrolls; a row opens its detail in
  * the right-hand pane; checkboxes pick rows for the bulk bar at the bottom. While the first load
- * is pending it shows skeleton rows, never an empty table, and it never scrolls sideways:
- * columns are either a fixed width or share what is left.
+ * is pending it shows skeleton rows, never an empty table. Columns start at their `meta.width` or
+ * share what is left; dragging a header's right edge sets a width (double-click resets it), kept
+ * per `id` in this browser. The table fills its container and scrolls sideways only when the
+ * widths the user set add up to more.
  */
 export function DataTable<T>({
+  id,
   columns,
   rows,
   rowId,
@@ -43,6 +75,8 @@ export function DataTable<T>({
   footer,
   className,
 }: {
+  /** Names the table for keeping its column widths; without it resizing works but is not kept. */
+  id?: string;
   columns: ColumnDef<T, unknown>[];
   rows: T[] | undefined;
   rowId: (row: T) => string;
@@ -63,7 +97,46 @@ export function DataTable<T>({
   footer?: ReactNode;
   className?: string;
 }) {
-  const table = useReactTable({ data: rows ?? [], columns, getRowId: rowId, getCoreRowModel: getCoreRowModel() });
+  const [sizing, setSizing] = useState<ColumnSizingState>(() => loadWidths(id));
+  const table = useReactTable({
+    data: rows ?? [],
+    columns,
+    getRowId: rowId,
+    getCoreRowModel: getCoreRowModel(),
+    enableColumnResizing: true,
+    columnResizeMode: 'onChange',
+    state: { columnSizing: sizing },
+    onColumnSizingChange: setSizing,
+  });
+  useEffect(() => saveWidths(id, sizing), [id, sizing]);
+  /** Drag start is the header's real width, so a column that was sharing the rest begins from what it shows. */
+  const startResize = (event: React.PointerEvent<HTMLElement>, columnId: string) => {
+    const cell = event.currentTarget.parentElement;
+    if (!cell) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const handle = event.currentTarget;
+    const startX = event.clientX;
+    const startWidth = cell.getBoundingClientRect().width;
+    handle.setPointerCapture(event.pointerId);
+    const move = (next: PointerEvent) => table.setColumnSizing((previous) => ({ ...previous, [columnId]: Math.max(MIN_WIDTH, Math.round(startWidth + next.clientX - startX)) }));
+    const stop = () => {
+      handle.removeEventListener('pointermove', move);
+      handle.removeEventListener('pointerup', stop);
+      handle.removeEventListener('pointercancel', stop);
+      setResizing(undefined);
+    };
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', stop);
+    handle.addEventListener('pointercancel', stop);
+    setResizing(columnId);
+  };
+  const resetWidth = (columnId: string) =>
+    table.setColumnSizing((previous) => {
+      const { [columnId]: _dropped, ...rest } = previous;
+      return rest;
+    });
+  const [resizing, setResizing] = useState<string>();
   const selectedRow = useRef<HTMLTableRowElement>(null);
   useEffect(() => {
     selectedRow.current?.scrollIntoView({ block: 'nearest' });
@@ -73,15 +146,18 @@ export function DataTable<T>({
   const pickedCount = picked ? ids.filter((id) => picked.has(id)).length : 0;
   const pickable = Boolean(onPick && picked);
   const span = columns.length + (pickable ? 1 : 0);
+  // Columns sharing the rest keep at least FLEX_MIN: widening one column scrolls the table instead of squeezing them.
+  const widthOf = (column: { id: string; columnDef: ColumnDef<T, unknown> }) => sizing[column.id] ?? column.columnDef.meta?.width;
+  const minWidth = (pickable ? 40 : 0) + table.getVisibleLeafColumns().reduce((sum, column) => sum + (widthOf(column) ?? FLEX_MIN), 0);
 
   return (
     <div className={cn('flex min-h-0 flex-1 flex-col', className)}>
       <div className="min-h-0 flex-1 overflow-auto">
-        <table className="w-full table-fixed border-separate border-spacing-0 text-sm">
+        <table className="w-full table-fixed border-separate border-spacing-0 text-sm" style={{ minWidth }}>
           <colgroup>
             {pickable && <col className="w-10" />}
             {table.getVisibleLeafColumns().map((column) => (
-              <col key={column.id} style={column.columnDef.meta?.width ? { width: column.columnDef.meta.width } : undefined} />
+              <col key={column.id} style={widthOf(column) ? { width: widthOf(column) } : undefined} />
             ))}
           </colgroup>
           <thead className="sticky top-0 z-10 bg-background">
@@ -100,12 +176,24 @@ export function DataTable<T>({
                   <th
                     key={header.id}
                     className={cn(
-                      'h-9 border-b px-3 text-left align-middle text-xs font-medium whitespace-nowrap text-muted-foreground',
+                      'group/th relative h-9 border-b px-3 text-left align-middle text-xs font-medium whitespace-nowrap text-muted-foreground',
                       index === 0 && !pickable && 'pl-4',
                       header.column.columnDef.meta?.align === 'end' && 'text-right',
                     )}
                   >
                     {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                    {!header.isPlaceholder && header.column.columnDef.meta?.resizable !== false && (
+                      <span
+                        role="separator"
+                        aria-orientation="vertical"
+                        aria-label={`${typeof header.column.columnDef.header === 'string' ? header.column.columnDef.header : '열'} 너비 조절 (두 번 누르면 처음 너비)`}
+                        className="absolute inset-y-0 right-0 z-10 flex w-2 cursor-col-resize touch-none justify-center select-none"
+                        onPointerDown={(event) => startResize(event, header.column.id)}
+                        onDoubleClick={() => resetWidth(header.column.id)}
+                      >
+                        <span className={cn('h-full w-px bg-transparent transition-colors group-hover/th:bg-border hover:bg-primary', resizing === header.column.id && 'w-0.5 bg-primary group-hover/th:bg-primary')} />
+                      </span>
+                    )}
                   </th>
                 ))}
               </tr>
