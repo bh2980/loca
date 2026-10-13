@@ -3,7 +3,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { ArrowLeftRight, GanttChart, Network, Plus, Table2, Users } from 'lucide-react';
 import { toast } from 'sonner';
-import { OTHERS_LISTENER, DOCUMENT_KINDS, parseMarks, type AutoMark, styleNames, type CharacterStyle, isSettled, KNOWLEDGE_SOURCES, listenerLabel, REVIEW_TAG, SPEECH_LEVEL_LABELS, type KnowledgeSource, type SpeechLevel } from '@tw/shared';
+import { OTHERS_LISTENER, parseMarks, type AutoMark, styleNames, isSettled, KNOWLEDGE_SOURCES, listenerLabel, REVIEW_TAG, SPEECH_LEVEL_LABELS, type KnowledgeSource } from '@tw/shared';
 import { EmptyState } from '@/components/empty-state';
 import { Page } from '@/components/page';
 import { TagMenu } from '@/components/tag-menu';
@@ -11,15 +11,15 @@ import { RelationshipGraph } from '@/components/relationship-graph';
 import { hasAnalysis, JobStatus, StartAnalysis } from '@/components/knowledge/analysis-controls';
 import { DraftEditor } from '@/components/knowledge/editor';
 import { RelationshipChanges, RuleLines } from '@/components/knowledge/evidence';
-import { BulkDecide, fail, KINDS, KnowledgeFilters, knowledgeFilterChips, KNOWLEDGE_MARK_IDS, KnowledgeTable, matches, type KnowledgeFilterState, SourceBadge, text, type Kind, type KindSpec, type Row, type SourceFilter } from '@/components/knowledge/table';
+import { BulkDecide, fail, KINDS, KnowledgeFilters, knowledgeFilterChips, KNOWLEDGE_MARK_IDS, KnowledgeTable, matches, type KnowledgeFilterState, SourceBadge, type Kind, type KindSpec, type Row, type SourceFilter, defineKind } from '@/components/knowledge/table';
 import { SplitPane } from '@/components/split-pane';
 import { FilterChips, Toolbar } from '@/components/toolbar';
-import { pairKey, buildPairs, PairDetail, pairItems, pairMatches, pairSummary, PairTable, type Pair } from '@/components/knowledge/pairs';
+import { pairKey, buildPairs, PairDetail, pairItems, pairMatches, pairSummary, PairTable, type Pair, type SpeechRuleCreate } from '@/components/knowledge/pairs';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
-import { EventFlow, type FlowEvent } from '@/components/knowledge/event-flow';
+import { EventFlow } from '@/components/knowledge/event-flow';
 import { splitList } from '@/components/chip-input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { client, unwrap } from '@/lib/api';
@@ -87,15 +87,23 @@ function Knowledge() {
   const nameOf = useMemo(() => new Map((people.data?.characters ?? []).map((c) => [c.id, c.name])), [people.data]);
   const api = client.projects[':projectId'];
   const param = (id: string) => ({ param: { projectId, id } });
+  // Saves a kind's form through its PATCH endpoint. A form key the endpoint does not take fails to
+  // compile here: the server's schema would drop it and the edit would vanish without an error.
+  const patchTo =
+    <P, T extends Response & { json(): Promise<unknown> }>(patch: (args: { param: { projectId: string; id: string }; json: P }) => Promise<T>) =>
+    <J extends P>(id: string, json: J & Record<Exclude<keyof J, keyof P>, never>) =>
+      unwrap(patch({ ...param(id), json }));
 
-  const specs: Record<Kind, KindSpec> = {
-    documents: {
-      rows: (documents.data ?? []) as KindSpec['rows'],
+  // Each kind typed by its rows: a field must name a key of the row with a matching type, and
+  // the form it saves must be what the endpoint accepts (no casts; see defineKind).
+  const specs = {
+    documents: defineKind({
+      rows: documents.data ?? [],
       columns: [
-        { head: '제목', cell: (row) => text(row.title), className: 'font-medium', width: 240 },
-        { head: '종류', cell: (row) => DOCUMENT_KIND[row.kind as (typeof DOCUMENT_KINDS)[number]], width: 96 },
+        { head: '제목', cell: (row) => row.title, className: 'font-medium', width: 240 },
+        { head: '종류', cell: (row) => DOCUMENT_KIND[row.kind], width: 96 },
         { head: '번역 문맥', cell: (row) => (row.alwaysInclude ? <Badge variant="outline">넣음</Badge> : null), width: 96 },
-        { head: '내용', cell: (row) => <span className="line-clamp-1 text-muted-foreground">{text(row.body).replace(/[#*_>`]+/g, '').replace(/\s+/g, ' ')}</span> },
+        { head: '내용', cell: (row) => <span className="line-clamp-1 text-muted-foreground">{row.body.replace(/[#*_>`]+/g, '').replace(/\s+/g, ' ')}</span> },
       ],
       fields: [
         { name: 'title', label: '제목', type: 'text' },
@@ -104,17 +112,17 @@ function Knowledge() {
         { name: 'body', label: '본문 (마크다운)', type: 'long' },
       ],
       create: () => unwrap(api.documents.$post({ param: { projectId }, json: { title: '새 문서', kind: 'note', body: '', alwaysInclude: false } })),
-      label: (row) => text(row.title),
-      save: (id, json) => unwrap(api.documents[':id'].$patch({ ...param(id), json: json as never })),
+      label: (row) => row.title,
+      save: patchTo(api.documents[':id'].$patch),
       remove: (id) => unwrap(api.documents[':id'].$delete(param(id))),
-    },
-    characters: {
-      rows: (people.data?.characters ?? []) as KindSpec['rows'],
+    }),
+    characters: defineKind({
+      rows: people.data?.characters ?? [],
       columns: [
-        { head: '이름', cell: (row) => <span className="font-medium">{text(row.name)}{row.player ? <Badge variant="outline" className="ml-2">플레이어</Badge> : null}</span>, width: 220 },
-        { head: '별칭', cell: (row) => (row.aliases as string[]).join(', '), width: 180 },
-        { head: '프로필', cell: (row) => <span className="line-clamp-1 text-muted-foreground">{text(row.profile)}</span> },
-        { head: '문체', cell: (row) => <span className="text-muted-foreground">{styleNames(row.style as CharacterStyle).join(' · ')}</span>, width: 180 },
+        { head: '이름', cell: (row) => <span className="font-medium">{row.name}{row.player ? <Badge variant="outline" className="ml-2">플레이어</Badge> : null}</span>, width: 220 },
+        { head: '별칭', cell: (row) => row.aliases.join(', '), width: 180 },
+        { head: '프로필', cell: (row) => <span className="line-clamp-1 text-muted-foreground">{row.profile}</span> },
+        { head: '문체', cell: (row) => <span className="text-muted-foreground">{styleNames(row.style).join(' · ')}</span>, width: 180 },
       ],
       fields: [
         { name: 'name', label: '이름', type: 'text' },
@@ -124,18 +132,18 @@ function Knowledge() {
         { name: 'speech', label: '말투 특징 (원문 관찰)', type: 'long' },
         { name: 'style', label: '문체 (이 인물 대사의 번역에 지시로 들어감)', type: 'style' },
       ],
-      label: (row) => text(row.name),
-      save: (id, json) => unwrap(api.characters[':id'].$patch({ ...param(id), json: json as never })),
-      create: () => unwrap(api.characters.$post({ param: { projectId }, json: { name: '새 인물' } as never })),
+      label: (row) => row.name,
+      save: patchTo(api.characters[':id'].$patch),
+      create: () => unwrap(api.characters.$post({ param: { projectId }, json: { name: '새 인물' } })),
       remove: (id) => unwrap(api.characters[':id'].$delete(param(id))),
-    },
-    relationships: {
-      rows: (people.data?.relationships ?? []) as KindSpec['rows'],
+    }),
+    relationships: defineKind({
+      rows: people.data?.relationships ?? [],
       columns: [
-        { head: '인물', cell: (row) => `${nameOf.get(text(row.fromId)) ?? '?'} → ${nameOf.get(text(row.toId)) ?? '?'}`, className: 'font-medium', width: 240 },
-        { head: '관계', cell: (row) => text(row.kind), width: 160 },
-        { head: '변화', cell: (row) => ((row.changes as unknown[]).length ? `${(row.changes as unknown[]).length}번` : '—'), className: 'tabular-nums', width: 80 },
-        { head: '설명', cell: (row) => <span className="line-clamp-1 text-muted-foreground">{text(row.description)}</span> },
+        { head: '인물', cell: (row) => `${nameOf.get(row.fromId) ?? '?'} → ${nameOf.get(row.toId) ?? '?'}`, className: 'font-medium', width: 240 },
+        { head: '관계', cell: (row) => row.kind, width: 160 },
+        { head: '변화', cell: (row) => (row.changes.length ? `${row.changes.length}번` : '—'), className: 'tabular-nums', width: 80 },
+        { head: '설명', cell: (row) => <span className="line-clamp-1 text-muted-foreground">{row.description}</span> },
       ],
       fields: [
         { name: 'fromId', label: '누가', type: 'character' },
@@ -144,21 +152,21 @@ function Knowledge() {
         { name: 'mutual', label: '서로 같은 관계', type: 'bool' },
         { name: 'description', label: '설명', type: 'long' },
       ],
-      label: (row) => `${nameOf.get(text(row.fromId)) ?? '?'} → ${nameOf.get(text(row.toId)) ?? '?'}`,
-      save: (id, json) => unwrap(api.relationships[':id'].$patch({ ...param(id), json: json as never })),
+      label: (row) => `${nameOf.get(row.fromId) ?? '?'} → ${nameOf.get(row.toId) ?? '?'}`,
+      save: patchTo(api.relationships[':id'].$patch),
       create:
         (people.data?.characters.length ?? 0) >= 2
-          ? () => unwrap(api.relationships.$post({ param: { projectId }, json: { fromId: people.data!.characters[0].id, toId: people.data!.characters[1].id, kind: '관계' } as never }))
+          ? () => unwrap(api.relationships.$post({ param: { projectId }, json: { fromId: people.data!.characters[0].id, toId: people.data!.characters[1].id, kind: '관계' } }))
           : undefined,
       remove: (id) => unwrap(api.relationships[':id'].$delete(param(id))),
-      extra: (row) => <RelationshipChanges projectId={projectId} changes={row.changes as { at: string; change: string; cause: string }[]} />,
-    },
-    events: {
-      rows: (storyEvents.data ?? []) as KindSpec['rows'],
+      extra: (row) => <RelationshipChanges projectId={projectId} changes={row.changes} />,
+    }),
+    events: defineKind({
+      rows: storyEvents.data ?? [],
       columns: [
-        { head: '사건', cell: (row) => text(row.title), className: 'font-medium', width: 260 },
-        { head: '관련 인물', cell: (row) => (row.participants as string[]).join(', '), width: 200 },
-        { head: '결과', cell: (row) => <span className="line-clamp-1 text-muted-foreground">{text(row.outcome)}</span> },
+        { head: '사건', cell: (row) => row.title, className: 'font-medium', width: 260 },
+        { head: '관련 인물', cell: (row) => row.participants.join(', '), width: 200 },
+        { head: '결과', cell: (row) => <span className="line-clamp-1 text-muted-foreground">{row.outcome}</span> },
       ],
       fields: [
         { name: 'title', label: '제목', type: 'text' },
@@ -167,19 +175,19 @@ function Knowledge() {
         { name: 'outcome', label: '결과', type: 'long' },
         { name: 'participants', label: '관련 인물', type: 'list', suggestions: (people.data?.characters ?? []).map((c) => c.name) },
       ],
-      label: (row) => text(row.title),
-      save: (id, json) => unwrap(api.events[':id'].$patch({ ...param(id), json: json as never })),
-      create: () => unwrap(api.events.$post({ param: { projectId }, json: { title: '새 사건' } as never })),
+      label: (row) => row.title,
+      save: patchTo(api.events[':id'].$patch),
+      create: () => unwrap(api.events.$post({ param: { projectId }, json: { title: '새 사건' } })),
       remove: (id) => unwrap(api.events[':id'].$delete(param(id))),
-    },
-    speechRules: {
-      rows: [...(rules.data ?? [])].sort((a, b) => a.fromName.localeCompare(b.fromName) || a.toName.localeCompare(b.toName)) as KindSpec['rows'],
+    }),
+    speechRules: defineKind({
+      rows: [...(rules.data ?? [])].sort((a, b) => a.fromName.localeCompare(b.fromName) || a.toName.localeCompare(b.toName)),
       columns: [
-        { head: '화자 → 청자', cell: (row) => `${text(row.fromName)} → ${listenerLabel(text(row.toName))}`, className: 'font-medium', width: 240 },
-        { head: '말투', cell: (row) => SPEECH_LEVEL_LABELS[row.level as SpeechLevel], width: 96 },
-        { head: '호칭', cell: (row) => text(row.address) || '—', width: 120 },
-        { head: '시작', cell: (row) => (row.startKey ? <span className="font-mono text-xs">{text(row.startKey)}</span> : '처음부터'), width: 120 },
-        { head: '이유', cell: (row) => <span className="line-clamp-1 text-muted-foreground">{text(row.note)}</span> },
+        { head: '화자 → 청자', cell: (row) => `${row.fromName} → ${listenerLabel(row.toName)}`, className: 'font-medium', width: 240 },
+        { head: '말투', cell: (row) => SPEECH_LEVEL_LABELS[row.level], width: 96 },
+        { head: '호칭', cell: (row) => row.address || '—', width: 120 },
+        { head: '시작', cell: (row) => (row.startKey ? <span className="font-mono text-xs">{row.startKey}</span> : '처음부터'), width: 120 },
+        { head: '이유', cell: (row) => <span className="line-clamp-1 text-muted-foreground">{row.note}</span> },
       ],
       fields: [
         { name: 'fromName', label: '화자', type: 'text' },
@@ -189,14 +197,15 @@ function Knowledge() {
         { name: 'startKey', label: '시작 대사 키 (비우면 처음부터)', type: 'key' },
         { name: 'note', label: '이유·메모 (사람이 보는 설명, AI에 보내지 않음)', type: 'long' },
       ],
-      label: (row) => `${text(row.fromName)} → ${listenerLabel(text(row.toName))}`,
-      save: (id, json) => unwrap(api['speech-rules'][':id'].$patch({ ...param(id), json: json as never })),
+      label: (row) => `${row.fromName} → ${listenerLabel(row.toName)}`,
+      save: patchTo(api['speech-rules'][':id'].$patch),
       extra: (row) => <RuleLines projectId={projectId} ruleId={row.id} candidate={row.status === 'candidate'} />,
-      create: () => unwrap(api['speech-rules'].$post({ param: { projectId }, json: { fromName: '화자', toName: '청자', level: 'haeyo' } as never })),
-      createWith: (json) => unwrap(api['speech-rules'].$post({ param: { projectId }, json: json as never })),
+      create: () => unwrap(api['speech-rules'].$post({ param: { projectId }, json: { fromName: '화자', toName: '청자', level: 'haeyo' } })),
       remove: (id) => unwrap(api['speech-rules'][':id'].$delete(param(id))),
-    },
-  };
+    }),
+  } satisfies Record<Kind, KindSpec>;
+  /** A new speech stretch from a picked line (the pair pane). */
+  const addRule = (json: SpeechRuleCreate) => unwrap(api['speech-rules'].$post({ param: { projectId }, json }));
 
   const characters = people.data?.characters ?? [];
   const inScope = (id: string) => !search.ids || search.ids.includes(id);
@@ -207,7 +216,7 @@ function Knowledge() {
   const pair = pairsView || graph ? pairs.find((candidate) => candidate.key === search.item || pairItems(candidate).some((item) => item.row.id === search.item)) : undefined;
 
   const tableKind: Kind = tab === 'people' ? 'characters' : tab;
-  const spec = specs[tableKind];
+  const spec: KindSpec = specs[tableKind];
   const rows = spec.rows.filter(shown);
   const selected = !pairsView ? spec.rows.find((row) => row.id === search.item) : undefined;
   const unofficial = (kind: Kind) => specs[kind].rows.filter((row) => !isSettled(row)).length;
@@ -283,14 +292,15 @@ function Knowledge() {
   });
   // Pair-specific creation: a relationship between the pair's people, a speech rule for its names.
   const pairSpecs = (pair: Pair) => ({
-    relationships: { ...specs.relationships, create: pair.fromId && pair.toId ? () => unwrap(api.relationships.$post({ param: { projectId }, json: { fromId: pair.fromId!, toId: pair.toId!, kind: '관계' } as never })) : undefined },
-    speechRules: { ...specs.speechRules, create: () => unwrap(api['speech-rules'].$post({ param: { projectId }, json: { fromName: pair.from, toName: pair.to, level: 'haeyo' } as never })) },
+    relationships: { ...specs.relationships, create: pair.fromId && pair.toId ? () => unwrap(api.relationships.$post({ param: { projectId }, json: { fromId: pair.fromId!, toId: pair.toId!, kind: '관계' } })) : undefined },
+    speechRules: specs.speechRules,
+    addRule,
   });
   const edges = useMemo(
     () =>
       visiblePairs
         .filter((candidate) => candidate.fromId && candidate.toId)
-        .map((candidate) => ({ id: candidate.key, fromId: candidate.fromId!, toId: candidate.toId!, kind: candidate.relationship ? String(candidate.relationship.kind) : '', mutual: false, dashed: pairSummary(candidate).status === 'candidate' })),
+        .map((candidate) => ({ id: candidate.key, fromId: candidate.fromId!, toId: candidate.toId!, kind: candidate.relationship?.kind ?? '', mutual: false, dashed: pairSummary(candidate).status === 'candidate' })),
     [visiblePairs],
   );
 
@@ -437,7 +447,7 @@ function Knowledge() {
               <EventFlow
                 projectId={projectId}
                 filtered={filtered}
-                events={rows.map((row) => ({ ...(row as unknown as FlowEvent), title: text(row.title), summary: text(row.summary), participants: row.participants as string[] }))}
+                events={specs.events.rows.filter(shown)}
                 selected={search.item}
                 onOpen={(id) => set({ item: id })}
                 badge={(event) => <SourceBadge row={rows.find((row) => row.id === event.id)!} />}

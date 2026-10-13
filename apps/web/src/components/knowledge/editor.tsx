@@ -17,7 +17,10 @@ import { AiMark } from '@/components/status';
 import { DOCUMENT_KIND } from '@/lib/labels';
 import { DetailPane, PaneSection } from '@/components/detail-pane';
 import { Evidence } from '@/components/knowledge/evidence';
-import { confirmLabel, fail, KINDS, SourceBadge, text, type Kind, type KindSpec, type Row, type Value, type Field } from '@/components/knowledge/table';
+import { confirmLabel, fail, KINDS, SourceBadge, text, type Kind, type KindSpec, type Row, type Field } from '@/components/knowledge/table';
+
+/** A field's value in the draft (the form is kept as JSON in sessionStorage). */
+type Value = string | boolean | string[] | Record<string, string> | null;
 
 /**
  * Edit one item (unsaved edits survive navigation), see its evidence, and make it official or
