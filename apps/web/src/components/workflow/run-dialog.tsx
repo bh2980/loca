@@ -271,7 +271,7 @@ function Readiness({ projectId, readiness, oneScene, onLeave }: { projectId: str
       ok: readiness.unknownListenerLines === 0,
       text: readiness.unknownListenerLines ? `청자를 모르는 대사 ${readiness.unknownListenerLines.toLocaleString()}줄 (말투 규칙이 안 걸림)` : '대사마다 청자가 정해짐',
       link: readiness.unknownListenerLines > 0 && (
-        <Link to="/p/$projectId/script" params={{ projectId }} search={{ listener: '-', view: 'find', ...(oneScene && { group: oneScene }) }} onClick={onLeave}>
+        <Link to="/p/$projectId/script" params={{ projectId }} search={{ listener: '-', ...(oneScene && { group: oneScene }) }} onClick={onLeave}>
           청자 정하기
         </Link>
       ),
