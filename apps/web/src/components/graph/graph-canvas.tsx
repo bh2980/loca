@@ -219,6 +219,8 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
         set.add(String(i));
         adjacent.set(end, set);
       }
+      // A choice folded into its edge: selecting the choice lights that edge.
+      if (edge.via) adjacent.set(edge.via, new Set([String(i)]));
     });
     // Loose edges as one flat array of segments (bottom centre -> top centre); edges whose ends are not placed are skipped.
     const segments: number[] = [];

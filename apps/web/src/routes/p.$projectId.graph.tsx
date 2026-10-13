@@ -3,7 +3,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Maximize, Minus, Plus, Search } from 'lucide-react';
 import { GraphCanvas, type GraphCanvasHandle, type NodeInfo, type Viewport } from '@/components/graph/graph-canvas';
-import { DialogueNodeDetail, SceneNodeDetail } from '@/components/graph/node-detail';
+import { FlowPane, SceneNodeDetail } from '@/components/graph/node-detail';
 import { KIND_LABEL } from '@/components/graph/shapes';
 import { TypeLegend } from '@/components/graph/type-legend';
 import { Page } from '@/components/page';
@@ -88,7 +88,7 @@ function GraphPage() {
     const lineCard = (node: { speaker?: string | null; text?: string | null; total?: number }) =>
       node.text ? { title: `${node.speaker ?? '지문·화면 문구'}${(node.total ?? 0) > 1 ? ` · ${node.total}줄` : ''}`, body: node.text } : {};
     const map = new Map<string, NodeInfo>(
-      (graph.data?.nodes ?? []).map((node) => [node.id, { ...node, label: node.label ?? (node.type ? (types[node.type]?.label ?? node.type) : null), ...(node.kind === 'script' && lineCard(node)), ...(node.kind === 'choice' && { body: node.text }) }]),
+      (graph.data?.nodes ?? []).map((node) => [node.id, { ...node, label: node.label ?? (node.type ? (types[node.type]?.label ?? node.type) : null), ...(node.kind === 'script' && lineCard(node)), ...(node.kind === 'choice' && { title: `▶ ${node.text ?? ''} 고르면`, body: node.text }) }]),
     );
     const totals = new Map((graph.data?.nodes ?? []).map((node) => [node.id, node] as const));
     // Stand-ins for lines that continue in (or come from) another section.
@@ -144,6 +144,16 @@ function GraphPage() {
     else void navigate({ search: (previous) => ({ ...previous, node: id }), replace: true });
   };
   const layout = graph.data?.layout;
+  /**
+   * What the pane reads for a selection: a folded run's nodes; a choice (on its edge) followed by
+   * the lines it leads to, so picking a choice shows what happens after it; else the node.
+   */
+  const flowOf = (id: string) => {
+    const run = (target: string) => layout?.chains?.find((chain) => chain.id === target)?.nodeIds ?? [target];
+    if (id.startsWith('chain:')) return run(id);
+    const way = layout?.edges.find((edge) => edge.via === id);
+    return way ? [id, ...run(way.to)] : [id];
+  };
   const hubs = useMemo(() => new Map((search.scope === 'scene' ? (layout?.hubs ?? []) : []).map((hub) => [hub.id, hub])), [layout, search.scope]);
   const looseEdges = layout?.looseEdges;
   const hidden = search.scope === 'scene' ? (layout?.hiddenEdges ?? []) : [];
@@ -206,26 +216,18 @@ function GraphPage() {
                     장면에 속하지 않는 노드 {hubs.get(search.node)!.nodes.toLocaleString()}개가 장면 {hubs.get(search.node)!.scenes.toLocaleString()}개를 잇습니다. 대사 그래프에서 파생한 연결입니다.
                   </p>
                 </aside>
-              ) : search.node.startsWith('chain:') ? (
-                <ChainDetail
-                  title={info.get(search.node)?.label ?? ''}
-                  nodes={(layout?.chains?.find((chain) => chain.id === search.node)?.nodeIds ?? []).map((id) => info.get(id)).filter((node): node is NodeInfo => !!node)}
-                  onPick={(id) => select(id)}
+              ) : search.scope === 'dialogue' ? (
+                // One pane for a node and a folded run alike: their lines, read in order.
+                <FlowPane
+                  key={search.node}
+                  projectId={projectId}
+                  nodeIds={flowOf(search.node)}
+                  title={info.get(search.node)?.title ?? info.get(search.node)?.label ?? ''}
                   onClose={() => select(undefined)}
                 />
               ) : search.scope === 'scene' ? (
                 <SceneNodeDetail projectId={projectId} groupId={search.node} onClose={() => select(undefined)} />
-              ) : (
-                <DialogueNodeDetail
-                  projectId={projectId}
-                  nodeId={search.node}
-                  onClose={() => select(undefined)}
-                  onSelect={(id) => {
-                    select(id);
-                    canvas.current?.focus(shown(id));
-                  }}
-                />
-              )}
+              ) : null}
             </div>
           )
         }
@@ -362,26 +364,5 @@ function GraphPage() {
         </div>
       </SplitPane>
     </Page>
-  );
-}
-
-/** A folded straight run: its nodes in order; picking one opens it (the block stays selected on the canvas). */
-function ChainDetail({ title, nodes, onPick, onClose }: { title: string; nodes: NodeInfo[]; onPick: (id: string) => void; onClose: () => void }) {
-  return (
-    <aside className="flex h-full flex-col text-sm">
-      <PaneHeader kicker="한 길로만 이어지는 노드를 한 덩어리로 접었습니다" title={title} onClose={onClose} />
-      <ScrollArea className="min-h-0 flex-1">
-        <ol className="divide-y">
-          {nodes.map((node) => (
-            <li key={node.id}>
-              <Button variant="ghost" size="row" className="rounded-none px-4 py-2" onClick={() => onPick(node.id)}>
-                <span className="w-14 shrink-0 text-xs text-muted-foreground">{KIND_LABEL[node.kind] ?? node.kind}</span>
-                <span className="min-w-0 flex-1 line-clamp-2">{node.preview ?? node.label ?? node.key}</span>
-              </Button>
-            </li>
-          ))}
-        </ol>
-      </ScrollArea>
-    </aside>
   );
 }

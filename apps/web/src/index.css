@@ -24,6 +24,8 @@
   /* Meaning colors besides destructive: something to check (warning) and something that worked (success). */
   --warning: oklch(0.555 0.163 48.998);
   --success: oklch(0.596 0.145 163.225);
+  /* A player's choice in the dialogue flow (graph labels, the flow pane). */
+  --choice: oklch(0.546 0.215 262.881);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
@@ -68,6 +70,7 @@
   --color-destructive: var(--destructive);
   --color-warning: var(--warning);
   --color-success: var(--success);
+  --color-choice: var(--choice);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
