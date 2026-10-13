@@ -2,41 +2,24 @@ import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { compileFormatRules, mentions } from '@tw/shared';
 import { q } from '@/lib/queries';
+import { numberTokens, tokenUnits, type TokenKind } from '@/lib/tokens';
 
 export interface SourcePart {
   text: string;
-  /** A format token (placeholder or tag): kept as is in the translation. Its chip number (#1…), or 0 when the source lacks it. */
-  token?: number;
+  /** A format token (placeholder or tag), kept as is in the translation: its number and whether it opens, closes or stands alone (see lib/tokens). */
+  token?: { number: number; kind: TokenKind };
   /** A confirmed glossary term and its translation. */
   term?: { source: string; target: string };
 }
 
-/**
- * Format tokens are chips numbered by their order in the source (#1 is what ⌘1 inserts); the
- * full token is the chip's tooltip. In a translation a token takes the number of the same token
- * in the source (the nth copy the nth number), or 0 (#?) when the source does not have it.
- */
-export function tokenNumbering(source: string, pattern: RegExp | null) {
-  const numbers = new Map<string, number[]>();
-  (pattern ? (source.match(new RegExp(pattern.source, 'gu')) ?? []) : []).forEach((token, index) => numbers.set(token, [...(numbers.get(token) ?? []), index + 1]));
-  /** The number of `token`, seen `copy` times before it (0-based) in the text being numbered. */
-  return (token: string, copy: number) => numbers.get(token)?.[copy] ?? 0;
-}
-export const chipLabel = (number: number) => (number ? `#${number}` : '#?');
-
-/** Text cut into plain runs and numbered tokens (numbers from `source`, see tokenNumbering). */
+/** Text cut into plain runs and numbered tokens (numbers from `source`). */
 export function splitTokens(text: string, source: string, pattern: RegExp | null): SourcePart[] {
-  if (!pattern) return [{ text }];
-  const numberOf = tokenNumbering(source, pattern);
-  const copies = new Map<string, number>();
   const parts: SourcePart[] = [];
   let at = 0;
-  for (const match of text.matchAll(new RegExp(pattern.source, 'gu'))) {
-    if (match.index > at) parts.push({ text: text.slice(at, match.index) });
-    const copy = copies.get(match[0]) ?? 0;
-    copies.set(match[0], copy + 1);
-    parts.push({ text: match[0], token: numberOf(match[0], copy) });
-    at = match.index + match[0].length;
+  for (const token of numberTokens(text, source, pattern)) {
+    if (token.from > at) parts.push({ text: text.slice(at, token.from) });
+    parts.push({ text: token.text, token: { number: token.number, kind: token.kind } });
+    at = token.to;
   }
   if (at < text.length) parts.push({ text: text.slice(at) });
   return parts;
@@ -65,7 +48,7 @@ export function useLineContext(projectId: string, source: string) {
   const terms = useQuery(q.terms(projectId));
   return useMemo(() => {
     const tokenPattern = tokenPatternOf(project.data?.formatRules ?? undefined);
-    const tokens = tokenPattern ? (source.match(tokenPattern) ?? []) : [];
+    const units = tokenUnits(source, tokenPattern);
     const plain = withoutTokens(source, tokenPattern);
     const used = (terms.data ?? [])
       .filter((term) => term.status === 'confirmed' && term.target && mentions(plain, term.source))
@@ -75,8 +58,7 @@ export function useLineContext(projectId: string, source: string) {
 
     // Cut the source into plain text, tokens and term mentions (tokens win over terms).
     const marks: { start: number; end: number; part: SourcePart }[] = [];
-    let number = 0;
-    for (const match of tokenPattern ? source.matchAll(tokenPattern) : []) marks.push({ start: match.index, end: match.index + match[0].length, part: { text: match[0], token: ++number } });
+    for (const token of numberTokens(source, source, tokenPattern)) marks.push({ start: token.from, end: token.to, part: { text: token.text, token: { number: token.number, kind: token.kind } } });
     for (const term of used)
       for (const match of plain.matchAll(wordPattern(term.source))) {
         const start = match.index, end = start + match[0].length;
@@ -91,6 +73,6 @@ export function useLineContext(projectId: string, source: string) {
       at = mark.end;
     }
     if (at < source.length) cut.push({ text: source.slice(at) });
-    return { tokenPattern, tokens, terms: used, parts: cut, formatRules: project.data?.formatRules };
+    return { tokenPattern, units, terms: used, parts: cut, formatRules: project.data?.formatRules };
   }, [project.data?.formatRules, terms.data, source]);
 }

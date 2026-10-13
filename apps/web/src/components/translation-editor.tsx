@@ -95,7 +95,7 @@ export function TranslationEditor({
         onChange={setDraft}
         source={unit.source}
         tokenPattern={line.tokenPattern}
-        tokens={line.tokens}
+        units={line.units}
         terms={line.terms}
         onSave={() => run(false)}
         onAdvance={() => run(true)}

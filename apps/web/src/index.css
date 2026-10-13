@@ -165,12 +165,15 @@
   100% { background-color: transparent; }
 }
 
-/* The translation editor (CodeMirror): its own look is in translation-input.tsx; these are its marks. */
+/* Format token chips (⟨1 … 1⟩ a pair, ⟨2⟩ alone), in the editor (cm-) and in read-only text alike:
+   a little smaller than the text around them, but readable. */
 @layer components {
-  /* A format token, drawn as its number in the source (#1): one unit you cannot half-delete. */
-  .cm-token-chip { @apply mx-px rounded-sm border bg-muted px-1 font-mono text-xs text-muted-foreground; }
-  /* A token the source does not have (#?). */
-  .cm-token-stray { @apply border-warning/40 bg-warning/10 text-warning; }
+  .token-chip, .cm-token-chip {
+    @apply mx-px rounded border border-foreground/15 bg-secondary px-1 font-semibold whitespace-nowrap text-foreground/75 tabular-nums;
+    font-size: 0.9em;
+  }
+  /* A token the source does not have (?). */
+  .token-chip-stray, .cm-token-stray { @apply border-warning/40 bg-warning/10 text-warning; }
   /* A glossary translation in use. */
   .cm-term-hit { @apply rounded-sm bg-primary/5 underline decoration-primary/40 underline-offset-4; }
 }

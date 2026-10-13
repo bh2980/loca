@@ -1,13 +1,22 @@
 import { useEffect, useRef } from 'react';
-import { Compartment, EditorState, Prec } from '@codemirror/state';
+import { Compartment, EditorState, Prec, RangeSetBuilder } from '@codemirror/state';
 import { Decoration, EditorView, hoverTooltip, keymap, MatchDecorator, placeholder as placeholderText, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from '@codemirror/view';
 import { history, historyKeymap, standardKeymap } from '@codemirror/commands';
 import { autocompletion, completionStatus, type CompletionContext } from '@codemirror/autocomplete';
-import { chipLabel, tokenNumbering } from '@/lib/line-context';
+import { chipLabel, numberTokens, type TokenKind, type TokenUnit } from '@/lib/tokens';
 import { cn } from '@/lib/utils';
 
 /** Open editors by line, so the source next to one can put a token or term into it. */
 const editors = new Map<string, EditorView>();
+
+/** Puts a token unit at the selection of the line's open editor (a pair goes around it). */
+export function insertUnitIntoLine(unitId: string, unit: TokenUnit) {
+  const view = editors.get(unitId);
+  if (!view) return false;
+  insertUnit(view, unit);
+  view.focus();
+  return true;
+}
 
 /** Puts text at the cursor of the line's open editor (from a click on its source). */
 export function insertIntoLine(unitId: string, text: string) {
@@ -26,8 +35,8 @@ export interface TranslationInputProps {
   source: string;
   /** Any format token of the project (global regex). */
   tokenPattern: RegExp | null;
-  /** The source's tokens in order: ⌘1…⌘9 insert them. */
-  tokens: string[];
+  /** The source's tokens as units (a pair, or a single token) in order: ⌘1…⌘9 insert them. */
+  units: TokenUnit[];
   /** Confirmed terms the source mentions: their translations are offered while typing and marked when used. */
   terms: { source: string; target: string }[];
   onSave: () => void;
@@ -43,23 +52,39 @@ export interface TranslationInputProps {
 
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-/** A format token drawn as its number in the source (#1, or #? when the source lacks it); the full text is its tooltip. */
+/** A format token drawn as its number in the source (⟨1 … 1⟩ for a pair, ⟨1⟩ alone, ? when the source lacks it); the full text is its tooltip. */
 class TokenChip extends WidgetType {
   constructor(
     readonly token: string,
     readonly number: number,
+    readonly kind: TokenKind,
   ) {
     super();
   }
   eq(other: TokenChip) {
-    return other.token === this.token && other.number === this.number;
+    return other.token === this.token && other.number === this.number && other.kind === this.kind;
   }
   toDOM() {
     const chip = document.createElement('span');
     chip.className = this.number ? 'cm-token-chip' : 'cm-token-chip cm-token-stray';
-    chip.textContent = chipLabel(this.number);
+    chip.textContent = chipLabel(this.kind, this.number);
     return chip;
   }
+}
+
+/** Puts unit n at the selection: a single token replaces it, a pair goes around it. */
+function insertUnit(view: EditorView, unit: TokenUnit) {
+  const { from, to } = view.state.selection.main;
+  if (!unit.close) view.dispatch({ changes: { from, to, insert: unit.open }, selection: { anchor: from + unit.open.length } });
+  else
+    view.dispatch({
+      changes: [
+        { from, insert: unit.open },
+        { from: to, insert: unit.close },
+      ],
+      // Nothing selected: the cursor goes between the two tags, ready to type what they wrap.
+      selection: { anchor: from === to ? from + unit.open.length : to + unit.open.length + unit.close.length },
+    });
 }
 
 /** A decoration plugin over every match of `pattern`: a mark with `className`. */
@@ -68,21 +93,28 @@ function marker(pattern: RegExp, className: string) {
   return plugin(decorator);
 }
 
-/** Token chips numbered from the source: the nth copy of a token in the text takes the nth number. */
+/** Token chips numbered from the source. Numbers and pairs depend on the whole text, so any edit redraws every chip (texts are short). */
 function chips(pattern: RegExp, source: string) {
-  const numberOf = tokenNumbering(source, pattern);
-  const decorator = new MatchDecorator({
-    regexp: pattern,
-    decoration: (match, view, pos) => {
-      const before = view.state.doc.sliceString(0, pos).split(match[0]).length - 1;
-      return Decoration.replace({ widget: new TokenChip(match[0], numberOf(match[0], before)) });
+  const build = (view: EditorView) => {
+    const builder = new RangeSetBuilder<Decoration>();
+    for (const token of numberTokens(view.state.doc.toString(), source, pattern)) builder.add(token.from, token.to, Decoration.replace({ widget: new TokenChip(token.text, token.number, token.kind) }));
+    return builder.finish();
+  };
+  return ViewPlugin.fromClass(
+    class {
+      decorations: DecorationSet;
+      constructor(view: EditorView) {
+        this.decorations = build(view);
+      }
+      update(update: ViewUpdate) {
+        if (update.docChanged) this.decorations = build(update.view);
+      }
     },
-  });
-  // Numbers depend on the whole text, so any edit renumbers every chip (texts are short).
-  return plugin(decorator, true);
+    { decorations: (plugin) => plugin.decorations },
+  );
 }
 
-function plugin(decorator: MatchDecorator, whole = false) {
+function plugin(decorator: MatchDecorator) {
   return ViewPlugin.fromClass(
     class {
       decorations: DecorationSet;
@@ -90,7 +122,7 @@ function plugin(decorator: MatchDecorator, whole = false) {
         this.decorations = decorator.createDeco(view);
       }
       update(update: ViewUpdate) {
-        this.decorations = whole ? (update.docChanged ? decorator.createDeco(update.view) : this.decorations) : decorator.updateDeco(update, this.decorations);
+        this.decorations = decorator.updateDeco(update, this.decorations);
       }
     },
     { decorations: (plugin) => plugin.decorations },
@@ -98,7 +130,7 @@ function plugin(decorator: MatchDecorator, whole = false) {
 }
 
 /** What depends on the line's source and the glossary: token chips (moved over and deleted whole), term marks, completion. */
-function context(props: Pick<TranslationInputProps, 'tokenPattern' | 'tokens' | 'terms' | 'source'>) {
+function context(props: Pick<TranslationInputProps, 'tokenPattern' | 'units' | 'terms' | 'source'>) {
   const extensions = [];
   if (props.tokenPattern) {
     const tokens = chips(new RegExp(props.tokenPattern.source, 'gu'), props.source);
@@ -134,7 +166,17 @@ function context(props: Pick<TranslationInputProps, 'tokenPattern' | 'tokens' | 
   if (targets.length) extensions.push(marker(new RegExp(targets.map(escape).join('|'), 'gu'), 'cm-term-hit'));
   const options = [
     ...props.terms.map((term) => ({ label: term.target, detail: term.source, type: 'keyword', boost: 2 })),
-    ...props.tokens.map((token, index) => ({ label: token, displayLabel: chipLabel(index + 1), detail: token.length > 24 ? `${token.slice(0, 23)}…` : token, type: 'variable' })),
+    ...props.units.map((unit) => ({
+      label: unit.open,
+      displayLabel: unit.close ? `${chipLabel('open', unit.number)} ${chipLabel('close', unit.number)}` : chipLabel('single', unit.number),
+      detail: unit.open.length > 24 ? `${unit.open.slice(0, 23)}…` : unit.open,
+      type: 'variable',
+      apply: (view: EditorView, _completion: unknown, from: number, to: number) => {
+        view.dispatch({ selection: { anchor: from, head: to } });
+        view.dispatch({ changes: { from, to } });
+        insertUnit(view, unit);
+      },
+    })),
   ];
   if (options.length)
     extensions.push(
@@ -196,11 +238,11 @@ export function TranslationInput(props: TranslationInputProps) {
       ...Array.from({ length: 9 }, (_, index) => [
         {
           key: `Mod-${index + 1}`,
+          // Unit n: a single token at the cursor, or a pair around the selection (memoQ's F9).
           run: (editor: EditorView) => {
-            const token = latest.current.tokens[index];
-            if (!token) return false;
-            const { from, to } = editor.state.selection.main;
-            editor.dispatch({ changes: { from, to, insert: token }, selection: { anchor: from + token.length } });
+            const unit = latest.current.units[index];
+            if (!unit) return false;
+            insertUnit(editor, unit);
             return true;
           },
         },
@@ -234,7 +276,7 @@ export function TranslationInput(props: TranslationInputProps) {
   }, [props.unitId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The glossary or the project's format rules arrive after the editor opened.
-  const contextKey = `${props.tokenPattern?.source ?? ''}\u0000${props.tokens.join('\u0001')}\u0000${props.terms.map((term) => `${term.source}=${term.target}`).join('\u0001')}`;
+  const contextKey = `${props.tokenPattern?.source ?? ''}\u0000${props.units.map((unit) => `${unit.open}${unit.close ?? ''}`).join('\u0001')}\u0000${props.terms.map((term) => `${term.source}=${term.target}`).join('\u0001')}`;
   useEffect(() => {
     view.current?.dispatch({ effects: contextSlot.current.reconfigure(context(latest.current)) });
   }, [contextKey]);
