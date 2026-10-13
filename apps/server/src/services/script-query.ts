@@ -1,10 +1,11 @@
 import { and, asc, count, desc, eq, gte, inArray, like, or, sql, type SQL } from 'drizzle-orm';
-import { checkFormat, LISTENER_MIN_CONFIDENCE, mentions, type BatchChange, type CheckKind, type LineFilter } from '@tw/shared';
+import { checkFormat, mentions, type BatchChange, type CheckKind, type LineFilter } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import { inChunks, inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { applyIssueTags } from './issue-tags.ts';
+import { knownListenerSql, markConditions } from './line-marks.ts';
 import { describeRule, knowledgeOf, knownListener, speechMismatch, speechRuleIndex } from './speech.ts';
 
 /**
@@ -59,9 +60,9 @@ export function findLines(db: Db, projectId: string, filter: LineFilter, options
   if (filter.q) where.push(or(like(s.units.source, `%${filter.q}%`), like(s.units.translation, `%${filter.q}%`), like(s.units.speaker, `%${filter.q}%`), like(s.units.key, `%${filter.q}%`))!);
   if (filter.speakers?.length) where.push(inList(s.units.speaker, filter.speakers.flatMap(namesOf)));
   if (filter.listeners?.length) {
-    const sure = sql`(${s.units.listener} is not null and (${s.units.listenerOrigin} is not 'ai' or ${s.units.listenerConfidence} >= ${LISTENER_MIN_CONFIDENCE}))`;
+    // The app's rules (services/line-marks.ts): '-' is the #청자 미상 mark (dialogue only), a name must be a known listener.
     const names = filter.listeners.filter((name) => name !== '-').flatMap(namesOf);
-    where.push(or(...(names.length ? [and(inArray(s.units.listener, names), sure)!] : []), ...(filter.listeners.includes('-') ? [sql`not ${sure}`] : []))!);
+    where.push(or(...(names.length ? [and(inArray(s.units.listener, names), knownListenerSql)!] : []), ...(filter.listeners.includes('-') ? markConditions(projectId, ['unknownListener']) : []))!);
   }
   if (filter.groups?.length) where.push(or(inList(s.groups.key, filter.groups), inList(s.groups.id, filter.groups), inList(s.groups.title, filter.groups))!);
   if (filter.sections?.length) where.push(inList(s.groups.section, filter.sections));
