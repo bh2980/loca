@@ -41,18 +41,24 @@ export function openDatabase(file: string, folder = migrationsFolder) {
   const existed = file !== ':memory:' && existsSync(file);
   if (file !== ':memory:') mkdirSync(path.dirname(file), { recursive: true });
   const sqlite = new Database(file);
-  sqlite.pragma('journal_mode = WAL');
-  sqlite.pragma('foreign_keys = ON');
-  sqlite.pragma('busy_timeout = 5000');
-  const backup = existed ? backupBeforeMigration(sqlite, file, folder) : null;
-  const db = drizzle(sqlite, { schema });
-  migrate(db, { migrationsFolder: folder });
-  const broken = sqlite.pragma('foreign_key_check') as { table: string }[];
-  if (broken.length) {
-    const tables = [...new Set(broken.map((row) => row.table))].join(', ');
-    throw new Error(`마이그레이션 뒤 외래 키가 깨졌습니다 (${tables}, ${broken.length}건).${backup ? ` 백업: ${backup}` : ''}`);
+  try {
+    sqlite.pragma('journal_mode = WAL');
+    sqlite.pragma('foreign_keys = ON');
+    sqlite.pragma('busy_timeout = 5000');
+    const backup = existed ? backupBeforeMigration(sqlite, file, folder) : null;
+    const db = drizzle(sqlite, { schema });
+    migrate(db, { migrationsFolder: folder });
+    const broken = sqlite.pragma('foreign_key_check') as { table: string }[];
+    if (broken.length) {
+      const tables = [...new Set(broken.map((row) => row.table))].join(', ');
+      throw new Error(`마이그레이션 뒤 외래 키가 깨졌습니다 (${tables}, ${broken.length}건).${backup ? ` 백업: ${backup}` : ''}`);
+    }
+    return db;
+  } catch (error) {
+    // Windows keeps the database files locked until the failed initialization closes its handle.
+    sqlite.close();
+    throw error;
   }
-  return db;
 }
 
 export type Db = ReturnType<typeof openDatabase>;

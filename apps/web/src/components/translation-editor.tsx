@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { Sparkles, WandSparkles } from 'lucide-react';
@@ -51,6 +51,7 @@ export function TranslationEditor({
   onDone,
   onEscape,
   focusKey,
+  marks,
   className,
 }: {
   projectId: string;
@@ -60,6 +61,8 @@ export function TranslationEditor({
   onEscape?: () => void;
   /** Changing this to a non-zero number puts the cursor at the end of the text. */
   focusKey?: number;
+  /** List rows supply their single shared tag row directly below the input. */
+  marks?: ReactNode;
   className?: string;
 }) {
   const [draft, setDraft, clearDraft] = useDraft(`line:${unit.id}`, unit.translation ?? '');
@@ -215,6 +218,7 @@ export function TranslationEditor({
         focusKey={focusKey}
         placeholder="번역을 입력하세요. 저장하면 사람 후보가 되고 대표 번역이 됩니다."
       />
+      {marks}
       <div className="flex flex-wrap items-center gap-2">
         {dirty && <span className="text-xs text-warning">저장 안 됨</span>}
         {editorAi?.enabled && editorAi.model && !ai.loading && (
@@ -243,7 +247,7 @@ export function TranslationEditor({
           </Button>
         )}
         {draft.trim() && tags.left.length > 0 && <span className="text-xs text-muted-foreground">서식 {tags.left.length}개는 자리를 못 찾음</span>}
-        {!dirty && unit.statusBy === 'ai' && (
+        {marks === undefined && !dirty && unit.statusBy === 'ai' && (
           <span className="flex items-center gap-1 text-xs text-muted-foreground">
             <AiMark by="ai" /> AI가 정함
           </span>

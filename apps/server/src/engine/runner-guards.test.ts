@@ -53,7 +53,8 @@ const runOf = (db: ReturnType<typeof setup>['db'], runId: string) => db.select()
 describe('runner at scale', () => {
   it('finishes a run over more lines than SQLite binds in one statement', async () => {
     const { db, workflow } = setup(34, () => 1_000);
-    // Large batches keep the test fast; the point is the 40,000 queued items.
+    // Large batches keep the test fast; the point is exceeding SQLite's bind limit, not wall time.
+    // Windows can take over a minute for the 34,000 lines; assert every item finishes below.
     const definition = { ...workflow.definition, nodes: workflow.definition.nodes.map((node) => (node.type === 'ai' ? { ...node, config: { ...node.config, batch: { mode: 'count' as const, size: 200, maxTokens: 6_000 } } } : node)) };
     db.update(s.workflows).set({ definition }).where(eq(s.workflows.id, workflow.id)).run();
     const runId = createRun(db, { projectId: workflow.projectId, workflow: { ...workflow, definition }, models: snapshotWorkflowModels(db, definition), scope: { ignoreStatus: true } }).runId;
@@ -63,7 +64,7 @@ describe('runner at scale', () => {
     const states = db.select({ state: s.runItems.state }).from(s.runItems).where(eq(s.runItems.runId, runId)).all();
     expect(states.length).toBe(34_000);
     expect(states.every((item) => item.state === 'done')).toBe(true);
-  }, 60_000);
+  }, 120_000);
 
   it('sends scenes in script order, not by internal id, and packs short scenes together', async () => {
     const { db, start } = setup(12, () => 2);
