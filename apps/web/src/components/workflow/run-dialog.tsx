@@ -97,7 +97,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
   const total = data?.lines.total;
   const projectLines = (groups.data ?? []).reduce((sum, group) => sum + group.total, 0);
   const scopeButton = (value: Mode, label: ReactNode) => (
-    <Button key={value} variant={mode === value ? 'secondary' : 'outline'} className={cn(mode === value && 'ring-1 ring-ring')} onClick={() => setMode(value)}>
+    <Button key={value} variant={mode === value ? 'secondary' : 'outline'} className={cn(mode === value && 'ring-1 ring-ring ring-inset')} onClick={() => setMode(value)}>
       {label}
     </Button>
   );
@@ -129,7 +129,8 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
           </DialogDescription>
         </DialogHeader>
 
-        <div className="max-h-[70svh] space-y-5 overflow-auto pr-1">
+        {/* Side padding so focus rings and the picked scope are not cut by the scroll box. */}
+        <div className="-mx-1 max-h-[70svh] space-y-5 overflow-auto px-1 py-0.5">
           {!fixedWorkflowId && (
             <Select value={workflowId} onValueChange={setChosen}>
               <SelectTrigger className="w-full" aria-label="워크플로">
