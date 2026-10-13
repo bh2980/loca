@@ -128,19 +128,24 @@ describe('work analysis', () => {
     // A guess a listener node made for this very line is more specific than the scene's.
     db.update(s.units).set({ listener: 'Guard', listenerOrigin: 'ai', listenerConfidence: 0.6 }).where(eq(s.units.key, 'a1')).run();
     const { keyOf } = scriptText(db, projectId);
-    const analysis = { ...draft('hasipsio'), sceneListeners: [{ scene: 'g1', speaker: 'Alice', listener: 'Bob', confidence: 0.8 }] };
+    const idOf = (key: string) => [...keyOf].find(([, value]) => value === key)![0];
+    const analysis = { ...draft('hasipsio'), sceneListeners: [{ scene: 'g1', speaker: 'Alice', listener: 'Bob', confidence: 0.8, exceptions: [] }] };
     saveDrafts(db, projectId, 'job', analysis, keyOf);
-    const lines = new Map(db.select().from(s.units).where(eq(s.units.projectId, projectId)).all().map((unit) => [unit.key, unit]));
-    expect(lines.get('a1')).toMatchObject({ listener: 'Guard', listenerOrigin: 'ai' });
+    const lines = () => new Map(db.select().from(s.units).where(eq(s.units.projectId, projectId)).all().map((unit) => [unit.key, unit]));
+    expect(lines().get('a1')).toMatchObject({ listener: 'Guard', listenerOrigin: 'ai' });
     // Alice mostly addresses Bob here (0.8): kept as a scene hint, which counts as unknown.
-    expect(lines.get('a3')).toMatchObject({ listener: 'Bob', listenerOrigin: 'scene', listenerConfidence: 0.8 });
+    expect(lines().get('a3')).toMatchObject({ listener: 'Bob', listenerOrigin: 'scene', listenerConfidence: 0.8 });
+    // With the one line to someone else named as an exception, the rest of the scene is sure.
+    const sure = { ...analysis, sceneListeners: [{ scene: 'g1', speaker: 'Alice', listener: 'Bob', confidence: 0.95, exceptions: [{ line: idOf('a3'), listener: 'SWAT 2', confidence: 0.9 }] }] };
+    saveDrafts(db, projectId, 'job2', sure, keyOf);
+    expect(lines().get('a3')).toMatchObject({ listener: 'SWAT 2', listenerOrigin: 'ai', listenerConfidence: 0.9 });
   });
 
   it('fills scene listeners as scene guesses without touching imported ones, and holds main-pair rules for a person', () => {
     const { db, projectId } = setup();
     db.update(s.units).set({ listener: 'Captain', listenerOrigin: 'import' }).where(eq(s.units.key, 'a3')).run();
     const { keyOf } = scriptText(db, projectId);
-    const analysis = { ...draft('hasipsio'), sceneListeners: [{ scene: 'g1', speaker: 'Alice', listener: 'Bob', confidence: 0.95 }, { scene: 'g1', speaker: 'Bob', listener: 'Alice', confidence: 0.95 }] };
+    const analysis = { ...draft('hasipsio'), sceneListeners: [{ scene: 'g1', speaker: 'Alice', listener: 'Bob', confidence: 0.95, exceptions: [] }, { scene: 'g1', speaker: 'Bob', listener: 'Alice', confidence: 0.95, exceptions: [] }] };
     const counts = saveDrafts(db, projectId, 'job', analysis, keyOf);
     const lines = new Map(db.select().from(s.units).where(eq(s.units.projectId, projectId)).all().map((unit) => [unit.key, unit]));
     expect(lines.get('a1')).toMatchObject({ listener: 'Bob', listenerOrigin: 'scene', listenerConfidence: 0.95 });

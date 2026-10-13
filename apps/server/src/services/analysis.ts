@@ -58,12 +58,25 @@ export const analysisSchema = z.object({
   terms: z
     .array(z.object({ source: z.string().min(1), kind: z.enum(TERM_KINDS).catch('other'), meaning: z.string().default(''), target: z.string().default(''), evidence: ids }))
     .default([]),
-  /** Per scene, whom each speaker mostly addresses: lines inherit it unless their listener is known. */
-  sceneListeners: z.array(z.object({ scene: z.string().min(1), speaker: z.string().min(1), listener: z.string().nullable(), confidence: z.number().min(0).max(1).default(0.5) })).default([]),
+  /**
+   * Per scene, whom each speaker mostly addresses (lines inherit it unless their listener is known),
+   * plus the speaker's lines there that address someone else: a whole scene at the cost of its exceptions.
+   */
+  sceneListeners: z
+    .array(
+      z.object({
+        scene: z.string().min(1),
+        speaker: z.string().min(1),
+        listener: z.string().nullable(),
+        confidence: z.number().min(0).max(1).default(0.5),
+        exceptions: z.array(z.object({ line: z.string().min(1), listener: z.string().nullable(), confidence: z.number().min(0).max(1).default(0.5) })).default([]),
+      }),
+    )
+    .default([]),
 });
 export type Analysis = z.infer<typeof analysisSchema>;
 
-const SYSTEM = `You are reading the complete script of a game so that translators into Korean get the background they need.
+export const SYSTEM = `You are reading the complete script of a game so that translators into Korean get the background they need.
 Script format: "## <section> — <scene> [<scene key>]" headers; lines "L<n> <Speaker>: <text>"; "[문서]" and "[UI]" are in-game documents and interface text; "▶ <label>" before a line means it follows that player choice or condition. Lines after different choices are alternatives, never one conversation.
 
 Rules:
@@ -74,11 +87,11 @@ Rules:
 - relationships: one per direction that matters; "changes" give the line id ("at") where the relationship changes and why.
 - events: what happened, its cause and its outcome, the people involved; include events that later lines refer back to.
 - speechRules: for every speaker → listener direction with several lines (the listener may also be "group", "public" or "self" as in sceneListeners: how the speaker talks to several people present, to an unspecified audience, or to themself), the Korean speech level the translation should use, one of: ${SPEECH_LEVEL_GUIDE}. Decide from the relationship (age, rank, intimacy, hostility, era and setting) as a Korean translator would; narration-like or written addresses often take 해라체, close friends 해체. "address" is how the speaker should address the listener in Korean (e.g. "수사관님", "언니"); when several forms are used, separate them with commas (e.g. "행크 경위님, 경위님"); empty if none. If the level changes at some point (falling out, reconciliation, promotion), give one rule per stretch: "start" is the line id where the new stretch begins (null for the first). Do not mark a single sarcastic or emotional line as a change. "note" says why.
-- sceneListeners: for each scene and each speaker in it, whom that speaker mostly addresses there ("scene" is the key in [brackets]; "listener" a character name, or for an extra outside the cast (a SWAT officer, a passer-by) their name exactly as it appears as a speaker; "group" when the speaker addresses several people present at once (a meeting, a group call); "public" for an unspecified audience (a broadcast, announcement, speech, post or advert); "self" for thinking aloud, a diary or muttering; or null when you cannot tell) and your confidence from 0 to 1. Give a high confidence only when nearly every line of that speaker in the scene addresses that listener; mixed or unclear → lower. In a group scene where a speaker mostly talks to everyone, "group" with high confidence is right even if a few lines answer one person. Skip scenes with a single obvious speaker talking to nobody in particular.
+- sceneListeners: for each scene and each speaker in it, whom that speaker mostly addresses there ("scene" is the key in [brackets]; "listener" a character name, or for an extra outside the cast (a SWAT officer, a passer-by) their name exactly as it appears as a speaker; "group" when the speaker addresses several people present at once (a meeting, a group call); "public" for an unspecified audience (a broadcast, announcement, speech, post or advert); "self" for thinking aloud, a diary or muttering; or null when you cannot tell) and your confidence from 0 to 1. In "exceptions", list each line of that speaker in the scene that addresses someone else (an extra, a third person, the group, themself), with its line id, its listener (same names as above) and your confidence; "confidence" then says how sure you are that every OTHER line of that speaker there addresses "listener". List exceptions only where the text shows it (a vocative, an order to someone else, an answer to another speaker); do not list a line just because you are unsure. In a group scene where a speaker mostly talks to everyone, "group" is right and the few lines answering one person are exceptions. Skip scenes with a single obvious speaker talking to nobody in particular.
 - terms: names and words whose Korean form must stay the same across the whole translation: people, places, organizations, products and technology, coined words and in-world concepts (also lower-case ones, such as a slang word, a species or a drug), ranks and titles, and interface words that recur. Not ordinary words. "source" exactly as the script writes it, "kind" one of ${TERM_KINDS.join(', ')}, "meaning" one short Korean sentence, "target" the Korean form a translator should use (names by Korean loanword convention), "evidence" a few lines where it appears. At most about 150, the most important first.
 - Keep the whole answer under about 15,000 words.`;
 
-const RETURN = 'Return only JSON with "overview", "characters", "relationships", "events", "speechRules", "terms" and "sceneListeners".';
+export const RETURN = 'Return only JSON with "overview", "characters", "relationships", "events", "speechRules", "terms" and "sceneListeners".';
 
 type Job = typeof s.analysisJobs.$inferSelect;
 
@@ -410,7 +423,7 @@ export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: A
     }
 
     // Scene listeners first: the main pairs below are counted on the listeners lines end up with.
-    counts.listeners = applySceneListeners(tx, projectId, analysis.sceneListeners, live, canon);
+    counts.listeners = applySceneListeners(tx, projectId, analysis.sceneListeners, live, canon, keyOf);
     const main = mainPairs(tx, projectId, live);
     const person = personKey(live);
 
@@ -471,7 +484,7 @@ function personKey(people: { name: string; aliases: string[] }[]) {
  * says "mostly X here" (the speaker addresses several people) and the line still counts as unknown.
  * Imported, human and per-line AI listeners are never touched. Returns the number of lines changed.
  */
-function applySceneListeners(tx: Tx, projectId: string, entries: Analysis['sceneListeners'], people: { name: string; aliases: string[] }[], canon: (name: string) => string) {
+function applySceneListeners(tx: Tx, projectId: string, entries: Analysis['sceneListeners'], people: { name: string; aliases: string[] }[], canon: (name: string) => string, keyOf: Map<string, string>) {
   if (!entries.length) return 0;
   const person = personKey(people);
   const groupByKey = new Map(tx.select({ id: s.groups.id, key: s.groups.key }).from(s.groups).where(eq(s.groups.projectId, projectId)).all().map((group) => [group.key, group.id]));
@@ -482,7 +495,7 @@ function applySceneListeners(tx: Tx, projectId: string, entries: Analysis['scene
     const listener = entry.listener && !isSpecialListener(entry.listener) ? canon(entry.listener) : entry.listener;
     wanted.set(`${groupId}|${person(canon(entry.speaker))}`, { listener, confidence: Math.min(1, Math.max(0, entry.confidence)) });
   }
-  let changed = 0;
+  const changed = new Set<string>();
   const lines = tx
     .select({ id: s.units.id, groupId: s.units.groupId, speaker: s.units.speaker, listener: s.units.listener, origin: s.units.listenerOrigin, confidence: s.units.listenerConfidence })
     .from(s.units)
@@ -493,9 +506,22 @@ function applySceneListeners(tx: Tx, projectId: string, entries: Analysis['scene
     const found = wanted.get(`${line.groupId}|${person(line.speaker)}`);
     if (!found || found.listener === null) continue;
     tx.update(s.units).set({ listener: found.listener, listenerOrigin: 'scene', listenerConfidence: found.confidence }).where(eq(s.units.id, line.id)).run();
-    changed += 1;
+    changed.add(line.id);
   }
-  return changed;
+  // Exceptions name the listener of one line: a per-line AI guess, over the scene default (and an
+  // older analysis's guess), never over an imported or a person's listener.
+  for (const entry of entries) {
+    for (const exception of entry.exceptions) {
+      const key = keyOf.get(exception.line.trim());
+      if (!key) continue;
+      const line = tx.select({ id: s.units.id, origin: s.units.listenerOrigin, kind: s.units.kind }).from(s.units).where(and(eq(s.units.projectId, projectId), eq(s.units.key, key))).get();
+      if (!line || line.kind !== 'dialogue' || line.origin === 'import' || line.origin === 'human') continue;
+      const listener = exception.listener && !isSpecialListener(exception.listener) ? canon(exception.listener) : exception.listener;
+      tx.update(s.units).set({ listener, listenerOrigin: 'ai', listenerConfidence: Math.min(1, Math.max(0, exception.confidence)) }).where(eq(s.units.id, line.id)).run();
+      changed.add(line.id);
+    }
+  }
+  return changed.size;
 }
 
 /** The speaker → listener pairs (stored-person keys) that together cover MAIN_PAIR_SHARE of dialogue lines with a known listener. */
