@@ -100,12 +100,17 @@ export function LineHints({ projectId, line, part }: { projectId: string; line: 
     <div className="mt-2 space-y-1.5" onClick={(event) => event.stopPropagation()}>
       {/* Under the source: its term chips first (they match the underlines), then who is talking. */}
       {items.some(Boolean) && <div className="flex flex-wrap items-center gap-1.5">{items}</div>}
-      {rule}
-      {about.map((item) => (
-        <p key={item.key} className="line-clamp-1 text-xs text-muted-foreground" title={item.text}>
-          {item.label} · {item.text}
-        </p>
-      ))}
+      {/* Who is talking is a group of its own: tighter lines inside, more room above when chips come first. */}
+      {(rule || about.length > 0) && (
+        <div className={cn('space-y-0.5', items.some(Boolean) && 'pt-1.5')}>
+          {rule}
+          {about.map((item) => (
+            <p key={item.key} className="line-clamp-1 text-xs text-muted-foreground" title={item.text}>
+              {item.label} · {item.text}
+            </p>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
