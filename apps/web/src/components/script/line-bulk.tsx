@@ -14,24 +14,17 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrig
 import { client, unwrap } from '@/lib/api';
 import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
 import { lineTags, q } from '@/lib/queries';
+import { usePicked } from '@/lib/use-picked';
 
 /** Lines picked by their checkboxes, and the bulk changes the head row makes to them (each shown at once, undone if the server refuses). */
-export function useLineBulk({ projectId, rows, tagName, marks }: { projectId: string; rows: { id: string; tagIds: string[]; statusBy: string }[] | undefined; tagName: (tagId: string) => string | undefined; marks: readonly string[] | undefined }) {
-  const [picked, setPicked] = useState<Set<string>>(new Set());
+export function useLineBulk({ projectId, pickKey, rows, tagName, marks }: { projectId: string; /** Names the list the picks belong to (scene or review box). */ pickKey: string; rows: { id: string; tagIds: string[]; statusBy: string }[] | undefined; tagName: (tagId: string) => string | undefined; marks: readonly string[] | undefined }) {
+  const { picked, pick, clear: stopPicking } = usePicked(`script.${projectId}.${pickKey}`);
   const knownTags = useRef(new Map<string, string[]>());
   for (const row of rows ?? []) knownTags.current.set(row.id, row.tagIds);
   const tagState = (tagId: string): 'all' | 'some' | 'none' => {
     const flags = [...picked].map((id) => knownTags.current.get(id)?.includes(tagId) ?? false);
     return flags.every(Boolean) ? 'all' : flags.some(Boolean) ? 'some' : 'none';
   };
-  const pick = (ids: string[], on: boolean) =>
-    setPicked((previous) => {
-      const next = new Set(previous);
-      for (const id of ids) if (on) next.add(id);
-      else next.delete(id);
-      return next;
-    });
-  const stopPicking = () => setPicked(new Set());
   const queryClient = useQueryClient();
   const undoOnError = (error: Error, _vars: unknown, context: { undo: () => void } | undefined) => {
     context?.undo();

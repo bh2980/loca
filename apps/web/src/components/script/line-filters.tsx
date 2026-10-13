@@ -22,10 +22,10 @@ export interface LinesSearch {
   /** Automatic marks (LINE_MARK_IDS): lines carrying every one of them. */
   marks?: LineMark[];
   /**
-   * How a filter shows: listed apart (the default: only the matching lines) or walked one by one
+   * How a filter shows: listed apart (the default: only the matching lines) or, with mode=find, walked one by one
    * inside their scenes (find, '장면에서 찾아가기', when the conversation around them matters).
    */
-  view?: 'find' | 'list';
+  mode?: 'find';
   page?: number;
   line?: string;
   /** The line's details pane is open (closed by default: the row itself is the editor). */
@@ -42,7 +42,7 @@ export const linesSearchSchema = (raw: Record<string, unknown>): LinesSearch => 
   speaker: typeof raw.speaker === 'string' && raw.speaker ? raw.speaker : undefined,
   listener: typeof raw.listener === 'string' && raw.listener ? raw.listener : undefined,
   marks: parseMarks(raw.marks, LINE_MARK_IDS),
-  view: raw.view === 'find' || raw.view === 'list' ? raw.view : undefined,
+  mode: raw.mode === 'find' ? 'find' : undefined,
   page: typeof raw.page === 'number' && raw.page > 0 ? raw.page : undefined,
   line: typeof raw.line === 'string' ? raw.line : undefined,
   detail: raw.detail === true || raw.detail === 'true' ? true : undefined,
@@ -53,7 +53,7 @@ export const linesSearchSchema = (raw: Record<string, unknown>): LinesSearch => 
 /** Whether any line filter is set (search, status, tag, speaker, listener, automatic marks). */
 export const hasLineFilter = (search: LinesSearch) => Boolean(search.q || search.status || search.tags?.length || search.speaker || search.listener || search.marks?.length);
 /** Whether the filter is walked inside the scenes rather than listed apart. */
-export const isFinding = (search: LinesSearch) => hasLineFilter(search) && search.view === 'find';
+export const isFinding = (search: LinesSearch) => hasLineFilter(search) && search.mode === 'find';
 
 /** The set filters as removable chips (also the find bar's label). */
 export function filterChips(search: LinesSearch, statuses: { id: string; name: string }[], tags: { id: string; name: string; color: string }[]) {

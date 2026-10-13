@@ -108,7 +108,7 @@ function Home() {
     ...(
       [
         ['documents', '문서', { tab: 'documents' }],
-        ['characters', '인물', { tab: 'people', view: 'characters' }],
+        ['characters', '인물', { tab: 'people', display: 'characters' }],
         ['pairs', '관계·말투 규칙', { tab: 'people' }],
         ['events', '사건', { tab: 'events' }],
       ] as const
@@ -118,7 +118,7 @@ function Home() {
       title: `${AUTO_MARKS.ai.name} ${name}`,
       description: key === 'pairs' ? '문맥에 쓰이지만 아직 사람이 확인하지 않은 AI 자료(관계·말투 규칙 항목 수). 표는 쌍으로 묶어 보여 줍니다.' : '문맥에 쓰이지만 아직 사람이 확인하지 않은 AI 자료.',
       count: aiDecided?.knowledge[key] ?? 0,
-      link: <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ ...where, display: 'table', marks: ['ai'] }} />,
+      link: <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ display: 'table', ...where, marks: ['ai'] }} />,
     })),
     {
       key: 'ai-terms',

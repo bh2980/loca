@@ -32,7 +32,7 @@ interface RunSearch {
   node?: string;
   page?: number;
   line?: string;
-  view?: 'items' | 'steps' | 'plan';
+  tab?: 'steps' | 'plan';
   lineTab?: 'candidates' | 'context';
   aiNode?: string;
 }
@@ -43,7 +43,7 @@ export const Route = createFileRoute('/p/$projectId/runs/$runId')({
     node: typeof raw.node === 'string' ? raw.node : undefined,
     page: typeof raw.page === 'number' && raw.page > 0 ? raw.page : undefined,
     line: typeof raw.line === 'string' ? raw.line : undefined,
-    view: raw.view === 'steps' || raw.view === 'plan' ? raw.view : undefined,
+    tab: raw.tab === 'steps' || raw.tab === 'plan' ? raw.tab : undefined,
     lineTab: raw.lineTab === 'context' || raw.lineTab === 'candidates' ? raw.lineTab : undefined,
     aiNode: typeof raw.aiNode === 'string' && raw.aiNode.includes(':') ? raw.aiNode : undefined,
   }),
@@ -60,8 +60,8 @@ function RunDetail() {
   const navigate = Route.useNavigate();
   const run = useQuery(q.run(runId));
   const items = useQuery(q.runItems(runId, { state: search.state, nodeId: search.node, offset: (search.page ?? 0) * PAGE }));
-  const steps = useQuery({ ...q.runSteps(runId), enabled: search.view === 'steps' });
-  const plan = useQuery({ ...q.runPlan(runId), enabled: search.view === 'plan' });
+  const steps = useQuery({ ...q.runSteps(runId), enabled: search.tab === 'steps' });
+  const plan = useQuery({ ...q.runPlan(runId), enabled: search.tab === 'plan' });
   const control = useMutation({ mutationFn: (action: 'pause' | 'resume' | 'cancel') => unwrap(client.runs[':id'][':action{pause|resume|cancel}'].$post({ param: { id: runId, action } })) });
   const setSearch = (next: Partial<RunSearch>, replace = false) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace });
   useReportView('run', [run.data && { kind: '실행', id: run.data.id, label: run.data.workflowName }]);
@@ -77,7 +77,7 @@ function RunDetail() {
       </Page>
     );
   const data = run.data;
-  const view = search.view ?? 'items';
+  const view = search.tab ?? 'items';
   const nodeById = new Map<string, WorkflowNode>(data.definition.nodes.map((node) => [node.id, node]));
   const totals = data.nodes.reduce<Record<string, number>>((acc, row) => ((acc[row.state] = (acc[row.state] ?? 0) + row.count), acc), {});
   const nodeTotals = data.nodes.reduce<Record<string, number>>((acc, row) => ((acc[row.nodeId] = (acc[row.nodeId] ?? 0) + row.count), acc), {});
@@ -215,7 +215,7 @@ function RunDetail() {
             </Link>
           </Button>
           <JobStatusBadge status={data.status} />
-          <ToggleGroup type="single" variant="outline" value={view} onValueChange={(value) => value && setSearch({ view: value === 'steps' || value === 'plan' ? value : undefined }, true)}>
+          <ToggleGroup type="single" variant="outline" value={view} onValueChange={(value) => value && setSearch({ tab: value === 'steps' || value === 'plan' ? value : undefined }, true)}>
             <ToggleGroupItem value="items">대사별</ToggleGroupItem>
             <ToggleGroupItem value="steps">AI 호출</ToggleGroupItem>
             <ToggleGroupItem value="plan">번역 계획</ToggleGroupItem>

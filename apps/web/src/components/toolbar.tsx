@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ChevronLeft, ChevronRight, Search, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group';
@@ -20,16 +20,44 @@ export function Toolbar({ children, count, actions, className }: { children?: Re
   );
 }
 
+/** How long typing pauses before a search is applied. */
+const SEARCH_DEBOUNCE_MS = 250;
+
 /**
- * Search box whose value lives in the URL: it commits on Enter or when focus leaves, not on every
- * key, so typing does not flood history. A clear button resets it.
+ * The one search box: the list filters as you type (applied after a short pause, never mid-IME
+ * composition) and Esc or the clear button resets it at once. Callers write the value to the URL
+ * with `replace: true`, so typing adds no history entries.
  */
-export function SearchInput({ value, onChange, placeholder, className }: { value?: string; onChange: (value: string | undefined) => void; placeholder: string; className?: string }) {
+export function SearchInput({ value, onChange, placeholder, className, end }: { value?: string; onChange: (value: string | undefined) => void; placeholder: string; className?: string; end?: ReactNode }) {
   const [text, setText] = useState(value ?? '');
-  useEffect(() => setText(value ?? ''), [value]);
-  const commit = (next: string) => {
+  const sent = useRef(value || undefined);
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const composing = useRef(false);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  // A value that did not come from here (a link, Back, a cleared filter) replaces the text.
+  useEffect(() => {
+    if ((value || undefined) !== sent.current) {
+      clearTimeout(timer.current);
+      sent.current = value || undefined;
+      setText(value ?? '');
+    }
+  }, [value]);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const apply = (next: string) => {
     const trimmed = next.trim() || undefined;
-    if (trimmed !== (value || undefined)) onChange(trimmed);
+    if (trimmed === sent.current) return;
+    sent.current = trimmed;
+    onChangeRef.current(trimmed);
+  };
+  const schedule = (next: string) => {
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => apply(next), SEARCH_DEBOUNCE_MS);
+  };
+  const clear = () => {
+    clearTimeout(timer.current);
+    setText('');
+    apply('');
   };
   return (
     <InputGroup className={cn('h-8 w-64', className)}>
@@ -39,29 +67,33 @@ export function SearchInput({ value, onChange, placeholder, className }: { value
       <InputGroupInput
         value={text}
         placeholder={placeholder}
-        onChange={(event) => setText(event.target.value)}
+        onChange={(event) => {
+          setText(event.target.value);
+          if (!composing.current) schedule(event.target.value);
+        }}
+        onCompositionStart={() => {
+          composing.current = true;
+          clearTimeout(timer.current);
+        }}
+        onCompositionEnd={(event) => {
+          composing.current = false;
+          schedule(event.currentTarget.value);
+        }}
         onKeyDown={(event) => {
-          if (event.key === 'Enter') commit(text);
           if (event.key === 'Escape' && text) {
             event.stopPropagation();
-            setText('');
-            commit('');
+            clear();
           }
         }}
-        onBlur={() => commit(text)}
       />
-      {text && (
-        <InputGroupAddon align="inline-end">
-          <InputGroupButton
-            size="icon-xs"
-            aria-label="지우기"
-            onClick={() => {
-              setText('');
-              commit('');
-            }}
-          >
-            <X />
-          </InputGroupButton>
+      {(text || end) && (
+        <InputGroupAddon align="inline-end" className="text-xs tabular-nums">
+          {end}
+          {text && (
+            <InputGroupButton size="icon-xs" aria-label="지우기" onClick={clear}>
+              <X />
+            </InputGroupButton>
+          )}
         </InputGroupAddon>
       )}
     </InputGroup>

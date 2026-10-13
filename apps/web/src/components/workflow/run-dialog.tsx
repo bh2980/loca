@@ -2,11 +2,11 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, type UseQueryResult } from '@tanstack/react-query';
 import type { InferResponseType } from 'hono/client';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { Play, Search } from 'lucide-react';
+import { Play } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
+import { SearchInput } from '@/components/toolbar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
@@ -163,7 +163,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
             </label>
           </section>
 
-          {data && total ? <Readiness projectId={projectId} readiness={data.readiness} oneScene={mode === 'here' && here?.length === 1 ? here[0].id : undefined} onLeave={() => setOpen(false)} /> : null}
+          {data && total ? <Readiness projectId={projectId} readiness={data.readiness} oneScene={mode === 'here' && here?.length === 1 ? here[0].id : undefined} scoped={mode !== 'all'} onLeave={() => setOpen(false)} /> : null}
           {data && total ? <Pace data={data} /> : null}
           {ready && plan.isError && <p className="text-sm text-destructive">계획을 계산하지 못했습니다: {plan.error.message}</p>}
           {ready && plan.isPending && <Skeleton className="h-24 w-full" />}
@@ -190,15 +190,7 @@ type PlanData = NonNullable<Plan['data']>;
 function ScenePicker({ visible, picked, setPicked, filter, setFilter }: { visible: { id: string; title: string; total: number }[]; picked: Set<string>; setPicked: (update: (previous: Set<string>) => Set<string>) => void; filter: string; setFilter: (value: string) => void }) {
   return (
     <div className="min-w-0 space-y-2">
-      <InputGroup>
-        <InputGroupAddon>
-          <Search />
-        </InputGroupAddon>
-        <InputGroupInput value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="장면 찾기" />
-        <InputGroupAddon align="inline-end" className="text-xs tabular-nums">
-          {picked.size}개 선택
-        </InputGroupAddon>
-      </InputGroup>
+      <SearchInput value={filter} onChange={(value) => setFilter(value ?? '')} placeholder="장면 찾기" className="w-full" end={`${picked.size}개 선택`} />
       <ul className="max-h-52 overflow-auto rounded-md border p-1">
         {visible.map((group) => (
           <li key={group.id}>
@@ -267,14 +259,14 @@ function TagPicker({ tags, picked, setPicked, marks, setMarks }: { tags: { id: s
 }
 
 /** What in these lines would make the translation worse, each with where to fix it. */
-function Readiness({ projectId, readiness, oneScene, onLeave }: { projectId: string; readiness: PlanData['readiness']; oneScene?: string; /** A link was followed: the dialog closes. */ onLeave: () => void }) {
+function Readiness({ projectId, readiness, oneScene, scoped, onLeave }: { projectId: string; readiness: PlanData['readiness']; oneScene?: string; /** The run covers part of the project, not all of it. */ scoped: boolean; /** A link was followed: the dialog closes. */ onLeave: () => void }) {
   const rows: { ok: boolean; text: ReactNode; link?: ReactNode }[] = [
     {
       ok: readiness.unknownListenerLines === 0,
       text: readiness.unknownListenerLines ? `청자를 모르는 대사 ${readiness.unknownListenerLines.toLocaleString()}줄 (말투 규칙이 안 걸림)` : '대사마다 청자가 정해짐',
       link: readiness.unknownListenerLines > 0 && (
         <Link to="/p/$projectId/script" params={{ projectId }} search={{ marks: ['unknownListener'], ...(oneScene && { group: oneScene }) }} onClick={onLeave}>
-          청자 정하기
+          청자 정하기{scoped && !oneScene ? ' (프로젝트 전체 목록)' : ''}
         </Link>
       ),
     },
@@ -282,8 +274,8 @@ function Readiness({ projectId, readiness, oneScene, onLeave }: { projectId: str
       ok: readiness.unreviewedRules.count === 0,
       text: readiness.unreviewedRules.count ? `확인 안 한 말투 규칙 ${readiness.unreviewedRules.count}개 (${readiness.unreviewedRules.examples.join(', ')}${readiness.unreviewedRules.count > readiness.unreviewedRules.examples.length ? ' 등' : ''})` : '쓰이는 말투 규칙은 모두 확인됨',
       link: readiness.unreviewedRules.count > 0 && (
-        <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', marks: [...UNREVIEWED_MARKS] }} onClick={onLeave}>
-          확인하기
+        <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', marks: [...UNREVIEWED_MARKS], ...(!readiness.unreviewedRules.more && { ids: readiness.unreviewedRules.ids }) }} onClick={onLeave}>
+          확인하기{readiness.unreviewedRules.more ? ' (전체 목록에서 보기)' : ''}
         </Link>
       ),
     },
@@ -300,8 +292,8 @@ function Readiness({ projectId, readiness, oneScene, onLeave }: { projectId: str
       ok: readiness.unreviewedTerms.count === 0,
       text: readiness.unreviewedTerms.count ? `확인 안 한 용어 ${readiness.unreviewedTerms.count}개 (${readiness.unreviewedTerms.examples.join(', ')}${readiness.unreviewedTerms.count > readiness.unreviewedTerms.examples.length ? ' 등' : ''})` : '나오는 용어는 모두 확인됨',
       link: readiness.unreviewedTerms.count > 0 && (
-        <Link to="/p/$projectId/glossary" params={{ projectId }} search={{ marks: [...UNREVIEWED_MARKS] }} onClick={onLeave}>
-          확인하기
+        <Link to="/p/$projectId/glossary" params={{ projectId }} search={{ marks: [...UNREVIEWED_MARKS], ...(!readiness.unreviewedTerms.more && { ids: readiness.unreviewedTerms.ids }) }} onClick={onLeave}>
+          확인하기{readiness.unreviewedTerms.more ? ' (전체 목록에서 보기)' : ''}
         </Link>
       ),
     },

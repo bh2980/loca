@@ -19,6 +19,7 @@ import { BulkDecide, matches, SourceBadge, TagCell } from '@/components/knowledg
 import { AUTO_MARK_IDS, AUTO_MARKS, type AutoMark, isSettled, matchesMarks, parseMarks, termMarksOf, KNOWLEDGE_SOURCES, SOURCE_LABELS, type KnowledgeSource } from '@tw/shared';
 import { client, unwrap } from '@/lib/api';
 import { q, tagsIn } from '@/lib/queries';
+import { usePicked } from '@/lib/use-picked';
 import { useReportView } from '@/lib/view-context';
 
 export const Route = createFileRoute('/p/$projectId/glossary')({
@@ -27,6 +28,7 @@ export const Route = createFileRoute('/p/$projectId/glossary')({
     source: typeof raw.source === 'string' && (KNOWLEDGE_SOURCES as readonly string[]).includes(raw.source) ? (raw.source as KnowledgeSource) : undefined,
     marks: parseMarks(raw.marks, TERM_MARK_IDS),
     term: typeof raw.term === 'string' && raw.term ? raw.term : undefined,
+    ids: Array.isArray(raw.ids) && raw.ids.length && raw.ids.every((id) => typeof id === 'string') ? (raw.ids as string[]) : undefined,
     tags: Array.isArray(raw.tags) && raw.tags.length && raw.tags.every((id) => typeof id === 'string') ? (raw.tags as string[]) : undefined,
   }),
   component: Glossary,
@@ -43,6 +45,8 @@ interface GlossarySearch {
   marks?: AutoMark[];
   /** Tag ids: terms carrying all of them. */
   tags?: string[];
+  /** Only these terms (a run's scope, from the run dialog's readiness list); a removable chip, combined with the other filters. */
+  ids?: string[];
 }
 
 function Glossary() {
@@ -50,7 +54,7 @@ function Glossary() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const terms = useQuery(q.terms(projectId));
-  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const { picked, pick, clear: clearPicked } = usePicked(`glossary.${projectId}`);
   const suggest = useQuery(q.termSuggest(projectId));
   const fill = suggest.data?.state;
   const cancelFill = useMutation({
@@ -89,7 +93,8 @@ function Glossary() {
     },
   });
   const needle = search.q?.toLowerCase();
-  const filtered = needle ? all.filter((term) => [term.source, term.target, term.note].some((text) => text.toLowerCase().includes(needle))) : all;
+  const scoped = search.ids ? all.filter((term) => search.ids!.includes(term.id)) : all;
+  const filtered = needle ? scoped.filter((term) => [term.source, term.target, term.note].some((text) => text.toLowerCase().includes(needle))) : scoped;
   // Candidates first, the most frequent on top; settled terms follow by source.
   const rows = [...filtered].sort((a, b) => Number(isSettled(a)) - Number(isSettled(b)) || (!isSettled(a) ? (b.lines ?? -1) - (a.lines ?? -1) : 0));
   const creating = search.term === NEW_TERM;
@@ -118,9 +123,10 @@ function Glossary() {
   const pickedTerms = rows.filter((term) => picked.has(term.id));
   const promotable = pickedTerms.filter((term) => !isSettled(term) && term.target.trim());
   const discardable = pickedTerms.filter((term) => !isSettled(term));
-  const afterBulk = { onSuccess: () => setPicked(new Set()) };
+  const afterBulk = { onSuccess: clearPicked };
 
   const chips: FilterChip[] = [
+    ...(search.ids ? [{ key: 'ids', label: `이번 실행 범위 ${search.ids.length}개`, clear: () => setFilter({ ids: undefined }) }] : []),
     ...(search.source ? [{ key: 'source', label: SOURCE_LABELS[search.source], clear: () => setFilter({ source: undefined }) }] : []),
     ...(search.marks ?? []).map((mark) => ({ key: `mark:${mark}`, label: <MarkChip mark={mark} />, name: AUTO_MARKS[mark].name, clear: () => toggleMark(mark, false) })),
     ...pickedTags.map((id) => {
@@ -212,18 +218,11 @@ function Glossary() {
           rows={terms.data && rows}
           rowId={(term) => term.id}
           loading={terms.isLoading}
-          empty={<EmptyState noun="용어" filtered={Boolean(needle || search.source || search.marks?.length || search.tags?.length)} hint="작품 분석이 후보를 내거나 ‘용어 추가’로 직접 넣으세요." />}
+          empty={<EmptyState noun="용어" filtered={Boolean(needle || search.ids || search.source || search.marks?.length || search.tags?.length)} hint="작품 분석이 후보를 내거나 ‘용어 추가’로 직접 넣으세요." />}
           selected={selected?.id}
           onRowClick={(term) => select(term.id === search.term ? undefined : term.id)}
           picked={picked}
-          onPick={(ids, on) =>
-            setPicked((previous) => {
-              const next = new Set(previous);
-              for (const id of ids) if (on) next.add(id);
-              else next.delete(id);
-              return next;
-            })
-          }
+          onPick={pick}
           bulk={
             <>
               {/* A candidate without a Korean form cannot be confirmed (it would put an empty target in every prompt). */}

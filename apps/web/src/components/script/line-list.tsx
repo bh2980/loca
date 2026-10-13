@@ -99,7 +99,7 @@ export function LineList({
   const setEditing = (edit: boolean) => setFocusTick((tick) => (edit ? tick + 1 : 0));
 
   // Lines picked by their checkboxes; the head row above the lines acts on them.
-  const bulk = useLineBulk({ projectId, rows, tagName: (tagId) => tagById.get(tagId)?.name, marks: search.marks });
+  const bulk = useLineBulk({ projectId, pickKey: review ? 'review' : (groupId ?? 'all'), rows, tagName: (tagId) => tagById.get(tagId)?.name, marks: search.marks });
   const { picked, pick, stopPicking } = bulk;
   // Moving past the end of a page opens the next page and lands on its first (or last) line.
   const landing = useRef<'first' | 'last' | null>(null);
@@ -239,7 +239,7 @@ export function LineList({
           }))}
         />
         {!find && !review && hasLineFilter(search) && (
-          <Button variant="ghost" onClick={() => onSearch({ view: 'find', page: undefined })}>
+          <Button variant="ghost" onClick={() => onSearch({ mode: 'find', page: undefined })}>
             장면에서 찾아가기
           </Button>
         )}

@@ -81,7 +81,7 @@ export function CommandSearch({ projectId }: { projectId: string }) {
           {!!people.length && (
             <CommandGroup heading="인물">
               {people.map((person) => (
-                <CommandItem key={person.id} value={`person-${person.id}`} onSelect={() => go(() => void navigate({ to: '/p/$projectId/knowledge', params: { projectId }, search: { tab: 'people', display: 'table', view: 'characters', item: person.id } }))}>
+                <CommandItem key={person.id} value={`person-${person.id}`} onSelect={() => go(() => void navigate({ to: '/p/$projectId/knowledge', params: { projectId }, search: { tab: 'people', display: 'characters', item: person.id } }))}>
                   <UserRound /> <span className="truncate">{person.name}</span>
                   {!!person.aliases.length && <span className="truncate text-muted-foreground">{person.aliases.join(', ')}</span>}
                 </CommandItem>

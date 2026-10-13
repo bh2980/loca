@@ -90,7 +90,7 @@ export function PairTable({ pairs, loading, selected, picked, onPick, onOpen, bu
   pairs: Pair[] | undefined;
   loading: boolean;
   selected?: string;
-  picked: Set<string>;
+  picked: ReadonlySet<string>;
   onPick: (keys: string[], on: boolean) => void;
   onOpen: (key: string) => void;
   bulk: ReactNode;

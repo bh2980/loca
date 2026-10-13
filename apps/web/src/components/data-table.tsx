@@ -135,7 +135,7 @@ function Table<T>({
   selected?: string;
   onRowClick?: (row: T) => void;
   /** Picked rows (checkboxes). Giving `onPick` turns the checkbox column on. */
-  picked?: Set<string>;
+  picked?: ReadonlySet<string>;
   onPick?: (ids: string[], on: boolean) => void;
   /** Actions for the picked rows, shown in place of the header row while rows are picked. */
   bulk?: ReactNode;

@@ -233,7 +233,7 @@ export function KnowledgeTable({ id, spec, rows, loading, selected, onOpen, pick
   loading: boolean;
   selected?: string;
   onOpen: (id: string) => void;
-  picked: Set<string>;
+  picked: ReadonlySet<string>;
   onPick: (ids: string[], on: boolean) => void;
   bulk: ReactNode;
   empty: ReactNode;

@@ -204,7 +204,7 @@ function StatusSettings() {
     selectedMark ? (
       <MarkPane key={selectedMark} mark={selectedMark} color={markColor(selectedMark, markColors)} pending={saveMarkColor.isPending} onClose={close} onSave={(color) => saveMarkColor.mutate({ mark: selectedMark, color })} />
     ) : search.status === 'new' ? (
-      <StatusPane key="new" pending={create.isPending} onClose={close} onSave={(json) => create.mutate(json)} />
+      <StatusPane key="new" pending={create.isPending} onClose={close} onSave={(form) => create.mutate(form)} />
     ) : selectedStatus ? (
       <StatusPane
         key={selectedStatus.id}
@@ -214,7 +214,7 @@ function StatusSettings() {
         pending={update.isPending}
         reordering={reorder.isPending}
         onClose={close}
-        onSave={(json) => update.mutate({ id: selectedStatus.id, json })}
+        onSave={(_form, changed) => update.mutate({ id: selectedStatus.id, json: changed })}
         onMove={(delta) => move(selectedStatus, delta)}
         onDelete={() => {
           setRemoving(selectedStatus);
@@ -222,9 +222,9 @@ function StatusSettings() {
         }}
       />
     ) : search.tag === 'new' ? (
-      <TagPane key="new" pending={createTag.isPending} onClose={close} onSave={(json) => createTag.mutate(json)} />
+      <TagPane key="new" pending={createTag.isPending} onClose={close} onSave={(form) => createTag.mutate(form)} />
     ) : selectedTag ? (
-      <TagPane key={selectedTag.id} tag={selectedTag} pending={updateTag.isPending} onClose={close} onSave={(json) => updateTag.mutate({ id: selectedTag.id, json: selectedTag.role ? { color: json.color } : json })} onDelete={() => removeTag.mutate(selectedTag.id)} />
+      <TagPane key={selectedTag.id} tag={selectedTag} pending={updateTag.isPending} onClose={close} onSave={(_form, changed) => updateTag.mutate({ id: selectedTag.id, json: selectedTag.role ? { color: changed.color } : changed })} onDelete={() => removeTag.mutate(selectedTag.id)} />
     ) : null;
 
   return (

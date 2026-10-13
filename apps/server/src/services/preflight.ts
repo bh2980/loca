@@ -132,6 +132,10 @@ export async function preflight(db: Db, workflow: typeof s.workflows.$inferSelec
   };
 }
 
+/** The items' ids for a link that lists only them; past the cap, `more` says the list would be partial. */
+const IDS_CAP = 100;
+const idList = (ids: string[]) => ({ ids: ids.slice(0, IDS_CAP), more: ids.length > IDS_CAP });
+
 /**
  * What in this run's own lines would make the translation worse, for a person to fix first:
  * dialogue whose listener is unknown, speech rules its speaker → listener pairs use that no person
@@ -149,7 +153,7 @@ function readinessOf(db: Db, projectId: string, units: { kind: string; speaker: 
     names.set(key, `${unit.speaker} → ${unit.listener}`);
   }
   const rules = db
-    .select({ from: s.speechRules.fromName, to: s.speechRules.toName, status: s.speechRules.status, statusBy: s.speechRules.statusBy })
+    .select({ id: s.speechRules.id, from: s.speechRules.fromName, to: s.speechRules.toName, status: s.speechRules.status, statusBy: s.speechRules.statusBy })
     .from(s.speechRules)
     .where(eq(s.speechRules.projectId, projectId))
     .all()
@@ -160,18 +164,18 @@ function readinessOf(db: Db, projectId: string, units: { kind: string; speaker: 
   const ruled = new Set(db.select({ from: s.speechRules.fromName, to: s.speechRules.toName }).from(s.speechRules).where(and(eq(s.speechRules.projectId, projectId), ne(s.speechRules.status, 'rejected'))).all().map((rule) => `${index.norm(rule.from)}|${index.norm(rule.to)}`));
   const withoutRule = [...pairs].filter(([key, lines]) => lines >= 5 && !ruled.has(key)).sort((a, b) => b[1] - a[1]);
   const terms = db
-    .select({ source: s.terms.source, status: s.terms.status, statusBy: s.terms.statusBy })
+    .select({ id: s.terms.id, source: s.terms.source, status: s.terms.status, statusBy: s.terms.statusBy })
     .from(s.terms)
     .where(eq(s.terms.projectId, projectId))
     .all()
     .filter(isUnreviewed);
   const mentioned = terms.length ? termMatcher(terms, (term) => term.source) : null;
-  const unreviewedTerms = mentioned ? new Set(units.flatMap((unit) => mentioned.find(unit.source).map((term) => term.source))) : new Set<string>();
+  const unreviewedTerms = new Map<string, string>(mentioned ? units.flatMap((unit) => mentioned.find(unit.source).map((term) => [term.source, term.id] as const)) : []);
   return {
     dialogueLines: dialogue.length,
     unknownListenerLines: unknownListener,
-    unreviewedRules: { count: unreviewedRules.length, examples: unreviewedRules.slice(0, 3).map((rule) => `${rule.from} → ${rule.to}`) },
-    unreviewedTerms: { count: unreviewedTerms.size, examples: [...unreviewedTerms].slice(0, 3) },
+    unreviewedRules: { count: unreviewedRules.length, examples: unreviewedRules.slice(0, 3).map((rule) => `${rule.from} → ${rule.to}`), ...idList(unreviewedRules.map((rule) => rule.id)) },
+    unreviewedTerms: { count: unreviewedTerms.size, examples: [...unreviewedTerms.keys()].slice(0, 3), ...idList([...unreviewedTerms.values()]) },
     pairsWithoutRule: { count: withoutRule.length, examples: withoutRule.slice(0, 3).map(([key]) => names.get(key)!) },
   };
 }

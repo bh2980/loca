@@ -1,5 +1,4 @@
 /** Right-hand pane for a built-in automatic tag: only its color is the project's to change. */
-import { useState } from 'react';
 import { AUTO_MARKS, type AutoMark } from '@tw/shared';
 import { DetailPane, PaneSection } from '@/components/detail-pane';
 import { chipStyle } from '@/components/status';
@@ -7,10 +6,11 @@ import { Button } from '@/components/ui/button';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { scopeLabel } from '@/components/settings/status-types';
 import { Swatches } from '@/components/settings/swatches';
+import { useFormFrom } from '@/lib/use-form-from';
 
 /** A built-in automatic tag: only its color is the project's to change. */
 export function MarkPane({ mark, color, pending, onClose, onSave }: { mark: AutoMark; color: string; pending: boolean; onClose: () => void; onSave: (color: string) => void }) {
-  const [draft, setDraft] = useState(color);
+  const { draft, setDraft } = useFormFrom(color);
   const info = AUTO_MARKS[mark];
   return (
     <DetailPane

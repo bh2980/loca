@@ -1,5 +1,4 @@
 /** Right-hand pane to add, edit or delete a project tag. */
-import { useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import { DEFAULT_TAG_COLOR, TAG_SCOPES, TAG_SCOPE_LABELS } from '@tw/shared';
 import { DetailPane, PaneSection } from '@/components/detail-pane';
@@ -11,10 +10,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { scopeLabel, type TagForm, type TagRowData } from '@/components/settings/status-types';
 import { Swatches } from '@/components/settings/swatches';
+import { changedFields, useFormFrom } from '@/lib/use-form-from';
 
-export function TagPane({ tag, pending, onClose, onSave, onDelete }: { tag?: TagRowData; pending: boolean; onClose: () => void; onSave: (form: TagForm) => void; onDelete?: () => void }) {
-  const [form, setForm] = useState<TagForm>({ name: tag?.name ?? '', color: tag?.color ?? DEFAULT_TAG_COLOR, scope: tag?.scope ?? [...TAG_SCOPES] });
-  const dirty = !tag || form.name !== tag.name || form.color !== tag.color || (!tag.role && form.scope.length !== tag.scope.length) || (!tag.role && form.scope.some((place) => !tag.scope.includes(place)));
+export function TagPane({ tag, pending, onClose, onSave, onDelete }: { tag?: TagRowData; pending: boolean; onClose: () => void; onSave: (form: TagForm, changed: Partial<TagForm>) => void; onDelete?: () => void }) {
+  // Scope in the fixed place order so the comparison does not depend on how it was stored.
+  const saved: TagForm = { name: tag?.name ?? '', color: tag?.color ?? DEFAULT_TAG_COLOR, scope: TAG_SCOPES.filter((place) => !tag || tag.scope.includes(place)) };
+  const { draft: form, setDraft: setForm, dirty: changed } = useFormFrom(saved);
+  const dirty = !tag || changed;
   return (
     <DetailPane
       kicker="태그"
@@ -23,7 +25,7 @@ export function TagPane({ tag, pending, onClose, onSave, onDelete }: { tag?: Tag
       onClose={onClose}
       footer={
         <>
-          <Button disabled={!form.name.trim() || !dirty || pending} onClick={() => onSave(form)}>
+          <Button disabled={!form.name.trim() || !dirty || pending} onClick={() => onSave(form, changedFields(form, saved))}>
             {tag ? '저장' : '추가'}
           </Button>
           {tag && onDelete && !tag.role && (
@@ -52,11 +54,11 @@ export function TagPane({ tag, pending, onClose, onSave, onDelete }: { tag?: Tag
         <FieldGroup className="gap-4">
           <Field>
             <FieldLabel htmlFor="tag-name">이름</FieldLabel>
-            <Input id="tag-name" value={form.name} placeholder="새 태그 이름" disabled={!!tag?.role} onChange={(event) => setForm({ ...form, name: event.target.value })} />
+            <Input id="tag-name" value={form.name} placeholder="새 태그 이름" disabled={!!tag?.role} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} />
           </Field>
           <Field>
             <FieldLabel>색상</FieldLabel>
-            <Swatches value={form.color} onChange={(color) => setForm({ ...form, color })} />
+            <Swatches value={form.color} onChange={(color) => setForm((current) => ({ ...current, color }))} />
           </Field>
           <Field>
             <FieldLabel>붙는 곳</FieldLabel>
@@ -71,7 +73,7 @@ export function TagPane({ tag, pending, onClose, onSave, onDelete }: { tag?: Tag
                       checked={form.scope.includes(place)}
                       // At least one place stays.
                       disabled={form.scope.length === 1 && form.scope.includes(place)}
-                      onCheckedChange={(on) => setForm({ ...form, scope: TAG_SCOPES.filter((other) => (other === place ? on === true : form.scope.includes(other))) })}
+                      onCheckedChange={(on) => setForm((current) => ({ ...current, scope: TAG_SCOPES.filter((other) => (other === place ? on === true : current.scope.includes(other))) }))}
                     />
                     <Label htmlFor={`tag-scope-${place}`}>{TAG_SCOPE_LABELS[place]}</Label>
                   </div>

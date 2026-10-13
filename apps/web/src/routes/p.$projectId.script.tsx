@@ -130,7 +130,7 @@ function Script() {
     return () => window.removeEventListener('keydown', onKey);
   });
   const findLabel = filterChips(search, statuses.data?.statuses ?? [], statuses.data?.tags ?? []).map((chip) => chip.label).concat(search.q ? [`“${search.q}”`] : []).join(' · ');
-  const clearFilters = { q: undefined, status: undefined, tags: undefined, speaker: undefined, listener: undefined, marks: undefined, view: undefined, page: undefined };
+  const clearFilters = { q: undefined, status: undefined, tags: undefined, speaker: undefined, listener: undefined, marks: undefined, mode: undefined, page: undefined };
 
   const onSearch = useCallback((next: Partial<ScriptSearch>, options?: { replace?: boolean }) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace: options?.replace }), [navigate]);
   // Moving to another scene keeps a filter being walked (찾아가기); otherwise only the list's own search and marks.
@@ -246,7 +246,7 @@ function Script() {
                       </TooltipTrigger>
                       <TooltipContent>다음 줄 ({keyLabel('Alt+Down')})</TooltipContent>
                     </Tooltip>
-                    <Button variant="ghost" onClick={() => onSearch({ view: 'list', group: undefined, page: undefined })}>
+                    <Button variant="ghost" onClick={() => onSearch({ mode: undefined, group: undefined, page: undefined })}>
                       맞는 줄만 보기
                     </Button>
                     <Button variant="ghost" size="icon" aria-label="필터 지우기" onClick={() => onSearch(clearFilters)}>

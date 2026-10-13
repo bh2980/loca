@@ -25,6 +25,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { client, unwrap } from '@/lib/api';
 import { DOCUMENT_KIND } from '@/lib/labels';
 import { q, tagsIn, useReviewTagId } from '@/lib/queries';
+import { usePicked } from '@/lib/use-picked';
 import { cn } from '@/lib/utils';
 import { useReportView } from '@/lib/view-context';
 
@@ -39,13 +40,12 @@ interface KnowledgeSearch {
   marks?: AutoMark[];
   /** 태그 filter: project tag ids (확인 권장, a person's own); items carrying all of them. */
   tags?: string[];
+  /** Only these items (a run's scope, from the run dialog's readiness list); shown as a removable chip, combined with the other filters. In 인물·관계 tables the pairs holding them. */
+  ids?: string[];
   /** Selected item id, or a pair key ("from→to") in 인물·관계 › 관계. */
   item?: string;
-  /** Inside 인물·관계 shown as tables: people instead of pairs. */
-  view?: 'characters';
-  /** 인물·관계 as tables instead of the graph; 사건 as a timeline instead of the table. */
-  /** '표' instead of the picture (relationship graph / event flow), which is the default for both. */
-  display?: 'table';
+  /** Presentation. Default is the picture (relationship graph / event flow); 'table' is the table instead (인물·관계: pairs), 'characters' the people table in 인물·관계. */
+  display?: 'table' | 'characters';
 }
 
 export const Route = createFileRoute('/p/$projectId/knowledge')({
@@ -54,9 +54,9 @@ export const Route = createFileRoute('/p/$projectId/knowledge')({
     source: typeof raw.source === 'string' && (KNOWLEDGE_SOURCES as readonly string[]).includes(raw.source) ? (raw.source as KnowledgeSource) : undefined,
     marks: parseMarks(raw.marks, KNOWLEDGE_MARK_IDS),
     tags: Array.isArray(raw.tags) && raw.tags.length && raw.tags.every((id) => typeof id === 'string') ? (raw.tags as string[]) : undefined,
+    ids: Array.isArray(raw.ids) && raw.ids.length && raw.ids.every((id) => typeof id === 'string') ? (raw.ids as string[]) : undefined,
     item: typeof raw.item === 'string' && raw.item ? raw.item : undefined,
-    view: raw.view === 'characters' ? 'characters' : undefined,
-    display: raw.display === 'table' ? 'table' : undefined,
+    display: raw.display === 'table' || raw.display === 'characters' ? raw.display : undefined,
   }),
   component: Knowledge,
 });
@@ -73,8 +73,8 @@ function Knowledge() {
   const navigate = Route.useNavigate();
   const tab: Tab = search.tab ?? 'documents';
   // 인물·관계 is one graph (people and their relationships) or two tables (pairs / people).
-  const graph = tab === 'people' && search.display !== 'table';
-  const pairsView = tab === 'people' && !graph && search.view !== 'characters';
+  const graph = tab === 'people' && !search.display;
+  const pairsView = tab === 'people' && search.display === 'table';
   const timeline = tab === 'events' && search.display !== 'table';
   const set = (next: Partial<KnowledgeSearch>, replace = true) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace });
 
@@ -199,9 +199,10 @@ function Knowledge() {
   };
 
   const characters = people.data?.characters ?? [];
-  const shown = (row: Row) => matches(row, search.source, search.marks, search.tags);
+  const inScope = (id: string) => !search.ids || search.ids.includes(id);
+  const shown = (row: Row) => inScope(row.id) && matches(row, search.source, search.marks, search.tags);
   const pairs = useMemo(() => buildPairs(characters, specs.relationships.rows, specs.speechRules.rows), [characters, specs.relationships.rows, specs.speechRules.rows]);
-  const visiblePairs = pairs.filter((pair) => pairMatches(pair, search.source, search.marks, search.tags));
+  const visiblePairs = pairs.filter((pair) => pairMatches(pair, search.source, search.marks, search.tags) && (!search.ids || pairItems(pair).some((item) => inScope(item.row.id))));
   // A link may name a relationship or rule id; it opens the pair holding it.
   const pair = pairsView || graph ? pairs.find((candidate) => candidate.key === search.item || pairItems(candidate).some((item) => item.row.id === search.item)) : undefined;
 
@@ -216,16 +217,8 @@ function Knowledge() {
     pair && { kind: '관계·말투', id: pair.key, label: `${pair.from} → ${pair.to}` },
   ]);
 
-  const [checked, setChecked] = useState<Set<string>>(new Set());
-  // Picks belong to one list: leave it and they go.
-  useEffect(() => setChecked(new Set()), [tab, search.display, search.view]);
-  const pick = (ids: string[], on: boolean) =>
-    setChecked((previous) => {
-      const next = new Set(previous);
-      for (const id of ids) if (on) next.add(id);
-      else next.delete(id);
-      return next;
-    });
+  // Picks belong to one list (tab + presentation): each keeps its own, and Back brings them back.
+  const { picked: checked, pick, clear: clearChecked } = usePicked(`knowledge.${projectId}.${tab}.${search.display ?? 'picture'}`);
   const queryClient = useQueryClient();
   const decide = useMutation({
     mutationFn: async ({ items, action }: { items: { kind: Kind; ids: string[] }[]; action: 'confirm' | 'discard' }) => {
@@ -257,7 +250,7 @@ function Knowledge() {
       return { touched };
     },
     onSuccess: (changed, { action }) => {
-      setChecked(new Set());
+      clearChecked();
       toast.success(action === 'confirm' ? `${changed}개를 확정·확인했습니다.` : `${changed}개를 버렸습니다.`);
     },
     onError: (error, _vars, context) => {
@@ -313,7 +306,8 @@ function Knowledge() {
     known: knowledgeTags,
     onChange: (next) => set({ ...('source' in next && { source: next.source }), ...('marks' in next && { marks: next.marks }), ...('tags' in next && { tags: next.tags }), item: undefined }),
   };
-  const filtered = Boolean(search.source || search.marks?.length || search.tags?.length);
+  const filtered = Boolean(search.source || search.marks?.length || search.tags?.length || search.ids);
+  const chips = [...knowledgeFilterChips(filters), ...(search.ids ? [{ key: 'ids', label: `이번 실행 범위 ${search.ids.length}개`, clear: () => set({ ids: undefined, item: undefined }) }] : [])];
   const bulk = (
     <>
       <BulkDecide picked={checked.size} actionable={checkedRows} pending={decide.isPending} onConfirm={() => decide.mutate({ items: checkedItems(), action: 'confirm' })} onDiscard={() => decide.mutate({ items: checkedItems(), action: 'discard' })} />
@@ -383,7 +377,7 @@ function Knowledge() {
             <ViewSwitch
               label="보기"
               value={graph ? 'graph' : 'table'}
-              onChange={(value) => set({ display: value === 'table' ? 'table' : undefined, view: undefined, item: undefined }, false)}
+              onChange={(value) => set({ display: value === 'table' ? 'table' : undefined, item: undefined }, false)}
               items={[
                 { value: 'graph', label: '그래프', icon: <Network /> },
                 { value: 'table', label: '표', icon: <Table2 /> },
@@ -393,8 +387,8 @@ function Knowledge() {
           {tab === 'people' && !graph && (
             <ViewSwitch
               label="표 종류"
-              value={search.view ?? 'pairs'}
-              onChange={(value) => set({ view: value === 'characters' ? 'characters' : undefined, item: undefined }, false)}
+              value={search.display === 'characters' ? 'characters' : 'pairs'}
+              onChange={(value) => set({ display: value === 'characters' ? 'characters' : 'table', item: undefined }, false)}
               items={[
                 { value: 'pairs', label: '관계', icon: <ArrowLeftRight /> },
                 { value: 'characters', label: '인물', icon: <Users /> },
@@ -413,7 +407,7 @@ function Knowledge() {
             />
           )}
           {(graph || timeline) && <KnowledgeFilters {...filters} />}
-          <FilterChips chips={knowledgeFilterChips(filters)} />
+          <FilterChips chips={chips} />
           <div className="min-w-0 truncate text-xs text-muted-foreground">
             <JobStatus projectId={projectId} />
           </div>
