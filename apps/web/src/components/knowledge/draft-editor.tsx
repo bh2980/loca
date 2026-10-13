@@ -23,7 +23,7 @@ import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { DetailPane, PaneSection } from '@/components/detail-pane';
-import { HeaderFilter, type FilterOption } from '@/components/header-filter';
+import { HeaderFilter, MarkFilter, type FilterOption } from '@/components/header-filter';
 
 export const KINDS = { documents: '문서', characters: '인물', relationships: '관계', events: '사건', speechRules: '말투 규칙' } as const;
 export type Kind = keyof typeof KINDS;
@@ -91,8 +91,14 @@ export const candidateRow = (row: Draft) => (row.status === 'candidate' ? '[&>td
 export type SourceFilter = KnowledgeSource | undefined;
 /** 'ai': confirmed by AI and not looked at yet (✦), the 'AI가 정한 것만' filter. */
 export type StatusFilter = 'confirmed' | 'ai' | 'candidate' | undefined;
-export const matches = (row: Draft, source: SourceFilter, status: StatusFilter, tag?: string) =>
-  (!source || sourceOf(row) === source) && (!status || (status === 'ai' ? aiDecided(row) : row.status === status)) && (!tag || Boolean(row.tags?.some((item) => item.id === tag)));
+/** Marks the app reads off a knowledge item, offered with the tags in the 태그 filter. */
+export const KNOWLEDGE_MARKS = { candidate: '후보', ai: 'AI가 정함', bare: '근거 없음' } as const;
+
+export const matches = (row: Draft, source: SourceFilter, status: StatusFilter, tags?: string[], bare?: boolean) =>
+  (!source || sourceOf(row) === source) &&
+  (!status || (status === 'ai' ? aiDecided(row) : row.status === status)) &&
+  (tags ?? []).every((tag) => row.tags?.some((item) => item.id === tag)) &&
+  (!bare || !row.evidence.length);
 
 /** An item's tags as chips; the app's reason for one (확인 권장) shows on hover. */
 export function TagCell({ tags, known }: { tags?: ItemTag[]; known: TagInfo[] }) {
@@ -140,21 +146,47 @@ export function confirmLabel(rows: Draft[]) {
 /** 출처 and 상태 as the last two columns of a table; both filter through their header. */
 export interface KnowledgeFilterState {
   source: SourceFilter;
+  /** 상태 as marks: #후보 (candidate) or #AI가 정함 (ai); 'confirmed' is still accepted from links. */
   status: StatusFilter;
-  tag?: string;
+  /** Picked tag ids: items carrying all of them. */
+  tags?: string[];
+  /** #근거 없음: items citing no line. */
+  bare?: boolean;
   /** The project's tags (lines' problem types left out): the 태그 column's chips and filter. */
-  tags: TagInfo[];
-  onChange: (next: { source?: SourceFilter; status?: StatusFilter; tag?: string }) => void;
+  known: TagInfo[];
+  onChange: (next: { source?: SourceFilter; status?: StatusFilter; tags?: string[]; bare?: boolean }) => void;
 }
-const tagOptions = (tags: TagInfo[]): FilterOption[] => tags.map((tag) => ({ value: tag.id, label: `#${tag.name}` }));
+
+/** The 태그 filter: the app's marks, then the tags; every pick narrows the rows. */
+export function TagFilter({ filters, marks = ['candidate', 'ai', 'bare'] }: { filters: KnowledgeFilterState; marks?: (keyof typeof KNOWLEDGE_MARKS)[] }) {
+  const picked = filters.tags ?? [];
+  const toggle = (id: string, on: boolean) => {
+    const next = on ? [...picked, id] : picked.filter((other) => other !== id);
+    filters.onChange({ tags: next.length ? next : undefined });
+  };
+  const mark = (key: keyof typeof KNOWLEDGE_MARKS) =>
+    key === 'bare'
+      ? { key, label: `#${KNOWLEDGE_MARKS[key]}`, checked: Boolean(filters.bare), onChange: (on: boolean) => filters.onChange({ bare: on || undefined }) }
+      : { key, label: `#${KNOWLEDGE_MARKS[key]}`, checked: filters.status === key, onChange: (on: boolean) => filters.onChange({ status: on ? key : undefined }) };
+  return (
+    <MarkFilter
+      label="태그"
+      groups={[
+        { heading: '자동 표시', options: marks.map(mark) },
+        { heading: '태그', options: filters.known.map((tag) => ({ key: tag.id, label: <TagChip tag={tag} />, checked: picked.includes(tag.id), onChange: (on: boolean) => toggle(tag.id, on) })) },
+      ]}
+      onClear={() => filters.onChange({ status: undefined, tags: undefined, bare: undefined })}
+    />
+  );
+}
 
 export function metaColumns<T>(draftOf: (row: T) => Draft, filters: KnowledgeFilterState): ColumnDef<T, unknown>[] {
   return [
     {
       id: 'tags',
       meta: { width: 120 },
-      header: () => <HeaderFilter label="태그" value={filters.tag} options={tagOptions(filters.tags)} onChange={(value) => filters.onChange({ tag: value })} />,
-      cell: ({ row }) => <TagCell tags={draftOf(row.original).tags} known={filters.tags} />,
+      header: () => <TagFilter filters={filters} />,
+      cell: ({ row }) => <TagCell tags={draftOf(row.original).tags} known={filters.known} />,
     },
     {
       id: 'source',
@@ -165,19 +197,19 @@ export function metaColumns<T>(draftOf: (row: T) => Draft, filters: KnowledgeFil
     {
       id: 'state',
       meta: { width: 80 },
-      header: () => <HeaderFilter label="상태" value={filters.status} options={statusOptions} onChange={(value) => filters.onChange({ status: value as StatusFilter })} />,
+      // Filtered through the 태그 column's marks (#후보, #AI가 정함), not twice.
+      header: '상태',
       cell: ({ row }) => <StateCell row={draftOf(row.original)} />,
     },
   ];
 }
 
 /** 출처 and 상태 filters for displays without a table header (graph, timeline), in the toolbar. */
-export function KnowledgeFilters({ source, status, tag, tags, onChange }: KnowledgeFilterState) {
+export function KnowledgeFilters(filters: KnowledgeFilterState) {
   return (
     <div className="flex items-center gap-3 text-xs text-muted-foreground">
-      {tags.length > 0 && <HeaderFilter label="태그" value={tag} options={tagOptions(tags)} onChange={(value) => onChange({ tag: value })} />}
-      <HeaderFilter label="출처" value={source} options={sourceOptions} onChange={(value) => onChange({ source: value as SourceFilter })} />
-      <HeaderFilter label="상태" value={status} options={statusOptions} onChange={(value) => onChange({ status: value as StatusFilter })} />
+      <TagFilter filters={filters} />
+      <HeaderFilter label="출처" value={filters.source} options={sourceOptions} onChange={(value) => filters.onChange({ source: value as SourceFilter })} />
     </div>
   );
 }

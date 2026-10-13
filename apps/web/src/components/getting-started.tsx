@@ -102,7 +102,7 @@ export function GettingStarted({ projectId }: { projectId: string }) {
       optional: true,
       action: () => (
         <Button asChild variant="ghost">
-          <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', ...(reviewTag && { tag: reviewTag }) }}>
+          <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', ...(reviewTag && { tags: [reviewTag] }) }}>
             인물·관계 보기
           </Link>
         </Button>

@@ -69,7 +69,7 @@ export const pairSummary = (pair: Pair): Draft => {
   };
 };
 /** Pairs with any item matching the filters. */
-export const pairMatches = (pair: Pair, source: SourceFilter, status: StatusFilter, tag?: string) => [pair.relationship, ...pair.rules].some((row) => row && matches(row, source, status, tag));
+export const pairMatches = (pair: Pair, source: SourceFilter, status: StatusFilter, tags?: string[], bare?: boolean) => [pair.relationship, ...pair.rules].some((row) => row && matches(row, source, status, tags, bare));
 export const pairSettled = (pair: Pair) => [pair.relationship, ...pair.rules].every((row) => !row || isSettled(row));
 export const pairItems = (pair: Pair) => [...(pair.relationship ? [{ kind: 'relationships' as const, row: pair.relationship }] : []), ...pair.rules.map((row) => ({ kind: 'speechRules' as const, row }))];
 /** Why the app marked an item for a look (its tag's note), or null. */

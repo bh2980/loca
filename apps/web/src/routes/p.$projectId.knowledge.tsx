@@ -33,8 +33,10 @@ interface KnowledgeSearch {
   source?: KnowledgeSource;
   /** 상태 filter: 확정 / AI가 정한 것만 (확정 ✦) / 후보. */
   state?: StatusFilter;
-  /** 태그 filter: a project tag's id (확인 권장, a person's own). */
-  tag?: string;
+  /** 태그 filter: project tag ids (확인 권장, a person's own); items carrying all of them. */
+  tags?: string[];
+  /** #근거 없음: items citing no line. */
+  bare?: true;
   /** Selected item id, or a pair key ("from→to") in 인물·관계 › 관계. */
   item?: string;
   /** Inside 인물·관계 shown as tables: people instead of pairs. */
@@ -49,7 +51,8 @@ export const Route = createFileRoute('/p/$projectId/knowledge')({
     tab: typeof raw.tab === 'string' && raw.tab in TABS ? (raw.tab as Tab) : undefined,
     source: typeof raw.source === 'string' && (KNOWLEDGE_SOURCES as readonly string[]).includes(raw.source) ? (raw.source as KnowledgeSource) : undefined,
     state: raw.state === 'confirmed' || raw.state === 'ai' || raw.state === 'candidate' ? raw.state : undefined,
-    tag: typeof raw.tag === 'string' && raw.tag ? raw.tag : undefined,
+    tags: Array.isArray(raw.tags) && raw.tags.length && raw.tags.every((id) => typeof id === 'string') ? (raw.tags as string[]) : undefined,
+    bare: raw.bare === true || raw.bare === 'true' ? true : undefined,
     item: typeof raw.item === 'string' && raw.item ? raw.item : undefined,
     view: raw.view === 'characters' ? 'characters' : undefined,
     display: raw.display === 'table' ? 'table' : undefined,
@@ -193,9 +196,9 @@ function Knowledge() {
   };
 
   const characters = people.data?.characters ?? [];
-  const shown = (row: Row) => matches(row, search.source, search.state, search.tag);
+  const shown = (row: Row) => matches(row, search.source, search.state, search.tags, search.bare);
   const pairs = useMemo(() => buildPairs(characters, specs.relationships.rows, specs.speechRules.rows), [characters, specs.relationships.rows, specs.speechRules.rows]);
-  const visiblePairs = pairs.filter((pair) => pairMatches(pair, search.source, search.state, search.tag));
+  const visiblePairs = pairs.filter((pair) => pairMatches(pair, search.source, search.state, search.tags, search.bare));
   // A link may name a relationship or rule id; it opens the pair holding it.
   const pair = pairsView || graph ? pairs.find((candidate) => candidate.key === search.item || pairItems(candidate).some((item) => item.row.id === search.item)) : undefined;
 
@@ -303,11 +306,12 @@ function Knowledge() {
   const filters: KnowledgeFilterState = {
     source: search.source,
     status: search.state,
-    tag: search.tag,
-    tags: knowledgeTags,
-    onChange: (next) => set({ ...('source' in next && { source: next.source }), ...('status' in next && { state: next.status }), ...('tag' in next && { tag: next.tag }), item: undefined }),
+    tags: search.tags,
+    bare: search.bare,
+    known: knowledgeTags,
+    onChange: (next) => set({ ...('source' in next && { source: next.source }), ...('status' in next && { state: next.status }), ...('tags' in next && { tags: next.tags }), ...('bare' in next && { bare: next.bare || undefined }), item: undefined }),
   };
-  const filtered = Boolean(search.source || search.state || search.tag);
+  const filtered = Boolean(search.source || search.state || search.tags?.length || search.bare);
   const bulk = (
     <>
       <BulkDecide picked={checked.size} actionable={checkedRows} pending={decide.isPending} onConfirm={() => decide.mutate({ items: checkedItems(), action: 'confirm' })} onDiscard={() => decide.mutate({ items: checkedItems(), action: 'discard' })} />
