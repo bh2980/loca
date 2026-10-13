@@ -249,6 +249,8 @@ export const sourceRoutes = new Hono<Env>()
         checked: z.literal(true).optional(),
         addTagIds: z.array(z.string()).default([]),
         removeTagIds: z.array(z.string()).default([]),
+        /** A person's listener for the picked dialogue lines (null = unknown); narration keeps none. */
+        listener: z.string().trim().min(1).nullable().optional(),
       }),
     ),
     (c) => {
@@ -261,6 +263,7 @@ export const sourceRoutes = new Hono<Env>()
         // A person setting the status (or confirming what a run set) makes it theirs.
         if (body.statusId || body.checked) tx.update(s.units).set({ ...(body.statusId && { statusId: body.statusId }), statusBy: 'human', statusRunId: null }).where(and(eq(s.units.projectId, projectId), inArray(s.units.id, slice))).run();
         if (body.removeTagIds.length) tx.delete(s.unitTags).where(and(inArray(s.unitTags.unitId, slice), inArray(s.unitTags.tagId, body.removeTagIds))).run();
+        if (body.listener !== undefined) tx.update(s.units).set({ listener: body.listener, listenerOrigin: 'human', listenerConfidence: null }).where(and(eq(s.units.projectId, projectId), eq(s.units.kind, 'dialogue'), inArray(s.units.id, slice))).run();
       });
       if (body.addTagIds.length)
         eachChunk(body.unitIds, (slice) => {

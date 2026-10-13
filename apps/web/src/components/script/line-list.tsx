@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { Check, CircleAlert, ListFilter, Network, PanelRightOpen, Play, StickyNote, Tags, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { checkFormat, compileFormatRules, isUnsureListener, listenerLabel, type ListenerOrigin, mentions, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
+import { checkFormat, compileFormatRules, isUnsureListener, listenerLabel, SPECIAL_LISTENERS, type ListenerOrigin, mentions, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
 import { LineDetail, LINE_TABS, type LineTab } from '@/components/line-detail';
 import { SplitPane } from '@/components/split-pane';
 import { AiMark, StatusDot, TagChip } from '@/components/status';
@@ -17,7 +17,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { client, unwrap } from '@/lib/api';
@@ -175,6 +175,7 @@ export function LineList({
   const total = lines.data?.total ?? 0;
   const showScene = !groupId;
   const speakers = useQuery(q.speakers(projectId));
+  const people = useQuery(q.characters(projectId));
   // Bumped whenever the picked line's editor should take the focus; 0 = just looking.
   const [focusTick, setFocusTick] = useState(0);
   const setEditing = (edit: boolean) => setFocusTick((tick) => (edit ? tick + 1 : 0));
@@ -204,6 +205,12 @@ export function LineList({
     mutationFn: (statusId: string) => unwrap(client.projects[':projectId'].units.$patch({ param: { projectId }, json: { unitIds: [...picked], statusId } })),
     onMutate: async (statusId) => ({ undo: await optimistic(queryClient, unitChanges(picked, patchedLine({ statusId }))) }),
     onSuccess: () => toast.success(`${picked.size}개 대사의 상태를 바꿨습니다.`),
+    onError: undoOnError,
+  });
+  const setListener = useMutation({
+    mutationFn: (listener: string | null) => unwrap(client.projects[':projectId'].units.$patch({ param: { projectId }, json: { unitIds: [...picked], listener } })),
+    onMutate: async (listener) => ({ undo: await optimistic(queryClient, unitChanges(picked, patchedLine({ listener }))) }),
+    onSuccess: (_data, listener) => toast.success(`${picked.size}개 대사의 청자를 ${listener ? listenerLabel(listener) : '미상'}(으)로 바꿨습니다.`),
     onError: undoOnError,
   });
   // 확인함: the statuses stay; a person now holds them, so the ✦ goes.
@@ -396,6 +403,7 @@ export function LineList({
                   ))}
                 </SelectContent>
               </Select>
+              <BulkListener speakers={[...new Set((rows ?? []).flatMap((row) => (row.speaker ? [row.speaker] : [])))]} cast={(people.data?.characters ?? []).filter((person) => person.status === 'confirmed').map((person) => person.name)} onPick={(listener) => setListener.mutate(listener)} />
               {lineTags(statuses.data?.tags).length > 0 && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -713,5 +721,74 @@ export function LineLinks({ projectId, unitId, hasNote, onNote, onDetail }: { pr
         </Button>,
       )}
     </span>
+  );
+}
+
+const TYPE_NAME = '__type';
+
+/**
+ * 청자 바꾸기 for the picked lines (dialogue only; narration has no listener): the speakers in this
+ * list first, then a group / the public / themself, the rest of the cast, or a typed name.
+ */
+function BulkListener({ speakers, cast, onPick }: { speakers: string[]; cast: string[]; onPick: (listener: string | null) => void }) {
+  const [typing, setTyping] = useState<string | null>(null);
+  const rest = cast.filter((name) => !speakers.includes(name));
+  if (typing !== null)
+    return (
+      <Input
+        autoFocus
+        value={typing}
+        onChange={(event) => setTyping(event.target.value)}
+        onKeyDown={(event) => {
+          event.stopPropagation();
+          if (event.key === 'Enter' && typing.trim()) {
+            onPick(typing.trim());
+            setTyping(null);
+          } else if (event.key === 'Escape') setTyping(null);
+        }}
+        onBlur={() => setTyping(null)}
+        placeholder="이름 입력 후 Enter"
+        className="h-8 w-40"
+        aria-label="청자 이름"
+      />
+    );
+  return (
+    <Select value="" onValueChange={(next) => (next === TYPE_NAME ? setTyping('') : onPick(next === '-' ? null : next))}>
+      <SelectTrigger size="sm" className="w-36">
+        <SelectValue placeholder="청자 바꾸기" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="-">미상</SelectItem>
+        {speakers.length > 0 && (
+          <SelectGroup>
+            <SelectLabel>이 목록에서 말하는 사람</SelectLabel>
+            {speakers.map((name) => (
+              <SelectItem key={name} value={name}>
+                {name}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        )}
+        <SelectGroup>
+          <SelectLabel>여러 사람 · 혼잣말</SelectLabel>
+          {Object.entries(SPECIAL_LISTENERS).map(([key, label]) => (
+            <SelectItem key={key} value={key}>
+              {label}
+            </SelectItem>
+          ))}
+        </SelectGroup>
+        {rest.length > 0 && (
+          <SelectGroup>
+            <SelectLabel>다른 인물</SelectLabel>
+            {rest.map((name) => (
+              <SelectItem key={name} value={name}>
+                {name}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        )}
+        <SelectItem value={TYPE_NAME}>직접 입력…</SelectItem>
+      </SelectContent>
+    </Select>
   );
 }
