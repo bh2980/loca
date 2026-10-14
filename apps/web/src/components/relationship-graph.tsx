@@ -23,6 +23,38 @@ const NODE_WIDTH = 150;
 const NODE_HEIGHT = 44;
 const elk = new ELK();
 
+type Layout = { key: string; byId: Record<string, { x: number; y: number }> };
+/**
+ * Layouts already made, by what they were made from (people and relationship ends): opening the
+ * graph again, or the same filter again, reuses one instead of running ELK. The latest one per
+ * graph is also kept in this browser, so a reload does not lay it out again either.
+ */
+const layouts = new Map<string, Layout>();
+const LAYOUTS_KEPT = 20;
+function knownLayout(storageKey: string, key: string): Layout | null {
+  const hit = layouts.get(key);
+  if (hit) return hit;
+  try {
+    const stored = JSON.parse(localStorage.getItem(`${storageKey}.layout`) ?? 'null') as Layout | null;
+    if (stored?.key === key) return keepLayout(storageKey, stored, false);
+  } catch {
+    // A convenience: without storage the graph is laid out again.
+  }
+  return null;
+}
+function keepLayout(storageKey: string, layout: Layout, store = true) {
+  layouts.delete(layout.key);
+  layouts.set(layout.key, layout);
+  if (layouts.size > LAYOUTS_KEPT) layouts.delete(layouts.keys().next().value!);
+  if (store)
+    try {
+      localStorage.setItem(`${storageKey}.layout`, JSON.stringify(layout));
+    } catch {
+      // As above.
+    }
+  return layout;
+}
+
 type PersonNode = Node<{ label: string; dim: boolean }, 'person'>;
 /** A line's label: one row per relationship it stands for (two when the pair goes both ways). */
 type LabelRow = { id: string; text: string; selected: boolean };
@@ -111,9 +143,10 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
   onSelectRelationship: (id: string) => void;
   onClear: () => void;
 }) {
-  const [positions, setPositions] = useState<{ key: string; byId: Record<string, { x: number; y: number }> } | null>(null);
   const known = useMemo(() => new Set(characters.map((character) => character.id)), [characters]);
   const drawable = useMemo(() => relationships.filter((relationship) => known.has(relationship.fromId) && known.has(relationship.toId)), [relationships, known]);
+  const layoutKey = useMemo(() => JSON.stringify([characters.map((c) => c.id), drawable.map((r) => [r.fromId, r.toId])]), [characters, drawable]);
+  const [positions, setPositions] = useState<Layout | null>(() => knownLayout(storageKey, layoutKey));
   const [placed, setPlaced] = useState<Record<string, { x: number; y: number }>>(() => {
     try {
       return JSON.parse(localStorage.getItem(storageKey) ?? '{}') as Record<string, { x: number; y: number }>;
@@ -130,9 +163,13 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
     }
   };
   const [hovered, setHovered] = useState<string | null>(null);
-  const layoutKey = useMemo(() => JSON.stringify([characters.map((c) => c.id), drawable.map((r) => [r.fromId, r.toId])]), [characters, drawable]);
 
   useEffect(() => {
+    const kept = knownLayout(storageKey, layoutKey);
+    if (kept) {
+      setPositions(kept);
+      return;
+    }
     let cancelled = false;
     void elk
       .layout({
@@ -143,13 +180,13 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
       })
       .then((result) => {
         if (cancelled) return;
-        setPositions({ key: layoutKey, byId: Object.fromEntries((result.children ?? []).map((child) => [child.id, { x: child.x ?? 0, y: child.y ?? 0 }])) });
+        setPositions(keepLayout(storageKey, { key: layoutKey, byId: Object.fromEntries((result.children ?? []).map((child) => [child.id, { x: child.x ?? 0, y: child.y ?? 0 }])) }));
       });
     return () => {
       cancelled = true;
     };
     // layoutKey fully describes the inputs that change the layout.
-  }, [layoutKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [storageKey, layoutKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Emphasis: the selected character (or both ends of the selected relationship) stays full strength.
   const emphasis = useMemo(() => {

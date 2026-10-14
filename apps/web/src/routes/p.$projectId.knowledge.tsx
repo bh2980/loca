@@ -424,7 +424,8 @@ function Knowledge() {
         </Toolbar>
         {graph ? (
           <div className="min-h-0 flex-1">
-            {people.isPending ? (
+            {/* Pairs come from speech rules too: laying out before they arrive would lay out twice. */}
+            {people.isPending || rules.isPending ? (
               <Skeleton className="m-4 h-64" />
             ) : (
               <RelationshipGraph
