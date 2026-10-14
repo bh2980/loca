@@ -167,7 +167,8 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
   useEffect(() => {
     const kept = knownLayout(storageKey, layoutKey);
     if (kept) {
-      setPositions(kept);
+      // The one in use is the one a reload should find (a filter toggled back reuses its layout from memory).
+      setPositions(keepLayout(storageKey, kept));
       return;
     }
     let cancelled = false;
