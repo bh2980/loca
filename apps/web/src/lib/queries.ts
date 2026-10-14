@@ -17,9 +17,9 @@ export const q = {
   group: (groupId: string) => queryOptions({ queryKey: ['units', 'group', groupId], queryFn: () => unwrap(client.groups[':groupId'].$get({ param: { groupId } })) }),
   speakers: (projectId: string) => queryOptions({ queryKey: ['units', 'speakers', projectId], queryFn: () => unwrap(client.projects[':projectId'].speakers.$get({ param: { projectId } })) }),
   /** Every line a filter matches (id and scene, script order), for walking them inside their scenes. */
-  unitMatches: (projectId: string, query: { route?: 'main'; kind?: 'scene' | 'document' | 'ui'; statusId?: string; tagIds?: string; q?: string; speaker?: string; listener?: string; marks?: string }) =>
+  unitMatches: (projectId: string, query: { kind?: 'scene' | 'document' | 'ui'; statusId?: string; tagIds?: string; q?: string; speaker?: string; listener?: string; marks?: string }) =>
     queryOptions({ queryKey: ['units', 'matches', projectId, query], queryFn: () => unwrap(client.projects[':projectId'].units.matches.$get({ param: { projectId }, query })) }),
-  units: (projectId: string, query: { route?: 'main'; groupId?: string; kind?: 'scene' | 'document' | 'ui'; statusId?: string; tagIds?: string; q?: string; speaker?: string; listener?: string; review?: '1'; marks?: string; focus?: string; offset?: number; limit?: number }) =>
+  units: (projectId: string, query: { groupId?: string; kind?: 'scene' | 'document' | 'ui'; statusId?: string; tagIds?: string; q?: string; speaker?: string; listener?: string; review?: '1'; marks?: string; focus?: string; offset?: number; limit?: number }) =>
     queryOptions({
       queryKey: ['units', 'list', projectId, query],
       queryFn: () =>

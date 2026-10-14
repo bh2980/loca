@@ -20,7 +20,6 @@ import { useDraft } from '@/lib/drafts';
 import { q } from '@/lib/queries';
 import { GROUP_KIND } from '@/lib/labels';
 import { cn } from '@/lib/utils';
-import { ForkRow, RestartRow, type RouteFork } from '@/components/script/route-fork';
 import { SpeakerCard } from '@/components/script/speaker-card';
 import type { InferResponseType } from '@/lib/api';
 
@@ -174,9 +173,7 @@ function PickedListener({ projectId, line }: { projectId: string; line: Line }) 
 }
 
 type LineTag = ComponentProps<typeof TagChip>['tag'] & { role?: string | null };
-type ListedLine = InferResponseType<(typeof client.projects)[':projectId']['units']['$get']> extends { rows: (infer Row)[] } ? Row : never;
-/** A listed line; in the main route view (본 줄기) it also carries the fork taken just before it and whether the route starts again there. */
-type Line = ListedLine & { fork?: RouteFork; restart?: true };
+type Line = InferResponseType<(typeof client.projects)[':projectId']['units']['$get']> extends { rows: (infer Row)[] } ? Row : never;
 
 /** One line of the list: a compact row, or the open editor when picked. */
 export function LineRow({ projectId, line, newScene, selected, marked, findLabel, status, statusList, tags, tokenPattern, review, isPicked, arrived, rowRef, noting, focusTick, onPick, onSelect, onOpenScene, onArrivedEnd, onNoting, onDetail, onEscape, onDone, onFilterTag, onFilterMark }: {
@@ -246,22 +243,13 @@ export function LineRow({ projectId, line, newScene, selected, marked, findLabel
       )}
     </li>
   );
-  // Main route (본 줄기): where it started again, and the fork it took before this line.
-  const route = (
-    <>
-      {/* In play order: a fresh start or the fork taken, then the scene it leads into. */}
-      {line.restart && <RestartRow />}
-      {line.fork && <ForkRow projectId={projectId} fork={line.fork} />}
-      {header}
-    </>
-  );
   const checkbox = <Checkbox aria-label={`${line.key} 선택`} checked={isPicked} onClick={(event) => event.stopPropagation()} onCheckedChange={(checked) => onPick(Boolean(checked))} />;
   // A UI string not being edited: key, source and translation on one line, like a string table
   // (not in the review inbox, whose rows show why each line waits there).
   if (line.kind === 'ui' && !selected && !review)
     return (
       <>
-        {route}
+        {header}
         <li
           ref={rowRef}
           onClick={onSelect}
@@ -291,7 +279,7 @@ export function LineRow({ projectId, line, newScene, selected, marked, findLabel
     );
   return (
                 <>
-                {route}
+                {header}
                 {/*
                   Checkbox · source · translation over three rows. Row 1 is metadata in words: who says
                   it to whom over the source, the translation's status over the translation. Row 2 is the

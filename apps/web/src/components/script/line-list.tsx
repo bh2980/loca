@@ -31,7 +31,6 @@ export function LineList({
   projectId,
   groupId,
   review,
-  route,
   kind,
   search,
   onSearch,
@@ -45,8 +44,6 @@ export function LineList({
   projectId: string;
   groupId?: string;
   review?: boolean;
-  /** The main route (본 줄기): the lines of one play through the dialogue graph, in play order. */
-  route?: 'main';
   kind?: 'scene' | 'document' | 'ui';
   search: LinesSearch;
   onSearch: (next: Partial<LinesSearch>, options?: { replace?: boolean }) => void;
@@ -83,7 +80,7 @@ export function LineList({
       projectId,
       find
         ? { groupId, focus: focusing, offset: page * PAGE_SIZE, limit: PAGE_SIZE }
-        : { groupId, kind, route, review: review ? '1' : undefined, marks: search.marks?.join(','), q: search.q, statusId: search.status, tagIds: search.tags?.join(','), speaker: search.speaker, listener: search.listener, focus: focusing, offset: page * PAGE_SIZE, limit: PAGE_SIZE },
+        : { groupId, kind, review: review ? '1' : undefined, marks: search.marks?.join(','), q: search.q, statusId: search.status, tagIds: search.tags?.join(','), speaker: search.speaker, listener: search.listener, focus: focusing, offset: page * PAGE_SIZE, limit: PAGE_SIZE },
     ),
   );
   useEffect(() => {
@@ -105,7 +102,7 @@ export function LineList({
   const setEditing = (edit: boolean) => setFocusTick((tick) => (edit ? tick + 1 : 0));
 
   // Lines picked by their checkboxes; the head row above the lines acts on them.
-  const bulk = useLineBulk({ projectId, pickKey: review ? 'review' : route ? `route.${route}` : (groupId ?? (kind ? `all.${kind}` : 'all')), rows, tagName: (tagId) => tagById.get(tagId)?.name, marks: search.marks });
+  const bulk = useLineBulk({ projectId, pickKey: review ? 'review' : (groupId ?? (kind ? `all.${kind}` : 'all')), rows, tagName: (tagId) => tagById.get(tagId)?.name, marks: search.marks });
   const { picked, pick, stopPicking } = bulk;
   // Moving past the end of a page opens the next page and lands on its first (or last) line.
   const landing = useRef<'first' | 'last' | null>(null);
@@ -245,7 +242,7 @@ export function LineList({
             clear: () => onSearch({ ...chip.clear, page: undefined }),
           }))}
         />
-        {!find && !review && !route && hasLineFilter(search) && (
+        {!find && !review && hasLineFilter(search) && (
           <Button variant="ghost" onClick={() => onSearch({ mode: 'find', page: undefined })}>
             장면에서 찾아가기
           </Button>
