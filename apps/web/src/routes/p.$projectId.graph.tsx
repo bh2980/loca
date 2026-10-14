@@ -86,9 +86,9 @@ const GRAPH_MODES = ['scene', 'dialogue', 'path'] as const;
 function ModeToggle({ value, onChange }: { value: (typeof GRAPH_MODES)[number]; onChange: (value: (typeof GRAPH_MODES)[number]) => void }) {
   return (
     <ToggleGroup type="single" variant="outline" size="sm" value={value} onValueChange={(next) => next && onChange(next as (typeof GRAPH_MODES)[number])}>
-      <ToggleGroupItem value="scene">장면 그래프</ToggleGroupItem>
-      <ToggleGroupItem value="dialogue">대사 그래프</ToggleGroupItem>
-      <ToggleGroupItem value="path">길 따라 보기</ToggleGroupItem>
+      <ToggleGroupItem value="scene">장면</ToggleGroupItem>
+      <ToggleGroupItem value="dialogue">대사</ToggleGroupItem>
+      <ToggleGroupItem value="path">경로</ToggleGroupItem>
     </ToggleGroup>
   );
 }

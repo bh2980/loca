@@ -39,7 +39,7 @@ const SECTIONS: { title: string; keys: [string, string][] }[] = [
     ],
   },
   {
-    title: '길 따라 보기',
+    title: '경로 (길 따라 보기)',
     keys: [
       ['↑ ↓', '목록의 줄 이동'],
       ['Alt+Up Alt+Down', '편집 중에는 줄 이동, 편집 칸 밖에서는 이전·다음 갈림'],
