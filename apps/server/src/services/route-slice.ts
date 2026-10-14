@@ -118,7 +118,8 @@ export function sliceRoute(nodes: GraphNode[], edges: GraphEdge[], units: Map<st
     }
   }
 
-  // A node's place in the script: its first line, else the first line after it.
+  // A node's place in the script: its first line, else just before the first line after it (the
+  // further ahead that line, the earlier), so a fork without lines comes before its own arms.
   const own = new Map(nodes.map((node) => [node.id, Math.min(Infinity, ...node.unitIds.map((id) => units.get(id)?.seq ?? Infinity))]));
   const lead = new Map(own);
   for (const node of nodes) {
@@ -126,7 +127,9 @@ export function sliceRoute(nodes: GraphNode[], edges: GraphEdge[], units: Map<st
     const seen = new Set([node.id]);
     let frontier = [node.id];
     let found = Infinity;
+    let steps = 0;
     for (let depth = 0; depth < 8 && frontier.length && found === Infinity; depth++) {
+      steps = depth + 1;
       const next: string[] = [];
       for (const id of frontier)
         for (const way of out.get(id)!) {
@@ -137,7 +140,7 @@ export function sliceRoute(nodes: GraphNode[], edges: GraphEdge[], units: Map<st
         }
       frontier = next;
     }
-    lead.set(node.id, found);
+    lead.set(node.id, found - steps / 16);
   }
   const bySeq = (a: string, b: string) => lead.get(a)! - lead.get(b)! || (a < b ? -1 : a > b ? 1 : 0);
 
