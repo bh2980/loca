@@ -154,21 +154,15 @@ function LoopNote({ loops }: { loops: string[] }) {
   );
 }
 
-/** '동시에 열림 n' counts the arms the column numbers; targets that only loop back are said apart. */
+/** '동시에 열림 n' counts the arms the column numbers; targets that only loop back are said apart ('↺ n'). */
 function HubChips({ arms, loops, behind }: { arms: number; loops: number; behind: number }) {
+  const notes = [loops ? `직접 연결 ${loops}개는 이 노드로 되돌아오는 길이라 갈래로 세지 않았습니다(↺).` : '', behind ? `직접 연결 ${behind}개는 다른 갈래 뒤에서 이어져 갈래로 세지 않았습니다.` : ''].filter(Boolean);
+  if (!arms && !loops) return null;
   return (
-    <>
-      {arms > 0 && (
-        <Badge variant="secondary" className="shrink-0 tabular-nums" title={behind ? `직접 연결 ${behind}개는 다른 갈래 뒤에서 이어져 갈래로 세지 않았습니다.` : undefined}>
-          동시에 열림 {arms.toLocaleString()}
-        </Badge>
-      )}
-      {loops > 0 && (
-        <Badge variant="outline" className="shrink-0 tabular-nums" title={`직접 연결 ${loops}개는 이 노드로 되돌아오는 길이라 갈래로 세지 않았습니다.`}>
-          {arms > 0 ? '+ ' : ''}되돌아감 {loops.toLocaleString()}
-        </Badge>
-      )}
-    </>
+    <Badge variant="secondary" className="min-w-0 truncate tabular-nums" title={notes.join(' ') || undefined}>
+      {arms > 0 ? `동시에 열림 ${arms.toLocaleString()}` : '되돌아감'}
+      {loops > 0 ? ` · ↺${loops.toLocaleString()}` : ''}
+    </Badge>
   );
 }
 
@@ -224,7 +218,7 @@ function PathNodeView({ data, selected }: NodeProps<PathNode>) {
   return (
     <div style={size} className={cn('relative flex flex-col justify-center gap-0.5 overflow-hidden rounded-lg border bg-background px-3 py-1.5 text-sm shadow-xs', selected && 'border-primary ring-2 ring-primary/30')}>
       <div className="flex items-center gap-1 text-xs text-muted-foreground">
-        <span className="max-w-48 truncate">
+        <span className={cn('max-w-48 truncate', data.shape === 'section' && 'shrink-0')}>
           {data.shape === 'section' ? (data.translated && data.translated < data.lines ? '구간' : `구간 · ${data.lines.toLocaleString()}줄`) : data.shape === 'choice' ? '선택지' : (data.speaker ?? '지문·화면 문구')}
         </span>
         {data.shape !== 'section' && data.lines > 1 && <Badge variant="secondary" className="shrink-0">{data.lines.toLocaleString()}줄</Badge>}
