@@ -91,6 +91,18 @@ export function resolveAt(overview: Overview, at: string | undefined) {
   return overview.nodes.find((node) => node.id === at)?.id ?? (overview.nodes.find((node) => linked.has(node.id)) ?? overview.nodes[0])?.id;
 }
 
+/**
+ * Where the map looks when the list is at `at`: a node joined to nothing (a lone first line the route
+ * does not connect on) would draw a window of one box, so the map looks at the next node that is linked.
+ */
+export function mapPlace(overview: Overview, at: string | undefined) {
+  const here = resolveAt(overview, at);
+  const linked = new Set(overview.edges.filter((edge) => edge.kind === 'path').flatMap((edge) => [edge.from, edge.to]));
+  if (!here || linked.has(here)) return here;
+  const index = overview.nodes.findIndex((node) => node.id === here);
+  return (overview.nodes.slice(index + 1).find((node) => linked.has(node.id)) ?? overview.nodes.find((node) => linked.has(node.id)))?.id ?? here;
+}
+
 export function windowOf(overview: Overview, at: string | undefined, all: boolean): Windowed {
   const byId = new Map(overview.nodes.map((node) => [node.id, node] as const));
   const order = new Map(overview.nodes.map((node, i) => [node.id, i] as const));

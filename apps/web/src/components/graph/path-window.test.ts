@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { foldTranslated, markerId, placeSeams, resolveAt, loopTargets, splitBackEdges, stops, windowOf, type Overview, type OverviewNode } from './path-window';
+import { foldTranslated, mapPlace, markerId, placeSeams, resolveAt, loopTargets, splitBackEdges, stops, windowOf, type Overview, type OverviewNode } from './path-window';
 
 const anchor = (id: string, extra: Partial<OverviewNode> = {}): OverviewNode => ({ id, kind: 'anchor', blockIds: [id], nodeIds: [id], unitIds: [id], lanes: 0, choice: false, join: false, ...extra });
 const section = (id: string): OverviewNode => ({ id, kind: 'section', blockIds: [id], nodeIds: [id], unitIds: [id], lanes: 0, choice: false, join: false });
@@ -199,5 +199,15 @@ describe('seam markers', () => {
       const onEdge = win.edges.filter((edge, i) => result.edge[i] && edge.to === target).length;
       expect(onEdge + (result.node.has(target) ? 1 : 0)).toBe(1);
     }
+  });
+});
+
+describe('mapPlace', () => {
+  it('looks past a lone first node (joined to nothing) at the next linked one, so the map is not a window of one box', () => {
+    const lone: Overview = { nodes: [...overview.nodes.slice(0, 0), { ...overview.nodes[0], id: 'lone', blockIds: [], nodeIds: [], unitIds: ['u'] }, ...overview.nodes], edges: overview.edges };
+    expect(mapPlace(lone, 'lone')).toBe('start');
+    expect(windowOf(lone, mapPlace(lone, 'lone'), false).ids.length).toBeGreaterThan(1);
+    expect(mapPlace(lone, 'c2')).toBe('c2');
+    expect(mapPlace(lone, undefined)).toBe('start');
   });
 });

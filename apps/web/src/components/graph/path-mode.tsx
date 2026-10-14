@@ -6,7 +6,7 @@ import { SeamCheckPane } from '@/components/graph/seam-check-pane';
 import { PathGraph, type PathNodeText } from '@/components/graph/path-graph';
 import { PathNodeExtras, PathNodePane, describeNode, forkChoices } from '@/components/graph/path-pane';
 import { RouteList } from '@/components/graph/route-list';
-import { loopTargets, resolveAt, stops } from '@/components/graph/path-window';
+import { loopTargets, mapPlace, resolveAt, stops } from '@/components/graph/path-window';
 import { AiButton } from '@/components/ai-button';
 import { Page } from '@/components/page';
 import { Toolbar } from '@/components/toolbar';
@@ -114,7 +114,9 @@ export function PathMode({ projectId, toggle, node, edit, at, all, onSelect, onE
   }, []);
 
   const here = slice && resolveAt(slice.overview, at);
-  const around = slice && stops(slice.overview, here);
+  // The map and the choice/join buttons look at a linked node even when the list is on a lone first line.
+  const mapAt = slice && mapPlace(slice.overview, at);
+  const around = slice && stops(slice.overview, mapAt);
   const picks = Object.keys(route.data?.picks ?? {}).length;
   // 이음새 점검 (round 2 on): the seams of this route; 바뀜 are no longer counted as checked.
   const seamList = slice?.overview.nodes.filter((item) => item.kind === 'anchor' && item.seam) ?? [];
@@ -244,7 +246,7 @@ export function PathMode({ projectId, toggle, node, edit, at, all, onSelect, onE
           {/* The map: the path graph as a narrow column. A click goes there in the list; the list scrolling moves it. */}
           <div className="relative w-72 shrink-0 border-r bg-[radial-gradient(var(--graph-grid)_1px,transparent_1px)] [background-size:20px_20px]" data-testid="path-map">
             {slice && graph.data && slice.overview.nodes.length > 0 && (
-              <PathGraph projectId={projectId} slice={slice} checks={checks} texts={texts} at={here} all={all} selectedId={node} folds={false} onSelect={(id) => onSelect(id, true)} onMove={onMove} onReady={ready} />
+              <PathGraph projectId={projectId} slice={slice} checks={checks} texts={texts} at={mapAt} all={all} selectedId={node} folds={false} onSelect={(id) => onSelect(id, true)} onMove={onMove} onReady={ready} />
             )}
             {(route.isPending || graph.isPending) && (
               <div className="absolute inset-0 flex items-center justify-center gap-2 text-sm text-muted-foreground">
