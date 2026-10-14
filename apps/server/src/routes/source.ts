@@ -8,11 +8,12 @@ import { humanLinePatch } from '../services/line-patch.ts';
 import { refusesListener, setHumanListener } from '../services/listeners.ts';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
-import { eachChunk, inList } from '../db/chunk.ts';
+import { eachChunk, inChunks, inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { computeLayouts } from '../services/layout.ts';
 import { readView, sectionWithMost } from '../services/graph-views.ts';
+import { projectRoute } from '../services/main-route.ts';
 import { lineMatches } from '../services/line-matches.ts';
 import { lineTextFilter } from '../services/line-text.ts';
 import { lineMarksSchema } from '@tw/shared';
@@ -38,6 +39,8 @@ const listQuery = z.object({
   marks: z.string().optional().transform((value) => value?.split(',').filter(Boolean)).pipe(lineMarksSchema.optional()),
   /** A line to show: the page is the one holding it (the response says which offset it used). */
   focus: z.string().optional(),
+  /** Only the lines of the main route (본 줄기), in route order (services/main-route.ts). */
+  route: z.enum(['main']).optional(),
   offset: z.coerce.number().int().min(0).default(0),
   limit: z.coerce.number().int().min(1).max(500).default(100),
 });
@@ -88,6 +91,45 @@ const unitColumns = {
   updatedAt: s.units.updatedAt,
 };
 
+
+/** The lines of the main route that match the filters, in route order. */
+function routeMatches(db: Db, projectId: string, query: Omit<z.infer<typeof listQuery>, 'offset' | 'limit' | 'focus'>) {
+  const route = projectRoute(db, projectId);
+  const where = unitConditions(projectId, query);
+  const found = inChunks(route.unitIds, (slice) => {
+    const base = db.select({ id: s.units.id, groupId: s.units.groupId }).from(s.units);
+    return (query.kind ? base.innerJoin(s.groups, eq(s.groups.id, s.units.groupId)) : base).where(and(where, inArray(s.units.id, slice))).all();
+  });
+  const place = new Map(route.unitIds.map((id, i) => [id, i]));
+  return found.sort((a, b) => place.get(a.id)! - place.get(b.id)!);
+}
+
+/** The list's rows with their scene, candidate origin, tags and latest run note; script order, optionally one page. */
+function unitRows(db: Db, where: SQL, page?: { limit: number; offset: number }) {
+  const query = db
+    .select({ ...unitColumns, groupTitle: s.groups.title, groupKind: s.groups.kind, origin: s.candidates.origin, model: s.candidates.model })
+    .from(s.units)
+    .innerJoin(s.groups, eq(s.groups.id, s.units.groupId))
+    .leftJoin(s.candidates, eq(s.candidates.id, s.units.candidateId))
+    .where(where)
+    .orderBy(asc(s.units.seq));
+  const rows = (page ? query.limit(page.limit).offset(page.offset) : query).all();
+  const ids = rows.map((row) => row.id);
+  const tagRows = ids.length ? db.select().from(s.unitTags).where(inArray(s.unitTags.unitId, ids)).all() : [];
+  const tags = Map.groupBy(tagRows, (row) => row.unitId);
+  // What the latest run said about each line (a reviewer's reason to look), newest run first.
+  const lastRun = new Map<string, { runId: string; workflowName: string; issues: string[] }>();
+  if (ids.length)
+    for (const item of db
+      .select({ unitId: s.runItems.unitId, runId: s.runs.id, workflowName: s.runs.workflowName, data: s.runItems.data })
+      .from(s.runItems)
+      .innerJoin(s.runs, eq(s.runs.id, s.runItems.runId))
+      .where(inArray(s.runItems.unitId, ids))
+      .orderBy(desc(s.runs.createdAt))
+      .all())
+      if (!lastRun.has(item.unitId)) lastRun.set(item.unitId, { runId: item.runId, workflowName: item.workflowName, issues: item.data.issues ?? [] });
+  return rows.map((row) => ({ ...row, tagIds: (tags.get(row.id) ?? []).map((tag) => tag.tagId), lastRun: lastRun.get(row.id) ?? null }));
+}
 
 /** Sections laid out on their own (see layout.ts), in script order, with the scenes in each for jumping from the scene graph. */
 function graphSections(db: Db, projectId: string) {
@@ -150,6 +192,7 @@ export const sourceRoutes = new Hono<Env>()
    */
   .get('/projects/:projectId/units/matches', validate('query', listQuery.omit({ offset: true, limit: true, focus: true })), (c) => {
     const query = c.req.valid('query');
+    if (query.route) return c.json({ rows: routeMatches(c.var.deps.db, c.req.param('projectId'), query) });
     const base = c.var.deps.db.select({ id: s.units.id, groupId: s.units.groupId }).from(s.units);
     const rows = (query.kind ? base.innerJoin(s.groups, eq(s.groups.id, s.units.groupId)) : base).where(unitConditions(c.req.param('projectId'), query)).orderBy(asc(s.units.seq)).all();
     return c.json({ rows });
@@ -159,6 +202,21 @@ export const sourceRoutes = new Hono<Env>()
     const projectId = c.req.param('projectId');
     const query = c.req.valid('query');
     const where = unitConditions(projectId, query);
+    if (query.route) {
+      // Route order, not seq: the lines of the route that match the filters, paged by position.
+      const route = projectRoute(db, projectId);
+      const matching = routeMatches(db, projectId, query);
+      const total = matching.length;
+      let offset = query.offset;
+      if (query.focus) {
+        const at = matching.findIndex((row) => row.id === query.focus);
+        if (at >= 0) offset = Math.floor(at / query.limit) * query.limit;
+      }
+      const pageIds = matching.slice(offset, offset + query.limit).map((row) => row.id);
+      const place = new Map(pageIds.map((id, i) => [id, i]));
+      const rows = unitRows(db, and(eq(s.units.projectId, projectId), inArray(s.units.id, pageIds))!).sort((a, b) => place.get(a.id)! - place.get(b.id)!);
+      return c.json({ total, offset, rows: rows.map((row) => ({ ...row, fork: route.forkBefore.get(row.id), restart: route.restarts.has(row.id) || undefined })) });
+    }
     // The groups table is only needed for the kind filter; without it the count is one index range.
     const counted = db.select({ count: count() }).from(s.units);
     const total = (query.kind ? counted.innerJoin(s.groups, eq(s.groups.id, s.units.groupId)) : counted).where(where).get()!.count;
@@ -171,31 +229,7 @@ export const sourceRoutes = new Hono<Env>()
         offset = Math.floor(before / query.limit) * query.limit;
       }
     }
-    const rows = db
-      .select({ ...unitColumns, groupTitle: s.groups.title, groupKind: s.groups.kind, origin: s.candidates.origin, model: s.candidates.model })
-      .from(s.units)
-      .innerJoin(s.groups, eq(s.groups.id, s.units.groupId))
-      .leftJoin(s.candidates, eq(s.candidates.id, s.units.candidateId))
-      .where(where)
-      .orderBy(asc(s.units.seq))
-      .limit(query.limit)
-      .offset(offset)
-      .all();
-    const ids = rows.map((row) => row.id);
-    const tagRows = ids.length ? db.select().from(s.unitTags).where(inArray(s.unitTags.unitId, ids)).all() : [];
-    const tags = Map.groupBy(tagRows, (row) => row.unitId);
-    // What the latest run said about each line (a reviewer's reason to look), newest run first.
-    const lastRun = new Map<string, { runId: string; workflowName: string; issues: string[] }>();
-    if (ids.length)
-      for (const item of db
-        .select({ unitId: s.runItems.unitId, runId: s.runs.id, workflowName: s.runs.workflowName, data: s.runItems.data })
-        .from(s.runItems)
-        .innerJoin(s.runs, eq(s.runs.id, s.runItems.runId))
-        .where(inArray(s.runItems.unitId, ids))
-        .orderBy(desc(s.runs.createdAt))
-        .all())
-        if (!lastRun.has(item.unitId)) lastRun.set(item.unitId, { runId: item.runId, workflowName: item.workflowName, issues: item.data.issues ?? [] });
-    return c.json({ total, offset, rows: rows.map((row) => ({ ...row, tagIds: (tags.get(row.id) ?? []).map((tag) => tag.tagId), lastRun: lastRun.get(row.id) ?? null })) });
+    return c.json({ total, offset, rows: unitRows(db, where, { limit: query.limit, offset }) });
   })
   /** Lines by key, in script order: evidence cited by knowledge drafts. */
   .post('/projects/:projectId/units/by-keys', validate('json', z.object({ keys: z.array(z.string()).max(500) })), (c) => {
@@ -349,6 +383,38 @@ export const sourceRoutes = new Hono<Env>()
   })
 
   // ── graphs ─────────────────────────────────────────────────────────
+  /** The main route (본 줄기) for highlighting on the graph. */
+  .get('/projects/:projectId/route', (c) => {
+    const { db } = c.var.deps;
+    const projectId = c.req.param('projectId');
+    const route = projectRoute(db, projectId);
+    return c.json({ nodeIds: route.nodeIds, steps: route.steps, lines: route.unitIds.length, forks: route.forkBefore.size, picks: db.select({ picks: s.projects.routePicks }).from(s.projects).where(eq(s.projects.id, projectId)).get()?.picks ?? {} });
+  })
+  /** A person's arm at a fork of the main route; armId null takes the pick back. */
+  .put('/projects/:projectId/route-picks', validate('json', z.object({ nodeId: z.string(), armId: z.string().nullable() })), (c) => {
+    const { db } = c.var.deps;
+    const projectId = c.req.param('projectId');
+    const { nodeId, armId } = c.req.valid('json');
+    const current = db.select({ picks: s.projects.routePicks }).from(s.projects).where(eq(s.projects.id, projectId)).get();
+    if (!current) badRequest('프로젝트를 찾을 수 없습니다.');
+    const inProject = (id: string) => db.select({ id: s.graphNodes.id }).from(s.graphNodes).where(and(eq(s.graphNodes.id, id), eq(s.graphNodes.projectId, projectId))).get();
+    const picks = { ...current.picks };
+    if (armId === null) delete picks[nodeId];
+    else {
+      if (!inProject(nodeId) || !inProject(armId)) badRequest('이 프로젝트의 그래프 노드가 아닙니다.');
+      if (!db.select({ id: s.graphEdges.id }).from(s.graphEdges).where(and(eq(s.graphEdges.projectId, projectId), eq(s.graphEdges.fromId, nodeId), eq(s.graphEdges.toId, armId))).get()) badRequest('두 노드를 잇는 연결이 없습니다.');
+      picks[nodeId] = armId;
+    }
+    db.update(s.projects).set({ routePicks: picks }).where(eq(s.projects.id, projectId)).run();
+    events.changed(projectId, 'graph', 'units');
+    return c.json({ picks });
+  })
+  .delete('/projects/:projectId/route-picks', (c) => {
+    const projectId = c.req.param('projectId');
+    c.var.deps.db.update(s.projects).set({ routePicks: {} }).where(eq(s.projects.id, projectId)).run();
+    events.changed(projectId, 'graph', 'units');
+    return c.json({ picks: {} });
+  })
   /** The dialogue graph's sections alone: the graph page needs them before it knows which layout to load. */
   .get('/projects/:projectId/graph/sections', (c) => c.json(graphSections(c.var.deps.db, c.req.param('projectId'))))
   .get('/projects/:projectId/graph/:scope{dialogue|scene}', validate('query', z.object({ section: z.string().optional() })), (c) => {

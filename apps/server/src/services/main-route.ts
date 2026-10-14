@@ -23,6 +23,8 @@ export interface MainRoute {
   forkBefore: Map<string, RouteFork>;
   /** Lines where the route starts again at another starting point, having run out of ways forward. */
   restarts: Set<string>;
+  /** Every graph edge the route takes, [from, to], in order (a restart or a return to a hub is not an edge). */
+  steps: [string, string][];
 }
 
 type Edge = { to: string; label: string | null };
@@ -117,7 +119,7 @@ export function walkRoute(
   };
 
   const passed = new Array<boolean>(nodes.length).fill(false);
-  const route: MainRoute = { nodeIds: [], unitIds: [], forkBefore: new Map(), restarts: new Set() };
+  const route: MainRoute = { nodeIds: [], unitIds: [], forkBefore: new Map(), restarts: new Set(), steps: [] };
   const heard = new Set<string>();
   // The latest script position the route has read.
   let furthest = -Infinity;
@@ -154,6 +156,7 @@ export function walkRoute(
       const arms = [...out[n]!].sort((a, b) => bySeq(index.get(a.to)!, index.get(b.to)!)).map((way) => ({ nodeId: way.to, label: armLabel(way) }));
       pendingFork = { nodeId: nodes[n]!.id, chosen: next.to, arms, picked: Boolean(pick) };
     }
+    route.steps.push([nodes[n]!.id, next.to]);
     return index.get(next.to)!;
   };
 
