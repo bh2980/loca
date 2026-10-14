@@ -7,14 +7,17 @@ import { PathGraph, type PathNodeText } from '@/components/graph/path-graph';
 import { PathNodeExtras, PathNodePane, describeNode, forkChoices } from '@/components/graph/path-pane';
 import { RouteList } from '@/components/graph/route-list';
 import { loopTargets, resolveAt, stops } from '@/components/graph/path-window';
+import { AiButton } from '@/components/ai-button';
 import { Page } from '@/components/page';
+import { Toolbar } from '@/components/toolbar';
+import { RunDialog } from '@/components/workflow/run-dialog';
+import { routeSequence, translatedIds } from '@/components/graph/route-list-model';
 import { PaneHeader } from '@/components/pane-header';
 import { SplitPane } from '@/components/split-pane';
 import { Button } from '@/components/ui/button';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Spinner } from '@/components/ui/spinner';
-import { Toggle } from '@/components/ui/toggle';
 import { keyLabel } from '@/lib/keys';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
@@ -48,6 +51,12 @@ export function PathMode({ projectId, toggle, node, edit, at, all, onSelect, onE
   const graph = useQuery(q.graph(projectId, 'dialogue'));
   const texts = useMemo(() => new Map<string, PathNodeText>((graph.data?.nodes ?? []).map((item) => [item.id, { speaker: item.speaker, text: item.text }])), [graph.data]);
   const slice = route.data;
+  // The lines the AI button translates: this route's lines without a translation, in reading order (what the list counts as 번역 안 한 줄).
+  const untranslated = useMemo(() => {
+    if (!slice) return [];
+    const done = translatedIds(slice.blocks, slice.translatedMask);
+    return routeSequence(slice.overview).flatMap((line) => (done.has(line.unitId) ? [] : [line.unitId]));
+  }, [slice]);
   const seamData = useQuery(q.seamChecks(projectId)).data;
   const checks = seamData?.checks;
   // 다음 길 (docs/DESIGN.md J2c): the route through the most untranslated lines, and the steps between routes.
@@ -111,7 +120,7 @@ export function PathMode({ projectId, toggle, node, edit, at, all, onSelect, onE
   const seamList = slice?.overview.nodes.filter((item) => item.kind === 'anchor' && item.seam) ?? [];
   const seamChecks = seamData?.seamChecks;
   const remaining = next ? (next.remainingRoutes === 0 ? '남은 길 없음' : `남은 길 약 ${next.remainingRoutes}`) : undefined;
-  const summary = slice ? [`길 ${slice.round}`, `새 줄 ${slice.newLinesOnRoute.toLocaleString()}`, `번역 ${slice.translatedGraphLines.toLocaleString()}/${slice.graphLines.toLocaleString()}줄`, remaining].filter(Boolean).join(' · ') : undefined;
+  const summary = slice ? [`길 ${slice.round}`, `번역 ${slice.translatedGraphLines.toLocaleString()}/${slice.graphLines.toLocaleString()}줄`, remaining].filter(Boolean).join(' · ') : undefined;
   const scope = slice ? `이번 길 ${slice.lines.toLocaleString()}줄 / 프로젝트 전체 ${slice.totalLines.toLocaleString()}줄 · 새 줄은 이번 길에서 아직 번역하지 않은 줄 · 번역은 대사 그래프에 있는 줄(${slice.graphLines.toLocaleString()}줄) 기준, 번역 글자가 있는 줄만 셉니다.` : undefined;
   const seamSummary = round >= 2 && seamChecks ? `이음새 점검 ${seamChecks.checked.toLocaleString()}/${seamChecks.total.toLocaleString()}${seamChecks.stale ? ` · 바뀜 ${seamChecks.stale.toLocaleString()}` : ''}` : undefined;
   // The next seam in script order after the window's place (wrapping round); only `at` moves.
@@ -139,63 +148,76 @@ export function PathMode({ projectId, toggle, node, edit, at, all, onSelect, onE
     return () => window.removeEventListener('keydown', onKey);
   }, [all]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const toolbar = slice && slice.overview.nodes.length > 0;
   return (
-    <Page
-      title="그래프"
-      wideMeta
-      meta={
-        summary && (
-          <span className="text-sm text-muted-foreground tabular-nums" title={[summary, scope, seamSummary].filter(Boolean).join(' · ')}>
+    <Page title="그래프" flush>
+      <div className="absolute inset-0 flex flex-col">
+        <Toolbar
+          actions={
+            toolbar && (
+              <>
+                {/* AI 번역: the existing run dialog, scoped to this route's untranslated lines (the ones the list counts). */}
+                <RunDialog
+                  projectId={projectId}
+                  unitIds={untranslated.length ? untranslated : undefined}
+                  unitsLabel="이번 길 번역 안 한 줄"
+                  defaultIgnoreStatus
+                  trigger={
+                    <AiButton disabled={!untranslated.length} title={untranslated.length ? '이번 길에서 번역하지 않은 줄만 워크플로로 AI 번역합니다. 시작 전에 범위와 모델을 확인합니다.' : '이번 길에 번역하지 않은 줄이 없습니다.'}>
+                      이번 길 새 줄 AI 번역 ({untranslated.length.toLocaleString()}줄)
+                    </AiButton>
+                  }
+                />
+                <Button variant="ghost" disabled={!slice.canGoBack || busy} title="바로 앞 길의 선택으로 되돌립니다" onClick={() => prevRoute.mutate()}>
+                  이전 길
+                </Button>
+                <Button disabled={!next || finished || stay || busy} title={nextTitle} onClick={() => nextRoute.mutate()}>
+                  {nextLabel}
+                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" title="더보기">
+                      <MoreHorizontal /> 더보기
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuCheckboxItem checked={all} onCheckedChange={(checked) => onAll(checked === true)}>
+                      전체 보기
+                    </DropdownMenuCheckboxItem>
+                    {round >= 2 && (
+                      <DropdownMenuItem disabled={!nextSeam} onSelect={goSeam}>
+                        다음 이음새
+                      </DropdownMenuItem>
+                    )}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem disabled={all || !around?.previous} onSelect={() => go(around?.previous)}>
+                      이전 갈림
+                      <span className="ml-auto pl-4 text-xs text-muted-foreground">{keyLabel('Alt+Up')}</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem disabled={all || !around?.next} onSelect={() => go(around?.next)}>
+                      다음 갈림
+                      <span className="ml-auto pl-4 text-xs text-muted-foreground">{keyLabel('Alt+Down')}</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem disabled={picks === 0 || reset.isPending} onSelect={() => reset.mutate()}>
+                      선택 초기화
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </>
+            )
+          }
+        >
+          {toggle}
+        </Toolbar>
+        {/* The route's facts: one muted line under the toolbar (never wraps, the full text is the tooltip). */}
+        {summary && (
+          <p className="shrink-0 truncate border-b px-4 py-1.5 text-xs text-muted-foreground tabular-nums" title={[summary, scope, seamSummary].filter(Boolean).join(' · ')}>
             <span data-testid="path-summary">{summary}</span>
             {seamSummary && <span data-testid="seam-summary"> · {seamSummary}</span>}
-          </span>
-        )
-      }
-      actions={
-        <div className="flex items-center gap-2">
-          {slice && slice.overview.nodes.length > 0 && (
-            <>
-              <Button variant="outline" disabled={!slice.canGoBack || busy} title="바로 앞 길의 선택으로 되돌립니다" onClick={() => prevRoute.mutate()}>
-                이전 길
-              </Button>
-              <Button disabled={!next || finished || stay || busy} title={nextTitle} onClick={() => nextRoute.mutate()}>
-                {nextLabel}
-              </Button>
-              <Toggle variant="outline" size="sm" pressed={all} onPressedChange={onAll} title="창 없이 전체를 한 화면에 맞춥니다">
-                전체 보기
-              </Toggle>
-              {round >= 2 && (
-                <Button variant="ghost" disabled={!nextSeam} title="이 길의 다음 이음새로 이동 (끝이면 처음 이음새)" onClick={goSeam}>
-                  다음 이음새
-                </Button>
-              )}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" title="더보기">
-                    <MoreHorizontal /> 더보기
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem disabled={all || !around?.previous} onSelect={() => go(around?.previous)}>
-                    이전 갈림
-                    <span className="ml-auto pl-4 text-xs text-muted-foreground">{keyLabel('Alt+Up')}</span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem disabled={all || !around?.next} onSelect={() => go(around?.next)}>
-                    다음 갈림
-                    <span className="ml-auto pl-4 text-xs text-muted-foreground">{keyLabel('Alt+Down')}</span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem disabled={picks === 0 || reset.isPending} onSelect={() => reset.mutate()}>
-                    선택 초기화
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </>
-          )}
-          {toggle}
-        </div>
-      }
-      flush
-    >
+          </p>
+        )}
+        <div className="relative min-h-0 flex-1">
       <SplitPane
         id="graph"
         defaultWidth="380px"
@@ -244,6 +266,8 @@ export function PathMode({ projectId, toggle, node, edit, at, all, onSelect, onE
           </div>
         </div>
       </SplitPane>
+        </div>
+      </div>
     </Page>
   );
 }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 import { toast } from 'sonner';
 import { SeamStateChip } from '@/components/graph/seam-check-pane';
 import { buildItems, indexOfLine, nodeStarts, routeSequence, translatedIds, untranslatedFrom, type RouteItem } from '@/components/graph/route-list-model';
@@ -358,10 +359,10 @@ export function RouteList({ projectId, slice, checks, at, edit, onEdit, onAt }: 
           이번 길 {sequence.length.toLocaleString()}줄 · 번역 안 한 줄 {remaining.toLocaleString()}
         </span>
         <Button variant="ghost" disabled={!remaining} title={`앞의 번역 안 한 줄 (${keyLabel('Alt+Shift+N')})`} onClick={() => goUntranslated(-1)}>
-          이전 안 한 줄
+          <ChevronUp /> 이전 안 한 줄
         </Button>
         <Button variant="ghost" disabled={!remaining} title={`뒤의 번역 안 한 줄 (${keyLabel('Alt+N')})`} onClick={() => goUntranslated(1)}>
-          다음 안 한 줄 <span className="text-xs text-muted-foreground">{keyLabel('Alt+N')}</span>
+          <ChevronDown /> 다음 안 한 줄
         </Button>
       </div>
       <div ref={parent} className="min-h-0 flex-1 overflow-y-auto" data-testid="route-scroll">
