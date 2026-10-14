@@ -370,7 +370,7 @@ export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: A
     if (body && !documentRejected) tx.insert(s.documents).values({ projectId, kind: 'story', title, body, evidence: keys(overview.evidence), ...draft('documents') }).run();
 
     // People: a stored person (any status) keeps their name; rejected ones are not proposed again but nothing new points at them.
-    const stored = tx.select({ id: s.characters.id, name: s.characters.name, aliases: s.characters.aliases, status: s.characters.status, profile: s.characters.profile, speech: s.characters.speech, gender: s.characters.gender, ageBand: s.characters.ageBand, evidence: s.characters.evidence }).from(s.characters).where(eq(s.characters.projectId, projectId)).all();
+    const stored = tx.select({ id: s.characters.id, name: s.characters.name, aliases: s.characters.aliases, status: s.characters.status, profile: s.characters.profile, speech: s.characters.speech, gender: s.characters.gender, ageBand: s.characters.ageBand, origin: s.characters.origin, evidence: s.characters.evidence }).from(s.characters).where(eq(s.characters.projectId, projectId)).all();
     const live = stored.filter((c) => c.status !== 'rejected');
     // The model may still spell a known person differently ("Mara Holt" for the speaker "Mara"):
     // such names are mapped onto the stored person everywhere, so rules and relationships meet the lines' speakers.
@@ -387,8 +387,9 @@ export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: A
         const fill = known && {
           ...(!known.profile.trim() && c.profile.trim() && { profile: c.profile }),
           ...(!known.speech.trim() && c.speech.trim() && { speech: c.speech }),
-          ...(known.gender === 'unknown' && c.gender !== 'unknown' && { gender: c.gender }),
-          ...(known.ageBand === 'unknown' && c.ageBand !== 'unknown' && { ageBand: c.ageBand }),
+          // 'unknown' may be a person's answer (they set it back): a person's character keeps it.
+          ...(known.origin !== 'human' && known.gender === 'unknown' && c.gender !== 'unknown' && { gender: c.gender }),
+          ...(known.origin !== 'human' && known.ageBand === 'unknown' && c.ageBand !== 'unknown' && { ageBand: c.ageBand }),
           ...(!known.evidence.length && keys(c.evidence).length && { evidence: keys(c.evidence) }),
         };
         if (fill && Object.keys(fill).length) tx.update(s.characters).set(fill).where(eq(s.characters.id, known.id)).run();

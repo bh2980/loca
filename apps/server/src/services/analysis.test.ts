@@ -182,12 +182,13 @@ describe('work analysis', () => {
   it('fills the empty fields of a person already in the cast and leaves written ones alone', () => {
     const { db, projectId } = setup();
     const { keyOf } = scriptText(db, projectId);
-    db.insert(s.characters).values([{ projectId, name: 'Alice', origin: 'import', status: 'confirmed' }, { projectId, name: 'Bob', profile: '사람이 쓴 설명', gender: 'male', origin: 'human', status: 'confirmed' }]).run();
+    db.insert(s.characters).values([{ projectId, name: 'Alice', origin: 'import', status: 'confirmed' }, { projectId, name: 'Bob', profile: '사람이 쓴 설명', gender: 'unknown', origin: 'human', status: 'confirmed' }]).run();
     saveDrafts(db, projectId, 'job', draft('haeyo'), keyOf);
     const people = new Map(db.select().from(s.characters).where(eq(s.characters.projectId, projectId)).all().map((c) => [c.name, c]));
     expect(people.size).toBe(2);
     expect(people.get('Alice')).toMatchObject({ profile: '선장', speech: '짧고 단호함', gender: 'female', ageBand: 'middle', origin: 'import' });
-    expect(people.get('Bob')).toMatchObject({ profile: '사람이 쓴 설명', speech: '', gender: 'male' });
+    // A person's 'unknown' stays (the draft says female).
+    expect(people.get('Bob')).toMatchObject({ profile: '사람이 쓴 설명', speech: '', gender: 'unknown' });
   });
 
   it("keeps an AI rule as a candidate beside a person's rule that says otherwise", () => {
