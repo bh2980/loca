@@ -1,11 +1,11 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { LineMark } from '@tw/shared';
 import { Link } from '@tanstack/react-router';
-import { Check, ChevronRight, Inbox, Rows3 } from 'lucide-react';
+import { AppWindow, Check, ChevronRight, FileText, Inbox, MessageSquareText, Rows3 } from 'lucide-react';
 import { SearchInput } from '@/components/toolbar';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { GROUP_KIND } from '@/lib/labels';
+import { GROUP_KIND, SCRIPT_VIEW } from '@/lib/labels';
 import { cn } from '@/lib/utils';
 
 export interface GroupRow {
@@ -41,7 +41,9 @@ function sectionsOf(groups: GroupRow[]) {
   return sections;
 }
 
-export type ScriptScope = { group?: string; review?: true };
+export type ScriptScope = { group?: string; review?: true; kind?: GroupRow['kind'] };
+
+const VIEW_ICON = { scene: <MessageSquareText />, ui: <AppWindow />, document: <FileText /> };
 
 /**
  * The script's scenes down the left of the translation screen, with "모든 대사" and "검토함" on top.
@@ -50,7 +52,7 @@ export type ScriptScope = { group?: string; review?: true };
 /** Scenes from which the list gets its own search box. */
 const SEARCH_FROM = 20;
 
-export function GroupList({ projectId, groups, finalIds, scope, lineTotal, reviewCount, gq, onFilter, marks }: {
+export function GroupList({ projectId, groups, finalIds, scope, lineTotal, reviewCount, gq, onFilter, marks, views }: {
   projectId: string;
   groups: GroupRow[] | undefined;
   /** Statuses that count as done. */
@@ -62,6 +64,8 @@ export function GroupList({ projectId, groups, finalIds, scope, lineTotal, revie
   onFilter: (gq: string | undefined) => void;
   /** While a filter is walked (찾아가기): how many of its lines each scene holds; scenes keep the filter. */
   marks?: Map<string, number>;
+  /** The views when the project has more than one kind (대사 · UI · 문서), with their line counts; `groups` are the open view's. */
+  views?: { kind: GroupRow['kind']; lines: number }[];
 }) {
   const sections = useMemo(() => sectionsOf(groups ?? []), [groups]);
   const [opened, setOpened] = useState<Set<string>>(() => new Set(readOpened(projectId)));
@@ -88,18 +92,22 @@ export function GroupList({ projectId, groups, finalIds, scope, lineTotal, revie
   return (
     <div className="flex h-full min-h-0 flex-col bg-sidebar/40">
       <div className="space-y-0.5 border-b p-2">
-        <ScopeLink projectId={projectId} scope={{}} active={!scope.group && !scope.review} icon={<Rows3 />} label="모든 대사" count={lineTotal} />
+        {views ? (
+          views.map((view) => <ScopeLink key={view.kind} projectId={projectId} scope={{ kind: view.kind }} active={!scope.group && !scope.review && scope.kind === view.kind} icon={VIEW_ICON[view.kind]} label={SCRIPT_VIEW[view.kind]} count={view.lines} />)
+        ) : (
+          <ScopeLink projectId={projectId} scope={{}} active={!scope.group && !scope.review} icon={<Rows3 />} label="모든 대사" count={lineTotal} />
+        )}
         <ScopeLink projectId={projectId} scope={{ review: true }} active={Boolean(scope.review)} icon={<Inbox />} label="검토함" count={reviewCount} highlight={reviewCount > 0} />
       </div>
       {/* A few scenes are read at a glance (⌘K finds scenes too); the box shows once there are many. */}
       {(gq || (groups?.length ?? 0) >= SEARCH_FROM) && (
         <div className="border-b p-2">
-          <SearchInput value={gq} onChange={onFilter} placeholder="장면 찾기" className="w-full" />
+          <SearchInput value={gq} onChange={onFilter} placeholder={`${GROUP_KIND[scope.kind ?? 'scene']} 찾기`} className="w-full" />
         </div>
       )}
       <div className="min-h-0 flex-1 overflow-y-auto p-1">
         {!groups && <p className="px-3 py-2 text-xs text-muted-foreground">불러오는 중…</p>}
-        {groups?.length === 0 && <p className="px-3 py-2 text-sm text-muted-foreground">맞는 장면이 없습니다.</p>}
+        {groups?.length === 0 && <p className="px-3 py-2 text-sm text-muted-foreground">맞는 항목이 없습니다.</p>}
         {sections.map((section) => {
           // A scene search shows its matches wherever they are.
           const open = Boolean(gq) || !section.name || opened.has(section.name);

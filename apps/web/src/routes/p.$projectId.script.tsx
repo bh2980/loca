@@ -10,19 +10,24 @@ import { Button } from '@/components/ui/button';
 import { askAgent } from '@/lib/agent';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { GROUP_KIND } from '@/lib/labels';
+import { GROUP_KIND, SCRIPT_VIEW } from '@/lib/labels';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { keyLabel } from '@/lib/keys';
 
 type Kind = GroupRow['kind'];
+const VIEW_ORDER: Kind[] = ['scene', 'ui', 'document'];
 interface ScriptSearch extends LinesSearch {
-  /** Group whose lines are shown; none = every line (of `kind`, if set). */
+  /** Group whose lines are shown; none = every line of the view (`kind`). */
   group?: string;
   /** Only lines waiting in the review inbox. */
   review?: true;
-  /** The group list's own filters, kept while lines change. */
+  /**
+   * The view: the scenes' dialogue, UI strings or documents, each with its own groups on the left.
+   * Unset = the picked group's kind, else the first kind the project has. One kind = no views.
+   */
   kind?: Kind;
+  /** The group list's own search, kept while lines change. */
   gq?: string;
 }
 
@@ -56,9 +61,18 @@ function Script() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const project = useQuery(q.project(projectId));
-  const groups = useQuery(q.groups(projectId, { kind: search.kind, q: search.gq }));
+  const allGroups = useQuery(q.groups(projectId));
+  const searched = useQuery({ ...q.groups(projectId, { q: search.gq }), enabled: Boolean(search.gq) });
   const statuses = useQuery(q.statuses(projectId));
-  const ordered = [...(groups.data ?? [])].sort((a, b) => a.sort - b.sort);
+  // Scenes, UI and documents are separate views, not one mixed list: each kind the project has gets one.
+  const views = VIEW_ORDER.filter((kind) => allGroups.data?.some((item) => item.kind === kind)).map((kind) => ({
+    kind,
+    lines: (allGroups.data ?? []).filter((item) => item.kind === kind).reduce((sum, item) => sum + item.total, 0),
+  }));
+  const split = views.length > 1;
+  const view: Kind = allGroups.data?.find((item) => item.id === search.group)?.kind ?? search.kind ?? views[0]?.kind ?? 'scene';
+  const groups = search.gq ? searched : allGroups;
+  const ordered = [...(groups.data ?? [])].filter((item) => !split || item.kind === view).sort((a, b) => a.sort - b.sort);
   const index = ordered.findIndex((item) => item.id === search.group);
   const group = index >= 0 ? ordered[index] : undefined;
   const finalIds = new Set(statuses.data?.statuses.filter((status) => status.kind === 'final').map((status) => status.id));
@@ -80,7 +94,8 @@ function Script() {
   // 찾아가기: the filter's lines are walked one by one inside their scenes instead of listed apart.
   const finding = isFinding(search) && !search.review;
   const matches = useQuery({
-    ...q.unitMatches(projectId, { statusId: search.status, tagIds: search.tags?.join(','), q: search.q, speaker: search.speaker, listener: search.listener, marks: search.marks?.join(',') }),
+    // Walking a filter stays inside the open view (대사 · UI · 문서).
+    ...q.unitMatches(projectId, { kind: split ? view : undefined, statusId: search.status, tagIds: search.tags?.join(','), q: search.q, speaker: search.speaker, listener: search.listener, marks: search.marks?.join(',') }),
     enabled: finding,
   });
   const matchRows = useMemo(() => (finding ? (matches.data?.rows ?? []) : []), [finding, matches.data]);
@@ -182,7 +197,7 @@ function Script() {
           )}
         </>
       ) : (
-        <span className="px-1 text-sm font-semibold">{search.review ? '검토함' : '모든 대사'}</span>
+        <span className="px-1 text-sm font-semibold">{search.review ? '검토함' : split ? SCRIPT_VIEW[view] : '모든 대사'}</span>
       )}
     </span>
   );
@@ -197,7 +212,8 @@ function Script() {
                 projectId={projectId}
                 groups={groups.data && ordered}
                 finalIds={finalIds}
-                scope={{ group: search.group, review: search.review }}
+                scope={{ group: search.group, review: search.review, kind: split ? view : undefined }}
+                views={split ? views : undefined}
                 lineTotal={lineTotal}
                 reviewCount={project.data?.reviewCount ?? 0}
                 gq={search.gq}
@@ -210,11 +226,11 @@ function Script() {
         )}
         <ResizablePanel id="lines" minSize="480px" className="flex min-w-0 flex-col">
           <LineList
-            key={`${search.group ?? ''}:${search.review ?? ''}`}
+            key={`${search.group ?? ''}:${search.review ?? ''}:${search.group || search.review ? '' : view}`}
             projectId={projectId}
             groupId={search.group}
             review={search.review}
-            kind={search.group ? undefined : search.kind}
+            kind={search.group || search.review || !split ? undefined : view}
             search={search}
             onSearch={onSearch}
             onOpenScene={(groupId, line) => void navigate({ search: { group: groupId, line } })}
@@ -224,7 +240,7 @@ function Script() {
                 <div className="flex shrink-0 items-center gap-2 border-b bg-warning/5 px-4 py-1.5 text-sm">
                   {/* Says it is the whole scene, the matches marked: the list alone shows only the matches. */}
                   <span className="truncate">
-                    장면 전체에서 <span className="font-medium">{findLabel}</span> 찾는 중
+                    {GROUP_KIND[group?.kind ?? view]} 전체에서 <span className="font-medium">{findLabel}</span> 찾는 중
                   </span>
                   <span className="text-xs whitespace-nowrap text-muted-foreground tabular-nums">
                     {!matches.data ? '찾는 중…' : !matchRows.length ? '해당하는 줄이 없습니다' : `${position >= 0 ? (position + 1).toLocaleString() : '–'} / ${matchRows.length.toLocaleString()}줄 · 이 장면 ${(perScene.get(search.group ?? '') ?? 0).toLocaleString()}줄`}
