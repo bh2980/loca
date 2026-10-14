@@ -237,7 +237,8 @@ export function sliceRoute(nodes: GraphNode[], edges: GraphEdge[], units: Map<st
   // Straight runs of shown nodes fold into one block; a run breaks where ways part or meet, at an
   // option (read on its own) and where a stub comes back.
   const single = (id: string) => links.get(id)!.size === 1 && !chosenAt.has(id) && byId.get(id)!.kind !== 'choice';
-  const joinable = (id: string) => linksIn.get(id) === 1 && !rejoined.has(id) && byId.get(id)!.kind !== 'choice';
+  // A fork without lines of its own (a condition, a state opening several ways) is drawn on its own: where the ways part shows.
+  const joinable = (id: string) => linksIn.get(id) === 1 && !rejoined.has(id) && byId.get(id)!.kind !== 'choice' && (byId.get(id)!.unitIds.length > 0 || (!chosenAt.has(id) && !fansOut.has(id)));
   const blockOf = new Map<string, string>();
   const blocks: SliceBlock[] = [];
   for (const id of visible) {
