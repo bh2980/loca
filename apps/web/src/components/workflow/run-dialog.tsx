@@ -32,12 +32,14 @@ const KIND_ORDER: GroupKind[] = ['scene', 'ui', 'document'];
  * there, the run page shows them). The count is exactly what will run: scope ∩ entry statuses
  * (unless ignored).
  */
-export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, unitIds, viewKind, dirty, disabled, trigger, defaultIgnoreStatus = false, preferWorkflow }: {
+export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, unitIds, unitsLabel, viewKind, dirty, disabled, trigger, defaultIgnoreStatus = false, preferWorkflow }: {
   projectId: string;
   /** Omit to let the user pick a workflow (when starting from a scene or a line selection). */
   workflowId?: string;
   groupIds?: string[];
   unitIds?: string[];
+  /** What the named lines are, when they are not simply picked ('이번 길 번역 안 한 줄'); the scope button reads it with the count. */
+  unitsLabel?: string;
   /** Opened from the script's UI or documents view: every line of that kind is the scope to start from. */
   viewKind?: GroupKind;
   dirty?: boolean;
@@ -161,7 +163,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
           <section className="space-y-2">
             <h3 className="text-xs text-muted-foreground">무엇을</h3>
             <div className="flex flex-wrap gap-2">
-              {unitIds?.length ? scopeButton('units', `고른 대사 ${unitIds.length}줄`) : null}
+              {unitIds?.length ? scopeButton('units', `${unitsLabel ?? '고른 대사'} ${unitIds.length.toLocaleString()}줄`) : null}
               {groupIds?.length ? scopeButton('here', here?.length === 1 ? `이 장면 · ${here[0].title}` : `이 장면들 ${groupIds.length}개`) : null}
               {scopeButton('groups', mode === 'groups' && picked.size ? `장면 ${picked.size}개` : '장면 고르기')}
               {scopeButton('tags', '태그로')}

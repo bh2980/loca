@@ -13,6 +13,9 @@ import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { computeLayouts } from '../services/layout.ts';
 import { readView, sectionWithMost } from '../services/graph-views.ts';
+import { graphKey, projectSlice } from '../services/route-slice.ts';
+import { defaultPicks, effectivePicks, previewNext, projectRouteInputs, routeProgress } from '../services/next-route.ts';
+import { seamDetail, seamLines, seamNodes, seamStates } from '../services/seam-check.ts';
 import { lineMatches } from '../services/line-matches.ts';
 import { lineTextFilter } from '../services/line-text.ts';
 import { lineMarksSchema } from '@tw/shared';
@@ -88,6 +91,33 @@ const unitColumns = {
   updatedAt: s.units.updatedAt,
 };
 
+
+/** The list's rows with their scene, candidate origin, tags and latest run note; script order, optionally one page. */
+function unitRows(db: Db, where: SQL, page?: { limit: number; offset: number }) {
+  const query = db
+    .select({ ...unitColumns, groupTitle: s.groups.title, groupKind: s.groups.kind, origin: s.candidates.origin, model: s.candidates.model })
+    .from(s.units)
+    .innerJoin(s.groups, eq(s.groups.id, s.units.groupId))
+    .leftJoin(s.candidates, eq(s.candidates.id, s.units.candidateId))
+    .where(where)
+    .orderBy(asc(s.units.seq));
+  const rows = (page ? query.limit(page.limit).offset(page.offset) : query).all();
+  const ids = rows.map((row) => row.id);
+  const tagRows = ids.length ? db.select().from(s.unitTags).where(inArray(s.unitTags.unitId, ids)).all() : [];
+  const tags = Map.groupBy(tagRows, (row) => row.unitId);
+  // What the latest run said about each line (a reviewer's reason to look), newest run first.
+  const lastRun = new Map<string, { runId: string; workflowName: string; issues: string[] }>();
+  if (ids.length)
+    for (const item of db
+      .select({ unitId: s.runItems.unitId, runId: s.runs.id, workflowName: s.runs.workflowName, data: s.runItems.data })
+      .from(s.runItems)
+      .innerJoin(s.runs, eq(s.runs.id, s.runItems.runId))
+      .where(inArray(s.runItems.unitId, ids))
+      .orderBy(desc(s.runs.createdAt))
+      .all())
+      if (!lastRun.has(item.unitId)) lastRun.set(item.unitId, { runId: item.runId, workflowName: item.workflowName, issues: item.data.issues ?? [] });
+  return rows.map((row) => ({ ...row, tagIds: (tags.get(row.id) ?? []).map((tag) => tag.tagId), lastRun: lastRun.get(row.id) ?? null }));
+}
 
 /** Sections laid out on their own (see layout.ts), in script order, with the scenes in each for jumping from the scene graph. */
 function graphSections(db: Db, projectId: string) {
@@ -171,31 +201,7 @@ export const sourceRoutes = new Hono<Env>()
         offset = Math.floor(before / query.limit) * query.limit;
       }
     }
-    const rows = db
-      .select({ ...unitColumns, groupTitle: s.groups.title, groupKind: s.groups.kind, origin: s.candidates.origin, model: s.candidates.model })
-      .from(s.units)
-      .innerJoin(s.groups, eq(s.groups.id, s.units.groupId))
-      .leftJoin(s.candidates, eq(s.candidates.id, s.units.candidateId))
-      .where(where)
-      .orderBy(asc(s.units.seq))
-      .limit(query.limit)
-      .offset(offset)
-      .all();
-    const ids = rows.map((row) => row.id);
-    const tagRows = ids.length ? db.select().from(s.unitTags).where(inArray(s.unitTags.unitId, ids)).all() : [];
-    const tags = Map.groupBy(tagRows, (row) => row.unitId);
-    // What the latest run said about each line (a reviewer's reason to look), newest run first.
-    const lastRun = new Map<string, { runId: string; workflowName: string; issues: string[] }>();
-    if (ids.length)
-      for (const item of db
-        .select({ unitId: s.runItems.unitId, runId: s.runs.id, workflowName: s.runs.workflowName, data: s.runItems.data })
-        .from(s.runItems)
-        .innerJoin(s.runs, eq(s.runs.id, s.runItems.runId))
-        .where(inArray(s.runItems.unitId, ids))
-        .orderBy(desc(s.runs.createdAt))
-        .all())
-        if (!lastRun.has(item.unitId)) lastRun.set(item.unitId, { runId: item.runId, workflowName: item.workflowName, issues: item.data.issues ?? [] });
-    return c.json({ total, offset, rows: rows.map((row) => ({ ...row, tagIds: (tags.get(row.id) ?? []).map((tag) => tag.tagId), lastRun: lastRun.get(row.id) ?? null })) });
+    return c.json({ total, offset, rows: unitRows(db, where, { limit: query.limit, offset }) });
   })
   /** Lines by key, in script order: evidence cited by knowledge drafts. */
   .post('/projects/:projectId/units/by-keys', validate('json', z.object({ keys: z.array(z.string()).max(500) })), (c) => {
@@ -210,6 +216,14 @@ export const sourceRoutes = new Hono<Env>()
         .orderBy(asc(s.units.seq))
         .all(),
     );
+  })
+  /** Lines by id, in the order asked: the visible rows of the path view's translation list (the same row as the list's, without tags). */
+  .post('/projects/:projectId/units/by-ids', validate('json', z.object({ ids: z.array(z.string()).max(200) })), (c) => {
+    const { db } = c.var.deps;
+    const ids = c.req.valid('json').ids;
+    if (!ids.length) return c.json({ rows: [] });
+    const byId = new Map(db.select({ ...unitColumns, groupTitle: s.groups.title }).from(s.units).innerJoin(s.groups, eq(s.groups.id, s.units.groupId)).where(and(eq(s.units.projectId, c.req.param('projectId')), inArray(s.units.id, ids))).all().map((row) => [row.id, row] as const));
+    return c.json({ rows: ids.flatMap((id) => (byId.has(id) ? [{ ...byId.get(id)!, lastRun: null }] : [])) });
   })
   .patch(
     '/projects/:projectId/units',
@@ -349,6 +363,122 @@ export const sourceRoutes = new Hono<Env>()
   })
 
   // ── graphs ─────────────────────────────────────────────────────────
+  /** The main route (본 줄기) for highlighting on the graph. */
+  /** The slice of the dialogue graph for the stored choices (길 따라 보기, services/route-slice.ts), with the picks. */
+  .get('/projects/:projectId/route', (c) => {
+    const { db } = c.var.deps;
+    const projectId = c.req.param('projectId');
+    const slice = projectSlice(db, projectId);
+    const row = db.select({ picks: s.projects.routePicks, state: s.projects.routeState }).from(s.projects).where(eq(s.projects.id, projectId)).get();
+    const progress = routeProgress(db, projectId);
+    // Translation decides the counts, not the slice: they are read per request, so the cached slice stays valid.
+    const blocks = slice.blocks.map((block) => ({ ...block, translated: block.unitIds.filter((id) => progress.translated.has(id)).length }));
+    const newLinesOnRoute = blocks.reduce((sum, block) => sum + block.unitIds.length - block.translated, 0);
+    const { translated: _translated, ...counts } = progress;
+    // The translation list needs, for every line of the slice in block order, whether it has a translation (one character each),
+    // and the lines around each seam (they stay open); the lines themselves come in chunks from units/by-ids.
+    const translatedMask = blocks.flatMap((block) => block.unitIds).map((id) => (progress.translated.has(id) ? '1' : '0')).join('');
+    const seamAround = seamNodes(slice).map((nodeId) => ({ nodeId, ...seamLines(slice, nodeId)! }));
+    return c.json({ ...slice, blocks, translatedMask, seamAround, seamChecks: seamStates(db, projectId).seamChecks, picks: row?.picks ?? {}, round: row?.state.round ?? 1, canGoBack: (row?.state.history.length ?? 0) > 0, newLinesOnRoute, ...counts });
+  })
+  /** 다음 길, preview: the route through the most untranslated lines, and how many routes are still to translate. */
+  .get('/projects/:projectId/route/next', (c) => {
+    const { db } = c.var.deps;
+    const projectId = c.req.param('projectId');
+    const { g, weights } = projectRouteInputs(db, projectId);
+    const row = db.select({ picks: s.projects.routePicks, state: s.projects.routeState }).from(s.projects).where(eq(s.projects.id, projectId)).get();
+    return c.json(previewNext(g, weights, effectivePicks(db, projectId, row, graphKey(db, projectId))));
+  })
+  /** Take the next route: the current picks go to the history and the round counts up. `round` is the round the person saw. */
+  .post('/projects/:projectId/route/next', validate('json', z.object({ round: z.number().int() })), (c) => {
+    const { db } = c.var.deps;
+    const projectId = c.req.param('projectId');
+    const row = db.select({ picks: s.projects.routePicks, state: s.projects.routeState }).from(s.projects).where(eq(s.projects.id, projectId)).get();
+    if (!row) badRequest('프로젝트를 찾을 수 없습니다.');
+    if (c.req.valid('json').round !== row.state.round) badRequest('다른 곳에서 길이 이미 바뀌었습니다. 화면을 확인한 뒤 다시 눌러 주세요.');
+    const { g, weights } = projectRouteInputs(db, projectId);
+    const current = effectivePicks(db, projectId, row, graphKey(db, projectId));
+    const preview = previewNext(g, weights, current);
+    if (preview.newLines === 0) badRequest('번역하지 않은 줄이 있는 길이 더 없습니다.');
+    if (preview.totalUntranslatedOnRoute > 0 || !preview.changed) badRequest('이번 길에 번역하지 않은 줄이 남아 있습니다. 먼저 이번 길을 번역해 주세요.');
+    // The whole history: every earlier route counts for the seams, and 이전 길 can step back to route 1.
+    const state = { round: row.state.round + 1, history: [...row.state.history, current] };
+    db.update(s.projects).set({ routePicks: preview.picks, routeState: state }).where(eq(s.projects.id, projectId)).run();
+    events.changed(projectId, 'graph', 'units');
+    return c.json({ picks: preview.picks, round: state.round });
+  })
+  /** Step back to the route of the round before. */
+  .post('/projects/:projectId/route/prev', validate('json', z.object({ round: z.number().int() })), (c) => {
+    const { db } = c.var.deps;
+    const projectId = c.req.param('projectId');
+    const row = db.select({ state: s.projects.routeState }).from(s.projects).where(eq(s.projects.id, projectId)).get();
+    if (!row) badRequest('프로젝트를 찾을 수 없습니다.');
+    if (c.req.valid('json').round !== row.state.round) badRequest('다른 곳에서 길이 이미 바뀌었습니다. 화면을 확인한 뒤 다시 눌러 주세요.');
+    const previous = row.state.history.at(-1);
+    if (!previous) badRequest('되돌아갈 이전 길이 없습니다.');
+    const state = { round: Math.max(1, row.state.round - 1), history: row.state.history.slice(0, -1) };
+    // Back on route 1 the stored picks are a person's alone again; the best route is not stored.
+    const best = state.round === 1 ? defaultPicks(db, projectId, graphKey(db, projectId)) : {};
+    const picks = state.round === 1 ? Object.fromEntries(Object.entries(previous).filter(([fork, arm]) => best[fork] !== arm)) : previous;
+    db.update(s.projects).set({ routePicks: picks, routeState: state }).where(eq(s.projects.id, projectId)).run();
+    events.changed(projectId, 'graph', 'units');
+    return c.json({ picks, round: state.round });
+  })
+  /** A person's arm at a choice of the slice; armId null takes the pick back. */
+  .put('/projects/:projectId/route-picks', validate('json', z.object({ nodeId: z.string(), armId: z.string().nullable() })), (c) => {
+    const { db } = c.var.deps;
+    const projectId = c.req.param('projectId');
+    const { nodeId, armId } = c.req.valid('json');
+    const current = db.select({ picks: s.projects.routePicks }).from(s.projects).where(eq(s.projects.id, projectId)).get();
+    if (!current) badRequest('프로젝트를 찾을 수 없습니다.');
+    const inProject = (id: string) => db.select({ id: s.graphNodes.id }).from(s.graphNodes).where(and(eq(s.graphNodes.id, id), eq(s.graphNodes.projectId, projectId))).get();
+    const picks = { ...current.picks };
+    if (armId === null) delete picks[nodeId];
+    else {
+      if (!inProject(nodeId) || !inProject(armId)) badRequest('이 프로젝트의 그래프 노드가 아닙니다.');
+      if (!db.select({ id: s.graphEdges.id }).from(s.graphEdges).where(and(eq(s.graphEdges.projectId, projectId), eq(s.graphEdges.fromId, nodeId), eq(s.graphEdges.toId, armId))).get()) badRequest('두 노드를 잇는 연결이 없습니다.');
+      picks[nodeId] = armId;
+    }
+    db.update(s.projects).set({ routePicks: picks }).where(eq(s.projects.id, projectId)).run();
+    events.changed(projectId, 'graph', 'units');
+    return c.json({ picks });
+  })
+  .delete('/projects/:projectId/route-picks', (c) => {
+    const projectId = c.req.param('projectId');
+    c.var.deps.db.update(s.projects).set({ routePicks: {}, routeState: { round: 1, history: [] } }).where(eq(s.projects.id, projectId)).run();
+    events.changed(projectId, 'graph', 'units');
+    return c.json({ picks: {} });
+  })
+  /** 이음새 점검: the checked seams of the current route, whether the lines they were checked against still read the same, and the counts for the round. */
+  .get('/projects/:projectId/seam-checks', (c) => c.json(seamStates(c.var.deps.db, c.req.param('projectId'))))
+  /** One seam of the current route: its last lines before it (new side) and the first lines after it (earlier route), source and current translation. */
+  .get('/projects/:projectId/route/seams/:nodeId', (c) => {
+    return c.json(found(seamDetail(c.var.deps.db, c.req.param('projectId'), c.req.param('nodeId')) ?? undefined, '이음새'));
+  })
+  /** Mark a seam checked. `sig` is the signature of the lines the person read; if they changed meanwhile the mark is refused. */
+  .put('/projects/:projectId/seam-checks/:nodeId', validate('json', z.object({ sig: z.string().min(1, '확인한 내용의 서명이 필요합니다.') })), (c) => {
+    const { db } = c.var.deps;
+    const projectId = c.req.param('projectId');
+    const nodeId = c.req.param('nodeId');
+    const detail = seamDetail(db, projectId, nodeId);
+    if (!detail) badRequest('지금 길의 이음새가 아닙니다.');
+    if (detail.sig !== c.req.valid('json').sig) badRequest('점검하는 사이 이 이음새의 번역이 바뀌었습니다. 바뀐 내용을 다시 확인해 주세요.');
+    const current = db.select({ checks: s.projects.joinChecks }).from(s.projects).where(eq(s.projects.id, projectId)).get();
+    const at = new Date().toISOString();
+    db.update(s.projects).set({ joinChecks: { ...current?.checks, [nodeId]: { at, sig: detail.sig } } }).where(eq(s.projects.id, projectId)).run();
+    events.changed(projectId, 'graph', 'units');
+    return c.json({ nodeId, at, state: 'checked' as const });
+  })
+  .delete('/projects/:projectId/seam-checks/:nodeId', (c) => {
+    const { db } = c.var.deps;
+    const projectId = c.req.param('projectId');
+    const current = db.select({ checks: s.projects.joinChecks }).from(s.projects).where(eq(s.projects.id, projectId)).get();
+    if (!current) badRequest('프로젝트를 찾을 수 없습니다.');
+    const { [c.req.param('nodeId')]: _removed, ...rest } = current.checks;
+    db.update(s.projects).set({ joinChecks: rest }).where(eq(s.projects.id, projectId)).run();
+    events.changed(projectId, 'graph', 'units');
+    return c.json({ ok: true });
+  })
   /** The dialogue graph's sections alone: the graph page needs them before it knows which layout to load. */
   .get('/projects/:projectId/graph/sections', (c) => c.json(graphSections(c.var.deps.db, c.req.param('projectId'))))
   .get('/projects/:projectId/graph/:scope{dialogue|scene}', validate('query', z.object({ section: z.string().optional() })), (c) => {

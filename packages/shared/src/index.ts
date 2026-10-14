@@ -13,3 +13,4 @@ export * from './model-choice.ts';
 export * from './issues.ts';
 export * from './editor-ai.ts';
 export * from './marks.ts';
+export * from './labels.ts';

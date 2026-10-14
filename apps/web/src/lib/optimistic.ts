@@ -22,6 +22,8 @@ export function unitChanges(ids: Iterable<string>, change: (row: Row) => Row): C
   return [
     ...[...set].map((id) => ({ key: ['units', 'detail', id], update: (row: Row) => change(row) })),
     { key: ['units', 'list'], update: (data: { rows: Row[] }) => ({ ...data, rows: data.rows.map((row) => (set.has(row.id) ? change(row) : row)) }) },
+    // The path view's translation list holds the same rows in chunks.
+    { key: ['units', 'route-rows'], update: (data: { rows: Row[] }) => ({ ...data, rows: data.rows.map((row) => (set.has(row.id) ? change(row) : row)) }) },
   ];
 }
 

@@ -1,0 +1,1 @@
+ALTER TABLE `projects` ADD `route_state` text DEFAULT '{"round":1,"history":[]}' NOT NULL;

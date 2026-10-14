@@ -153,6 +153,8 @@ interface Props {
   selectedId?: string;
   /** Nodes to emphasise (e.g. the scene being inspected); others are dimmed when non-empty. */
   highlight?: Set<string>;
+  /** Edges to emphasise on top of `highlight` (`${from}|${to}` of the edges in `edges`); the other edges stay dimmed. */
+  highlightEdges?: Set<string>;
   initialViewport?: Viewport;
   /** Open centred on this node instead (zoomed to a readable size), e.g. arriving from a line. */
   initialFocus?: string;
@@ -169,7 +171,7 @@ interface Props {
  * Draws a precomputed ELK layout. d3-zoom owns pan/zoom, Flatbush owns spatial queries,
  * so each frame only touches what is on screen. One <canvas>, no per-node DOM.
  */
-export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, hubs, info, width, height, selectedId, highlight, initialViewport, initialFocus, onViewportChange, onSelect, onOpen, anchor, handle }: Props) {
+export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, hubs, info, width, height, selectedId, highlight, highlightEdges, initialViewport, initialFocus, onViewportChange, onSelect, onOpen, anchor, handle }: Props) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const minimap = useRef<HTMLCanvasElement>(null);
   const transform = useRef<ZoomTransform>(zoomIdentity);
@@ -196,8 +198,10 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
   }, [minimapOpen]); // eslint-disable-line react-hooks/exhaustive-deps
   // A labelled edge (a choice) is drawn through the room the layout kept for its label.
   const edges = useMemo(() => laidOut.map(throughLabel), [laidOut]);
-  const props = useRef({ selectedId, highlight, onViewportChange, onSelect, onOpen, hubs, anchorId: anchor?.id });
-  props.current = { selectedId, highlight, onViewportChange, onSelect, onOpen, hubs, anchorId: anchor?.id };
+  // Which of the drawn edges are emphasised, by position.
+  const emphasised = useMemo(() => new Set(highlightEdges?.size ? edges.flatMap((edge, i) => (highlightEdges.has(`${edge.from}|${edge.to}`) ? [i] : [])) : []), [edges, highlightEdges]);
+  const props = useRef({ selectedId, highlight, emphasised, onViewportChange, onSelect, onOpen, hubs, anchorId: anchor?.id });
+  props.current = { selectedId, highlight, emphasised, onViewportChange, onSelect, onOpen, hubs, anchorId: anchor?.id };
 
   const index = useMemo(() => {
     const byId = new Map(nodes.map((node) => [node.id, node]));
@@ -294,7 +298,7 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
     const context = element.getContext('2d')!;
     const dpr = window.devicePixelRatio || 1;
     const t = transform.current;
-    const { selectedId: selected, highlight: focus } = props.current;
+    const { selectedId: selected, highlight: focus, emphasised: route } = props.current;
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
     context.clearRect(0, 0, width, height);
     context.translate(t.x, t.y);
@@ -366,12 +370,23 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
     context.globalAlpha = dimmed ? 0.35 : 1;
     context.beginPath();
     for (const i of visibleEdges) {
-      if (selectedEdges?.has(String(i))) continue;
+      if (selectedEdges?.has(String(i)) || route.has(i)) continue;
       traceEdge(context, edges[i]);
     }
     context.stroke();
     context.globalAlpha = 1;
-    if (t.k > 0.08) for (const i of visibleEdges) if (!selectedEdges?.has(String(i))) arrowHead(context, edges[i].points, 7, edgeColor, dimmed ? 0.35 : 1);
+    if (t.k > 0.08) for (const i of visibleEdges) if (!selectedEdges?.has(String(i)) && !route.has(i)) arrowHead(context, edges[i].points, 7, edgeColor, dimmed ? 0.35 : 1);
+    // The emphasised edges (the main route) at full strength, thicker, in the text colour: not the selection's colour.
+    if (route.size) {
+      const strong = style.getPropertyValue('--foreground').trim() || '#18181b';
+      const shown = visibleEdges.filter((i) => route.has(i) && !selectedEdges?.has(String(i)));
+      context.strokeStyle = strong;
+      context.lineWidth = Math.max(1.8, 2 / t.k);
+      context.beginPath();
+      for (const i of shown) traceEdge(context, edges[i]);
+      context.stroke();
+      if (t.k > 0.08) for (const i of shown) arrowHead(context, edges[i].points, 8, strong, 1);
+    }
     if (selectedEdges) {
       context.strokeStyle = selectColor;
       context.lineWidth = Math.max(2, 2.4 / t.k);
@@ -390,7 +405,7 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
         const box = labelBox(edge);
         if (!box) continue;
         const [x, y, w, h] = box;
-        context.globalAlpha = dimmed && !selectedEdges?.has(String(i)) ? 0.45 : 1;
+        context.globalAlpha = dimmed && !selectedEdges?.has(String(i)) && !route.has(i) ? 0.45 : 1;
         context.beginPath();
         context.roundRect(x, y, w, h, h / 2);
         context.fillStyle = edge.via ? '#eff6ff' : '#ffffff';
@@ -530,7 +545,7 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
 
   useEffect(() => {
     schedule();
-  }, [selectedId, highlight, info, hubs]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedId, highlight, emphasised, info, hubs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The card is placed again when it opens on another node or its content changes height. Until
   // then it is transparent, not hidden: a hidden card would drop the editor's focus.

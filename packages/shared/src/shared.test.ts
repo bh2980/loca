@@ -244,3 +244,12 @@ describe('styleInstruction', () => {
     expect(styleNames({ force: 'soft' })).toEqual(['우유체']);
   });
 });
+
+import { isIdentifierLabel } from './labels.ts';
+describe('isIdentifierLabel', () => {
+  it('flags identifiers and keeps human text', () => {
+    for (const id of ['tps-01-game-intro', 'tps-01-game-rules1-hub0', 'rules-whotaughtyou=0', 'a_b', 'x.y']) expect(isIdentifierLabel(id)).toBe(true);
+    expect(isIdentifierLabel('intro', new Set(['intro']))).toBe(true);
+    for (const text of ['Half-goblin. Thief. Ok.', 'Late', 'Sibling 0']) expect(isIdentifierLabel(text)).toBe(false);
+  });
+});

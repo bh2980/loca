@@ -48,6 +48,23 @@ export const q = {
       queryFn: () => unwrap(client.projects[':projectId'].graph[':scope{dialogue|scene}'].$get({ param: { projectId, scope }, query: section ? { section } : {} })),
       staleTime: Infinity,
     }),
+  /** The slice of the dialogue graph for the stored choices (길 따라 보기): blocks, edges, forks, stubs, seams, the picks and the translation counts (units topic: translations decide them). */
+  route: (projectId: string) => queryOptions({ queryKey: ['units', projectId, 'route'], queryFn: () => unwrap(client.projects[':projectId'].route.$get({ param: { projectId } })) }),
+  /** The visible rows of the path view's translation list: a chunk of the route's lines by id, in that order (units topic: a translation changes them). */
+  routeRows: (projectId: string, ids: string[]) =>
+    queryOptions({
+      queryKey: ['units', 'route-rows', projectId, `${ids[0]}:${ids.at(-1)}:${ids.length}`],
+      queryFn: () => unwrap(client.projects[':projectId'].units['by-ids'].$post({ param: { projectId }, json: { ids } })),
+      enabled: ids.length > 0,
+      placeholderData: keepPreviousData,
+    }),
+  /** 다음 길: the route through the most untranslated lines, what it adds and how many routes are left (units topic, like the counts it is made from). */
+  routeNext: (projectId: string) => queryOptions({ queryKey: ['units', projectId, 'route-next'], queryFn: () => unwrap(client.projects[':projectId'].route.next.$get({ param: { projectId } })) }),
+  /** 이음새 점검: the checked seams of the current route with whether their lines still read as they did, and the counts for the round (units topic: translations decide). */
+  seamChecks: (projectId: string) => queryOptions({ queryKey: ['units', 'seam-checks', projectId], queryFn: () => unwrap(client.projects[':projectId']['seam-checks'].$get({ param: { projectId } })) }),
+  /** One seam: the current route's last lines before it and the earlier route's lines after it. */
+  seamDetail: (projectId: string, nodeId: string) =>
+    queryOptions({ queryKey: ['units', 'seam', projectId, nodeId], queryFn: () => unwrap(client.projects[':projectId'].route.seams[':nodeId'].$get({ param: { projectId, nodeId } })) }),
   graphNode: (nodeId: string) => queryOptions({ queryKey: ['units', 'graph-node', nodeId], queryFn: () => unwrap(client['graph-nodes'][':nodeId'].$get({ param: { nodeId } })) }),
   terms: (projectId: string) => queryOptions({ queryKey: ['terms', projectId], queryFn: () => unwrap(client.projects[':projectId'].terms.$get({ param: { projectId } })) }),
   termSuggest: (projectId: string) =>

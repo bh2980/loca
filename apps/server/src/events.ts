@@ -26,6 +26,8 @@ export type Topic =
  * - projects → units: the project query (name, format rules, agent settings) lives under units with its status counts.
  * - units → statuses: statuses and tags carry line counts.
  * - statuses, connections → workflows: a workflow's error count checks its statuses, tags and HTTP connections.
+ * - The route slice's translation counts and 다음 길 preview read units: their queries are keyed under
+ *   'units' (not 'graph'), so a translation change refreshes them with no extra emit.
  * - calls → runs: the jobs list (keyed 'runs') shows call counts read from ai_calls.
  */
 const IMPLIES: Partial<Record<Topic, Topic[]>> = {

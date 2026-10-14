@@ -22,10 +22,17 @@ import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { SplitPane } from '@/components/split-pane';
 import { PaneHeader } from '@/components/pane-header';
+import { PathMode } from '@/components/graph/path-mode';
 
 type Scope = 'scene' | 'dialogue';
 interface GraphSearch {
   scope: Scope;
+  /** 길 따라 보기: the slice of the dialogue graph for the stored choices (docs/DESIGN.md J2c). */
+  view?: 'path';
+  /** 길 따라 보기: the overview node the window is around (default: the first). */
+  at?: string;
+  /** 길 따라 보기: draw the whole overview instead of the window. */
+  all?: 1;
   node?: string;
   scene?: string;
   /** Dialogue graph section (chapter, act, day…); "all" draws the whole graph on one sheet. Absent = the first section. */
@@ -46,7 +53,10 @@ interface GraphSearch {
 
 export const Route = createFileRoute('/p/$projectId/graph')({
   validateSearch: (raw: Record<string, unknown>): GraphSearch => ({
-    scope: raw.scope === 'dialogue' ? 'dialogue' : 'scene',
+    scope: raw.scope === 'dialogue' || raw.view === 'path' ? 'dialogue' : 'scene',
+    view: raw.view === 'path' ? 'path' : undefined,
+    at: raw.view === 'path' && typeof raw.at === 'string' && raw.at ? raw.at : undefined,
+    all: raw.view === 'path' && (raw.all === 1 || raw.all === '1' || raw.all === true) ? 1 : undefined,
     node: typeof raw.node === 'string' ? raw.node : undefined,
     scene: typeof raw.scene === 'string' ? raw.scene : undefined,
     section: typeof raw.section === 'string' && raw.section ? raw.section : undefined,
@@ -57,7 +67,7 @@ export const Route = createFileRoute('/p/$projectId/graph')({
     edit: typeof raw.edit === 'string' && raw.edit ? raw.edit : undefined,
     q: typeof raw.q === 'string' && raw.q ? raw.q : undefined,
   }),
-  component: GraphPage,
+  component: GraphRoute,
 });
 
 /** Viewport is a per-tab preference: kept in sessionStorage, never in history, so panning adds no entries. */
@@ -70,6 +80,39 @@ const readViewport = (key: string): Viewport | undefined => {
   }
 };
 
+
+const GRAPH_MODES = ['scene', 'dialogue', 'path'] as const;
+/** The graph's three modes in one switch; picking one is a history entry, so Back returns to the last. */
+function ModeToggle({ value, onChange }: { value: (typeof GRAPH_MODES)[number]; onChange: (value: (typeof GRAPH_MODES)[number]) => void }) {
+  return (
+    <ToggleGroup type="single" variant="outline" size="sm" value={value} onValueChange={(next) => next && onChange(next as (typeof GRAPH_MODES)[number])}>
+      <ToggleGroupItem value="scene">장면</ToggleGroupItem>
+      <ToggleGroupItem value="dialogue">대사</ToggleGroupItem>
+      <ToggleGroupItem value="path">경로</ToggleGroupItem>
+    </ToggleGroup>
+  );
+}
+
+function GraphRoute() {
+  const { projectId } = Route.useParams();
+  const search = Route.useSearch();
+  const navigate = Route.useNavigate();
+  if (search.view !== 'path') return <GraphPage />;
+  return (
+    <PathMode
+      projectId={projectId}
+      toggle={<ModeToggle value="path" onChange={(mode) => void navigate({ search: mode === 'path' ? { scope: 'dialogue', view: 'path' } : { scope: mode } })} />}
+      node={search.node}
+      edit={search.edit}
+      at={search.at}
+      all={search.all === 1}
+      onSelect={(node, focus) => void navigate({ search: (previous) => ({ ...previous, node, ...(node && focus && { at: node }) }), replace: true })}
+      onEdit={(edit) => void navigate({ search: (previous) => ({ ...previous, edit }), replace: true })}
+      onMove={(at) => void navigate({ search: (previous) => ({ ...previous, at }), replace: true })}
+      onAll={(all) => void navigate({ search: (previous) => ({ ...previous, all: all ? 1 : undefined }) })}
+    />
+  );
+}
 
 function GraphPage() {
   const { projectId } = Route.useParams();
@@ -319,10 +362,7 @@ function GraphPage() {
               </SelectContent>
             </Select>
           )}
-          <ToggleGroup type="single" variant="outline" size="sm" value={search.scope} onValueChange={(value) => value && void navigate({ search: { scope: value as Scope } })}>
-            <ToggleGroupItem value="scene">장면 그래프</ToggleGroupItem>
-            <ToggleGroupItem value="dialogue">대사 그래프</ToggleGroupItem>
-          </ToggleGroup>
+          <ModeToggle value={search.scope} onChange={(mode) => void navigate({ search: mode === 'path' ? { scope: 'dialogue', view: 'path' } : { scope: mode } })} />
         </div>
       }
       flush

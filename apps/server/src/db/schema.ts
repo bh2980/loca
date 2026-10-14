@@ -40,6 +40,12 @@ export const projects = sqliteTable('projects', {
   editorAi: json<Partial<EditorAi>>('editor_ai').notNull().default(sql`'{}'`),
   /** Colors the project picked for automatic marks (AUTO_MARKS); others keep their default. */
   markColors: json<MarkColors>('mark_colors').notNull().default(sql`'{}'`),
+  /** The arms a person picked for the main route (본 줄기): graph node id of a fork → the node it goes on to. */
+  routePicks: json<Record<string, string>>('route_picks').notNull().default(sql`'{}'`),
+  /** 합류 점검: join block id of the route slice → when a person checked it and the signature of the lines they read (services/join-check.ts). */
+  joinChecks: json<Record<string, { at: string; sig: string }>>('join_checks').notNull().default(sql`'{}'`),
+  /** 길 N (다음 길): the round of the route being translated and the picks of the earlier rounds, to step back (services/next-route.ts). */
+  routeState: json<{ round: number; history: Record<string, string>[] }>('route_state').notNull().default(sql`'{"round":1,"history":[]}'`),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });

@@ -39,8 +39,8 @@ export function Page({ title, back, meta, actions, children, className, flush }:
       {toolbar && (
         <div className="flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2">
           {back && <div className="-ml-2 shrink-0">{back}</div>}
-          <div className="min-w-0 flex-1 truncate text-sm text-muted-foreground">{meta}</div>
-          {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+          <div className={'min-w-0 flex-1 truncate text-sm text-muted-foreground'}>{meta}</div>
+          {actions && <div className={'flex shrink-0 items-center gap-2'}>{actions}</div>}
         </div>
       )}
       <div className={cn(flush ? 'relative min-h-0 flex-1' : 'min-h-0 flex-1 px-6 pt-4 pb-8', className)}>{children}</div>

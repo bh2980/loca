@@ -30,4 +30,18 @@ describe('run scope by marks', () => {
     // No marks: the scope is unchanged.
     expect(pick({ marks: [] })).toHaveLength(units.length);
   });
+
+  it('runs exactly the named lines, however many, and never another project\'s', () => {
+    const db = openDatabase(':memory:');
+    const connection = db.insert(s.connections).values({ kind: 'openai', name: 'mock', baseUrl: 'http://mock/v1' }).returning().get();
+    const first = importProject(db, importFileSchema.parse(realistic(1200).file), { connectionId: connection.id, model: 'm' });
+    const other = importProject(db, importFileSchema.parse(realistic(50).file), { connectionId: connection.id, model: 'm' });
+    const workflow = db.select().from(s.workflows).where(eq(s.workflows.projectId, first.projectId)).all().find((row) => row.name === '기본 번역')!;
+    const units = db.select().from(s.units).where(eq(s.units.projectId, first.projectId)).all();
+    const foreign = db.select().from(s.units).where(eq(s.units.projectId, other.projectId)).all()[0];
+    // A route's untranslated lines: more than the 500 ids an IN list binds one by one.
+    const route = units.slice(100, 900).map((unit) => unit.id);
+    const picked = selectRunUnits(db, first.projectId, workflow.definition, { unitIds: [...route, foreign.id], ignoreStatus: true });
+    expect(picked.sort()).toEqual([...route].sort());
+  });
 });
