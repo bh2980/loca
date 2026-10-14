@@ -88,12 +88,13 @@ const MENU_ROW = 28;
 const LOOP_ROW = 18;
 /** A seam shows its first two lines (source and translation, one row each) instead of the 2-line preview. */
 const SEAM_EXTRA = 64;
-const boxOf = (shape: Shape, menu: boolean, loops = false, seam = false) => {
+const boxOf = (shape: Shape, menu: boolean, loops = false, seam = false, wide = false) => {
   const base = SIZE[shape];
-  if (shape === 'fork') return { width: menu || loops ? 170 : base.width, height: base.height + (menu ? 40 : 0) + (loops ? LOOP_ROW : 0) };
+  // A pill that also says '동시에 열림 i/n' or '이음새' keeps it on one line.
+  if (shape === 'fork') return { width: wide ? 210 : menu || loops ? 170 : base.width, height: base.height + (menu ? 40 : 0) + (loops ? LOOP_ROW : 0) };
   return { width: base.width, height: base.height + (menu ? MENU_ROW : 0) + (loops ? LOOP_ROW : 0) + (seam ? SEAM_EXTRA : 0) };
 };
-const boxOfData = (shape: Shape, data: PathNodeData) => boxOf(shape, !!data.menu, !!data.loops?.length, !!data.seam && shape !== 'fork');
+const boxOfData = (shape: Shape, data: PathNodeData) => boxOf(shape, !!data.menu, !!data.loops?.length, !!data.seam && shape !== 'fork', !!data.arm || !!data.seamMark);
 // Dense slices (hundreds of blocks with many parallel lanes) take seconds: laid out off the page's thread.
 const elk = new ELK({ workerFactory: () => new ElkWorker() });
 
@@ -205,7 +206,7 @@ function PathNodeView({ data, selected }: NodeProps<PathNode>) {
   if (data.shape === 'fork')
     return (
       <div style={size} className={cn('flex flex-col items-center gap-1', selected && 'ring-2 ring-primary/30')}>
-        <div className="flex h-7 w-full items-center justify-center gap-1 rounded-full border bg-muted text-xs text-muted-foreground">
+        <div className="flex h-7 w-full items-center justify-center gap-1 rounded-full border bg-muted px-2 text-xs whitespace-nowrap text-muted-foreground">
           {data.pill}
           {data.seamMark && <SeamMark state={data.seamMark.state} />}
           {data.arm && <span>· 동시에 열림 {data.arm.index}/{data.arm.count}</span>}
