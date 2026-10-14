@@ -8,8 +8,10 @@ import { useSize } from '@/hooks/use-size';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ChevronDown } from 'lucide-react';
+import { SeamStateChip } from '@/components/graph/seam-check-pane';
+import { q } from '@/lib/queries';
+import { useQuery } from '@tanstack/react-query';
 import { foldTranslated, splitBackEdges, windowOf, type Overview } from '@/components/graph/path-window';
 import { cn } from '@/lib/utils';
 
@@ -23,7 +25,7 @@ export interface PathSlice {
   edges: { from: string; to: string; label: string | null; kind: 'path' | 'stub' | 'rejoin' }[];
   forks: { nodeId: string; mode: 'choice' | 'parallel'; arms: { nodeId: string; label: string; chosen: boolean; picked: boolean }[] }[];
   stubs: { id: string; fork: string; arm: string; label: string; lines: number; rejoins: string[] }[];
-  joins: string[];
+  seams: { nodeId: string; from: string }[];
   overview: Overview;
 }
 
@@ -47,8 +49,7 @@ type PathNodeData = {
   translated?: number;
   /** Folded: how many boxes it stands for. */
   parts?: number;
-  join: boolean;
-  /** Pill text of an anchor without lines ('조건' / '시작' / '합류'). */
+  /** Pill text of an anchor without lines ('조건' / '시작' / '이어짐'). */
   pill?: string;
   /** Section: ways opened at once inside it (0: none). */
   lanes?: number;
@@ -63,10 +64,8 @@ type PathNodeData = {
   menu?: ForkMenuData;
   /** Loops: where the edges that lead back up from here go (not drawn, said on the node). */
   loops?: string[];
-  /** Join: the other choices that come back here ('‹label›에서도 들어옴'). */
-  comesFrom?: string[];
-  /** Join: the state of its 합류 점검 (absent: not checked yet). */
-  check?: 'checked' | 'stale';
+  /** Seam (round 2 on): the first lines after it are shown open, with their translation. */
+  seam?: { projectId: string; nodeId: string };
 };
 type PathNode = Node<PathNodeData, 'path'>;
 
@@ -81,38 +80,30 @@ const SIZE: Record<Shape, { width: number; height: number }> = {
 /** The chip sits on its own row under the header (a line taller); a loop note is one more small row; the pill grows wide enough for both. */
 const MENU_ROW = 28;
 const LOOP_ROW = 18;
-const boxOf = (shape: Shape, menu: boolean, loops = false) => {
+/** A seam shows its first two lines (source and translation, one row each) instead of the 2-line preview. */
+const SEAM_EXTRA = 64;
+const boxOf = (shape: Shape, menu: boolean, loops = false, seam = false) => {
   const base = SIZE[shape];
   if (shape === 'fork') return { width: menu || loops ? 170 : base.width, height: base.height + (menu ? 40 : 0) + (loops ? LOOP_ROW : 0) };
-  return { width: base.width, height: base.height + (menu ? MENU_ROW : 0) + (loops ? LOOP_ROW : 0) };
+  return { width: base.width, height: base.height + (menu ? MENU_ROW : 0) + (loops ? LOOP_ROW : 0) + (seam ? SEAM_EXTRA : 0) };
 };
-const boxOfData = (shape: Shape, data: PathNodeData) => boxOf(shape, !!data.menu, !!data.loops?.length);
+const boxOfData = (shape: Shape, data: PathNodeData) => boxOf(shape, !!data.menu, !!data.loops?.length, !!data.seam && shape !== 'fork');
 // Dense slices (hundreds of blocks with many parallel lanes) take seconds: laid out off the page's thread.
 const elk = new ELK({ workerFactory: () => new ElkWorker() });
 
-const CHECK_LABEL = { checked: '점검함', stale: '바뀜' } as const;
-
-/** '합류': a place where other choices come back; the tooltip says which. */
-function JoinMark({ comesFrom, check }: { comesFrom?: string[]; check?: PathNodeData['check'] }) {
-  const mark = (
-    <Badge variant="outline" className={cn('shrink-0', check === 'checked' && 'border-success/40 text-success', check === 'stale' && 'border-warning/40 text-warning')}>
-      합류{check && ` · ${CHECK_LABEL[check]}`}
-    </Badge>
-  );
-  if (!comesFrom?.length) return mark;
+/** The first lines after a seam, with their translation: these stay open where the translated stretch behind them folds. */
+function SeamLines({ seam }: { seam: NonNullable<PathNodeData['seam']> }) {
+  const detail = useQuery(q.seamDetail(seam.projectId, seam.nodeId)).data;
+  if (!detail) return <p className="text-xs text-muted-foreground">불러오는 중…</p>;
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span className="nodrag">{mark}</span>
-      </TooltipTrigger>
-      <TooltipContent>
-        <ul className="space-y-0.5">
-          {comesFrom.map((label) => (
-            <li key={label}>‹{label}›에서도 들어옴</li>
-          ))}
-        </ul>
-      </TooltipContent>
-    </Tooltip>
+    <ul className="space-y-0.5" data-testid="seam-open-lines">
+      {detail.after.map((line) => (
+        <li key={line.unitId} className="min-w-0">
+          <p className="truncate text-sm leading-snug">{line.source}</p>
+          <p className="truncate text-xs text-muted-foreground">{line.translation || '번역 없음'}</p>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -188,8 +179,6 @@ function PathNodeView({ data, selected }: NodeProps<PathNode>) {
       <div style={size} className={cn('flex flex-col items-center gap-1', selected && 'ring-2 ring-primary/30')}>
         <div className="flex h-7 w-full items-center justify-center gap-1 rounded-full border bg-muted text-xs text-muted-foreground">
           {data.pill}
-          {data.pill === '합류' && data.check && <span className={data.check === 'checked' ? 'text-success' : 'text-warning'}> · {CHECK_LABEL[data.check]}</span>}
-          {data.join && <JoinMark comesFrom={data.comesFrom} check={data.check} />}
         </div>
         {data.menu && <ForkMenu menu={data.menu} />}
         {!!data.loops?.length && <LoopNote loops={data.loops} />}
@@ -210,21 +199,28 @@ function PathNodeView({ data, selected }: NodeProps<PathNode>) {
         )}
         {!!data.lanes && <Badge variant="secondary" className="shrink-0">동시에 열림 {data.lanes.toLocaleString()}</Badge>}
         {data.fork && !data.menu && <Badge variant="outline">갈림</Badge>}
-        {data.join && <JoinMark comesFrom={data.comesFrom} check={data.check} />}
       </div>
       {data.menu && <ForkMenu menu={data.menu} className="-ml-2 self-start" />}
+      {data.seam && data.shape !== 'section' ? (
+        <SeamLines seam={data.seam} />
+      ) : (
       <p className="line-clamp-2 text-sm leading-snug">
         {data.shape === 'choice' ? `▶ ${data.text ?? ''}` : data.shape === 'section' ? (data.text ? `${data.speaker ? `${data.speaker}: ` : ''}${data.text}` : '대사 없는 이어짐') : (data.text ?? '')}
       </p>
+      )}
       {!!data.loops?.length && <LoopNote loops={data.loops} />}
       {handles}
     </div>
   );
 }
 
+/** The edge into a seam: 이음새 label with its check state; `base` is the text the edge had. */
+type SeamEdge = { state: 'checked' | 'stale' | undefined; base?: string };
+const seamWord = (state: SeamEdge['state']) => (state === 'checked' ? '점검함' : state === 'stale' ? '바뀜' : '미점검');
+
 /** An edge routed by ELK (orthogonal, around the boxes), with its label where ELK left room for it. */
 type Route = { points: { x: number; y: number }[]; label?: { x: number; y: number; width: number } };
-function RoutedEdge({ id, sourceX, sourceY, targetX, targetY, markerEnd, style, data }: EdgeProps<Edge<{ route?: Route; label?: string }>>) {
+function RoutedEdge({ id, sourceX, sourceY, targetX, targetY, markerEnd, style, data }: EdgeProps<Edge<{ route?: Route; label?: string; seam?: SeamEdge }>>) {
   const route = data?.route;
   const points = route?.points ?? [{ x: sourceX, y: sourceY }, { x: targetX, y: targetY }];
   let path = `M ${points[0]!.x} ${points[0]!.y}`;
@@ -249,11 +245,19 @@ function RoutedEdge({ id, sourceX, sourceY, targetX, targetY, markerEnd, style, 
       {data?.label && route?.label && (
         <EdgeLabelRenderer>
           <div
-            className="nodrag nopan pointer-events-none absolute truncate rounded-sm bg-background px-1 text-xs text-muted-foreground"
+            className="nodrag nopan pointer-events-none absolute flex items-center gap-1 rounded-sm bg-background px-1 text-xs text-muted-foreground"
             style={{ transform: `translate(${route.label.x}px, ${route.label.y}px)`, width: route.label.width }}
             title={data.label}
           >
-            {data.label}
+            {data.seam ? (
+              <>
+                {data.seam.base && <span className="min-w-0 truncate">{data.seam.base}</span>}
+                <span className="shrink-0">이음새</span>
+                <SeamStateChip state={data.seam.state} className="h-4 px-1.5 text-xs" />
+              </>
+            ) : (
+              <span className="truncate">{data.label}</span>
+            )}
           </div>
         </EdgeLabelRenderer>
       )}
@@ -403,7 +407,7 @@ export function PathGraph({ projectId, slice, texts, checks, at, all, selectedId
   projectId: string;
   slice: PathSlice;
   texts: Map<string, PathNodeText>;
-  /** 합류 점검 per join (overview node id), for the mark on the join. */
+  /** 이음새 점검 per seam (the seam's block id), for the state on the edge into it. */
   checks?: Record<string, { state: 'checked' | 'stale' }>;
   /** The overview node the window is around. */
   at?: string;
@@ -454,23 +458,21 @@ export function PathGraph({ projectId, slice, texts, checks, at, all, selectedId
               onAuto: () => onAuto(fork.nodeId),
             }
           : undefined;
-      const here = new Set(node.nodeIds);
-      const comesFrom = node.join ? [...new Set(slice.stubs.filter((stub) => stub.rejoins.some((id) => here.has(id))).map((stub) => stub.label))] : undefined;
       const translated = node.blockIds.reduce((sum, id) => sum + (blocks.get(id)?.translated ?? 0), 0);
-      const common = { lines: node.unitIds.length, translated, join: node.join, fork: node.choice, menu, comesFrom, check: node.join ? checks?.[node.id]?.state : undefined };
+      const common = { lines: node.unitIds.length, translated, fork: node.choice, menu, seam: node.seam ? { projectId, nodeId: node.id } : undefined };
       const first = node.nodeIds.map((id) => texts.get(id)).find((item) => item?.text);
       if (node.kind === 'section') {
-        items.set(node.id, { id: node.id, shape: 'section', data: { ...common, shape: 'section', lanes: node.lanes, join: false, fork: false, speaker: first?.speaker, text: first?.text } });
+        items.set(node.id, { id: node.id, shape: 'section', data: { ...common, shape: 'section', lanes: node.lanes, seam: undefined, fork: false, speaker: first?.speaker, text: first?.text } });
       } else if (!node.unitIds.length) {
-        const pill = node.choice ? '조건' : node.join ? '합류' : '시작';
-        items.set(node.id, { id: node.id, shape: 'fork', data: { ...common, shape: 'fork', pill, join: node.join && pill !== '합류', fork: false } });
+        const pill = node.choice ? '조건' : node.join || node.seam ? '이어짐' : '시작';
+        items.set(node.id, { id: node.id, shape: 'fork', data: { ...common, shape: 'fork', pill, fork: false } });
       } else {
         const choice = blocks.get(node.id)?.kind === 'choice';
         items.set(node.id, { id: node.id, shape: choice ? 'choice' : 'line', data: { ...common, shape: choice ? 'choice' : 'line', speaker: first?.speaker, text: first?.text } });
       }
     }
     return items;
-  }, [slice, texts, checks, onPick, onAuto]);
+  }, [slice, texts, projectId, onPick, onAuto]);
 
   const { items, flowEdges, plain, key, foldOf } = useMemo(() => {
     const windowed = windowOf(slice.overview, at, all);
@@ -478,10 +480,10 @@ export function PathGraph({ projectId, slice, texts, checks, at, all, selectedId
     // A loop back to a box above would circle round the boxes: left out of the drawing, said on the node it leaves.
     const split = splitBackEdges(windowed.ids, windowed.edges);
     const back = split.back;
-    // Stretches whose lines are all translated fold into one node; choices, joins and the selection stay open.
+    // Stretches whose lines are all translated fold into one node; choices, seams (their first lines stay open) and the selection stay open.
     const foldable = (id: string) => {
       const data = catalog.get(id)?.data;
-      return !!data && data.shape !== 'fork' && data.lines > 0 && data.translated === data.lines && !data.fork && !data.join && !data.menu && id !== selectedId;
+      return !!data && data.shape !== 'fork' && data.lines > 0 && data.translated === data.lines && !data.fork && !data.seam && !data.menu && id !== selectedId;
     };
     const folded = foldTranslated(windowed.ids, split.forward, foldable, expanded);
     const forward = folded.edges;
@@ -497,32 +499,48 @@ export function PathGraph({ projectId, slice, texts, checks, at, all, selectedId
       const fold = foldById.get(id);
       if (fold) {
         const lines = fold.members.reduce((sum, member) => sum + (catalog.get(member)?.data.lines ?? 0), 0);
-        return [{ id, shape: 'folded' as const, data: { shape: 'folded' as const, lines, parts: fold.members.length, join: false, onExpand: () => expand(fold.members[0]!) } }];
+        return [{ id, shape: 'folded' as const, data: { shape: 'folded' as const, lines, parts: fold.members.length, onExpand: () => expand(fold.members[0]!) } }];
       }
       const marker = markers.get(id);
-      if (marker) return [{ id, shape: 'more' as const, data: { shape: 'more' as const, lines: 0, join: false, hint: marker.direction === 'ahead' ? '이 앞으로 이어짐' : '이 뒤에서 이어짐', onMove: () => moveRef.current(marker.target) } }];
+      if (marker) return [{ id, shape: 'more' as const, data: { shape: 'more' as const, lines: 0, hint: marker.direction === 'ahead' ? '이 앞으로 이어짐' : '이 뒤에서 이어짐', onMove: () => moveRef.current(marker.target) } }];
       const item = catalog.get(id);
       return item ? [loops.has(id) ? { ...item, data: { ...item.data, loops: loops.get(id) } } : item] : [];
     });
     // Only text a person reads goes on an edge: exporter identifiers ("tps-01-game-intro", "rules-x=0") would clutter the line.
-    const drawn = forward.map((edge, i) => ({ edge, id: `${edge.from}>${edge.to}#${i}`, label: edge.label && !isIdentifierLabel(edge.label) ? edge.label : undefined }));
-    const flowEdges: Edge[] = drawn.map(({ edge, id, label }) => {
+    // The edges into a seam: from a block of the route's new lines (it may sit in a fold) or from a marker at the window's edge.
+    const ovOf = new Map(slice.overview.nodes.flatMap((node) => node.blockIds.map((id) => [id, node.id] as const)));
+    const seamFrom = new Map<string, Set<string>>();
+    for (const seam of slice.seams) seamFrom.set(seam.nodeId, (seamFrom.get(seam.nodeId) ?? new Set()).add(ovOf.get(seam.from) ?? seam.from));
+    const isSeamEdge = (edge: { from: string; to: string }) => {
+      const origin = seamFrom.get(edge.to);
+      if (!origin) return false;
+      return origin.has(edge.from) || markers.has(edge.from) || !!foldById.get(edge.from)?.members.some((member) => origin.has(member));
+    };
+    const drawn = forward.map((edge, i) => {
+      const base = edge.label && !isIdentifierLabel(edge.label) ? edge.label : undefined;
+      const seam: SeamEdge | undefined = isSeamEdge(edge) ? { state: checks?.[edge.to]?.state, base } : undefined;
+      // The layout reserves room for the longest state word, so a check never moves the boxes (or the saved view).
+      const reserve = (state: SeamEdge['state']) => `${base ? `${base} · ` : ''}이음새 · ${seamWord(state)}`;
+      return { edge, id: `${edge.from}>${edge.to}#${i}`, label: seam ? reserve(seam.state) : base, room: seam ? reserve(undefined) : base, seam };
+    });
+    const flowEdges: Edge[] = drawn.map(({ edge, id, label, seam }) => {
       const color = 'var(--foreground)';
       return {
         id,
         source: edge.from,
         target: edge.to,
         label,
+        data: { seam },
         labelStyle: { fontSize: 12, fill: 'var(--muted-foreground)' },
         labelBgStyle: { fill: 'var(--background)' },
         markerEnd: { type: MarkerType.ArrowClosed, color, width: 14, height: 14 },
         style: { stroke: color, strokeWidth: 1.25, opacity: 0.85 },
       };
     });
-    const plain: LayoutEdge[] = drawn.map(({ edge, id, label }) => ({ id, from: edge.from, to: edge.to, label }));
-    const key = `${items.map((item) => `${item.id}:${item.shape}${item.data.menu ? 'm' : ''}${item.data.loops?.length ? 'l' : ''}`).join('|')}#${plain.map((edge) => `${edge.from}>${edge.to}${edge.label ? `:${edge.label}` : ''}`).join('|')}`;
+    const plain: LayoutEdge[] = drawn.map(({ edge, id, room }) => ({ id, from: edge.from, to: edge.to, label: room }));
+    const key = `${items.map((item) => `${item.id}:${item.shape}${item.data.menu ? 'm' : ''}${item.data.loops?.length ? 'l' : ''}${item.data.seam ? 's' : ''}`).join('|')}#${plain.map((edge) => `${edge.from}>${edge.to}${edge.label ? `:${edge.label}` : ''}`).join('|')}`;
     return { items, flowEdges, plain, key, foldOf };
-  }, [slice.overview, catalog, at, all, expanded, selectedId, expand]);
+  }, [slice.overview, slice.seams, catalog, checks, at, all, expanded, selectedId, expand]);
 
   const [positions, setPositions] = useState<Positions>();
   const [failed, setFailed] = useState<string>();
@@ -547,7 +565,7 @@ export function PathGraph({ projectId, slice, texts, checks, at, all, selectedId
   );
 
   const edges = useMemo(
-    () => flowEdges.map((edge) => (positions?.routes?.[edge.id] ? { ...edge, type: 'routed', label: undefined, data: { route: positions.routes[edge.id], label: edge.label } } : edge)),
+    () => flowEdges.map((edge) => (positions?.routes?.[edge.id] ? { ...edge, type: 'routed', label: undefined, data: { route: positions.routes[edge.id], label: edge.label, seam: (edge.data as { seam?: SeamEdge } | undefined)?.seam } } : edge)),
     [flowEdges, positions],
   );
 

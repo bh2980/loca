@@ -45,6 +45,11 @@ describe('stops', () => {
     expect(stops(overview, 'start')).toMatchObject({ previous: undefined, next: 'c1', position: 0 });
     expect(stops(overview, 'c6')).toMatchObject({ next: undefined, position: 5 });
   });
+  it('a seam is a stop too', () => {
+    const withSeam = [anchor('start'), section('s1'), anchor('m', { seam: true }), section('s2')];
+    expect(stops({ nodes: withSeam, edges: [] }, 'start')).toMatchObject({ next: 'm' });
+    expect(stops({ nodes: withSeam, edges: [] }, 's2')).toMatchObject({ previous: 'm' });
+  });
 });
 
 describe('splitBackEdges', () => {

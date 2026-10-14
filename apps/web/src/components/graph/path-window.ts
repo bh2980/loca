@@ -14,6 +14,8 @@ export interface OverviewNode {
   lanes: number;
   choice: boolean;
   join: boolean;
+  /** A seam enters an earlier route here (round 2 on). */
+  seam?: boolean;
 }
 export interface OverviewEdge {
   from: string;
@@ -26,13 +28,13 @@ export interface Overview {
   edges: OverviewEdge[];
 }
 
-/** Choices and joins ahead of `at` that the window shows. */
+/** Choices, places a choice comes back and seams ahead of `at` that the window shows. */
 export const AHEAD = 4;
 /** …and behind it. */
 export const BACK = 1;
 
 /** A place where the way forks or comes together (what the next/previous buttons stop at). */
-export const isStop = (node: OverviewNode) => node.kind === 'anchor' && (node.choice || node.join);
+export const isStop = (node: OverviewNode) => node.kind === 'anchor' && (node.choice || node.join || !!node.seam);
 
 /** An edge that leaves the window: drawn to a small marker, which moves `at` to `target`. */
 export interface Marker {
