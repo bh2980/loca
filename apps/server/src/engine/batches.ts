@@ -11,6 +11,17 @@ export interface BatchLine {
   speaker?: string | null;
 }
 
+/** Consecutive lines of one kind (dialogue, document, UI); lines without a known kind stay with their neighbours. */
+function byKind<T extends { kind?: string }>(lines: T[]): T[][] {
+  const runs: T[][] = [];
+  for (const line of lines) {
+    const last = runs.at(-1);
+    if (last && (line.kind === undefined || last[0]!.kind === undefined || last[0]!.kind === line.kind)) last.push(line);
+    else runs.push([line]);
+  }
+  return runs;
+}
+
 /**
  * Lines split into model requests, in script order. This is the one batching rule: the run plan,
  * the runner and the context preview all call it.
@@ -28,7 +39,7 @@ export interface BatchLine {
 export function planBatches<T extends BatchLine>(lines: T[], config: BatchConfig, linked?: (a: string, b: string) => boolean): T[][] {
   const ordered = [...lines].sort((a, b) => a.seq - b.seq);
   if (config.mode === 'unit') return ordered.map((line) => [line]);
-  if (config.mode === 'count') return Array.from({ length: Math.ceil(ordered.length / config.size) }, (_, index) => ordered.slice(index * config.size, (index + 1) * config.size));
+  if (config.mode === 'count') return byKind(ordered).flatMap((run) => Array.from({ length: Math.ceil(run.length / config.size) }, (_, index) => run.slice(index * config.size, (index + 1) * config.size)));
 
   const batches: T[][] = [];
   let current: T[] = [];
@@ -82,8 +93,10 @@ export function planBatches<T extends BatchLine>(lines: T[], config: BatchConfig
  * another kind (dialogue, document, UI: their first line's `kind`, when known) start a new request,
  * as they do in planBatches.
  */
-export function packGroups<T extends { tokens: number; kind?: string }>(groups: T[][], config: BatchConfig): T[][] {
-  if (config.mode === 'unit') return groups.flat().map((line) => [line]);
+export function packGroups<T extends { tokens: number; kind?: string }>(planned: T[][], config: BatchConfig): T[][] {
+  if (config.mode === 'unit') return planned.flat().map((line) => [line]);
+  // A group that holds several kinds (a mixed imported group, an older plan) is cut where the kind changes.
+  const groups = planned.flatMap(byKind);
   const requests: T[][] = [];
   let current: T[] = [];
   let tokens = 0;

@@ -38,6 +38,13 @@ describe('packGroups', () => {
     expect(packGroups([scene('a', 25)], config).map((request) => request.length)).toEqual([10, 10, 5]);
   });
 
+  it('cuts a group that holds several kinds where the kind changes', () => {
+    seq = 0;
+    const mixed = [...scene('a', 2, { kind: 'dialogue' }), ...scene('a', 2, { kind: 'ui' })];
+    expect(packGroups([mixed], config).map((request) => request.map((line) => line.kind))).toEqual([['dialogue', 'dialogue'], ['ui', 'ui']]);
+    expect(planBatches(mixed, { ...config, mode: 'count' }).map((batch) => batch.map((line) => line.kind))).toEqual([['dialogue', 'dialogue'], ['ui', 'ui']]);
+  });
+
   it('does not put dialogue, UI and documents in one request', () => {
     seq = 0;
     const requests = packGroups([scene('a', 2, { kind: 'dialogue' }), scene('b', 2, { kind: 'dialogue' }), scene('ui', 3, { kind: 'ui' }), scene('doc', 1, { kind: 'document' })], config);
