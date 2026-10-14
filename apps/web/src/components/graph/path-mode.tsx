@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
+import { MoreHorizontal } from 'lucide-react';
 import { toast } from 'sonner';
 import { LineCard } from '@/components/graph/line-card';
 import { FlowPane } from '@/components/graph/node-detail';
 import { SeamCheckPane } from '@/components/graph/seam-check-pane';
 import { PathGraph, type PathNodeText } from '@/components/graph/path-graph';
-import { resolveAt, stops } from '@/components/graph/path-window';
+import { PathNodeExtras, describeNode, forkChoices } from '@/components/graph/path-pane';
+import { loopTargets, resolveAt, stops } from '@/components/graph/path-window';
 import { Page } from '@/components/page';
 import { PaneHeader } from '@/components/pane-header';
 import { SplitPane } from '@/components/split-pane';
 import { Button } from '@/components/ui/button';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Spinner } from '@/components/ui/spinner';
 import { Toggle } from '@/components/ui/toggle';
@@ -83,6 +86,7 @@ export function PathMode({ projectId, toggle, node, edit, at, all, onSelect, onE
   });
   const onPick = useCallback((nodeId: string, armId: string) => pick.mutate({ nodeId, armId }), []); // eslint-disable-line react-hooks/exhaustive-deps
   const onAuto = useCallback((nodeId: string) => pick.mutate({ nodeId, armId: null }), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const overviewById = useMemo(() => new Map((route.data?.overview.nodes ?? []).map((item) => [item.id, item] as const)), [route.data]);
 
   // A selection that the new slice no longer has (another arm was picked) is forgotten.
   const block = slice?.overview.nodes.find((item) => item.id === node);
@@ -92,6 +96,9 @@ export function PathMode({ projectId, toggle, node, edit, at, all, onSelect, onE
   useEffect(() => {
     if (slice && node && !block) onSelect(undefined);
   }, [slice, node, block]); // eslint-disable-line react-hooks/exhaustive-deps
+  const choices = block && slice ? forkChoices(slice, block) : undefined;
+  const loops = block && slice ? loopTargets(slice.overview, block.id).map((to) => describeNode(overviewById.get(to), texts)) : [];
+  const extras = choices || loops.length ? <PathNodeExtras choices={choices} loops={loops} onPick={onPick} onAuto={onAuto} /> : undefined;
   const editIndex = block && edit ? block.unitIds.indexOf(edit) : -1;
   const editUnit = useQuery({ ...q.unit(edit ?? ''), enabled: editIndex >= 0 });
   useReportView('graph-line', [editUnit.data && { kind: '대사', id: editUnit.data.id, label: `${editUnit.data.key} · ${editUnit.data.source.slice(0, 40)}` }]);
@@ -103,16 +110,13 @@ export function PathMode({ projectId, toggle, node, edit, at, all, onSelect, onE
 
   const here = slice && resolveAt(slice.overview, at);
   const around = slice && stops(slice.overview, here);
-  const choices = slice?.forks.filter((fork) => fork.mode === 'choice').length ?? 0;
   const picks = Object.keys(route.data?.picks ?? {}).length;
   // 이음새 점검 (round 2 on): the seams of this route; 바뀜 are no longer counted as checked.
   const seamList = slice?.overview.nodes.filter((item) => item.kind === 'anchor' && item.seam) ?? [];
   const seamChecks = seamData?.seamChecks;
   const remaining = next ? (next.remainingRoutes === 0 ? '남은 길 없음' : `남은 길 약 ${next.remainingRoutes}`) : undefined;
-  const progress = slice ? [`길 ${slice.round}`, `이번 길 새 줄 ${slice.newLinesOnRoute.toLocaleString()}`, `번역 ${slice.translatedGraphLines.toLocaleString()}/${slice.graphLines.toLocaleString()}줄`, remaining].filter(Boolean).join(' · ') : undefined;
-  const counts = slice ? `갈림 ${choices.toLocaleString()}` : undefined;
-  const summary = progress && counts ? `${progress} · ${counts}` : undefined;
-  const scope = slice ? `이번 길 ${slice.lines.toLocaleString()}줄 / 프로젝트 전체 ${slice.totalLines.toLocaleString()}줄 · 다른 선택 ${slice.stubs.length.toLocaleString()} · 번역은 대사 그래프에 있는 줄(${slice.graphLines.toLocaleString()}줄) 기준, 번역 글자가 있는 줄만 셉니다.` : undefined;
+  const summary = slice ? [`길 ${slice.round}`, `새 줄 ${slice.newLinesOnRoute.toLocaleString()}`, `번역 ${slice.translatedGraphLines.toLocaleString()}/${slice.graphLines.toLocaleString()}줄`, remaining].filter(Boolean).join(' · ') : undefined;
+  const scope = slice ? `이번 길 ${slice.lines.toLocaleString()}줄 / 프로젝트 전체 ${slice.totalLines.toLocaleString()}줄 · 새 줄은 이번 길에서 아직 번역하지 않은 줄 · 번역은 대사 그래프에 있는 줄(${slice.graphLines.toLocaleString()}줄) 기준, 번역 글자가 있는 줄만 셉니다.` : undefined;
   const seamSummary = round >= 2 && seamChecks ? `이음새 점검 ${seamChecks.checked.toLocaleString()}/${seamChecks.total.toLocaleString()}${seamChecks.stale ? ` · 바뀜 ${seamChecks.stale.toLocaleString()}` : ''}` : undefined;
   // The next seam in script order after the window's place (wrapping round); only `at` moves.
   const nextSeam = (() => {
@@ -153,7 +157,6 @@ export function PathMode({ projectId, toggle, node, edit, at, all, onSelect, onE
           <span className="text-sm text-muted-foreground tabular-nums" title={[summary, scope, seamSummary].filter(Boolean).join(' · ')}>
             <span data-testid="path-summary">{summary}</span>
             {seamSummary && <span data-testid="seam-summary"> · {seamSummary}</span>}
-            {!all && around && around.choices > 0 && <span data-testid="path-position"> · 갈림 {around.position.toLocaleString()} / {around.choices.toLocaleString()}</span>}
           </span>
         )
       }
@@ -167,30 +170,35 @@ export function PathMode({ projectId, toggle, node, edit, at, all, onSelect, onE
               <Button disabled={!next || finished || stay || busy} title={nextTitle} onClick={() => nextRoute.mutate()}>
                 {nextLabel}
               </Button>
-              {!all && (
-                <>
-                  <Button variant="ghost" disabled={!around?.previous} title={`이전 갈림 (${keyLabel('Alt+Up')})`} onClick={() => go(around?.previous)}>
-                    이전 갈림
-                  </Button>
-                  <Button variant="ghost" disabled={!around?.next} title={`다음 갈림 (${keyLabel('Alt+Down')})`} onClick={() => go(around?.next)}>
-                    다음 갈림
-                  </Button>
-                  {round >= 2 && (
-                    <Button variant="ghost" disabled={!nextSeam} title="이 길의 다음 이음새로 이동 (끝이면 처음 이음새)" onClick={goSeam}>
-                      다음 이음새
-                    </Button>
-                  )}
-                </>
-              )}
               <Toggle variant="outline" size="sm" pressed={all} onPressedChange={onAll} title="창 없이 전체를 한 화면에 맞춥니다">
                 전체 보기
               </Toggle>
+              {round >= 2 && (
+                <Button variant="ghost" disabled={!nextSeam} title="이 길의 다음 이음새로 이동 (끝이면 처음 이음새)" onClick={goSeam}>
+                  다음 이음새
+                </Button>
+              )}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" title="더보기">
+                    <MoreHorizontal /> 더보기
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem disabled={all || !around?.previous} onSelect={() => go(around?.previous)}>
+                    이전 갈림
+                    <span className="ml-auto pl-4 text-xs text-muted-foreground">{keyLabel('Alt+Up')}</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled={all || !around?.next} onSelect={() => go(around?.next)}>
+                    다음 갈림
+                    <span className="ml-auto pl-4 text-xs text-muted-foreground">{keyLabel('Alt+Down')}</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled={picks === 0 || reset.isPending} onSelect={() => reset.mutate()}>
+                    선택 초기화
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </>
-          )}
-          {picks > 0 && (
-            <Button variant="ghost" disabled={reset.isPending} onClick={() => reset.mutate()}>
-              선택 초기화
-            </Button>
           )}
           {toggle}
         </div>
@@ -212,6 +220,7 @@ export function PathMode({ projectId, toggle, node, edit, at, all, onSelect, onE
                 projectId={projectId}
                 nodeIds={block.nodeIds.slice(0, PANE_NODES)}
                 title={block.kind === 'section' ? `구간 · ${block.unitIds.length.toLocaleString()}줄${block.nodeIds.length > PANE_NODES ? ` (앞 노드 ${PANE_NODES}개만 보임)` : ''}` : isChoiceBlock ? '선택지' : block.unitIds.length > 1 ? `이어진 대사 ${block.unitIds.length}줄` : '대사'}
+                extra={extras}
                 editing={edit}
                 onEdit={onEdit}
                 onClose={() => onSelect(undefined)}
@@ -223,7 +232,7 @@ export function PathMode({ projectId, toggle, node, edit, at, all, onSelect, onE
       >
         <div className="relative min-w-0 flex-1 bg-[radial-gradient(var(--graph-grid)_1px,transparent_1px)] [background-size:20px_20px]">
           {slice && graph.data && slice.overview.nodes.length > 0 && (
-            <PathGraph projectId={projectId} slice={slice} checks={checks} texts={texts} at={here} all={all} selectedId={node} onSelect={(id) => onSelect(id, true)} onMove={onMove} onPick={onPick} onAuto={onAuto} onReady={ready} />
+            <PathGraph projectId={projectId} slice={slice} checks={checks} texts={texts} at={here} all={all} selectedId={node} onSelect={(id) => onSelect(id, true)} onMove={onMove} onReady={ready} />
           )}
           {(route.isPending || graph.isPending) && (
             <div className="absolute inset-0 flex items-center justify-center gap-2 text-sm text-muted-foreground">

@@ -7,12 +7,11 @@ import '@xyflow/react/dist/style.css';
 import { useSize } from '@/hooks/use-size';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { ChevronDown } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { SeamStateChip } from '@/components/graph/seam-check-pane';
 import { q } from '@/lib/queries';
 import { useQuery } from '@tanstack/react-query';
-import { foldTranslated, READING_LABEL, splitBackEdges, windowOf, placeSeams, type Arm, type Hub, type Overview } from '@/components/graph/path-window';
+import { foldTranslated, splitBackEdges, windowOf, placeSeams, type Arm, type Hub, type Overview } from '@/components/graph/path-window';
 import { cn } from '@/lib/utils';
 
 /** What a slice block needs from the graph's node list (the first line of a node). */
@@ -30,16 +29,6 @@ export interface PathSlice {
 }
 
 type Shape = 'line' | 'choice' | 'fork' | 'section' | 'more' | 'folded';
-/** The other ways out of a choice: shown as a menu on its node, never drawn as boxes. */
-interface ForkMenuData {
-  /** Stubs leaving the choice ('다른 선택 N개'). */
-  count: number;
-  /** Every arm of the fork. `lines` / `alone` are those of its stub (the arm not taken). */
-  arms: { id: string; label: string; chosen: boolean; lines?: number; alone?: boolean }[];
-  picked: boolean;
-  onPick: (armId: string) => void;
-  onAuto: () => void;
-}
 type PathNodeData = {
   shape: Shape;
   speaker?: string | null;
@@ -53,17 +42,13 @@ type PathNodeData = {
   pill?: string;
   /** Section: ways opened at once inside it (0: none). */
   lanes?: number;
-  /** A choice is made here. */
+  /** A choice is made here (not drawn; keeps the node open and unfolded). */
   fork?: boolean;
   /** Marker: where it leads ('이 앞으로 이어짐' / '이 뒤에서 이어짐'). */
   hint?: string;
   onMove?: () => void;
   /** Folded: opens it in place. */
   onExpand?: () => void;
-  /** The fork here and its other ways out (a choice with stubs). */
-  menu?: ForkMenuData;
-  /** Loops: where the edges that lead back up from here go (not drawn, said on the node). */
-  loops?: string[];
   /** Starts one of several choices that open at the same place ("동시에 열림 i/n"). */
   arm?: Arm;
   /** Window: arms the column numbers at this node, and targets that only loop back (replaces `lanes`). */
@@ -83,18 +68,15 @@ const SIZE: Record<Shape, { width: number; height: number }> = {
   more: { width: 56, height: 28 },
   folded: { width: 260, height: 36 },
 };
-/** The chip sits on its own row under the header (a line taller); a loop note is one more small row; the pill grows wide enough for both. */
-const MENU_ROW = 28;
-const LOOP_ROW = 18;
 /** A seam shows its first two lines (source and translation, one row each) instead of the 2-line preview. */
 const SEAM_EXTRA = 64;
-const boxOf = (shape: Shape, menu: boolean, loops = false, seam = false, wide = false) => {
+const boxOf = (shape: Shape, seam = false, wide = false) => {
   const base = SIZE[shape];
-  // A pill that also says '동시에 열림 i/n' or '이음새' keeps it on one line.
-  if (shape === 'fork') return { width: wide ? 210 : menu || loops ? 170 : base.width, height: base.height + (menu ? 40 : 0) + (loops ? LOOP_ROW : 0) };
-  return { width: base.width, height: base.height + (menu ? MENU_ROW : 0) + (loops ? LOOP_ROW : 0) + (seam ? SEAM_EXTRA : 0) };
+  // A pill that also says 'i/n' or '이음새' keeps it on one line.
+  if (shape === 'fork') return { width: wide ? 210 : base.width, height: base.height };
+  return { width: base.width, height: base.height + (seam ? SEAM_EXTRA : 0) };
 };
-const boxOfData = (shape: Shape, data: PathNodeData) => boxOf(shape, !!data.menu, !!data.loops?.length, !!data.seam && shape !== 'fork', !!data.arm || !!data.seamMark);
+const boxOfData = (shape: Shape, data: PathNodeData) => boxOf(shape, !!data.seam && shape !== 'fork', !!data.arm || !!data.seamMark);
 // Dense slices (hundreds of blocks with many parallel lanes) take seconds: laid out off the page's thread.
 const elk = new ELK({ workerFactory: () => new ElkWorker() });
 
@@ -114,44 +96,17 @@ function SeamLines({ seam }: { seam: NonNullable<PathNodeData['seam']> }) {
   );
 }
 
-/** '다른 선택 N개': every arm of the fork; picking one changes the path. Clicks here must not select the node. */
-function ForkMenu({ menu, className }: { menu: ForkMenuData; className?: string }) {
+/** 'i/n': this starts one of several choices that open at the same place. It is not a story connection, and says so. */
+function ArmChip({ arm, className }: { arm: Arm; className?: string }) {
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" className={cn('nodrag nopan h-6 shrink-0 px-2 text-xs', className)} onClick={(event) => event.stopPropagation()}>
-          다른 선택 {menu.count.toLocaleString()}개
-          <ChevronDown />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="max-w-80" onClick={(event) => event.stopPropagation()}>
-        {menu.arms.map((arm) => (
-          <DropdownMenuCheckboxItem key={arm.id} checked={arm.chosen} onCheckedChange={() => !arm.chosen && menu.onPick(arm.id)}>
-            <span className="truncate">{arm.label}</span>
-            {!arm.chosen && arm.lines !== undefined && (
-              <span className="shrink-0 text-muted-foreground">
-                · {arm.lines.toLocaleString()}줄{arm.alone ? ' · 따로 끝남' : ''}
-              </span>
-            )}
-          </DropdownMenuCheckboxItem>
-        ))}
-        {menu.picked && (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={menu.onAuto}>자동으로 고르기</DropdownMenuItem>
-          </>
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-/** '↺ …로 되돌아감': a loop back up, said instead of drawn. */
-function LoopNote({ loops }: { loops: string[] }) {
-  return (
-    <p className="nodrag w-full truncate text-center text-xs text-muted-foreground" title={loops.map((to) => `‹${to}›로 되돌아감`).join('\n')}>
-      ↺ 되돌아감 → ‹{loops[0]}›{loops.length > 1 ? ` 외 ${loops.length - 1}` : ''}
-    </p>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Badge variant="secondary" className={cn('shrink-0 tabular-nums', className)} data-testid="arm-chip">
+          {arm.index}/{arm.count}
+        </Badge>
+      </TooltipTrigger>
+      <TooltipContent>{`같은 자리에서 함께 열리는 선택지 ${arm.index}/${arm.count}, 이야기 연결이 아님`}</TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -198,7 +153,8 @@ function PathNodeView({ data, selected }: NodeProps<PathNode>) {
     return (
       <div style={size} className="flex items-center">
         <Button variant="outline" className="nodrag h-full w-full border-dashed bg-muted/50 font-normal text-muted-foreground" title={`번역을 마친 ${data.parts?.toLocaleString()}개 구간을 접었습니다. 누르면 펼칩니다.`} onClick={data.onExpand}>
-          번역함 · {data.lines.toLocaleString()}줄{data.arm ? ` · 동시에 열림 ${data.arm.index}/${data.arm.count}` : ''}
+          번역함 · {data.lines.toLocaleString()}줄
+          {data.arm && <ArmChip arm={data.arm} className="ml-2" />}
         </Button>
         {handles}
       </div>
@@ -209,10 +165,8 @@ function PathNodeView({ data, selected }: NodeProps<PathNode>) {
         <div className="flex h-7 w-full items-center justify-center gap-1 rounded-full border bg-muted px-2 text-xs whitespace-nowrap text-muted-foreground">
           {data.pill}
           {data.seamMark && <SeamMark state={data.seamMark.state} />}
-          {data.arm && <span>· 동시에 열림 {data.arm.index}/{data.arm.count}</span>}
+          {data.arm && <ArmChip arm={data.arm} />}
         </div>
-        {data.menu && <ForkMenu menu={data.menu} />}
-        {!!data.loops?.length && <LoopNote loops={data.loops} />}
         {handles}
       </div>
     );
@@ -230,10 +184,8 @@ function PathNodeView({ data, selected }: NodeProps<PathNode>) {
         )}
         {!!data.lanes && <HubChips arms={data.hub ? data.hub.arms : data.lanes} loops={data.hub?.loops ?? 0} behind={data.hub?.behind ?? 0} />}
         {data.seamMark && <SeamMark state={data.seamMark.state} />}
-        {data.arm && <Badge variant="secondary" className="shrink-0 tabular-nums">동시에 열림 {data.arm.index}/{data.arm.count}</Badge>}
-        {data.fork && !data.menu && <Badge variant="outline">갈림</Badge>}
+        {data.arm && <ArmChip arm={data.arm} />}
       </div>
-      {data.menu && <ForkMenu menu={data.menu} className="-ml-2 self-start" />}
       {data.seam && data.shape !== 'section' ? (
         <SeamLines seam={data.seam} />
       ) : (
@@ -241,7 +193,6 @@ function PathNodeView({ data, selected }: NodeProps<PathNode>) {
         {data.shape === 'choice' ? `▶ ${data.text ?? ''}` : data.shape === 'section' ? (data.text ? `${data.speaker ? `${data.speaker}: ` : ''}${data.text}` : '대사 없는 이어짐') : (data.text ?? '')}
       </p>
       )}
-      {!!data.loops?.length && <LoopNote loops={data.loops} />}
       {handles}
     </div>
   );
@@ -433,10 +384,10 @@ function windowViewport(box: { left: number; top: number; width: number; height:
 /**
  * 길 따라 보기: the route slice's overview (services/route-slice.ts) drawn top-to-bottom, a window
  * around `at` at a time or all of it. Lines come from the dialogue graph's node list; clicking a
- * section or anchor selects it (the page's `node`), the other choices of a fork are a menu on its node, clicking a
+ * section or anchor selects it (the page's `node`; the other choices of a fork and its loops are said in the pane), clicking a
  * marker at the window's edge moves the window. Pan and zoom are kept in sessionStorage only, never in history.
  */
-export function PathGraph({ projectId, slice, texts, checks, at, all, selectedId, onSelect, onMove, onPick, onAuto, onReady }: {
+export function PathGraph({ projectId, slice, texts, checks, at, all, selectedId, onSelect, onMove, onReady }: {
   projectId: string;
   slice: PathSlice;
   texts: Map<string, PathNodeText>;
@@ -451,8 +402,6 @@ export function PathGraph({ projectId, slice, texts, checks, at, all, selectedId
   onSelect: (id: string | undefined) => void;
   /** A marker was clicked: the window moves there. */
   onMove: (id: string) => void;
-  onPick: (forkNodeId: string, armNodeId: string) => void;
-  onAuto: (forkNodeId: string) => void;
   /** Called once the first layout is on screen (for timing). */
   onReady?: () => void;
 }) {
@@ -470,29 +419,10 @@ export function PathGraph({ projectId, slice, texts, checks, at, all, selectedId
   // Every overview node as a drawable item, made once per slice.
   const catalog = useMemo(() => {
     const blocks = new Map(slice.blocks.map((block) => [block.id, block] as const));
-    const blockOf = new Map(slice.blocks.flatMap((block) => block.nodeIds.map((id) => [id, block.id] as const)));
-    const forkAt = new Map(slice.forks.map((fork) => [blockOf.get(fork.nodeId) ?? fork.nodeId, fork] as const));
     const items = new Map<string, { id: string; shape: Shape; data: PathNodeData }>();
-    const stubOf = new Map(slice.stubs.map((stub) => [`${stub.fork}>${stub.arm}`, stub] as const));
     for (const node of slice.overview.nodes) {
-      const fork = forkAt.get(node.id);
-      const picked = fork?.mode === 'choice' && fork.arms.some((arm) => arm.picked);
-      const count = fork ? slice.stubs.filter((stub) => stub.fork === fork.nodeId).length : 0;
-      const menu: ForkMenuData | undefined =
-        fork && node.choice && count > 0
-          ? {
-              count,
-              picked,
-              arms: fork.arms.map((arm) => {
-                const stub = stubOf.get(`${fork.nodeId}>${arm.nodeId}`);
-                return { id: arm.nodeId, label: arm.label, chosen: arm.chosen, lines: stub?.lines, alone: stub ? stub.rejoins.length === 0 : undefined };
-              }),
-              onPick: (armId) => onPick(fork.nodeId, armId),
-              onAuto: () => onAuto(fork.nodeId),
-            }
-          : undefined;
       const translated = node.blockIds.reduce((sum, id) => sum + (blocks.get(id)?.translated ?? 0), 0);
-      const common = { lines: node.unitIds.length, translated, fork: node.choice, menu, seam: node.seam ? { projectId, nodeId: node.id } : undefined };
+      const common = { lines: node.unitIds.length, translated, fork: node.choice, seam: node.seam ? { projectId, nodeId: node.id } : undefined };
       const first = node.nodeIds.map((id) => texts.get(id)).find((item) => item?.text);
       if (node.kind === 'section') {
         items.set(node.id, { id: node.id, shape: 'section', data: { ...common, shape: 'section', lanes: node.lanes, seam: undefined, fork: false, speaker: first?.speaker, text: first?.text } });
@@ -505,29 +435,22 @@ export function PathGraph({ projectId, slice, texts, checks, at, all, selectedId
       }
     }
     return items;
-  }, [slice, texts, projectId, onPick, onAuto]);
+  }, [slice, texts, projectId]);
 
   const { items, flowEdges, plain, key, foldOf } = useMemo(() => {
     const windowed = windowOf(slice.overview, at, all);
     const markers = new Map(windowed.markers.map((marker) => [marker.id, marker] as const));
-    // A loop back to a box above would circle round the boxes: left out of the drawing, said on the node it leaves.
+    // A loop back to a box above would circle round the boxes: left out of the drawing (the pane of the node it leaves says where it goes).
     const split = windowed.back ? { forward: windowed.edges, back: windowed.back } : splitBackEdges(windowed.ids, windowed.edges);
-    const back = split.back;
     // Stretches whose lines are all translated fold into one node; choices, seams (their first lines stay open) and the selection stay open.
     const foldable = (id: string) => {
       const data = catalog.get(id)?.data;
-      return !!data && data.shape !== 'fork' && data.lines > 0 && data.translated === data.lines && !data.fork && !data.seam && !data.menu && id !== selectedId;
+      return !!data && data.shape !== 'fork' && data.lines > 0 && data.translated === data.lines && !data.fork && !data.seam && id !== selectedId;
     };
     const folded = foldTranslated(windowed.ids, split.forward, foldable, expanded);
     const forward = folded.edges;
     const foldById = new Map(folded.folds.map((fold) => [fold.id, fold] as const));
     const foldOf = new Map(folded.folds.flatMap((fold) => fold.members.map((member) => [member, fold.id] as const)));
-    const describe = (id: string) => {
-      const data = catalog.get(id)?.data;
-      return (data?.text ? data.text.replace(/\s+/g, ' ').slice(0, 40) : (data?.pill ?? (data?.shape === 'section' ? '구간' : '줄'))) as string;
-    };
-    const loops = new Map<string, string[]>();
-    for (const edge of back) loops.set(edge.from, [...(loops.get(edge.from) ?? []), describe(edge.to)]);
     const ovOf = new Map(slice.overview.nodes.flatMap((node) => node.blockIds.map((id) => [id, node.id] as const)));
     // One marker per seam: on the edge into it when that edge is drawn, else on the seam node.
     const placed = placeSeams({ ids: folded.ids, edges: forward, seams: slice.seams, ovOf, isMarker: (id) => markers.has(id), foldMembers: (id) => foldById.get(id)?.members });
@@ -543,7 +466,7 @@ export function PathGraph({ projectId, slice, texts, checks, at, all, selectedId
       const arm = windowed.arms?.get(id);
       const hub = item?.shape === 'section' && item.data.lanes ? (windowed.hubs?.get(id) ?? (windowed.hubs ? { arms: 0, loops: 0, behind: 0 } : undefined)) : undefined;
       const seamMark = placed.node.has(id) ? { state: checks?.[id]?.state } : undefined;
-      return item ? [loops.has(id) || arm || hub || seamMark ? { ...item, data: { ...item.data, loops: loops.get(id), arm, hub, seamMark } } : item] : [];
+      return item ? [arm || hub || seamMark ? { ...item, data: { ...item.data, arm, hub, seamMark } } : item] : [];
     });
     // Only text a person reads goes on an edge: exporter identifiers ("tps-01-game-intro", "rules-x=0") would clutter the line.
     // The edges into a seam: from a block of the route's new lines (it may sit in a fold) or from a marker at the window's edge.
@@ -551,7 +474,8 @@ export function PathGraph({ projectId, slice, texts, checks, at, all, selectedId
       const readable = edge.label && !isIdentifierLabel(edge.label) ? edge.label : undefined;
       // A reading connector is not a story edge: it says so (and carries the option text of the arm it leads to).
       const reading = (edge as { kind?: string }).kind === 'reading';
-      const base = reading ? ((edge as { arm?: boolean }).arm ? (readable ? `${readable} · ${READING_LABEL}` : READING_LABEL) : undefined) : readable;
+      // A reading connector is not a story edge: dashed and without text (its arm start carries the 'i/n' chip).
+      const base = reading ? undefined : readable;
       const seam: SeamEdge | undefined = placed.edge[i] ? { state: checks?.[edge.to]?.state, base } : undefined;
       // The layout reserves room for the longest state word, so a check never moves the boxes (or the saved view).
       const reserve = (state: SeamEdge['state']) => `${base ? `${base} · ` : ''}이음새 · ${seamWord(state)}`;
@@ -573,7 +497,7 @@ export function PathGraph({ projectId, slice, texts, checks, at, all, selectedId
     });
     const plain: LayoutEdge[] = drawn.map(({ edge, id, room }) => ({ id, from: edge.from, to: edge.to, label: room }));
     const armKey = [...(windowed.arms ?? [])].map(([id, arm]) => `${id}=${arm.index}/${arm.count}`).join(',');
-    const key = `${items.map((item) => `${item.id}:${item.shape}${item.data.menu ? 'm' : ''}${item.data.loops?.length ? 'l' : ''}${item.data.seam ? 's' : ''}${item.data.seamMark ? 'S' : ''}${item.data.hub ? `h${item.data.hub.arms}.${item.data.hub.loops}` : ''}`).join('|')}#${plain.map((edge) => `${edge.from}>${edge.to}${edge.label ? `:${edge.label}` : ''}`).join('|')}#${drawn.map((item) => (item.reading ? 'r' : 'p')).join('')}#${armKey}`;
+    const key = `${items.map((item) => `${item.id}:${item.shape}${item.data.seam ? 's' : ''}${item.data.seamMark ? 'S' : ''}${item.data.hub ? `h${item.data.hub.arms}.${item.data.hub.loops}` : ''}`).join('|')}#${plain.map((edge) => `${edge.from}>${edge.to}${edge.label ? `:${edge.label}` : ''}`).join('|')}#${drawn.map((item) => (item.reading ? 'r' : 'p')).join('')}#${armKey}`;
     return { items, flowEdges, plain, key, foldOf };
   }, [slice.overview, slice.seams, catalog, checks, at, all, expanded, selectedId, expand]);
 

@@ -82,9 +82,6 @@ export interface Windowed {
   hubs?: Map<string, Hub>;
 }
 
-/** Shown on a reading connector: the next of the choices that open at the same place. */
-export const READING_LABEL = '같은 자리의 다음 선택지';
-
 /** One marker per drawn node and direction, however many ways leave it (a section can open dozens at once). */
 export const markerId = (direction: Marker['direction'], drawn: string) => `more:${direction === 'ahead' ? 'a' : 'b'}:${drawn}`;
 
@@ -411,4 +408,13 @@ export function placeSeams(input: {
   const shown = new Set(input.ids);
   const node = new Set([...origin.keys()].filter((id) => shown.has(id) && !marked.has(id)));
   return { edge, node };
+}
+
+/**
+ * Where the connections leaving `nodeId` lead back up the reading order (loops): not drawn, said in the pane.
+ * Found over the whole overview, so the answer does not depend on the window.
+ */
+export function loopTargets(overview: Overview, nodeId: string): string[] {
+  const all = windowOf(overview, undefined, true);
+  return [...new Set((all.back ?? []).filter((edge) => edge.from === nodeId).map((edge) => edge.to))];
 }

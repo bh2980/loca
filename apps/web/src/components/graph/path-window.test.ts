@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { foldTranslated, READING_LABEL, markerId, placeSeams, resolveAt, splitBackEdges, stops, windowOf, type Overview, type OverviewNode } from './path-window';
+import { foldTranslated, markerId, placeSeams, resolveAt, loopTargets, splitBackEdges, stops, windowOf, type Overview, type OverviewNode } from './path-window';
 
 const anchor = (id: string, extra: Partial<OverviewNode> = {}): OverviewNode => ({ id, kind: 'anchor', blockIds: [id], nodeIds: [id], unitIds: [id], lanes: 0, choice: false, join: false, ...extra });
 const section = (id: string): OverviewNode => ({ id, kind: 'section', blockIds: [id], nodeIds: [id], unitIds: [id], lanes: 0, choice: false, join: false });
@@ -110,7 +110,6 @@ describe('windowOf reads a parallel fan-out as one column', () => {
     expect(drawn).toEqual(['out>hub:path', 'hub>a1:path', 'a1>a2:path', 'a2>b:reading', 'b>c:reading', 'c>join:path', 'join>end:path']);
     const connector = win.edges.find((edge) => edge.to === 'b')!;
     expect(connector).toMatchObject({ kind: 'reading', arm: true, label: '둘째' });
-    expect(READING_LABEL).toBe('같은 자리의 다음 선택지');
     // hub -> join, a2 -> join, b -> join are not drawn.
     expect(win.edges.filter((edge) => edge.to === 'join')).toHaveLength(1);
   });
@@ -141,6 +140,11 @@ describe('windowOf reads a parallel fan-out as one column', () => {
     expect(result.ids).toEqual(['hub', 'a', 'b']);
     expect(result.back).toHaveLength(2);
     expect(result.edges.map((edge) => edge.kind)).toEqual(['path', 'reading']);
+  });
+  it('says where the connections leaving a node loop back to, for the pane (not the window)', () => {
+    const loop: Overview = { nodes: [anchor('hub'), section('a'), section('b')], edges: [path('hub', 'a'), path('hub', 'b'), path('a', 'hub'), path('b', 'hub')] };
+    expect(loopTargets(loop, 'a')).toEqual(['hub']);
+    expect(loopTargets(loop, 'hub')).toEqual([]);
   });
   it('a fold does not run across a reading connector or a fork', () => {
     const result = windowOf(fan, 'hub', false);

@@ -69,12 +69,14 @@ function useSpeakerWidth() {
  * pane is for. Clicking a line (a pen shows on hover) opens it in the card beside the graph node
  * for translating; Enter on the canvas opens the first untranslated one.
  */
-export function FlowPane({ projectId, nodeIds, title, way, marked, editing, onEdit, onClose }: {
+export function FlowPane({ projectId, nodeIds, title, way, extra, marked, editing, onEdit, onClose }: {
   projectId: string;
   nodeIds: string[];
   title: string;
   /** The choices and conditions on the way in (nearest last); `merged` when several ways arrive. */
   way?: { labels: { text: string; choice: boolean }[]; merged: boolean };
+  /** Sections above the lines (the path view's other choices and loops). */
+  extra?: ReactNode;
   /** A node inside the run that was asked for (from a line): its rows are marked and scrolled to. */
   marked?: string;
   /** The line open in the translation card: its row is marked and kept in view. */
@@ -170,6 +172,7 @@ export function FlowPane({ projectId, nodeIds, title, way, marked, editing, onEd
         )
       }
     >
+      {extra && <div className="space-y-4 border-b p-4">{extra}</div>}
       {way && way.labels.length > 0 && (
         <p className="flex flex-wrap items-center gap-1 border-b bg-muted/30 px-3 py-1.5 text-xs text-muted-foreground" title="이 대사로 들어오는 길">
           <CornerDownRight className="size-3.5" aria-label="들어오는 길" />
