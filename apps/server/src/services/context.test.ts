@@ -21,6 +21,21 @@ const config = (patch: Partial<ReturnType<typeof contextConfigSchema.parse>> = {
 const keys = (lines: { key: string }[]) => lines.map((line) => line.key);
 
 describe('context builder', () => {
+  it('gives the gender and age band of the batch\'s speakers and named listeners, leaving out what is unknown', () => {
+    const { db, projectId, unit } = setup();
+    db.update(s.characters).set({ gender: 'female', ageBand: 'young' }).where(eq(s.characters.name, 'MIRA')).run();
+    db.update(s.characters).set({ ageBand: 'old' }).where(eq(s.characters.name, 'JONAS')).run();
+    // MIRA speaks to JONAS: both are named; a batch of JONAS's line alone names only him.
+    db.update(s.units).set({ listener: 'JONAS', listenerOrigin: 'human' }).where(eq(s.units.id, unit('arrival.1').id)).run();
+    const context = buildContext(db, projectId, [unit('arrival.1')], config());
+    expect(context.people).toEqual({ MIRA: 'female, young adult', JONAS: 'elderly' });
+    expect(buildContext(db, projectId, [unit('arrival.2')], config()).people).toEqual({ JONAS: 'elderly' });
+    expect(buildContext(db, projectId, [unit('arrival.1')], config({ speech: false })).people).toEqual({});
+    const cast = buildContext(db, projectId, [unit('arrival.1')], config({ cast: true })).cast;
+    expect(cast.find((person) => person.name === 'MIRA')).toMatchObject({ gender: 'female', age: 'young adult' });
+    expect(cast.find((person) => person.name === 'JONAS')).not.toHaveProperty('gender');
+  });
+
   it('follows one path back while there is one', () => {
     const { db, projectId, unit } = setup();
     const context = buildContext(db, projectId, [unit('panel.2')], config({ precedingLines: 3 }));

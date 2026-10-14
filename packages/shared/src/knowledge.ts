@@ -150,6 +150,29 @@ export function styleNames(style: CharacterStyle | null | undefined) {
   });
 }
 
+/**
+ * A character's gender and age band: the basics of Korean forms of address (형·오빠·누나·언니·씨·님)
+ * and speech level. 'unknown' is the default and what the work analysis leaves without evidence;
+ * 'other' is neither (an android, a spirit, a genderless being), its details in the profile.
+ */
+export const GENDERS = ['unknown', 'male', 'female', 'other'] as const;
+export type Gender = (typeof GENDERS)[number];
+export const GENDER_LABELS: Record<Gender, string> = { unknown: '모름', male: '남성', female: '여성', other: '그 외' };
+export const AGE_BANDS = ['unknown', 'child', 'teen', 'young', 'middle', 'old'] as const;
+export type AgeBand = (typeof AGE_BANDS)[number];
+export const AGE_BAND_LABELS: Record<AgeBand, string> = { unknown: '모름', child: '어린이', teen: '청소년', young: '청년', middle: '중년', old: '노년' };
+const GENDER_WORDS: Record<Gender, string | undefined> = { unknown: undefined, male: 'male', female: 'female', other: 'neither male nor female' };
+const AGE_WORDS: Record<AgeBand, string | undefined> = { unknown: undefined, child: 'child', teen: 'teenager', young: 'young adult', middle: 'middle-aged', old: 'elderly' };
+/** Gender and age band in plain words for a prompt ("female, young adult"), or undefined when both are unknown. */
+export function personNote(character: { gender?: Gender | null; ageBand?: AgeBand | null }) {
+  const words = [GENDER_WORDS[character.gender ?? 'unknown'], AGE_WORDS[character.ageBand ?? 'unknown']].filter(Boolean);
+  return words.length ? words.join(', ') : undefined;
+}
+/** Gender and age band in Korean for screens ("여성 · 청년"), leaving out what is unknown. */
+export function personLabel(character: { gender?: Gender | null; ageBand?: AgeBand | null }) {
+  return [character.gender && character.gender !== 'unknown' ? GENDER_LABELS[character.gender] : '', character.ageBand && character.ageBand !== 'unknown' ? AGE_BAND_LABELS[character.ageBand] : ''].filter(Boolean).join(' · ');
+}
+
 export const relationshipChangeSchema = z.object({
   /** The line key where the change shows. */
   at: z.string().min(1),

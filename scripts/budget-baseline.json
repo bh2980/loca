@@ -16,38 +16,38 @@
       "callsPer100Lines": 4.78,
       "linesPerCallMean": 53.33,
       "smallCallShare": 0,
-      "inputTokens": 10590577,
-      "inputPerLine": 1171.5,
+      "inputTokens": 10624482,
+      "inputPerLine": 1175.3,
       "cachedInputTokens": 4320000,
-      "fixedOverheadShare": 0.816,
+      "fixedOverheadShare": 0.813,
       "outputTokens": 411199,
       "failedLines": 0,
       "failedLineShare": 0,
-      "wallSeconds": 19.9
+      "wallSeconds": 20.1
     },
     "translate-faulty": {
       "linesInScope": 9040,
       "status": "completed",
       "notice": null,
       "unfinishedLines": 0,
-      "calls": 486,
-      "failedCalls": 20,
+      "calls": 505,
+      "failedCalls": 30,
       "callsByNode": {
-        "AI 번역": 195,
-        "AI 검수": 246,
-        "AI 수정": 45
+        "AI 번역": 191,
+        "AI 검수": 266,
+        "AI 수정": 48
       },
-      "callsPer100Lines": 5.38,
-      "linesPerCallMean": 52.1,
-      "smallCallShare": 0.002,
-      "inputTokens": 11863527,
-      "inputPerLine": 1312.3,
-      "cachedInputTokens": 4790000,
-      "fixedOverheadShare": 0.819,
-      "outputTokens": 417673,
-      "failedLines": 4,
-      "failedLineShare": 0.0004,
-      "wallSeconds": 22
+      "callsPer100Lines": 5.59,
+      "linesPerCallMean": 51.1,
+      "smallCallShare": 0.01,
+      "inputTokens": 12133765,
+      "inputPerLine": 1342.2,
+      "cachedInputTokens": 4890000,
+      "fixedOverheadShare": 0.832,
+      "outputTokens": 418962,
+      "failedLines": 11,
+      "failedLineShare": 0.0012,
+      "wallSeconds": 22.6
     },
     "listener-cli": {
       "linesInScope": 9040,
@@ -62,14 +62,14 @@
       "callsPer100Lines": 1.08,
       "linesPerCallMean": 55.41,
       "smallCallShare": 0,
-      "inputTokens": 2379786,
-      "inputPerLine": 263.3,
+      "inputTokens": 2408093,
+      "inputPerLine": 266.4,
       "cachedInputTokens": 980000,
-      "fixedOverheadShare": 0.824,
+      "fixedOverheadShare": 0.814,
       "outputTokens": 67958,
       "failedLines": 0,
       "failedLineShare": 0,
-      "wallSeconds": 5.5
+      "wallSeconds": 5.6
     },
     "terms-cli": {
       "linesInScope": 9040,
@@ -84,14 +84,14 @@
       "callsPer100Lines": 1.95,
       "linesPerCallMean": 51.36,
       "smallCallShare": 0,
-      "inputTokens": 3859230,
-      "inputPerLine": 426.9,
+      "inputTokens": 3877610,
+      "inputPerLine": 428.9,
       "cachedInputTokens": 1760000,
-      "fixedOverheadShare": 0.912,
+      "fixedOverheadShare": 0.908,
       "outputTokens": 30206,
       "failedLines": 0,
       "failedLineShare": 0,
-      "wallSeconds": 18.8
+      "wallSeconds": 20.6
     },
     "knowledge-cli": {
       "linesInScope": 9040,
@@ -106,14 +106,14 @@
       "callsPer100Lines": 1.01,
       "linesPerCallMean": 99.34,
       "smallCallShare": 0,
-      "inputTokens": 2271683,
-      "inputPerLine": 251.3,
+      "inputTokens": 2299097,
+      "inputPerLine": 254.3,
       "cachedInputTokens": 910000,
-      "fixedOverheadShare": 0.801,
+      "fixedOverheadShare": 0.792,
       "outputTokens": 4088,
       "failedLines": 0,
       "failedLineShare": 0,
-      "wallSeconds": 5.6
+      "wallSeconds": 5.9
     }
   }
 }

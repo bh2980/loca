@@ -31,11 +31,11 @@ loca tags                                        # 태그가 붙는 곳(대사·
 
 ## 프로필 제안
 - 기존 인물이 있으면 수정합니다(`loca call list_characters`로 id 확인). 같은 이름으로 새로 만들면 거절됩니다.
-- 프로필은 마크다운: 성격, 역할, 번역 시 주의점, 근거가 된 대사 키 몇 개. `speech`는 원문에서 어떻게 말하는지, `player`는 플레이어 캐릭터(말이 없어도 청자가 됨).
+- 프로필은 마크다운: 성격, 역할, 번역 시 주의점, 근거가 된 대사 키 몇 개. `speech`는 원문에서 어떻게 말하는지, `player`는 플레이어 캐릭터(말이 없어도 청자가 됨). `gender`(`male`/`female`/`other`=그 외: 안드로이드·무성 등/`unknown`)와 `ageBand`(`child`/`teen`/`young`/`middle`/`old`/`unknown`)는 대사에 근거(대명사, 호칭, 나이 언급, 역할)가 있을 때만 채우고 아니면 `unknown`. 번역의 호칭·말투 문맥에 들어갑니다.
 - **한국어 말투는 프로필이 아니라 말투 규칙**으로 냅니다. 화자→청자 방향마다 하나, 말투가 바뀌는 지점(다툼·화해·승진)이 있으면 그 대사 키를 `startKey`로 한 규칙을 더 둡니다. 비꼬는 한두 줄은 구간이 아닙니다.
   `level`: `hasoseo`(하소서체) `hasipsio`(하십시오체) `hao`(하오체) `hage`(하게체) `haera`(해라체) `haeyo`(해요체) `hae`(해체·반말) `other`.
 ```
-loca call save_character @"$W/alice.json"       # {"id":"...","name":"Alice","aliases":["CHAR_ALICE"],"profile":"...","speech":"...","player":false}
+loca call save_character @"$W/alice.json"       # {"id":"...","name":"Alice","aliases":["CHAR_ALICE"],"profile":"...","speech":"...","player":false,"gender":"female","ageBand":"middle"}
 loca call save_relationship @"$W/rel.json"       # {"from":"Alice","to":"Bob","kind":"동료","description":"…","mutual":true}
 loca call save_speech_rule @"$W/rule.json"       # {"fromName":"Alice","toName":"Bob","level":"haeyo","address":"밥 씨","note":"직장 선배","startKey":null}
 loca call save_event @"$W/event.json"            # {"title":"…","summary":"…","outcome":"…","participants":["Alice"],"evidence":["<키>"]}

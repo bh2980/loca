@@ -36,8 +36,8 @@ function setup() {
 const draft = (rule: Analysis['speechRules'][number]['level']): Analysis => ({
   overview: { setting: '항구', mainConflict: '', plot: '앨리스가 늦은 밥을 꾸짖는다.', evidence: ['L1'] },
   characters: [
-    { name: 'Alice', aliases: [], profile: '선장', speech: '짧고 단호함', player: false, evidence: ['L1', 'L3'] },
-    { name: 'Bob', aliases: [], profile: '선원', speech: '', player: true, evidence: ['L2'] },
+    { name: 'Alice', aliases: [], profile: '선장', speech: '짧고 단호함', player: false, gender: 'female', ageBand: 'middle', evidence: ['L1', 'L3'] },
+    { name: 'Bob', aliases: [], profile: '선원', speech: '', player: true, gender: 'female', ageBand: 'unknown', evidence: ['L2'] },
   ],
   relationships: [{ from: 'Bob', to: 'Alice', kind: '부하', description: '', changes: [{ at: 'L3', change: '긴장', cause: '지각' }], evidence: ['L2', 'L99'] }],
   events: [{ title: '지각', summary: '', cause: '', outcome: '', participants: ['Bob'], evidence: ['L1'] }],
@@ -182,12 +182,12 @@ describe('work analysis', () => {
   it('fills the empty fields of a person already in the cast and leaves written ones alone', () => {
     const { db, projectId } = setup();
     const { keyOf } = scriptText(db, projectId);
-    db.insert(s.characters).values([{ projectId, name: 'Alice', origin: 'import', status: 'confirmed' }, { projectId, name: 'Bob', profile: '사람이 쓴 설명', origin: 'human', status: 'confirmed' }]).run();
+    db.insert(s.characters).values([{ projectId, name: 'Alice', origin: 'import', status: 'confirmed' }, { projectId, name: 'Bob', profile: '사람이 쓴 설명', gender: 'male', origin: 'human', status: 'confirmed' }]).run();
     saveDrafts(db, projectId, 'job', draft('haeyo'), keyOf);
     const people = new Map(db.select().from(s.characters).where(eq(s.characters.projectId, projectId)).all().map((c) => [c.name, c]));
     expect(people.size).toBe(2);
-    expect(people.get('Alice')).toMatchObject({ profile: '선장', speech: '짧고 단호함', origin: 'import' });
-    expect(people.get('Bob')).toMatchObject({ profile: '사람이 쓴 설명', speech: '' });
+    expect(people.get('Alice')).toMatchObject({ profile: '선장', speech: '짧고 단호함', gender: 'female', ageBand: 'middle', origin: 'import' });
+    expect(people.get('Bob')).toMatchObject({ profile: '사람이 쓴 설명', speech: '', gender: 'male' });
   });
 
   it("keeps an AI rule as a candidate beside a person's rule that says otherwise", () => {
@@ -221,11 +221,11 @@ describe('work analysis', () => {
   });
 
   it('merges parts: one person across aliases, rules on that person, contradictions kept as conflicts', () => {
-    const first: Analysis = { ...draft('hae'), characters: [{ name: 'Mara Holt', aliases: ['Holt'], profile: '', speech: '', player: false, evidence: [] }], speechRules: [{ from: 'Mara Holt', to: 'Bob', level: 'hae', address: '', note: '', start: null, evidence: [] }], relationships: [], events: [{ title: '습격', summary: '', cause: '', outcome: '', participants: [], evidence: ['L1'] }] };
-    const second: Analysis = { ...draft('hae'), characters: [{ name: 'Holt', aliases: ['Mara'], profile: '형사', speech: '', player: false, evidence: [] }], speechRules: [{ from: 'Holt', to: 'Bob', level: 'haeyo', address: '', note: '', start: null, evidence: [] }], relationships: [], events: [{ title: '습격', summary: '', cause: '', outcome: '', participants: [], evidence: ['L2'] }] };
+    const first: Analysis = { ...draft('hae'), characters: [{ name: 'Mara Holt', aliases: ['Holt'], profile: '', speech: '', player: false, gender: 'unknown', ageBand: 'unknown', evidence: [] }], speechRules: [{ from: 'Mara Holt', to: 'Bob', level: 'hae', address: '', note: '', start: null, evidence: [] }], relationships: [], events: [{ title: '습격', summary: '', cause: '', outcome: '', participants: [], evidence: ['L1'] }] };
+    const second: Analysis = { ...draft('hae'), characters: [{ name: 'Holt', aliases: ['Mara'], profile: '형사', speech: '', player: false, gender: 'female', ageBand: 'unknown', evidence: [] }], speechRules: [{ from: 'Holt', to: 'Bob', level: 'haeyo', address: '', note: '', start: null, evidence: [] }], relationships: [], events: [{ title: '습격', summary: '', cause: '', outcome: '', participants: [], evidence: ['L2'] }] };
     const merged = mergeAnalysis(first, second);
     expect(merged.characters).toHaveLength(1);
-    expect(merged.characters[0]).toMatchObject({ name: 'Mara Holt', profile: '형사' });
+    expect(merged.characters[0]).toMatchObject({ name: 'Mara Holt', profile: '형사', gender: 'female', ageBand: 'unknown' });
     expect(merged.characters[0].aliases).toEqual(expect.arrayContaining(['Holt', 'Mara']));
     const rules = merged.speechRules as MergedRule[];
     expect(rules.map((rule) => [rule.from, rule.level, rule.conflict ?? false])).toEqual([

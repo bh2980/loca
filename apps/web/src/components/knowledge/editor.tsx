@@ -2,7 +2,7 @@
 import { useMutation } from '@tanstack/react-query';
 import { Check, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { DOCUMENT_KINDS, STYLE_AXES, type StyleAxis, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled } from '@tw/shared';
+import { DOCUMENT_KINDS, STYLE_AXES, type StyleAxis, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled, AGE_BAND_LABELS, GENDER_LABELS } from '@tw/shared';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { ChipInput, joinList, splitList } from '@/components/chip-input';
@@ -225,6 +225,19 @@ function FieldInput({ field, value, characters, onChange }: { field: Field; valu
             );
           })}
         </div>
+      ) : field.type === 'gender' || field.type === 'ageBand' ? (
+        <Select value={text(value) || 'unknown'} onValueChange={onChange}>
+          <SelectTrigger id={id} className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {Object.entries(field.type === 'gender' ? GENDER_LABELS : AGE_BAND_LABELS).map(([option, label]) => (
+              <SelectItem key={option} value={option}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       ) : field.type === 'level' ? (
         <Select value={text(value)} onValueChange={onChange}>
           <SelectTrigger id={id} className="w-full">

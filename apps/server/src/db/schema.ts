@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import { KNOWLEDGE_TAG_KINDS, TAG_ROLES, type TagRole, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, type AiConfirm, type CharacterStyle, type EditorAi, type LineMark, type MarkColors, type ModelChoice, type ContextItem, type FormatRules, type NodeType, type PiOptions, type RelationshipChange, type WorkflowDefinition } from '@tw/shared';
+import { AGE_BANDS, GENDERS, KNOWLEDGE_TAG_KINDS, TAG_ROLES, type TagRole, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, type AiConfirm, type CharacterStyle, type EditorAi, type LineMark, type MarkColors, type ModelChoice, type ContextItem, type FormatRules, type NodeType, type PiOptions, type RelationshipChange, type WorkflowDefinition } from '@tw/shared';
 import type { Usage } from '@tw/ai';
 
 const id = () => text('id').primaryKey().$defaultFn(() => crypto.randomUUID());
@@ -337,6 +337,9 @@ export const characters = sqliteTable('characters', {
   speech: text('speech').notNull().default(''),
   /** The Korean written style (문체) a person chose for this character's lines; axes left out are 보통. */
   style: json<CharacterStyle>('style').notNull().default(sql`'{}'`),
+  /** Gender and age band (GENDERS / AGE_BANDS in shared): 'unknown' until a person or the analysis knows. */
+  gender: text('gender', { enum: GENDERS }).notNull().default('unknown'),
+  ageBand: text('age_band', { enum: AGE_BANDS }).notNull().default('unknown'),
   /** The player character: may be addressed even if it never speaks. */
   player: integer('player', { mode: 'boolean' }).notNull().default(false),
   ...knowledge(),
