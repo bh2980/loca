@@ -42,12 +42,38 @@ export interface Marker {
   target: string;
   direction: 'ahead' | 'behind';
 }
-export interface Windowed {
-  /** Overview node ids and window markers drawn. */
-  ids: string[];
-  edges: OverviewEdge[];
-  markers: Marker[];
+/**
+ * An edge of the drawn window. `path` is a real connection of the graph; `reading` is NOT: it only
+ * joins two neighbours in reading order (the next parallel arm after the previous one ended).
+ */
+export interface WindowEdge {
+  from: string;
+  to: string;
+  label: string | null;
+  kind: 'path' | 'reading';
+  /** Real edge between nodes where ways fork or meet: a fold must not run across it. */
+  branch?: boolean;
+  /** Reading connector into the start of a parallel arm (`label` is that arm's option text). */
+  arm?: boolean;
 }
+/** Which parallel arm a node starts: "동시에 열림 index/count". */
+export interface Arm {
+  index: number;
+  count: number;
+}
+export interface Windowed {
+  /** Overview node ids and window markers drawn; in a window, in reading order (top to bottom). */
+  ids: string[];
+  edges: WindowEdge[];
+  markers: Marker[];
+  /** Window only: real edges that lead back to a node above (a loop); not drawn. */
+  back?: OverviewEdge[];
+  /** Window only: the start of every parallel arm. */
+  arms?: Map<string, Arm>;
+}
+
+/** Shown on a reading connector: the next of the choices that open at the same place. */
+export const READING_LABEL = '같은 자리의 다음 선택지';
 
 /** One marker per drawn node and direction, however many ways leave it (a section can open dozens at once). */
 export const markerId = (direction: Marker['direction'], drawn: string) => `more:${direction === 'ahead' ? 'a' : 'b'}:${drawn}`;
@@ -62,7 +88,7 @@ export function windowOf(overview: Overview, at: string | undefined, all: boolea
   const byId = new Map(overview.nodes.map((node) => [node.id, node] as const));
   const order = new Map(overview.nodes.map((node, i) => [node.id, i] as const));
   if (all) {
-    return { ids: overview.nodes.map((node) => node.id), edges: overview.edges.filter((edge) => edge.kind === 'path'), markers: [] };
+    return { ids: overview.nodes.map((node) => node.id), edges: overview.edges.filter((edge): edge is OverviewEdge & { kind: 'path' } => edge.kind === 'path'), markers: [] };
   }
   const start = resolveAt(overview, at);
   if (!start) return { ids: [], edges: [], markers: [] };
@@ -104,26 +130,111 @@ export function windowOf(overview: Overview, at: string | undefined, all: boolea
       queue.push(node.id);
     }
   }
-  const edges: OverviewEdge[] = [];
-  const markers = new Map<string, Marker>();
-  for (const edge of overview.edges) {
-    // Other choices (stubs) and where they come back (rejoins) are not drawn: the path is one line.
-    if (edge.kind !== 'path') continue;
-    if (shown.has(edge.from) && shown.has(edge.to)) edges.push(edge);
-    else if (shown.has(edge.from) && byId.has(edge.to)) {
-      const id = markerId('ahead', edge.from);
-      // The marker leads to the first of the ways in script order.
-      if (!markers.has(id)) markers.set(id, { id, target: edge.to, direction: 'ahead' });
-      else if (order.get(edge.to)! < order.get(markers.get(id)!.target)!) markers.get(id)!.target = edge.to;
-      if (!edges.some((item) => item.to === id)) edges.push({ from: edge.from, to: id, label: null, kind: 'path' });
-    } else if (shown.has(edge.to) && byId.has(edge.from)) {
-      const id = markerId('behind', edge.to);
-      if (!markers.has(id)) markers.set(id, { id, target: edge.from, direction: 'behind' });
-      else if (order.get(edge.from)! < order.get(markers.get(id)!.target)!) markers.get(id)!.target = edge.from;
-      if (!edges.some((item) => item.from === id)) edges.push({ from: id, to: edge.to, label: null, kind: 'path' });
+  return linearize(overview, shown, order);
+}
+
+/**
+ * One column in reading order: depth-first in script order, so a parallel arm is read to its end
+ * before the next arm starts and the node where arms meet comes after the last arm. Only edges
+ * between neighbours in that order are drawn; where the next node is the next arm (no real edge),
+ * a `reading` connector says so. Entries from outside the window other than at the top, and all
+ * ways leaving it, collapse into one marker at the top and one at the bottom.
+ */
+function linearize(overview: Overview, shown: Set<string>, order: Map<string, number>): Windowed {
+  const byScript = (a: string, b: string) => order.get(a)! - order.get(b)!;
+  const members = [...shown].sort(byScript);
+  const real = overview.edges.filter((edge) => edge.kind === 'path' && shown.has(edge.from) && shown.has(edge.to));
+  const { forward, back } = splitBackEdges(members, real);
+  const out = new Map<string, OverviewEdge[]>();
+  const hasIn = new Set<string>();
+  const inCount = new Map<string, number>();
+  for (const edge of forward) {
+    out.set(edge.from, [...(out.get(edge.from) ?? []), edge]);
+    hasIn.add(edge.to);
+    inCount.set(edge.to, (inCount.get(edge.to) ?? 0) + 1);
+  }
+  for (const list of out.values()) list.sort((a, b) => byScript(a.to, b.to));
+  // Reverse post-order, visiting later ways first: the earlier way ends up read first, shared nodes after all of them.
+  const post: string[] = [];
+  const seen = new Set<string>();
+  const visit = (root: string) => {
+    seen.add(root);
+    const stack = [{ id: root, ways: [...(out.get(root) ?? [])].reverse(), next: 0 }];
+    while (stack.length) {
+      const top = stack[stack.length - 1]!;
+      const edge = top.ways[top.next++];
+      if (edge) {
+        if (!seen.has(edge.to)) {
+          seen.add(edge.to);
+          stack.push({ id: edge.to, ways: [...(out.get(edge.to) ?? [])].reverse(), next: 0 });
+        }
+      } else {
+        post.push(top.id);
+        stack.pop();
+      }
+    }
+  };
+  for (const id of members.filter((id) => !hasIn.has(id)).reverse()) if (!seen.has(id)) visit(id);
+  for (const id of [...members].reverse()) if (!seen.has(id)) visit(id);
+  const sequence = post.reverse();
+
+  // Parallel arms: the ways out of one node that are not reached through another way out of it.
+  const arms = new Map<string, Arm>();
+  const armLabel = new Map<string, string | null>();
+  const reach = (id: string) => {
+    const found = new Set<string>();
+    for (const stack = [id]; stack.length; ) for (const edge of out.get(stack.pop()!) ?? []) if (!found.has(edge.to)) (found.add(edge.to), stack.push(edge.to));
+    return found;
+  };
+  for (const [hub, ways] of out) {
+    const targets = [...new Set(ways.map((edge) => edge.to))];
+    if (targets.length < 2) continue;
+    const below = new Map(targets.map((to) => [to, reach(to)] as const));
+    const starts = targets.filter((to) => !targets.some((other) => other !== to && below.get(other)!.has(to)));
+    if (starts.length < 2) continue;
+    starts.forEach((to, i) => {
+      if (arms.has(to)) return;
+      arms.set(to, { index: i + 1, count: starts.length });
+      armLabel.set(to, ways.find((edge) => edge.to === to && edge.from === hub)?.label ?? null);
+    });
+  }
+
+  const edges: WindowEdge[] = [];
+  const outCount = (id: string) => new Set((out.get(id) ?? []).map((edge) => edge.to)).size;
+  for (let i = 1; i < sequence.length; i++) {
+    const from = sequence[i - 1]!, to = sequence[i]!;
+    const edge = (out.get(from) ?? []).find((item) => item.to === to);
+    if (edge) edges.push({ ...edge, kind: 'path', branch: outCount(from) > 1 || (inCount.get(to) ?? 0) > 1 });
+    else edges.push({ from, to, label: armLabel.get(to) ?? null, kind: 'reading', arm: arms.has(to) });
+  }
+
+  const markers: Marker[] = [];
+  const first = sequence[0], last = sequence[sequence.length - 1];
+  const earliest = (ids: string[]) => ids.sort(byScript)[0];
+  const known = new Set(overview.nodes.map((node) => node.id));
+  const pathEdges = overview.edges.filter((edge) => edge.kind === 'path');
+  const ids: string[] = [];
+  if (first) {
+    const source = earliest(pathEdges.filter((edge) => edge.to === first && !shown.has(edge.from) && known.has(edge.from)).map((edge) => edge.from));
+    if (source) {
+      const id = markerId('behind', first);
+      markers.push({ id, target: source, direction: 'behind' });
+      ids.push(id);
+      edges.unshift({ from: id, to: first, label: null, kind: 'path' });
     }
   }
-  return { ids: [...shown, ...markers.keys()], edges, markers: [...markers.values()] };
+  ids.push(...sequence);
+  if (last) {
+    const leaving = pathEdges.filter((edge) => shown.has(edge.from) && !shown.has(edge.to) && known.has(edge.to));
+    const target = earliest(leaving.map((edge) => edge.to));
+    if (target) {
+      const id = markerId('ahead', last);
+      markers.push({ id, target, direction: 'ahead' });
+      ids.push(id);
+      edges.push({ from: last, to: id, label: null, kind: leaving.some((edge) => edge.from === last) ? 'path' : 'reading' });
+    }
+  }
+  return { ids, edges, markers, back, arms };
 }
 
 /** Where the next/previous buttons go from `at`, and `at`'s place among the choices (갈림 i / a). */
@@ -207,6 +318,8 @@ export function foldTranslated<E extends { from: string; to: string }>(ids: stri
   const stepOf = (id: string) => {
     const ways = out.get(id) ?? [];
     const to = ways.length === 1 ? ways[0]!.to : undefined;
+    const edge = ways[0] as { kind?: string; branch?: boolean } | undefined;
+    if (edge?.kind === 'reading' || edge?.branch) return undefined;
     return to && to !== id && foldable(id) && foldable(to) && (into.get(to)?.length ?? 0) === 1 ? to : undefined;
   };
   const hasBefore = new Set(ids.map(stepOf).filter((id): id is string => !!id));

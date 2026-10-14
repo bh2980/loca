@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { foldTranslated, markerId, resolveAt, splitBackEdges, stops, windowOf, type Overview, type OverviewNode } from './path-window';
+import { foldTranslated, READING_LABEL, markerId, resolveAt, splitBackEdges, stops, windowOf, type Overview, type OverviewNode } from './path-window';
 
 const anchor = (id: string, extra: Partial<OverviewNode> = {}): OverviewNode => ({ id, kind: 'anchor', blockIds: [id], nodeIds: [id], unitIds: [id], lanes: 0, choice: false, join: false, ...extra });
 const section = (id: string): OverviewNode => ({ id, kind: 'section', blockIds: [id], nodeIds: [id], unitIds: [id], lanes: 0, choice: false, join: false });
@@ -30,7 +30,7 @@ describe('windowOf', () => {
     expect(window.ids).not.toContain('c5');
     expect(window.markers).toEqual([{ id: markerId('ahead', 'c4'), target: 'c5', direction: 'ahead' }]);
     expect(window.edges.some((edge) => edge.to === markerId('ahead', 'c4'))).toBe(true);
-    expect(window.edges.some((edge) => edge.kind === 'rejoin' || edge.kind === 'stub')).toBe(false);
+    expect(window.edges.some((edge) => (edge.kind as string) === 'rejoin' || (edge.kind as string) === 'stub')).toBe(false);
   });
   it('draws everything for all, and falls back to the first node for an unknown place', () => {
     expect(windowOf(overview, 'c2', true).ids).toHaveLength(nodes.length);
@@ -89,5 +89,62 @@ describe('foldTranslated', () => {
     const result = foldTranslated(['a', 'b', 'd', 'c'], edges, (id) => id !== 'a' || true, none);
     expect(result.folds.map((fold) => fold.members)).toEqual([['a'], ['b'], ['d'], ['c']]);
     expect(result.edges).toHaveLength(4);
+  });
+});
+
+describe('windowOf reads a parallel fan-out as one column', () => {
+  // top -> hub; hub -> a1 -> a2 -> join, hub -> b -> join, hub -> c -> join, hub -> join; join -> end. `out` enters hub from outside.
+  const labelled = (from: string, to: string, label: string) => ({ from, to, label, kind: 'path' as const });
+  const fan: Overview = {
+    nodes: [anchor('pre'), anchor('out', { choice: true }), anchor('hub'), section('a1'), section('a2'), section('b'), section('c'), anchor('join', { join: true }), section('end'), section('top')],
+    edges: [path('pre', 'out'), path('out', 'hub'), labelled('hub', 'a1', '첫째'), labelled('hub', 'b', '둘째'), labelled('hub', 'c', '셋째'), path('hub', 'join'), path('a1', 'a2'), path('a2', 'join'), path('b', 'join'), path('c', 'join'), path('join', 'end')],
+  };
+  const win = windowOf(fan, 'hub', false);
+  const body = win.ids.filter((id) => !id.startsWith('more:'));
+
+  it('reads each arm to its end in script order, the meeting node after the last arm', () => {
+    expect(body).toEqual(['out', 'hub', 'a1', 'a2', 'b', 'c', 'join', 'end']);
+  });
+  it('draws real edges only between neighbours, the rest as reading connectors', () => {
+    const drawn = win.edges.filter((edge) => !edge.from.startsWith('more:')).map((edge) => `${edge.from}>${edge.to}:${edge.kind}`);
+    expect(drawn).toEqual(['out>hub:path', 'hub>a1:path', 'a1>a2:path', 'a2>b:reading', 'b>c:reading', 'c>join:path', 'join>end:path']);
+    const connector = win.edges.find((edge) => edge.to === 'b')!;
+    expect(connector).toMatchObject({ kind: 'reading', arm: true, label: '둘째' });
+    expect(READING_LABEL).toBe('같은 자리의 다음 선택지');
+    // hub -> join, a2 -> join, b -> join are not drawn.
+    expect(win.edges.filter((edge) => edge.to === 'join')).toHaveLength(1);
+  });
+  it('numbers the arms and leaves the meeting node out of them', () => {
+    expect([...win.arms!]).toEqual([['a1', { index: 1, count: 3 }], ['b', { index: 2, count: 3 }], ['c', { index: 3, count: 3 }]]);
+  });
+  it('keeps one marker above (the entry into the first node) and none for entries mid-window', () => {
+    const withSide: Overview = { nodes: [...fan.nodes, anchor('other')], edges: [...fan.edges, path('other', 'join'), path('other', 'b')] };
+    const result = windowOf(withSide, 'hub', false);
+    expect(result.markers.filter((marker) => marker.direction === 'behind')).toEqual([{ id: markerId('behind', 'out'), target: 'pre', direction: 'behind' }]);
+    expect(result.ids.filter((id) => id.startsWith('more:b:'))).toHaveLength(1);
+    expect(result.edges.some((edge) => edge.from.startsWith('more:b:') && edge.to !== 'out')).toBe(false);
+  });
+  it('cuts arms that leave the window with a single marker at the bottom', () => {
+    const chain = ['k1', 'k2', 'k3', 'k4', 'k5'];
+    const leaving: Overview = {
+      nodes: [anchor('hub'), section('a'), section('b'), ...chain.map((id) => anchor(id, { choice: true }))],
+      edges: [path('hub', 'a'), path('hub', 'b'), path('a', 'k1'), path('k1', 'k2'), path('k2', 'k3'), path('k3', 'k4'), path('k4', 'k5')],
+    };
+    const result = windowOf(leaving, 'hub', false);
+    expect(result.ids).toEqual(['hub', 'a', 'k1', 'k2', 'k3', 'k4', 'b', markerId('ahead', 'b')]);
+    expect(result.markers).toEqual([{ id: markerId('ahead', 'b'), target: 'k5', direction: 'ahead' }]);
+    expect(result.edges.at(-1)).toMatchObject({ from: 'b', kind: 'reading' });
+  });
+  it('a loop back is not drawn and does not reorder the column', () => {
+    const loop: Overview = { nodes: [anchor('hub'), section('a'), section('b')], edges: [path('hub', 'a'), path('hub', 'b'), path('a', 'hub'), path('b', 'hub')] };
+    const result = windowOf(loop, 'hub', false);
+    expect(result.ids).toEqual(['hub', 'a', 'b']);
+    expect(result.back).toHaveLength(2);
+    expect(result.edges.map((edge) => edge.kind)).toEqual(['path', 'reading']);
+  });
+  it('a fold does not run across a reading connector or a fork', () => {
+    const result = windowOf(fan, 'hub', false);
+    const folded = foldTranslated(result.ids, result.edges, (id) => !id.startsWith('more:'), new Set());
+    expect(folded.folds.map((fold) => fold.members)).toEqual([['out', 'hub'], ['a1', 'a2'], ['b'], ['c'], ['join', 'end']]);
   });
 });

@@ -12,7 +12,7 @@ import { ChevronDown } from 'lucide-react';
 import { SeamStateChip } from '@/components/graph/seam-check-pane';
 import { q } from '@/lib/queries';
 import { useQuery } from '@tanstack/react-query';
-import { foldTranslated, splitBackEdges, windowOf, type Overview } from '@/components/graph/path-window';
+import { foldTranslated, READING_LABEL, splitBackEdges, windowOf, type Arm, type Overview } from '@/components/graph/path-window';
 import { cn } from '@/lib/utils';
 
 /** What a slice block needs from the graph's node list (the first line of a node). */
@@ -64,6 +64,8 @@ type PathNodeData = {
   menu?: ForkMenuData;
   /** Loops: where the edges that lead back up from here go (not drawn, said on the node). */
   loops?: string[];
+  /** Starts one of several choices that open at the same place ("동시에 열림 i/n"). */
+  arm?: Arm;
   /** Seam (round 2 on): the first lines after it are shown open, with their translation. */
   seam?: { projectId: string; nodeId: string };
 };
@@ -169,7 +171,7 @@ function PathNodeView({ data, selected }: NodeProps<PathNode>) {
     return (
       <div style={size} className="flex items-center">
         <Button variant="outline" className="nodrag h-full w-full border-dashed bg-muted/50 font-normal text-muted-foreground" title={`번역을 마친 ${data.parts?.toLocaleString()}개 구간을 접었습니다. 누르면 펼칩니다.`} onClick={data.onExpand}>
-          번역함 · {data.lines.toLocaleString()}줄
+          번역함 · {data.lines.toLocaleString()}줄{data.arm ? ` · 동시에 열림 ${data.arm.index}/${data.arm.count}` : ''}
         </Button>
         {handles}
       </div>
@@ -179,6 +181,7 @@ function PathNodeView({ data, selected }: NodeProps<PathNode>) {
       <div style={size} className={cn('flex flex-col items-center gap-1', selected && 'ring-2 ring-primary/30')}>
         <div className="flex h-7 w-full items-center justify-center gap-1 rounded-full border bg-muted text-xs text-muted-foreground">
           {data.pill}
+          {data.arm && <span>· 동시에 열림 {data.arm.index}/{data.arm.count}</span>}
         </div>
         {data.menu && <ForkMenu menu={data.menu} />}
         {!!data.loops?.length && <LoopNote loops={data.loops} />}
@@ -198,6 +201,7 @@ function PathNodeView({ data, selected }: NodeProps<PathNode>) {
           </Badge>
         )}
         {!!data.lanes && <Badge variant="secondary" className="shrink-0">동시에 열림 {data.lanes.toLocaleString()}</Badge>}
+        {data.arm && <Badge variant="secondary" className="shrink-0 tabular-nums">동시에 열림 {data.arm.index}/{data.arm.count}</Badge>}
         {data.fork && !data.menu && <Badge variant="outline">갈림</Badge>}
       </div>
       {data.menu && <ForkMenu menu={data.menu} className="-ml-2 self-start" />}
@@ -478,7 +482,7 @@ export function PathGraph({ projectId, slice, texts, checks, at, all, selectedId
     const windowed = windowOf(slice.overview, at, all);
     const markers = new Map(windowed.markers.map((marker) => [marker.id, marker] as const));
     // A loop back to a box above would circle round the boxes: left out of the drawing, said on the node it leaves.
-    const split = splitBackEdges(windowed.ids, windowed.edges);
+    const split = windowed.back ? { forward: windowed.edges, back: windowed.back } : splitBackEdges(windowed.ids, windowed.edges);
     const back = split.back;
     // Stretches whose lines are all translated fold into one node; choices, seams (their first lines stay open) and the selection stay open.
     const foldable = (id: string) => {
@@ -499,12 +503,13 @@ export function PathGraph({ projectId, slice, texts, checks, at, all, selectedId
       const fold = foldById.get(id);
       if (fold) {
         const lines = fold.members.reduce((sum, member) => sum + (catalog.get(member)?.data.lines ?? 0), 0);
-        return [{ id, shape: 'folded' as const, data: { shape: 'folded' as const, lines, parts: fold.members.length, onExpand: () => expand(fold.members[0]!) } }];
+        return [{ id, shape: 'folded' as const, data: { shape: 'folded' as const, lines, parts: fold.members.length, arm: windowed.arms?.get(fold.members[0]!), onExpand: () => expand(fold.members[0]!) } }];
       }
       const marker = markers.get(id);
       if (marker) return [{ id, shape: 'more' as const, data: { shape: 'more' as const, lines: 0, hint: marker.direction === 'ahead' ? '이 앞으로 이어짐' : '이 뒤에서 이어짐', onMove: () => moveRef.current(marker.target) } }];
       const item = catalog.get(id);
-      return item ? [loops.has(id) ? { ...item, data: { ...item.data, loops: loops.get(id) } } : item] : [];
+      const arm = windowed.arms?.get(id);
+      return item ? [loops.has(id) || arm ? { ...item, data: { ...item.data, loops: loops.get(id), arm } } : item] : [];
     });
     // Only text a person reads goes on an edge: exporter identifiers ("tps-01-game-intro", "rules-x=0") would clutter the line.
     // The edges into a seam: from a block of the route's new lines (it may sit in a fold) or from a marker at the window's edge.
@@ -517,14 +522,17 @@ export function PathGraph({ projectId, slice, texts, checks, at, all, selectedId
       return origin.has(edge.from) || markers.has(edge.from) || !!foldById.get(edge.from)?.members.some((member) => origin.has(member));
     };
     const drawn = forward.map((edge, i) => {
-      const base = edge.label && !isIdentifierLabel(edge.label) ? edge.label : undefined;
+      const readable = edge.label && !isIdentifierLabel(edge.label) ? edge.label : undefined;
+      // A reading connector is not a story edge: it says so (and carries the option text of the arm it leads to).
+      const reading = (edge as { kind?: string }).kind === 'reading';
+      const base = reading ? ((edge as { arm?: boolean }).arm ? (readable ? `${readable} · ${READING_LABEL}` : READING_LABEL) : undefined) : readable;
       const seam: SeamEdge | undefined = isSeamEdge(edge) ? { state: checks?.[edge.to]?.state, base } : undefined;
       // The layout reserves room for the longest state word, so a check never moves the boxes (or the saved view).
       const reserve = (state: SeamEdge['state']) => `${base ? `${base} · ` : ''}이음새 · ${seamWord(state)}`;
-      return { edge, id: `${edge.from}>${edge.to}#${i}`, label: seam ? reserve(seam.state) : base, room: seam ? reserve(undefined) : base, seam };
+      return { edge, reading, id: `${edge.from}>${edge.to}#${i}`, label: seam ? reserve(seam.state) : base, room: seam ? reserve(undefined) : base, seam };
     });
-    const flowEdges: Edge[] = drawn.map(({ edge, id, label, seam }) => {
-      const color = 'var(--foreground)';
+    const flowEdges: Edge[] = drawn.map(({ reading, edge, id, label, seam }) => {
+      const color = reading ? 'var(--muted-foreground)' : 'var(--foreground)';
       return {
         id,
         source: edge.from,
@@ -534,11 +542,12 @@ export function PathGraph({ projectId, slice, texts, checks, at, all, selectedId
         labelStyle: { fontSize: 12, fill: 'var(--muted-foreground)' },
         labelBgStyle: { fill: 'var(--background)' },
         markerEnd: { type: MarkerType.ArrowClosed, color, width: 14, height: 14 },
-        style: { stroke: color, strokeWidth: 1.25, opacity: 0.85 },
+        style: reading ? { stroke: color, strokeWidth: 1, strokeDasharray: '4 4', opacity: 0.7 } : { stroke: color, strokeWidth: 1.25, opacity: 0.85 },
       };
     });
     const plain: LayoutEdge[] = drawn.map(({ edge, id, room }) => ({ id, from: edge.from, to: edge.to, label: room }));
-    const key = `${items.map((item) => `${item.id}:${item.shape}${item.data.menu ? 'm' : ''}${item.data.loops?.length ? 'l' : ''}${item.data.seam ? 's' : ''}`).join('|')}#${plain.map((edge) => `${edge.from}>${edge.to}${edge.label ? `:${edge.label}` : ''}`).join('|')}`;
+    const armKey = [...(windowed.arms ?? [])].map(([id, arm]) => `${id}=${arm.index}/${arm.count}`).join(',');
+    const key = `${items.map((item) => `${item.id}:${item.shape}${item.data.menu ? 'm' : ''}${item.data.loops?.length ? 'l' : ''}${item.data.seam ? 's' : ''}`).join('|')}#${plain.map((edge) => `${edge.from}>${edge.to}${edge.label ? `:${edge.label}` : ''}`).join('|')}#${drawn.map((item) => (item.reading ? 'r' : 'p')).join('')}#${armKey}`;
     return { items, flowEdges, plain, key, foldOf };
   }, [slice.overview, slice.seams, catalog, checks, at, all, expanded, selectedId, expand]);
 
