@@ -247,3 +247,33 @@ export function routeProgress(db: Db, projectId: string, translated = translated
 }
 
 export const ROUTE_HISTORY = 50;
+
+// ── 길 1: the route through the most lines ────────────────────────────
+
+const defaults = new Map<string, { key: string; picks: Picks }>();
+
+/**
+ * The best route of a project that has translated nothing: the picks that pass through the most
+ * lines (every line counts, translated or not). It depends on the graph alone, so translating route
+ * 1 never moves it; cached until the graph or its lines change (`key`, see graphKey).
+ */
+export function defaultPicks(db: Db, projectId: string, key: string): Picks {
+  const hit = defaults.get(projectId);
+  if (hit?.key === key) return hit.picks;
+  const nodes = db.select({ id: s.graphNodes.id, key: s.graphNodes.key, kind: s.graphNodes.kind, unitIds: s.graphNodes.unitIds, label: s.graphNodes.label }).from(s.graphNodes).where(eq(s.graphNodes.projectId, projectId)).all();
+  const edges = db.select({ from: s.graphEdges.fromId, to: s.graphEdges.toId, label: s.graphEdges.label }).from(s.graphEdges).where(eq(s.graphEdges.projectId, projectId)).all();
+  const units = new Map(db.select({ id: s.units.id, seq: s.units.seq }).from(s.units).where(eq(s.units.projectId, projectId)).all().map((unit) => [unit.id, unit]));
+  const picks = bestRoute(routeGraph(nodes, edges, units), new Map(nodes.map((node) => [node.id, node.unitIds.length])), {}).picks;
+  defaults.set(projectId, { key, picks });
+  return picks;
+}
+
+/**
+ * The picks the route follows: while the project is on route 1 (round 1, no earlier route) the best
+ * route, with a person's picks winning fork by fork; from route 2 on, exactly the stored picks.
+ */
+export function effectivePicks(db: Db, projectId: string, row: { picks: Picks; state: { round: number; history: Picks[] } } | undefined, key: string): Picks {
+  const manual = row?.picks ?? {};
+  if (row && (row.state.round > 1 || row.state.history.length)) return manual;
+  return { ...defaultPicks(db, projectId, key), ...manual };
+}

@@ -38,24 +38,24 @@ function setup() {
 }
 
 describe('main route API', () => {
-  it('GET route returns the default slice with its stubs, forks and no picks', async () => {
+  it('GET route returns route 1 (the route through the most lines) with its stubs, forks and no manual picks', async () => {
     const { node, route } = setup();
     const info = await route();
     expect(info.picks).toEqual({});
-    expect(info.lines).toBe(11);
+    expect(info.lines).toBe(12);
     expect(info.totalLines).toBe(16);
     const inSlice = info.blocks.flatMap((block) => block.nodeIds);
-    expect(inSlice).toContain(node('n.panel.1'));
-    expect(inSlice).not.toContain(node('n.logbook.1'));
-    // The choice between panel and logbook: panel is first in the script, logbook becomes a stub.
+    expect(inSlice).toContain(node('n.logbook.1'));
+    expect(inSlice).not.toContain(node('n.panel.1'));
+    // The choice between panel and logbook: logbook has one more line, so it is route 1 although panel is first in the script; panel becomes a stub.
     const choice = info.forks.find((fork) => fork.nodeId === node('c.choice'))!;
     expect(choice.mode).toBe('choice');
     expect(choice.arms).toEqual([
-      { nodeId: node('n.panel.1'), label: 'panel', chosen: true, picked: false },
-      { nodeId: node('n.logbook.1'), label: 'logbook', chosen: false, picked: false },
+      { nodeId: node('n.panel.1'), label: 'panel', chosen: false, picked: false },
+      { nodeId: node('n.logbook.1'), label: 'logbook', chosen: true, picked: false },
     ]);
     expect(info.stubs).toHaveLength(1);
-    expect(info.stubs[0]).toMatchObject({ fork: node('c.choice'), arm: node('n.logbook.1'), label: 'logbook', lines: 3 });
+    expect(info.stubs[0]).toMatchObject({ fork: node('c.choice'), arm: node('n.panel.1'), label: 'panel', lines: 2 });
     // Both arms come back at the join node, which is drawn and marked as a join.
     const joinBlock = info.blocks.find((block) => block.nodeIds.includes(node('j.join')))!;
     expect(info.stubs[0]!.rejoins).toEqual([node('j.join')]);
@@ -63,7 +63,7 @@ describe('main route API', () => {
     // Route 1 has no seams.
     expect(info.seams).toEqual([]);
     expect(info.seamChecks).toEqual({ checked: 0, stale: 0, total: 0 });
-    expect(info.edges).toContainEqual(expect.objectContaining({ to: info.stubs[0]!.id, label: 'logbook', kind: 'stub' }));
+    expect(info.edges).toContainEqual(expect.objectContaining({ to: info.stubs[0]!.id, label: 'panel', kind: 'stub' }));
     expect(info.edges).toContainEqual(expect.objectContaining({ from: info.stubs[0]!.id, to: joinBlock.id, kind: 'rejoin' }));
     // The wait node that opens the repeat and the dawn event runs in parallel: no stub for it.
     expect(info.forks.find((fork) => fork.nodeId === node('w.signal'))?.mode).toBe('parallel');
@@ -77,40 +77,54 @@ describe('main route API', () => {
     expect((await put({ nodeId: node('c.choice'), armId: 'nope' })).status).toBe(400);
     expect((await route()).picks).toEqual({});
 
-    expect((await put({ nodeId: node('c.choice'), armId: node('n.logbook.1') })).status).toBe(200);
+    // A person's pick wins: panel is the shorter arm, yet it is taken.
+    expect((await put({ nodeId: node('c.choice'), armId: node('n.panel.1') })).status).toBe(200);
     const info = await route();
-    expect(info.picks).toEqual({ [node('c.choice')]: node('n.logbook.1') });
+    expect(info.picks).toEqual({ [node('c.choice')]: node('n.panel.1') });
     const inSlice = info.blocks.flatMap((block) => block.nodeIds);
-    expect(inSlice).toContain(node('n.logbook.1'));
-    expect(inSlice).not.toContain(node('n.panel.1'));
+    expect(inSlice).toContain(node('n.panel.1'));
+    expect(inSlice).not.toContain(node('n.logbook.1'));
     expect(info.stubs).toHaveLength(1);
-    expect(info.stubs[0]).toMatchObject({ arm: node('n.panel.1'), label: 'panel', lines: 2, rejoins: [node('j.join')] });
+    expect(info.stubs[0]).toMatchObject({ arm: node('n.logbook.1'), label: 'logbook', lines: 3, rejoins: [node('j.join')] });
     const choice = info.forks.find((fork) => fork.nodeId === node('c.choice'))!;
-    expect(choice.arms.find((arm) => arm.nodeId === node('n.logbook.1'))).toMatchObject({ chosen: true, picked: true });
-    expect(info.lines).toBe(12); // the logbook arm has one line more than the panel arm
+    expect(choice.arms.find((arm) => arm.nodeId === node('n.panel.1'))).toMatchObject({ chosen: true, picked: true });
+    expect(info.lines).toBe(11);
 
-    // armId null takes one pick back.
+    // armId null takes the pick back: the best route again.
     await put({ nodeId: node('c.choice'), armId: null });
-    expect(await route()).toMatchObject({ picks: {} });
-    expect((await route()).stubs[0]).toMatchObject({ arm: node('n.logbook.1') });
-    await put({ nodeId: node('c.choice'), armId: node('n.logbook.1') });
+    expect(await route()).toMatchObject({ picks: {}, lines: 12 });
+    expect((await route()).stubs[0]).toMatchObject({ arm: node('n.panel.1') });
+    await put({ nodeId: node('c.choice'), armId: node('n.panel.1') });
     expect((await send('DELETE', `/projects/${projectId}/route-picks`)).status).toBe(200);
     const reset = await route();
     expect(reset.picks).toEqual({});
-    expect(reset.lines).toBe(11);
-    expect(reset.stubs[0]).toMatchObject({ arm: node('n.logbook.1') });
+    expect(reset.lines).toBe(12);
+    expect(reset.stubs[0]).toMatchObject({ arm: node('n.panel.1') });
+  });
+
+  it('route 1 does not move while its lines are translated, and a pick still wins over it', async () => {
+    const { db, projectId, send, node, route } = setup();
+    const before = await route();
+    for (const id of before.blocks.flatMap((block) => block.unitIds).slice(0, 5)) db.update(s.units).set({ translation: `번역 ${id}` }).where(eq(s.units.id, id)).run();
+    const during = await route();
+    expect(during.blocks.map((block) => block.nodeIds)).toEqual(before.blocks.map((block) => block.nodeIds));
+    expect(during.lines).toBe(12);
+    // Every line of route 1 translated: still route 1 (the next route is a 다음 길 away).
+    for (const id of before.blocks.flatMap((block) => block.unitIds)) db.update(s.units).set({ translation: `번역 ${id}` }).where(eq(s.units.id, id)).run();
+    expect((await route()).stubs[0]).toMatchObject({ arm: node('n.panel.1') });
+    expect((await (await send('GET', `/projects/${projectId}/route/next`)).json()) as { changed: boolean }).toMatchObject({ changed: true });
   });
 
   it('the slice cache does not go stale when a pick is written straight to projects.routePicks', async () => {
     const { db, projectId, node, route } = setup();
-    expect((await route()).stubs[0]).toMatchObject({ arm: node('n.logbook.1') });
-    db.update(s.projects).set({ routePicks: { [node('c.choice')]: node('n.logbook.1') } }).where(eq(s.projects.id, projectId)).run();
+    expect((await route()).stubs[0]).toMatchObject({ arm: node('n.panel.1') });
+    db.update(s.projects).set({ routePicks: { [node('c.choice')]: node('n.panel.1') } }).where(eq(s.projects.id, projectId)).run();
     const info = await route();
-    expect(info.picks).toEqual({ [node('c.choice')]: node('n.logbook.1') });
-    expect(info.stubs[0]).toMatchObject({ arm: node('n.panel.1') });
-    expect(info.blocks.flatMap((block) => block.nodeIds)).toContain(node('n.logbook.1'));
+    expect(info.picks).toEqual({ [node('c.choice')]: node('n.panel.1') });
+    expect(info.stubs[0]).toMatchObject({ arm: node('n.logbook.1') });
+    expect(info.blocks.flatMap((block) => block.nodeIds)).toContain(node('n.panel.1'));
     db.update(s.projects).set({ routePicks: {} }).where(eq(s.projects.id, projectId)).run();
-    expect((await route()).stubs[0]).toMatchObject({ arm: node('n.logbook.1') });
+    expect((await route()).stubs[0]).toMatchObject({ arm: node('n.panel.1') });
   });
 
   describe('다음 길', () => {
@@ -144,7 +158,7 @@ describe('main route API', () => {
       const done = await info(h);
       expect(done.newLinesOnRoute).toBe(0);
       const next = await preview(h);
-      expect(next).toMatchObject({ changed: true, totalUntranslatedOnRoute: 0, picks: { [node('c.choice')]: node('n.logbook.1') } });
+      expect(next).toMatchObject({ changed: true, totalUntranslatedOnRoute: 0, picks: { [node('c.choice')]: node('n.panel.1') } });
       expect(next.newLines).toBeGreaterThan(0);
       expect(next.remainingRoutes).toBe(1);
 
@@ -153,10 +167,11 @@ describe('main route API', () => {
       expect(second).toMatchObject({ round: 2, canGoBack: true, picks: next.picks });
       expect(second.newLinesOnRoute).toBe(next.newLines);
       // The new route covers lines the first did not.
-      expect(second.blocks.flatMap((block) => block.nodeIds)).toContain(node('n.logbook.1'));
+      expect(second.blocks.flatMap((block) => block.nodeIds)).toContain(node('n.panel.1'));
 
       expect((await send('POST', `/projects/${projectId}/route/prev`, { round: 2 })).status).toBe(200);
       expect(await info(h)).toMatchObject({ round: 1, canGoBack: false, picks: {} });
+      expect((await info(h)).stubs[0]).toMatchObject({ arm: node('n.panel.1') });
     });
 
     it('refuses with Korean messages: a stale round, a route still open, nothing left, nothing to go back to', async () => {
@@ -169,9 +184,7 @@ describe('main route API', () => {
       expect((await send('POST', `/projects/${projectId}/route/next`, {})).status).toBe(400);
       expect(await post('prev', 1)).toMatchObject({ status: 400, text: expect.stringContaining('이전 길이 없습니다') });
       expect(await post('next', 7)).toMatchObject({ status: 400, text: expect.stringContaining('이미 바뀌었습니다') });
-      // Pick the longer arm by hand: it stays the best route while it is open.
-      const route = await info(h);
-      await send('PUT', `/projects/${projectId}/route-picks`, { nodeId: route.forks.find((fork) => fork.mode === 'choice')!.nodeId, armId: route.stubs[0]!.arm });
+      // Route 1 is the best route, so it stays the next one while it is open.
       expect((await preview(h)).changed).toBe(false);
       expect(await post('next', 1)).toMatchObject({ status: 400, text: expect.stringContaining('먼저 이번 길을 번역') });
       // Everything translated: no route is left.
@@ -228,7 +241,7 @@ describe('main route API', () => {
       expect(round1.blocks.some((block) => block.earlier)).toBe(false);
       // One line translated: its place in the mask (block order) turns to 1.
       h.db.update(s.units).set({ translation: '번역' }).where(eq(s.units.id, ids[2]!)).run();
-      expect((await listData(h)).translatedMask).toBe('00100000000'.slice(0, ids.length));
+      expect((await listData(h)).translatedMask).toBe('001'.padEnd(ids.length, '0'));
       // Rows come back in the order asked, only this project's lines; unknown ids are left out.
       const rows = (await (await h.send('POST', `/projects/${h.projectId}/units/by-ids`, { ids: [ids[2]!, 'nope', ids[0]!] })).json()) as { rows: { id: string; translation: string | null }[] };
       expect(rows.rows.map((row) => row.id)).toEqual([ids[2], ids[0]]);

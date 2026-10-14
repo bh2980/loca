@@ -13,8 +13,8 @@ import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { computeLayouts } from '../services/layout.ts';
 import { readView, sectionWithMost } from '../services/graph-views.ts';
-import { projectSlice } from '../services/route-slice.ts';
-import { previewNext, projectRouteInputs, ROUTE_HISTORY, routeProgress } from '../services/next-route.ts';
+import { graphKey, projectSlice } from '../services/route-slice.ts';
+import { defaultPicks, effectivePicks, previewNext, projectRouteInputs, ROUTE_HISTORY, routeProgress } from '../services/next-route.ts';
 import { seamDetail, seamLines, seamNodes, seamStates } from '../services/seam-check.ts';
 import { lineMatches } from '../services/line-matches.ts';
 import { lineTextFilter } from '../services/line-text.ts';
@@ -386,7 +386,8 @@ export const sourceRoutes = new Hono<Env>()
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     const { g, weights } = projectRouteInputs(db, projectId);
-    return c.json(previewNext(g, weights, db.select({ picks: s.projects.routePicks }).from(s.projects).where(eq(s.projects.id, projectId)).get()?.picks ?? {}));
+    const row = db.select({ picks: s.projects.routePicks, state: s.projects.routeState }).from(s.projects).where(eq(s.projects.id, projectId)).get();
+    return c.json(previewNext(g, weights, effectivePicks(db, projectId, row, graphKey(db, projectId))));
   })
   /** Take the next route: the current picks go to the history and the round counts up. `round` is the round the person saw. */
   .post('/projects/:projectId/route/next', validate('json', z.object({ round: z.number().int() })), (c) => {
@@ -396,10 +397,11 @@ export const sourceRoutes = new Hono<Env>()
     if (!row) badRequest('프로젝트를 찾을 수 없습니다.');
     if (c.req.valid('json').round !== row.state.round) badRequest('다른 곳에서 길이 이미 바뀌었습니다. 화면을 확인한 뒤 다시 눌러 주세요.');
     const { g, weights } = projectRouteInputs(db, projectId);
-    const preview = previewNext(g, weights, row.picks);
+    const current = effectivePicks(db, projectId, row, graphKey(db, projectId));
+    const preview = previewNext(g, weights, current);
     if (preview.newLines === 0) badRequest('번역하지 않은 줄이 있는 길이 더 없습니다.');
     if (!preview.changed) badRequest('이번 길에 번역하지 않은 줄이 남아 있습니다. 먼저 이번 길을 번역해 주세요.');
-    const state = { round: row.state.round + 1, history: [...row.state.history, row.picks].slice(-ROUTE_HISTORY) };
+    const state = { round: row.state.round + 1, history: [...row.state.history, current].slice(-ROUTE_HISTORY) };
     db.update(s.projects).set({ routePicks: preview.picks, routeState: state }).where(eq(s.projects.id, projectId)).run();
     events.changed(projectId, 'graph', 'units');
     return c.json({ picks: preview.picks, round: state.round });
@@ -414,9 +416,12 @@ export const sourceRoutes = new Hono<Env>()
     const previous = row.state.history.at(-1);
     if (!previous) badRequest('되돌아갈 이전 길이 없습니다.');
     const state = { round: Math.max(1, row.state.round - 1), history: row.state.history.slice(0, -1) };
-    db.update(s.projects).set({ routePicks: previous, routeState: state }).where(eq(s.projects.id, projectId)).run();
+    // Back on route 1 the stored picks are a person's alone again; the best route is not stored.
+    const best = state.round === 1 ? defaultPicks(db, projectId, graphKey(db, projectId)) : {};
+    const picks = state.round === 1 ? Object.fromEntries(Object.entries(previous).filter(([fork, arm]) => best[fork] !== arm)) : previous;
+    db.update(s.projects).set({ routePicks: picks, routeState: state }).where(eq(s.projects.id, projectId)).run();
     events.changed(projectId, 'graph', 'units');
-    return c.json({ picks: previous, round: state.round });
+    return c.json({ picks, round: state.round });
   })
   /** A person's arm at a choice of the slice; armId null takes the pick back. */
   .put('/projects/:projectId/route-picks', validate('json', z.object({ nodeId: z.string(), armId: z.string().nullable() })), (c) => {

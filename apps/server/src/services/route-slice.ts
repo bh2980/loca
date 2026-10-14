@@ -1,3 +1,4 @@
+import { effectivePicks } from './next-route.ts';
 import { eq, sql } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
 import { isIdentifierLabel } from '@tw/shared';
@@ -98,28 +99,35 @@ const STUB_SCAN = 5_000;
 const cache = new Map<string, { key: string; slice: RouteSlice }>();
 type Picks = Record<string, string>;
 
-/** The project's slice with its stored picks; kept until the graph, the lines or the picks change. */
+/** What the graph is made of (changes when the graph, the lines or its layout change): the key of everything cached per project. */
+export function graphKey(db: Db, projectId: string) {
+  return JSON.stringify(
+    db.get<{ nodes: number; edges: number; units: number; changed: number | null }>(
+      sql`select (select count(*) from ${s.graphNodes} where ${s.graphNodes.projectId} = ${projectId}) as nodes, (select count(*) from ${s.graphEdges} where ${s.graphEdges.projectId} = ${projectId}) as edges, (select count(*) from ${s.units} where ${s.units.projectId} = ${projectId}) as units, (select max(${s.graphLayouts.updatedAt}) from ${s.graphLayouts} where ${s.graphLayouts.projectId} = ${projectId}) as changed`,
+    ),
+  );
+}
+
+/** The project's slice with its stored picks (round 1 with no history: the best route under a person's picks); kept until the graph, the lines or the picks change. */
 export function projectSlice(db: Db, projectId: string): RouteSlice {
   const row = db.select({ picks: s.projects.routePicks, state: s.projects.routeState }).from(s.projects).where(eq(s.projects.id, projectId)).get();
-  const picks = row?.picks ?? {};
+  const manual = row?.picks ?? {};
   // The routes of the earlier rounds decide the seams, so they belong to the cache key.
   const history = row?.state.history ?? [];
-  const counts = db.get<{ nodes: number; edges: number; units: number; changed: number | null }>(
-    sql`select (select count(*) from ${s.graphNodes} where ${s.graphNodes.projectId} = ${projectId}) as nodes, (select count(*) from ${s.graphEdges} where ${s.graphEdges.projectId} = ${projectId}) as edges, (select count(*) from ${s.units} where ${s.units.projectId} = ${projectId}) as units, (select max(${s.graphLayouts.updatedAt}) from ${s.graphLayouts} where ${s.graphLayouts.projectId} = ${projectId}) as changed`,
-  );
-  const key = JSON.stringify([picks, history, counts]);
+  const graph = graphKey(db, projectId);
+  const key = JSON.stringify([manual, history, row?.state.round ?? 1, graph]);
   const hit = cache.get(projectId);
   if (hit?.key === key) return hit.slice;
-  const slice = buildSlice(db, projectId, picks, history);
+  const slice = buildSlice(db, projectId, effectivePicks(db, projectId, row, graph), history, manual);
   cache.set(projectId, { key, slice });
   return slice;
 }
 
-function buildSlice(db: Db, projectId: string, picks: Picks, history: Picks[]): RouteSlice {
+function buildSlice(db: Db, projectId: string, picks: Picks, history: Picks[], manual: Picks): RouteSlice {
   const nodes = db.select({ id: s.graphNodes.id, key: s.graphNodes.key, kind: s.graphNodes.kind, unitIds: s.graphNodes.unitIds, label: s.graphNodes.label }).from(s.graphNodes).where(eq(s.graphNodes.projectId, projectId)).all();
   const edges = db.select({ from: s.graphEdges.fromId, to: s.graphEdges.toId, label: s.graphEdges.label }).from(s.graphEdges).where(eq(s.graphEdges.projectId, projectId)).all();
   const units = new Map(db.select({ id: s.units.id, seq: s.units.seq, source: s.units.source }).from(s.units).where(eq(s.units.projectId, projectId)).all().map((unit) => [unit.id, unit]));
-  return sliceRoute(nodes, edges, units, picks, history);
+  return sliceRoute(nodes, edges, units, picks, history, manual);
 }
 
 /** The graph prepared for slicing: ways out of every node, script order, and which forks are exclusive. */
@@ -248,7 +256,7 @@ export function walkRoute(g: RouteGraph, picks: Record<string, string>) {
 }
 
 /** `history`: the picks of the earlier rounds' routes (oldest first); the seams are measured against all of them together. */
-export function sliceRoute(nodes: GraphNode[], edges: GraphEdge[], units: Map<string, { seq: number; source: string }>, picks: Picks, history: Picks[] = []): RouteSlice {
+export function sliceRoute(nodes: GraphNode[], edges: GraphEdge[], units: Map<string, { seq: number; source: string }>, picks: Picks, history: Picks[] = [], manual: Picks = picks): RouteSlice {
   const g = routeGraph(nodes, edges, units);
   const { byId, out, bySeq, numbering } = g;
   const firstLine = (node: GraphNode) => {
@@ -272,7 +280,7 @@ export function sliceRoute(nodes: GraphNode[], edges: GraphEdge[], units: Map<st
     const ways = [...out.get(id)!].sort((a, b) => bySeq(a.to, b.to));
     if (ways.length < 2) continue;
     const chosen = chosenAt.get(id);
-    forks.push({ nodeId: id, mode: chosen ? 'choice' : 'parallel', arms: ways.map((way) => ({ nodeId: way.to, label: armLabel(id, way), chosen: !chosen || way.to === chosen, picked: picks[id] === way.to })) });
+    forks.push({ nodeId: id, mode: chosen ? 'choice' : 'parallel', arms: ways.map((way) => ({ nodeId: way.to, label: armLabel(id, way), chosen: !chosen || way.to === chosen, picked: manual[id] === way.to })) });
     if (!chosen) continue;
     for (const way of ways) {
       if (way.to === chosen) continue;
