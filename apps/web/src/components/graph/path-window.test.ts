@@ -25,11 +25,11 @@ describe('windowOf', () => {
     expect(window.ids).not.toContain('start');
     expect(window.markers.map((marker) => marker.id)).toEqual([markerId('behind', 'c1')]);
   });
-  it('ends at the fifth stop with a marker that leads there', () => {
+  it('ends after four stops ahead with a marker that leads on', () => {
     const window = windowOf(overview, 'start', false);
-    expect(window.ids).not.toContain('c6');
-    expect(window.markers).toEqual([{ id: markerId('ahead', 'c5'), target: 'c6', direction: 'ahead' }]);
-    expect(window.edges.some((edge) => edge.to === markerId('ahead', 'c5'))).toBe(true);
+    expect(window.ids).not.toContain('c5');
+    expect(window.markers).toEqual([{ id: markerId('ahead', 'c4'), target: 'c5', direction: 'ahead' }]);
+    expect(window.edges.some((edge) => edge.to === markerId('ahead', 'c4'))).toBe(true);
     expect(window.edges.some((edge) => edge.kind === 'rejoin' || edge.kind === 'stub')).toBe(false);
   });
   it('draws everything for all, and falls back to the first node for an unknown place', () => {
