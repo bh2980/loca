@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { CONNECTION_KIND_INFO, knowledgeTemplate, lineMarksSchema, listenerTemplate, speechFixTemplate, termExtractionTemplate, translationTemplate, validateWorkflow, workflowDefinitionSchema, type WorkflowDefinition } from '@tw/shared';
+import { CONNECTION_KIND_INFO, knowledgeTemplate, lineMarksSchema, listenerTemplate, speechFixTemplate, termExtractionTemplate, translationTemplate, validateWorkflow, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -13,6 +13,8 @@ import { listBatches, preflight } from '../services/preflight.ts';
 import { choiceLabel, defaultModelChoice, snapshotWorkflowModels } from '../services/routes.ts';
 
 const scopeSchema = z.object({ groupIds: z.array(z.string()).optional(), unitIds: z.array(z.string()).optional(), tagIds: z.array(z.string()).optional(), marks: lineMarksSchema.optional(), ignoreStatus: z.boolean().optional() });
+/** A run's scope and, optionally, the models it uses instead of its nodes' own (by AI node id). */
+const runSchema = scopeSchema.extend({ models: runModelsSchema.optional() });
 
 /** Connection names now, for logs that keep only the id; a deleted connection reads as its kind. */
 const connectionNames = (db: Db) => new Map(db.select({ id: s.connections.id, name: s.connections.name }).from(s.connections).all().map((row) => [row.id, row.name]));
@@ -116,18 +118,21 @@ export const workflowRoutes = new Hono<Env>()
     return c.json({ count: selectRunUnits(db, workflow.projectId, workflow.definition, c.req.valid('json')).length });
   })
   /** The run plan and its cost estimate, computed without calling a model (see services/preflight.ts). */
-  .post('/workflows/:id/preflight', validate('json', scopeSchema), async (c) => {
+  .post('/workflows/:id/preflight', validate('json', runSchema), async (c) => {
     const { db } = c.var.deps;
     const workflow = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
-    return c.json(await preflight(db, workflow, c.req.valid('json')));
+    const { models, ...scope } = c.req.valid('json');
+    return c.json(await preflight(db, { ...workflow, definition: withRunModels(workflow.definition, models) }, scope));
   })
-  .post('/workflows/:id/runs', validate('json', scopeSchema.extend({ limits: z.object({ maxCalls: z.number().int().min(1).optional(), maxInputTokens: z.number().int().min(1).optional() }).optional() })), async (c) => {
+  .post('/workflows/:id/runs', validate('json', runSchema.extend({ limits: z.object({ maxCalls: z.number().int().min(1).optional(), maxInputTokens: z.number().int().min(1).optional() }).optional() })), async (c) => {
     const { db } = c.var.deps;
-    const workflow = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
+    const stored = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
+    const { limits, models, ...scope } = c.req.valid('json');
+    // This run's models (the dialog's picks) stand in for the nodes' own; the workflow is not changed.
+    const workflow = { ...stored, definition: withRunModels(stored.definition, models) };
     const errors = workflowIssues(db, workflow.projectId, workflow.definition).filter((issue) => issue.level === 'error');
     if (errors.length) badRequest(`워크플로에 오류가 ${errors.length}개 있습니다: ${errors[0].message}`);
     try {
-      const { limits, ...scope } = c.req.valid('json');
       return c.json(await createRunInSteps(db, { projectId: workflow.projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope, limits }), 201);
     } catch (error) {
       badRequest(error instanceof Error ? error.message : String(error));

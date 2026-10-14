@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { LineMark } from '@tw/shared';
 import { Link } from '@tanstack/react-router';
 import { Check, ChevronRight, Inbox, Rows3 } from 'lucide-react';
@@ -20,9 +20,9 @@ export interface GroupRow {
   unknownListeners: number;
 }
 
-/** Folded sections are a per-tab convenience, like the graph viewport: sessionStorage, not history. */
-const storageKey = (projectId: string) => `tw.script.folded.${projectId}`;
-const readFolded = (projectId: string): string[] => {
+/** Sections start folded; the opened ones are a per-tab convenience, like the graph viewport: sessionStorage, not history. */
+const storageKey = (projectId: string) => `tw.script.opened.${projectId}`;
+const readOpened = (projectId: string): string[] => {
   try {
     return JSON.parse(sessionStorage.getItem(storageKey(projectId)) ?? '[]');
   } catch {
@@ -64,12 +64,13 @@ export function GroupList({ projectId, groups, finalIds, scope, lineTotal, revie
   marks?: Map<string, number>;
 }) {
   const sections = useMemo(() => sectionsOf(groups ?? []), [groups]);
-  const [folded, setFolded] = useState<Set<string>>(() => new Set(readFolded(projectId)));
+  const [opened, setOpened] = useState<Set<string>>(() => new Set(readOpened(projectId)));
   const toggle = (name: string, open: boolean) =>
-    setFolded((previous) => {
+    setOpened((previous) => {
+      if (previous.has(name) === open) return previous;
       const next = new Set(previous);
-      if (open) next.delete(name);
-      else next.add(name);
+      if (open) next.add(name);
+      else next.delete(name);
       try {
         sessionStorage.setItem(storageKey(projectId), JSON.stringify([...next]));
       } catch {
@@ -77,6 +78,11 @@ export function GroupList({ projectId, groups, finalIds, scope, lineTotal, revie
       }
       return next;
     });
+  // Picking a scene opens its section once; folding it again holds until another scene is picked.
+  const pickedSection = sections.find((section) => section.groups.some((group) => group.id === scope.group))?.name;
+  useEffect(() => {
+    if (pickedSection) toggle(pickedSection, true);
+  }, [scope.group, pickedSection]); // eslint-disable-line react-hooks/exhaustive-deps
   const doneOf = (group: GroupRow) => Object.entries(group.statuses).reduce((sum, [id, n]) => sum + (finalIds.has(id) ? n : 0), 0);
 
   return (
@@ -95,7 +101,8 @@ export function GroupList({ projectId, groups, finalIds, scope, lineTotal, revie
         {!groups && <p className="px-3 py-2 text-xs text-muted-foreground">불러오는 중…</p>}
         {groups?.length === 0 && <p className="px-3 py-2 text-sm text-muted-foreground">맞는 장면이 없습니다.</p>}
         {sections.map((section) => {
-          const open = Boolean(gq) || !section.name || !folded.has(section.name) || section.groups.some((group) => group.id === scope.group);
+          // A scene search shows its matches wherever they are.
+          const open = Boolean(gq) || !section.name || opened.has(section.name);
           const items = section.groups.map((group) => <GroupItem key={group.id} projectId={projectId} group={group} done={doneOf(group)} active={group.id === scope.group} indent={Boolean(section.name)} marks={marks} />);
           if (!section.name) return <Fragment key={section.key}>{items}</Fragment>;
           return (

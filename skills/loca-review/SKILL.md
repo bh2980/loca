@@ -18,6 +18,7 @@ loca check speech           # 화자→청자의 확정 말투 규칙과 번역 
 ## 실행 전 준비 상태
 ```
 loca plan "기본 번역" -g "<장면>"            # 읽기만. 범위: -g 장면, --key 대사, --mark 표시, --tag 태그 (모두 만족)
+loca plan "청자 추정" --model "mock B:mock"   # 이번 실행만 다른 모델로 계산 ("노드=연결:모델"로 한 단계만). 실행 제안 start_run에도 models로 같은 선택
 ```
 앱 실행 창과 같은 계산입니다: 대사 수, 묶음·AI 요청 수 추정, **준비 상태**(청자 미상 대사 수, 확인 안 한 말투 규칙·용어 이름, 5줄 이상 말하는데 규칙 없는 화자 쌍). 걸린 항목은 고치기 전에 사용자에게 알립니다: `loca lines --mark unknownListener`, `loca terms --unreviewed`, `loca knowledge speech-rules --unreviewed`. 시작은 `start_run` 제안으로만 합니다.
 

@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { useMutation, useQuery, type UseQueryResult } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, type UseQueryResult } from '@tanstack/react-query';
 import type { InferResponseType } from 'hono/client';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { Play } from 'lucide-react';
@@ -13,6 +13,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { client, unwrap } from '@/lib/api';
 import { LINE_MARK_IDS, type LineMark, UNREVIEWED_MARKS } from '@tw/shared';
 import { MarkChip } from '@/components/status';
+import { ModelPicker, type ModelValue } from '@/components/model-picker';
 import { lineTags, q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
@@ -52,6 +53,8 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
   const tags = lineTags(statuses.data?.tags);
   const [filter, setFilter] = useState('');
   const [ignoreStatus, setIgnoreStatus] = useState(defaultIgnoreStatus);
+  // This run's models by AI node, where the person picked another than the node's own (the workflow is not changed).
+  const [runModels, setRunModels] = useState<Record<string, ModelValue>>({});
   const workflows = useQuery({ ...q.workflows(projectId), enabled: open });
   const [chosen, setChosen] = useState<string>();
   const workflowId = fixedWorkflowId ?? chosen ?? (preferWorkflow && workflows.data?.find((workflow) => workflow.name === preferWorkflow && !workflow.errorCount)?.id) ?? workflows.data?.find((workflow) => !workflow.errorCount)?.id;
@@ -62,18 +65,25 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
   const scope =
     mode === 'units' ? { unitIds, ignoreStatus } : mode === 'here' ? { groupIds, ignoreStatus } : mode === 'groups' ? { groupIds: [...picked], ignoreStatus } : mode === 'tags' ? { tagIds: [...pickedTags], marks: [...pickedMarks] as LineMark[], ignoreStatus } : { ignoreStatus };
   const ready = mode === 'all' || mode === 'units' || mode === 'here' || (mode === 'groups' && picked.size > 0) || (mode === 'tags' && (pickedTags.size > 0 || pickedMarks.size > 0));
+  // Only finished picks go out; one still missing its model stays in the picker meanwhile.
+  const chosenModels = Object.fromEntries(Object.entries(runModels).filter(([, value]) => value.connectionId && value.model));
+  const request = { ...scope, ...(Object.keys(chosenModels).length ? { models: chosenModels } : {}) };
   const plan = useQuery({
-    queryKey: ['units', 'run-preflight', workflowId, scope],
-    queryFn: () => unwrap(client.workflows[':id'].preflight.$post({ param: { id: workflowId! }, json: scope })),
+    queryKey: ['units', 'run-preflight', workflowId, request],
+    queryFn: () => unwrap(client.workflows[':id'].preflight.$post({ param: { id: workflowId! }, json: request })),
     enabled: open && Boolean(workflowId) && ready,
+    // Picking another model re-estimates without blanking the dialog (its pickers stay put).
+    placeholderData: keepPreviousData,
   });
   const data = ready ? plan.data : undefined;
+  // The kept plan is another scope's or model's: its counts and caps must not start this run.
+  const stale = plan.isPlaceholderData;
   const suggested = data?.suggestedLimits;
   const start = useMutation({
     mutationFn: () => {
       // A safety net, not a choice: the suggested caps, past which the run pauses.
       const limits = { ...(suggested?.maxCalls ? { maxCalls: suggested.maxCalls } : {}), ...(suggested?.maxInputTokens ? { maxInputTokens: suggested.maxInputTokens } : {}) };
-      return unwrap(client.workflows[':id'].runs.$post({ param: { id: workflowId! }, json: { ...scope, ...(Object.keys(limits).length ? { limits } : {}) } }));
+      return unwrap(client.workflows[':id'].runs.$post({ param: { id: workflowId! }, json: { ...request, ...(Object.keys(limits).length ? { limits } : {}) } }));
     },
     onSuccess: (run) => {
       setOpen(false);
@@ -97,6 +107,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
         if (next) {
           setMode(initialMode);
           setPicked(new Set());
+          setRunModels({});
         }
       }}
     >
@@ -165,6 +176,14 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
 
           {data && total ? <Readiness projectId={projectId} readiness={data.readiness} oneScene={mode === 'here' && here?.length === 1 ? here[0].id : undefined} scoped={mode !== 'all'} onLeave={() => setOpen(false)} /> : null}
           {data && total ? <Pace data={data} /> : null}
+          {data && total ? (
+            <RunModels
+              nodes={data.nodes}
+              picked={runModels}
+              onPick={(nodeId, value) => setRunModels((previous) => ({ ...previous, [nodeId]: value }))}
+              onReset={(nodeId) => setRunModels(({ [nodeId]: _gone, ...rest }) => rest)}
+            />
+          ) : null}
           {ready && plan.isError && <p className="text-sm text-destructive">계획을 계산하지 못했습니다: {plan.error.message}</p>}
           {ready && plan.isPending && <Skeleton className="h-24 w-full" />}
 
@@ -175,7 +194,8 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
           <Button variant="outline" onClick={() => setOpen(false)}>
             취소
           </Button>
-          <Button disabled={!total || !workflowId || start.isPending} onClick={() => start.mutate()}>
+          {/* A model picked without its model yet would quietly run on the node's own: finish or undo it first. */}
+          <Button disabled={!total || !workflowId || stale || start.isPending || Object.keys(chosenModels).length !== Object.keys(runModels).length} onClick={() => start.mutate()}>
             {start.isPending ? <Spinner /> : <Play />} {total ? `${total.toLocaleString()}줄 실행 시작` : '실행 시작'}
           </Button>
         </DialogFooter>
@@ -322,14 +342,13 @@ function Readiness({ projectId, readiness, oneScene, scoped, onLeave }: { projec
 
 const duration = (seconds: number) => (seconds < 90 ? `${Math.max(1, Math.round(seconds / 10) * 10)}초` : seconds < 5400 ? `${Math.round(seconds / 60)}분` : `${(seconds / 3600).toFixed(1)}시간`);
 
-/** How long and how much, in plain words; the models in one line when every step uses the same. */
+/** How long and how much, in plain words (for the models picked below). */
 function Pace({ data }: { data: PlanData }) {
   const calls = data.totals.calls;
   const callText = calls.expected !== null ? `${calls.expected.toLocaleString()}회` : `${calls.min.toLocaleString()}~${calls.max.toLocaleString()}회`;
   const { seconds, costUsd, subscription } = data.pace;
   // Only what is known: no time without history, no cost the provider never reported.
   const money = subscription && !costUsd ? '구독 사용' : costUsd === null ? null : costUsd < 0.01 ? '1센트 미만' : `약 $${costUsd.toFixed(2)}${subscription ? ' + 구독' : ''}`;
-  const models = [...new Set(data.nodes.map((node) => node.model ?? '모델 없음'))];
   return (
     <section className="space-y-1">
       <h3 className="text-xs text-muted-foreground">얼마나</h3>
@@ -343,9 +362,38 @@ function Pace({ data }: { data: PlanData }) {
         )}
         {money && ` · ${money}`}
       </p>
-      <p className="text-xs text-muted-foreground">
-        {models.length === 1 ? `모델: ${models[0]} (모든 단계)` : `모델: ${data.nodes.map((node) => `${node.name} ${node.model ?? '없음'}`).join(' · ')}`}
-      </p>
+    </section>
+  );
+}
+
+/**
+ * Which model each AI step runs on, changeable for this run only (like the work analysis's picker).
+ * Each starts at the step's own model; a picked one replaces it, and the models the step otherwise
+ * shares its requests with, for this run. The workflow keeps its own (change it there for good).
+ */
+function RunModels({ nodes, picked, onPick, onReset }: { nodes: PlanData['nodes']; picked: Record<string, ModelValue>; onPick: (nodeId: string, value: ModelValue) => void; onReset: (nodeId: string) => void }) {
+  return (
+    <section className="space-y-2">
+      <h3 className="text-xs text-muted-foreground">모델</h3>
+      {nodes.map((node) => {
+        const own = node.choice.connectionId && node.choice.model ? node.choice : null;
+        const changed = Boolean(picked[node.nodeId]);
+        return (
+          <div key={node.nodeId} className="flex min-w-0 flex-wrap items-center gap-2">
+            {nodes.length > 1 && <span className="w-28 shrink-0 truncate text-sm">{node.name}</span>}
+            <ModelPicker value={picked[node.nodeId] ?? own} onChange={(value) => onPick(node.nodeId, value)} className="min-w-0 flex-1" />
+            {changed && (
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                이번 실행만
+                <Button variant="ghost" size="inline" onClick={() => onReset(node.nodeId)}>
+                  원래대로
+                </Button>
+              </span>
+            )}
+            {!changed && node.sharedWith.length > 0 && <span className="text-xs text-muted-foreground">+ {node.sharedWith.join(', ')}</span>}
+          </div>
+        );
+      })}
     </section>
   );
 }

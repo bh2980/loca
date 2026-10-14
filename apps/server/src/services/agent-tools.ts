@@ -1,7 +1,7 @@
 import { tool } from 'ai';
 import { and, asc, count, desc, eq, inArray, like, ne, or } from 'drizzle-orm';
 import { z } from 'zod';
-import { AI_OUTPUTS, AI_PRESETS, aiNodeConfigSchema, KNOWLEDGE_TAG_KINDS, patchOf, TAG_SCOPES, AUTO_MARKS, batchChangeSchema, CONDITION_MARK_IDS, CONNECTION_KIND_INFO, FUNCTIONS, LINE_MARK_IDS, lineFilterSchema, lineMarksSchema, NODE_TYPES, sourceOf, workflowDefinitionSchema } from '@tw/shared';
+import { AI_OUTPUTS, AI_PRESETS, aiNodeConfigSchema, KNOWLEDGE_TAG_KINDS, patchOf, TAG_SCOPES, withRunModels, AUTO_MARKS, batchChangeSchema, CONDITION_MARK_IDS, CONNECTION_KIND_INFO, FUNCTIONS, LINE_MARK_IDS, lineFilterSchema, lineMarksSchema, NODE_TYPES, sourceOf, workflowDefinitionSchema } from '@tw/shared';
 import { z as zod } from 'zod';
 import type { Db } from '../db/index.ts';
 import { byPerson } from './status-by.ts';
@@ -23,7 +23,7 @@ import { annotateKnowledge, knowledgeFilterInput } from './knowledge-list.ts';
 import { findTerm, termUsage } from './term-usage.ts';
 import { tagOverview } from './tag-overview.ts';
 import { setKnowledgeTag } from './knowledge-tags.ts';
-import { planRun } from './run-plan.ts';
+import { planRun, resolveRunModels, runModelInput } from './run-plan.ts';
 import { applyBatch, checkScript, findLines, lineContext, normalizeBatch, runStats, sceneStats, scenesWith, validateBatch } from './script-query.ts';
 
 /** Lines of a batch proposal checked and applied per step when it is accepted. */
@@ -34,6 +34,9 @@ const page = { offset: z.number().int().min(0).default(0), limit: z.number().int
  * The project agent's harness. Read tools run immediately; every tool that changes the
  * project has `needsApproval`, so the user accepts or rejects it in the chat (Cursor-style).
  */
+/** How a run picks other models than its nodes' own (start_run, plan_run). */
+const MODELS_HELP = 'Optional: this run only, other models than the AI nodes\' own. Key = AI node id or name, or "*" for every AI node; value = { connection (id or name, see harness_reference), model, effort? }. The workflow is not changed.';
+
 /** A tag that cannot go where it was asked: undoes the whole tag_items change. */
 class TagRefused extends Error {}
 
@@ -249,7 +252,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
     plan_run: tool({
       description:
         'The run dialog\'s preview for a workflow and scope, without starting anything or calling a model: lines in scope, batches, requests and tokens per AI node, and readiness (dialogue lines with unknown listener, speech rules and glossary terms no person has confirmed, with their names, and frequent speaker pairs without a rule). workflow is an id or name; scope: groups (key/id/title), keys (line keys), tags (all), marks (all) — combined with AND like the dialog; none = every line the entry node accepts. Use it before proposing start_run.',
-      inputSchema: z.object({ workflow: z.string().min(1), groups: z.array(z.string()).optional(), keys: z.array(z.string()).optional(), tags: z.array(z.string()).optional(), marks: lineMarksSchema.optional(), ignoreStatus: z.boolean().optional() }),
+      inputSchema: z.object({ workflow: z.string().min(1), groups: z.array(z.string()).optional(), keys: z.array(z.string()).optional(), tags: z.array(z.string()).optional(), marks: lineMarksSchema.optional(), ignoreStatus: z.boolean().optional(), models: runModelInput.optional().describe(MODELS_HELP) }),
       execute: (input) => planRun(db, projectId, input),
     }),
     harness_reference: tool({
@@ -483,11 +486,15 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         tagIds: z.array(z.string()).optional(),
         marks: lineMarksSchema.optional(),
         ignoreStatus: z.boolean().optional(),
+        models: runModelInput.optional().describe(MODELS_HELP),
       }),
       needsApproval: true,
-      execute: async ({ workflowId, ...scope }) => {
-        const workflow = db.select().from(s.workflows).where(and(eq(s.workflows.id, workflowId), eq(s.workflows.projectId, projectId))).get();
-        if (!workflow) return { ok: false, error: '워크플로를 찾을 수 없습니다.' };
+      execute: async ({ workflowId, models, ...scope }) => {
+        const stored = db.select().from(s.workflows).where(and(eq(s.workflows.id, workflowId), eq(s.workflows.projectId, projectId))).get();
+        if (!stored) return { ok: false, error: '워크플로를 찾을 수 없습니다.' };
+        const picked = resolveRunModels(db, stored.definition, models);
+        if (picked.unknown.length) return { ok: false, error: `찾지 못함: ${picked.unknown.join(', ')}` };
+        const workflow = { ...stored, definition: withRunModels(stored.definition, picked.models) };
         const errors = workflowIssues(db, projectId, workflow.definition).filter((issue) => issue.level === 'error');
         if (errors.length) return { ok: false, error: `워크플로에 오류가 있습니다: ${errors[0].message}` };
         if (!selectRunUnits(db, projectId, workflow.definition, scope).length) return { ok: false, error: '조건에 맞는 대사가 없습니다.' };
