@@ -61,7 +61,8 @@ export function seamLines(slice: RouteSlice, nodeId: string): { before: { from: 
     while (at && !seen.has(at) && ids.length < LINES) {
       seen.add(at);
       const block = blocks.get(at);
-      if (!block) break;
+      // Only the round's new lines: an earlier route's block is not '이번 길의 새 줄'.
+      if (!block || block.earlier) break;
       ids.unshift(...block.unitIds.slice(-(LINES - ids.length)));
       const before: string[] = pathInto.get(at) ?? [];
       at = before.length === 1 ? before[0] : undefined;

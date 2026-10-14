@@ -187,6 +187,12 @@ describe('main route API', () => {
       // Route 1 is the best route, so it stays the next one while it is open.
       expect((await preview(h)).changed).toBe(false);
       expect(await post('next', 1)).toMatchObject({ status: 400, text: expect.stringContaining('먼저 이번 길을 번역') });
+      // A person's pick off the best route: a bigger route exists, but this one is still open, so it is still refused.
+      await send('PUT', `/projects/${projectId}/route-picks`, { nodeId: h.node('c.choice'), armId: h.node('n.panel.1') });
+      expect(await preview(h)).toMatchObject({ changed: true });
+      expect((await preview(h)).totalUntranslatedOnRoute).toBeGreaterThan(0);
+      expect(await post('next', 1)).toMatchObject({ status: 400, text: expect.stringContaining('먼저 이번 길을 번역') });
+      await send('DELETE', `/projects/${projectId}/route-picks`);
       // Everything translated: no route is left.
       h.db.update(s.units).set({ translation: '번역' }).run();
       expect(await preview(h)).toMatchObject({ newLines: 0, remainingRoutes: 0, changed: false });

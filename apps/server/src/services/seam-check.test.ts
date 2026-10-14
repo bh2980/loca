@@ -32,8 +32,8 @@ describe('seams', () => {
     const slice = sliceRoute(n, e, units(), route2, [route1]);
     expect(slice.seams).toEqual([{ nodeId: 'after', from: 'b1' }]);
     expect(slice.overview.nodes.find((node) => node.id === 'after')).toMatchObject({ kind: 'anchor', seam: true });
-    // The lines before the seam are the new route's, the lines after it the earlier route's.
-    expect(seamLines(slice, 'after')).toEqual({ before: [{ from: 'b1', unitIds: ['u1', 'u5'] }], after: ['u10', 'u11'] });
+    // The lines before the seam are the new route's only (u1 is on route 1 too, so it is not shown as new), the lines after it the earlier route's.
+    expect(seamLines(slice, 'after')).toEqual({ before: [{ from: 'b1', unitIds: ['u5'] }], after: ['u10', 'u11'] });
     expect(seamLines(slice, 'start')).toBeNull();
   });
 

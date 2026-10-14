@@ -246,7 +246,6 @@ export function routeProgress(db: Db, projectId: string, translated = translated
   return { graphLines: graphUnits.size, translatedGraphLines: inGraph, totalLines: total, translatedLines: translated.size, translated };
 }
 
-export const ROUTE_HISTORY = 50;
 
 // ── 길 1: the route through the most lines ────────────────────────────
 

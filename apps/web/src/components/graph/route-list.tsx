@@ -247,6 +247,12 @@ export function RouteList({ projectId, slice, checks, at, edit, onEdit, onAt }: 
       round.current = slice.round;
       programmatic.current = performance.now();
       virtualizer.scrollToOffset(0);
+      // The list starts over, so the URL's place does too (the scroll report is held back while it moves).
+      const first = items.find((item) => item.nodeId)?.nodeId;
+      if (first && first !== at) {
+        reported.current = first;
+        onAt(first);
+      }
     }
   }, [slice.round]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {

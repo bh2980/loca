@@ -74,8 +74,8 @@ export function PathMode({ projectId, toggle, node, edit, at, all, onSelect, onE
   });
   const busy = nextRoute.isPending || prevRoute.isPending;
   const finished = !!next && next.newLines === 0;
-  const stay = !!next && next.newLines > 0 && !next.changed;
-  const nextLabel = finished ? '모든 길 번역함' : `다음 길${next && next.changed ? ` (+${next.newLines.toLocaleString()}줄)` : ''}`;
+  const stay = !!next && next.newLines > 0 && (next.totalUntranslatedOnRoute > 0 || !next.changed);
+  const nextLabel = finished ? '모든 길 번역함' : `다음 길${next && next.changed && !stay ? ` (+${next.newLines.toLocaleString()}줄)` : ''}`;
   const nextTitle = finished
     ? '번역하지 않은 줄이 있는 길이 더 없습니다.'
     : stay

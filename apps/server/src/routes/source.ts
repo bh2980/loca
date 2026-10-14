@@ -14,7 +14,7 @@ import { events } from '../events.ts';
 import { computeLayouts } from '../services/layout.ts';
 import { readView, sectionWithMost } from '../services/graph-views.ts';
 import { graphKey, projectSlice } from '../services/route-slice.ts';
-import { defaultPicks, effectivePicks, previewNext, projectRouteInputs, ROUTE_HISTORY, routeProgress } from '../services/next-route.ts';
+import { defaultPicks, effectivePicks, previewNext, projectRouteInputs, routeProgress } from '../services/next-route.ts';
 import { seamDetail, seamLines, seamNodes, seamStates } from '../services/seam-check.ts';
 import { lineMatches } from '../services/line-matches.ts';
 import { lineTextFilter } from '../services/line-text.ts';
@@ -400,8 +400,9 @@ export const sourceRoutes = new Hono<Env>()
     const current = effectivePicks(db, projectId, row, graphKey(db, projectId));
     const preview = previewNext(g, weights, current);
     if (preview.newLines === 0) badRequest('번역하지 않은 줄이 있는 길이 더 없습니다.');
-    if (!preview.changed) badRequest('이번 길에 번역하지 않은 줄이 남아 있습니다. 먼저 이번 길을 번역해 주세요.');
-    const state = { round: row.state.round + 1, history: [...row.state.history, current].slice(-ROUTE_HISTORY) };
+    if (preview.totalUntranslatedOnRoute > 0 || !preview.changed) badRequest('이번 길에 번역하지 않은 줄이 남아 있습니다. 먼저 이번 길을 번역해 주세요.');
+    // The whole history: every earlier route counts for the seams, and 이전 길 can step back to route 1.
+    const state = { round: row.state.round + 1, history: [...row.state.history, current] };
     db.update(s.projects).set({ routePicks: preview.picks, routeState: state }).where(eq(s.projects.id, projectId)).run();
     events.changed(projectId, 'graph', 'units');
     return c.json({ picks: preview.picks, round: state.round });
