@@ -182,6 +182,9 @@ export function realistic(size: number): { file: ImportFileInput; report: string
     profile: name === 'NARRATOR' ? '화자가 아닌 서술.' : name === PLAYER ? '플레이어가 조작하는 말없는 주인공. 다른 인물이 "you"로 부른다.' : `${name}: 이야기에 자주 나오는 인물.`,
     speech: name === PLAYER ? '' : pick(['짧고 단정함', '농담이 많음', '격식 있음', '거칠고 빠름']),
     player: name === PLAYER,
+    // Most people have a known gender and age band, some not (the second stream: the rest stays as it was).
+    gender: name === 'NARRATOR' ? ('unknown' as const) : (['male', 'female', 'male', 'female', 'other', 'unknown'] as const)[Math.floor(shape() * 6)],
+    ageBand: name === 'NARRATOR' ? ('unknown' as const) : (['child', 'teen', 'young', 'young', 'middle', 'middle', 'old', 'unknown'] as const)[Math.floor(shape() * 8)],
   }));
   const pairs = [...pairSeen.entries()].sort((a, b) => b[1] - a[1]).slice(0, 40);
   const relationships = pairs.map(([pair], index) => {

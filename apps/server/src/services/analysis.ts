@@ -3,7 +3,7 @@ import { markForReview } from './knowledge-tags.ts';
 import { and, desc, eq, inArray, ne, notInArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import * as ai from '@tw/ai';
-import { aiStatus, DEFAULT_AI_CONFIRM, isSpecialListener, SPEECH_LEVEL_GUIDE, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, TERM_KIND_LABELS, TERM_KINDS, type AiConfirm, type AiConfirmKind, type ModelChoice } from '@tw/shared';
+import { AGE_BANDS, aiStatus, DEFAULT_AI_CONFIRM, GENDERS, isSpecialListener, SPEECH_LEVEL_GUIDE, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, TERM_KIND_LABELS, TERM_KINDS, type AiConfirm, type AiConfirmKind, type ModelChoice } from '@tw/shared';
 import { aiConfirmOf } from './status-by.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -46,7 +46,7 @@ const MIN_TIMEOUT_MS = 30 * 60_000;
 const ids = z.array(z.string()).default([]);
 export const analysisSchema = z.object({
   overview: z.object({ setting: z.string().default(''), mainConflict: z.string().default(''), plot: z.string().default(''), evidence: ids }),
-  characters: z.array(z.object({ name: z.string().min(1), aliases: z.array(z.string()).default([]), profile: z.string().default(''), speech: z.string().default(''), player: z.boolean().default(false), evidence: ids })).default([]),
+  characters: z.array(z.object({ name: z.string().min(1), aliases: z.array(z.string()).default([]), profile: z.string().default(''), speech: z.string().default(''), player: z.boolean().default(false), gender: z.enum(GENDERS).catch('unknown').default('unknown'), ageBand: z.enum(AGE_BANDS).catch('unknown').default('unknown'), evidence: ids })).default([]),
   relationships: z
     .array(
       z.object({
@@ -92,7 +92,7 @@ Rules:
 - Use only what the text says. Do NOT use prior knowledge of this game.
 - Every item cites evidence as line ids like ["L120","L131"].
 - Write in Korean, except names and quoted source words.
-- characters: everyone who speaks or is addressed often. "speech" describes how they talk in the source. Mark the player character (the one the player controls or who is addressed as "you" by the game, even if it never speaks) with "player": true. Name everyone as the source does, in the source language; an unnamed player character gets the role the game uses (e.g. "Detective", "Captain"), never a translated name.
+- characters: everyone who speaks or is addressed often. "speech" describes how they talk in the source. Mark the player character (the one the player controls or who is addressed as "you" by the game, even if it never speaks) with "player": true. Give "gender" (male, female, other = neither, e.g. an android or a spirit) and "ageBand" (child, teen, young, middle, old) only when the lines show it (pronouns, forms of address, stated age, role); otherwise "unknown". Name everyone as the source does, in the source language; an unnamed player character gets the role the game uses (e.g. "Detective", "Captain"), never a translated name.
 - relationships: one per direction that matters; "changes" give the line id ("at") where the relationship changes and why.
 - events: what happened, its cause and its outcome, the people involved; include events that later lines refer back to.
 - speechRules: for every speaker → listener direction with several lines (the listener may also be "group", "public" or "self" as in sceneListeners: how the speaker talks to several people present, to an unspecified audience, or to themself), the Korean speech level the translation should use, one of: ${SPEECH_LEVEL_GUIDE}. Decide from the relationship (age, rank, intimacy, hostility, era and setting) as a Korean translator would; narration-like or written addresses often take 해라체, close friends 해체. "address" is how the speaker should address the listener in Korean (e.g. "수사관님", "언니"); when several forms are used, separate them with commas (e.g. "행크 경위님, 경위님"); empty if none. If the level changes at some point (falling out, reconciliation, promotion), give one rule per stretch: "start" is the line id where the new stretch begins (null for the first). Do not mark a single sarcastic or emotional line as a change. "note" says why.
@@ -271,6 +271,8 @@ export function mergeAnalysis(base: Analysis, next: Analysis): Analysis {
         profile: existing.profile || c.profile,
         speech: existing.speech || c.speech,
         player: existing.player || c.player,
+        gender: existing.gender !== 'unknown' ? existing.gender : c.gender,
+        ageBand: existing.ageBand !== 'unknown' ? existing.ageBand : c.ageBand,
         evidence: [...existing.evidence, ...c.evidence],
       });
   }
@@ -368,7 +370,7 @@ export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: A
     if (body && !documentRejected) tx.insert(s.documents).values({ projectId, kind: 'story', title, body, evidence: keys(overview.evidence), ...draft('documents') }).run();
 
     // People: a stored person (any status) keeps their name; rejected ones are not proposed again but nothing new points at them.
-    const stored = tx.select({ id: s.characters.id, name: s.characters.name, aliases: s.characters.aliases, status: s.characters.status, profile: s.characters.profile, speech: s.characters.speech, evidence: s.characters.evidence }).from(s.characters).where(eq(s.characters.projectId, projectId)).all();
+    const stored = tx.select({ id: s.characters.id, name: s.characters.name, aliases: s.characters.aliases, status: s.characters.status, profile: s.characters.profile, speech: s.characters.speech, gender: s.characters.gender, ageBand: s.characters.ageBand, origin: s.characters.origin, evidence: s.characters.evidence }).from(s.characters).where(eq(s.characters.projectId, projectId)).all();
     const live = stored.filter((c) => c.status !== 'rejected');
     // The model may still spell a known person differently ("Mara Holt" for the speaker "Mara"):
     // such names are mapped onto the stored person everywhere, so rules and relationships meet the lines' speakers.
@@ -385,12 +387,15 @@ export function saveDrafts(db: Db, projectId: string, jobId: string, analysis: A
         const fill = known && {
           ...(!known.profile.trim() && c.profile.trim() && { profile: c.profile }),
           ...(!known.speech.trim() && c.speech.trim() && { speech: c.speech }),
+          // 'unknown' may be a person's answer (they set it back): a person's character keeps it.
+          ...(known.origin !== 'human' && known.gender === 'unknown' && c.gender !== 'unknown' && { gender: c.gender }),
+          ...(known.origin !== 'human' && known.ageBand === 'unknown' && c.ageBand !== 'unknown' && { ageBand: c.ageBand }),
           ...(!known.evidence.length && keys(c.evidence).length && { evidence: keys(c.evidence) }),
         };
         if (fill && Object.keys(fill).length) tx.update(s.characters).set(fill).where(eq(s.characters.id, known.id)).run();
         continue;
       }
-      const row = tx.insert(s.characters).values({ projectId, name: c.name, aliases: c.aliases, profile: c.profile, speech: c.speech, player: c.player, evidence: keys(c.evidence), ...draft('characters') }).returning({ id: s.characters.id }).get();
+      const row = tx.insert(s.characters).values({ projectId, name: c.name, aliases: c.aliases, profile: c.profile, speech: c.speech, player: c.player, gender: c.gender, ageBand: c.ageBand, evidence: keys(c.evidence), ...draft('characters') }).returning({ id: s.characters.id }).get();
       for (const name of namesOf(c)) if (!idByName.has(name.toLowerCase())) idByName.set(name.toLowerCase(), row.id);
     }
 

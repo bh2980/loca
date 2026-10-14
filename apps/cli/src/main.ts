@@ -3,7 +3,7 @@ import path from 'node:path';
 import { Command, Option } from 'commander';
 import { hc } from 'hono/client';
 import type { AppType } from '@tw/server/app';
-import { AUTO_MARKS, CHECK_KINDS, CONTEXT_ITEM_KINDS, importFileJsonSchema, importFileSchema, importWarnings, KNOWLEDGE_MARK_IDS, KNOWLEDGE_STATUS_LABELS, LINE_MARK_IDS, lineChangeSchema, summarizeImport, TERM_MARK_IDS, type AutoMark, type KnowledgeStatus, type LineFilterInput, type LineMark } from '@tw/shared';
+import { AUTO_MARKS, CHECK_KINDS, CONTEXT_ITEM_KINDS, importFileJsonSchema, importFileSchema, importWarnings, KNOWLEDGE_MARK_IDS, KNOWLEDGE_STATUS_LABELS, LINE_MARK_IDS, lineChangeSchema, summarizeImport, TERM_MARK_IDS, type AutoMark, type KnowledgeStatus, type LineFilterInput, type LineMark, personLabel } from '@tw/shared';
 
 /**
  * loca — the workbench from a terminal, for people and for agents with a shell (codex, claude, pi).
@@ -467,7 +467,7 @@ program
     if (globals().json) return print(rows);
     const name = (row: Record<string, any>): string =>
       kind === 'documents' ? `[${row.kind}] ${row.title}${row.alwaysInclude ? ' (항상 문맥에)' : ''}`
-      : kind === 'characters' ? `${row.name}${row.aliases?.length ? ` (${row.aliases.join(', ')})` : ''}${row.player ? ' 플레이어' : ''}`
+      : kind === 'characters' ? `${row.name}${row.aliases?.length ? ` (${row.aliases.join(', ')})` : ''}${row.player ? ' 플레이어' : ''}${personLabel(row) ? ` · ${personLabel(row)}` : ''}`
       : kind === 'relationships' ? `${row.from} ${row.mutual ? '↔' : '→'} ${row.to}: ${row.kind}`
       : kind === 'events' ? `${row.title}${row.summary ? ` — ${short(row.summary, 60)}` : ''}`
       : `${row.from} → ${row.to}  ${row.level}${row.startKey ? ` (${row.startKey}부터)` : ''}${row.address ? `  호칭 ${row.address}` : ''}`;

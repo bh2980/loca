@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { listenerLabel, SPEECH_LEVEL_LABELS, styleNames } from '@tw/shared';
+import { listenerLabel, personLabel, SPEECH_LEVEL_LABELS, styleNames } from '@tw/shared';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 import { q } from '@/lib/queries';
 
@@ -33,6 +33,7 @@ function SpeakerInfo({ projectId, name }: { projectId: string; name: string }) {
     <>
       <p className="font-medium">
         {character?.name ?? name}
+        {character && personLabel(character) && <span className="text-xs font-normal text-muted-foreground"> · {personLabel(character)}</span>}
         {character && pending(character.status)}
       </p>
       {character?.profile ? (

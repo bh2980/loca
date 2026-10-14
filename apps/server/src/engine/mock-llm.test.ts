@@ -16,6 +16,7 @@ const context: BatchContext = {
   characters: [],
   speech: {},
   voices: {},
+  people: {},
   cast: [],
   relationships: [],
   terms: [],

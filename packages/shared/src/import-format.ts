@@ -1,3 +1,4 @@
+import { AGE_BANDS, GENDERS } from './knowledge.ts';
 import { formatRulesSchema } from './format-check.ts';
 import { z } from 'zod';
 import { relationshipChangeSchema, SPEECH_LEVELS } from './knowledge.ts';
@@ -86,6 +87,10 @@ export const importCharacterSchema = z.object({
   speech: z.string().default(''),
   /** The player character (e.g. a silent protagonist that lines are addressed to). */
   player: z.boolean().default(false),
+  /** male, female, other (neither: an android, a spirit), or unknown. */
+  gender: z.enum(GENDERS).default('unknown'),
+  /** child, teen, young (adult), middle(-aged), old, or unknown. */
+  ageBand: z.enum(AGE_BANDS).default('unknown'),
 });
 
 export const importRelationshipSchema = z.object({

@@ -3,7 +3,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { ArrowLeftRight, GanttChart, Network, Plus, Table2, Users } from 'lucide-react';
 import { toast } from 'sonner';
-import { OTHERS_LISTENER, parseMarks, type AutoMark, styleNames, isSettled, KNOWLEDGE_SOURCES, listenerLabel, REVIEW_TAG, SPEECH_LEVEL_LABELS, type KnowledgeSource } from '@tw/shared';
+import { OTHERS_LISTENER, parseMarks, type AutoMark, styleNames, isSettled, KNOWLEDGE_SOURCES, listenerLabel, REVIEW_TAG, SPEECH_LEVEL_LABELS, type KnowledgeSource, personLabel } from '@tw/shared';
 import { EmptyState } from '@/components/empty-state';
 import { Page } from '@/components/page';
 import { TagMenu } from '@/components/tag-menu';
@@ -121,6 +121,7 @@ function Knowledge() {
       columns: [
         { head: '이름', cell: (row) => <span className="font-medium">{row.name}{row.player ? <Badge variant="outline" className="ml-2">플레이어</Badge> : null}</span>, width: 220 },
         { head: '별칭', cell: (row) => row.aliases.join(', '), width: 180 },
+        { head: '성별·나이', cell: (row) => <span className="text-muted-foreground">{personLabel(row)}</span>, width: 120 },
         { head: '프로필', cell: (row) => <span className="line-clamp-1 text-muted-foreground">{row.profile}</span> },
         { head: '문체', cell: (row) => <span className="text-muted-foreground">{styleNames(row.style).join(' · ')}</span>, width: 180 },
       ],
@@ -128,6 +129,8 @@ function Knowledge() {
         { name: 'name', label: '이름', type: 'text' },
         { name: 'aliases', label: '별칭', type: 'list' },
         { name: 'player', label: '플레이어 캐릭터', type: 'bool' },
+        { name: 'gender', label: '성별 (그 외: 안드로이드·무성 등, 자세한 건 프로필에)', type: 'gender' },
+        { name: 'ageBand', label: '나이대', type: 'ageBand' },
         { name: 'profile', label: '프로필', type: 'long' },
         { name: 'speech', label: '말투 특징 (원문 관찰)', type: 'long' },
         { name: 'style', label: '문체 (이 인물 대사의 번역에 지시로 들어감)', type: 'style' },
