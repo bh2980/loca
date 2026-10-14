@@ -94,7 +94,8 @@ function Script() {
   // 찾아가기: the filter's lines are walked one by one inside their scenes instead of listed apart.
   const finding = isFinding(search) && !search.review;
   const matches = useQuery({
-    ...q.unitMatches(projectId, { statusId: search.status, tagIds: search.tags?.join(','), q: search.q, speaker: search.speaker, listener: search.listener, marks: search.marks?.join(',') }),
+    // Walking a filter stays inside the open view (대사 · UI · 문서).
+    ...q.unitMatches(projectId, { kind: split ? view : undefined, statusId: search.status, tagIds: search.tags?.join(','), q: search.q, speaker: search.speaker, listener: search.listener, marks: search.marks?.join(',') }),
     enabled: finding,
   });
   const matchRows = useMemo(() => (finding ? (matches.data?.rows ?? []) : []), [finding, matches.data]);
@@ -239,7 +240,7 @@ function Script() {
                 <div className="flex shrink-0 items-center gap-2 border-b bg-warning/5 px-4 py-1.5 text-sm">
                   {/* Says it is the whole scene, the matches marked: the list alone shows only the matches. */}
                   <span className="truncate">
-                    장면 전체에서 <span className="font-medium">{findLabel}</span> 찾는 중
+                    {GROUP_KIND[group?.kind ?? view]} 전체에서 <span className="font-medium">{findLabel}</span> 찾는 중
                   </span>
                   <span className="text-xs whitespace-nowrap text-muted-foreground tabular-nums">
                     {!matches.data ? '찾는 중…' : !matchRows.length ? '해당하는 줄이 없습니다' : `${position >= 0 ? (position + 1).toLocaleString() : '–'} / ${matchRows.length.toLocaleString()}줄 · 이 장면 ${(perScene.get(search.group ?? '') ?? 0).toLocaleString()}줄`}
