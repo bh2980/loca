@@ -52,6 +52,26 @@ export interface RouteSlice {
   /** Lines in the slice / in the graph. */
   lines: number;
   totalLines: number;
+  /** The slice at a glance: sections between choices, with the stubs (edges as above, between overview nodes and stubs). */
+  overview: { nodes: SliceSection[]; edges: RouteSlice['edges'] };
+}
+/**
+ * One node of the overview: an anchor (a block where a choice is made, where a stub comes back, or
+ * where the slice starts) or a section (every block between anchors, parallel lanes included).
+ */
+export interface SliceSection {
+  /** The anchor's block id, or `section:<first block id>`. */
+  id: string;
+  kind: 'anchor' | 'section';
+  blockIds: string[];
+  nodeIds: string[];
+  unitIds: string[];
+  /** Ways a parallel fork inside opens at once (0: none, the section reads straight). */
+  lanes: number;
+  /** A choice is made here (its stubs leave from it). */
+  choice: boolean;
+  /** A stub comes back here: the lines after it must fit every way in. */
+  join: boolean;
 }
 
 type GraphNode = { id: string; key: string; kind: string; unitIds: string[] };
@@ -275,5 +295,54 @@ export function sliceRoute(nodes: GraphNode[], edges: GraphEdge[], units: Map<st
   for (const edge of edgesOut) into.set(edge.to, (into.get(edge.to) ?? 0) + 1);
   const joins = blocks.filter((block) => (into.get(block.id) ?? 0) > 1).map((block) => block.id);
   const lines = blocks.reduce((sum, block) => sum + block.unitIds.length, 0);
-  return { blocks, edges: edgesOut, forks, stubs, joins, lines, totalLines: units.size };
+
+  // The overview: what lies between two choices (or a choice and the place a stub comes back) is one
+  // section, parallel lanes and their meetings included; choices, those places and starts stay.
+  const chosenBlocks = new Set([...chosenAt.keys()].map((id) => blockOf.get(id)).filter((id): id is string => Boolean(id)));
+  const rejoinBlocks = new Set([...rejoined].map((id) => blockOf.get(id)).filter((id): id is string => Boolean(id)));
+  const pathInto = new Map<string, number>();
+  for (const edge of pathEdges.values()) pathInto.set(edge.to, (pathInto.get(edge.to) ?? 0) + 1);
+  const anchor = (id: string) => chosenBlocks.has(id) || rejoinBlocks.has(id) || !pathInto.get(id);
+  const parent = new Map(blocks.map((block) => [block.id, block.id]));
+  const find = (id: string): string => {
+    let root = id;
+    while (parent.get(root) !== root) root = parent.get(root)!;
+    parent.set(id, root);
+    return root;
+  };
+  for (const edge of pathEdges.values()) if (!anchor(edge.from) && !anchor(edge.to)) parent.set(find(edge.from), find(edge.to));
+  const blockById = new Map(blocks.map((block) => [block.id, block]));
+  const members = Map.groupBy(blocks.filter((block) => !anchor(block.id)), (block) => find(block.id));
+  const sectionOf = new Map<string, string>();
+  const overviewNodes: SliceSection[] = [];
+  for (const block of blocks) {
+    if (!anchor(block.id)) continue;
+    sectionOf.set(block.id, block.id);
+    overviewNodes.push({ id: block.id, kind: 'anchor', blockIds: [block.id], nodeIds: block.nodeIds, unitIds: block.unitIds, lanes: 0, choice: chosenBlocks.has(block.id), join: rejoinBlocks.has(block.id) });
+  }
+  for (const group of members.values()) {
+    const ordered = [...group].sort((a, b) => bySeq(a.nodeIds[0]!, b.nodeIds[0]!));
+    const id = `section:${ordered[0]!.id}`;
+    for (const block of ordered) sectionOf.set(block.id, id);
+    const nodeIds = ordered.flatMap((block) => block.nodeIds);
+    // Lanes: the most ways a parallel fork inside opens at once.
+    const lanes = Math.max(0, ...nodeIds.filter((n) => forkAt.has(n) && !chosenAt.has(n)).map((n) => (links.get(n)?.size ?? 0)));
+    overviewNodes.push({ id, kind: 'section', blockIds: ordered.map((block) => block.id), nodeIds, unitIds: ordered.flatMap((block) => block.unitIds), lanes: lanes > 1 ? lanes : 0, choice: false, join: false });
+  }
+  overviewNodes.sort((a, b) => bySeq(a.nodeIds[0]!, b.nodeIds[0]!));
+  // A way into a section through an option carries the option's text, as the choice reads in the game.
+  const optionText = (blockId: string) => {
+    const block = blockById.get(blockId)!;
+    if (block.kind !== 'choice') return null;
+    const first = block.unitIds.map((id) => units.get(id)?.source.trim()).find(Boolean);
+    return first ? (first.length > 60 ? `${first.slice(0, 59)}…` : first) : null;
+  };
+  const overviewEdges = new Map<string, RouteSlice['edges'][number]>();
+  for (const edge of edgesOut) {
+    const from = sectionOf.get(edge.from) ?? edge.from, to = sectionOf.get(edge.to) ?? edge.to;
+    if (from === to) continue;
+    const key = `${from}|${to}|${edge.kind}`;
+    if (!overviewEdges.has(key)) overviewEdges.set(key, { ...edge, from, to, label: edge.label ?? (edge.kind === 'path' ? optionText(edge.to) : null) });
+  }
+  return { blocks, edges: edgesOut, forks, stubs, joins, lines, totalLines: units.size, overview: { nodes: overviewNodes, edges: [...overviewEdges.values()] } };
 }
