@@ -97,9 +97,8 @@ export function resolveAt(overview: Overview, at: string | undefined) {
 export function windowOf(overview: Overview, at: string | undefined, all: boolean): Windowed {
   const byId = new Map(overview.nodes.map((node) => [node.id, node] as const));
   const order = new Map(overview.nodes.map((node, i) => [node.id, i] as const));
-  if (all) {
-    return { ids: overview.nodes.map((node) => node.id), edges: overview.edges.filter((edge): edge is OverviewEdge & { kind: 'path' } => edge.kind === 'path'), markers: [] };
-  }
+  // 전체 보기 reads the same single column as the window, over every node.
+  if (all) return linearize(overview, new Set(overview.nodes.map((node) => node.id)), order);
   const start = resolveAt(overview, at);
   if (!start) return { ids: [], edges: [], markers: [] };
   const out = new Map<string, OverviewEdge[]>();
