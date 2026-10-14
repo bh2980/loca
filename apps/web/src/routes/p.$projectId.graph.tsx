@@ -16,6 +16,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
+import { Toggle } from '@/components/ui/toggle';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { useSize } from '@/hooks/use-size';
 import { q } from '@/lib/queries';
@@ -40,6 +41,8 @@ interface GraphSearch {
   mark?: string;
   /** The line open in the translation card beside its node (dialogue graph). */
   edit?: string;
+  /** Draw the main route (본 줄기): its nodes and links are emphasised, the rest dimmed (dialogue graph). */
+  route?: 'main';
   /** Node finder text (matches are listed under the box). */
   q?: string;
 }
@@ -54,6 +57,7 @@ export const Route = createFileRoute('/p/$projectId/graph')({
     links: raw.links === 'all' ? 'all' : undefined,
     mark: typeof raw.mark === 'string' && raw.mark ? raw.mark : undefined,
     jump: raw.jump === true || raw.jump === 'true' ? true : undefined,
+    route: raw.route === 'main' ? 'main' : undefined,
     edit: typeof raw.edit === 'string' && raw.edit ? raw.edit : undefined,
     q: typeof raw.q === 'string' && raw.q ? raw.q : undefined,
   }),
@@ -88,6 +92,8 @@ function GraphPage() {
   const view = viewId && graph.data?.layout?.view ? { ...graph.data.layout.view, label: viewInfo.data?.label ?? graph.data.layout.view.label } : undefined;
   // Nodes the chat asked to highlight (show_graph, mode "mark"); the canvas waits for them so it opens on them.
   const mark = useQuery({ ...q.graphView(projectId, search.mark ?? ''), enabled: dialogue && !!search.mark });
+  // The main route's nodes and steps, for highlighting (dialogue scope only).
+  const mainRoute = useQuery({ ...q.route(projectId), enabled: dialogue && search.route === 'main' });
   const marking = dialogue && !!search.mark && mark.isPending;
   const [container, size] = useSize<HTMLDivElement>();
   const canvas = useRef<GraphCanvasHandle>(null);
@@ -133,14 +139,28 @@ function GraphPage() {
     if (!picked) return undefined;
     for (const id of [...picked]) if (chainOf.has(id)) picked.add(chainOf.get(id)!);
     return picked;
-  }, [graph.data, search.scope, search.scene, search.type, search.mark, mark.data, dialogue, chainOf]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [graph.data, search.scope, search.scene, search.type, search.mark, mark.data, search.route, mainRoute.data, dialogue, chainOf]); // eslint-disable-line react-hooks/exhaustive-deps
   function pickHighlight() {
     if (!graph.data) return undefined;
+    if (dialogue && search.route && mainRoute.data) return new Set(mainRoute.data.nodeIds);
     if (dialogue && search.mark && mark.data) return new Set(mark.data.nodeIds);
     if (search.type) return new Set(graph.data.nodes.filter((node) => (node.type ?? `kind:${node.kind}`) === search.type).map((node) => node.id));
     if (search.scope !== 'dialogue' || !search.scene) return undefined;
     return new Set(graph.data.nodes.filter((node) => node.groupId === search.scene).map((node) => node.id));
   }
+  // The route's steps in the canvas's own edges: a step inside a folded run vanishes, one into or out of it uses the run's id,
+  // and a folded choice (an edge `via` the choice node) is lit when the route went into and out of that choice.
+  const highlightEdges = useMemo(() => {
+    if (!dialogue || !search.route || !mainRoute.data || !graph.data?.layout) return undefined;
+    const steps = new Set<string>();
+    for (const [from, to] of mainRoute.data.steps) {
+      const [a, b] = [shown(from), shown(to)];
+      if (a !== b) steps.add(`${a}|${b}`);
+    }
+    const lit = new Set(steps);
+    for (const edge of graph.data.layout.edges) if (edge.via && steps.has(`${edge.from}|${edge.via}`) && steps.has(`${edge.via}|${edge.to}`)) lit.add(`${edge.from}|${edge.to}`);
+    return lit;
+  }, [dialogue, search.route, mainRoute.data, graph.data, chainOf]); // eslint-disable-line react-hooks/exhaustive-deps
   const matches = useMemo(() => {
     const text = find.trim().toLowerCase();
     if (!text || !graph.data) return [];
@@ -319,6 +339,11 @@ function GraphPage() {
               </SelectContent>
             </Select>
           )}
+          {dialogue && (
+            <Toggle variant="outline" size="sm" pressed={search.route === 'main'} onPressedChange={(on) => void navigate({ search: (previous) => ({ ...previous, route: on ? 'main' : undefined }), replace: true })}>
+              본 줄기
+            </Toggle>
+          )}
           <ToggleGroup type="single" variant="outline" size="sm" value={search.scope} onValueChange={(value) => value && void navigate({ search: { scope: value as Scope } })}>
             <ToggleGroupItem value="scene">장면 그래프</ToggleGroupItem>
             <ToggleGroupItem value="dialogue">대사 그래프</ToggleGroupItem>
@@ -364,7 +389,7 @@ function GraphPage() {
         <div ref={container} className="relative min-w-0 flex-1 bg-[radial-gradient(var(--graph-grid)_1px,transparent_1px)] [background-size:20px_20px]">
           {canvasShown && layout && (
             <GraphCanvas
-              key={`${search.scope}:${chosen ?? 'all'}:${search.scene ?? ''}:${search.mark ?? ''}`}
+              key={`${search.scope}:${chosen ?? 'all'}:${search.scene ?? ''}:${search.mark ?? ''}:${dialogue ? (search.route ?? '') : ''}`}
               handle={canvas}
               nodes={layout.nodes}
               regions={layout.regions}
@@ -376,6 +401,7 @@ function GraphPage() {
               height={size.height}
               selectedId={search.node ? shown(search.node) : undefined}
               highlight={highlight}
+              highlightEdges={highlightEdges}
               initialViewport={search.jump ? undefined : readViewport(key)}
               initialFocus={search.jump && search.node ? shown(layout.edges.find((edge) => edge.via === search.node)?.to ?? search.node) : undefined}
               onViewportChange={(viewport) => sessionStorage.setItem(key, JSON.stringify(viewport))}

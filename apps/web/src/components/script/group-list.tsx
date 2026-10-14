@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { LineMark } from '@tw/shared';
 import { Link } from '@tanstack/react-router';
-import { AppWindow, Check, ChevronRight, FileText, Inbox, MessageSquareText, Rows3 } from 'lucide-react';
+import { AppWindow, Check, ChevronRight, FileText, Inbox, MessageSquareText, Route, Rows3 } from 'lucide-react';
 import { SearchInput } from '@/components/toolbar';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -41,7 +41,7 @@ function sectionsOf(groups: GroupRow[]) {
   return sections;
 }
 
-export type ScriptScope = { group?: string; review?: true; kind?: GroupRow['kind'] };
+export type ScriptScope = { group?: string; review?: true; route?: 'main'; kind?: GroupRow['kind'] };
 
 const VIEW_ICON = { scene: <MessageSquareText />, ui: <AppWindow />, document: <FileText /> };
 
@@ -52,7 +52,7 @@ const VIEW_ICON = { scene: <MessageSquareText />, ui: <AppWindow />, document: <
 /** Scenes from which the list gets its own search box. */
 const SEARCH_FROM = 20;
 
-export function GroupList({ projectId, groups, finalIds, scope, lineTotal, reviewCount, gq, onFilter, marks, views }: {
+export function GroupList({ projectId, groups, finalIds, scope, lineTotal, reviewCount, routeLines, gq, onFilter, marks, views }: {
   projectId: string;
   groups: GroupRow[] | undefined;
   /** Statuses that count as done. */
@@ -60,6 +60,8 @@ export function GroupList({ projectId, groups, finalIds, scope, lineTotal, revie
   scope: ScriptScope;
   lineTotal: number;
   reviewCount: number;
+  /** Lines of the main route (본 줄기); none = no dialogue graph, no entry. */
+  routeLines: number;
   gq?: string;
   onFilter: (gq: string | undefined) => void;
   /** While a filter is walked (찾아가기): how many of its lines each scene holds; scenes keep the filter. */
@@ -93,10 +95,11 @@ export function GroupList({ projectId, groups, finalIds, scope, lineTotal, revie
     <div className="flex h-full min-h-0 flex-col bg-sidebar/40">
       <div className="space-y-0.5 border-b p-2">
         {views ? (
-          views.map((view) => <ScopeLink key={view.kind} projectId={projectId} scope={{ kind: view.kind }} active={!scope.group && !scope.review && scope.kind === view.kind} icon={VIEW_ICON[view.kind]} label={SCRIPT_VIEW[view.kind]} count={view.lines} />)
+          views.map((view) => <ScopeLink key={view.kind} projectId={projectId} scope={{ kind: view.kind }} active={!scope.group && !scope.review && !scope.route && scope.kind === view.kind} icon={VIEW_ICON[view.kind]} label={SCRIPT_VIEW[view.kind]} count={view.lines} />)
         ) : (
-          <ScopeLink projectId={projectId} scope={{}} active={!scope.group && !scope.review} icon={<Rows3 />} label="모든 대사" count={lineTotal} />
+          <ScopeLink projectId={projectId} scope={{}} active={!scope.group && !scope.review && !scope.route} icon={<Rows3 />} label="모든 대사" count={lineTotal} />
         )}
+        {routeLines > 0 && <ScopeLink projectId={projectId} scope={{ route: 'main' }} active={scope.route === 'main'} icon={<Route />} label="본 줄기" count={routeLines} />}
         <ScopeLink projectId={projectId} scope={{ review: true }} active={Boolean(scope.review)} icon={<Inbox />} label="검토함" count={reviewCount} highlight={reviewCount > 0} />
       </div>
       {/* A few scenes are read at a glance (⌘K finds scenes too); the box shows once there are many. */}

@@ -93,6 +93,16 @@ describe('walkRoute', () => {
     }
   });
 
+  it('names an arm by its edge label, else the scene it goes into, else its first line (a choice option)', () => {
+    const g = graph(['h', 'x', 'y', 'c'], ['h>x', 'h>y:Leave', 'h>c']);
+    const scenes: Record<string, string> = { h: 'Hub', x: 'Scene X', y: 'Scene Y', c: 'Hub' };
+    const kinds: Record<string, string> = { c: 'choice' };
+    const nodes = g.nodes.map((node) => ({ ...node, scene: scenes[node.id], kind: kinds[node.id] ?? 'script' }));
+    const route = walkRoute(nodes, g.edges, g.units, {});
+    const fork = route.forkBefore.get('u.x')!;
+    expect(fork.arms.map((arm) => arm.label)).toEqual(['Scene X', 'Leave', 'say c']);
+  });
+
   it('places a node without lines by the first line after it', () => {
     // A bare choice node: its arms still read in script order.
     const route = walk(['a', 'c', 'y', 'x'], ['a>c', 'c>x', 'c>y'], {}, ['c']);

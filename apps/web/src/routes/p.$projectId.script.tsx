@@ -27,6 +27,8 @@ interface ScriptSearch extends LinesSearch {
    * Unset = the picked group's kind, else the first kind the project has. One kind = no views.
    */
   kind?: Kind;
+  /** The main route (본 줄기): the lines of one play through the dialogue graph, in play order. */
+  route?: 'main';
   /** The group list's own search, kept while lines change. */
   gq?: string;
 }
@@ -47,6 +49,7 @@ export const Route = createFileRoute('/p/$projectId/script')({
     group: typeof raw.group === 'string' && raw.group ? raw.group : undefined,
     review: raw.review === true || raw.review === 'true' ? true : undefined,
     kind: typeof raw.kind === 'string' && raw.kind in GROUP_KIND ? (raw.kind as Kind) : undefined,
+    route: raw.route === 'main' ? 'main' : undefined,
     gq: typeof raw.gq === 'string' && raw.gq ? raw.gq : undefined,
   }),
   component: Script,
@@ -64,6 +67,9 @@ function Script() {
   const allGroups = useQuery(q.groups(projectId));
   const searched = useQuery({ ...q.groups(projectId, { q: search.gq }), enabled: Boolean(search.gq) });
   const statuses = useQuery(q.statuses(projectId));
+  const mainRoute = useQuery(q.route(projectId));
+  // The main route (본 줄기) is a list of its own: a scene or the review box leaves it.
+  const route = search.route && !search.group && !search.review ? search.route : undefined;
   // Scenes, UI and documents are separate views, not one mixed list: each kind the project has gets one.
   const views = VIEW_ORDER.filter((kind) => allGroups.data?.some((item) => item.kind === kind)).map((kind) => ({
     kind,
@@ -92,7 +98,7 @@ function Script() {
   useReportView('script', [group && { kind: GROUP_KIND[group.kind], id: group.id, label: group.title }]);
 
   // 찾아가기: the filter's lines are walked one by one inside their scenes instead of listed apart.
-  const finding = isFinding(search) && !search.review;
+  const finding = isFinding(search) && !search.review && !route; // in the route a filter just narrows the list
   const matches = useQuery({
     // Walking a filter stays inside the open view (대사 · UI · 문서).
     ...q.unitMatches(projectId, { kind: split ? view : undefined, statusId: search.status, tagIds: search.tags?.join(','), q: search.q, speaker: search.speaker, listener: search.listener, marks: search.marks?.join(',') }),
@@ -197,7 +203,7 @@ function Script() {
           )}
         </>
       ) : (
-        <span className="px-1 text-sm font-semibold">{search.review ? '검토함' : split ? SCRIPT_VIEW[view] : '모든 대사'}</span>
+        <span className="px-1 text-sm font-semibold">{search.review ? '검토함' : route ? '본 줄기' : split ? SCRIPT_VIEW[view] : '모든 대사'}</span>
       )}
     </span>
   );
@@ -212,10 +218,11 @@ function Script() {
                 projectId={projectId}
                 groups={groups.data && ordered}
                 finalIds={finalIds}
-                scope={{ group: search.group, review: search.review, kind: split ? view : undefined }}
+                scope={{ group: search.group, review: search.review, route, kind: split ? view : undefined }}
                 views={split ? views : undefined}
                 lineTotal={lineTotal}
                 reviewCount={project.data?.reviewCount ?? 0}
+                routeLines={mainRoute.data?.lines ?? 0}
                 gq={search.gq}
                 onFilter={(gq) => onSearch({ gq }, { replace: true })}
                 marks={finding ? perScene : undefined}
@@ -226,11 +233,12 @@ function Script() {
         )}
         <ResizablePanel id="lines" minSize="480px" className="flex min-w-0 flex-col">
           <LineList
-            key={`${search.group ?? ''}:${search.review ?? ''}:${search.group || search.review ? '' : view}`}
+            key={`${search.group ?? ''}:${search.review ?? ''}:${route ?? ''}:${search.group || search.review || route ? '' : view}`}
             projectId={projectId}
             groupId={search.group}
             review={search.review}
-            kind={search.group || search.review || !split ? undefined : view}
+            route={route}
+            kind={search.group || search.review || route || !split ? undefined : view}
             search={search}
             onSearch={onSearch}
             onOpenScene={(groupId, line) => void navigate({ search: { group: groupId, line } })}
@@ -274,7 +282,7 @@ function Script() {
             }
             heading={heading}
             runGroupIds={group ? [group.id] : undefined}
-            runKind={split && !search.group && !search.review ? view : undefined}
+            runKind={split && !search.group && !search.review && !route ? view : undefined}
           />
         </ResizablePanel>
       </ResizablePanelGroup>

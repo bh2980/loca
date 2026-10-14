@@ -59,7 +59,7 @@ export function projectRoute(db: Db, projectId: string): MainRoute {
 }
 
 export function mainRoute(db: Db, projectId: string, picks: Record<string, string> = {}): MainRoute {
-  const nodes = db.select({ id: s.graphNodes.id, key: s.graphNodes.key, unitIds: s.graphNodes.unitIds }).from(s.graphNodes).where(eq(s.graphNodes.projectId, projectId)).all();
+  const nodes = db.select({ id: s.graphNodes.id, key: s.graphNodes.key, kind: s.graphNodes.kind, unitIds: s.graphNodes.unitIds, scene: s.groups.title }).from(s.graphNodes).leftJoin(s.groups, eq(s.groups.id, s.graphNodes.groupId)).where(eq(s.graphNodes.projectId, projectId)).all();
   const edges = db.select({ from: s.graphEdges.fromId, to: s.graphEdges.toId, label: s.graphEdges.label }).from(s.graphEdges).where(eq(s.graphEdges.projectId, projectId)).all();
   const units = new Map(db.select({ id: s.units.id, seq: s.units.seq, source: s.units.source }).from(s.units).where(eq(s.units.projectId, projectId)).all().map((unit) => [unit.id, unit]));
   return walkRoute(nodes, edges, units, picks);
@@ -67,7 +67,7 @@ export function mainRoute(db: Db, projectId: string, picks: Record<string, strin
 
 /** The route over plain data (tested directly). */
 export function walkRoute(
-  nodes: { id: string; key: string; unitIds: string[] }[],
+  nodes: { id: string; key: string; unitIds: string[]; kind?: string; scene?: string | null }[],
   edges: { from: string; to: string; label: string | null }[],
   units: Map<string, { seq: number; source: string }>,
   picks: Record<string, string>,
@@ -111,9 +111,12 @@ export function walkRoute(
     leadSeq[i] = found;
   }
 
-  const armLabel = (way: Edge) => {
+  // An arm is named by its edge's label, else by the scene it goes into (a hub's spokes), else by
+  // its first line (a choice's option text).
+  const armLabel = (from: number, way: Edge) => {
     if (way.label?.trim()) return way.label.trim();
     const target = nodes[index.get(way.to)!]!;
+    if (target.kind !== 'choice' && target.scene && target.scene !== nodes[from]!.scene) return target.scene;
     const first = target.unitIds.map((id) => units.get(id)?.source.trim()).find(Boolean);
     return first ? (first.length > 60 ? `${first.slice(0, 59)}…` : first) : target.key;
   };
@@ -153,7 +156,7 @@ export function walkRoute(
     const next = pick ?? [...open].sort((a, b) => bySeq(index.get(a.to)!, index.get(b.to)!))[0]!;
     // Going on from a node passed before (back at a hub) is a fork too: its arms, the one taken now.
     if (out[n]!.length > 1 || back) {
-      const arms = [...out[n]!].sort((a, b) => bySeq(index.get(a.to)!, index.get(b.to)!)).map((way) => ({ nodeId: way.to, label: armLabel(way) }));
+      const arms = [...out[n]!].sort((a, b) => bySeq(index.get(a.to)!, index.get(b.to)!)).map((way) => ({ nodeId: way.to, label: armLabel(n, way) }));
       pendingFork = { nodeId: nodes[n]!.id, chosen: next.to, arms, picked: Boolean(pick) };
     }
     route.steps.push([nodes[n]!.id, next.to]);
