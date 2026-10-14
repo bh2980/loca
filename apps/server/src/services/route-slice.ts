@@ -104,7 +104,19 @@ function buildSlice(db: Db, projectId: string, picks: Record<string, string>): R
   return sliceRoute(nodes, edges, units, picks);
 }
 
-export function sliceRoute(nodes: GraphNode[], edges: GraphEdge[], units: Map<string, { seq: number; source: string }>, picks: Record<string, string>): RouteSlice {
+/** The graph prepared for slicing: ways out of every node, script order, and which forks are exclusive. */
+export interface RouteGraph {
+  byId: Map<string, GraphNode>;
+  out: Map<string, GraphEdge[]>;
+  indeg: Map<string, number>;
+  bySeq: (a: string, b: string) => number;
+  numbering: (ways: GraphEdge[]) => boolean;
+  exclusive: (id: string) => boolean;
+  /** The way a choice takes without a pick: the first in script order (memoized). */
+  firstWay: (id: string) => GraphEdge;
+}
+
+export function routeGraph(nodes: GraphNode[], edges: GraphEdge[], units: Map<string, { seq: number }>): RouteGraph {
   const byId = new Map(nodes.map((node) => [node.id, node]));
   const out = new Map<string, GraphEdge[]>(nodes.map((node) => [node.id, []]));
   const indeg = new Map<string, number>(nodes.map((node) => [node.id, 0]));
@@ -165,13 +177,61 @@ export function sliceRoute(nodes: GraphNode[], edges: GraphEdge[], units: Map<st
   };
   // Exclusive: a condition, or a line or option whose ways are options or named ways. Anything else
   // that fans out (a state opening chats and documents at once, an event, a hub) runs in parallel.
-  const exclusive = (id: string) => {
+  const exclusiveRaw = (id: string) => {
     const ways = out.get(id)!;
     if (ways.length < 2) return false;
     const kind = byId.get(id)!.kind;
     if (kind === 'condition') return true;
     return (kind === 'script' || kind === 'choice') && (ways.every((way) => byId.get(way.to)!.kind === 'choice') || named(id));
   };
+  const memo = new Map<string, boolean>();
+  const exclusive = (id: string) => {
+    let known = memo.get(id);
+    if (known === undefined) memo.set(id, (known = exclusiveRaw(id)));
+    return known;
+  };
+  const firsts = new Map<string, GraphEdge>();
+  const firstWay = (id: string) => {
+    let way = firsts.get(id);
+    if (!way) firsts.set(id, (way = [...out.get(id)!].sort((a, b) => bySeq(a.to, b.to))[0]!));
+    return way;
+  };
+  return { byId, out, indeg, bySeq, numbering, exclusive, firstWay };
+}
+
+/** Which nodes a set of choices reaches: all ways at a parallel fork, the chosen one at a choice. */
+export function walkRoute(g: RouteGraph, picks: Record<string, string>) {
+  const { byId, out, indeg, bySeq, exclusive } = g;
+  const nodesList = [...byId.keys()];
+  // The slice: from every starting point, all ways at a parallel fork, the chosen one at a choice.
+  const chosenAt = new Map<string, string>();
+  const inSlice = new Set<string>();
+  const starts = nodesList.filter((id) => indeg.get(id) === 0).sort(bySeq);
+  if (!starts.length && nodesList.length) starts.push(nodesList.sort(bySeq)[0]!);
+  const queue = [...starts];
+  for (const id of queue) inSlice.add(id);
+  while (queue.length) {
+    const id = queue.shift()!;
+    let ways = out.get(id)!;
+    if (exclusive(id)) {
+      const picked = picks[id];
+      const chosen = ways.find((way) => way.to === picked) ?? g.firstWay(id);
+      chosenAt.set(id, chosen.to);
+      ways = [chosen];
+    }
+    for (const way of ways)
+      if (!inSlice.has(way.to)) {
+        inSlice.add(way.to);
+        queue.push(way.to);
+      }
+  }
+
+  return { chosenAt, inSlice };
+}
+
+export function sliceRoute(nodes: GraphNode[], edges: GraphEdge[], units: Map<string, { seq: number; source: string }>, picks: Record<string, string>): RouteSlice {
+  const g = routeGraph(nodes, edges, units);
+  const { byId, out, bySeq, numbering } = g;
   const firstLine = (node: GraphNode) => {
     const first = node.unitIds.map((id) => units.get(id)?.source.trim()).find(Boolean);
     return first ? (first.length > 60 ? `${first.slice(0, 59)}…` : first) : null;
@@ -185,29 +245,7 @@ export function sliceRoute(nodes: GraphNode[], edges: GraphEdge[], units: Map<st
     return firstLine(target) ?? (target.label?.trim() || target.key);
   };
 
-  // The slice: from every starting point, all ways at a parallel fork, the chosen one at a choice.
-  const chosenAt = new Map<string, string>();
-  const inSlice = new Set<string>();
-  const starts = nodes.filter((node) => indeg.get(node.id) === 0).map((node) => node.id).sort(bySeq);
-  if (!starts.length && nodes.length) starts.push([...byId.keys()].sort(bySeq)[0]!);
-  const queue = [...starts];
-  for (const id of queue) inSlice.add(id);
-  while (queue.length) {
-    const id = queue.shift()!;
-    let ways = out.get(id)!;
-    if (exclusive(id)) {
-      const picked = picks[id];
-      const chosen = ways.find((way) => way.to === picked) ?? [...ways].sort((a, b) => bySeq(a.to, b.to))[0]!;
-      chosenAt.set(id, chosen.to);
-      ways = [chosen];
-    }
-    for (const way of ways)
-      if (!inSlice.has(way.to)) {
-        inSlice.add(way.to);
-        queue.push(way.to);
-      }
-  }
-
+  const { chosenAt, inSlice } = walkRoute(g, picks);
   // Stubs: each arm a choice did not take, scanned until it reaches the slice again.
   const stubs: SliceStub[] = [];
   const forks: SliceFork[] = [];

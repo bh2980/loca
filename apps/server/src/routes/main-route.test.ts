@@ -108,6 +108,83 @@ describe('main route API', () => {
     expect((await route()).stubs[0]).toMatchObject({ arm: node('n.logbook.1') });
   });
 
+  describe('다음 길', () => {
+    type Next = { picks: Record<string, string>; newLines: number; totalUntranslatedOnRoute: number; remainingRoutes: number | string; changed: boolean };
+    const preview = async (h: ReturnType<typeof setup>) => (await (await h.send('GET', `/projects/${h.projectId}/route/next`)).json()) as Next;
+    const info = async (h: ReturnType<typeof setup>) => (await (await h.send('GET', `/projects/${h.projectId}/route`)).json()) as Awaited<ReturnType<ReturnType<typeof setup>['route']>> & { round: number; canGoBack: boolean; translatedLines: number; totalLines: number; graphLines: number; translatedGraphLines: number; newLinesOnRoute: number; blocks: { unitIds: string[]; translated: number }[] };
+    /** Fake a finished translation for the lines of the current route. */
+    const translateRoute = async (h: ReturnType<typeof setup>) => {
+      for (const block of (await info(h)).blocks) for (const id of block.unitIds) h.db.update(s.units).set({ translation: `번역 ${id}` }).where(eq(s.units.id, id)).run();
+    };
+
+    it('GET route counts translated lines, the lines the route adds and the round', async () => {
+      const h = setup();
+      const before = await info(h);
+      expect(before).toMatchObject({ round: 1, canGoBack: false, translatedLines: 0, newLinesOnRoute: before.lines });
+      const first = before.blocks[0]!;
+      h.db.update(s.units).set({ translation: '번역' }).where(eq(s.units.id, first.unitIds[0]!)).run();
+      h.db.update(s.units).set({ translation: '   ' }).where(eq(s.units.id, first.unitIds[1] ?? first.unitIds[0]!)).run();
+      const after = await info(h);
+      // Only a non-empty translation text counts.
+      expect(after.translatedLines).toBe(1);
+      expect(after.newLinesOnRoute).toBe(after.lines - 1);
+      expect(after.blocks[0]!.translated).toBe(1);
+      expect(after.translatedGraphLines).toBe(1);
+    });
+
+    it('moves to the route with the most untranslated lines after the first route is translated, and back', async () => {
+      const h = setup();
+      const { node, projectId, send } = h;
+      await translateRoute(h);
+      const done = await info(h);
+      expect(done.newLinesOnRoute).toBe(0);
+      const next = await preview(h);
+      expect(next).toMatchObject({ changed: true, totalUntranslatedOnRoute: 0, picks: { [node('c.choice')]: node('n.logbook.1') } });
+      expect(next.newLines).toBeGreaterThan(0);
+      expect(next.remainingRoutes).toBe(1);
+
+      expect((await send('POST', `/projects/${projectId}/route/next`, { round: 1 })).status).toBe(200);
+      const second = await info(h);
+      expect(second).toMatchObject({ round: 2, canGoBack: true, picks: next.picks });
+      expect(second.newLinesOnRoute).toBe(next.newLines);
+      // The new route covers lines the first did not.
+      expect(second.blocks.flatMap((block) => block.nodeIds)).toContain(node('n.logbook.1'));
+
+      expect((await send('POST', `/projects/${projectId}/route/prev`, { round: 2 })).status).toBe(200);
+      expect(await info(h)).toMatchObject({ round: 1, canGoBack: false, picks: {} });
+    });
+
+    it('refuses with Korean messages: a stale round, a route still open, nothing left, nothing to go back to', async () => {
+      const h = setup();
+      const { projectId, send } = h;
+      const post = async (path: string, round: number) => {
+        const res = await send('POST', `/projects/${projectId}/route/${path}`, { round });
+        return { status: res.status, text: await res.text() };
+      };
+      expect((await send('POST', `/projects/${projectId}/route/next`, {})).status).toBe(400);
+      expect(await post('prev', 1)).toMatchObject({ status: 400, text: expect.stringContaining('이전 길이 없습니다') });
+      expect(await post('next', 7)).toMatchObject({ status: 400, text: expect.stringContaining('이미 바뀌었습니다') });
+      // Pick the longer arm by hand: it stays the best route while it is open.
+      const route = await info(h);
+      await send('PUT', `/projects/${projectId}/route-picks`, { nodeId: route.forks.find((fork) => fork.mode === 'choice')!.nodeId, armId: route.stubs[0]!.arm });
+      expect((await preview(h)).changed).toBe(false);
+      expect(await post('next', 1)).toMatchObject({ status: 400, text: expect.stringContaining('먼저 이번 길을 번역') });
+      // Everything translated: no route is left.
+      h.db.update(s.units).set({ translation: '번역' }).run();
+      expect(await preview(h)).toMatchObject({ newLines: 0, remainingRoutes: 0, changed: false });
+      expect(await post('next', 1)).toMatchObject({ status: 400, text: expect.stringContaining('더 없습니다') });
+    });
+
+    it('DELETE route-picks starts again at round 1', async () => {
+      const h = setup();
+      await translateRoute(h);
+      await h.send('POST', `/projects/${h.projectId}/route/next`, { round: 1 });
+      expect((await info(h)).round).toBe(2);
+      await h.send('DELETE', `/projects/${h.projectId}/route-picks`);
+      expect(await info(h)).toMatchObject({ round: 1, canGoBack: false, picks: {} });
+    });
+  });
+
   describe('join checks', () => {
     type Detail = { nodeId: string; routes: { id: string; kind: string; label: string | null; before: { unitId: string; key: string; source: string; translation: string | null }[] }[]; after: { unitId: string }[]; sig: string; check: { at: string; state: string } | null };
     const open = async (h: ReturnType<typeof setup>) => {

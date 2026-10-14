@@ -14,6 +14,7 @@ import { events } from '../events.ts';
 import { computeLayouts } from '../services/layout.ts';
 import { readView, sectionWithMost } from '../services/graph-views.ts';
 import { projectSlice } from '../services/route-slice.ts';
+import { previewNext, projectRouteInputs, ROUTE_HISTORY, routeProgress } from '../services/next-route.ts';
 import { joinDetail, joinStates } from '../services/join-check.ts';
 import { lineMatches } from '../services/line-matches.ts';
 import { lineTextFilter } from '../services/line-text.ts';
@@ -359,7 +360,51 @@ export const sourceRoutes = new Hono<Env>()
   .get('/projects/:projectId/route', (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
-    return c.json({ ...projectSlice(db, projectId), picks: db.select({ picks: s.projects.routePicks }).from(s.projects).where(eq(s.projects.id, projectId)).get()?.picks ?? {} });
+    const slice = projectSlice(db, projectId);
+    const row = db.select({ picks: s.projects.routePicks, state: s.projects.routeState }).from(s.projects).where(eq(s.projects.id, projectId)).get();
+    const progress = routeProgress(db, projectId);
+    // Translation decides the counts, not the slice: they are read per request, so the cached slice stays valid.
+    const blocks = slice.blocks.map((block) => ({ ...block, translated: block.unitIds.filter((id) => progress.translated.has(id)).length }));
+    const newLinesOnRoute = blocks.reduce((sum, block) => sum + block.unitIds.length - block.translated, 0);
+    const { translated: _translated, ...counts } = progress;
+    return c.json({ ...slice, blocks, picks: row?.picks ?? {}, round: row?.state.round ?? 1, canGoBack: (row?.state.history.length ?? 0) > 0, newLinesOnRoute, ...counts });
+  })
+  /** 다음 길, preview: the route through the most untranslated lines, and how many routes are still to translate. */
+  .get('/projects/:projectId/route/next', (c) => {
+    const { db } = c.var.deps;
+    const projectId = c.req.param('projectId');
+    const { g, weights } = projectRouteInputs(db, projectId);
+    return c.json(previewNext(g, weights, db.select({ picks: s.projects.routePicks }).from(s.projects).where(eq(s.projects.id, projectId)).get()?.picks ?? {}));
+  })
+  /** Take the next route: the current picks go to the history and the round counts up. `round` is the round the person saw. */
+  .post('/projects/:projectId/route/next', validate('json', z.object({ round: z.number().int() })), (c) => {
+    const { db } = c.var.deps;
+    const projectId = c.req.param('projectId');
+    const row = db.select({ picks: s.projects.routePicks, state: s.projects.routeState }).from(s.projects).where(eq(s.projects.id, projectId)).get();
+    if (!row) badRequest('프로젝트를 찾을 수 없습니다.');
+    if (c.req.valid('json').round !== row.state.round) badRequest('다른 곳에서 길이 이미 바뀌었습니다. 화면을 확인한 뒤 다시 눌러 주세요.');
+    const { g, weights } = projectRouteInputs(db, projectId);
+    const preview = previewNext(g, weights, row.picks);
+    if (preview.newLines === 0) badRequest('번역하지 않은 줄이 있는 길이 더 없습니다.');
+    if (!preview.changed) badRequest('이번 길에 번역하지 않은 줄이 남아 있습니다. 먼저 이번 길을 번역해 주세요.');
+    const state = { round: row.state.round + 1, history: [...row.state.history, row.picks].slice(-ROUTE_HISTORY) };
+    db.update(s.projects).set({ routePicks: preview.picks, routeState: state }).where(eq(s.projects.id, projectId)).run();
+    events.changed(projectId, 'graph', 'units');
+    return c.json({ picks: preview.picks, round: state.round });
+  })
+  /** Step back to the route of the round before. */
+  .post('/projects/:projectId/route/prev', validate('json', z.object({ round: z.number().int() })), (c) => {
+    const { db } = c.var.deps;
+    const projectId = c.req.param('projectId');
+    const row = db.select({ state: s.projects.routeState }).from(s.projects).where(eq(s.projects.id, projectId)).get();
+    if (!row) badRequest('프로젝트를 찾을 수 없습니다.');
+    if (c.req.valid('json').round !== row.state.round) badRequest('다른 곳에서 길이 이미 바뀌었습니다. 화면을 확인한 뒤 다시 눌러 주세요.');
+    const previous = row.state.history.at(-1);
+    if (!previous) badRequest('되돌아갈 이전 길이 없습니다.');
+    const state = { round: Math.max(1, row.state.round - 1), history: row.state.history.slice(0, -1) };
+    db.update(s.projects).set({ routePicks: previous, routeState: state }).where(eq(s.projects.id, projectId)).run();
+    events.changed(projectId, 'graph', 'units');
+    return c.json({ picks: previous, round: state.round });
   })
   /** A person's arm at a choice of the slice; armId null takes the pick back. */
   .put('/projects/:projectId/route-picks', validate('json', z.object({ nodeId: z.string(), armId: z.string().nullable() })), (c) => {
@@ -382,7 +427,7 @@ export const sourceRoutes = new Hono<Env>()
   })
   .delete('/projects/:projectId/route-picks', (c) => {
     const projectId = c.req.param('projectId');
-    c.var.deps.db.update(s.projects).set({ routePicks: {} }).where(eq(s.projects.id, projectId)).run();
+    c.var.deps.db.update(s.projects).set({ routePicks: {}, routeState: { round: 1, history: [] } }).where(eq(s.projects.id, projectId)).run();
     events.changed(projectId, 'graph', 'units');
     return c.json({ picks: {} });
   })
