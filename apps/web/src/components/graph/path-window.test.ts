@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { markerId, resolveAt, stops, windowOf, type Overview, type OverviewNode } from './path-window';
+import { markerId, resolveAt, splitBackEdges, stops, windowOf, type Overview, type OverviewNode } from './path-window';
 
 const anchor = (id: string, extra: Partial<OverviewNode> = {}): OverviewNode => ({ id, kind: 'anchor', nodeIds: [id], unitIds: [id], lanes: 0, choice: false, join: false, ...extra });
 const section = (id: string): OverviewNode => ({ id, kind: 'section', nodeIds: [id], unitIds: [id], lanes: 0, choice: false, join: false });
@@ -44,5 +44,18 @@ describe('stops', () => {
     expect(stops(overview, 's1')).toMatchObject({ previous: 'c1', next: 'c2', position: 1, choices: 5 });
     expect(stops(overview, 'start')).toMatchObject({ previous: undefined, next: 'c1', position: 0 });
     expect(stops(overview, 'c6')).toMatchObject({ next: undefined, position: 5 });
+  });
+});
+
+describe('splitBackEdges', () => {
+  it('takes out the edge that closes a loop and keeps the rest', () => {
+    const edges = [path('a', 'b'), path('b', 'c'), path('c', 'b'), path('c', 'd')];
+    const { forward, back } = splitBackEdges(['a', 'b', 'c', 'd'], edges);
+    expect(back).toEqual([path('c', 'b')]);
+    expect(forward).toHaveLength(3);
+  });
+  it('leaves a graph without loops alone, and copes with a cycle that has no start', () => {
+    expect(splitBackEdges(['a', 'b'], [path('a', 'b')]).back).toEqual([]);
+    expect(splitBackEdges(['a', 'b'], [path('a', 'b'), path('b', 'a')]).back).toHaveLength(1);
   });
 });

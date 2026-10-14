@@ -137,3 +137,43 @@ export function stops(overview: Overview, at: string | undefined) {
     choices,
   };
 }
+
+/**
+ * Edges that lead back to a node still on the way to them (a loop), found by one depth-first walk
+ * from the starts. A top-to-bottom drawing cannot show them without looping around boxes, so the
+ * graph draws the rest and the node they leave says where they go.
+ */
+export function splitBackEdges<T extends { from: string; to: string }>(ids: string[], edges: T[]): { forward: T[]; back: T[] } {
+  const out = new Map<string, T[]>();
+  const known = new Set(ids);
+  const hasIn = new Set<string>();
+  for (const edge of edges) {
+    if (!known.has(edge.from) || !known.has(edge.to)) continue;
+    out.set(edge.from, [...(out.get(edge.from) ?? []), edge]);
+    hasIn.add(edge.to);
+  }
+  const state = new Map<string, 1 | 2>();
+  const back = new Set<T>();
+  for (const root of [...ids.filter((id) => !hasIn.has(id)), ...ids]) {
+    if (state.has(root)) continue;
+    state.set(root, 1);
+    const stack = [{ id: root, next: 0 }];
+    while (stack.length) {
+      const top = stack[stack.length - 1]!;
+      const ways = out.get(top.id) ?? [];
+      if (top.next < ways.length) {
+        const edge = ways[top.next++]!;
+        const seen = state.get(edge.to);
+        if (seen === 1) back.add(edge);
+        else if (!seen) {
+          state.set(edge.to, 1);
+          stack.push({ id: edge.to, next: 0 });
+        }
+      } else {
+        state.set(top.id, 2);
+        stack.pop();
+      }
+    }
+  }
+  return { forward: edges.filter((edge) => !back.has(edge)), back: edges.filter((edge) => back.has(edge)) };
+}

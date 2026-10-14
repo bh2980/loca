@@ -1,5 +1,6 @@
 import { eq, sql } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
+import { isIdentifierLabel } from '@tw/shared';
 import * as s from '../db/schema.ts';
 
 /**
@@ -171,12 +172,17 @@ export function sliceRoute(nodes: GraphNode[], edges: GraphEdge[], units: Map<st
     if (kind === 'condition') return true;
     return (kind === 'script' || kind === 'choice') && (ways.every((way) => byId.get(way.to)!.kind === 'choice') || named(id));
   };
+  const firstLine = (node: GraphNode) => {
+    const first = node.unitIds.map((id) => units.get(id)?.source.trim()).find(Boolean);
+    return first ? (first.length > 60 ? `${first.slice(0, 59)}…` : first) : null;
+  };
   const armLabel = (from: string, way: GraphEdge) => {
-    if (way.label?.trim() && !numbering(out.get(from)!)) return way.label.trim();
+    const label = way.label?.trim();
     const target = byId.get(way.to)!;
-    const first = target.unitIds.map((id) => units.get(id)?.source.trim()).find(Boolean);
+    // A label that is only an identifier from the export ("rules-whotaughtyou=0") gives way to the arm's first line, when it has one.
+    if (label && !numbering(out.get(from)!) && !(isIdentifierLabel(label) && firstLine(target))) return label;
     // Without a line, the node's own label from the game data ("If-Else Bakay killed") before its key.
-    return first ? (first.length > 60 ? `${first.slice(0, 59)}…` : first) : target.label?.trim() || target.key;
+    return firstLine(target) ?? (target.label?.trim() || target.key);
   };
 
   // The slice: from every starting point, all ways at a parallel fork, the chosen one at a choice.
@@ -353,12 +359,17 @@ export function sliceRoute(nodes: GraphNode[], edges: GraphEdge[], units: Map<st
     const first = block.unitIds.map((id) => units.get(id)?.source.trim()).find(Boolean);
     return first ? (first.length > 60 ? `${first.slice(0, 59)}…` : first) : null;
   };
+  // The edge's own label wins unless it is only an identifier and the option reads as text.
+  const edgeLabel = (edge: RouteSlice['edges'][number]) => {
+    const option = edge.kind === 'path' ? optionText(edge.to) : null;
+    return edge.label && !(option && isIdentifierLabel(edge.label)) ? edge.label : (option ?? edge.label);
+  };
   const overviewEdges = new Map<string, RouteSlice['edges'][number]>();
   for (const edge of edgesOut) {
     const from = sectionOf.get(edge.from) ?? edge.from, to = sectionOf.get(edge.to) ?? edge.to;
     if (from === to) continue;
     const key = `${from}|${to}|${edge.kind}`;
-    if (!overviewEdges.has(key)) overviewEdges.set(key, { ...edge, from, to, label: edge.label ?? (edge.kind === 'path' ? optionText(edge.to) : null) });
+    if (!overviewEdges.has(key)) overviewEdges.set(key, { ...edge, from, to, label: edgeLabel(edge) });
   }
   return { blocks, edges: edgesOut, forks, stubs, joins, lines, totalLines: units.size, overview: { nodes: overviewNodes, edges: [...overviewEdges.values()] } };
 }

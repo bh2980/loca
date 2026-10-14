@@ -61,6 +61,12 @@ describe('sliceRoute', () => {
     expect(slice.forks[0]!.arms[1]!.label).toBe('Go left now');
   });
 
+  it('an identifier label gives way to the arm\'s first line; readable labels stay', () => {
+    const g = choiceGraph('condition', ['rules-whotaughtyou=0', 'Late'], { u3: 'Half-goblin. Thief. Ok.' });
+    const slice = sliceRoute(g.nodes, g.edges, g.units, {});
+    expect(slice.forks[0]!.arms.map((arm) => arm.label)).toEqual(['Half-goblin. Thief. Ok.', 'Late']);
+  });
+
   it('a long first line is cut to 60 characters with an ellipsis', () => {
     const g = choiceGraph('condition', [null, null], { u5: 'x'.repeat(100) });
     expect(sliceRoute(g.nodes, g.edges, g.units, {}).stubs[0]!.label).toBe(`${'x'.repeat(59)}…`);

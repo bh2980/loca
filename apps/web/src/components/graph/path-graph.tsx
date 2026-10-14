@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Controls, Handle, MarkerType, Position, ReactFlow, Background, type Edge, type Node, type NodeProps, type Viewport } from '@xyflow/react';
+import { BaseEdge, Controls, EdgeLabelRenderer, Handle, MarkerType, Position, ReactFlow, Background, type Edge, type EdgeProps, type Node, type NodeProps, type Viewport } from '@xyflow/react';
+import { isIdentifierLabel } from '@tw/shared';
 import ELK from 'elkjs/lib/elk-api.js';
 import ElkWorker from 'elkjs/lib/elk-worker.min.js?worker';
 import '@xyflow/react/dist/style.css';
@@ -9,7 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ChevronDown } from 'lucide-react';
-import { windowOf, type Overview } from '@/components/graph/path-window';
+import { splitBackEdges, windowOf, type Overview } from '@/components/graph/path-window';
 import { cn } from '@/lib/utils';
 
 /** What a slice block needs from the graph's node list (the first line of a node). */
@@ -54,6 +55,8 @@ type PathNodeData = {
   onMove?: () => void;
   /** The fork here and its other ways out (a choice with stubs). */
   menu?: ForkMenuData;
+  /** Loops: where the edges that lead back up from here go (not drawn, said on the node). */
+  loops?: string[];
   /** Join: the other choices that come back here ('‹label›에서도 들어옴'). */
   comesFrom?: string[];
 };
@@ -66,11 +69,15 @@ const SIZE: Record<Shape, { width: number; height: number }> = {
   section: { width: 260, height: 76 },
   more: { width: 56, height: 28 },
 };
-/** A node with a menu chip is taller (a line) or wider and taller (the pill) than the plain one. */
-const boxOf = (shape: Shape, menu: boolean) => {
+/** The chip sits on its own row under the header (a line taller); a loop note is one more small row; the pill grows wide enough for both. */
+const MENU_ROW = 28;
+const LOOP_ROW = 18;
+const boxOf = (shape: Shape, menu: boolean, loops = false) => {
   const base = SIZE[shape];
-  return menu ? (shape === 'fork' ? { width: 170, height: 68 } : { width: base.width, height: base.height + 12 }) : base;
+  if (shape === 'fork') return { width: menu || loops ? 170 : base.width, height: base.height + (menu ? 40 : 0) + (loops ? LOOP_ROW : 0) };
+  return { width: base.width, height: base.height + (menu ? MENU_ROW : 0) + (loops ? LOOP_ROW : 0) };
 };
+const boxOfData = (shape: Shape, data: PathNodeData) => boxOf(shape, !!data.menu, !!data.loops?.length);
 // Dense slices (hundreds of blocks with many parallel lanes) take seconds: laid out off the page's thread.
 const elk = new ELK({ workerFactory: () => new ElkWorker() });
 
@@ -99,7 +106,7 @@ function ForkMenu({ menu, className }: { menu: ForkMenuData; className?: string 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" className={cn('nodrag nopan shrink-0', className)} onClick={(event) => event.stopPropagation()}>
+        <Button variant="ghost" className={cn('nodrag nopan h-6 shrink-0 px-2 text-xs', className)} onClick={(event) => event.stopPropagation()}>
           다른 선택 {menu.count.toLocaleString()}개
           <ChevronDown />
         </Button>
@@ -126,8 +133,17 @@ function ForkMenu({ menu, className }: { menu: ForkMenuData; className?: string 
   );
 }
 
+/** '↺ …로 되돌아감': a loop back up, said instead of drawn. */
+function LoopNote({ loops }: { loops: string[] }) {
+  return (
+    <p className="nodrag w-full truncate text-center text-xs text-muted-foreground" title={loops.map((to) => `‹${to}›로 되돌아감`).join('\n')}>
+      ↺ 되돌아감 → ‹{loops[0]}›{loops.length > 1 ? ` 외 ${loops.length - 1}` : ''}
+    </p>
+  );
+}
+
 function PathNodeView({ data, selected }: NodeProps<PathNode>) {
-  const size = boxOf(data.shape, !!data.menu);
+  const size = boxOfData(data.shape, data);
   const handles = (
     <>
       <Handle type="target" position={Position.Top} className="!pointer-events-none !opacity-0" />
@@ -151,31 +167,78 @@ function PathNodeView({ data, selected }: NodeProps<PathNode>) {
           {data.join && <JoinMark comesFrom={data.comesFrom} />}
         </div>
         {data.menu && <ForkMenu menu={data.menu} />}
+        {!!data.loops?.length && <LoopNote loops={data.loops} />}
         {handles}
       </div>
     );
   return (
     <div style={size} className={cn('relative flex flex-col justify-center gap-0.5 overflow-hidden rounded-lg border bg-background px-3 py-1.5 text-sm shadow-xs', selected && 'border-primary ring-2 ring-primary/30')}>
       <div className="flex items-center gap-1 text-xs text-muted-foreground">
-        <span className="truncate">
+        <span className="max-w-48 truncate">
           {data.shape === 'section' ? `구간 · ${data.lines.toLocaleString()}줄` : data.shape === 'choice' ? '선택지' : (data.speaker ?? '지문·화면 문구')}
         </span>
         {data.shape !== 'section' && data.lines > 1 && <Badge variant="secondary" className="shrink-0">{data.lines.toLocaleString()}줄</Badge>}
         {!!data.lanes && <Badge variant="secondary" className="shrink-0">동시에 열림 {data.lanes.toLocaleString()}</Badge>}
         {data.fork && !data.menu && <Badge variant="outline">갈림</Badge>}
         {data.join && <JoinMark comesFrom={data.comesFrom} />}
-        {data.menu && <ForkMenu menu={data.menu} className="ml-auto" />}
       </div>
+      {data.menu && <ForkMenu menu={data.menu} className="-ml-2 self-start" />}
       <p className="line-clamp-2 text-sm leading-snug">
         {data.shape === 'choice' ? `▶ ${data.text ?? ''}` : data.shape === 'section' ? (data.text ? `${data.speaker ? `${data.speaker}: ` : ''}${data.text}` : '대사 없는 이어짐') : (data.text ?? '')}
       </p>
+      {!!data.loops?.length && <LoopNote loops={data.loops} />}
       {handles}
     </div>
   );
 }
+
+/** An edge routed by ELK (orthogonal, around the boxes), with its label where ELK left room for it. */
+type Route = { points: { x: number; y: number }[]; label?: { x: number; y: number; width: number } };
+function RoutedEdge({ id, sourceX, sourceY, targetX, targetY, markerEnd, style, data }: EdgeProps<Edge<{ route?: Route; label?: string }>>) {
+  const route = data?.route;
+  const points = route?.points ?? [{ x: sourceX, y: sourceY }, { x: targetX, y: targetY }];
+  let path = `M ${points[0]!.x} ${points[0]!.y}`;
+  for (let i = 1; i < points.length; i++) {
+    const prev = points[i - 1]!, here = points[i]!, next = points[i + 1];
+    if (!next) {
+      path += ` L ${here.x} ${here.y}`;
+      continue;
+    }
+    // Rounded corner: stop short of the bend on both sides.
+    const before = Math.hypot(here.x - prev.x, here.y - prev.y), after = Math.hypot(next.x - here.x, next.y - here.y);
+    const r = Math.min(8, before / 2, after / 2);
+    if (r < 1) {
+      path += ` L ${here.x} ${here.y}`;
+      continue;
+    }
+    path += ` L ${here.x + ((prev.x - here.x) / before) * r} ${here.y + ((prev.y - here.y) / before) * r} Q ${here.x} ${here.y} ${here.x + ((next.x - here.x) / after) * r} ${here.y + ((next.y - here.y) / after) * r}`;
+  }
+  return (
+    <>
+      <BaseEdge id={id} path={path} markerEnd={markerEnd} style={style} />
+      {data?.label && route?.label && (
+        <EdgeLabelRenderer>
+          <div
+            className="nodrag nopan pointer-events-none absolute truncate rounded-sm bg-background px-1 text-xs text-muted-foreground"
+            style={{ transform: `translate(${route.label.x}px, ${route.label.y}px)`, width: route.label.width }}
+            title={data.label}
+          >
+            {data.label}
+          </div>
+        </EdgeLabelRenderer>
+      )}
+    </>
+  );
+}
+const edgeTypes = { routed: RoutedEdge };
 const nodeTypes = { path: PathNodeView };
 
-type Positions = { key: string; at: Record<string, { x: number; y: number }> };
+type Positions = { key: string; at: Record<string, { x: number; y: number }>; routes?: Record<string, Route> };
+/** What an edge label needs in the layout: room for its text (CJK is wider), at most LABEL_MAX. */
+const LABEL_MAX = 220;
+const LABEL_HEIGHT = 20;
+const labelWidth = (text: string) => Math.min(LABEL_MAX, 12 + [...text].reduce((sum, char) => sum + (char.charCodeAt(0) > 255 ? 12 : 7), 0));
+type LayoutEdge = { id: string; from: string; to: string; label?: string };
 /** Layouts already made, by the (sub)graph they were made from: coming back to the same window does not run ELK again. */
 const layouts = new Map<string, Positions>();
 const LAYOUTS_KEPT = 60;
@@ -200,18 +263,52 @@ function storedLayout(key: string): Positions | undefined {
 let mainElk: Promise<Pick<InstanceType<typeof ELK>, 'layout'>> | undefined;
 const windowElk = () => (mainElk ??= import('elkjs/lib/elk.bundled.js').then((module) => new module.default()));
 
-async function layoutOf(key: string, items: { id: string; box: { width: number; height: number } }[], edges: { from: string; to: string }[], whole: boolean): Promise<Positions> {
+async function layoutOf(key: string, items: { id: string; box: { width: number; height: number } }[], edges: LayoutEdge[], whole: boolean): Promise<Positions> {
   const hit = layouts.get(key) ?? (whole ? storedLayout(key) : undefined);
   if (hit) return hit;
   const ids = new Set(items.map((item) => item.id));
   const engine = whole ? elk : await windowElk();
+  const kept = edges.filter((edge) => ids.has(edge.from) && ids.has(edge.to));
+  // The whole overview is hundreds of boxes: plain layered. A window is a dozen, so its edges are routed
+  // orthogonally around the boxes, in script order, with room between layers for the labels on them.
   const result = await engine.layout({
     id: 'root',
-    layoutOptions: { 'elk.algorithm': 'layered', 'elk.direction': 'DOWN', 'elk.spacing.nodeNode': '28', 'elk.layered.spacing.nodeNodeBetweenLayers': '44', 'elk.layered.thoroughness': '1' },
+    layoutOptions: whole
+      ? { 'elk.algorithm': 'layered', 'elk.direction': 'DOWN', 'elk.spacing.nodeNode': '28', 'elk.layered.spacing.nodeNodeBetweenLayers': '44', 'elk.layered.thoroughness': '1' }
+      : {
+          'elk.algorithm': 'layered',
+          'elk.direction': 'DOWN',
+          'elk.edgeRouting': 'ORTHOGONAL',
+          'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
+          'elk.layered.thoroughness': '3',
+          'elk.spacing.nodeNode': '40',
+          'elk.layered.spacing.nodeNodeBetweenLayers': '56',
+          'elk.layered.spacing.edgeNodeBetweenLayers': '24',
+          'elk.layered.spacing.edgeEdgeBetweenLayers': '16',
+          'elk.spacing.edgeNode': '24',
+          'elk.spacing.edgeEdge': '16',
+          'elk.spacing.edgeLabel': '6',
+        },
     children: items.map((item) => ({ id: item.id, ...item.box })),
-    edges: edges.filter((edge) => ids.has(edge.from) && ids.has(edge.to)).map((edge, i) => ({ id: `e${i}`, sources: [edge.from], targets: [edge.to] })),
+    edges: kept.map((edge) => ({
+      id: edge.id,
+      sources: [edge.from],
+      targets: [edge.to],
+      ...(!whole && edge.label ? { labels: [{ text: edge.label, width: labelWidth(edge.label), height: LABEL_HEIGHT }] } : {}),
+    })),
   });
-  const layout: Positions = { key, at: Object.fromEntries((result.children ?? []).map((child) => [child.id, { x: child.x ?? 0, y: child.y ?? 0 }])) };
+  const routes: Record<string, Route> = {};
+  if (!whole)
+    for (const edge of result.edges ?? []) {
+      const section = edge.sections?.[0];
+      if (!section) continue;
+      const label = edge.labels?.[0];
+      routes[edge.id] = {
+        points: [section.startPoint, ...(section.bendPoints ?? []), section.endPoint],
+        label: label ? { x: label.x ?? 0, y: label.y ?? 0, width: label.width ?? LABEL_MAX } : undefined,
+      };
+    }
+  const layout: Positions = { key, at: Object.fromEntries((result.children ?? []).map((child) => [child.id, { x: child.x ?? 0, y: child.y ?? 0 }])), ...(whole ? {} : { routes }) };
   layouts.set(key, layout);
   if (whole)
     try {
@@ -320,27 +417,38 @@ export function PathGraph({ projectId, slice, texts, at, all, selectedId, onSele
   const { items, flowEdges, plain, key } = useMemo(() => {
     const windowed = windowOf(slice.overview, at, all);
     const markers = new Map(windowed.markers.map((marker) => [marker.id, marker] as const));
+    // A loop back to a box above would circle round the boxes: left out of the drawing, said on the node it leaves.
+    const { forward, back } = splitBackEdges(windowed.ids, windowed.edges);
+    const describe = (id: string) => {
+      const data = catalog.get(id)?.data;
+      return (data?.text ? data.text.replace(/\s+/g, ' ').slice(0, 40) : (data?.pill ?? (data?.shape === 'section' ? '구간' : '줄'))) as string;
+    };
+    const loops = new Map<string, string[]>();
+    for (const edge of back) loops.set(edge.from, [...(loops.get(edge.from) ?? []), describe(edge.to)]);
     const items = windowed.ids.flatMap((id) => {
       const marker = markers.get(id);
       if (marker) return [{ id, shape: 'more' as const, data: { shape: 'more' as const, lines: 0, join: false, hint: marker.direction === 'ahead' ? '이 앞으로 이어짐' : '이 뒤에서 이어짐', onMove: () => moveRef.current(marker.target) } }];
       const item = catalog.get(id);
-      return item ? [item] : [];
+      return item ? [loops.has(id) ? { ...item, data: { ...item.data, loops: loops.get(id) } } : item] : [];
     });
-    const flowEdges: Edge[] = windowed.edges.map((edge, i) => {
+    // Only text a person reads goes on an edge: exporter identifiers ("tps-01-game-intro", "rules-x=0") would clutter the line.
+    const drawn = forward.map((edge, i) => ({ edge, id: `${edge.from}>${edge.to}#${i}`, label: edge.label && !isIdentifierLabel(edge.label) ? edge.label : undefined }));
+    const flowEdges: Edge[] = drawn.map(({ edge, id, label }) => {
       const color = 'var(--foreground)';
       return {
-        id: `${edge.from}>${edge.to}#${i}`,
+        id,
         source: edge.from,
         target: edge.to,
-        label: edge.label ?? undefined,
+        label,
         labelStyle: { fontSize: 12, fill: 'var(--muted-foreground)' },
         labelBgStyle: { fill: 'var(--background)' },
         markerEnd: { type: MarkerType.ArrowClosed, color, width: 14, height: 14 },
         style: { stroke: color, strokeWidth: 1.25, opacity: 0.85 },
       };
     });
-    const key = `${items.map((item) => `${item.id}:${item.shape}${item.data.menu ? 'm' : ''}`).join('|')}#${windowed.edges.map((edge) => `${edge.from}>${edge.to}`).join('|')}`;
-    return { items, flowEdges, plain: windowed.edges, key };
+    const plain: LayoutEdge[] = drawn.map(({ edge, id, label }) => ({ id, from: edge.from, to: edge.to, label }));
+    const key = `${items.map((item) => `${item.id}:${item.shape}${item.data.menu ? 'm' : ''}${item.data.loops?.length ? 'l' : ''}`).join('|')}#${plain.map((edge) => `${edge.from}>${edge.to}${edge.label ? `:${edge.label}` : ''}`).join('|')}`;
+    return { items, flowEdges, plain, key };
   }, [slice.overview, catalog, at, all]);
 
   const [positions, setPositions] = useState<Positions>();
@@ -348,7 +456,7 @@ export function PathGraph({ projectId, slice, texts, at, all, selectedId, onSele
   const [frame, size] = useSize<HTMLDivElement>();
   useEffect(() => {
     let current = true;
-    layoutOf(key, items.map((item) => ({ id: item.id, box: boxOf(item.shape, !!item.data.menu) })), plain, all).then(
+    layoutOf(key, items.map((item) => ({ id: item.id, box: boxOfData(item.shape, item.data) })), plain, all).then(
       (layout) => current && setPositions(layout),
       (error: Error) => current && setFailed(error.message),
     );
@@ -365,6 +473,11 @@ export function PathGraph({ projectId, slice, texts, at, all, selectedId, onSele
     [items, positions, selectedId],
   );
 
+  const edges = useMemo(
+    () => flowEdges.map((edge) => (positions?.routes?.[edge.id] ? { ...edge, type: 'routed', label: undefined, data: { route: positions.routes[edge.id], label: edge.label } } : edge)),
+    [flowEdges, positions],
+  );
+
   if (failed || !positions || positions.key !== key)
     return (
       <div ref={frame} className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
@@ -375,8 +488,8 @@ export function PathGraph({ projectId, slice, texts, at, all, selectedId, onSele
   const placed = items.filter((item) => positions.at[item.id]);
   const left = Math.min(...placed.map((item) => positions.at[item.id].x));
   const top = Math.min(...placed.map((item) => positions.at[item.id].y));
-  const bottom = Math.max(0, ...placed.map((item) => positions.at[item.id].y + boxOf(item.shape, !!item.data.menu).height));
-  const right = Math.max(1, ...placed.map((item) => positions.at[item.id].x + boxOf(item.shape, !!item.data.menu).width));
+  const bottom = Math.max(0, ...placed.map((item) => positions.at[item.id].y + boxOfData(item.shape, item.data).height));
+  const right = Math.max(1, ...placed.map((item) => positions.at[item.id].x + boxOfData(item.shape, item.data).width));
   // A window opens fitted at a readable zoom (or at its top); the whole overview fits, or, when too long to read fitted
   // (a tall single column), opens on its beginning instead (전체 맞춤 shows all).
   const focus = at ? positions.at[at] : undefined;
@@ -388,8 +501,9 @@ export function PathGraph({ projectId, slice, texts, at, all, selectedId, onSele
     <ReactFlow
       key={key}
       nodes={nodes}
-      edges={flowEdges}
+      edges={edges}
       nodeTypes={nodeTypes}
+      edgeTypes={edgeTypes}
       defaultViewport={viewport}
       fitView={!viewport}
       fitViewOptions={{ padding: 0.15, maxZoom: 1, nodes: opening }}
