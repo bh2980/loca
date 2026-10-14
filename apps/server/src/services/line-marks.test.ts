@@ -11,7 +11,7 @@ describe('unknown listener', () => {
     const db = openDatabase(':memory:');
     const cases: { kind: 'dialogue' | 'ui'; speaker: string | null; source: string; listener: string | null; origin: ListenerOrigin | null; confidence: number | null }[] = [];
     for (const kind of ['dialogue', 'ui'] as const)
-      for (const speaker of ['Ann', null, ' '])
+      for (const speaker of ['Ann', null, ' ', '\t', '\u00a0', ''])
         for (const source of ['Line', '<b></b>', '{0} %s', '<b>{name}</b>!'])
           for (const listener of [null, 'Hank'])
             for (const origin of [null, 'import', 'scene', 'ai', 'human'] as const)

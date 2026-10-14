@@ -1,10 +1,10 @@
 import { and, eq, inArray } from 'drizzle-orm';
-import { needsListener } from '@tw/shared';
+import { needsListener, type FormatRules } from '@tw/shared';
 import { eachChunk } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 
-type Tx = Pick<Db, 'update' | 'select'>;
+type Tx = Pick<Db, 'update'>;
 
 /** A listener name as stored: trimmed, and empty means unknown. */
 export const cleanListener = (listener: string | null | undefined) => listener?.trim() || null;
@@ -33,12 +33,11 @@ export function setHumanListener(tx: Tx, unitIds: readonly string[], listener: s
 /**
  * An AI guess (`origin` 'ai' = for this line, 'scene' = the scene's default for the speaker). Never
  * over a person's listener or an imported one, and only on lines said to someone (needsListener:
- * not narration, not format tokens only), so the AI makes up no listener for the rest. Returns
- * whether it was stored.
+ * not narration, not format tokens only, by the project's format `rules`), so the AI makes up no
+ * listener for the rest. Returns whether it was stored.
  */
-export function setAiListener(tx: Tx, unit: { id: string; projectId: string; kind: string; speaker: string | null; source: string; listener: string | null; listenerOrigin: string | null }, listener: string | null, confidence: number, origin: 'ai' | 'scene') {
+export function setAiListener(tx: Tx, unit: { id: string; kind: string; speaker: string | null; source: string; listener: string | null; listenerOrigin: string | null }, listener: string | null, confidence: number, origin: 'ai' | 'scene', rules: FormatRules | undefined) {
   if (unit.listenerOrigin === 'human' || (unit.listenerOrigin === 'import' && unit.listener)) return false;
-  const rules = tx.select({ rules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, unit.projectId)).get()?.rules;
   if (!needsListener(unit, rules)) return false;
   tx.update(s.units).set({ listener: cleanListener(listener), listenerOrigin: origin, listenerConfidence: clampConfidence(confidence) }).where(eq(s.units.id, unit.id)).run();
   return true;

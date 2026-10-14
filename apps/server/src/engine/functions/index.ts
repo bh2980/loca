@@ -234,7 +234,7 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     if (input.unit.listenerOrigin === 'import' && input.unit.listener) return { port: 'out', output: { recorded: false, reason: '가져온 청자가 있습니다.' } };
     const listener = cleanListener(typeof source.listener === 'string' ? source.listener : null);
     const confidence = clampConfidence(source.confidence);
-    setAiListener(tx, input.unit, listener, confidence, 'ai');
+    setAiListener(tx, input.unit, listener, confidence, 'ai', rules);
     return { port: 'out', output: { recorded: true, listener, confidence } };
   },
 };

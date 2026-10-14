@@ -73,7 +73,7 @@ type ListenerLine = { kind: string; speaker: string | null; source: string; list
 /**
  * A line that is said to someone: dialogue with a speaker and something to say once the project's
  * format tokens are out (`rules`, 설정 › 서식). Narration (no speaker) and lines of only tags or
- * placeholders have no listener. The SQL in line-marks.ts (has_text) decides the same way.
+ * placeholders have no listener. The SQL in line-marks.ts calls this very function (needs_listener).
  */
 export const needsListener = (line: Pick<ListenerLine, 'kind' | 'speaker' | 'source'>, rules: FormatRules | undefined) =>
   line.kind === 'dialogue' && Boolean(line.speaker?.trim()) && hasText(line.source, rules);
