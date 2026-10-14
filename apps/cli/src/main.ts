@@ -531,7 +531,7 @@ program
     for (const node of data.nodes) console.log(`    ${node.name}  ${node.model ?? '(모델 없음)'}  요청 ${range(node.requests)} · 프롬프트 약 ${node.promptTokens.toLocaleString()}토큰`);
     const ready = data.readiness;
     console.log('\n준비 상태');
-    console.log(`  청자 미상 대사 ${ready.unknownListenerLines.toLocaleString()} / 대사 ${ready.dialogueLines.toLocaleString()}${ready.unknownListenerLines ? '   → loca lines --mark unknownListener' : ''}`);
+    console.log(`  청자 미상 대사 ${ready.unknownListenerLines.toLocaleString()} / 청자가 필요한 대사 ${ready.dialogueLines.toLocaleString()}${ready.unknownListenerLines ? '   → loca lines --mark unknownListener' : ''}`);
     const list = (entry: Names) => `${entry.names.slice(0, 8).join(', ')}${entry.count > Math.min(8, entry.names.length) ? ` 외 ${entry.count - Math.min(8, entry.names.length)}개` : ''}`;
     console.log(`  확인 안 한 말투 규칙 ${ready.unreviewedRules.count}개${ready.unreviewedRules.count ? `: ${list(ready.unreviewedRules)}   → loca knowledge speech-rules --unreviewed` : ''}`);
     console.log(`  확인 안 한 용어 ${ready.unreviewedTerms.count}개${ready.unreviewedTerms.count ? `: ${list(ready.unreviewedTerms)}   → loca terms --unreviewed` : ''}`);

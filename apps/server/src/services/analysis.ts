@@ -500,7 +500,7 @@ function applySceneListeners(tx: Tx, projectId: string, entries: Analysis['scene
   }
   const changed = new Set<string>();
   const lines = tx
-    .select({ id: s.units.id, kind: s.units.kind, groupId: s.units.groupId, speaker: s.units.speaker, listener: s.units.listener, listenerOrigin: s.units.listenerOrigin })
+    .select({ id: s.units.id, projectId: s.units.projectId, kind: s.units.kind, groupId: s.units.groupId, speaker: s.units.speaker, source: s.units.source, listener: s.units.listener, listenerOrigin: s.units.listenerOrigin })
     .from(s.units)
     .where(and(eq(s.units.projectId, projectId), eq(s.units.kind, 'dialogue')))
     .all();
@@ -517,7 +517,7 @@ function applySceneListeners(tx: Tx, projectId: string, entries: Analysis['scene
     for (const exception of entry.exceptions) {
       const key = keyOf.get(exception.line.trim());
       if (!key) continue;
-      const line = tx.select({ id: s.units.id, kind: s.units.kind, listener: s.units.listener, listenerOrigin: s.units.listenerOrigin }).from(s.units).where(and(eq(s.units.projectId, projectId), eq(s.units.key, key))).get();
+      const line = tx.select({ id: s.units.id, projectId: s.units.projectId, kind: s.units.kind, speaker: s.units.speaker, source: s.units.source, listener: s.units.listener, listenerOrigin: s.units.listenerOrigin }).from(s.units).where(and(eq(s.units.projectId, projectId), eq(s.units.key, key))).get();
       if (!line) continue;
       const listener = exception.listener && !isSpecialListener(exception.listener) ? canon(exception.listener) : exception.listener;
       if (setAiListener(tx, line, listener, exception.confidence, 'ai')) changed.add(line.id);

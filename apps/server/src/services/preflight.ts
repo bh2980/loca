@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray, isNotNull, ne, sql } from 'drizzle-orm';
-import { batchConfigSchema, CONNECTION_KIND_INFO, estimateTokens, isUnknownListener, isUnreviewed, nodeName, termMatcher, type AiNode, type WorkflowDefinition } from '@tw/shared';
+import { batchConfigSchema, CONNECTION_KIND_INFO, estimateTokens, isUnknownListener, isUnreviewed, needsListener, nodeName, termMatcher, type AiNode, type WorkflowDefinition } from '@tw/shared';
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -146,11 +146,13 @@ const idList = (ids: string[]) => ({ ids: ids.slice(0, IDS_CAP), more: ids.lengt
  * confirmed by a person.
  */
 function readinessOf(db: Db, projectId: string, units: { kind: string; speaker: string | null; source: string; listener: string | null; listenerOrigin: string | null; listenerConfidence: number | null }[], index: ReturnType<typeof speechRuleIndex>) {
-  const dialogue = units.filter((unit) => unit.kind === 'dialogue');
-  const unknownListener = dialogue.filter((unit) => isUnknownListener(unit as never)).length;
+  // Lines said to someone (needsListener: not narration, not format tokens only): the ones a listener matters for.
+  const formatRules = db.select({ rules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, projectId)).get()?.rules;
+  const dialogue = units.filter((unit) => needsListener(unit, formatRules));
+  const unknownListener = dialogue.filter((unit) => isUnknownListener(unit as never, formatRules)).length;
   const pairs = new Map<string, number>();
   const names = new Map<string, string>();
-  for (const unit of dialogue) if (unit.speaker && unit.listener && !isUnknownListener(unit as never)) {
+  for (const unit of dialogue) if (unit.speaker && unit.listener && !isUnknownListener(unit as never, formatRules)) {
     const key = `${index.norm(unit.speaker)}|${index.norm(unit.listener)}`;
     pairs.set(key, (pairs.get(key) ?? 0) + 1);
     names.set(key, `${unit.speaker} → ${unit.listener}`);

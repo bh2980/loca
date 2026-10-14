@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { hasText, type FormatRules } from './format-check.ts';
 import { aiDecided, isUnsureListener, type KnowledgeStatus, type ListenerOrigin, type StatusBy } from './knowledge.ts';
 
 /** Where a tag can be put and is offered: lines (대사), knowledge items (자료), glossary terms (용어집). */
@@ -15,7 +16,7 @@ export const TAG_SCOPE_LABELS: Record<TagScope, string> = { lines: '대사', kno
 export const AUTO_MARKS = {
   remaining: { name: '남은 줄', on: ['lines'], color: '#3b82f6', description: '최종 상태가 아닌 대사' },
   ai: { name: 'AI가 정함', on: ['lines', 'knowledge', 'terms'], color: '#8b5cf6', description: 'AI가 정하고 아직 사람이 확인하지 않음 (✦)' },
-  unknownListener: { name: '청자 미상', on: ['lines'], color: '#f59e0b', description: '청자를 모르거나 AI의 추정이 불확실한 대사' },
+  unknownListener: { name: '청자 미상', on: ['lines'], color: '#f59e0b', description: '화자가 있는 대사 중 청자를 모르거나 AI의 추정이 불확실한 대사(지문·서식만 있는 줄 제외)' },
   diverged: { name: '같은 원문 다른 번역', on: ['lines'], color: '#ef4444', description: '같은 원문이 다른 곳에서 다르게 번역됨' },
   noted: { name: '메모', on: ['lines'], color: '#14b8a6', description: '줄 메모가 있음' },
   candidate: { name: '후보', on: ['knowledge', 'terms'], color: '#ec4899', description: '아직 번역 문맥에 쓰이지 않음' },
@@ -67,13 +68,22 @@ export function matchesMarks(has: readonly AutoMark[], picked: readonly AutoMark
 export const UNREVIEWED_MARKS = ['candidate', 'ai'] as const satisfies readonly AutoMark[];
 export const isUnreviewed = (item: { status: KnowledgeStatus; statusBy: StatusBy }) => item.status !== 'rejected' && (item.status === 'candidate' || aiDecided(item));
 
-/** A dialogue line whose listener is unknown or an unsure guess (narration has none). Mirrors unknownListenerSql on the server. */
-export const isUnknownListener = (line: { kind: string; listener: string | null; listenerOrigin: ListenerOrigin | null; listenerConfidence: number | null }) =>
-  line.kind === 'dialogue' && (!line.listener || isUnsureListener(line));
+type ListenerLine = { kind: string; speaker: string | null; source: string; listener: string | null; listenerOrigin: ListenerOrigin | null; listenerConfidence: number | null };
+
+/**
+ * A line that is said to someone: dialogue with a speaker and something to say once the project's
+ * format tokens are out (`rules`, 설정 › 서식). Narration (no speaker) and lines of only tags or
+ * placeholders have no listener. The SQL in line-marks.ts (has_text) decides the same way.
+ */
+export const needsListener = (line: Pick<ListenerLine, 'kind' | 'speaker' | 'source'>, rules: FormatRules | undefined) =>
+  line.kind === 'dialogue' && Boolean(line.speaker?.trim()) && hasText(line.source, rules);
+
+/** A line that needs a listener whose listener is unknown or an unsure guess. Mirrors the unknownListener SQL on the server. */
+export const isUnknownListener = (line: ListenerLine, rules: FormatRules | undefined) => needsListener(line, rules) && (!line.listener || isUnsureListener(line));
 
 /** The marks a line carries, for its row chips and workflow conditions (the SQL in line-marks.ts selects by the same rules). */
-export function lineMarksOf(line: { kind: string; listener: string | null; listenerOrigin: ListenerOrigin | null; listenerConfidence: number | null; statusBy: StatusBy; note: string }, final: boolean): LineMark[] {
-  return [!final && 'remaining', line.statusBy === 'ai' && 'ai', isUnknownListener(line) && 'unknownListener', line.note.trim() !== '' && 'noted'].filter((mark): mark is LineMark => Boolean(mark));
+export function lineMarksOf(line: ListenerLine & { statusBy: StatusBy; note: string }, final: boolean, rules: FormatRules | undefined): LineMark[] {
+  return [!final && 'remaining', line.statusBy === 'ai' && 'ai', isUnknownListener(line, rules) && 'unknownListener', line.note.trim() !== '' && 'noted'].filter((mark): mark is LineMark => Boolean(mark));
 }
 
 /** The marks a knowledge item carries. */

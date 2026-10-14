@@ -122,6 +122,7 @@ describe('workflow runner', () => {
 describe('listener estimation', () => {
   it('records AI listeners with their confidence and leaves a person\'s choice alone', async () => {
     const { db, projectId, choice } = setup(3);
+    db.update(s.units).set({ speaker: 'Ann' }).where(eq(s.units.projectId, projectId)).run();
     const units = db.select().from(s.units).where(eq(s.units.projectId, projectId)).orderBy(s.units.sort).all();
     db.update(s.units).set({ listener: 'Bob', listenerOrigin: 'human' }).where(eq(s.units.id, units[2].id)).run();
     db.insert(s.characters).values([{ projectId, name: 'Alice' }, { projectId, name: 'Pat', player: true }]).run();
@@ -163,6 +164,9 @@ describe('listener template', () => {
       ['ui', null, null, null],
       ['document', null, null, null],
       ['dialogue', null, null, null],
+      // Said to nobody: narration (no speaker) and a line of format tokens only.
+      ['narration', null, null, null],
+      ['tokens', null, null, null],
     ] as const;
     const db = openDatabase(':memory:');
     const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1' }).returning().get();
@@ -172,7 +176,14 @@ describe('listener template', () => {
       format: 'loca/v1',
       project: { name: 'Test' },
       groups: [{ key: 'g1', title: 'Scene' }],
-      units: lines.map(([kind, listener], index) => ({ key: `u${index}`, group: 'g1', source: `Line ${index}`, kind, ...(listener && { listener }) })),
+      units: lines.map(([kind, listener], index) => ({
+        key: `u${index}`,
+        group: 'g1',
+        source: kind === 'tokens' ? '<b></b>' : `Line ${index}`,
+        kind: kind === 'narration' || kind === 'tokens' ? 'dialogue' : kind,
+        ...(kind !== 'narration' && { speaker: 'Ann' }),
+        ...(listener && { listener }),
+      })),
     });
     const { projectId } = importProject(db, file, choice);
     const rows = db.select().from(s.units).where(eq(s.units.projectId, projectId)).orderBy(s.units.sort).all();
@@ -196,7 +207,7 @@ describe('listener template', () => {
     createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: { ignoreStatus: true } });
     await runner.drain();
 
-    // Import, person, confident AI and non-dialogue lines are skipped; the unsure AI guess and the two blank dialogue lines are asked.
+    // Import, person, confident AI, non-dialogue, narration and token-only lines are skipped; the unsure AI guess and the two blank dialogue lines are asked.
     expect(sent.sort()).toEqual(['Line 3', 'Line 4', 'Line 7']);
     const after = db.select().from(s.units).where(eq(s.units.projectId, projectId)).orderBy(s.units.sort).all();
     expect(after.map((unit) => [unit.listener, unit.listenerOrigin])).toEqual([
@@ -208,21 +219,26 @@ describe('listener template', () => {
       [null, null],
       [null, null],
       ['Zed', 'ai'],
+      [null, null],
+      [null, null],
     ]);
   });
 
-  it('setListener alone skips import listeners and non-dialogue lines', async () => {
+  it('setListener alone skips import listeners, non-dialogue, narration and token-only lines', async () => {
     const { syncFunctions } = await import('./functions/index.ts');
     const record = (unit: Record<string, unknown>) => {
       const updates: unknown[] = [];
-      const tx = { update: () => ({ set: (values: unknown) => ({ where: () => ({ run: () => updates.push(values) }) }) }) };
+      const tx = { update: () => ({ set: (values: unknown) => ({ where: () => ({ run: () => updates.push(values) }) }) }), select: () => ({ from: () => ({ where: () => ({ get: () => undefined }) }) }) };
       const input = { unit, item: { data: { outputs: { n: { listener: 'Zed', confidence: 0.99 } } }, visits: {} } };
       const result = syncFunctions.setListener!(tx as never, { fromNodeId: 'n' }, input as never);
       return { updates, result };
     };
-    expect(record({ kind: 'dialogue', listener: 'Bob', listenerOrigin: 'import' }).updates).toEqual([]);
-    expect(record({ kind: 'ui', listener: null, listenerOrigin: null }).updates).toEqual([]);
-    expect(record({ kind: 'dialogue', listener: null, listenerOrigin: null }).updates).toHaveLength(1);
+    const line = { kind: 'dialogue', speaker: 'Ann', source: 'Hi', listener: null, listenerOrigin: null };
+    expect(record({ ...line, listener: 'Bob', listenerOrigin: 'import' }).updates).toEqual([]);
+    expect(record({ ...line, kind: 'ui' }).updates).toEqual([]);
+    expect(record({ ...line, speaker: null }).updates).toEqual([]);
+    expect(record({ ...line, source: '{0}' }).updates).toEqual([]);
+    expect(record(line).updates).toHaveLength(1);
   });
 });
 

@@ -60,6 +60,7 @@ describe('who set it (docs/DESIGN.md 3.5)', () => {
 describe('units list marks', () => {
   it('several marks must all hold; a named listener stays its own filter', async () => {
     const { db, projectId, send } = setup();
+    db.update(s.units).set({ speaker: 'Ann' }).where(eq(s.units.projectId, projectId)).run();
     const units = db.select().from(s.units).where(eq(s.units.projectId, projectId)).orderBy(s.units.seq).all();
     db.update(s.units).set({ kind: 'dialogue', listener: 'Bob', listenerOrigin: 'human' }).where(eq(s.units.id, units[0].id)).run();
     db.update(s.units).set({ kind: 'dialogue', listener: null }).where(eq(s.units.id, units[1].id)).run();

@@ -123,12 +123,12 @@ export const sourceRoutes = new Hono<Env>()
       .groupBy(s.units.groupId, s.units.statusId)
       .all();
     const byGroup = Map.groupBy(counts, (row) => row.groupId);
-    // Dialogue lines whose listener is still unknown: where speech rules cannot apply yet.
+    // Lines whose listener is still unknown (the #청자 미상 mark): where speech rules cannot apply yet.
     const unknown = new Map(
       db
         .select({ groupId: s.units.groupId, count: count() })
         .from(s.units)
-        .where(and(eq(s.units.projectId, projectId), eq(s.units.kind, 'dialogue'), sql`not ${knownListenerSql}`))
+        .where(and(eq(s.units.projectId, projectId), ...markConditions(projectId, ['unknownListener'])))
         .groupBy(s.units.groupId)
         .all()
         .map((row) => [row.groupId, row.count]),

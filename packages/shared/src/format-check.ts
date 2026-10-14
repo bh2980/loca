@@ -79,6 +79,26 @@ export function compileFormatRules(rules: FormatRules = DEFAULT_FORMAT_RULES) {
 
 export const matchTokens = (text: string, pattern: RegExp | null) => (pattern ? (text.match(pattern) ?? []) : []);
 
+const compiledByRules = new Map<string, ReturnType<typeof compileFormatRules>>();
+/**
+ * Whether a text says something once the project's format tokens (placeholders and tags, as set in
+ * 설정 › 서식) are taken out: a letter or a digit is left. `<b></b>`, `{0}` or `%s` alone do not.
+ */
+export function hasText(text: string, rules: FormatRules = DEFAULT_FORMAT_RULES) {
+  const key = JSON.stringify(rules);
+  let compiled = compiledByRules.get(key);
+  if (!compiled) {
+    // A few rule sets at most (one per project), each compiled once.
+    if (compiledByRules.size > 20) compiledByRules.clear();
+    compiled = compileFormatRules(rules);
+    compiledByRules.set(key, compiled);
+  }
+  let rest = text;
+  if (compiled.placeholder) rest = rest.replace(compiled.placeholder, ' ');
+  if (compiled.tag) rest = rest.replace(compiled.tag, ' ');
+  return /[\p{L}\p{N}]/u.test(rest);
+}
+
 /** Tokens in `a` that `b` lacks, as a multiset difference. */
 function missing(a: string[], b: string[]) {
   const rest = [...b];
