@@ -244,8 +244,9 @@ export function LineRow({ projectId, line, newScene, selected, marked, findLabel
     </li>
   );
   const checkbox = <Checkbox aria-label={`${line.key} 선택`} checked={isPicked} onClick={(event) => event.stopPropagation()} onCheckedChange={(checked) => onPick(Boolean(checked))} />;
-  // A UI string not being edited: key, source and translation on one line, like a string table.
-  if (line.kind === 'ui' && !selected)
+  // A UI string not being edited: key, source and translation on one line, like a string table
+  // (not in the review inbox, whose rows show why each line waits there).
+  if (line.kind === 'ui' && !selected && !review)
     return (
       <>
         {header}
