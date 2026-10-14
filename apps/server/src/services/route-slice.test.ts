@@ -276,6 +276,6 @@ describe('sliceRoute', () => {
   });
 
   it('an empty graph gives an empty slice', () => {
-    expect(sliceRoute([], [], new Map(), {})).toEqual({ blocks: [], edges: [], forks: [], stubs: [], joins: [], lines: 0, totalLines: 0 });
+    expect(sliceRoute([], [], new Map(), {})).toEqual({ blocks: [], edges: [], forks: [], stubs: [], joins: [], lines: 0, totalLines: 0, overview: { nodes: [], edges: [] } });
   });
 });
