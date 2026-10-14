@@ -48,7 +48,7 @@ export const q = {
       queryFn: () => unwrap(client.projects[':projectId'].graph[':scope{dialogue|scene}'].$get({ param: { projectId, scope }, query: section ? { section } : {} })),
       staleTime: Infinity,
     }),
-  /** The main route (본 줄기): its graph nodes and steps, line count and the arms people picked at forks. */
+  /** The slice of the dialogue graph for the stored choices (길 따라 보기): blocks, edges, forks, stubs, joins and the picks. */
   route: (projectId: string) => queryOptions({ queryKey: ['graph', projectId, 'route'], queryFn: () => unwrap(client.projects[':projectId'].route.$get({ param: { projectId } })) }),
   graphNode: (nodeId: string) => queryOptions({ queryKey: ['units', 'graph-node', nodeId], queryFn: () => unwrap(client['graph-nodes'][':nodeId'].$get({ param: { nodeId } })) }),
   terms: (projectId: string) => queryOptions({ queryKey: ['terms', projectId], queryFn: () => unwrap(client.projects[':projectId'].terms.$get({ param: { projectId } })) }),
