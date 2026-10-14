@@ -38,7 +38,6 @@ describe('sliceRoute', () => {
       { nodeId: 'b1', label: 'Wait', chosen: false, picked: false },
     ]);
     expect(slice.stubs).toEqual([{ id: 'stub:pick:b1', fork: 'pick', arm: 'b1', label: 'Wait', lines: 1, rejoins: ['after'] }]);
-    expect(slice.joins).toEqual(['after']);
     expect(blockOfNode(slice, 'b1')).toBeUndefined();
     expect(slice.edges).toContainEqual({ from: 'pick', to: 'stub:pick:b1', label: 'Wait', kind: 'stub' });
     expect(slice.edges).toContainEqual({ from: 'stub:pick:b1', to: 'after', label: null, kind: 'rejoin' });
@@ -165,7 +164,6 @@ describe('sliceRoute', () => {
     expect(slice.blocks[1]).toMatchObject({ kind: 'choice', nodeIds: ['opt'], unitIds: ['u5'] });
     expect(slice.blocks[2]!.unitIds).toEqual(['u6', 'u7']);
     expect(slice.edges.filter((e) => e.kind === 'path').map((e) => [e.from, e.to])).toEqual([['block:a', 'opt'], ['opt', 'block:d']]);
-    expect(slice.joins).toEqual([]);
   });
 
   it('a node where a stub rejoins starts a new block', () => {
@@ -183,7 +181,6 @@ describe('sliceRoute', () => {
       units: unitMap(),
     };
     const slice = sliceRoute(g.nodes, g.edges, g.units, {});
-    expect(slice.joins).toEqual(['block:m']);
     expect(blockOfNode(slice, 'm')!.nodeIds).toEqual(['m', 'n']);
     expect(slice.blocks.map((block) => block.id)).toContain('hub'); // fans out to two drawn ways
   });
@@ -256,7 +253,6 @@ describe('sliceRoute', () => {
     const slice = sliceRoute(g.nodes, g.edges, g.units, {});
     expect(slice.stubs).toEqual([{ id: 'stub:pick:b1', fork: 'pick', arm: 'b1', label: 'Leave', lines: 3, rejoins: [] }]);
     expect(slice.edges.some((e) => e.kind === 'rejoin')).toBe(false);
-    expect(slice.joins).toEqual([]);
   });
 
   it('a stub arm sharing nodes with the chosen way stops at the slice and counts only its own lines', () => {
@@ -288,7 +284,7 @@ describe('sliceRoute', () => {
   });
 
   it('an empty graph gives an empty slice', () => {
-    expect(sliceRoute([], [], new Map(), {})).toEqual({ blocks: [], edges: [], forks: [], stubs: [], joins: [], lines: 0, totalLines: 0, overview: { nodes: [], edges: [] } });
+    expect(sliceRoute([], [], new Map(), {})).toEqual({ blocks: [], edges: [], forks: [], stubs: [], seams: [], lines: 0, totalLines: 0, overview: { nodes: [], edges: [] } });
   });
 });
 

@@ -33,6 +33,12 @@ export interface SliceStub {
   /** Slice nodes it comes back to (joins). Empty: it never comes back (a separate ending). */
   rejoins: string[];
 }
+export interface SliceSeam {
+  /** The earlier-route block the route enters. */
+  nodeId: string;
+  /** The block with new lines it comes from. */
+  from: string;
+}
 export interface SliceBlock {
   /** A graph node id, or `block:<first node id>` for a folded straight run. */
   id: string;
@@ -48,8 +54,12 @@ export interface RouteSlice {
   edges: { from: string; to: string; label: string | null; kind: 'path' | 'stub' | 'rejoin' }[];
   forks: SliceFork[];
   stubs: SliceStub[];
-  /** Blocks that more than one way leads into: where a stub comes back or parallel lanes meet. */
-  joins: string[];
+  /**
+   * 이음새 (docs/DESIGN.md J2c), from round 2 on: where the route's new lines (lines on no earlier
+   * round's route) hand back into a block that belongs to an earlier route. One entry per path edge;
+   * several can enter the same block (parallel arms). Empty in round 1.
+   */
+  seams: SliceSeam[];
   /** Lines in the slice / in the graph. */
   lines: number;
   totalLines: number;
@@ -71,8 +81,10 @@ export interface SliceSection {
   lanes: number;
   /** A choice is made here (its stubs leave from it). */
   choice: boolean;
-  /** A stub comes back here: the lines after it must fit every way in. */
+  /** A stub comes back here. */
   join: boolean;
+  /** A seam enters the earlier route here: the lines after it must read on after the new lines. */
+  seam: boolean;
 }
 
 type GraphNode = { id: string; key: string; kind: string; unitIds: string[]; label?: string | null };
@@ -82,26 +94,30 @@ type GraphEdge = { from: string; to: string; label: string | null };
 const STUB_SCAN = 5_000;
 
 const cache = new Map<string, { key: string; slice: RouteSlice }>();
+type Picks = Record<string, string>;
 
 /** The project's slice with its stored picks; kept until the graph, the lines or the picks change. */
 export function projectSlice(db: Db, projectId: string): RouteSlice {
-  const picks = db.select({ picks: s.projects.routePicks }).from(s.projects).where(eq(s.projects.id, projectId)).get()?.picks ?? {};
+  const row = db.select({ picks: s.projects.routePicks, state: s.projects.routeState }).from(s.projects).where(eq(s.projects.id, projectId)).get();
+  const picks = row?.picks ?? {};
+  // The routes of the earlier rounds decide the seams, so they belong to the cache key.
+  const history = row?.state.history ?? [];
   const counts = db.get<{ nodes: number; edges: number; units: number; changed: number | null }>(
     sql`select (select count(*) from ${s.graphNodes} where ${s.graphNodes.projectId} = ${projectId}) as nodes, (select count(*) from ${s.graphEdges} where ${s.graphEdges.projectId} = ${projectId}) as edges, (select count(*) from ${s.units} where ${s.units.projectId} = ${projectId}) as units, (select max(${s.graphLayouts.updatedAt}) from ${s.graphLayouts} where ${s.graphLayouts.projectId} = ${projectId}) as changed`,
   );
-  const key = JSON.stringify([picks, counts]);
+  const key = JSON.stringify([picks, history, counts]);
   const hit = cache.get(projectId);
   if (hit?.key === key) return hit.slice;
-  const slice = buildSlice(db, projectId, picks);
+  const slice = buildSlice(db, projectId, picks, history);
   cache.set(projectId, { key, slice });
   return slice;
 }
 
-function buildSlice(db: Db, projectId: string, picks: Record<string, string>): RouteSlice {
+function buildSlice(db: Db, projectId: string, picks: Picks, history: Picks[]): RouteSlice {
   const nodes = db.select({ id: s.graphNodes.id, key: s.graphNodes.key, kind: s.graphNodes.kind, unitIds: s.graphNodes.unitIds, label: s.graphNodes.label }).from(s.graphNodes).where(eq(s.graphNodes.projectId, projectId)).all();
   const edges = db.select({ from: s.graphEdges.fromId, to: s.graphEdges.toId, label: s.graphEdges.label }).from(s.graphEdges).where(eq(s.graphEdges.projectId, projectId)).all();
   const units = new Map(db.select({ id: s.units.id, seq: s.units.seq, source: s.units.source }).from(s.units).where(eq(s.units.projectId, projectId)).all().map((unit) => [unit.id, unit]));
-  return sliceRoute(nodes, edges, units, picks);
+  return sliceRoute(nodes, edges, units, picks, history);
 }
 
 /** The graph prepared for slicing: ways out of every node, script order, and which forks are exclusive. */
@@ -229,7 +245,8 @@ export function walkRoute(g: RouteGraph, picks: Record<string, string>) {
   return { chosenAt, inSlice };
 }
 
-export function sliceRoute(nodes: GraphNode[], edges: GraphEdge[], units: Map<string, { seq: number; source: string }>, picks: Record<string, string>): RouteSlice {
+/** `history`: the picks of the earlier rounds' routes (oldest first); the seams are measured against all of them together. */
+export function sliceRoute(nodes: GraphNode[], edges: GraphEdge[], units: Map<string, { seq: number; source: string }>, picks: Picks, history: Picks[] = []): RouteSlice {
   const g = routeGraph(nodes, edges, units);
   const { byId, out, bySeq, numbering } = g;
   const firstLine = (node: GraphNode) => {
@@ -351,9 +368,23 @@ export function sliceRoute(nodes: GraphNode[], edges: GraphEdge[], units: Map<st
     edgesOut.push({ from: blockOf.get(stub.fork)!, to: stub.id, label: stub.label, kind: 'stub' });
     for (const join of stub.rejoins) if (blockOf.has(join)) edgesOut.push({ from: stub.id, to: blockOf.get(join)!, label: null, kind: 'rejoin' });
   }
-  const into = new Map<string, number>();
-  for (const edge of edgesOut) into.set(edge.to, (into.get(edge.to) ?? 0) + 1);
-  const joins = blocks.filter((block) => (into.get(block.id) ?? 0) > 1).map((block) => block.id);
+  // Seams: a path edge from a block with new lines into a block that belongs to an earlier route.
+  const earlierNodes = new Set<string>();
+  const earlierUnits = new Set<string>();
+  for (const earlier of new Set(history.map((item) => JSON.stringify(item)))) {
+    for (const id of walkRoute(g, JSON.parse(earlier) as Picks).inSlice) {
+      earlierNodes.add(id);
+      for (const unit of byId.get(id)!.unitIds) earlierUnits.add(unit);
+    }
+  }
+  const blockById = new Map(blocks.map((block) => [block.id, block]));
+  const seams: SliceSeam[] = [];
+  if (history.length)
+    for (const edge of pathEdges.values()) {
+      const from = blockById.get(edge.from)!, to = blockById.get(edge.to)!;
+      if (from.unitIds.some((unit) => !earlierUnits.has(unit)) && to.nodeIds.every((id) => earlierNodes.has(id))) seams.push({ nodeId: to.id, from: from.id });
+    }
+  const seamBlocks = new Set(seams.map((seam) => seam.nodeId));
   const lines = blocks.reduce((sum, block) => sum + block.unitIds.length, 0);
 
   // The overview: what lies between two choices (or a choice and the place a stub comes back) is one
@@ -362,7 +393,7 @@ export function sliceRoute(nodes: GraphNode[], edges: GraphEdge[], units: Map<st
   const rejoinBlocks = new Set([...rejoined].map((id) => blockOf.get(id)).filter((id): id is string => Boolean(id)));
   const pathInto = new Map<string, number>();
   for (const edge of pathEdges.values()) pathInto.set(edge.to, (pathInto.get(edge.to) ?? 0) + 1);
-  const anchor = (id: string) => chosenBlocks.has(id) || rejoinBlocks.has(id) || !pathInto.get(id);
+  const anchor = (id: string) => chosenBlocks.has(id) || rejoinBlocks.has(id) || seamBlocks.has(id) || !pathInto.get(id);
   const parent = new Map(blocks.map((block) => [block.id, block.id]));
   const find = (id: string): string => {
     let root = id;
@@ -371,14 +402,13 @@ export function sliceRoute(nodes: GraphNode[], edges: GraphEdge[], units: Map<st
     return root;
   };
   for (const edge of pathEdges.values()) if (!anchor(edge.from) && !anchor(edge.to)) parent.set(find(edge.from), find(edge.to));
-  const blockById = new Map(blocks.map((block) => [block.id, block]));
   const members = Map.groupBy(blocks.filter((block) => !anchor(block.id)), (block) => find(block.id));
   const sectionOf = new Map<string, string>();
   const overviewNodes: SliceSection[] = [];
   for (const block of blocks) {
     if (!anchor(block.id)) continue;
     sectionOf.set(block.id, block.id);
-    overviewNodes.push({ id: block.id, kind: 'anchor', blockIds: [block.id], nodeIds: block.nodeIds, unitIds: block.unitIds, lanes: 0, choice: chosenBlocks.has(block.id), join: rejoinBlocks.has(block.id) });
+    overviewNodes.push({ id: block.id, kind: 'anchor', blockIds: [block.id], nodeIds: block.nodeIds, unitIds: block.unitIds, lanes: 0, choice: chosenBlocks.has(block.id), join: rejoinBlocks.has(block.id), seam: seamBlocks.has(block.id) });
   }
   for (const group of members.values()) {
     const ordered = [...group].sort((a, b) => bySeq(a.nodeIds[0]!, b.nodeIds[0]!));
@@ -387,7 +417,7 @@ export function sliceRoute(nodes: GraphNode[], edges: GraphEdge[], units: Map<st
     const nodeIds = ordered.flatMap((block) => block.nodeIds);
     // Lanes: the most ways a parallel fork inside opens at once.
     const lanes = Math.max(0, ...nodeIds.filter((n) => forkAt.has(n) && !chosenAt.has(n)).map((n) => (links.get(n)?.size ?? 0)));
-    overviewNodes.push({ id, kind: 'section', blockIds: ordered.map((block) => block.id), nodeIds, unitIds: ordered.flatMap((block) => block.unitIds), lanes: lanes > 1 ? lanes : 0, choice: false, join: false });
+    overviewNodes.push({ id, kind: 'section', blockIds: ordered.map((block) => block.id), nodeIds, unitIds: ordered.flatMap((block) => block.unitIds), lanes: lanes > 1 ? lanes : 0, choice: false, join: false, seam: false });
   }
   overviewNodes.sort((a, b) => bySeq(a.nodeIds[0]!, b.nodeIds[0]!));
   // A way into a section through an option carries the option's text, as the choice reads in the game.
@@ -409,5 +439,5 @@ export function sliceRoute(nodes: GraphNode[], edges: GraphEdge[], units: Map<st
     const key = `${from}|${to}|${edge.kind}`;
     if (!overviewEdges.has(key)) overviewEdges.set(key, { ...edge, from, to, label: edgeLabel(edge) });
   }
-  return { blocks, edges: edgesOut, forks, stubs, joins, lines, totalLines: units.size, overview: { nodes: overviewNodes, edges: [...overviewEdges.values()] } };
+  return { blocks, edges: edgesOut, forks, stubs, seams, lines, totalLines: units.size, overview: { nodes: overviewNodes, edges: [...overviewEdges.values()] } };
 }

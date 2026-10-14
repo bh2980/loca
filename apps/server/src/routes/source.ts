@@ -15,7 +15,7 @@ import { computeLayouts } from '../services/layout.ts';
 import { readView, sectionWithMost } from '../services/graph-views.ts';
 import { projectSlice } from '../services/route-slice.ts';
 import { previewNext, projectRouteInputs, ROUTE_HISTORY, routeProgress } from '../services/next-route.ts';
-import { joinDetail, joinStates } from '../services/join-check.ts';
+import { seamDetail, seamStates } from '../services/seam-check.ts';
 import { lineMatches } from '../services/line-matches.ts';
 import { lineTextFilter } from '../services/line-text.ts';
 import { lineMarksSchema } from '@tw/shared';
@@ -367,7 +367,7 @@ export const sourceRoutes = new Hono<Env>()
     const blocks = slice.blocks.map((block) => ({ ...block, translated: block.unitIds.filter((id) => progress.translated.has(id)).length }));
     const newLinesOnRoute = blocks.reduce((sum, block) => sum + block.unitIds.length - block.translated, 0);
     const { translated: _translated, ...counts } = progress;
-    return c.json({ ...slice, blocks, picks: row?.picks ?? {}, round: row?.state.round ?? 1, canGoBack: (row?.state.history.length ?? 0) > 0, newLinesOnRoute, ...counts });
+    return c.json({ ...slice, blocks, seamChecks: seamStates(db, projectId).seamChecks, picks: row?.picks ?? {}, round: row?.state.round ?? 1, canGoBack: (row?.state.history.length ?? 0) > 0, newLinesOnRoute, ...counts });
   })
   /** 다음 길, preview: the route through the most untranslated lines, and how many routes are still to translate. */
   .get('/projects/:projectId/route/next', (c) => {
@@ -431,27 +431,27 @@ export const sourceRoutes = new Hono<Env>()
     events.changed(projectId, 'graph', 'units');
     return c.json({ picks: {} });
   })
-  /** 합류 점검: the checked joins of the slice and whether the lines they were checked against still read the same. */
-  .get('/projects/:projectId/join-checks', (c) => c.json({ checks: joinStates(c.var.deps.db, c.req.param('projectId')) }))
-  /** One join of the slice: each incoming route's last lines before it and the lines after it (source and current translation). */
-  .get('/projects/:projectId/route/joins/:nodeId', (c) => {
-    return c.json(found(joinDetail(c.var.deps.db, c.req.param('projectId'), c.req.param('nodeId')) ?? undefined, '합류 지점'));
+  /** 이음새 점검: the checked seams of the current route, whether the lines they were checked against still read the same, and the counts for the round. */
+  .get('/projects/:projectId/seam-checks', (c) => c.json(seamStates(c.var.deps.db, c.req.param('projectId'))))
+  /** One seam of the current route: its last lines before it (new side) and the first lines after it (earlier route), source and current translation. */
+  .get('/projects/:projectId/route/seams/:nodeId', (c) => {
+    return c.json(found(seamDetail(c.var.deps.db, c.req.param('projectId'), c.req.param('nodeId')) ?? undefined, '이음새'));
   })
-  /** Mark a join checked. `sig` is the signature of the lines the person read; if they changed meanwhile the mark is refused. */
-  .put('/projects/:projectId/join-checks/:nodeId', validate('json', z.object({ sig: z.string().min(1, '확인한 내용의 서명이 필요합니다.') })), (c) => {
+  /** Mark a seam checked. `sig` is the signature of the lines the person read; if they changed meanwhile the mark is refused. */
+  .put('/projects/:projectId/seam-checks/:nodeId', validate('json', z.object({ sig: z.string().min(1, '확인한 내용의 서명이 필요합니다.') })), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     const nodeId = c.req.param('nodeId');
-    const detail = joinDetail(db, projectId, nodeId);
-    if (!detail) badRequest('지금 길 조각의 합류 지점이 아닙니다.');
-    if (detail.sig !== c.req.valid('json').sig) badRequest('점검하는 사이 이 합류의 번역이 바뀌었습니다. 바뀐 내용을 다시 확인해 주세요.');
+    const detail = seamDetail(db, projectId, nodeId);
+    if (!detail) badRequest('지금 길의 이음새가 아닙니다.');
+    if (detail.sig !== c.req.valid('json').sig) badRequest('점검하는 사이 이 이음새의 번역이 바뀌었습니다. 바뀐 내용을 다시 확인해 주세요.');
     const current = db.select({ checks: s.projects.joinChecks }).from(s.projects).where(eq(s.projects.id, projectId)).get();
     const at = new Date().toISOString();
     db.update(s.projects).set({ joinChecks: { ...current?.checks, [nodeId]: { at, sig: detail.sig } } }).where(eq(s.projects.id, projectId)).run();
     events.changed(projectId, 'graph', 'units');
     return c.json({ nodeId, at, state: 'checked' as const });
   })
-  .delete('/projects/:projectId/join-checks/:nodeId', (c) => {
+  .delete('/projects/:projectId/seam-checks/:nodeId', (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     const current = db.select({ checks: s.projects.joinChecks }).from(s.projects).where(eq(s.projects.id, projectId)).get();

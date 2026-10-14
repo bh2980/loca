@@ -26,7 +26,9 @@ function setup() {
     edges: { from: string; to: string; label: string | null; kind: 'path' | 'stub' | 'rejoin' }[];
     forks: { nodeId: string; mode: 'choice' | 'parallel'; arms: { nodeId: string; label: string; chosen: boolean; picked: boolean }[] }[];
     stubs: { id: string; fork: string; arm: string; label: string; lines: number; rejoins: string[] }[];
-    joins: string[];
+    seams: { nodeId: string; from: string }[];
+    seamChecks: { checked: number; stale: number; total: number };
+    overview: { nodes: { id: string; join: boolean; seam: boolean }[] };
     lines: number;
     totalLines: number;
     picks: Record<string, string>;
@@ -57,7 +59,10 @@ describe('main route API', () => {
     // Both arms come back at the join node, which is drawn and marked as a join.
     const joinBlock = info.blocks.find((block) => block.nodeIds.includes(node('j.join')))!;
     expect(info.stubs[0]!.rejoins).toEqual([node('j.join')]);
-    expect(info.joins).toContain(joinBlock.id);
+    expect(info.overview.nodes.find((item) => item.id === joinBlock.id)).toMatchObject({ join: true, seam: false });
+    // Route 1 has no seams.
+    expect(info.seams).toEqual([]);
+    expect(info.seamChecks).toEqual({ checked: 0, stale: 0, total: 0 });
     expect(info.edges).toContainEqual(expect.objectContaining({ to: info.stubs[0]!.id, label: 'logbook', kind: 'stub' }));
     expect(info.edges).toContainEqual(expect.objectContaining({ from: info.stubs[0]!.id, to: joinBlock.id, kind: 'rejoin' }));
     // The wait node that opens the repeat and the dawn event runs in parallel: no stub for it.
@@ -185,66 +190,90 @@ describe('main route API', () => {
     });
   });
 
-  describe('join checks', () => {
-    type Detail = { nodeId: string; routes: { id: string; kind: string; label: string | null; before: { unitId: string; key: string; source: string; translation: string | null }[] }[]; after: { unitId: string }[]; sig: string; check: { at: string; state: string } | null };
+  describe('이음새 점검', () => {
+    type Line = { unitId: string; key: string; source: string; translation: string | null };
+    type Detail = { nodeId: string; before: { from: string; lines: Line[] }[]; after: Line[]; sig: string; check: { at: string; state: string } | null };
+    /** Route 1 translated, then 다음 길: route 2 takes the logbook arm and comes back at the join. */
+    const second = async () => {
+      const h = setup();
+      for (const block of (await h.route()).blocks) for (const id of block.unitIds) h.db.update(s.units).set({ translation: `번역 ${id}` }).where(eq(s.units.id, id)).run();
+      expect((await h.send('POST', `/projects/${h.projectId}/route/next`, { round: 1 })).status).toBe(200);
+      return h;
+    };
     const open = async (h: ReturnType<typeof setup>) => {
       const info = await h.route();
-      const joinId = info.joins[0]!;
-      const detail = (await (await h.send('GET', `/projects/${h.projectId}/route/joins/${encodeURIComponent(joinId)}`)).json()) as Detail;
-      return { joinId, detail };
+      const seamId = info.seams[0]!.nodeId;
+      const detail = (await (await h.send('GET', `/projects/${h.projectId}/route/seams/${encodeURIComponent(seamId)}`)).json()) as Detail;
+      return { info, seamId, detail };
     };
-    const states = async (h: ReturnType<typeof setup>) => ((await (await h.send('GET', `/projects/${h.projectId}/join-checks`)).json()) as { checks: Record<string, { state: string }> }).checks;
+    const states = async (h: ReturnType<typeof setup>) => (await (await h.send('GET', `/projects/${h.projectId}/seam-checks`)).json()) as { checks: Record<string, { state: string }>; seamChecks: { checked: number; stale: number; total: number } };
 
-    it('GET join lists the chosen path and the other choice with their last lines, then the lines after', async () => {
+    it('round 1 has no seams and no seam detail', async () => {
       const h = setup();
-      const { joinId, detail } = await open(h);
-      expect(detail.nodeId).toBe(joinId);
-      expect(detail.routes.map((route) => route.kind)).toEqual(['path', 'stub']);
-      expect(detail.routes[1]!.label).toBe('logbook');
-      expect(detail.routes.every((route) => route.before.length > 0 && route.before.length <= 2)).toBe(true);
+      expect((await h.route()).seams).toEqual([]);
+      expect(await states(h)).toEqual({ checks: {}, seamChecks: { checked: 0, stale: 0, total: 0 } });
+      const join = (await h.route()).overview.nodes.find((item) => item.join)!;
+      expect((await h.send('GET', `/projects/${h.projectId}/route/seams/${encodeURIComponent(join.id)}`)).status).toBe(404);
+    });
+
+    it('route 2 rejoining route 1 has one seam at the rejoin; going back removes it', async () => {
+      const h = await second();
+      const { info, seamId, detail } = await open(h);
+      const joinBlock = info.blocks.find((block) => block.nodeIds.includes(h.node('j.join')))!;
+      expect(info.seams).toEqual([{ nodeId: joinBlock.id, from: expect.any(String) }]);
+      expect(info.overview.nodes.find((item) => item.id === seamId)).toMatchObject({ seam: true });
+      expect(info.seamChecks).toEqual({ checked: 0, stale: 0, total: 1 });
+      // The new side holds route 2's own lines, the earlier side starts at the join.
+      expect(detail.nodeId).toBe(seamId);
+      expect(detail.before).toHaveLength(1);
+      expect(detail.before[0]!.lines.length).toBeGreaterThan(0);
+      expect(detail.before[0]!.lines.length).toBeLessThanOrEqual(2);
       expect(detail.after.length).toBeGreaterThan(0);
+      expect(detail.after.length).toBeLessThanOrEqual(2);
+      expect(detail.after[0]!.translation).toContain('번역');
       expect(detail.check).toBeNull();
-      expect((await h.send('GET', `/projects/${h.projectId}/route/joins/nope`)).status).toBe(404);
+      await h.send('POST', `/projects/${h.projectId}/route/prev`, { round: 2 });
+      expect((await h.route()).seams).toEqual([]);
     });
 
     it('PUT marks checked, a changed translation makes it stale, DELETE takes it back', async () => {
-      const h = setup();
-      const { joinId, detail } = await open(h);
-      const url = `/projects/${h.projectId}/join-checks/${encodeURIComponent(joinId)}`;
-      expect(await states(h)).toEqual({});
+      const h = await second();
+      const { seamId, detail } = await open(h);
+      const url = `/projects/${h.projectId}/seam-checks/${encodeURIComponent(seamId)}`;
+      expect((await states(h)).checks).toEqual({});
       expect((await h.send('PUT', url, { sig: detail.sig })).status).toBe(200);
-      expect((await states(h))[joinId]).toMatchObject({ state: 'checked' });
+      expect(await states(h)).toMatchObject({ checks: { [seamId]: { state: 'checked' } }, seamChecks: { checked: 1, stale: 0, total: 1 } });
+      expect((await h.route()).seamChecks).toEqual({ checked: 1, stale: 0, total: 1 });
       expect((await open(h)).detail.check).toMatchObject({ state: 'checked' });
 
-      // A translation of a line the join shows changes: the mark stays but reads 바뀜.
-      const unitId = detail.routes[1]!.before.at(-1)!.unitId;
+      // A translation of a line the seam shows changes: the mark stays but reads 바뀜.
+      const unitId = detail.after[0]!.unitId;
       h.db.update(s.units).set({ translation: '다른 번역' }).where(eq(s.units.id, unitId)).run();
-      expect((await states(h))[joinId]).toMatchObject({ state: 'stale' });
+      expect(await states(h)).toMatchObject({ checks: { [seamId]: { state: 'stale' } }, seamChecks: { checked: 0, stale: 1, total: 1 } });
       const again = (await open(h)).detail;
       expect(again.check).toMatchObject({ state: 'stale' });
       expect(again.sig).not.toBe(detail.sig);
-      // Checking again with the new signature makes it current.
       expect((await h.send('PUT', url, { sig: again.sig })).status).toBe(200);
-      expect((await states(h))[joinId]).toMatchObject({ state: 'checked' });
+      expect((await states(h)).seamChecks).toEqual({ checked: 1, stale: 0, total: 1 });
 
       expect((await h.send('DELETE', url)).status).toBe(200);
-      expect(await states(h)).toEqual({});
+      expect(await states(h)).toEqual({ checks: {}, seamChecks: { checked: 0, stale: 0, total: 1 } });
     });
 
-    it('PUT refuses a bad body, a node that is no join, and a signature that is out of date', async () => {
-      const h = setup();
-      const { joinId } = await open(h);
-      const url = `/projects/${h.projectId}/join-checks/${encodeURIComponent(joinId)}`;
+    it('PUT refuses a bad body, a node that is no seam, and a signature that is out of date', async () => {
+      const h = await second();
+      const { seamId } = await open(h);
+      const url = `/projects/${h.projectId}/seam-checks/${encodeURIComponent(seamId)}`;
       const bad = await h.send('PUT', url, {});
       expect(bad.status).toBe(400);
       expect(await bad.text()).toContain('입력이 올바르지 않습니다');
-      const none = await h.send('PUT', `/projects/${h.projectId}/join-checks/nope`, { sig: 'x' });
+      const none = await h.send('PUT', `/projects/${h.projectId}/seam-checks/nope`, { sig: 'x' });
       expect(none.status).toBe(400);
-      expect(await none.text()).toContain('합류 지점이 아닙니다');
+      expect(await none.text()).toContain('이음새가 아닙니다');
       const old = await h.send('PUT', url, { sig: 'stale' });
       expect(old.status).toBe(400);
       expect(await old.text()).toContain('바뀌었습니다');
-      expect(await states(h)).toEqual({});
+      expect((await states(h)).checks).toEqual({});
     });
   });
 });
