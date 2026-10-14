@@ -18,6 +18,7 @@ import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
 import { ListenerPicker } from '@/components/script/listener-picker';
 import { useDraft } from '@/lib/drafts';
 import { q } from '@/lib/queries';
+import { GROUP_KIND } from '@/lib/labels';
 import { cn } from '@/lib/utils';
 import { SpeakerCard } from '@/components/script/speaker-card';
 import type { InferResponseType } from '@/lib/api';
@@ -29,7 +30,6 @@ function listenerText(line: { kind: string; speaker: string | null; source: stri
 }
 
 /** What a line nobody says is, shown where the speaker would be. */
-const UNSPOKEN: Record<string, string> = { dialogue: '지문', ui: 'UI', document: '문서' };
 
 /**
  * The few things worth knowing while typing, as one row under the editor: does the translation
@@ -229,18 +229,56 @@ export function LineRow({ projectId, line, newScene, selected, marked, findLabel
       ))}
     </div>
   ) : null;
+  // Lines nobody says read apart from dialogue without a label on every row: narration is muted
+  // (stage directions), a document reads as prose, a UI string is one dense row with its key.
+  const narration = line.kind === 'dialogue' && !line.speaker?.trim();
+  const sourceClass = narration ? 'text-muted-foreground' : line.kind === 'document' ? 'leading-relaxed' : undefined;
+  const header = newScene && (
+    <li className="sticky top-0 z-10 flex items-center gap-2 border-b bg-muted/80 px-4 py-1 text-xs text-muted-foreground backdrop-blur">
+      <span className="truncate font-medium text-foreground">{line.groupTitle}</span>
+      {onOpenScene && (
+        <Button variant="ghost" size="inline" className="ml-auto" onClick={() => onOpenScene(line.groupId, line.id)}>
+          {GROUP_KIND[line.groupKind]} 열기
+        </Button>
+      )}
+    </li>
+  );
+  const checkbox = <Checkbox aria-label={`${line.key} 선택`} checked={isPicked} onClick={(event) => event.stopPropagation()} onCheckedChange={(checked) => onPick(Boolean(checked))} />;
+  // A UI string not being edited: key, source and translation on one line, like a string table.
+  if (line.kind === 'ui' && !selected)
+    return (
+      <>
+        {header}
+        <li
+          ref={rowRef}
+          onClick={onSelect}
+          className={cn('grid cursor-pointer grid-cols-[2.5rem_minmax(0,1fr)_minmax(0,1fr)] border-b transition-colors hover:bg-muted/40', marked && 'bg-warning/5 shadow-[inset_2px_0_0_var(--warning)]')}
+          style={arrived ? { animation: 'line-arrived 2s ease-out' } : undefined}
+          onAnimationEnd={onArrivedEnd}
+        >
+          <span className="flex justify-center pt-2.5">{checkbox}</span>
+          <div className="flex min-w-0 items-baseline gap-3 px-3 py-2">
+            <span className="w-32 shrink-0 truncate font-mono text-xs text-muted-foreground" title={line.key}>
+              {line.key}
+            </span>
+            <TokenText text={line.source} source={line.source} pattern={tokenPattern} className="min-w-0 text-sm" />
+          </div>
+          <div className="flex min-w-0 items-baseline gap-2 border-l px-3 py-2 text-sm">
+            {/* Empty when untranslated: the status beside it already says so. */}
+            <span className="min-w-0 flex-1">{line.translation && <TokenText text={line.translation} source={line.source} pattern={tokenPattern} />}</span>
+            {tagRow}
+            <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+              <StatusDot color={status?.color ?? '#a1a1aa'} />
+              {status?.name}
+              <AiMark by={line.statusBy} />
+            </span>
+          </div>
+        </li>
+      </>
+    );
   return (
                 <>
-                {newScene && (
-                  <li className="sticky top-0 z-10 flex items-center gap-2 border-b bg-muted/80 px-4 py-1 text-xs text-muted-foreground backdrop-blur">
-                    <span className="truncate font-medium text-foreground">{line.groupTitle}</span>
-                    {onOpenScene && (
-                      <Button variant="ghost" size="inline" className="ml-auto" onClick={() => onOpenScene(line.groupId, line.id)}>
-                        장면 열기
-                      </Button>
-                    )}
-                  </li>
-                )}
+                {header}
                 {/*
                   Checkbox · source · translation over three rows. Row 1 is metadata in words: who says
                   it to whom over the source, the translation's status over the translation. Row 2 is the
@@ -255,14 +293,15 @@ export function LineRow({ projectId, line, newScene, selected, marked, findLabel
                   style={arrived ? { animation: 'line-arrived 2s ease-out' } : undefined}
                   onAnimationEnd={onArrivedEnd}
                 >
-                  {/* Who says it; lines nobody says (UI, documents, narration) only name their kind. An unknown listener is said here, by the speaker, and filters like the #청자 미상 tag would. */}
+                  {/* Who says it (a UI string: its key). An unknown listener is said here, by the speaker, and filters like the #청자 미상 tag would. */}
                   <p className="col-start-2 flex min-w-0 items-center gap-1 px-3 pt-3.5 pb-1.5 text-xs text-muted-foreground">
                     {line.speaker ? (
                       <SpeakerCard projectId={projectId} name={line.speaker}>
                         <span className="truncate">{line.speaker}</span>
                       </SpeakerCard>
                     ) : (
-                      <span className="shrink-0 text-muted-foreground/70">{UNSPOKEN[line.kind] ?? '지문'}</span>
+                      // A UI string is named by its key; narration and documents need no name.
+                      line.kind === 'ui' && <span className="truncate font-mono">{line.key}</span>
                     )}
                     {said &&
                       (selected ? (
@@ -286,18 +325,18 @@ export function LineRow({ projectId, line, newScene, selected, marked, findLabel
                     {selected && <LineLinks projectId={projectId} unitId={line.id} hasNote={!!line.note} onNote={() => onNoting(true)} onDetail={onDetail} />}
                   </p>
                   <span className={cn('col-start-1 row-start-2 flex justify-center pt-1', selected || !tagRow ? 'pb-3.5' : '')}>
-                    <Checkbox aria-label={`${line.key} 선택`} checked={isPicked} onClick={(event) => event.stopPropagation()} onCheckedChange={(checked) => onPick(Boolean(checked))} />
+                    {checkbox}
                   </span>
                   <div className={cn('row-start-2 min-w-0 px-3', selected || !tagRow ? 'pb-3.5' : '')}>
                     {/* The same size picked or not, so picking a line never rewraps its source. */}
                     {selected ? (
                       <>
-                        <LineSourceText projectId={projectId} unitId={line.id} source={line.source} translation={line.translation} className="text-base" />
+                        <LineSourceText projectId={projectId} unitId={line.id} source={line.source} translation={line.translation} className={cn('text-base', sourceClass)} />
                         <LineHints projectId={projectId} line={line} part="context" />
                         <LineNote key={`note-${line.id}`} unitId={line.id} note={line.note} editing={noting} onEditing={onNoting} />
                       </>
                     ) : (
-                      <TokenText text={line.source} source={line.source} pattern={tokenPattern} className="text-base" />
+                      <TokenText text={line.source} source={line.source} pattern={tokenPattern} className={cn('text-base', sourceClass)} />
                     )}
                   </div>
                   <div className={cn('row-start-2 min-w-0 border-l px-3', selected || !tagRow ? 'pb-3.5' : '')}>

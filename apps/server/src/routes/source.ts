@@ -172,7 +172,7 @@ export const sourceRoutes = new Hono<Env>()
       }
     }
     const rows = db
-      .select({ ...unitColumns, groupTitle: s.groups.title, origin: s.candidates.origin, model: s.candidates.model })
+      .select({ ...unitColumns, groupTitle: s.groups.title, groupKind: s.groups.kind, origin: s.candidates.origin, model: s.candidates.model })
       .from(s.units)
       .innerJoin(s.groups, eq(s.groups.id, s.units.groupId))
       .leftJoin(s.candidates, eq(s.candidates.id, s.units.candidateId))
