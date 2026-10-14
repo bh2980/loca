@@ -68,6 +68,14 @@ export function matchesMarks(has: readonly AutoMark[], picked: readonly AutoMark
 export const UNREVIEWED_MARKS = ['candidate', 'ai'] as const satisfies readonly AutoMark[];
 export const isUnreviewed = (item: { status: KnowledgeStatus; statusBy: StatusBy }) => item.status !== 'rejected' && (item.status === 'candidate' || aiDecided(item));
 
+/**
+ * What a line is when the script tells lines apart: the stored kind, with dialogue nobody says (no
+ * speaker) read as narration. Not stored: narration is dialogue without a speaker.
+ */
+export type LineKind = 'dialogue' | 'narration' | 'ui' | 'document';
+export const lineKindOf = (line: { kind: string; speaker: string | null }): LineKind =>
+  line.kind === 'ui' ? 'ui' : line.kind === 'document' ? 'document' : line.speaker?.trim() ? 'dialogue' : 'narration';
+
 type ListenerLine = { kind: string; speaker: string | null; source: string; listener: string | null; listenerOrigin: ListenerOrigin | null; listenerConfidence: number | null };
 
 /**

@@ -29,7 +29,7 @@ const lines: PromptLine[] = [
   ['JONAS', 'Ignoring whose orders?'],
   ['MIRA', 'Ask the Directorate about it.'],
   ['JONAS', 'Fine.'],
-].map(([speaker, source], index) => ({ id: String(index + 1), unitId: `u${index}`, groupId: 'g1', key: `k${index}`, speaker, source, candidate: `[KO] ${source}` }));
+].map(([speaker, source], index) => ({ id: String(index + 1), unitId: `u${index}`, groupId: 'g1', key: `k${index}`, kind: 'dialogue', speaker, source, candidate: `[KO] ${source}` }));
 
 const node = (output: AiNode['config']['output'], extra: Partial<AiNode['config']> = {}) =>
   workflowNodeSchema.parse({ id: 'n', type: 'ai', position: { x: 0, y: 0 }, config: { output, ...extra } }) as AiNode;
@@ -92,6 +92,23 @@ describe('mock LLM answers match the server schemas', () => {
   });
 });
 
+describe('prompt line kinds', () => {
+  it('mark narration, UI (with its key) and documents, and explain only the kinds in the batch', () => {
+    const mixed: PromptLine[] = [
+      { id: '1', unitId: 'u1', groupId: 'g1', key: 'k1', kind: 'dialogue', speaker: 'MIRA', source: 'Hi.' },
+      { id: '2', unitId: 'u2', groupId: 'g1', key: 'k2', kind: 'dialogue', speaker: null, source: 'Rain falls.' },
+      { id: '3', unitId: 'u3', groupId: 'g2', key: 'menu.start', kind: 'ui', speaker: null, source: 'Start' },
+    ];
+    const { system, prompt } = buildPrompt(node('candidate'), { source: 'en', target: 'ko' }, context, mixed);
+    const sent = (JSON.parse(prompt) as { scenes: { lines: { id: string; kind?: string; key?: string }[] }[] }).scenes.flatMap((scene) => scene.lines);
+    expect(sent.map((line) => [line.kind, line.key])).toEqual([[undefined, undefined], ['narration', undefined], ['ui', 'menu.start']]);
+    expect(system).toContain('"narration"');
+    expect(system).toContain('"ui"');
+    expect(system).not.toContain('"document"');
+    expect(buildPrompt(node('candidate'), { source: 'en', target: 'ko' }, context, lines).system).not.toContain('"kind"');
+  });
+});
+
 describe('usage', () => {
   it('is token-like with fixed overhead and cache inside the prompt count', () => {
     expect(usageFor(400, 80, { fixedTokens: 20000, cachedTokens: 10000 })).toEqual({
@@ -116,7 +133,7 @@ describe('profiles and faults', () => {
   });
 
   it('drops, duplicates and empties entries', () => {
-    const many = Array.from({ length: 40 }, (_, index): PromptLine => ({ id: String(index + 1), unitId: `u${index}`, groupId: 'g1', key: `k${index}`, speaker: 'MIRA', source: `Line ${index}` }));
+    const many = Array.from({ length: 40 }, (_, index): PromptLine => ({ id: String(index + 1), unitId: `u${index}`, groupId: 'g1', key: `k${index}`, kind: 'dialogue', speaker: 'MIRA', source: `Line ${index}` }));
     const ids = (options: Partial<MockOptions>) => (JSON.parse(ask(node('candidate'), options, many).content) as { translations: { id: string; text: string }[] }).translations;
     expect(ids({ dropRate: 1 })).toHaveLength(0);
     const dup = ids({ dupRate: 1 });

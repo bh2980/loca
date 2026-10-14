@@ -29,7 +29,7 @@ type Unit = typeof s.units.$inferSelect;
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 type StepRecord = Omit<typeof s.runSteps.$inferInsert, 'ok' | 'finishedAt'>;
 /** A queued line waiting at a slow node, with its script position for batching. */
-type Waiting = { id: string; unitId: string; nodeId: string; groupId: string; seq: number; tokens: number; since: Date; plan: number | null };
+type Waiting = { id: string; unitId: string; nodeId: string; groupId: string; seq: number; kind: string; tokens: number; since: Date; plan: number | null };
 
 /** Functions that write beyond the line itself, and the change topic they touch. */
 const FUNCTION_TOPICS: Record<string, Topic> = { addTerms: 'terms', applyKnowledge: 'knowledge' };
@@ -331,6 +331,7 @@ export class Runner {
         nodeId: s.runItems.nodeId,
         groupId: s.units.groupId,
         seq: s.units.seq,
+        kind: s.units.kind,
         // estimateTokens without loading the text: UTF-8 bytes / 4.
         tokens: sql<number>`(length(cast(${s.units.source} as blob)) + 3) / 4`,
         since: s.runItems.updatedAt,
@@ -597,7 +598,7 @@ export class Runner {
     const rows = items.map((item) => units.get(item.unitId)!);
     const lines: PromptLine[] = items.map((item, index) => {
       const unit = units.get(item.unitId)!;
-      return { id: String(index + 1), unitId: unit.id, groupId: unit.groupId, key: unit.key, speaker: unit.speaker, source: unit.source, candidate: item.data.candidateText ?? unit.translation ?? undefined, issues: item.data.issues };
+      return { id: String(index + 1), unitId: unit.id, groupId: unit.groupId, key: unit.key, kind: unit.kind, speaker: unit.speaker, source: unit.source, candidate: item.data.candidateText ?? unit.translation ?? undefined, issues: item.data.issues };
     });
     return { rows, lines };
   }

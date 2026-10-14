@@ -36,6 +36,7 @@ export function LineList({
   onSearch,
   heading,
   runGroupIds,
+  runKind,
   onOpenScene,
   find,
   banner,
@@ -49,6 +50,8 @@ export function LineList({
   heading: ReactNode;
   /** What 'AI 실행' runs when no line is picked (the open scene; none = the whole list's scope). */
   runGroupIds?: string[];
+  /** The script view (대사 · UI · 문서) the list shows, for 'AI 실행' to start from that kind's lines. */
+  runKind?: 'scene' | 'ui' | 'document';
   /** Opens a line in its own scene, without this list's filters. */
   onOpenScene?: (groupId: string, lineId: string) => void;
   /** Walking a filter inside this scene: every line shows, the matching ones are marked. */
@@ -99,7 +102,7 @@ export function LineList({
   const setEditing = (edit: boolean) => setFocusTick((tick) => (edit ? tick + 1 : 0));
 
   // Lines picked by their checkboxes; the head row above the lines acts on them.
-  const bulk = useLineBulk({ projectId, pickKey: review ? 'review' : (groupId ?? 'all'), rows, tagName: (tagId) => tagById.get(tagId)?.name, marks: search.marks });
+  const bulk = useLineBulk({ projectId, pickKey: review ? 'review' : (groupId ?? (kind ? `all.${kind}` : 'all')), rows, tagName: (tagId) => tagById.get(tagId)?.name, marks: search.marks });
   const { picked, pick, stopPicking } = bulk;
   // Moving past the end of a page opens the next page and lands on its first (or last) line.
   const landing = useRef<'first' | 'last' | null>(null);
@@ -212,6 +215,7 @@ export function LineList({
             projectId={projectId}
             unitIds={picked.size ? [...picked] : undefined}
             groupIds={picked.size ? undefined : runGroupIds}
+            viewKind={picked.size || runGroupIds ? undefined : runKind}
             trigger={
               <Button variant="outline">
                 <Play /> {picked.size ? `AI 실행 · 고른 ${picked.size.toLocaleString()}줄` : 'AI 실행'}

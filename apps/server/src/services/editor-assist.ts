@@ -71,7 +71,7 @@ export async function assistLine(db: Db, secrets: SecretStore, unitId: string, r
     }),
   } as AiNode;
   const context = buildContext(db, unit.projectId, [unit], node.config.context);
-  const line = { id: '1', unitId: unit.id, groupId: unit.groupId, key: unit.key, speaker: unit.speaker, source: unit.source, candidate: refine ? request.draft : undefined };
+  const line = { id: '1', unitId: unit.id, groupId: unit.groupId, key: unit.key, kind: unit.kind, speaker: unit.speaker, source: unit.source, candidate: refine ? request.draft : undefined };
   const { system, prompt } = buildPrompt(node, { source: project.sourceLanguage, target: project.targetLanguage }, context, [line]);
   const label = `편집기 ${refine ? '다듬기' : 'AI 번역'}`;
   const call = { projectId: unit.projectId, kind: 'editor' as const, refId: unitId, label, request: `${system}\n\n---\n\n${prompt}` };
