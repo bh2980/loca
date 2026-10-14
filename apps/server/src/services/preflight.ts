@@ -270,7 +270,7 @@ function samplePrompt(db: Db, projectId: string, node: AiNode, languages: { sour
   const sizes = picked.map((request) => {
     const rows = db.select().from(s.units).where(inArray(s.units.id, request.map((line) => line.id))).all().sort((a, b) => a.seq - b.seq);
     const context = buildContext(db, projectId, rows, node.config.context);
-    const lines = rows.map((row, index) => ({ id: String(index + 1), unitId: row.id, groupId: row.groupId, key: row.key, speaker: row.speaker, source: row.source, candidate: row.translation ?? undefined }));
+    const lines = rows.map((row, index) => ({ id: String(index + 1), unitId: row.id, groupId: row.groupId, key: row.key, kind: row.kind, speaker: row.speaker, source: row.source, candidate: row.translation ?? undefined }));
     const { system, prompt } = buildPrompt(node, languages, context, lines);
     return estimateTokens(`${system}\n\n${prompt}`);
   });

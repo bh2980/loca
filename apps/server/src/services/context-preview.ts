@@ -37,7 +37,7 @@ export function previewContext(db: Db, projectId: string, unitKey: string, pick:
   const batch = ids.map((id) => rows.get(id)!);
   const project = db.select().from(s.projects).where(eq(s.projects.id, projectId)).get()!;
   const context = buildContext(db, projectId, batch, node.config.context);
-  const lines = batch.map((row, index) => ({ id: String(index + 1), unitId: row.id, groupId: row.groupId, key: row.key, speaker: row.speaker, source: row.source, candidate: row.translation ?? undefined }));
+  const lines = batch.map((row, index) => ({ id: String(index + 1), unitId: row.id, groupId: row.groupId, key: row.key, kind: row.kind, speaker: row.speaker, source: row.source, candidate: row.translation ?? undefined }));
   const { system, prompt } = buildPrompt(node, { source: project.sourceLanguage, target: project.targetLanguage }, context, lines);
   return {
     unitKey,

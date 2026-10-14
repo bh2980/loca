@@ -78,9 +78,11 @@ export function planBatches<T extends BatchLine>(lines: T[], config: BatchConfig
 
 /**
  * Groups that must stay together (the run plan's batches, in plan order) packed into requests: whole
- * groups share a request up to the node's limits; a group larger than one request is cut.
+ * groups share a request up to the node's limits; a group larger than one request is cut. Groups of
+ * another kind (dialogue, document, UI: their first line's `kind`, when known) start a new request,
+ * as they do in planBatches.
  */
-export function packGroups<T extends { tokens: number }>(groups: T[][], config: BatchConfig): T[][] {
+export function packGroups<T extends { tokens: number; kind?: string }>(groups: T[][], config: BatchConfig): T[][] {
   if (config.mode === 'unit') return groups.flat().map((line) => [line]);
   const requests: T[][] = [];
   let current: T[] = [];
@@ -97,6 +99,7 @@ export function packGroups<T extends { tokens: number }>(groups: T[][], config: 
   for (const group of groups) {
     const groupTokens = group.reduce((sum, line) => sum + line.tokens, 0);
     const slack = small(group.length) || small(current.length) ? 1.25 : 1;
+    if (current.length && group[0]?.kind !== undefined && group[0].kind !== current[0]!.kind) flush();
     if (current.length && (current.length + group.length > config.size * slack || tokens + groupTokens > limitTokens * slack)) flush();
     if (group.length <= config.size && groupTokens <= limitTokens) {
       current.push(...group);

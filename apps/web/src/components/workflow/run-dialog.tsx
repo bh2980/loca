@@ -15,25 +15,31 @@ import { LINE_MARK_IDS, type LineMark, UNREVIEWED_MARKS } from '@tw/shared';
 import { MarkChip } from '@/components/status';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
 import { lineTags, q } from '@/lib/queries';
+import { SCRIPT_VIEW } from '@/lib/labels';
 import { cn } from '@/lib/utils';
 
-type Mode = 'all' | 'here' | 'groups' | 'units' | 'tags';
+type Mode = 'all' | 'here' | 'groups' | 'units' | 'tags' | 'kind';
+type GroupKind = 'scene' | 'ui' | 'document';
+const KIND_ORDER: GroupKind[] = ['scene', 'ui', 'document'];
 
 /**
  * Start a workflow (docs/DESIGN.md J6): one screen with what a person decides on before pressing
- * start — which lines (the scene in view, picked scenes, tagged lines, picked lines or the whole
+ * start — which lines (the scene in view, picked scenes, tagged lines, picked lines, every line of
+ * one kind — 대사 · UI · 문서, preselected only from the UI or documents view — or the whole
  * project, never preselected), what in those lines would spoil the translation and where to fix it,
  * how long and how much in plain words, and which models. Nothing more: the batches are the run
  * page's 번역 계획, and the run is capped at the suggested limits (1.3× the estimate; it pauses
  * there, the run page shows them). The count is exactly what will run: scope ∩ entry statuses
  * (unless ignored).
  */
-export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, unitIds, dirty, disabled, trigger, defaultIgnoreStatus = false, preferWorkflow }: {
+export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, unitIds, viewKind, dirty, disabled, trigger, defaultIgnoreStatus = false, preferWorkflow }: {
   projectId: string;
   /** Omit to let the user pick a workflow (when starting from a scene or a line selection). */
   workflowId?: string;
   groupIds?: string[];
   unitIds?: string[];
+  /** Opened from the script's UI or documents view: every line of that kind is the scope to start from. */
+  viewKind?: GroupKind;
   dirty?: boolean;
   disabled?: boolean;
   trigger?: ReactNode;
@@ -44,8 +50,11 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
 }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const initialMode: Mode | undefined = unitIds?.length ? 'units' : groupIds?.length ? 'here' : undefined;
+  // Dialogue is nearly the whole project, so like the whole project it is never preselected.
+  const preselectKind = viewKind && viewKind !== 'scene' ? viewKind : undefined;
+  const initialMode: Mode | undefined = unitIds?.length ? 'units' : groupIds?.length ? 'here' : preselectKind ? 'kind' : undefined;
   const [mode, setMode] = useState<Mode | undefined>(initialMode);
+  const [pickedKind, setPickedKind] = useState<GroupKind | undefined>(preselectKind);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [pickedTags, setPickedTags] = useState<Set<string>>(new Set());
   const [pickedMarks, setPickedMarks] = useState<Set<string>>(new Set());
@@ -62,9 +71,15 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
   const groups = useQuery({ ...q.groups(projectId), enabled: open });
   const here = groupIds?.length ? groups.data?.filter((group) => groupIds.includes(group.id)) : undefined;
 
+  // Each kind the project has, with its groups and lines (only offered when there is more than one).
+  const kinds = KIND_ORDER.map((kind) => {
+    const list = (groups.data ?? []).filter((group) => group.kind === kind);
+    return { kind, ids: list.map((group) => group.id), lines: list.reduce((sum, group) => sum + group.total, 0) };
+  }).filter((entry) => entry.ids.length);
+  const kindIds = kinds.find((entry) => entry.kind === pickedKind)?.ids ?? [];
   const scope =
-    mode === 'units' ? { unitIds, ignoreStatus } : mode === 'here' ? { groupIds, ignoreStatus } : mode === 'groups' ? { groupIds: [...picked], ignoreStatus } : mode === 'tags' ? { tagIds: [...pickedTags], marks: [...pickedMarks] as LineMark[], ignoreStatus } : { ignoreStatus };
-  const ready = mode === 'all' || mode === 'units' || mode === 'here' || (mode === 'groups' && picked.size > 0) || (mode === 'tags' && (pickedTags.size > 0 || pickedMarks.size > 0));
+    mode === 'kind' ? { groupIds: kindIds, ignoreStatus } : mode === 'units' ? { unitIds, ignoreStatus } : mode === 'here' ? { groupIds, ignoreStatus } : mode === 'groups' ? { groupIds: [...picked], ignoreStatus } : mode === 'tags' ? { tagIds: [...pickedTags], marks: [...pickedMarks] as LineMark[], ignoreStatus } : { ignoreStatus };
+  const ready = (mode === 'kind' && kindIds.length > 0) || mode === 'all' || mode === 'units' || mode === 'here' || (mode === 'groups' && picked.size > 0) || (mode === 'tags' && (pickedTags.size > 0 || pickedMarks.size > 0));
   // Only finished picks go out; one still missing its model stays in the picker meanwhile.
   const chosenModels = Object.fromEntries(Object.entries(runModels).filter(([, value]) => value.connectionId && value.model));
   const request = { ...scope, ...(Object.keys(chosenModels).length ? { models: chosenModels } : {}) };
@@ -106,6 +121,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
         setOpen(next);
         if (next) {
           setMode(initialMode);
+          setPickedKind(preselectKind);
           setPicked(new Set());
           setRunModels({});
         }
@@ -149,6 +165,12 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
               {groupIds?.length ? scopeButton('here', here?.length === 1 ? `이 장면 · ${here[0].title}` : `이 장면들 ${groupIds.length}개`) : null}
               {scopeButton('groups', mode === 'groups' && picked.size ? `장면 ${picked.size}개` : '장면 고르기')}
               {scopeButton('tags', '태그로')}
+              {kinds.length > 1 &&
+                kinds.map((entry) => (
+                  <Button key={entry.kind} variant={mode === 'kind' && pickedKind === entry.kind ? 'secondary' : 'outline'} className={cn(mode === 'kind' && pickedKind === entry.kind && 'ring-1 ring-ring ring-inset')} onClick={() => (setMode('kind'), setPickedKind(entry.kind))}>
+                    {SCRIPT_VIEW[entry.kind]} {entry.lines.toLocaleString()}줄
+                  </Button>
+                ))}
               {scopeButton('all', `전체${projectLines ? ` ${projectLines.toLocaleString()}줄` : ''}`)}
             </div>
             {mode === 'groups' && <ScenePicker visible={visible} picked={picked} setPicked={setPicked} filter={filter} setFilter={setFilter} />}
