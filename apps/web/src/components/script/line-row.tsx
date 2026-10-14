@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Link } from '@tanstack/react-router';
 import { Check, CircleAlert, Network, PanelRightOpen, StickyNote } from 'lucide-react';
-import { AUTO_MARKS, compileFormatRules, isUnknownListener, listenerLabel, type LineMark, type ListenerOrigin, mentions, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
+import { AUTO_MARKS, compileFormatRules, isUnknownListener, listenerLabel, needsListener, type FormatRules, type LineMark, type ListenerOrigin, mentions, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
 import { AiMark, MarkChip, StatusDot, TagChip } from '@/components/status';
 import { TranslationEditor } from '@/components/translation-editor';
 import { LineSourceText, TokenText } from '@/components/editor/source-text';
@@ -23,8 +23,8 @@ import { SpeakerCard } from '@/components/script/speaker-card';
 import type { InferResponseType } from '@/lib/api';
 
 /** Who the line is addressed to. Unsure AI guesses count as unknown. */
-function listenerText(line: { kind: string; listener: string | null; listenerOrigin: ListenerOrigin | null; listenerConfidence: number | null }) {
-  if (isUnknownListener(line) || !line.listener) return { text: '청자 미상', unknown: true };
+function listenerText(line: { kind: string; speaker: string | null; source: string; listener: string | null; listenerOrigin: ListenerOrigin | null; listenerConfidence: number | null }, rules: FormatRules | undefined) {
+  if (isUnknownListener(line, rules) || !line.listener) return { text: '청자 미상', unknown: true };
   return { text: listenerLabel(line.listener), unknown: false };
 }
 
@@ -206,7 +206,10 @@ export function LineRow({ projectId, line, newScene, selected, marked, findLabel
   onFilterTag: (tagId: string) => void;
   onFilterMark: (mark: LineMark) => void;
 }) {
-  const who = listenerText(line);
+  const rules = useQuery(q.project(projectId)).data?.formatRules ?? undefined;
+  // Narration and lines of format tokens only are said to nobody: no listener slot, unless a person or the import gave one.
+  const said = needsListener(line, rules) || (Boolean(line.listener) && (line.listenerOrigin === 'human' || line.listenerOrigin === 'import'));
+  const who = listenerText(line, rules);
   const marks: LineMark[] = [];
   if (line.statusBy === 'ai') marks.push('ai');
   if (line.note.trim()) marks.push('noted');
@@ -261,7 +264,7 @@ export function LineRow({ projectId, line, newScene, selected, marked, findLabel
                     ) : (
                       <span className="shrink-0 text-muted-foreground/70">{UNSPOKEN[line.kind] ?? '지문'}</span>
                     )}
-                    {line.kind === 'dialogue' &&
+                    {said &&
                       (selected ? (
                         <PickedListener projectId={projectId} line={line} />
                       ) : who.unknown ? (

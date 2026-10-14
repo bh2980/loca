@@ -24,9 +24,9 @@ function markCondition(projectId: string, mark: LineMark): SQL {
       return sql`${s.units.statusId} in (select id from ${s.statuses} where ${s.statuses.projectId} = ${projectId} and ${s.statuses.kind} != 'final')`;
     case 'ai':
       return eq(s.units.statusBy, 'ai');
-    // Dialogue only (narration has no listener), as the home page counts it.
+    // needsListener in shared: dialogue with a speaker and text besides the project's format tokens.
     case 'unknownListener':
-      return and(eq(s.units.kind, 'dialogue'), sql`not ${knownListenerSql}`)!;
+      return and(eq(s.units.kind, 'dialogue'), sql`not ${knownListenerSql}`, sql`needs_listener(${s.units.kind}, ${s.units.speaker}, ${s.units.source}, (select ${s.projects.formatRules} from ${s.projects} where ${s.projects.id} = ${projectId}))`)!;
     case 'diverged':
       return sql`${s.units.translation} is not null and ${sameSource(sql`${s.units.source}`)} in (select ${sameSource(sql`u.source`)} from ${s.units} u where u.project_id = ${projectId} and u.translation is not null and u.translation != '' and ${sameSource(sql`u.source`)} != '' group by 1 having count(distinct trim(u.translation)) > 1)`;
     case 'noted':

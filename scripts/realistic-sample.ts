@@ -36,6 +36,9 @@ const KO = ['바', '르', '오', '켈', '스', '마', '탈', '린', '코', '드'
 /** Fixed-seed random numbers: same inputs, same file. */
 export function realistic(size: number): { file: ImportFileInput; report: string } {
   const rand = makeRand(20261012);
+  // Lines with no listener to find (narration without a speaker, format tokens only) draw from their
+  // own stream, so the rest of the file (and the budget baseline's runs over it) stays as it was.
+  const shape = makeRand(20261014);
   const int = (min: number, max: number) => min + Math.floor(rand() * (max - min + 1));
   const pick = <T>(list: readonly T[]): T => list[Math.floor(rand() * list.length)];
 
@@ -102,7 +105,11 @@ export function realistic(size: number): { file: ImportFileInput; report: string
       const others = [...people.filter((name) => name !== speaker), ...(rand() < 0.3 ? [PLAYER] : [])];
       const listener = !narration && others.length && rand() < 0.4 ? pick(others) : undefined;
       if (listener) pairSeen.set(`${speaker}|${listener}`, (pairSeen.get(`${speaker}|${listener}`) ?? 0) + 1);
-      units.push({ key: unitKey, group: key, speaker, ...(listener ? { listener } : {}), source });
+      // Games write narration both ways: as a NARRATOR line, or with no speaker at all. Some lines are
+      // only format tokens (a pause, an emptied tag, a name variable): nothing to say, nobody to say it to.
+      const speakerless = narration && shape() < 0.5;
+      const tokensOnly = !narration && shape() < 0.01;
+      units.push({ key: unitKey, group: key, ...(speakerless ? {} : { speaker }), ...(listener && !tokensOnly ? { listener } : {}), source: tokensOnly ? ['<pause=1>', '<b></b>', '{player}'][Math.floor(shape() * 3)]! : source });
       nodes.push({ key: `n.${unitKey}`, type: 'ChatMessageState', units: [unitKey] });
       if (line > 1) edges.push({ from: `n.${key}.l${line - 1}`, to: `n.${unitKey}` });
       keys.push(unitKey);
@@ -205,6 +212,7 @@ export function realistic(size: number): { file: ImportFileInput; report: string
     `scenes ${sizes.length}: ${Object.entries(bins).map(([range, n]) => `${range} lines ${n} (${Math.round((n / sizes.length) * 100)}%)`).join(', ')}; largest ${Math.max(...sizes)}`,
     `hubs ${hubCount} (${hubEdges} hub edges), choices ${joins}, characters ${characters.length}, terms ${terms.length}, relationships ${relationships.length}`,
     `listeners ${units.filter((unit) => unit.listener).length}, translated ${units.filter((unit) => unit.translation).length}/${lineCount} lines`,
+    `narration ${units.filter((unit) => unit.speaker === 'NARRATOR').length} by NARRATOR + ${units.filter((unit) => unit.kind !== 'ui' && !unit.speaker).length} without a speaker, format tokens only ${units.filter((unit) => /^(<pause=1>|<b><\/b>|\{player\})$/.test(unit.source)).length}`,
   ].join('\n');
 
   return {

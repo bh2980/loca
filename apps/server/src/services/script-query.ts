@@ -115,6 +115,7 @@ export function findLines(db: Db, projectId: string, filter: LineFilter, options
   for (const row of tagRows) tagsByUnit.set(row.unitId, [...(tagsByUnit.get(row.unitId) ?? []), tagName.get(row.tagId) ?? row.tagId]);
   const statusName = new Map(statuses.map((status) => [status.id, status.name]));
   const finalStatus = new Set(statuses.filter((status) => status.kind === 'final').map((status) => status.id));
+  const rules = db.select({ rules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, projectId)).get()?.rules;
   // Same source, different translation compares across the project: one extra query, only when asked.
   const diverged = options.diverged && page.length ? new Set(db.select({ id: s.units.id }).from(s.units).where(and(eq(s.units.projectId, projectId), ...markConditions(projectId, ['diverged']))).all().map((row) => row.id)) : null;
   return {
@@ -131,7 +132,7 @@ export function findLines(db: Db, projectId: string, filter: LineFilter, options
       translation: unit.translation,
       status: statusName.get(unit.statusId) ?? unit.statusId,
       tags: tagsByUnit.get(unit.id) ?? [],
-      marks: [...lineMarksOf(unit, finalStatus.has(unit.statusId)), ...(diverged?.has(unit.id) ? (['diverged'] as const) : [])],
+      marks: [...lineMarksOf(unit, finalStatus.has(unit.statusId), rules), ...(diverged?.has(unit.id) ? (['diverged'] as const) : [])],
     })),
   };
 }

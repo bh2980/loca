@@ -11,6 +11,7 @@ import {
   scriptParams,
   setListenerParams,
   setStatusParams,
+  needsListener,
   type FunctionName,
 } from '@tw/shared';
 import type { Db } from '../../db/index.ts';
@@ -225,13 +226,15 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     const outputs = Object.entries(input.item.data.outputs ?? {});
     const source = params.fromNodeId ? input.item.data.outputs?.[params.fromNodeId] : outputs.reverse().find(([, output]) => 'confidence' in output && 'listener' in output)?.[1];
     if (!source || !('listener' in source)) return { port: 'out', output: { recorded: false, reason: '청자 출력이 없습니다.' } };
-    // Only dialogue has a listener; what the import or a person set is never overwritten by the AI.
-    if (input.unit.kind !== 'dialogue') return { port: 'out', output: { recorded: false, reason: '대사가 아니라 청자가 필요 없습니다.' } };
+    // Only lines said to someone have a listener (needsListener: not narration, not format tokens
+    // only), so none is made up for the rest; what the import or a person set is never overwritten by the AI.
+    const rules = tx.select({ formatRules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, input.projectId)).get()?.formatRules;
+    if (!needsListener(input.unit, rules)) return { port: 'out', output: { recorded: false, reason: input.unit.kind !== 'dialogue' ? '대사가 아니라 청자가 필요 없습니다.' : !input.unit.speaker?.trim() ? '화자가 없는 지문이라 청자가 필요 없습니다.' : '서식만 있는 줄이라 청자가 필요 없습니다.' } };
     if (input.unit.listenerOrigin === 'human') return { port: 'out', output: { recorded: false, reason: '사람이 정한 청자가 있습니다.' } };
     if (input.unit.listenerOrigin === 'import' && input.unit.listener) return { port: 'out', output: { recorded: false, reason: '가져온 청자가 있습니다.' } };
     const listener = cleanListener(typeof source.listener === 'string' ? source.listener : null);
     const confidence = clampConfidence(source.confidence);
-    setAiListener(tx, input.unit, listener, confidence, 'ai');
+    setAiListener(tx, input.unit, listener, confidence, 'ai', rules);
     return { port: 'out', output: { recorded: true, listener, confidence } };
   },
 };

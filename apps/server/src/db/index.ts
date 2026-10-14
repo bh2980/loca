@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:f
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
+import { formatRulesSchema, needsListener } from '@tw/shared';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import * as schema from './schema.ts';
@@ -45,6 +46,14 @@ export function openDatabase(file: string, folder = migrationsFolder) {
     sqlite.pragma('journal_mode = WAL');
     sqlite.pragma('foreign_keys = ON');
     sqlite.pragma('busy_timeout = 5000');
+    // needs_listener(kind, speaker, source, format_rules json): needsListener in shared itself, so the
+    // line marks' SQL (line-marks.ts) decides exactly as the code does (whitespace, format tokens).
+    const rulesOf = new Map<string, ReturnType<typeof formatRulesSchema.parse>>();
+    sqlite.function('needs_listener', { deterministic: true }, (kind: unknown, speaker: unknown, source: unknown, rules: unknown) => {
+      const key = typeof rules === 'string' ? rules : '';
+      if (!rulesOf.has(key)) rulesOf.set(key, formatRulesSchema.parse(key ? JSON.parse(key) : {}));
+      return needsListener({ kind: String(kind), speaker: typeof speaker === 'string' ? speaker : null, source: String(source ?? '') }, rulesOf.get(key)) ? 1 : 0;
+    });
     const backup = existed ? backupBeforeMigration(sqlite, file, folder) : null;
     const db = drizzle(sqlite, { schema });
     migrate(db, { migrationsFolder: folder });

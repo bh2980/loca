@@ -493,8 +493,10 @@ export class Runner {
         return tx.update(s.runItems).set({ state: 'done' }).where(eq(s.runItems.id, item.id)).run();
       case 'condition': {
         const finalStatus = tx.select({ kind: s.statuses.kind }).from(s.statuses).where(eq(s.statuses.id, unit.statusId)).get()?.kind === 'final';
-        const listenerKnown = !isUnknownListener(unit);
-        const marks = lineMarksOf(unit, finalStatus);
+        // Lines that need no listener (narration, format tokens only) count as known: nothing to guess.
+        const rules = tx.select({ rules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, run.projectId)).get()?.rules;
+        const listenerKnown = !isUnknownListener(unit, rules);
+        const marks = lineMarksOf(unit, finalStatus, rules);
         const data: ConditionData = {
           visits: item.visits,
           outputs: item.data.outputs ?? {},
