@@ -39,7 +39,7 @@ export interface Marker {
   direction: 'ahead' | 'behind';
 }
 export interface Windowed {
-  /** Overview node ids and stub ids drawn. */
+  /** Overview node ids and window markers drawn. */
   ids: string[];
   edges: OverviewEdge[];
   markers: Marker[];
@@ -58,8 +58,7 @@ export function windowOf(overview: Overview, at: string | undefined, all: boolea
   const byId = new Map(overview.nodes.map((node) => [node.id, node] as const));
   const order = new Map(overview.nodes.map((node, i) => [node.id, i] as const));
   if (all) {
-    const stubs = new Set(overview.edges.filter((edge) => edge.kind === 'stub').map((edge) => edge.to));
-    return { ids: [...overview.nodes.map((node) => node.id), ...stubs], edges: overview.edges, markers: [] };
+    return { ids: overview.nodes.map((node) => node.id), edges: overview.edges.filter((edge) => edge.kind === 'path'), markers: [] };
   }
   const start = resolveAt(overview, at);
   if (!start) return { ids: [], edges: [], markers: [] };
@@ -101,17 +100,12 @@ export function windowOf(overview: Overview, at: string | undefined, all: boolea
       queue.push(node.id);
     }
   }
-  const ids = new Set(shown);
-  // The stubs leaving a choice that is drawn (found first: their rejoin edges may come earlier in the list).
-  for (const edge of overview.edges) if (edge.kind === 'stub' && shown.has(edge.from)) ids.add(edge.to);
   const edges: OverviewEdge[] = [];
   const markers = new Map<string, Marker>();
   for (const edge of overview.edges) {
-    if (edge.kind === 'stub') {
-      if (shown.has(edge.from)) edges.push(edge);
-    } else if (edge.kind === 'rejoin') {
-      if (ids.has(edge.from) && shown.has(edge.to)) edges.push(edge);
-    } else if (shown.has(edge.from) && shown.has(edge.to)) edges.push(edge);
+    // Other choices (stubs) and where they come back (rejoins) are not drawn: the path is one line.
+    if (edge.kind !== 'path') continue;
+    if (shown.has(edge.from) && shown.has(edge.to)) edges.push(edge);
     else if (shown.has(edge.from) && byId.has(edge.to)) {
       const id = markerId('ahead', edge.from);
       // The marker leads to the first of the ways in script order.
@@ -125,7 +119,7 @@ export function windowOf(overview: Overview, at: string | undefined, all: boolea
       if (!edges.some((item) => item.from === id)) edges.push({ from: id, to: edge.to, label: null, kind: 'path' });
     }
   }
-  return { ids: [...ids, ...markers.keys()], edges, markers: [...markers.values()] };
+  return { ids: [...shown, ...markers.keys()], edges, markers: [...markers.values()] };
 }
 
 /** Where the next/previous buttons go from `at`, and `at`'s place among the choices (갈림 i / a). */

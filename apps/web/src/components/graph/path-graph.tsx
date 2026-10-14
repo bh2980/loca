@@ -6,6 +6,9 @@ import '@xyflow/react/dist/style.css';
 import { useSize } from '@/hooks/use-size';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { ChevronDown } from 'lucide-react';
 import { windowOf, type Overview } from '@/components/graph/path-window';
 import { cn } from '@/lib/utils';
 
@@ -23,7 +26,17 @@ export interface PathSlice {
   overview: Overview;
 }
 
-type Shape = 'line' | 'choice' | 'fork' | 'stub' | 'section' | 'more';
+type Shape = 'line' | 'choice' | 'fork' | 'section' | 'more';
+/** The other ways out of a choice: shown as a menu on its node, never drawn as boxes. */
+interface ForkMenuData {
+  /** Stubs leaving the choice ('다른 선택 N개'). */
+  count: number;
+  /** Every arm of the fork. `lines` / `alone` are those of its stub (the arm not taken). */
+  arms: { id: string; label: string; chosen: boolean; lines?: number; alone?: boolean }[];
+  picked: boolean;
+  onPick: (armId: string) => void;
+  onAuto: () => void;
+}
 type PathNodeData = {
   shape: Shape;
   speaker?: string | null;
@@ -39,13 +52,10 @@ type PathNodeData = {
   /** Marker: where it leads ('이 앞으로 이어짐' / '이 뒤에서 이어짐'). */
   hint?: string;
   onMove?: () => void;
-  /** Stub: its label, and what it leads to. */
-  label?: string;
-  alone?: boolean;
-  /** The fork here has an arm a person picked: they may hand the choice back. */
-  picked?: boolean;
-  onStub?: () => void;
-  onAuto?: () => void;
+  /** The fork here and its other ways out (a choice with stubs). */
+  menu?: ForkMenuData;
+  /** Join: the other choices that come back here ('‹label›에서도 들어옴'). */
+  comesFrom?: string[];
 };
 type PathNode = Node<PathNodeData, 'path'>;
 
@@ -53,32 +63,77 @@ const SIZE: Record<Shape, { width: number; height: number }> = {
   line: { width: 260, height: 76 },
   choice: { width: 260, height: 52 },
   fork: { width: 130, height: 28 },
-  stub: { width: 220, height: 34 },
   section: { width: 260, height: 76 },
   more: { width: 56, height: 28 },
+};
+/** A node with a menu chip is taller (a line) or wider and taller (the pill) than the plain one. */
+const boxOf = (shape: Shape, menu: boolean) => {
+  const base = SIZE[shape];
+  return menu ? (shape === 'fork' ? { width: 170, height: 68 } : { width: base.width, height: base.height + 12 }) : base;
 };
 // Dense slices (hundreds of blocks with many parallel lanes) take seconds: laid out off the page's thread.
 const elk = new ELK({ workerFactory: () => new ElkWorker() });
 
+/** '합류': a place where other choices come back; the tooltip says which. */
+function JoinMark({ comesFrom }: { comesFrom?: string[] }) {
+  const mark = <Badge variant="outline" className="shrink-0">합류</Badge>;
+  if (!comesFrom?.length) return mark;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="nodrag">{mark}</span>
+      </TooltipTrigger>
+      <TooltipContent>
+        <ul className="space-y-0.5">
+          {comesFrom.map((label) => (
+            <li key={label}>‹{label}›에서도 들어옴</li>
+          ))}
+        </ul>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+/** '다른 선택 N개': every arm of the fork; picking one changes the path. Clicks here must not select the node. */
+function ForkMenu({ menu, className }: { menu: ForkMenuData; className?: string }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" className={cn('nodrag nopan shrink-0', className)} onClick={(event) => event.stopPropagation()}>
+          다른 선택 {menu.count.toLocaleString()}개
+          <ChevronDown />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-w-80" onClick={(event) => event.stopPropagation()}>
+        {menu.arms.map((arm) => (
+          <DropdownMenuCheckboxItem key={arm.id} checked={arm.chosen} onCheckedChange={() => !arm.chosen && menu.onPick(arm.id)}>
+            <span className="truncate">{arm.label}</span>
+            {!arm.chosen && arm.lines !== undefined && (
+              <span className="shrink-0 text-muted-foreground">
+                · {arm.lines.toLocaleString()}줄{arm.alone ? ' · 따로 끝남' : ''}
+              </span>
+            )}
+          </DropdownMenuCheckboxItem>
+        ))}
+        {menu.picked && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={menu.onAuto}>자동으로 고르기</DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 function PathNodeView({ data, selected }: NodeProps<PathNode>) {
-  const size = SIZE[data.shape];
+  const size = boxOf(data.shape, !!data.menu);
   const handles = (
     <>
       <Handle type="target" position={Position.Top} className="!pointer-events-none !opacity-0" />
       <Handle type="source" position={Position.Bottom} className="!pointer-events-none !opacity-0" />
     </>
   );
-  if (data.shape === 'stub')
-    return (
-      <div style={size} className="flex items-center">
-        <Button variant="outline" className="nodrag h-full w-full justify-start border-dashed bg-background/60 font-normal text-muted-foreground" title="이 갈래로 바꾸기" onClick={data.onStub}>
-          <span className="truncate">
-            ‹{data.label}› · {data.lines.toLocaleString()}줄{data.alone ? ' · 따로 끝남' : ''}
-          </span>
-        </Button>
-        {handles}
-      </div>
-    );
   if (data.shape === 'more')
     return (
       <div style={size} className="flex items-center">
@@ -93,13 +148,9 @@ function PathNodeView({ data, selected }: NodeProps<PathNode>) {
       <div style={size} className={cn('flex flex-col items-center gap-1', selected && 'ring-2 ring-primary/30')}>
         <div className="flex h-7 w-full items-center justify-center gap-1 rounded-full border bg-muted text-xs text-muted-foreground">
           {data.pill}
-          {data.join && <Badge variant="outline">합류</Badge>}
+          {data.join && <JoinMark comesFrom={data.comesFrom} />}
         </div>
-        {data.picked && (
-          <Button variant="ghost" className="nodrag" onClick={data.onAuto}>
-            자동으로 고르기
-          </Button>
-        )}
+        {data.menu && <ForkMenu menu={data.menu} />}
         {handles}
       </div>
     );
@@ -109,15 +160,11 @@ function PathNodeView({ data, selected }: NodeProps<PathNode>) {
         <span className="truncate">
           {data.shape === 'section' ? `구간 · ${data.lines.toLocaleString()}줄` : data.shape === 'choice' ? '선택지' : (data.speaker ?? '지문·화면 문구')}
         </span>
-        {data.shape !== 'section' && data.lines > 1 && <Badge variant="secondary">{data.lines.toLocaleString()}줄</Badge>}
-        {!!data.lanes && <Badge variant="secondary">동시에 열림 {data.lanes.toLocaleString()}</Badge>}
-        {data.fork && <Badge variant="outline">갈림</Badge>}
-        {data.join && <Badge variant="outline">합류</Badge>}
-        {data.picked && (
-          <Button variant="ghost" size="inline" className="nodrag ml-auto" onClick={data.onAuto}>
-            자동으로 고르기
-          </Button>
-        )}
+        {data.shape !== 'section' && data.lines > 1 && <Badge variant="secondary" className="shrink-0">{data.lines.toLocaleString()}줄</Badge>}
+        {!!data.lanes && <Badge variant="secondary" className="shrink-0">동시에 열림 {data.lanes.toLocaleString()}</Badge>}
+        {data.fork && !data.menu && <Badge variant="outline">갈림</Badge>}
+        {data.join && <JoinMark comesFrom={data.comesFrom} />}
+        {data.menu && <ForkMenu menu={data.menu} className="ml-auto" />}
       </div>
       <p className="line-clamp-2 text-sm leading-snug">
         {data.shape === 'choice' ? `▶ ${data.text ?? ''}` : data.shape === 'section' ? (data.text ? `${data.speaker ? `${data.speaker}: ` : ''}${data.text}` : '대사 없는 이어짐') : (data.text ?? '')}
@@ -153,7 +200,7 @@ function storedLayout(key: string): Positions | undefined {
 let mainElk: Promise<Pick<InstanceType<typeof ELK>, 'layout'>> | undefined;
 const windowElk = () => (mainElk ??= import('elkjs/lib/elk.bundled.js').then((module) => new module.default()));
 
-async function layoutOf(key: string, items: { id: string; shape: Shape }[], edges: { from: string; to: string }[], whole: boolean): Promise<Positions> {
+async function layoutOf(key: string, items: { id: string; box: { width: number; height: number } }[], edges: { from: string; to: string }[], whole: boolean): Promise<Positions> {
   const hit = layouts.get(key) ?? (whole ? storedLayout(key) : undefined);
   if (hit) return hit;
   const ids = new Set(items.map((item) => item.id));
@@ -161,7 +208,7 @@ async function layoutOf(key: string, items: { id: string; shape: Shape }[], edge
   const result = await engine.layout({
     id: 'root',
     layoutOptions: { 'elk.algorithm': 'layered', 'elk.direction': 'DOWN', 'elk.spacing.nodeNode': '28', 'elk.layered.spacing.nodeNodeBetweenLayers': '44', 'elk.layered.thoroughness': '1' },
-    children: items.map((item) => ({ id: item.id, ...SIZE[item.shape] })),
+    children: items.map((item) => ({ id: item.id, ...item.box })),
     edges: edges.filter((edge) => ids.has(edge.from) && ids.has(edge.to)).map((edge, i) => ({ id: `e${i}`, sources: [edge.from], targets: [edge.to] })),
   });
   const layout: Positions = { key, at: Object.fromEntries((result.children ?? []).map((child) => [child.id, { x: child.x ?? 0, y: child.y ?? 0 }])) };
@@ -206,7 +253,7 @@ function windowViewport(box: { left: number; top: number; width: number; height:
 /**
  * 길 따라 보기: the route slice's overview (services/route-slice.ts) drawn top-to-bottom, a window
  * around `at` at a time or all of it. Lines come from the dialogue graph's node list; clicking a
- * section or anchor selects it (the page's `node`), clicking a stub picks that arm, clicking a
+ * section or anchor selects it (the page's `node`), the other choices of a fork are a menu on its node, clicking a
  * marker at the window's edge moves the window. Pan and zoom are kept in sessionStorage only, never in history.
  */
 export function PathGraph({ projectId, slice, texts, at, all, selectedId, onSelect, onMove, onPick, onAuto, onReady }: {
@@ -229,16 +276,33 @@ export function PathGraph({ projectId, slice, texts, at, all, selectedId, onSele
 }) {
   const moveRef = useRef(onMove);
   moveRef.current = onMove;
-  // Every overview node and stub as a drawable item, made once per slice.
+  // Every overview node as a drawable item, made once per slice.
   const catalog = useMemo(() => {
     const blocks = new Map(slice.blocks.map((block) => [block.id, block] as const));
     const blockOf = new Map(slice.blocks.flatMap((block) => block.nodeIds.map((id) => [id, block.id] as const)));
     const forkAt = new Map(slice.forks.map((fork) => [blockOf.get(fork.nodeId) ?? fork.nodeId, fork] as const));
     const items = new Map<string, { id: string; shape: Shape; data: PathNodeData }>();
+    const stubOf = new Map(slice.stubs.map((stub) => [`${stub.fork}>${stub.arm}`, stub] as const));
     for (const node of slice.overview.nodes) {
       const fork = forkAt.get(node.id);
       const picked = fork?.mode === 'choice' && fork.arms.some((arm) => arm.picked);
-      const common = { lines: node.unitIds.length, join: node.join, fork: node.choice, picked, onAuto: fork ? () => onAuto(fork.nodeId) : undefined };
+      const count = fork ? slice.stubs.filter((stub) => stub.fork === fork.nodeId).length : 0;
+      const menu: ForkMenuData | undefined =
+        fork && node.choice && count > 0
+          ? {
+              count,
+              picked,
+              arms: fork.arms.map((arm) => {
+                const stub = stubOf.get(`${fork.nodeId}>${arm.nodeId}`);
+                return { id: arm.nodeId, label: arm.label, chosen: arm.chosen, lines: stub?.lines, alone: stub ? stub.rejoins.length === 0 : undefined };
+              }),
+              onPick: (armId) => onPick(fork.nodeId, armId),
+              onAuto: () => onAuto(fork.nodeId),
+            }
+          : undefined;
+      const here = new Set(node.nodeIds);
+      const comesFrom = node.join ? [...new Set(slice.stubs.filter((stub) => stub.rejoins.some((id) => here.has(id))).map((stub) => stub.label))] : undefined;
+      const common = { lines: node.unitIds.length, join: node.join, fork: node.choice, menu, comesFrom };
       const first = node.nodeIds.map((id) => texts.get(id)).find((item) => item?.text);
       if (node.kind === 'section') {
         items.set(node.id, { id: node.id, shape: 'section', data: { ...common, shape: 'section', lanes: node.lanes, join: false, fork: false, speaker: first?.speaker, text: first?.text } });
@@ -249,9 +313,6 @@ export function PathGraph({ projectId, slice, texts, at, all, selectedId, onSele
         const choice = blocks.get(node.id)?.kind === 'choice';
         items.set(node.id, { id: node.id, shape: choice ? 'choice' : 'line', data: { ...common, shape: choice ? 'choice' : 'line', speaker: first?.speaker, text: first?.text } });
       }
-    }
-    for (const stub of slice.stubs) {
-      items.set(stub.id, { id: stub.id, shape: 'stub', data: { shape: 'stub', lines: stub.lines, join: false, label: stub.label, alone: stub.rejoins.length === 0, onStub: () => onPick(stub.fork, stub.arm) } });
     }
     return items;
   }, [slice, texts, onPick, onAuto]);
@@ -266,20 +327,19 @@ export function PathGraph({ projectId, slice, texts, at, all, selectedId, onSele
       return item ? [item] : [];
     });
     const flowEdges: Edge[] = windowed.edges.map((edge, i) => {
-      const soft = edge.kind !== 'path';
-      const color = soft ? 'var(--muted-foreground)' : 'var(--foreground)';
+      const color = 'var(--foreground)';
       return {
         id: `${edge.from}>${edge.to}#${i}`,
         source: edge.from,
         target: edge.to,
-        label: edge.kind === 'path' ? (edge.label ?? undefined) : undefined,
+        label: edge.label ?? undefined,
         labelStyle: { fontSize: 12, fill: 'var(--muted-foreground)' },
         labelBgStyle: { fill: 'var(--background)' },
         markerEnd: { type: MarkerType.ArrowClosed, color, width: 14, height: 14 },
-        style: { stroke: color, strokeWidth: 1.25, opacity: soft ? 0.6 : 0.85, strokeDasharray: soft ? '5 4' : undefined },
+        style: { stroke: color, strokeWidth: 1.25, opacity: 0.85 },
       };
     });
-    const key = `${items.map((item) => `${item.id}:${item.shape}`).join('|')}#${windowed.edges.map((edge) => `${edge.from}>${edge.to}`).join('|')}`;
+    const key = `${items.map((item) => `${item.id}:${item.shape}${item.data.menu ? 'm' : ''}`).join('|')}#${windowed.edges.map((edge) => `${edge.from}>${edge.to}`).join('|')}`;
     return { items, flowEdges, plain: windowed.edges, key };
   }, [slice.overview, catalog, at, all]);
 
@@ -288,7 +348,7 @@ export function PathGraph({ projectId, slice, texts, at, all, selectedId, onSele
   const [frame, size] = useSize<HTMLDivElement>();
   useEffect(() => {
     let current = true;
-    layoutOf(key, items, plain, all).then(
+    layoutOf(key, items.map((item) => ({ id: item.id, box: boxOf(item.shape, !!item.data.menu) })), plain, all).then(
       (layout) => current && setPositions(layout),
       (error: Error) => current && setFailed(error.message),
     );
@@ -315,8 +375,8 @@ export function PathGraph({ projectId, slice, texts, at, all, selectedId, onSele
   const placed = items.filter((item) => positions.at[item.id]);
   const left = Math.min(...placed.map((item) => positions.at[item.id].x));
   const top = Math.min(...placed.map((item) => positions.at[item.id].y));
-  const bottom = Math.max(0, ...placed.map((item) => positions.at[item.id].y + SIZE[item.shape].height));
-  const right = Math.max(1, ...placed.map((item) => positions.at[item.id].x + SIZE[item.shape].width));
+  const bottom = Math.max(0, ...placed.map((item) => positions.at[item.id].y + boxOf(item.shape, !!item.data.menu).height));
+  const right = Math.max(1, ...placed.map((item) => positions.at[item.id].x + boxOf(item.shape, !!item.data.menu).width));
   // A window opens fitted at a readable zoom (or at its top); the whole overview fits, or, when too long to read fitted
   // (a tall single column), opens on its beginning instead (전체 맞춤 shows all).
   const focus = at ? positions.at[at] : undefined;
@@ -339,7 +399,7 @@ export function PathGraph({ projectId, slice, texts, at, all, selectedId, onSele
       nodesDraggable={false}
       nodesConnectable={false}
       elementsSelectable
-      onNodeClick={(_event, node) => node.data.shape !== 'stub' && node.data.shape !== 'more' && onSelect(node.id)}
+      onNodeClick={(_event, node) => node.data.shape !== 'more' && onSelect(node.id)}
       onPaneClick={() => onSelect(undefined)}
       onMoveEnd={(_event, next) => {
         try {

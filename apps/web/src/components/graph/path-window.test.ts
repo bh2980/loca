@@ -17,9 +17,11 @@ const overview: Overview = {
 };
 
 describe('windowOf', () => {
-  it('shows four stops ahead, one back, the sections between and the stubs of drawn choices', () => {
+  it('shows four stops ahead, one back, and the sections between; no stubs', () => {
     const window = windowOf(overview, 'c2', false);
-    expect(window.ids).toEqual(expect.arrayContaining(['c1', 's1', 'c2', 's2', 'c3', 'c4', 'c5', 'c6', 'stub:c1:x']));
+    expect(window.ids).toEqual(expect.arrayContaining(['c1', 's1', 'c2', 's2', 'c3', 'c4', 'c5', 'c6']));
+    expect(window.ids.some((id) => id.startsWith('stub:'))).toBe(false);
+    expect(window.edges.every((edge) => edge.kind === 'path')).toBe(true);
     expect(window.ids).not.toContain('start');
     expect(window.markers.map((marker) => marker.id)).toEqual([markerId('behind', 'c1')]);
   });
@@ -28,10 +30,11 @@ describe('windowOf', () => {
     expect(window.ids).not.toContain('c6');
     expect(window.markers).toEqual([{ id: markerId('ahead', 'c5'), target: 'c6', direction: 'ahead' }]);
     expect(window.edges.some((edge) => edge.to === markerId('ahead', 'c5'))).toBe(true);
-    expect(window.edges.some((edge) => edge.kind === 'rejoin')).toBe(true);
+    expect(window.edges.some((edge) => edge.kind === 'rejoin' || edge.kind === 'stub')).toBe(false);
   });
   it('draws everything for all, and falls back to the first node for an unknown place', () => {
-    expect(windowOf(overview, 'c2', true).ids).toHaveLength(nodes.length + 1);
+    expect(windowOf(overview, 'c2', true).ids).toHaveLength(nodes.length);
+    expect(windowOf(overview, 'c2', true).edges).toHaveLength(8);
     expect(resolveAt(overview, 'gone')).toBe('start');
   });
 });

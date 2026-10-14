@@ -78,7 +78,7 @@ export function PathMode({ projectId, toggle, node, edit, at, all, onSelect, onE
   const around = slice && stops(slice.overview, here);
   const choices = slice?.forks.filter((fork) => fork.mode === 'choice').length ?? 0;
   const picks = Object.keys(route.data?.picks ?? {}).length;
-  const summary = slice ? `길 ${slice.lines.toLocaleString()}줄 / 전체 ${slice.totalLines.toLocaleString()}줄 · 갈림 ${choices.toLocaleString()} · 다른 갈래 ${slice.stubs.length.toLocaleString()} · 합류 ${slice.joins.length.toLocaleString()}` : undefined;
+  const summary = slice ? `길 ${slice.lines.toLocaleString()}줄 / 전체 ${slice.totalLines.toLocaleString()}줄 · 갈림 ${choices.toLocaleString()} · 다른 선택 ${slice.stubs.length.toLocaleString()} · 합류 ${slice.joins.length.toLocaleString()}` : undefined;
   const go = (target: string | undefined) => target && onMove(target);
   // ⌥↑/⌥↓ (Ctrl as well) move the window to the previous/next choice or join, unless a field has the keys.
   const goRef = useRef<{ previous?: string; next?: string }>({});
