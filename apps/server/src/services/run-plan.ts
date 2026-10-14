@@ -1,4 +1,4 @@
-import { and, eq, inArray, or } from 'drizzle-orm';
+import { and, eq, inArray, ne, or } from 'drizzle-orm';
 import { nodeName, withRunModels, type LineMark, type RunModels, type WorkflowDefinition } from '@tw/shared';
 import { z } from 'zod';
 import { inChunks, inList } from '../db/chunk.ts';
@@ -34,7 +34,8 @@ export function resolveRunModels(db: Db, definition: WorkflowDefinition, input: 
   const models: RunModels = {};
   const unknown: string[] = [];
   if (!input) return { models, unknown };
-  const connections = db.select({ id: s.connections.id, name: s.connections.name }).from(s.connections).all();
+  // API-key (http) connections are for tools, not AI nodes: the run refuses them, so the preview does too.
+  const connections = db.select({ id: s.connections.id, name: s.connections.name }).from(s.connections).where(ne(s.connections.kind, 'http')).all();
   const ai = definition.nodes.filter((node) => node.type === 'ai');
   for (const [key, pick] of Object.entries(input)) {
     const connection = connections.find((row) => row.id === pick.connection) ?? connections.find((row) => row.name.toLowerCase() === pick.connection.toLowerCase());

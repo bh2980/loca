@@ -76,6 +76,8 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
     placeholderData: keepPreviousData,
   });
   const data = ready ? plan.data : undefined;
+  // The kept plan is another scope's or model's: its counts and caps must not start this run.
+  const stale = plan.isPlaceholderData;
   const suggested = data?.suggestedLimits;
   const start = useMutation({
     mutationFn: () => {
@@ -193,7 +195,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
             취소
           </Button>
           {/* A model picked without its model yet would quietly run on the node's own: finish or undo it first. */}
-          <Button disabled={!total || !workflowId || start.isPending || Object.keys(chosenModels).length !== Object.keys(runModels).length} onClick={() => start.mutate()}>
+          <Button disabled={!total || !workflowId || stale || start.isPending || Object.keys(chosenModels).length !== Object.keys(runModels).length} onClick={() => start.mutate()}>
             {start.isPending ? <Spinner /> : <Play />} {total ? `${total.toLocaleString()}줄 실행 시작` : '실행 시작'}
           </Button>
         </DialogFooter>

@@ -43,6 +43,12 @@ describe("a run's own models", () => {
     expect(await planRun(db, projectId, { workflow: workflow.id, models: { '*': { connection: 'nope', model: 'x' } } })).toMatchObject({ ok: false, error: expect.stringContaining('nope') });
   });
 
+  it('refuse an API-key connection, as starting the run would', async () => {
+    const { db, projectId, workflow } = setup();
+    db.insert(s.connections).values({ kind: 'http', name: 'Search key' }).run();
+    expect(await planRun(db, projectId, { workflow: workflow.id, models: { '*': { connection: 'search key', model: 'x' } } })).toMatchObject({ ok: false, error: expect.stringContaining('연결 search key') });
+  });
+
   it('go into the run started from the chat, not into the workflow', async () => {
     const { db, projectId, workflow, other } = setup();
     const start = agentCatalog(db, projectId).find((tool) => tool.name === 'start_run')!;
