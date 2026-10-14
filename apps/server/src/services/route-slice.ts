@@ -74,7 +74,7 @@ export interface SliceSection {
   join: boolean;
 }
 
-type GraphNode = { id: string; key: string; kind: string; unitIds: string[] };
+type GraphNode = { id: string; key: string; kind: string; unitIds: string[]; label?: string | null };
 type GraphEdge = { from: string; to: string; label: string | null };
 
 /** Nodes a stub's scan may visit before it gives up counting (a huge side arm is still one stub). */
@@ -97,7 +97,7 @@ export function projectSlice(db: Db, projectId: string): RouteSlice {
 }
 
 function buildSlice(db: Db, projectId: string, picks: Record<string, string>): RouteSlice {
-  const nodes = db.select({ id: s.graphNodes.id, key: s.graphNodes.key, kind: s.graphNodes.kind, unitIds: s.graphNodes.unitIds }).from(s.graphNodes).where(eq(s.graphNodes.projectId, projectId)).all();
+  const nodes = db.select({ id: s.graphNodes.id, key: s.graphNodes.key, kind: s.graphNodes.kind, unitIds: s.graphNodes.unitIds, label: s.graphNodes.label }).from(s.graphNodes).where(eq(s.graphNodes.projectId, projectId)).all();
   const edges = db.select({ from: s.graphEdges.fromId, to: s.graphEdges.toId, label: s.graphEdges.label }).from(s.graphEdges).where(eq(s.graphEdges.projectId, projectId)).all();
   const units = new Map(db.select({ id: s.units.id, seq: s.units.seq, source: s.units.source }).from(s.units).where(eq(s.units.projectId, projectId)).all().map((unit) => [unit.id, unit]));
   return sliceRoute(nodes, edges, units, picks);
@@ -107,13 +107,25 @@ export function sliceRoute(nodes: GraphNode[], edges: GraphEdge[], units: Map<st
   const byId = new Map(nodes.map((node) => [node.id, node]));
   const out = new Map<string, GraphEdge[]>(nodes.map((node) => [node.id, []]));
   const indeg = new Map<string, number>(nodes.map((node) => [node.id, 0]));
+  // An exporter that numbers every edge ("Sibling 0", "Sibling 1" on most of them) names nothing:
+  // such labels are dropped, so they are neither drawn nor taken for the names of choices.
+  const numberedBy = new Map<string, number>();
+  for (const edge of edges) {
+    const word = /^(\S+) \d+$/.exec(edge.label?.trim() ?? '')?.[1];
+    if (word) numberedBy.set(word, (numberedBy.get(word) ?? 0) + 1);
+  }
+  const numberingWords = new Set([...numberedBy].filter(([, count]) => count >= 10 && count >= edges.length * 0.3).map(([word]) => word));
+  const plain = (label: string | null) => {
+    const trimmed = label?.trim();
+    return trimmed && !numberingWords.has(/^(\S+) \d+$/.exec(trimmed)?.[1] ?? '') ? trimmed : null;
+  };
   for (const edge of edges) {
     if (!byId.has(edge.from) || !byId.has(edge.to) || edge.from === edge.to) continue;
     const ways = out.get(edge.from)!;
     const same = ways.find((way) => way.to === edge.to);
-    if (same) same.label ??= edge.label;
+    if (same) same.label ??= plain(edge.label);
     else {
-      ways.push({ ...edge });
+      ways.push({ ...edge, label: plain(edge.label) });
       indeg.set(edge.to, indeg.get(edge.to)! + 1);
     }
   }
@@ -163,7 +175,8 @@ export function sliceRoute(nodes: GraphNode[], edges: GraphEdge[], units: Map<st
     if (way.label?.trim() && !numbering(out.get(from)!)) return way.label.trim();
     const target = byId.get(way.to)!;
     const first = target.unitIds.map((id) => units.get(id)?.source.trim()).find(Boolean);
-    return first ? (first.length > 60 ? `${first.slice(0, 59)}…` : first) : target.key;
+    // Without a line, the node's own label from the game data ("If-Else Bakay killed") before its key.
+    return first ? (first.length > 60 ? `${first.slice(0, 59)}…` : first) : target.label?.trim() || target.key;
   };
 
   // The slice: from every starting point, all ways at a parallel fork, the chosen one at a choice.

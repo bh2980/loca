@@ -29,6 +29,10 @@ interface GraphSearch {
   scope: Scope;
   /** 길 따라 보기: the slice of the dialogue graph for the stored choices (docs/DESIGN.md J2c). */
   view?: 'path';
+  /** 길 따라 보기: the overview node the window is around (default: the first). */
+  at?: string;
+  /** 길 따라 보기: draw the whole overview instead of the window. */
+  all?: 1;
   node?: string;
   scene?: string;
   /** Dialogue graph section (chapter, act, day…); "all" draws the whole graph on one sheet. Absent = the first section. */
@@ -51,6 +55,8 @@ export const Route = createFileRoute('/p/$projectId/graph')({
   validateSearch: (raw: Record<string, unknown>): GraphSearch => ({
     scope: raw.scope === 'dialogue' || raw.view === 'path' ? 'dialogue' : 'scene',
     view: raw.view === 'path' ? 'path' : undefined,
+    at: raw.view === 'path' && typeof raw.at === 'string' && raw.at ? raw.at : undefined,
+    all: raw.view === 'path' && (raw.all === 1 || raw.all === '1' || raw.all === true) ? 1 : undefined,
     node: typeof raw.node === 'string' ? raw.node : undefined,
     scene: typeof raw.scene === 'string' ? raw.scene : undefined,
     section: typeof raw.section === 'string' && raw.section ? raw.section : undefined,
@@ -98,8 +104,12 @@ function GraphRoute() {
       toggle={<ModeToggle value="path" onChange={(mode) => void navigate({ search: mode === 'path' ? { scope: 'dialogue', view: 'path' } : { scope: mode } })} />}
       node={search.node}
       edit={search.edit}
-      onSelect={(node) => void navigate({ search: (previous) => ({ ...previous, node, edit: undefined }), replace: true })}
+      at={search.at}
+      all={search.all === 1}
+      onSelect={(node, focus) => void navigate({ search: (previous) => ({ ...previous, node, edit: undefined, ...(node && focus && { at: node }) }), replace: true })}
       onEdit={(edit) => void navigate({ search: (previous) => ({ ...previous, edit }), replace: true })}
+      onMove={(at) => void navigate({ search: (previous) => ({ ...previous, at }), replace: true })}
+      onAll={(all) => void navigate({ search: (previous) => ({ ...previous, all: all ? 1 : undefined }) })}
     />
   );
 }

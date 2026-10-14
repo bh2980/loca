@@ -4,29 +4,43 @@ import { toast } from 'sonner';
 import { LineCard } from '@/components/graph/line-card';
 import { FlowPane } from '@/components/graph/node-detail';
 import { PathGraph, type PathNodeText } from '@/components/graph/path-graph';
+import { resolveAt, stops } from '@/components/graph/path-window';
 import { Page } from '@/components/page';
 import { PaneHeader } from '@/components/pane-header';
 import { SplitPane } from '@/components/split-pane';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Spinner } from '@/components/ui/spinner';
+import { Toggle } from '@/components/ui/toggle';
+import { keyLabel } from '@/lib/keys';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 
+/** A section can hold thousands of nodes (9천 줄 샘플: 8305); the pane reads this many from its start and says so. */
+const PANE_NODES = 150;
+
 /**
  * 길 따라 보기 (docs/DESIGN.md J2c): the slice of the dialogue graph for the stored choices, drawn
- * as a small graph. The selected block is the page's `node`; its lines open in the same pane as the
- * dialogue graph, and the line being translated is `edit`.
+ * as its overview (sections between choices) a window at a time. `at` is the window's centre (an
+ * overview node id) and `all` draws the whole overview. The selected section or anchor is the page's
+ * `node`; its lines open in the same pane as the dialogue graph, and the line being translated is `edit`.
  */
-export function PathMode({ projectId, toggle, node, edit, onSelect, onEdit }: {
+export function PathMode({ projectId, toggle, node, edit, at, all, onSelect, onEdit, onMove, onAll }: {
   projectId: string;
   /** The scope/view switch, shared with the other graph modes. */
   toggle: ReactNode;
   node?: string;
   edit?: string;
-  onSelect: (blockId: string | undefined) => void;
+  at?: string;
+  all: boolean;
+  /** `focus`: the window moves to the clicked node too. */
+  onSelect: (nodeId: string | undefined, focus?: boolean) => void;
   onEdit: (unitId: string | undefined) => void;
+  /** Like scrolling: replaces the history entry. */
+  onMove: (nodeId: string) => void;
+  /** Switching between the window and the whole overview is a history entry. */
+  onAll: (all: boolean) => void;
 }) {
   const route = useQuery(q.route(projectId));
   // The dialogue graph's node list carries every node's first line in one call (the whole graph, no layout needed).
@@ -46,7 +60,8 @@ export function PathMode({ projectId, toggle, node, edit, onSelect, onEdit }: {
   const onAuto = useCallback((nodeId: string) => pick.mutate({ nodeId, armId: null }), []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // A selection that the new slice no longer has (another arm was picked) is forgotten.
-  const block = slice?.blocks.find((item) => item.id === node);
+  const block = slice?.overview.nodes.find((item) => item.id === node);
+  const isChoiceBlock = !!block && slice?.blocks.find((item) => item.id === block.id)?.kind === 'choice';
   useEffect(() => {
     if (slice && node && !block) onSelect(undefined);
   }, [slice, node, block]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -59,9 +74,28 @@ export function PathMode({ projectId, toggle, node, edit, onSelect, onEdit }: {
     document.body.dataset.pathReady = String(Math.round(performance.now() - first.current));
   }, []);
 
+  const here = slice && resolveAt(slice.overview, at);
+  const around = slice && stops(slice.overview, here);
   const choices = slice?.forks.filter((fork) => fork.mode === 'choice').length ?? 0;
   const picks = Object.keys(route.data?.picks ?? {}).length;
   const summary = slice ? `길 ${slice.lines.toLocaleString()}줄 / 전체 ${slice.totalLines.toLocaleString()}줄 · 갈림 ${choices.toLocaleString()} · 다른 갈래 ${slice.stubs.length.toLocaleString()} · 합류 ${slice.joins.length.toLocaleString()}` : undefined;
+  const go = (target: string | undefined) => target && onMove(target);
+  // ⌥↑/⌥↓ (Ctrl as well) move the window to the previous/next choice or join, unless a field has the keys.
+  const goRef = useRef<{ previous?: string; next?: string }>({});
+  goRef.current = { previous: around?.previous, next: around?.next };
+  useEffect(() => {
+    if (all) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || !(event.altKey || event.ctrlKey) || (event.key !== 'ArrowDown' && event.key !== 'ArrowUp')) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
+      const to = event.key === 'ArrowDown' ? goRef.current.next : goRef.current.previous;
+      event.preventDefault();
+      if (to) onMove(to);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [all]); // eslint-disable-line react-hooks/exhaustive-deps
   const step = (direction: 1 | -1) => {
     const next = block?.unitIds[editIndex + direction];
     if (next) onEdit(next);
@@ -71,9 +105,33 @@ export function PathMode({ projectId, toggle, node, edit, onSelect, onEdit }: {
   return (
     <Page
       title="그래프"
-      meta={summary && <span className="text-sm text-muted-foreground tabular-nums" data-testid="path-summary">{summary}</span>}
+      meta={
+        summary && (
+          <span className="text-sm text-muted-foreground tabular-nums">
+            <span data-testid="path-summary">{summary}</span>
+            {!all && around && around.choices > 0 && <span data-testid="path-position"> · 갈림 {around.position.toLocaleString()} / {around.choices.toLocaleString()}</span>}
+          </span>
+        )
+      }
       actions={
         <div className="flex items-center gap-2">
+          {slice && slice.overview.nodes.length > 0 && (
+            <>
+              {!all && (
+                <>
+                  <Button variant="ghost" disabled={!around?.previous} title={`이전 갈림 (${keyLabel('Alt+Up')})`} onClick={() => go(around?.previous)}>
+                    이전 갈림
+                  </Button>
+                  <Button variant="ghost" disabled={!around?.next} title={`다음 갈림 (${keyLabel('Alt+Down')})`} onClick={() => go(around?.next)}>
+                    다음 갈림
+                  </Button>
+                </>
+              )}
+              <Toggle variant="outline" size="sm" pressed={all} onPressedChange={onAll} title="창 없이 전체를 한 화면에 맞춥니다">
+                전체 보기
+              </Toggle>
+            </>
+          )}
           {picks > 0 && (
             <Button variant="ghost" disabled={reset.isPending} onClick={() => reset.mutate()}>
               선택 초기화
@@ -94,8 +152,8 @@ export function PathMode({ projectId, toggle, node, edit, onSelect, onEdit }: {
               <FlowPane
                 key={block.id}
                 projectId={projectId}
-                nodeIds={block.nodeIds}
-                title={block.kind === 'choice' ? '선택지' : block.unitIds.length > 1 ? `이어진 대사 ${block.unitIds.length}줄` : '대사'}
+                nodeIds={block.nodeIds.slice(0, PANE_NODES)}
+                title={block.kind === 'section' ? `구간 · ${block.unitIds.length.toLocaleString()}줄${block.nodeIds.length > PANE_NODES ? ` (앞 노드 ${PANE_NODES}개만 보임)` : ''}` : isChoiceBlock ? '선택지' : block.unitIds.length > 1 ? `이어진 대사 ${block.unitIds.length}줄` : '대사'}
                 editing={edit}
                 onEdit={onEdit}
                 onClose={() => onSelect(undefined)}
@@ -105,8 +163,8 @@ export function PathMode({ projectId, toggle, node, edit, onSelect, onEdit }: {
         }
       >
         <div className="relative min-w-0 flex-1 bg-[radial-gradient(var(--graph-grid)_1px,transparent_1px)] [background-size:20px_20px]">
-          {slice && graph.data && slice.blocks.length > 0 && (
-            <PathGraph projectId={projectId} slice={slice} texts={texts} selectedId={node} onSelect={onSelect} onPick={onPick} onAuto={onAuto} onReady={ready} />
+          {slice && graph.data && slice.overview.nodes.length > 0 && (
+            <PathGraph projectId={projectId} slice={slice} texts={texts} at={here} all={all} selectedId={node} onSelect={(id) => onSelect(id, true)} onMove={onMove} onPick={onPick} onAuto={onAuto} onReady={ready} />
           )}
           {(route.isPending || graph.isPending) && (
             <div className="absolute inset-0 flex items-center justify-center gap-2 text-sm text-muted-foreground">
@@ -114,7 +172,7 @@ export function PathMode({ projectId, toggle, node, edit, onSelect, onEdit }: {
             </div>
           )}
           {(route.isError || graph.isError) && <p className="p-6 text-sm text-destructive">길을 불러오지 못했습니다: {(route.error ?? graph.error)?.message}</p>}
-          {slice && !slice.blocks.length && (
+          {slice && !slice.overview.nodes.length && (
             <Empty className="absolute inset-0">
               <EmptyHeader>
                 <EmptyTitle>따라갈 길이 없습니다</EmptyTitle>
@@ -124,7 +182,7 @@ export function PathMode({ projectId, toggle, node, edit, onSelect, onEdit }: {
           )}
           {block && editIndex >= 0 && (
             <div className="absolute bottom-3 left-3">
-              <LineCard key={edit} projectId={projectId} unitId={edit!} choice={block.kind === 'choice'} position={`${editIndex + 1} / ${block.unitIds.length}`} onStep={step} onClose={() => onEdit(undefined)} />
+              <LineCard key={edit} projectId={projectId} unitId={edit!} choice={isChoiceBlock} position={`${editIndex + 1} / ${block.unitIds.length}`} onStep={step} onClose={() => onEdit(undefined)} />
             </div>
           )}
         </div>

@@ -286,6 +286,22 @@ describe('sliceRoute', () => {
   });
 });
 
+describe('numbering labels across the export', () => {
+  it('drops "Sibling N" when the export numbers most edges, and names a lineless arm by its node label', () => {
+    const ids = Array.from({ length: 12 }, (_, i) => `n${i}`);
+    const chain = nodes(...ids.map((id, i): [string, string, ...string[]] => [id, 'script', `u${i + 1}`]));
+    const fork = { id: 'cond', key: 'Data/assets::1893', kind: 'condition', unitIds: [], label: 'If-Else Bakay killed' };
+    const other = { id: 'alt', key: 'Data/assets::2000', kind: 'state', unitIds: [], label: 'IfElseState (Bakay alive)' };
+    const edges = [...ids.slice(1).map((id, i) => edge(ids[i]!, id, `Sibling ${i % 2}`)), edge('n11', 'cond', 'Sibling 0'), edge('cond', 'alt', 'Sibling 1')];
+    const slice = sliceRoute([...chain, fork, other], edges, unitMap(), {});
+    expect(slice.edges.filter((e) => e.kind === 'path').every((e) => e.label === null)).toBe(true);
+    expect(slice.forks).toEqual([]);
+    // A condition with one way is no fork; give it a second, lineless arm to see the stub's name.
+    const two = sliceRoute([...chain, fork, other, { id: 'end', key: 'k', kind: 'script', unitIds: ['u20'] }], [...edges, edge('cond', 'end', 'Sibling 2')], unitMap(), {});
+    expect(two.stubs.map((stub) => stub.label)).toEqual(['IfElseState (Bakay alive)']);
+  });
+});
+
 describe('overview', () => {
   it('puts a fork without lines before its own arms whatever the ids', () => {
     // 'pick' and 'hub' sort after their arms by id; their place in the script must still come first.
