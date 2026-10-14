@@ -274,6 +274,7 @@ function Script() {
             }
             heading={heading}
             runGroupIds={group ? [group.id] : undefined}
+            runKind={split && !search.group && !search.review ? view : undefined}
           />
         </ResizablePanel>
       </ResizablePanelGroup>
