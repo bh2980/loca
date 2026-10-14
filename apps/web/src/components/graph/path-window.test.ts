@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { markerId, resolveAt, splitBackEdges, stops, windowOf, type Overview, type OverviewNode } from './path-window';
+import { foldTranslated, markerId, resolveAt, splitBackEdges, stops, windowOf, type Overview, type OverviewNode } from './path-window';
 
-const anchor = (id: string, extra: Partial<OverviewNode> = {}): OverviewNode => ({ id, kind: 'anchor', nodeIds: [id], unitIds: [id], lanes: 0, choice: false, join: false, ...extra });
-const section = (id: string): OverviewNode => ({ id, kind: 'section', nodeIds: [id], unitIds: [id], lanes: 0, choice: false, join: false });
+const anchor = (id: string, extra: Partial<OverviewNode> = {}): OverviewNode => ({ id, kind: 'anchor', blockIds: [id], nodeIds: [id], unitIds: [id], lanes: 0, choice: false, join: false, ...extra });
+const section = (id: string): OverviewNode => ({ id, kind: 'section', blockIds: [id], nodeIds: [id], unitIds: [id], lanes: 0, choice: false, join: false });
 const path = (from: string, to: string) => ({ from, to, label: null, kind: 'path' as const });
 
 // start -> c1 -> s1 -> c2 -> s2 -> c3 -> c4 -> c5 -> c6 ; c1 has a stub that rejoins at c3.
@@ -57,5 +57,32 @@ describe('splitBackEdges', () => {
   it('leaves a graph without loops alone, and copes with a cycle that has no start', () => {
     expect(splitBackEdges(['a', 'b'], [path('a', 'b')]).back).toEqual([]);
     expect(splitBackEdges(['a', 'b'], [path('a', 'b'), path('b', 'a')]).back).toHaveLength(1);
+  });
+});
+
+describe('foldTranslated', () => {
+  const ids = ['a', 'b', 'c', 'd', 'e', 'f'];
+  const line = [path('a', 'b'), path('b', 'c'), path('c', 'd'), path('d', 'e'), path('e', 'f')];
+  const none = new Set<string>();
+
+  it('folds a run of foldable nodes into one and joins the edges around it', () => {
+    const result = foldTranslated(ids, line, (id) => ['b', 'c', 'd'].includes(id), none);
+    expect(result.ids).toEqual(['a', 'fold:b', 'e', 'f']);
+    expect(result.folds).toEqual([{ id: 'fold:b', members: ['b', 'c', 'd'] }]);
+    expect(result.edges.map((edge) => `${edge.from}>${edge.to}`)).toEqual(['a>fold:b', 'fold:b>e', 'e>f']);
+  });
+
+  it('leaves a run open when its first node is expanded, and breaks a run at a node that is not foldable', () => {
+    expect(foldTranslated(ids, line, (id) => ['b', 'c', 'd'].includes(id), new Set(['b'])).ids).toEqual(ids);
+    const result = foldTranslated(ids, line, (id) => id !== 'c', none);
+    expect(result.folds.map((fold) => fold.members)).toEqual([['a', 'b'], ['d', 'e', 'f']]);
+  });
+
+  it('does not fold across a fork or a meeting of ways', () => {
+    // a -> b -> c, a -> d -> c: b and d are alone between a fork and a join.
+    const edges = [path('a', 'b'), path('a', 'd'), path('b', 'c'), path('d', 'c')];
+    const result = foldTranslated(['a', 'b', 'd', 'c'], edges, (id) => id !== 'a' || true, none);
+    expect(result.folds.map((fold) => fold.members)).toEqual([['a'], ['b'], ['d'], ['c']]);
+    expect(result.edges).toHaveLength(4);
   });
 });

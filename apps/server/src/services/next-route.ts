@@ -34,60 +34,118 @@ export function untranslatedWeights(nodes: { id: string; unitIds: string[] }[], 
   return new Map(nodes.map((node) => [node.id, node.unitIds.filter((id) => !translated(id)).length]));
 }
 
+/**
+ * The graph as integers, so a walk is a few array reads: the search walks the graph hundreds of
+ * times on a real script (9천 줄 샘플: 9천 노드).
+ */
+interface Compiled {
+  ids: string[];
+  index: Map<string, number>;
+  outs: number[][];
+  /** Exclusive forks, with their ways in script order (the first is the way taken without a pick). */
+  ways: (number[] | null)[];
+  starts: number[];
+}
+const compiled = new WeakMap<RouteGraph, Compiled>();
+function compile(g: RouteGraph): Compiled {
+  let c = compiled.get(g);
+  if (c) return c;
+  const ids = [...g.byId.keys()];
+  const index = new Map(ids.map((id, i) => [id, i] as const));
+  const outs = ids.map((id) => g.out.get(id)!.map((way) => index.get(way.to)!));
+  const ways = ids.map((id, i) => (g.exclusive(id) ? [...outs[i]!].sort((x, y) => g.bySeq(ids[x]!, ids[y]!)) : null));
+  c = { ids, index, outs, ways, starts: g.starts.map((id) => index.get(id)!) };
+  compiled.set(g, c);
+  return c;
+}
+
+/** The nodes a set of picks reaches (`pick[i]`: the arm taken at fork i, -1 for the first in script order) and the arm taken at each fork reached. */
+function walk(c: Compiled, pick: Int32Array) {
+  const n = c.ids.length;
+  const seen = new Uint8Array(n);
+  const chosen = new Int32Array(n).fill(-1);
+  const queue = new Int32Array(n);
+  let tail = 0;
+  for (const start of c.starts) if (!seen[start]) (seen[start] = 1), (queue[tail++] = start);
+  for (let head = 0; head < tail; head++) {
+    const id = queue[head]!;
+    const arms = c.ways[id];
+    if (arms) {
+      const at = pick[id]!;
+      const arm = at >= 0 && arms.includes(at) ? at : arms[0]!;
+      chosen[id] = arm;
+      if (!seen[arm]) (seen[arm] = 1), (queue[tail++] = arm);
+      continue;
+    }
+    for (const to of c.outs[id]!)
+      if (!seen[to]) (seen[to] = 1), (queue[tail++] = to);
+  }
+  return { seen, chosen };
+}
+
+const weightArray = (c: Compiled, weights: Weights) => Int32Array.from(c.ids, (id) => weights.get(id) ?? 0);
+const scoreOf = (seen: Uint8Array, w: Int32Array) => {
+  let sum = 0;
+  for (let i = 0; i < seen.length; i++) if (seen[i]) sum += w[i]!;
+  return sum;
+};
+const pickArray = (c: Compiled, picks: Picks) => {
+  const pick = new Int32Array(c.ids.length).fill(-1);
+  for (const [fork, arm] of Object.entries(picks)) {
+    const f = c.index.get(fork), a = c.index.get(arm);
+    if (f !== undefined && a !== undefined) pick[f] = a;
+  }
+  return pick;
+};
+
 /** Untranslated lines on the route the picks give. */
 export function routeLines(g: RouteGraph, weights: Weights, picks: Picks): number {
-  let sum = 0;
-  for (const id of walkRoute(g, picks).inSlice) sum += weights.get(id) ?? 0;
-  return sum;
+  const c = compile(g);
+  return scoreOf(walk(c, pickArray(c, picks)).seen, weightArray(c, weights));
 }
 
 /** The picks with the most untranslated lines on their route, searched from `start`. */
 export function bestRoute(g: RouteGraph, weights: Weights, start: Picks): NextRouteResult {
-  const score = (inSlice: Set<string>) => {
-    let sum = 0;
-    for (const id of inSlice) sum += weights.get(id) ?? 0;
-    return sum;
-  };
-  const ways = (fork: string) => [...g.out.get(fork)!].map((way) => way.to).sort(g.bySeq);
+  const c = compile(g);
+  const w = weightArray(c, weights);
+  let pick: Int32Array = pickArray(c, start);
+  let walked = walk(c, pick);
+  let current = scoreOf(walked.seen, w);
   // A trial: switch one fork, then give the forks that appear with the new route their best arm.
-  const trial = (picks: Picks, before: ReturnType<typeof walkRoute>, fork: string, arm: string) => {
-    const next: Picks = { ...picks, [fork]: arm };
-    let walked = walkRoute(g, next);
-    let best = score(walked.inSlice);
-    const fresh = [...walked.chosenAt.keys()].filter((id) => !before.chosenAt.has(id)).sort(g.bySeq);
-    for (const id of fresh) {
-      if (!walked.chosenAt.has(id)) continue;
-      for (const alt of ways(id)) {
-        if (alt === walked.chosenAt.get(id)) continue;
-        const tried = walkRoute(g, { ...next, [id]: alt });
-        const value = score(tried.inSlice);
-        if (value > best) {
-          best = value;
-          next[id] = alt;
-          walked = tried;
-        }
+  const trial = (fork: number, arm: number) => {
+    const next = Int32Array.from(pick);
+    next[fork] = arm;
+    let tried = walk(c, next);
+    let best = scoreOf(tried.seen, w);
+    for (let id = 0; id < next.length; id++) {
+      if (tried.chosen[id]! < 0 || walked.chosen[id]! >= 0) continue; // a fork that is new on this route
+      for (const alt of c.ways[id]!) {
+        if (alt === tried.chosen[id]) continue;
+        const again = Int32Array.from(next);
+        again[id] = alt;
+        const result = walk(c, again);
+        const value = scoreOf(result.seen, w);
+        if (value > best) (best = value), (next[id] = alt), (tried = result);
       }
     }
-    return { picks: next, value: best };
+    return { pick: next, value: best };
   };
-
-  let picks: Picks = { ...start };
-  let walked = walkRoute(g, picks);
-  let current = score(walked.inSlice);
+  const order = (ids: number[]) => ids.sort((x, y) => g.bySeq(c.ids[x]!, c.ids[y]!));
   for (let pass = 0; pass < MAX_PASSES; pass++) {
     let changed = false;
-    for (const fork of [...walked.chosenAt.keys()].sort(g.bySeq)) {
-      const at = walked.chosenAt.get(fork);
-      if (!at) continue; // dropped from the route by an earlier switch in this pass
-      let best: { picks: Picks; value: number } | null = null;
-      for (const arm of ways(fork)) {
+    const forks = order(Array.from(walked.chosen.keys()).filter((id) => walked.chosen[id]! >= 0));
+    for (const fork of forks) {
+      const at = walked.chosen[fork]!;
+      if (at < 0) continue; // dropped from the route by an earlier switch in this pass
+      let best: { pick: Int32Array; value: number } | null = null;
+      for (const arm of c.ways[fork]!) {
         if (arm === at) continue;
-        const result = trial(picks, walked, fork, arm);
+        const result = trial(fork, arm);
         if (result.value > (best?.value ?? current)) best = result;
       }
       if (best) {
-        picks = best.picks;
-        walked = walkRoute(g, picks);
+        pick = best.pick;
+        walked = walk(c, pick);
         current = best.value;
         changed = true;
       }
@@ -96,7 +154,12 @@ export function bestRoute(g: RouteGraph, weights: Weights, start: Picks): NextRo
   }
   // Keep a pick only where it differs from the default way (or was already stored): the rest read as unpicked.
   const kept: Picks = {};
-  for (const [fork, arm] of Object.entries(picks)) if (start[fork] !== undefined || (g.byId.has(fork) && g.exclusive(fork) && g.firstWay(fork).to !== arm)) kept[fork] = arm;
+  for (let fork = 0; fork < pick.length; fork++) {
+    const arm = pick[fork]!;
+    if (arm < 0) continue;
+    const id = c.ids[fork]!;
+    if (start[id] !== undefined || c.ways[fork]![0] !== arm) kept[id] = c.ids[arm]!;
+  }
   return { picks: kept, lines: current };
 }
 

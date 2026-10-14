@@ -49,6 +49,28 @@ export function PathMode({ projectId, toggle, node, edit, at, all, onSelect, onE
   const texts = useMemo(() => new Map<string, PathNodeText>((graph.data?.nodes ?? []).map((item) => [item.id, { speaker: item.speaker, text: item.text }])), [graph.data]);
   const slice = route.data;
   const checks = useQuery(q.joinChecks(projectId)).data?.checks;
+  // 다음 길 (docs/DESIGN.md J2c): the route through the most untranslated lines, and the steps between routes.
+  const next = useQuery(q.routeNext(projectId)).data;
+  const round = slice?.round ?? 1;
+  const nextRoute = useMutation({
+    mutationFn: () => unwrap(client.projects[':projectId'].route.next.$post({ param: { projectId }, json: { round } })),
+    onSuccess: (done) => toast(`길 ${done.round}로 넘어갔습니다${next ? ` · 새 줄 ${next.newLines.toLocaleString()}줄` : ''}`),
+    onError: (error) => toast.error(error.message),
+  });
+  const prevRoute = useMutation({
+    mutationFn: () => unwrap(client.projects[':projectId'].route.prev.$post({ param: { projectId }, json: { round } })),
+    onSuccess: (done) => toast(`길 ${done.round}로 돌아갔습니다`),
+    onError: (error) => toast.error(error.message),
+  });
+  const busy = nextRoute.isPending || prevRoute.isPending;
+  const finished = !!next && next.newLines === 0;
+  const stay = !!next && next.newLines > 0 && !next.changed;
+  const nextLabel = finished ? '모든 길 번역함' : `다음 길${next && next.changed ? ` (+${next.newLines.toLocaleString()}줄)` : ''}`;
+  const nextTitle = finished
+    ? '번역하지 않은 줄이 있는 길이 더 없습니다.'
+    : stay
+      ? '이번 길에 번역하지 않은 줄이 남아 있습니다. 먼저 이번 길을 번역하세요.'
+      : '번역하지 않은 줄을 가장 많이 지나는 길로 넘어갑니다(앞 길과 겹치는 부분이 가장 적도록).';
 
   const pick = useMutation({
     mutationFn: (body: { nodeId: string; armId: string | null }) => unwrap(client.projects[':projectId']['route-picks'].$put({ param: { projectId }, json: body })),
@@ -86,7 +108,11 @@ export function PathMode({ projectId, toggle, node, edit, at, all, onSelect, onE
   const joinList = slice?.overview.nodes.filter((item) => item.kind === 'anchor' && item.join) ?? [];
   const joinsChecked = joinList.filter((item) => checks?.[item.id]?.state === 'checked').length;
   const joinsStale = joinList.filter((item) => checks?.[item.id]?.state === 'stale').length;
-  const summary = slice ? `길 ${slice.lines.toLocaleString()}줄 / 전체 ${slice.totalLines.toLocaleString()}줄 · 갈림 ${choices.toLocaleString()} · 다른 선택 ${slice.stubs.length.toLocaleString()} · 합류 ${slice.joins.length.toLocaleString()}` : undefined;
+  const remaining = next ? (next.remainingRoutes === 0 ? '남은 길 없음' : `남은 길 약 ${next.remainingRoutes}`) : undefined;
+  const progress = slice ? [`길 ${slice.round}`, `이번 길 새 줄 ${slice.newLinesOnRoute.toLocaleString()}`, `번역 ${slice.translatedGraphLines.toLocaleString()}/${slice.graphLines.toLocaleString()}줄`, remaining].filter(Boolean).join(' · ') : undefined;
+  const counts = slice ? `갈림 ${choices.toLocaleString()} · 합류 ${slice.joins.length.toLocaleString()}` : undefined;
+  const summary = progress && counts ? `${progress} · ${counts}` : undefined;
+  const scope = slice ? `이번 길 ${slice.lines.toLocaleString()}줄 / 프로젝트 전체 ${slice.totalLines.toLocaleString()}줄 · 다른 선택 ${slice.stubs.length.toLocaleString()} · 번역은 대사 그래프에 있는 줄(${slice.graphLines.toLocaleString()}줄) 기준, 번역 글자가 있는 줄만 셉니다.` : undefined;
   const joinSummary = joinList.length ? `합류 점검 ${joinsChecked.toLocaleString()}/${joinList.length.toLocaleString()}${joinsStale ? ` · 바뀜 ${joinsStale.toLocaleString()}` : ''}` : undefined;
   // The next join (script order, wrapping round) that is not checked, or whose lines changed since.
   const nextUnchecked = (() => {
@@ -123,11 +149,12 @@ export function PathMode({ projectId, toggle, node, edit, at, all, onSelect, onE
   return (
     <Page
       title="그래프"
+      wideMeta
       meta={
         summary && (
-          <span className="text-sm text-muted-foreground tabular-nums" title={[joinSummary, summary].filter(Boolean).join(' · ')}>
-            {joinSummary && <span data-testid="join-summary">{joinSummary} · </span>}
+          <span className="text-sm text-muted-foreground tabular-nums" title={[summary, scope, joinSummary].filter(Boolean).join(' · ')}>
             <span data-testid="path-summary">{summary}</span>
+            {joinSummary && <span data-testid="join-summary"> · {joinSummary}</span>}
             {!all && around && around.choices > 0 && <span data-testid="path-position"> · 갈림 {around.position.toLocaleString()} / {around.choices.toLocaleString()}</span>}
           </span>
         )
@@ -136,6 +163,12 @@ export function PathMode({ projectId, toggle, node, edit, at, all, onSelect, onE
         <div className="flex items-center gap-2">
           {slice && slice.overview.nodes.length > 0 && (
             <>
+              <Button variant="outline" disabled={!slice.canGoBack || busy} title="바로 앞 길의 선택으로 되돌립니다" onClick={() => prevRoute.mutate()}>
+                이전 길
+              </Button>
+              <Button disabled={!next || finished || stay || busy} title={nextTitle} onClick={() => nextRoute.mutate()}>
+                {nextLabel}
+              </Button>
               {!all && (
                 <>
                   <Button variant="ghost" disabled={!around?.previous} title={`이전 갈림 (${keyLabel('Alt+Up')})`} onClick={() => go(around?.previous)}>

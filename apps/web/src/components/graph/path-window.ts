@@ -7,6 +7,8 @@
 export interface OverviewNode {
   id: string;
   kind: 'anchor' | 'section';
+  /** The slice blocks it holds. */
+  blockIds: string[];
   nodeIds: string[];
   unitIds: string[];
   lanes: number;
@@ -176,4 +178,55 @@ export function splitBackEdges<T extends { from: string; to: string }>(ids: stri
     }
   }
   return { forward: edges.filter((edge) => !back.has(edge)), back: edges.filter((edge) => back.has(edge)) };
+}
+
+/** A run of overview nodes drawn as one muted node: all their lines are translated. */
+export interface Fold {
+  /** `fold:<first member>`. */
+  id: string;
+  members: string[];
+}
+export const foldId = (first: string) => `fold:${first}`;
+
+/**
+ * 번역한 구간 접기: consecutive foldable nodes (a plain run, one way in and one way out between them)
+ * are replaced by one fold node, unless the run's first node is in `expanded`. Edges into the run
+ * enter the fold and edges out of it leave it. Plain data in, plain data out.
+ */
+export function foldTranslated<E extends { from: string; to: string }>(ids: string[], edges: E[], foldable: (id: string) => boolean, expanded: ReadonlySet<string>): { ids: string[]; edges: E[]; folds: Fold[] } {
+  const known = new Set(ids);
+  const out = new Map<string, E[]>();
+  const into = new Map<string, E[]>();
+  for (const edge of edges) {
+    if (!known.has(edge.from) || !known.has(edge.to)) continue;
+    out.set(edge.from, [...(out.get(edge.from) ?? []), edge]);
+    into.set(edge.to, [...(into.get(edge.to) ?? []), edge]);
+  }
+  const stepOf = (id: string) => {
+    const ways = out.get(id) ?? [];
+    const to = ways.length === 1 ? ways[0]!.to : undefined;
+    return to && to !== id && foldable(id) && foldable(to) && (into.get(to)?.length ?? 0) === 1 ? to : undefined;
+  };
+  const hasBefore = new Set(ids.map(stepOf).filter((id): id is string => !!id));
+  const folds: Fold[] = [];
+  const foldOf = new Map<string, string>();
+  for (const id of ids) {
+    if (!foldable(id) || hasBefore.has(id) || foldOf.has(id) || expanded.has(id)) continue;
+    const members = [id];
+    for (let next = stepOf(id); next && !members.includes(next); next = stepOf(next)) members.push(next);
+    const fold = { id: foldId(id), members };
+    folds.push(fold);
+    for (const member of members) foldOf.set(member, fold.id);
+  }
+  const seen = new Set<string>();
+  const kept: E[] = [];
+  for (const edge of edges) {
+    const from = foldOf.get(edge.from) ?? edge.from, to = foldOf.get(edge.to) ?? edge.to;
+    if (from === to && (from !== edge.from || to !== edge.to)) continue;
+    const key = `${from}>${to}>${(edge as { label?: string | null }).label ?? ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    kept.push(from === edge.from && to === edge.to ? edge : { ...edge, from, to });
+  }
+  return { ids: [...new Set(ids.map((id) => foldOf.get(id) ?? id))], edges: kept, folds };
 }

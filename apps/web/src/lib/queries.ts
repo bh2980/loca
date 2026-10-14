@@ -48,8 +48,10 @@ export const q = {
       queryFn: () => unwrap(client.projects[':projectId'].graph[':scope{dialogue|scene}'].$get({ param: { projectId, scope }, query: section ? { section } : {} })),
       staleTime: Infinity,
     }),
-  /** The slice of the dialogue graph for the stored choices (길 따라 보기): blocks, edges, forks, stubs, joins and the picks. */
-  route: (projectId: string) => queryOptions({ queryKey: ['graph', projectId, 'route'], queryFn: () => unwrap(client.projects[':projectId'].route.$get({ param: { projectId } })) }),
+  /** The slice of the dialogue graph for the stored choices (길 따라 보기): blocks, edges, forks, stubs, joins, the picks and the translation counts (units topic: translations decide them). */
+  route: (projectId: string) => queryOptions({ queryKey: ['units', projectId, 'route'], queryFn: () => unwrap(client.projects[':projectId'].route.$get({ param: { projectId } })) }),
+  /** 다음 길: the route through the most untranslated lines, what it adds and how many routes are left (units topic, like the counts it is made from). */
+  routeNext: (projectId: string) => queryOptions({ queryKey: ['units', projectId, 'route-next'], queryFn: () => unwrap(client.projects[':projectId'].route.next.$get({ param: { projectId } })) }),
   /** 합류 점검: the checked joins of the slice with whether their lines still read as they did (units topic: translations decide). */
   joinChecks: (projectId: string) => queryOptions({ queryKey: ['units', 'join-checks', projectId], queryFn: () => unwrap(client.projects[':projectId']['join-checks'].$get({ param: { projectId } })) }),
   /** One join: each incoming route's last lines and the lines after it. */

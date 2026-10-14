@@ -114,6 +114,8 @@ export interface RouteGraph {
   exclusive: (id: string) => boolean;
   /** The way a choice takes without a pick: the first in script order (memoized). */
   firstWay: (id: string) => GraphEdge;
+  /** Where the walk starts. */
+  starts: string[];
 }
 
 export function routeGraph(nodes: GraphNode[], edges: GraphEdge[], units: Map<string, { seq: number }>): RouteGraph {
@@ -196,22 +198,21 @@ export function routeGraph(nodes: GraphNode[], edges: GraphEdge[], units: Map<st
     if (!way) firsts.set(id, (way = [...out.get(id)!].sort((a, b) => bySeq(a.to, b.to))[0]!));
     return way;
   };
-  return { byId, out, indeg, bySeq, numbering, exclusive, firstWay };
+  // Starting points: without an incoming way (else the first node in script order, for a graph that is all loop).
+  const starts = nodes.filter((node) => indeg.get(node.id) === 0).map((node) => node.id).sort(bySeq);
+  if (!starts.length && nodes.length) starts.push(nodes.map((node) => node.id).sort(bySeq)[0]!);
+  return { byId, out, indeg, bySeq, numbering, exclusive, firstWay, starts };
 }
 
 /** Which nodes a set of choices reaches: all ways at a parallel fork, the chosen one at a choice. */
 export function walkRoute(g: RouteGraph, picks: Record<string, string>) {
-  const { byId, out, indeg, bySeq, exclusive } = g;
-  const nodesList = [...byId.keys()];
+  const { out, exclusive } = g;
   // The slice: from every starting point, all ways at a parallel fork, the chosen one at a choice.
   const chosenAt = new Map<string, string>();
-  const inSlice = new Set<string>();
-  const starts = nodesList.filter((id) => indeg.get(id) === 0).sort(bySeq);
-  if (!starts.length && nodesList.length) starts.push(nodesList.sort(bySeq)[0]!);
-  const queue = [...starts];
-  for (const id of queue) inSlice.add(id);
-  while (queue.length) {
-    const id = queue.shift()!;
+  const inSlice = new Set<string>(g.starts);
+  const queue = [...g.starts];
+  for (let head = 0; head < queue.length; head++) {
+    const id = queue[head]!;
     let ways = out.get(id)!;
     if (exclusive(id)) {
       const picked = picks[id];
@@ -225,7 +226,6 @@ export function walkRoute(g: RouteGraph, picks: Record<string, string>) {
         queue.push(way.to);
       }
   }
-
   return { chosenAt, inSlice };
 }
 
