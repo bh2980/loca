@@ -42,6 +42,8 @@ export const projects = sqliteTable('projects', {
   markColors: json<MarkColors>('mark_colors').notNull().default(sql`'{}'`),
   /** The arms a person picked for the main route (본 줄기): graph node id of a fork → the node it goes on to. */
   routePicks: json<Record<string, string>>('route_picks').notNull().default(sql`'{}'`),
+  /** 합류 점검: join block id of the route slice → when a person checked it and the signature of the lines they read (services/join-check.ts). */
+  joinChecks: json<Record<string, { at: string; sig: string }>>('join_checks').notNull().default(sql`'{}'`),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });

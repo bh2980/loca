@@ -107,4 +107,67 @@ describe('main route API', () => {
     db.update(s.projects).set({ routePicks: {} }).where(eq(s.projects.id, projectId)).run();
     expect((await route()).stubs[0]).toMatchObject({ arm: node('n.logbook.1') });
   });
+
+  describe('join checks', () => {
+    type Detail = { nodeId: string; routes: { id: string; kind: string; label: string | null; before: { unitId: string; key: string; source: string; translation: string | null }[] }[]; after: { unitId: string }[]; sig: string; check: { at: string; state: string } | null };
+    const open = async (h: ReturnType<typeof setup>) => {
+      const info = await h.route();
+      const joinId = info.joins[0]!;
+      const detail = (await (await h.send('GET', `/projects/${h.projectId}/route/joins/${encodeURIComponent(joinId)}`)).json()) as Detail;
+      return { joinId, detail };
+    };
+    const states = async (h: ReturnType<typeof setup>) => ((await (await h.send('GET', `/projects/${h.projectId}/join-checks`)).json()) as { checks: Record<string, { state: string }> }).checks;
+
+    it('GET join lists the chosen path and the other choice with their last lines, then the lines after', async () => {
+      const h = setup();
+      const { joinId, detail } = await open(h);
+      expect(detail.nodeId).toBe(joinId);
+      expect(detail.routes.map((route) => route.kind)).toEqual(['path', 'stub']);
+      expect(detail.routes[1]!.label).toBe('logbook');
+      expect(detail.routes.every((route) => route.before.length > 0 && route.before.length <= 2)).toBe(true);
+      expect(detail.after.length).toBeGreaterThan(0);
+      expect(detail.check).toBeNull();
+      expect((await h.send('GET', `/projects/${h.projectId}/route/joins/nope`)).status).toBe(404);
+    });
+
+    it('PUT marks checked, a changed translation makes it stale, DELETE takes it back', async () => {
+      const h = setup();
+      const { joinId, detail } = await open(h);
+      const url = `/projects/${h.projectId}/join-checks/${encodeURIComponent(joinId)}`;
+      expect(await states(h)).toEqual({});
+      expect((await h.send('PUT', url, { sig: detail.sig })).status).toBe(200);
+      expect((await states(h))[joinId]).toMatchObject({ state: 'checked' });
+      expect((await open(h)).detail.check).toMatchObject({ state: 'checked' });
+
+      // A translation of a line the join shows changes: the mark stays but reads 바뀜.
+      const unitId = detail.routes[1]!.before.at(-1)!.unitId;
+      h.db.update(s.units).set({ translation: '다른 번역' }).where(eq(s.units.id, unitId)).run();
+      expect((await states(h))[joinId]).toMatchObject({ state: 'stale' });
+      const again = (await open(h)).detail;
+      expect(again.check).toMatchObject({ state: 'stale' });
+      expect(again.sig).not.toBe(detail.sig);
+      // Checking again with the new signature makes it current.
+      expect((await h.send('PUT', url, { sig: again.sig })).status).toBe(200);
+      expect((await states(h))[joinId]).toMatchObject({ state: 'checked' });
+
+      expect((await h.send('DELETE', url)).status).toBe(200);
+      expect(await states(h)).toEqual({});
+    });
+
+    it('PUT refuses a bad body, a node that is no join, and a signature that is out of date', async () => {
+      const h = setup();
+      const { joinId } = await open(h);
+      const url = `/projects/${h.projectId}/join-checks/${encodeURIComponent(joinId)}`;
+      const bad = await h.send('PUT', url, {});
+      expect(bad.status).toBe(400);
+      expect(await bad.text()).toContain('입력이 올바르지 않습니다');
+      const none = await h.send('PUT', `/projects/${h.projectId}/join-checks/nope`, { sig: 'x' });
+      expect(none.status).toBe(400);
+      expect(await none.text()).toContain('합류 지점이 아닙니다');
+      const old = await h.send('PUT', url, { sig: 'stale' });
+      expect(old.status).toBe(400);
+      expect(await old.text()).toContain('바뀌었습니다');
+      expect(await states(h)).toEqual({});
+    });
+  });
 });

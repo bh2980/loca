@@ -1,0 +1,1 @@
+ALTER TABLE `projects` ADD `join_checks` text DEFAULT '{}' NOT NULL;

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { JoinCheckPane } from '@/components/graph/join-check-pane';
 import { LineCard } from '@/components/graph/line-card';
 import { FlowPane } from '@/components/graph/node-detail';
 import { PathGraph, type PathNodeText } from '@/components/graph/path-graph';
@@ -47,6 +48,7 @@ export function PathMode({ projectId, toggle, node, edit, at, all, onSelect, onE
   const graph = useQuery(q.graph(projectId, 'dialogue'));
   const texts = useMemo(() => new Map<string, PathNodeText>((graph.data?.nodes ?? []).map((item) => [item.id, { speaker: item.speaker, text: item.text }])), [graph.data]);
   const slice = route.data;
+  const checks = useQuery(q.joinChecks(projectId)).data?.checks;
 
   const pick = useMutation({
     mutationFn: (body: { nodeId: string; armId: string | null }) => unwrap(client.projects[':projectId']['route-picks'].$put({ param: { projectId }, json: body })),
@@ -61,6 +63,8 @@ export function PathMode({ projectId, toggle, node, edit, at, all, onSelect, onE
 
   // A selection that the new slice no longer has (another arm was picked) is forgotten.
   const block = slice?.overview.nodes.find((item) => item.id === node);
+  // 합류 점검: a join anchor opens its own pane instead of the lines' pane.
+  const isJoin = !!block && block.kind === 'anchor' && block.join;
   const isChoiceBlock = !!block && slice?.blocks.find((item) => item.id === block.id)?.kind === 'choice';
   useEffect(() => {
     if (slice && node && !block) onSelect(undefined);
@@ -78,7 +82,21 @@ export function PathMode({ projectId, toggle, node, edit, at, all, onSelect, onE
   const around = slice && stops(slice.overview, here);
   const choices = slice?.forks.filter((fork) => fork.mode === 'choice').length ?? 0;
   const picks = Object.keys(route.data?.picks ?? {}).length;
+  // 합류 점검: checkable joins are those another choice comes back to; 바뀜 are no longer counted as checked.
+  const joinList = slice?.overview.nodes.filter((item) => item.kind === 'anchor' && item.join) ?? [];
+  const joinsChecked = joinList.filter((item) => checks?.[item.id]?.state === 'checked').length;
+  const joinsStale = joinList.filter((item) => checks?.[item.id]?.state === 'stale').length;
   const summary = slice ? `길 ${slice.lines.toLocaleString()}줄 / 전체 ${slice.totalLines.toLocaleString()}줄 · 갈림 ${choices.toLocaleString()} · 다른 선택 ${slice.stubs.length.toLocaleString()} · 합류 ${slice.joins.length.toLocaleString()}` : undefined;
+  const joinSummary = joinList.length ? `합류 점검 ${joinsChecked.toLocaleString()}/${joinList.length.toLocaleString()}${joinsStale ? ` · 바뀜 ${joinsStale.toLocaleString()}` : ''}` : undefined;
+  // The next join (script order, wrapping round) that is not checked, or whose lines changed since.
+  const nextUnchecked = (() => {
+    const order = slice?.overview.nodes ?? [];
+    const index = (id: string) => order.findIndex((item) => item.id === id);
+    const open = joinList.filter((item) => checks?.[item.id]?.state !== 'checked');
+    const place = index(node ?? here ?? '');
+    return open.find((item) => index(item.id) > place) ?? open.find((item) => item.id !== (node ?? here)) ?? open[0];
+  })();
+  const nextJoin = () => (nextUnchecked ? onSelect(nextUnchecked.id, true) : toast('모든 합류를 점검했습니다.'));
   const go = (target: string | undefined) => target && onMove(target);
   // ⌥↑/⌥↓ (Ctrl as well) move the window to the previous/next choice or join, unless a field has the keys.
   const goRef = useRef<{ previous?: string; next?: string }>({});
@@ -107,7 +125,8 @@ export function PathMode({ projectId, toggle, node, edit, at, all, onSelect, onE
       title="그래프"
       meta={
         summary && (
-          <span className="text-sm text-muted-foreground tabular-nums">
+          <span className="text-sm text-muted-foreground tabular-nums" title={[joinSummary, summary].filter(Boolean).join(' · ')}>
+            {joinSummary && <span data-testid="join-summary">{joinSummary} · </span>}
             <span data-testid="path-summary">{summary}</span>
             {!all && around && around.choices > 0 && <span data-testid="path-position"> · 갈림 {around.position.toLocaleString()} / {around.choices.toLocaleString()}</span>}
           </span>
@@ -121,6 +140,9 @@ export function PathMode({ projectId, toggle, node, edit, at, all, onSelect, onE
                 <>
                   <Button variant="ghost" disabled={!around?.previous} title={`이전 갈림 (${keyLabel('Alt+Up')})`} onClick={() => go(around?.previous)}>
                     이전 갈림
+                  </Button>
+                  <Button variant="ghost" disabled={!nextUnchecked} title="아직 점검하지 않았거나 점검 뒤 번역이 바뀐 다음 합류로 이동" onClick={nextJoin}>
+                    다음 미점검 합류
                   </Button>
                   <Button variant="ghost" disabled={!around?.next} title={`다음 갈림 (${keyLabel('Alt+Down')})`} onClick={() => go(around?.next)}>
                     다음 갈림
@@ -149,6 +171,9 @@ export function PathMode({ projectId, toggle, node, edit, at, all, onSelect, onE
         pane={
           block && (
             <div className="h-full bg-background">
+              {isJoin ? (
+                <JoinCheckPane key={block.id} projectId={projectId} nodeId={block.id} onClose={() => onSelect(undefined)} />
+              ) : (
               <FlowPane
                 key={block.id}
                 projectId={projectId}
@@ -158,13 +183,14 @@ export function PathMode({ projectId, toggle, node, edit, at, all, onSelect, onE
                 onEdit={onEdit}
                 onClose={() => onSelect(undefined)}
               />
+              )}
             </div>
           )
         }
       >
         <div className="relative min-w-0 flex-1 bg-[radial-gradient(var(--graph-grid)_1px,transparent_1px)] [background-size:20px_20px]">
           {slice && graph.data && slice.overview.nodes.length > 0 && (
-            <PathGraph projectId={projectId} slice={slice} texts={texts} at={here} all={all} selectedId={node} onSelect={(id) => onSelect(id, true)} onMove={onMove} onPick={onPick} onAuto={onAuto} onReady={ready} />
+            <PathGraph projectId={projectId} slice={slice} checks={checks} texts={texts} at={here} all={all} selectedId={node} onSelect={(id) => onSelect(id, true)} onMove={onMove} onPick={onPick} onAuto={onAuto} onReady={ready} />
           )}
           {(route.isPending || graph.isPending) && (
             <div className="absolute inset-0 flex items-center justify-center gap-2 text-sm text-muted-foreground">
@@ -180,7 +206,7 @@ export function PathMode({ projectId, toggle, node, edit, at, all, onSelect, onE
               </EmptyHeader>
             </Empty>
           )}
-          {block && editIndex >= 0 && (
+          {block && !isJoin && editIndex >= 0 && (
             <div className="absolute bottom-3 left-3">
               <LineCard key={edit} projectId={projectId} unitId={edit!} choice={isChoiceBlock} position={`${editIndex + 1} / ${block.unitIds.length}`} onStep={step} onClose={() => onEdit(undefined)} />
             </div>

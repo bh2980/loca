@@ -14,6 +14,7 @@ import { events } from '../events.ts';
 import { computeLayouts } from '../services/layout.ts';
 import { readView, sectionWithMost } from '../services/graph-views.ts';
 import { projectSlice } from '../services/route-slice.ts';
+import { joinDetail, joinStates } from '../services/join-check.ts';
 import { lineMatches } from '../services/line-matches.ts';
 import { lineTextFilter } from '../services/line-text.ts';
 import { lineMarksSchema } from '@tw/shared';
@@ -384,6 +385,36 @@ export const sourceRoutes = new Hono<Env>()
     c.var.deps.db.update(s.projects).set({ routePicks: {} }).where(eq(s.projects.id, projectId)).run();
     events.changed(projectId, 'graph', 'units');
     return c.json({ picks: {} });
+  })
+  /** 합류 점검: the checked joins of the slice and whether the lines they were checked against still read the same. */
+  .get('/projects/:projectId/join-checks', (c) => c.json({ checks: joinStates(c.var.deps.db, c.req.param('projectId')) }))
+  /** One join of the slice: each incoming route's last lines before it and the lines after it (source and current translation). */
+  .get('/projects/:projectId/route/joins/:nodeId', (c) => {
+    return c.json(found(joinDetail(c.var.deps.db, c.req.param('projectId'), c.req.param('nodeId')) ?? undefined, '합류 지점'));
+  })
+  /** Mark a join checked. `sig` is the signature of the lines the person read; if they changed meanwhile the mark is refused. */
+  .put('/projects/:projectId/join-checks/:nodeId', validate('json', z.object({ sig: z.string().min(1, '확인한 내용의 서명이 필요합니다.') })), (c) => {
+    const { db } = c.var.deps;
+    const projectId = c.req.param('projectId');
+    const nodeId = c.req.param('nodeId');
+    const detail = joinDetail(db, projectId, nodeId);
+    if (!detail) badRequest('지금 길 조각의 합류 지점이 아닙니다.');
+    if (detail.sig !== c.req.valid('json').sig) badRequest('점검하는 사이 이 합류의 번역이 바뀌었습니다. 바뀐 내용을 다시 확인해 주세요.');
+    const current = db.select({ checks: s.projects.joinChecks }).from(s.projects).where(eq(s.projects.id, projectId)).get();
+    const at = new Date().toISOString();
+    db.update(s.projects).set({ joinChecks: { ...current?.checks, [nodeId]: { at, sig: detail.sig } } }).where(eq(s.projects.id, projectId)).run();
+    events.changed(projectId, 'graph', 'units');
+    return c.json({ nodeId, at, state: 'checked' as const });
+  })
+  .delete('/projects/:projectId/join-checks/:nodeId', (c) => {
+    const { db } = c.var.deps;
+    const projectId = c.req.param('projectId');
+    const current = db.select({ checks: s.projects.joinChecks }).from(s.projects).where(eq(s.projects.id, projectId)).get();
+    if (!current) badRequest('프로젝트를 찾을 수 없습니다.');
+    const { [c.req.param('nodeId')]: _removed, ...rest } = current.checks;
+    db.update(s.projects).set({ joinChecks: rest }).where(eq(s.projects.id, projectId)).run();
+    events.changed(projectId, 'graph', 'units');
+    return c.json({ ok: true });
   })
   /** The dialogue graph's sections alone: the graph page needs them before it knows which layout to load. */
   .get('/projects/:projectId/graph/sections', (c) => c.json(graphSections(c.var.deps.db, c.req.param('projectId'))))

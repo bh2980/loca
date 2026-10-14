@@ -59,6 +59,8 @@ type PathNodeData = {
   loops?: string[];
   /** Join: the other choices that come back here ('‹label›에서도 들어옴'). */
   comesFrom?: string[];
+  /** Join: the state of its 합류 점검 (absent: not checked yet). */
+  check?: 'checked' | 'stale';
 };
 type PathNode = Node<PathNodeData, 'path'>;
 
@@ -81,9 +83,15 @@ const boxOfData = (shape: Shape, data: PathNodeData) => boxOf(shape, !!data.menu
 // Dense slices (hundreds of blocks with many parallel lanes) take seconds: laid out off the page's thread.
 const elk = new ELK({ workerFactory: () => new ElkWorker() });
 
+const CHECK_LABEL = { checked: '점검함', stale: '바뀜' } as const;
+
 /** '합류': a place where other choices come back; the tooltip says which. */
-function JoinMark({ comesFrom }: { comesFrom?: string[] }) {
-  const mark = <Badge variant="outline" className="shrink-0">합류</Badge>;
+function JoinMark({ comesFrom, check }: { comesFrom?: string[]; check?: PathNodeData['check'] }) {
+  const mark = (
+    <Badge variant="outline" className={cn('shrink-0', check === 'checked' && 'border-success/40 text-success', check === 'stale' && 'border-warning/40 text-warning')}>
+      합류{check && ` · ${CHECK_LABEL[check]}`}
+    </Badge>
+  );
   if (!comesFrom?.length) return mark;
   return (
     <Tooltip>
@@ -164,7 +172,8 @@ function PathNodeView({ data, selected }: NodeProps<PathNode>) {
       <div style={size} className={cn('flex flex-col items-center gap-1', selected && 'ring-2 ring-primary/30')}>
         <div className="flex h-7 w-full items-center justify-center gap-1 rounded-full border bg-muted text-xs text-muted-foreground">
           {data.pill}
-          {data.join && <JoinMark comesFrom={data.comesFrom} />}
+          {data.pill === '합류' && data.check && <span className={data.check === 'checked' ? 'text-success' : 'text-warning'}> · {CHECK_LABEL[data.check]}</span>}
+          {data.join && <JoinMark comesFrom={data.comesFrom} check={data.check} />}
         </div>
         {data.menu && <ForkMenu menu={data.menu} />}
         {!!data.loops?.length && <LoopNote loops={data.loops} />}
@@ -180,7 +189,7 @@ function PathNodeView({ data, selected }: NodeProps<PathNode>) {
         {data.shape !== 'section' && data.lines > 1 && <Badge variant="secondary" className="shrink-0">{data.lines.toLocaleString()}줄</Badge>}
         {!!data.lanes && <Badge variant="secondary" className="shrink-0">동시에 열림 {data.lanes.toLocaleString()}</Badge>}
         {data.fork && !data.menu && <Badge variant="outline">갈림</Badge>}
-        {data.join && <JoinMark comesFrom={data.comesFrom} />}
+        {data.join && <JoinMark comesFrom={data.comesFrom} check={data.check} />}
       </div>
       {data.menu && <ForkMenu menu={data.menu} className="-ml-2 self-start" />}
       <p className="line-clamp-2 text-sm leading-snug">
@@ -353,10 +362,12 @@ function windowViewport(box: { left: number; top: number; width: number; height:
  * section or anchor selects it (the page's `node`), the other choices of a fork are a menu on its node, clicking a
  * marker at the window's edge moves the window. Pan and zoom are kept in sessionStorage only, never in history.
  */
-export function PathGraph({ projectId, slice, texts, at, all, selectedId, onSelect, onMove, onPick, onAuto, onReady }: {
+export function PathGraph({ projectId, slice, texts, checks, at, all, selectedId, onSelect, onMove, onPick, onAuto, onReady }: {
   projectId: string;
   slice: PathSlice;
   texts: Map<string, PathNodeText>;
+  /** 합류 점검 per join (overview node id), for the mark on the join. */
+  checks?: Record<string, { state: 'checked' | 'stale' }>;
   /** The overview node the window is around. */
   at?: string;
   /** Draw the whole overview instead of the window. */
@@ -399,7 +410,7 @@ export function PathGraph({ projectId, slice, texts, at, all, selectedId, onSele
           : undefined;
       const here = new Set(node.nodeIds);
       const comesFrom = node.join ? [...new Set(slice.stubs.filter((stub) => stub.rejoins.some((id) => here.has(id))).map((stub) => stub.label))] : undefined;
-      const common = { lines: node.unitIds.length, join: node.join, fork: node.choice, menu, comesFrom };
+      const common = { lines: node.unitIds.length, join: node.join, fork: node.choice, menu, comesFrom, check: node.join ? checks?.[node.id]?.state : undefined };
       const first = node.nodeIds.map((id) => texts.get(id)).find((item) => item?.text);
       if (node.kind === 'section') {
         items.set(node.id, { id: node.id, shape: 'section', data: { ...common, shape: 'section', lanes: node.lanes, join: false, fork: false, speaker: first?.speaker, text: first?.text } });
@@ -412,7 +423,7 @@ export function PathGraph({ projectId, slice, texts, at, all, selectedId, onSele
       }
     }
     return items;
-  }, [slice, texts, onPick, onAuto]);
+  }, [slice, texts, checks, onPick, onAuto]);
 
   const { items, flowEdges, plain, key } = useMemo(() => {
     const windowed = windowOf(slice.overview, at, all);

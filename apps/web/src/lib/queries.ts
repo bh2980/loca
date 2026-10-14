@@ -50,6 +50,11 @@ export const q = {
     }),
   /** The slice of the dialogue graph for the stored choices (길 따라 보기): blocks, edges, forks, stubs, joins and the picks. */
   route: (projectId: string) => queryOptions({ queryKey: ['graph', projectId, 'route'], queryFn: () => unwrap(client.projects[':projectId'].route.$get({ param: { projectId } })) }),
+  /** 합류 점검: the checked joins of the slice with whether their lines still read as they did (units topic: translations decide). */
+  joinChecks: (projectId: string) => queryOptions({ queryKey: ['units', 'join-checks', projectId], queryFn: () => unwrap(client.projects[':projectId']['join-checks'].$get({ param: { projectId } })) }),
+  /** One join: each incoming route's last lines and the lines after it. */
+  joinDetail: (projectId: string, nodeId: string) =>
+    queryOptions({ queryKey: ['units', 'join', projectId, nodeId], queryFn: () => unwrap(client.projects[':projectId'].route.joins[':nodeId'].$get({ param: { projectId, nodeId } })) }),
   graphNode: (nodeId: string) => queryOptions({ queryKey: ['units', 'graph-node', nodeId], queryFn: () => unwrap(client['graph-nodes'][':nodeId'].$get({ param: { nodeId } })) }),
   terms: (projectId: string) => queryOptions({ queryKey: ['terms', projectId], queryFn: () => unwrap(client.projects[':projectId'].terms.$get({ param: { projectId } })) }),
   termSuggest: (projectId: string) =>
