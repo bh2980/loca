@@ -1,0 +1,1 @@
+ALTER TABLE `projects` ADD `route_picks` text DEFAULT '{}' NOT NULL;

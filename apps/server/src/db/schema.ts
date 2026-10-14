@@ -40,6 +40,8 @@ export const projects = sqliteTable('projects', {
   editorAi: json<Partial<EditorAi>>('editor_ai').notNull().default(sql`'{}'`),
   /** Colors the project picked for automatic marks (AUTO_MARKS); others keep their default. */
   markColors: json<MarkColors>('mark_colors').notNull().default(sql`'{}'`),
+  /** The arms a person picked for the main route (본 줄기): graph node id of a fork → the node it goes on to. */
+  routePicks: json<Record<string, string>>('route_picks').notNull().default(sql`'{}'`),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
