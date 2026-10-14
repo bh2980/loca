@@ -15,7 +15,7 @@ import { computeLayouts } from '../services/layout.ts';
 import { readView, sectionWithMost } from '../services/graph-views.ts';
 import { projectSlice } from '../services/route-slice.ts';
 import { previewNext, projectRouteInputs, ROUTE_HISTORY, routeProgress } from '../services/next-route.ts';
-import { seamDetail, seamStates } from '../services/seam-check.ts';
+import { seamDetail, seamLines, seamNodes, seamStates } from '../services/seam-check.ts';
 import { lineMatches } from '../services/line-matches.ts';
 import { lineTextFilter } from '../services/line-text.ts';
 import { lineMarksSchema } from '@tw/shared';
@@ -217,6 +217,14 @@ export const sourceRoutes = new Hono<Env>()
         .all(),
     );
   })
+  /** Lines by id, in the order asked: the visible rows of the path view's translation list (the same row as the list's, without tags). */
+  .post('/projects/:projectId/units/by-ids', validate('json', z.object({ ids: z.array(z.string()).max(200) })), (c) => {
+    const { db } = c.var.deps;
+    const ids = c.req.valid('json').ids;
+    if (!ids.length) return c.json({ rows: [] });
+    const byId = new Map(db.select({ ...unitColumns, groupTitle: s.groups.title }).from(s.units).innerJoin(s.groups, eq(s.groups.id, s.units.groupId)).where(and(eq(s.units.projectId, c.req.param('projectId')), inArray(s.units.id, ids))).all().map((row) => [row.id, row] as const));
+    return c.json({ rows: ids.flatMap((id) => (byId.has(id) ? [{ ...byId.get(id)!, lastRun: null }] : [])) });
+  })
   .patch(
     '/projects/:projectId/units',
     validate(
@@ -367,7 +375,11 @@ export const sourceRoutes = new Hono<Env>()
     const blocks = slice.blocks.map((block) => ({ ...block, translated: block.unitIds.filter((id) => progress.translated.has(id)).length }));
     const newLinesOnRoute = blocks.reduce((sum, block) => sum + block.unitIds.length - block.translated, 0);
     const { translated: _translated, ...counts } = progress;
-    return c.json({ ...slice, blocks, seamChecks: seamStates(db, projectId).seamChecks, picks: row?.picks ?? {}, round: row?.state.round ?? 1, canGoBack: (row?.state.history.length ?? 0) > 0, newLinesOnRoute, ...counts });
+    // The translation list needs, for every line of the slice in block order, whether it has a translation (one character each),
+    // and the lines around each seam (they stay open); the lines themselves come in chunks from units/by-ids.
+    const translatedMask = blocks.flatMap((block) => block.unitIds).map((id) => (progress.translated.has(id) ? '1' : '0')).join('');
+    const seamAround = seamNodes(slice).map((nodeId) => ({ nodeId, ...seamLines(slice, nodeId)! }));
+    return c.json({ ...slice, blocks, translatedMask, seamAround, seamChecks: seamStates(db, projectId).seamChecks, picks: row?.picks ?? {}, round: row?.state.round ?? 1, canGoBack: (row?.state.history.length ?? 0) > 0, newLinesOnRoute, ...counts });
   })
   /** 다음 길, preview: the route through the most untranslated lines, and how many routes are still to translate. */
   .get('/projects/:projectId/route/next', (c) => {

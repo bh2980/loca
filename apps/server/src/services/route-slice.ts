@@ -47,6 +47,8 @@ export interface SliceBlock {
   /** Their lines, in order. */
   unitIds: string[];
   kind: string;
+  /** Round 2 on: every line of the block is on an earlier round's route (the translation list may fold it once translated). */
+  earlier: boolean;
 }
 export interface RouteSlice {
   blocks: SliceBlock[];
@@ -352,7 +354,7 @@ export function sliceRoute(nodes: GraphNode[], edges: GraphEdge[], units: Map<st
     }
     const blockId = run.length > 1 ? `block:${id}` : id;
     for (const member of run) blockOf.set(member, blockId);
-    blocks.push({ id: blockId, nodeIds: run, unitIds: run.flatMap((member) => byId.get(member)!.unitIds), kind: run.length > 1 ? 'block' : byId.get(id)!.kind });
+    blocks.push({ id: blockId, nodeIds: run, unitIds: run.flatMap((member) => byId.get(member)!.unitIds), kind: run.length > 1 ? 'block' : byId.get(id)!.kind, earlier: false });
   }
 
   const pathEdges = new Map<string, RouteSlice['edges'][number]>();
@@ -377,6 +379,7 @@ export function sliceRoute(nodes: GraphNode[], edges: GraphEdge[], units: Map<st
       for (const unit of byId.get(id)!.unitIds) earlierUnits.add(unit);
     }
   }
+  for (const block of blocks) block.earlier = history.length > 0 && block.unitIds.length > 0 && block.unitIds.every((unit) => earlierUnits.has(unit));
   const blockById = new Map(blocks.map((block) => [block.id, block]));
   const seams: SliceSeam[] = [];
   if (history.length)

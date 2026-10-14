@@ -49,6 +49,8 @@ type PathNodeData = {
   onMove?: () => void;
   /** Folded: opens it in place. */
   onExpand?: () => void;
+  /** The list is here (the window's centre). */
+  here?: boolean;
   /** Starts one of several choices that open at the same place ("동시에 열림 i/n"). */
   arm?: Arm;
   /** Window: arms the column numbers at this node, and targets that only loop back (replaces `lanes`). */
@@ -161,7 +163,7 @@ function PathNodeView({ data, selected }: NodeProps<PathNode>) {
     );
   if (data.shape === 'fork')
     return (
-      <div style={size} className={cn('flex flex-col items-center gap-1', selected && 'ring-2 ring-primary/30')}>
+      <div style={size} className={cn('flex flex-col items-center gap-1', selected && 'ring-2 ring-primary/30')} data-here={data.here || undefined}>
         <div className="flex h-7 w-full items-center justify-center gap-1 rounded-full border bg-muted px-2 text-xs whitespace-nowrap text-muted-foreground">
           {data.pill}
           {data.seamMark && <SeamMark state={data.seamMark.state} />}
@@ -171,7 +173,7 @@ function PathNodeView({ data, selected }: NodeProps<PathNode>) {
       </div>
     );
   return (
-    <div style={size} className={cn('relative flex flex-col justify-center gap-0.5 overflow-hidden rounded-lg border bg-background px-3 py-1.5 text-sm shadow-xs', selected && 'border-primary ring-2 ring-primary/30')}>
+    <div style={size} className={cn('relative flex flex-col justify-center gap-0.5 overflow-hidden rounded-lg border bg-background px-3 py-1.5 text-sm shadow-xs', data.here && 'shadow-[inset_3px_0_0_var(--primary)]', selected && 'border-primary ring-2 ring-primary/30')} data-here={data.here || undefined}>
       <div className="flex items-center gap-1 text-xs text-muted-foreground">
         <span className={cn('max-w-48 truncate', data.shape === 'section' && 'shrink-0')}>
           {data.shape === 'section' ? (data.translated && data.translated < data.lines ? '구간' : `구간 · ${data.lines.toLocaleString()}줄`) : data.shape === 'choice' ? '선택지' : (data.speaker ?? '지문·화면 문구')}
@@ -387,7 +389,7 @@ function windowViewport(box: { left: number; top: number; width: number; height:
  * section or anchor selects it (the page's `node`; the other choices of a fork and its loops are said in the pane), clicking a
  * marker at the window's edge moves the window. Pan and zoom are kept in sessionStorage only, never in history.
  */
-export function PathGraph({ projectId, slice, texts, checks, at, all, selectedId, onSelect, onMove, onReady }: {
+export function PathGraph({ projectId, slice, texts, checks, at, all, selectedId, folds = true, onSelect, onMove, onReady }: {
   projectId: string;
   slice: PathSlice;
   texts: Map<string, PathNodeText>;
@@ -398,6 +400,8 @@ export function PathGraph({ projectId, slice, texts, checks, at, all, selectedId
   /** Draw the whole overview instead of the window. */
   all: boolean;
   selectedId?: string;
+  /** Fold translated stretches into one node and open a seam's first lines on its node (the map beside the translation list does neither: the list does). */
+  folds?: boolean;
   /** A section or anchor was clicked. */
   onSelect: (id: string | undefined) => void;
   /** A marker was clicked: the window moves there. */
@@ -422,7 +426,8 @@ export function PathGraph({ projectId, slice, texts, checks, at, all, selectedId
     const items = new Map<string, { id: string; shape: Shape; data: PathNodeData }>();
     for (const node of slice.overview.nodes) {
       const translated = node.blockIds.reduce((sum, id) => sum + (blocks.get(id)?.translated ?? 0), 0);
-      const common = { lines: node.unitIds.length, translated, fork: node.choice, seam: node.seam ? { projectId, nodeId: node.id } : undefined };
+      // A seam's first lines are shown open on its node; the map beside the translation list leaves them to the list.
+      const common = { lines: node.unitIds.length, translated, fork: node.choice, seam: node.seam && folds ? { projectId, nodeId: node.id } : undefined };
       const first = node.nodeIds.map((id) => texts.get(id)).find((item) => item?.text);
       if (node.kind === 'section') {
         items.set(node.id, { id: node.id, shape: 'section', data: { ...common, shape: 'section', lanes: node.lanes, seam: undefined, fork: false, speaker: first?.speaker, text: first?.text } });
@@ -435,7 +440,7 @@ export function PathGraph({ projectId, slice, texts, checks, at, all, selectedId
       }
     }
     return items;
-  }, [slice, texts, projectId]);
+  }, [slice, texts, projectId, folds]);
 
   const { items, flowEdges, plain, key, foldOf } = useMemo(() => {
     const windowed = windowOf(slice.overview, at, all);
@@ -445,7 +450,7 @@ export function PathGraph({ projectId, slice, texts, checks, at, all, selectedId
     // Stretches whose lines are all translated fold into one node; choices, seams (their first lines stay open) and the selection stay open.
     const foldable = (id: string) => {
       const data = catalog.get(id)?.data;
-      return !!data && data.shape !== 'fork' && data.lines > 0 && data.translated === data.lines && !data.fork && !data.seam && id !== selectedId;
+      return folds && !!data && data.shape !== 'fork' && data.lines > 0 && data.translated === data.lines && !data.fork && !data.seam && id !== selectedId;
     };
     const folded = foldTranslated(windowed.ids, split.forward, foldable, expanded);
     const forward = folded.edges;
@@ -499,7 +504,7 @@ export function PathGraph({ projectId, slice, texts, checks, at, all, selectedId
     const armKey = [...(windowed.arms ?? [])].map(([id, arm]) => `${id}=${arm.index}/${arm.count}`).join(',');
     const key = `${items.map((item) => `${item.id}:${item.shape}${item.data.seam ? 's' : ''}${item.data.seamMark ? 'S' : ''}${item.data.hub ? `h${item.data.hub.arms}.${item.data.hub.loops}` : ''}`).join('|')}#${plain.map((edge) => `${edge.from}>${edge.to}${edge.label ? `:${edge.label}` : ''}`).join('|')}#${drawn.map((item) => (item.reading ? 'r' : 'p')).join('')}#${armKey}`;
     return { items, flowEdges, plain, key, foldOf };
-  }, [slice.overview, slice.seams, catalog, checks, at, all, expanded, selectedId, expand]);
+  }, [slice.overview, slice.seams, catalog, checks, at, all, expanded, selectedId, folds, expand]);
 
   const [positions, setPositions] = useState<Positions>();
   const [failed, setFailed] = useState<string>();
@@ -519,8 +524,8 @@ export function PathGraph({ projectId, slice, texts, checks, at, all, selectedId
   }, [positions?.key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const nodes: PathNode[] = useMemo(
-    () => (positions ? items.filter((item) => positions.at[item.id]).map((item) => ({ id: item.id, type: 'path', position: positions.at[item.id], data: item.data, selected: item.id === selectedId, draggable: false, connectable: false })) : []),
-    [items, positions, selectedId],
+    () => (positions ? items.filter((item) => positions.at[item.id]).map((item) => ({ id: item.id, type: 'path', position: positions.at[item.id], data: item.id === at ? { ...item.data, here: true } : item.data, selected: item.id === selectedId, draggable: false, connectable: false })) : []),
+    [items, positions, selectedId, at],
   );
 
   const edges = useMemo(

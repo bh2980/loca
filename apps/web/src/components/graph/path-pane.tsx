@@ -1,5 +1,6 @@
+import type { ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
-import { PaneSection } from '@/components/detail-pane';
+import { DetailPane, PaneSection } from '@/components/detail-pane';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import type { PathNodeText, PathSlice } from '@/components/graph/path-graph';
@@ -96,5 +97,17 @@ export function PathNodeExtras({ choices, loops, onPick, onAuto }: { choices?: F
         </PaneSection>
       )}
     </>
+  );
+}
+
+/**
+ * The right-hand pane of a node picked on the map. The lines themselves are translated in the list
+ * in the middle; this says what the node is and holds what the map does not draw on it.
+ */
+export function PathNodePane({ title, subtitle, extras, onClose }: { title: string; subtitle?: string; extras: ReactNode; onClose: () => void }) {
+  return (
+    <DetailPane kicker="길 조각" title={title} subtitle={subtitle} onClose={onClose}>
+      {extras ?? <p className="text-sm text-muted-foreground">이 노드의 줄은 가운데 목록에서 번역합니다. 다른 선택도 되돌아가는 곳도 없는 노드입니다.</p>}
+    </DetailPane>
   );
 }

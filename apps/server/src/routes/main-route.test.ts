@@ -216,6 +216,34 @@ describe('main route API', () => {
       expect((await h.send('GET', `/projects/${h.projectId}/route/seams/${encodeURIComponent(join.id)}`)).status).toBe(404);
     });
 
+    type ListData = { blocks: { unitIds: string[]; earlier: boolean }[]; translatedMask: string; seamAround: { nodeId: string; before: { from: string; unitIds: string[] }[]; after: string[] }[] };
+    const listData = async (h: ReturnType<typeof setup>) => (await h.route()) as unknown as ListData;
+
+    it('gives the translation list its mask, earlier blocks, seam lines and rows by id', async () => {
+      const h = setup();
+      const round1 = await listData(h);
+      const ids = round1.blocks.flatMap((block) => block.unitIds);
+      expect(round1.translatedMask).toBe('0'.repeat(ids.length));
+      expect(round1.seamAround).toEqual([]);
+      expect(round1.blocks.some((block) => block.earlier)).toBe(false);
+      // One line translated: its place in the mask (block order) turns to 1.
+      h.db.update(s.units).set({ translation: '번역' }).where(eq(s.units.id, ids[2]!)).run();
+      expect((await listData(h)).translatedMask).toBe('00100000000'.slice(0, ids.length));
+      // Rows come back in the order asked, only this project's lines; unknown ids are left out.
+      const rows = (await (await h.send('POST', `/projects/${h.projectId}/units/by-ids`, { ids: [ids[2]!, 'nope', ids[0]!] })).json()) as { rows: { id: string; translation: string | null }[] };
+      expect(rows.rows.map((row) => row.id)).toEqual([ids[2], ids[0]]);
+      expect(rows.rows[0]!.translation).toBe('번역');
+      expect((await h.send('POST', `/projects/${h.projectId}/units/by-ids`, { ids: [] })).status).toBe(200);
+      // Round 2: route 1's blocks are earlier ones, and the seam's lines are the ones the seam pane reads.
+      for (const id of ids) h.db.update(s.units).set({ translation: `번역 ${id}` }).where(eq(s.units.id, id)).run();
+      expect((await h.send('POST', `/projects/${h.projectId}/route/next`, { round: 1 })).status).toBe(200);
+      const round2 = await listData(h);
+      expect(round2.blocks.some((block) => block.earlier)).toBe(true);
+      expect(round2.blocks.every((block) => !block.earlier || block.unitIds.every((id) => ids.includes(id)))).toBe(true);
+      const { seamId, detail } = await open(h);
+      expect(round2.seamAround).toEqual([{ nodeId: seamId, before: [{ from: expect.any(String), unitIds: detail.before[0]!.lines.map((line) => line.unitId) }], after: detail.after.map((line) => line.unitId) }]);
+    });
+
     it('route 2 rejoining route 1 has one seam at the rejoin; going back removes it', async () => {
       const h = await second();
       const { info, seamId, detail } = await open(h);

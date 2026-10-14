@@ -106,7 +106,7 @@ function GraphRoute() {
       edit={search.edit}
       at={search.at}
       all={search.all === 1}
-      onSelect={(node, focus) => void navigate({ search: (previous) => ({ ...previous, node, edit: undefined, ...(node && focus && { at: node }) }), replace: true })}
+      onSelect={(node, focus) => void navigate({ search: (previous) => ({ ...previous, node, ...(node && focus && { at: node }) }), replace: true })}
       onEdit={(edit) => void navigate({ search: (previous) => ({ ...previous, edit }), replace: true })}
       onMove={(at) => void navigate({ search: (previous) => ({ ...previous, at }), replace: true })}
       onAll={(all) => void navigate({ search: (previous) => ({ ...previous, all: all ? 1 : undefined }) })}

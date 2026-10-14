@@ -2,11 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { MoreHorizontal } from 'lucide-react';
 import { toast } from 'sonner';
-import { LineCard } from '@/components/graph/line-card';
-import { FlowPane } from '@/components/graph/node-detail';
 import { SeamCheckPane } from '@/components/graph/seam-check-pane';
 import { PathGraph, type PathNodeText } from '@/components/graph/path-graph';
-import { PathNodeExtras, describeNode, forkChoices } from '@/components/graph/path-pane';
+import { PathNodeExtras, PathNodePane, describeNode, forkChoices } from '@/components/graph/path-pane';
+import { RouteList } from '@/components/graph/route-list';
 import { loopTargets, resolveAt, stops } from '@/components/graph/path-window';
 import { Page } from '@/components/page';
 import { PaneHeader } from '@/components/pane-header';
@@ -21,14 +20,12 @@ import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 
-/** A section can hold thousands of nodes (9천 줄 샘플: 8305); the pane reads this many from its start and says so. */
-const PANE_NODES = 150;
-
 /**
  * 길 따라 보기 (docs/DESIGN.md J2c): the slice of the dialogue graph for the stored choices, drawn
  * as its overview (sections between choices) a window at a time. `at` is the window's centre (an
- * overview node id) and `all` draws the whole overview. The selected section or anchor is the page's
- * `node`; its lines open in the same pane as the dialogue graph, and the line being translated is `edit`.
+ * overview node id) and `all` draws the whole overview. The main area is the route's translation list
+ * (RouteList) with the graph as a narrow map beside it; the selected map node is the page's `node` (its
+ * pane says its other choices and loops) and the picked line is `edit`.
  */
 export function PathMode({ projectId, toggle, node, edit, at, all, onSelect, onEdit, onMove, onAll }: {
   projectId: string;
@@ -38,7 +35,7 @@ export function PathMode({ projectId, toggle, node, edit, at, all, onSelect, onE
   edit?: string;
   at?: string;
   all: boolean;
-  /** `focus`: the window moves to the clicked node too. */
+  /** `focus`: the window moves to the clicked node too (and the list goes there). */
   onSelect: (nodeId: string | undefined, focus?: boolean) => void;
   onEdit: (unitId: string | undefined) => void;
   /** Like scrolling: replaces the history entry. */
@@ -99,8 +96,7 @@ export function PathMode({ projectId, toggle, node, edit, at, all, onSelect, onE
   const choices = block && slice ? forkChoices(slice, block) : undefined;
   const loops = block && slice ? loopTargets(slice.overview, block.id).map((to) => describeNode(overviewById.get(to), texts)) : [];
   const extras = choices || loops.length ? <PathNodeExtras choices={choices} loops={loops} onPick={onPick} onAuto={onAuto} /> : undefined;
-  const editIndex = block && edit ? block.unitIds.indexOf(edit) : -1;
-  const editUnit = useQuery({ ...q.unit(edit ?? ''), enabled: editIndex >= 0 });
+  const editUnit = useQuery({ ...q.unit(edit ?? ''), enabled: !!edit });
   useReportView('graph-line', [editUnit.data && { kind: '대사', id: editUnit.data.id, label: `${editUnit.data.key} · ${editUnit.data.source.slice(0, 40)}` }]);
 
   const first = useRef(performance.now());
@@ -142,11 +138,6 @@ export function PathMode({ projectId, toggle, node, edit, at, all, onSelect, onE
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [all]); // eslint-disable-line react-hooks/exhaustive-deps
-  const step = (direction: 1 | -1) => {
-    const next = block?.unitIds[editIndex + direction];
-    if (next) onEdit(next);
-    else toast(direction === 1 ? '이 블록의 마지막 대사입니다.' : '이 블록의 첫 대사입니다.');
-  };
 
   return (
     <Page
@@ -215,14 +206,11 @@ export function PathMode({ projectId, toggle, node, edit, at, all, onSelect, onE
               {isSeam ? (
                 <SeamCheckPane key={block.id} projectId={projectId} nodeId={block.id} onClose={() => onSelect(undefined)} />
               ) : (
-              <FlowPane
+              <PathNodePane
                 key={block.id}
-                projectId={projectId}
-                nodeIds={block.nodeIds.slice(0, PANE_NODES)}
-                title={block.kind === 'section' ? `구간 · ${block.unitIds.length.toLocaleString()}줄${block.nodeIds.length > PANE_NODES ? ` (앞 노드 ${PANE_NODES}개만 보임)` : ''}` : isChoiceBlock ? '선택지' : block.unitIds.length > 1 ? `이어진 대사 ${block.unitIds.length}줄` : '대사'}
-                extra={extras}
-                editing={edit}
-                onEdit={onEdit}
+                title={block.kind === 'section' ? `구간 · ${block.unitIds.length.toLocaleString()}줄` : isChoiceBlock ? '선택지' : block.unitIds.length > 1 ? `이어진 대사 ${block.unitIds.length}줄` : block.unitIds.length ? '대사' : '이어짐'}
+                subtitle={`이 노드의 줄 ${block.unitIds.length.toLocaleString()}줄`}
+                extras={extras}
                 onClose={() => onSelect(undefined)}
               />
               )}
@@ -230,29 +218,30 @@ export function PathMode({ projectId, toggle, node, edit, at, all, onSelect, onE
           )
         }
       >
-        <div className="relative min-w-0 flex-1 bg-[radial-gradient(var(--graph-grid)_1px,transparent_1px)] [background-size:20px_20px]">
-          {slice && graph.data && slice.overview.nodes.length > 0 && (
-            <PathGraph projectId={projectId} slice={slice} checks={checks} texts={texts} at={here} all={all} selectedId={node} onSelect={(id) => onSelect(id, true)} onMove={onMove} onReady={ready} />
-          )}
-          {(route.isPending || graph.isPending) && (
-            <div className="absolute inset-0 flex items-center justify-center gap-2 text-sm text-muted-foreground">
-              <Spinner /> 길을 계산하는 중…
-            </div>
-          )}
-          {(route.isError || graph.isError) && <p className="p-6 text-sm text-destructive">길을 불러오지 못했습니다: {(route.error ?? graph.error)?.message}</p>}
-          {slice && !slice.overview.nodes.length && (
-            <Empty className="absolute inset-0">
-              <EmptyHeader>
-                <EmptyTitle>따라갈 길이 없습니다</EmptyTitle>
-                <EmptyDescription>대사 그래프가 없거나 대사가 있는 노드가 없습니다.</EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          )}
-          {block && !isSeam && editIndex >= 0 && (
-            <div className="absolute bottom-3 left-3">
-              <LineCard key={edit} projectId={projectId} unitId={edit!} choice={isChoiceBlock} position={`${editIndex + 1} / ${block.unitIds.length}`} onStep={step} onClose={() => onEdit(undefined)} />
-            </div>
-          )}
+        <div className="flex min-h-0 min-w-0 flex-1">
+          {/* The map: the path graph as a narrow column. A click goes there in the list; the list scrolling moves it. */}
+          <div className="relative w-72 shrink-0 border-r bg-[radial-gradient(var(--graph-grid)_1px,transparent_1px)] [background-size:20px_20px]" data-testid="path-map">
+            {slice && graph.data && slice.overview.nodes.length > 0 && (
+              <PathGraph projectId={projectId} slice={slice} checks={checks} texts={texts} at={here} all={all} selectedId={node} folds={false} onSelect={(id) => onSelect(id, true)} onMove={onMove} onReady={ready} />
+            )}
+            {(route.isPending || graph.isPending) && (
+              <div className="absolute inset-0 flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                <Spinner /> 길을 계산하는 중…
+              </div>
+            )}
+            {(route.isError || graph.isError) && <p className="p-6 text-sm text-destructive">길을 불러오지 못했습니다: {(route.error ?? graph.error)?.message}</p>}
+          </div>
+          <div className="relative min-w-0 flex-1">
+            {slice && slice.overview.nodes.length > 0 && <RouteList projectId={projectId} slice={slice} checks={checks} at={here} edit={edit} onEdit={onEdit} onAt={onMove} />}
+            {slice && !slice.overview.nodes.length && (
+              <Empty className="absolute inset-0">
+                <EmptyHeader>
+                  <EmptyTitle>따라갈 길이 없습니다</EmptyTitle>
+                  <EmptyDescription>대사 그래프가 없거나 대사가 있는 노드가 없습니다.</EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            )}
+          </div>
         </div>
       </SplitPane>
     </Page>
