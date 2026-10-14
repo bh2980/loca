@@ -12,7 +12,7 @@ import { ChevronDown } from 'lucide-react';
 import { SeamStateChip } from '@/components/graph/seam-check-pane';
 import { q } from '@/lib/queries';
 import { useQuery } from '@tanstack/react-query';
-import { foldTranslated, READING_LABEL, splitBackEdges, windowOf, type Arm, type Overview } from '@/components/graph/path-window';
+import { foldTranslated, READING_LABEL, splitBackEdges, windowOf, placeSeams, type Arm, type Hub, type Overview } from '@/components/graph/path-window';
 import { cn } from '@/lib/utils';
 
 /** What a slice block needs from the graph's node list (the first line of a node). */
@@ -66,6 +66,10 @@ type PathNodeData = {
   loops?: string[];
   /** Starts one of several choices that open at the same place ("동시에 열림 i/n"). */
   arm?: Arm;
+  /** Window: arms the column numbers at this node, and targets that only loop back (replaces `lanes`). */
+  hub?: Hub;
+  /** A seam whose entering edge is not drawn: marked here instead ('이음새' + check state). */
+  seamMark?: { state: 'checked' | 'stale' | undefined };
   /** Seam (round 2 on): the first lines after it are shown open, with their translation. */
   seam?: { projectId: string; nodeId: string };
 };
@@ -150,6 +154,34 @@ function LoopNote({ loops }: { loops: string[] }) {
   );
 }
 
+/** '동시에 열림 n' counts the arms the column numbers; targets that only loop back are said apart. */
+function HubChips({ arms, loops, behind }: { arms: number; loops: number; behind: number }) {
+  return (
+    <>
+      {arms > 0 && (
+        <Badge variant="secondary" className="shrink-0 tabular-nums" title={behind ? `직접 연결 ${behind}개는 다른 갈래 뒤에서 이어져 갈래로 세지 않았습니다.` : undefined}>
+          동시에 열림 {arms.toLocaleString()}
+        </Badge>
+      )}
+      {loops > 0 && (
+        <Badge variant="outline" className="shrink-0 tabular-nums" title={`직접 연결 ${loops}개는 이 노드로 되돌아오는 길이라 갈래로 세지 않았습니다.`}>
+          {arms > 0 ? '+ ' : ''}되돌아감 {loops.toLocaleString()}
+        </Badge>
+      )}
+    </>
+  );
+}
+
+/** The seam's marker on its own node: used when the edge into it is not drawn. */
+function SeamMark({ state }: { state: 'checked' | 'stale' | undefined }) {
+  return (
+    <span className="flex shrink-0 items-center gap-1" data-testid="seam-mark">
+      이음새
+      <SeamStateChip state={state} className="h-4 px-1.5 text-xs" />
+    </span>
+  );
+}
+
 function PathNodeView({ data, selected }: NodeProps<PathNode>) {
   const size = boxOfData(data.shape, data);
   const handles = (
@@ -181,6 +213,7 @@ function PathNodeView({ data, selected }: NodeProps<PathNode>) {
       <div style={size} className={cn('flex flex-col items-center gap-1', selected && 'ring-2 ring-primary/30')}>
         <div className="flex h-7 w-full items-center justify-center gap-1 rounded-full border bg-muted text-xs text-muted-foreground">
           {data.pill}
+          {data.seamMark && <SeamMark state={data.seamMark.state} />}
           {data.arm && <span>· 동시에 열림 {data.arm.index}/{data.arm.count}</span>}
         </div>
         {data.menu && <ForkMenu menu={data.menu} />}
@@ -200,7 +233,8 @@ function PathNodeView({ data, selected }: NodeProps<PathNode>) {
             {data.translated.toLocaleString()}/{data.lines.toLocaleString()}
           </Badge>
         )}
-        {!!data.lanes && <Badge variant="secondary" className="shrink-0">동시에 열림 {data.lanes.toLocaleString()}</Badge>}
+        {!!data.lanes && <HubChips arms={data.hub ? data.hub.arms : data.lanes} loops={data.hub?.loops ?? 0} behind={data.hub?.behind ?? 0} />}
+        {data.seamMark && <SeamMark state={data.seamMark.state} />}
         {data.arm && <Badge variant="secondary" className="shrink-0 tabular-nums">동시에 열림 {data.arm.index}/{data.arm.count}</Badge>}
         {data.fork && !data.menu && <Badge variant="outline">갈림</Badge>}
       </div>
@@ -499,6 +533,9 @@ export function PathGraph({ projectId, slice, texts, checks, at, all, selectedId
     };
     const loops = new Map<string, string[]>();
     for (const edge of back) loops.set(edge.from, [...(loops.get(edge.from) ?? []), describe(edge.to)]);
+    const ovOf = new Map(slice.overview.nodes.flatMap((node) => node.blockIds.map((id) => [id, node.id] as const)));
+    // One marker per seam: on the edge into it when that edge is drawn, else on the seam node.
+    const placed = placeSeams({ ids: folded.ids, edges: forward, seams: slice.seams, ovOf, isMarker: (id) => markers.has(id), foldMembers: (id) => foldById.get(id)?.members });
     const items = folded.ids.flatMap((id) => {
       const fold = foldById.get(id);
       if (fold) {
@@ -509,24 +546,18 @@ export function PathGraph({ projectId, slice, texts, checks, at, all, selectedId
       if (marker) return [{ id, shape: 'more' as const, data: { shape: 'more' as const, lines: 0, hint: marker.direction === 'ahead' ? '이 앞으로 이어짐' : '이 뒤에서 이어짐', onMove: () => moveRef.current(marker.target) } }];
       const item = catalog.get(id);
       const arm = windowed.arms?.get(id);
-      return item ? [loops.has(id) || arm ? { ...item, data: { ...item.data, loops: loops.get(id), arm } } : item] : [];
+      const hub = item?.shape === 'section' && item.data.lanes ? (windowed.hubs?.get(id) ?? (windowed.hubs ? { arms: 0, loops: 0, behind: 0 } : undefined)) : undefined;
+      const seamMark = placed.node.has(id) ? { state: checks?.[id]?.state } : undefined;
+      return item ? [loops.has(id) || arm || hub || seamMark ? { ...item, data: { ...item.data, loops: loops.get(id), arm, hub, seamMark } } : item] : [];
     });
     // Only text a person reads goes on an edge: exporter identifiers ("tps-01-game-intro", "rules-x=0") would clutter the line.
     // The edges into a seam: from a block of the route's new lines (it may sit in a fold) or from a marker at the window's edge.
-    const ovOf = new Map(slice.overview.nodes.flatMap((node) => node.blockIds.map((id) => [id, node.id] as const)));
-    const seamFrom = new Map<string, Set<string>>();
-    for (const seam of slice.seams) seamFrom.set(seam.nodeId, (seamFrom.get(seam.nodeId) ?? new Set()).add(ovOf.get(seam.from) ?? seam.from));
-    const isSeamEdge = (edge: { from: string; to: string }) => {
-      const origin = seamFrom.get(edge.to);
-      if (!origin) return false;
-      return origin.has(edge.from) || markers.has(edge.from) || !!foldById.get(edge.from)?.members.some((member) => origin.has(member));
-    };
     const drawn = forward.map((edge, i) => {
       const readable = edge.label && !isIdentifierLabel(edge.label) ? edge.label : undefined;
       // A reading connector is not a story edge: it says so (and carries the option text of the arm it leads to).
       const reading = (edge as { kind?: string }).kind === 'reading';
       const base = reading ? ((edge as { arm?: boolean }).arm ? (readable ? `${readable} · ${READING_LABEL}` : READING_LABEL) : undefined) : readable;
-      const seam: SeamEdge | undefined = isSeamEdge(edge) ? { state: checks?.[edge.to]?.state, base } : undefined;
+      const seam: SeamEdge | undefined = placed.edge[i] ? { state: checks?.[edge.to]?.state, base } : undefined;
       // The layout reserves room for the longest state word, so a check never moves the boxes (or the saved view).
       const reserve = (state: SeamEdge['state']) => `${base ? `${base} · ` : ''}이음새 · ${seamWord(state)}`;
       return { edge, reading, id: `${edge.from}>${edge.to}#${i}`, label: seam ? reserve(seam.state) : base, room: seam ? reserve(undefined) : base, seam };
@@ -547,7 +578,7 @@ export function PathGraph({ projectId, slice, texts, checks, at, all, selectedId
     });
     const plain: LayoutEdge[] = drawn.map(({ edge, id, room }) => ({ id, from: edge.from, to: edge.to, label: room }));
     const armKey = [...(windowed.arms ?? [])].map(([id, arm]) => `${id}=${arm.index}/${arm.count}`).join(',');
-    const key = `${items.map((item) => `${item.id}:${item.shape}${item.data.menu ? 'm' : ''}${item.data.loops?.length ? 'l' : ''}${item.data.seam ? 's' : ''}`).join('|')}#${plain.map((edge) => `${edge.from}>${edge.to}${edge.label ? `:${edge.label}` : ''}`).join('|')}#${drawn.map((item) => (item.reading ? 'r' : 'p')).join('')}#${armKey}`;
+    const key = `${items.map((item) => `${item.id}:${item.shape}${item.data.menu ? 'm' : ''}${item.data.loops?.length ? 'l' : ''}${item.data.seam ? 's' : ''}${item.data.seamMark ? 'S' : ''}${item.data.hub ? `h${item.data.hub.arms}.${item.data.hub.loops}` : ''}`).join('|')}#${plain.map((edge) => `${edge.from}>${edge.to}${edge.label ? `:${edge.label}` : ''}`).join('|')}#${drawn.map((item) => (item.reading ? 'r' : 'p')).join('')}#${armKey}`;
     return { items, flowEdges, plain, key, foldOf };
   }, [slice.overview, slice.seams, catalog, checks, at, all, expanded, selectedId, expand]);
 

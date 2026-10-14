@@ -61,6 +61,14 @@ export interface Arm {
   index: number;
   count: number;
 }
+/** What opens at a node in a window: the arms the column numbers, and the targets that only loop back up. */
+export interface Hub {
+  arms: number;
+  /** Direct targets that are not arms and lead back to the node. */
+  loops: number;
+  /** Direct targets that are not arms and do not lead back (reached through an arm). */
+  behind: number;
+}
 export interface Windowed {
   /** Overview node ids and window markers drawn; in a window, in reading order (top to bottom). */
   ids: string[];
@@ -70,6 +78,8 @@ export interface Windowed {
   back?: OverviewEdge[];
   /** Window only: the start of every parallel arm. */
   arms?: Map<string, Arm>;
+  /** Window only: per node, how many arms (the n of "i/n") and how many targets only loop back. */
+  hubs?: Map<string, Hub>;
 }
 
 /** Shown on a reading connector: the next of the choices that open at the same place. */
@@ -181,6 +191,7 @@ function linearize(overview: Overview, shown: Set<string>, order: Map<string, nu
   // Parallel arms: the ways out of one node that are not reached through another way out of it.
   const arms = new Map<string, Arm>();
   const armLabel = new Map<string, string | null>();
+  const armHub = new Map<string, string>();
   const reach = (id: string) => {
     const found = new Set<string>();
     for (const stack = [id]; stack.length; ) for (const edge of out.get(stack.pop()!) ?? []) if (!found.has(edge.to)) (found.add(edge.to), stack.push(edge.to));
@@ -195,8 +206,35 @@ function linearize(overview: Overview, shown: Set<string>, order: Map<string, nu
     starts.forEach((to, i) => {
       if (arms.has(to)) return;
       arms.set(to, { index: i + 1, count: starts.length });
+      armHub.set(to, hub);
       armLabel.set(to, ways.find((edge) => edge.to === to && edge.from === hub)?.label ?? null);
     });
+  }
+
+  // Same count as the arm numbers. Direct targets that are not arms (reached through an arm, or back up) are said apart:
+  // `loops` is those that lead back to this node, `behind` the rest.
+  const hubs = new Map<string, Hub>();
+  // Over the whole overview, so a target outside the window still counts as a loop when its way leads back.
+  const nextAll = new Map<string, Set<string>>();
+  for (const edge of overview.edges) if (edge.kind === 'path') nextAll.set(edge.from, (nextAll.get(edge.from) ?? new Set()).add(edge.to));
+  const comesBack = (from: string, hub: string) => {
+    const seenIds = new Set<string>();
+    for (const stack = [from]; stack.length; ) {
+      const id = stack.pop()!;
+      if (id === hub) return true;
+      if (seenIds.has(id)) continue;
+      seenIds.add(id);
+      stack.push(...(nextAll.get(id) ?? []));
+    }
+    return false;
+  };
+  for (const hub of shown) {
+    const targets = nextAll.get(hub) ?? new Set<string>();
+    if (targets.size < 2) continue;
+    const starts = new Set([...arms].filter(([to]) => armHub.get(to) === hub).map(([to]) => to));
+    const others = [...targets].filter((to) => !starts.has(to));
+    const loops = others.filter((to) => comesBack(to, hub)).length;
+    hubs.set(hub, { arms: starts.size, loops, behind: others.length - loops });
   }
 
   const edges: WindowEdge[] = [];
@@ -234,7 +272,7 @@ function linearize(overview: Overview, shown: Set<string>, order: Map<string, nu
       edges.push({ from: last, to: id, label: null, kind: leaving.some((edge) => edge.from === last) ? 'path' : 'reading' });
     }
   }
-  return { ids, edges, markers, back, arms };
+  return { ids, edges, markers, back, arms, hubs };
 }
 
 /** Where the next/previous buttons go from `at`, and `at`'s place among the choices (갈림 i / a). */
@@ -344,4 +382,34 @@ export function foldTranslated<E extends { from: string; to: string }>(ids: stri
     kept.push(from === edge.from && to === edge.to ? edge : { ...edge, from, to });
   }
   return { ids: [...new Set(ids.map((id) => foldOf.get(id) ?? id))], edges: kept, folds };
+}
+
+/**
+ * Where each seam of the window is marked ("이음새" + check state): on the drawn edge into it when
+ * there is one (`edge[i]`), otherwise on the seam node itself (`node`). Never both, never neither:
+ * a seam whose entering edge is not between neighbours in the reading order has no drawn edge.
+ */
+export function placeSeams(input: {
+  ids: string[];
+  edges: { from: string; to: string }[];
+  seams: { nodeId: string; from: string }[];
+  /** Slice block id -> overview node id. */
+  ovOf: Map<string, string>;
+  isMarker: (id: string) => boolean;
+  /** Overview nodes a fold stands for. */
+  foldMembers: (id: string) => string[] | undefined;
+}): { edge: boolean[]; node: Set<string> } {
+  const origin = new Map<string, Set<string>>();
+  for (const seam of input.seams) origin.set(seam.nodeId, (origin.get(seam.nodeId) ?? new Set()).add(input.ovOf.get(seam.from) ?? seam.from));
+  const marked = new Set<string>();
+  const edge = input.edges.map((item) => {
+    const from = origin.get(item.to);
+    if (!from || marked.has(item.to)) return false;
+    if (!(from.has(item.from) || input.isMarker(item.from) || !!input.foldMembers(item.from)?.some((member) => from.has(member)))) return false;
+    marked.add(item.to);
+    return true;
+  });
+  const shown = new Set(input.ids);
+  const node = new Set([...origin.keys()].filter((id) => shown.has(id) && !marked.has(id)));
+  return { edge, node };
 }

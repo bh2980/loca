@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { foldTranslated, READING_LABEL, markerId, resolveAt, splitBackEdges, stops, windowOf, type Overview, type OverviewNode } from './path-window';
+import { foldTranslated, READING_LABEL, markerId, placeSeams, resolveAt, splitBackEdges, stops, windowOf, type Overview, type OverviewNode } from './path-window';
 
 const anchor = (id: string, extra: Partial<OverviewNode> = {}): OverviewNode => ({ id, kind: 'anchor', blockIds: [id], nodeIds: [id], unitIds: [id], lanes: 0, choice: false, join: false, ...extra });
 const section = (id: string): OverviewNode => ({ id, kind: 'section', blockIds: [id], nodeIds: [id], unitIds: [id], lanes: 0, choice: false, join: false });
@@ -146,5 +146,54 @@ describe('windowOf reads a parallel fan-out as one column', () => {
     const result = windowOf(fan, 'hub', false);
     const folded = foldTranslated(result.ids, result.edges, (id) => !id.startsWith('more:'), new Set());
     expect(folded.folds.map((fold) => fold.members)).toEqual([['out', 'hub'], ['a1', 'a2'], ['b'], ['c'], ['join', 'end']]);
+  });
+});
+
+describe('hub numbers', () => {
+  // hub opens arms a and b; x and y are direct targets too, but reached through a, and both lead back to hub.
+  const loopy: Overview = {
+    nodes: [anchor('out'), anchor('hub'), section('a'), section('b'), anchor('x'), anchor('y'), anchor('end')],
+    edges: [path('out', 'hub'), path('hub', 'a'), path('hub', 'b'), path('hub', 'x'), path('hub', 'y'), path('a', 'x'), path('x', 'y'), path('y', 'hub'), path('b', 'end')],
+  };
+  const win = windowOf(loopy, 'hub', false);
+  it('counts the arms the column numbers, and the loops apart', () => {
+    expect(win.hubs!.get('hub')).toEqual({ arms: 2, loops: 2, behind: 0 });
+    expect([...win.arms!.values()].every((arm) => arm.count === win.hubs!.get('hub')!.arms)).toBe(true);
+  });
+  it('a hub without extra targets reports none', () => {
+    const fan2: Overview = { nodes: [anchor('hub'), section('a'), section('b')], edges: [path('hub', 'a'), path('hub', 'b')] };
+    expect(windowOf(fan2, 'hub', false).hubs!.get('hub')).toEqual({ arms: 2, loops: 0, behind: 0 });
+  });
+  it('a target reached through an arm that does not come back is counted as behind', () => {
+    const g: Overview = { nodes: [anchor('hub'), section('a'), section('b'), anchor('x')], edges: [path('hub', 'a'), path('hub', 'b'), path('hub', 'x'), path('a', 'x')] };
+    expect(windowOf(g, 'hub', false).hubs!.get('hub')).toEqual({ arms: 2, loops: 0, behind: 1 });
+  });
+});
+
+describe('seam markers', () => {
+  const ovOf = (ids: string[]) => new Map(ids.map((id) => [id, id] as const));
+  it('puts the marker on the drawn edge when there is one', () => {
+    const result = placeSeams({ ids: ['n', 's'], edges: [{ from: 'n', to: 's' }], seams: [{ nodeId: 's', from: 'n' }], ovOf: ovOf(['n', 's']), isMarker: () => false, foldMembers: () => undefined });
+    expect(result).toEqual({ edge: [true], node: new Set() });
+  });
+  it('puts it on the seam node when the entering edge is not between neighbours', () => {
+    // n1 -> m -> n2 -> s is drawn; the seam edge n1 -> s is not (a loop-free skip).
+    const result = placeSeams({ ids: ['n1', 'm', 'n2', 's'], edges: [{ from: 'n1', to: 'm' }, { from: 'm', to: 'n2' }, { from: 'n2', to: 's' }], seams: [{ nodeId: 's', from: 'n1' }], ovOf: ovOf(['n1', 'm', 'n2', 's']), isMarker: () => false, foldMembers: () => undefined });
+    expect(result.edge).toEqual([false, false, false]);
+    expect([...result.node]).toEqual(['s']);
+  });
+  it('every seam in a real window gets exactly one marker', () => {
+    // new lines n1, n2 (arms of hub) both return to s; only one of them is read right before s.
+    const ov: Overview = {
+      nodes: [anchor('hub'), section('n1'), section('n2'), anchor('s', { seam: true }), anchor('t', { seam: true }), section('x')],
+      edges: [path('hub', 'n1'), path('hub', 'n2'), path('n1', 's'), path('n2', 's'), path('n1', 't'), path('s', 'x')],
+    };
+    const seams = [{ nodeId: 's', from: 'n1' }, { nodeId: 's', from: 'n2' }, { nodeId: 't', from: 'n1' }];
+    const win = windowOf(ov, 'hub', false);
+    const result = placeSeams({ ids: win.ids, edges: win.edges, seams, ovOf: ovOf(ov.nodes.map((n) => n.id)), isMarker: (id) => id.startsWith('more:'), foldMembers: () => undefined });
+    for (const target of ['s', 't']) {
+      const onEdge = win.edges.filter((edge, i) => result.edge[i] && edge.to === target).length;
+      expect(onEdge + (result.node.has(target) ? 1 : 0)).toBe(1);
+    }
   });
 });
