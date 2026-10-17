@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { initialRunScope, type RunScopeMode } from '@/lib/run-scope';
 import { keepPreviousData, useMutation, useQuery, type UseQueryResult } from '@tanstack/react-query';
 import type { InferResponseType } from 'hono/client';
 import { Link, useNavigate } from '@tanstack/react-router';
@@ -13,7 +14,7 @@ import { lineTags, q } from '@/lib/queries';
 import { SCRIPT_VIEW } from '@/lib/labels';
 import { cn } from '@/lib/utils';
 
-type Mode = 'all' | 'here' | 'groups' | 'units' | 'tags' | 'kind';
+type Mode = RunScopeMode;
 type GroupKind = 'scene' | 'ui' | 'document';
 const KIND_ORDER: GroupKind[] = ['scene', 'ui', 'document'];
 
@@ -54,8 +55,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   const groupIds = open ? opened.groupIds : givenGroupIds;
   // Dialogue is nearly the whole project, so like the whole project it is never preselected.
   const preselectKind = viewKind && viewKind !== 'scene' ? viewKind : undefined;
-  const initialMode: Mode | undefined = unitIds?.length ? 'units' : groupIds?.length ? 'here' : preselectKind ? 'kind' : undefined;
-  const [mode, setMode] = useState<Mode | undefined>(initialMode);
+  const [mode, setMode] = useState<Mode | undefined>(() => initialRunScope({ unitIds, groupIds, kind: preselectKind }));
   const [pickedKind, setPickedKind] = useState<GroupKind | undefined>(preselectKind);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [pickedTags, setPickedTags] = useState<Set<string>>(new Set());
@@ -132,7 +132,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
         setOpen(next);
         if (next) {
           setOpened({ unitIds: givenUnitIds, groupIds: givenGroupIds });
-          setMode(givenUnitIds?.length ? 'units' : givenGroupIds?.length ? 'here' : preselectKind ? 'kind' : undefined);
+          setMode(initialRunScope({ unitIds: givenUnitIds, groupIds: givenGroupIds, kind: preselectKind }));
           setPickedKind(preselectKind);
           setPicked(new Set());
           setRunModels({});

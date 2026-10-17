@@ -1,4 +1,10 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { eq } from 'drizzle-orm';
+import { importFileSchema } from '@tw/shared';
+import { openDatabase } from '../db/index.ts';
+import * as s from '../db/schema.ts';
+import { importProject } from './importer.ts';
 import { deriveSceneEdges, deriveSceneGraph, depthBlocks, reduceSceneEdges } from './scene-graph.ts';
 
 describe('scene graph', () => {
@@ -80,5 +86,18 @@ describe('depth blocks', () => {
       { name: 'Day 1', rows: [['A', 'C'], ['B'], ['E']] },
       { name: 'Day 2', rows: [['D']] },
     ]);
+  });
+});
+
+describe('scene graph of the sample project (#54: it showed 그래프가 없습니다)', () => {
+  it('links relay-station’s five scenes as its dialogue graph does', () => {
+    const db = openDatabase(':memory:');
+    const file = importFileSchema.parse(JSON.parse(readFileSync(new URL('../../../../samples/relay-station.json', import.meta.url), 'utf8')));
+    const { projectId } = importProject(db, file);
+    const title = new Map(db.select().from(s.groups).where(eq(s.groups.projectId, projectId)).all().map((group) => [group.id, group.title]));
+    const nodes = db.select({ id: s.graphNodes.id, groupId: s.graphNodes.groupId }).from(s.graphNodes).where(eq(s.graphNodes.projectId, projectId)).all();
+    const edges = db.select({ fromId: s.graphEdges.fromId, toId: s.graphEdges.toId }).from(s.graphEdges).where(eq(s.graphEdges.projectId, projectId)).all();
+    const links = deriveSceneEdges(nodes, edges).map((edge) => `${title.get(edge.from)} → ${title.get(edge.to)}`).sort();
+    expect(links).toEqual(['근무 일지 → 북쪽 송신탑', '북쪽 송신탑 → 새벽', '중계소 도착 → 근무 일지', '중계소 도착 → 차단기 패널', '차단기 패널 → 북쪽 송신탑']);
   });
 });
