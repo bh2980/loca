@@ -1,0 +1,1 @@
+ALTER TABLE `runs` ADD `continuations` text DEFAULT '[]' NOT NULL;
