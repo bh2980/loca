@@ -22,6 +22,12 @@ import { catchUp, CONTEXT_BUDGET, handover, textOf, type AnsweredBy } from './ch
 const MAX_ROUNDS = 30;
 const RESULT_LIMIT = 20_000;
 const TOOL_BLOCK = /```loca-tools[ \t]*\r?\n([\s\S]*?)```/g;
+/** Sent once in a turn when Codex ended without a block after a failed call to its own (switched-off) code-mode tool. */
+const OWN_TOOL_CORRECTION = `답이 작업실 도구를 부르지 않은 채 끝났습니다. 이 대화에는 코드 실행(exec)이 없습니다. 작업실 도구가 필요하면 답의 맨 끝에 다음처럼 loca-tools 블록을 쓰세요:
+\`\`\`loca-tools
+[{"tool": "<도구 이름>", "input": {}}]
+\`\`\`
+도구가 필요 없으면 바로 답하세요.`;
 
 /** Instructions that teach the protocol, with every tool's input schema. */
 export function toolProtocol(tools: CatalogTool[]) {
@@ -92,6 +98,7 @@ export async function cliChatResponse(input: {
   let prompt = turnPrompt({ context, view: input.view, text: last ? textOf(last) : '', leftover });
   let sessionId = saved?.id;
   let totalsBefore = saved?.totals;
+  let correctedOwnToolAttempt = false;
 
   return chatStream({
     db,
@@ -111,6 +118,11 @@ export async function cliChatResponse(input: {
         if (visible) writeText(writer, visible);
         if (!calls.length && !error) {
           writer.write({ type: 'finish-step' });
+          if (answer.ownToolAttempt && !correctedOwnToolAttempt) {
+            correctedOwnToolAttempt = true;
+            prompt = OWN_TOOL_CORRECTION;
+            continue;
+          }
           // A message sent while it was answering: carry on with it instead of ending the turn (#44).
           const items = takeInterjections(db, chat.id);
           if (!items.length) {
