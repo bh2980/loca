@@ -1,5 +1,6 @@
 import { createUIMessageStream, createUIMessageStreamResponse, type UIMessage } from 'ai';
-import { enqueueSteer, readToEnd, steerPrompt, takeSteers } from './chat-turns.ts';
+import { enqueueSteer, readToEnd, type ChatTurn } from './chat-turns.ts';
+import { interjectionPrompt, takeInterjections, writeInterjections } from './chat-interject.ts';
 import { eq } from 'drizzle-orm';
 import * as ai from '@tw/ai';
 import { startCall } from './ai-calls.ts';
@@ -7,9 +8,9 @@ import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { agentCatalog, jsonSchemaOf } from './agent-catalog.ts';
-import { prepareProposal, reportText } from './proposal-check.ts';
+import { prepareProposal, refusalText, reportText } from './proposal-check.ts';
 import { fitText } from './tool-output.ts';
-import { propose, proposedText, takeDecisions } from './proposals.ts';
+import { propose, proposedText } from './proposals.ts';
 import { catchUp, CONTEXT_BUDGET, expandSteers, messageText, textOf, transcript, type AnsweredBy } from './chat-context.ts';
 
 /**
@@ -36,11 +37,8 @@ export async function piChatResponse(input: {
   /** The conversation record with the new user message last (the server's, not the browser's). */
   messages: UIMessage[];
   answeredBy: AnsweredBy;
-  signal: AbortSignal;
-  /** Called once the reply has been read to its end (see readToEnd). */
-  onEnd: () => void;
-  /** Called right after the last look at the steering queue (see chat-turns startTurn). */
-  markClosing?: () => void;
+  /** The conversation's running turn (chat-turns startTurn): its signal, end and closing mark. */
+  turn: Pick<ChatTurn, 'signal' | 'end' | 'record' | 'markClosing'>;
 }): Promise<Response> {
   const { db, chat, route, messages } = input;
   let live = sessions.get(chat.id);
@@ -58,7 +56,7 @@ export async function piChatResponse(input: {
       execute: async (args) => {
         if (tool.changes) {
           const prepared = await prepareProposal(db, chat.projectId, tool.name, args);
-          if (!prepared.ok) return { text: `제안을 만들지 않았습니다: ${prepared.error}`, details: { error: prepared.error } };
+          if (!prepared.ok) return { text: `제안을 만들지 않았습니다: ${refusalText(prepared)}`, details: { ok: false, error: `제안하지 못했습니다: ${prepared.error}` } };
           const proposal = propose(db, { projectId: chat.projectId, sessionId: chat.id, source: 'pi', tool: tool.name, input: prepared.input, report: prepared.report });
           return { text: proposedText(proposal.id) + reportText(prepared.report), details: { proposalId: proposal.id } };
         }
@@ -81,19 +79,15 @@ export async function piChatResponse(input: {
 
   const last = messages.at(-1);
   // Messages a previous turn could not take come after the new one.
-  const leftover = takeSteers(chat.id);
-  const prompt = [catchUp(messages.slice(0, -1), current.seen, CONTEXT_BUDGET.pi), takeDecisions(db, chat.id), input.view, last ? textOf(last) : '', steerPrompt(leftover)].filter(Boolean).join('\n\n');
+  const leftover = takeInterjections(db, chat.id);
+  const prompt = [catchUp(messages.slice(0, -1), current.seen, CONTEXT_BUDGET.pi), input.view, last ? textOf(last) : '', interjectionPrompt(leftover)].filter(Boolean).join('\n\n');
 
   const stream = createUIMessageStream({
     originalMessages: messages,
     generateId: () => crypto.randomUUID(),
     execute: async ({ writer }) => {
       writer.write({ type: 'message-metadata', messageMetadata: { answeredBy: input.answeredBy } });
-      const steer = (texts: string[]) => {
-        for (const text of texts) writer.write({ type: 'data-steer', data: { text } });
-        return steerPrompt(texts);
-      };
-      steer(leftover);
+      writeInterjections(writer, leftover);
       let textId: string | null = null;
       const closeText = () => {
         if (textId) writer.write({ type: 'text-end', id: textId });
@@ -131,22 +125,22 @@ export async function piChatResponse(input: {
           if (event.isError) writer.write({ type: 'tool-output-error', toolCallId: event.toolCallId, errorText: String(event.result?.content?.[0]?.text ?? '도구 실행 실패') });
           else writer.write({ type: 'tool-output-available', toolCallId: event.toolCallId, output: event.result?.details ?? null });
           // A message sent meanwhile goes in before pi's next model call (#44).
-          const texts = takeSteers(chat.id);
-          if (texts.length) {
+          const items = takeInterjections(db, chat.id);
+          if (items.length) {
             closeText();
-            void current.pi.steer(steer(texts)).catch(() => {
-              for (const text of texts) enqueueSteer(chat.id, text);
+            void current.pi.steer(writeInterjections(writer, items)).catch(() => {
+              for (const item of items) if (item.kind === 'user') enqueueSteer(chat.id, item.text);
             });
           }
         }
       });
       const abort = () => void current.pi.abort();
-      input.signal.addEventListener('abort', abort);
+      input.turn.signal.addEventListener('abort', abort);
       try {
         await current.pi.prompt(prompt);
         // A message sent while it was answering: carry on with it instead of ending the turn.
-        for (let texts = takeSteers(chat.id); texts.length && !input.signal.aborted; texts = takeSteers(chat.id)) await current.pi.prompt(steer(texts));
-        input.markClosing?.();
+        for (let items = takeInterjections(db, chat.id); items.length && !input.turn.signal.aborted; items = takeInterjections(db, chat.id)) await current.pi.prompt(writeInterjections(writer, items));
+        input.turn.markClosing();
         finish({ usage });
       } catch (error) {
         finish({ error, usage });
@@ -154,7 +148,7 @@ export async function piChatResponse(input: {
       } finally {
         closeText();
         unsubscribe();
-        input.signal.removeEventListener('abort', abort);
+        input.turn.signal.removeEventListener('abort', abort);
       }
     },
     onFinish: ({ messages: final }) => {
@@ -164,7 +158,7 @@ export async function piChatResponse(input: {
     },
     onError: (error) => (error instanceof Error ? error.message : String(error)),
   });
-  return createUIMessageStreamResponse({ stream, ...readToEnd(input.onEnd) });
+  return createUIMessageStreamResponse({ stream, ...readToEnd(input.turn) });
 }
 
 /**

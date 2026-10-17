@@ -325,7 +325,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         const fresh = asNew(characterInput, input);
         if (!fresh.ok) return fresh;
         const existing = characterByName(fresh.data.name);
-        if (existing) return { ok: false, error: `같은 이름의 인물이 이미 있습니다. id=${existing.id}로 수정 제안을 다시 하세요.` };
+        if (existing) return { ok: false, error: '같은 이름의 인물이 이미 있습니다.', hint: `그 인물을 고치려면 id=${existing.id}로 다시 제안하세요.` };
         const saved = saveCharacter(db, projectId, fresh.data);
         if (!saved) return { ok: false, error: '없는 인물입니다.' };
         return { ok: true, id: saved.id };

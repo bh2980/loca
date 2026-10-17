@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { badRequest, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { decideProposal, listedProposal } from '../services/proposals.ts';
+import { continueAfterDecisions } from '../services/chat-run.ts';
 
 /** Changes proposed by pi chat sessions and the CLI, decided in the chat panel. */
 export const proposalRoutes = new Hono<Env>()
@@ -24,7 +25,10 @@ export const proposalRoutes = new Hono<Env>()
   })
   .post('/proposals/:id/:action{accept|reject}', async (c) => {
     try {
-      return c.json(await decideProposal(c.var.deps.db, c.req.param('id'), c.req.param('action') === 'accept'));
+      const row = await decideProposal(c.var.deps.db, c.req.param('id'), c.req.param('action') === 'accept');
+      // The agent hears the results and carries on once the conversation has nothing left to decide (#43).
+      if (row.sessionId && row.status !== 'pending' && row.status !== 'running') continueAfterDecisions(c.var.deps, row.sessionId);
+      return c.json(row);
     } catch (error) {
       badRequest(error instanceof Error ? error.message : String(error));
     }

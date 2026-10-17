@@ -21,6 +21,8 @@ function setup() {
   return { db, projectId, chat };
 }
 
+const fakeTurn = () => ({ signal: new AbortController().signal, end: () => {}, record: () => {}, markClosing: () => {} });
+
 const user = (text: string) => ({ id: crypto.randomUUID(), role: 'user' as const, parts: [{ type: 'text' as const, text }] });
 
 describe('CLI chat', () => {
@@ -50,9 +52,8 @@ describe('CLI chat', () => {
       view: null,
       messages: [user('앨리스 프로필 만들어줘')],
       timeoutMs: 1000,
-      signal: new AbortController().signal,
-      onEnd: () => {},
-      turn,
+      turn: fakeTurn(),
+      cli: turn,
     });
     const body = await response.text();
 
@@ -84,9 +85,8 @@ describe('CLI chat', () => {
       view: null,
       messages: [user('안녕')],
       timeoutMs: 1000,
-      signal: new AbortController().signal,
-      onEnd,
-      turn: async () => ({ sessionId: 'cli-1', text: '안녕하세요.', usage: {} }),
+      turn: { ...fakeTurn(), end: onEnd },
+      cli: async () => ({ sessionId: 'cli-1', text: '안녕하세요.', usage: {} }),
     });
     // The response body is never read.
     await vi.waitFor(() => expect(onEnd).toHaveBeenCalledOnce());

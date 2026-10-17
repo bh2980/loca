@@ -38,7 +38,9 @@ export async function checkBatch(db: Db, projectId: string, input: BatchChange) 
   return { batch: { ...input, changes }, unchanged, report };
 }
 
-export type Prepared = { ok: true; input: Record<string, unknown>; report: s.ProposalReport | null } | { ok: false; error: string };
+export type Prepared = { ok: true; input: Record<string, unknown>; report: s.ProposalReport | null } | { ok: false; error: string; hint?: string };
+/** A refusal as the agent reads it: what went wrong plus how to fix it (ids and tool names the person does not need to see). */
+export const refusalText = (refused: { error: string; hint?: string }) => [refused.error, refused.hint].filter(Boolean).join(' ');
 
 /** Change tools that edit an existing row when given its id, and where that row lives. */
 const BY_ID: Record<string, { field: string; what: string; exists: (db: Db, projectId: string, id: string) => boolean }> = {};
@@ -70,7 +72,7 @@ for (const [tool, field, what, exists] of [
 export async function prepareProposal(db: Db, projectId: string, tool: string, input: Record<string, unknown>): Promise<Prepared> {
   const byId = BY_ID[tool];
   const id = byId && input[byId.field];
-  if (byId && typeof id === 'string' && id && !byId.exists(db, projectId, id)) return { ok: false, error: `없는 ${byId.what}입니다 (${byId.field}=${id}). 목록 도구로 id를 확인하세요.` };
+  if (byId && typeof id === 'string' && id && !byId.exists(db, projectId, id)) return { ok: false, error: `없는 ${byId.what}입니다.`, hint: `(${byId.field}=${id}) 목록 도구로 id를 확인하세요.` };
   if (tool === 'tag_items') {
     const tables = { terms: s.terms, characters: s.characters, relationships: s.relationships, speechRules: s.speechRules, events: s.storyEvents, documents: s.documents } as const;
     const table = tables[input.kind as keyof typeof tables];
@@ -78,14 +80,14 @@ export async function prepareProposal(db: Db, projectId: string, tool: string, i
     if (!table) return { ok: false, error: `태그를 붙일 수 없는 종류입니다: ${String(input.kind)}` };
     const found = new Set(inChunks(ids, (slice) => db.select({ id: table.id }).from(table).where(and(eq(table.projectId, projectId), inArray(table.id, slice))).all()).map((row) => row.id));
     const missing = ids.filter((itemId) => !found.has(itemId));
-    if (missing.length) return { ok: false, error: `없는 항목 id가 있습니다: ${missing.slice(0, 5).join(', ')}. 목록 도구로 id를 확인하세요.` };
+    if (missing.length) return { ok: false, error: `없는 항목이 ${missing.length}개 있습니다.`, hint: `없는 id: ${missing.slice(0, 5).join(', ')}. 목록 도구로 id를 확인하세요.` };
     return { ok: true, input, report: null };
   }
   if (tool === 'save_terms') {
     const ids = ((input.terms as { id?: string }[] | undefined) ?? []).flatMap((term) => (term.id ? [term.id] : []));
     const found = new Set(ids.length ? db.select({ id: s.terms.id }).from(s.terms).where(and(eq(s.terms.projectId, projectId), inArray(s.terms.id, ids))).all().map((row) => row.id) : []);
     const missing = ids.filter((termId) => !found.has(termId));
-    if (missing.length) return { ok: false, error: `없는 용어 id가 있습니다: ${missing.slice(0, 5).join(', ')}` };
+    if (missing.length) return { ok: false, error: `없는 용어가 ${missing.length}개 있습니다.`, hint: `없는 id: ${missing.slice(0, 5).join(', ')}. list_terms로 id를 확인하세요.` };
     // A source already in the glossary (or twice in this call) is refused here, as saveTerm would on acceptance; the rest go on.
     const taken = new Map(db.select({ id: s.terms.id, source: s.terms.source, target: s.terms.target }).from(s.terms).where(and(eq(s.terms.projectId, projectId), ne(s.terms.status, 'rejected'))).all().map((term) => [term.source.toLowerCase(), term] as const));
     const inputTerms = (input.terms as { id?: string; source?: string }[] | undefined) ?? [];

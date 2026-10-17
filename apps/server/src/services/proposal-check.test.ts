@@ -19,10 +19,10 @@ function setup() {
 describe('proposal check', () => {
   it('refuses a change to a row that does not exist, before it becomes a proposal', async () => {
     const { db, projectId } = setup();
-    expect(await prepareProposal(db, projectId, 'save_character', { id: 'nope', name: 'X' })).toEqual({ ok: false, error: expect.stringContaining('없는 인물') });
-    expect(await prepareProposal(db, projectId, 'save_terms', { terms: [{ id: 'gone', source: 'a', target: 'b' }] })).toEqual({ ok: false, error: expect.stringContaining('gone') });
+    expect(await prepareProposal(db, projectId, 'save_character', { id: 'nope', name: 'X' })).toEqual({ ok: false, error: '없는 인물입니다.', hint: expect.stringContaining('id=nope') });
+    expect(await prepareProposal(db, projectId, 'save_terms', { terms: [{ id: 'gone', source: 'a', target: 'b' }] })).toEqual({ ok: false, error: '없는 용어가 1개 있습니다.', hint: expect.stringContaining('gone') });
     expect(await prepareProposal(db, projectId, 'save_character', { name: 'New' })).toMatchObject({ ok: true, report: null });
-    expect(await prepareProposal(db, projectId, 'tag_items', { kind: 'terms', ids: ['gone'], add: ['x'] })).toEqual({ ok: false, error: expect.stringContaining('gone') });
+    expect(await prepareProposal(db, projectId, 'tag_items', { kind: 'terms', ids: ['gone'], add: ['x'] })).toEqual({ ok: false, error: '없는 항목이 1개 있습니다.', hint: expect.stringContaining('gone') });
   });
 
   it('lets a term edit leave its source out (nothing to collide with)', async () => {

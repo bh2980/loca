@@ -8,6 +8,7 @@ import { expandSteers, fitMessages, transcript } from './chat-context.ts';
 import { enqueueSteer, hasSteers, startTurn, steerable, stopTurn, takeSteers } from './chat-turns.ts';
 import { cliChatResponse } from './cli-chat.ts';
 import { importProject } from './importer.ts';
+import { decideProposal, hasUnreportedDecisions, openProposals, propose } from './proposals.ts';
 
 const user = (id: string, text: string): UIMessage => ({ id, role: 'user', parts: [{ type: 'text', text }] });
 
@@ -58,7 +59,7 @@ describe('steering (#44)', () => {
       if (prompts.length === 2) enqueueSteer(chat.id, '그리고 짧게');
       return { sessionId: 'cli', text: answers[prompts.length - 1], usage: {} };
     };
-    const response = await cliChatResponse({ db, chat, route: { kind: 'grok', model: 'g' }, answeredBy: { kind: 'grok', connectionId: 'c', model: 'g' }, system: 't', view: null, messages: [user('u', '대사 찾아줘')], timeoutMs: 1000, signal: new AbortController().signal, onEnd: () => {}, markClosing: () => (closed = true), turn });
+    const response = await cliChatResponse({ db, chat, route: { kind: 'grok', model: 'g' }, answeredBy: { kind: 'grok', connectionId: 'c', model: 'g' }, system: 't', view: null, messages: [user('u', '대사 찾아줘')], timeoutMs: 1000, turn: { signal: new AbortController().signal, end: () => {}, record: () => {}, markClosing: () => (closed = true) }, cli: turn });
     const body = await response.text();
     expect(prompts).toHaveLength(3);
     expect(prompts[1]).toContain('작업실 도구 결과');
@@ -69,5 +70,32 @@ describe('steering (#44)', () => {
     const saved = db.select().from(s.chatSessions).all()[0].messages as UIMessage[];
     const steers = saved.at(-1)!.parts.filter((part) => part.type === 'data-steer').map((part) => (part as { data: { text: string } }).data.text);
     expect(steers).toEqual(['대사 말고 인물부터', '그리고 짧게']);
+  });
+
+  it('a decision made since the last turn reaches the agent once, recorded in the reply (#43), and a refusal hides ids from the person', async () => {
+    const db = openDatabase(':memory:');
+    const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', speaker: 'Alice', source: 'Hi' }] }));
+    const chat = db.insert(s.chatSessions).values({ projectId, title: '새 대화' }).returning().get();
+    const proposal = propose(db, { projectId, sessionId: chat.id, source: 'cli', tool: 'save_character', input: { name: 'Bob' } });
+    expect(openProposals(db, chat.id)).toBe(1);
+    await decideProposal(db, proposal.id, false);
+    expect(openProposals(db, chat.id)).toBe(0);
+    expect(hasUnreportedDecisions(db, chat.id)).toBe(true);
+    const prompts: string[] = [];
+    const answers = ['```loca-tools\n[{"tool":"save_character","input":{"id":"no-such-id","name":"X"}}]\n```', '알겠습니다.'];
+    const cli = async (_route: ai.ResolvedRoute, request: ai.CliChatTurn): Promise<ai.CliChatResult> => {
+      prompts.push(request.prompt);
+      return { sessionId: 'cli', text: answers[prompts.length - 1], usage: {} };
+    };
+    const response = await cliChatResponse({ db, chat, route: { kind: 'grok', model: 'g' }, answeredBy: { kind: 'grok', connectionId: 'c', model: 'g' }, system: 't', view: null, messages: [user('u', '계속')], timeoutMs: 1000, turn: { signal: new AbortController().signal, end: () => {}, record: () => {}, markClosing: () => {} }, cli });
+    const body = await response.text();
+    expect(prompts[0]).toContain('사용자가 거절함');
+    expect(hasUnreportedDecisions(db, chat.id)).toBe(false);
+    const saved = db.select().from(s.chatSessions).all()[0].messages as UIMessage[];
+    expect(saved.at(-1)!.parts.find((part) => part.type === 'data-steer')).toMatchObject({ data: { kind: 'decisions' } });
+    // The panel reads a plain reason; the agent gets the id to fix it with.
+    expect(body).toContain('제안하지 못했습니다: 없는 인물입니다.');
+    expect(body.match(/"errorText":"[^"]*"/)?.[0]).not.toContain('no-such-id');
+    expect(prompts[1]).toContain('id=no-such-id');
   });
 });
