@@ -252,7 +252,7 @@ function rateFromHistory(db: Db, workflowId: string, nodeId: string): number | n
 }
 
 /** Median input the connection reported beyond our own prompt, over recent successful calls. */
-function overheadOf(db: Db, connectionId: string): number | null {
+export function overheadOf(db: Db, connectionId: string): number | null {
   const steps = db
     .select({ input: s.runSteps.inputTokens, prompt: s.runSteps.prompt })
     .from(s.runSteps)

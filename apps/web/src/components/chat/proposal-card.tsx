@@ -71,7 +71,7 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
         </span>
       </div>
       <div className="px-3 py-2 text-xs">
-        <ChangePreview name={proposal.tool} input={proposal.input} />
+        <ChangePreview name={proposal.tool} input={proposal.input} pending={proposal.status === 'pending'} />
         {proposal.report && <ProposalReport report={proposal.report} />}
         {proposal.status === 'pending' && proposal.review && <p className="mt-2 border-t pt-2 text-muted-foreground">자동 검토가 넘김: {proposal.review}</p>}
       </div>

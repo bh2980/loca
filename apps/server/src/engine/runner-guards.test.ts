@@ -112,6 +112,24 @@ describe('runner guards', () => {
     expect(runOf(db, runId)).toMatchObject({ status: 'running', notice: null });
   });
 
+  it('checks the input cap before each call, counting calls in flight, so a run stops short of it', async () => {
+    const tiny = setup(20, () => 3);
+    const none = tiny.start({ maxInputTokens: 1 });
+    const idle = model();
+    await new Runner(tiny.db, memoryStore(), idle).drain();
+    expect(idle.calls).toHaveLength(0);
+    expect(runOf(tiny.db, none)).toMatchObject({ status: 'paused', notice: expect.stringContaining('넘지 않도록') });
+
+    const { db, start } = setup(200, () => 3);
+    const cap = 5_000;
+    const runId = start({ maxInputTokens: cap });
+    await new Runner(db, memoryStore(), model()).drain();
+    const used = db.select().from(s.runSteps).where(eq(s.runSteps.runId, runId)).all().reduce((total, step) => total + (step.inputTokens ?? 0), 0);
+    expect(runOf(db, runId).status).toBe('paused');
+    expect(used).toBeGreaterThan(0);
+    expect(used).toBeLessThanOrEqual(cap);
+  });
+
   it('records every usage field of a call, failed attempts included', async () => {
     const { db, start } = setup(1, () => 2);
     const runId = start();
