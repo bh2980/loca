@@ -1,8 +1,7 @@
 /** Right-hand pane for a built-in automatic tag: only its color is the project's to change. */
 import { AUTO_MARKS, type AutoMark } from '@tw/shared';
-import { DetailPane, PaneSection } from '@/components/detail-pane';
+import { DetailPane, PaneSection, Button, Field, FieldDescription, FieldGroup, FieldLabel } from '@loca/ui';
 import { chipStyle } from '@/components/status';
-import { Button, Field, FieldDescription, FieldGroup, FieldLabel } from '@loca/ui';
 import { scopeLabel } from '@/components/settings/status-types';
 import { Swatches } from '@/components/settings/swatches';
 import { useFormFrom } from '@/lib/use-form-from';

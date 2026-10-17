@@ -2,8 +2,7 @@ import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { LineMark } from '@tw/shared';
 import { Link } from '@tanstack/react-router';
 import { AppWindow, Check, ChevronRight, FileText, Inbox, MessageSquareText, Rows3 } from 'lucide-react';
-import { SearchInput } from '@/components/toolbar';
-import { Button, Collapsible, CollapsibleContent, CollapsibleTrigger } from '@loca/ui';
+import { SearchInput, Button, Collapsible, CollapsibleContent, CollapsibleTrigger } from '@loca/ui';
 import { GROUP_KIND, SCRIPT_VIEW } from '@/lib/labels';
 import { cn } from '@/lib/utils';
 

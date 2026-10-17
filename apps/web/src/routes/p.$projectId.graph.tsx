@@ -9,13 +9,10 @@ import { FlowPane, SceneNodeDetail } from '@/components/graph/node-detail';
 import { KIND_LABEL } from '@/components/graph/shapes';
 import { TypeLegend } from '@/components/graph/type-legend';
 import { Page } from '@/components/page';
-import { Button, Empty, EmptyDescription, EmptyHeader, EmptyTitle, ScrollArea, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner, Switch, ToggleGroup, ToggleGroupItem } from '@loca/ui';
-import { SearchInput } from '@/components/toolbar';
+import { SearchInput, SplitPane, PaneHeader, Button, Empty, EmptyDescription, EmptyHeader, EmptyTitle, ScrollArea, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner, Switch, ToggleGroup, ToggleGroupItem } from '@loca/ui';
 import { useSize } from '@/hooks/use-size';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
-import { SplitPane } from '@/components/split-pane';
-import { PaneHeader } from '@/components/pane-header';
 import { PathMode } from '@/components/graph/path-mode';
 import { cn } from '@/lib/utils';
 
