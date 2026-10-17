@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { CONNECTION_KIND_INFO, knowledgeTemplate, lineMarksSchema, listenerTemplate, speechFixTemplate, termExtractionTemplate, translationTemplate, validateWorkflow, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels } from '@tw/shared';
+import { ANALYSIS_SECTIONS, analysisTemplate, CONNECTION_KIND_INFO, knowledgeTemplate, lineMarksSchema, listenerTemplate, speechFixTemplate, termExtractionTemplate, translationTemplate, validateWorkflow, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -74,15 +74,20 @@ export const workflowRoutes = new Hono<Env>()
       })),
     );
   })
-  .post('/projects/:projectId/workflows', validate('json', z.object({ name: z.string().trim().min(1), from: z.enum(['template', 'blank', 'terms', 'listener', 'knowledge', 'speechFix']).default('template') })), (c) => {
-    const { db } = c.var.deps;
-    const projectId = c.req.param('projectId');
-    const { name, from } = c.req.valid('json');
-    const definition = from === 'template' ? templateWorkflow(db, projectId) : from === 'blank' ? blankWorkflow(db, projectId) : TEMPLATES[from]({ model: defaultModelChoice(db) });
-    const row = db.insert(s.workflows).values({ projectId, name, definition }).returning().get();
-    events.changed(projectId, 'workflows');
-    return c.json(row, 201);
-  })
+  .post(
+    '/projects/:projectId/workflows',
+    validate('json', z.object({ name: z.string().trim().min(1), from: z.enum(['template', 'blank', 'terms', 'listener', 'knowledge', 'speechFix', 'analysis']).default('template'), /** What an analysis template reads for; empty = everything. */ sections: z.array(z.enum(ANALYSIS_SECTIONS)).optional() })),
+    (c) => {
+      const { db } = c.var.deps;
+      const projectId = c.req.param('projectId');
+      const { name, from, sections } = c.req.valid('json');
+      const definition =
+        from === 'template' ? templateWorkflow(db, projectId) : from === 'blank' ? blankWorkflow(db, projectId) : from === 'analysis' ? analysisTemplate({ model: defaultModelChoice(db), sections }) : TEMPLATES[from]({ model: defaultModelChoice(db) });
+      const row = db.insert(s.workflows).values({ projectId, name, definition }).returning().get();
+      events.changed(projectId, 'workflows');
+      return c.json(row, 201);
+    },
+  )
   .get('/workflows/:id', (c) => {
     const { db } = c.var.deps;
     const workflow = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');

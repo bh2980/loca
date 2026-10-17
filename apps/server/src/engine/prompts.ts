@@ -1,6 +1,7 @@
 import { z } from 'zod';
-import { ISSUE_CATEGORY_GUIDE, ISSUE_KIND_IDS, type IssueKind, lineKindOf, SPEECH_LEVEL_GUIDE, SPEECH_LEVELS, type AiNode, type JsonField } from '@tw/shared';
+import { analysisSectionsOf, ISSUE_CATEGORY_GUIDE, ISSUE_KIND_IDS, type IssueKind, lineKindOf, SPEECH_LEVEL_GUIDE, SPEECH_LEVELS, type AiNode, type JsonField } from '@tw/shared';
 import type { BatchContext, LineContext } from '../services/context.ts';
+import { analysisSchemaFor } from '../services/analysis.ts';
 
 const hasBranches = (context: BatchContext) => Object.values(context.preceding).some((preceding) => preceding.branches.length > 0);
 
@@ -36,6 +37,8 @@ export function outputSchema(node: AiNode, ids?: string[]): z.ZodType<unknown> {
       return z.object({ terms: z.array(z.object({ source: z.string(), target: z.string(), note: z.string() })) });
     case 'knowledge':
       return knowledgeOutputSchema;
+    case 'analysis':
+      return analysisSchemaFor(analysisSectionsOf(node.config.sections));
     case 'listener':
       return z.object({ listeners: perLine({ listener: z.string().nullable(), confidence: z.number() }) });
     case 'json':
@@ -56,6 +59,8 @@ const CONTRACT: Record<AiNode['config']['output'], string> = {
   terms: 'Return the terms found across all lines in "terms" (source, target, note). Return an empty list when there are none.',
   knowledge: `Return what these lines add in "characters" (with evidence line ids), "relationships" (with "change" and the line id "at" where it shows), "events" (with evidence line ids) and "speechRules" (level is one of: ${SPEECH_LEVEL_GUIDE}; "start" is the line id where the new level begins). Empty lists when nothing is new.`,
   listener: 'Return one entry per line id in "listeners": listener (a cast name, "group", "public", "self" or null) and confidence (0 to 1).',
+  // Analysis nodes build their own prompt (services/analysis.ts analysisRequest).
+  analysis: '',
   json: 'Return one object per line id in "results" with the requested fields.',
 };
 

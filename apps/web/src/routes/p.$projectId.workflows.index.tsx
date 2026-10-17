@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Play, Plus, Trash2 } from 'lucide-react';
+import { ANALYSIS_SECTION_LABELS, ANALYSIS_SECTIONS, type AnalysisSection } from '@tw/shared';
 import { AiButton } from '@/components/ai-button';
 import { EmptyState } from '@/components/empty-state';
 import { DataTable, type ColumnDef } from '@/components/data-table';
@@ -10,6 +11,7 @@ import { HeaderActions, Page } from '@/components/page';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -139,13 +141,17 @@ function Workflows() {
   );
 }
 
+type From = 'template' | 'terms' | 'listener' | 'knowledge' | 'speechFix' | 'analysis' | 'blank';
+
 function NewWorkflow({ projectId }: { projectId: string }) {
   const navigate = Route.useNavigate();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
-  const [from, setFrom] = useState<'template' | 'terms' | 'listener' | 'knowledge' | 'speechFix' | 'blank'>('template');
+  const [from, setFrom] = useState<From>('template');
+  // An analysis template reads only the picked sections (all of them when every box is ticked).
+  const [sections, setSections] = useState<AnalysisSection[]>([...ANALYSIS_SECTIONS]);
   const create = useMutation({
-    mutationFn: () => unwrap(client.projects[':projectId'].workflows.$post({ param: { projectId }, json: { name: name.trim(), from } })),
+    mutationFn: () => unwrap(client.projects[':projectId'].workflows.$post({ param: { projectId }, json: { name: name.trim(), from, ...(from === 'analysis' && sections.length < ANALYSIS_SECTIONS.length ? { sections } : {}) } })),
     onSuccess: (workflow) => {
       setOpen(false);
       void navigate({ to: '/p/$projectId/workflows/$workflowId', params: { projectId, workflowId: workflow.id } });
@@ -167,7 +173,7 @@ function NewWorkflow({ projectId }: { projectId: string }) {
             <Label htmlFor="wf-name">이름</Label>
             <Input id="wf-name" value={name} onChange={(event) => setName(event.target.value)} autoFocus />
           </div>
-          <RadioGroup value={from} onValueChange={(value) => setFrom(value as 'template' | 'terms' | 'listener' | 'knowledge' | 'speechFix' | 'blank')}>
+          <RadioGroup value={from} onValueChange={(value) => setFrom(value as From)}>
             <label className="flex items-start gap-2 text-sm">
               <RadioGroupItem value="template" className="mt-0.5" />
               <span>
@@ -196,6 +202,27 @@ function NewWorkflow({ projectId }: { projectId: string }) {
                 <span className="block text-xs text-muted-foreground">장면을 읽으며 새 인물·관계 변화·사건·말투 변화를 자료에 AI 항목으로 넣습니다 (정식 자료는 그대로, 다른 의견은 후보).</span>
               </span>
             </label>
+            <label className="flex items-start gap-2 text-sm">
+              <RadioGroupItem value="analysis" className="mt-0.5" />
+              <span>
+                작품 분석 템플릿
+                <span className="block text-xs text-muted-foreground">대본 전체를 한 번에 읽고 고른 항목만 자료 초안·용어 후보로 넣습니다. 장면을 골라 실행하면 그 장면의 항목을 더하기만 합니다.</span>
+              </span>
+            </label>
+            {from === 'analysis' && (
+              <div className="ml-6 grid grid-cols-2 gap-1.5" role="group" aria-label="읽을 항목">
+                {ANALYSIS_SECTIONS.map((section) => (
+                  <label key={section} className="flex items-center gap-2 text-sm">
+                    <Checkbox
+                      checked={sections.includes(section)}
+                      disabled={sections.length === 1 && sections.includes(section)}
+                      onCheckedChange={(checked) => setSections((current) => (checked ? ANALYSIS_SECTIONS.filter((one) => one === section || current.includes(one)) : current.filter((one) => one !== section)))}
+                    />
+                    {ANALYSIS_SECTION_LABELS[section]}
+                  </label>
+                ))}
+              </div>
+            )}
             <label className="flex items-start gap-2 text-sm">
               <RadioGroupItem value="speechFix" className="mt-0.5" />
               <span>

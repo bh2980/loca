@@ -1,7 +1,8 @@
 /** Config of an AI node: model, prompt, context and outputs. */
 import { Plus, Trash2, X } from 'lucide-react';
-import { AI_OUTPUTS, CONNECTION_KIND_INFO, contextConfigSchema, type AiOutput, type Capability, type JsonField, type WorkflowNode } from '@tw/shared';
+import { AI_OUTPUTS, ANALYSIS_SECTION_LABELS, ANALYSIS_SECTIONS, analysisSectionsOf, CONNECTION_KIND_INFO, contextConfigSchema, type AiOutput, type BatchConfig, type Capability, type JsonField, type WorkflowNode } from '@tw/shared';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { AiButton } from '@/components/ai-button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -71,6 +72,30 @@ export function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRef
           </div>
         </Field>
       )}
+      {config.output === 'analysis' && (
+        <Field label="읽을 항목" hint="고른 항목만 묻고 저장합니다. 하나만 고르면 그 항목만 다시 분석하는 워크플로가 됩니다(대본 전체를 읽은 실행은 지난 분석의 손대지 않은 AI 항목을 그 항목만 바꿉니다).">
+          <div className="grid grid-cols-2 gap-1.5">
+            {ANALYSIS_SECTIONS.map((section) => {
+              const picked = analysisSectionsOf(config.sections);
+              const on = picked.includes(section);
+              return (
+                <label key={section} className="flex items-center gap-2 text-xs">
+                  <Checkbox
+                    checked={on}
+                    // At least one stays picked; all picked is stored as "everything" (new sections join it).
+                    disabled={on && picked.length === 1}
+                    onCheckedChange={(value) => {
+                      const next = value ? [...picked, section] : picked.filter((item) => item !== section);
+                      set({ sections: next.length === ANALYSIS_SECTIONS.length ? undefined : ANALYSIS_SECTIONS.filter((item) => next.includes(item)) });
+                    }}
+                  />
+                  {ANALYSIS_SECTION_LABELS[section]}
+                </label>
+              );
+            })}
+          </div>
+        </Field>
+      )}
       <Field
         label="AI 모델"
         hint={
@@ -124,7 +149,12 @@ export function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRef
           </AiButton>
         }
       >
-        <Textarea value={config.instructions} onChange={(event) => set({ instructions: event.target.value })} className="min-h-32 text-xs" />
+        <Textarea
+          value={config.instructions}
+          onChange={(event) => set({ instructions: event.target.value })}
+          className="min-h-32 text-xs"
+          placeholder={config.output === 'analysis' ? '항목마다 무엇을 낼지는 기본 규칙이 정합니다. 여기에는 덧붙일 지시만 씁니다 (예: 인물 프로필은 세 문장 이내로).' : undefined}
+        />
       </Field>
       {config.output === 'candidate' && (
         <Field label="기존 번역">
@@ -140,32 +170,40 @@ export function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRef
         </Field>
       )}
       <Separator />
-      <div className="space-y-2.5">
-        <p className="text-xs font-medium">문맥</p>
-        <p className="text-xs text-muted-foreground">확정된 자료만 들어갑니다. 실제로 들어간 것은 대사 패널의 AI 문맥 탭에서 봅니다.</p>
-        <ToggleRow label="사람이 확정한 것만 (✦ 빼기)" checked={context.humanOnly} onChange={(value) => set({ context: { ...context, humanOnly: value } })} />
-        <ToggleRow label="용어집" checked={context.glossary} onChange={(value) => set({ context: { ...context, glossary: value } })} />
-        <ToggleRow label="청자·말투 규칙" checked={context.speech} onChange={(value) => set({ context: { ...context, speech: value } })} />
-        <ToggleRow label="앞 단계 지적 사항" checked={config.include.issues} onChange={(value) => set({ include: { ...config.include, issues: value } })} />
-        <CountRow label="앞 대사" unit="줄" value={context.precedingLines} fallback={8} max={50} onChange={(value) => set({ context: { ...context, precedingLines: value } })} />
-        {context.precedingLines > 0 && (
-          <div className="pl-4">
-            <ToggleRow label="앞 대사의 현재 번역도" checked={context.precedingTranslations} onChange={(value) => set({ context: { ...context, precedingTranslations: value } })} />
-          </div>
-        )}
-        <CountRow label="이전 장면" unit="개" value={context.previousScenes} fallback={1} max={10} onChange={(value) => set({ context: { ...context, previousScenes: value } })} />
-        <ToggleRow label="인물 명단" checked={context.cast} onChange={(value) => set({ context: { ...context, cast: value } })} />
-        <ToggleRow label="인물 프로필" checked={context.characters} onChange={(value) => set({ context: { ...context, characters: value } })} />
-        <ToggleRow label="인물 관계" checked={context.relationships} onChange={(value) => set({ context: { ...context, relationships: value } })} />
-        <ToggleRow label="작품 문서" checked={context.documents} onChange={(value) => set({ context: { ...context, documents: value } })} />
-        <Field label="문맥 상한 (토큰, 추정)" hint="넘치면 덜 중요한 것부터 빼고 실행 기록에 남깁니다.">
-          <Input type="number" min={500} max={200000} step={500} value={context.maxTokens} onChange={(event) => set({ context: { ...context, maxTokens: Number(event.target.value) } })} />
-        </Field>
-      </div>
+      {config.output === 'analysis' ? (
+        <p className="text-xs text-muted-foreground">작품 분석은 읽는 대본 자체가 문맥입니다. 사람이 정한 인물 이름만 함께 보내 같은 이름을 쓰게 합니다.</p>
+      ) : (
+        <div className="space-y-2.5">
+          <p className="text-xs font-medium">문맥</p>
+          <p className="text-xs text-muted-foreground">확정된 자료만 들어갑니다. 실제로 들어간 것은 대사 패널의 AI 문맥 탭에서 봅니다.</p>
+          <ToggleRow label="사람이 확정한 것만 (✦ 빼기)" checked={context.humanOnly} onChange={(value) => set({ context: { ...context, humanOnly: value } })} />
+          <ToggleRow label="용어집" checked={context.glossary} onChange={(value) => set({ context: { ...context, glossary: value } })} />
+          <ToggleRow label="청자·말투 규칙" checked={context.speech} onChange={(value) => set({ context: { ...context, speech: value } })} />
+          <ToggleRow label="앞 단계 지적 사항" checked={config.include.issues} onChange={(value) => set({ include: { ...config.include, issues: value } })} />
+          <CountRow label="앞 대사" unit="줄" value={context.precedingLines} fallback={8} max={50} onChange={(value) => set({ context: { ...context, precedingLines: value } })} />
+          {context.precedingLines > 0 && (
+            <div className="pl-4">
+              <ToggleRow label="앞 대사의 현재 번역도" checked={context.precedingTranslations} onChange={(value) => set({ context: { ...context, precedingTranslations: value } })} />
+            </div>
+          )}
+          <CountRow label="이전 장면" unit="개" value={context.previousScenes} fallback={1} max={10} onChange={(value) => set({ context: { ...context, previousScenes: value } })} />
+          <ToggleRow label="인물 명단" checked={context.cast} onChange={(value) => set({ context: { ...context, cast: value } })} />
+          <ToggleRow label="인물 프로필" checked={context.characters} onChange={(value) => set({ context: { ...context, characters: value } })} />
+          <ToggleRow label="인물 관계" checked={context.relationships} onChange={(value) => set({ context: { ...context, relationships: value } })} />
+          <ToggleRow label="작품 문서" checked={context.documents} onChange={(value) => set({ context: { ...context, documents: value } })} />
+          <Field label="문맥 상한 (토큰, 추정)" hint="넘치면 덜 중요한 것부터 빼고 실행 기록에 남깁니다.">
+            <Input type="number" min={500} max={200000} step={500} value={context.maxTokens} onChange={(event) => set({ context: { ...context, maxTokens: Number(event.target.value) } })} />
+          </Field>
+        </div>
+      )}
       <Separator />
       <div className="grid grid-cols-2 gap-3">
         <Field label="묶음 단위">
-          <Select value={config.batch.mode} onValueChange={(value) => set({ batch: { ...config.batch, mode: value as 'unit' | 'group' | 'count' } })}>
+          <Select
+            value={config.batch.mode}
+            // 대본 전체 reads up to 300k tokens per request; the other modes go back to their usual size.
+            onValueChange={(value) => set({ batch: { ...config.batch, mode: value as BatchConfig['mode'], maxTokens: value === 'whole' ? Math.max(config.batch.maxTokens, 300_000) : Math.min(config.batch.maxTokens, 6_000) } })}
+          >
             <SelectTrigger className="w-full">
               <SelectValue />
             </SelectTrigger>
@@ -173,10 +211,16 @@ export function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRef
               <SelectItem value="group">장면별</SelectItem>
               <SelectItem value="count">개수별</SelectItem>
               <SelectItem value="unit">대사 하나씩</SelectItem>
+              <SelectItem value="whole">대본 전체</SelectItem>
             </SelectContent>
           </Select>
         </Field>
-        {config.batch.mode !== 'unit' && (
+        {config.batch.mode === 'whole' && (
+          <Field label="요청당 최대 토큰 (추정)" hint="넘는 대본은 장면 경계에서 나눠 읽습니다.">
+            <Input type="number" min={500} max={1_000_000} step={10_000} value={config.batch.maxTokens} onChange={(event) => set({ batch: { ...config.batch, maxTokens: Number(event.target.value) } })} />
+          </Field>
+        )}
+        {config.batch.mode !== 'unit' && config.batch.mode !== 'whole' && (
           <Field label="최대 묶음 크기">
             <Input type="number" min={1} max={200} value={config.batch.size} onChange={(event) => set({ batch: { ...config.batch, size: Number(event.target.value) } })} />
           </Field>

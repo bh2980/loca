@@ -85,6 +85,29 @@ export function FunctionConfig({ node, refs, readOnly, onChange }: { node: Funct
         </>
       );
     }
+    case 'saveAnalysis': {
+      const sources = refs.nodes.filter((other) => other.type === 'ai' && other.config.output === 'analysis');
+      return (
+        <>
+          <Field label="분석을 가져올 AI 노드" hint="사람이 만들거나 고치거나 확정·버린 항목은 그대로 둡니다. 근거 줄이 대본에 없으면 빼고 셉니다.">
+            <Select value={(params.fromNodeId as string) || 'latest'} onValueChange={(value) => set('fromNodeId', value === 'latest' ? '' : value)}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="latest">가장 최근 작품 분석 출력</SelectItem>
+                {sources.map((other) => (
+                  <SelectItem key={other.id} value={other.id}>
+                    {nodeName(other)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+          <AiConfirmNote projectId={refs.projectId} kinds={['documents', 'characters', 'relationships', 'events', 'speechRules', 'terms']} />
+        </>
+      );
+    }
     case 'setListener': {
       const sources = refs.nodes.filter((other) => other.type === 'ai' && other.config.output === 'listener');
       return (

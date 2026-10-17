@@ -114,6 +114,28 @@
       "failedLines": 0,
       "failedLineShare": 0,
       "wallSeconds": 5.9
+    },
+    "analysis-cli": {
+      "linesInScope": 9040,
+      "status": "completed",
+      "notice": null,
+      "unfinishedLines": 0,
+      "calls": 1,
+      "failedCalls": 0,
+      "callsByNode": {
+        "대본 읽기": 1
+      },
+      "callsPer100Lines": 0.01,
+      "linesPerCallMean": 9040,
+      "smallCallShare": 0,
+      "inputTokens": 172776,
+      "inputPerLine": 19.1,
+      "cachedInputTokens": 10000,
+      "fixedOverheadShare": 0.116,
+      "outputTokens": 2434,
+      "failedLines": 0,
+      "failedLineShare": 0,
+      "wallSeconds": 2.4
     }
   }
 }

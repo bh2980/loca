@@ -22,7 +22,8 @@ export function useJobNotices(projectId: string) {
     const items = [
       ...(analyses.data ?? []).map((job) => ({ id: job.id, status: job.status, notice: () => analysisNotice(job) })),
       ...(jobs.data?.jobs ?? []).filter((job) => job.kind === 'terms').map((job) => ({ id: job.id, status: job.status, notice: () => termsNotice(job) })),
-      ...(runs.data ?? []).map((run) => ({ id: run.id, status: run.status, notice: () => runNotice(run) })),
+      // An analysis is a workflow run too (#47): it is announced once, as an analysis.
+      ...(runs.data ?? []).filter((run) => !analyses.data?.some((job) => job.id === run.id)).map((run) => ({ id: run.id, status: run.status, notice: () => runNotice(run) })),
     ];
     for (const item of items) {
       const before = seen.current.get(item.id);

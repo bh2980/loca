@@ -14,6 +14,7 @@ import { saveCharacter } from '../services/characters.ts';
 import { discoverAndSave, saveTerm, SUGGEST_BATCH } from '../services/terms.ts';
 import { byPerson } from '../services/status-by.ts';
 import { clearReview, setKnowledgeTag, withTags } from '../services/knowledge-tags.ts';
+import { listAnalyses, startAnalysis } from '../services/analysis-runs.ts';
 
 export const termInput = z.object({
   source: z.string().trim().min(1),
@@ -227,17 +228,26 @@ export const knowledgeRoutes = new Hono<Env>()
    */
   /** The lines a speech rule governs (its pair, its stretch), with the speech levels their translations end in. */
   .get('/speech-rules/:id/lines', (c) => c.json(found(ruleLines(c.var.deps.db, c.req.param('projectId')!, c.req.param('id')) ?? undefined, '말투 규칙')))
-  /** Work analysis jobs, newest first. */
-  .get('/analysis', (c) => c.json(c.var.deps.analysis.list(c.req.param('projectId')!)))
-  .post('/analysis', validate('json', z.object({ model: modelChoiceSchema, resume: z.boolean().default(false) })), (c) => {
+  /** Work analyses (runs of analysis workflows, then the old service's jobs), newest first (#47). */
+  .get('/analysis', (c) => c.json(listAnalyses(c.var.deps.db, c.req.param('projectId')!)))
+  /** The 작품 분석 button: a whole-script run of the project's analysis workflow on this model. `resume` is kept for old clients; a run continues from 실행 기록. */
+  .post('/analysis', validate('json', z.object({ model: modelChoiceSchema, resume: z.boolean().default(false) })), async (c) => {
     try {
-      return c.json(c.var.deps.analysis.start(c.req.param('projectId')!, c.req.valid('json').model, c.req.valid('json').resume), 201);
+      const { runId } = await startAnalysis(c.var.deps.db, c.var.deps.secrets, c.req.param('projectId')!, c.req.valid('json').model);
+      return c.json({ id: runId, runId }, 201);
     } catch (error) {
       badRequest(error instanceof Error ? error.message : String(error));
     }
   })
   .post('/analysis/:jobId/cancel', (c) => {
-    c.var.deps.analysis.cancel(c.req.param('jobId'));
+    const { db, runner } = c.var.deps;
+    const id = c.req.param('jobId');
+    if (db.select({ id: s.runs.id }).from(s.runs).where(eq(s.runs.id, id)).get()) runner.cancel(id);
+    else {
+      // A job of the old analysis service (none runs any more after a restart).
+      const job = db.update(s.analysisJobs).set({ status: 'cancelled', finishedAt: new Date() }).where(and(eq(s.analysisJobs.id, id), eq(s.analysisJobs.status, 'running'))).returning().get();
+      if (job) events.changed(job.projectId, 'runs', 'analysis');
+    }
     return c.json({ ok: true });
   })
   .post(

@@ -1,5 +1,6 @@
 import { AI_PRESETS } from './presets.ts';
 import type { DraftModelChoice } from './model-choice.ts';
+import type { AnalysisSection } from './knowledge.ts';
 import { contextConfigSchema, type WorkflowDefinition } from './workflow.ts';
 
 export type StatusKind = 'initial' | 'normal' | 'final';
@@ -240,6 +241,50 @@ export function knowledgeTemplate(ids: { model: DraftModelChoice }): WorkflowDef
       { id: 'e1', source: 'entry', sourceHandle: 'out', target: 'find' },
       { id: 'e2', source: 'find', sourceHandle: 'out', target: 'apply' },
       { id: 'e3', source: 'apply', sourceHandle: 'out', target: 'end' },
+    ],
+  };
+}
+
+/** The workflow behind the 작품 분석 button (created on first use when a project has none). */
+export const ANALYSIS_WORKFLOW = '작품 분석';
+export const ANALYSIS_WORKFLOW_DESCRIPTION = 'AI가 대본 전체를 한 번에 읽고 개요·인물·관계·사건·말투 규칙·장면별 청자 초안과 용어 후보를 근거와 함께 만듭니다. 번역과 상태는 바꾸지 않습니다. 읽을 항목은 AI 노드에서 고릅니다.';
+
+/**
+ * Work analysis (#47): a long-context model reads the whole script (one request up to 300k tokens,
+ * split at scene boundaries beyond that) and drafts the chosen sections, which `saveAnalysis` stores
+ * with their evidence lines. Reading everything at once was found as accurate as reading in parts and
+ * five times cheaper. Translations and statuses are untouched; how drafts land is AI › 사용 방식.
+ */
+export function analysisTemplate(ids: { model: DraftModelChoice; sections?: AnalysisSection[] }): WorkflowDefinition {
+  return {
+    settings: { maxVisitsPerNode: 5, concurrency: 2, maxConsecutiveFailures: 3 },
+    nodes: [
+      { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: { statusIds: [] } },
+      {
+        id: 'analyze',
+        type: 'ai',
+        position: { x: 300, y: 0 },
+        label: '대본 읽기',
+        config: {
+          model: ids.model,
+          extraModels: [],
+          instructions: '',
+          output: 'analysis',
+          fields: [],
+          sections: ids.sections ?? [],
+          include: { candidate: false, issues: false },
+          // The script itself is the context; stored knowledge would only bias the reading.
+          context: { ...contextConfigSchema.parse({}), glossary: false, speech: false, precedingLines: 0, previousScenes: 0 },
+          batch: { mode: 'whole', size: 200, maxTokens: 300_000 },
+        },
+      },
+      { id: 'save', type: 'function', position: { x: 600, y: 0 }, label: '분석 반영', config: { fn: 'saveAnalysis', params: { fromNodeId: 'analyze' } } },
+      { id: 'end', type: 'end', position: { x: 900, y: 0 }, config: {} },
+    ],
+    edges: [
+      { id: 'e1', source: 'entry', sourceHandle: 'out', target: 'analyze' },
+      { id: 'e2', source: 'analyze', sourceHandle: 'out', target: 'save' },
+      { id: 'e3', source: 'save', sourceHandle: 'out', target: 'end' },
     ],
   };
 }

@@ -39,6 +39,7 @@ function byKind<T extends { kind?: string }>(lines: T[]): T[][] {
 export function planBatches<T extends BatchLine>(lines: T[], config: BatchConfig, linked?: (a: string, b: string) => boolean): T[][] {
   const ordered = [...lines].sort((a, b) => a.seq - b.seq);
   if (config.mode === 'unit') return ordered.map((line) => [line]);
+  if (config.mode === 'whole') return wholeScript([...Map.groupBy(ordered, (line) => line.groupId).values()], config.maxTokens);
   if (config.mode === 'count') return byKind(ordered).flatMap((run) => Array.from({ length: Math.ceil(run.length / config.size) }, (_, index) => run.slice(index * config.size, (index + 1) * config.size)));
 
   const batches: T[][] = [];
@@ -95,6 +96,7 @@ export function planBatches<T extends BatchLine>(lines: T[], config: BatchConfig
  */
 export function packGroups<T extends { tokens: number; kind?: string }>(planned: T[][], config: BatchConfig): T[][] {
   if (config.mode === 'unit') return planned.flat().map((line) => [line]);
+  if (config.mode === 'whole') return wholeScript(planned, config.maxTokens);
   // A group that holds several kinds (a mixed imported group, an older plan) is cut where the kind changes.
   const groups = planned.flatMap(byKind);
   const requests: T[][] = [];
@@ -126,5 +128,40 @@ export function packGroups<T extends { tokens: number; kind?: string }>(planned:
     }
   }
   flush();
+  return requests;
+}
+
+/**
+ * "whole" (work analysis): the script in as few requests as `maxTokens` allows, whatever the line
+ * count or kind. Groups (scenes, or plan batches) are never cut unless one alone is larger than a
+ * request; a model that refuses a request as too long gets it again in halves (the runner).
+ */
+function wholeScript<T extends { tokens: number }>(groups: T[][], maxTokens: number): T[][] {
+  const requests: T[][] = [];
+  let current: T[] = [];
+  let tokens = 0;
+  for (const group of groups) {
+    const groupTokens = group.reduce((sum, line) => sum + line.tokens, 0);
+    if (current.length && tokens + groupTokens > maxTokens) {
+      requests.push(current);
+      current = [];
+      tokens = 0;
+    }
+    if (groupTokens <= maxTokens) {
+      current.push(...group);
+      tokens += groupTokens;
+      continue;
+    }
+    for (const line of group) {
+      if (current.length && tokens + line.tokens > maxTokens) {
+        requests.push(current);
+        current = [];
+        tokens = 0;
+      }
+      current.push(line);
+      tokens += line.tokens;
+    }
+  }
+  if (current.length) requests.push(current);
   return requests;
 }
