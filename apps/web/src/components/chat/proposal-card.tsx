@@ -13,12 +13,17 @@ export interface Proposal {
   /** running: accepted, the change still being applied (another window or a resent click may have started it). */
   status: 'pending' | 'running' | 'accepted' | 'rejected' | 'failed';
   result: unknown;
-  source: 'pi' | 'cli';
+  source: 'pi' | 'cli' | 'api';
+  /** Who decided: the person, or the conversation's permission mode (#45). */
+  decidedBy?: 'person' | 'auto' | 'bypass' | null;
+  /** Auto review's reason: why it asked, or that it passed. */
+  review?: string | null;
   /** What the check left out when the proposal was made, and warnings about what it kept (first entries; counts when trimmed). */
   report?: { dropped: { key: string; reason: string }[]; warnings: { key: string; issues: string[] }[]; counts?: { dropped: number; warnings: number } } | null;
 }
 
 const STATUS = { running: '적용 중', accepted: '적용됨', rejected: '거절함', failed: '실패' } as const;
+const DECIDED_BY = { auto: '자동 검토로', bypass: '우회 모드로' } as const;
 
 /** A change an agent proposed (pi chat or the CLI). Accepting runs it now; nothing changes before that. */
 export function ProposalCard({ proposal }: { proposal: Proposal }) {
@@ -48,6 +53,7 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
         <span className="ml-auto">
           {proposal.status !== 'pending' && (
             <span className={proposal.status === 'accepted' ? 'text-success' : proposal.status === 'failed' ? 'text-destructive' : 'text-muted-foreground'}>
+              {proposal.decidedBy && proposal.decidedBy !== 'person' && `${DECIDED_BY[proposal.decidedBy]} `}
               {STATUS[proposal.status]}
               {failure && ` · ${failure}`}
               {skipped > 0 && ` · ${skipped.toLocaleString()}개는 건너뜀(그사이 바뀌었거나 바꿀 수 없음)`}
@@ -59,6 +65,7 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
       <div className="px-3 py-2 text-xs">
         <ChangePreview name={proposal.tool} input={proposal.input} />
         {proposal.report && <ProposalReport report={proposal.report} />}
+        {proposal.status === 'pending' && proposal.review && <p className="mt-2 border-t pt-2 text-muted-foreground">자동 검토가 넘김: {proposal.review}</p>}
       </div>
       {proposal.status === 'pending' && (
         <div className="flex justify-end gap-2 border-t px-3 py-2">

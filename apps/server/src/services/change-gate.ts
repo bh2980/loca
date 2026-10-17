@@ -55,7 +55,7 @@ export const permissionModeOf = (db: Db, sessionId: string | null): PermissionMo
 
 export type GateResult =
   | { ok: false; error: string; hint?: string }
-  | { ok: true; proposalId: string; applied: boolean; status: s.ProposalStatus; result?: unknown; review?: string; text: string };
+  | { ok: true; proposalId: string; applied: boolean; status: s.ProposalStatus; result?: unknown; review?: string; text: string; report: s.ProposalReport | null };
 
 export async function proposeChange(db: Db, request: { projectId: string; sessionId: string | null; source: 'pi' | 'cli' | 'api'; tool: string; input: Record<string, unknown> }): Promise<GateResult> {
   const prepared = await prepareProposal(db, request.projectId, request.tool, request.input);
@@ -71,10 +71,10 @@ export async function proposeChange(db: Db, request: { projectId: string; sessio
     events.changed(request.projectId, 'proposals');
     const how = PERMISSION_MODE_INFO[mode].label;
     const text = row.status === 'accepted' ? `${how} 모드로 바로 반영했습니다 (proposal ${proposal.id}). 결과: ${fitText(row.result, 4_000)}` : `${how} 모드로 반영하려 했지만 실패했습니다 (proposal ${proposal.id}): ${fitText(row.result, 2_000)}`;
-    return { ok: true, proposalId: proposal.id, applied: true, status: row.status, result: row.result, review: review?.reason, text: text + reportText(prepared.report) };
+    return { ok: true, proposalId: proposal.id, applied: true, status: row.status, result: row.result, review: review?.reason, text: text + reportText(prepared.report), report: prepared.report };
   }
   const held = review ? `\n자동 검토가 사용자에게 넘겼습니다: ${review.reason}` : '';
-  return { ok: true, proposalId: proposal.id, applied: false, status: 'pending', review: review?.reason, text: proposedText(proposal.id) + reportText(prepared.report) + held };
+  return { ok: true, proposalId: proposal.id, applied: false, status: 'pending', review: review?.reason, text: proposedText(proposal.id) + reportText(prepared.report) + held, report: prepared.report };
 }
 
 /**
