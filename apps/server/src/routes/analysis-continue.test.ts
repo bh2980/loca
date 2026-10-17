@@ -20,7 +20,7 @@ function setup() {
     const workflow = db.insert(s.workflows).values({ projectId, name, definition: analysisTemplate({ model: choice }) }).returning().get();
     return createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: { ignoreStatus: true } }).runId;
   };
-  const setStatus = (id: string, status: 'running' | 'paused' | 'failed') => db.update(s.runs).set({ status, notice: null }).where(eq(s.runs.id, id)).run();
+  const setStatus = (id: string, status: 'running' | 'paused' | 'completed') => db.update(s.runs).set({ status, notice: null }).where(eq(s.runs.id, id)).run();
   const calls: string[] = [];
   const runner = { continue: (id: string) => (calls.push(`continue ${id}`), { ok: true, retried: 0 }), resume: (id: string) => calls.push(`resume ${id}`) };
   const app = new Hono<Env>()
@@ -36,8 +36,9 @@ function setup() {
 describe('continuing or resuming a work analysis while another runs', () => {
   it('is refused, as starting a second one is', async () => {
     const { analysis, setStatus, post, calls } = setup();
+    // A failed analysis is a finished (or paused) run with failed lines.
     const failed = analysis('분석 1');
-    setStatus(failed, 'failed');
+    setStatus(failed, 'completed');
     const running = analysis('분석 2');
     setStatus(running, 'running');
 
@@ -57,7 +58,7 @@ describe('continuing or resuming a work analysis while another runs', () => {
     const paused = analysis('분석 1');
     setStatus(paused, 'paused');
     expect((await post(`/runs/${paused}/resume`)).status).toBe(200);
-    setStatus(paused, 'failed');
+    setStatus(paused, 'completed');
     const response = await post(`/runs/${paused}/continue`);
     expect((await response.text())).not.toContain('이미 진행 중');
     expect(calls[0]).toBe(`resume ${paused}`);

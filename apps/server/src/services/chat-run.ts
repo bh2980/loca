@@ -11,7 +11,7 @@ import { AGENT_SYSTEM } from './agent-tools.ts';
 import { gatedTools } from './change-gate.ts';
 import { CONTEXT_BUDGET, fitMessages, mergeIncoming, type AnsweredBy } from './chat-context.ts';
 import { hasInterjections, takeInterjections, writeInterjections, type Interjection } from './chat-interject.ts';
-import { afterTurn, startTurn, turnStartedAt, type ChatTurn } from './chat-turns.ts';
+import { afterTurn, startTurn, turnEnded, turnStartedAt, type ChatTurn } from './chat-turns.ts';
 import { chatStream, errorText } from './chat-stream.ts';
 import { cliChatResponse } from './cli-chat.ts';
 import { piChatResponse } from './pi-chat.ts';
@@ -27,8 +27,17 @@ import { withFittedResults } from './tool-output.ts';
 /** The open workflow editor applies node edits in the browser, which only the API chat can wait for. */
 const NO_EDITOR_NOTE = '워크플로 노드 편집(edit_workflow_node)은 이 대화에서 쓸 수 없습니다. 노드를 바꾸려면 save_workflow를 쓰세요.';
 
-export async function runChatTurn(deps: Pick<Deps, 'db' | 'secrets'>, session: typeof s.chatSessions.$inferSelect, request: { incoming?: UIMessage; trigger?: 'submit-message' | 'regenerate-message'; view?: string | null }): Promise<Response> {
+/** How long a new turn waits for the conversation's running one to end before cutting it off. */
+export const PREVIOUS_TURN_WAIT_MS = 30_000;
+
+export async function runChatTurn(deps: Pick<Deps, 'db' | 'secrets'>, given: typeof s.chatSessions.$inferSelect, request: { incoming?: UIMessage; trigger?: 'submit-message' | 'regenerate-message'; view?: string | null }): Promise<Response> {
   const { db, secrets } = deps;
+  let session = given;
+  // A turn still running (finishing its last step, or started in another window): wait for it, so
+  // its reply is saved and this turn builds on it, instead of cutting it off as if it were stopped.
+  if (turnStartedAt(session.id) !== null && (await turnEnded(session.id, PREVIOUS_TURN_WAIT_MS))) {
+    session = db.select().from(s.chatSessions).where(eq(s.chatSessions.id, session.id)).get() ?? session;
+  }
   if (!session.connectionId || !session.model) throw new Error('입력창 아래에서 채팅할 AI 연결과 모델을 고르세요.');
   const live = liveChoice(db, { connectionId: session.connectionId, model: session.model, ...(session.effort && { effort: session.effort }) }, secrets, 'chat');
   // A chat talks to one model: the connection's fallback is for workflow and analysis requests.
