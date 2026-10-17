@@ -212,7 +212,7 @@ function Home() {
                   className="flex items-center gap-4 px-4 py-3 text-sm hover:bg-muted/50"
                 >
                   <span className="w-40 shrink-0 truncate">
-                    {item.title !== JOB_KIND[item.kind] && <span className="mr-1.5 text-xs text-muted-foreground">{JOB_KIND[item.kind]}</span>}
+                    {item.title !== JOB_KIND[item.kind] && <><span className="mr-1 text-xs text-muted-foreground">{JOB_KIND[item.kind]}</span>{' '}</>}
                     <span className="font-medium">{item.title}</span>
                   </span>
                   <JobStatusBadge status={item.status} />

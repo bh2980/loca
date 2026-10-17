@@ -413,7 +413,8 @@ function Knowledge() {
           )}
           {(graph || timeline) && <KnowledgeFilters {...filters} />}
           <FilterChips chips={chips} />
-          <div className="min-w-0 truncate text-xs text-muted-foreground">
+          {/* The last analysis takes what is left of the row and is cut short there (#48): the toolbar stays one line at 1280. */}
+          <div className="min-w-0 flex-1 basis-0 truncate text-xs text-muted-foreground">
             <JobStatus projectId={projectId} />
           </div>
         </Toolbar>
