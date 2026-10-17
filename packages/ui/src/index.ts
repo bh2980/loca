@@ -53,6 +53,7 @@ export * from "./layout/split-pane"
 export * from "./layout/detail-pane"
 export * from "./layout/pane-header"
 export * from "./layout/sidebar"
+export * from "./layout/settings-section"
 
 // Data (Design System 4.1)
 export * from "./data/data-table"
