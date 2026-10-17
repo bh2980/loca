@@ -8,6 +8,7 @@ import { config } from './config.ts';
 import { openDatabase } from './db/index.ts';
 import * as s from './db/schema.ts';
 import { Runner } from './engine/runner.ts';
+import { events } from './events.ts';
 import { AnalysisService } from './services/analysis.ts';
 import { TermService } from './services/terms.ts';
 import { closeStaleCalls } from './services/ai-calls.ts';
@@ -63,6 +64,7 @@ const server = serve({ fetch: app.fetch, hostname: '127.0.0.1', port: config.por
 
 const shutdown = async () => {
   try {
+    events.emit('shutdown');
     await runner.stop();
     server.close();
   } catch (error) {

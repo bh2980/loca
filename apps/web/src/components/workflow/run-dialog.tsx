@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { keepPreviousData, useMutation, useQuery, type UseQueryResult } from '@tanstack/react-query';
 import type { InferResponseType } from 'hono/client';
 import { Link, useNavigate } from '@tanstack/react-router';
@@ -99,6 +99,15 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
     placeholderData: keepPreviousData,
   });
   const data = ready ? plan.data : undefined;
+  // A count that takes this long is stuck (a dropped connection, a server restart): offer to ask again.
+  const [slow, setSlow] = useState(false);
+  const counting = open && ready && !plan.data && !plan.isError;
+  useEffect(() => {
+    setSlow(false);
+    if (!counting) return;
+    const timer = setTimeout(() => setSlow(true), 8_000);
+    return () => clearTimeout(timer);
+  }, [counting, plan.dataUpdatedAt]);
   // The kept plan is another scope's or model's: its counts and caps must not start this run.
   const stale = plan.isPlaceholderData;
   const suggested = data?.suggestedLimits;
@@ -186,9 +195,26 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
             {mode === 'tags' && <TagPicker tags={tags} picked={pickedTags} setPicked={setPickedTags} marks={pickedMarks} setMarks={setPickedMarks} />}
             <p className="text-sm">
               {!mode ? (
-                <span className="text-muted-foreground">번역할 범위를 고르세요.</span>
+                <span className="text-muted-foreground">실행할 범위를 고르세요.</span>
+              ) : total === undefined && plan.isError ? (
+                <span className="text-destructive">
+                  줄 수를 세지 못했습니다: {plan.error.message}{' '}
+                  <Button variant="ghost" size="inline" onClick={() => void plan.refetch()}>
+                    다시 시도
+                  </Button>
+                </span>
               ) : total === undefined ? (
-                <span className="text-muted-foreground">세는 중…</span>
+                <span className="text-muted-foreground">
+                  세는 중…
+                  {slow && (
+                    <>
+                      {' '}서버 응답이 늦습니다.{' '}
+                      <Button variant="ghost" size="inline" onClick={() => void plan.refetch()}>
+                        다시 시도
+                      </Button>
+                    </>
+                  )}
+                </span>
               ) : total === 0 ? (
                 <span className="text-muted-foreground">이 범위에는 실행할 대사가 없습니다.{!ignoreStatus && ' 이미 진행된 줄이면 아래 "이미 진행된 줄도"를 켜세요.'}</span>
               ) : (
@@ -215,7 +241,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
               onReset={(nodeId) => setRunModels(({ [nodeId]: _gone, ...rest }) => rest)}
             />
           ) : null}
-          {ready && plan.isError && <p className="text-sm text-destructive">계획을 계산하지 못했습니다: {plan.error.message}</p>}
+          {ready && plan.isError && plan.data && <p className="text-sm text-destructive">계획을 다시 계산하지 못했습니다: {plan.error.message}</p>}
           {ready && plan.isPending && <Skeleton className="h-24 w-full" />}
 
         </div>

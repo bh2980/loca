@@ -10,6 +10,8 @@
  *   MOCK_FIXED_TOKENS   added to prompt_tokens per request (agent CLIs add 13k-29k of their own)
  *   MOCK_CACHED_TOKENS  reported as prompt_tokens_details.cached_tokens (inside prompt_tokens)
  *   MOCK_LATENCY_MS     base latency + up to 25% jitter (default 400ms, 1500ms for work analysis)
+ * Chat: the model "mock-slow" waits 3 s per step. Keywords call tools: 인물 → save_character, 용어 → save_terms
+ *   (2 terms; "용어 많이" 25, over auto review's limit), "번역 바꿔" → find_lines then propose_changes on 3 lines.
  *   MOCK_DROP_RATE      fraction of per-line entries left out of the answer
  *   MOCK_DUP_RATE       fraction of entries that repeat the previous entry's id
  *   MOCK_EMPTY_RATE     fraction of translations with empty text
@@ -82,10 +84,10 @@ app.post('/spell', async (c) => {
   return c.json({ result: { text: fixed, corrections: fixed === text ? 0 : 1 } });
 });
 
-app.get('/v1/models', (c) => c.json({ object: 'list', data: [{ id: 'mock', object: 'model' }] }));
+app.get('/v1/models', (c) => c.json({ object: 'list', data: ['mock', 'mock-b', 'mock-slow'].map((id) => ({ id, object: 'model' })) }));
 
 app.post('/v1/chat/completions', async (c) => {
-  const body = (await c.req.json()) as { messages: Message[]; stream?: boolean; tools?: { function: { name: string } }[]; response_format?: unknown };
+  const body = (await c.req.json()) as { model?: string; messages: Message[]; stream?: boolean; tools?: { function: { name: string } }[]; response_format?: unknown };
   const system = body.messages.filter((message) => message.role === 'system').map(text).join('\n');
   const last = body.messages.at(-1);
 
@@ -111,7 +113,8 @@ app.post('/v1/chat/completions', async (c) => {
   }
 
   // Chat agent turn. Instant unless a latency is set explicitly (MOCK_LATENCY_MS or x-mock-latency-ms), e.g. to try steering.
-  const chatLatency = requestOptions(c.req.raw.headers).latencyMs;
+  // The model "mock-slow" waits 3 s per step unless a latency is set: time to steer, stop or switch modes.
+  const chatLatency = requestOptions(c.req.raw.headers).latencyMs ?? (body.model === 'mock-slow' ? 3_000 : undefined);
   if (chatLatency) await new Promise((resolve) => setTimeout(resolve, chatLatency));
   if (process.env.MOCK_DEBUG) console.log('roles', body.messages.map((message) => message.role).join(','));
   const tools = new Set(body.tools?.map((tool) => tool.function.name));
@@ -133,9 +136,20 @@ app.post('/v1/chat/completions', async (c) => {
         : /스크립트/.test(user)
           ? { name: 'edit_workflow_node', args: { workflowId, nodeId, field: 'code', value: 'export default function run(input) {\n  return { port: input.candidate ? "ok" : "fail" };\n}' } }
           : { name: 'edit_workflow_node', args: { workflowId, nodeId, field: 'instructions', value: '[모의 지시문] 원문의 말투와 장면 분위기를 유지해 자연스러운 한국어로 옮기세요.' } };
+    else if (/번역\s*(바꿔|고쳐|수정)/.test(user) && tools.has('find_lines') && tools.has('propose_changes')) call = { name: 'find_lines', args: { limit: 3 } };
+    else if (/용어\s*많이/.test(user) && tools.has('save_terms'))
+      // Over auto review's 20 items: held for the person even in 자동 검토.
+      call = { name: 'save_terms', args: { terms: Array.from({ length: 25 }, (_, index) => ({ source: `MockTerm${index + 1}`, target: `모의 용어 ${index + 1}` })) } };
+    else if (/용어/.test(user) && tools.has('save_terms')) call = { name: 'save_terms', args: { terms: [{ source: 'Relay Station', target: '중계소' }, { source: 'Breaker', target: '차단기' }] } };
     else if (/인물|캐릭터/.test(user) && tools.has('save_character'))
       call = { name: 'save_character', args: { name: 'MIRA', aliases: ['Mira'], profile: '## 미라\n- 전직 통신병\n- 짧고 단정한 반말\n- 조나스와 오랜 동료' } };
     else if (tools.has('project_overview')) call = { name: 'project_overview', args: {} };
+  }
+  // A "번역 바꿔" request: once find_lines answered, propose new translations for the lines it found.
+  const asked = [...body.messages].reverse().find((message) => message.role === 'assistant' && message.tool_calls?.length) as { tool_calls?: { function: { name: string } }[] } | undefined;
+  if (!call && last?.role === 'tool' && /번역\s*(바꿔|고쳐|수정)/.test(user) && asked?.tool_calls?.[0]?.function.name === 'find_lines' && tools.has('propose_changes')) {
+    const found = [...text(last).matchAll(/"key":"([^"]+)"[^{}]*?"rev":(\d+)/g)].slice(0, 3);
+    if (found.length) call = { name: 'propose_changes', args: { changes: found.map(([, key, rev]) => ({ key, rev: Number(rev), translation: `[모의 수정] ${key}` })) } };
   }
   const table = '## 모의 현황\n\n| 항목 | 내용 |\n|---|---|\n| 프로젝트 | 모의 프로젝트 |\n| 대사 | 8,157개 |\n\n- [x] 표 렌더링\n- [ ] ~~취소선~~';
   const reply = /표/.test(user) ? table : last?.role === 'tool' ? '도구 결과를 확인했습니다. (모의 응답)' : `"${user.slice(0, 40)}"에 대한 모의 응답입니다.`;

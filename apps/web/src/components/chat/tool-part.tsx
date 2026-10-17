@@ -1,6 +1,7 @@
 import { useNavigate, useParams } from '@tanstack/react-router';
 import { Check, ChevronRight, CircleAlert, Network, Wrench, X } from 'lucide-react';
 import { toast } from 'sonner';
+import { AGENT_TOOLS } from '@tw/shared';
 import { workflowEdits, type WorkflowNodeEdit } from '@/lib/workflow-edits';
 import { ChangePreview, LABEL } from './change-preview';
 import { ProposalCard, type Proposal } from './proposal-card';
@@ -32,7 +33,7 @@ export function ToolPart({ part, stale, onDecide, onOutput, proposal }: {
 }) {
   const name = part.type.slice('tool-'.length);
   const label = LABEL[name] ?? name;
-  const isChange = name.startsWith('save_') || name.startsWith('propose_') || name === 'start_run';
+  const isChange = Boolean(AGENT_TOOLS[name] && AGENT_TOOLS[name].action !== 'read');
   if (proposal) return <ProposalCard proposal={proposal} />;
 
   if (name === 'edit_workflow_node' && part.input && (part.state === 'input-available' || part.state === 'output-available')) {
@@ -73,15 +74,19 @@ export function ToolPart({ part, stale, onDecide, onOutput, proposal }: {
 
   if (isChange && (part.state === 'approval-requested' || part.state === 'approval-responded' || part.state === 'output-available' || part.state === 'output-denied')) {
     const decided = part.state !== 'approval-requested';
-    const failed = part.state === 'output-available' && (part.output as { ok?: boolean })?.ok === false;
+    // A gated change answers with its proposal's status (#45): a change that was tried and failed is not 적용됨.
+    const output = part.output as { ok?: boolean; status?: string; error?: string; note?: string } | undefined;
+    const failed = part.state === 'output-available' && (output?.ok === false || output?.status === 'failed' || output?.status === 'rejected');
+    const waiting = part.state === 'output-available' && (output?.status === 'pending' || output?.status === 'running');
     return (
       <div className="overflow-hidden rounded-lg border bg-background text-sm">
         <div className="flex items-center gap-2 border-b bg-muted/40 px-3 py-1.5 text-xs font-medium">
           <Wrench className="size-3.5 text-muted-foreground" /> {label}
           <span className="ml-auto">
             {part.state === 'output-denied' && <span className="text-muted-foreground">거절함</span>}
-            {part.state === 'output-available' && !failed && <span className="text-success">적용됨</span>}
-            {failed && <span className="text-destructive">{String((part.output as { error?: string }).error ?? '실패')}</span>}
+            {part.state === 'output-available' && !failed && !waiting && <span className="text-success">적용됨</span>}
+            {waiting && <span className="text-muted-foreground">결정 기다리는 중</span>}
+            {failed && <span className="text-destructive">{output?.status === 'rejected' ? '거절함' : String(output?.error ?? '실패')}</span>}
             {part.state === 'approval-responded' && <Spinner className="size-3" />}
           </span>
         </div>

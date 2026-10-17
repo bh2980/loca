@@ -18,6 +18,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Skeleton } from '@/components/ui/skeleton';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
+import { dateTime } from '@/lib/datetime';
 
 export const Route = createFileRoute('/p/$projectId/workflows/')({ component: Workflows });
 
@@ -51,7 +52,7 @@ function Workflows() {
       id: 'saved',
       header: '저장',
       meta: { width: 120, className: 'text-muted-foreground' },
-      cell: ({ row }) => new Date(row.original.updatedAt).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
+      cell: ({ row }) => dateTime(row.original.updatedAt),
     },
     {
       id: 'last',
@@ -64,7 +65,7 @@ function Workflows() {
         return (
           <Link to="/p/$projectId/runs/$runId" params={{ projectId, runId: last.id }} className="flex items-center gap-2 hover:underline" onClick={(event) => event.stopPropagation()}>
             <JobStatusBadge status={last.status} />
-            <span className="truncate text-xs text-muted-foreground">{new Date(last.createdAt).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
+            <span className="truncate text-xs text-muted-foreground">{dateTime(last.createdAt)}</span>
           </Link>
         );
       },

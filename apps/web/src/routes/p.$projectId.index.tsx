@@ -12,6 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { AUTO_MARKS, termMarksOf } from '@tw/shared';
 import { q, useReviewTagId } from '@/lib/queries';
 import { cn } from '@/lib/utils';
+import { dateTime } from '@/lib/datetime';
 
 export const Route = createFileRoute('/p/$projectId/')({ component: Home });
 
@@ -221,7 +222,7 @@ function Home() {
                   <span className="w-24 shrink-0 text-right whitespace-nowrap text-muted-foreground tabular-nums">
                     {item.status === 'running' && item.total <= 1 ? <Elapsed since={item.at} /> : `${item.done.toLocaleString()}/${item.total.toLocaleString()}`}
                   </span>
-                  <span className="hidden w-44 shrink-0 text-right text-xs whitespace-nowrap text-muted-foreground xl:block">{item.at.toLocaleString()}</span>
+                  <span className="hidden w-44 shrink-0 text-right text-xs whitespace-nowrap text-muted-foreground xl:block">{dateTime(item.at)}</span>
                 </Link>
               </li>
             ))}

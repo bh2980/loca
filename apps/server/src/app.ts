@@ -27,8 +27,14 @@ export function createApp(deps: Deps) {
       streamSSE(c, async (stream) => {
         // The client may be gone before the write: that is not an error worth crashing for.
         const send = (event: ChangeEvent) => void stream.writeSSE({ event: 'change', data: JSON.stringify(event) }).catch(() => {});
+        // Shutting down ends the stream cleanly, so browsers reconnect instead of reporting a cut-off response.
+        const close = () => stream.abort();
         events.on('change', send);
-        stream.onAbort(() => void events.off('change', send));
+        events.once('shutdown', close);
+        stream.onAbort(() => {
+          events.off('change', send);
+          events.off('shutdown', close);
+        });
         while (!stream.aborted) {
           await stream.writeSSE({ event: 'ping', data: '' }).catch(() => stream.abort());
           await stream.sleep(20_000);

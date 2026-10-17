@@ -37,9 +37,10 @@ import { useReportView } from '@/lib/view-context';
 import { workflowEdits } from '@/lib/workflow-edits';
 import { sameWorkflowDraft } from '@/lib/workflow-draft';
 import { SplitPane } from '@/components/split-pane';
+import { dateTime } from '@/lib/datetime';
 
 /** When the workflow was last saved: 10. 13. 오전 06:16. Runs keep their own copy of what they ran. */
-const savedAt = (at: string) => new Date(at).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+const savedAt = (at: string) => dateTime(at);
 
 /**
  * The workflow's name reads as a title; the pencil turns it into an ordinary field (Enter or
