@@ -5,7 +5,7 @@ import { inChunks, inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { attachUnitTags, scopeRefusal } from './tag-scope.ts';
-import { humanLinePatch } from './line-patch.ts';
+import { saveLine } from './line-save.ts';
 import { refusesListener, setHumanListener } from './listeners.ts';
 import { knownListenerSql, markConditions } from './line-marks.ts';
 import { lineTextFilter } from './line-text.ts';
@@ -467,15 +467,8 @@ export function applyBatch(db: Db, projectId: string, batch: BatchChange) {
         skipped.push({ key: change.key, reason: '나레이션에는 청자가 없음' });
         continue;
       }
-      const edit: Parameters<typeof humanLinePatch>[2] = { statusId: change.status ? statusId(change.status)! : undefined };
-      if (change.translation !== undefined) {
-        const candidate = tx.insert(s.candidates).values({ unitId: unit.id, text: change.translation, origin: batch.origin, model: batch.model ?? null, note: change.note }).returning().get();
-        edit.translation = change.translation;
-        edit.candidateId = candidate.id;
-      }
       // Applied from the CLI or an accepted proposal: a person decided this translation or status (and the listener).
-      const patch = humanLinePatch(tx, unit, edit);
-      if (Object.keys(patch).length) tx.update(s.units).set(patch).where(eq(s.units.id, unit.id)).run();
+      saveLine(tx, unit, { text: change.translation, statusId: change.status ? statusId(change.status)! : undefined, origin: batch.origin, model: batch.model ?? null, note: change.note });
       if (change.listener !== undefined) setHumanListener(tx, [unit.id], change.listener);
       // Checked in validateBatch; a tag whose place changed since is skipped here, never put where it doesn't belong.
       attachUnitTags(tx, projectId, [unit.id], { add: change.addTags.map((tag) => tagId(tag)).filter((id): id is string => !!id), remove: change.removeTags.map((tag) => tagId(tag)).filter((id): id is string => !!id) }, { onMisplaced: 'skip' });

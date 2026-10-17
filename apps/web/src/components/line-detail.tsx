@@ -65,8 +65,9 @@ export function LineDetail({
   useReportView('line-detail', [unit.data && { kind: '대사', id: unit.data.id, label: `${unit.data.key} · ${unit.data.source.slice(0, 40)}` }]);
 
   const queryClient = useQueryClient();
+  const saveLine = useSaveLine();
   const patch = useMutation({
-    mutationFn: (json: { statusId?: string; tagIds?: string[]; listener?: string | null }) => unwrap(client.units[':unitId'].$patch({ param: { unitId }, json })),
+    mutationFn: (json: { tagIds?: string[]; listener?: string | null }) => unwrap(client.units[':unitId'].$patch({ param: { unitId }, json })),
     // The pick shows at once (pane and list); a failure puts it back.
     onMutate: async (json) => ({ undo: await optimistic(queryClient, unitChanges([unitId], patchedLine(json))) }),
     onError: (error, _json, context) => {
@@ -117,7 +118,7 @@ export function LineDetail({
                 </FieldRow>
               )}
               <FieldRow label="상태">
-                <Select value={line.statusId} onValueChange={(statusId) => patch.mutate({ statusId })}>
+                <Select value={line.statusId} onValueChange={(statusId) => saveLine.mutate({ unitId, statusId }, { onError: (error) => toast.error(error.message) })}>
                   <SelectTrigger size="sm" className="w-40" aria-label="상태">
                     <SelectValue>{status && <><StatusDot color={status.color} /> {status.name}</>}</SelectValue>
                   </SelectTrigger>

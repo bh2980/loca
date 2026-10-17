@@ -353,7 +353,7 @@ export function RouteList({ projectId, slice, checks, at, edit, onEdit, onAt }: 
         focusTick={focusTick}
         onSelect={() => select(item.unitId, true)}
         onEscape={() => setFocusTick(0)}
-        onDone={(advanced) => advanced && moveLine(1, true)}
+        onDone={(advanced) => (advanced ? moveLine(1, true) : select(undefined, false))}
       />
     );
   };
