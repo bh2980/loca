@@ -2,6 +2,7 @@ import { eq, sql } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { routeGraph, walkRoute, type RouteGraph } from './route-slice.ts';
+import { routeCoverage, throughPicks } from './route-coverage.ts';
 
 /**
  * 다음 길 (docs/DESIGN.md J2c): translate a branching dialogue graph route by route. After a route
@@ -163,6 +164,19 @@ export function bestRoute(g: RouteGraph, weights: Weights, start: Picks): NextRo
   return { picks: kept, lines: current };
 }
 
+/**
+ * The next route: the local search, and when it gains nothing while untranslated lines are still
+ * reachable (behind choices it does not look past, docs/PLAN-30.md), the search again from a route
+ * through the first remaining branch. So 0 lines means every reachable line has a translation.
+ */
+export function nextRoute(g: RouteGraph, weights: Weights, picks: Picks): NextRouteResult {
+  const best = bestRoute(g, weights, picks);
+  if (best.lines > 0) return best;
+  const branch = routeCoverage(g, weights, picks).branches[0];
+  const through = branch && throughPicks(g, picks, branch.firstNode);
+  return through ? bestRoute(g, weights, through) : best;
+}
+
 export interface NextRoutePreview {
   /** The picks of the next route. */
   picks: Picks;
@@ -178,7 +192,7 @@ export interface NextRoutePreview {
 
 export function previewNext(g: RouteGraph, weights: Weights, current: Picks): NextRoutePreview {
   const onRoute = routeLines(g, weights, current);
-  const next = bestRoute(g, weights, current);
+  const next = nextRoute(g, weights, current);
   const changed = sameRouteDiffers(g, current, next.picks);
   return { picks: next.picks, newLines: next.lines, totalUntranslatedOnRoute: onRoute, remainingRoutes: remaining(g, weights, current), changed };
 }
@@ -205,7 +219,7 @@ function remaining(g: RouteGraph, weights: Weights, current: Picks): number | '2
       if (count >= REMAINING_CAP) return '20+';
       for (const id of route) left.set(id, 0);
     }
-    const next = bestRoute(g, left, picks);
+    const next = nextRoute(g, left, picks);
     if (next.lines === 0) return count;
     picks = next.picks;
   }
