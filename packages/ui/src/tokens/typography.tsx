@@ -2,12 +2,13 @@ import * as React from 'react';
 import { cn } from '../lib/utils.ts';
 
 /**
- * Design System Typography Scale (Apple HIG & Material 3):
- * - Page Title: text-base font-semibold tracking-tight (Screen & Pane Header)
- * - Section Title: text-sm font-medium text-foreground (Grouping & Field Header)
- * - Body: text-sm leading-normal text-foreground (Standard reading & table rows)
- * - Meta / Caption: text-xs text-muted-foreground (Labels, dates, stats, hints)
- * Arbitrary text-[Npx] or random font weights are prohibited.
+ * Type roles (#48; the sizes are in apps/web/src/index.css @theme, docs/UI-AUDIT-48.md):
+ * - Page title: text-xl font-semibold (19px)
+ * - Pane / section title: text-base font-semibold (15px), or text-sm font-medium for a field group
+ * - Body: text-sm (14px): table rows, chat replies, form values, descriptions people read
+ * - Meta: text-xs text-muted-foreground (13px): dates, counts, hints, column heads
+ * - Badge / counter: text-2xs (11.5px), the floor; nothing smaller
+ * Arbitrary text-[Npx] sizes are refused by `pnpm ui-rules`, here as in the app.
  */
 
 export function PageTitle({ className, children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) {

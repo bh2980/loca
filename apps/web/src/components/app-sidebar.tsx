@@ -2,20 +2,7 @@ import { Fragment, useEffect } from 'react';
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Check, ChevronsUpDown, Languages, Plus } from 'lucide-react';
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarFooter,
-  SidebarGroup,
-  SidebarHeader,
-  SidebarMenu,
-  SidebarMenuBadge,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarRail,
-  SidebarSeparator,
-} from '@/components/ui/sidebar';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuBadge, SidebarMenuButton, SidebarMenuItem, SidebarRail, SidebarSeparator, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@loca/ui';
 import { holds, SECTIONS, useCurrentNav, type Section } from '@/lib/nav';
 import { q } from '@/lib/queries';
 
@@ -37,7 +24,7 @@ function SectionItem({ section, projectId, active, badge }: { section: Section; 
   return (
     <SidebarMenuItem>
       <SidebarMenuButton asChild isActive={active} tooltip={section.label}>
-        <Link {...((last ? { to: last.pathname, search: last.search } : { to: `/p/$projectId${first.path}`, params: { projectId }, search: first.search }) as unknown as { to: '/' })}>
+        <Link aria-current={active ? 'page' : undefined} {...((last ? { to: last.pathname, search: last.search } : { to: `/p/$projectId${first.path}`, params: { projectId }, search: first.search }) as unknown as { to: '/' })}>
           <section.icon />
           <span>{section.label}</span>
         </Link>
@@ -47,7 +34,7 @@ function SectionItem({ section, projectId, active, badge }: { section: Section; 
   );
 }
 
-/** The sidebar's blocks above settings, with a line between: home | 번역 · 문맥 | 워크플로 · AI. */
+/** The sidebar's blocks above settings, with a line between: home | 번역 · 자료 | 워크플로 · AI · 에이전트. */
 const GROUPS = ['home', 'text', 'automation'] as const;
 
 export function AppSidebar({ projectId }: { projectId: string }) {

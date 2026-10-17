@@ -3,12 +3,7 @@ import { useMutation } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { compileFormatRules, FORMAT_PRESET_IDS, FORMAT_PRESETS, formatPatternError, matchTokens, type FormatRules } from '@tw/shared';
-import { SettingsSection } from '@/components/settings/section';
-import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
+import { Button, Checkbox, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, SettingsSection } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { useFormFrom } from '@/lib/use-form-from';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
@@ -100,7 +95,7 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
 
       <div className="flex gap-2">
         <Button disabled={!dirty || invalid || save.isPending} onClick={() => save.mutate()}>
-          형식 규칙 저장
+          저장
         </Button>
         {dirty && (
           <Button variant="ghost" onClick={reset}>

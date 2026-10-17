@@ -4,9 +4,7 @@ import { ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { AGENT_TOOL_ACTIONS, AGENT_TOOL_TARGETS, AGENT_TOOLS, type AgentToolAction, type AgentToolTarget, type PermissionMode } from '@tw/shared';
 import { PermissionModePicker } from '@/components/chat/permission-mode';
-import { Button } from '@/components/ui/button';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { Switch } from '@/components/ui/switch';
+import { Button, Collapsible, CollapsibleContent, CollapsibleTrigger, Switch } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { optimistic } from '@/lib/optimistic';
 import { q } from '@/lib/queries';
@@ -22,7 +20,7 @@ const toolsIn = (target: AgentToolTarget, action?: AgentToolAction) => Object.ke
  * off is invisible to the AI; whether a change asks first is the conversation's permission mode.
  */
 export function AgentTab() {
-  const { projectId } = useParams({ from: '/p/$projectId/ai/usage' });
+  const { projectId } = useParams({ from: '/p/$projectId/agent' });
   const queryClient = useQueryClient();
   const project = useQuery(q.project(projectId));
   const loaded = !!project.data;

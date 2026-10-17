@@ -5,26 +5,14 @@ import { nodeName as nameOf, type WorkflowNode } from '@tw/shared';
 import { ContextItemList } from '@/components/ai-context';
 import { LineDetail } from '@/components/line-detail';
 import { Page } from '@/components/page';
-import { EmptyState } from '@/components/empty-state';
-import { DataTable, type ColumnDef } from '@/components/data-table';
+import { EmptyState, DataTable, type ColumnDef, Pager, Toolbar, SplitPane, JobStatusBadge, Alert, AlertDescription, AlertTitle, Badge, Button, Collapsible, CollapsibleContent, CollapsibleTrigger, Progress, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Tabs, TabsList, TabsTrigger, Skeleton } from '@loca/ui';
 import { HeaderFilter } from '@/components/header-filter';
-import { Pager, Toolbar } from '@/components/toolbar';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { Progress } from '@/components/ui/progress';
 import { client, unwrap } from '@/lib/api';
 import { ITEM_STATE } from '@/lib/labels';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
-import { SplitPane } from '@/components/split-pane';
-import { JobStatusBadge } from '@/components/job-status';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import type { InferResponseType } from 'hono/client';
 import { BatchList } from '@/components/workflow/batch-list';
-import { Skeleton } from '@/components/ui/skeleton';
 import { ContinueRun } from '@/components/workflow/continue-run';
 import { dateTime } from '@/lib/datetime';
 
@@ -220,11 +208,14 @@ function RunDetail() {
             </Link>
           </Button>
           <JobStatusBadge status={data.status} />
-          <ToggleGroup type="single" variant="outline" value={view} onValueChange={(value) => value && setSearch({ tab: value === 'steps' || value === 'plan' ? value : undefined }, true)}>
-            <ToggleGroupItem value="items">대사별</ToggleGroupItem>
-            <ToggleGroupItem value="steps">AI 호출</ToggleGroupItem>
-            <ToggleGroupItem value="plan">번역 계획</ToggleGroupItem>
-          </ToggleGroup>
+          {/* The app's one tab style (line tabs); boxed segments are for view switches only. */}
+          <Tabs value={view} onValueChange={(value) => setSearch({ tab: value === 'steps' || value === 'plan' ? value : undefined }, true)} className="self-stretch">
+            <TabsList variant="line" className="h-full border-b-0" aria-label="보기">
+              <TabsTrigger value="items">대사별</TabsTrigger>
+              <TabsTrigger value="steps">AI 호출</TabsTrigger>
+              <TabsTrigger value="plan">번역 계획</TabsTrigger>
+            </TabsList>
+          </Tabs>
           {filtered && view === 'items' && (
             <Button variant="ghost" onClick={() => setSearch({ state: undefined, node: undefined, page: undefined, line: undefined }, true)}>
               필터 지우기

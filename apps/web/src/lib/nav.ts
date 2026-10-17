@@ -1,5 +1,5 @@
 import { useRouterState } from '@tanstack/react-router';
-import { BookOpenText, Cog, Home, Languages, Sparkles, Workflow, type LucideIcon } from 'lucide-react';
+import { BookOpenText, Bot, Cog, Home, Languages, Sparkles, Workflow, type LucideIcon } from 'lucide-react';
 
 /** One screen inside a menu section: shown as a tab in the top bar. */
 export interface SectionTab {
@@ -13,7 +13,7 @@ export interface SectionTab {
 }
 
 export interface Section {
-  id: 'home' | 'translate' | 'context' | 'workflows' | 'ai' | 'settings';
+  id: 'home' | 'translate' | 'knowledge' | 'workflows' | 'ai' | 'agent' | 'settings';
   label: string;
   /** The sidebar's block: the home, the work on the text, what automates it; settings sit at the bottom. */
   group: 'home' | 'text' | 'automation' | 'settings';
@@ -22,9 +22,10 @@ export interface Section {
 }
 
 /**
- * The menus, in the order the work goes: what to do next; translating and the context AI nodes
- * read; the workflows that move lines and the AI they call (how it is used, connections) — API 키 is the workflows' (the HTTP call node);
- * and settings. A menu's screens are tabs.
+ * The menus, in the order the work goes (#48): what to do next; translating (lines, graph and the
+ * glossary that goes with them) and 자료, the knowledge AI nodes read; the workflows that move lines
+ * (API 키 is theirs: the HTTP call node), the AI they call (connections, how AI results land) and the
+ * chat agent's own page (its tools and default permission mode); settings. A menu's screens are tabs.
  */
 export const SECTIONS: Section[] = [
   { id: 'home', label: '홈', group: 'home', icon: Home, tabs: [{ label: '홈', path: '' }] },
@@ -36,18 +37,18 @@ export const SECTIONS: Section[] = [
     tabs: [
       { label: '대사', path: '/script', also: ['/reviews'] },
       { label: '그래프', path: '/graph' },
+      { label: '용어집', path: '/glossary' },
     ],
   },
   {
-    id: 'context',
-    label: '문맥',
+    id: 'knowledge',
+    label: '자료',
     group: 'text',
     icon: BookOpenText,
     tabs: [
       { label: '문서', path: '/knowledge', search: { tab: 'documents' } },
       { label: '인물·관계', path: '/knowledge', search: { tab: 'people' } },
       { label: '사건', path: '/knowledge', search: { tab: 'events' } },
-      { label: '용어집', path: '/glossary' },
     ],
   },
   {
@@ -72,6 +73,7 @@ export const SECTIONS: Section[] = [
       { label: '사용 방식', path: '/ai/usage' },
     ],
   },
+  { id: 'agent', label: '에이전트', group: 'automation', icon: Bot, tabs: [{ label: '에이전트', path: '/agent' }] },
   {
     id: 'settings',
     label: '설정',

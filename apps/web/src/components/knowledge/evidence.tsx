@@ -5,11 +5,9 @@ import { useQuery } from '@tanstack/react-query';
 import { ChevronRight, Play } from 'lucide-react';
 import { SPEECH_FIX_WORKFLOW, SPEECH_LEVEL_LABELS, type SpeechLevel } from '@tw/shared';
 import { RunDialog } from '@/components/workflow/run-dialog';
-import { Button } from '@/components/ui/button';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { PaneSection, Button, Collapsible, CollapsibleContent, CollapsibleTrigger } from '@loca/ui';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
-import { PaneSection } from '@/components/detail-pane';
 
 /** A list that stays folded until asked for (evidence, a rule's lines): the pane shows what to decide first. */
 function Fold({ label, children, actions }: { label: ReactNode; children: ReactNode; actions?: ReactNode }) {

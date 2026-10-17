@@ -5,11 +5,8 @@ import { Play } from 'lucide-react';
 import { FUNCTIONS, nodeName, type FunctionName, type WorkflowNode } from '@tw/shared';
 import { StatusDot, TagChip } from '@/components/status';
 import { AiConfirmNote } from '@/components/settings/ai-confirm';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
 import { client, unwrap } from '@/lib/api';
 import { Field, ToggleRow, type FunctionNode, type NodeRefs } from '@/components/workflow/node-config/shared';
 

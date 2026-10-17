@@ -6,13 +6,7 @@ import { toast } from 'sonner';
 import { type FormatRules } from '@tw/shared';
 import { FormatRulesSection } from '@/components/format-rules';
 import { Page } from '@/components/page';
-import { SettingsSection } from '@/components/settings/section';
-import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Textarea } from '@/components/ui/textarea';
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Field, FieldDescription, FieldGroup, FieldLabel, Skeleton, Textarea, SettingsSection } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { changedFields, useFormFrom } from '@/lib/use-form-from';
@@ -42,7 +36,7 @@ function ProjectForm({ projectId, project }: { projectId: string; project: { nam
   const [confirmName, setConfirmName] = useState('');
   // Fields the person has not edited follow the saved project (a rename from chat shows); the unsaved edit survives leaving the page.
   const saved = { name: project.name, description: project.description ?? '' };
-  const { draft: form, setDraft: setForm, dirty, conflicts, keepMine, takeSaved } = useFormFrom(saved, `project.${projectId}`);
+  const { draft: form, setDraft: setForm, dirty, conflicts, keepMine, takeSaved, reset } = useFormFrom(saved, `project.${projectId}`);
   const { name, description } = form;
 
   const save = useMutation({
@@ -63,7 +57,21 @@ function ProjectForm({ projectId, project }: { projectId: string; project: { nam
     <Page title="프로젝트" flush>
       <div className="h-full overflow-auto">
         <div className="max-w-3xl space-y-8 px-6 py-6">
-          <SettingsSection title="기본 정보">
+          <SettingsSection
+            title="기본 정보"
+            actions={
+              <>
+                <Button disabled={!dirty || !name.trim() || save.isPending} onClick={() => save.mutate()}>
+                  저장
+                </Button>
+                {dirty && (
+                  <Button variant="ghost" onClick={reset}>
+                    되돌리기
+                  </Button>
+                )}
+              </>
+            }
+          >
             {conflicts.length > 0 && <ChangedElsewhere fields={conflicts.map((field) => (field === 'name' ? '이름' : '설명'))} onTakeSaved={takeSaved} onKeepMine={keepMine} />}
             <FieldGroup className="gap-4">
               <Field>
@@ -80,11 +88,6 @@ function ProjectForm({ projectId, project }: { projectId: string; project: { nam
                   {project.sourceLanguage} → {project.targetLanguage}
                 </FieldDescription>
               </Field>
-              <div>
-                <Button disabled={!dirty || !name.trim() || save.isPending} onClick={() => save.mutate()}>
-                  저장
-                </Button>
-              </div>
             </FieldGroup>
           </SettingsSection>
 
@@ -98,7 +101,7 @@ function ProjectForm({ projectId, project }: { projectId: string; project: { nam
             </Button>
           </SettingsSection>
 
-          <SettingsSection title={<span className="text-destructive">프로젝트 삭제</span>} description="프로젝트의 장면, 대사, 번역, 워크플로, 실행 기록이 모두 삭제되며 되돌릴 수 없습니다. 실행 중인 작업은 취소됩니다.">
+          <SettingsSection tone="danger" title="위험 구역 · 프로젝트 삭제" description="프로젝트의 장면, 대사, 번역, 워크플로, 실행 기록이 모두 삭제되며 되돌릴 수 없습니다. 실행 중인 작업은 취소됩니다.">
             <AlertDialog onOpenChange={() => setConfirmName('')}>
               <AlertDialogTrigger asChild>
                 <Button variant="destructive">

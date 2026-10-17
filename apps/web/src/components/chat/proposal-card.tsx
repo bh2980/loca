@@ -2,9 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Check, Wrench, X } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Spinner } from '@/components/ui/spinner';
+import { Button, Input, Spinner } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { ChangePreview, LABEL } from './change-preview';
 
@@ -54,10 +52,10 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
   const skipped = proposal.status === 'accepted' ? ((proposal.result as { skipped?: unknown[] } | null)?.skipped?.length ?? 0) : 0;
   return (
     <div className="overflow-hidden rounded-lg border bg-background text-sm">
-      <div className="flex items-center gap-2 border-b bg-muted/40 px-3 py-1.5 text-xs font-medium">
-        <Wrench className="size-3.5 text-muted-foreground" /> {LABEL[proposal.tool] ?? proposal.tool}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 border-b bg-muted/40 px-3 py-1.5 text-xs font-medium">
+        <CardTitle>{LABEL[proposal.tool] ?? proposal.tool}</CardTitle>
         {proposal.source === 'cli' && <span className="font-normal text-muted-foreground">· CLI</span>}
-        <span className="ml-auto">
+        <span className="ml-auto text-right">
           {proposal.status !== 'pending' && (
             <span className={proposal.status === 'accepted' ? 'text-success' : proposal.status === 'failed' ? 'text-destructive' : 'text-muted-foreground'}>
               {proposal.decidedBy && proposal.decidedBy !== 'person' && `${DECIDED_BY[proposal.decidedBy]} `}
@@ -125,5 +123,15 @@ function ProposalReport({ report }: { report: NonNullable<Proposal['report']> })
         </p>
       )}
     </div>
+  );
+}
+
+/** A card's title on one line (narrow panel: the status wraps below instead of breaking the title). */
+function CardTitle({ children }: { children: string }) {
+  return (
+    <span className="flex min-w-0 items-center gap-2 whitespace-nowrap" title={children}>
+      <Wrench className="size-3.5 shrink-0 text-muted-foreground" />
+      <span className="truncate">{children}</span>
+    </span>
   );
 }

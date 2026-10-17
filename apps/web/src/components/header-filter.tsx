@@ -1,10 +1,8 @@
 import { useState, type ReactNode } from 'react';
 import { Check, ListFilter } from 'lucide-react';
 import type { AutoMark } from '@tw/shared';
-import { Button } from '@/components/ui/button';
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
+import { Button, Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, Popover, PopoverContent, PopoverTrigger } from '@loca/ui';
 import { MarkChip, TagChip } from '@/components/status';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 
 export interface FilterOption {

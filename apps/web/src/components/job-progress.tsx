@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Check } from 'lucide-react';
-import { Progress } from '@/components/ui/progress';
+import { Progress } from '@loca/ui';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 

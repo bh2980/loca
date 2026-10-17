@@ -1,6 +1,6 @@
 import type { ComponentProps } from 'react';
 import { Sparkles } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Button } from '@loca/ui';
 import { askAgent } from '@/lib/agent';
 
 /**

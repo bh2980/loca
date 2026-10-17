@@ -39,7 +39,7 @@ function SelectTrigger({
       className={cn(
         "flex w-fit items-center justify-between gap-1.5 rounded-xs border border-border/80 bg-background px-2.5 py-1 text-xs whitespace-nowrap shadow-xs transition-colors",
         "outline-none hover:bg-muted/30 focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
-        "data-[size=xs]:h-6 data-[size=xs]:px-2 data-[size=xs]:text-[11px]",
+        "data-[size=xs]:h-6 data-[size=xs]:px-2 data-[size=xs]:text-2xs",
         "data-[size=sm]:h-7 data-[size=sm]:px-2.5 data-[size=sm]:text-xs",
         "data-[size=default]:h-8 data-[size=default]:px-3 data-[size=default]:text-sm",
         "*:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-1.5",

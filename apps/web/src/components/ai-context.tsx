@@ -1,12 +1,9 @@
 import { ChevronRight } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { CONTEXT_ITEM_KINDS, CONTEXT_PRIORITY, type ContextItem } from '@tw/shared';
-import { Badge } from '@/components/ui/badge';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Skeleton } from '@/components/ui/skeleton';
+import { Badge, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Skeleton, Collapsible, CollapsibleContent, CollapsibleTrigger } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
 const tokens = (value: number) => `약 ${value.toLocaleString()}`;
 

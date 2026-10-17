@@ -35,7 +35,7 @@ export function PaneHeader({
       {icon && <div className="mt-0.5 shrink-0 text-muted-foreground">{icon}</div>}
       <div className="min-w-0 flex-1">
         {kicker && (
-          <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+          <div className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">
             {kicker}
           </div>
         )}
@@ -43,7 +43,7 @@ export function PaneHeader({
           {title}
         </h2>
         {subtitle && (
-          <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+          <div className="mt-0.5 truncate text-2xs text-muted-foreground">
             {subtitle}
           </div>
         )}

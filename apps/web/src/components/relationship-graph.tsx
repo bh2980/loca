@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { BaseEdge, Background, Controls, EdgeLabelRenderer, Handle, MarkerType, Panel, Position, ReactFlow, useInternalNode, type Edge, type EdgeProps, type InternalNode, type Node, type NodeChange, type NodeProps } from '@xyflow/react';
-import { Button } from '@/components/ui/button';
+import { Button } from '@loca/ui';
 import ELK from 'elkjs/lib/elk.bundled.js';
 import '@xyflow/react/dist/style.css';
 import { cn } from '@/lib/utils';

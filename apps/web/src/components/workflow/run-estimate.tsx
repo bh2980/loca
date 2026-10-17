@@ -1,5 +1,5 @@
 import type { InferResponseType } from 'hono/client';
-import { Button } from '@/components/ui/button';
+import { Button } from '@loca/ui';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
 import type { client } from '@/lib/api';
 
