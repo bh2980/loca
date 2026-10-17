@@ -2,6 +2,7 @@ import * as React from "react"
 import * as SelectPrimitive from "@radix-ui/react-select"
 import { Check, ChevronDown, ChevronUp } from "lucide-react"
 import { cn } from "../lib/utils"
+import { useControlId } from "./control-id"
 
 function Select({
   ...props
@@ -25,12 +26,14 @@ function SelectTrigger({
   className,
   size = "sm",
   children,
+  id,
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Trigger> & {
   size?: "xs" | "sm" | "default"
 }) {
   return (
     <SelectPrimitive.Trigger
+      id={useControlId(id)}
       data-slot="select-trigger"
       data-size={size}
       className={cn(

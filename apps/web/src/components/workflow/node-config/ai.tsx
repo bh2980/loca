@@ -2,6 +2,7 @@
 import { Plus, Trash2, X } from 'lucide-react';
 import { AI_OUTPUTS, ANALYSIS_SECTION_LABELS, ANALYSIS_SECTIONS, analysisSectionsOf, CONNECTION_KIND_INFO, contextConfigSchema, type AiOutput, type BatchConfig, type Capability, type JsonField, type WorkflowNode } from '@tw/shared';
 import { Button } from '@/components/ui/button';
+import { ControlIdContext } from '@loca/ui';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { AiButton } from '@/components/ai-button';
@@ -46,12 +47,14 @@ export function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRef
       </Field>
       {config.output === 'json' && (
         <Field label="필드">
+          {/* Several controls per row: each names itself instead of taking the field's label. */}
+          <ControlIdContext.Provider value={undefined}>
           <div className="space-y-2">
             {config.fields.map((field, index) => (
               <div key={index} className="flex min-w-0 items-center gap-1.5">
-                <Input className="h-8 w-28 shrink-0 font-mono text-xs" value={field.name} placeholder="name" onChange={(event) => setField(index, { name: event.target.value })} />
+                <Input className="h-8 w-28 shrink-0 font-mono text-xs" value={field.name} placeholder="name" aria-label={`필드 ${index + 1} 이름`} onChange={(event) => setField(index, { name: event.target.value })} />
                 <Select value={field.type} onValueChange={(value) => setField(index, { type: value as JsonField['type'] })}>
-                  <SelectTrigger size="sm" className="w-24">
+                  <SelectTrigger size="sm" className="w-24" aria-label={`필드 ${index + 1} 형식`}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -60,7 +63,7 @@ export function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRef
                     <SelectItem value="boolean">참/거짓</SelectItem>
                   </SelectContent>
                 </Select>
-                <Input className="h-8 min-w-0 flex-1 text-xs" value={field.description} placeholder="설명 (AI에게 보임)" onChange={(event) => setField(index, { description: event.target.value })} />
+                <Input className="h-8 min-w-0 flex-1 text-xs" value={field.description} placeholder="설명 (AI에게 보임)" aria-label={`필드 ${index + 1} 설명`} onChange={(event) => setField(index, { description: event.target.value })} />
                 <Button size="icon" variant="ghost" className="text-destructive" aria-label="필드 삭제" onClick={() => set({ fields: config.fields.filter((_, i) => i !== index) })}>
                   <Trash2 />
                 </Button>
@@ -70,6 +73,7 @@ export function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRef
               <Plus /> 필드 추가
             </Button>
           </div>
+          </ControlIdContext.Provider>
         </Field>
       )}
       {config.output === 'analysis' && (

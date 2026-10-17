@@ -1,4 +1,6 @@
 /** Pieces shared by the node-kind configs: row layouts and the node/ref types. */
+import { useId } from 'react';
+import { ControlIdContext } from '@loca/ui';
 import { CONNECTION_KIND_INFO, type WorkflowNode } from '@tw/shared';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -17,13 +19,17 @@ export interface NodeRefs {
 }
 
 export function Field({ label, hint, action, children }: { label: string; hint?: React.ReactNode; action?: React.ReactNode; children: React.ReactNode }) {
+  // The label names its control (an input, text area or select inside takes this id).
+  const id = useId();
   return (
     <div className="min-w-0 space-y-1.5">
       <div className="flex min-h-7 min-w-0 items-center justify-between gap-2">
-        <Label className="min-w-0 leading-snug text-xs">{label}</Label>
+        <Label htmlFor={id} className="min-w-0 leading-snug text-xs">
+          {label}
+        </Label>
         {action}
       </div>
-      {children}
+      <ControlIdContext.Provider value={id}>{children}</ControlIdContext.Provider>
       {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
     </div>
   );
