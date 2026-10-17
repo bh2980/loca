@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { chatTitle } from './agent.ts';
 import { checkFormat } from './format-check.ts';
 import { importFileSchema, importWarnings } from './import-format.ts';
 import { politenessOf, speechLevelOf, styleInstruction, styleNames } from './knowledge.ts';
@@ -260,5 +261,17 @@ describe('run readiness', () => {
     expect(readinessUses(analysisTemplate({ model }))).toEqual({ speech: false, glossary: false });
     expect(readinessUses(listenerTemplate({ model }))).toEqual({ speech: false, glossary: false });
     expect(readinessUses(termExtractionTemplate({ model }))).toEqual({ speech: false, glossary: false });
+  });
+});
+
+describe('chatTitle', () => {
+  it('names the topic instead of repeating the request', () => {
+    expect(chatTitle('지금 진행 상황을 요약해줘')).toBe('진행 상황 요약');
+    expect(chatTitle('MIRA 말투 규칙 확인해 주세요.')).toBe('MIRA 말투 규칙 확인');
+    expect(chatTitle('용어집에 relay station 추가해줘')).toBe('용어집에 relay station 추가');
+    expect(chatTitle('번역이 왜 멈췄어?')).toBe('번역이 왜 멈췄어');
+    expect(chatTitle('첫 문장. 둘째 문장은 길다')).toBe('첫 문장');
+    expect(chatTitle('a'.repeat(40))).toHaveLength(24);
+    expect(chatTitle('해줘')).toBe('해줘');
   });
 });
