@@ -424,6 +424,45 @@ describe('who set the status', () => {
     expect(db.select().from(s.units).where(eq(s.units.id, units[0].id)).get()!.statusId).toBe(before);
     expect(db.select().from(s.runItems).where(eq(s.runItems.runId, again.runId)).get()!.data.issues?.[0]).toContain('상태를 바꾸지 않았습니다');
   });
+
+  it('keeps a translation a person saved after the run started, and reports it', async () => {
+    const { syncFunctions } = await import('./functions/index.ts');
+    const { db, projectId } = setup(1);
+    const unit = db.select().from(s.units).where(eq(s.units.projectId, projectId)).get()!;
+    const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).all();
+    const initial = statuses.find((status) => status.kind === 'initial')!;
+    const final = statuses.find((status) => status.kind === 'final')!;
+    const call = (data: Record<string, unknown>) =>
+      db.transaction((tx) => syncFunctions.setStatus!(tx as never, { statusId: final.id, applyCandidate: true }, { unit, item: { data }, tagIds: [], projectId, runId: 'r' } as never));
+
+    // A person saved '내 번역' after the run started: the run's candidate does not replace it.
+    db.update(s.units).set({ translation: '내 번역', statusBy: 'human' }).where(eq(s.units.id, unit.id)).run();
+    const kept = call({ candidateId: 'c1', candidateText: 'AI 번역' });
+    expect(kept.issues?.[0]).toContain('사람이 저장한 번역이 있어 바꾸지 않았습니다');
+    let row = db.select().from(s.units).where(eq(s.units.id, unit.id)).get()!;
+    expect([row.translation, row.candidateId, row.statusBy, row.statusId]).toEqual(['내 번역', unit.candidateId, 'human', initial.id]);
+
+    // AI owns the line: the candidate becomes the translation and the status changes.
+    db.update(s.units).set({ translation: 'AI 초벌', statusBy: 'ai' }).where(eq(s.units.id, unit.id)).run();
+    call({ candidateId: 'c2', candidateText: 'AI 번역 2' });
+    row = db.select().from(s.units).where(eq(s.units.id, unit.id)).get()!;
+    expect([row.translation, row.candidateId, row.statusBy, row.statusId]).toEqual(['AI 번역 2', 'c2', 'ai', final.id]);
+
+    // Human, but nothing written yet: the run may fill it in.
+    db.update(s.units).set({ translation: null, statusBy: 'human' }).where(eq(s.units.id, unit.id)).run();
+    call({ candidateId: 'c3', candidateText: 'AI 번역 3' });
+    row = db.select().from(s.units).where(eq(s.units.id, unit.id)).get()!;
+    expect([row.translation, row.statusBy, row.statusId]).toEqual(['AI 번역 3', 'ai', final.id]);
+  });
+
+  it('protects a person\'s translation only in runs that pick lines by status', async () => {
+    const { filtersByStatus } = await import('./functions/index.ts');
+    const entry = (statusIds: string[]) => ({ nodes: [{ id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: { statusIds } }], edges: [] }) as never;
+    expect(filtersByStatus(entry(['untranslated']), {})).toBe(true);
+    // '상태 무시' or a workflow without a status filter (말투만 고치기) is asked to rewrite the lines it names.
+    expect(filtersByStatus(entry(['untranslated']), { ignoreStatus: true })).toBe(false);
+    expect(filtersByStatus(entry([]), {})).toBe(false);
+  });
 });
 
 describe('batch output optimization (H7)', () => {
