@@ -23,9 +23,10 @@ export const proposalRoutes = new Hono<Env>()
         .map(listedProposal),
     );
   })
-  .post('/proposals/:id/:action{accept|reject}', async (c) => {
+  // A rejection may say why; the agent hears it with the decision (takeDecisions).
+  .post('/proposals/:id/:action{accept|reject}', validate('json', z.object({ reason: z.string().trim().max(1000).optional() })), async (c) => {
     try {
-      const row = await decideProposal(c.var.deps.db, c.req.param('id'), c.req.param('action') === 'accept');
+      const row = await decideProposal(c.var.deps.db, c.req.param('id'), c.req.param('action') === 'accept', 'person', c.req.valid('json').reason || null);
       // The agent hears the results and carries on once the conversation has nothing left to decide (#43).
       if (row.sessionId && row.status !== 'pending' && row.status !== 'running') continueAfterDecisions(c.var.deps, row.sessionId);
       return c.json(row);

@@ -44,12 +44,12 @@ export const proposedText = (id: string) =>
  * of two requests for the same proposal (two windows, a resent click, accept against reject) only one runs
  * the tool; the other gets the row as it stands (running, or already decided) instead of running it again.
  */
-export async function decideProposal(db: Db, id: string, accept: boolean, by: 'person' | 'auto' | 'bypass' = 'person') {
+export async function decideProposal(db: Db, id: string, accept: boolean, by: 'person' | 'auto' | 'bypass' = 'person', reason: string | null = null) {
   const proposal = db.select().from(s.proposals).where(eq(s.proposals.id, id)).get();
   if (!proposal) throw new Error('제안을 찾을 수 없습니다.');
   const claimed = db
     .update(s.proposals)
-    .set(accept ? { status: 'running', decidedBy: by } : { status: 'rejected', decidedAt: new Date(), decidedBy: by })
+    .set(accept ? { status: 'running', decidedBy: by } : { status: 'rejected', decidedAt: new Date(), decidedBy: by, reason })
     .where(and(eq(s.proposals.id, id), eq(s.proposals.status, 'pending')))
     .returning()
     .get();
@@ -109,5 +109,5 @@ export function takeDecisions(db: Db, sessionId: string) {
   const decided = db.select().from(s.proposals).where(unreported(sessionId)).all();
   if (!decided.length) return null;
   db.update(s.proposals).set({ reportedAt: new Date() }).where(inArray(s.proposals.id, decided.map((proposal) => proposal.id))).run();
-  return `지난 제안의 결과:\n${decided.map((proposal) => `- ${proposal.tool} (${proposal.id}): ${DECISION_WORD[proposal.status]}${proposal.status === 'failed' ? ` — ${JSON.stringify(proposal.result).slice(0, 300)}` : ''}`).join('\n')}`;
+  return `지난 제안의 결과:\n${decided.map((proposal) => `- ${proposal.tool} (${proposal.id}): ${DECISION_WORD[proposal.status]}${proposal.status === 'rejected' && proposal.reason ? ` — 이유: ${proposal.reason}` : ''}${proposal.status === 'failed' ? ` — ${JSON.stringify(proposal.result).slice(0, 300)}` : ''}`).join('\n')}`;
 }
