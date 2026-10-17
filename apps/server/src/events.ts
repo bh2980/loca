@@ -56,6 +56,13 @@ export function withImplied(topics: Iterable<Topic>) {
 export interface ChangeEvent {
   projectId?: string;
   topics: Topic[];
+  /**
+   * The one browser tab (its x-client id) whose requests made every change in this event, each
+   * while it was still running, so each answer already named its topics (x-changed). That tab has
+   * refetched them and skips the event; every other tab refetches as usual (#20). Absent when any
+   * change came from elsewhere: background work, another tab, or a request without an id.
+   */
+  origin?: string;
 }
 
 /** Topics for one project merge over this quiet window (trailing emit)... */
@@ -65,6 +72,10 @@ export const MAX_WAIT_MS = 1000;
 
 interface Pending {
   topics: Set<Topic>;
+  /** Tabs whose running requests made these changes. */
+  origins: Set<string>;
+  /** Some change was not reported in a response (made in the background, or by a request without an id). */
+  unreported: boolean;
   startedAt: number;
   timer: ReturnType<typeof setTimeout>;
 }
@@ -81,19 +92,25 @@ export class Events extends EventEmitter<{ change: [ChangeEvent]; shutdown: [] }
 
   /** Coalesced per project: callers keep calling this as often as they like. */
   changed(projectId: string | undefined, ...topics: Topic[]) {
-    // The request making the change also answers with its topics (see trackChanges).
-    const touched = requestTopics.getStore();
-    if (touched) for (const topic of withImplied(topics)) touched.add(topic);
+    // The request making the change also answers with its topics (see trackChanges). Work it
+    // started that goes on after the answer (a run, a chat stream) is reported only as an event.
+    const scope = requestScope.getStore();
+    const reporting = scope?.open ? scope : undefined;
+    if (reporting) for (const topic of withImplied(topics)) reporting.topics.add(topic);
     const now = Date.now();
     const entry = this.pending.get(projectId);
     if (entry) clearTimeout(entry.timer);
     const topicSet = entry?.topics ?? new Set<Topic>();
     for (const topic of withImplied(topics)) topicSet.add(topic);
+    const origins = entry?.origins ?? new Set<string>();
+    let unreported = entry?.unreported ?? false;
+    if (reporting?.client) origins.add(reporting.client);
+    else unreported = true;
     const startedAt = entry?.startedAt ?? now;
     const delay = Math.max(0, Math.min(this.quietMs, startedAt + this.maxWaitMs - now));
     const timer = setTimeout(() => this.flushProject(projectId), delay);
     timer.unref();
-    this.pending.set(projectId, { topics: topicSet, startedAt, timer });
+    this.pending.set(projectId, { topics: topicSet, origins, unreported, startedAt, timer });
   }
 
   /** Emit everything pending right now (for callers or tests that need synchronous delivery). */
@@ -106,12 +123,19 @@ export class Events extends EventEmitter<{ change: [ChangeEvent]; shutdown: [] }
     if (!entry) return;
     clearTimeout(entry.timer);
     this.pending.delete(projectId);
-    if (entry.topics.size) this.emit('change', { projectId, topics: [...entry.topics] });
+    const origin = !entry.unreported && entry.origins.size === 1 ? [...entry.origins][0] : undefined;
+    if (entry.topics.size) this.emit('change', { projectId, topics: [...entry.topics], ...(origin && { origin }) });
   }
 }
 
-/** Topics a request changed, gathered while it runs. */
-const requestTopics = new AsyncLocalStorage<Set<Topic>>();
+/** Topics a request changed, gathered while it runs, and the tab that sent it (x-client). */
+interface RequestScope {
+  topics: Set<Topic>;
+  client?: string;
+  /** Until its answer is made: changes after that are not in its x-changed. */
+  open: boolean;
+}
+const requestScope = new AsyncLocalStorage<RequestScope>();
 
 /**
  * Runs a request and returns the topics it changed, so its response can carry them (header
@@ -119,10 +143,14 @@ const requestTopics = new AsyncLocalStorage<Set<Topic>>();
  * silently gone (a restarted server behind a proxy). Changes made later by work the request
  * started (a run, an analysis) still go out as events.
  */
-export async function trackChanges(run: () => Promise<void>) {
-  const topics = new Set<Topic>();
-  await requestTopics.run(topics, run);
-  return topics;
+export async function trackChanges(run: () => Promise<void>, client?: string) {
+  const scope: RequestScope = { topics: new Set(), client: client || undefined, open: true };
+  try {
+    await requestScope.run(scope, run);
+  } finally {
+    scope.open = false;
+  }
+  return scope.topics;
 }
 
 export const events = new Events();

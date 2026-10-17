@@ -82,3 +82,46 @@ describe('changes a request made', () => {
     expect(await trackChanges(async () => {})).toEqual(new Set());
   });
 });
+
+describe('the tab whose own requests made a change (#20)', () => {
+  const capture = () => {
+    const bus = new Events(10_000, 10_000);
+    const seen: ChangeEvent[] = [];
+    bus.on('change', (event) => seen.push(event));
+    return { bus, seen };
+  };
+
+  it('is named when every change came from its running requests, so it can skip the event', async () => {
+    const { bus, seen } = capture();
+    await trackChanges(async () => bus.changed('p', 'units'), 'tab-1');
+    await trackChanges(async () => bus.changed('p', 'terms'), 'tab-1');
+    bus.flush();
+    expect(seen).toEqual([expect.objectContaining({ projectId: 'p', origin: 'tab-1' })]);
+  });
+
+  it('is not named when another tab, a request without an id, or background work joined in', async () => {
+    const { bus, seen } = capture();
+    await trackChanges(async () => bus.changed('a', 'units'), 'tab-1');
+    await trackChanges(async () => bus.changed('a', 'units'), 'tab-2');
+    await trackChanges(async () => bus.changed('b', 'units'), 'tab-1');
+    await trackChanges(async () => bus.changed('b', 'units'));
+    await trackChanges(async () => bus.changed('c', 'units'), 'tab-1');
+    bus.changed('c', 'runs');
+    bus.flush();
+    expect(seen.map((event) => [event.projectId, event.origin])).toEqual([['a', undefined], ['b', undefined], ['c', undefined]]);
+  });
+
+  it('is not named for work a request started that went on after its answer', async () => {
+    const { bus, seen } = capture();
+    // A timer started inside the request keeps its async context, as a run's progress does.
+    let done: () => void = () => {};
+    const finished = new Promise<void>((resolve) => (done = resolve));
+    const topics = await trackChanges(async () => {
+      setTimeout(() => (bus.changed('p', 'runs'), done()), 5);
+    }, 'tab-1');
+    await finished;
+    bus.flush();
+    expect(topics.size).toBe(0);
+    expect(seen[0]?.origin).toBeUndefined();
+  });
+});

@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouterState } from '@tanstack/react-router';
+import { CLIENT_ID } from './api';
 
 const BATCH_MS = 250;
 /** No ping (sent every 20 s) for this long: the stream is dead. */
@@ -13,6 +14,9 @@ const RETRY_MAX_MS = 30_000;
  * (자료's '마지막 분석', 시작하기, notices) is refetched when runs change, e.g. when one finishes.
  */
 const ALSO: Record<string, string[]> = { runs: ['analysis'] };
+
+/** The query keys to refetch for changed topics: the topics and the queries that follow them. Used for events and for a write's own x-changed. */
+export const refetchKeys = (topics: Iterable<string>) => new Set([...topics].flatMap((topic) => [topic, ...(ALSO[topic] ?? [])]));
 
 /**
  * The server pushes "topics changed" over SSE; we refetch only queries whose key starts with
@@ -66,17 +70,19 @@ export function useLiveInvalidation() {
     };
     const onChange = (event: Event) => {
       alive();
-      const data = JSON.parse((event as MessageEvent<string>).data) as { projectId?: string; topics: string[] };
+      const data = JSON.parse((event as MessageEvent<string>).data) as { projectId?: string; topics: string[]; origin?: string };
+      // Made only by this tab's own writes, whose answers (x-changed) already refetched it (#20).
+      if (data.origin === CLIENT_ID) return;
       // Another project's events are ignored, except the project list, which every page shows.
       const foreign = data.projectId && data.projectId !== openProjectId;
       if (foreign && !data.topics.includes('projects')) return;
-      for (const topic of foreign ? ['projects'] : data.topics) for (const key of [topic, ...(ALSO[topic] ?? [])]) topics.add(key);
+      for (const key of refetchKeys(foreign ? ['projects'] : data.topics)) topics.add(key);
       timer ??= setTimeout(() => {
         timer = undefined;
         const batch = [...topics];
         topics.clear();
-        // Refetched even when the write's own answer (x-changed) already did: the event may also
-        // carry a background change made right after that save, which skipping would lose.
+        // An event that also carries a change from elsewhere (a run, another tab) has no origin and is
+        // refetched here even if this tab's own answer already did: skipping it would lose that change.
         for (const topic of batch) void queryClient.invalidateQueries({ queryKey: [topic] });
       }, BATCH_MS);
     };

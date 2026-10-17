@@ -5,6 +5,7 @@ import { createRouter, RouterProvider } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { Toaster, TooltipProvider } from '@loca/ui';
 import { setChangeListener } from '@/lib/api';
+import { refetchKeys } from '@/lib/live';
 import { routeTree } from './routeTree.gen';
 import './index.css';
 
@@ -15,9 +16,10 @@ const queryClient = new QueryClient({
   },
 });
 
-// A write's answer names the topics it changed: refetch those queries now (the event stream says the same a moment later).
+// A write's answer names the topics it changed: refetch those queries now. The event for the same
+// change names this tab as its origin and is skipped (lib/live.ts), so it is fetched once (#20).
 setChangeListener((topics) => {
-  for (const topic of topics) void queryClient.invalidateQueries({ queryKey: [topic] });
+  for (const key of refetchKeys(topics)) void queryClient.invalidateQueries({ queryKey: [key] });
 });
 
 const router = createRouter({
