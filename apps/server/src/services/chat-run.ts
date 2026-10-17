@@ -1,5 +1,6 @@
 import { convertToModelMessages, createUIMessageStream, createUIMessageStreamResponse, stepCountIs, streamText, type ModelMessage, type UIMessage } from 'ai';
 import { eq } from 'drizzle-orm';
+import { chatTitle } from '@tw/shared';
 import * as ai from '@tw/ai';
 import type { Deps } from '../context.ts';
 import type { Db } from '../db/index.ts';
@@ -38,7 +39,7 @@ export async function runChatTurn(deps: Pick<Deps, 'db' | 'secrets'>, session: t
   const firstUser = messages.find((message) => message.role === 'user');
   const firstText = firstUser?.parts.find((part) => part.type === 'text');
   if (session.title === '새 대화' && firstText && 'text' in firstText) {
-    db.update(s.chatSessions).set({ title: firstText.text.slice(0, 40) }).where(eq(s.chatSessions.id, session.id)).run();
+    db.update(s.chatSessions).set({ title: chatTitle(firstText.text) }).where(eq(s.chatSessions.id, session.id)).run();
     events.changed(session.projectId, 'chat');
   }
 

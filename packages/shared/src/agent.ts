@@ -118,3 +118,22 @@ export const piOptionsSchema = z.object({
   cwd: z.string().default(''),
 });
 export type PiOptions = z.infer<typeof piOptionsSchema>;
+
+/**
+ * A conversation's name from its first message, without a model call: the first sentence, the
+ * request ending and filler words dropped ("지금 진행 상황을 요약해줘" → "진행 상황 요약"), so the
+ * title names the topic instead of repeating the message shown right below it. At most 24 characters.
+ */
+export function chatTitle(text: string): string {
+  const first = text.replace(/\s+/g, ' ').trim().split(/(?<=[.?!。？！])\s|\n/)[0] ?? '';
+  let title = first.replace(/[.?!。？！~…]+$/u, '').trim();
+  title = title.replace(/^(지금|좀|혹시|그럼|이제|그리고|음|저기|please|can you|could you)\s+/iu, '');
+  title = title
+    .replace(/\s*(해\s?줘|해\s?주세요|해\s?줄래|해\s?줄\s?수\s?있어|해\s?봐|해\s?볼래|하자|할래|해라|해요|줘|주세요|줄래|부탁해|부탁드려요)$/u, '')
+    .replace(/(을|를)$/u, '')
+    .trim();
+  // "요약" left after dropping "해줘" from "요약해줘"; an object particle before it reads better without.
+  title = title.replace(/(\S+)(을|를) (\S+)$/u, '$1 $3');
+  if (!title) title = first.trim() || '새 대화';
+  return title.length > 24 ? `${title.slice(0, 23).trimEnd()}…` : title;
+}

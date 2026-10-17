@@ -38,9 +38,9 @@ export function ToolPart({ part, stale, onDecide, onOutput, proposal }: {
     const output = part.output as { applied?: boolean } | undefined;
     return (
       <div className="overflow-hidden rounded-lg border bg-background text-sm">
-        <div className="flex items-center gap-2 border-b bg-muted/40 px-3 py-1.5 text-xs font-medium">
-          <Wrench className="size-3.5 text-muted-foreground" /> {label}
-          <span className="ml-auto">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 border-b bg-muted/40 px-3 py-1.5 text-xs font-medium">
+          <CardTitle>{label}</CardTitle>
+          <span className="ml-auto text-right">
             {output?.applied === true && <span className="text-success">편집기에 적용됨 · 저장 필요</span>}
             {output?.applied === false && <span className="text-muted-foreground">거절함</span>}
             {!output && stale && <span className="text-muted-foreground">응답하지 않음</span>}
@@ -80,9 +80,9 @@ export function ToolPart({ part, stale, onDecide, onOutput, proposal }: {
     const refused = part.state === 'output-available' && output?.ok === false && !output?.status;
     return (
       <div className="overflow-hidden rounded-lg border bg-background text-sm">
-        <div className="flex items-center gap-2 border-b bg-muted/40 px-3 py-1.5 text-xs font-medium">
-          <Wrench className="size-3.5 text-muted-foreground" /> {label}
-          <span className="ml-auto">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 border-b bg-muted/40 px-3 py-1.5 text-xs font-medium">
+          <CardTitle>{label}</CardTitle>
+          <span className="ml-auto text-right">
             {part.state === 'output-denied' && <span className="text-muted-foreground">거절함</span>}
             {part.state === 'output-available' && !failed && !waiting && <span className="text-success">적용됨</span>}
             {waiting && <span className="text-muted-foreground">결정 기다리는 중</span>}
@@ -159,5 +159,15 @@ function GraphViewLink({ output }: { output: GraphViewOutput }) {
         그래프에서 보기
       </Button>
     </div>
+  );
+}
+
+/** A card's title on one line (narrow panel: the status wraps below instead of breaking the title). */
+function CardTitle({ children }: { children: string }) {
+  return (
+    <span className="flex min-w-0 items-center gap-2 whitespace-nowrap" title={children}>
+      <Wrench className="size-3.5 shrink-0 text-muted-foreground" />
+      <span className="truncate">{children}</span>
+    </span>
   );
 }
