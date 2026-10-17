@@ -8,9 +8,9 @@ import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { agentCatalog, jsonSchemaOf } from './agent-catalog.ts';
-import { prepareProposal, refusalText, reportText } from './proposal-check.ts';
+import { refusalText } from './proposal-check.ts';
+import { CHANGE_NOTE, proposeChange } from './change-gate.ts';
 import { fitText } from './tool-output.ts';
-import { propose, proposedText } from './proposals.ts';
 import { catchUp, CONTEXT_BUDGET, expandSteers, messageText, textOf, transcript, type AnsweredBy } from './chat-context.ts';
 
 /**
@@ -51,14 +51,13 @@ export async function piChatResponse(input: {
     const tools: ai.PiToolSpec[] = agentCatalog(db, chat.projectId, { model: route.model }).map((tool) => ({
       name: tool.name,
       label: tool.name,
-      description: tool.changes ? `${tool.description} (변경 도구: 바로 실행되지 않고 사용자 수락을 기다리는 제안으로 올라갑니다.)` : tool.description,
+      description: tool.changes ? `${tool.description} (변경 도구: ${CHANGE_NOTE})` : tool.description,
       parameters: jsonSchemaOf(tool.schema),
       execute: async (args) => {
         if (tool.changes) {
-          const prepared = await prepareProposal(db, chat.projectId, tool.name, args);
-          if (!prepared.ok) return { text: `제안을 만들지 않았습니다: ${refusalText(prepared)}`, details: { ok: false, error: `제안하지 못했습니다: ${prepared.error}` } };
-          const proposal = propose(db, { projectId: chat.projectId, sessionId: chat.id, source: 'pi', tool: tool.name, input: prepared.input, report: prepared.report });
-          return { text: proposedText(proposal.id) + reportText(prepared.report), details: { proposalId: proposal.id } };
+          const gate = await proposeChange(db, { projectId: chat.projectId, sessionId: chat.id, source: 'pi', tool: tool.name, input: args });
+          if (!gate.ok) return { text: `제안을 만들지 않았습니다: ${refusalText(gate)}`, details: { ok: false, error: `제안하지 못했습니다: ${gate.error}` } };
+          return { text: gate.text, details: { proposalId: gate.proposalId, applied: gate.applied } };
         }
         const result = await tool.run(args);
         return { text: fitText(result), details: result };

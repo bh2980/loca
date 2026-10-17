@@ -50,7 +50,7 @@ export function AgentTab() {
         채팅 패널의 AI와 터미널의 <code>loca tools</code>·<code>loca call</code>이 같은 도구를 씁니다. 끈 도구는 AI에게 보이지 않습니다. 터미널의 읽기 명령(lines, stats, context, export …)과 워크플로에는 영향이 없습니다.
       </p>
       <div className="rounded-lg border">
-        <div className="grid grid-cols-[minmax(0,1fr)_repeat(3,5.5rem)] items-center gap-2 border-b px-2 py-1.5 text-xs text-muted-foreground">
+        <div className="grid grid-cols-[minmax(0,1fr)_repeat(4,5.5rem)] items-center gap-2 border-b px-2 py-1.5 text-xs text-muted-foreground">
           <span className="pl-7">대상</span>
           {ACTIONS.map((action) => (
             <span key={action} className="text-center" title={AGENT_TOOL_ACTIONS[action].description}>
@@ -62,7 +62,7 @@ export function AgentTab() {
           {TARGETS.map((target) => (
             <li key={target}>
               <Collapsible className="group/tools">
-                <div className="grid grid-cols-[minmax(0,1fr)_repeat(3,5.5rem)] items-center gap-2 px-2 py-1">
+                <div className="grid grid-cols-[minmax(0,1fr)_repeat(4,5.5rem)] items-center gap-2 px-2 py-1">
                   <CollapsibleTrigger asChild>
                     <Button variant="ghost" size="row" className="min-w-0" aria-label={`${AGENT_TOOL_TARGETS[target]} 도구 보기`}>
                       <ChevronRight className="text-muted-foreground transition-transform group-data-[state=open]/tools:rotate-90" />
@@ -85,7 +85,7 @@ export function AgentTab() {
                   {/* The same rows on a darker ground: each tool's switch sits in its own column, under the cell that switches them together. */}
                   <ul className="divide-y border-t bg-muted/60">
                     {toolsIn(target).map((name) => (
-                      <li key={name} className="grid grid-cols-[minmax(0,1fr)_repeat(3,5.5rem)] items-center gap-2 px-2 py-1">
+                      <li key={name} className="grid grid-cols-[minmax(0,1fr)_repeat(4,5.5rem)] items-center gap-2 px-2 py-1">
                         <span className="flex h-8 min-w-0 items-center pl-9 text-sm" title={name}>
                           <span className="truncate">{AGENT_TOOLS[name]!.label}</span>
                         </span>

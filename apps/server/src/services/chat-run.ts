@@ -6,7 +6,8 @@ import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { startCall } from './ai-calls.ts';
-import { AGENT_SYSTEM, agentTools } from './agent-tools.ts';
+import { AGENT_SYSTEM } from './agent-tools.ts';
+import { gatedTools } from './change-gate.ts';
 import { CONTEXT_BUDGET, fitMessages, mergeIncoming, type AnsweredBy } from './chat-context.ts';
 import { hasInterjections, takeInterjections, writeInterjections, type Interjection } from './chat-interject.ts';
 import { afterTurn, readToEnd, startTurn, turnStartedAt, type ChatTurn } from './chat-turns.ts';
@@ -21,8 +22,8 @@ import { withFittedResults } from './tool-output.ts';
  * after the conversation's last proposal was decided (#43). The record is the server's (#46); the
  * turn picks the backend from the conversation's connection.
  */
-/** pi cannot pause a tool call for a card, so change tools there record a proposal instead. */
-const PI_NOTE = `이 대화에서 프로젝트를 바꾸는 도구(save_*, propose_translation)는 바로 실행되지 않고 '제안'으로 올라갑니다. 사용자가 채팅 패널의 카드에서 수락하면 반영되고, 이 대화의 제안이 모두 결정되면 결과를 바로 알려 드리고 이어서 진행합니다. 제안한 뒤에는 무엇을 왜 제안했는지 짧게 설명하고 이번 답을 마치세요. 워크플로 노드 편집(edit_workflow_node)은 이 대화에서 쓸 수 없습니다.`;
+/** The open workflow editor applies node edits in the browser, which only the API chat can wait for. */
+const NO_EDITOR_NOTE = '워크플로 노드 편집(edit_workflow_node)은 이 대화에서 쓸 수 없습니다. 노드를 바꾸려면 save_workflow를 쓰세요.';
 
 export async function runChatTurn(deps: Pick<Deps, 'db' | 'secrets'>, session: typeof s.chatSessions.$inferSelect, request: { incoming?: UIMessage; trigger?: 'submit-message' | 'regenerate-message'; view?: string | null }): Promise<Response> {
   const { db, secrets } = deps;
@@ -49,10 +50,10 @@ export async function runChatTurn(deps: Pick<Deps, 'db' | 'secrets'>, session: t
   // The turn, not this request, decides when the reply stops (a reload keeps it going; 중단 stops it).
   const turn = startTurn(session.projectId, session.id);
   if ((ai.CHAT_CLI_KINDS as string[]).includes(route.kind))
-    return cliChatResponse({ db, chat: session, route, system: AGENT_SYSTEM, view, messages, answeredBy, timeoutMs: live.snapshot.timeoutSeconds * 1000, turn });
+    return cliChatResponse({ db, chat: session, route, system: [AGENT_SYSTEM, NO_EDITOR_NOTE].join('\n\n'), view, messages, answeredBy, timeoutMs: live.snapshot.timeoutSeconds * 1000, turn });
   if (route.kind === 'pi') {
     try {
-      return await piChatResponse({ db, chat: session, route, system: [AGENT_SYSTEM, PI_NOTE].join('\n\n'), view, messages, answeredBy, turn });
+      return await piChatResponse({ db, chat: session, route, system: [AGENT_SYSTEM, NO_EDITOR_NOTE].join('\n\n'), view, messages, answeredBy, turn });
     } catch (error) {
       turn.end();
       throw error;
@@ -113,7 +114,7 @@ function apiChatResponse(input: {
   turn: ChatTurn;
 }) {
   const { db, session, route, live, messages, answeredBy, turn } = input;
-  const tools = withFittedResults(agentTools(db, session.projectId, { model: route.model }));
+  const tools = withFittedResults(gatedTools(db, session.projectId, session.id, { model: route.model }));
   const last = messages.at(-1);
   // A reply whose tool approval was just answered goes on in the same message.
   const messageId = last?.role === 'assistant' ? last.id : crypto.randomUUID();

@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import { AGE_BANDS, GENDERS, KNOWLEDGE_TAG_KINDS, TAG_ROLES, type TagRole, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, type AiConfirm, type CharacterStyle, type EditorAi, type LineMark, type MarkColors, type ModelChoice, type ContextItem, type FormatRules, type NodeType, type PiOptions, type RelationshipChange, type WorkflowDefinition } from '@tw/shared';
+import { AGE_BANDS, GENDERS, KNOWLEDGE_TAG_KINDS, TAG_ROLES, type TagRole, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, PERMISSION_MODES, type AiConfirm, type CharacterStyle, type EditorAi, type LineMark, type MarkColors, type ModelChoice, type ContextItem, type FormatRules, type NodeType, type PiOptions, type RelationshipChange, type WorkflowDefinition } from '@tw/shared';
 import type { Usage } from '@tw/ai';
 
 const id = () => text('id').primaryKey().$defaultFn(() => crypto.randomUUID());
@@ -628,6 +628,7 @@ export interface ProposalReport {
   warnings: { key: string; issues: string[] }[];
 }
 
+export type ProposalStatus = 'pending' | 'running' | 'accepted' | 'rejected' | 'failed';
 export const proposals = sqliteTable(
   'proposals',
   {
@@ -635,7 +636,7 @@ export const proposals = sqliteTable(
     projectId: projectId(),
     /** Chat session that produced it; null for changes sent from the CLI. */
     sessionId: text('session_id'),
-    source: text('source', { enum: ['pi', 'cli'] }).notNull(),
+    source: text('source', { enum: ['pi', 'cli', 'api'] }).notNull(),
     tool: text('tool').notNull(),
     input: json<Record<string, unknown>>('input').notNull(),
     /** What the check at proposing time left out or warns about (see proposal-check.ts). */
@@ -647,6 +648,10 @@ export const proposals = sqliteTable(
     decidedAt: integer('decided_at', { mode: 'timestamp_ms' }),
     /** When the chat's agent was told the decision (once, whichever backend runs the next turn; #46). */
     reportedAt: integer('reported_at', { mode: 'timestamp_ms' }),
+    /** Who decided (#45): the person on a card, or the conversation's permission mode (auto review / bypass). */
+    decidedBy: text('decided_by', { enum: ['person', 'auto', 'bypass'] }),
+    /** Why auto review held it for the person, or why it let it through. */
+    review: text('review'),
   },
   (t) => [index('proposals_project').on(t.projectId, t.status)],
 );
@@ -664,6 +669,8 @@ export const chatSessions = sqliteTable('chat_sessions', {
   /** `totals`: the CLI's running usage for the conversation, when it reports one (see cliChat). */
   /** The CLI's own session for this chat: a cache. `seen` = how many messages of the record it has been given (#46). */
   agentSession: json<{ kind: string; model: string; id: string; lastTurnAt: number; totals?: Usage; seen?: number }>('agent_session'),
+  /** How the agent's changes are decided (#45): ask = a card each, auto = checked ones apply at once, bypass = all apply. */
+  permissionMode: text('permission_mode', { enum: PERMISSION_MODES }).notNull().default('ask'),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
