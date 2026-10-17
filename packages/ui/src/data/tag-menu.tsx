@@ -30,7 +30,7 @@ export function TagMenu({ tags, state, onToggle, heading }: TagMenuProps) {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-52">
-        <DropdownMenuLabel className="text-[10px] text-muted-foreground uppercase tracking-wider">
+        <DropdownMenuLabel className="text-2xs text-muted-foreground uppercase tracking-wider">
           {heading}
         </DropdownMenuLabel>
         {tags.map((tag) => {
@@ -44,7 +44,7 @@ export function TagMenu({ tags, state, onToggle, heading }: TagMenuProps) {
             >
               <TagChip tag={tag} />
               {current === "some" && (
-                <span className="ml-auto text-[10px] text-muted-foreground">일부</span>
+                <span className="ml-auto text-2xs text-muted-foreground">일부</span>
               )}
             </DropdownMenuCheckboxItem>
           )

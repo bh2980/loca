@@ -60,7 +60,7 @@ export function HeaderFilter({
       <Check className={cn("size-3.5", selected ? "opacity-100" : "opacity-0")} />
       <span className="truncate">{option.label}</span>
       {option.hint && (
-        <span className="ml-auto shrink-0 text-[10px] text-muted-foreground tabular-nums">
+        <span className="ml-auto shrink-0 text-2xs text-muted-foreground tabular-nums">
           {option.hint}
         </span>
       )}

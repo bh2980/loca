@@ -35,7 +35,7 @@ export function Toolbar({
       {children}
       <div className="ml-auto flex items-center gap-1.5">
         {count != null && (
-          <span className="text-[11px] font-medium text-muted-foreground/80 tabular-nums">
+          <span className="text-2xs font-medium text-muted-foreground/80 tabular-nums">
             {count}
           </span>
         )}
@@ -125,7 +125,7 @@ export function SearchInput({
         }}
       />
       {(text || end) && (
-        <InputGroupAddon align="inline-end" className="text-[11px] tabular-nums">
+        <InputGroupAddon align="inline-end" className="text-2xs tabular-nums">
           {end}
           {text && (
             <InputGroupButton size="icon-xs" aria-label="지우기" onClick={clear}>
@@ -157,7 +157,7 @@ export function Pager({ page, total, pageSize, onPage, className }: PagerProps) 
         className
       )}
     >
-      <span className="text-[11px] text-muted-foreground tabular-nums">
+      <span className="text-2xs text-muted-foreground tabular-nums">
         {(page * pageSize + 1).toLocaleString()}–{Math.min(total, (page + 1) * pageSize).toLocaleString()} / {total.toLocaleString()}
       </span>
       <Button
