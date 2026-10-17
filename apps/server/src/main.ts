@@ -32,6 +32,8 @@ closeStaleCalls(db);
 closeInterruptedProposals(db);
 // AI nodes saved before their connection had a default model get it now (also done when a connection is saved).
 fillDefaultModels(db);
+// Terms counted as used nowhere are counted again (speaker names were once missed); fillTermUsage counts lines that are null.
+db.update(s.terms).set({ lines: null }).where(eq(s.terms.lines, 0)).run();
 const runner = new Runner(db, secrets);
 runner.start();
 

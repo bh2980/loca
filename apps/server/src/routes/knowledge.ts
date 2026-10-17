@@ -77,7 +77,7 @@ export const knowledgeRoutes = new Hono<Env>()
     const result = discoverAndSave(db, projectId);
     return c.json(result);
   })
-  /** Lines whose source mentions the term (whole word, case-insensitive): what to re-run after changing it. */
+  /** Lines whose source or speaker mentions the term (whole word, case-insensitive): what to re-run after changing it. */
   .get('/terms/:id/usage', (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId')!;

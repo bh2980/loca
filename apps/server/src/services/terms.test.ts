@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { importFileSchema } from '@tw/shared';
+import { importFileSchema, termMarksOf } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from './importer.ts';
@@ -44,12 +44,31 @@ describe('glossary', () => {
     expect(terms(db, projectId).map(({ source, lines, examples }) => ({ source, lines, examples }))).toEqual([
       { source: 'Freedom Plaza', lines: 2, examples: ['a1', 'a2'] },
       { source: 'God', lines: 2, examples: ['a2', 'a3'] },
-      { source: 'Nina', lines: 0, examples: [] },
+      { source: 'Nina', lines: 2, examples: ['a3', 'a4'] },
       { source: 'Thought', lines: 2, examples: ['a3', 'a4'] },
     ]);
     db.update(s.terms).set({ source: 'Plaza', lines: null }).where(eq(s.terms.source, 'Freedom Plaza')).run();
     fillTermUsage(db, projectId);
     expect(terms(db, projectId).find((term) => term.source === 'Plaza')).toMatchObject({ lines: 2, examples: ['a1', 'a2'] });
+  });
+
+  it('counts a name said only in the speaker column and never marks it unused', () => {
+    const { db, projectId } = setup();
+    db.insert(s.terms).values({ projectId, source: 'Symes', status: 'confirmed', origin: 'script' }).run();
+    fillTermUsage(db, projectId);
+    const symes = terms(db, projectId).find((term) => term.source === 'Symes')!;
+    expect(symes).toMatchObject({ lines: 2, examples: ['a1', 'a2'] });
+    expect(termMarksOf(symes)).not.toContain('unused');
+  });
+
+  it('counts a line once when the term is both its source and its speaker', () => {
+    const { db, projectId } = setup();
+    const statusId = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).get()!.id;
+    const groupId = db.select().from(s.groups).get()!.id;
+    db.insert(s.units).values({ projectId, groupId, statusId, sort: 5, seq: 5, kind: 'dialogue', key: 'a5', speaker: 'Nina', source: 'Nina left.' }).run();
+    db.insert(s.terms).values({ projectId, source: 'Nina', status: 'candidate', origin: 'script' }).run();
+    fillTermUsage(db, projectId);
+    expect(terms(db, projectId).find((term) => term.source === 'Nina')).toMatchObject({ lines: 3, examples: ['a3', 'a4', 'a5'] });
   });
 
   it('adds a character\'s new alias as a candidate marked as theirs', () => {

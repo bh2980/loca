@@ -22,7 +22,7 @@ export const AUTO_MARKS = {
   candidate: { name: '후보', on: ['knowledge', 'terms'], color: '#ec4899', description: '아직 번역 문맥에 쓰이지 않음' },
   noEvidence: { name: '근거 없음', on: ['knowledge'], color: '#f59e0b', description: '근거 대사가 없음' },
   emptyTarget: { name: '번역어 없음', on: ['terms'], color: '#ef4444', description: '한국어 번역어가 비어 있음' },
-  unused: { name: '대본에 안 나옴', on: ['terms'], color: '#a1a1aa', description: '원문에 나오는 대사가 없음' },
+  unused: { name: '대본에 안 나옴', on: ['terms'], color: '#a1a1aa', description: '원문이나 화자에 나오는 대사가 없음' },
 } as const satisfies Record<string, { name: string; on: readonly TagScope[]; color: string; description: string }>;
 export type AutoMark = keyof typeof AUTO_MARKS;
 export const AUTO_MARK_IDS = Object.keys(AUTO_MARKS) as AutoMark[];

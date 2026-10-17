@@ -9,8 +9,10 @@ const EXAMPLES = 5;
 /**
  * Counts the script lines that use each term not counted yet (lines is null: new, or its source
  * changed) and keeps the first few keys, whole word and in any script language, the same match
- * the editor and the run dialog use. Called before the glossary is read, so every way a term
- * comes in (analysis, a person, a chat, a workflow) gets counted without each one doing it.
+ * the editor and the run dialog use. A line counts when the term is in its source or its speaker
+ * (a name said only in the speaker column), and once even when both match. Called before the
+ * glossary is read, so every way a term comes in (analysis, a person, a chat, a workflow) gets
+ * counted without each one doing it.
  */
 export function fillTermUsage(db: Db, projectId: string) {
   const pending = db
@@ -22,8 +24,10 @@ export function fillTermUsage(db: Db, projectId: string) {
   if (!pending.length) return;
   const matcher = termMatcher(pending, (term) => term.source);
   const usage = new Map(pending.map((term) => [term.id, { lines: 0, examples: [] as string[] }]));
-  for (const unit of db.select({ key: s.units.key, source: s.units.source }).from(s.units).where(eq(s.units.projectId, projectId)).orderBy(s.units.seq).all()) {
-    for (const term of matcher.find(unit.source)) {
+  for (const unit of db.select({ key: s.units.key, source: s.units.source, speaker: s.units.speaker }).from(s.units).where(eq(s.units.projectId, projectId)).orderBy(s.units.seq).all()) {
+    // A term mentioned in both the source and the speaker still counts this line once.
+    const mentioned = new Set([...matcher.find(unit.source), ...matcher.find(unit.speaker ?? '')]);
+    for (const term of mentioned) {
       const entry = usage.get(term.id)!;
       entry.lines++;
       if (entry.examples.length < EXAMPLES) entry.examples.push(unit.key);
@@ -41,7 +45,7 @@ export function findTerm(db: Db, projectId: string, idOrSource: string) {
   return terms.find((term) => term.id === idOrSource) ?? terms.find((term) => term.source.toLowerCase() === wanted);
 }
 
-/** Every line whose source mentions the term, in script order: what to re-run after changing it. The same matcher as fillTermUsage (so the list matches 나온 줄 in any script); the glossary pane, `loca terms usage` and the chat share this. */
+/** Every line whose source or speaker mentions the term, in script order: what to re-run after changing it. The same matcher as fillTermUsage (so the list matches 나온 줄 in any script); the glossary pane, `loca terms usage` and the chat share this. */
 export function termUsage(db: Db, projectId: string, term: { source: string }) {
   const matcher = termMatcher([term], (item) => item.source);
   return db
@@ -51,5 +55,5 @@ export function termUsage(db: Db, projectId: string, term: { source: string }) {
     .where(eq(s.units.projectId, projectId))
     .orderBy(asc(s.units.seq))
     .all()
-    .filter((row) => matcher.has(row.source));
+    .filter((row) => matcher.has(row.source) || matcher.has(row.speaker ?? ''));
 }
