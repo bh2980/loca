@@ -152,7 +152,7 @@ export const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected 
       className={cn(
         'w-56 bg-background text-left shadow-xs',
         ai && 'rounded-2xl border border-violet-200',
-        node.type === 'function' && 'rounded-none border border-sky-300 border-l-4 border-l-sky-500',
+        node.type === 'function' && 'rounded-md border border-sky-300',
         ring,
       )}
     >
