@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { importFileSchema } from '@tw/shared';
 import { realistic } from '../../../../scripts/realistic-sample.ts';
 import { openDatabase } from '../db/index.ts';
@@ -29,6 +29,24 @@ describe('run scope by marks', () => {
     expect(pick({ tagIds: [tag.id] })).toEqual([noted.id, plain.id].sort());
     // No marks: the scope is unchanged.
     expect(pick({ marks: [] })).toHaveLength(units.length);
+  });
+
+  it('skips a 미번역 line a person translated, unless the scope ignores the status filter', () => {
+    const db = openDatabase(':memory:');
+    const connection = db.insert(s.connections).values({ kind: 'openai', name: 'mock', baseUrl: 'http://mock/v1' }).returning().get();
+    const { projectId } = importProject(db, importFileSchema.parse(realistic(200).file), { connectionId: connection.id, model: 'm' });
+    const workflow = db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).all().find((row) => row.name === '기본 번역')!;
+    const initial = db.select().from(s.statuses).where(and(eq(s.statuses.projectId, projectId), eq(s.statuses.kind, 'initial'))).get()!;
+    const [written, blank] = db.select().from(s.units).where(and(eq(s.units.projectId, projectId), eq(s.units.statusId, initial.id))).all();
+    db.update(s.units).set({ translation: '사람 번역', statusBy: 'human' }).where(eq(s.units.id, written.id)).run();
+    db.update(s.units).set({ translation: null, statusBy: 'human' }).where(eq(s.units.id, blank.id)).run();
+
+    const picked = selectRunUnits(db, projectId, workflow.definition, {});
+    expect(picked).not.toContain(written.id);
+    // A person's line with nothing written yet is still untranslated.
+    expect(picked).toContain(blank.id);
+    // A scope that names lines on purpose is unaffected.
+    expect(selectRunUnits(db, projectId, workflow.definition, { unitIds: [written.id], ignoreStatus: true })).toEqual([written.id]);
   });
 
   it('runs exactly the named lines, however many, and never another project\'s', () => {

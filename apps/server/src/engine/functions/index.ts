@@ -13,6 +13,7 @@ import {
   setStatusParams,
   needsListener,
   type FunctionName,
+  type WorkflowDefinition,
 } from '@tw/shared';
 import type { Db } from '../../db/index.ts';
 import * as s from '../../db/schema.ts';
@@ -67,6 +68,12 @@ export function lineView(input: FunctionInput) {
 
 // ── instant functions (run inside the runner's transaction) ──────────
 
+/** Whether a run picks its lines by the entry node's statuses (rather than lines named regardless of status). */
+export const filtersByStatus = (definition: WorkflowDefinition, scope: { ignoreStatus?: boolean }) => {
+  const entry = definition.nodes.find((node) => node.type === 'entry');
+  return entry?.type === 'entry' && entry.config.statusIds.length > 0 && !scope.ignoreStatus;
+};
+
 export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknown, input: FunctionInput) => FunctionResult>> = {
   formatCheck(tx, raw, input) {
     const params = formatCheckParams.parse(raw);
@@ -100,25 +107,38 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
   setStatus(tx, raw, input) {
     const params = setStatusParams.parse(raw);
     // A run sets the line's status, so AI set it (docs/DESIGN.md 3.5); a person's change later makes it theirs.
+    // A run that picks lines by status never replaces a translation a person wrote (docs/DESIGN.md 3.5):
+    // its entry skips such lines, and one a person saved while the run was on it is kept here. A run on
+    // lines named regardless of status (말투만 고치기, '상태 무시') is asked to rewrite them, so it may.
+    const current = tx.select({ translation: s.units.translation, statusBy: s.units.statusBy }).from(s.units).where(eq(s.units.id, input.unit.id)).get();
+    const run = tx.select({ definition: s.runs.definition, scope: s.runs.scope }).from(s.runs).where(eq(s.runs.id, input.runId)).get();
+    const humanOwns =
+      (!run || filtersByStatus(run.definition, run.scope)) &&
+      current?.statusBy === 'human' && (current.translation ?? '').trim() !== '' && current.translation !== input.item.data.candidateText;
     const patch: Partial<typeof s.units.$inferInsert> = {};
     const issues: string[] = [];
-    if (params.statusId) {
-      const target = tx.select({ name: s.statuses.name, humanOnly: s.statuses.humanOnly }).from(s.statuses).where(eq(s.statuses.id, params.statusId)).get();
-      if (target?.humanOnly) {
-        // Only a person may set it: the line waits in the review inbox instead, saying why.
-        const inbox = tx.select({ id: s.statuses.id }).from(s.statuses).where(and(eq(s.statuses.projectId, input.projectId), eq(s.statuses.inReview, true), eq(s.statuses.humanOnly, false))).orderBy(asc(s.statuses.sort)).get();
-        if (inbox) {
-          patch.statusId = inbox.id;
-          issues.push(`‘${target.name}’은(는) 사람만 지정할 수 있어 검토함으로 보냈습니다.`);
-        } else issues.push(`‘${target.name}’은(는) 사람만 지정할 수 있어 상태를 바꾸지 않았습니다(검토함에 표시하는 상태가 없음).`);
-      } else patch.statusId = params.statusId;
-      if (patch.statusId) Object.assign(patch, { statusBy: 'ai', statusRunId: input.runId });
+    if (humanOwns) {
+      // Keep the person's translation and status; the run's text stays a candidate beside it.
+      issues.push('사람이 저장한 번역이 있어 바꾸지 않았습니다. AI 번역은 후보로 남겨 두었습니다.');
+    } else {
+      if (params.statusId) {
+        const target = tx.select({ name: s.statuses.name, humanOnly: s.statuses.humanOnly }).from(s.statuses).where(eq(s.statuses.id, params.statusId)).get();
+        if (target?.humanOnly) {
+          // Only a person may set it: the line waits in the review inbox instead, saying why.
+          const inbox = tx.select({ id: s.statuses.id }).from(s.statuses).where(and(eq(s.statuses.projectId, input.projectId), eq(s.statuses.inReview, true), eq(s.statuses.humanOnly, false))).orderBy(asc(s.statuses.sort)).get();
+          if (inbox) {
+            patch.statusId = inbox.id;
+            issues.push(`‘${target.name}’은(는) 사람만 지정할 수 있어 검토함으로 보냈습니다.`);
+          } else issues.push(`‘${target.name}’은(는) 사람만 지정할 수 있어 상태를 바꾸지 않았습니다(검토함에 표시하는 상태가 없음).`);
+        } else patch.statusId = params.statusId;
+        if (patch.statusId) Object.assign(patch, { statusBy: 'ai', statusRunId: input.runId });
+      }
+      if (params.applyCandidate && input.item.data.candidateId) {
+        patch.candidateId = input.item.data.candidateId;
+        patch.translation = input.item.data.candidateText;
+      }
+      if (Object.keys(patch).length) tx.update(s.units).set(patch).where(eq(s.units.id, input.unit.id)).run();
     }
-    if (params.applyCandidate && input.item.data.candidateId) {
-      patch.candidateId = input.item.data.candidateId;
-      patch.translation = input.item.data.candidateText;
-    }
-    if (Object.keys(patch).length) tx.update(s.units).set(patch).where(eq(s.units.id, input.unit.id)).run();
     // A tag that no longer belongs on lines (its places were narrowed after the node was set up) is skipped, with a notice.
     const { skipped } = attachUnitTags(tx, input.projectId, [input.unit.id], { add: params.addTagIds, remove: params.removeTagIds }, { onMisplaced: 'skip' });
     for (const tag of skipped) issues.push(`‘${tag.name}’ 태그는 대사에 붙일 수 없어 붙이지 않았습니다.`);

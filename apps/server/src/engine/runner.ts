@@ -796,7 +796,13 @@ export function selectRunUnits(db: Db, projectId: string, definition: WorkflowDe
   const entry = definition.nodes.find((node) => node.type === 'entry');
   const statusIds = entry?.type === 'entry' ? entry.config.statusIds : [];
   const conditions = [eq(s.units.projectId, projectId)];
-  if (statusIds.length && !scope.ignoreStatus) conditions.push(inArray(s.units.statusId, statusIds));
+  if (statusIds.length && !scope.ignoreStatus) {
+    conditions.push(inArray(s.units.statusId, statusIds));
+    // A line a person translated is not "untranslated", even while it still sits in an initial status:
+    // the entry filter must not pick it again and overwrite what they wrote (docs/DESIGN.md 3.5).
+    const initial = db.select({ id: s.statuses.id }).from(s.statuses).where(eq(s.statuses.kind, 'initial'));
+    conditions.push(or(notInArray(s.units.statusId, initial), ne(s.units.statusBy, 'human'), sql`coalesce(trim(${s.units.translation}), '') = ''`)!);
+  }
   // A scope can name every line of a large project; long lists travel as one JSON parameter.
   if (scope.groupIds?.length) conditions.push(inList(s.units.groupId, scope.groupIds));
   if (scope.unitIds?.length) conditions.push(inList(s.units.id, scope.unitIds));
