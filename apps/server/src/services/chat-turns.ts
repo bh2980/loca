@@ -1,4 +1,4 @@
-import { consumeStream } from 'ai';
+import { consumeStream, type UIMessage } from 'ai';
 import { events } from '../events.ts';
 
 /**
@@ -116,3 +116,13 @@ export const readToEnd = (turn: Pick<ChatTurn, 'end' | 'record'>) => ({
     }
   },
 });
+
+/**
+ * A turn the person stopped is saved with `stopped` on its last message (the reply so far, or their
+ * own message when nothing came back yet), so the panel can say '중지됨' there, also after a reload.
+ */
+export function markStopped(messages: UIMessage[], signal: AbortSignal): UIMessage[] {
+  const last = messages.at(-1);
+  if (!signal.aborted || !last) return messages;
+  return [...messages.slice(0, -1), { ...last, metadata: { ...((last.metadata as object | undefined) ?? {}), stopped: true } }];
+}
