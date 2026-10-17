@@ -58,7 +58,7 @@ export function LineHints({ projectId, line, part }: { projectId: string; line: 
   }, [terms.data, line.source, project.data?.formatRules]);
 
   const hint = (key: string, ok: boolean | null, label: ReactNode, title?: string) => (
-    <span key={key} title={title} className={cn('inline-flex items-center gap-1 rounded-md border bg-background px-2 py-0.5 text-xs', ok === false && 'border-warning/40 text-warning')}>
+    <span key={key} title={title} className={cn('inline-flex items-center gap-1 rounded-md border border-border/80 bg-surface-2 px-1.5 py-0.5 text-xs shadow-2xs', ok === false && 'border-warning/40 text-warning')}>
       {ok === true && <Check className="size-3 text-success" />}
       {ok === false && <CircleAlert className="size-3" />}
       {label}
@@ -234,10 +234,10 @@ export function LineRow({ projectId, line, newScene, selected, marked, findLabel
   const narration = line.kind === 'dialogue' && !line.speaker?.trim();
   const sourceClass = narration ? 'text-muted-foreground' : line.kind === 'document' ? 'leading-relaxed' : undefined;
   const header = newScene && (
-    <li className="sticky top-0 z-10 flex items-center gap-2 border-b bg-muted/80 px-4 py-1 text-xs text-muted-foreground backdrop-blur">
-      <span className="truncate font-medium text-foreground">{line.groupTitle}</span>
+    <li className="sticky top-0 z-10 flex items-center gap-2 border-b border-border/80 bg-surface-1/90 px-3 py-1 text-xs text-muted-foreground backdrop-blur-xs select-none">
+      <span className="truncate font-semibold tracking-tight text-foreground">{line.groupTitle}</span>
       {onOpenScene && (
-        <Button variant="ghost" size="inline" className="ml-auto" onClick={() => onOpenScene(line.groupId, line.id)}>
+        <Button variant="ghost" size="inline" className="ml-auto text-xs" onClick={() => onOpenScene(line.groupId, line.id)}>
           {GROUP_KIND[line.groupKind]} 열기
         </Button>
       )}
@@ -253,7 +253,7 @@ export function LineRow({ projectId, line, newScene, selected, marked, findLabel
         <li
           ref={rowRef}
           onClick={onSelect}
-          className={cn('grid cursor-pointer grid-cols-[2.5rem_minmax(0,1fr)_minmax(0,1fr)] border-b transition-colors hover:bg-muted/40', marked && 'bg-warning/5 shadow-[inset_2px_0_0_var(--warning)]')}
+          className={cn('grid cursor-pointer grid-cols-[2.5rem_minmax(0,1fr)_minmax(0,1fr)] border-b border-border-subtle transition-colors hover:bg-surface-1/60', marked && 'bg-warning/5 shadow-[inset_2px_0_0_var(--warning)]')}
           style={arrived ? { animation: 'line-arrived 2s ease-out' } : undefined}
           onAnimationEnd={onArrivedEnd}
         >
@@ -264,7 +264,7 @@ export function LineRow({ projectId, line, newScene, selected, marked, findLabel
             </span>
             <TokenText text={line.source} source={line.source} pattern={tokenPattern} className="min-w-0 text-sm" />
           </div>
-          <div className="flex min-w-0 items-baseline gap-2 border-l px-3 py-2 text-sm">
+          <div className="flex min-w-0 items-baseline gap-2 border-l border-border-subtle px-3 py-2 text-sm">
             {/* Empty when untranslated: the status beside it already says so. */}
             <span className="min-w-0 flex-1">{line.translation && <TokenText text={line.translation} source={line.source} pattern={tokenPattern} />}</span>
             {tagRow}
@@ -278,22 +278,22 @@ export function LineRow({ projectId, line, newScene, selected, marked, findLabel
       </>
     );
   return (
-                <>
-                {header}
-                {/*
-                  Checkbox · source · translation over three rows. Row 1 is metadata in words: who says
-                  it to whom over the source, the translation's status over the translation. Row 2 is the
-                  text, both columns starting at the same height. Row 3 is the line's tags (every #chip,
-                  in one place) under the translation, where they stay while editing (under the input).
-                  The source column holds context only: under the picked source, its speech rule, terms, note.
-                */}
-                <li
-                  ref={rowRef}
-                  onClick={() => !selected && onSelect()}
-                  className={cn('grid grid-cols-[2.5rem_minmax(0,1fr)_minmax(0,1fr)] border-b transition-colors', selected ? 'bg-muted/60 shadow-[inset_2px_0_0_var(--primary)]' : 'cursor-pointer hover:bg-muted/40', marked && !selected && 'bg-warning/5 shadow-[inset_2px_0_0_var(--warning)]')}
-                  style={arrived ? { animation: 'line-arrived 2s ease-out' } : undefined}
-                  onAnimationEnd={onArrivedEnd}
-                >
+    <>
+      {header}
+      {/*
+        Checkbox · source · translation over three rows. Row 1 is metadata in words: who says
+        it to whom over the source, the translation's status over the translation. Row 2 is the
+        text, both columns starting at the same height. Row 3 is the line's tags (every #chip,
+        in one place) under the translation, where they stay while editing (under the input).
+        The source column holds context only: under the picked source, its speech rule, terms, note.
+      */}
+      <li
+        ref={rowRef}
+        onClick={() => !selected && onSelect()}
+        className={cn('grid grid-cols-[2.5rem_minmax(0,1fr)_minmax(0,1fr)] border-b border-border-subtle transition-colors', selected ? 'bg-accent-indigo/[0.04] shadow-[inset_2px_0_0_var(--accent-indigo)]' : 'cursor-pointer hover:bg-surface-1/60', marked && !selected && 'bg-warning/5 shadow-[inset_2px_0_0_var(--warning)]')}
+        style={arrived ? { animation: 'line-arrived 2s ease-out' } : undefined}
+        onAnimationEnd={onArrivedEnd}
+      >
                   {/* Who says it (a UI string: its key). An unknown listener is said here, by the speaker, and filters like the #청자 미상 tag would. */}
                   <p className="col-start-2 flex min-w-0 items-center gap-1 px-3 pt-3.5 pb-1.5 text-xs text-muted-foreground">
                     {line.speaker ? (
@@ -348,7 +348,14 @@ export function LineRow({ projectId, line, newScene, selected, marked, findLabel
                       </>
                     ) : (
                       <div className="text-base">
-                        {line.translation ? <TokenText text={line.translation} source={line.source} pattern={tokenPattern} /> : <span className="text-muted-foreground/60">미번역</span>}
+                        {line.translation ? (
+                          <TokenText text={line.translation} source={line.source} pattern={tokenPattern} />
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground/45 italic select-none">
+                            <span className="h-px w-2.5 bg-muted-foreground/30 inline-block" />
+                            미번역
+                          </span>
+                        )}
                         {review && !!line.lastRun?.issues.length && (
                           <p className="mt-1 flex items-start gap-1 text-xs text-warning">
                             <CircleAlert className="mt-0.5 size-3 shrink-0" />

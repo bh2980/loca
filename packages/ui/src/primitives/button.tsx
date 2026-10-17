@@ -4,28 +4,35 @@ import { Slot } from '@radix-ui/react-slot';
 import { cn } from '../lib/utils.ts';
 
 const buttonVariants = cva(
-  "inline-flex shrink-0 items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap transition-all outline-none focus-visible:border-ring focus-visible:ring-[2px] focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md text-xs font-medium tracking-tight whitespace-nowrap transition-all outline-none focus-visible:border-ring focus-visible:ring-[2px] focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-40 aria-invalid:border-destructive aria-invalid:ring-destructive/20 select-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5 [&_svg]:[stroke-width:1.5px]",
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/90 active:bg-primary/95",
-        destructive: "bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/20 active:bg-destructive/95",
-        outline: "border border-border/80 bg-background hover:bg-accent hover:text-accent-foreground active:bg-accent/80",
-        secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80 active:bg-secondary/90",
-        ghost: "hover:bg-accent hover:text-accent-foreground active:bg-accent/80",
-        link: "text-primary underline-offset-4 hover:underline",
+        default:
+          "bg-foreground text-background shadow-[inset_0_1px_0_rgba(255,255,255,0.14)] hover:bg-foreground/90 active:bg-foreground/95",
+        indigo:
+          "bg-accent-indigo text-accent-indigo-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.22)] hover:opacity-95 active:opacity-90",
+        destructive:
+          "bg-destructive text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.18)] hover:bg-destructive/90 focus-visible:ring-destructive/20 active:bg-destructive/95",
+        outline:
+          "border border-border/80 bg-surface-2 text-foreground shadow-2xs hover:bg-surface-1 hover:border-border active:bg-surface-1/80",
+        secondary:
+          "border border-border-subtle bg-surface-1 text-secondary-foreground hover:bg-surface-2 hover:border-border active:bg-surface-1/90",
+        ghost:
+          "text-muted-foreground hover:bg-surface-1 hover:text-foreground active:bg-surface-1/80",
+        link: "text-accent-indigo underline-offset-4 hover:underline",
       },
       size: {
-        default: "h-9 px-4 py-2 has-[>svg]:px-3",
-        xs: "h-6 gap-1 rounded px-2 text-xs has-[>svg]:px-1.5 [&_svg:not([class*='size-'])]:size-3",
-        sm: "h-8 gap-1.5 rounded-md px-3 has-[>svg]:px-2.5",
-        lg: "h-10 rounded-md px-6 has-[>svg]:px-4",
-        icon: "size-8",
-        "icon-xs": "size-6 rounded [&_svg:not([class*='size-'])]:size-3",
-        "icon-sm": "size-8",
-        "icon-lg": "size-10",
-        inline: "h-auto gap-1 rounded-xs px-1 py-0.5 text-xs font-medium has-[>svg]:px-1 [&_svg:not([class*='size-'])]:size-3.5",
-        row: "h-auto w-full justify-start gap-2 px-2 py-1.5 text-left font-normal whitespace-normal",
+        default: "h-8 px-3 py-1.5 rounded-md",
+        xs: "h-6 gap-1 rounded-sm px-2 text-[11px] [&_svg:not([class*='size-'])]:size-3 [&_svg]:[stroke-width:1.4px]",
+        sm: "h-7 gap-1.5 rounded-md px-2.5 text-xs [&_svg:not([class*='size-'])]:size-3.5 [&_svg]:[stroke-width:1.5px]",
+        lg: "h-9 rounded-md px-4 text-sm has-[>svg]:px-3.5 [&_svg:not([class*='size-'])]:size-4",
+        icon: "size-8 rounded-md [&_svg:not([class*='size-'])]:size-3.5",
+        "icon-xs": "size-6 rounded-sm [&_svg:not([class*='size-'])]:size-3 [&_svg]:[stroke-width:1.4px]",
+        "icon-sm": "size-7 rounded-md [&_svg:not([class*='size-'])]:size-3.5",
+        "icon-lg": "size-9 rounded-md [&_svg:not([class*='size-'])]:size-4",
+        inline: "h-auto gap-1 rounded-sm px-1 py-0.5 text-xs font-medium [&_svg:not([class*='size-'])]:size-3 [&_svg]:[stroke-width:1.4px]",
+        row: "h-auto w-full justify-start gap-2 px-2 py-1.5 text-left font-normal whitespace-normal rounded-sm",
       },
     },
     defaultVariants: {

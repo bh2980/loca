@@ -196,7 +196,7 @@ function Home() {
         <div className="mb-3 flex items-center gap-3">
           <h2 className="text-base font-semibold">실행</h2>
           <span className="text-xs text-muted-foreground">{active.length ? `진행 중 ${active.length}개` : '진행 중인 실행이 없습니다.'}</span>
-          <Button variant="ghost" size="xs" className="ml-auto text-xs" asChild>
+          <Button variant="ghost" className="ml-auto text-xs" asChild>
             <Link to="/p/$projectId/runs" params={{ projectId }}>
               실행 기록 <ChevronRight className="size-3.5" />
             </Link>

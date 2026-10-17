@@ -32,7 +32,12 @@ function Fold({ label, children, actions }: { label: ReactNode; children: ReactN
 /** The lines a draft cites, opening in the script. Keys that are not lines were already dropped by the server. */
 export function Evidence({ projectId, keys }: { projectId: string; keys: string[] }) {
   const lines = useQuery(q.linesByKeys(projectId, keys.slice(0, 50)));
-  if (!keys.length) return <p className="text-xs text-muted-foreground">근거로 든 대사가 없습니다.</p>;
+  if (!keys.length)
+    return (
+      <div className="rounded-md border border-border/60 bg-surface-1/30 px-3 py-2 text-xs text-muted-foreground">
+        연결된 근거 대사가 없습니다.
+      </div>
+    );
   return (
     <Fold label={`근거 대사 ${keys.length}개`}>
       <ul className="space-y-1">

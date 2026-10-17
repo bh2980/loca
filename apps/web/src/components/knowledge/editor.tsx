@@ -167,16 +167,16 @@ function FieldInput({ field, value, characters, onChange }: { field: Field; valu
   const id = `field-${field.name}`;
   if (field.type === 'bool')
     return (
-      <div className="flex items-center justify-between">
-        <Label htmlFor={id}>{field.label}</Label>
+      <div className="flex items-center justify-between gap-3 rounded-md border border-border/80 bg-surface-1/40 p-3">
+        <Label htmlFor={id} className="cursor-pointer text-xs font-medium leading-snug text-foreground">{field.label}</Label>
         <Switch id={id} checked={Boolean(value)} onCheckedChange={onChange} />
       </div>
     );
   return (
     <div className="space-y-1.5">
-      <Label htmlFor={id}>{field.label}</Label>
+      <Label htmlFor={id} className="text-xs font-medium text-muted-foreground">{field.label}</Label>
       {field.type === 'long' ? (
-        <Textarea id={id} rows={field.name === 'body' ? 16 : 4} className={field.name === 'body' ? 'font-mono text-xs' : undefined} value={text(value)} onChange={(event) => onChange(event.target.value)} />
+        <Textarea id={id} rows={field.name === 'body' ? 6 : 3} className={field.name === 'body' ? 'font-mono text-xs leading-relaxed' : 'text-xs leading-relaxed'} value={text(value)} onChange={(event) => onChange(event.target.value)} />
       ) : field.type === 'docKind' || field.type === 'character' ? (
         <Select value={text(value)} onValueChange={onChange}>
           <SelectTrigger id={id} className="w-full">

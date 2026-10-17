@@ -28,14 +28,14 @@ export function Toolbar({
   return (
     <div
       className={cn(
-        "flex min-h-10 shrink-0 flex-wrap items-center gap-1.5 border-b border-border/80 bg-background/50 px-3 py-1.5 backdrop-blur-xs",
+        "flex min-h-9 shrink-0 flex-wrap items-center gap-1.5 border-b border-border/80 bg-surface-2/70 px-3 py-1 backdrop-blur-xs",
         className
       )}
     >
       {children}
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ml-auto flex items-center gap-1.5">
         {count != null && (
-          <span className="text-[11px] font-medium text-muted-foreground tabular-nums">
+          <span className="text-[11px] font-medium text-muted-foreground/80 tabular-nums">
             {count}
           </span>
         )}

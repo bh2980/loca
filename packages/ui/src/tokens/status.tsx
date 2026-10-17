@@ -38,7 +38,7 @@ export function StatusBadge({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-xs border border-border/70 bg-background px-1.5 py-0.5 text-xs font-medium whitespace-nowrap shadow-2xs",
+        "inline-flex items-center gap-1.5 rounded-sm border border-border/70 bg-background px-1.5 py-0.5 text-xs font-medium whitespace-nowrap shadow-2xs",
         className
       )}
     >
@@ -64,7 +64,7 @@ export function TagChip({
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-xs px-1.5 py-0.5 text-[11px] font-medium border border-transparent shadow-2xs",
+        "inline-flex items-center rounded-sm px-1.5 py-0.5 text-xs font-medium border border-transparent shadow-2xs",
         className
       )}
       style={chipStyle(tag.color)}

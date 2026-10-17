@@ -70,22 +70,31 @@ function ProjectLayout() {
       <SidebarInset className="min-w-0 overflow-hidden">
         <ResizablePanelGroup orientation="horizontal" defaultLayout={layout.defaultLayout} onLayoutChanged={layout.onLayoutChanged}>
           <ResizablePanel id="main" minSize="320px" className="flex min-w-0 flex-col">
-            <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
-              <SidebarTrigger />
-              <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
+            <header className="flex h-9 shrink-0 items-center gap-2 border-b border-border/80 bg-surface-2/70 px-2.5 backdrop-blur-xs select-none">
+              <SidebarTrigger className="size-7" />
+              <Separator orientation="vertical" className="mr-1 h-3.5" />
               <SectionTabs projectId={projectId} />
-              <div className="ml-auto flex items-center gap-1.5">
-                <div id={HEADER_ACTIONS_ID} className="mr-1 flex items-center gap-2 empty:hidden" />
+              <div className="ml-auto flex items-center gap-1">
+                <div id={HEADER_ACTIONS_ID} className="mr-1 flex items-center gap-1.5 empty:hidden" />
                 <CommandSearch projectId={projectId} />
                 <ShortcutHelp />
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button variant={chatOpen ? 'secondary' : 'ghost'} size="icon" onClick={chatDock.toggle} aria-pressed={chatOpen} aria-label={`에이전트 채팅${unread ? ' (새 답 있음)' : ''}${waiting ? ` (CLI 제안 ${waiting}개 대기)` : ''}`} className="relative">
-                      <MessageSquare />
+                    <Button
+                      variant={chatOpen ? 'secondary' : 'ghost'}
+                      size="icon-sm"
+                      onClick={chatDock.toggle}
+                      aria-pressed={chatOpen}
+                      aria-label={`에이전트 채팅${unread ? ' (새 답 있음)' : ''}${waiting ? ` (CLI 제안 ${waiting}개 대기)` : ''}`}
+                      className="relative"
+                    >
+                      <MessageSquare className="size-3.5" />
                       {waiting > 0 ? (
-                        <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-xs leading-none text-primary-foreground tabular-nums ring-2 ring-background">{waiting}</span>
+                        <span className="absolute -top-1 -right-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-accent-indigo px-1 text-xs font-bold leading-none text-white tabular-nums ring-2 ring-background">
+                          {waiting}
+                        </span>
                       ) : (
-                        unread && <span className="absolute top-1.5 right-1.5 size-2 rounded-full bg-primary ring-2 ring-background" />
+                        unread && <span className="absolute top-1 right-1 size-1.5 rounded-full bg-accent-indigo ring-2 ring-background" />
                       )}
                     </Button>
                   </TooltipTrigger>
@@ -96,7 +105,7 @@ function ProjectLayout() {
                 </Tooltip>
               </div>
             </header>
-            <main className="flex min-h-0 flex-1 flex-col overflow-auto">
+            <main className="flex min-h-0 flex-1 flex-col overflow-auto bg-canvas">
               <Outlet />
             </main>
           </ResizablePanel>
@@ -117,24 +126,29 @@ function ProjectLayout() {
 /** The current menu's screens as tabs; a menu with one screen shows its name. */
 function SectionTabs({ projectId }: { projectId: string }) {
   const { section, tab: active } = useCurrentNav(projectId);
-  if (section.tabs.length === 1) return <h1 className="text-sm font-semibold">{section.label}</h1>;
+  if (section.tabs.length === 1) return <h1 className="text-xs font-semibold tracking-tight text-foreground px-1.5">{section.label}</h1>;
   return (
-    <nav className="flex h-full min-w-0 items-stretch gap-1" aria-label={section.label}>
-      {section.tabs.map((tab) => (
-        <Link
-          key={tab.label}
-          to={`/p/$projectId${tab.path}` as never}
-          params={{ projectId } as never}
-          search={tab.search as never}
-          aria-current={tab === active ? 'page' : undefined}
-          className={cn(
-            'flex items-center border-y-2 border-t-transparent px-2 text-sm whitespace-nowrap transition-colors',
-            tab === active ? 'border-b-foreground font-medium text-foreground' : 'border-b-transparent text-muted-foreground hover:text-foreground',
-          )}
-        >
-          {tab.label}
-        </Link>
-      ))}
+    <nav className="flex h-full min-w-0 items-stretch gap-0.5" aria-label={section.label}>
+      {section.tabs.map((tab) => {
+        const isCurrent = tab === active;
+        return (
+          <Link
+            key={tab.label}
+            to={`/p/$projectId${tab.path}` as never}
+            params={{ projectId } as never}
+            search={tab.search as never}
+            aria-current={isCurrent ? 'page' : undefined}
+            className={cn(
+              'relative flex items-center px-2.5 text-xs font-medium tracking-tight whitespace-nowrap transition-colors select-none',
+              isCurrent
+                ? 'text-foreground font-semibold after:absolute after:bottom-0 after:inset-x-2 after:h-[2px] after:bg-accent-indigo after:rounded-full'
+                : 'text-muted-foreground hover:text-foreground hover:bg-surface-1/60 rounded-md'
+            )}
+          >
+            {tab.label}
+          </Link>
+        );
+      })}
     </nav>
   );
 }

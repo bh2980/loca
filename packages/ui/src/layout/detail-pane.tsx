@@ -78,11 +78,11 @@ export function DetailPane<T extends string>({
             <Skeleton className="h-3.5 w-2/3" />
           </div>
         ) : (
-          <div className={cn("space-y-5 p-3.5", bodyClassName)}>{children}</div>
+          <div className={cn("space-y-6 p-5", bodyClassName)}>{children}</div>
         )}
       </ScrollArea>
       {footer && (
-        <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border/80 bg-background/95 px-3 py-2.5">
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border/80 bg-surface-1/50 px-4 py-3 backdrop-blur-xs">
           {footer}
         </div>
       )}

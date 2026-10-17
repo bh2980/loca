@@ -270,11 +270,11 @@ function Table<T>({
             ))}
             {id && <col style={{ width: menuWidth }} />}
           </colgroup>
-          <thead className="sticky top-0 z-10 bg-background/95 backdrop-blur-xs">
+          <thead className="sticky top-0 z-10 bg-surface-1/80 backdrop-blur-xs select-none">
             {table.getHeaderGroups().map((group) => (
               <tr key={group.id}>
                 {pickable && (
-                  <th className="h-8 border-b border-border/80 pl-3 text-left align-middle">
+                  <th className="h-8 border-b border-border/80 pl-3.5 text-left align-middle">
                     <Checkbox
                       aria-label="모두 선택"
                       checked={
@@ -291,7 +291,7 @@ function Table<T>({
                 {bulking ? (
                   <th
                     colSpan={group.headers.length + (id ? 1 : 0)}
-                    className="h-8 border-b border-border/80 px-2.5 text-left align-middle font-normal"
+                    className="h-8 border-b border-border/80 px-3 text-left align-middle font-normal"
                   >
                     <PickedBar
                       count={picked!.size}
@@ -305,8 +305,8 @@ function Table<T>({
                     <th
                       key={header.id}
                       className={cn(
-                        "group/th relative h-8 border-b border-border/80 px-2.5 text-left align-middle text-[11px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap",
-                        index === 0 && !pickable && "pl-3.5",
+                        "group/th relative h-8 border-b border-border/80 px-3 text-left align-middle text-xs font-medium tracking-tight text-muted-foreground whitespace-nowrap",
+                        index === 0 && !pickable && "pl-4",
                         header.column.columnDef.meta?.align === "end" && "text-right"
                       )}
                     >
@@ -329,9 +329,9 @@ function Table<T>({
                           >
                             <span
                               className={cn(
-                                "h-full w-px bg-transparent transition-colors group-hover/th:bg-border/80 hover:bg-primary",
+                                "h-full w-px bg-transparent transition-colors group-hover/th:bg-border hover:bg-accent-indigo",
                                 resizing === header.column.id &&
-                                  "w-0.5 bg-primary group-hover/th:bg-primary"
+                                  "w-0.5 bg-accent-indigo group-hover/th:bg-accent-indigo"
                               )}
                             />
                           </span>
@@ -340,7 +340,7 @@ function Table<T>({
                   ))
                 )}
                 {id && !bulking && (
-                  <th className="sticky right-0 h-8 border-b border-border/80 bg-background/95 px-1 text-right align-middle">
+                  <th className="sticky right-0 h-7 border-b border-border/80 bg-surface-1/80 px-1 text-right align-middle">
                     <ColumnMenu
                       items={menuItems}
                       onReorder={(order) => setSaved((previous) => ({ ...previous, order }))}
@@ -359,7 +359,7 @@ function Table<T>({
               </tr>
             ))}
           </thead>
-          <tbody className="divide-y divide-border/60">
+          <tbody className="divide-y divide-border-subtle bg-surface-2">
             {loading || !rows
               ? Array.from({ length: 8 }, (_, i) => (
                   <tr key={i}>
@@ -381,21 +381,20 @@ function Table<T>({
                       onClick={onRowClick ? () => onRowClick(row.original) : undefined}
                       className={cn(
                         "group/row transition-colors",
-                        onRowClick && "cursor-pointer hover:bg-muted/40",
-                        isSelected && "bg-muted/70 hover:bg-muted/70",
+                        onRowClick && "cursor-pointer hover:bg-surface-1/60",
+                        isSelected && "bg-accent-indigo/[0.04] hover:bg-accent-indigo/[0.07]",
                         rowClassName?.(row.original)
                       )}
                     >
                       {pickable && (
                         <td
                           className={cn(
-                            "pl-3 align-top py-2",
-                            isSelected && "shadow-[inset_2px_0_0_var(--primary)]"
+                            "pl-3.5 align-middle py-2.5",
+                            isSelected && "shadow-[inset_2px_0_0_var(--accent-indigo)]"
                           )}
                           onClick={(event) => event.stopPropagation()}
                         >
                           <Checkbox
-                            className="mt-0.5"
                             aria-label="선택"
                             checked={picked!.has(row.id)}
                             onCheckedChange={(checked) =>
@@ -410,12 +409,12 @@ function Table<T>({
                           <td
                             key={cell.id}
                             className={cn(
-                              "px-2.5 py-1.5 align-top text-xs text-foreground",
-                              index === 0 && !pickable && "pl-3.5",
+                              "px-3 py-2.5 align-middle text-xs text-foreground",
+                              index === 0 && !pickable && "pl-4",
                               index === 0 &&
                                 !pickable &&
                                 isSelected &&
-                                "shadow-[inset_2px_0_0_var(--primary)]",
+                                "shadow-[inset_2px_0_0_var(--accent-indigo)]",
                               meta?.wrap ? "break-words whitespace-pre-wrap" : "truncate",
                               meta?.align === "end" && "text-right tabular-nums",
                               meta?.className

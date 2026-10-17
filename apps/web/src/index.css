@@ -4,72 +4,102 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* White, neutral dashboard. Color is reserved for meaning (status, errors, selection). */
+/* Linear-style Surface Ladder & Precision Design Tokens */
 :root {
-  /* Crisp, flat professional tool radius (reduced from 10px down to 4px) */
-  --radius: 0.25rem;
-  --background: oklch(1 0 0);
+  /* Refined Linear/Apple micro-radii (6px base controls, 8px cards, 12px modals) */
+  --radius: 0.375rem;
+  --radius-xs: 3px;
+  --radius-sm: 5px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+
+  /* Surface Ladder (Light) */
+  --canvas: oklch(0.992 0.002 90);
+  --surface-1: oklch(0.975 0.002 90);
+  --surface-2: oklch(1 0 0);
+  --surface-elevated: oklch(1 0 0);
+
+  --background: var(--canvas);
   --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
+  --card: var(--surface-2);
   --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
+  --popover: var(--surface-elevated);
   --popover-foreground: oklch(0.145 0 0);
+
+  /* Linear Signature Indigo-Violet Accent */
   --primary: oklch(0.205 0 0);
   --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
+  --accent-indigo: oklch(0.55 0.22 265);
+  --accent-indigo-foreground: oklch(0.985 0 0);
+
+  --secondary: var(--surface-1);
   --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
+  --muted: var(--surface-1);
+  --muted-foreground: oklch(0.52 0 0);
+  --accent: var(--surface-1);
   --accent-foreground: oklch(0.205 0 0);
+
+  /* Meaning colors: Semantic & Restrained */
   --destructive: oklch(0.577 0.245 27.325);
-  /* Meaning colors besides destructive: something to check (warning) and something that worked (success). */
-  --warning: oklch(0.555 0.163 48.998);
-  --success: oklch(0.596 0.145 163.225);
-  /* A player's choice in the dialogue flow (graph labels, the flow pane). */
-  --choice: oklch(0.546 0.215 262.881);
-  /* Format tokens (tags, placeholders) that must come through untouched: chip colours by number, so
-     a pair and its copy in the translation match at a glance (warning orange, choice blue and
-     success green are left out). */
+  --warning: oklch(0.58 0.18 50);
+  --success: oklch(0.60 0.16 160);
+  --choice: oklch(0.55 0.22 265);
+
+  /* Format tokens */
   --token-1: oklch(0.5 0.24 302);
   --token-2: oklch(0.52 0.11 185);
   --token-3: oklch(0.55 0.21 350);
   --token-4: oklch(0.48 0.2 275);
   --token-5: oklch(0.52 0.1 225);
   --token-6: oklch(0.5 0.12 120);
-  --border: oklch(0.915 0 0);
-  --input: oklch(0.915 0 0);
-  --ring: oklch(0.708 0 0);
+
+  /* Borders: Hairline 1px with subtle tint */
+  --border: oklch(0.915 0.002 90);
+  --border-subtle: oklch(0.945 0.002 90);
+  --input: oklch(0.915 0.002 90);
+  --ring: oklch(0.55 0.22 265 / 0.4);
+
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
   --chart-4: oklch(0.828 0.189 84.429);
   --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
+
+  --sidebar: var(--surface-1);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.205 0 0);
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.955 0 0);
+  --sidebar-accent: oklch(0.94 0.002 90);
   --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
-  /* Graph canvas */
-  --graph-grid: oklch(0.94 0 0);
-  --graph-edge: oklch(0.72 0 0);
-  --graph-select: oklch(0.55 0.2 260);
+  --sidebar-border: oklch(0.92 0.002 90);
+  --sidebar-ring: oklch(0.55 0.22 265 / 0.4);
+
+  /* Graph canvas: Minimal dot grid */
+  --graph-grid: oklch(0.91 0 0);
+  --graph-edge: oklch(0.75 0 0);
+  --graph-select: oklch(0.55 0.22 265);
 }
 
 @theme inline {
-  --radius-xs: 2px;
-  --radius-sm: 3px;
-  --radius-md: 4px;
-  --radius-lg: 6px;
-  --radius-xl: 8px;
+  --radius-xs: var(--radius-xs);
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+
   --shadow-none: 0 0 #0000;
-  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.04);
-  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.05), 0 1px 2px -1px rgb(0 0 0 / 0.05);
-  --shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.08), 0 2px 4px -2px rgb(0 0 0 / 0.04);
-  --shadow-lg: 0 10px 24px -4px rgb(0 0 0 / 0.10), 0 4px 8px -4px rgb(0 0 0 / 0.05);
+  --shadow-2xs: 0 1px 1px 0 rgb(0 0 0 / 0.03);
+  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.06);
+  --shadow-md: 0 4px 16px -2px rgb(0 0 0 / 0.08), 0 2px 4px -2px rgb(0 0 0 / 0.04);
+  --shadow-lg: 0 12px 32px -4px rgb(0 0 0 / 0.12), 0 4px 8px -4px rgb(0 0 0 / 0.06);
+
+  --color-canvas: var(--canvas);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-elevated: var(--surface-elevated);
+
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -78,6 +108,8 @@
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-accent-indigo: var(--accent-indigo);
+  --color-accent-indigo-foreground: var(--accent-indigo-foreground);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
@@ -90,6 +122,7 @@
   --color-choice: var(--choice);
   --color-token-1: var(--token-1);
   --color-border: var(--border);
+  --color-border-subtle: var(--border-subtle);
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-chart-1: var(--chart-1);
@@ -105,15 +138,40 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
-  --font-sans: "Pretendard Variable", Pretendard, -apple-system, "Segoe UI", "Malgun Gothic", system-ui, sans-serif;
+  --font-sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    letter-spacing: -0.011em;
   }
   body {
-    @apply bg-background text-foreground antialiased;
+    @apply bg-background text-foreground antialiased font-sans;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  /* Hairline precision for Lucide icons and buttons matching typography weight */
+  svg.lucide,
+  [data-slot="button"] svg,
+  button svg {
+    stroke-width: 1.5px;
+  }
+
+  /* Fine-tuned button icon proportions */
+  [data-slot="button"] svg:not([class*='size-']),
+  button svg:not([class*='size-']) {
+    width: 0.8125rem; /* 13px */
+    height: 0.8125rem;
+  }
+
+  [data-slot="button"][data-size="xs"] svg:not([class*='size-']),
+  [data-slot="button"][data-size="inline"] svg:not([class*='size-']),
+  button[data-size="xs"] svg:not([class*='size-']),
+  button[data-size="inline"] svg:not([class*='size-']) {
+    width: 0.75rem; /* 12px */
+    height: 0.75rem;
+    stroke-width: 1.4px;
   }
   /* Every native scrollbar looks like shadcn's ScrollArea: a thin rounded thumb in the border colour,
      no track, a little darker on hover. One rule instead of wrapping each scrolling box. */
