@@ -1,16 +1,13 @@
-import { createUIMessageStream, createUIMessageStreamResponse, type UIMessage } from 'ai';
-import { markStopped, readToEnd, type ChatTurn } from './chat-turns.ts';
-import { interjectionPrompt, takeInterjections, writeInterjections } from './chat-interject.ts';
+import type { UIMessage } from 'ai';
+import type { ChatTurn } from './chat-turns.ts';
+import { takeInterjections, writeInterjections } from './chat-interject.ts';
 import { eq } from 'drizzle-orm';
 import * as ai from '@tw/ai';
 import { logged } from './ai-calls.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { events } from '../events.ts';
 import { agentCatalog, jsonSchemaOf, type CatalogTool } from './agent-catalog.ts';
-import { refusalText } from './proposal-check.ts';
-import { proposeChange } from './change-gate.ts';
-import { fitText } from './tool-output.ts';
+import { chatStream, runCatalogTool, turnPrompt, writeText } from './chat-stream.ts';
 import { catchUp, CONTEXT_BUDGET, handover, textOf, type AnsweredBy } from './chat-context.ts';
 
 /**
@@ -89,14 +86,16 @@ export async function cliChatResponse(input: {
   // Messages a previous turn could not take come after the new one.
   // Messages and decisions that came in since the last turn come after the new message.
   const leftover = takeInterjections(db, chat.id);
-  let prompt = [context, input.view, last ? textOf(last) : '', interjectionPrompt(leftover)].filter(Boolean).join('\n\n');
+  let prompt = turnPrompt({ context, view: input.view, text: last ? textOf(last) : '', leftover });
   let sessionId = saved?.id;
   let totalsBefore = saved?.totals;
 
-  const stream = createUIMessageStream({
-    originalMessages: messages,
-    generateId: () => crypto.randomUUID(),
-    execute: async ({ writer }) => {
+  return chatStream({
+    db,
+    chat,
+    messages,
+    turn: input.turn,
+    execute: async (writer) => {
       writer.write({ type: 'message-metadata', messageMetadata: { answeredBy: input.answeredBy } });
       writeInterjections(writer, leftover);
       for (let round = 0; round < MAX_ROUNDS; round++) {
@@ -106,12 +105,7 @@ export async function cliChatResponse(input: {
         totalsBefore = answer.totals;
         db.update(s.chatSessions).set({ agentSession: { kind: route.kind, model: route.model, id: sessionId, lastTurnAt: Date.now(), totals: totalsBefore } }).where(eq(s.chatSessions.id, chat.id)).run();
         const { visible, calls, error } = readToolCalls(answer.text);
-        if (visible) {
-          const id = crypto.randomUUID();
-          writer.write({ type: 'text-start', id });
-          writer.write({ type: 'text-delta', id, delta: visible });
-          writer.write({ type: 'text-end', id });
-        }
+        if (visible) writeText(writer, visible);
         if (!calls.length && !error) {
           writer.write({ type: 'finish-step' });
           // A message sent while it was answering: carry on with it instead of ending the turn (#44).
@@ -130,22 +124,16 @@ export async function cliChatResponse(input: {
           writer.write({ type: 'tool-input-available', toolCallId, toolName: call.tool, input: call.input });
           try {
             if (!tool) throw new Error(`알 수 없는 도구입니다: ${call.tool}`);
-            let output: unknown;
-            if (tool.changes) {
-              const gate = await proposeChange(db, { projectId: chat.projectId, sessionId: chat.id, source: 'cli', tool: tool.name, input: tool.schema.parse(call.input) as Record<string, unknown> });
-              if (!gate.ok) {
-                // The panel shows the plain reason; the agent also gets the ids to fix it with.
-                writer.write({ type: 'tool-output-error', toolCallId, errorText: `제안하지 못했습니다: ${gate.error}` });
-                results.push(`${call.tool}: 제안을 만들지 않았습니다 — ${refusalText(gate)}`);
-                continue;
-              }
-              output = { proposalId: gate.proposalId, applied: gate.applied };
-              results.push(`${call.tool}: ${gate.text}`);
-            } else {
-              output = await tool.run(call.input);
-              results.push(`${call.tool}: ${fitText(output, RESULT_LIMIT)}`);
+            // A change's input is checked here, so a malformed one fails like a read would.
+            const result = await runCatalogTool(db, chat, 'cli', tool, tool.changes ? (tool.schema.parse(call.input) as Record<string, unknown>) : call.input, RESULT_LIMIT);
+            if (!result.ok) {
+              // The panel shows the plain reason; the agent also gets the ids to fix it with.
+              writer.write({ type: 'tool-output-error', toolCallId, errorText: result.error });
+              results.push(`${call.tool}: 제안을 만들지 않았습니다 — ${result.reason}`);
+              continue;
             }
-            writer.write({ type: 'tool-output-available', toolCallId, output });
+            results.push(`${call.tool}: ${result.text}`);
+            writer.write({ type: 'tool-output-available', toolCallId, output: result.output });
           } catch (cause) {
             const message = cause instanceof Error ? cause.message : String(cause);
             writer.write({ type: 'tool-output-error', toolCallId, errorText: message });
@@ -156,18 +144,12 @@ export async function cliChatResponse(input: {
         prompt = [`작업실 도구 결과:\n${results.join('\n\n')}`, writeInterjections(writer, takeInterjections(db, chat.id))].filter(Boolean).join('\n\n');
       }
       input.turn.markClosing();
-      const id = crypto.randomUUID();
-      writer.write({ type: 'text-start', id });
-      writer.write({ type: 'text-delta', id, delta: `(도구를 ${MAX_ROUNDS}번 연달아 불러 여기서 멈췄습니다. 이어서 하려면 메시지를 보내세요.)` });
-      writer.write({ type: 'text-end', id });
+      writeText(writer, `(도구를 ${MAX_ROUNDS}번 연달아 불러 여기서 멈췄습니다. 이어서 하려면 메시지를 보내세요.)`);
     },
-    onFinish: ({ messages: final }) => {
+    alsoSave: (final) => {
       // The CLI session has now seen the whole record, its own reply included.
       const agentSession = db.select({ agentSession: s.chatSessions.agentSession }).from(s.chatSessions).where(eq(s.chatSessions.id, chat.id)).get()?.agentSession;
-      db.update(s.chatSessions).set({ messages: markStopped(final, input.turn.signal), ...(agentSession && sessionId === agentSession.id && { agentSession: { ...agentSession, seen: final.length } }) }).where(eq(s.chatSessions.id, chat.id)).run();
-      events.changed(chat.projectId, 'chat');
+      return agentSession && sessionId === agentSession.id ? { agentSession: { ...agentSession, seen: final.length } } : {};
     },
-    onError: (error) => (error instanceof Error ? error.message : String(error)),
   });
-  return createUIMessageStreamResponse({ stream, ...readToEnd(input.turn) });
 }

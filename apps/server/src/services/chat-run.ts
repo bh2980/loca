@@ -1,4 +1,4 @@
-import { convertToModelMessages, createUIMessageStream, createUIMessageStreamResponse, stepCountIs, streamText, type ModelMessage, type UIMessage } from 'ai';
+import { convertToModelMessages, stepCountIs, streamText, type ModelMessage, type UIMessage } from 'ai';
 import { eq } from 'drizzle-orm';
 import { chatTitle } from '@tw/shared';
 import * as ai from '@tw/ai';
@@ -11,7 +11,8 @@ import { AGENT_SYSTEM } from './agent-tools.ts';
 import { gatedTools } from './change-gate.ts';
 import { CONTEXT_BUDGET, fitMessages, mergeIncoming, type AnsweredBy } from './chat-context.ts';
 import { hasInterjections, takeInterjections, writeInterjections, type Interjection } from './chat-interject.ts';
-import { afterTurn, markStopped, readToEnd, startTurn, turnStartedAt, type ChatTurn } from './chat-turns.ts';
+import { afterTurn, startTurn, turnStartedAt, type ChatTurn } from './chat-turns.ts';
+import { chatStream, errorText } from './chat-stream.ts';
 import { cliChatResponse } from './cli-chat.ts';
 import { piChatResponse } from './pi-chat.ts';
 import { hasUnreportedDecisions, openProposals, takeDecisions } from './proposals.ts';
@@ -119,10 +120,12 @@ function apiChatResponse(input: {
   const last = messages.at(-1);
   // A reply whose tool approval was just answered goes on in the same message.
   const messageId = last?.role === 'assistant' ? last.id : crypto.randomUUID();
-  const stream = createUIMessageStream({
-    originalMessages: messages,
-    generateId: () => crypto.randomUUID(),
-    execute: async ({ writer }) => {
+  return chatStream({
+    db,
+    chat: session,
+    messages,
+    turn,
+    execute: async (writer) => {
       writer.write({ type: 'start', messageId, messageMetadata: { answeredBy } });
       const interject = (items: Interjection[]) => ({ role: 'user' as const, content: writeInterjections(writer, items) });
       // An editor proposal left unanswered before the next message is dropped rather than failing the turn.
@@ -149,7 +152,7 @@ function apiChatResponse(input: {
           providerOptions: ai.openaiProviderOptions(route),
           abortSignal: turn.signal,
         });
-        writer.merge(result.toUIMessageStream({ sendStart: false, sendFinish: false, onError: (error) => (error instanceof Error ? error.message : String(error)) }));
+        writer.merge(result.toUIMessageStream({ sendStart: false, sendFinish: false, onError: errorText }));
         const passSteps = await result.steps;
         steps += Math.max(1, passSteps.length);
         finishReason = await result.finishReason;
@@ -166,11 +169,5 @@ function apiChatResponse(input: {
       // Who answered, and why the turn ended (the panel says "hit the output limit" instead of going quiet).
       writer.write({ type: 'finish', ...(finishReason && { finishReason: finishReason as never }), messageMetadata: { answeredBy, finishReason } });
     },
-    onFinish: ({ messages: final }) => {
-      db.update(s.chatSessions).set({ messages: markStopped(final, turn.signal) }).where(eq(s.chatSessions.id, session.id)).run();
-      events.changed(session.projectId, 'chat');
-    },
-    onError: (error) => (error instanceof Error ? error.message : String(error)),
   });
-  return createUIMessageStreamResponse({ stream, ...readToEnd(turn) });
 }
