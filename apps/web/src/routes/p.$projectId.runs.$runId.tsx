@@ -122,6 +122,7 @@ function RunDetail() {
       cell: ({ row }) => (
         <>
           {ITEM_STATE[row.original.state]}
+          {row.original.state === 'done' && row.original.statusName && <span className="text-muted-foreground"> → {row.original.statusName}</span>}
           {Object.values(row.original.visits).some((count) => count > 1) && <span className="text-xs text-muted-foreground"> · 재방문 {Math.max(...Object.values(row.original.visits)) - 1}</span>}
         </>
       ),
@@ -136,6 +137,7 @@ function RunDetail() {
           <>
             {item.error && <p className="text-destructive">{item.error}</p>}
             {!!item.data.issues?.length && <p className="text-warning">{item.data.issues.join(' / ')}</p>}
+            {!!item.data.notes?.length && <p className="text-muted-foreground">{item.data.notes.join(' / ')}</p>}
             {Object.entries(item.data.outputs ?? {})
               .filter(([, output]) => typeof output.passed === 'boolean')
               .map(([nodeId, output]) => (

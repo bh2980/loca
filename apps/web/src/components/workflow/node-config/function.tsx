@@ -132,7 +132,6 @@ function SetStatusConfig({ params, refs, set, setMany }: { params: Record<string
         </Select>
       </Field>
       {refs.statuses.find((status) => status.id === params.statusId)?.humanOnly && <p className="text-xs text-warning">사람만 지정 상태 → 실행하면 검토함으로 갑니다.</p>}
-      <ToggleRow label="현재 후보를 대표 번역으로 적용" checked={params.applyCandidate as boolean} onChange={(value) => set('applyCandidate', value)} />
       {refs.tags.length > 0 && (
         <Field label="태그" hint="누를 때마다 추가 → 제거 → 그대로 순서로 바뀝니다.">
           <div className="flex flex-wrap gap-1.5">

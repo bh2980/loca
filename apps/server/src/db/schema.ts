@@ -554,6 +554,8 @@ export interface ItemData {
   candidateText?: string;
   /** Problems found by the most recent failing verdict or check; cleared by a new candidate. */
   issues?: string[];
+  /** What the run did without changing the line (kept out of issues, which feed the revise prompt). */
+  notes?: string[];
   /** Every node's output for this line, by node id. Conditions and later nodes read these. */
   outputs?: Record<string, Record<string, unknown>>;
   /** Nodes and exits taken, for display. */

@@ -20,9 +20,10 @@ export const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
 /**
  * The default translation flow, expressed as an ordinary user workflow:
- * untranslated → translate → format check → review → confirmed;
- * a failing line is revised while review has run fewer than 3 times, then is set to "needs review",
- * a status shown in the review inbox. People take it from there; the run itself ends.
+ * untranslated → translate (written to the line) → 초벌로 → format check → review → 확정으로;
+ * a failing line is revised (each revision also written to the line) while review has run fewer than
+ * 3 times, then is set to "needs review", a status shown in the review inbox. People take it from there;
+ * the run itself ends. Start/end only govern the run; progress is the status-change nodes (#42).
  */
 export function translationTemplate(ids: {
   /** The AI the template's nodes use; empty until the user has a connection with a default model. */
@@ -42,17 +43,17 @@ export function translationTemplate(ids: {
     context: contextConfigSchema.parse({}),
     batch: { mode: 'group' as const, size: 60, maxTokens: 6_000 },
   });
-  const status = (statusId: string, applyCandidate = false) => ({ fn: 'setStatus', params: { statusId, addTagIds: [], removeTagIds: [], applyCandidate } });
+  const status = (statusId: string) => ({ fn: 'setStatus', params: { statusId, addTagIds: [], removeTagIds: [] } });
   const at = (column: number, row: number) => ({ x: column * 300, y: row * 180 });
   return {
     settings: { maxVisitsPerNode: 5, concurrency: 2, maxConsecutiveFailures: 3 },
     nodes: [
       { id: 'entry', type: 'entry', position: at(0, 1), config: { statusIds: [ids.untranslated] } },
       { id: 'translate', type: 'ai', position: at(1, 1), label: 'AI 번역', config: ai('translate') },
-      { id: 'draft', type: 'function', position: at(2, 1), label: 'AI 초벌로', config: status(ids.draft) },
+      { id: 'draft', type: 'function', position: at(2, 1), label: '초벌로', config: status(ids.draft) },
       { id: 'check', type: 'function', position: at(3, 1), label: '형식 검사', config: { fn: 'formatCheck', params: { placeholders: true, tags: true, newlines: true, emptyText: true } } },
       { id: 'review', type: 'ai', position: at(4, 1), label: 'AI 검수', config: ai('review') },
-      { id: 'confirm', type: 'function', position: at(5, 1), label: '확정', config: status(ids.confirmed, true) },
+      { id: 'confirm', type: 'function', position: at(5, 1), label: '확정으로', config: status(ids.confirmed) },
       { id: 'end', type: 'end', position: at(6, 1), config: {} },
       {
         id: 'retry',
@@ -171,7 +172,7 @@ export function listenerTemplate(ids: { model: DraftModelChoice }): WorkflowDefi
 /**
  * After a speech rule or a listener is corrected: re-fit only the speech level and forms of address
  * of the current translations, so the rest of the wording does not drift as a full re-translation would.
- * The fitted text becomes the representative translation; the status stays as it was.
+ * The fitted text is written to the line as the node produces it (#42); the status stays as it was.
  */
 export function speechFixTemplate(ids: { model: DraftModelChoice }): WorkflowDefinition {
   return {
@@ -194,13 +195,11 @@ export function speechFixTemplate(ids: { model: DraftModelChoice }): WorkflowDef
           batch: { mode: 'group', size: 40, maxTokens: 6_000 },
         },
       },
-      { id: 'apply', type: 'function', position: { x: 600, y: 0 }, label: '번역에 적용', config: { fn: 'setStatus', params: { applyCandidate: true } } },
       { id: 'end', type: 'end', position: { x: 900, y: 0 }, config: {} },
     ],
     edges: [
       { id: 'e1', source: 'entry', sourceHandle: 'out', target: 'fit' },
-      { id: 'e2', source: 'fit', sourceHandle: 'out', target: 'apply' },
-      { id: 'e3', source: 'apply', sourceHandle: 'out', target: 'end' },
+      { id: 'e2', source: 'fit', sourceHandle: 'out', target: 'end' },
     ],
   };
 }

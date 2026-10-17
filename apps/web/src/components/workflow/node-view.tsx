@@ -138,7 +138,7 @@ export const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected 
         </span>
         <div className="min-w-0">
           <p className="truncate text-xs text-muted-foreground">{nodeName(node)}</p>
-          <p className="truncate text-sm font-medium">{status ? `→ ${status.name}` : '상태 그대로'}{summary.includes('대표 번역') && <span className="ml-1 text-xs font-normal text-muted-foreground">+ 대표 번역</span>}</p>
+          <p className="truncate text-sm font-medium">{status ? `→ ${status.name}` : '상태 그대로'}</p>
         </div>
         <Badges errors={errors} warnings={warnings} />
         <Handle type="source" position={Position.Right} id="out" className={handleClass('out')} />
