@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { MoreHorizontal } from 'lucide-react';
 import { toast } from 'sonner';
@@ -6,6 +6,7 @@ import { SeamCheckPane } from '@/components/graph/seam-check-pane';
 import { PathGraph, type PathNodeText } from '@/components/graph/path-graph';
 import { PathNodeExtras, PathNodePane, describeNode, forkChoices } from '@/components/graph/path-pane';
 import { RouteList } from '@/components/graph/route-list';
+import { RemainingBranches } from '@/components/graph/remaining-branches';
 import { loopTargets, mapPlace, resolveAt, stops } from '@/components/graph/path-window';
 import { AiButton } from '@/components/ai-button';
 import { Page } from '@/components/page';
@@ -66,7 +67,21 @@ export function PathMode({ projectId, toggle, node, edit, at, all, onSelect, onE
     onSuccess: (done) => toast(`길 ${done.round}로 돌아갔습니다`),
     onError: (error) => toast.error(error.message),
   });
-  const busy = nextRoute.isPending || prevRoute.isPending;
+  // 남은 갈래 (docs/PLAN-30.md): what the route does not pass, and 이 갈래로.
+  const left = useQuery(q.routeRemaining(projectId)).data;
+  const [branchesOpen, setBranchesOpen] = useState(false);
+  // The node 이 갈래로 went for: once the new slice has it, the window moves there.
+  const [goTo, setGoTo] = useState<string>();
+  const through = useMutation({
+    mutationFn: (nodeId: string) => unwrap(client.projects[':projectId'].route.through.$post({ param: { projectId }, json: { nodeId, round } })),
+    onSuccess: (done, nodeId) => {
+      toast(done.advanced ? `길 ${done.round}로 넘어갔습니다 · 고른 갈래를 지나는 길` : '고른 갈래를 지나도록 이번 길의 선택을 바꿨습니다');
+      setBranchesOpen(false);
+      setGoTo(nodeId);
+    },
+    onError: (error) => toast.error(error.message),
+  });
+  const busy = nextRoute.isPending || prevRoute.isPending || through.isPending;
   const finished = !!next && next.newLines === 0;
   const stay = !!next && next.newLines > 0 && (next.totalUntranslatedOnRoute > 0 || !next.changed);
   const nextLabel = finished ? '모든 길 번역함' : `다음 길${next && next.changed && !stay ? ` (+${next.newLines.toLocaleString()}줄)` : ''}`;
@@ -74,7 +89,7 @@ export function PathMode({ projectId, toggle, node, edit, at, all, onSelect, onE
     ? '번역하지 않은 줄이 있는 길이 더 없습니다.'
     : stay
       ? '이번 길에 번역하지 않은 줄이 남아 있습니다. 먼저 이번 길을 번역하세요.'
-      : '번역하지 않은 줄을 가장 많이 지나는 길로 넘어갑니다(앞 길과 겹치는 부분이 가장 적도록).';
+      : '번역하지 않은 줄을 가장 많이 지나는 길로 넘어갑니다(앞 길과 겹치는 부분이 가장 적도록). 남은 갈래가 있는 동안은 끝나지 않습니다.';
 
   const pick = useMutation({
     mutationFn: (body: { nodeId: string; armId: string | null }) => unwrap(client.projects[':projectId']['route-picks'].$put({ param: { projectId }, json: body })),
@@ -115,8 +130,16 @@ export function PathMode({ projectId, toggle, node, edit, at, all, onSelect, onE
   // 이음새 점검 (round 2 on): the seams of this route; 바뀜 are no longer counted as checked.
   const seamList = slice?.overview.nodes.filter((item) => item.kind === 'anchor' && item.seam) ?? [];
   const seamChecks = seamData?.seamChecks;
+  useEffect(() => {
+    const target = goTo && slice?.overview.nodes.find((item) => item.nodeIds.includes(goTo));
+    if (!target) return;
+    setGoTo(undefined);
+    onMove(target.id);
+  }, [goTo, slice]); // eslint-disable-line react-hooks/exhaustive-deps
   const remaining = next ? (next.remainingRoutes === 0 ? '남은 길 없음' : `남은 길 약 ${next.remainingRoutes}`) : undefined;
-  const summary = slice ? [`길 ${slice.round}`, `번역 ${slice.translatedGraphLines.toLocaleString()}/${slice.graphLines.toLocaleString()}줄`, remaining].filter(Boolean).join(' · ') : undefined;
+  const branchSummary = left ? (left.branches.length ? `남은 갈래 ${left.branches.length.toLocaleString()} (${left.branchLines.toLocaleString()}줄)` : '남은 갈래 없음') : undefined;
+  const unreachable = left?.unreachable ? `닿지 않는 줄 ${left.unreachable.toLocaleString()}` : undefined;
+  const summary = slice ? [`길 ${slice.round}`, `번역 ${slice.translatedGraphLines.toLocaleString()}/${slice.graphLines.toLocaleString()}줄`, remaining, branchSummary, unreachable].filter(Boolean).join(' · ') : undefined;
   const scope = slice ? `이번 길 ${slice.lines.toLocaleString()}줄 / 프로젝트 전체 ${slice.totalLines.toLocaleString()}줄 · 새 줄은 이번 길에서 아직 번역하지 않은 줄 · 번역은 대사 그래프에 있는 줄(${slice.graphLines.toLocaleString()}줄) 기준, 번역 글자가 있는 줄만 셉니다.` : undefined;
   const seamSummary = round >= 2 && seamChecks ? `이음새 점검 ${seamChecks.checked.toLocaleString()}/${seamChecks.total.toLocaleString()}${seamChecks.stale ? ` · 바뀜 ${seamChecks.stale.toLocaleString()}` : ''}` : undefined;
   // The next seam in script order after the window's place (wrapping round); only `at` moves.
@@ -180,6 +203,9 @@ export function PathMode({ projectId, toggle, node, edit, at, all, onSelect, onE
                     <DropdownMenuCheckboxItem checked={all} onCheckedChange={(checked) => onAll(checked === true)}>
                       전체 보기
                     </DropdownMenuCheckboxItem>
+                    <DropdownMenuItem disabled={!left} onSelect={() => setBranchesOpen(true)}>
+                      남은 갈래{left ? ` ${left.branches.length.toLocaleString()}` : ''}
+                    </DropdownMenuItem>
                     {round >= 2 && (
                       <DropdownMenuItem disabled={!nextSeam} onSelect={goSeam}>
                         다음 이음새
@@ -207,6 +233,9 @@ export function PathMode({ projectId, toggle, node, edit, at, all, onSelect, onE
           {toggle}
         </Toolbar>
         {/* The route's facts: one muted line under the toolbar (never wraps, the full text is the tooltip). */}
+        {left && (
+          <RemainingBranches open={branchesOpen} onOpenChange={setBranchesOpen} branches={left.branches} unreachable={left.unreachable} texts={texts} busy={busy} onGo={(branch) => through.mutate(branch.firstNode)} />
+        )}
         {summary && (
           <p className="shrink-0 truncate border-b px-4 py-1.5 text-xs text-muted-foreground tabular-nums" title={[summary, scope, seamSummary].filter(Boolean).join(' · ')}>
             <span data-testid="path-summary">{summary}</span>
