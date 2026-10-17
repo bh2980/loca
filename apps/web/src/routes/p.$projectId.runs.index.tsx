@@ -52,9 +52,15 @@ const columns: ColumnDef<Row, unknown>[] = [
     meta: { hideable: false },
     cell: ({ row }) => (
       <>
-        <span className="mr-1.5 text-xs text-muted-foreground">{JOB_KIND[row.original.kind]}</span>
+        {/* Real spaces between label and value, so the row reads (and copies) as words, not one run (#48). */}
+        <span className="mr-1 text-xs text-muted-foreground">{JOB_KIND[row.original.kind]}</span>{' '}
         <span className="font-medium">{row.original.title}</span>
-        {row.original.sub && <span className="ml-1.5 text-xs text-muted-foreground">{row.original.sub}</span>}
+        {row.original.sub && (
+          <>
+            {' '}
+            <span className="ml-1 text-xs text-muted-foreground">{row.original.sub}</span>
+          </>
+        )}
       </>
     ),
   },

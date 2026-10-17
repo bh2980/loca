@@ -1,6 +1,7 @@
 /** Pieces shared by the node-kind configs: row layouts and the node/ref types. */
 import { useId } from 'react';
-import { Input, Label, Switch, ControlIdContext } from '@loca/ui';
+import { ChevronRight } from 'lucide-react';
+import { Button, Collapsible, CollapsibleContent, CollapsibleTrigger, Input, Label, Switch, ControlIdContext } from '@loca/ui';
 import { CONNECTION_KIND_INFO, type WorkflowNode } from '@tw/shared';
 
 export type AiNode = Extract<WorkflowNode, { type: 'ai' }>;
@@ -56,5 +57,24 @@ export function ToggleRow({ label, checked, onChange }: { label: string; checked
       <span className="min-w-0">{label}</span>
       <Switch checked={checked} onCheckedChange={onChange} />
     </label>
+  );
+}
+
+/**
+ * One part of a node's settings (출력 · 모델 · 지시 · 문맥 · 묶음, #48): a heading that folds it away.
+ * Open by default, so nothing is hidden until the person folds it; `summary` says what is inside while it is folded.
+ */
+export function ConfigSection({ title, summary, children }: { title: string; summary?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <Collapsible defaultOpen className="group/section min-w-0 border-t pt-3 first:border-t-0 first:pt-0">
+      <CollapsibleTrigger asChild>
+        <Button variant="ghost" size="row" className="-mx-2 w-[calc(100%+1rem)] min-w-0 justify-start">
+          <ChevronRight className="text-muted-foreground transition-transform group-data-[state=open]/section:rotate-90" />
+          <span className="shrink-0 text-xs font-semibold">{title}</span>
+          {summary && <span className="min-w-0 truncate text-xs font-normal text-muted-foreground group-data-[state=open]/section:hidden">{summary}</span>}
+        </Button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="min-w-0 space-y-5 pt-2">{children}</CollapsibleContent>
+    </Collapsible>
   );
 }
