@@ -37,10 +37,19 @@ export function JobStatus({ projectId }: { projectId: string }) {
   if (job.status === 'failed') return <span className="text-destructive">분석 실패 ({when}): {job.error}</span>;
   if (job.status === 'cancelled') return <span>분석을 중단했습니다 ({when}).</span>;
   const result = job.result ?? {};
-  const total = ['documents', 'characters', 'relationships', 'events', 'speechRules'].reduce((sum, kind) => sum + (result[kind] ?? 0), 0);
+  const kinds = [
+    ['documents', '문서'],
+    ['characters', '인물'],
+    ['relationships', '관계'],
+    ['events', '사건'],
+    ['speechRules', '말투 규칙'],
+  ] as const;
+  const counts = kinds.map(([kind, label]) => [label, result[kind] ?? 0] as const).filter(([, count]) => count > 0);
+  const total = counts.reduce((sum, [, count]) => sum + count, 0);
   return (
     <span>
       마지막 분석 {when} · {job.model} · 초안 {total}개
+      {counts.length > 0 && <span className="text-muted-foreground"> ({counts.map(([label, count]) => `${label} ${count}`).join(' · ')})</span>}
       {result.rulesForReview ? ` · 확인 권장 말투 규칙 ${result.rulesForReview}개` : ''}
       {result.listeners ? ` · 청자 ${result.listeners.toLocaleString()}줄 채움` : ''}
       {result.terms ? ` · 용어 후보 ${result.terms}개` : ''}
