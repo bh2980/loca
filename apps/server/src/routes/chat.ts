@@ -6,7 +6,8 @@ import { modelChoiceSchema, PERMISSION_MODES, type ModelChoice } from '@tw/share
 import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
-import { attachTurn, enqueueSteer, steerable, stopTurn, turnStartedAt } from '../services/chat-turns.ts';
+import { attachTurn, steerable, turnStartedAt } from '../services/chat-turns.ts';
+import { enqueueSteer, stopWithQueued } from '../services/chat-interject.ts';
 import { closePiChat } from '../services/pi-chat.ts';
 import { runChatTurn } from '../services/chat-run.ts';
 
@@ -119,7 +120,7 @@ export const chatRoutes = new Hono<Env>()
   .post('/chat/:sessionId/steer', validate('json', z.object({ text: z.string().trim().min(1).max(20_000) })), (c) => {
     const sessionId = c.req.param('sessionId');
     if (!steerable(sessionId)) return c.json({ queued: false }, 409);
-    enqueueSteer(sessionId, c.req.valid('json').text);
+    enqueueSteer(c.var.deps.db, sessionId, c.req.valid('json').text);
     return c.json({ queued: true });
   })
-  .post('/chat/:sessionId/stop', (c) => c.json(stopTurn(c.req.param('sessionId'))));
+  .post('/chat/:sessionId/stop', (c) => c.json(stopWithQueued(c.var.deps.db, c.req.param('sessionId'))));

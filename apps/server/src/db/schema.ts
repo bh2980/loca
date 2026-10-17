@@ -662,6 +662,8 @@ export const proposals = sqliteTable(
     decidedBy: text('decided_by', { enum: ['person', 'auto', 'bypass'] }),
     /** Why auto review held it for the person, or why it let it through. */
     review: text('review'),
+    /** What the person said when rejecting it; the agent hears it with the decision. */
+    reason: text('reason'),
   },
   (t) => [index('proposals_project').on(t.projectId, t.status)],
 );
@@ -681,6 +683,8 @@ export const chatSessions = sqliteTable('chat_sessions', {
   agentSession: json<{ kind: string; model: string; id: string; lastTurnAt: number; totals?: Usage; seen?: number }>('agent_session'),
   /** How the agent's changes are decided (#45): ask = a card each, auto = checked ones apply at once, bypass = all apply. */
   permissionMode: text('permission_mode', { enum: PERMISSION_MODES }).notNull().default('ask'),
+  /** Messages sent while a turn was running that no turn has taken yet (#44); kept here so a restart does not lose them. */
+  pendingSteers: json<string[]>('pending_steers').notNull().default(sql`'[]'`),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
