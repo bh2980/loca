@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { convertToModelMessages, stepCountIs, streamText, type UIMessage } from 'ai';
+import { convertToModelMessages, createUIMessageStream, createUIMessageStreamResponse, stepCountIs, streamText, type ModelMessage, type UIMessage } from 'ai';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import * as ai from '@tw/ai';
@@ -9,7 +9,8 @@ import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { startCall } from '../services/ai-calls.ts';
 import { AGENT_SYSTEM, agentTools } from '../services/agent-tools.ts';
-import { readToEnd, startTurn, stopTurn, turnStartedAt } from '../services/chat-turns.ts';
+import { enqueueSteer, hasSteers, readToEnd, startTurn, steerable, steerPrompt, stopTurn, takeSteers, turnStartedAt } from '../services/chat-turns.ts';
+import type { Db } from '../db/index.ts';
 import { liveChoice } from '../services/routes.ts';
 import { closePiChat, piChatResponse } from '../services/pi-chat.ts';
 import { withFittedResults } from '../services/tool-output.ts';
@@ -146,6 +147,7 @@ export const chatRoutes = new Hono<Env>()
         timeoutMs: live.snapshot.timeoutSeconds * 1000,
         signal: turn.signal,
         onEnd: turn.end,
+        markClosing: turn.markClosing,
       });
     }
     if (route.kind === 'pi') {
@@ -160,40 +162,103 @@ export const chatRoutes = new Hono<Env>()
           answeredBy,
           signal: turn.signal,
           onEnd: turn.end,
+          markClosing: turn.markClosing,
         });
       } catch (error) {
         turn.end();
         badRequest(error instanceof Error ? error.message : String(error));
       }
     }
-    // One log row per turn (its tool steps included); usage comes with the finish.
-    const finish = startCall(db, { projectId: session.projectId, kind: 'chat', refId: session.id, label: '채팅' }, route);
-    const result = streamText({
-      model: ai.chatModel(route),
-      onFinish: ({ totalUsage }) => finish({ usage: { inputTokens: totalUsage.inputTokens, cachedInputTokens: totalUsage.inputTokenDetails?.cacheReadTokens, outputTokens: totalUsage.outputTokens } }),
-      onError: ({ error }) => finish({ error }),
-      onAbort: () => finish({ error: '중단함' }),
-      system: [AGENT_SYSTEM, view && describeView(view)].filter(Boolean).join('\n\n'),
-      // An editor proposal left unanswered before the next message is dropped rather than failing the turn.
-      messages: await convertToModelMessages(fitMessages(messages, CONTEXT_BUDGET.api), { ignoreIncompleteToolCalls: true }),
-      tools: withFittedResults(agentTools(db, session.projectId, { model: route.model })),
-      stopWhen: stepCountIs(30),
-      maxOutputTokens: live.snapshot.maxOutputTokens,
-      providerOptions: ai.openaiProviderOptions(route),
-      abortSignal: turn.signal,
-    });
-    return result.toUIMessageStreamResponse({
-      originalMessages: messages,
-      // Ids from the server, so the record and the browser name a reply the same (an approval is merged by id).
-      generateMessageId: () => crypto.randomUUID(),
-      // Who answered, and why the turn ended (the panel says "hit the output limit" instead of going quiet).
-      messageMetadata: ({ part }) => (part.type === 'start' ? { answeredBy } : part.type === 'finish' ? { answeredBy, finishReason: part.finishReason } : undefined),
-      onFinish: ({ messages: final }) => {
-        db.update(s.chatSessions).set({ messages: final }).where(and(eq(s.chatSessions.id, session.id))).run();
-        events.changed(session.projectId, 'chat');
-      },
-      onError: (error) => (error instanceof Error ? error.message : String(error)),
-      ...readToEnd(turn.end),
-    });
+    return apiChatResponse({ db, session, route, live, view: view ? describeView(view) : null, messages, answeredBy, turn });
   })
-  .post('/chat/:sessionId/stop', (c) => c.json({ stopped: stopTurn(c.req.param('sessionId')) }));
+  // A message sent while the reply is running (#44): the turn takes it at its next step. Refused
+  // (409) when no turn can take it any more; the browser then sends it as a new message.
+  .post('/chat/:sessionId/steer', validate('json', z.object({ text: z.string().trim().min(1).max(20_000) })), (c) => {
+    const sessionId = c.req.param('sessionId');
+    if (!steerable(sessionId)) return c.json({ queued: false }, 409);
+    enqueueSteer(sessionId, c.req.valid('json').text);
+    return c.json({ queued: true });
+  })
+  .post('/chat/:sessionId/stop', (c) => c.json(stopTurn(c.req.param('sessionId'))));
+
+/** Steps one API turn may take, across the passes steering messages start. */
+const MAX_STEPS = 30;
+
+/**
+ * The API (OpenAI-compatible) chat turn: passes of streamText in one reply. A pass stops early when
+ * a steering message is waiting; the next pass carries on with the model's work so far plus that
+ * message, so the reply goes on as one message with the steer recorded where it came in (#44).
+ */
+function apiChatResponse(input: {
+  db: Db;
+  session: typeof s.chatSessions.$inferSelect;
+  route: ai.ResolvedRoute;
+  live: ReturnType<typeof liveChoice>;
+  view: string | null;
+  messages: UIMessage[];
+  answeredBy: AnsweredBy;
+  turn: ReturnType<typeof startTurn>;
+}) {
+  const { db, session, route, live, messages, answeredBy, turn } = input;
+  const tools = withFittedResults(agentTools(db, session.projectId, { model: route.model }));
+  const last = messages.at(-1);
+  // A reply whose tool approval was just answered goes on in the same message.
+  const messageId = last?.role === 'assistant' ? last.id : crypto.randomUUID();
+  const stream = createUIMessageStream({
+    originalMessages: messages,
+    generateId: () => crypto.randomUUID(),
+    execute: async ({ writer }) => {
+      writer.write({ type: 'start', messageId, messageMetadata: { answeredBy } });
+      const steer = (texts: string[]) => {
+        for (const text of texts) writer.write({ type: 'data-steer', data: { text } });
+        return { role: 'user' as const, content: steerPrompt(texts) };
+      };
+      // An editor proposal left unanswered before the next message is dropped rather than failing the turn.
+      let modelMessages: ModelMessage[] = await convertToModelMessages(fitMessages(messages, CONTEXT_BUDGET.api), { ignoreIncompleteToolCalls: true });
+      // Messages a previous turn could not take (it stopped for an approval) come first.
+      const leftover = takeSteers(session.id);
+      if (leftover.length) modelMessages = [...modelMessages, steer(leftover)];
+      let steps = 0;
+      let finishReason: string | undefined;
+      for (let pass = 0; steps < MAX_STEPS; pass++) {
+        // One log row per pass (its tool steps included); usage comes with the finish.
+        const finish = startCall(db, { projectId: session.projectId, kind: 'chat', refId: session.id, label: pass ? '채팅 · 끼어든 메시지 후' : '채팅' }, route);
+        const result = streamText({
+          model: ai.chatModel(route),
+          onFinish: ({ totalUsage }) => finish({ usage: { inputTokens: totalUsage.inputTokens, cachedInputTokens: totalUsage.inputTokenDetails?.cacheReadTokens, outputTokens: totalUsage.outputTokens } }),
+          onError: ({ error }) => finish({ error }),
+          onAbort: () => finish({ error: '중단함' }),
+          system: [AGENT_SYSTEM, input.view].filter(Boolean).join('\n\n'),
+          messages: modelMessages,
+          tools,
+          // A waiting steering message ends the pass after the current step (its tool results are in).
+          stopWhen: [stepCountIs(MAX_STEPS - steps), () => hasSteers(session.id)],
+          maxOutputTokens: live.snapshot.maxOutputTokens,
+          providerOptions: ai.openaiProviderOptions(route),
+          abortSignal: turn.signal,
+        });
+        writer.merge(result.toUIMessageStream({ sendStart: false, sendFinish: false, onError: (error) => (error instanceof Error ? error.message : String(error)) }));
+        const passSteps = await result.steps;
+        steps += Math.max(1, passSteps.length);
+        finishReason = await result.finishReason;
+        // Waiting for the person to approve a tool: the turn ends; a queued message waits for the next one.
+        if (passSteps.at(-1)?.content.some((part) => part.type === 'tool-approval-request')) break;
+        const texts = takeSteers(session.id);
+        if (!texts.length) {
+          turn.markClosing();
+          break;
+        }
+        modelMessages = [...modelMessages, ...(await result.response).messages, steer(texts)];
+      }
+      turn.markClosing();
+      // Who answered, and why the turn ended (the panel says "hit the output limit" instead of going quiet).
+      writer.write({ type: 'finish', ...(finishReason && { finishReason: finishReason as never }), messageMetadata: { answeredBy, finishReason } });
+    },
+    onFinish: ({ messages: final }) => {
+      db.update(s.chatSessions).set({ messages: final }).where(eq(s.chatSessions.id, session.id)).run();
+      events.changed(session.projectId, 'chat');
+    },
+    onError: (error) => (error instanceof Error ? error.message : String(error)),
+  });
+  return createUIMessageStreamResponse({ stream, ...readToEnd(turn.end) });
+}

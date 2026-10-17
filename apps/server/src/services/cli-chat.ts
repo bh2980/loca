@@ -1,5 +1,5 @@
 import { createUIMessageStream, createUIMessageStreamResponse, type UIMessage } from 'ai';
-import { readToEnd } from './chat-turns.ts';
+import { readToEnd, steerPrompt, takeSteers } from './chat-turns.ts';
 import { eq } from 'drizzle-orm';
 import * as ai from '@tw/ai';
 import { logged } from './ai-calls.ts';
@@ -73,6 +73,8 @@ export async function cliChatResponse(input: {
   signal: AbortSignal;
   /** Called once the reply has been read to its end (see readToEnd). */
   onEnd: () => void;
+  /** Called right after the last look at the steering queue (see chat-turns startTurn). */
+  markClosing?: () => void;
   /** The CLI call; tests pass a fake. */
   turn?: CliTurn;
 }): Promise<Response> {
@@ -87,7 +89,9 @@ export async function cliChatResponse(input: {
   const earlier = messages.slice(0, -1);
   const last = messages.at(-1);
   const context = saved ? catchUp(earlier, saved.seen ?? earlier.length, CONTEXT_BUDGET.cli) : handover(earlier, CONTEXT_BUDGET.cli);
-  let prompt = [context, takeDecisions(db, chat.id), input.view, last ? textOf(last) : ''].filter(Boolean).join('\n\n');
+  // Messages a previous turn could not take come after the new one.
+  const leftover = takeSteers(chat.id);
+  let prompt = [context, takeDecisions(db, chat.id), input.view, last ? textOf(last) : '', steerPrompt(leftover)].filter(Boolean).join('\n\n');
   let sessionId = saved?.id;
   let totalsBefore = saved?.totals;
 
@@ -96,6 +100,11 @@ export async function cliChatResponse(input: {
     generateId: () => crypto.randomUUID(),
     execute: async ({ writer }) => {
       writer.write({ type: 'message-metadata', messageMetadata: { answeredBy: input.answeredBy } });
+      const steer = (texts: string[]) => {
+        for (const text of texts) writer.write({ type: 'data-steer', data: { text } });
+        return steerPrompt(texts);
+      };
+      steer(leftover);
       for (let round = 0; round < MAX_ROUNDS; round++) {
         writer.write({ type: 'start-step' });
         const answer = await logged(db, { projectId: chat.projectId, kind: 'chat', refId: chat.id, label: `채팅 (CLI${round ? ` · 도구 결과 후 ${round}` : ''})` }, route, () => run(route, { sessionId, system, prompt, timeoutMs: input.timeoutMs, signal: input.signal, totalsBefore }));
@@ -111,7 +120,14 @@ export async function cliChatResponse(input: {
         }
         if (!calls.length && !error) {
           writer.write({ type: 'finish-step' });
-          return;
+          // A message sent while it was answering: carry on with it instead of ending the turn (#44).
+          const texts = takeSteers(chat.id);
+          if (!texts.length) {
+            input.markClosing?.();
+            return;
+          }
+          prompt = steer(texts);
+          continue;
         }
         const results: string[] = error ? [error] : [];
         for (const call of calls) {
@@ -139,8 +155,9 @@ export async function cliChatResponse(input: {
           }
         }
         writer.write({ type: 'finish-step' });
-        prompt = `작업실 도구 결과:\n${results.join('\n\n')}`;
+        prompt = [`작업실 도구 결과:\n${results.join('\n\n')}`, steer(takeSteers(chat.id))].filter(Boolean).join('\n\n');
       }
+      input.markClosing?.();
       const id = crypto.randomUUID();
       writer.write({ type: 'text-start', id });
       writer.write({ type: 'text-delta', id, delta: `(도구를 ${MAX_ROUNDS}번 연달아 불러 여기서 멈췄습니다. 이어서 하려면 메시지를 보내세요.)` });

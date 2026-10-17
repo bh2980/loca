@@ -217,7 +217,13 @@ function ChatBody({ projectId, sessionId, initial, turn, model, onModel }: {
   // The turn runs on the server, not in this request: stopping ends both.
   const halt = () => {
     void stop();
-    void unwrap(client.chat[':sessionId'].stop.$post({ param: { sessionId } }));
+    setLater([]);
+    void unwrap(client.chat[':sessionId'].stop.$post({ param: { sessionId } })).then(({ queued: back }) => {
+      // Messages the turn had not taken yet go back to the input box.
+      const mine = [...later, ...back.filter((text) => !later.includes(text))];
+      setQueued([]);
+      if (mine.length) setInput((current) => [current.trim(), ...mine].filter(Boolean).join('\n\n'));
+    });
   };
   // A reply this window is not streaming (sent before a reload, or from another window) is saved
   // by the server when it ends; the saved conversation then catches up here.
@@ -227,6 +233,10 @@ function ChatBody({ projectId, sessionId, initial, turn, model, onModel }: {
   }, [initial]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [input, setInput] = useState(() => sessionStorage.getItem(`tw.chat.draft.${sessionId}`) ?? '');
+  // Sent while the reply was running (#44): waiting for the turn to take them at its next step.
+  const [queued, setQueued] = useState<string[]>([]);
+  // Sent too late for the running turn to take: they go as the next message once it ends.
+  const [later, setLater] = useState<string[]>([]);
   useEffect(() => {
     sessionStorage.setItem(`tw.chat.draft.${sessionId}`, input);
   }, [sessionId, input]);
@@ -267,10 +277,34 @@ function ChatBody({ projectId, sessionId, initial, turn, model, onModel }: {
 
   const send = () => {
     const text = input.trim();
-    if (!text || busy || elsewhere || !ready) return;
-    void sendMessage({ text });
+    if (!text || !ready) return;
     setInput('');
+    if (!busy && !elsewhere) {
+      void sendMessage({ text });
+      return;
+    }
+    pinned.current = true;
+    setQueued((list) => [...list, text]);
+    void client.chat[':sessionId'].steer.$post({ param: { sessionId }, json: { text } }).then((response) => {
+      if (response.ok) return;
+      setQueued((list) => list.filter((item) => item !== text));
+      setLater((list) => [...list, text]);
+    });
   };
+  // A queued message shows in the reply once the turn has handed it to the model.
+  useEffect(() => {
+    if (!queued.length) return;
+    const delivered = messages.flatMap((message) => message.parts.flatMap((part) => (part.type === 'data-steer' ? [(part as { data: { text: string } }).data.text] : [])));
+    const left = queued.filter((text) => !delivered.includes(text));
+    if (left.length !== queued.length) setQueued(left);
+  }, [messages]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Too late for the last turn: sent as the next message as soon as it has ended.
+  useEffect(() => {
+    if (!later.length || busy || elsewhere || !ready) return;
+    const text = later.join('\n\n');
+    setLater([]);
+    void sendMessage({ text });
+  }, [later, busy, elsewhere, ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <>
@@ -307,12 +341,16 @@ function ChatBody({ projectId, sessionId, initial, turn, model, onModel }: {
                         <Markdown>{part.text}</Markdown>
                       </div>
                     );
+                  if (part.type === 'data-steer') return <SteerBubble key={index} text={(part as { data: { text: string } }).data.text} />;
                   if (part.type.startsWith('tool-')) return <ToolPart key={index} part={part as never} proposal={proposalById.get(((part as { output?: { proposalId?: string } }).output ?? {}).proposalId ?? '') as never} stale={message.id !== messages.at(-1)?.id} onDecide={(id, approved) => addToolApprovalResponse({ id, approved })} onOutput={(toolCallId, output) => void addToolOutput({ tool: part.type.slice(5) as never, toolCallId, output: output as never })} />;
                   return null;
                 })}
               </div>
             ),
           )}
+          {[...queued, ...later].map((text, index) => (
+            <SteerBubble key={`queued-${index}`} text={text} waiting />
+          ))}
           {busy && (
             <p className="flex items-center gap-2 text-sm text-muted-foreground">
               <Spinner /> {status === 'submitted' ? '생각하는 중…' : '작업 중… (도구로 자료를 읽거나 답을 쓰고 있습니다)'}
@@ -354,27 +392,37 @@ function ChatBody({ projectId, sessionId, initial, turn, model, onModel }: {
               send();
             }
           }}
-          placeholder={ready ? '메시지 (Enter 전송, Shift+Enter 줄바꿈)' : '먼저 아래에서 채팅할 AI 연결과 모델을 고르세요'}
+          placeholder={ready ? (busy || elsewhere ? '답하는 중에도 보낼 수 있습니다 (다음 단계에 전달)' : '메시지 (Enter 전송, Shift+Enter 줄바꿈)') : '먼저 아래에서 채팅할 AI 연결과 모델을 고르세요'}
           className="max-h-48 min-h-16 resize-none border-0 bg-transparent px-1 shadow-none focus-visible:ring-0"
         />
         <div className="flex items-center gap-2">
           <div className="min-w-0 flex-1">
             <ModelPicker compact need={['chat']} value={model} onChange={(next) => void onModel(next)} />
           </div>
-          <div className="ml-auto">
-            {busy || elsewhere ? (
+          <div className="ml-auto flex items-center gap-1">
+            {(busy || elsewhere) && (
               <Button size="icon" variant="secondary" aria-label="중지" onClick={halt}>
                 <Square className="size-3" />
               </Button>
-            ) : (
-              <Button size="icon" aria-label="보내기" disabled={!input.trim() || !ready} onClick={send}>
-                <ArrowUp />
-              </Button>
             )}
+            {/* While the reply runs, a message goes in at its next step instead of waiting for it to end. */}
+            <Button size="icon" aria-label={busy || elsewhere ? '진행 중인 답에 끼워 보내기' : '보내기'} title={busy || elsewhere ? '지금 답에 끼워 보내기 (다음 단계에 전달)' : undefined} disabled={!input.trim() || !ready} onClick={send}>
+              <ArrowUp />
+            </Button>
           </div>
         </div>
       </div>
     </>
+  );
+}
+
+/** A message sent while a reply was running: where the reply took it, or still waiting for its next step. */
+function SteerBubble({ text, waiting = false }: { text: string; waiting?: boolean }) {
+  return (
+    <div className={cn('ml-8 rounded-lg bg-background px-3 py-2 text-sm whitespace-pre-wrap shadow-xs ring-1 ring-border', waiting && 'text-muted-foreground')}>
+      <span className="mb-0.5 block text-xs text-muted-foreground">{waiting ? '전달 대기 중 · 답의 다음 단계에 들어갑니다' : '진행 중에 보냄'}</span>
+      {text}
+    </div>
   );
 }
 

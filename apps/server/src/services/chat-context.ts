@@ -54,6 +54,39 @@ export function messageText(message: UIMessage, limit = 2_000) {
   return pieces.join('\n');
 }
 
+/** A message the person sent while the reply was running, kept inside that reply where it reached the model (#44). */
+export interface SteerPart {
+  type: 'data-steer';
+  data: { text: string };
+}
+export const isSteer = (part: { type: string }): part is SteerPart => part.type === 'data-steer';
+
+/**
+ * The record with each reply split where a steering message reached the model: reply so far, the
+ * person's message, the rest of the reply. Context builders read this, so every backend sees the
+ * conversation in the order it happened.
+ */
+export function expandSteers(messages: UIMessage[]): UIMessage[] {
+  if (!messages.some((message) => message.role === 'assistant' && message.parts.some(isSteer))) return messages;
+  return messages.flatMap((message) => {
+    if (message.role !== 'assistant' || !message.parts.some(isSteer)) return [message];
+    const out: UIMessage[] = [];
+    let parts: UIMessage['parts'] = [];
+    const flush = () => {
+      if (parts.some((part) => part.type !== 'step-start')) out.push({ ...message, id: out.length ? `${message.id}~${out.length}` : message.id, parts });
+      parts = [];
+    };
+    for (const part of message.parts) {
+      if (isSteer(part)) {
+        flush();
+        out.push({ id: `${message.id}~${out.length}`, role: 'user', parts: [{ type: 'text', text: part.data.text }] });
+      } else parts.push(part);
+    }
+    flush();
+    return out;
+  });
+}
+
 const speaker = (message: UIMessage) => {
   if (message.role === 'user') return '사용자';
   const by = (message.metadata as { answeredBy?: AnsweredBy } | undefined)?.answeredBy;
@@ -65,7 +98,7 @@ const speaker = (message: UIMessage) => {
  * shortened, and if that is still too long the oldest are left out with a note saying how many.
  */
 export function transcript(messages: UIMessage[], budget: number) {
-  const full = messages.map((message) => ({ who: speaker(message), text: messageText(message) })).filter((line) => line.text);
+  const full = expandSteers(messages).map((message) => ({ who: speaker(message), text: messageText(message) })).filter((line) => line.text);
   if (!full.length) return '';
   const lines: string[] = [];
   let used = 0;
@@ -107,7 +140,8 @@ const sizeOf = (message: UIMessage) => JSON.stringify(message.parts).length;
  * one text message (a handover) and the rest is sent as it is, starting at a user message so a tool
  * call is never cut from its result (pi's compaction keeps the same boundary).
  */
-export function fitMessages(messages: UIMessage[], budget: number): UIMessage[] {
+export function fitMessages(record: UIMessage[], budget: number): UIMessage[] {
+  const messages = expandSteers(record);
   let total = messages.reduce((sum, message) => sum + sizeOf(message), 0);
   if (total <= budget) return messages;
   let start = 0;

@@ -110,7 +110,9 @@ app.post('/v1/chat/completions', async (c) => {
     });
   }
 
-  // Chat agent turn.
+  // Chat agent turn. Instant unless a latency is set explicitly (MOCK_LATENCY_MS or x-mock-latency-ms), e.g. to try steering.
+  const chatLatency = requestOptions(c.req.raw.headers).latencyMs;
+  if (chatLatency) await new Promise((resolve) => setTimeout(resolve, chatLatency));
   if (process.env.MOCK_DEBUG) console.log('roles', body.messages.map((message) => message.role).join(','));
   const tools = new Set(body.tools?.map((tool) => tool.function.name));
   const user = text([...body.messages].reverse().find((message) => message.role === 'user'));

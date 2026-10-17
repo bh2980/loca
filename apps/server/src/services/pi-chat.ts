@@ -1,5 +1,5 @@
 import { createUIMessageStream, createUIMessageStreamResponse, type UIMessage } from 'ai';
-import { readToEnd } from './chat-turns.ts';
+import { enqueueSteer, readToEnd, steerPrompt, takeSteers } from './chat-turns.ts';
 import { eq } from 'drizzle-orm';
 import * as ai from '@tw/ai';
 import { startCall } from './ai-calls.ts';
@@ -10,7 +10,7 @@ import { agentCatalog, jsonSchemaOf } from './agent-catalog.ts';
 import { prepareProposal, reportText } from './proposal-check.ts';
 import { fitText } from './tool-output.ts';
 import { propose, proposedText, takeDecisions } from './proposals.ts';
-import { catchUp, CONTEXT_BUDGET, messageText, textOf, transcript, type AnsweredBy } from './chat-context.ts';
+import { catchUp, CONTEXT_BUDGET, expandSteers, messageText, textOf, transcript, type AnsweredBy } from './chat-context.ts';
 
 /**
  * Project chat through pi. pi keeps the conversation in an in-process session per chat; the
@@ -39,6 +39,8 @@ export async function piChatResponse(input: {
   signal: AbortSignal;
   /** Called once the reply has been read to its end (see readToEnd). */
   onEnd: () => void;
+  /** Called right after the last look at the steering queue (see chat-turns startTurn). */
+  markClosing?: () => void;
 }): Promise<Response> {
   const { db, chat, route, messages } = input;
   let live = sessions.get(chat.id);
@@ -78,13 +80,20 @@ export async function piChatResponse(input: {
   if (current.pi.isStreaming) throw new Error('이전 응답이 아직 끝나지 않았습니다. 잠시 후 다시 보내세요.');
 
   const last = messages.at(-1);
-  const prompt = [catchUp(messages.slice(0, -1), current.seen, CONTEXT_BUDGET.pi), takeDecisions(db, chat.id), input.view, last ? textOf(last) : ''].filter(Boolean).join('\n\n');
+  // Messages a previous turn could not take come after the new one.
+  const leftover = takeSteers(chat.id);
+  const prompt = [catchUp(messages.slice(0, -1), current.seen, CONTEXT_BUDGET.pi), takeDecisions(db, chat.id), input.view, last ? textOf(last) : '', steerPrompt(leftover)].filter(Boolean).join('\n\n');
 
   const stream = createUIMessageStream({
     originalMessages: messages,
     generateId: () => crypto.randomUUID(),
     execute: async ({ writer }) => {
       writer.write({ type: 'message-metadata', messageMetadata: { answeredBy: input.answeredBy } });
+      const steer = (texts: string[]) => {
+        for (const text of texts) writer.write({ type: 'data-steer', data: { text } });
+        return steerPrompt(texts);
+      };
+      steer(leftover);
       let textId: string | null = null;
       const closeText = () => {
         if (textId) writer.write({ type: 'text-end', id: textId });
@@ -121,12 +130,23 @@ export async function piChatResponse(input: {
         } else if (event.type === 'tool_execution_end') {
           if (event.isError) writer.write({ type: 'tool-output-error', toolCallId: event.toolCallId, errorText: String(event.result?.content?.[0]?.text ?? '도구 실행 실패') });
           else writer.write({ type: 'tool-output-available', toolCallId: event.toolCallId, output: event.result?.details ?? null });
+          // A message sent meanwhile goes in before pi's next model call (#44).
+          const texts = takeSteers(chat.id);
+          if (texts.length) {
+            closeText();
+            void current.pi.steer(steer(texts)).catch(() => {
+              for (const text of texts) enqueueSteer(chat.id, text);
+            });
+          }
         }
       });
       const abort = () => void current.pi.abort();
       input.signal.addEventListener('abort', abort);
       try {
         await current.pi.prompt(prompt);
+        // A message sent while it was answering: carry on with it instead of ending the turn.
+        for (let texts = takeSteers(chat.id); texts.length && !input.signal.aborted; texts = takeSteers(chat.id)) await current.pi.prompt(steer(texts));
+        input.markClosing?.();
         finish({ usage });
       } catch (error) {
         finish({ error, usage });
@@ -151,7 +171,8 @@ export async function piChatResponse(input: {
  * The record as pi history: what each side said, tools on one line each. The newest messages fit in
  * the budget as they are; anything older becomes one text message at the start (#46).
  */
-export function seedHistory(earlier: UIMessage[]): ai.PiHistoryMessage[] {
+export function seedHistory(record: UIMessage[]): ai.PiHistoryMessage[] {
+  const earlier = expandSteers(record);
   let used = 0;
   let start = earlier.length;
   while (start > 0) {
