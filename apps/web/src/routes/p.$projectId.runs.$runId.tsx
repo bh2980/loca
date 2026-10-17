@@ -25,6 +25,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import type { InferResponseType } from 'hono/client';
 import { BatchList } from '@/components/workflow/batch-list';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ContinueRun } from '@/components/workflow/continue-run';
 
 type State = keyof typeof ITEM_STATE;
 interface RunSearch {
@@ -207,6 +208,7 @@ function RunDetail() {
                   <Play /> 재개
                 </Button>
               )}
+              {(data.status === 'paused' || (data.status === 'completed' && (totals.failed ?? 0) > 0)) && !data.filling && <ContinueRun runId={runId} failed={totals.failed ?? 0} paused={data.status === 'paused'} />}
               {active && stop}
             </>
           }
@@ -240,6 +242,17 @@ function RunDetail() {
           <p className="truncate text-xs text-muted-foreground">
             {new Date(data.createdAt).toLocaleString()} 시작 · 모델 {data.models.map((model) => (model.routes.length > 1 ? `${model.label} (막히면 → ${model.routes.slice(1).map((route) => `${route.name} · ${route.model}`).join(' → ')})` : model.label)).join(', ') || '없음'}
           </p>
+          {data.byModel.length > 1 && (
+            <p className="text-xs text-muted-foreground">
+              연결별 호출: {data.byModel.map((row) => `${[row.name, row.model].filter(Boolean).join(' · ') || '알 수 없음'} ${row.steps}회${row.failed ? `(실패 ${row.failed})` : ''}`).join(', ')}
+            </p>
+          )}
+          {data.continuations.map((entry, index) => (
+            <p key={index} className="text-xs text-muted-foreground">
+              {new Date(entry.at).toLocaleString()} 이어서 실행{entry.changes.length > 0 && ` · ${entry.changes.map((change) => `${nodeName(change.nodeId)}: ${change.from} → ${change.to}`).join(', ')}`}
+              {entry.retried > 0 && ` · 실패한 줄 ${entry.retried.toLocaleString()}개 다시`}
+            </p>
+          ))}
           <div className="space-y-1.5">
             <div className="flex flex-wrap items-baseline justify-between gap-x-4 text-sm">
               <span>

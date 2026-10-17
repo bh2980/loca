@@ -8,13 +8,15 @@ import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { lineView } from '../engine/functions/index.ts';
 import { runScript } from '../engine/functions/sandbox.ts';
-import { createRunInSteps, selectRunUnits } from '../engine/runner.ts';
+import { createRunInSteps, FILLING, selectRunUnits } from '../engine/runner.ts';
 import { listBatches, preflight } from '../services/preflight.ts';
 import { choiceLabel, defaultModelChoice, snapshotWorkflowModels } from '../services/routes.ts';
+import { continuePreflight, switchedRun } from '../services/run-continue.ts';
 
 const scopeSchema = z.object({ groupIds: z.array(z.string()).optional(), unitIds: z.array(z.string()).optional(), tagIds: z.array(z.string()).optional(), marks: lineMarksSchema.optional(), ignoreStatus: z.boolean().optional() });
 /** A run's scope and, optionally, the models it uses instead of its nodes' own (by AI node id). */
 const runSchema = scopeSchema.extend({ models: runModelsSchema.optional() });
+const continueSchema = z.object({ models: runModelsSchema.optional(), retryFailed: z.boolean().default(false) });
 
 /** Connection names now, for logs that keep only the id; a deleted connection reads as its kind. */
 const connectionNames = (db: Db) => new Map(db.select({ id: s.connections.id, name: s.connections.name }).from(s.connections).all().map((row) => [row.id, row.name]));
@@ -302,9 +304,18 @@ export const workflowRoutes = new Hono<Env>()
       .from(s.runSteps)
       .where(eq(s.runSteps.runId, run.id))
       .get();
+    // Which connection and model did the calls (a switched or shared step, a fallback that took over).
+    const names = connectionNames(db);
+    const byModel = db
+      .select({ connectionId: s.runSteps.connectionId, model: s.runSteps.model, steps: count(), failed: sql<number>`sum(case when ${s.runSteps.ok} then 0 else 1 end)`, inputTokens: sql<number>`coalesce(sum(${s.runSteps.inputTokens}), 0)`, outputTokens: sql<number>`coalesce(sum(${s.runSteps.outputTokens}), 0)`, costUsd: sql<number | null>`sum(${s.runSteps.costUsd})` })
+      .from(s.runSteps)
+      .where(eq(s.runSteps.runId, run.id))
+      .groupBy(s.runSteps.connectionId, s.runSteps.model)
+      .all()
+      .map((row) => ({ ...row, name: connectionName(names, row.connectionId, null) }));
     const { models, ...rest } = run;
     // What each model choice resolved to when the run started, its fallbacks after it.
-    return c.json({ ...rest, models: Object.values(models).map((model) => ({ label: model.label, routes: model.routes.map((route) => ({ connectionId: route.connectionId, name: route.name, model: route.model })) })), nodes, usage });
+    return c.json({ ...rest, models: Object.values(models).map((model) => ({ label: model.label, routes: model.routes.map((route) => ({ connectionId: route.connectionId, name: route.name, model: route.model })) })), nodes, usage, byModel, filling: run.notice === FILLING });
   })
   .get('/runs/:id/items', validate('query', z.object({ state: z.string().optional(), nodeId: z.string().optional(), offset: z.coerce.number().default(0), limit: z.coerce.number().max(500).default(100) })), (c) => {
     const { db } = c.var.deps;
@@ -329,6 +340,26 @@ export const workflowRoutes = new Hono<Env>()
   .get('/runs/:id/steps', (c) => {
     const { db } = c.var.deps;
     return c.json(db.select().from(s.runSteps).where(eq(s.runSteps.runId, c.req.param('id'))).orderBy(desc(s.runSteps.startedAt)).limit(200).all());
+  })
+  /** The estimate for continuing a paused or finished run on other models (#41). */
+  .post('/runs/:id/continue/preflight', validate('json', continueSchema), async (c) => {
+    const { db } = c.var.deps;
+    const run = found(db.select().from(s.runs).where(eq(s.runs.id, c.req.param('id'))).get(), '실행');
+    const { models, retryFailed } = c.req.valid('json');
+    const result = await continuePreflight(db, run, models, retryFailed);
+    if (!result.ok) badRequest(result.error);
+    return c.json({ lines: result.lines, plan: result.plan });
+  })
+  /** Continue a paused or finished run, on other models for some AI steps and/or with its failed lines again. */
+  .post('/runs/:id/continue', validate('json', continueSchema), (c) => {
+    const { db, runner } = c.var.deps;
+    const run = found(db.select().from(s.runs).where(eq(s.runs.id, c.req.param('id'))).get(), '실행');
+    const { models, retryFailed } = c.req.valid('json');
+    const switched = switchedRun(db, run, models);
+    if (!switched.ok) badRequest(switched.error);
+    const result = runner.continue(run.id, { definition: switched.definition, models: switched.models, changes: switched.changes, retryFailed });
+    if (!result.ok) badRequest(result.error);
+    return c.json({ ok: true, retried: result.retried, changes: switched.changes });
   })
   .post('/runs/:id/:action{pause|resume|cancel}', (c) => {
     const { runner } = c.var.deps;

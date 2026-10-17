@@ -535,11 +535,21 @@ export const runs = sqliteTable(
     limits: json<RunLimits>('limits'),
     /** Why the runner paused the run on its own (a guard, an error); cleared on resume. */
     notice: text('notice'),
+    /** Each time a person continued the run with other models or re-queued its failed lines (#41), oldest first. */
+    continuations: json<RunContinuation[]>('continuations').notNull().default(sql`'[]'`),
     createdAt: createdAt(),
     finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),
   },
   (t) => [index('runs_project').on(t.projectId, t.createdAt)],
 );
+
+export interface RunContinuation {
+  at: number;
+  /** AI steps switched to another model for the rest of the run: labels as the run detail shows them. */
+  changes: { nodeId: string; from: string; to: string }[];
+  /** Failed lines sent back to the queue. */
+  retried: number;
+}
 
 export interface RunLimits {
   maxCalls?: number;

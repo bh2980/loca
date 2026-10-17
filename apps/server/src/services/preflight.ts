@@ -44,7 +44,7 @@ export interface NodeEstimate {
  * requests per AI node, token estimates and the risks worth seeing before spending a subscription.
  * The plan is the same one createRun stores (planRun), so the numbers describe the real run.
  */
-export async function preflight(db: Db, workflow: typeof s.workflows.$inferSelect, scope: s.RunScope) {
+export async function preflight(db: Db, workflow: Pick<typeof s.workflows.$inferSelect, 'projectId' | 'definition'> & { id: string | null }, scope: s.RunScope) {
   const definition: WorkflowDefinition = workflow.definition;
   const projectId = workflow.projectId;
   const unitIds = selectRunUnits(db, projectId, definition, scope);
@@ -79,7 +79,7 @@ export async function preflight(db: Db, workflow: typeof s.workflows.$inferSelec
       return row ? choiceLabel(row.name, choice) : null;
     };
     const connection = node.config.model.connectionId ? db.select().from(s.connections).where(eq(s.connections.id, node.config.model.connectionId)).get() : undefined;
-    const historyRate = rateFromHistory(db, workflow.id, node.id);
+    const historyRate = workflow.id ? rateFromHistory(db, workflow.id, node.id) : null;
     const all = everyLine.has(node.id);
     const max = requests.length * (all ? 1 : definition.settings.maxVisitsPerNode);
     return {

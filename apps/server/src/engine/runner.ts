@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
 import jsonLogic from 'json-logic-js';
 import * as ai from '@tw/ai';
@@ -153,6 +153,40 @@ export class Runner {
     this.notify(runId);
   }
 
+  /**
+   * Continues a paused or finished run (#41), optionally on other models and with its failed lines
+   * re-queued at the step they failed in. The new definition and model snapshots are the run's own;
+   * the workflow is not changed. Calls already made keep the connection they went out through (run_steps).
+   */
+  continue(runId: string, next: { definition: WorkflowDefinition; models: Record<string, s.AiSnapshot>; changes: s.RunContinuation['changes']; retryFailed: boolean }) {
+    const result = this.db.transaction((tx) => {
+      const run = tx.select().from(s.runs).where(eq(s.runs.id, runId)).get();
+      if (!run) return { ok: false as const, error: '없는 실행입니다.' };
+      if (run.status === 'running') return { ok: false as const, error: '실행 중에는 바꿀 수 없습니다. 먼저 일시정지하세요.' };
+      if (run.status === 'cancelled') return { ok: false as const, error: '취소한 실행은 이어서 할 수 없습니다. 새로 실행하세요.' };
+      if (run.notice === FILLING) return { ok: false as const, error: '아직 대사를 넣는 중입니다.' };
+      let retried = 0;
+      if (next.retryFailed) {
+        const failed = tx.select().from(s.runItems).where(and(eq(s.runItems.runId, runId), eq(s.runItems.state, 'failed'))).all();
+        for (const item of failed) {
+          const { [item.nodeId]: _, ...retries } = item.data.retries ?? {};
+          tx.update(s.runItems).set({ state: 'queued', error: null, data: { ...item.data, retries } }).where(eq(s.runItems.id, item.id)).run();
+        }
+        retried = failed.length;
+      }
+      const open = tx.select({ id: s.runItems.id }).from(s.runItems).where(and(eq(s.runItems.runId, runId), inArray(s.runItems.state, ['queued', 'running']))).limit(1).all();
+      if (!open.length) return { ok: false as const, error: '이어서 처리할 대사가 없습니다.' };
+      const continuation: s.RunContinuation = { at: Date.now(), changes: next.changes, retried };
+      tx.update(s.runs)
+        .set({ definition: next.definition, models: next.models, status: 'running', notice: null, finishedAt: null, continuations: [...run.continuations, continuation] })
+        .where(eq(s.runs.id, runId))
+        .run();
+      return { ok: true as const, retried };
+    });
+    if (result.ok) this.notify(runId);
+    return result;
+  }
+
   cancel(runId: string) {
     this.aborts.get(runId)?.abort();
     this.db.transaction((tx) => {
@@ -176,13 +210,15 @@ export class Runner {
    * in a row, or a cap the person set. Any of them pauses the run before more is spent.
    */
   private guard(runId: string, failure?: { code?: string; message: string }) {
-    const run = this.db.select({ status: s.runs.status, definition: s.runs.definition, limits: s.runs.limits }).from(s.runs).where(eq(s.runs.id, runId)).get();
+    const run = this.db.select({ status: s.runs.status, definition: s.runs.definition, limits: s.runs.limits, continuations: s.runs.continuations }).from(s.runs).where(eq(s.runs.id, runId)).get();
     if (run?.status !== 'running') return;
     const stopping = failure?.code ? STOPPING_CODES[failure.code] : undefined;
     if (stopping) return this.halt(runId, `${stopping}로 멈췄습니다: ${failure!.message}`);
     const max = run.definition.settings.maxConsecutiveFailures ?? 3;
     // Insertion order, not finished_at: calls that end in the same millisecond must not swap places.
-    const recent = this.db.select({ ok: s.runSteps.ok }).from(s.runSteps).where(eq(s.runSteps.runId, runId)).orderBy(desc(sql`rowid`)).limit(max).all();
+    // Failures before the person last continued the run (on another model, say) do not count again.
+    const since = run.continuations.at(-1)?.at;
+    const recent = this.db.select({ ok: s.runSteps.ok }).from(s.runSteps).where(and(eq(s.runSteps.runId, runId), since ? gte(s.runSteps.startedAt, new Date(since)) : undefined)).orderBy(desc(sql`rowid`)).limit(max).all();
     if (recent.length === max && recent.every((step) => !step.ok))
       return this.halt(runId, `호출이 ${max}번 연달아 실패해서 멈췄습니다.${failure ? ` 마지막 오류: ${failure.message}` : ''}`);
     if (!run.limits?.maxCalls && !run.limits?.maxInputTokens) return;
@@ -629,7 +665,7 @@ export class Runner {
     const project = this.db.select().from(s.projects).where(eq(s.projects.id, run.projectId)).get()!;
     const { rows, lines } = this.promptLines(items);
     const round = Math.max(0, ...items.map((item) => item.data.retries?.[node.id] ?? 0));
-    const step: StepRecord = { runId: run.id, nodeId: node.id, connectionId: routes[0]?.connectionId ?? null, unitIds: items.map((item) => item.unitId), startedAt: new Date(), round };
+    const step: StepRecord = { runId: run.id, nodeId: node.id, connectionId: routes[0]?.connectionId ?? null, model: routes[0]?.model ?? null, unitIds: items.map((item) => item.unitId), startedAt: new Date(), round };
     const context = buildContext(this.db, run.projectId, rows, node.config.context);
     step.context = context.items;
     const { system, prompt } = buildPrompt(node, { source: project.sourceLanguage, target: project.targetLanguage }, context, lines);
@@ -675,7 +711,7 @@ export class Runner {
 
   /** A judge model (System One) answers one line at a time and only supports verdicts. */
   private async judgeLines(run: Run, node: AiNode, batch: Item[], model: s.AiSnapshot, routes: ai.ResolvedRoute[], signal: AbortSignal) {
-    const step: StepRecord = { runId: run.id, nodeId: node.id, connectionId: routes[0]?.connectionId ?? null, unitIds: batch.map((item) => item.unitId), startedAt: new Date() };
+    const step: StepRecord = { runId: run.id, nodeId: node.id, connectionId: routes[0]?.connectionId ?? null, model: routes[0]?.model ?? null, unitIds: batch.map((item) => item.unitId), startedAt: new Date() };
     if (node.config.output !== 'verdict') return this.failBatch(run, batch, step, new Error('System One 연결은 출력 형태가 "판정"인 AI 노드에서만 쓸 수 있습니다.'));
     const { rows, lines } = this.promptLines(batch);
     const context = buildContext(this.db, run.projectId, rows, node.config.context);
@@ -926,7 +962,7 @@ export function createRun(db: Db, input: RunInput) {
 
 /** Lines stored per step when a run is created from the app or a chat. */
 const FILL_STEP = 2_000;
-const FILLING = '대사를 넣는 중입니다.';
+export const FILLING = '대사를 넣는 중입니다.';
 
 /**
  * createRun for the app and chats: a 50k-line run is stored FILL_STEP lines at a time with the
