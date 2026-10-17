@@ -42,6 +42,8 @@ export interface CliChatTurn {
 export interface CliChatResult {
   sessionId: string;
   text: string;
+  /** Codex printed two or more non-empty agent messages in one call, which is how a failed call to its own tool shows. */
+  ownToolAttempt?: boolean;
   /** This turn's own use. */
   usage: Usage;
   /**
@@ -146,7 +148,7 @@ export function readCliChat(kind: ChatCliKind, stdout: string, fallbackId: strin
       return event.type === 'item.completed' && item?.type === 'agent_message' ? [String(item.text ?? '')] : [];
     });
     const done = events.findLast((event) => event.type === 'turn.completed');
-    return { sessionId: String(thread?.thread_id ?? fallbackId), text: messages.join('\n\n'), usage: usageOf(done?.usage) };
+    return { sessionId: String(thread?.thread_id ?? fallbackId), text: messages.join('\n\n'), usage: usageOf(done?.usage), ...(messages.filter((message) => message.trim()).length >= 2 ? { ownToolAttempt: true } : {}) };
   }
   if (kind === 'antigravity') {
     const init = events.find((event) => event.event === 'init');

@@ -92,4 +92,45 @@ describe('CLI chat', () => {
     await vi.waitFor(() => expect(onEnd).toHaveBeenCalledOnce());
     expect(JSON.stringify(db.select().from(s.chatSessions).where(eq(s.chatSessions.id, chat.id)).get()!.messages)).toContain('안녕하세요.');
   });
+
+  it('corrects one Codex own-tool attempt and keeps both visible replies', async () => {
+    const { db, chat } = setup();
+    const prompts: string[] = [];
+    const cli = async (_route: ai.ResolvedRoute, request: ai.CliChatTurn): Promise<ai.CliChatResult> => {
+      prompts.push(request.prompt);
+      return prompts.length === 1
+        ? { sessionId: 'codex-1', text: '조회하겠습니다.', usage: {}, ownToolAttempt: true }
+        : { sessionId: 'codex-1', text: '확인했습니다.', usage: {} };
+    };
+    const response = await cliChatResponse({
+      db, chat, route: { kind: 'codex', model: 'gpt-6-luna' },
+      answeredBy: { kind: 'codex', connectionId: 'conn-codex', model: 'gpt-6-luna' },
+      system: 'test', view: null, messages: [user('용어집을 확인해줘')], timeoutMs: 1000, turn: fakeTurn(), cli,
+    });
+    const body = await response.text();
+
+    expect(prompts).toHaveLength(2);
+    expect(prompts[1]).toBe('답이 작업실 도구를 부르지 않은 채 끝났습니다. 이 대화에는 코드 실행(exec)이 없습니다. 작업실 도구가 필요하면 답의 맨 끝에 다음처럼 loca-tools 블록을 쓰세요:\n```loca-tools\n[{"tool": "<도구 이름>", "input": {}}]\n```\n도구가 필요 없으면 바로 답하세요.');
+    expect(body).toContain('조회하겠습니다.');
+    expect(body).toContain('확인했습니다.');
+  });
+
+  it('does not correct an own-tool attempt more than once in a turn', async () => {
+    const { db, chat } = setup();
+    const prompts: string[] = [];
+    const response = await cliChatResponse({
+      db, chat, route: { kind: 'codex', model: 'gpt-6-luna' },
+      answeredBy: { kind: 'codex', connectionId: 'conn-codex', model: 'gpt-6-luna' },
+      system: 'test', view: null, messages: [user('용어집을 확인해줘')], timeoutMs: 1000, turn: fakeTurn(),
+      cli: async (_route, request) => {
+        prompts.push(request.prompt);
+        return { sessionId: 'codex-1', text: `답 ${prompts.length}`, usage: {}, ownToolAttempt: true };
+      },
+    });
+    const body = await response.text();
+
+    expect(prompts).toHaveLength(2);
+    expect(body).toContain('답 1');
+    expect(body).toContain('답 2');
+  });
 });

@@ -39,9 +39,16 @@ describe('CLI chat output', () => {
       { type: 'item.completed', item: { id: 'i2', type: 'agent_message', text: 'second' } },
       { type: 'turn.completed', usage: { input_tokens: 100, output_tokens: 7 } },
     ].map((event) => JSON.stringify(event)).join('\n');
-    expect(readCliChat('codex', out, 'x')).toEqual({ sessionId: 't-9', text: 'first\n\nsecond', usage: { inputTokens: 100, outputTokens: 7 } });
+    expect(readCliChat('codex', out, 'x')).toEqual({ sessionId: 't-9', text: 'first\n\nsecond', usage: { inputTokens: 100, outputTokens: 7 }, ownToolAttempt: true });
     // A resumed turn prints no thread.started: the id we resumed is kept.
     expect(readCliChat('codex', JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'again' } }), 't-9').sessionId).toBe('t-9');
+  });
+
+  it('marks only Codex calls with two non-empty agent messages as own tool attempts', () => {
+    const codex = (messages: string[]) => messages.map((text) => JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text } })).join('\n');
+    expect(readCliChat('codex', codex(['one', 'two']), 'x').ownToolAttempt).toBe(true);
+    expect(readCliChat('codex', codex(['one', '']), 'x').ownToolAttempt).toBeUndefined();
+    expect(readCliChat('grok', JSON.stringify({ text: 'one\ntwo', sessionId: 'g', usage: {} }), 'x').ownToolAttempt).toBeUndefined();
   });
 
   it('reads agy stream-json and opencode parts', () => {
