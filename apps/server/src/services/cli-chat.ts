@@ -29,8 +29,9 @@ export function toolProtocol(tools: CatalogTool[]) {
   return [
     '## 작업실 도구 사용법',
     '이 대화에서는 당신의 셸·파일·웹 도구를 쓰지 않습니다. 프로젝트를 읽거나 바꾸려면 아래 작업실 도구를 씁니다.',
-    // Codex (gpt-6) tries its code-mode `exec` / ALL_TOOLS first even when it is off; one failed call per turn otherwise.
-    '당신 쪽의 도구 호출(exec·ALL_TOOLS 같은 코드 실행, 함수 호출)은 이 대화에서 모두 꺼져 있어 실패합니다. 시도하지 말고 처음부터 아래 블록을 쓰세요.',
+    // Codex (gpt-6) calls its code-mode `exec` / ALL_TOOLS out of habit although it is off ("code-mode host is disabled"),
+    // then may conclude the workbench tools are off too. Say plainly that the block always works.
+    '작업실 도구는 아래 loca-tools 블록으로만 부르며, 이 방식은 이 대화에서 언제나 동작합니다. exec·ALL_TOOLS 같은 코드 실행이나 함수 호출로는 작업실 도구를 부를 수 없습니다. 그런 호출이 실패해도(예: "code-mode host is disabled") 작업실 도구가 꺼진 것이 아니니, 곧바로 loca-tools 블록으로 부르세요.',
     '도구가 필요하면 답의 맨 끝에 다음 블록 하나를 쓰고 멈추세요. 블록 안은 JSON 배열이며 한 번에 여러 도구를 부를 수 있습니다:',
     '```loca-tools\n[{"tool": "find_lines", "input": {"speakers": ["Alice"], "limit": 20}}]\n```',
     '그러면 다음 메시지로 "작업실 도구 결과"가 옵니다. 결과를 보고 이어서 답하거나 다시 도구를 부르세요. 도구가 필요 없으면 블록 없이 답만 씁니다.',
