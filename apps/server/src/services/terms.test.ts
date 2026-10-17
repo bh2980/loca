@@ -6,7 +6,7 @@ import * as s from '../db/schema.ts';
 import { importProject } from './importer.ts';
 import { memoryStore } from './secrets.ts';
 import { fillTermUsage } from './term-usage.ts';
-import { addNameTerms, NOT_A_TERM, TermService } from './terms.ts';
+import { addNameTerms, discoverAndSave, NOT_A_TERM, TermService } from './terms.ts';
 
 function setup() {
   const db = openDatabase(':memory:');
@@ -102,5 +102,24 @@ describe('glossary', () => {
     ]);
     // Ordinary words are not sent again.
     expect(service.pending(projectId)).toEqual([]);
+  });
+
+  it('discovers terms across the script and saves them as candidates', () => {
+    const { db, projectId } = setup();
+    const statusId = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).get()!.id;
+    const groupId = db.select().from(s.groups).get()!.id;
+    // Add units with bracketed terms and katakana/names
+    db.insert(s.units).values([
+      { projectId, groupId, statusId, sort: 10, seq: 10, kind: 'dialogue', key: 'b1', source: 'The 『Orb of Power』 is glowing.' },
+      { projectId, groupId, statusId, sort: 11, seq: 11, kind: 'dialogue', key: 'b2', source: 'Protect the 『Orb of Power』.' },
+    ]).run();
+    const result = discoverAndSave(db, projectId);
+    expect(result.found).toBeGreaterThan(0);
+    expect(result.added).toBeGreaterThan(0);
+    const orb = terms(db, projectId).find((t) => t.source === 'Orb of Power');
+    expect(orb).toBeDefined();
+    expect(orb?.status).toBe('candidate');
+    expect(orb?.origin).toBe('script');
+    expect(orb?.lines).toBe(2);
   });
 });

@@ -10,7 +10,7 @@ import { graphOrder, ruleLines } from '../services/speech.ts';
 import { eventFlow, forks } from '../services/event-routes.ts';
 import { fillTermUsage, termUsage } from '../services/term-usage.ts';
 import { saveCharacter } from '../services/characters.ts';
-import { saveTerm, SUGGEST_BATCH } from '../services/terms.ts';
+import { discoverAndSave, saveTerm, SUGGEST_BATCH } from '../services/terms.ts';
 import { byPerson } from '../services/status-by.ts';
 import { clearReview, setKnowledgeTag, withTags } from '../services/knowledge-tags.ts';
 
@@ -70,6 +70,12 @@ export const knowledgeRoutes = new Hono<Env>()
   .post('/terms/suggest/cancel', (c) => {
     c.var.deps.terms.cancel(c.req.param('projectId')!);
     return c.json({ ok: true });
+  })
+  .post('/terms/discover', (c) => {
+    const { db } = c.var.deps;
+    const projectId = c.req.param('projectId')!;
+    const result = discoverAndSave(db, projectId);
+    return c.json(result);
   })
   /** Lines whose source mentions the term (whole word, case-insensitive): what to re-run after changing it. */
   .get('/terms/:id/usage', (c) => {

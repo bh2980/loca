@@ -63,7 +63,7 @@ type RelationEdge = Edge<{ offset: number; rows: LabelRow[]; dim: boolean; focus
 function PersonNodeView({ data, selected }: NodeProps<PersonNode>) {
   return (
     <div
-      className={cn('flex items-center justify-center rounded-lg border bg-background px-3 text-sm font-medium shadow-xs transition-opacity', selected && 'border-primary ring-2 ring-primary/30', data.dim && 'opacity-30')}
+      className={cn('flex items-center justify-center rounded-md border border-border/80 bg-background px-3 text-xs font-medium shadow-none transition-opacity', selected && 'border-primary ring-1 ring-primary/40', data.dim && 'opacity-30')}
       style={{ width: NODE_WIDTH, height: NODE_HEIGHT }}
     >
       <span className="truncate">{data.label}</span>

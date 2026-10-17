@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, CircleStop } from 'lucide-react';
+import { Plus, CircleStop, ScanSearch } from 'lucide-react';
 import { toast } from 'sonner';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { HeaderFilter, MarkFilter, markTagGroups } from '@/components/header-filter';
@@ -56,6 +56,14 @@ function Glossary() {
   const fill = suggest.data?.state;
   const cancelFill = useMutation({
     mutationFn: () => unwrap(client.projects[':projectId'].terms.suggest.cancel.$post({ param: { projectId } })),
+    onError: (error) => toast.error(error.message),
+  });
+  const discover = useMutation({
+    mutationFn: () => unwrap(client.projects[':projectId'].terms.discover.$post({ param: { projectId } })),
+    onSuccess: ({ found, added, updated }) => {
+      queryClient.invalidateQueries({ queryKey: q.terms(projectId).queryKey });
+      toast.success(`대본에서 용어 후보 ${found.toLocaleString()}개를 찾았습니다 (추가 ${added}개, 갱신 ${updated}개).`);
+    },
     onError: (error) => toast.error(error.message),
   });
   // A finished fill reports its error once; the muted text below stays until the next run.
@@ -200,6 +208,9 @@ function Glossary() {
                   {!!suggest.data?.pending && <FillDialog projectId={projectId} pending={suggest.data.pending} calls={suggest.data.calls} batch={suggest.data.batch} />}
                 </>
               )}
+              <Button variant="outline" disabled={discover.isPending} onClick={() => discover.mutate()}>
+                <ScanSearch /> 대본에서 찾기
+              </Button>
               <Button onClick={() => select(NEW_TERM)}>
                 <Plus /> 용어 추가
               </Button>
@@ -215,7 +226,7 @@ function Glossary() {
           rows={terms.data && rows}
           rowId={(term) => term.id}
           loading={terms.isLoading}
-          empty={<EmptyState noun="용어" filtered={Boolean(needle || search.ids || search.source || search.marks?.length || search.tags?.length)} hint="작품 분석이 후보를 내거나 ‘용어 추가’로 직접 넣으세요." />}
+          empty={<EmptyState noun="용어" filtered={Boolean(needle || search.ids || search.source || search.marks?.length || search.tags?.length)} hint="‘대본에서 찾기’로 후보를 찾거나 ‘용어 추가’로 직접 넣으세요." />}
           selected={selected?.id}
           onRowClick={(term) => select(term.id === search.term ? undefined : term.id)}
           picked={picked}

@@ -178,7 +178,7 @@ export function GettingStarted({ projectId }: { projectId: string }) {
           <X />
         </Button>
       </div>
-      <ol className="divide-y rounded-lg border">
+      <ol className="divide-y rounded-md border border-border/80 bg-background/50">
         {steps.map((step, i) => {
           const current = step === next;
           return (

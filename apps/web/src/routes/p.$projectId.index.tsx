@@ -159,7 +159,7 @@ function Home() {
             <Skeleton className="h-16" />
           </div>
         ) : open.length ? (
-          <ul className="divide-y rounded-lg border">
+          <ul className="divide-y rounded-md border border-border/80">
             {open.map((todo) => (
               <li key={todo.key}>
                 <TodoRow todo={todo} />
@@ -167,22 +167,22 @@ function Home() {
             ))}
           </ul>
         ) : (
-          <p className="rounded-lg border px-4 py-6 text-sm text-muted-foreground">지금 할 일이 없습니다. 모든 대사가 처리됐고 검토할 것도 없습니다.</p>
+          <p className="rounded-md border border-border/80 px-4 py-6 text-xs text-muted-foreground">지금 할 일이 없습니다. 모든 대사가 처리됐고 검토할 것도 없습니다.</p>
         )}
       </section>
 
       <section>
         <div className="mb-3 flex items-baseline gap-3">
           <h2 className="text-base font-semibold">번역 진행</h2>
-          <span className="text-sm text-muted-foreground tabular-nums">
+          <span className="text-xs text-muted-foreground tabular-nums">
             최종 상태 {total ? Math.round((done / total) * 100) : 0}% · 대사 {total.toLocaleString()}개 · 묶음 {project.data?.groupCount.toLocaleString() ?? '–'}개
           </span>
         </div>
-        <StatusBar statuses={statusList} counts={counts} className="h-2" />
+        <StatusBar statuses={statusList} counts={counts} className="h-1.5" />
         <ul className="mt-3 flex flex-wrap gap-x-1 gap-y-1">
           {statusList.map((status) => (
             <li key={status.id}>
-              <Link to="/p/$projectId/script" params={{ projectId }} search={{ status: status.id }} className="flex items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-muted">
+              <Link to="/p/$projectId/script" params={{ projectId }} search={{ status: status.id }} className="flex items-center gap-1.5 rounded-xs px-2 py-1 text-xs hover:bg-muted/60 transition-colors">
                 <StatusDot color={status.color} />
                 {status.name}
                 <span className="text-muted-foreground tabular-nums">{(counts[status.id] ?? 0).toLocaleString()}</span>
@@ -195,17 +195,17 @@ function Home() {
       <section>
         <div className="mb-3 flex items-center gap-3">
           <h2 className="text-base font-semibold">실행</h2>
-          <span className="text-sm text-muted-foreground">{active.length ? `진행 중 ${active.length}개` : '진행 중인 실행이 없습니다.'}</span>
-          <Button variant="ghost" className="ml-auto" asChild>
+          <span className="text-xs text-muted-foreground">{active.length ? `진행 중 ${active.length}개` : '진행 중인 실행이 없습니다.'}</span>
+          <Button variant="ghost" size="xs" className="ml-auto text-xs" asChild>
             <Link to="/p/$projectId/runs" params={{ projectId }}>
-              실행 기록 <ChevronRight />
+              실행 기록 <ChevronRight className="size-3.5" />
             </Link>
           </Button>
         </div>
         {runs.data?.length === 0 && jobs.data?.jobs.length === 0 ? (
-          <p className="rounded-lg border px-4 py-6 text-sm text-muted-foreground">아직 실행한 적이 없습니다. 워크플로 {workflows.data?.length ?? 0}개가 준비되어 있습니다.</p>
+          <p className="rounded-md border border-border/80 px-4 py-6 text-xs text-muted-foreground">아직 실행한 적이 없습니다. 워크플로 {workflows.data?.length ?? 0}개가 준비되어 있습니다.</p>
         ) : (
-          <ul className="divide-y rounded-lg border">
+          <ul className="divide-y rounded-md border border-border/80">
             {recent.map((item) => (
               <li key={item.id}>
                 <Link

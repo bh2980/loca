@@ -149,7 +149,7 @@ export function knowledgeOf(db: Db, projectId: string) {
 export const graphOrder = (db: Db, projectId: string) => cachedKnowledge(db, projectId, 'graphOrder', ['order'], () => buildGraphOrder(db, projectId));
 
 /** Script order of every line (scene order, then line order): rule intervals fall back to it for lines outside the graph. */
-function scriptOrder(db: Db, projectId: string) {
+export function scriptOrder(db: Db, projectId: string) {
   return cachedKnowledge(db, projectId, 'scriptOrder', ['order'], () => {
     const rows = db
       .select({ key: s.units.key, seq: s.units.seq })

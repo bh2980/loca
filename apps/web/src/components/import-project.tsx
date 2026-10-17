@@ -63,7 +63,7 @@ export function ImportProjectDialog({ trigger }: { trigger?: React.ReactNode }) 
         </DialogHeader>
         {/* Click to pick, or drop the file here. */}
         <label
-          className={cn('flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed px-4 py-8 text-sm text-muted-foreground hover:bg-muted/50', dragging && 'border-primary bg-muted/60 text-foreground')}
+          className={cn('flex cursor-pointer flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border/80 px-4 py-8 text-xs text-muted-foreground hover:bg-muted/40 transition-colors', dragging && 'border-primary bg-muted/60 text-foreground')}
           onDragOver={(event) => {
             event.preventDefault();
             event.dataTransfer.dropEffect = 'copy';

@@ -1,8 +1,8 @@
 import { and, desc, eq, inArray, lt } from 'drizzle-orm';
-import { CONTEXT_PRIORITY, contextConfigSchema, estimateTokens, listenerLabel, mentions, personNote, styleInstruction, termMatcher, type AgeBand, type ContextConfig, type ContextItem, type ContextItemKind, type Gender } from '@tw/shared';
+import { CONTEXT_PRIORITY, contextConfigSchema, estimateTokens, listenerLabel, mentions, personNote, styleInstruction, termMatcher, type AgeBand, type ContextConfig, type ContextItem, type ContextItemKind, type Gender, type RelationshipChange } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import { documents as documentsTable, graphEdges, graphNodes, groups, units } from '../db/schema.ts';
-import { cachedKnowledge, describeRule, knowledgeOf, knownListener, speechRuleIndex } from './speech.ts';
+import { cachedKnowledge, describeRule, graphOrder, knowledgeOf, knownListener, scriptOrder, speechRuleIndex } from './speech.ts';
 import { deriveSceneEdges } from './scene-graph.ts';
 
 export { mentions } from '@tw/shared';
@@ -46,14 +46,14 @@ export interface BatchContext {
   speech: Record<string, { listener: string; rule?: string; note?: string; byOrder?: true }>;
   /** Every confirmed character, for naming people who are not mentioned in the batch. */
   cast: { name: string; aliases: string[]; player?: true; gender?: string; age?: string }[];
-  relationships: { from: string; to: string; kind: string; description: string; mutual: boolean }[];
+  relationships: { from: string; to: string; kind: string; description: string; mutual: boolean; changes?: RelationshipChange[] }[];
   /**
    * Items AI confirmed that no person has looked at (✦, docs/DESIGN.md 3.5), kept apart from the facts above
    * so the model does not take a guess for a settled fact.
    */
   aiNotes: {
     characters: { name: string; aliases: string[]; profile: string; gender?: string; age?: string }[];
-    relationships: { from: string; to: string; kind: string; description: string; mutual: boolean }[];
+    relationships: { from: string; to: string; kind: string; description: string; mutual: boolean; changes?: RelationshipChange[] }[];
     documents: { kind: string; title: string; body: string }[];
   };
   terms: { source: string; target: string; note: string }[];
@@ -354,11 +354,51 @@ export function buildContext(
     const presentIds = new Set(present.map((character) => character.id));
     const nameOf = new Map(allCharacters.map((character) => [character.id, character.name]));
     const rels = knowledge.relationships().filter((rel) => presentIds.has(rel.fromId) && presentIds.has(rel.toId) && trusted(rel));
+
+    const graph = graphOrder(db, projectId);
+    let lineOrder: Map<string, number> | undefined;
+    const getScriptOrder = () => (lineOrder ??= scriptOrder(db, projectId));
+    const batchKeys = batch.map((unit) => unit.key);
+    let maxSeq: number | undefined;
+    const batchMaxSeq = () => (maxSeq ??= Math.max(...batchKeys.map((k) => getScriptOrder().get(k) ?? 0)));
+
+    const isPassedOrReachable = (point: string): boolean => {
+      const passage = graph.batchPassage(point, batchKeys);
+      if (passage === 'definite' || passage === 'maybe') return true;
+      if (passage === 'none') return false;
+      const pointSeq = getScriptOrder().get(point);
+      if (pointSeq === undefined) return true;
+      return pointSeq <= batchMaxSeq();
+    };
+
     for (const rel of rels) {
-      const entry = { from: nameOf.get(rel.fromId)!, to: nameOf.get(rel.toId)!, kind: rel.kind, description: rel.description, mutual: rel.mutual };
+      // Spoiler protection: if all evidence for this relationship lies in the future or unreachable branches, suppress it.
+      if (rel.evidence?.length && rel.evidence.every((ev) => !isPassedOrReachable(ev))) {
+        continue;
+      }
+      // Filter changes: keep only changes up to or reachable by this batch
+      const validChanges = (rel.changes ?? []).filter((ch) => isPassedOrReachable(ch.at));
+      const entry = {
+        from: nameOf.get(rel.fromId)!,
+        to: nameOf.get(rel.toId)!,
+        kind: rel.kind,
+        description: rel.description,
+        mutual: rel.mutual,
+        ...(validChanges.length && { changes: validChanges }),
+      };
       const ai = unverified(rel);
+      const totalChanges = rel.changes?.length ?? 0;
+      const changeNote = validChanges.length !== totalChanges
+        ? ` · 미래 변화 ${totalChanges - validChanges.length}건 차단`
+        : validChanges.length
+          ? ` · 변화 ${validChanges.length}건`
+          : '';
       candidates.relationship.push({
-        item: { kind: 'relationship', label: `${entry.from} → ${entry.to}: ${entry.kind}${ai ? ' (AI 추론)' : ''}`, reason: `이 묶음에 나오는 두 인물 사이${ai ? ' · 확인 안 된 AI 항목이라 사실과 따로 전달' : ''}` },
+        item: {
+          kind: 'relationship',
+          label: `${entry.from} → ${entry.to}: ${entry.kind}${ai ? ' (AI 추론)' : ''}`,
+          reason: `이 묶음에 나오는 두 인물 사이${changeNote}${ai ? ' · 확인 안 된 AI 항목이라 사실과 따로 전달' : ''}`,
+        },
         payload: entry,
         keep: () => (ai ? result.aiNotes.relationships : result.relationships).push(entry),
       });

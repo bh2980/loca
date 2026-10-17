@@ -1,11 +1,13 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@source "../../packages/ui/src";
 
 @custom-variant dark (&:is(.dark *));
 
 /* White, neutral dashboard. Color is reserved for meaning (status, errors, selection). */
 :root {
-  --radius: 0.625rem;
+  /* Crisp, flat professional tool radius (reduced from 10px down to 4px) */
+  --radius: 0.25rem;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -35,8 +37,8 @@
   --token-4: oklch(0.48 0.2 275);
   --token-5: oklch(0.52 0.1 225);
   --token-6: oklch(0.5 0.12 120);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
+  --border: oklch(0.915 0 0);
+  --input: oklch(0.915 0 0);
   --ring: oklch(0.708 0 0);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
@@ -58,10 +60,16 @@
 }
 
 @theme inline {
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --radius-xs: 2px;
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+  --radius-xl: 8px;
+  --shadow-none: 0 0 #0000;
+  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.04);
+  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.05), 0 1px 2px -1px rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.08), 0 2px 4px -2px rgb(0 0 0 / 0.04);
+  --shadow-lg: 0 10px 24px -4px rgb(0 0 0 / 0.10), 0 4px 8px -4px rgb(0 0 0 / 0.05);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);

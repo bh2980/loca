@@ -426,3 +426,109 @@ describe('who set the status', () => {
   });
 });
 
+describe('batch output optimization (H7)', () => {
+  it('marks the batch leader, skips duplicate addTerms writes, and keeps payload on leader only for knowledge', async () => {
+    const { db, projectId, choice } = setup(3);
+    const definition = workflowDefinitionSchema.parse({
+      nodes: [
+        { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: {} },
+        { id: 'terms', type: 'ai', position: { x: 0, y: 0 }, config: { model: choice, output: 'terms', instructions: AI_PRESETS.terms.instructions } },
+        { id: 'add', type: 'function', position: { x: 0, y: 0 }, config: { fn: 'addTerms', params: { fromNodeId: 'terms' } } },
+        { id: 'end', type: 'end', position: { x: 0, y: 0 } },
+      ],
+      edges: [
+        { id: '1', source: 'entry', sourceHandle: 'out', target: 'terms' },
+        { id: '2', source: 'terms', sourceHandle: 'out', target: 'add' },
+        { id: '3', source: 'add', sourceHandle: 'out', target: 'end' },
+      ],
+    });
+
+    const model: ModelPort = {
+      judge: async () => { throw new Error('unused'); },
+      generate: (async () => ({
+        object: { terms: [{ source: 'artifact', target: '유물', note: 'ancient tool' }] },
+        usage: { inputTokens: 50, outputTokens: 20 },
+      })) as never,
+    };
+
+    const workflow = db.insert(s.workflows).values({ projectId, name: 'terms-flow', definition }).returning().get();
+    const { runId } = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: {} });
+    await new Runner(db, memoryStore(), model).drain();
+
+    const items = db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all();
+    expect(items).toHaveLength(3);
+    // Leader gets batchLeader: true; other members get batchLeader: false.
+    expect(items[0].data.outputs?.terms).toMatchObject({ terms: [{ source: 'artifact', target: '유물' }], batchLeader: true });
+    expect(items[1].data.outputs?.terms).toMatchObject({ terms: [{ source: 'artifact', target: '유물' }], batchLeader: false });
+    expect(items[2].data.outputs?.terms).toMatchObject({ terms: [{ source: 'artifact', target: '유물' }], batchLeader: false });
+
+    // The function node executed for all 3, but leader inserted and followers skipped redundant writes.
+    expect(items[0].data.outputs?.add).toMatchObject({ added: 1, filled: 0 });
+    expect(items[1].data.outputs?.add).toMatchObject({ added: 0, filled: 0, batchSkipped: true });
+    expect(items[2].data.outputs?.add).toMatchObject({ added: 0, filled: 0, batchSkipped: true });
+
+    // Terms table has exactly 1 term inserted, not 3.
+    const terms = db.select().from(s.terms).where(eq(s.terms.projectId, projectId)).all();
+    expect(terms).toHaveLength(1);
+    expect(terms[0].source).toBe('artifact');
+  });
+
+  it('preserves model evidence and saves space by keeping knowledge payload on leader only', async () => {
+    const { db, projectId, choice } = setup(2);
+    const units = db.select().from(s.units).where(eq(s.units.projectId, projectId)).all();
+    const secondLineKey = units[1].key;
+
+    const definition = workflowDefinitionSchema.parse({
+      nodes: [
+        { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: {} },
+        { id: 'know', type: 'ai', position: { x: 0, y: 0 }, config: { model: choice, output: 'knowledge', instructions: AI_PRESETS.knowledge.instructions } },
+        { id: 'apply', type: 'function', position: { x: 0, y: 0 }, config: { fn: 'applyKnowledge', params: { fromNodeId: 'know' } } },
+        { id: 'end', type: 'end', position: { x: 0, y: 0 } },
+      ],
+      edges: [
+        { id: '1', source: 'entry', sourceHandle: 'out', target: 'know' },
+        { id: '2', source: 'know', sourceHandle: 'out', target: 'apply' },
+        { id: '3', source: 'apply', sourceHandle: 'out', target: 'end' },
+      ],
+    });
+
+    const model: ModelPort = {
+      judge: async () => { throw new Error('unused'); },
+      generate: (async () => ({
+        object: {
+          characters: [{ name: 'Cassandra', aliases: ['Cass'], profile: 'Detective', evidence: ['2'] }],
+          relationships: [],
+          events: [{ title: 'Secret meeting', summary: 'met in the dark', outcome: 'discovered', participants: ['Cassandra'], evidence: ['2'] }],
+          speechRules: [],
+        },
+        usage: { inputTokens: 50, outputTokens: 20 },
+      })) as never,
+    };
+
+    const workflow = db.insert(s.workflows).values({ projectId, name: 'know-flow', definition }).returning().get();
+    const { runId } = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: {} });
+    await new Runner(db, memoryStore(), model).drain();
+
+    const items = db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all();
+    expect(items).toHaveLength(2);
+
+    // Leader carries the full knowledge graph.
+    expect((items[0].data.outputs?.know as { knowledge: { characters: unknown[] } }).knowledge.characters).toHaveLength(1);
+    expect((items[0].data.outputs?.know as { batchLeader: boolean }).batchLeader).toBe(true);
+
+    // Follower carries empty knowledge to save space in run_items.data.
+    expect((items[1].data.outputs?.know as { knowledge: { characters: unknown[] } }).knowledge.characters).toHaveLength(0);
+    expect((items[1].data.outputs?.know as { batchLeader: boolean }).batchLeader).toBe(false);
+
+    // apply node: leader applied, follower skipped redundant writes.
+    expect(items[0].data.outputs?.apply).toMatchObject({ added: 2 }); // 1 character + 1 event
+    expect(items[1].data.outputs?.apply).toMatchObject({ added: 0, proposed: 0, batchSkipped: true });
+
+    // Character evidence correctly points to line 2's key, not line 1's key!
+    const character = db.select().from(s.characters).where(eq(s.characters.projectId, projectId)).get();
+    expect(character?.name).toBe('Cassandra');
+    expect(character?.evidence).toEqual([secondLineKey]);
+  });
+});
+
+

@@ -34,6 +34,22 @@ describe('GraphOrder', () => {
     expect(order.passage('d1', 'a1')).toBe('none');
   });
 
+  it('determines batchPassage relative to a batch of lines', () => {
+    const order = graph();
+    // a1 dominates d1 & d2, so it definitely passed
+    expect(order.batchPassage('a1', ['d1', 'd2'])).toBe('definite');
+    // b1 is on one branch to d1, so it maybe passed
+    expect(order.batchPassage('b1', ['d1', 'd2'])).toBe('maybe');
+    // d1 is in the future for a1 & a2, so none
+    expect(order.batchPassage('d1', ['a1', 'a2'])).toBe('none');
+    // c1 is on an unreachable branch from b1, so none
+    expect(order.batchPassage('c1', ['b1'])).toBe('none');
+    // point not in graph is unknown
+    expect(order.batchPassage('zz', ['a1', 'd1'])).toBe('unknown');
+    // empty batch is unknown
+    expect(order.batchPassage('a1', [])).toBe('unknown');
+  });
+
   it('within one node, earlier lines are passed; later ones only when the node can come round again', () => {
     const order = graph();
     expect(order.passage('a1', 'a2')).toBe('definite');
