@@ -13,7 +13,8 @@ import { Spinner } from '@/components/ui/spinner';
 import { client, unwrap } from '@/lib/api';
 import { LINE_MARK_IDS, type LineMark, UNREVIEWED_MARKS } from '@tw/shared';
 import { MarkChip } from '@/components/status';
-import { ModelPicker, type ModelValue } from '@/components/model-picker';
+import type { ModelValue } from '@/components/model-picker';
+import { Pace, RunModels } from './run-estimate';
 import { lineTags, q } from '@/lib/queries';
 import { SCRIPT_VIEW } from '@/lib/labels';
 import { cn } from '@/lib/utils';
@@ -366,64 +367,6 @@ function Readiness({ projectId, readiness, oneScene, scoped, onLeave }: { projec
           </li>
         ))}
       </ul>
-    </section>
-  );
-}
-
-const duration = (seconds: number) => (seconds < 90 ? `${Math.max(1, Math.round(seconds / 10) * 10)}초` : seconds < 5400 ? `${Math.round(seconds / 60)}분` : `${(seconds / 3600).toFixed(1)}시간`);
-
-/** How long and how much, in plain words (for the models picked below). */
-function Pace({ data }: { data: PlanData }) {
-  const calls = data.totals.calls;
-  const callText = calls.expected !== null ? `${calls.expected.toLocaleString()}회` : `${calls.min.toLocaleString()}~${calls.max.toLocaleString()}회`;
-  const { seconds, costUsd, subscription } = data.pace;
-  // Only what is known: no time without history, no cost the provider never reported.
-  const money = subscription && !costUsd ? '구독 사용' : costUsd === null ? null : costUsd === 0 && !subscription ? '무료' : costUsd < 0.01 ? '1센트 미만' : `약 $${costUsd.toFixed(2)}${subscription ? ' + 구독' : ''}`;
-  return (
-    <section className="space-y-1">
-      <h3 className="text-xs text-muted-foreground">얼마나</h3>
-      <p className="text-sm">
-        AI 요청 <b className="font-medium tabular-nums">{callText}</b>
-        {seconds !== null && (
-          <>
-            {' · 약 '}
-            <b className="font-medium">{duration(seconds)}</b>
-          </>
-        )}
-        {money && ` · ${money}`}
-      </p>
-    </section>
-  );
-}
-
-/**
- * Which model each AI step runs on, changeable for this run only (like the work analysis's picker).
- * Each starts at the step's own model; a picked one replaces it, and the models the step otherwise
- * shares its requests with, for this run. The workflow keeps its own (change it there for good).
- */
-function RunModels({ nodes, picked, onPick, onReset }: { nodes: PlanData['nodes']; picked: Record<string, ModelValue>; onPick: (nodeId: string, value: ModelValue) => void; onReset: (nodeId: string) => void }) {
-  return (
-    <section className="space-y-2">
-      <h3 className="text-xs text-muted-foreground">모델</h3>
-      {nodes.map((node) => {
-        const own = node.choice.connectionId && node.choice.model ? node.choice : null;
-        const changed = Boolean(picked[node.nodeId]);
-        return (
-          <div key={node.nodeId} className="flex min-w-0 flex-wrap items-center gap-2">
-            {nodes.length > 1 && <span className="w-28 shrink-0 truncate text-sm">{node.name}</span>}
-            <ModelPicker value={picked[node.nodeId] ?? own} onChange={(value) => onPick(node.nodeId, value)} className="min-w-0 flex-1" />
-            {changed && (
-              <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                이번 실행만
-                <Button variant="ghost" size="inline" onClick={() => onReset(node.nodeId)}>
-                  원래대로
-                </Button>
-              </span>
-            )}
-            {!changed && node.sharedWith.length > 0 && <span className="text-xs text-muted-foreground">+ {node.sharedWith.join(', ')}</span>}
-          </div>
-        );
-      })}
     </section>
   );
 }

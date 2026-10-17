@@ -962,7 +962,7 @@ export function createRun(db: Db, input: RunInput) {
 
 /** Lines stored per step when a run is created from the app or a chat. */
 const FILL_STEP = 2_000;
-const FILLING = '대사를 넣는 중입니다.';
+export const FILLING = '대사를 넣는 중입니다.';
 
 /**
  * createRun for the app and chats: a 50k-line run is stored FILL_STEP lines at a time with the

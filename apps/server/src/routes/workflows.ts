@@ -8,7 +8,7 @@ import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { lineView } from '../engine/functions/index.ts';
 import { runScript } from '../engine/functions/sandbox.ts';
-import { createRunInSteps, selectRunUnits } from '../engine/runner.ts';
+import { createRunInSteps, FILLING, selectRunUnits } from '../engine/runner.ts';
 import { listBatches, preflight } from '../services/preflight.ts';
 import { choiceLabel, defaultModelChoice, snapshotWorkflowModels } from '../services/routes.ts';
 import { continuePreflight, switchedRun } from '../services/run-continue.ts';
@@ -315,7 +315,7 @@ export const workflowRoutes = new Hono<Env>()
       .map((row) => ({ ...row, name: connectionName(names, row.connectionId, null) }));
     const { models, ...rest } = run;
     // What each model choice resolved to when the run started, its fallbacks after it.
-    return c.json({ ...rest, models: Object.values(models).map((model) => ({ label: model.label, routes: model.routes.map((route) => ({ connectionId: route.connectionId, name: route.name, model: route.model })) })), nodes, usage, byModel });
+    return c.json({ ...rest, models: Object.values(models).map((model) => ({ label: model.label, routes: model.routes.map((route) => ({ connectionId: route.connectionId, name: route.name, model: route.model })) })), nodes, usage, byModel, filling: run.notice === FILLING });
   })
   .get('/runs/:id/items', validate('query', z.object({ state: z.string().optional(), nodeId: z.string().optional(), offset: z.coerce.number().default(0), limit: z.coerce.number().max(500).default(100) })), (c) => {
     const { db } = c.var.deps;
