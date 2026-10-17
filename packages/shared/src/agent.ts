@@ -11,6 +11,9 @@ export const AGENT_TOOL_TARGETS = {
   terms: '용어집',
   workflows: '워크플로',
   settings: '상태·태그',
+  /** Deleting rows of any kind (#45): its own group, so switching it off does not touch saving. */
+  items: '항목 삭제(자료·용어·태그)',
+  project: '프로젝트 설정',
   web: '웹',
 } as const;
 export type AgentToolTarget = keyof typeof AGENT_TOOL_TARGETS;
@@ -48,7 +51,7 @@ export const AGENT_TOOLS: Record<string, { target: AgentToolTarget; action: Agen
   save_event: tool('knowledge', 'change', '사건 저장'),
   save_document: tool('knowledge', 'change', '참조 문서 저장'),
   save_knowledge: tool('knowledge', 'change', '설정 자료 한꺼번에 저장'),
-  delete_items: tool('settings', 'delete', '항목 삭제'),
+  delete_items: tool('items', 'delete', '항목 삭제'),
   list_terms: tool('terms', 'read', '용어집 조회'),
   save_terms: tool('terms', 'change', '용어 저장'),
   harness_reference: tool('workflows', 'read', '워크플로 구조 확인'),
@@ -59,8 +62,8 @@ export const AGENT_TOOLS: Record<string, { target: AgentToolTarget; action: Agen
   start_run: tool('workflows', 'run', '워크플로 실행'),
   save_status: tool('settings', 'change', '상태·태그 만들기'),
   tag_items: tool('settings', 'change', '용어·자료에 태그 붙이기·떼기'),
-  read_project_settings: tool('settings', 'read', '프로젝트 설정 조회'),
-  update_project_settings: tool('settings', 'change', '프로젝트 설정 변경'),
+  read_project_settings: tool('project', 'read', '프로젝트 설정 조회'),
+  update_project_settings: tool('project', 'change', '프로젝트 설정 변경'),
   web_search: tool('web', 'read', '웹 검색'),
   read_web_page: tool('web', 'read', '웹 페이지 읽기'),
 };

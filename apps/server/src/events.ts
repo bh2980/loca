@@ -69,7 +69,7 @@ interface Pending {
   timer: ReturnType<typeof setTimeout>;
 }
 
-export class Events extends EventEmitter<{ change: [ChangeEvent] }> {
+export class Events extends EventEmitter<{ change: [ChangeEvent]; shutdown: [] }> {
   private pending = new Map<string | undefined, Pending>();
 
   constructor(

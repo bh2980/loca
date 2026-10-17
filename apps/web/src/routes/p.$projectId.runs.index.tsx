@@ -18,6 +18,7 @@ import { AnalysisSteps } from '@/components/job-progress';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
+import { dateTime, clock } from '@/lib/datetime';
 
 interface RunsSearch {
   /** The run or job whose AI requests the right-hand pane shows. */
@@ -39,7 +40,7 @@ const seconds = (from: Date | string, to: Date | string | null) => {
 };
 const tokens = (stats: Stats | null | undefined) =>
   stats ? `${stats.calls != null ? `${stats.calls.toLocaleString()}회 · ` : ''}${stats.inputTokens.toLocaleString()} / ${stats.outputTokens.toLocaleString()}` : '—';
-const startedAt = (at: Date) => at.toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+const startedAt = (at: Date) => dateTime(at);
 
 type Row = {
   id: string;
@@ -231,7 +232,7 @@ function JobCalls({ projectId, job, onClose }: { projectId: string; job: { id: s
                 )}
               </div>
               <p className="text-xs text-muted-foreground tabular-nums">
-                {new Date(call.startedAt).toLocaleTimeString()} · {call.connectionName ?? '연결 없음'} · {call.model}
+                {clock(call.startedAt)} · {call.connectionName ?? '연결 없음'} · {call.model}
                 {call.inputTokens != null && ` · 입력 ${call.inputTokens.toLocaleString()}${call.cachedInputTokens ? `(캐시 ${call.cachedInputTokens.toLocaleString()})` : ''} / 출력 ${(call.outputTokens ?? 0).toLocaleString()}`}
               </p>
               {call.error && <p className="text-xs break-words text-destructive">{call.error}</p>}

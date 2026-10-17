@@ -11,6 +11,7 @@ import { ModelPicker, useInitialModel, type ModelValue } from '@/components/mode
 import { Switch } from '@/components/ui/switch';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
+import { dateTime } from '@/lib/datetime';
 
 const fail = (error: Error) => toast.error(error.message);
 
@@ -20,7 +21,7 @@ export function JobStatus({ projectId }: { projectId: string }) {
   const cancel = useMutation({ mutationFn: (jobId: string) => unwrap(client.projects[':projectId'].analysis[':jobId'].cancel.$post({ param: { projectId, jobId } })), onError: fail });
   const job = jobs.data?.[0];
   if (!job) return <span>작품 분석을 돌리면 대본 전체를 읽고 아래 다섯 가지 초안을 만듭니다.</span>;
-  const when = new Date(job.finishedAt ?? job.createdAt).toLocaleString();
+  const when = dateTime(job.finishedAt ?? job.createdAt);
   if (job.status === 'running')
     return (
       <span className="flex min-w-0 items-center gap-2">

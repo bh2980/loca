@@ -27,6 +27,7 @@ import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { cn } from '@/lib/utils';
 import { keyStoreLabel } from '@/lib/keys';
+import { dateTime } from '@/lib/datetime';
 
 export const Route = createFileRoute('/p/$projectId/ai/connections')({
   validateSearch: (raw: Record<string, unknown>): { conn?: string } => ({
@@ -589,7 +590,7 @@ function ModelTest({ connectionId, need, defaultModel, defaultEffort }: { connec
             {tests.data.map((call) => (
               <li key={call.id} className="flex items-baseline justify-between gap-3">
                 <span className="text-xs text-muted-foreground tabular-nums">
-                  {new Date(call.startedAt).toLocaleString()} · {call.model}
+                  {dateTime(call.startedAt)} · {call.model}
                 </span>
                 <span className={cn('min-w-0 truncate text-xs', call.status === 'failed' ? 'text-destructive' : 'text-muted-foreground')}>
                   {call.status === 'running' ? '진행 중' : call.status === 'failed' ? `실패${call.error ? `: ${call.error}` : ''}` : `${((new Date(call.finishedAt!).getTime() - new Date(call.startedAt).getTime()) / 1000).toFixed(1)}초`}
