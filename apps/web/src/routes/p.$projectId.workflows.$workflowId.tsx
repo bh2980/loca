@@ -181,7 +181,7 @@ function WorkflowEditor() {
       case 'function': {
         const params = node.config.params as Record<string, unknown>;
         if (node.config.fn === 'setStatus')
-          return [params.statusId && `→ ${statusName.get(params.statusId as string) ?? '삭제된 상태'}`, params.applyCandidate && '대표 번역 적용'].filter(Boolean).join(' · ') || '변경 없음';
+          return [params.statusId && `→ ${statusName.get(params.statusId as string) ?? '삭제된 상태'}`].filter(Boolean).join(' · ') || '변경 없음';
         if (node.config.fn === 'http') return `${(params.method as string) ?? 'POST'} ${connectionName.get(params.connectionId as string) ?? '연결 없음'}/${(params.path as string) ?? ''}`;
         if (node.config.fn === 'script') return `출구: ${((params.ports as string[]) ?? ['out']).join(', ')}`;
         if (node.config.fn === 'formatCheck') {

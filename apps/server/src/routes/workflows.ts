@@ -315,9 +315,10 @@ export const workflowRoutes = new Hono<Env>()
     const where = and(...conditions);
     const total = db.select({ count: count() }).from(s.runItems).where(where).get()!.count;
     const rows = db
-      .select({ id: s.runItems.id, unitId: s.runItems.unitId, key: s.units.key, speaker: s.units.speaker, source: s.units.source, nodeId: s.runItems.nodeId, state: s.runItems.state, visits: s.runItems.visits, data: s.runItems.data, error: s.runItems.error, updatedAt: s.runItems.updatedAt })
+      .select({ id: s.runItems.id, unitId: s.runItems.unitId, key: s.units.key, speaker: s.units.speaker, source: s.units.source, nodeId: s.runItems.nodeId, state: s.runItems.state, visits: s.runItems.visits, data: s.runItems.data, error: s.runItems.error, updatedAt: s.runItems.updatedAt, statusName: s.statuses.name, statusColor: s.statuses.color })
       .from(s.runItems)
       .innerJoin(s.units, eq(s.units.id, s.runItems.unitId))
+      .leftJoin(s.statuses, eq(s.statuses.id, s.units.statusId))
       .where(where)
       .orderBy(asc(s.units.seq))
       .limit(limit)
