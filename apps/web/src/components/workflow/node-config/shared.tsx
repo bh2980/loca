@@ -70,7 +70,7 @@ export function ConfigSection({ title, summary, children }: { title: string; sum
       <CollapsibleTrigger asChild>
         <Button variant="ghost" size="row" className="-mx-2 w-[calc(100%+1rem)] min-w-0 justify-start">
           <ChevronRight className="text-muted-foreground transition-transform group-data-[state=open]/section:rotate-90" />
-          <span className="text-xs font-semibold">{title}</span>
+          <span className="shrink-0 text-xs font-semibold">{title}</span>
           {summary && <span className="min-w-0 truncate text-xs font-normal text-muted-foreground group-data-[state=open]/section:hidden">{summary}</span>}
         </Button>
       </CollapsibleTrigger>
