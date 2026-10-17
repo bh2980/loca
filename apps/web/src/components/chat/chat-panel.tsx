@@ -80,7 +80,9 @@ export function ChatPanel({ projectId }: { projectId: string }) {
   const starting = useRef(false);
   useEffect(() => {
     if (!pendingRequest) starting.current = false;
-    if (!pendingRequest || !sessions.data || sessionId || create.isPending || starting.current) return;
+    // With conversations listed but none picked yet (a fresh browser), the effect above picks the
+    // latest in this same render: starting another here would leave an empty extra one each time.
+    if (!pendingRequest || !sessions.data || sessions.data.length > 0 || sessionId || create.isPending || starting.current) return;
     starting.current = true;
     create.mutate();
   }, [pendingRequest, sessions.data, sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
