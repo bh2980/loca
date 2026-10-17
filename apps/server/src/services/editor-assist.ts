@@ -11,6 +11,7 @@ import { buildContext } from './context.ts';
 import { CompleteRefused, editorCallsToday } from './editor-complete.ts';
 import { liveChoice } from './routes.ts';
 import type { SecretStore } from './secrets.ts';
+import { addCandidate } from './candidates.ts';
 
 export type AssistMode = 'translate' | 'refine';
 
@@ -89,7 +90,7 @@ export async function assistLine(db: Db, secrets: SecretStore, unitId: string, r
   if (refine && text.replace(/\s+/g, ' ') === request.draft.trim().replace(/\s+/g, ' ')) return { unchanged: true as const, ...usage };
   const reasons = (entry?.changes ?? []).map((change) => `${KIND_LABELS[change.kind]} · ${change.why.trim()}`).filter((reason) => !reason.endsWith('· '));
   const note = refine ? ['다듬기', ...reasons].join(' — ') : 'AI 번역';
-  const candidate = db.insert(s.candidates).values({ unitId, text, origin: 'ai', model: result.route.model, note }).returning().get();
+  const candidateId = addCandidate(db, { unitId, text, origin: 'ai', model: result.route.model, note });
   events.changed(unit.projectId, 'units');
-  return { candidateId: candidate.id, text, reasons, ...usage };
+  return { candidateId, text, reasons, ...usage };
 }

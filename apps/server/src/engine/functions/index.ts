@@ -16,6 +16,7 @@ import {
   needsListener,
   type FunctionName,
   type WorkflowDefinition,
+  filtersByStatus,
 } from '@tw/shared';
 import type { Db } from '../../db/index.ts';
 import * as s from '../../db/schema.ts';
@@ -29,6 +30,7 @@ import { knowledgeOf, speechMismatch, speechRuleIndex } from '../../services/spe
 import type { IssueTagChange } from '../../services/issue-tags.ts';
 import type { KnowledgeOutput } from '../prompts.ts';
 import { saveDrafts, type Analysis } from '../../services/analysis.ts';
+import { personOwns } from '../apply-candidate.ts';
 
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 type Unit = typeof s.units.$inferSelect;
@@ -74,11 +76,6 @@ export function lineView(input: FunctionInput) {
 // ── instant functions (run inside the runner's transaction) ──────────
 
 /** Whether a run picks its lines by the entry node's statuses (rather than lines named regardless of status). */
-export const filtersByStatus = (definition: WorkflowDefinition, scope: { ignoreStatus?: boolean }) => {
-  const entry = definition.nodes.find((node) => node.type === 'entry');
-  return entry?.type === 'entry' && entry.config.statusIds.length > 0 && !scope.ignoreStatus;
-};
-
 export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknown, input: FunctionInput) => FunctionResult>> = {
   formatCheck(tx, raw, input) {
     const params = formatCheckParams.parse(raw);
@@ -119,9 +116,7 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     // (말투만 고치기, '상태 무시') is asked to rewrite them, so its status change goes through.
     const current = tx.select({ translation: s.units.translation, statusBy: s.units.statusBy }).from(s.units).where(eq(s.units.id, input.unit.id)).get();
     const run = tx.select({ definition: s.runs.definition, scope: s.runs.scope }).from(s.runs).where(eq(s.runs.id, input.runId)).get();
-    const humanOwns =
-      (!run || filtersByStatus(run.definition, run.scope)) &&
-      current?.statusBy === 'human' && (current.translation ?? '').trim() !== '' && current.translation !== input.item.data.candidateText;
+    const humanOwns = personOwns(current, input.item.data.candidateText, !run || filtersByStatus(run.definition, run.scope));
     const patch: Partial<typeof s.units.$inferInsert> = {};
     const issues: string[] = [];
     if (humanOwns) {

@@ -27,6 +27,7 @@ import { tagOverview } from './tag-overview.ts';
 import { setKnowledgeTag } from './knowledge-tags.ts';
 import { planRun, resolveRunModels, runModelInput } from './run-plan.ts';
 import { applyBatch, checkScript, findLines, lineContext, normalizeBatch, runStats, sceneStats, scenesWith, validateBatch } from './script-query.ts';
+import { addCandidate } from './candidates.ts';
 
 /** Lines of a batch proposal checked and applied per step when it is accepted. */
 const APPLY_CHUNK = 500;
@@ -449,7 +450,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       execute: ({ unitId, text, note }) => {
         const unit = db.select({ id: s.units.id }).from(s.units).where(and(eq(s.units.id, unitId), eq(s.units.projectId, projectId))).get();
         if (!unit) return { ok: false, error: '대사를 찾을 수 없습니다.' };
-        const id = db.insert(s.candidates).values({ unitId, text, note, origin: 'ai', model: author.model }).returning().get().id;
+        const id = addCandidate(db, { unitId, text, note, origin: 'ai', model: author.model });
         changed('units');
         return { ok: true, id };
       },

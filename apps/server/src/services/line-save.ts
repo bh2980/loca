@@ -3,6 +3,7 @@ import type { Db } from '../db/index.ts';
 import { eachChunk } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { applyIssueTags } from './issue-tags.ts';
+import { addCandidate } from './candidates.ts';
 
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 type Unit = Pick<typeof s.units.$inferSelect, 'id' | 'projectId' | 'translation' | 'statusId'>;
@@ -56,8 +57,7 @@ export function saveLine(tx: Tx, unit: Unit, save: LineSave): Partial<typeof s.u
     if (save.base !== undefined && (save.base ?? '') !== current && text !== current) throw new LineConflict();
     if (text !== current || candidateId) {
       // The same text twice (a double click, a resent save) is one candidate, not two.
-      candidateId ??= tx.select({ id: s.candidates.id }).from(s.candidates).where(and(eq(s.candidates.unitId, unit.id), eq(s.candidates.text, text))).get()?.id;
-      candidateId ??= tx.insert(s.candidates).values({ unitId: unit.id, text, origin: save.origin ?? 'human', model: save.model ?? null, note: save.note }).returning().get().id;
+      candidateId ??= addCandidate(tx, { unitId: unit.id, text, origin: save.origin ?? 'human', model: save.model ?? null, note: save.note, reuseSame: true });
       patch.translation = text;
       patch.candidateId = candidateId;
     }
