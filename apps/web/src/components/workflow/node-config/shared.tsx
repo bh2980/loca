@@ -1,10 +1,7 @@
 /** Pieces shared by the node-kind configs: row layouts and the node/ref types. */
 import { useId } from 'react';
-import { ControlIdContext } from '@loca/ui';
+import { Input, Label, Switch, ControlIdContext } from '@loca/ui';
 import { CONNECTION_KIND_INFO, type WorkflowNode } from '@tw/shared';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
 
 export type AiNode = Extract<WorkflowNode, { type: 'ai' }>;
 export type FunctionNode = Extract<WorkflowNode, { type: 'function' }>;

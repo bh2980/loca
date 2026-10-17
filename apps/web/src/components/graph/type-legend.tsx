@@ -1,8 +1,7 @@
 import { useMemo } from 'react';
 import { Shapes } from 'lucide-react';
 import { isContentKind, type NodeType } from '@tw/shared';
-import { Button } from '@/components/ui/button';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Button, Popover, PopoverContent, PopoverTrigger } from '@loca/ui';
 import { cn } from '@/lib/utils';
 import { KIND_LABEL } from './shapes';
 

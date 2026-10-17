@@ -37,6 +37,14 @@ export * from "./primitives/radio-group"
 export * from "./primitives/spinner"
 export * from "./primitives/sonner"
 export * from "./primitives/command"
+export * from "./primitives/label"
+export * from "./primitives/toggle"
+export * from "./primitives/toggle-group"
+export * from "./primitives/alert"
+export * from "./primitives/empty"
+export * from "./primitives/field"
+export * from "./primitives/hover-card"
+export * from "./lib/use-mobile"
 
 // Layout (Design System 4.1)
 export * from "./layout/page"
@@ -44,15 +52,12 @@ export * from "./layout/toolbar"
 export * from "./layout/split-pane"
 export * from "./layout/detail-pane"
 export * from "./layout/pane-header"
+export * from "./layout/sidebar"
 
 // Data (Design System 4.1)
 export * from "./data/data-table"
 export * from "./data/column-menu"
 export * from "./data/picked-bar"
 export * from "./data/empty-state"
-export * from "./data/job-progress"
 export * from "./data/tag-menu"
-export * from "./data/header-filter"
 
-// Actions
-export * from "./action/ai-button"

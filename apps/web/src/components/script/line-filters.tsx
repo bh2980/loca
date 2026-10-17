@@ -6,9 +6,7 @@ import { AUTO_MARKS, type AutoMark, LINE_MARK_IDS, type LineMark, parseMarks } f
 import { LINE_TABS, type LineTab } from '@/components/line-detail';
 import { StatusDot } from '@/components/status';
 import { markTagGroups } from '@/components/header-filter';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Button, Input, DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from '@loca/ui';
 import { q } from '@/lib/queries';
 
 export interface LinesSearch {

@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { isUnsureListener, listenerLabel, type ListenerOrigin, SPECIAL_LISTENERS } from '@tw/shared';
-import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Input, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@loca/ui';
 import { cn } from '@/lib/utils';
 
 const LISTENER_ORIGIN_LABELS: Record<ListenerOrigin, string> = { import: '가져오기', scene: '장면 추정', ai: 'AI 추정', human: '사람' };

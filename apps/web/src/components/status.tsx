@@ -1,7 +1,7 @@
 import { useParams } from '@tanstack/react-router';
 import { Sparkles } from 'lucide-react';
 import { AUTO_MARKS, markColor, type AutoMark } from '@tw/shared';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
 import { useMarkColors } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 

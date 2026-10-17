@@ -5,9 +5,7 @@ import { AGENT_TOOLS } from '@tw/shared';
 import { workflowEdits, type WorkflowNodeEdit } from '@/lib/workflow-edits';
 import { ChangePreview, LABEL } from './change-preview';
 import { ProposalCard, type Proposal } from './proposal-card';
-import { Button } from '@/components/ui/button';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { Spinner } from '@/components/ui/spinner';
+import { Button, Collapsible, CollapsibleContent, CollapsibleTrigger, Spinner } from '@loca/ui';
 
 type State = 'input-streaming' | 'input-available' | 'approval-requested' | 'approval-responded' | 'output-available' | 'output-error' | 'output-denied';
 

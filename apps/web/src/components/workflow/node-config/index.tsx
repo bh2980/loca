@@ -2,12 +2,8 @@
 import { Trash2 } from 'lucide-react';
 import { AI_OUTPUTS, CONNECTION_KIND_INFO, FUNCTIONS, NODE_TYPES, nodeName, type FunctionName, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
 import { StatusDot } from '@/components/status';
-import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Input } from '@/components/ui/input';
-import { ScrollArea } from '@/components/ui/scroll-area';
+import { PaneHeader, Button, Checkbox, Input, ScrollArea } from '@loca/ui';
 import { nodeIcon } from '../node-view';
-import { PaneHeader } from '@/components/pane-header';
 import { AiConfig } from '@/components/workflow/node-config/ai';
 import { ConditionEditor } from '@/components/workflow/node-config/condition';
 import { FunctionConfig } from '@/components/workflow/node-config/function';

@@ -1,4 +1,4 @@
-import { Button } from '@/components/ui/button';
+import { Button } from '@loca/ui';
 
 /**
  * An unsaved edit whose item changed elsewhere meanwhile (a chat proposal accepted, a workflow,
