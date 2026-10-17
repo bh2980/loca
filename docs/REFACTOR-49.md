@@ -91,4 +91,15 @@
 
 ## 결과
 
-(PR이 끝나면 채운다)
+| PR | 한 일 |
+|---|---|
+| #82 | 순환 import 7개 해소(http-errors.ts, engine/model-port.ts, services/workflow-issues.ts·layout-types.ts·project-slice.ts), 라우트 스키마를 schemas/로, 실행 생성 경로를 engine/run-create.ts로. `architecture.test.ts`가 순환과 services/engine → routes import를 막는다. |
+| #83 | 후보 쓰는 곳 4군데 → `services/candidates.ts addCandidate` 하나. #51 규칙(사람 번역을 AI가 덮지 않음)은 `personOwns` 하나, `filtersByStatus`는 shared로. |
+| #84 | 같은 원문 적용: 줄마다 요청 → `POST /units/:id/same-source` 한 번, 한 트랜잭션. 그사이 바뀐 줄은 건너뛰고 센다(동작 변경: 예전에는 첫 409에서 멈췄다). 웹 쪽은 `lib/same-source.ts`. |
+| #85 | 채팅 세 백엔드가 `services/chat-stream.ts`(chatStream·writeText·turnPrompt·runCatalogTool)를 같이 쓴다. 모델 루프와 끼어들기는 각자 그대로. |
+| #86 | AI 답 읽기를 `engine/ai-output.ts` 순수 함수로(단위 테스트 추가). |
+| #87 | #48 남은 것: 노드 설정 접는 구획, 인물·관계 도구 막대 한 줄, 실행 기록 라벨·값 사이 공백. |
+
+- runner.ts 1078 → 825줄, translation-editor.tsx 534 → 510줄, 채팅 백엔드 3개 540 → 511줄(+ chat-stream.ts 85줄, 공통).
+- 서버 순환 0개(madge + architecture test). 테스트 522 → 537.
+- 남은 것: §8의 하지 않는 것들. agent-tools.ts·schema.ts·graph-canvas.tsx는 크지만 한 가지 일을 하는 파일이라 그대로 둔다(#22 판단).
