@@ -296,7 +296,7 @@ export function LineRow({ projectId, line, newScene, selected, marked, findLabel
                   <p className="col-start-2 flex min-w-0 items-center gap-1 px-3 pt-3.5 pb-1.5 text-xs text-muted-foreground">
                     {line.speaker ? (
                       <SpeakerCard projectId={projectId} name={line.speaker}>
-                        <span className="truncate">{line.speaker}</span>
+                        <span className="truncate font-medium text-foreground/80">{line.speaker}</span>
                       </SpeakerCard>
                     ) : (
                       // A UI string is named by its key; narration and documents need no name.
@@ -306,7 +306,7 @@ export function LineRow({ projectId, line, newScene, selected, marked, findLabel
                       (selected ? (
                         <PickedListener projectId={projectId} line={line} />
                       ) : who.unknown ? (
-                        <Button variant="ghost" size="inline" className="h-auto shrink-0 p-0 text-xs font-normal text-warning hover:bg-transparent" title={`#${AUTO_MARKS.unknownListener.name} 줄만 보기`} onClick={(event) => (event.stopPropagation(), onFilterMark('unknownListener'))}>
+                        <Button variant="ghost" size="inline" className="h-auto shrink-0 p-0 text-xs font-normal text-muted-foreground/80 hover:bg-transparent hover:text-warning" title={`#${AUTO_MARKS.unknownListener.name} 줄만 보기`} onClick={(event) => (event.stopPropagation(), onFilterMark('unknownListener'))}>
                           → {who.text}
                         </Button>
                       ) : (
@@ -349,10 +349,8 @@ export function LineRow({ projectId, line, newScene, selected, marked, findLabel
                         {line.translation ? (
                           <TokenText text={line.translation} source={line.source} pattern={tokenPattern} />
                         ) : (
-                          <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground/45 italic select-none">
-                            <span className="h-px w-2.5 bg-muted-foreground/30 inline-block" />
-                            미번역
-                          </span>
+                          // The status above already says 미번역: an empty cell, named only for screen readers.
+                          <span className="inline-block h-px w-4 bg-muted-foreground/30 align-middle" role="img" aria-label="번역 없음" />
                         )}
                         {review && !!line.lastRun?.issues.length && (
                           <p className="mt-1 flex items-start gap-1 text-xs text-warning">
