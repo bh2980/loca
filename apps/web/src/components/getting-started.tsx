@@ -93,9 +93,15 @@ export function GettingStarted({ projectId }: { projectId: string }) {
             job={reading}
             actions={
               <>
-                <Link to="/p/$projectId/runs" params={{ projectId }} search={{ job: reading.id }} className="text-muted-foreground underline underline-offset-2 hover:text-foreground">
-                  실행 기록에서 보기
-                </Link>
+                {reading.runId ? (
+                  <Link to="/p/$projectId/runs/$runId" params={{ projectId, runId: reading.runId }} className="text-muted-foreground underline underline-offset-2 hover:text-foreground">
+                    실행 기록에서 보기
+                  </Link>
+                ) : (
+                  <Link to="/p/$projectId/runs" params={{ projectId }} search={{ job: reading.id }} className="text-muted-foreground underline underline-offset-2 hover:text-foreground">
+                    실행 기록에서 보기
+                  </Link>
+                )}
                 <Button variant="ghost" size="inline" onClick={() => cancel.mutate(reading.id)} disabled={cancel.isPending}>
                   <CircleStop /> 중단
                 </Button>

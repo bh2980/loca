@@ -102,7 +102,7 @@ describe('work analysis as a workflow (#47)', () => {
     await runner.drain();
     expect(requests[0]!.prompt).toMatch(/^Return only JSON with "characters"\./);
     expect(requests[0]!.system).not.toContain('speechRules:');
-    expect(Object.keys((requests[0]!.schema as { shape: object }).shape)).toEqual(['characters']);
+    expect(Object.keys((requests[0]!.schema as unknown as { shape: object }).shape)).toEqual(['characters']);
     // The model answered more than asked: only people are stored.
     expect(rows(db, s.characters, projectId)).toHaveLength(2);
     expect(rows(db, s.speechRules, projectId)).toHaveLength(0);

@@ -62,7 +62,7 @@ export function listAnalyses(db: Db, projectId: string) {
     const node = analysisNodes(run.definition)[0]!;
     const save = run.definition.nodes.find((other) => other.type === 'function' && other.config.fn === 'saveAnalysis');
     const steps = db
-      .select({ ok: s.runSteps.ok, error: s.runSteps.error, inputTokens: s.runSteps.inputTokens, outputTokens: s.runSteps.outputTokens, costUsd: s.runSteps.costUsd, prompt: sql<number>`length(${s.runSteps.prompt})` })
+      .select({ ok: s.runSteps.ok, error: s.runSteps.error, inputTokens: s.runSteps.inputTokens, outputTokens: s.runSteps.outputTokens, costUsd: s.runSteps.costUsd })
       .from(s.runSteps)
       .where(and(eq(s.runSteps.runId, run.id), eq(s.runSteps.nodeId, node.id)))
       .orderBy(s.runSteps.startedAt)
@@ -70,6 +70,13 @@ export function listAnalyses(db: Db, projectId: string) {
     const items = db
       .select({ parts: sql<number>`count(distinct ${s.runItems.plan})`, failed: sql<number>`sum(${s.runItems.state} = 'failed')`, open: sql<number>`sum(${s.runItems.state} in ('queued', 'running'))` })
       .from(s.runItems)
+      .where(eq(s.runItems.runId, run.id))
+      .get();
+    // What it reads: scenes and an estimate of the script text sent (line text plus ids and speakers, bytes / 4 as before).
+    const read = db
+      .select({ scenes: sql<number>`count(distinct ${s.units.groupId})`, bytes: sql<number>`coalesce(sum(length(cast(${s.units.source} as blob)) + length(cast(coalesce(${s.units.speaker}, '') as blob)) + 8), 0)` })
+      .from(s.runItems)
+      .innerJoin(s.units, eq(s.units.id, s.runItems.unitId))
       .where(eq(s.runItems.runId, run.id))
       .get();
     const result: Record<string, number> = {};
@@ -99,7 +106,7 @@ export function listAnalyses(db: Db, projectId: string) {
       partsTotal: Math.max(1, items?.parts ?? 1, done),
       usage: { inputTokens: sum('inputTokens'), outputTokens: sum('outputTokens'), costUsd: sum('costUsd') },
       result: status === 'completed' || Object.keys(result).length ? result : null,
-      input: { lines: run.total, scenes: 0, tokens: Math.round((steps[0]?.prompt ?? 0) / 4) },
+      input: { lines: run.total, scenes: read?.scenes ?? 0, tokens: Math.round((read?.bytes ?? 0) / 4) },
       error: status === 'failed' ? (failedStep?.error ?? run.notice ?? '일부 줄을 분석하지 못했습니다.') : null,
       createdAt: run.createdAt,
       finishedAt: run.finishedAt,
