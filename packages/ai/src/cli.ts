@@ -4,7 +4,7 @@ import path from 'node:path';
 import { execa, ExecaError, type Options } from 'execa';
 import { z } from 'zod';
 import type { ConnectionKind } from '@tw/shared';
-import { cliSpawn } from './spawn.ts';
+import { cliSpawn, resolveCli } from './spawn.ts';
 import { keepOutput, ModelError, TOO_LONG, withOutput } from './errors.ts';
 import { addUsage, readUsage, type GenerateRequest, type GenerateResult, type ResolvedRoute, type Usage } from './types.ts';
 
@@ -15,11 +15,51 @@ const COMMAND: Record<CliKind, string> = { codex: 'codex', claude: 'claude', gro
 /** execa for a CLI: on Windows an npm shim runs as `node <script>` (see cliSpawn). */
 export function execaCli<O extends Options>(command: string, args: readonly string[], options: O) {
   const spawn = cliSpawn(command, [...args]);
-  return execa(spawn.file, spawn.args, { ...options, ...(spawn.windowsVerbatimArguments && { windowsVerbatimArguments: true }) });
+  // A run that passes no input must close stdin: a CLI that reads a pipe (grok) waits forever otherwise.
+  const withStdin = options.input === undefined && options.stdin === undefined ? { ...options, stdin: 'ignore' as const } : options;
+  return execa(spawn.file, spawn.args, { ...withStdin, ...(spawn.windowsVerbatimArguments && { windowsVerbatimArguments: true }) });
 }
 
 export const cliCommand = (kind: CliKind, executable?: string) => executable?.trim() || COMMAND[kind];
 
+/** The command as configured and the file it resolves to (null when nothing was found), for messages and the connection check. */
+export function describeCli(kind: CliKind, executable?: string): { command: string; resolved: string | null } {
+  const command = cliCommand(kind, executable);
+  return { command, resolved: resolveCli(command) };
+}
+
+/** Not-found message with the fix: the executable field takes a full path when PATH and the usual dirs miss. */
+export const cliMissing = (command: string) => `CLI를 찾지 못했습니다: ${command}. PATH와 일반 설치 경로에서 찾지 못했으니 연결 설정의 실행 파일에 전체 경로를 넣으세요.`;
+
+/** Time with no output before a CLI counts as stuck. Claude and Grok print one envelope at the end, so only the overall timeout applies to them. */
+export const CLI_IDLE_MS = 120_000;
+
+/**
+ * Kill a CLI that prints nothing on either stream for `idleMs` (0 disables the watch). Progress
+ * resets the timer; `fired` tells an idle kill from a user cancel, which both surface as an abort.
+ */
+export function watchIdle(streams: (NodeJS.ReadableStream | null | undefined)[], idleMs: number, onIdle: () => void) {
+  let fired = false;
+  let timer: NodeJS.Timeout | undefined;
+  if (idleMs > 0) {
+    const arm = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        fired = true;
+        onIdle();
+      }, idleMs);
+      timer.unref();
+    };
+    arm();
+    for (const stream of streams) stream?.on('data', arm);
+  }
+  return { fired: () => fired, stop: () => clearTimeout(timer) };
+}
+
+/** The timeout for a CLI that went quiet: the watchdog window, never longer than the whole call. */
+export const idleTimeout = (kind: CliKind, timeoutMs: number) => (kind === 'claude' || kind === 'grok' ? 0 : Math.min(CLI_IDLE_MS, timeoutMs));
+
+export const idleMessage = (idleMs: number) => `CLI가 ${Math.round(idleMs / 1000)}초 동안 아무 출력도 없어 중단했습니다. 로그인 상태나 실행 파일 경로를 확인하세요.`;
 const PREAMBLE =
   'You are performing one translation workbench task. Use only the text supplied below. ' +
   'Do not use tools, inspect files, contact external services, or modify files. ' +
@@ -213,17 +253,22 @@ export async function cliGenerate<T>(route: ResolvedRoute, request: GenerateRequ
   const prompt =
     (kind === 'codex' ? request.prompt : `${instructions}\n\n${request.prompt}`) +
     (kind === 'opencode' ? `\n\nAnswer with one JSON value that follows this JSON Schema, and nothing else:\n${JSON.stringify(schema)}` : '');
+  const idleMs = idleTimeout(kind, request.timeoutMs);
+  const idle = new AbortController();
+  let watchdog: ReturnType<typeof watchIdle> | undefined;
   try {
     await Promise.all([writeFile(files.schema, JSON.stringify(schema)), writeFile(files.prompt, prompt), ...(kind === 'codex' ? [writeFile(files.instructions, instructions)] : [])]);
-    const result = await execaCli(cliCommand(kind, route.executable), args(kind, route, schema, files, request.timeoutMs), {
+    const subprocess = execaCli(cliCommand(kind, route.executable), args(kind, route, schema, files, request.timeoutMs), {
       cwd: dir,
       input: kind === 'grok' ? undefined : kind === 'antigravity' ? `${JSON.stringify({ event: 'user', message: { role: 'user', content: prompt } })}\n` : prompt,
       timeout: request.timeoutMs,
-      cancelSignal: request.signal,
+      cancelSignal: request.signal ? AbortSignal.any([request.signal, idle.signal]) : idle.signal,
       maxBuffer: 16 * 1024 * 1024,
       forceKillAfterDelay: 3000,
       windowsHide: true,
     });
+    watchdog = watchIdle([subprocess.stdout, subprocess.stderr], idleMs, () => idle.abort());
+    const result = await subprocess;
     const lastMessage = kind === 'codex' ? await readFile(files.result, 'utf8').catch(() => '') : '';
     try {
       return readCliOutput(kind, result.stdout, request.schema, lastMessage);
@@ -233,9 +278,9 @@ export async function cliGenerate<T>(route: ResolvedRoute, request: GenerateRequ
   } catch (error) {
     if (error instanceof ModelError) throw error;
     if (error instanceof ExecaError) {
-      if (error.isCanceled) throw new ModelError('cancelled', '작업이 취소되었습니다.');
+      if (error.isCanceled) throw watchdog?.fired() ? new ModelError('timeout', idleMessage(idleMs)) : new ModelError('cancelled', '작업이 취소되었습니다.');
       if (error.timedOut) throw new ModelError('timeout', 'CLI 호출이 제한 시간을 초과했습니다.');
-      if (error.code === 'ENOENT') throw new ModelError('config', `CLI를 찾지 못했습니다: ${cliCommand(kind, route.executable)}`, false);
+      if (error.code === 'ENOENT') throw new ModelError('config', cliMissing(cliCommand(kind, route.executable)), false);
       // A CLI that exits non-zero often still printed its envelope on stdout: its own error, and usage.
       const stdout = (error.stdout ?? '').toString();
       const stderr = (error.stderr ?? '').toString();
@@ -257,6 +302,7 @@ export async function cliGenerate<T>(route: ResolvedRoute, request: GenerateRequ
     }
     throw new ModelError('unknown', error instanceof Error ? error.message : String(error), false);
   } finally {
+    watchdog?.stop();
     await rm(dir, { recursive: true, force: true });
   }
 }
@@ -267,7 +313,7 @@ export async function cliVersion(kind: CliKind, executable?: string): Promise<st
     return result.stdout.trim().split('\n')[0].slice(0, 120);
   } catch (error) {
     if (error instanceof ExecaError && error.code === 'ENOENT')
-      throw new ModelError('config', `CLI를 찾지 못했습니다: ${cliCommand(kind, executable)}`, false);
+      throw new ModelError('config', cliMissing(cliCommand(kind, executable)), false);
     throw new ModelError('cli', 'CLI 버전을 확인하지 못했습니다.', false);
   }
 }
@@ -307,7 +353,7 @@ export async function cliModels(kind: CliKind, executable?: string): Promise<str
   try {
     // grok exits non-zero when signed out but still prints the list, so the exit code is not trusted.
     const result = await execaCli(cliCommand(kind, executable), MODEL_ARGS[kind]!, { timeout: 60_000, windowsHide: true, reject: false, stdin: 'ignore' });
-    if (result.failed && 'code' in result && result.code === 'ENOENT') throw new ModelError('config', `CLI를 찾지 못했습니다: ${cliCommand(kind, executable)}`, false);
+    if (result.failed && 'code' in result && result.code === 'ENOENT') throw new ModelError('config', cliMissing(cliCommand(kind, executable)), false);
     let models: string[] = [];
     try {
       models = parse(String(result.stdout));
