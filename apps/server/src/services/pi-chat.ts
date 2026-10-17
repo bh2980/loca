@@ -9,7 +9,8 @@ import { events } from '../events.ts';
 import { agentCatalog, jsonSchemaOf } from './agent-catalog.ts';
 import { prepareProposal, reportText } from './proposal-check.ts';
 import { fitText } from './tool-output.ts';
-import { propose, proposedText } from './proposals.ts';
+import { propose, proposedText, takeDecisions } from './proposals.ts';
+import { catchUp, CONTEXT_BUDGET, messageText, textOf, transcript, type AnsweredBy } from './chat-context.ts';
 
 /**
  * Project chat through pi. pi keeps the conversation in an in-process session per chat; the
@@ -21,38 +22,10 @@ interface Live {
   model: string;
   /** The connection switches the session was built with; a change rebuilds it. */
   options: string;
-  /** Proposal ids whose decision the agent has already been told. */
-  reported: Set<string>;
-  /** Earlier conversation to hand over once, when the session had to be (re)created. */
-  handover: string | null;
+  /** How many messages of the conversation record this session has (#46): later ones are handed over. */
+  seen: number;
 }
 const sessions = new Map<string, Live>();
-
-const textOf = (message: UIMessage) => message.parts.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('\n');
-
-/** The visible conversation before this message, for a session created after a restart or model change. */
-function transcript(messages: UIMessage[]) {
-  const lines = messages
-    .slice(0, -1)
-    .slice(-20)
-    .map((message) => `${message.role === 'user' ? '사용자' : '에이전트'}: ${textOf(message)}`)
-    .filter((line) => !line.endsWith(': '));
-  const text = lines.join('\n').slice(-12_000);
-  return text ? `이전 대화(참고용 기록):\n${text}` : null;
-}
-
-function decisions(db: Db, chatId: string, live: Live) {
-  const decided = db
-    .select()
-    .from(s.proposals)
-    .where(eq(s.proposals.sessionId, chatId))
-    .all()
-    .filter((proposal) => proposal.status !== 'pending' && proposal.status !== 'running' && !live.reported.has(proposal.id));
-  for (const proposal of decided) live.reported.add(proposal.id);
-  if (!decided.length) return null;
-  const word = { accepted: '수락되어 반영됨', rejected: '사용자가 거절함', failed: '수락했지만 실패함', pending: '', running: '' } as const;
-  return `지난 제안의 결과:\n${decided.map((proposal) => `- ${proposal.tool} (${proposal.id}): ${word[proposal.status]}${proposal.status === 'failed' ? ` — ${JSON.stringify(proposal.result).slice(0, 200)}` : ''}`).join('\n')}`;
-}
 
 export async function piChatResponse(input: {
   db: Db;
@@ -60,7 +33,9 @@ export async function piChatResponse(input: {
   route: ai.ResolvedRoute;
   system: string;
   view: string | null;
+  /** The conversation record with the new user message last (the server's, not the browser's). */
   messages: UIMessage[];
+  answeredBy: AnsweredBy;
   signal: AbortSignal;
   /** Called once the reply has been read to its end (see readToEnd). */
   onEnd: () => void;
@@ -89,12 +64,13 @@ export async function piChatResponse(input: {
         return { text: fitText(result), details: result };
       },
     }));
+    // A new session (first turn, a restart, another model) starts with the record as real messages.
+    const earlier = messages.slice(0, -1);
     live = {
-      pi: await ai.createPiChatSession({ piOptions: route.piOptions, model: route.model, effort: route.effort, system: input.system, tools }),
+      pi: await ai.createPiChatSession({ piOptions: route.piOptions, model: route.model, effort: route.effort, system: input.system, tools, history: seedHistory(earlier) }),
       model: route.model,
       options,
-      reported: new Set(),
-      handover: transcript(messages),
+      seen: earlier.length,
     };
     sessions.set(chat.id, live);
   }
@@ -102,12 +78,13 @@ export async function piChatResponse(input: {
   if (current.pi.isStreaming) throw new Error('이전 응답이 아직 끝나지 않았습니다. 잠시 후 다시 보내세요.');
 
   const last = messages.at(-1);
-  const prompt = [current.handover, decisions(db, chat.id, current), input.view, last ? textOf(last) : ''].filter(Boolean).join('\n\n');
-  current.handover = null;
+  const prompt = [catchUp(messages.slice(0, -1), current.seen, CONTEXT_BUDGET.pi), takeDecisions(db, chat.id), input.view, last ? textOf(last) : ''].filter(Boolean).join('\n\n');
 
   const stream = createUIMessageStream({
     originalMessages: messages,
+    generateId: () => crypto.randomUUID(),
     execute: async ({ writer }) => {
+      writer.write({ type: 'message-metadata', messageMetadata: { answeredBy: input.answeredBy } });
       let textId: string | null = null;
       const closeText = () => {
         if (textId) writer.write({ type: 'text-end', id: textId });
@@ -161,12 +138,36 @@ export async function piChatResponse(input: {
       }
     },
     onFinish: ({ messages: final }) => {
+      current.seen = final.length;
       db.update(s.chatSessions).set({ messages: final }).where(eq(s.chatSessions.id, chat.id)).run();
       events.changed(chat.projectId, 'chat');
     },
     onError: (error) => (error instanceof Error ? error.message : String(error)),
   });
   return createUIMessageStreamResponse({ stream, ...readToEnd(input.onEnd) });
+}
+
+/**
+ * The record as pi history: what each side said, tools on one line each. The newest messages fit in
+ * the budget as they are; anything older becomes one text message at the start (#46).
+ */
+export function seedHistory(earlier: UIMessage[]): ai.PiHistoryMessage[] {
+  let used = 0;
+  let start = earlier.length;
+  while (start > 0) {
+    const size = messageText(earlier[start - 1]).length;
+    if (used + size > CONTEXT_BUDGET.pi * 0.7) break;
+    used += size;
+    start--;
+  }
+  while (start < earlier.length && earlier[start].role !== 'user') start++;
+  const older = start > 0 ? transcript(earlier.slice(0, start), CONTEXT_BUDGET.pi * 0.3) : '';
+  const history: ai.PiHistoryMessage[] = older ? [{ role: 'user', text: `이 대화의 앞부분(길이 때문에 줄인 기록):\n${older}` }, { role: 'assistant', text: '앞부분을 읽었습니다.' }] : [];
+  for (const message of earlier.slice(start)) {
+    const text = messageText(message);
+    if (text) history.push({ role: message.role === 'user' ? 'user' : 'assistant', text });
+  }
+  return history;
 }
 
 /** A deleted chat or a changed model frees its pi session. */

@@ -9,7 +9,8 @@ import { events } from '../events.ts';
 import { agentCatalog, jsonSchemaOf, type CatalogTool } from './agent-catalog.ts';
 import { prepareProposal, reportText } from './proposal-check.ts';
 import { fitText } from './tool-output.ts';
-import { decisionsSince, propose, proposedText } from './proposals.ts';
+import { propose, proposedText, takeDecisions } from './proposals.ts';
+import { catchUp, CONTEXT_BUDGET, handover, textOf, type AnsweredBy } from './chat-context.ts';
 
 /**
  * Project chat through an agent CLI (Claude Code, Codex, Grok, agy, opencode). The CLI keeps the
@@ -57,26 +58,6 @@ export function readToolCalls(text: string): { visible: string; calls: { tool: s
   return { visible: text.replace(TOOL_BLOCK, '').trim(), calls, error };
 }
 
-const textOf = (message: UIMessage) => message.parts.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('\n');
-
-/** Earlier conversation, for a new CLI session (first use, or after the model changed). */
-function transcript(messages: UIMessage[]) {
-  const lines = messages
-    .slice(0, -1)
-    .slice(-20)
-    .map((message) => `${message.role === 'user' ? '사용자' : '에이전트'}: ${textOf(message)}`)
-    .filter((line) => !line.endsWith(': '));
-  const text = lines.join('\n').slice(-12_000);
-  return text ? `이전 대화(참고용 기록):\n${text}` : null;
-}
-
-function decisions(db: Db, chatId: string, since: number) {
-  const decided = decisionsSince(db, chatId, new Date(since));
-  if (!decided.length) return null;
-  const word = { accepted: '수락되어 반영됨', rejected: '사용자가 거절함', failed: '수락했지만 실패함', pending: '', running: '' } as const;
-  return `지난 제안의 결과:\n${decided.map((proposal) => `- ${proposal.tool} (${proposal.id}): ${word[proposal.status]}`).join('\n')}`;
-}
-
 export type CliTurn = (route: ai.ResolvedRoute, turn: ai.CliChatTurn) => Promise<ai.CliChatResult>;
 
 export async function cliChatResponse(input: {
@@ -85,7 +66,9 @@ export async function cliChatResponse(input: {
   route: ai.ResolvedRoute;
   system: string;
   view: string | null;
+  /** The conversation record with the new user message last (the server's, not the browser's). */
   messages: UIMessage[];
+  answeredBy: AnsweredBy;
   timeoutMs: number;
   signal: AbortSignal;
   /** Called once the reply has been read to its end (see readToEnd). */
@@ -98,16 +81,21 @@ export async function cliChatResponse(input: {
   const tools = agentCatalog(db, chat.projectId, { model: route.model });
   const byName = new Map(tools.map((tool) => [tool.name, tool]));
   const system = [input.system, toolProtocol(tools)].join('\n\n');
-  // The CLI session is reused while the connection kind and model stay the same.
+  // The CLI's own session is a cache of the record, reused while the connection kind and model stay
+  // the same. It is told what it missed (another model answered in between); a new one gets the record.
   const saved = chat.agentSession && chat.agentSession.kind === route.kind && chat.agentSession.model === route.model ? chat.agentSession : null;
+  const earlier = messages.slice(0, -1);
   const last = messages.at(-1);
-  let prompt = [saved ? null : transcript(messages), saved ? decisions(db, chat.id, saved.lastTurnAt) : null, input.view, last ? textOf(last) : ''].filter(Boolean).join('\n\n');
+  const context = saved ? catchUp(earlier, saved.seen ?? earlier.length, CONTEXT_BUDGET.cli) : handover(earlier, CONTEXT_BUDGET.cli);
+  let prompt = [context, takeDecisions(db, chat.id), input.view, last ? textOf(last) : ''].filter(Boolean).join('\n\n');
   let sessionId = saved?.id;
   let totalsBefore = saved?.totals;
 
   const stream = createUIMessageStream({
     originalMessages: messages,
+    generateId: () => crypto.randomUUID(),
     execute: async ({ writer }) => {
+      writer.write({ type: 'message-metadata', messageMetadata: { answeredBy: input.answeredBy } });
       for (let round = 0; round < MAX_ROUNDS; round++) {
         writer.write({ type: 'start-step' });
         const answer = await logged(db, { projectId: chat.projectId, kind: 'chat', refId: chat.id, label: `채팅 (CLI${round ? ` · 도구 결과 후 ${round}` : ''})` }, route, () => run(route, { sessionId, system, prompt, timeoutMs: input.timeoutMs, signal: input.signal, totalsBefore }));
@@ -159,7 +147,9 @@ export async function cliChatResponse(input: {
       writer.write({ type: 'text-end', id });
     },
     onFinish: ({ messages: final }) => {
-      db.update(s.chatSessions).set({ messages: final }).where(eq(s.chatSessions.id, chat.id)).run();
+      // The CLI session has now seen the whole record, its own reply included.
+      const agentSession = db.select({ agentSession: s.chatSessions.agentSession }).from(s.chatSessions).where(eq(s.chatSessions.id, chat.id)).get()?.agentSession;
+      db.update(s.chatSessions).set({ messages: final, ...(agentSession && sessionId === agentSession.id && { agentSession: { ...agentSession, seen: final.length } }) }).where(eq(s.chatSessions.id, chat.id)).run();
       events.changed(chat.projectId, 'chat');
     },
     onError: (error) => (error instanceof Error ? error.message : String(error)),

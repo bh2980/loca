@@ -31,8 +31,9 @@ export function chatFor(sessionId: string, saved: UIMessage[]) {
     transport: new DefaultChatTransport({
       api: `/api/chat/${sessionId}/stream`,
       fetch: apiFetch,
-      // The view is read at send time, so it describes what is on screen right now.
-      prepareSendMessagesRequest: ({ messages }) => ({ body: { messages, view: view.current ?? undefined } }),
+      // The server owns the conversation (#46): only the newest message goes (a reply whose tool
+      // approval was just answered goes again, by id). The view is read at send time.
+      prepareSendMessagesRequest: ({ messages, trigger }) => ({ body: { message: messages.at(-1), trigger, view: view.current ?? undefined } }),
     }),
     sendAutomaticallyWhen: (options) => lastAssistantMessageIsCompleteWithApprovalResponses(options) || lastAssistantMessageIsCompleteWithToolCalls(options),
   });

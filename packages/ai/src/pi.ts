@@ -117,7 +117,26 @@ const agentDir = () => piDir ?? path.join(homedir(), '.pi', 'agent');
  * switched off), only the pi file/shell tools they turned on, skills/prompt templates/AGENTS.md
  * only on request. Our system prompt replaces pi's coding prompt; the workbench tools are added.
  */
-async function openSession(options: { piOptions: PiOptions; model?: string; effort?: string; system: string; tools: PiToolSpec[]; start?: boolean }) {
+/** Earlier conversation a new pi session starts with (the chat record, see apps/server chat-context.ts). */
+export interface PiHistoryMessage {
+  role: 'user' | 'assistant';
+  text: string;
+}
+
+const EMPTY_USAGE = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
+
+/** A session record holding the history as plain user/assistant messages; the model reads it as its own past turns. */
+function historySession(cwd: string, history: PiHistoryMessage[], model: { api: string; provider: string; id: string } | undefined) {
+  const manager = SessionManager.inMemory(cwd);
+  for (const message of history) {
+    const timestamp = Date.now();
+    if (message.role === 'user') manager.appendMessage({ role: 'user', content: message.text, timestamp } as never);
+    else manager.appendMessage({ role: 'assistant', content: [{ type: 'text', text: message.text }], api: model?.api ?? 'unknown', provider: model?.provider ?? 'unknown', model: model?.id ?? 'unknown', usage: EMPTY_USAGE, stopReason: 'stop', timestamp } as never);
+  }
+  return manager;
+}
+
+async function openSession(options: { piOptions: PiOptions; model?: string; effort?: string; system: string; tools: PiToolSpec[]; start?: boolean; history?: PiHistoryMessage[] }) {
   const pi = options.piOptions;
   const rt = await piRuntime();
   const cwd = pi.cwd.trim() || tmpdir();
@@ -154,7 +173,7 @@ async function openSession(options: { piOptions: PiOptions; model?: string; effo
         },
       }),
     ),
-    sessionManager: SessionManager.inMemory(cwd),
+    sessionManager: options.history?.length ? historySession(cwd, options.history, model as never) : SessionManager.inMemory(cwd),
     settingsManager: SettingsManager.inMemory({ retry: { enabled: true, maxRetries: 2 } }),
   });
   // Extensions start on session_start (web access, MCP servers, routers…). There is no terminal UI here.
@@ -162,7 +181,7 @@ async function openSession(options: { piOptions: PiOptions; model?: string; effo
   return { session, resourceLoader, runtime: rt };
 }
 
-export async function createPiChatSession(options: { piOptions?: PiOptions; model: string; effort?: string; system: string; tools: PiToolSpec[] }): Promise<AgentSession> {
+export async function createPiChatSession(options: { piOptions?: PiOptions; model: string; effort?: string; system: string; tools: PiToolSpec[]; history?: PiHistoryMessage[] }): Promise<AgentSession> {
   return (await openSession({ ...options, piOptions: options.piOptions ?? piOptionsSchema.parse({}) })).session;
 }
 
