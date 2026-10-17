@@ -8,7 +8,7 @@ import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { logged } from '../services/ai-calls.ts';
 import type { Db } from '../db/index.ts';
-import { choiceLabel, connectionRoute, liveChoice } from '../services/routes.ts';
+import { choiceLabel, connectionRoute, fillDefaultModels, liveChoice } from '../services/routes.ts';
 
 type CliKind = 'codex' | 'claude' | 'grok' | 'antigravity' | 'opencode';
 const isCli = (kind: string): kind is CliKind => CONNECTION_KIND_INFO[kind as keyof typeof CONNECTION_KIND_INFO]?.transport === 'cli';
@@ -53,7 +53,9 @@ export const connectionRoutes = new Hono<Env>()
       .returning()
       .get();
     if (apiKey) secrets.set(row.id, apiKey);
-    events.changed(undefined, 'connections');
+    // Its default model goes into AI nodes that were saved before any model could be picked.
+    const filled = row.defaultModel ? fillDefaultModels(db) : [];
+    events.changed(undefined, 'connections', ...(filled.length ? (['workflows'] as const) : []));
     return c.json(row, 201);
   })
   .patch('/:id', validate('json', patchOf(connectionInputSchema.omit({ kind: true }))), (c) => {
@@ -61,6 +63,7 @@ export const connectionRoutes = new Hono<Env>()
     const input = c.req.valid('json');
     checkFallback(db, c.req.param('id'), input.fallback);
     found(db.update(s.connections).set({ ...input, executable: input.executable === '' ? null : input.executable, defaultModel: input.defaultModel || (input.defaultModel === undefined ? undefined : null), defaultEffort: input.defaultEffort || (input.defaultEffort === undefined ? undefined : null) }).where(eq(s.connections.id, c.req.param('id'))).returning().get(), '연결');
+    if (input.defaultModel) fillDefaultModels(db);
     events.changed(undefined, 'connections', 'workflows');
     return c.json({ ok: true });
   })

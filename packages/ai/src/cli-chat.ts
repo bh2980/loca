@@ -4,7 +4,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { execa, ExecaError } from 'execa';
 import type { ConnectionKind } from '@tw/shared';
-import { cliCommand, execaCli, opencodeUsage } from './cli.ts';
+import { cliCommand, cliMissing, execaCli, idleMessage, idleTimeout, opencodeUsage, watchIdle } from './cli.ts';
 import { ModelError } from './errors.ts';
 import { readUsage, type ResolvedRoute, type Usage } from './types.ts';
 
@@ -169,9 +169,15 @@ export async function cliChat(route: ResolvedRoute, turn: CliChatTurn): Promise<
   const newId = randomUUID();
   const { args, input } = command(kind, route, turn, newId);
   const cwd = await mkdtemp(path.join(tmpdir(), 'loca-chat-'));
+  const idleMs = idleTimeout(kind, turn.timeoutMs);
+  const idle = new AbortController();
+  let watchdog: ReturnType<typeof watchIdle> | undefined;
   try {
-    const result = await execaCli(cliCommand(kind, route.executable), args, { cwd, input, timeout: turn.timeoutMs, cancelSignal: turn.signal, reject: false, stripFinalNewline: false });
+    const subprocess = execaCli(cliCommand(kind, route.executable), args, { cwd, input, timeout: turn.timeoutMs, cancelSignal: turn.signal ? AbortSignal.any([turn.signal, idle.signal]) : idle.signal, reject: false, stripFinalNewline: false });
+    watchdog = watchIdle([subprocess.stdout, subprocess.stderr], idleMs, () => idle.abort());
+    const result = await subprocess;
     if (turn.signal?.aborted) throw new ModelError('cancelled', '중단했습니다.', false);
+    if (result.isCanceled) throw watchdog.fired() ? new ModelError('timeout', idleMessage(idleMs)) : new ModelError('cancelled', '중단했습니다.', false);
     if (result.timedOut) throw new ModelError('timeout', 'CLI 응답 시간이 초과되었습니다.');
     const stdout = String(result.stdout ?? '');
     if (result.exitCode !== 0 && !stdout.trim()) throw failure(String(result.stderr ?? '').slice(-300) || `종료 코드 ${result.exitCode}`);
@@ -179,7 +185,10 @@ export async function cliChat(route: ResolvedRoute, turn: CliChatTurn): Promise<
     return answer.totals ? { ...answer, usage: turnShare(answer.totals, turn.sessionId ? turn.totalsBefore : undefined) } : answer;
   } catch (error) {
     if (error instanceof ModelError) throw error;
-    if (error instanceof ExecaError && error.code === 'ENOENT') throw new ModelError('config', `${cliCommand(kind, route.executable)} 실행 파일을 찾을 수 없습니다.`, false);
+    if (watchdog?.fired()) throw new ModelError('timeout', idleMessage(idleMs));
+    if (error instanceof ExecaError && error.code === 'ENOENT') throw new ModelError('config', cliMissing(cliCommand(kind, route.executable)), false);
     throw failure(error instanceof Error ? error.message : String(error));
+  } finally {
+    watchdog?.stop();
   }
 }
