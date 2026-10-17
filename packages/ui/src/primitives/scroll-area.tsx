@@ -15,7 +15,10 @@ function ScrollArea({
     >
       <ScrollAreaPrimitive.Viewport
         data-slot="scroll-area-viewport"
-        className="size-full rounded-[inherit] outline-none"
+        // Radix wraps the content in a `display: table` box that grows to its widest child, so a
+        // long row pushed the content past the right edge (#62). Only vertical scrolling is used
+        // here, so the content is a block as wide as the area.
+        className="size-full rounded-[inherit] outline-none [&>div]:!block"
       >
         {children}
       </ScrollAreaPrimitive.Viewport>

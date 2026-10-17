@@ -6,7 +6,7 @@ import { Controller, useForm, useWatch } from 'react-hook-form';
 import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { z } from 'zod';
-import { CONNECTION_CALL_DEFAULTS, CONNECTION_KIND_INFO, CONNECTION_KINDS, connectionInputSchema, type Capability, type ConnectionKind } from '@tw/shared';
+import { CONNECTION_CALL_DEFAULTS, CONNECTION_KIND_INFO, CONNECTION_KINDS, connectionInputSchema, isFreeModel, type Capability, type ConnectionKind } from '@tw/shared';
 import { EmptyState } from '@/components/empty-state';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { DetailPane, PaneSection } from '@/components/detail-pane';
@@ -530,7 +530,10 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
             {models.list ? (
               <ul className="max-h-48 overflow-auto rounded-md border p-2 font-mono text-xs">
                 {models.list.map((model) => (
-                  <li key={model}>{model}</li>
+                  <li key={model} className="flex items-center gap-2">
+                    <span className="truncate">{model}</span>
+                    {isFreeModel(connection.kind, model) && <Badge variant="secondary" className="shrink-0 text-xs">무료</Badge>}
+                  </li>
                 ))}
               </ul>
             ) : models.detail ? (

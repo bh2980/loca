@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray, isNotNull, ne, sql } from 'drizzle-orm';
-import { batchConfigSchema, CONNECTION_KIND_INFO, estimateTokens, isUnknownListener, isUnreviewed, needsListener, nodeName, termMatcher, type AiNode, type WorkflowDefinition } from '@tw/shared';
+import { batchConfigSchema, CONNECTION_KIND_INFO, estimateTokens, isFreeModel, isUnknownListener, isUnreviewed, needsListener, nodeName, termMatcher, type AiNode, type WorkflowDefinition } from '@tw/shared';
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -211,8 +211,8 @@ function paceOf(db: Db, estimates: NodeEstimate[]) {
       const durations = calls.map((call) => (call.finished!.getTime() - call.started.getTime()) / 1000).sort((a, b) => a - b);
       seconds += (durations[Math.floor(durations.length / 2)] * requests) / Math.max(1, parallel);
     }
-    // opencode's built-in "-free" models cost nothing and need no plan.
-    if (estimate.connection.cli && estimate.connection.kind === 'opencode' && /-free$/.test(estimate.choice.model)) continue;
+    // opencode's built-in "-free" models cost nothing and need no plan (same rule as the UI badge).
+    if (isFreeModel(estimate.connection.kind, estimate.choice.model)) continue;
     if (estimate.connection.cli) subscription = true;
     else {
       const priced = calls.filter((call) => call.cost !== null);

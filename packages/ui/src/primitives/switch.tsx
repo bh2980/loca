@@ -14,7 +14,9 @@ function Switch({
       data-slot="switch"
       data-size={size}
       className={cn(
-        "peer group/switch inline-flex shrink-0 items-center rounded-full border border-border/80 bg-input/40 shadow-xs transition-colors outline-none",
+        // `relative` keeps the hidden Radix input (absolutely positioned) on the switch, so focusing
+        // it in a scrollable pane does not scroll the pane sideways.
+        "peer group/switch relative inline-flex shrink-0 items-center rounded-full border border-border/80 bg-input/40 shadow-xs transition-colors outline-none",
         "focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
         "data-[state=checked]:border-primary data-[state=checked]:bg-primary",
         "data-[size=xs]:h-3 data-[size=xs]:w-5",

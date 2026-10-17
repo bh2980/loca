@@ -40,6 +40,12 @@ export function ChatPanel({ projectId }: { projectId: string }) {
   const sessions = useQuery(q.chatSessions(projectId));
   const [sessionId, setSessionId] = useState<string | null>(() => readSession(projectId));
 
+  // Fetch the conversation as soon as its id is known (from localStorage), not only after the
+  // sessions list resolves: waiting for the list made the panel flash its spinner on every open.
+  useEffect(() => {
+    if (sessionId) void queryClient.prefetchQuery(q.chatSession(sessionId));
+  }, [queryClient, sessionId]);
+
   useEffect(() => {
     if (sessions.data && sessionId && !sessions.data.some((session) => session.id === sessionId)) setSessionId(null);
     if (sessions.data && !sessionId && sessions.data[0]) setSessionId(sessions.data[0].id);

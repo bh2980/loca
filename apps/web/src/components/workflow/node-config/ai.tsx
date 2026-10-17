@@ -47,8 +47,8 @@ export function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRef
         <Field label="필드">
           <div className="space-y-2">
             {config.fields.map((field, index) => (
-              <div key={index} className="flex items-center gap-1.5">
-                <Input className="h-8 w-28 font-mono text-xs" value={field.name} placeholder="name" onChange={(event) => setField(index, { name: event.target.value })} />
+              <div key={index} className="flex min-w-0 items-center gap-1.5">
+                <Input className="h-8 w-28 shrink-0 font-mono text-xs" value={field.name} placeholder="name" onChange={(event) => setField(index, { name: event.target.value })} />
                 <Select value={field.type} onValueChange={(value) => setField(index, { type: value as JsonField['type'] })}>
                   <SelectTrigger size="sm" className="w-24">
                     <SelectValue />
@@ -59,7 +59,7 @@ export function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRef
                     <SelectItem value="boolean">참/거짓</SelectItem>
                   </SelectContent>
                 </Select>
-                <Input className="h-8 flex-1 text-xs" value={field.description} placeholder="설명 (AI에게 보임)" onChange={(event) => setField(index, { description: event.target.value })} />
+                <Input className="h-8 min-w-0 flex-1 text-xs" value={field.description} placeholder="설명 (AI에게 보임)" onChange={(event) => setField(index, { description: event.target.value })} />
                 <Button size="icon" variant="ghost" className="text-destructive" aria-label="필드 삭제" onClick={() => set({ fields: config.fields.filter((_, i) => i !== index) })}>
                   <Trash2 />
                 </Button>
@@ -90,8 +90,8 @@ export function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRef
         <div className="space-y-1.5">
           <ModelPicker need={need} value={config.model} onChange={(model) => set({ model })} />
           {extras.map((extra, index) => (
-            <div key={index} className="flex items-center gap-1.5">
-              <ModelPicker need={need} value={extra} onChange={(value) => setExtra(index, value)} />
+            <div key={index} className="flex min-w-0 items-center gap-1.5">
+              <ModelPicker need={need} value={extra} onChange={(value) => setExtra(index, value)} className="min-w-0" />
               <Button size="icon" variant="ghost" className="shrink-0" aria-label="함께 나눌 모델 빼기" onClick={() => set({ extraModels: extras.filter((_, i) => i !== index) })}>
                 <X />
               </Button>

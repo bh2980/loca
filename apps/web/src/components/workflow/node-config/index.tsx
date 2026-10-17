@@ -29,10 +29,11 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
   const description = node.type === 'function' ? (FUNCTIONS[node.config.fn as FunctionName]?.description ?? '') : node.type === 'ai' ? AI_OUTPUTS[node.config.output].description : NODE_TYPES[node.type].description;
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full min-w-0 flex-col">
       <PaneHeader icon={<Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />} title={nodeName(node)} subtitle={description} onClose={onClose} />
-      <ScrollArea className="min-h-0 flex-1">
-        <fieldset disabled={readOnly} className="space-y-5 p-4">
+      <ScrollArea className="min-h-0 min-w-0 flex-1 overflow-x-hidden">
+        {/* A fieldset is as wide as its widest content by default (min-width: min-content): min-w-0 keeps it to the panel. */}
+        <fieldset disabled={readOnly} className="min-w-0 space-y-5 p-4">
           {issues.length > 0 && (
             <ul className="space-y-1 rounded-md border border-destructive/30 bg-destructive/5 p-2.5 text-xs">
               {issues.map((issue, index) => (

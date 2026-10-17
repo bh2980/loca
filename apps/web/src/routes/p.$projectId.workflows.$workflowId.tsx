@@ -35,6 +35,7 @@ import { client, unwrap } from '@/lib/api';
 import { lineTags, q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { workflowEdits } from '@/lib/workflow-edits';
+import { sameWorkflowDraft } from '@/lib/workflow-draft';
 import { SplitPane } from '@/components/split-pane';
 
 /** When the workflow was last saved: 10. 13. 오전 06:16. Runs keep their own copy of what they ran. */
@@ -121,6 +122,14 @@ function WorkflowEditor() {
         const base = current ?? (workflow.data ? { baseVersion: workflow.data.version, name: workflow.data.name, definition: workflow.data.definition } : null);
         if (!base) return current;
         const next = update(base);
+        // React Flow reports no-op position changes while it renders; an edit equal to the saved
+        // version (or to the current draft) is not a change and must not mark the workflow dirty.
+        const saved = workflow.data && { baseVersion: workflow.data.version, name: workflow.data.name, definition: workflow.data.definition };
+        if (saved && sameWorkflowDraft(next, saved)) {
+          sessionStorage.removeItem(draftKey(workflowId));
+          return null;
+        }
+        if (sameWorkflowDraft(next, base)) return current;
         sessionStorage.setItem(draftKey(workflowId), JSON.stringify(next));
         return next;
       }),
@@ -296,7 +305,13 @@ function WorkflowEditor() {
         for (const change of sized) if (change.type === 'dimensions' && change.dimensions) next[change.id] = change.dimensions;
         return next;
       });
-    const moved = changes.filter((change) => change.type === 'position' && change.position);
+    // React Flow re-reports a node's position while it renders even when it did not move; only a
+    // real move should reach the draft (otherwise opening the editor looks like an unsaved edit).
+    const moved = changes.filter((change) => {
+      if (change.type !== 'position' || !change.position) return false;
+      const node = nodes.find((item) => item.id === change.id);
+      return !node || node.position.x !== change.position.x || node.position.y !== change.position.y;
+    });
     const removed = changes.filter((change) => change.type === 'remove').map((change) => change.id);
     if (!moved.length && !removed.length) return;
     const next = applyNodeChanges(moved, nodes);
@@ -455,7 +470,7 @@ function WorkflowEditor() {
         style={stale ? { top: 41 } : undefined}
         pane={
           selected && (
-            <div className="h-full bg-background">
+            <div className="h-full min-w-0 overflow-x-hidden bg-background">
               <NodeConfig
                 key={`${selected.id}:${revision}`}
                 node={selected}
