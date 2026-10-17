@@ -5,7 +5,7 @@ import { realistic } from '../../../../scripts/realistic-sample.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
-import { selectRunUnits } from './runner.ts';
+import { selectRunUnits } from './run-create.ts';
 
 describe('run scope by marks', () => {
   it('keeps the lines that have every picked mark, and combines with tags and the entry status', () => {

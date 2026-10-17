@@ -8,7 +8,8 @@ import { importProject } from '../services/importer.ts';
 import { snapshotWorkflowModels } from '../services/routes.ts';
 import { memoryStore } from '../services/secrets.ts';
 import { promptEntries } from './prompts.ts';
-import { createRun, createRunInSteps, Runner, type ModelPort } from './runner.ts';
+import { Runner, type ModelPort } from './runner.ts';
+import { createRun, createRunInSteps } from './run-create.ts';
 
 /** A project of `scenes` scenes; scene i has `size(i)` lines. Scene keys sort opposite to script order. */
 function setup(scenes: number, size: (scene: number) => number) {

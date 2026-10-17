@@ -5,7 +5,8 @@ import { importFileSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from './importer.ts';
-import { projectSlice, sliceRoute } from './route-slice.ts';
+import { sliceRoute } from './route-slice.ts';
+import { projectSlice } from './project-slice.ts';
 
 type N = { id: string; key: string; kind: string; unitIds: string[] };
 const nodes = (...defs: [id: string, kind: string, ...lines: string[]][]): N[] => defs.map(([id, kind, ...unitIds]) => ({ id, key: id, kind, unitIds }));

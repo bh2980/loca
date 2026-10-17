@@ -7,7 +7,8 @@ import { importProject } from '../services/importer.ts';
 import { snapshotWorkflowModels } from '../services/routes.ts';
 import { memoryStore } from '../services/secrets.ts';
 import { promptEntries } from './prompts.ts';
-import { createRun, Runner, type ModelPort } from './runner.ts';
+import { Runner, type ModelPort } from './runner.ts';
+import { createRun } from './run-create.ts';
 
 function setup(lines = 30) {
   const db = openDatabase(':memory:');

@@ -8,7 +8,8 @@ import { snapshotWorkflowModels } from '../services/routes.ts';
 import { continuePreflight, switchedRun } from '../services/run-continue.ts';
 import { memoryStore } from '../services/secrets.ts';
 import { promptEntries } from './prompts.ts';
-import { createRun, Runner, type ModelPort } from './runner.ts';
+import { Runner, type ModelPort } from './runner.ts';
+import { createRun } from './run-create.ts';
 
 function setup() {
   const db = openDatabase(':memory:');

@@ -2,7 +2,8 @@ import { createHash } from 'node:crypto';
 import { eq, inArray } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { projectSlice, type RouteSlice } from './route-slice.ts';
+import { projectSlice } from './project-slice.ts';
+import type { RouteSlice } from './route-slice.ts';
 
 /**
  * 이음새 점검 (docs/DESIGN.md J2c): from the second route on, the translator only has to check the
