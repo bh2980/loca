@@ -2,6 +2,7 @@ import { and, eq, inArray, ne } from 'drizzle-orm';
 import { batchChangeSchema, type BatchChange } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
+import { DELETABLE, deletable, type DeletableKind } from './item-delete.ts';
 import { inChunks } from '../db/chunk.ts';
 import { normalizeBatch, validateBatch, type BatchReport } from './script-query.ts';
 
@@ -73,6 +74,25 @@ export async function prepareProposal(db: Db, projectId: string, tool: string, i
   const byId = BY_ID[tool];
   const id = byId && input[byId.field];
   if (byId && typeof id === 'string' && id && !byId.exists(db, projectId, id)) return { ok: false, error: `없는 ${byId.what}입니다.`, hint: `(${byId.field}=${id}) 목록 도구로 id를 확인하세요.` };
+  if (tool === 'save_knowledge') {
+    // Each item is checked like its single tool; one missing id refuses the whole change so the agent fixes it.
+    const single = { characters: 'save_character', relationships: 'save_relationship', speechRules: 'save_speech_rule', events: 'save_event', documents: 'save_document' } as const;
+    for (const [kind, name] of Object.entries(single)) {
+      for (const item of (input[kind] as Record<string, unknown>[] | undefined) ?? []) {
+        const checked = await prepareProposal(db, projectId, name, item);
+        if (!checked.ok) return checked;
+      }
+    }
+    return { ok: true, input, report: null };
+  }
+  if (tool === 'delete_items') {
+    const kind = input.kind as DeletableKind;
+    if (!DELETABLE[kind]) return { ok: false, error: `지울 수 없는 종류입니다: ${String(input.kind)}` };
+    const { ids, missing, locked } = deletable(db, projectId, kind, (input.ids as string[] | undefined) ?? []);
+    const dropped = [...missing.map((key) => ({ key, reason: `없는 ${DELETABLE[kind].what}입니다.` })), ...locked.map((key) => ({ key, reason: '앱이 쓰는 태그라 지울 수 없습니다.' }))];
+    if (!ids.length) return { ok: false, error: `지울 수 있는 ${DELETABLE[kind].what}이(가) 없습니다.`, hint: dropped.length ? `예: ${dropped[0].key} ${dropped[0].reason} 목록 도구로 id를 확인하세요.` : undefined };
+    return { ok: true, input: { ...input, ids }, report: dropped.length ? { dropped, warnings: [] } : null };
+  }
   if (tool === 'tag_items') {
     const tables = { terms: s.terms, characters: s.characters, relationships: s.relationships, speechRules: s.speechRules, events: s.storyEvents, documents: s.documents } as const;
     const table = tables[input.kind as keyof typeof tables];

@@ -47,6 +47,62 @@ export function ChangePreview({ name, input }: { name: string; input: Record<str
         </dl>
       );
     }
+    case 'save_knowledge': {
+      const sections = [
+        ['characters', '인물', (item: Record<string, unknown>) => String(item.name ?? item.id ?? '')],
+        ['relationships', '관계', (item: Record<string, unknown>) => `${String(item.from ?? '?')} → ${String(item.to ?? '?')}${item.kind ? ` (${String(item.kind)})` : ''}`],
+        ['speechRules', '말투 규칙', (item: Record<string, unknown>) => (item.fromName ? `${String(item.fromName)} → ${String(item.toName ?? '?')}${item.level ? ` (${String(item.level)})` : ''}` : String(item.id ?? ''))],
+        ['events', '사건', (item: Record<string, unknown>) => String(item.title ?? item.id ?? '')],
+        ['documents', '문서', (item: Record<string, unknown>) => String(item.title ?? item.id ?? '')],
+      ] as const;
+      return (
+        <div className="max-h-56 space-y-2 overflow-auto">
+          {sections.map(([key, label, text]) => {
+            const items = (input[key] as Record<string, unknown>[] | undefined) ?? [];
+            return items.length ? (
+              <div key={key}>
+                <p className="font-medium">
+                  {label} {items.length}개
+                </p>
+                <ul className="space-y-0.5">
+                  {items.map((item, index) => (
+                    <li key={index}>
+                      {item.id ? '수정' : '추가'} · {text(item)}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null;
+          })}
+          <p className="text-muted-foreground">항목마다 따로 저장됩니다. 실패한 항목이 있어도 나머지는 저장됩니다.</p>
+        </div>
+      );
+    }
+    case 'delete_items': {
+      const kinds: Record<string, string> = { terms: '용어', characters: '인물', relationships: '관계', speechRules: '말투 규칙', events: '사건', documents: '문서', tags: '태그' };
+      const ids = (input.ids as string[] | undefined) ?? [];
+      return (
+        <dl className="space-y-1">
+          {field('삭제', `${kinds[input.kind as string] ?? String(input.kind)} ${ids.length}개`)}
+          {field('이유', input.reason)}
+          {field('id', ids.slice(0, 10).join(', ') + (ids.length > 10 ? ` 외 ${ids.length - 10}개` : ''))}
+          <p className="text-destructive">수락하면 바로 지워지고 되돌릴 수 없습니다. 이 항목에 걸린 관계·태그 연결도 함께 지워집니다.</p>
+        </dl>
+      );
+    }
+    case 'update_project_settings': {
+      const labels: Record<string, string> = { name: '이름', description: '설명', formatRules: '서식 규칙', aiConfirm: 'AI 확인', editorAi: '편집기 AI', markColors: '표시 색' };
+      return (
+        <dl className="space-y-1">
+          {Object.entries(input).map(([key, value]) => (
+            <div key={key} className="grid grid-cols-[5rem_1fr] gap-2">
+              <dt className="text-muted-foreground">{labels[key] ?? key}</dt>
+              <dd className="min-w-0 break-words">{typeof value === 'string' ? value : <pre className="max-h-32 overflow-auto text-xs whitespace-pre-wrap">{JSON.stringify(value, null, 2)}</pre>}</dd>
+            </div>
+          ))}
+        </dl>
+      );
+    }
     case 'save_status': {
       const places: Record<string, string> = { lines: '대사', knowledge: '자료', terms: '용어집' };
       return (

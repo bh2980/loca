@@ -5,6 +5,7 @@ import { AGE_BANDS, characterStyleSchema, GENDERS, DOCUMENT_KINDS, KNOWLEDGE_STA
 import { badRequest, found, notFound, validate, type Env } from '../context.ts';
 import { eachChunk, inChunks } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
+import { deleteItems } from '../services/item-delete.ts';
 import { events } from '../events.ts';
 import { graphOrder, ruleLines } from '../services/speech.ts';
 import { eventFlow, forks } from '../services/event-routes.ts';
@@ -103,9 +104,7 @@ export const knowledgeRoutes = new Hono<Env>()
     return c.json({ ok: true });
   })
   .delete('/terms/:id', (c) => {
-    const projectId = c.req.param('projectId')!;
-    c.var.deps.db.delete(s.terms).where(byProject(s.terms, c.req.param('id'), projectId)).run();
-    events.changed(projectId, 'terms');
+    deleteItems(c.var.deps.db, c.req.param('projectId')!, 'terms', [c.req.param('id')]);
     return c.json({ ok: true });
   })
 
@@ -123,9 +122,7 @@ export const knowledgeRoutes = new Hono<Env>()
     return c.json({ ok: true });
   })
   .delete('/documents/:id', (c) => {
-    const projectId = c.req.param('projectId')!;
-    c.var.deps.db.delete(s.documents).where(byProject(s.documents, c.req.param('id'), projectId)).run();
-    events.changed(projectId, 'knowledge');
+    deleteItems(c.var.deps.db, c.req.param('projectId')!, 'documents', [c.req.param('id')]);
     return c.json({ ok: true });
   })
 
@@ -147,9 +144,7 @@ export const knowledgeRoutes = new Hono<Env>()
     return c.json({ ok: true });
   })
   .delete('/characters/:id', (c) => {
-    const projectId = c.req.param('projectId')!;
-    c.var.deps.db.delete(s.characters).where(byProject(s.characters, c.req.param('id'), projectId)).run();
-    events.changed(projectId, 'knowledge');
+    deleteItems(c.var.deps.db, c.req.param('projectId')!, 'characters', [c.req.param('id')]);
     return c.json({ ok: true });
   })
   .post('/relationships', validate('json', relationshipInput), (c) => {
@@ -165,9 +160,7 @@ export const knowledgeRoutes = new Hono<Env>()
     return c.json({ ok: true });
   })
   .delete('/relationships/:id', (c) => {
-    const projectId = c.req.param('projectId')!;
-    c.var.deps.db.delete(s.relationships).where(byProject(s.relationships, c.req.param('id'), projectId)).run();
-    events.changed(projectId, 'knowledge');
+    deleteItems(c.var.deps.db, c.req.param('projectId')!, 'relationships', [c.req.param('id')]);
     return c.json({ ok: true });
   })
   /** Events with where they happen (the earliest of their evidence lines: script position, section, scene) and which events they lead to, for the flow graph. */
@@ -207,9 +200,7 @@ export const knowledgeRoutes = new Hono<Env>()
     return c.json({ ok: true });
   })
   .delete('/events/:id', (c) => {
-    const projectId = c.req.param('projectId')!;
-    c.var.deps.db.delete(s.storyEvents).where(byProject(s.storyEvents, c.req.param('id'), projectId)).run();
-    events.changed(projectId, 'knowledge');
+    deleteItems(c.var.deps.db, c.req.param('projectId')!, 'events', [c.req.param('id')]);
     return c.json({ ok: true });
   })
 
@@ -227,9 +218,7 @@ export const knowledgeRoutes = new Hono<Env>()
     return c.json({ ok: true });
   })
   .delete('/speech-rules/:id', (c) => {
-    const projectId = c.req.param('projectId')!;
-    c.var.deps.db.delete(s.speechRules).where(byProject(s.speechRules, c.req.param('id'), projectId)).run();
-    events.changed(projectId, 'knowledge');
+    deleteItems(c.var.deps.db, c.req.param('projectId')!, 'speechRules', [c.req.param('id')]);
     return c.json({ ok: true });
   })
   /**

@@ -8,6 +8,8 @@ import { events } from '../events.ts';
 import { forgetProjectContext } from '../services/context.ts';
 import { markConditions } from '../services/line-marks.ts';
 import { projectTags, tagUseIn } from '../services/tag-scope.ts';
+import { deleteItems } from '../services/item-delete.ts';
+import { projectSettingsInput, updateProjectSettings } from '../services/project-settings.ts';
 import { importProject } from '../services/importer.ts';
 import type { DecidedTable } from '../services/status-by.ts';
 import { defaultModelChoice } from '../services/routes.ts';
@@ -86,11 +88,8 @@ export const projectRoutes = new Hono<Env>()
     };
     return c.json({ ...project, aiConfirm: aiConfirmSchema.parse(project.aiConfirm), editorAi: editorAiSchema.parse(project.editorAi), editorCallsToday: editorCallsToday(db, projectId), byStatus, groupCount, reviewCount, aiDecided });
   })
-  .patch('/:projectId', validate('json', z.object({ name: z.string().trim().min(1).optional(), description: z.string().optional(), formatRules: formatRulesSchema.optional(), agentSettings: agentSettingsSchema.optional(), aiConfirm: aiConfirmSchema.optional(), editorAi: editorAiSchema.optional(), markColors: markColorsSchema.optional() })), (c) => {
-    const { db } = c.var.deps;
-    const projectId = c.req.param('projectId');
-    found(db.update(s.projects).set(c.req.valid('json')).where(eq(s.projects.id, projectId)).returning().get(), '프로젝트');
-    events.changed(projectId, 'projects');
+  .patch('/:projectId', validate('json', projectSettingsInput.extend({ agentSettings: agentSettingsSchema.optional() })), (c) => {
+    found(updateProjectSettings(c.var.deps.db, c.req.param('projectId'), c.req.valid('json')) ?? undefined, '프로젝트');
     return c.json({ ok: true });
   })
   .delete('/:projectId', (c) => {
@@ -209,7 +208,6 @@ export const projectRoutes = new Hono<Env>()
     const projectId = c.req.param('projectId');
     const tag = found(db.select({ role: s.tags.role }).from(s.tags).where(and(eq(s.tags.id, c.req.param('id')), eq(s.tags.projectId, projectId))).get(), '태그');
     if (tag.role) badRequest('앱이 쓰는 태그는 지울 수 없습니다.');
-    db.delete(s.tags).where(and(eq(s.tags.id, c.req.param('id')), eq(s.tags.projectId, projectId))).run();
-    events.changed(projectId, 'statuses', 'units', 'workflows');
+    deleteItems(db, projectId, 'tags', [c.req.param('id')]);
     return c.json({ ok: true });
   });
