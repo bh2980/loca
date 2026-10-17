@@ -17,6 +17,7 @@ import { TranslationEditor } from '@/components/translation-editor';
 import { client, unwrap } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
 import { lineTags, q } from '@/lib/queries';
+import { useSaveLine } from '@/lib/line-save';
 import { cn } from '@/lib/utils';
 import { useReportView } from '@/lib/view-context';
 import { ListenerPicker } from '@/components/script/listener-picker';
