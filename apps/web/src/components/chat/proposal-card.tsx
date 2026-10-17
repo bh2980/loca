@@ -54,7 +54,7 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
           {proposal.status !== 'pending' && (
             <span className={proposal.status === 'accepted' ? 'text-success' : proposal.status === 'failed' ? 'text-destructive' : 'text-muted-foreground'}>
               {proposal.decidedBy && proposal.decidedBy !== 'person' && `${DECIDED_BY[proposal.decidedBy]} `}
-              {STATUS[proposal.status]}
+              {proposal.status === 'failed' && proposal.decidedBy && proposal.decidedBy !== 'person' ? '적용하려 했지만 실패' : STATUS[proposal.status]}
               {failure && ` · ${failure}`}
               {skipped > 0 && ` · ${skipped.toLocaleString()}개는 건너뜀(그사이 바뀌었거나 바꿀 수 없음)`}
             </span>

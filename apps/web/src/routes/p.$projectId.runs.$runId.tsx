@@ -26,6 +26,7 @@ import type { InferResponseType } from 'hono/client';
 import { BatchList } from '@/components/workflow/batch-list';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ContinueRun } from '@/components/workflow/continue-run';
+import { dateTime } from '@/lib/datetime';
 
 type State = keyof typeof ITEM_STATE;
 interface RunSearch {
@@ -240,7 +241,7 @@ function RunDetail() {
             </Alert>
           )}
           <p className="truncate text-xs text-muted-foreground">
-            {new Date(data.createdAt).toLocaleString()} 시작 · 모델 {data.models.map((model) => (model.routes.length > 1 ? `${model.label} (막히면 → ${model.routes.slice(1).map((route) => `${route.name} · ${route.model}`).join(' → ')})` : model.label)).join(', ') || '없음'}
+            {dateTime(data.createdAt)} 시작 · 모델 {data.models.map((model) => (model.routes.length > 1 ? `${model.label} (막히면 → ${model.routes.slice(1).map((route) => `${route.name} · ${route.model}`).join(' → ')})` : model.label)).join(', ') || '없음'}
           </p>
           {data.byModel.length > 1 && (
             <p className="text-xs text-muted-foreground">
@@ -249,7 +250,7 @@ function RunDetail() {
           )}
           {data.continuations.map((entry, index) => (
             <p key={index} className="text-xs text-muted-foreground">
-              {new Date(entry.at).toLocaleString()} 이어서 실행{entry.changes.length > 0 && ` · ${entry.changes.map((change) => `${nodeName(change.nodeId)}: ${change.from} → ${change.to}`).join(', ')}`}
+              {dateTime(entry.at)} 이어서 실행{entry.changes.length > 0 && ` · ${entry.changes.map((change) => `${nodeName(change.nodeId)}: ${change.from} → ${change.to}`).join(', ')}`}
               {entry.retried > 0 && ` · 실패한 줄 ${entry.retried.toLocaleString()}개 다시`}
             </p>
           ))}

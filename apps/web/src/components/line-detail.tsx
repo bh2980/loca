@@ -22,6 +22,7 @@ import { cn } from '@/lib/utils';
 import { useReportView } from '@/lib/view-context';
 import { ListenerPicker } from '@/components/script/listener-picker';
 import { editorChecks, tokenPatternOf, withoutTokens } from '@/lib/line-context';
+import { dateTime } from '@/lib/datetime';
 
 const ORIGIN = { ai: 'AI', human: '사람', import: '가져옴', tool: '도구' } as const;
 const STATE = { queued: '대기', running: '실행 중', done: '완료', failed: '실패', cancelled: '취소' } as const;
@@ -226,7 +227,7 @@ export function LineDetail({
                     <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
                       <Badge variant="outline">{ORIGIN[candidate.origin]}</Badge>
                       <span className="min-w-0 truncate">
-                        {[candidate.model, new Date(candidate.createdAt).toLocaleString()].filter(Boolean).join(' · ')}
+                        {[candidate.model, dateTime(candidate.createdAt)].filter(Boolean).join(' · ')}
                       </span>
                       {current ? (
                         <span className="ml-auto shrink-0 font-medium text-foreground">현재 번역</span>
