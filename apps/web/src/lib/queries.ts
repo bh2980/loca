@@ -60,6 +60,8 @@ export const q = {
     }),
   /** 다음 길: the route through the most untranslated lines, what it adds and how many routes are left (units topic, like the counts it is made from). */
   routeNext: (projectId: string) => queryOptions({ queryKey: ['units', projectId, 'route-next'], queryFn: () => unwrap(client.projects[':projectId'].route.next.$get({ param: { projectId } })) }),
+  /** 남은 갈래: untranslated lines the current route does not pass, by branch, and lines no route reaches (units topic). */
+  routeRemaining: (projectId: string) => queryOptions({ queryKey: ['units', projectId, 'route-remaining'], queryFn: () => unwrap(client.projects[':projectId'].route.remaining.$get({ param: { projectId } })) }),
   /** 이음새 점검: the checked seams of the current route with whether their lines still read as they did, and the counts for the round (units topic: translations decide). */
   seamChecks: (projectId: string) => queryOptions({ queryKey: ['units', 'seam-checks', projectId], queryFn: () => unwrap(client.projects[':projectId']['seam-checks'].$get({ param: { projectId } })) }),
   /** One seam: the current route's last lines before it and the earlier route's lines after it. */

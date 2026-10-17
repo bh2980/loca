@@ -15,7 +15,8 @@ import { computeLayouts } from '../services/layout.ts';
 import { readView, sectionWithMost } from '../services/graph-views.ts';
 import { graphKey } from '../services/route-slice.ts';
 import { projectSlice } from '../services/project-slice.ts';
-import { defaultPicks, effectivePicks, previewNext, projectRouteInputs, routeProgress } from '../services/next-route.ts';
+import { defaultPicks, effectivePicks, previewNext, projectRouteInputs, routeLines, routeProgress } from '../services/next-route.ts';
+import { routeCoverage, throughPicks } from '../services/route-coverage.ts';
 import { seamDetail, seamLines, seamNodes, seamStates } from '../services/seam-check.ts';
 import { lineMatches } from '../services/line-matches.ts';
 import { lineTextFilter } from '../services/line-text.ts';
@@ -440,6 +441,44 @@ export const sourceRoutes = new Hono<Env>()
     db.update(s.projects).set({ routePicks: preview.picks, routeState: state }).where(eq(s.projects.id, projectId)).run();
     events.changed(projectId, 'graph', 'units');
     return c.json({ picks: preview.picks, round: state.round });
+  })
+  /** 남은 갈래 (docs/PLAN-30.md): untranslated lines the current route does not pass, by the choice they leave it at, and lines no route reaches. */
+  .get('/projects/:projectId/route/remaining', (c) => {
+    const { db } = c.var.deps;
+    const projectId = c.req.param('projectId');
+    const { g, weights } = projectRouteInputs(db, projectId);
+    const row = db.select({ picks: s.projects.routePicks, state: s.projects.routeState }).from(s.projects).where(eq(s.projects.id, projectId)).get();
+    return c.json(routeCoverage(g, weights, effectivePicks(db, projectId, row, graphKey(db, projectId))));
+  })
+  /**
+   * 이 갈래로: a route through `nodeId`. When the current route has no untranslated line left this is the
+   * next round (history and seams as with 다음 길); otherwise it only changes this round's choices.
+   */
+  .post('/projects/:projectId/route/through', validate('json', z.object({ nodeId: z.string(), round: z.number().int() })), (c) => {
+    const { db } = c.var.deps;
+    const projectId = c.req.param('projectId');
+    const { nodeId, round } = c.req.valid('json');
+    const row = db.select({ picks: s.projects.routePicks, state: s.projects.routeState }).from(s.projects).where(eq(s.projects.id, projectId)).get();
+    if (!row) badRequest('프로젝트를 찾을 수 없습니다.');
+    if (round !== row.state.round) badRequest('다른 곳에서 길이 이미 바뀌었습니다. 화면을 확인한 뒤 다시 눌러 주세요.');
+    const { g, weights } = projectRouteInputs(db, projectId);
+    const current = effectivePicks(db, projectId, row, graphKey(db, projectId));
+    const through = throughPicks(g, current, nodeId);
+    if (!through) badRequest('어떤 길로도 이 노드에 닿지 않습니다.');
+    const advanced = routeLines(g, weights, current) === 0 && through !== current;
+    let picks: Record<string, string>;
+    let state = row.state;
+    if (advanced) {
+      picks = through;
+      state = { round: row.state.round + 1, history: [...row.state.history, current] };
+    } else {
+      // The choices that changed, on top of what is stored (on route 1 the best route stays unstored).
+      const changed = Object.fromEntries(Object.entries(through).filter(([fork, arm]) => current[fork] !== arm));
+      picks = { ...row.picks, ...changed };
+    }
+    db.update(s.projects).set({ routePicks: picks, routeState: state }).where(eq(s.projects.id, projectId)).run();
+    events.changed(projectId, 'graph', 'units');
+    return c.json({ picks, round: state.round, advanced });
   })
   /** Step back to the route of the round before. */
   .post('/projects/:projectId/route/prev', validate('json', z.object({ round: z.number().int() })), (c) => {
