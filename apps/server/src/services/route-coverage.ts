@@ -1,6 +1,7 @@
 import { isIdentifierLabel } from '@tw/shared';
 import { walkRoute, type RouteGraph } from './route-slice.ts';
-import type { Weights } from './next-route.ts';
+/** Untranslated lines per graph node (next-route.ts's Weights; not imported, next-route imports this file). */
+type Weights = Map<string, number>;
 
 /**
  * 남은 갈래 (docs/PLAN-30.md): which untranslated lines of the dialogue graph the current route does

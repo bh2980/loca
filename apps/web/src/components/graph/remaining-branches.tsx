@@ -49,7 +49,7 @@ export function RemainingBranches({ open, onOpenChange, branches, unreachable, t
                     {line(branch.firstNode) && ` · ${line(branch.firstNode)}`}
                   </p>
                 </div>
-                <Button size="sm" variant="outline" disabled={busy} title="이 갈래의 첫 번역 안 한 줄을 지나도록 길을 바꿉니다. 이번 길을 다 번역했으면 다음 길로 넘어갑니다." onClick={() => onGo(branch)}>
+                <Button variant="outline" disabled={busy} title="이 갈래의 첫 번역 안 한 줄을 지나도록 길을 바꿉니다. 이번 길을 다 번역했으면 다음 길로 넘어갑니다." onClick={() => onGo(branch)}>
                   이 갈래로
                 </Button>
               </li>
