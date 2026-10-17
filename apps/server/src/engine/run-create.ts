@@ -152,9 +152,10 @@ export const ANALYSIS_BUSY = '이미 진행 중인 작품 분석이 있습니다
  */
 export const runActive = (run: { status: string; notice: string | null }) => run.status === 'running' || (run.status === 'paused' && run.notice === FILLING);
 
-export function refuseSecondAnalysis(db: Db, projectId: string) {
-  const runs = db.select({ status: s.runs.status, notice: s.runs.notice, definition: s.runs.definition }).from(s.runs).where(and(eq(s.runs.projectId, projectId), inArray(s.runs.status, ['running', 'paused']))).all();
-  const busy = runs.some((run) => runActive(run) && isAnalysisWorkflow(run.definition));
+/** `exceptRunId`: the analysis being continued or resumed, which may go on itself. */
+export function refuseSecondAnalysis(db: Db, projectId: string, exceptRunId?: string) {
+  const runs = db.select({ id: s.runs.id, status: s.runs.status, notice: s.runs.notice, definition: s.runs.definition }).from(s.runs).where(and(eq(s.runs.projectId, projectId), inArray(s.runs.status, ['running', 'paused']))).all();
+  const busy = runs.some((run) => run.id !== exceptRunId && runActive(run) && isAnalysisWorkflow(run.definition));
   if (busy || db.select({ id: s.analysisJobs.id }).from(s.analysisJobs).where(and(eq(s.analysisJobs.projectId, projectId), eq(s.analysisJobs.status, 'running'))).get()) throw new Error(ANALYSIS_BUSY);
 }
 
