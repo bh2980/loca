@@ -372,7 +372,7 @@ function Pace({ data }: { data: PlanData }) {
   const callText = calls.expected !== null ? `${calls.expected.toLocaleString()}회` : `${calls.min.toLocaleString()}~${calls.max.toLocaleString()}회`;
   const { seconds, costUsd, subscription } = data.pace;
   // Only what is known: no time without history, no cost the provider never reported.
-  const money = subscription && !costUsd ? '구독 사용' : costUsd === null ? null : costUsd < 0.01 ? '1센트 미만' : `약 $${costUsd.toFixed(2)}${subscription ? ' + 구독' : ''}`;
+  const money = subscription && !costUsd ? '구독 사용' : costUsd === null ? null : costUsd === 0 && !subscription ? '무료' : costUsd < 0.01 ? '1센트 미만' : `약 $${costUsd.toFixed(2)}${subscription ? ' + 구독' : ''}`;
   return (
     <section className="space-y-1">
       <h3 className="text-xs text-muted-foreground">얼마나</h3>
