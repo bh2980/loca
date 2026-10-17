@@ -344,7 +344,7 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
     <>
       <div
         ref={scroller}
-        className="min-h-0 flex-1 overflow-y-auto px-3 py-3"
+        className="min-h-0 flex-1 overflow-y-auto px-4 py-4"
         onScroll={(event) => {
           const element = event.currentTarget;
           pinned.current = element.scrollHeight - element.scrollTop - element.clientHeight < 40;
@@ -360,7 +360,7 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
             ))}
           </div>
         )}
-        <div className="space-y-4">
+        <div className="space-y-5">
           {messages.map((message) => {
             const stopped = (message.metadata as { stopped?: boolean } | undefined)?.stopped;
             const view =
