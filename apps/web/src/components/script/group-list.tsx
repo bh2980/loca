@@ -52,11 +52,13 @@ const VIEW_ICON = { scene: <MessageSquareText />, ui: <AppWindow />, document: <
 /** Scenes from which the list gets its own search box. */
 const SEARCH_FROM = 20;
 
-export function GroupList({ projectId, groups, finalIds, scope, lineTotal, reviewCount, gq, onFilter, marks, views }: {
+export function GroupList({ projectId, groups, finalIds, initialIds, scope, lineTotal, reviewCount, gq, onFilter, marks, views }: {
   projectId: string;
   groups: GroupRow[] | undefined;
   /** Statuses that count as done. */
   finalIds: Set<string>;
+  /** 미번역 and the like: a line past these has been started (translated at least once). */
+  initialIds: Set<string>;
   scope: ScriptScope;
   lineTotal: number;
   reviewCount: number;
@@ -87,7 +89,11 @@ export function GroupList({ projectId, groups, finalIds, scope, lineTotal, revie
   useEffect(() => {
     if (pickedSection) toggle(pickedSection, true);
   }, [scope.group, pickedSection]); // eslint-disable-line react-hooks/exhaustive-deps
-  const doneOf = (group: GroupRow) => Object.entries(group.statuses).reduce((sum, [id, n]) => sum + (finalIds.has(id) ? n : 0), 0);
+  // A scene's count is its progress: lines translated (past 미번역), with 확정 named in the hint; the check means all 확정.
+  const progressOf = (group: GroupRow) => {
+    const lines = Object.entries(group.statuses);
+    return { translated: lines.reduce((sum, [id, n]) => sum + (initialIds.has(id) ? 0 : n), 0), final: lines.reduce((sum, [id, n]) => sum + (finalIds.has(id) ? n : 0), 0) };
+  };
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-sidebar/40">
@@ -111,7 +117,7 @@ export function GroupList({ projectId, groups, finalIds, scope, lineTotal, revie
         {sections.map((section) => {
           // A scene search shows its matches wherever they are.
           const open = Boolean(gq) || !section.name || opened.has(section.name);
-          const items = section.groups.map((group) => <GroupItem key={group.id} projectId={projectId} group={group} done={doneOf(group)} active={group.id === scope.group} indent={Boolean(section.name)} marks={marks} />);
+          const items = section.groups.map((group) => <GroupItem key={group.id} projectId={projectId} group={group} progress={progressOf(group)} active={group.id === scope.group} indent={Boolean(section.name)} marks={marks} />);
           if (!section.name) return <Fragment key={section.key}>{items}</Fragment>;
           return (
             <Collapsible key={section.key} open={open} onOpenChange={(next) => toggle(section.name!, next)}>
@@ -160,8 +166,8 @@ function ScopeLink({ projectId, scope, active, icon, label, count, highlight }: 
   );
 }
 
-function GroupItem({ projectId, group, done, active, indent, marks }: { projectId: string; group: GroupRow; done: number; active: boolean; indent: boolean; marks?: Map<string, number> }) {
-  const complete = group.total > 0 && done === group.total;
+function GroupItem({ projectId, group, progress, active, indent, marks }: { projectId: string; group: GroupRow; progress: { translated: number; final: number }; active: boolean; indent: boolean; marks?: Map<string, number> }) {
+  const complete = group.total > 0 && progress.final === group.total;
   const marked = marks?.get(group.id) ?? 0;
   return (
     <ScriptLink
@@ -183,7 +189,9 @@ function GroupItem({ projectId, group, done, active, indent, marks }: { projectI
       ) : complete ? (
         <Check className="size-3 shrink-0 text-success" aria-label="완료" />
       ) : (
-        <span className="shrink-0 text-xs font-mono text-muted-foreground/70 tabular-nums">{done}/{group.total}</span>
+        <span className="shrink-0 text-xs font-mono text-muted-foreground/70 tabular-nums" title={`번역함 ${progress.translated}줄 · 확정 ${progress.final}줄 / 전체 ${group.total}줄`} aria-label={`번역함 ${progress.translated} / ${group.total}`}>
+          {progress.translated}/{group.total}
+        </span>
       )}
     </ScriptLink>
   );

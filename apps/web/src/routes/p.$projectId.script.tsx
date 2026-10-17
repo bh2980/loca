@@ -76,6 +76,7 @@ function Script() {
   const index = ordered.findIndex((item) => item.id === search.group);
   const group = index >= 0 ? ordered[index] : undefined;
   const finalIds = new Set(statuses.data?.statuses.filter((status) => status.kind === 'final').map((status) => status.id));
+  const initialIds = new Set(statuses.data?.statuses.filter((status) => status.kind === 'initial').map((status) => status.id));
   const lineTotal = project.data?.byStatus.reduce((sum, row) => sum + row.count, 0) ?? 0;
   const [listOpen, setListOpen] = useState(() => readListOpen());
   // The list's width is dragged by its edge and remembered, like every right-hand pane.
@@ -212,6 +213,7 @@ function Script() {
                 projectId={projectId}
                 groups={groups.data && ordered}
                 finalIds={finalIds}
+                initialIds={initialIds}
                 scope={{ group: search.group, review: search.review, kind: split ? view : undefined }}
                 views={split ? views : undefined}
                 lineTotal={lineTotal}
