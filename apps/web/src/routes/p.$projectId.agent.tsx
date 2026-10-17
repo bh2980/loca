@@ -1,4 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
+import { SettingsSection } from '@loca/ui';
 import { Page } from '@/components/page';
 import { AgentTab } from '@/components/settings/agent-tab';
 
@@ -10,10 +11,10 @@ export const Route = createFileRoute('/p/$projectId/agent')({
 function AgentPage() {
   return (
     <Page title="에이전트">
-      <div className="max-w-3xl space-y-3 p-4">
-        {/* The grid explains itself (its own intro): only the heading here. */}
-        <h2 className="text-base font-semibold">도구와 권한</h2>
-        <AgentTab />
+      <div className="max-w-3xl px-6 py-6">
+        <SettingsSection title="도구와 권한">
+          <AgentTab />
+        </SettingsSection>
       </div>
     </Page>
   );
