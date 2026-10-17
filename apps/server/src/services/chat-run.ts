@@ -10,7 +10,7 @@ import { AGENT_SYSTEM } from './agent-tools.ts';
 import { gatedTools } from './change-gate.ts';
 import { CONTEXT_BUDGET, fitMessages, mergeIncoming, type AnsweredBy } from './chat-context.ts';
 import { hasInterjections, takeInterjections, writeInterjections, type Interjection } from './chat-interject.ts';
-import { afterTurn, readToEnd, startTurn, turnStartedAt, type ChatTurn } from './chat-turns.ts';
+import { afterTurn, markStopped, readToEnd, startTurn, turnStartedAt, type ChatTurn } from './chat-turns.ts';
 import { cliChatResponse } from './cli-chat.ts';
 import { piChatResponse } from './pi-chat.ts';
 import { hasUnreportedDecisions, openProposals, takeDecisions } from './proposals.ts';
@@ -166,7 +166,7 @@ function apiChatResponse(input: {
       writer.write({ type: 'finish', ...(finishReason && { finishReason: finishReason as never }), messageMetadata: { answeredBy, finishReason } });
     },
     onFinish: ({ messages: final }) => {
-      db.update(s.chatSessions).set({ messages: final }).where(eq(s.chatSessions.id, session.id)).run();
+      db.update(s.chatSessions).set({ messages: markStopped(final, turn.signal) }).where(eq(s.chatSessions.id, session.id)).run();
       events.changed(session.projectId, 'chat');
     },
     onError: (error) => (error instanceof Error ? error.message : String(error)),

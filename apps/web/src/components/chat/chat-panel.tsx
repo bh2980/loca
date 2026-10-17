@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { useChat } from '@ai-sdk/react';
 import type { UIMessage } from 'ai';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -229,6 +229,11 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
   // The turn runs on the server, not in this request: stopping ends both.
   const halt = () => {
     void stop();
+    // Said at once here; the server saves the same mark on the conversation (chat-turns markStopped).
+    setMessages((current) => {
+      const last = current.at(-1);
+      return last ? [...current.slice(0, -1), { ...last, metadata: { ...((last.metadata as object | undefined) ?? {}), stopped: true } }] : current;
+    });
     setLater([]);
     void unwrap(client.chat[':sessionId'].stop.$post({ param: { sessionId } })).then(({ queued: back }) => {
       // Messages the turn had not taken yet go back to the input box.
@@ -360,7 +365,9 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
           </div>
         )}
         <div className="space-y-4">
-          {messages.map((message) =>
+          {messages.map((message) => {
+            const stopped = (message.metadata as { stopped?: boolean } | undefined)?.stopped;
+            const view =
             message.role === 'user' && (message.metadata as { kind?: string } | undefined)?.kind === 'decisions' ? (
               <DecisionNotice key={message.id} text={message.parts.map((part) => (part.type === 'text' ? part.text : '')).join('')} />
             ) : message.role === 'user' ? (
@@ -384,8 +391,17 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
                   return null;
                 })}
               </div>
-            ),
-          )}
+            );
+            if (!stopped) return view;
+            return (
+              <Fragment key={message.id}>
+                {view}
+                <p className="flex items-center gap-1.5 text-xs text-muted-foreground" role="status">
+                  <Square className="size-3" /> 중지됨
+                </p>
+              </Fragment>
+            );
+          })}
           {[...queued, ...later].map((text, index) => (
             <SteerBubble key={`queued-${index}`} text={text} waiting />
           ))}

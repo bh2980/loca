@@ -78,6 +78,8 @@ export function ToolPart({ part, stale, onDecide, onOutput, proposal }: {
     const output = part.output as { ok?: boolean; status?: string; error?: string; note?: string } | undefined;
     const failed = part.state === 'output-available' && (output?.ok === false || output?.status === 'failed' || output?.status === 'rejected');
     const waiting = part.state === 'output-available' && (output?.status === 'pending' || output?.status === 'running');
+    // Refused before it became a proposal ('제안하지 못했습니다: …'): there is nothing to accept.
+    const refused = part.state === 'output-available' && output?.ok === false && !output?.status;
     return (
       <div className="overflow-hidden rounded-lg border bg-background text-sm">
         <div className="flex items-center gap-2 border-b bg-muted/40 px-3 py-1.5 text-xs font-medium">
@@ -90,7 +92,20 @@ export function ToolPart({ part, stale, onDecide, onOutput, proposal }: {
             {part.state === 'approval-responded' && <Spinner className="size-3" />}
           </span>
         </div>
-        <div className="px-3 py-2 text-xs">{part.input && <ChangePreview name={name} input={part.input} />}</div>
+        <div className="px-3 py-2 text-xs">
+          {part.input &&
+            (refused ? (
+              // Nothing was proposed (the check refused it): what the agent asked for, folded, not as items to add.
+              <details>
+                <summary className="cursor-pointer text-muted-foreground">요청한 내용 보기</summary>
+                <div className="mt-2">
+                  <ChangePreview name={name} input={part.input} pending={false} />
+                </div>
+              </details>
+            ) : (
+              <ChangePreview name={name} input={part.input} pending={!decided} />
+            ))}
+        </div>
         {!decided && part.approval && (
           <div className="flex justify-end gap-2 border-t px-3 py-2">
             <Button variant="outline" onClick={() => onDecide(part.approval!.id, false)}>

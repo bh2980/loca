@@ -380,3 +380,23 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
   }
   return issues;
 }
+
+/** The work-analysis nodes of a workflow (AI nodes with the "analysis" output, #47). */
+export const analysisNodes = (definition: WorkflowDefinition) => definition.nodes.filter((node): node is AiNode => node.type === 'ai' && node.config.output === 'analysis');
+/** A workflow that runs a work analysis: only one such run at a time per project. */
+export const isAnalysisWorkflow = (definition: WorkflowDefinition) => analysisNodes(definition).length > 0;
+
+/**
+ * Which run-dialog readiness checks matter for a workflow: only nodes that write or judge
+ * translations (번역 후보, 판정) are made worse by unknown listeners, unreviewed speech rules or
+ * terms, and only when they get that context — or a speech / glossary check function runs. A work
+ * analysis, listener guess or term extraction reads the script for itself and gets no warnings.
+ */
+export function readinessUses(definition: WorkflowDefinition) {
+  const translating = definition.nodes.filter((node): node is AiNode => node.type === 'ai' && (node.config.output === 'candidate' || node.config.output === 'verdict'));
+  const fn = (name: string) => definition.nodes.some((node) => node.type === 'function' && node.config.fn === name);
+  return {
+    speech: translating.some((node) => node.config.context?.speech !== false) || fn('speechCheck'),
+    glossary: translating.some((node) => node.config.context?.glossary !== false) || fn('glossaryCheck'),
+  };
+}

@@ -500,8 +500,13 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         const errors = workflowIssues(db, projectId, workflow.definition).filter((issue) => issue.level === 'error');
         if (errors.length) return { ok: false, error: `워크플로에 오류가 있습니다: ${errors[0].message}` };
         if (!selectRunUnits(db, projectId, workflow.definition, scope).length) return { ok: false, error: '조건에 맞는 대사가 없습니다.' };
-        const run = await createRunInSteps(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope });
-        return { ok: true, ...run, workflow: workflow.name };
+        try {
+          const run = await createRunInSteps(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope });
+          return { ok: true, ...run, workflow: workflow.name };
+        } catch (error) {
+          // e.g. a work analysis is already running (the same guard as the 작품 분석 button).
+          return { ok: false, error: error instanceof Error ? error.message : String(error) };
+        }
       },
     }),
     propose_changes: tool({

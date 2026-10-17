@@ -1,5 +1,5 @@
 import { createUIMessageStream, createUIMessageStreamResponse, type UIMessage } from 'ai';
-import { readToEnd, type ChatTurn } from './chat-turns.ts';
+import { markStopped, readToEnd, type ChatTurn } from './chat-turns.ts';
 import { interjectionPrompt, takeInterjections, writeInterjections } from './chat-interject.ts';
 import { eq } from 'drizzle-orm';
 import * as ai from '@tw/ai';
@@ -164,7 +164,7 @@ export async function cliChatResponse(input: {
     onFinish: ({ messages: final }) => {
       // The CLI session has now seen the whole record, its own reply included.
       const agentSession = db.select({ agentSession: s.chatSessions.agentSession }).from(s.chatSessions).where(eq(s.chatSessions.id, chat.id)).get()?.agentSession;
-      db.update(s.chatSessions).set({ messages: final, ...(agentSession && sessionId === agentSession.id && { agentSession: { ...agentSession, seen: final.length } }) }).where(eq(s.chatSessions.id, chat.id)).run();
+      db.update(s.chatSessions).set({ messages: markStopped(final, input.turn.signal), ...(agentSession && sessionId === agentSession.id && { agentSession: { ...agentSession, seen: final.length } }) }).where(eq(s.chatSessions.id, chat.id)).run();
       events.changed(chat.projectId, 'chat');
     },
     onError: (error) => (error instanceof Error ? error.message : String(error)),

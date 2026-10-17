@@ -1,9 +1,11 @@
 import * as React from "react"
 import { cn } from "../lib/utils"
+import { useControlId } from "./control-id"
 
-function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
+function Textarea({ className, id, ...props }: React.ComponentProps<"textarea">) {
   return (
     <textarea
+      id={useControlId(id)}
       data-slot="textarea"
       className={cn(
         "flex min-h-[60px] w-full rounded-xs border border-border/80 bg-background px-2.5 py-1.5 text-xs shadow-xs transition-colors outline-none",

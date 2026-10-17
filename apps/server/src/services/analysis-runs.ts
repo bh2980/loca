@@ -1,9 +1,10 @@
 import { and, desc, eq, sql } from 'drizzle-orm';
-import { ANALYSIS_WORKFLOW, ANALYSIS_WORKFLOW_DESCRIPTION, analysisTemplate, withRunModels, type AiNode, type ModelChoice, type WorkflowDefinition } from '@tw/shared';
+import { ANALYSIS_WORKFLOW, ANALYSIS_WORKFLOW_DESCRIPTION, analysisNodes, analysisTemplate, isAnalysisWorkflow, withRunModels, type ModelChoice } from '@tw/shared';
+export { isAnalysisWorkflow };
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
-import { createRunInSteps, FILLING } from '../engine/runner.ts';
+import { createRunInSteps, refuseSecondAnalysis, runActive } from '../engine/runner.ts';
 import { workflowIssues } from '../routes/workflows.ts';
 import { liveChoice, snapshotWorkflowModels } from './routes.ts';
 import type { SecretStore } from './secrets.ts';
@@ -14,8 +15,6 @@ import type { SecretStore } from './secrets.ts';
  * runs are listed in the shape the analysis panels read, after the jobs of the old analysis service.
  */
 
-const analysisNodes = (definition: WorkflowDefinition) => definition.nodes.filter((node): node is AiNode => node.type === 'ai' && node.config.output === 'analysis');
-export const isAnalysisWorkflow = (definition: WorkflowDefinition) => analysisNodes(definition).length > 0;
 
 /** The workflow the button runs: the one named '작품 분석' with an analysis node, else the first with one, else a new one. */
 export function analysisWorkflow(db: Db, projectId: string, model: ModelChoice) {
@@ -36,12 +35,9 @@ function analysisRuns(db: Db, projectId: string, limit: number) {
   return db.select().from(s.runs).where(eq(s.runs.projectId, projectId)).orderBy(desc(s.runs.createdAt)).limit(100).all().filter((run) => isAnalysisWorkflow(run.definition)).slice(0, limit);
 }
 
-const active = (run: typeof s.runs.$inferSelect) => run.status === 'running' || (run.status === 'paused' && run.notice === FILLING);
-
 /** Starts a whole-script analysis on `model` (every analysis node of the workflow uses it for this run). */
 export async function startAnalysis(db: Db, secrets: SecretStore, projectId: string, model: ModelChoice) {
-  if (analysisRuns(db, projectId, 10).some(active) || db.select({ id: s.analysisJobs.id }).from(s.analysisJobs).where(and(eq(s.analysisJobs.projectId, projectId), eq(s.analysisJobs.status, 'running'))).get())
-    throw new Error('이미 진행 중인 작품 분석이 있습니다.');
+  refuseSecondAnalysis(db, projectId);
   liveChoice(db, model, secrets, 'generate');
   const stored = analysisWorkflow(db, projectId, model);
   const definition = withRunModels(stored.definition, Object.fromEntries(analysisNodes(stored.definition).map((node) => [node.id, model])));
@@ -85,7 +81,7 @@ export function listAnalyses(db: Db, projectId: string) {
         for (const [key, value] of Object.entries(JSON.parse(row.counts ?? '{}') as Record<string, number>)) result[key] = (result[key] ?? 0) + value;
     const done = steps.filter((step) => step.ok).length;
     const failedStep = steps.findLast((step) => !step.ok);
-    const status: AnalysisStatus = active(run)
+    const status: AnalysisStatus = runActive(run)
       ? 'running'
       : run.status === 'cancelled'
         ? 'cancelled'

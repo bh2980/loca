@@ -2,7 +2,7 @@ import { and, asc, desc, eq, gte, inArray, isNull, ne, notInArray, or, sql } fro
 import { alias } from 'drizzle-orm/sqlite-core';
 import jsonLogic from 'json-logic-js';
 import * as ai from '@tw/ai';
-import { analysisSectionsOf, type IssueKind, batchConfigSchema, FUNCTIONS, choiceKey, isUnknownListener, lineMarksOf, nodeModels, nodeName, type AiNode, type ConditionData, type FunctionName, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import { analysisSectionsOf, estimateTokens, isAnalysisWorkflow, type IssueKind, batchConfigSchema, FUNCTIONS, choiceKey, isUnknownListener, lineMarksOf, nodeModels, nodeName, type AiNode, type ConditionData, type FunctionName, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
 import { inChunks, inList } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -19,6 +19,7 @@ import { buildPrompt, outputSchema, PER_LINE_OUTPUTS, type KnowledgeOutput, type
 import { applyIssueTags } from '../services/issue-tags.ts';
 import { logged } from '../services/ai-calls.ts';
 import { analysisRequest, analysisToKeys, MIN_ANALYSIS_TIMEOUT_MS, outputCutOff, type Analysis } from '../services/analysis.ts';
+import { overheadOf } from '../services/preflight.ts';
 
 export interface ModelPort {
   generate: typeof ai.generate;
@@ -673,6 +674,28 @@ export class Runner {
    * malformed answer for several lines is retried right away as two halves, MAX_SPLITS levels deep,
    * so one bad line does not fail a whole batch. Every request is recorded as its own step.
    */
+  /** Input tokens of calls sent and not yet recorded, by run (estimated), for the pre-call cap check. */
+  private inFlight = new Map<string, number>();
+
+  private overheads = new Map<string, number>();
+  /** The connection's fixed overhead per request, measured once per run. */
+  private overheadFor(runId: string, connectionId: string | null) {
+    if (!connectionId) return 0;
+    const key = `${runId}|${connectionId}`;
+    if (!this.overheads.has(key)) this.overheads.set(key, overheadOf(this.db, connectionId) ?? 0);
+    return this.overheads.get(key)!;
+  }
+
+  /** Why sending `estimate` more input tokens would break the run's input cap, or null when it would not. */
+  private overInputCap(runId: string, estimate: number) {
+    const cap = this.db.select({ limits: s.runs.limits }).from(s.runs).where(eq(s.runs.id, runId)).get()?.limits?.maxInputTokens;
+    if (!cap) return null;
+    const used = this.db.select({ input: sql<number>`coalesce(sum(${s.runSteps.inputTokens}), 0)` }).from(s.runSteps).where(eq(s.runSteps.runId, runId)).get()!.input;
+    const pending = this.inFlight.get(runId) ?? 0;
+    if (used + pending + estimate <= cap) return null;
+    return `입력 토큰 상한(${cap.toLocaleString()})을 넘지 않도록 멈췄습니다: 지금까지 ${used.toLocaleString()}${pending ? `, 진행 중 약 ${pending.toLocaleString()}` : ''}, 다음 요청 약 ${estimate.toLocaleString()}.`;
+  }
+
   private async callLines(run: Run, node: AiNode, model: s.AiSnapshot, routes: ai.ResolvedRoute[], items: Item[], signal: AbortSignal, depth: number): Promise<void> {
     const project = this.db.select().from(s.projects).where(eq(s.projects.id, run.projectId)).get()!;
     const { rows, lines } = this.promptLines(items);
@@ -694,11 +717,31 @@ export class Runner {
     const timeoutMs = analysis ? Math.max(model.timeoutSeconds * 1000, MIN_ANALYSIS_TIMEOUT_MS) : model.timeoutSeconds * 1000;
     const request = { system, prompt, schema: analysis?.schema ?? outputSchema(node, perLine ? lines.map((line) => line.id) : undefined), maxOutputTokens: model.maxOutputTokens, temperature: node.config.temperature, timeoutMs, signal };
     step.prompt = `${system}\n\n${prompt}`;
+    // The input cap is checked before sending, counting calls still in flight, so a run stops short
+    // of it instead of finding out afterwards (several calls at once could overshoot by a lot).
+    // Plus what the connection adds to every request (tool and system preamble, measured from past calls, as the run dialog's estimate does).
+    const estimate = estimateTokens(step.prompt) + this.overheadFor(run.id, step.connectionId ?? null);
+    const over = this.overInputCap(run.id, estimate);
+    if (over) {
+      this.halt(run.id, over);
+      this.stillRunning(run.id, items);
+      return;
+    }
+    this.inFlight.set(run.id, (this.inFlight.get(run.id) ?? 0) + estimate);
+    let sent = true;
+    // Released once the call has answered or failed (its real tokens are then recorded with the step).
+    const release = () => {
+      if (!sent) return;
+      sent = false;
+      const left = (this.inFlight.get(run.id) ?? 0) - estimate;
+      if (left > 0) this.inFlight.set(run.id, left);
+      else this.inFlight.delete(run.id);
+    };
 
     try {
       // Analysis reads are logged as such: their pace (minutes per script) would skew the run estimates.
       const call = { projectId: run.projectId, kind: analysis ? ('analysis' as const) : ('run' as const), refId: run.id, label: `${nodeName(node)} · ${items.length.toLocaleString()}줄` };
-      const result = await ai.withFallback(routes, model.maxAttempts, (route) => logged(this.db, call, route, () => this.model.generate(route, request)), signal);
+      const result = await ai.withFallback(routes, model.maxAttempts, (route) => logged(this.db, call, route, () => this.model.generate(route, request)), signal).finally(release);
       const raw = result.result.object;
       const outcomes = this.readAiOutput(node, raw, lines, result.route.model, analysis?.keyOf);
       const answered = outcomes.filter(Boolean).length;
@@ -992,6 +1035,21 @@ export function createRun(db: Db, input: RunInput) {
   return { runId: run.id, total: run.total };
 }
 
+export const ANALYSIS_BUSY = '이미 진행 중인 작품 분석이 있습니다.';
+
+/**
+ * One work analysis at a time per project (#47), whoever starts it: the 작품 분석 button, the run
+ * dialog or the agent's start_run. A run still filling its lines counts as running; so does a job
+ * of the old analysis service that is still marked running.
+ */
+export const runActive = (run: { status: string; notice: string | null }) => run.status === 'running' || (run.status === 'paused' && run.notice === FILLING);
+
+export function refuseSecondAnalysis(db: Db, projectId: string) {
+  const runs = db.select({ status: s.runs.status, notice: s.runs.notice, definition: s.runs.definition }).from(s.runs).where(and(eq(s.runs.projectId, projectId), inArray(s.runs.status, ['running', 'paused']))).all();
+  const busy = runs.some((run) => runActive(run) && isAnalysisWorkflow(run.definition));
+  if (busy || db.select({ id: s.analysisJobs.id }).from(s.analysisJobs).where(and(eq(s.analysisJobs.projectId, projectId), eq(s.analysisJobs.status, 'running'))).get()) throw new Error(ANALYSIS_BUSY);
+}
+
 /** Lines stored per step when a run is created from the app or a chat. */
 const FILL_STEP = 2_000;
 export const FILLING = '대사를 넣는 중입니다.';
@@ -1002,6 +1060,8 @@ export const FILLING = '대사를 넣는 중입니다.';
  * request). The run waits paused, saying so, until all its lines are in.
  */
 export async function createRunInSteps(db: Db, input: RunInput) {
+  // Checked and inserted with no await in between, so two starts at once cannot both pass.
+  if (isAnalysisWorkflow(input.workflow.definition)) refuseSecondAnalysis(db, input.projectId);
   const { run, items } = runRows(db, input);
   db.insert(s.runs).values({ ...run, status: 'paused', notice: FILLING }).run();
   events.changed(input.projectId, 'runs');

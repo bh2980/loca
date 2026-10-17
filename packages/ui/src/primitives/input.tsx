@@ -1,12 +1,15 @@
 import * as React from "react";
 import { cn } from "../lib/utils.ts";
+import { useControlId } from "./control-id";
 
 export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {}
 
 export const Input = React.forwardRef<HTMLInputElement, InputProps>(
-  ({ className, type, ...props }, ref) => {
+  ({ className, type, id, ...props }, ref) => {
+    const controlId = useControlId(id);
     return (
       <input
+        id={controlId}
         type={type}
         ref={ref}
         data-slot="input"

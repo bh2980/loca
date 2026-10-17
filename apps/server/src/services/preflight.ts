@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray, isNotNull, ne, sql } from 'drizzle-orm';
-import { batchConfigSchema, CONNECTION_KIND_INFO, estimateTokens, isFreeModel, isUnknownListener, isUnreviewed, needsListener, nodeName, termMatcher, type AiNode, type WorkflowDefinition } from '@tw/shared';
+import { batchConfigSchema, readinessUses, CONNECTION_KIND_INFO, estimateTokens, isFreeModel, isUnknownListener, isUnreviewed, needsListener, nodeName, termMatcher, type AiNode, type WorkflowDefinition } from '@tw/shared';
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -110,7 +110,7 @@ export async function preflight(db: Db, workflow: Pick<typeof s.workflows.$infer
   };
 
   const unmeasured = estimates.some((estimate) => estimate.connection && estimate.overheadTokens === null);
-  const readiness = readinessOf(db, projectId, units, speechRuleIndex(db, projectId));
+  const readiness = { ...readinessOf(db, projectId, units, speechRuleIndex(db, projectId)), applies: readinessUses(definition) };
   const pace = paceOf(db, estimates);
 
   return {
@@ -198,14 +198,19 @@ function paceOf(db: Db, estimates: NodeEstimate[]) {
   for (const estimate of estimates) {
     if (!estimate.connection) continue;
     const requests = estimate.requests.expected ?? estimate.requests.max;
-    const calls = db
-      .select({ started: s.aiCalls.startedAt, finished: s.aiCalls.finishedAt, cost: s.aiCalls.costUsd })
-      .from(s.aiCalls)
-      .where(and(eq(s.aiCalls.connectionId, estimate.connection.id), eq(s.aiCalls.kind, 'run'), eq(s.aiCalls.status, 'ok')))
-      .orderBy(desc(s.aiCalls.startedAt))
-      .limit(30)
-      .all()
-      .filter((call) => call.finished);
+    // This model's own pace on the connection when it has enough history (a slow and a fast model
+    // share connections), else the connection's.
+    const recent = (model?: string) =>
+      db
+        .select({ started: s.aiCalls.startedAt, finished: s.aiCalls.finishedAt, cost: s.aiCalls.costUsd })
+        .from(s.aiCalls)
+        .where(and(eq(s.aiCalls.connectionId, estimate.connection!.id), model ? eq(s.aiCalls.model, model) : undefined, eq(s.aiCalls.kind, 'run'), eq(s.aiCalls.status, 'ok')))
+        .orderBy(desc(s.aiCalls.startedAt))
+        .limit(30)
+        .all()
+        .filter((call) => call.finished);
+    const own = estimate.choice.model ? recent(estimate.choice.model) : [];
+    const calls = own.length >= 3 ? own : recent();
     const parallel = db.select({ concurrency: s.connections.concurrency }).from(s.connections).where(eq(s.connections.id, estimate.connection.id)).get()?.concurrency ?? 1;
     if (!calls.length) seconds = null;
     else if (seconds !== null) {
@@ -252,7 +257,7 @@ function rateFromHistory(db: Db, workflowId: string, nodeId: string): number | n
 }
 
 /** Median input the connection reported beyond our own prompt, over recent successful calls. */
-function overheadOf(db: Db, connectionId: string): number | null {
+export function overheadOf(db: Db, connectionId: string): number | null {
   const steps = db
     .select({ input: s.runSteps.inputTokens, prompt: s.runSteps.prompt })
     .from(s.runSteps)

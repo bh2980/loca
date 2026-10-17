@@ -1,5 +1,5 @@
 import { createUIMessageStream, createUIMessageStreamResponse, type UIMessage } from 'ai';
-import { readToEnd, type ChatTurn } from './chat-turns.ts';
+import { markStopped, readToEnd, type ChatTurn } from './chat-turns.ts';
 import { enqueueSteer, interjectionPrompt, takeInterjections, writeInterjections } from './chat-interject.ts';
 import { eq } from 'drizzle-orm';
 import * as ai from '@tw/ai';
@@ -152,7 +152,7 @@ export async function piChatResponse(input: {
     },
     onFinish: ({ messages: final }) => {
       current.seen = final.length;
-      db.update(s.chatSessions).set({ messages: final }).where(eq(s.chatSessions.id, chat.id)).run();
+      db.update(s.chatSessions).set({ messages: markStopped(final, input.turn.signal) }).where(eq(s.chatSessions.id, chat.id)).run();
       events.changed(chat.projectId, 'chat');
     },
     onError: (error) => (error instanceof Error ? error.message : String(error)),

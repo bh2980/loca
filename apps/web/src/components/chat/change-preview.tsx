@@ -5,7 +5,7 @@ import { Markdown } from './markdown';
 export const LABEL: Record<string, string> = Object.fromEntries(Object.entries(AGENT_TOOLS).map(([name, info]) => [name, info.label]));
 
 /** A readable preview of what an approval-gated tool would change. */
-export function ChangePreview({ name, input }: { name: string; input: Record<string, unknown> }) {
+export function ChangePreview({ name, input, pending = true }: { name: string; input: Record<string, unknown>; /** Still waiting for a decision: only then does it say what accepting will do. */ pending?: boolean }) {
   const field = (label: string, value: unknown) =>
     value === undefined || value === '' ? null : (
       <div className="grid grid-cols-[5rem_1fr] gap-2">
@@ -86,7 +86,7 @@ export function ChangePreview({ name, input }: { name: string; input: Record<str
           {field('삭제', `${kinds[input.kind as string] ?? String(input.kind)} ${ids.length}개`)}
           {field('이유', input.reason)}
           {field('id', ids.slice(0, 10).join(', ') + (ids.length > 10 ? ` 외 ${ids.length - 10}개` : ''))}
-          <p className="text-destructive">수락하면 바로 지워지고 되돌릴 수 없습니다. 이 항목에 걸린 관계·태그 연결도 함께 지워집니다.</p>
+          {pending && <p className="text-destructive">수락하면 바로 지워지고 되돌릴 수 없습니다. 이 항목에 걸린 관계·태그 연결도 함께 지워집니다.</p>}
         </dl>
       );
     }
@@ -162,7 +162,7 @@ export function ChangePreview({ name, input }: { name: string; input: Record<str
             ))}
           </ul>
           {changes.length > 50 && <p className="text-muted-foreground">외 {changes.length - 50}개</p>}
-          <p className="text-muted-foreground">수락하면 한 번에 반영됩니다. 그사이 다른 곳에서 바뀐 대사는 덮어쓰지 않고 건너뜁니다.</p>
+          {pending && <p className="text-muted-foreground">수락하면 한 번에 반영됩니다. 그사이 다른 곳에서 바뀐 대사는 덮어쓰지 않고 건너뜁니다.</p>}
         </div>
       );
     }
@@ -183,7 +183,7 @@ export function ChangePreview({ name, input }: { name: string; input: Record<str
             </dd>
           </div>
           {field('상태 조건', input.ignoreStatus ? '무시하고 실행' : '진입 상태에 맞는 대사만')}
-          <p className="text-muted-foreground">수락하면 바로 실행이 시작되고 AI 호출 비용이 듭니다.</p>
+          {pending && <p className="text-muted-foreground">수락하면 바로 실행이 시작되고 AI 호출 비용이 듭니다.</p>}
         </dl>
       );
     }
