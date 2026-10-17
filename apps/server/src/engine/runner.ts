@@ -20,11 +20,8 @@ import { applyIssueTags } from '../services/issue-tags.ts';
 import { logged } from '../services/ai-calls.ts';
 import { analysisRequest, analysisToKeys, MIN_ANALYSIS_TIMEOUT_MS, outputCutOff, type Analysis } from '../services/analysis.ts';
 import { overheadOf } from '../services/preflight.ts';
-
-export interface ModelPort {
-  generate: typeof ai.generate;
-  judge: typeof ai.judge;
-}
+import type { ModelPort } from './model-port.ts';
+export type { ModelPort } from './model-port.ts';
 
 type Run = typeof s.runs.$inferSelect;
 type Item = typeof s.runItems.$inferSelect;

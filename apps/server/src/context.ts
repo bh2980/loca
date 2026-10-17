@@ -16,14 +16,8 @@ export interface Deps {
 
 export type Env = { Variables: { deps: Deps } };
 
-export const notFound: (what?: string) => never = (what = '항목') => {
-  throw new HTTPException(404, { message: `${what}을(를) 찾을 수 없습니다.` });
-};
-
-/** Throws a 400; typed so the code after a call to it is known unreachable. */
-export const badRequest: (message: string) => never = (message) => {
-  throw new HTTPException(400, { message });
-};
+// The HTTP errors live in a leaf module so services can throw them without importing the app's Deps (and the runner behind it).
+export { badRequest, found, notFound } from './http-errors.ts';
 
 /**
  * zod validation that fails with a readable 400 instead of returning the raw parse error,
@@ -37,4 +31,3 @@ export const validate = <Target extends keyof ValidationTargets, Schema extends 
     }
   });
 
-export const found =<T>(value: T | undefined, what?: string): T => (value === undefined ? notFound(what) : value);

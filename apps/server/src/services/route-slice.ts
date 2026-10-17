@@ -1,4 +1,3 @@
-import { effectivePicks } from './next-route.ts';
 import { eq, sql } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
 import { isIdentifierLabel } from '@tw/shared';
@@ -96,7 +95,6 @@ type GraphEdge = { from: string; to: string; label: string | null };
 /** Nodes a stub's scan may visit before it gives up counting (a huge side arm is still one stub). */
 const STUB_SCAN = 5_000;
 
-const cache = new Map<string, { key: string; slice: RouteSlice }>();
 type Picks = Record<string, string>;
 
 /** What the graph is made of (changes when the graph, the lines or its layout change): the key of everything cached per project. */
@@ -108,22 +106,7 @@ export function graphKey(db: Db, projectId: string) {
   );
 }
 
-/** The project's slice with its stored picks (round 1 with no history: the best route under a person's picks); kept until the graph, the lines or the picks change. */
-export function projectSlice(db: Db, projectId: string): RouteSlice {
-  const row = db.select({ picks: s.projects.routePicks, state: s.projects.routeState }).from(s.projects).where(eq(s.projects.id, projectId)).get();
-  const manual = row?.picks ?? {};
-  // The routes of the earlier rounds decide the seams, so they belong to the cache key.
-  const history = row?.state.history ?? [];
-  const graph = graphKey(db, projectId);
-  const key = JSON.stringify([manual, history, row?.state.round ?? 1, graph]);
-  const hit = cache.get(projectId);
-  if (hit?.key === key) return hit.slice;
-  const slice = buildSlice(db, projectId, effectivePicks(db, projectId, row, graph), history, manual);
-  cache.set(projectId, { key, slice });
-  return slice;
-}
-
-function buildSlice(db: Db, projectId: string, picks: Picks, history: Picks[], manual: Picks): RouteSlice {
+export function buildSlice(db: Db, projectId: string, picks: Picks, history: Picks[], manual: Picks): RouteSlice {
   const nodes = db.select({ id: s.graphNodes.id, key: s.graphNodes.key, kind: s.graphNodes.kind, unitIds: s.graphNodes.unitIds, label: s.graphNodes.label }).from(s.graphNodes).where(eq(s.graphNodes.projectId, projectId)).all();
   const edges = db.select({ from: s.graphEdges.fromId, to: s.graphEdges.toId, label: s.graphEdges.label }).from(s.graphEdges).where(eq(s.graphEdges.projectId, projectId)).all();
   const units = new Map(db.select({ id: s.units.id, seq: s.units.seq, source: s.units.source }).from(s.units).where(eq(s.units.projectId, projectId)).all().map((unit) => [unit.id, unit]));

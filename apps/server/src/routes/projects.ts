@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, notInArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { agentSettingsSchema, aiConfirmSchema, editorAiSchema, formatRulesSchema, importFileSchema, importWarnings, markColorsSchema, patchOf, TAG_SCOPES, TAG_SCOPE_LABELS, DEFAULT_TAG_COLOR, HEX_COLOR, STATUS_COLORS, summarizeImport } from '@tw/shared';
+import { agentSettingsSchema, aiConfirmSchema, editorAiSchema, formatRulesSchema, importFileSchema, importWarnings, markColorsSchema, patchOf, TAG_SCOPES, TAG_SCOPE_LABELS, summarizeImport } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
@@ -15,14 +15,7 @@ import type { DecidedTable } from '../services/status-by.ts';
 import { defaultModelChoice } from '../services/routes.ts';
 import { cancelLayout, computeLayouts } from '../services/layout.ts';
 import { editorCallsToday } from '../services/editor-complete.ts';
-
-export const statusInput = z.object({ name: z.string().trim().min(1).max(40), color: z.string().regex(HEX_COLOR).default(STATUS_COLORS[0]), kind: z.enum(['initial', 'normal', 'final']).default('normal'), inReview: z.boolean().default(false), humanOnly: z.boolean().default(false) });
-export const tagInput = z.object({
-  name: z.string().trim().min(1).max(40),
-  color: z.string().regex(HEX_COLOR).default(DEFAULT_TAG_COLOR),
-  /** Where the tag can be put; at least one place. */
-  scope: z.array(z.enum(TAG_SCOPES)).min(1).refine((scope) => new Set(scope).size === scope.length, '같은 곳이 두 번 나옵니다.').default([...TAG_SCOPES]),
-});
+import { statusInput, tagInput } from '../schemas/projects.ts';
 
 export const projectRoutes = new Hono<Env>()
   .get('/', (c) => {
