@@ -98,7 +98,7 @@ export type MockKind = 'analysis' | 'complete' | 'test' | 'candidate' | 'revise'
 
 /** Which answer the prompt asks for. The server's CONTRACT sentence names the output; instructions tell translate from revise. */
 export function detectKind(system: string): MockKind {
-  if (system.includes('complete script of a game')) return 'analysis';
+  if (system.includes('complete script of a game') || system.includes('reading the script of a game')) return 'analysis';
   if (system.startsWith('Translate the text into')) return 'test';
   if (system.includes('continue a Korean game translation')) return 'complete';
   if (system.includes('Korean localization glossary')) return 'glossary';

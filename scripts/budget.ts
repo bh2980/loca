@@ -42,6 +42,7 @@ const SCENARIOS: Scenario[] = [
   { name: 'listener-cli', workflow: '청자 추정', profiles: ['cli-like'] },
   { name: 'terms-cli', workflow: '용어 추출', profiles: ['cli-like'] },
   { name: 'knowledge-cli', workflow: '자료 갱신', profiles: ['cli-like'] },
+  { name: 'analysis-cli', workflow: '작품 분석', profiles: ['cli-like'] },
 ];
 
 export interface Metrics {
