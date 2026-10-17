@@ -1,7 +1,7 @@
 import pRetry from 'p-retry';
 import type { LanguageModel } from 'ai';
 import { CONNECTION_KIND_INFO } from '@tw/shared';
-import { cliGenerate, cliModels, cliVersion } from './cli.ts';
+import { cliGenerate, cliModels, cliVersion, describeCli } from './cli.ts';
 import { ModelError, toModelError } from './errors.ts';
 import { openaiChatModel, openaiComplete, openaiGenerate, openaiModels } from './openai.ts';
 import { piGenerate, piModelsWith, piProbe } from './pi.ts';
@@ -70,7 +70,10 @@ export async function probe(route: Omit<ResolvedRoute, 'model'>): Promise<string
     const models = await listModels(route);
     return `모델 ${models?.length ?? 0}개를 확인했습니다.`;
   }
-  return `CLI ${await cliVersion(route.kind as Parameters<typeof cliVersion>[0], route.executable)}`;
+  const kind = route.kind as Parameters<typeof cliVersion>[0];
+  const version = await cliVersion(kind, route.executable);
+  const { resolved } = describeCli(kind, route.executable);
+  return resolved ? `CLI ${version} · ${resolved}` : `CLI ${version}`;
 }
 
 export interface Attempt {
