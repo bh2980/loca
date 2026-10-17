@@ -93,3 +93,23 @@ function startedStatus(tx: Tx, projectId: string, statusId: string): string | nu
   if (current?.kind !== 'initial') return null;
   return tx.select({ id: s.statuses.id }).from(s.statuses).where(and(eq(s.statuses.projectId, projectId), eq(s.statuses.kind, 'normal'), eq(s.statuses.inReview, false))).orderBy(asc(s.statuses.sort)).get()?.id ?? null;
 }
+
+/**
+ * One text for several lines at once (same-source apply, #49): each line goes through saveLine with
+ * the translation it showed, in the caller's transaction. A line changed since is skipped rather
+ * than overwritten or stopping the rest; the counts say what happened.
+ */
+export function saveSameText(tx: Tx, lines: { unit: Unit; base: string | null }[], text: string) {
+  let applied = 0;
+  let skipped = 0;
+  for (const { unit, base } of lines) {
+    try {
+      saveLine(tx, unit, { text, base });
+      applied++;
+    } catch (error) {
+      if (!(error instanceof LineConflict)) throw error;
+      skipped++;
+    }
+  }
+  return { applied, skipped };
+}
