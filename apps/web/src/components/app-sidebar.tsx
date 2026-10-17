@@ -24,7 +24,7 @@ function SectionItem({ section, projectId, active, badge }: { section: Section; 
   return (
     <SidebarMenuItem>
       <SidebarMenuButton asChild isActive={active} tooltip={section.label}>
-        <Link {...((last ? { to: last.pathname, search: last.search } : { to: `/p/$projectId${first.path}`, params: { projectId }, search: first.search }) as unknown as { to: '/' })}>
+        <Link aria-current={active ? 'page' : undefined} {...((last ? { to: last.pathname, search: last.search } : { to: `/p/$projectId${first.path}`, params: { projectId }, search: first.search }) as unknown as { to: '/' })}>
           <section.icon />
           <span>{section.label}</span>
         </Link>
@@ -34,7 +34,7 @@ function SectionItem({ section, projectId, active, badge }: { section: Section; 
   );
 }
 
-/** The sidebar's blocks above settings, with a line between: home | 번역 · 문맥 | 워크플로 · AI. */
+/** The sidebar's blocks above settings, with a line between: home | 번역 · 자료 | 워크플로 · AI · 에이전트. */
 const GROUPS = ['home', 'text', 'automation'] as const;
 
 export function AppSidebar({ projectId }: { projectId: string }) {
