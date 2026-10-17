@@ -157,7 +157,7 @@ export const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected 
       )}
     >
       {inputHandle}
-      <div className={cn('flex items-center gap-2 border-b px-3 py-2', ai && 'rounded-t-2xl border-violet-100 bg-gradient-to-r from-violet-50 to-white', node.type === 'function' && 'border-sky-100 bg-sky-50/60')}>
+      <div className={cn('flex items-center gap-2 border-b px-3 py-2', ai && 'rounded-t-2xl border-violet-100 bg-violet-50/60', node.type === 'function' && 'rounded-t-md border-sky-100 bg-sky-50/60')}>
         <Icon className={cn('size-4 shrink-0', ai ? 'text-violet-600' : 'text-sky-600')} />
         <span className={cn('truncate text-sm font-medium')}>{nodeName(node)}</span>
         <span className="ml-auto" />
