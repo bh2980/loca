@@ -10,7 +10,8 @@ import { importProject } from '../services/importer.ts';
 import { snapshotWorkflowModels } from '../services/routes.ts';
 import { memoryStore } from '../services/secrets.ts';
 import { agentCatalog } from '../services/agent-catalog.ts';
-import { createRun, createRunInSteps, Runner, sceneHalf, type ModelPort } from './runner.ts';
+import { Runner, sceneHalf, type ModelPort } from './runner.ts';
+import { createRun, createRunInSteps } from './run-create.ts';
 
 /** Two scenes, three lines, a labelled branch: the work-analysis tests' script. */
 function setup() {

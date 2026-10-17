@@ -13,7 +13,7 @@ import { describeRule, knownListener, speechRuleIndex } from './speech.ts';
 import { workflowIssues } from './workflow-issues.ts';
 import { statusInput, tagInput } from '../schemas/projects.ts';
 import { mentions } from './context.ts';
-import { createRunInSteps, selectRunUnits } from '../engine/runner.ts';
+import { createRunInSteps, selectRunUnits } from '../engine/run-create.ts';
 import { snapshotWorkflowModels } from './routes.ts';
 import { readWebPage, webSearch } from './web.ts';
 import { deleteItems, DELETABLE_KINDS } from './item-delete.ts';

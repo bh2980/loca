@@ -9,7 +9,7 @@ import { workflowIssues } from '../services/workflow-issues.ts';
 import { events } from '../events.ts';
 import { lineView } from '../engine/functions/index.ts';
 import { runScript } from '../engine/functions/sandbox.ts';
-import { createRunInSteps, FILLING, selectRunUnits } from '../engine/runner.ts';
+import { createRunInSteps, FILLING, selectRunUnits } from '../engine/run-create.ts';
 import { listBatches, preflight } from '../services/preflight.ts';
 import { choiceLabel, defaultModelChoice, snapshotWorkflowModels } from '../services/routes.ts';
 import { continuePreflight, switchedRun } from '../services/run-continue.ts';
