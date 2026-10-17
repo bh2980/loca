@@ -362,7 +362,7 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
         )}
         <div className="space-y-5">
           {messages.map((message) => {
-            const stopped = (message.metadata as { stopped?: boolean } | undefined)?.stopped;
+            const { stopped, interrupted } = (message.metadata as { stopped?: boolean; interrupted?: boolean } | undefined) ?? {};
             const view =
             message.role === 'user' && (message.metadata as { kind?: string } | undefined)?.kind === 'decisions' ? (
               <DecisionNotice key={message.id} text={message.parts.map((part) => (part.type === 'text' ? part.text : '')).join('')} />
@@ -388,12 +388,12 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
                 })}
               </div>
             );
-            if (!stopped) return view;
+            if (!stopped && !interrupted) return view;
             return (
               <Fragment key={message.id}>
                 {view}
                 <p className="flex items-center gap-1.5 text-xs text-muted-foreground" role="status">
-                  <Square className="size-3" /> 중지됨
+                  <Square className="size-3" /> {stopped ? '중지됨' : '끊김 · 다음 메시지가 먼저 시작됐습니다'}
                 </p>
               </Fragment>
             );

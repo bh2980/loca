@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { ANALYSIS_SECTIONS, analysisTemplate, CONNECTION_KIND_INFO, knowledgeTemplate, lineMarksSchema, listenerTemplate, speechFixTemplate, termExtractionTemplate, translationTemplate, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels } from '@tw/shared';
+import { ANALYSIS_SECTIONS, isAnalysisWorkflow, analysisTemplate, CONNECTION_KIND_INFO, knowledgeTemplate, lineMarksSchema, listenerTemplate, speechFixTemplate, termExtractionTemplate, translationTemplate, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -9,7 +9,7 @@ import { workflowIssues } from '../services/workflow-issues.ts';
 import { events } from '../events.ts';
 import { lineView } from '../engine/functions/index.ts';
 import { runScript } from '../engine/functions/sandbox.ts';
-import { createRunInSteps, FILLING, selectRunUnits } from '../engine/run-create.ts';
+import { ANALYSIS_BUSY, createRunInSteps, FILLING, refuseSecondAnalysis, selectRunUnits } from '../engine/run-create.ts';
 import { listBatches, preflight } from '../services/preflight.ts';
 import { choiceLabel, defaultModelChoice, snapshotWorkflowModels } from '../services/routes.ts';
 import { continuePreflight, switchedRun } from '../services/run-continue.ts';
@@ -23,6 +23,16 @@ const continueSchema = z.object({ models: runModelsSchema.optional(), retryFaile
 const connectionNames = (db: Db) => new Map(db.select({ id: s.connections.id, name: s.connections.name }).from(s.connections).all().map((row) => [row.id, row.name]));
 const connectionName = (names: Map<string, string>, id: string | null, kind: string | null) =>
   (id && names.get(id)) ?? (kind ? (CONNECTION_KIND_INFO[kind as keyof typeof CONNECTION_KIND_INFO]?.label ?? kind) : null);
+
+/** A work analysis continued or resumed while another one runs would write the same drafts twice: refused like a second start. */
+function refuseWhileAnotherAnalysis(db: Db, run: typeof s.runs.$inferSelect) {
+  if (!isAnalysisWorkflow(run.definition)) return;
+  try {
+    refuseSecondAnalysis(db, run.projectId, run.id);
+  } catch {
+    badRequest(`${ANALYSIS_BUSY} 그 분석이 끝나거나 멈춘 뒤에 이어서 하세요.`);
+  }
+}
 
 function blankWorkflow(db: Db, projectId: string): WorkflowDefinition {
   const initial = db.select({ id: s.statuses.id }).from(s.statuses).where(and(eq(s.statuses.projectId, projectId), eq(s.statuses.kind, 'initial'))).get();
@@ -351,6 +361,7 @@ export const workflowRoutes = new Hono<Env>()
     const { db, runner } = c.var.deps;
     const run = found(db.select().from(s.runs).where(eq(s.runs.id, c.req.param('id'))).get(), '실행');
     const { models, retryFailed } = c.req.valid('json');
+    refuseWhileAnotherAnalysis(db, run);
     const switched = switchedRun(db, run, models);
     if (!switched.ok) badRequest(switched.error);
     const result = runner.continue(run.id, { definition: switched.definition, models: switched.models, changes: switched.changes, retryFailed });
@@ -361,6 +372,10 @@ export const workflowRoutes = new Hono<Env>()
     const { runner } = c.var.deps;
     const id = c.req.param('id');
     const action = c.req.param('action') as 'pause' | 'resume' | 'cancel';
+    if (action === 'resume') {
+      const run = found(c.var.deps.db.select().from(s.runs).where(eq(s.runs.id, id)).get(), '실행');
+      refuseWhileAnotherAnalysis(c.var.deps.db, run);
+    }
     runner[action](id);
     return c.json({ ok: true });
   });

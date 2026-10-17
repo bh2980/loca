@@ -20,8 +20,12 @@ interface Turn {
 const turns = new Map<string, Turn>();
 
 
+/** Why a turn's signal aborted when a newer turn of the conversation took over (not the person's 중단). */
+export const SUPERSEDED = 'superseded';
+
 export function startTurn(projectId: string, sessionId: string) {
-  turns.get(sessionId)?.controller.abort();
+  // Callers wait for a running turn first (turnEnded); one still going after that is cut off here.
+  turns.get(sessionId)?.controller.abort(SUPERSEDED);
   const controller = new AbortController();
   const turn: Turn = { controller, startedAt: Date.now(), closing: false, chunks: [], listeners: new Set(), after: [] };
   turns.set(sessionId, turn);
@@ -99,6 +103,18 @@ export function stopTurn(sessionId: string) {
 
 export const turnStartedAt = (sessionId: string) => turns.get(sessionId)?.startedAt ?? null;
 
+/** Resolves true when the conversation's running turn has ended (at once when none runs), false after `ms`. */
+export function turnEnded(sessionId: string, ms: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(false), ms);
+    timer.unref?.();
+    afterTurn(sessionId, () => {
+      clearTimeout(timer);
+      resolve(true);
+    });
+  });
+}
+
 
 /**
  * Response options that read the reply to its end even when nobody is listening any more (the
@@ -120,9 +136,11 @@ export const readToEnd = (turn: Pick<ChatTurn, 'end' | 'record'>) => ({
 /**
  * A turn the person stopped is saved with `stopped` on its last message (the reply so far, or their
  * own message when nothing came back yet), so the panel can say '중지됨' there, also after a reload.
+ * One cut off by a newer turn that could not wait for it is marked `interrupted` instead: nobody stopped it.
  */
 export function markStopped(messages: UIMessage[], signal: AbortSignal): UIMessage[] {
   const last = messages.at(-1);
   if (!signal.aborted || !last) return messages;
-  return [...messages.slice(0, -1), { ...last, metadata: { ...((last.metadata as object | undefined) ?? {}), stopped: true } }];
+  const mark = signal.reason === SUPERSEDED ? { interrupted: true } : { stopped: true };
+  return [...messages.slice(0, -1), { ...last, metadata: { ...((last.metadata as object | undefined) ?? {}), ...mark } }];
 }
