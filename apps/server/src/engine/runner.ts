@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, gte, inArray, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
 import jsonLogic from 'json-logic-js';
 import * as ai from '@tw/ai';
-import { analysisSectionsOf, estimateTokens, type IssueKind, batchConfigSchema, FUNCTIONS, choiceKey, isUnknownListener, lineMarksOf, nodeModels, nodeName, type AiNode, type ConditionData, type FunctionName, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import { estimateTokens, batchConfigSchema, FUNCTIONS, choiceKey, isUnknownListener, lineMarksOf, nodeModels, nodeName, type AiNode, type ConditionData, type FunctionName, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -10,13 +10,14 @@ import { events, type Topic } from '../events.ts';
 import { buildContext } from '../services/context.ts';
 import { resolveRoutes } from '../services/routes.ts';
 import type { SecretStore } from '../services/secrets.ts';
-import { runAsyncFunction, syncFunctions, HUMAN_OWNED_NOTE, type FunctionInput, type FunctionResult } from './functions/index.ts';
+import { runAsyncFunction, syncFunctions, HUMAN_OWNED_NOTE, type FunctionInput } from './functions/index.ts';
 import { applyRunCandidate } from './apply-candidate.ts';
 import { packGroups, planBatches } from './batches.ts';
-import { buildPrompt, outputSchema, PER_LINE_OUTPUTS, type KnowledgeOutput, type PromptLine } from './prompts.ts';
+import { readAiOutput, type Outcome } from './ai-output.ts';
+import { buildPrompt, outputSchema, PER_LINE_OUTPUTS, type PromptLine } from './prompts.ts';
 import { applyIssueTags } from '../services/issue-tags.ts';
 import { logged } from '../services/ai-calls.ts';
-import { analysisRequest, analysisToKeys, MIN_ANALYSIS_TIMEOUT_MS, outputCutOff, type Analysis } from '../services/analysis.ts';
+import { analysisRequest, MIN_ANALYSIS_TIMEOUT_MS, outputCutOff } from '../services/analysis.ts';
 import { overheadOf } from '../services/preflight.ts';
 import type { ModelPort } from './model-port.ts';
 export type { ModelPort } from './model-port.ts';
@@ -80,13 +81,6 @@ export function sceneHalf(groupIds: string[]) {
 const MISSING_WHAT: Record<AiNode['config']['output'], string> = { candidate: '번역', verdict: '판정', listener: '청자', json: '결과', terms: '용어', knowledge: '자료', analysis: '분석' };
 const attemptsOf = (error: unknown): ai.Attempt[] => ((error as { attempts?: ai.Attempt[] }).attempts ?? []);
 
-/** A node's result for one line: the exit to take plus what it produced. */
-interface Outcome extends FunctionResult {
-  /** Candidate provenance when `candidate` is set. */
-  origin?: 'ai' | 'tool';
-  model?: string;
-  error?: string;
-}
 
 /** AI calls and slow functions leave the instant pass; everything else settles immediately. */
 const isAsync = (node: WorkflowNode) =>
@@ -737,7 +731,7 @@ export class Runner {
       const call = { projectId: run.projectId, kind: analysis ? ('analysis' as const) : ('run' as const), refId: run.id, label: `${nodeName(node)} · ${items.length.toLocaleString()}줄` };
       const result = await ai.withFallback(routes, model.maxAttempts, (route) => logged(this.db, call, route, () => this.model.generate(route, request)), signal).finally(release);
       const raw = result.result.object;
-      const outcomes = this.readAiOutput(node, raw, lines, result.route.model, analysis?.keyOf);
+      const outcomes = readAiOutput(node, raw, lines, result.route.model, analysis?.keyOf);
       const answered = outcomes.filter(Boolean).length;
       this.db.transaction((tx) => {
         items.forEach((item, index) => {
@@ -815,79 +809,6 @@ export class Runner {
   }
 
   /** Turn the model's structured answer into one Outcome per line, by output kind. Null: the answer left the line out. */
-  private readAiOutput(node: AiNode, raw: unknown, lines: PromptLine[], model: string, analysisKeys?: Map<string, string>): (Outcome | null)[] {
-    const missing = (_what: string) => null;
-    const value = raw as { translations?: { id: string; text: string }[]; results?: ({ id: string } & Record<string, unknown>)[]; terms?: unknown[]; listeners?: { id: string; listener: unknown; confidence: unknown }[] };
-    switch (node.config.output) {
-      case 'candidate':
-        return lines.map((line) => {
-          const text = value.translations?.find((entry) => entry.id === line.id)?.text;
-          return text === undefined || !text.trim() ? missing('번역') : { port: 'out', candidate: text, origin: 'ai', model, output: { text } };
-        });
-      case 'verdict':
-        return lines.map((line) => {
-          const result = value.results?.find((entry) => entry.id === line.id) as { passed: boolean; issues: string[]; categories?: IssueKind[] } | undefined;
-          if (!result) return missing('판정');
-          // A review covers every kind: passing clears them, failing names what it found (기타 when it did not say).
-          const kinds = result.categories?.length ? [...new Set(result.categories)] : (['other'] as IssueKind[]);
-          return {
-            port: result.passed ? 'pass' : 'fail',
-            issues: result.passed ? undefined : result.issues,
-            output: { passed: result.passed, issues: result.issues, ...(!result.passed && { categories: kinds }) },
-            issueTags: result.passed ? { clear: 'all' } : { add: kinds },
-          };
-        });
-      case 'terms': {
-        const terms = (value.terms ?? []) as unknown[];
-        return lines.map((_, index) => ({ port: 'out', output: { terms, batchLeader: index === 0 } }));
-      }
-      case 'knowledge': {
-        // Like terms, the change set describes the whole batch; line ids become line keys so it outlives the prompt.
-        const keyOf = new Map(lines.map((line) => [line.id, line.key]));
-        const known = (id: string | null | undefined) => (id ? (keyOf.get(id) ?? null) : null);
-        const found = raw as KnowledgeOutput;
-        const knowledge = {
-          characters: (found.characters ?? []).map((c) => ({
-            ...c,
-            evidence: ((c as { evidence?: string[] }).evidence ?? []).flatMap((id) => (keyOf.get(id) ? [keyOf.get(id)!] : [])),
-          })),
-          relationships: (found.relationships ?? []).map((rel) => ({ ...rel, at: known(rel.at), evidence: (rel.at && keyOf.get(rel.at) ? [keyOf.get(rel.at)!] : []) })),
-          events: (found.events ?? []).map((event) => ({ ...event, evidence: event.evidence.flatMap((id) => (keyOf.get(id) ? [keyOf.get(id)!] : [])) })),
-          speechRules: (found.speechRules ?? []).map((rule) => ({ ...rule, start: known(rule.start), evidence: (rule.start && keyOf.get(rule.start) ? [keyOf.get(rule.start)!] : []) })),
-        };
-        return lines.map((_, index) => ({
-          port: 'out',
-          // To save space in run_items.data (H7), only the first line carries the full payload;
-          // subsequent lines carry an empty payload with batchLeader: false so downstream nodes skip redundant writes.
-          output: index === 0
-            ? { knowledge, batchLeader: true }
-            : { knowledge: { characters: [], relationships: [], events: [], speechRules: [] }, batchLeader: false },
-        }));
-      }
-      case 'analysis': {
-        // One answer for the whole request, its line ids turned into line keys; only the first line
-        // carries it (H7) and `saveAnalysis` stores it once.
-        const analysis = analysisToKeys(raw as Partial<Analysis>, analysisKeys ?? new Map());
-        const sections = analysisSectionsOf(node.config.sections);
-        return lines.map((_, index) => ({ port: 'out', output: index === 0 ? { analysis, sections, batchLeader: true } : { analysis: null, batchLeader: false } }));
-      }
-      case 'listener':
-        return lines.map((line) => {
-          const entry = value.listeners?.find((candidate) => candidate.id === line.id);
-          if (!entry) return missing('청자');
-          const listener = typeof entry.listener === 'string' && entry.listener.trim() ? entry.listener.trim() : null;
-          return { port: 'out', output: { listener, confidence: Math.min(1, Math.max(0, Number(entry.confidence) || 0)) } };
-        });
-      case 'json':
-        return lines.map((line) => {
-          const result = value.results?.find((entry) => entry.id === line.id);
-          if (!result) return missing('결과');
-          const { id: _id, ...fields } = result;
-          return { port: 'out', output: fields };
-        });
-    }
-  }
-
   /** Every line of a failed call leaves through `error`; the call is recorded with whatever usage the connection reported. */
   private failBatch(run: Run, batch: Item[], step: StepRecord, error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
