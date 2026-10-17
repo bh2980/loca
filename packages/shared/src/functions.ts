@@ -34,7 +34,8 @@ export const setStatusParams = z.object({
   statusId: z.string().optional(),
   addTagIds: z.array(z.string()).default([]),
   removeTagIds: z.array(z.string()).default([]),
-  applyCandidate: z.boolean().default(false),
+  /** Kept so workflows saved before #42 (and their import files) still parse; ignored since #42. */
+  applyCandidate: z.boolean().optional(),
 });
 
 export const addTermsParams = z.object({
@@ -108,7 +109,7 @@ export const FUNCTIONS = {
   },
   setStatus: {
     label: '상태 변경',
-    description: '상태·태그를 바꾸고, 원하면 현재 후보를 대표 번역으로 적용합니다.',
+    description: '상태·태그를 바꿉니다. (번역은 노드가 낸 즉시 번역 칸에 들어갑니다.)',
     params: setStatusParams,
     ports: () => out,
     async: false,

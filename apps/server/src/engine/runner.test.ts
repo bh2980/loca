@@ -99,6 +99,25 @@ describe('workflow runner', () => {
     expect(db.select().from(s.runs).where(eq(s.runs.id, runId)).get()!.status).toBe('completed');
   });
 
+  it('leaves a line that fails review with its last revision text and the review status', async () => {
+    const { db, projectId, workflow } = setup();
+    const runner = new Runner(db, memoryStore(), fakeModel());
+    const { runId } = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: {} });
+    await runner.drain();
+
+    const units = new Map(db.select().from(s.units).all().map((unit) => [unit.id, unit]));
+    const statuses = new Map(db.select().from(s.statuses).all().map((status) => [status.id, status.name]));
+    const escalated = db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all().filter((item) => item.nodeId === 'end-review');
+    expect(escalated).toHaveLength(3);
+    for (const item of escalated) {
+      const line = units.get(item.unitId)!;
+      // Every revision wrote to the line, so the last one is the current translation; the escalate
+      // node then set the review status while the text stayed put.
+      expect(line.translation).toBe(`[revise] ${line.source}`);
+      expect(statuses.get(line.statusId)).toBe('사람 확인 필요');
+    }
+  });
+
   it('marks the batch failed with the model error when no route works', async () => {
     const { db, projectId, workflow, choice } = setup(2);
     const runner = new Runner(db, memoryStore(), {
@@ -323,7 +342,7 @@ describe('function nodes', () => {
           },
         },
         { id: 'http', type: 'function', position: { x: 0, y: 0 }, config: { fn: 'http', params: { url: `http://127.0.0.1:${port}/spell`, connectionId: tool.id, body: '{ "text": "{{candidate}}" }', resultPath: 'result.text' } } },
-        { id: 'confirm', type: 'function', position: { x: 0, y: 0 }, config: { fn: 'setStatus', params: { statusId: confirmed.id, applyCandidate: true } } },
+        { id: 'confirm', type: 'function', position: { x: 0, y: 0 }, config: { fn: 'setStatus', params: { statusId: confirmed.id } } },
         { id: 'end', type: 'end', position: { x: 0, y: 0 } },
       ],
       edges: [
@@ -425,7 +444,7 @@ describe('who set the status', () => {
     expect(db.select().from(s.runItems).where(eq(s.runItems.runId, again.runId)).get()!.data.issues?.[0]).toContain('상태를 바꾸지 않았습니다');
   });
 
-  it('keeps a translation a person saved after the run started, and reports it', async () => {
+  it('keeps a person\'s translation and status in a status-filtered run, and only reports it', async () => {
     const { syncFunctions } = await import('./functions/index.ts');
     const { db, projectId } = setup(1);
     const unit = db.select().from(s.units).where(eq(s.units.projectId, projectId)).get()!;
@@ -433,26 +452,20 @@ describe('who set the status', () => {
     const initial = statuses.find((status) => status.kind === 'initial')!;
     const final = statuses.find((status) => status.kind === 'final')!;
     const call = (data: Record<string, unknown>) =>
-      db.transaction((tx) => syncFunctions.setStatus!(tx as never, { statusId: final.id, applyCandidate: true }, { unit, item: { data }, tagIds: [], projectId, runId: 'r' } as never));
+      db.transaction((tx) => syncFunctions.setStatus!(tx as never, { statusId: final.id }, { unit, item: { data }, tagIds: [], projectId, runId: 'r' } as never));
 
-    // A person saved '내 번역' after the run started: the run's candidate does not replace it.
+    // A person saved '내 번역' after the run started: the run keeps their text and status (#51).
     db.update(s.units).set({ translation: '내 번역', statusBy: 'human' }).where(eq(s.units.id, unit.id)).run();
     const kept = call({ candidateId: 'c1', candidateText: 'AI 번역' });
     expect(kept.issues?.[0]).toContain('사람이 저장한 번역이 있어 바꾸지 않았습니다');
-    let row = db.select().from(s.units).where(eq(s.units.id, unit.id)).get()!;
+    const row = db.select().from(s.units).where(eq(s.units.id, unit.id)).get()!;
     expect([row.translation, row.candidateId, row.statusBy, row.statusId]).toEqual(['내 번역', unit.candidateId, 'human', initial.id]);
 
-    // AI owns the line: the candidate becomes the translation and the status changes.
+    // AI owns the line: the status changes; the text was already written by the node that produced it.
     db.update(s.units).set({ translation: 'AI 초벌', statusBy: 'ai' }).where(eq(s.units.id, unit.id)).run();
     call({ candidateId: 'c2', candidateText: 'AI 번역 2' });
-    row = db.select().from(s.units).where(eq(s.units.id, unit.id)).get()!;
-    expect([row.translation, row.candidateId, row.statusBy, row.statusId]).toEqual(['AI 번역 2', 'c2', 'ai', final.id]);
-
-    // Human, but nothing written yet: the run may fill it in.
-    db.update(s.units).set({ translation: null, statusBy: 'human' }).where(eq(s.units.id, unit.id)).run();
-    call({ candidateId: 'c3', candidateText: 'AI 번역 3' });
-    row = db.select().from(s.units).where(eq(s.units.id, unit.id)).get()!;
-    expect([row.translation, row.statusBy, row.statusId]).toEqual(['AI 번역 3', 'ai', final.id]);
+    const after = db.select().from(s.units).where(eq(s.units.id, unit.id)).get()!;
+    expect([after.translation, after.statusBy, after.statusId]).toEqual(['AI 초벌', 'ai', final.id]);
   });
 
   it('protects a person\'s translation only in runs that pick lines by status', async () => {
@@ -462,6 +475,38 @@ describe('who set the status', () => {
     // '상태 무시' or a workflow without a status filter (말투만 고치기) is asked to rewrite the lines it names.
     expect(filtersByStatus(entry(['untranslated']), { ignoreStatus: true })).toBe(false);
     expect(filtersByStatus(entry([]), {})).toBe(false);
+  });
+});
+
+describe('writing a produced translation to the line', () => {
+  it('writes text, candidate and AI ownership; keeps a person\'s text in a status-filtered run; overwrites when status is ignored', async () => {
+    const { applyRunCandidate } = await import('./apply-candidate.ts');
+    const { db, projectId } = setup(1);
+    const unit = db.select().from(s.units).where(eq(s.units.projectId, projectId)).get()!;
+    const initial = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).all().find((status) => status.kind === 'initial')!;
+    const definition = workflowDefinitionSchema.parse({
+      nodes: [{ id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: { statusIds: [initial.id] } }],
+      edges: [],
+    });
+    const run = { id: 'r1', projectId, definition, scope: {} } as never;
+    const apply = (target: string, candidateId: string, text: string) => db.transaction((tx) => applyRunCandidate(tx as never, run, target, candidateId, text));
+
+    // A fresh line gets the produced text and AI ownership.
+    expect(apply(unit.id, 'c1', 'AI 번역 1')).toEqual({ applied: true });
+    let row = db.select().from(s.units).where(eq(s.units.id, unit.id)).get()!;
+    expect([row.translation, row.candidateId, row.statusBy, row.statusRunId]).toEqual(['AI 번역 1', 'c1', 'ai', 'r1']);
+
+    // A person's saved translation in a status-filtered run is kept.
+    db.update(s.units).set({ translation: '내 번역', statusBy: 'human', statusRunId: null }).where(eq(s.units.id, unit.id)).run();
+    expect(apply(unit.id, 'c2', 'AI 번역 2')).toEqual({ applied: false });
+    row = db.select().from(s.units).where(eq(s.units.id, unit.id)).get()!;
+    expect([row.translation, row.statusBy]).toEqual(['내 번역', 'human']);
+
+    // A run told to ignore status may rewrite the line.
+    const open = { ...(run as object), scope: { ignoreStatus: true } } as never;
+    expect(db.transaction((tx) => applyRunCandidate(tx as never, open, unit.id, 'c3', 'AI 번역 3'))).toEqual({ applied: true });
+    row = db.select().from(s.units).where(eq(s.units.id, unit.id)).get()!;
+    expect([row.translation, row.candidateId, row.statusBy]).toEqual(['AI 번역 3', 'c3', 'ai']);
   });
 });
 

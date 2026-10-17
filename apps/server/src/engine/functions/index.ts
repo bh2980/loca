@@ -53,6 +53,8 @@ export interface FunctionInput {
 }
 
 const NEEDS_CANDIDATE = '검사할 번역 후보가 없습니다.';
+/** A person's saved translation a status-filtered run does not replace (#51); the same text the runner notes. */
+export const HUMAN_OWNED_NOTE = '사람이 저장한 번역이 있어 바꾸지 않았습니다. AI 번역은 후보로 남겨 두었습니다.';
 const candidateOf = (input: FunctionInput) => input.item.data.candidateText ?? input.unit.translation ?? null;
 
 /** What a script or HTTP template can see about a line. */
@@ -106,10 +108,12 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
 
   setStatus(tx, raw, input) {
     const params = setStatusParams.parse(raw);
-    // A run sets the line's status, so AI set it (docs/DESIGN.md 3.5); a person's change later makes it theirs.
-    // A run that picks lines by status never replaces a translation a person wrote (docs/DESIGN.md 3.5):
-    // its entry skips such lines, and one a person saved while the run was on it is kept here. A run on
-    // lines named regardless of status (말투만 고치기, '상태 무시') is asked to rewrite them, so it may.
+    // Translations now go into the line when a node produces them (engine/apply-candidate.ts, #42);
+    // this node only sets the status and tags. A run sets the line's status, so AI set it
+    // (docs/DESIGN.md 3.5); a person's change later makes it theirs. A run that picks lines by status
+    // never replaces a translation a person wrote (#51): its entry skips such lines, and one a person
+    // saved while the run was on it keeps its status here. A run on lines named regardless of status
+    // (말투만 고치기, '상태 무시') is asked to rewrite them, so its status change goes through.
     const current = tx.select({ translation: s.units.translation, statusBy: s.units.statusBy }).from(s.units).where(eq(s.units.id, input.unit.id)).get();
     const run = tx.select({ definition: s.runs.definition, scope: s.runs.scope }).from(s.runs).where(eq(s.runs.id, input.runId)).get();
     const humanOwns =
@@ -119,7 +123,7 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     const issues: string[] = [];
     if (humanOwns) {
       // Keep the person's translation and status; the run's text stays a candidate beside it.
-      issues.push('사람이 저장한 번역이 있어 바꾸지 않았습니다. AI 번역은 후보로 남겨 두었습니다.');
+      issues.push(HUMAN_OWNED_NOTE);
     } else {
       if (params.statusId) {
         const target = tx.select({ name: s.statuses.name, humanOnly: s.statuses.humanOnly }).from(s.statuses).where(eq(s.statuses.id, params.statusId)).get();
@@ -132,10 +136,6 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
           } else issues.push(`‘${target.name}’은(는) 사람만 지정할 수 있어 상태를 바꾸지 않았습니다(검토함에 표시하는 상태가 없음).`);
         } else patch.statusId = params.statusId;
         if (patch.statusId) Object.assign(patch, { statusBy: 'ai', statusRunId: input.runId });
-      }
-      if (params.applyCandidate && input.item.data.candidateId) {
-        patch.candidateId = input.item.data.candidateId;
-        patch.translation = input.item.data.candidateText;
       }
       if (Object.keys(patch).length) tx.update(s.units).set(patch).where(eq(s.units.id, input.unit.id)).run();
     }

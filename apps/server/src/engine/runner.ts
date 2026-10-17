@@ -12,7 +12,8 @@ import { buildContext } from '../services/context.ts';
 import { resolveRoutes } from '../services/routes.ts';
 import { markConditions } from '../services/line-marks.ts';
 import type { SecretStore } from '../services/secrets.ts';
-import { runAsyncFunction, syncFunctions, type FunctionInput, type FunctionResult } from './functions/index.ts';
+import { runAsyncFunction, syncFunctions, HUMAN_OWNED_NOTE, type FunctionInput, type FunctionResult } from './functions/index.ts';
+import { applyRunCandidate } from './apply-candidate.ts';
 import { packGroups, planBatches } from './batches.ts';
 import { buildPrompt, outputSchema, PER_LINE_OUTPUTS, type KnowledgeOutput, type PromptLine } from './prompts.ts';
 import { applyIssueTags } from '../services/issue-tags.ts';
@@ -213,6 +214,12 @@ export class Runner {
       data.candidateId = candidateId;
       data.candidateText = outcome.candidate;
       data.issues = []; // a new candidate answers the previous issues
+      // The produced text goes straight into the line (docs/DESIGN.md 3.5, #42). A person's saved
+      // translation in a status-filtered run is kept and the run's text stays a candidate with a note.
+      if (!applyRunCandidate(tx, run, item.unitId, candidateId, outcome.candidate).applied) {
+        const notes = data.notes ?? [];
+        if (!notes.includes(HUMAN_OWNED_NOTE)) data.notes = [...notes, HUMAN_OWNED_NOTE];
+      }
     }
     if (outcome.issues?.length) data.issues = outcome.issues;
     if (outcome.issueTags) applyIssueTags(tx, run.projectId, item.unitId, outcome.issueTags);
