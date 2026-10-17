@@ -9,7 +9,8 @@ import { listAnalyses, startAnalysis } from '../services/analysis-runs.ts';
 import { importProject } from '../services/importer.ts';
 import { snapshotWorkflowModels } from '../services/routes.ts';
 import { memoryStore } from '../services/secrets.ts';
-import { createRun, Runner, sceneHalf, type ModelPort } from './runner.ts';
+import { agentCatalog } from '../services/agent-catalog.ts';
+import { createRun, createRunInSteps, Runner, sceneHalf, type ModelPort } from './runner.ts';
 
 /** Two scenes, three lines, a labelled branch: the work-analysis tests' script. */
 function setup() {
@@ -172,6 +173,11 @@ describe('work analysis as a workflow (#47)', () => {
     });
     await startAnalysis(db, memoryStore(), projectId, choice);
     await expect(startAnalysis(db, memoryStore(), projectId, choice)).rejects.toThrow('이미 진행 중');
+    // The same guard holds for the agent's start_run and any other analysis workflow.
+    const other = db.insert(s.workflows).values({ projectId, name: '인물만', definition: analysisTemplate({ model: choice, sections: ['characters'] }) }).returning().get();
+    const start = agentCatalog(db, projectId).find((tool) => tool.name === 'start_run')!;
+    expect(await start.run({ workflowId: other.id })).toMatchObject({ ok: false, error: expect.stringContaining('이미 진행 중') });
+    await expect(createRunInSteps(db, { projectId, workflow: other, models: snapshotWorkflowModels(db, other.definition), scope: {} })).rejects.toThrow('이미 진행 중');
     await runner.drain();
     const [job] = listAnalyses(db, projectId);
     expect(job).toMatchObject({ status: 'failed', error: expect.stringContaining('boom') });

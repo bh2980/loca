@@ -2,7 +2,7 @@ import { and, asc, desc, eq, gte, inArray, isNull, ne, notInArray, or, sql } fro
 import { alias } from 'drizzle-orm/sqlite-core';
 import jsonLogic from 'json-logic-js';
 import * as ai from '@tw/ai';
-import { analysisSectionsOf, type IssueKind, batchConfigSchema, FUNCTIONS, choiceKey, isUnknownListener, lineMarksOf, nodeModels, nodeName, type AiNode, type ConditionData, type FunctionName, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import { analysisSectionsOf, isAnalysisWorkflow, type IssueKind, batchConfigSchema, FUNCTIONS, choiceKey, isUnknownListener, lineMarksOf, nodeModels, nodeName, type AiNode, type ConditionData, type FunctionName, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
 import { inChunks, inList } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -992,6 +992,21 @@ export function createRun(db: Db, input: RunInput) {
   return { runId: run.id, total: run.total };
 }
 
+export const ANALYSIS_BUSY = '이미 진행 중인 작품 분석이 있습니다.';
+
+/**
+ * One work analysis at a time per project (#47), whoever starts it: the 작품 분석 button, the run
+ * dialog or the agent's start_run. A run still filling its lines counts as running; so does a job
+ * of the old analysis service that is still marked running.
+ */
+export const runActive = (run: { status: string; notice: string | null }) => run.status === 'running' || (run.status === 'paused' && run.notice === FILLING);
+
+export function refuseSecondAnalysis(db: Db, projectId: string) {
+  const runs = db.select({ status: s.runs.status, notice: s.runs.notice, definition: s.runs.definition }).from(s.runs).where(and(eq(s.runs.projectId, projectId), inArray(s.runs.status, ['running', 'paused']))).all();
+  const busy = runs.some((run) => runActive(run) && isAnalysisWorkflow(run.definition));
+  if (busy || db.select({ id: s.analysisJobs.id }).from(s.analysisJobs).where(and(eq(s.analysisJobs.projectId, projectId), eq(s.analysisJobs.status, 'running'))).get()) throw new Error(ANALYSIS_BUSY);
+}
+
 /** Lines stored per step when a run is created from the app or a chat. */
 const FILL_STEP = 2_000;
 export const FILLING = '대사를 넣는 중입니다.';
@@ -1002,6 +1017,8 @@ export const FILLING = '대사를 넣는 중입니다.';
  * request). The run waits paused, saying so, until all its lines are in.
  */
 export async function createRunInSteps(db: Db, input: RunInput) {
+  // Checked and inserted with no await in between, so two starts at once cannot both pass.
+  if (isAnalysisWorkflow(input.workflow.definition)) refuseSecondAnalysis(db, input.projectId);
   const { run, items } = runRows(db, input);
   db.insert(s.runs).values({ ...run, status: 'paused', notice: FILLING }).run();
   events.changed(input.projectId, 'runs');

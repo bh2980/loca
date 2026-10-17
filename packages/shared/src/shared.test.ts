@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { checkFormat } from './format-check.ts';
 import { importFileSchema, importWarnings } from './import-format.ts';
 import { politenessOf, speechLevelOf, styleInstruction, styleNames } from './knowledge.ts';
-import { termExtractionTemplate, translationTemplate } from './defaults.ts';
-import { nodePorts, validateWorkflow, workflowDefinitionSchema, workflowNodeSchema, type WorkflowDefinition } from './workflow.ts';
+import { analysisTemplate, listenerTemplate, termExtractionTemplate, translationTemplate } from './defaults.ts';
+import { nodePorts, readinessUses, validateWorkflow, workflowDefinitionSchema, workflowNodeSchema, type WorkflowDefinition } from './workflow.ts';
 
 const model = { connectionId: 'c', model: 'm' };
 const ids = { model, untranslated: 's0', draft: 's1', needsReview: 's2', confirmed: 's3' };
@@ -251,5 +251,14 @@ describe('isIdentifierLabel', () => {
     for (const id of ['tps-01-game-intro', 'tps-01-game-rules1-hub0', 'rules-whotaughtyou=0', 'a_b', 'x.y']) expect(isIdentifierLabel(id)).toBe(true);
     expect(isIdentifierLabel('intro', new Set(['intro']))).toBe(true);
     for (const text of ['Half-goblin. Thief. Ok.', 'Late', 'Sibling 0']) expect(isIdentifierLabel(text)).toBe(false);
+  });
+});
+
+describe('run readiness', () => {
+  it('applies only to workflows that write or judge translations with that context', () => {
+    expect(readinessUses(translationTemplate(ids))).toEqual({ speech: true, glossary: true });
+    expect(readinessUses(analysisTemplate({ model }))).toEqual({ speech: false, glossary: false });
+    expect(readinessUses(listenerTemplate({ model }))).toEqual({ speech: false, glossary: false });
+    expect(readinessUses(termExtractionTemplate({ model }))).toEqual({ speech: false, glossary: false });
   });
 });

@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray, isNotNull, ne, sql } from 'drizzle-orm';
-import { batchConfigSchema, CONNECTION_KIND_INFO, estimateTokens, isFreeModel, isUnknownListener, isUnreviewed, needsListener, nodeName, termMatcher, type AiNode, type WorkflowDefinition } from '@tw/shared';
+import { batchConfigSchema, readinessUses, CONNECTION_KIND_INFO, estimateTokens, isFreeModel, isUnknownListener, isUnreviewed, needsListener, nodeName, termMatcher, type AiNode, type WorkflowDefinition } from '@tw/shared';
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -110,7 +110,7 @@ export async function preflight(db: Db, workflow: Pick<typeof s.workflows.$infer
   };
 
   const unmeasured = estimates.some((estimate) => estimate.connection && estimate.overheadTokens === null);
-  const readiness = readinessOf(db, projectId, units, speechRuleIndex(db, projectId));
+  const readiness = { ...readinessOf(db, projectId, units, speechRuleIndex(db, projectId)), applies: readinessUses(definition) };
   const pace = paceOf(db, estimates);
 
   return {

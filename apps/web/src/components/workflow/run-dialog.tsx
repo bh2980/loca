@@ -337,8 +337,9 @@ function TagPicker({ tags, picked, setPicked, marks, setMarks }: { tags: { id: s
 
 /** What in these lines would make the translation worse, each with where to fix it. */
 function Readiness({ projectId, readiness, oneScene, scoped, onLeave }: { projectId: string; readiness: PlanData['readiness']; oneScene?: string; /** The run covers part of the project, not all of it. */ scoped: boolean; /** A link was followed: the dialog closes. */ onLeave: () => void }) {
-  const rows: { ok: boolean; text: ReactNode; link?: ReactNode }[] = [
+  const checks: { ok: boolean; text: ReactNode; link?: ReactNode; uses: 'speech' | 'glossary' }[] = [
     {
+      uses: 'speech',
       ok: readiness.unknownListenerLines === 0,
       text: readiness.unknownListenerLines ? `청자를 모르는 대사 ${readiness.unknownListenerLines.toLocaleString()}줄 (말투 규칙이 안 걸림)` : '대사마다 청자가 정해짐',
       link: readiness.unknownListenerLines > 0 && (
@@ -348,6 +349,7 @@ function Readiness({ projectId, readiness, oneScene, scoped, onLeave }: { projec
       ),
     },
     {
+      uses: 'speech',
       ok: readiness.unreviewedRules.count === 0,
       text: readiness.unreviewedRules.count ? `확인 안 한 말투 규칙 ${readiness.unreviewedRules.count}개 (${readiness.unreviewedRules.examples.join(', ')}${readiness.unreviewedRules.count > readiness.unreviewedRules.examples.length ? ' 등' : ''})` : '쓰이는 말투 규칙은 모두 확인됨',
       link: readiness.unreviewedRules.count > 0 && (
@@ -357,6 +359,7 @@ function Readiness({ projectId, readiness, oneScene, scoped, onLeave }: { projec
       ),
     },
     {
+      uses: 'speech',
       ok: readiness.pairsWithoutRule.count === 0,
       text: readiness.pairsWithoutRule.count ? `말투 규칙 없는 화자→청자 ${readiness.pairsWithoutRule.count}쌍 (${readiness.pairsWithoutRule.examples.join(', ')}${readiness.pairsWithoutRule.count > readiness.pairsWithoutRule.examples.length ? ' 등' : ''})` : '자주 말하는 쌍마다 말투 규칙 있음',
       link: readiness.pairsWithoutRule.count > 0 && (
@@ -366,6 +369,7 @@ function Readiness({ projectId, readiness, oneScene, scoped, onLeave }: { projec
       ),
     },
     {
+      uses: 'glossary',
       ok: readiness.unreviewedTerms.count === 0,
       text: readiness.unreviewedTerms.count ? `확인 안 한 용어 ${readiness.unreviewedTerms.count}개 (${readiness.unreviewedTerms.examples.join(', ')}${readiness.unreviewedTerms.count > readiness.unreviewedTerms.examples.length ? ' 등' : ''})` : '나오는 용어는 모두 확인됨',
       link: readiness.unreviewedTerms.count > 0 && (
@@ -375,6 +379,9 @@ function Readiness({ projectId, readiness, oneScene, scoped, onLeave }: { projec
       ),
     },
   ];
+  const rows = checks.filter((row) => readiness.applies[row.uses]);
+  // A workflow that neither writes nor judges translations with this context has nothing to get ready.
+  if (!rows.length) return null;
   return (
     <section className="space-y-2">
       <h3 className="text-xs text-muted-foreground">준비 상태 · 이 줄들 기준</h3>
