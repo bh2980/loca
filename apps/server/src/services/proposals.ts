@@ -93,18 +93,20 @@ export function closeInterruptedProposals(db: Db) {
 /** How a decision reads to the agent. */
 const DECISION_WORD = { accepted: '수락되어 반영됨', rejected: '사용자가 거절함', failed: '수락했지만 실패함', pending: '', running: '' } as const;
 
+const unreported = (sessionId: string) => and(eq(s.proposals.sessionId, sessionId), isNull(s.proposals.reportedAt), isNotNull(s.proposals.decidedAt), inArray(s.proposals.status, ['accepted', 'rejected', 'failed']));
+
+export const hasUnreportedDecisions = (db: Db, sessionId: string) => Boolean(db.select({ id: s.proposals.id }).from(s.proposals).where(unreported(sessionId)).get());
+
+/** Proposals of the conversation still waiting for (or being applied after) a decision. */
+export const openProposals = (db: Db, sessionId: string) => db.select({ id: s.proposals.id }).from(s.proposals).where(and(eq(s.proposals.sessionId, sessionId), inArray(s.proposals.status, ['pending', 'running']))).all().length;
+
 /**
  * Decisions the chat's agent has not heard about yet, as text for its next prompt, marked as told.
  * One column (`reported_at`) for every backend, so a decision is told once even across a restart
  * or a switch of model (#46). Null when there is nothing new.
  */
 export function takeDecisions(db: Db, sessionId: string) {
-  const decided = db
-    .select()
-    .from(s.proposals)
-    .where(and(eq(s.proposals.sessionId, sessionId), isNull(s.proposals.reportedAt), isNotNull(s.proposals.decidedAt)))
-    .all()
-    .filter((proposal) => proposal.status !== 'pending' && proposal.status !== 'running');
+  const decided = db.select().from(s.proposals).where(unreported(sessionId)).all();
   if (!decided.length) return null;
   db.update(s.proposals).set({ reportedAt: new Date() }).where(inArray(s.proposals.id, decided.map((proposal) => proposal.id))).run();
   return `지난 제안의 결과:\n${decided.map((proposal) => `- ${proposal.tool} (${proposal.id}): ${DECISION_WORD[proposal.status]}${proposal.status === 'failed' ? ` — ${JSON.stringify(proposal.result).slice(0, 300)}` : ''}`).join('\n')}`;

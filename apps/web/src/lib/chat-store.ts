@@ -34,6 +34,9 @@ export function chatFor(sessionId: string, saved: UIMessage[]) {
       // The server owns the conversation (#46): only the newest message goes (a reply whose tool
       // approval was just answered goes again, by id). The view is read at send time.
       prepareSendMessagesRequest: ({ messages, trigger }) => ({ body: { message: messages.at(-1), trigger, view: view.current ?? undefined } }),
+      // A turn this window did not start (a reload, another window, the server carrying on after
+      // proposals were decided) is attached to from its start.
+      prepareReconnectToStreamRequest: () => ({ api: `/api/chat/${sessionId}/stream` }),
     }),
     sendAutomaticallyWhen: (options) => lastAssistantMessageIsCompleteWithApprovalResponses(options) || lastAssistantMessageIsCompleteWithToolCalls(options),
   });

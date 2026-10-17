@@ -1,5 +1,6 @@
 import { createUIMessageStream, createUIMessageStreamResponse, type UIMessage } from 'ai';
-import { readToEnd, steerPrompt, takeSteers } from './chat-turns.ts';
+import { readToEnd, type ChatTurn } from './chat-turns.ts';
+import { interjectionPrompt, takeInterjections, writeInterjections } from './chat-interject.ts';
 import { eq } from 'drizzle-orm';
 import * as ai from '@tw/ai';
 import { logged } from './ai-calls.ts';
@@ -7,9 +8,9 @@ import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { agentCatalog, jsonSchemaOf, type CatalogTool } from './agent-catalog.ts';
-import { prepareProposal, reportText } from './proposal-check.ts';
+import { prepareProposal, refusalText, reportText } from './proposal-check.ts';
 import { fitText } from './tool-output.ts';
-import { propose, proposedText, takeDecisions } from './proposals.ts';
+import { propose, proposedText } from './proposals.ts';
 import { catchUp, CONTEXT_BUDGET, handover, textOf, type AnsweredBy } from './chat-context.ts';
 
 /**
@@ -34,7 +35,7 @@ export function toolProtocol(tools: CatalogTool[]) {
     '도구가 필요하면 답의 맨 끝에 다음 블록 하나를 쓰고 멈추세요. 블록 안은 JSON 배열이며 한 번에 여러 도구를 부를 수 있습니다:',
     '```loca-tools\n[{"tool": "find_lines", "input": {"speakers": ["Alice"], "limit": 20}}]\n```',
     '그러면 다음 메시지로 "작업실 도구 결과"가 옵니다. 결과를 보고 이어서 답하거나 다시 도구를 부르세요. 도구가 필요 없으면 블록 없이 답만 씁니다.',
-    '변경 도구(save_*, propose_*, start_run 등)는 바로 실행되지 않고 사용자가 채팅 패널에서 수락해야 반영되는 제안으로 올라갑니다. 제안한 뒤에는 무엇을 왜 제안했는지 짧게 설명하고 기다리세요.',
+    '변경 도구(save_*, propose_*, start_run 등)는 바로 실행되지 않고 사용자가 채팅 패널에서 수락해야 반영되는 제안으로 올라갑니다. 제안이 모두 결정되면 결과가 바로 와서 이어서 진행합니다. 제안한 뒤에는 무엇을 왜 제안했는지 짧게 설명하고 이번 답을 마치세요.',
     '',
     list,
   ].join('\n');
@@ -70,16 +71,13 @@ export async function cliChatResponse(input: {
   messages: UIMessage[];
   answeredBy: AnsweredBy;
   timeoutMs: number;
-  signal: AbortSignal;
-  /** Called once the reply has been read to its end (see readToEnd). */
-  onEnd: () => void;
-  /** Called right after the last look at the steering queue (see chat-turns startTurn). */
-  markClosing?: () => void;
+  /** The conversation's running turn (chat-turns startTurn): its signal, end and closing mark. */
+  turn: Pick<ChatTurn, 'signal' | 'end' | 'record' | 'markClosing'>;
   /** The CLI call; tests pass a fake. */
-  turn?: CliTurn;
+  cli?: CliTurn;
 }): Promise<Response> {
   const { db, chat, route, messages } = input;
-  const run = input.turn ?? ai.cliChat;
+  const run = input.cli ?? ai.cliChat;
   const tools = agentCatalog(db, chat.projectId, { model: route.model });
   const byName = new Map(tools.map((tool) => [tool.name, tool]));
   const system = [input.system, toolProtocol(tools)].join('\n\n');
@@ -90,8 +88,9 @@ export async function cliChatResponse(input: {
   const last = messages.at(-1);
   const context = saved ? catchUp(earlier, saved.seen ?? earlier.length, CONTEXT_BUDGET.cli) : handover(earlier, CONTEXT_BUDGET.cli);
   // Messages a previous turn could not take come after the new one.
-  const leftover = takeSteers(chat.id);
-  let prompt = [context, takeDecisions(db, chat.id), input.view, last ? textOf(last) : '', steerPrompt(leftover)].filter(Boolean).join('\n\n');
+  // Messages and decisions that came in since the last turn come after the new message.
+  const leftover = takeInterjections(db, chat.id);
+  let prompt = [context, input.view, last ? textOf(last) : '', interjectionPrompt(leftover)].filter(Boolean).join('\n\n');
   let sessionId = saved?.id;
   let totalsBefore = saved?.totals;
 
@@ -100,14 +99,10 @@ export async function cliChatResponse(input: {
     generateId: () => crypto.randomUUID(),
     execute: async ({ writer }) => {
       writer.write({ type: 'message-metadata', messageMetadata: { answeredBy: input.answeredBy } });
-      const steer = (texts: string[]) => {
-        for (const text of texts) writer.write({ type: 'data-steer', data: { text } });
-        return steerPrompt(texts);
-      };
-      steer(leftover);
+      writeInterjections(writer, leftover);
       for (let round = 0; round < MAX_ROUNDS; round++) {
         writer.write({ type: 'start-step' });
-        const answer = await logged(db, { projectId: chat.projectId, kind: 'chat', refId: chat.id, label: `채팅 (CLI${round ? ` · 도구 결과 후 ${round}` : ''})` }, route, () => run(route, { sessionId, system, prompt, timeoutMs: input.timeoutMs, signal: input.signal, totalsBefore }));
+        const answer = await logged(db, { projectId: chat.projectId, kind: 'chat', refId: chat.id, label: `채팅 (CLI${round ? ` · 도구 결과 후 ${round}` : ''})` }, route, () => run(route, { sessionId, system, prompt, timeoutMs: input.timeoutMs, signal: input.turn.signal, totalsBefore }));
         sessionId = answer.sessionId;
         totalsBefore = answer.totals;
         db.update(s.chatSessions).set({ agentSession: { kind: route.kind, model: route.model, id: sessionId, lastTurnAt: Date.now(), totals: totalsBefore } }).where(eq(s.chatSessions.id, chat.id)).run();
@@ -121,12 +116,12 @@ export async function cliChatResponse(input: {
         if (!calls.length && !error) {
           writer.write({ type: 'finish-step' });
           // A message sent while it was answering: carry on with it instead of ending the turn (#44).
-          const texts = takeSteers(chat.id);
-          if (!texts.length) {
-            input.markClosing?.();
+          const items = takeInterjections(db, chat.id);
+          if (!items.length) {
+            input.turn.markClosing();
             return;
           }
-          prompt = steer(texts);
+          prompt = writeInterjections(writer, items);
           continue;
         }
         const results: string[] = error ? [error] : [];
@@ -139,7 +134,12 @@ export async function cliChatResponse(input: {
             let output: unknown;
             if (tool.changes) {
               const prepared = await prepareProposal(db, chat.projectId, tool.name, tool.schema.parse(call.input) as Record<string, unknown>);
-              if (!prepared.ok) throw new Error(`제안을 만들지 않았습니다: ${prepared.error}`);
+              if (!prepared.ok) {
+                // The panel shows the plain reason; the agent also gets the ids to fix it with.
+                writer.write({ type: 'tool-output-error', toolCallId, errorText: `제안하지 못했습니다: ${prepared.error}` });
+                results.push(`${call.tool}: 제안을 만들지 않았습니다 — ${refusalText(prepared)}`);
+                continue;
+              }
               const proposal = propose(db, { projectId: chat.projectId, sessionId: chat.id, source: 'cli', tool: tool.name, input: prepared.input, report: prepared.report });
               output = { proposalId: proposal.id };
               results.push(`${call.tool}: ${proposedText(proposal.id)}${reportText(prepared.report)}`);
@@ -155,9 +155,9 @@ export async function cliChatResponse(input: {
           }
         }
         writer.write({ type: 'finish-step' });
-        prompt = [`작업실 도구 결과:\n${results.join('\n\n')}`, steer(takeSteers(chat.id))].filter(Boolean).join('\n\n');
+        prompt = [`작업실 도구 결과:\n${results.join('\n\n')}`, writeInterjections(writer, takeInterjections(db, chat.id))].filter(Boolean).join('\n\n');
       }
-      input.markClosing?.();
+      input.turn.markClosing();
       const id = crypto.randomUUID();
       writer.write({ type: 'text-start', id });
       writer.write({ type: 'text-delta', id, delta: `(도구를 ${MAX_ROUNDS}번 연달아 불러 여기서 멈췄습니다. 이어서 하려면 메시지를 보내세요.)` });
@@ -171,5 +171,5 @@ export async function cliChatResponse(input: {
     },
     onError: (error) => (error instanceof Error ? error.message : String(error)),
   });
-  return createUIMessageStreamResponse({ stream, ...readToEnd(input.onEnd) });
+  return createUIMessageStreamResponse({ stream, ...readToEnd(input.turn) });
 }

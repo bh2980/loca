@@ -3,7 +3,7 @@ import { useChat } from '@ai-sdk/react';
 import type { UIMessage } from 'ai';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation } from '@tanstack/react-router';
-import { ArrowUp, ChevronRight, History, Plus, Square, Trash2, X } from 'lucide-react';
+import { ArrowUp, Check, ChevronRight, History, Plus, Square, Trash2, X } from 'lucide-react';
 import { Markdown } from './markdown';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
@@ -231,6 +231,26 @@ function ChatBody({ projectId, sessionId, initial, turn, model, onModel }: {
     if (status !== 'ready' || initial.length <= messages.length) return;
     if (messages.every((message, i) => initial[i]?.id === message.id)) setMessages(initial);
   }, [initial]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A turn running on the server that this window is not streaming (sent before a reload, from
+  // another window, or started by the server once proposals were decided): attach to it, once per turn.
+  const attachedTo = useRef<number | null>(null);
+  // When this window last finished streaming a reply: a turn that started before then was its own.
+  const streamedUntil = useRef(0);
+  const streaming = useRef(false);
+  useEffect(() => {
+    const now = status === 'submitted' || status === 'streaming';
+    if (streaming.current && !now) streamedUntil.current = Date.now();
+    streaming.current = now;
+  }, [status]);
+  useEffect(() => {
+    const startedAt = turn?.startedAt ?? null;
+    if (!startedAt || status !== 'ready' || attachedTo.current === startedAt) return;
+    attachedTo.current = startedAt;
+    if (startedAt <= streamedUntil.current) return;
+    // The question it answers comes first (the server saved it before the turn began).
+    if (initial.length > messages.length && messages.every((message, i) => initial[i]?.id === message.id)) setMessages(initial);
+    void stored.chat.resumeStream();
+  }, [turn?.startedAt, status]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [input, setInput] = useState(() => sessionStorage.getItem(`tw.chat.draft.${sessionId}`) ?? '');
   // Sent while the reply was running (#44): waiting for the turn to take them at its next step.
@@ -328,7 +348,9 @@ function ChatBody({ projectId, sessionId, initial, turn, model, onModel }: {
         )}
         <div className="space-y-4">
           {messages.map((message) =>
-            message.role === 'user' ? (
+            message.role === 'user' && (message.metadata as { kind?: string } | undefined)?.kind === 'decisions' ? (
+              <DecisionNotice key={message.id} text={message.parts.map((part) => (part.type === 'text' ? part.text : '')).join('')} />
+            ) : message.role === 'user' ? (
               <div key={message.id} className="ml-8 rounded-lg bg-background px-3 py-2 text-sm whitespace-pre-wrap shadow-xs ring-1 ring-border">
                 {message.parts.map((part, index) => (part.type === 'text' ? <span key={index}>{part.text}</span> : null))}
               </div>
@@ -341,7 +363,10 @@ function ChatBody({ projectId, sessionId, initial, turn, model, onModel }: {
                         <Markdown>{part.text}</Markdown>
                       </div>
                     );
-                  if (part.type === 'data-steer') return <SteerBubble key={index} text={(part as { data: { text: string } }).data.text} />;
+                  if (part.type === 'data-steer') {
+                    const data = (part as { data: { text: string; kind?: string } }).data;
+                    return data.kind === 'decisions' ? <DecisionNotice key={index} text={data.text} /> : <SteerBubble key={index} text={data.text} />;
+                  }
                   if (part.type.startsWith('tool-')) return <ToolPart key={index} part={part as never} proposal={proposalById.get(((part as { output?: { proposalId?: string } }).output ?? {}).proposalId ?? '') as never} stale={message.id !== messages.at(-1)?.id} onDecide={(id, approved) => addToolApprovalResponse({ id, approved })} onOutput={(toolCallId, output) => void addToolOutput({ tool: part.type.slice(5) as never, toolCallId, output: output as never })} />;
                   return null;
                 })}
@@ -423,6 +448,18 @@ function SteerBubble({ text, waiting = false }: { text: string; waiting?: boolea
       <span className="mb-0.5 block text-xs text-muted-foreground">{waiting ? '전달 대기 중 · 답의 다음 단계에 들어갑니다' : '진행 중에 보냄'}</span>
       {text}
     </div>
+  );
+}
+
+/** How proposals were decided, as told to the agent (it carries on from there). */
+function DecisionNotice({ text }: { text: string }) {
+  const lines = text.split('\n').filter((line) => line.startsWith('- '));
+  const count = (word: string) => lines.filter((line) => line.includes(word)).length;
+  const summary = [['수락되어 반영됨', '반영'], ['거절함', '거절'], ['실패함', '실패']].flatMap(([word, label]) => (count(word) ? [`${label} ${count(word)}`] : [])).join(' · ');
+  return (
+    <p className="flex items-center gap-1.5 text-xs text-muted-foreground" title={text}>
+      <Check className="size-3.5" /> 제안 결과를 에이전트에게 알렸습니다{summary && ` (${summary})`}
+    </p>
   );
 }
 

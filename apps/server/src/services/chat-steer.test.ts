@@ -58,7 +58,7 @@ describe('steering (#44)', () => {
       if (prompts.length === 2) enqueueSteer(chat.id, '그리고 짧게');
       return { sessionId: 'cli', text: answers[prompts.length - 1], usage: {} };
     };
-    const response = await cliChatResponse({ db, chat, route: { kind: 'grok', model: 'g' }, answeredBy: { kind: 'grok', connectionId: 'c', model: 'g' }, system: 't', view: null, messages: [user('u', '대사 찾아줘')], timeoutMs: 1000, signal: new AbortController().signal, onEnd: () => {}, markClosing: () => (closed = true), turn });
+    const response = await cliChatResponse({ db, chat, route: { kind: 'grok', model: 'g' }, answeredBy: { kind: 'grok', connectionId: 'c', model: 'g' }, system: 't', view: null, messages: [user('u', '대사 찾아줘')], timeoutMs: 1000, turn: { signal: new AbortController().signal, end: () => {}, record: () => {}, markClosing: () => (closed = true) }, cli: turn });
     const body = await response.text();
     expect(prompts).toHaveLength(3);
     expect(prompts[1]).toContain('작업실 도구 결과');
