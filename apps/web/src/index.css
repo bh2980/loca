@@ -261,10 +261,10 @@
 }
 
 /* Format token chips (⟨1 … 1⟩ a pair, ⟨2⟩ alone), in the editor (cm-) and in read-only text alike:
-   a little smaller than the text around them, but readable. */
+   a little smaller than the text around them, but readable, with room so ⟨1 and the word after it do not run together. */
 @layer components {
   .token-chip, .cm-token-chip {
-    @apply mx-px rounded border px-1 font-semibold whitespace-nowrap tabular-nums;
+    @apply mx-0.5 rounded border px-1 font-semibold whitespace-nowrap tabular-nums;
     font-size: 0.9em;
     color: var(--chip, var(--token-1));
     background-color: color-mix(in oklch, var(--chip, var(--token-1)) 11%, transparent);
