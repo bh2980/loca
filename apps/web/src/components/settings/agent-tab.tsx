@@ -22,7 +22,7 @@ const toolsIn = (target: AgentToolTarget, action?: AgentToolAction) => Object.ke
  * off is invisible to the AI; whether a change asks first is the conversation's permission mode.
  */
 export function AgentTab() {
-  const { projectId } = useParams({ from: '/p/$projectId/ai/usage' });
+  const { projectId } = useParams({ from: '/p/$projectId/agent' });
   const queryClient = useQueryClient();
   const project = useQuery(q.project(projectId));
   const loaded = !!project.data;

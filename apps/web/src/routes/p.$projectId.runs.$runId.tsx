@@ -21,7 +21,7 @@ import { useReportView } from '@/lib/view-context';
 import { SplitPane } from '@/components/split-pane';
 import { JobStatusBadge } from '@/components/job-status';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { InferResponseType } from 'hono/client';
 import { BatchList } from '@/components/workflow/batch-list';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -220,11 +220,14 @@ function RunDetail() {
             </Link>
           </Button>
           <JobStatusBadge status={data.status} />
-          <ToggleGroup type="single" variant="outline" value={view} onValueChange={(value) => value && setSearch({ tab: value === 'steps' || value === 'plan' ? value : undefined }, true)}>
-            <ToggleGroupItem value="items">대사별</ToggleGroupItem>
-            <ToggleGroupItem value="steps">AI 호출</ToggleGroupItem>
-            <ToggleGroupItem value="plan">번역 계획</ToggleGroupItem>
-          </ToggleGroup>
+          {/* The app's one tab style (line tabs); boxed segments are for view switches only. */}
+          <Tabs value={view} onValueChange={(value) => setSearch({ tab: value === 'steps' || value === 'plan' ? value : undefined }, true)} className="self-stretch">
+            <TabsList variant="line" className="h-full border-b-0" aria-label="보기">
+              <TabsTrigger value="items">대사별</TabsTrigger>
+              <TabsTrigger value="steps">AI 호출</TabsTrigger>
+              <TabsTrigger value="plan">번역 계획</TabsTrigger>
+            </TabsList>
+          </Tabs>
           {filtered && view === 'items' && (
             <Button variant="ghost" onClick={() => setSearch({ state: undefined, node: undefined, page: undefined, line: undefined }, true)}>
               필터 지우기

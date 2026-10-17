@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as PProjectIdRouteImport } from './routes/p.$projectId'
 import { Route as PProjectIdIndexRouteImport } from './routes/p.$projectId.index'
+import { Route as PProjectIdAgentRouteImport } from './routes/p.$projectId.agent'
 import { Route as PProjectIdGlossaryRouteImport } from './routes/p.$projectId.glossary'
 import { Route as PProjectIdGraphRouteImport } from './routes/p.$projectId.graph'
 import { Route as PProjectIdKeysRouteImport } from './routes/p.$projectId.keys'
@@ -39,6 +40,11 @@ const PProjectIdRoute = PProjectIdRouteImport.update({
 const PProjectIdIndexRoute = PProjectIdIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => PProjectIdRoute,
+} as any)
+const PProjectIdAgentRoute = PProjectIdAgentRouteImport.update({
+  id: '/agent',
+  path: '/agent',
   getParentRoute: () => PProjectIdRoute,
 } as any)
 const PProjectIdGlossaryRoute = PProjectIdGlossaryRouteImport.update({
@@ -114,6 +120,7 @@ const PProjectIdWorkflowsWorkflowIdRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/p/$projectId': typeof PProjectIdRouteWithChildren
+  '/p/$projectId/agent': typeof PProjectIdAgentRoute
   '/p/$projectId/glossary': typeof PProjectIdGlossaryRoute
   '/p/$projectId/graph': typeof PProjectIdGraphRoute
   '/p/$projectId/keys': typeof PProjectIdKeysRoute
@@ -131,6 +138,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/p/$projectId/agent': typeof PProjectIdAgentRoute
   '/p/$projectId/glossary': typeof PProjectIdGlossaryRoute
   '/p/$projectId/graph': typeof PProjectIdGraphRoute
   '/p/$projectId/keys': typeof PProjectIdKeysRoute
@@ -150,6 +158,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/p/$projectId': typeof PProjectIdRouteWithChildren
+  '/p/$projectId/agent': typeof PProjectIdAgentRoute
   '/p/$projectId/glossary': typeof PProjectIdGlossaryRoute
   '/p/$projectId/graph': typeof PProjectIdGraphRoute
   '/p/$projectId/keys': typeof PProjectIdKeysRoute
@@ -170,6 +179,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/p/$projectId'
+    | '/p/$projectId/agent'
     | '/p/$projectId/glossary'
     | '/p/$projectId/graph'
     | '/p/$projectId/keys'
@@ -187,6 +197,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/p/$projectId/agent'
     | '/p/$projectId/glossary'
     | '/p/$projectId/graph'
     | '/p/$projectId/keys'
@@ -205,6 +216,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/p/$projectId'
+    | '/p/$projectId/agent'
     | '/p/$projectId/glossary'
     | '/p/$projectId/graph'
     | '/p/$projectId/keys'
@@ -247,6 +259,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/p/$projectId/'
       preLoaderRoute: typeof PProjectIdIndexRouteImport
+      parentRoute: typeof PProjectIdRoute
+    }
+    '/p/$projectId/agent': {
+      id: '/p/$projectId/agent'
+      path: '/agent'
+      fullPath: '/p/$projectId/agent'
+      preLoaderRoute: typeof PProjectIdAgentRouteImport
       parentRoute: typeof PProjectIdRoute
     }
     '/p/$projectId/glossary': {
@@ -344,6 +363,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface PProjectIdRouteChildren {
+  PProjectIdAgentRoute: typeof PProjectIdAgentRoute
   PProjectIdGlossaryRoute: typeof PProjectIdGlossaryRoute
   PProjectIdGraphRoute: typeof PProjectIdGraphRoute
   PProjectIdKeysRoute: typeof PProjectIdKeysRoute
@@ -361,6 +381,7 @@ interface PProjectIdRouteChildren {
 }
 
 const PProjectIdRouteChildren: PProjectIdRouteChildren = {
+  PProjectIdAgentRoute: PProjectIdAgentRoute,
   PProjectIdGlossaryRoute: PProjectIdGlossaryRoute,
   PProjectIdGraphRoute: PProjectIdGraphRoute,
   PProjectIdKeysRoute: PProjectIdKeysRoute,

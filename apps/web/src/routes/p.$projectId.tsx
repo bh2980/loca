@@ -71,7 +71,12 @@ function ProjectLayout() {
         <ResizablePanelGroup orientation="horizontal" defaultLayout={layout.defaultLayout} onLayoutChanged={layout.onLayoutChanged}>
           <ResizablePanel id="main" minSize="320px" className="flex min-w-0 flex-col">
             <header className="flex h-9 shrink-0 items-center gap-2 border-b border-border/80 bg-surface-2/70 px-2.5 backdrop-blur-xs select-none">
-              <SidebarTrigger className="size-7" />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <SidebarTrigger className="size-7" />
+                </TooltipTrigger>
+                <TooltipContent>메뉴 접기·펴기</TooltipContent>
+              </Tooltip>
               <Separator orientation="vertical" className="mr-1 h-3.5" />
               <SectionTabs projectId={projectId} />
               <div className="ml-auto flex items-center gap-1">
@@ -126,7 +131,7 @@ function ProjectLayout() {
 /** The current menu's screens as tabs; a menu with one screen shows its name. */
 function SectionTabs({ projectId }: { projectId: string }) {
   const { section, tab: active } = useCurrentNav(projectId);
-  if (section.tabs.length === 1) return <h1 className="text-xs font-semibold tracking-tight text-foreground px-1.5">{section.label}</h1>;
+  if (section.tabs.length === 1) return <h1 className="px-1.5 text-xs font-semibold text-foreground">{section.label}</h1>;
   return (
     <nav className="flex h-full min-w-0 items-stretch gap-0.5" aria-label={section.label}>
       {section.tabs.map((tab) => {
@@ -139,9 +144,9 @@ function SectionTabs({ projectId }: { projectId: string }) {
             search={tab.search as never}
             aria-current={isCurrent ? 'page' : undefined}
             className={cn(
-              'relative flex items-center px-2.5 text-xs font-medium tracking-tight whitespace-nowrap transition-colors select-none',
+              'relative flex items-center px-2.5 text-xs font-medium whitespace-nowrap transition-colors select-none',
               isCurrent
-                ? 'text-foreground font-semibold after:absolute after:bottom-0 after:inset-x-2 after:h-[2px] after:bg-accent-indigo after:rounded-full'
+                ? 'text-foreground font-semibold after:absolute after:bottom-0 after:inset-x-2 after:h-[2px] after:bg-foreground after:rounded-full'
                 : 'text-muted-foreground hover:text-foreground hover:bg-surface-1/60 rounded-md'
             )}
           >
