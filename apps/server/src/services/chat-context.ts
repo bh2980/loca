@@ -67,6 +67,7 @@ export const isSteer = (part: { type: string }): part is SteerPart => part.type 
  * conversation in the order it happened.
  */
 export function expandSteers(messages: UIMessage[]): UIMessage[] {
+  if (!messages.some((message) => message.role === 'assistant' && message.parts.some(isSteer))) return messages;
   return messages.flatMap((message) => {
     if (message.role !== 'assistant' || !message.parts.some(isSteer)) return [message];
     const out: UIMessage[] = [];
