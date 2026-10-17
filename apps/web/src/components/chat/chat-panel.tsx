@@ -20,6 +20,8 @@ import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { useViewState, type ViewItem } from '@/lib/view-context';
 import { ProposalCard } from './proposal-card';
+import { PermissionModePicker } from './permission-mode';
+import type { PermissionMode } from '@tw/shared';
 import { ToolPart } from './tool-part';
 
 /** A conversation's model use in the session list: 950, 12.3k, 10.3M tokens. */
@@ -64,7 +66,7 @@ export function ChatPanel({ projectId }: { projectId: string }) {
     onSuccess: (session) => {
       // The new conversation joins the list before it is picked: otherwise the stale list would
       // unpick it, and a waiting AI-button request would start yet another one, again and again.
-      queryClient.setQueryData(q.chatSessions(projectId).queryKey, (list) => (list ? [{ id: session.id, title: session.title, connectionId: session.connectionId, model: session.model, effort: session.effort, updatedAt: session.updatedAt, calls: 0, tokens: 0 }, ...list.filter((item) => item.id !== session.id)] : list));
+      queryClient.setQueryData(q.chatSessions(projectId).queryKey, (list) => (list ? [{ id: session.id, title: session.title, connectionId: session.connectionId, model: session.model, effort: session.effort, permissionMode: session.permissionMode, updatedAt: session.updatedAt, calls: 0, tokens: 0 }, ...list.filter((item) => item.id !== session.id)] : list));
       setSessionId(session.id);
     },
   });
@@ -160,7 +162,7 @@ export function ChatPanel({ projectId }: { projectId: string }) {
       <ExternalProposals projectId={projectId} />
       {/* A connection picked without a model yet (one with no default) still counts, so the picker asks for the model. */}
       {current ? (
-        <Conversation key={current.id} projectId={projectId} sessionId={current.id} model={current.connectionId ? { connectionId: current.connectionId, model: current.model ?? '', ...(current.effort && { effort: current.effort }) } : null} />
+        <Conversation key={current.id} projectId={projectId} sessionId={current.id} mode={current.permissionMode} model={current.connectionId ? { connectionId: current.connectionId, model: current.model ?? '', ...(current.effort && { effort: current.effort }) } : null} />
       ) : (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center text-sm text-muted-foreground">
           <p>프로젝트의 원문·자료·워크플로를 읽고 인물 프로필이나 참조 문서, 워크플로를 제안하는 에이전트입니다.</p>
@@ -173,7 +175,7 @@ export function ChatPanel({ projectId }: { projectId: string }) {
   );
 }
 
-function Conversation({ projectId, sessionId, model }: { projectId: string; sessionId: string; model: ModelValue | null }) {
+function Conversation({ projectId, sessionId, model, mode }: { projectId: string; sessionId: string; model: ModelValue | null; mode: PermissionMode }) {
   const queryClient = useQueryClient();
   const saved = useQuery(q.chatSession(sessionId));
   if (saved.isPending) return <div className="flex flex-1 items-center justify-center"><Spinner /></div>;
@@ -184,6 +186,11 @@ function Conversation({ projectId, sessionId, model }: { projectId: string; sess
       initial={(saved.data?.messages ?? []) as unknown as UIMessage[]}
       turn={saved.data?.turn ?? null}
       model={model}
+      mode={mode}
+      onMode={(next) => {
+        queryClient.setQueryData(q.chatSessions(projectId).queryKey, (list) => list?.map((item) => (item.id === sessionId ? { ...item, permissionMode: next } : item)));
+        void unwrap(client.chat[':sessionId'].$patch({ param: { sessionId }, json: { permissionMode: next } }));
+      }}
       onModel={async (next) => {
         // Shown at once; a choice without a model yet (a connection with no default) waits for one.
         queryClient.setQueryData(q.chatSessions(projectId).queryKey, (list) => list?.map((item) => (item.id === sessionId ? { ...item, connectionId: next.connectionId, model: next.model || null, effort: next.effort ?? null } : item)));
@@ -194,12 +201,14 @@ function Conversation({ projectId, sessionId, model }: { projectId: string; sess
   );
 }
 
-function ChatBody({ projectId, sessionId, initial, turn, model, onModel }: {
+function ChatBody({ projectId, sessionId, initial, turn, model, onModel, mode, onMode }: {
   projectId: string;
   sessionId: string;
   initial: UIMessage[];
   turn: Turn | null;
   model: ModelValue | null;
+  mode: PermissionMode;
+  onMode: (mode: PermissionMode) => void;
   onModel: (next: ModelValue) => Promise<void>;
 }) {
   const ready = Boolean(model?.connectionId && model.model);
@@ -424,6 +433,7 @@ function ChatBody({ projectId, sessionId, initial, turn, model, onModel }: {
           <div className="min-w-0 flex-1">
             <ModelPicker compact need={['chat']} value={model} onChange={(next) => void onModel(next)} />
           </div>
+          <PermissionModePicker compact value={mode} onChange={onMode} />
           <div className="ml-auto flex items-center gap-1">
             {(busy || elsewhere) && (
               <Button size="icon" variant="secondary" aria-label="중지" onClick={halt}>

@@ -5,7 +5,7 @@ import { events } from '../events.ts';
 import { agentCatalog } from './agent-catalog.ts';
 
 /** Stores a proposal; callers check it first with prepareProposal (proposal-check.ts). */
-export function propose(db: Db, input: { projectId: string; sessionId: string | null; source: 'pi' | 'cli'; tool: string; input: Record<string, unknown>; report?: s.ProposalReport | null }) {
+export function propose(db: Db, input: { projectId: string; sessionId: string | null; source: 'pi' | 'cli' | 'api'; tool: string; input: Record<string, unknown>; report?: s.ProposalReport | null; review?: string | null }) {
   const row = db.insert(s.proposals).values(input).returning().get();
   events.changed(input.projectId, 'proposals');
   return row;
@@ -44,12 +44,12 @@ export const proposedText = (id: string) =>
  * of two requests for the same proposal (two windows, a resent click, accept against reject) only one runs
  * the tool; the other gets the row as it stands (running, or already decided) instead of running it again.
  */
-export async function decideProposal(db: Db, id: string, accept: boolean) {
+export async function decideProposal(db: Db, id: string, accept: boolean, by: 'person' | 'auto' | 'bypass' = 'person') {
   const proposal = db.select().from(s.proposals).where(eq(s.proposals.id, id)).get();
   if (!proposal) throw new Error('제안을 찾을 수 없습니다.');
   const claimed = db
     .update(s.proposals)
-    .set(accept ? { status: 'running' } : { status: 'rejected', decidedAt: new Date() })
+    .set(accept ? { status: 'running', decidedBy: by } : { status: 'rejected', decidedAt: new Date(), decidedBy: by })
     .where(and(eq(s.proposals.id, id), eq(s.proposals.status, 'pending')))
     .returning()
     .get();

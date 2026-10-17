@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { UI_MESSAGE_STREAM_HEADERS, type UIMessage } from 'ai';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { modelChoiceSchema, type ModelChoice } from '@tw/shared';
+import { modelChoiceSchema, PERMISSION_MODES, type ModelChoice } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
@@ -45,6 +45,7 @@ export const chatRoutes = new Hono<Env>()
           connectionId: s.chatSessions.connectionId,
           model: s.chatSessions.model,
           effort: s.chatSessions.effort,
+          permissionMode: s.chatSessions.permissionMode,
           updatedAt: s.chatSessions.updatedAt,
           calls: sql<number>`count(${s.aiCalls.id})`,
           tokens: sql<number>`coalesce(sum(${s.aiCalls.inputTokens}), 0) + coalesce(sum(${s.aiCalls.outputTokens}), 0)`,
@@ -63,7 +64,9 @@ export const chatRoutes = new Hono<Env>()
     // A new conversation talks to the AI the latest one picked, unless told otherwise.
     const latest = db.select({ connectionId: s.chatSessions.connectionId, model: s.chatSessions.model, effort: s.chatSessions.effort }).from(s.chatSessions).where(and(eq(s.chatSessions.projectId, projectId), sql`${s.chatSessions.model} is not null`)).orderBy(desc(s.chatSessions.updatedAt)).get();
     const choice = c.req.valid('json').model ?? latest;
-    const row = db.insert(s.chatSessions).values({ projectId, title: '새 대화', ...choiceColumns(choice) }).returning().get();
+    // …and starts in the project's default permission mode (#45).
+    const permissionMode = db.select({ settings: s.projects.agentSettings }).from(s.projects).where(eq(s.projects.id, projectId)).get()?.settings.defaultPermissionMode ?? 'ask';
+    const row = db.insert(s.chatSessions).values({ projectId, title: '새 대화', ...choiceColumns(choice), permissionMode }).returning().get();
     events.changed(projectId, 'chat');
     return c.json(row, 201);
   })
@@ -75,10 +78,11 @@ export const chatRoutes = new Hono<Env>()
     const call = db.select({ label: s.aiCalls.label, status: s.aiCalls.status, error: s.aiCalls.error, startedAt: s.aiCalls.startedAt }).from(s.aiCalls).where(eq(s.aiCalls.refId, sessionId)).orderBy(desc(s.aiCalls.startedAt)).get() ?? null;
     return c.json({ ...session, turn: { startedAt: turnStartedAt(sessionId), call } });
   })
-  .patch('/chat/:sessionId', validate('json', z.object({ title: z.string().trim().min(1).optional(), model: modelChoiceSchema.optional() })), (c) => {
+  .patch('/chat/:sessionId', validate('json', z.object({ title: z.string().trim().min(1).optional(), model: modelChoiceSchema.optional(), permissionMode: z.enum(PERMISSION_MODES).optional() })), (c) => {
     const { db } = c.var.deps;
-    const { title, model } = c.req.valid('json');
-    const row = found(db.update(s.chatSessions).set({ title, ...(model && choiceColumns(model)) }).where(eq(s.chatSessions.id, c.req.param('sessionId'))).returning().get(), '대화');
+    const { title, model, permissionMode } = c.req.valid('json');
+    // A mode switch applies from the agent's next change, even mid-turn (change-gate reads it then).
+    const row = found(db.update(s.chatSessions).set({ title, permissionMode, ...(model && choiceColumns(model)) }).where(eq(s.chatSessions.id, c.req.param('sessionId'))).returning().get(), '대화');
     // A pi session is bound to its model: the next turn opens a new one.
     if (model) closePiChat(row.id);
     events.changed(row.projectId, 'chat');

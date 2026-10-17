@@ -8,9 +8,9 @@ import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { agentCatalog, jsonSchemaOf, type CatalogTool } from './agent-catalog.ts';
-import { prepareProposal, refusalText, reportText } from './proposal-check.ts';
+import { refusalText } from './proposal-check.ts';
+import { proposeChange } from './change-gate.ts';
 import { fitText } from './tool-output.ts';
-import { propose, proposedText } from './proposals.ts';
 import { catchUp, CONTEXT_BUDGET, handover, textOf, type AnsweredBy } from './chat-context.ts';
 
 /**
@@ -35,7 +35,6 @@ export function toolProtocol(tools: CatalogTool[]) {
     '도구가 필요하면 답의 맨 끝에 다음 블록 하나를 쓰고 멈추세요. 블록 안은 JSON 배열이며 한 번에 여러 도구를 부를 수 있습니다:',
     '```loca-tools\n[{"tool": "find_lines", "input": {"speakers": ["Alice"], "limit": 20}}]\n```',
     '그러면 다음 메시지로 "작업실 도구 결과"가 옵니다. 결과를 보고 이어서 답하거나 다시 도구를 부르세요. 도구가 필요 없으면 블록 없이 답만 씁니다.',
-    '변경 도구(save_*, propose_*, start_run 등)는 바로 실행되지 않고 사용자가 채팅 패널에서 수락해야 반영되는 제안으로 올라갑니다. 제안이 모두 결정되면 결과가 바로 와서 이어서 진행합니다. 제안한 뒤에는 무엇을 왜 제안했는지 짧게 설명하고 이번 답을 마치세요.',
     '',
     list,
   ].join('\n');
@@ -133,16 +132,15 @@ export async function cliChatResponse(input: {
             if (!tool) throw new Error(`알 수 없는 도구입니다: ${call.tool}`);
             let output: unknown;
             if (tool.changes) {
-              const prepared = await prepareProposal(db, chat.projectId, tool.name, tool.schema.parse(call.input) as Record<string, unknown>);
-              if (!prepared.ok) {
+              const gate = await proposeChange(db, { projectId: chat.projectId, sessionId: chat.id, source: 'cli', tool: tool.name, input: tool.schema.parse(call.input) as Record<string, unknown> });
+              if (!gate.ok) {
                 // The panel shows the plain reason; the agent also gets the ids to fix it with.
-                writer.write({ type: 'tool-output-error', toolCallId, errorText: `제안하지 못했습니다: ${prepared.error}` });
-                results.push(`${call.tool}: 제안을 만들지 않았습니다 — ${refusalText(prepared)}`);
+                writer.write({ type: 'tool-output-error', toolCallId, errorText: `제안하지 못했습니다: ${gate.error}` });
+                results.push(`${call.tool}: 제안을 만들지 않았습니다 — ${refusalText(gate)}`);
                 continue;
               }
-              const proposal = propose(db, { projectId: chat.projectId, sessionId: chat.id, source: 'cli', tool: tool.name, input: prepared.input, report: prepared.report });
-              output = { proposalId: proposal.id };
-              results.push(`${call.tool}: ${proposedText(proposal.id)}${reportText(prepared.report)}`);
+              output = { proposalId: gate.proposalId, applied: gate.applied };
+              results.push(`${call.tool}: ${gate.text}`);
             } else {
               output = await tool.run(call.input);
               results.push(`${call.tool}: ${fitText(output, RESULT_LIMIT)}`);

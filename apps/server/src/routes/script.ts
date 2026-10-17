@@ -4,9 +4,10 @@ import { z } from 'zod';
 import { batchChangeSchema, lineFilterSchema } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
+import { proposeChange } from '../services/change-gate.ts';
 import { agentCatalog, jsonSchemaOf } from '../services/agent-catalog.ts';
 import { previewContext } from '../services/context-preview.ts';
-import { checkBatch, prepareProposal, reportText } from '../services/proposal-check.ts';
+import { checkBatch, refusalText, reportText } from '../services/proposal-check.ts';
 import { fitResult } from '../services/tool-output.ts';
 import { propose, proposedText } from '../services/proposals.ts';
 import { checkScript, exportLines, findLines, firstAppearance, lineContext, runStats, sceneStats, scenesWith } from '../services/script-query.ts';
@@ -88,10 +89,10 @@ export const scriptRoutes = new Hono<Env>()
     const parsed = tool.schema.safeParse(input);
     if (!parsed.success) badRequest(`입력이 맞지 않습니다: ${parsed.error.issues.map((issue) => `${issue.path.join('.')} ${issue.message}`).join('; ')}`);
     if (tool.changes) {
-      const prepared = await prepareProposal(db, projectId, tool.name, parsed.data as Record<string, unknown>);
-      if (!prepared.ok) badRequest(prepared.error);
-      const proposal = propose(db, { projectId, sessionId: null, source: 'cli', tool: tool.name, input: prepared.input, report: prepared.report });
-      return c.json({ proposed: true, proposalId: proposal.id, message: proposedText(proposal.id) + reportText(prepared.report), report: prepared.report });
+      // A change from the terminal has no conversation, so it always waits for a card (permission mode 'ask').
+      const gate = await proposeChange(db, { projectId, sessionId: null, source: 'cli', tool: tool.name, input: parsed.data as Record<string, unknown> });
+      if (!gate.ok) badRequest(refusalText(gate));
+      return c.json({ proposed: true, proposalId: gate.proposalId, message: gate.text, report: gate.report });
     }
     return c.json({ proposed: false, result: fitResult(await tool.run(parsed.data)) });
   })

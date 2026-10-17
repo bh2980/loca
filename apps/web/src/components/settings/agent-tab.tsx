@@ -2,7 +2,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams } from '@tanstack/react-router';
 import { ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
-import { AGENT_TOOL_ACTIONS, AGENT_TOOL_TARGETS, AGENT_TOOLS, type AgentToolAction, type AgentToolTarget } from '@tw/shared';
+import { AGENT_TOOL_ACTIONS, AGENT_TOOL_TARGETS, AGENT_TOOLS, type AgentToolAction, type AgentToolTarget, type PermissionMode } from '@tw/shared';
+import { PermissionModePicker } from '@/components/chat/permission-mode';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Switch } from '@/components/ui/switch';
@@ -18,7 +19,7 @@ const toolsIn = (target: AgentToolTarget, action?: AgentToolAction) => Object.ke
  * Which tools the project's AI agent gets, as a grid: what a tool acts on (rows) by how far it goes
  * (read / propose a change / run). One switch per cell, so a whole column ("nothing runs") or a whole
  * target (everything about workflows) is one look; a row opens to its single tools. A tool switched
- * off is invisible to the AI; changes never apply without a card.
+ * off is invisible to the AI; whether a change asks first is the conversation's permission mode.
  */
 export function AgentTab() {
   const { projectId } = useParams({ from: '/p/$projectId/ai/usage' });
@@ -26,11 +27,13 @@ export function AgentTab() {
   const project = useQuery(q.project(projectId));
   const loaded = !!project.data;
   const disabled = new Set(project.data?.agentSettings.disabledTools ?? []);
+  const defaultMode: PermissionMode = project.data?.agentSettings.defaultPermissionMode ?? 'ask';
+  // The whole settings object goes each time: a field left out would fall back to its default.
   const save = useMutation({
-    mutationFn: (next: Set<string>) => unwrap(client.projects[':projectId'].$patch({ param: { projectId }, json: { agentSettings: { disabledTools: [...next] } } })),
+    mutationFn: (next: { disabledTools: string[]; defaultPermissionMode: PermissionMode }) => unwrap(client.projects[':projectId'].$patch({ param: { projectId }, json: { agentSettings: next } })),
     // Switches flip at once; the projects change event brings the saved settings.
     onMutate: async (next) => ({
-      undo: await optimistic(queryClient, [{ key: ['units', 'project', projectId], update: (data: { agentSettings: object }) => ({ ...data, agentSettings: { ...data.agentSettings, disabledTools: [...next] } }) }]),
+      undo: await optimistic(queryClient, [{ key: ['units', 'project', projectId], update: (data: { agentSettings: object }) => ({ ...data, agentSettings: { ...data.agentSettings, ...next } }) }]),
     }),
     onError: (error, _next, context) => {
       context?.undo();
@@ -41,7 +44,7 @@ export function AgentTab() {
     const next = new Set(disabled);
     for (const name of names) if (on) next.delete(name);
     else next.add(name);
-    save.mutate(next);
+    save.mutate({ disabledTools: [...next], defaultPermissionMode: defaultMode });
   };
 
   return (
@@ -49,8 +52,15 @@ export function AgentTab() {
       <p className="text-xs text-muted-foreground">
         채팅 패널의 AI와 터미널의 <code>loca tools</code>·<code>loca call</code>이 같은 도구를 씁니다. 끈 도구는 AI에게 보이지 않습니다. 터미널의 읽기 명령(lines, stats, context, export …)과 워크플로에는 영향이 없습니다.
       </p>
+      <div className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2">
+        <div className="min-w-0">
+          <p className="text-sm font-medium">새 대화의 권한 모드</p>
+          <p className="text-xs text-muted-foreground">대화마다 입력창 아래에서 바꿀 수 있습니다. 어느 모드든 변경은 제안 기록으로 남습니다.</p>
+        </div>
+        <PermissionModePicker className="w-40 shrink-0" value={defaultMode} onChange={(mode) => save.mutate({ disabledTools: [...disabled], defaultPermissionMode: mode })} />
+      </div>
       <div className="rounded-lg border">
-        <div className="grid grid-cols-[minmax(0,1fr)_repeat(3,5.5rem)] items-center gap-2 border-b px-2 py-1.5 text-xs text-muted-foreground">
+        <div className="grid grid-cols-[minmax(0,1fr)_repeat(4,5.5rem)] items-center gap-2 border-b px-2 py-1.5 text-xs text-muted-foreground">
           <span className="pl-7">대상</span>
           {ACTIONS.map((action) => (
             <span key={action} className="text-center" title={AGENT_TOOL_ACTIONS[action].description}>
@@ -62,7 +72,7 @@ export function AgentTab() {
           {TARGETS.map((target) => (
             <li key={target}>
               <Collapsible className="group/tools">
-                <div className="grid grid-cols-[minmax(0,1fr)_repeat(3,5.5rem)] items-center gap-2 px-2 py-1">
+                <div className="grid grid-cols-[minmax(0,1fr)_repeat(4,5.5rem)] items-center gap-2 px-2 py-1">
                   <CollapsibleTrigger asChild>
                     <Button variant="ghost" size="row" className="min-w-0" aria-label={`${AGENT_TOOL_TARGETS[target]} 도구 보기`}>
                       <ChevronRight className="text-muted-foreground transition-transform group-data-[state=open]/tools:rotate-90" />
@@ -85,7 +95,7 @@ export function AgentTab() {
                   {/* The same rows on a darker ground: each tool's switch sits in its own column, under the cell that switches them together. */}
                   <ul className="divide-y border-t bg-muted/60">
                     {toolsIn(target).map((name) => (
-                      <li key={name} className="grid grid-cols-[minmax(0,1fr)_repeat(3,5.5rem)] items-center gap-2 px-2 py-1">
+                      <li key={name} className="grid grid-cols-[minmax(0,1fr)_repeat(4,5.5rem)] items-center gap-2 px-2 py-1">
                         <span className="flex h-8 min-w-0 items-center pl-9 text-sm" title={name}>
                           <span className="truncate">{AGENT_TOOLS[name]!.label}</span>
                         </span>
