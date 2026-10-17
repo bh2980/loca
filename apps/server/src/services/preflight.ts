@@ -9,6 +9,7 @@ import { planRun, sceneLinks, selectRunUnits } from '../engine/runner.ts';
 import { buildContext } from './context.ts';
 import { choiceLabel } from './routes.ts';
 import { speechRuleIndex } from './speech.ts';
+import { analysisRequest } from './analysis.ts';
 
 /** Prompts built per node to estimate request size; more would only slow the preview down. */
 const SAMPLE = 8;
@@ -270,6 +271,11 @@ function samplePrompt(db: Db, projectId: string, node: AiNode, languages: { sour
   const step = Math.max(1, Math.floor(requests.length / SAMPLE));
   const picked = requests.filter((_, index) => index % step === 0).slice(0, SAMPLE);
   const sizes = picked.map((request) => {
+    // A work analysis sends the script text and the chosen sections' rules, not the translation context.
+    if (node.config.output === 'analysis') {
+      const { system, prompt } = analysisRequest(db, projectId, request.map((line) => line.id), node.config.sections, node.config.instructions ?? '');
+      return estimateTokens(`${system}\n\n${prompt}`);
+    }
     const rows = db.select().from(s.units).where(inArray(s.units.id, request.map((line) => line.id))).all().sort((a, b) => a.seq - b.seq);
     const context = buildContext(db, projectId, rows, node.config.context);
     const lines = rows.map((row, index) => ({ id: String(index + 1), unitId: row.id, groupId: row.groupId, key: row.key, kind: row.kind, speaker: row.speaker, source: row.source, candidate: row.translation ?? undefined }));

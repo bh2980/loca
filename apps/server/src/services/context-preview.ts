@@ -17,7 +17,7 @@ export function previewContext(db: Db, projectId: string, unitKey: string, pick:
   const workflows = db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).orderBy(asc(s.workflows.name)).all();
   const choices = workflows.flatMap((workflow) =>
     workflow.definition.nodes
-      .filter((node): node is AiNode => node.type === 'ai')
+      .filter((node): node is AiNode => node.type === 'ai' && node.config.output !== 'analysis') // an analysis reads the script, not this context
       .map((node) => ({ workflowId: workflow.id, workflowName: workflow.name, nodeId: node.id, nodeName: nodeName(node), output: node.config.output, node })),
   );
   const picked = choices.find((choice) => (!pick.workflowId || choice.workflowId === pick.workflowId) && choice.nodeId === pick.nodeId) ?? choices.find((choice) => choice.output === 'candidate') ?? choices[0];
