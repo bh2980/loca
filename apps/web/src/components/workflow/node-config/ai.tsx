@@ -1,14 +1,8 @@
 /** Config of an AI node: model, prompt, context and outputs. */
 import { Plus, Trash2, X } from 'lucide-react';
 import { AI_OUTPUTS, ANALYSIS_SECTION_LABELS, ANALYSIS_SECTIONS, analysisSectionsOf, CONNECTION_KIND_INFO, contextConfigSchema, type AiOutput, type BatchConfig, type Capability, type JsonField, type WorkflowNode } from '@tw/shared';
-import { Button } from '@/components/ui/button';
-import { ControlIdContext } from '@loca/ui';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Input } from '@/components/ui/input';
+import { Button, Checkbox, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Separator, Textarea, ControlIdContext } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Separator } from '@/components/ui/separator';
-import { Textarea } from '@/components/ui/textarea';
 import { Link } from '@tanstack/react-router';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
 import { Field, CountRow, ToggleRow, type AiNode, type NodeRefs } from '@/components/workflow/node-config/shared';

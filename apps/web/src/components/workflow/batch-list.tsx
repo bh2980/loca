@@ -1,7 +1,6 @@
 import type { InferResponseType } from 'hono/client';
 import { ChevronRight } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Button, Collapsible, CollapsibleContent, CollapsibleTrigger } from '@loca/ui';
 import type { client } from '@/lib/api';
 
 type List = InferResponseType<(typeof client.runs)[':id']['plan']['$get'], 200>;

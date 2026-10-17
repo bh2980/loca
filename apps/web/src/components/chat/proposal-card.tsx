@@ -2,9 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Check, Wrench, X } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Spinner } from '@/components/ui/spinner';
+import { Button, Input, Spinner } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { ChangePreview, LABEL } from './change-preview';
 

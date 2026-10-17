@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { listenerLabel, personLabel, SPEECH_LEVEL_LABELS, styleNames } from '@tw/shared';
-import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '@loca/ui';
 import { q } from '@/lib/queries';
 
 /**

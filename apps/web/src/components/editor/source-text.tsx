@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
 import { splitTokens, useLineContext, type SourcePart } from '@/lib/line-context';
 import { chipHue, chipLabel, type TokenUnit } from '@/lib/tokens';
 import { cn } from '@/lib/utils';

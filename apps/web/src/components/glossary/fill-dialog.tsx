@@ -4,8 +4,7 @@ import { useMutation } from '@tanstack/react-query';
 import { Play, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { ModelPicker, useInitialModel, type ModelValue } from '@/components/model-picker';
-import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 
 /** Confirm a batched AI fill of the empty translations: the expected number of requests, and the AI to use. */

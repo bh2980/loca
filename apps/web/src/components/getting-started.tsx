@@ -4,7 +4,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Check, CircleStop, Play, X } from 'lucide-react';
 import { hasAnalysis, StartAnalysis } from '@/components/knowledge/analysis-controls';
 import { RunDialog } from '@/components/workflow/run-dialog';
-import { Button } from '@/components/ui/button';
+import { Button } from '@loca/ui';
 import { HeaderActions } from '@/components/page';
 import { AnalysisSteps } from '@/components/job-progress';
 import { client, unwrap } from '@/lib/api';

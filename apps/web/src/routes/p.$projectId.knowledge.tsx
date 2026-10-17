@@ -15,13 +15,9 @@ import { BulkDecide, fail, KINDS, KnowledgeFilters, knowledgeFilterChips, KNOWLE
 import { SplitPane } from '@/components/split-pane';
 import { FilterChips, Toolbar } from '@/components/toolbar';
 import { pairKey, buildPairs, PairDetail, pairItems, pairMatches, pairSummary, PairTable, type Pair, type SpeechRuleCreate } from '@/components/knowledge/pairs';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Skeleton } from '@/components/ui/skeleton';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { Badge, Button, Skeleton, ToggleGroup, ToggleGroupItem, Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
 import { EventFlow } from '@/components/knowledge/event-flow';
 import { splitList } from '@/components/chip-input';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { client, unwrap } from '@/lib/api';
 import { DOCUMENT_KIND } from '@/lib/labels';
 import { q, tagsIn, useReviewTagId } from '@/lib/queries';

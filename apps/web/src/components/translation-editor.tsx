@@ -7,7 +7,7 @@ import { checkFormat, listenerLabel, SPEECH_LEVEL_LABELS, speechLevelOf, type Fo
 import { TokenChip, TokenText } from '@/components/editor/source-text';
 import { focusEndOfLine, insertUnitIntoLine, proposeInLine, replaceLineText, TranslationInput } from '@/components/editor/translation-input';
 import { AiMark, StatusDot } from '@/components/status';
-import { Button } from '@/components/ui/button';
+import { Button } from '@loca/ui';
 import { apiFetch } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
 import { wordDiff } from '@/lib/diff';

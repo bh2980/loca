@@ -2,8 +2,7 @@
 import { AUTO_MARKS, type AutoMark } from '@tw/shared';
 import { DetailPane, PaneSection } from '@/components/detail-pane';
 import { chipStyle } from '@/components/status';
-import { Button } from '@/components/ui/button';
-import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
+import { Button, Field, FieldDescription, FieldGroup, FieldLabel } from '@loca/ui';
 import { scopeLabel } from '@/components/settings/status-types';
 import { Swatches } from '@/components/settings/swatches';
 import { useFormFrom } from '@/lib/use-form-from';

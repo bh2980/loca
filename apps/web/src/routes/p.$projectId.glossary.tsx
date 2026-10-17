@@ -14,7 +14,7 @@ import { Page } from '@/components/page';
 import { SplitPane } from '@/components/split-pane';
 import { JobProgress } from '@/components/job-progress';
 import { FilterChips, SearchInput, Toolbar, type FilterChip } from '@/components/toolbar';
-import { Button } from '@/components/ui/button';
+import { Button } from '@loca/ui';
 import { BulkDecide, matches, SourceBadge, TagCell } from '@/components/knowledge/table';
 import { AUTO_MARKS, type AutoMark, isSettled, matchesMarks, parseMarks, TERM_MARK_IDS, termMarksOf, KNOWLEDGE_SOURCES, SOURCE_LABELS, type KnowledgeSource } from '@tw/shared';
 import { client, unwrap } from '@/lib/api';

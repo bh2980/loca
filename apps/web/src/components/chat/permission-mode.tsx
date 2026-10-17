@@ -1,6 +1,6 @@
 import { ShieldCheck, ShieldOff, ShieldQuestion } from 'lucide-react';
 import { PERMISSION_MODE_INFO, PERMISSION_MODES, type PermissionMode } from '@tw/shared';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@loca/ui';
 import { cn } from '@/lib/utils';
 
 const ICON = { ask: ShieldQuestion, auto: ShieldCheck, bypass: ShieldOff } as const;

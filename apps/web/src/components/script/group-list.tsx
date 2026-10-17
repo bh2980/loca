@@ -3,8 +3,7 @@ import type { LineMark } from '@tw/shared';
 import { Link } from '@tanstack/react-router';
 import { AppWindow, Check, ChevronRight, FileText, Inbox, MessageSquareText, Rows3 } from 'lucide-react';
 import { SearchInput } from '@/components/toolbar';
-import { Button } from '@/components/ui/button';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Button, Collapsible, CollapsibleContent, CollapsibleTrigger } from '@loca/ui';
 import { GROUP_KIND, SCRIPT_VIEW } from '@/lib/labels';
 import { cn } from '@/lib/utils';
 

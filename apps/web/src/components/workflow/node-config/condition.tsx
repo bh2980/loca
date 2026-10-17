@@ -3,11 +3,8 @@ import { useEffect, useState } from 'react';
 import { AUTO_MARKS, type AutoMark, CONDITION_MARK_IDS } from '@tw/shared';
 import { nodeName, type WorkflowNode } from '@tw/shared';
 import { MarkChip } from '@/components/status';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
 import { Field, type ConditionNode } from '@/components/workflow/node-config/shared';
 
 // ── condition node ────────────────────────────────────────────────────

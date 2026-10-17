@@ -1,4 +1,4 @@
-import { Button } from '@/components/ui/button';
+import { Button } from '@loca/ui';
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type Ref } from 'react';
 import { Map as MapIcon, Minimize2 } from 'lucide-react';
 import { select } from 'd3-selection';

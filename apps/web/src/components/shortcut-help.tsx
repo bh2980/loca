@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Keyboard } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Kbd } from '@/components/ui/kbd';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Button, Kbd, Popover, PopoverContent, PopoverTrigger } from '@loca/ui';
 import { keyLabel } from '@/lib/keys';
 
 /** Every shortcut of the app, by where it works. Keys are written once and shown for the user's platform. */

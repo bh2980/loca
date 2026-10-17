@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Background, Controls, Handle, MarkerType, Panel, Position, ReactFlow, type Edge, type Node, type NodeChange, type NodeProps } from '@xyflow/react';
 import ELK, { type ElkNode } from 'elkjs/lib/elk.bundled.js';
 import '@xyflow/react/dist/style.css';
-import { Button } from '@/components/ui/button';
+import { Button } from '@loca/ui';
 import { cn } from '@/lib/utils';
 import { EmptyState } from '@/components/empty-state';
 

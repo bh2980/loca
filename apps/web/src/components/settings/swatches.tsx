@@ -1,8 +1,7 @@
 /** The color palette (and a free picker) used by status, tag and mark panes. */
 import { STATUS_COLORS } from '@tw/shared';
 import { StatusDot } from '@/components/status';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Button, Input } from '@loca/ui';
 import { cn } from '@/lib/utils';
 
 export function Swatches({ value, onChange }: { value: string; onChange: (color: string) => void }) {
