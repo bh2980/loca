@@ -1,10 +1,10 @@
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { execa, ExecaError } from 'execa';
 import type { ConnectionKind } from '@tw/shared';
-import { cliCommand, cliMissing, execaCli, idleMessage, idleTimeout, opencodeUsage, watchIdle } from './cli.ts';
+import { cliCommand, cliMissing, codexIsolationArgs, execaCli, idleMessage, idleTimeout, opencodeUsage, watchIdle } from './cli.ts';
 import { ModelError } from './errors.ts';
 import { readUsage, type ResolvedRoute, type Usage } from './types.ts';
 
@@ -70,10 +70,10 @@ const usageOf = (raw: unknown, cost?: unknown): Usage => readUsage(raw, cost);
 const QUOTA = /quota|RESOURCE_EXHAUSTED|rate.?limit|usage limit|too many requests|\b429\b/i;
 const failure = (detail: string) => (QUOTA.test(detail) ? new ModelError('rate-limit', `CLI 사용량 한도에 도달했습니다. ${detail}`) : new ModelError('cli', `CLI가 실패를 반환했습니다: ${detail}`, false));
 
-/** First turn: the instructions travel with the message for CLIs that keep them in the session. */
+/** First turn: CLIs without a system-prompt option get instructions in the message; Codex uses a file. */
 const firstMessage = (turn: CliChatTurn) => (turn.sessionId ? turn.prompt : `${turn.system}\n\n---\n\n${turn.prompt}`);
 
-function command(kind: ChatCliKind, route: ResolvedRoute, turn: CliChatTurn, newId: string): { args: string[]; input?: string } {
+export function cliChatCommand(kind: ChatCliKind, route: ResolvedRoute, turn: CliChatTurn, newId: string, instructionsFile: string): { args: string[]; input?: string } {
   const effort = route.effort;
   switch (kind) {
     case 'claude':
@@ -100,13 +100,13 @@ function command(kind: ChatCliKind, route: ResolvedRoute, turn: CliChatTurn, new
       return {
         args: [
           'exec', ...(turn.sessionId ? ['resume', turn.sessionId] : []),
-          '--model', route.model, '--skip-git-repo-check', '--json',
-          ...(turn.sessionId ? [] : ['--sandbox', 'read-only', '--color', 'never']),
-          '-c', 'approval_policy="never"', '-c', 'web_search="disabled"', '-c', 'features.shell_tool=false', '-c', 'features.multi_agent=false',
+          '--model', route.model, '--skip-git-repo-check', '--json', '--ignore-user-config',
+          ...(turn.sessionId ? ['-c', 'sandbox_mode="read-only"'] : ['--sandbox', 'read-only', '--color', 'never']),
+          ...codexIsolationArgs(instructionsFile),
           ...(effort ? ['-c', `model_reasoning_effort=${JSON.stringify(effort)}`] : []),
           '-',
         ],
-        input: firstMessage(turn),
+        input: turn.prompt,
       };
     case 'antigravity':
       return {
@@ -167,12 +167,14 @@ export async function cliChat(route: ResolvedRoute, turn: CliChatTurn): Promise<
   const kind = route.kind as ChatCliKind;
   if (!CHAT_CLI_KINDS.includes(kind)) throw new ModelError('config', `${route.kind} 연결은 CLI 채팅을 지원하지 않습니다.`, false);
   const newId = randomUUID();
-  const { args, input } = command(kind, route, turn, newId);
   const cwd = await mkdtemp(path.join(tmpdir(), 'loca-chat-'));
   const idleMs = idleTimeout(kind, turn.timeoutMs);
   const idle = new AbortController();
   let watchdog: ReturnType<typeof watchIdle> | undefined;
   try {
+    const instructionsFile = path.join(cwd, 'instructions.md');
+    if (kind === 'codex') await writeFile(instructionsFile, turn.system);
+    const { args, input } = cliChatCommand(kind, route, turn, newId, instructionsFile);
     const subprocess = execaCli(cliCommand(kind, route.executable), args, { cwd, input, timeout: turn.timeoutMs, cancelSignal: turn.signal ? AbortSignal.any([turn.signal, idle.signal]) : idle.signal, reject: false, stripFinalNewline: false });
     watchdog = watchIdle([subprocess.stdout, subprocess.stderr], idleMs, () => idle.abort());
     const result = await subprocess;
@@ -190,5 +192,6 @@ export async function cliChat(route: ResolvedRoute, turn: CliChatTurn): Promise<
     throw failure(error instanceof Error ? error.message : String(error));
   } finally {
     watchdog?.stop();
+    await rm(cwd, { recursive: true, force: true });
   }
 }
