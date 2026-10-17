@@ -31,6 +31,3 @@ export function useSaveLine() {
     onError: (_error, _input, context) => context?.undo?.(),
   });
 }
-
-/** The same save outside a component (same-source apply goes through many lines one by one). */
-export const saveLineNow = ({ unitId, candidateText: _shown, ...json }: LineSaveInput) => unwrap(client.units[':unitId'].save.$post({ param: { unitId }, json }));

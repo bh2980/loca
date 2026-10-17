@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { isSpecialListener, type NodeType } from '@tw/shared';
 import { attachUnitTags } from '../services/tag-scope.ts';
 import { assertProjectRefs } from '../services/project-refs.ts';
-import { LineConflict, saveLine, saveStatuses } from '../services/line-save.ts';
+import { LineConflict, saveLine, saveSameText, saveStatuses } from '../services/line-save.ts';
 import { refusesListener, setHumanListener } from '../services/listeners.ts';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
@@ -333,6 +333,25 @@ export const sourceRoutes = new Hono<Env>()
       .limit(200)
       .all();
     return c.json(rows.map(({ kind, ...row }) => ({ ...row, final: kind === 'final' })));
+  })
+  /**
+   * One translation for other lines with the same source, in one request and one transaction (the
+   * editor's '모두 이 번역으로'). Only lines that really share the source in the same project are
+   * written; one changed since it was shown is skipped and counted.
+   */
+  .post('/units/:unitId/same-source', validate('json', z.object({ text: z.string().trim().min(1), lines: z.array(z.object({ unitId: z.string(), base: z.string().nullable() })).min(1).max(200) })), (c) => {
+    const { db } = c.var.deps;
+    const unit = found(db.select({ id: s.units.id, projectId: s.units.projectId, source: s.units.source }).from(s.units).where(eq(s.units.id, c.req.param('unitId'))).get(), '대사');
+    const { text, lines } = c.req.valid('json');
+    const bases = new Map(lines.map((line) => [line.unitId, line.base]));
+    const rows = db
+      .select()
+      .from(s.units)
+      .where(and(eq(s.units.projectId, unit.projectId), ne(s.units.id, unit.id), inArray(s.units.id, [...bases.keys()]), sql`${sameSource(sql`${s.units.source}`)} = ${sameSource(sql`${unit.source}`)}`))
+      .all();
+    const result = db.transaction((tx) => saveSameText(tx, rows.map((row) => ({ unit: row, base: bases.get(row.id) ?? null })), text));
+    events.changed(unit.projectId, 'units', 'statuses');
+    return c.json({ ok: true, ...result, skipped: result.skipped + (lines.length - rows.length) });
   })
   /** Already translated lines of the project with the same or a similar source (the editor's suggestions). */
   .get('/units/:unitId/matches', (c) => {
