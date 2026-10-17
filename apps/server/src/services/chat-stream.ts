@@ -63,9 +63,9 @@ export type CatalogToolResult =
  * A catalog tool called by pi or a CLI agent: reads run at once, changes become proposals for this
  * chat (change-gate). A read that throws throws; each backend reports it its own way.
  */
-export async function runCatalogTool(db: Db, chat: { id: string; projectId: string }, source: 'pi' | 'cli', tool: CatalogTool, input: Record<string, unknown>, resultLimit?: number): Promise<CatalogToolResult> {
+export async function runCatalogTool(db: Db, chat: { id: string; projectId: string; model?: string | null }, source: 'pi' | 'cli', tool: CatalogTool, input: Record<string, unknown>, resultLimit?: number): Promise<CatalogToolResult> {
   if (tool.changes) {
-    const gate = await proposeChange(db, { projectId: chat.projectId, sessionId: chat.id, source, tool: tool.name, input });
+    const gate = await proposeChange(db, { projectId: chat.projectId, sessionId: chat.id, model: chat.model, source, tool: tool.name, input });
     if (!gate.ok) return { ok: false, error: `제안하지 못했습니다: ${gate.error}`, reason: refusalText(gate) };
     return { ok: true, output: { proposalId: gate.proposalId, applied: gate.applied }, text: gate.text };
   }

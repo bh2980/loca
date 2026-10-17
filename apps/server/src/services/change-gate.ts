@@ -60,13 +60,13 @@ export type GateResult =
   | { ok: false; error: string; hint?: string }
   | { ok: true; proposalId: string; applied: boolean; status: s.ProposalStatus; result?: unknown; review?: string; text: string; report: s.ProposalReport | null };
 
-export async function proposeChange(db: Db, request: { projectId: string; sessionId: string | null; source: 'pi' | 'cli' | 'api'; tool: string; input: Record<string, unknown> }): Promise<GateResult> {
+export async function proposeChange(db: Db, request: { projectId: string; sessionId: string | null; model?: string | null; source: 'pi' | 'cli' | 'api'; tool: string; input: Record<string, unknown> }): Promise<GateResult> {
   const prepared = await prepareProposal(db, request.projectId, request.tool, request.input);
   if (!prepared.ok) return prepared;
   // Read now, not at turn start: switching to bypass while the agent works applies from its next change.
   const mode = permissionModeOf(db, request.sessionId);
   const review = mode === 'auto' ? autoReview(request.tool, prepared.input, prepared.report) : null;
-  const proposal = propose(db, { projectId: request.projectId, sessionId: request.sessionId, source: request.source, tool: request.tool, input: prepared.input, report: prepared.report, review: review?.reason ?? null });
+  const proposal = propose(db, { projectId: request.projectId, sessionId: request.sessionId, model: request.model, source: request.source, tool: request.tool, input: prepared.input, report: prepared.report, review: review?.reason ?? null });
   if (mode === 'bypass' || review?.pass) {
     const row = await decideProposal(db, proposal.id, true, mode === 'bypass' ? 'bypass' : 'auto');
     // The agent gets the result in this tool call; it is not told again on the next turn.
@@ -94,7 +94,7 @@ export function gatedTools(db: Db, projectId: string, sessionId: string, author:
         description: `${original.description ?? ''} (${CHANGE_NOTE})`,
         inputSchema: original.inputSchema as z.ZodType<Record<string, unknown>>,
         execute: async (input: Record<string, unknown>) => {
-          const gate = await proposeChange(db, { projectId, sessionId, source: 'api', tool: name, input });
+          const gate = await proposeChange(db, { projectId, sessionId, model: author.model, source: 'api', tool: name, input });
           if (!gate.ok) return { ok: false, error: `제안하지 못했습니다: ${gate.error}`, ...(gate.hint && { hint: gate.hint }) };
           return { proposalId: gate.proposalId, applied: gate.applied, status: gate.status, note: gate.text };
         },

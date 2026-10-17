@@ -5,7 +5,7 @@ import { events } from '../events.ts';
 import { agentCatalog } from './agent-catalog.ts';
 
 /** Stores a proposal; callers check it first with prepareProposal (proposal-check.ts). */
-export function propose(db: Db, input: { projectId: string; sessionId: string | null; source: 'pi' | 'cli' | 'api'; tool: string; input: Record<string, unknown>; report?: s.ProposalReport | null; review?: string | null }) {
+export function propose(db: Db, input: { projectId: string; sessionId: string | null; model?: string | null; source: 'pi' | 'cli' | 'api'; tool: string; input: Record<string, unknown>; report?: s.ProposalReport | null; review?: string | null }) {
   const row = db.insert(s.proposals).values(input).returning().get();
   events.changed(input.projectId, 'proposals');
   return row;
@@ -58,7 +58,7 @@ export async function decideProposal(db: Db, id: string, accept: boolean, by: 'p
   if (!accept) return claimed;
   let status: 'accepted' | 'failed' = 'accepted';
   let result: unknown = null;
-  const tool = agentCatalog(db, proposal.projectId).find((candidate) => candidate.name === proposal.tool && candidate.changes);
+  const tool = agentCatalog(db, proposal.projectId, { model: proposal.model ?? null }).find((candidate) => candidate.name === proposal.tool && candidate.changes);
   try {
     if (!tool) throw new Error(`알 수 없는 도구입니다: ${proposal.tool}`);
     result = await tool.run(proposal.input);

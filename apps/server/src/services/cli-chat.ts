@@ -125,7 +125,7 @@ export async function cliChatResponse(input: {
           try {
             if (!tool) throw new Error(`알 수 없는 도구입니다: ${call.tool}`);
             // A change's input is checked here, so a malformed one fails like a read would.
-            const result = await runCatalogTool(db, chat, 'cli', tool, tool.changes ? (tool.schema.parse(call.input) as Record<string, unknown>) : call.input, RESULT_LIMIT);
+            const result = await runCatalogTool(db, { ...chat, model: route.model }, 'cli', tool, tool.changes ? (tool.schema.parse(call.input) as Record<string, unknown>) : call.input, RESULT_LIMIT);
             if (!result.ok) {
               // The panel shows the plain reason; the agent also gets the ids to fix it with.
               writer.write({ type: 'tool-output-error', toolCallId, errorText: result.error });

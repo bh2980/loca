@@ -51,7 +51,7 @@ export async function piChatResponse(input: {
       description: tool.changes ? `${tool.description} (변경 도구: ${CHANGE_NOTE})` : tool.description,
       parameters: jsonSchemaOf(tool.schema),
       execute: async (args) => {
-        const result = await runCatalogTool(db, chat, 'pi', tool, args);
+        const result = await runCatalogTool(db, { ...chat, model: route.model }, 'pi', tool, args);
         if (!result.ok) return { text: `제안을 만들지 않았습니다: ${result.reason}`, details: { ok: false, error: result.error } };
         return { text: result.text, details: result.output };
       },

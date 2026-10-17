@@ -5,7 +5,7 @@ import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { AUTO_MAX_ITEMS, autoReview, gatedTools, proposeChange } from './change-gate.ts';
 import { importProject } from './importer.ts';
-import { hasUnreportedDecisions } from './proposals.ts';
+import { decideProposal, hasUnreportedDecisions } from './proposals.ts';
 
 function setup(mode: 'ask' | 'auto' | 'bypass') {
   const db = openDatabase(':memory:');
@@ -21,6 +21,23 @@ describe('change gate (#45)', () => {
     const gate = await proposeChange(db, { projectId, sessionId: chat.id, source: 'api', tool: 'save_character', input: { name: 'Bob' } });
     expect(gate).toMatchObject({ ok: true, applied: false, status: 'pending' });
     expect(characterNamed(db, 'Bob')).toBeUndefined();
+  });
+
+  it('accepted translation proposals retain their proposing model', async () => {
+    const { db, projectId, chat } = setup('ask');
+    const unit = db.select().from(s.units).get()!;
+    const proposed = await proposeChange(db, { projectId, sessionId: chat.id, source: 'api', model: 'gpt-test', tool: 'propose_translation', input: { unitId: unit.id, text: 'Hello', note: '' } });
+    expect(proposed).toMatchObject({ ok: true, status: 'pending' });
+    if (!proposed.ok) throw new Error(proposed.error);
+
+    await decideProposal(db, proposed.proposalId, true);
+    expect(db.select().from(s.candidates).where(eq(s.candidates.unitId, unit.id)).get()?.model).toBe('gpt-test');
+
+    const noModel = await proposeChange(db, { projectId, sessionId: chat.id, source: 'cli', tool: 'propose_translation', input: { unitId: unit.id, text: 'Hi there', note: '' } });
+    expect(noModel).toMatchObject({ ok: true, status: 'pending' });
+    if (!noModel.ok) throw new Error(noModel.error);
+    await decideProposal(db, noModel.proposalId, true);
+    expect(db.select().from(s.candidates).where(eq(s.candidates.text, 'Hi there')).get()?.model).toBeNull();
   });
 
   it('bypass: applies at once, records who decided, and does not tell the agent twice', async () => {

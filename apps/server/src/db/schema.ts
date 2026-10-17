@@ -646,6 +646,8 @@ export const proposals = sqliteTable(
     projectId: projectId(),
     /** Chat session that produced it; null for changes sent from the CLI. */
     sessionId: text('session_id'),
+    /** Model that proposed the change; null for person-originated proposals. */
+    model: text('model'),
     source: text('source', { enum: ['pi', 'cli', 'api'] }).notNull(),
     tool: text('tool').notNull(),
     input: json<Record<string, unknown>>('input').notNull(),
