@@ -470,7 +470,7 @@ describe('who set the status', () => {
   });
 
   it('protects a person\'s translation only in runs that pick lines by status', async () => {
-    const { filtersByStatus } = await import('./functions/index.ts');
+    const { filtersByStatus } = await import('@tw/shared');
     const entry = (statusIds: string[]) => ({ nodes: [{ id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: { statusIds } }], edges: [] }) as never;
     expect(filtersByStatus(entry(['untranslated']), {})).toBe(true);
     // '상태 무시' or a workflow without a status filter (말투만 고치기) is asked to rewrite the lines it names.

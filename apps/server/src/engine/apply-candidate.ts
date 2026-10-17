@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { applyIssueTags } from '../services/issue-tags.ts';
-import { filtersByStatus } from './functions/index.ts';
+import { filtersByStatus } from '@tw/shared';
 
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 type Run = typeof s.runs.$inferSelect;
@@ -16,10 +16,18 @@ type Run = typeof s.runs.$inferSelect;
  */
 export function applyRunCandidate(tx: Tx, run: Run, unitId: string, candidateId: string, text: string): { applied: boolean } {
   const current = tx.select({ translation: s.units.translation, statusBy: s.units.statusBy }).from(s.units).where(eq(s.units.id, unitId)).get();
-  const humanOwns = filtersByStatus(run.definition, run.scope) && current?.statusBy === 'human' && (current.translation ?? '').trim() !== '' && current.translation !== text;
-  if (humanOwns) return { applied: false };
+  if (personOwns(current, text, filtersByStatus(run.definition, run.scope))) return { applied: false };
   const changed = current?.translation !== text;
   tx.update(s.units).set({ translation: text, candidateId, statusBy: 'ai', statusRunId: run.id }).where(eq(s.units.id, unitId)).run();
   if (changed) applyIssueTags(tx, run.projectId, unitId, { clear: 'all' });
   return { applied: true };
+}
+
+/**
+ * The #51 rule in one place: a line whose translation a person saved (not empty, and not already the
+ * run's text) belongs to them while the run picks lines by status. Used when a node writes text
+ * (above) and when a set-status node would change the status (functions/index.ts).
+ */
+export function personOwns(current: { translation: string | null; statusBy: string | null } | undefined, text: string | undefined, filtered: boolean) {
+  return filtered && current?.statusBy === 'human' && (current.translation ?? '').trim() !== '' && current.translation !== text;
 }

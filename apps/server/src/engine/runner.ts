@@ -21,6 +21,7 @@ import { overheadOf } from '../services/preflight.ts';
 import type { ModelPort } from './model-port.ts';
 export type { ModelPort } from './model-port.ts';
 import { FILLING } from './run-create.ts';
+import { addCandidate } from '../services/candidates.ts';
 
 type Run = typeof s.runs.$inferSelect;
 type Item = typeof s.runItems.$inferSelect;
@@ -252,10 +253,7 @@ export class Runner {
     const data: ItemData = { ...item.data, outputs: { ...item.data.outputs } };
     if (outcome.output) data.outputs![item.nodeId] = outcome.output;
     if (outcome.candidate !== undefined) {
-      const candidateId = crypto.randomUUID();
-      tx.insert(s.candidates)
-        .values({ id: candidateId, unitId: item.unitId, text: outcome.candidate, origin, model: outcome.model, runId: run.id, nodeId: item.nodeId })
-        .run();
+      const candidateId = addCandidate(tx, { unitId: item.unitId, text: outcome.candidate, origin, model: outcome.model, runId: run.id, nodeId: item.nodeId });
       data.candidateId = candidateId;
       data.candidateText = outcome.candidate;
       data.issues = []; // a new candidate answers the previous issues
