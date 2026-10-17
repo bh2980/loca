@@ -25,7 +25,10 @@ export const CHANGE_NOTE = '대화의 권한 모드에 따라 바로 반영되�
 export const AUTO_MAX_ITEMS = 20;
 
 /** How many things a change touches, for the review. */
-function itemCount(input: Record<string, unknown>) {
+const KNOWLEDGE_KEYS = ['characters', 'relationships', 'speechRules', 'events', 'documents'];
+export function itemCount(input: Record<string, unknown>) {
+  const knowledge = KNOWLEDGE_KEYS.reduce((sum, key) => sum + (Array.isArray(input[key]) ? (input[key] as unknown[]).length : 0), 0);
+  if (knowledge) return knowledge;
   for (const key of ['changes', 'terms', 'ids', 'items']) {
     const value = input[key];
     if (Array.isArray(value)) return value.length;
