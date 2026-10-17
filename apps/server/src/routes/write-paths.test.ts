@@ -70,9 +70,9 @@ describe('writes stay inside the project', () => {
     const ownTag = mine.tag('own');
     const foreignCandidate = db.insert(s.candidates).values({ unitId: other.unit('a').id, text: 'x', origin: 'human' }).returning().get();
     const unitId = mine.unit('a').id;
-    expect((await send('PATCH', `/units/${unitId}`, { statusId: other.status.id })).status).toBe(400);
+    expect((await send('POST', `/units/${unitId}/save`, { statusId: other.status.id })).status).toBe(400);
     expect((await send('PATCH', `/units/${unitId}`, { tagIds: [foreignTag.id] })).status).toBe(400);
-    expect((await send('PATCH', `/units/${unitId}`, { candidateId: foreignCandidate.id })).status).toBe(400);
+    expect((await send('POST', `/units/${unitId}/save`, { candidateId: foreignCandidate.id })).status).toBe(400);
     expect((await send('PATCH', `/units/${unitId}`, { tagIds: [ownTag.id, ownTag.id] })).status).toBe(200);
     expect(tagsOf(unitId)).toEqual([ownTag.id]);
     // The list is replaced, not added to.
@@ -173,14 +173,65 @@ describe('a person\'s first text', () => {
     const line = mine.unit('a');
     expect(statusOf(line.id)).toBe('미번역');
     // Whitespace is not a translation: the line stays untranslated.
-    await send('PATCH', `/units/${line.id}`, { translation: '  ' });
+    await send('POST', `/units/${line.id}/save`, { text: '  ' });
     expect(statusOf(line.id)).toBe('미번역');
-    await send('PATCH', `/units/${line.id}`, { translation: '안녕' });
+    await send('POST', `/units/${line.id}/save`, { text: '안녕' });
     expect(statusOf(line.id)).toBe('초벌');
     const confirmed = db.select().from(s.statuses).where(and(eq(s.statuses.projectId, mine.projectId), eq(s.statuses.kind, 'final'))).get()!;
-    await send('PATCH', `/units/${line.id}`, { translation: '안녕하세요', statusId: confirmed.id });
+    await send('POST', `/units/${line.id}/save`, { text: '안녕하세요', statusId: confirmed.id });
     expect(statusOf(line.id)).toBe('확정');
-    await send('PATCH', `/units/${line.id}`, { translation: '안녕!' });
+    await send('POST', `/units/${line.id}/save`, { text: '안녕!' });
     expect(statusOf(line.id)).toBe('확정');
+  });
+});
+
+describe('one save for a line (text, candidate and status together)', () => {
+  const read = (db: ReturnType<typeof setup>['db'], unitId: string) => ({
+    line: db.select({ translation: s.units.translation, candidateId: s.units.candidateId }).from(s.units).where(eq(s.units.id, unitId)).get()!,
+    candidates: db.select({ id: s.candidates.id, text: s.candidates.text }).from(s.candidates).where(eq(s.candidates.unitId, unitId)).all(),
+    status: db.select({ name: s.statuses.name }).from(s.statuses).innerJoin(s.units, eq(s.units.statusId, s.statuses.id)).where(eq(s.units.id, unitId)).get()?.name,
+  });
+
+  it('the typed text is the line, its selected candidate and its status in one write', async () => {
+    const { db, mine, send } = setup();
+    const unitId = mine.unit('a').id;
+    const response = await send('POST', `/units/${unitId}/save`, { text: '적어 둬.', base: '' });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ translation: '적어 둬.' });
+    const after = read(db, unitId);
+    expect(after.line.translation).toBe('적어 둬.');
+    expect(after.candidates).toEqual([{ id: after.line.candidateId, text: '적어 둬.' }]);
+    expect(after.status).toBe('초벌');
+  });
+
+  it('a rapid double save of the same text is one candidate; a late save from the old text cannot empty the line', async () => {
+    const { db, mine, send } = setup();
+    const unitId = mine.unit('a').id;
+    // Two clicks before the first answer: both start from the empty line.
+    const [first, second] = await Promise.all([send('POST', `/units/${unitId}/save`, { text: '적어 둬.', base: '' }), send('POST', `/units/${unitId}/save`, { text: '적어 둬.', base: '' })]);
+    expect([first.status, second.status]).toEqual([200, 200]);
+    expect(read(db, unitId).candidates.map((candidate) => candidate.text)).toEqual(['적어 둬.']);
+    // An echo of the old (empty) text from a stale editor is refused, not saved over what was typed.
+    expect((await send('POST', `/units/${unitId}/save`, { text: '', base: '' })).status).toBe(409);
+    // Saving the current text again changes nothing.
+    expect((await send('POST', `/units/${unitId}/save`, { text: '적어 둬.', base: '' })).status).toBe(200);
+    const after = read(db, unitId);
+    expect(after.line.translation).toBe('적어 둬.');
+    expect(after.candidates).toHaveLength(1);
+    expect(after.status).toBe('초벌');
+  });
+
+  it('picking a candidate or retyping a candidate\'s text selects it; text never goes through the line patch', async () => {
+    const { db, mine, send } = setup();
+    const unitId = mine.unit('a').id;
+    await send('POST', `/units/${unitId}/save`, { text: '하나' });
+    await send('POST', `/units/${unitId}/save`, { text: '둘' });
+    const one = read(db, unitId).candidates.find((candidate) => candidate.text === '하나')!;
+    await send('POST', `/units/${unitId}/save`, { candidateId: one.id });
+    expect(read(db, unitId).line).toEqual({ translation: '하나', candidateId: one.id });
+    await send('POST', `/units/${unitId}/save`, { text: '둘' });
+    expect(read(db, unitId).candidates).toHaveLength(2);
+    expect((await send('PATCH', `/units/${unitId}`, { translation: '셋' })).status).toBe(400);
+    expect(read(db, unitId).line.translation).toBe('둘');
   });
 });

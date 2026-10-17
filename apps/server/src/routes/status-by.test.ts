@@ -30,7 +30,7 @@ describe('who set it (docs/DESIGN.md 3.5)', () => {
     const units = db.select().from(s.units).where(eq(s.units.projectId, projectId)).orderBy(s.units.seq).all();
     db.update(s.units).set({ statusBy: 'ai', statusRunId: 'run1' }).where(eq(s.units.projectId, projectId)).run();
 
-    await send('PATCH', `/units/${units[0].id}`, { translation: '사람 번역' });
+    await send('POST', `/units/${units[0].id}/save`, { text: '사람 번역' });
     await send('PATCH', `/units/${units[1].id}`, { listener: 'Bob' });
     const by = () => db.select({ key: s.units.key, statusBy: s.units.statusBy, statusRunId: s.units.statusRunId }).from(s.units).orderBy(s.units.seq).all();
     // A translation edit makes it the person's; a listener choice alone does not touch who set the status.

@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { isSpecialListener, type NodeType } from '@tw/shared';
 import { attachUnitTags } from '../services/tag-scope.ts';
 import { assertProjectRefs } from '../services/project-refs.ts';
-import { humanLinePatch } from '../services/line-patch.ts';
+import { LineConflict, saveLine, saveStatuses } from '../services/line-save.ts';
 import { refusesListener, setHumanListener } from '../services/listeners.ts';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
@@ -60,17 +60,28 @@ function unitConditions(projectId: string, query: Omit<z.infer<typeof listQuery>
   return and(...conditions)!;
 }
 
-const unitPatch = z.object({
-  /** New text from a person: stored as a human candidate and selected. */
-  translation: z.string().optional(),
+/** A line's text, candidate and status: one save (services/line-save.ts). */
+const lineSave = z.object({
+  /** New text from a person: selected as the line's text (an existing candidate with the same text is reused). */
+  text: z.string().optional(),
   candidateId: z.string().optional(),
   statusId: z.string().optional(),
+  /** The translation the editor started from; a save over a line changed since is refused (409). */
+  base: z.string().nullable().optional(),
+})
+  .strict()
+  .refine((save) => !(save.text !== undefined && save.candidateId), '번역 글과 후보 중 하나만 보내세요.');
+
+/** What else a person sets on a line (text and status go through POST /units/:unitId/save). */
+const unitPatch = z.object({
   tagIds: z.array(z.string()).optional(),
   /** A person's choice of listener (null = unknown); it replaces any AI or imported listener. */
   listener: z.string().trim().min(1).nullable().optional(),
   /** A person's note on the line; empty clears it. Who set the status is not touched. */
   note: z.string().max(2000).optional(),
-});
+})
+  // A text or status sent here would be dropped silently; refusing it keeps the one save path.
+  .strict();
 
 const unitColumns = {
   id: s.units.id,
@@ -247,9 +258,7 @@ export const sourceRoutes = new Hono<Env>()
     assertProjectRefs(db, projectId, { unitIds: body.unitIds, statusId: body.statusId, tagIds: [...body.addTagIds, ...body.removeTagIds] });
     db.transaction((tx) => {
       // A person setting the status (or confirming what a run set) makes it theirs.
-      const patch = humanLinePatch(tx, null, { statusId: body.statusId, checked: body.checked });
-      // Chunked: a selection can be a whole project, and SQLite caps bound variables per statement.
-      if (Object.keys(patch).length) eachChunk(body.unitIds, (slice) => tx.update(s.units).set(patch).where(and(eq(s.units.projectId, projectId), inArray(s.units.id, slice))).run());
+      saveStatuses(tx, projectId, body.unitIds, { statusId: body.statusId, checked: body.checked });
       attachUnitTags(tx, projectId, body.unitIds, { add: body.addTagIds, remove: body.removeTagIds }, { onMisplaced: 'refuse' });
       if (body.listener !== undefined) setHumanListener(tx, body.unitIds, body.listener);
     });
@@ -331,27 +340,32 @@ export const sourceRoutes = new Hono<Env>()
     const rules = db.select({ rules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, unit.projectId)).get()?.rules;
     return c.json(lineMatches(db, unit, rules));
   })
+  /** A line's text, candidate and status, written together (services/line-save.ts). */
+  .post('/units/:unitId/save', validate('json', lineSave), (c) => {
+    const { db } = c.var.deps;
+    const unitId = c.req.param('unitId');
+    const body = c.req.valid('json');
+    const unit = found(db.select().from(s.units).where(eq(s.units.id, unitId)).get(), '대사');
+    assertProjectRefs(db, unit.projectId, { statusId: body.statusId, candidateId: body.candidateId });
+    try {
+      db.transaction((tx) => saveLine(tx, unit, body));
+    } catch (error) {
+      if (error instanceof LineConflict) return c.json({ error: error.message }, 409);
+      throw error;
+    }
+    events.changed(unit.projectId, 'units', 'statuses');
+    const saved = db.select({ translation: s.units.translation, statusId: s.units.statusId, candidateId: s.units.candidateId }).from(s.units).where(eq(s.units.id, unitId)).get()!;
+    return c.json({ ok: true, ...saved });
+  })
   .patch('/units/:unitId', validate('json', unitPatch), (c) => {
     const { db } = c.var.deps;
     const unitId = c.req.param('unitId');
     const body = c.req.valid('json');
     const unit = found(db.select().from(s.units).where(eq(s.units.id, unitId)).get(), '대사');
-    assertProjectRefs(db, unit.projectId, { statusId: body.statusId, tagIds: body.tagIds, candidateId: body.candidateId });
+    assertProjectRefs(db, unit.projectId, { tagIds: body.tagIds });
     if (refusesListener(unit, body.listener)) badRequest('나레이션에는 청자가 없습니다.');
     db.transaction((tx) => {
-      const change: Parameters<typeof humanLinePatch>[2] = { statusId: body.statusId };
-      if (body.translation !== undefined) {
-        const candidate = tx.insert(s.candidates).values({ unitId, text: body.translation, origin: 'human' }).returning().get();
-        change.translation = body.translation;
-        change.candidateId = candidate.id;
-      } else if (body.candidateId) {
-        const candidate = found(tx.select().from(s.candidates).where(and(eq(s.candidates.id, body.candidateId), eq(s.candidates.unitId, unitId))).get(), '후보');
-        change.translation = candidate.text;
-        change.candidateId = candidate.id;
-      }
-      const patch = humanLinePatch(tx, unit, change);
-      if (body.note !== undefined) patch.note = body.note.trim();
-      if (Object.keys(patch).length) tx.update(s.units).set(patch).where(eq(s.units.id, unitId)).run();
+      if (body.note !== undefined) tx.update(s.units).set({ note: body.note.trim() }).where(eq(s.units.id, unitId)).run();
       if (body.listener !== undefined) setHumanListener(tx, [unitId], body.listener);
       if (body.tagIds) {
         const current = tx.select({ tagId: s.unitTags.tagId }).from(s.unitTags).where(eq(s.unitTags.unitId, unitId)).all().map((row) => row.tagId);

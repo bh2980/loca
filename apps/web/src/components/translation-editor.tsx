@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { Check, CircleAlert, Languages, Sparkles, WandSparkles } from 'lucide-react';
 import { toast } from 'sonner';
@@ -8,13 +8,13 @@ import { TokenChip, TokenText } from '@/components/editor/source-text';
 import { focusEndOfLine, insertUnitIntoLine, proposeInLine, replaceLineText, TranslationInput } from '@/components/editor/translation-input';
 import { AiMark, StatusDot } from '@/components/status';
 import { Button } from '@/components/ui/button';
-import { apiFetch, client, unwrap } from '@/lib/api';
+import { apiFetch } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
 import { wordDiff } from '@/lib/diff';
 import { placeTags } from '@/lib/tag-placement';
 import { editorChecks, useLineContext } from '@/lib/line-context';
 import type { TokenUnit } from '@/lib/tokens';
-import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
+import { saveLineNow, useSaveLine } from '@/lib/line-save';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { keyLabel } from '@/lib/keys';
@@ -138,36 +138,28 @@ export function TranslationEditor({
   const placeMissing = () => tags.inserts.length > 0 && proposeInLine(unit.id, tags.inserts);
 
   const queryClient = useQueryClient();
-  const save = useMutation({
-    // Everything sent is what was typed when saving began (text, changed): typing goes on while it is on its way.
-    mutationFn: ({ advance, text: sent, changed }: { advance: boolean; text: string; changed: boolean }) => {
-      // Saving the exact text of an existing candidate selects it instead of duplicating it.
-      const same = candidates.find((candidate) => candidate.text === sent);
-      const text = changed ? (same ? { candidateId: same.id } : { translation: sent }) : {};
-      const statusId = advance && next ? { statusId: next.id } : {};
-      if (!Object.keys(text).length && !Object.keys(statusId).length) return Promise.resolve(null);
-      return unwrap(client.units[':unitId'].$patch({ param: { unitId: unit.id }, json: { ...text, ...statusId } }));
-    },
-    // The saved text and next status show at once, so the old translation never flashes back.
-    onMutate: async ({ advance, text: sent, changed }) => {
-      const same = candidates.find((candidate) => candidate.text === sent);
-      const change = { ...(changed && { translation: same ? same.text : sent }), ...(advance && next && { statusId: next.id }) };
-      return { undo: Object.keys(change).length ? await optimistic(queryClient, unitChanges([unit.id], patchedLine(change))) : undefined };
-    },
-    onSuccess: (_data, { advance, text, changed }) => {
-      // Only the draft that was sent: anything typed after it stays a draft.
-      clearDraft(text);
-      // What was saved, taken when it was sent (the optimistic update has already made it the translation).
-      if (changed && text.trim()) void offerSameSource(text);
-      if (advance && next) toast.success(`${changed ? '저장하고 ' : ''}‘${next.name}’(으)로 옮겼습니다.`);
-      onDone?.(advance);
-    },
-    onError: (error, _vars, context) => {
-      context?.undo?.();
-      toast.error(error.message);
-    },
-  });
-  const run = (advance: boolean) => !save.isPending && save.mutate({ advance, text: draft, changed: dirty });
+  const save = useSaveLine();
+  // Everything sent is what was typed when saving began: typing goes on while it is on its way.
+  const run = (advance: boolean) => {
+    if (save.isPending) return;
+    const sent = draft;
+    const changed = dirty;
+    const statusId = advance && next ? next.id : undefined;
+    if (!changed && !statusId) return onDone?.(advance);
+    save.mutate(
+      { unitId: unit.id, ...(changed && { text: sent, base: unit.translation ?? '' }), statusId },
+      {
+        onSuccess: () => {
+          // Only the draft that was sent: anything typed after it stays a draft.
+          clearDraft(sent);
+          if (changed && sent.trim()) void offerSameSource(sent);
+          if (advance && next) toast.success(`${changed ? '저장하고 ' : ''}‘${next.name}’(으)로 옮겼습니다.`);
+          onDone?.(advance);
+        },
+        onError: (error) => toast.error(error.message),
+      },
+    );
+  };
 
   /**
    * After a new translation is saved, other lines with the same source that are not final and say
@@ -186,7 +178,7 @@ export function TranslationEditor({
         label: '모두 이 번역으로',
         onClick: async () => {
           try {
-            for (const line of others) await unwrap(client.units[':unitId'].$patch({ param: { unitId: line.id }, json: { translation: text } }));
+            for (const line of others) await saveLineNow({ unitId: line.id, text, base: line.translation ?? '' });
             toast.success(`같은 원문 ${others.length}줄에 적용했습니다.`);
           } catch (error) {
             toast.error(error instanceof Error ? error.message : String(error));
