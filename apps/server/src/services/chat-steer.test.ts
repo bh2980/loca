@@ -5,7 +5,9 @@ import type * as ai from '@tw/ai';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { expandSteers, fitMessages, transcript } from './chat-context.ts';
-import { enqueueSteer, hasSteers, startTurn, steerable, stopTurn, takeSteers } from './chat-turns.ts';
+import { startTurn, steerable } from './chat-turns.ts';
+import { enqueueSteer, hasSteers, stopWithQueued, takeSteers } from './chat-interject.ts';
+import { eq } from 'drizzle-orm';
 import { cliChatResponse } from './cli-chat.ts';
 import { importProject } from './importer.ts';
 import { decideProposal, hasUnreportedDecisions, openProposals, propose } from './proposals.ts';
@@ -28,21 +30,30 @@ describe('steering (#44)', () => {
   });
 
   it('queues messages for the running turn, refuses once it is closing, and hands them back on stop', () => {
-    const turn = startTurn('p', 'steer-1');
-    expect(steerable('steer-1')).toBe(true);
-    enqueueSteer('steer-1', 'a');
-    enqueueSteer('steer-1', 'b');
-    expect(hasSteers('steer-1')).toBe(true);
-    expect(takeSteers('steer-1')).toEqual(['a', 'b']);
-    expect(takeSteers('steer-1')).toEqual([]);
+    const db = openDatabase(':memory:');
+    const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', source: 'Hi' }] }));
+    const id = db.insert(s.chatSessions).values({ projectId, title: '새 대화' }).returning().get().id;
+    const turn = startTurn('p', id);
+    expect(steerable(id)).toBe(true);
+    enqueueSteer(db, id, 'a');
+    enqueueSteer(db, id, 'b');
+    expect(hasSteers(db, id)).toBe(true);
+    // Stored on the conversation: a restart (no turn in memory) keeps them.
+    expect(db.select({ pending: s.chatSessions.pendingSteers }).from(s.chatSessions).where(eq(s.chatSessions.id, id)).get()!.pending).toEqual(['a', 'b']);
+    expect(takeSteers(db, id)).toEqual(['a', 'b']);
+    expect(takeSteers(db, id)).toEqual([]);
     turn.markClosing();
-    expect(steerable('steer-1')).toBe(false);
+    expect(steerable(id)).toBe(false);
     turn.end();
-    expect(steerable('steer-1')).toBe(false);
-    startTurn('p', 'steer-1');
-    enqueueSteer('steer-1', 'c');
-    expect(stopTurn('steer-1')).toEqual({ stopped: true, queued: ['c'] });
-    expect(steerable('steer-1')).toBe(false);
+    expect(steerable(id)).toBe(false);
+    const second = startTurn('p', id);
+    enqueueSteer(db, id, 'c');
+    expect(stopWithQueued(db, id)).toEqual({ stopped: true, queued: ['c'] });
+    expect(steerable(id)).toBe(false);
+    second.end();
+    // No turn (after a restart): stopping still hands back what waited.
+    enqueueSteer(db, id, 'd');
+    expect(stopWithQueued(db, id)).toEqual({ stopped: false, queued: ['d'] });
   });
 
   it('a CLI turn takes a message sent mid-turn at the next round, and keeps going for one sent at the end', async () => {
@@ -55,8 +66,8 @@ describe('steering (#44)', () => {
     const turn = async (_route: ai.ResolvedRoute, request: ai.CliChatTurn): Promise<ai.CliChatResult> => {
       prompts.push(request.prompt);
       // Sent while round 1 runs, and again while round 2 (the would-be last) runs.
-      if (prompts.length === 1) enqueueSteer(chat.id, '대사 말고 인물부터');
-      if (prompts.length === 2) enqueueSteer(chat.id, '그리고 짧게');
+      if (prompts.length === 1) enqueueSteer(db, chat.id, '대사 말고 인물부터');
+      if (prompts.length === 2) enqueueSteer(db, chat.id, '그리고 짧게');
       return { sessionId: 'cli', text: answers[prompts.length - 1], usage: {} };
     };
     const response = await cliChatResponse({ db, chat, route: { kind: 'grok', model: 'g' }, answeredBy: { kind: 'grok', connectionId: 'c', model: 'g' }, system: 't', view: null, messages: [user('u', '대사 찾아줘')], timeoutMs: 1000, turn: { signal: new AbortController().signal, end: () => {}, record: () => {}, markClosing: () => (closed = true) }, cli: turn });

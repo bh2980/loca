@@ -1,5 +1,7 @@
+import { eq } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
-import { hasSteers, takeSteers } from './chat-turns.ts';
+import * as s from '../db/schema.ts';
+import { stopTurn } from './chat-turns.ts';
 import { hasUnreportedDecisions, takeDecisions } from './proposals.ts';
 
 /**
@@ -13,13 +15,44 @@ export interface Interjection {
   kind: 'user' | 'decisions';
 }
 
+/**
+ * Messages sent while a turn is running (#44). The running turn hands them to its model at the next
+ * step boundary (after a tool result, or when it would otherwise stop); what a turn could not take
+ * (it stopped for a tool approval) waits for the next turn. Stored on the conversation, so neither
+ * the gap between two turns nor a server restart loses them.
+ */
+const pendingOf = (db: Db, sessionId: string) => db.select({ pending: s.chatSessions.pendingSteers }).from(s.chatSessions).where(eq(s.chatSessions.id, sessionId)).get()?.pending ?? [];
+
+export function enqueueSteer(db: Db, sessionId: string, text: string) {
+  db.transaction((tx) => {
+    const pending = tx.select({ pending: s.chatSessions.pendingSteers }).from(s.chatSessions).where(eq(s.chatSessions.id, sessionId)).get()?.pending ?? [];
+    tx.update(s.chatSessions).set({ pendingSteers: [...pending, text] }).where(eq(s.chatSessions.id, sessionId)).run();
+  });
+}
+
+/** The queued messages, removed from the queue (the caller hands them to the model). */
+export function takeSteers(db: Db, sessionId: string) {
+  return db.transaction((tx) => {
+    const pending = tx.select({ pending: s.chatSessions.pendingSteers }).from(s.chatSessions).where(eq(s.chatSessions.id, sessionId)).get()?.pending ?? [];
+    if (pending.length) tx.update(s.chatSessions).set({ pendingSteers: [] }).where(eq(s.chatSessions.id, sessionId)).run();
+    return pending;
+  });
+}
+
+export const hasSteers = (db: Db, sessionId: string) => pendingOf(db, sessionId).length > 0;
+
+/** Stops the running turn (if any); the messages no turn took go back to the person (the input box). */
+export function stopWithQueued(db: Db, sessionId: string) {
+  return { stopped: stopTurn(sessionId), queued: takeSteers(db, sessionId) };
+}
+
 /** Takes (and marks as told) everything waiting for the conversation's agent. */
 export function takeInterjections(db: Db, sessionId: string): Interjection[] {
   const decisions = takeDecisions(db, sessionId);
-  return [...takeSteers(sessionId).map((text) => ({ text, kind: 'user' as const })), ...(decisions ? [{ text: decisions, kind: 'decisions' as const }] : [])];
+  return [...takeSteers(db, sessionId).map((text) => ({ text, kind: 'user' as const })), ...(decisions ? [{ text: decisions, kind: 'decisions' as const }] : [])];
 }
 
-export const hasInterjections = (db: Db, sessionId: string) => hasSteers(sessionId) || hasUnreportedDecisions(db, sessionId);
+export const hasInterjections = (db: Db, sessionId: string) => hasSteers(db, sessionId) || hasUnreportedDecisions(db, sessionId);
 
 /** How interjections read to the model. Empty when there are none. */
 export function interjectionPrompt(items: Interjection[]) {

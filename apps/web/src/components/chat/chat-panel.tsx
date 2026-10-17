@@ -185,6 +185,7 @@ function Conversation({ projectId, sessionId, model, mode }: { projectId: string
       sessionId={sessionId}
       initial={(saved.data?.messages ?? []) as unknown as UIMessage[]}
       turn={saved.data?.turn ?? null}
+      pending={saved.data?.pendingSteers ?? []}
       model={model}
       mode={mode}
       onMode={(next) => {
@@ -201,11 +202,13 @@ function Conversation({ projectId, sessionId, model, mode }: { projectId: string
   );
 }
 
-function ChatBody({ projectId, sessionId, initial, turn, model, onModel, mode, onMode }: {
+function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel, mode, onMode }: {
   projectId: string;
   sessionId: string;
   initial: UIMessage[];
   turn: Turn | null;
+  /** Messages the server still holds for the conversation's agent (sent before a reload or a restart). */
+  pending: string[];
   model: ModelValue | null;
   mode: PermissionMode;
   onMode: (mode: PermissionMode) => void;
@@ -263,7 +266,8 @@ function ChatBody({ projectId, sessionId, initial, turn, model, onModel, mode, o
 
   const [input, setInput] = useState(() => sessionStorage.getItem(`tw.chat.draft.${sessionId}`) ?? '');
   // Sent while the reply was running (#44): waiting for the turn to take them at its next step.
-  const [queued, setQueued] = useState<string[]>([]);
+  // Those still on the server (sent before a reload, or a turn a restart cut off) go with the next one.
+  const [queued, setQueued] = useState<string[]>(pending);
   // Sent too late for the running turn to take: they go as the next message once it ends.
   const [later, setLater] = useState<string[]>([]);
   useEffect(() => {

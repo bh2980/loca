@@ -1,7 +1,9 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Check, Wrench, X } from 'lucide-react';
+import { useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
 import { client, unwrap } from '@/lib/api';
 import { ChangePreview, LABEL } from './change-preview';
@@ -13,6 +15,8 @@ export interface Proposal {
   /** running: accepted, the change still being applied (another window or a resent click may have started it). */
   status: 'pending' | 'running' | 'accepted' | 'rejected' | 'failed';
   result: unknown;
+  /** Why the person rejected it, if they said; the agent hears it with the decision. */
+  reason?: string | null;
   source: 'pi' | 'cli' | 'api';
   /** Who decided: the person, or the conversation's permission mode (#45). */
   decidedBy?: 'person' | 'auto' | 'bypass' | null;
@@ -31,11 +35,14 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
   // Shown decided at once: the card turns 적용됨/거절함 before the server answers (back to pending on
   // failure), and takes the server's row (failed, skipped) as soon as it comes instead of waiting for the refetch.
   const patch = (update: (row: Proposal) => Proposal) => queryClient.setQueriesData<Proposal[]>({ queryKey: ['proposals'] }, (list) => list?.map((row) => (row.id === proposal.id ? update(row) : row)));
+  // Rejecting asks (optionally) why, so the agent can try differently instead of guessing.
+  const [rejecting, setRejecting] = useState(false);
+  const [reason, setReason] = useState('');
   const decide = useMutation({
-    mutationFn: (action: 'accept' | 'reject') => unwrap(client.proposals[':id'][':action{accept|reject}'].$post({ param: { id: proposal.id, action } })),
+    mutationFn: (action: 'accept' | 'reject') => unwrap(client.proposals[':id'][':action{accept|reject}'].$post({ param: { id: proposal.id, action }, json: action === 'reject' && reason.trim() ? { reason: reason.trim() } : {} })),
     onMutate: async (action) => {
       await queryClient.cancelQueries({ queryKey: ['proposals'] });
-      patch((row) => ({ ...row, status: action === 'accept' ? 'accepted' : 'rejected' }));
+      patch((row) => ({ ...row, status: action === 'accept' ? 'accepted' : 'rejected', reason: action === 'reject' ? reason.trim() || null : row.reason }));
     },
     onSuccess: (row) => patch((old) => ({ ...old, ...(row as Partial<Proposal>) })),
     onError: (error) => {
@@ -56,6 +63,7 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
               {proposal.decidedBy && proposal.decidedBy !== 'person' && `${DECIDED_BY[proposal.decidedBy]} `}
               {proposal.status === 'failed' && proposal.decidedBy && proposal.decidedBy !== 'person' ? '적용하려 했지만 실패' : STATUS[proposal.status]}
               {failure && ` · ${failure}`}
+              {proposal.status === 'rejected' && proposal.reason && ` · ${proposal.reason}`}
               {skipped > 0 && ` · ${skipped.toLocaleString()}개는 건너뜀(그사이 바뀌었거나 바꿀 수 없음)`}
             </span>
           )}
@@ -67,9 +75,26 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
         {proposal.report && <ProposalReport report={proposal.report} />}
         {proposal.status === 'pending' && proposal.review && <p className="mt-2 border-t pt-2 text-muted-foreground">자동 검토가 넘김: {proposal.review}</p>}
       </div>
-      {proposal.status === 'pending' && (
+      {proposal.status === 'pending' && rejecting && (
+        <form
+          className="flex items-center gap-2 border-t px-3 py-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            decide.mutate('reject');
+          }}
+        >
+          <Input autoFocus value={reason} onChange={(event) => setReason(event.target.value)} placeholder="거절 이유(선택) — 에이전트에게 전달됩니다" aria-label="거절 이유" />
+          <Button type="button" variant="ghost" disabled={decide.isPending} onClick={() => setRejecting(false)}>
+            취소
+          </Button>
+          <Button type="submit" variant="outline" disabled={decide.isPending}>
+            <X /> 거절
+          </Button>
+        </form>
+      )}
+      {proposal.status === 'pending' && !rejecting && (
         <div className="flex justify-end gap-2 border-t px-3 py-2">
-          <Button variant="outline" disabled={decide.isPending} onClick={() => decide.mutate('reject')}>
+          <Button variant="outline" disabled={decide.isPending} onClick={() => setRejecting(true)}>
             <X /> 거절
           </Button>
           <Button disabled={decide.isPending} onClick={() => decide.mutate('accept')}>

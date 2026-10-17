@@ -4,7 +4,7 @@ import { importFileSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from './importer.ts';
-import { closeInterruptedProposals, decideProposal, INTERRUPTED_PROPOSAL, listedProposal, propose } from './proposals.ts';
+import { closeInterruptedProposals, decideProposal, INTERRUPTED_PROPOSAL, listedProposal, propose, takeDecisions } from './proposals.ts';
 
 const proposal = (changes: unknown[]) => ({ id: 'p', projectId: 'x', sessionId: null, source: 'cli' as const, tool: 'propose_changes', input: { origin: 'ai', changes }, status: 'pending' as const, result: null, createdAt: new Date(), decidedAt: null });
 
@@ -62,5 +62,15 @@ describe('deciding a proposal', () => {
     expect(row?.result).toEqual({ ok: false, error: INTERRUPTED_PROPOSAL });
     expect(row?.decidedAt).toBeInstanceOf(Date);
     expect(documents()).toHaveLength(0);
+  });
+
+  it('tells the agent why the person rejected a change', async () => {
+    const { db, proposal } = setup();
+    const session = db.insert(s.chatSessions).values({ projectId: proposal.projectId, title: '대화' }).returning().get();
+    const asked = propose(db, { projectId: proposal.projectId, sessionId: session.id, source: 'pi', tool: 'save_document', input: { title: '메모', body: '…' } });
+    const row = await decideProposal(db, asked.id, false, 'person', '제목을 더 구체적으로');
+    expect(row.reason).toBe('제목을 더 구체적으로');
+    expect(takeDecisions(db, session.id)).toContain('사용자가 거절함 — 이유: 제목을 더 구체적으로');
+    expect(takeDecisions(db, session.id)).toBeNull();
   });
 });

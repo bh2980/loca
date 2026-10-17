@@ -1,6 +1,6 @@
 import { createUIMessageStream, createUIMessageStreamResponse, type UIMessage } from 'ai';
-import { enqueueSteer, readToEnd, type ChatTurn } from './chat-turns.ts';
-import { interjectionPrompt, takeInterjections, writeInterjections } from './chat-interject.ts';
+import { readToEnd, type ChatTurn } from './chat-turns.ts';
+import { enqueueSteer, interjectionPrompt, takeInterjections, writeInterjections } from './chat-interject.ts';
 import { eq } from 'drizzle-orm';
 import * as ai from '@tw/ai';
 import { startCall } from './ai-calls.ts';
@@ -128,7 +128,7 @@ export async function piChatResponse(input: {
           if (items.length) {
             closeText();
             void current.pi.steer(writeInterjections(writer, items)).catch(() => {
-              for (const item of items) if (item.kind === 'user') enqueueSteer(chat.id, item.text);
+              for (const item of items) if (item.kind === 'user') enqueueSteer(db, chat.id, item.text);
             });
           }
         }

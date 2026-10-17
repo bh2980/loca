@@ -19,13 +19,6 @@ interface Turn {
 }
 const turns = new Map<string, Turn>();
 
-/**
- * Messages sent while a turn is running (#44), by conversation. The running turn hands them to its
- * model at the next step boundary (after a tool result, or when it would otherwise stop); what a
- * turn could not take (it stopped for a tool approval) waits for the next turn. Kept apart from the
- * turn so nothing is lost between two turns.
- */
-const steers = new Map<string, string[]>();
 
 export function startTurn(projectId: string, sessionId: string) {
   turns.get(sessionId)?.controller.abort();
@@ -97,24 +90,11 @@ export const steerable = (sessionId: string) => {
   return Boolean(turn && !turn.closing && !turn.controller.signal.aborted);
 };
 
-export function enqueueSteer(sessionId: string, text: string) {
-  steers.set(sessionId, [...(steers.get(sessionId) ?? []), text]);
-}
-
-/** The queued messages, removed from the queue (the caller hands them to the model). */
-export function takeSteers(sessionId: string) {
-  const queued = steers.get(sessionId) ?? [];
-  steers.delete(sessionId);
-  return queued;
-}
-
-export const hasSteers = (sessionId: string) => Boolean(steers.get(sessionId)?.length);
-
-/** Stops the turn; messages it had not taken yet go back to the person (the input box). */
+/** Stops the turn. Messages it had not taken yet go back to the person: see chat-interject.ts stopWithQueued. */
 export function stopTurn(sessionId: string) {
   const turn = turns.get(sessionId);
   turn?.controller.abort();
-  return { stopped: Boolean(turn), queued: takeSteers(sessionId) };
+  return Boolean(turn);
 }
 
 export const turnStartedAt = (sessionId: string) => turns.get(sessionId)?.startedAt ?? null;
