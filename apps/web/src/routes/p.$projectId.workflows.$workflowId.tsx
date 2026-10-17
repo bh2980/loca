@@ -184,7 +184,7 @@ function WorkflowEditor() {
         return node.config.statusIds.length ? node.config.statusIds.map((id) => statusName.get(id) ?? '삭제된 상태').join(', ') : '범위 안의 모든 대사';
       case 'ai': {
         const batch = node.config.batch.mode === 'unit' ? '하나씩' : node.config.batch.mode === 'group' ? `장면별 ≤${node.config.batch.size}` : `${node.config.batch.size}개씩`;
-        const model = node.config.model.model ? `${connectionName.get(node.config.model.connectionId) ?? '삭제된 연결'} · ${node.config.model.model}` : '모델 없음';
+        const model = node.config.model.model ? [connectionName.get(node.config.model.connectionId) ?? (connections.data ? '삭제된 연결' : undefined), node.config.model.model].filter(Boolean).join(' · ') : '모델 없음';
         return `${AI_OUTPUTS[node.config.output].label} · ${model}${nodeModels(node).length > 1 ? ` 외 ${nodeModels(node).length - 1}개` : ''} · ${batch}`;
       }
       case 'function': {

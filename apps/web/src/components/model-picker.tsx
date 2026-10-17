@@ -38,7 +38,8 @@ function useModelLabel(value: ModelValue | null | undefined) {
   const connections = useQuery(q.connections());
   const connection = value?.connectionId ? connections.data?.find((item) => item.id === value.connectionId) : undefined;
   if (!value?.connectionId || !value.model) return null;
-  return [connection?.name ?? '삭제된 연결', value.model, value.effort].filter(Boolean).join(' · ');
+  // Until the connections arrive the name is unknown, not deleted.
+  return [connection?.name ?? (connections.data ? '삭제된 연결' : undefined), value.model, value.effort].filter(Boolean).join(' · ');
 }
 
 /**

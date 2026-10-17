@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Compartment, EditorState, Prec, RangeSetBuilder, StateEffect, StateField } from '@codemirror/state';
+import { Annotation, Compartment, EditorState, Prec, RangeSetBuilder, StateEffect, StateField } from '@codemirror/state';
 import { Decoration, EditorView, hoverTooltip, keymap, MatchDecorator, placeholder as placeholderText, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from '@codemirror/view';
 import { history, historyKeymap, standardKeymap } from '@codemirror/commands';
 import { acceptCompletion, autocompletion, completionStatus, type CompletionContext } from '@codemirror/autocomplete';
@@ -7,6 +7,9 @@ import { chipHue, chipLabel, numberTokens, type TokenKind, type TokenUnit } from
 import type { TagInsert } from '@/lib/tag-placement';
 import { splitTokens, type SourcePart } from '@/lib/line-context';
 import { cn } from '@/lib/utils';
+
+/** Marks a replacement that came from the value prop, so it is not echoed back as typing. */
+const fromOwner = Annotation.define<boolean>();
 
 /** Open editors by line, so the source next to one can put a token or term into it. */
 const editors = new Map<string, EditorView>();
@@ -475,7 +478,9 @@ export function TranslationInput(props: TranslationInputProps) {
           EditorView.contentAttributes.of({ 'aria-label': '번역', spellcheck: 'false' }),
           placeholderText(props.placeholder ?? ''),
           contextSlot.current.of(context(props)),
-          EditorView.updateListener.of((update) => update.docChanged && latest.current.onChange(update.state.doc.toString())),
+          // Only what happens in the box is reported: the owner's own value coming back in (below) is
+          // not a change, or a stale value arriving after a save would become an unsaved draft.
+          EditorView.updateListener.of((update) => update.docChanged && !update.transactions.some((tr) => tr.annotation(fromOwner)) && latest.current.onChange(update.state.doc.toString())),
         ],
       }),
     });
@@ -499,7 +504,7 @@ export function TranslationInput(props: TranslationInputProps) {
   // A change from outside (a suggestion taken, 되돌리기) replaces the text.
   useEffect(() => {
     const editor = view.current;
-    if (editor && editor.state.doc.toString() !== props.value) editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: props.value } });
+    if (editor && editor.state.doc.toString() !== props.value) editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: props.value }, annotations: fromOwner.of(true) });
   }, [props.value]);
 
   // The continuation follows the owner's prop (it recomputes it as the text changes); after the
