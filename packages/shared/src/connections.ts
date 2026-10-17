@@ -59,6 +59,15 @@ export const CONNECTION_KIND_INFO: Record<ConnectionKind, ConnectionKindInfo> = 
   http: { label: 'API 키', transport: 'http', capabilities: ['tool'], needsKey: true, efforts: [] },
 };
 
+/**
+ * Whether a model costs nothing: an opencode CLI model whose id ends in "-free" (e.g.
+ * opencode/beam-free). Other opencode models (opencode/big-pickle, Go models…) are not free.
+ * The preflight cost estimate and the UI "무료" badge both use this one rule.
+ */
+export function isFreeModel(kind: string, model: string | null | undefined): boolean {
+  return kind === 'opencode' && Boolean(model && model.endsWith('-free'));
+}
+
 export const connectionInputSchema = z.object({
   kind: z.enum(CONNECTION_KINDS),
   name: z.string().trim().min(1).max(80),

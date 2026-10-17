@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { Link, useParams } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Check, ChevronsUpDown } from 'lucide-react';
-import { CONNECTION_KIND_INFO, type Capability, type ConnectionKind } from '@tw/shared';
+import { CONNECTION_KIND_INFO, isFreeModel, type Capability, type ConnectionKind } from '@tw/shared';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Field, FieldLabel } from '@/components/ui/field';
@@ -89,6 +90,7 @@ export function ModelPicker({
   const efforts = connection ? CONNECTION_KIND_INFO[connection.kind].efforts : [];
   const fullLabel = useModelLabel(value);
   const label = lockConnection ? [value?.model, value?.effort].filter(Boolean).join(' · ') || null : fullLabel;
+  const free = connection ? isFreeModel(connection.kind, value?.model) : false;
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   // Listed once the picker has been opened (a CLI may start a process to list them), and kept while it closes.
@@ -126,8 +128,11 @@ export function ModelPicker({
           aria-label="AI 연결·모델"
           className={cn(compact ? 'max-w-full justify-start px-2 text-xs font-normal text-muted-foreground' : 'w-full justify-between font-normal', className)}
         >
-          <span className={cn('truncate', !label && 'text-muted-foreground')}>{label ?? (lockConnection ? '모델 고르기' : usable.length || !connections.data ? 'AI 연결·모델 고르기' : '쓸 수 있는 AI 연결 없음')}</span>
-          <ChevronsUpDown className="opacity-50" />
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className={cn('truncate', !label && 'text-muted-foreground')}>{label ?? (lockConnection ? '모델 고르기' : usable.length || !connections.data ? 'AI 연결·모델 고르기' : '쓸 수 있는 AI 연결 없음')}</span>
+            {free && <Badge variant="secondary" className="shrink-0 text-xs">무료</Badge>}
+          </span>
+          <ChevronsUpDown className="shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
       {/* No focus jump on open: focusing the search field scrolled the pane under the trigger and closed the popover. */}
@@ -168,7 +173,8 @@ export function ModelPicker({
                         {list.map((model) => (
                           <CommandItem key={model} value={model} onSelect={() => pickModel(model)}>
                             <Check className={cn('size-4', model === value?.model ? 'opacity-100' : 'opacity-0')} />
-                            {model}
+                            <span className="truncate">{model}</span>
+                            {isFreeModel(connection.kind, model) && <Badge variant="secondary" className="ml-auto shrink-0 text-xs">무료</Badge>}
                           </CommandItem>
                         ))}
                       </CommandGroup>
