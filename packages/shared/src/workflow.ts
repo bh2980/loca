@@ -2,6 +2,7 @@ import { z } from 'zod';
 import Graph from 'graphology';
 import { FUNCTIONS, functionPorts, type FunctionName, type Port } from './functions.ts';
 import { stronglyConnectedComponents } from 'graphology-components';
+import { ANALYSIS_SECTIONS } from './knowledge.ts';
 import { choiceKey, draftModelChoiceSchema, EMPTY_MODEL_CHOICE, modelChoiceSchema, type ModelChoice } from './model-choice.ts';
 
 /**
@@ -37,12 +38,15 @@ export const contextConfigSchema = z.object({
 
 /** How lines become model requests; see planBatches (apps/server/src/engine/batches.ts). */
 export const batchConfigSchema = z.object({
-  /** group: consecutive scenes share a request, scenes kept whole when they fit; count: fixed size across scenes; unit: one line each. */
-  mode: z.enum(['unit', 'group', 'count']).default('group'),
+  /**
+   * group: consecutive scenes share a request, scenes kept whole when they fit; count: fixed size across
+   * scenes; unit: one line each; whole: the whole script in as few requests as `maxTokens` allows (work analysis).
+   */
+  mode: z.enum(['unit', 'group', 'count', 'whole']).default('group'),
   /** Most lines in one request. */
   size: z.number().int().min(1).max(200).default(60),
-  /** Most estimated tokens of line text in one request ("group"); context is capped separately. */
-  maxTokens: z.number().int().min(500).max(100_000).default(6_000),
+  /** Most estimated tokens of line text in one request ("group", "whole"); context is capped separately. */
+  maxTokens: z.number().int().min(500).max(1_000_000).default(6_000),
 });
 
 const position = z.object({ x: z.number(), y: z.number() });
@@ -55,6 +59,7 @@ export const AI_OUTPUTS = {
   terms: { label: '용어 후보', description: '원문에서 용어(원문·번역·메모)를 뽑습니다.' },
   listener: { label: '청자', description: '대사마다 누구에게 하는 말인지와 확신도를 냅니다.' },
   knowledge: { label: '자료 변경', description: '이 대사들에서 새로 드러난 인물·관계 변화·사건·말투 변화를 냅니다.' },
+  analysis: { label: '작품 분석', description: '읽은 대본 전체에서 고른 항목(개요·인물·관계·사건·말투 규칙·장면별 청자·용어)을 근거 줄과 함께 냅니다.' },
   json: { label: '자유 형식', description: '직접 정한 필드를 대사마다 채웁니다.' },
 } as const;
 export type AiOutput = keyof typeof AI_OUTPUTS;
@@ -72,8 +77,10 @@ export const aiNodeConfigSchema = z.object({
   /** Empty = the model's default. Only some API models take it. */
   temperature: z.number().min(0).max(2).optional(),
   instructions: z.string().default(''),
-  output: z.enum(['candidate', 'verdict', 'terms', 'listener', 'knowledge', 'json']).default('candidate'),
+  output: z.enum(['candidate', 'verdict', 'terms', 'listener', 'knowledge', 'analysis', 'json']).default('candidate'),
   fields: z.array(jsonFieldSchema).default([]),
+  /** What an "analysis" node reads the script for; empty = every section. */
+  sections: z.array(z.enum(ANALYSIS_SECTIONS)).optional(),
   /** Also show the model the line's current candidate / the latest failing issues. */
   include: z
     .object({ candidate: z.boolean().default(true), issues: z.boolean().default(true) })
@@ -301,6 +308,7 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
       if (extraModels.some((choice) => !choice.connectionId || !choice.model)) error('함께 나눌 모델을 고르거나 그 칸을 지우세요.', { nodeId: node.id });
       else if (extraModels.some((choice) => !refs.connections.has(choice.connectionId))) error('함께 나눌 모델 중 연결이 삭제된 것이 있습니다.', { nodeId: node.id });
       if (node.config.output === 'json' && !node.config.fields.length) error('자유 형식 출력에는 필드가 하나 이상 필요합니다.', { nodeId: node.id });
+      if (node.config.output === 'analysis' && node.config.batch.mode !== 'whole') warn("작품 분석은 '대본 전체' 묶음에서 가장 정확하고 쌉니다. 장면 묶음으로 나누면 부분마다 같은 인물을 다시 읽습니다.", { nodeId: node.id });
     }
     if (node.type === 'entry')
       for (const id of node.config.statusIds) if (!refs.statusIds.has(id)) error('삭제된 상태가 있습니다.', { nodeId: node.id });
@@ -332,6 +340,10 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
       if (node.config.fn === 'applyKnowledge' && params.fromNodeId) {
         const from = definition.nodes.find((other) => other.id === params.fromNodeId);
         if (from?.type !== 'ai' || from.config.output !== 'knowledge') error('자료 변경을 내는 AI 노드를 선택하세요.', { nodeId: node.id });
+      }
+      if (node.config.fn === 'saveAnalysis' && params.fromNodeId) {
+        const from = definition.nodes.find((other) => other.id === params.fromNodeId);
+        if (from?.type !== 'ai' || from.config.output !== 'analysis') error('작품 분석을 내는 AI 노드를 선택하세요.', { nodeId: node.id });
       }
       if (node.config.fn === 'setListener' && params.fromNodeId) {
         const from = definition.nodes.find((other) => other.id === params.fromNodeId);

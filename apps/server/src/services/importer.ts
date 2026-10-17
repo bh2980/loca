@@ -1,4 +1,4 @@
-import { DEFAULT_STATUSES, listenerTemplate, SPEECH_FIX_WORKFLOW, speechFixTemplate, termExtractionTemplate, translationTemplate, type DraftModelChoice, type ImportFile } from '@tw/shared';
+import { ANALYSIS_WORKFLOW, ANALYSIS_WORKFLOW_DESCRIPTION, analysisTemplate, DEFAULT_STATUSES, listenerTemplate, SPEECH_FIX_WORKFLOW, speechFixTemplate, termExtractionTemplate, translationTemplate, type DraftModelChoice, type ImportFile } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import { attachUnitTags } from './tag-scope.ts';
 
@@ -170,6 +170,14 @@ export function importProject(db: Db, file: ImportFile, model: DraftModelChoice 
           needsReview: statusIds['needs-review'],
           confirmed: statusIds.confirmed,
         }),
+      })
+      .run();
+    tx.insert(s.workflows)
+      .values({
+        projectId,
+        name: ANALYSIS_WORKFLOW,
+        description: ANALYSIS_WORKFLOW_DESCRIPTION,
+        definition: analysisTemplate({ model }),
       })
       .run();
     tx.insert(s.workflows)

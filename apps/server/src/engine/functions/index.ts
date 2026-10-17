@@ -9,8 +9,10 @@ import {
   formatCheckParams,
   httpParams,
   scriptParams,
+  saveAnalysisParams,
   setListenerParams,
   setStatusParams,
+  type AnalysisSection,
   needsListener,
   type FunctionName,
   type WorkflowDefinition,
@@ -26,6 +28,7 @@ import { aiConfirmOf } from '../../services/status-by.ts';
 import { knowledgeOf, speechMismatch, speechRuleIndex } from '../../services/speech.ts';
 import type { IssueTagChange } from '../../services/issue-tags.ts';
 import type { KnowledgeOutput } from '../prompts.ts';
+import { saveDrafts, type Analysis } from '../../services/analysis.ts';
 
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 type Unit = typeof s.units.$inferSelect;
@@ -249,6 +252,24 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
       else added++;
     }
     return { port: 'out', output: { added, proposed } };
+  },
+
+  saveAnalysis(tx, raw, input) {
+    const params = saveAnalysisParams.parse(raw);
+    const outputs = Object.entries(input.item.data.outputs ?? {});
+    const source = params.fromNodeId ? input.item.data.outputs?.[params.fromNodeId] : outputs.reverse().find(([, output]) => 'analysis' in output)?.[1];
+    // One answer per request, carried by its first line (H7): the others have nothing to store.
+    if (source && (source as { batchLeader?: boolean }).batchLeader === false) return { port: 'out', output: { batchSkipped: true } };
+    const found = (source?.analysis ?? null) as Partial<Analysis> | null;
+    if (!found) return { port: 'out', output: { saved: false, reason: '작품 분석 출력이 없습니다.' } };
+    // Only a read of the whole script replaces what earlier analyses drafted; a few scenes only add and fill.
+    const run = tx.select({ scope: s.runs.scope, definition: s.runs.definition }).from(s.runs).where(eq(s.runs.id, input.runId)).get();
+    const replace = !run || (!filtersByStatus(run.definition, run.scope) && !run.scope.groupIds?.length && !run.scope.unitIds?.length && !run.scope.tagIds?.length && !run.scope.marks?.length);
+    // The answer already names lines by key (the runner mapped the prompt's ids).
+    const keyOf = new Map(tx.select({ key: s.units.key }).from(s.units).where(eq(s.units.projectId, input.projectId)).all().map((unit) => [unit.key, unit.key]));
+    const sections = Array.isArray(source?.sections) ? (source.sections as AnalysisSection[]) : undefined;
+    const counts = saveDrafts(tx as unknown as Db, input.projectId, input.runId, found, keyOf, aiConfirmOf(tx as unknown as Db, input.projectId), { sections, replace });
+    return { port: 'out', output: { saved: true, replaced: replace, counts } };
   },
 
   setListener(tx, raw, input) {

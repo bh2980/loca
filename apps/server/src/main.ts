@@ -9,7 +9,6 @@ import { openDatabase } from './db/index.ts';
 import * as s from './db/schema.ts';
 import { Runner } from './engine/runner.ts';
 import { events } from './events.ts';
-import { AnalysisService } from './services/analysis.ts';
 import { TermService } from './services/terms.ts';
 import { closeStaleCalls } from './services/ai-calls.ts';
 import { closeInterruptedProposals } from './services/proposals.ts';
@@ -32,6 +31,8 @@ const secrets = process.env.WORKBENCH_SECRETS === 'memory' ? memoryStore() : key
 closeStaleCalls(db);
 // Proposals a stopped server was still applying are closed as failed, not run again (see closeInterruptedProposals).
 closeInterruptedProposals(db);
+// Jobs of the old analysis service (before #47 analyses are workflow runs) that a stop cut off.
+db.update(s.analysisJobs).set({ status: 'failed', error: '서버가 다시 시작되어 중단되었습니다.', finishedAt: new Date() }).where(eq(s.analysisJobs.status, 'running')).run();
 // AI nodes saved before their connection had a default model get it now (also done when a connection is saved).
 fillDefaultModels(db);
 // Workflows saved before #42 drop the status node's "apply candidate"; translations now write on the spot.
@@ -51,7 +52,7 @@ for (const projectId of outdated) void computeLayouts(db, projectId);
 for (const projectId of projectsWithoutLayouts(db)) if (!outdated.has(projectId)) void computeLayouts(db, projectId);
 for (const projectId of projectsMissingSections(db)) if (!outdated.has(projectId)) void computeLayouts(db, projectId, { sectionsOnly: true });
 
-const app = createApp({ db, secrets, runner, analysis: new AnalysisService(db, secrets), terms: new TermService(db, secrets) });
+const app = createApp({ db, secrets, runner, terms: new TermService(db, secrets) });
 if (existsSync(config.webDist)) {
   const root = path.relative(process.cwd(), config.webDist);
   app.use('/*', serveStatic({ root }));

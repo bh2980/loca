@@ -48,6 +48,11 @@ export const applyKnowledgeParams = z.object({
   fromNodeId: z.string().default(''),
 });
 
+export const saveAnalysisParams = z.object({
+  /** AI node whose "analysis" output to save. Empty = the most recent one on the line. */
+  fromNodeId: z.string().default(''),
+});
+
 export const setListenerParams = z.object({
   /** AI node whose "listener" output to record. Empty = the most recent listener output on the line. */
   fromNodeId: z.string().default(''),
@@ -125,6 +130,13 @@ export const FUNCTIONS = {
     label: '자료 반영',
     description: 'AI 노드가 찾은 새 인물·관계 변화·사건·말투 구간을 자료에 넣습니다(출처: AI). 확정할지 후보로 둘지는 AI › 사용 방식을 따릅니다. 사람이 정한 자료는 바꾸지 않고, 다르게 보는 내용은 AI 후보로 옆에 남깁니다.',
     params: applyKnowledgeParams,
+    ports: () => out,
+    async: false,
+  },
+  saveAnalysis: {
+    label: '작품 분석 반영',
+    description: 'AI 노드의 작품 분석(개요·인물·관계·사건·말투 규칙·장면별 청자·용어 중 고른 것)을 자료·용어집·대사 청자에 넣습니다(출처: 작품 분석). 확정할지 후보로 둘지는 AI › 사용 방식을 따릅니다. 대본 전체를 읽은 실행이면 지난 분석의 손대지 않은 AI 항목을 새 결과로 바꾸고, 사람이 만들거나 고치거나 확정·버린 항목은 그대로 둡니다.',
+    params: saveAnalysisParams,
     ports: () => out,
     async: false,
   },

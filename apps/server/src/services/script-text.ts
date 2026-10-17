@@ -14,11 +14,14 @@ export interface ScriptBlock {
  * The project's script as text a model can read whole: "## <section> — <title> [<key>]" headers and
  * "L<n> <Speaker>: <text>" lines. Line ids are short (L1…) to save tokens; `keyOf` maps them back.
  * A line reached by a labelled graph edge (a player choice, a condition) is preceded by
- * "▶ <label>", so the model can tell branches apart. Documents are shortened.
+ * "▶ <label>", so the model can tell branches apart. Documents are shortened. With `only`, just
+ * those lines (one request of a workflow's "analysis" node).
  */
-export function scriptText(db: Db, projectId: string) {
+export function scriptText(db: Db, projectId: string, only?: Set<string>) {
   const groups = db.select().from(s.groups).where(eq(s.groups.projectId, projectId)).orderBy(asc(s.groups.sort)).all();
-  const units = db.select({ id: s.units.id, key: s.units.key, groupId: s.units.groupId, kind: s.units.kind, speaker: s.units.speaker, source: s.units.source }).from(s.units).where(eq(s.units.projectId, projectId)).orderBy(asc(s.units.seq)).all();
+  const all = db.select({ id: s.units.id, key: s.units.key, groupId: s.units.groupId, kind: s.units.kind, speaker: s.units.speaker, source: s.units.source }).from(s.units).where(eq(s.units.projectId, projectId)).orderBy(asc(s.units.seq)).all();
+  // A workflow request reads only its own lines (`only`: unit ids); the numbering starts at L1 for it.
+  const units = only ? all.filter((unit) => only.has(unit.id)) : all;
   const byGroup = Map.groupBy(units, (unit) => unit.groupId);
 
   // Labels of the edges that lead into each line's graph node.
