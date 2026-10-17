@@ -289,7 +289,7 @@ export function LineList({
                   onNoting={setNoting}
                   onDetail={() => onSearch({ detail: true }, { replace: true })}
                   onEscape={() => setEditing(false)}
-                  onDone={(advanced) => (advanced ? advanceFrom(line.id) : undefined)}
+                  onDone={(advanced) => (advanced ? advanceFrom(line.id) : setEditing(false))}
                   onFilterTag={(tagId) => onSearch({ tags: [tagId], page: undefined })}
                   onFilterMark={(mark) => onSearch({ marks: [mark], page: undefined })}
                 />

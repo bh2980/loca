@@ -165,3 +165,22 @@ describe('attachUnitTags', () => {
     expect(tagsOf(unitId)).toEqual([]);
   });
 });
+
+describe('a person\'s first text', () => {
+  it('moves a 미번역 line to 초벌; a later save or an explicit status keeps what it says', async () => {
+    const { db, mine, send } = setup();
+    const statusOf = (id: string) => db.select({ name: s.statuses.name }).from(s.statuses).innerJoin(s.units, eq(s.units.statusId, s.statuses.id)).where(eq(s.units.id, id)).get()?.name;
+    const line = mine.unit('a');
+    expect(statusOf(line.id)).toBe('미번역');
+    // Whitespace is not a translation: the line stays untranslated.
+    await send('PATCH', `/units/${line.id}`, { translation: '  ' });
+    expect(statusOf(line.id)).toBe('미번역');
+    await send('PATCH', `/units/${line.id}`, { translation: '안녕' });
+    expect(statusOf(line.id)).toBe('초벌');
+    const confirmed = db.select().from(s.statuses).where(and(eq(s.statuses.projectId, mine.projectId), eq(s.statuses.kind, 'final'))).get()!;
+    await send('PATCH', `/units/${line.id}`, { translation: '안녕하세요', statusId: confirmed.id });
+    expect(statusOf(line.id)).toBe('확정');
+    await send('PATCH', `/units/${line.id}`, { translation: '안녕!' });
+    expect(statusOf(line.id)).toBe('확정');
+  });
+});
