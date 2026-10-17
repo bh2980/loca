@@ -33,7 +33,7 @@ function graph() {
 }
 
 /** Strongly connected components with more than one file (or a file importing itself): the cycles. */
-function cycles(edges: Map<string, string[]>) {
+function cycles(edges: Map<string, readonly string[]>) {
   let index = 0;
   const stack: string[] = [];
   const on = new Set<string>();
