@@ -79,7 +79,7 @@ export function StartAnalysis({ projectId, variant = 'default' }: { projectId: s
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button variant={variant}>
-          <Sparkles /> {hasDrafts ? '작품 다시 분석' : '작품 분석'}
+          <Sparkles className="size-3.5 text-accent-indigo" /> {hasDrafts ? '작품 다시 분석' : '작품 분석'}
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-80 space-y-3">

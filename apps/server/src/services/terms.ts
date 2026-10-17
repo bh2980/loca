@@ -13,6 +13,7 @@ import type { SecretStore } from './secrets.ts';
 import { fillTermUsage } from './term-usage.ts';
 import { annotateKnowledge, knowledgeFilterInput, pickedMarks as pickedMarksOf, type KnowledgeFilter } from './knowledge-list.ts';
 import { byPerson } from './status-by.ts';
+import { discoverTerms } from './term-discovery.ts';
 
 type Tx = Pick<Db, 'select' | 'insert' | 'update' | 'delete'>;
 
@@ -116,6 +117,42 @@ export function addNameTerms(tx: Tx, projectId: string, character: { name: strin
     written++;
   }
   return written;
+}
+
+/**
+ * "대본에서 찾기": Language-agnostic glossary candidates found by code across the script
+ * (bracketed terms, katakana, capitalized phrases, repeated n-grams).
+ */
+export function discoverAndSave(db: Db, projectId: string) {
+  const project = db.select({ sourceLanguage: s.projects.sourceLanguage }).from(s.projects).where(eq(s.projects.id, projectId)).get();
+  const units = db.select({ key: s.units.key, source: s.units.source }).from(s.units).where(eq(s.units.projectId, projectId)).orderBy(s.units.seq).all();
+  const characters = db.select({ name: s.characters.name, aliases: s.characters.aliases }).from(s.characters).where(and(eq(s.characters.projectId, projectId), inArray(s.characters.status, ['candidate', 'confirmed']))).all();
+  const found = discoverTerms(units, characters, { sourceLanguage: project?.sourceLanguage });
+  const existing = new Map(db.select({ id: s.terms.id, source: s.terms.source, note: s.terms.note }).from(s.terms).where(eq(s.terms.projectId, projectId)).all().map((term) => [term.source.toLowerCase(), term]));
+  let added = 0;
+  let updated = 0;
+  db.transaction((tx) => {
+    for (const term of found) {
+      const known = existing.get(term.source.toLowerCase());
+      if (known) {
+        tx.update(s.terms).set({ lines: term.lines, examples: term.examples, ...(term.aliasOf && !known.note.trim() && { note: aliasNote(term.aliasOf) }) }).where(eq(s.terms.id, known.id)).run();
+        updated++;
+        continue;
+      }
+      tx.insert(s.terms).values({
+        projectId,
+        source: term.source,
+        status: 'candidate',
+        origin: 'script',
+        note: term.aliasOf ? aliasNote(term.aliasOf) : term.kind === 'character' ? '인물 이름' : '',
+        lines: term.lines,
+        examples: term.examples,
+      }).run();
+      added++;
+    }
+  });
+  events.changed(projectId, 'terms');
+  return { found: found.length, added, updated };
 }
 
 export const NOT_A_TERM = '일반어로 보임';

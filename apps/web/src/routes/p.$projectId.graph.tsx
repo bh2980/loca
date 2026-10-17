@@ -23,6 +23,7 @@ import { useReportView } from '@/lib/view-context';
 import { SplitPane } from '@/components/split-pane';
 import { PaneHeader } from '@/components/pane-header';
 import { PathMode } from '@/components/graph/path-mode';
+import { cn } from '@/lib/utils';
 
 type Scope = 'scene' | 'dialogue';
 interface GraphSearch {
@@ -82,13 +83,25 @@ const readViewport = (key: string): Viewport | undefined => {
 
 
 const GRAPH_MODES = ['scene', 'dialogue', 'path'] as const;
-/** The graph's three modes in one switch; picking one is a history entry, so Back returns to the last. */
+/** The graph's three modes in one sleek segment control */
 function ModeToggle({ value, onChange }: { value: (typeof GRAPH_MODES)[number]; onChange: (value: (typeof GRAPH_MODES)[number]) => void }) {
   return (
-    <ToggleGroup type="single" variant="outline" size="sm" value={value} onValueChange={(next) => next && onChange(next as (typeof GRAPH_MODES)[number])}>
-      <ToggleGroupItem value="scene">장면</ToggleGroupItem>
-      <ToggleGroupItem value="dialogue">대사</ToggleGroupItem>
-      <ToggleGroupItem value="path">경로</ToggleGroupItem>
+    <ToggleGroup
+      type="single"
+      variant="outline"
+      value={value}
+      onValueChange={(next) => next && onChange(next as (typeof GRAPH_MODES)[number])}
+      className="bg-surface-1 border border-border/80 p-0.5 rounded-lg gap-0.5"
+    >
+      <ToggleGroupItem value="scene" className="px-2.5 py-1 rounded-md text-xs font-medium tracking-tight data-[state=on]:bg-surface-2 data-[state=on]:shadow-2xs">
+        장면
+      </ToggleGroupItem>
+      <ToggleGroupItem value="dialogue" className="px-2.5 py-1 rounded-md text-xs font-medium tracking-tight data-[state=on]:bg-surface-2 data-[state=on]:shadow-2xs">
+        대사
+      </ToggleGroupItem>
+      <ToggleGroupItem value="path" className="px-2.5 py-1 rounded-md text-xs font-medium tracking-tight data-[state=on]:bg-surface-2 data-[state=on]:shadow-2xs">
+        경로
+      </ToggleGroupItem>
     </ToggleGroup>
   );
 }
@@ -448,29 +461,29 @@ function GraphPage() {
 
           {layout && (
             <>
-              <div className="absolute top-3 left-3 flex w-[28rem] items-start gap-2">
+              <div className="absolute top-3 left-3 flex w-[26rem] items-center gap-1.5 select-none">
                 <div className="min-w-0 flex-1">
-                <SearchInput value={search.q} onChange={setFind} placeholder="노드 찾기 (키·라벨·첫 대사)" className="w-full bg-background shadow-sm" />
-                {matches.length > 0 && (
-                  <ul className="mt-1 max-h-72 overflow-auto rounded-md border bg-popover p-1 text-sm shadow-md">
-                    {matches.map((node) => (
-                      <li key={node.id}>
-                        <Button
-                          variant="ghost"
-                          size="row"
-                          className="block truncate"
-                          onClick={() => {
-                            select(node.id);
-                            canvas.current?.focus(shown(node.id));
-                            setFind(undefined);
-                          }}
-                        >
-                          <span className="text-xs text-muted-foreground">{KIND_LABEL[node.kind] ?? node.kind}</span> {node.preview ?? node.label ?? node.key}
-                        </Button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
+                  <SearchInput value={search.q} onChange={setFind} placeholder="노드 찾기 (키·라벨·첫 대사)" className="w-full h-7 bg-surface-2/95 border-border/80 shadow-2xs text-xs rounded-md" />
+                  {matches.length > 0 && (
+                    <ul className="mt-1 max-h-72 overflow-auto rounded-lg border border-border/80 bg-popover/95 p-1 text-xs shadow-md backdrop-blur-md">
+                      {matches.map((node) => (
+                        <li key={node.id}>
+                          <Button
+                            variant="ghost"
+                            size="row"
+                            className="block truncate rounded-md text-xs py-1"
+                            onClick={() => {
+                              select(node.id);
+                              canvas.current?.focus(shown(node.id));
+                              setFind(undefined);
+                            }}
+                          >
+                            <span className="text-xs text-muted-foreground">{KIND_LABEL[node.kind] ?? node.kind}</span> {node.preview ?? node.label ?? node.key}
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
                 {search.scope === 'dialogue' && (
                   <TypeLegend
@@ -481,27 +494,49 @@ function GraphPage() {
                   />
                 )}
               </div>
-              <div className="absolute right-3 bottom-3 flex flex-col gap-1">
-                <Button size="icon" variant="outline" className="bg-background" aria-label="확대" onClick={() => canvas.current?.zoomBy(1.4)}>
-                  <Plus />
+
+              {/* Minimal floating zoom bar (Figma / Miro style) */}
+              <div className="absolute right-3 bottom-3 flex items-center rounded-lg border border-border/80 bg-surface-2/95 shadow-xs backdrop-blur-md divide-x divide-border/60 overflow-hidden select-none">
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="축소"
+                  onClick={() => canvas.current?.zoomBy(0.7)}
+                  className="rounded-none hover:bg-surface-1 text-muted-foreground hover:text-foreground"
+                >
+                  <Minus className="size-3.5" />
                 </Button>
-                <Button size="icon" variant="outline" className="bg-background" aria-label="축소" onClick={() => canvas.current?.zoomBy(0.7)}>
-                  <Minus />
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="확대"
+                  onClick={() => canvas.current?.zoomBy(1.4)}
+                  className="rounded-none hover:bg-surface-1 text-muted-foreground hover:text-foreground"
+                >
+                  <Plus className="size-3.5" />
                 </Button>
-                <Button size="icon" variant="outline" className="bg-background" aria-label="전체 맞춤" onClick={() => canvas.current?.fit()}>
-                  <Maximize />
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="전체 맞춤"
+                  onClick={() => canvas.current?.fit()}
+                  className="rounded-none hover:bg-surface-1 text-muted-foreground hover:text-foreground"
+                >
+                  <Maximize className="size-3.5" />
                 </Button>
               </div>
-              <p className="absolute top-3 right-3 rounded-md bg-background/90 px-2 py-1 text-xs text-muted-foreground tabular-nums shadow-sm">
+
+              {/* Status pill & legend */}
+              <p className="absolute top-3 right-3 rounded-md border border-border/80 bg-surface-2/90 px-2.5 py-1 text-xs font-mono text-muted-foreground tabular-nums shadow-2xs backdrop-blur-xs select-none">
                 {search.scope === 'scene'
                   ? `장면 ${(layout.nodes.length - hubs.size).toLocaleString()}${hubs.size ? ` · 연결점 ${hubs.size.toLocaleString()}` : ''} · 연결 ${(edges.length + (looseEdges?.length ?? 0)).toLocaleString()}${looseEdges?.length ? ` (연결점 직선 ${looseEdges.length.toLocaleString()})` : ''}`
                   : `${view ? `보기${view.label ? ` "${view.label}"` : ''} · ` : chosen ? `구역 ${chosen} · ` : sections.length > 1 ? '전체 · ' : ''}노드 ${(layout.nodes.length - portals.size - (layout.chains?.length ?? 0) + (layout.chains ?? []).reduce((sum, chain) => sum + chain.nodeIds.length, 0)).toLocaleString()}개${layout.chains?.length ? ` (한 길로 이어진 ${(layout.chains ?? []).reduce((sum, chain) => sum + chain.nodeIds.length, 0).toLocaleString()}개는 덩어리 ${layout.chains.length.toLocaleString()}개로 접음)` : ''}${portals.size ? ` · 다른 구역으로 이어지는 이름표 ${portals.size.toLocaleString()}` : ''} · 연결 ${(edges.length + (looseEdges?.length ?? 0)).toLocaleString()}`}
                 {highlight && !mark.data && ` · 강조 ${highlight.size.toLocaleString()}`}
               </p>
               {search.mark && mark.data && layout && (
-                <div className="absolute top-11 right-3 flex items-center gap-2 rounded-md bg-background/90 py-1 pr-1 pl-2 text-xs shadow-sm">
-                  <span className="size-2 rounded-full bg-primary" />
-                  <span>
+                <div className="absolute top-10 right-3 flex items-center gap-2 rounded-md border border-border/80 bg-surface-2/95 py-1 pr-1.5 pl-2.5 text-xs shadow-2xs backdrop-blur-xs select-none">
+                  <span className="size-1.5 rounded-full bg-accent-indigo" />
+                  <span className="text-xs">
                     강조{mark.data.label ? ` "${mark.data.label}"` : ''} · 이 화면 {layout.nodes.filter((node) => highlight?.has(node.id)).length.toLocaleString()} / {mark.data.nodeIds.length.toLocaleString()}개
                   </span>
                   {mark.data.section && mark.data.section !== chosen && (
@@ -515,17 +550,17 @@ function GraphPage() {
                 </div>
               )}
               {search.scope === 'dialogue' && !!looseEdges?.length && (
-                <p className="absolute top-11 right-3 rounded-md bg-background/90 px-2 py-1 text-xs text-muted-foreground shadow-sm">
+                <p className="absolute top-10 right-3 rounded-md border border-border/80 bg-surface-2/90 px-2.5 py-1 text-xs text-muted-foreground shadow-2xs backdrop-blur-xs select-none">
                   허브 연결 {looseEdges.length.toLocaleString()}개는 숨김 · 허브를 누르면 그 선만 보입니다
                 </p>
               )}
               {search.scope === 'scene' && hubs.size > 0 && (
-                <p className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-md bg-background/90 px-2 py-1 text-xs text-muted-foreground shadow-sm">
+                <p className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-md border border-border/80 bg-surface-2/90 px-3 py-1 text-xs text-muted-foreground shadow-2xs backdrop-blur-xs select-none">
                   연결점: 장면에 속하지 않으면서 여러 장면을 잇는 노드 묶음 (대사 그래프에서 파생)
                 </p>
               )}
               {hidden.length > 0 && (
-                <label className="absolute top-11 right-3 flex items-center gap-2 rounded-md bg-background/90 px-2 py-1 text-xs text-muted-foreground shadow-sm">
+                <label className="absolute top-10 right-3 flex items-center gap-2 rounded-md border border-border/80 bg-surface-2/90 px-2.5 py-1 text-xs text-muted-foreground shadow-2xs backdrop-blur-xs select-none">
                   <Switch
                     checked={search.links === 'all'}
                     onCheckedChange={(on) => void navigate({ search: (previous) => ({ ...previous, links: on ? 'all' : undefined }), replace: true })}

@@ -732,21 +732,32 @@ export class Runner {
             issueTags: result.passed ? { clear: 'all' } : { add: kinds },
           };
         });
-      case 'terms':
-        // Terms describe the whole batch; every line carries them so later nodes and scripts can read them.
-        return lines.map(() => ({ port: 'out', output: { terms: value.terms ?? [] } }));
+      case 'terms': {
+        const terms = (value.terms ?? []) as unknown[];
+        return lines.map((_, index) => ({ port: 'out', output: { terms, batchLeader: index === 0 } }));
+      }
       case 'knowledge': {
         // Like terms, the change set describes the whole batch; line ids become line keys so it outlives the prompt.
         const keyOf = new Map(lines.map((line) => [line.id, line.key]));
         const known = (id: string | null | undefined) => (id ? (keyOf.get(id) ?? null) : null);
         const found = raw as KnowledgeOutput;
         const knowledge = {
-          characters: found.characters ?? [],
-          relationships: (found.relationships ?? []).map((rel) => ({ ...rel, at: known(rel.at) })),
+          characters: (found.characters ?? []).map((c) => ({
+            ...c,
+            evidence: ((c as { evidence?: string[] }).evidence ?? []).flatMap((id) => (keyOf.get(id) ? [keyOf.get(id)!] : [])),
+          })),
+          relationships: (found.relationships ?? []).map((rel) => ({ ...rel, at: known(rel.at), evidence: (rel.at && keyOf.get(rel.at) ? [keyOf.get(rel.at)!] : []) })),
           events: (found.events ?? []).map((event) => ({ ...event, evidence: event.evidence.flatMap((id) => (keyOf.get(id) ? [keyOf.get(id)!] : [])) })),
-          speechRules: (found.speechRules ?? []).map((rule) => ({ ...rule, start: known(rule.start) })),
+          speechRules: (found.speechRules ?? []).map((rule) => ({ ...rule, start: known(rule.start), evidence: (rule.start && keyOf.get(rule.start) ? [keyOf.get(rule.start)!] : []) })),
         };
-        return lines.map(() => ({ port: 'out', output: { knowledge } }));
+        return lines.map((_, index) => ({
+          port: 'out',
+          // To save space in run_items.data (H7), only the first line carries the full payload;
+          // subsequent lines carry an empty payload with batchLeader: false so downstream nodes skip redundant writes.
+          output: index === 0
+            ? { knowledge, batchLeader: true }
+            : { knowledge: { characters: [], relationships: [], events: [], speechRules: [] }, batchLeader: false },
+        }));
       }
       case 'listener':
         return lines.map((line) => {

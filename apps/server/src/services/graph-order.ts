@@ -173,6 +173,32 @@ export class GraphOrder {
     return this.dominates(x.node, l.node) ? 'definite' : 'maybe';
   }
 
+  /**
+   * Has the player passed line `point` when reaching this batch of lines?
+   * - "definite": for at least one line in the batch, `point` certainly came before it.
+   * - "maybe": for at least one line in the batch, `point` may have come before it (route-dependent).
+   * - "none": for all lines in the batch, `point` never comes before them (in the future or on an unreachable branch).
+   * - "unknown": not in the graph or unconnected.
+   */
+  batchPassage(point: string, batchLines: string[]): Passage {
+    if (!batchLines.length) return 'unknown';
+    let anyDefinite = false;
+    let anyMaybe = false;
+    let anyNone = false;
+    let allUnknown = true;
+    for (const line of batchLines) {
+      const p = this.passage(point, line);
+      if (p === 'definite') anyDefinite = true;
+      else if (p === 'maybe') anyMaybe = true;
+      else if (p === 'none') anyNone = true;
+      if (p !== 'unknown') allUnknown = false;
+    }
+    if (anyDefinite) return 'definite';
+    if (anyMaybe) return 'maybe';
+    if (allUnknown) return 'unknown';
+    return anyNone ? 'none' : 'unknown';
+  }
+
   /** Of two points both certainly passed before a line, is `a` passed after `b`? (deeper in the dominator tree, or later in one node) */
   later(a: string, b: string) {
     const x = this.nodeOf.get(a)!;

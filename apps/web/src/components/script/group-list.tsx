@@ -152,10 +152,10 @@ function ScriptLink({ projectId, scope, keep, className, children, ...props }: {
 
 function ScopeLink({ projectId, scope, active, icon, label, count, highlight }: { projectId: string; scope: ScriptScope; active: boolean; icon: ReactNode; label: string; count: number; highlight?: boolean }) {
   return (
-    <ScriptLink projectId={projectId} scope={scope} aria-current={active ? 'page' : undefined} className={cn('flex h-8 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted [&_svg]:size-4 [&_svg]:text-muted-foreground', active && 'bg-muted font-medium')}>
+    <ScriptLink projectId={projectId} scope={scope} aria-current={active ? 'page' : undefined} className={cn('flex h-7 items-center gap-2 rounded-md px-2 text-xs tracking-tight transition-colors hover:bg-surface-1/80 [&_svg]:size-3.5 [&_svg]:text-muted-foreground', active ? 'bg-surface-1 font-semibold text-foreground shadow-2xs' : 'text-muted-foreground')}>
       {icon}
-      {label}
-      <span className={cn('ml-auto text-xs tabular-nums', highlight ? 'font-medium text-foreground' : 'text-muted-foreground')}>{count.toLocaleString()}</span>
+      <span>{label}</span>
+      <span className={cn('ml-auto text-xs tabular-nums font-mono', highlight ? 'font-medium text-foreground' : 'text-muted-foreground/70')}>{count.toLocaleString()}</span>
     </ScriptLink>
   );
 }
@@ -170,15 +170,20 @@ function GroupItem({ projectId, group, done, active, indent, marks }: { projectI
       keep={Boolean(marks)}
       title={group.title}
       aria-current={active ? 'page' : undefined}
-      className={cn('flex h-8 items-center gap-2 rounded-md pr-2 text-sm', indent ? 'pl-7' : 'pl-2', active ? 'bg-muted font-medium' : 'hover:bg-muted/60', complete && !active && 'text-muted-foreground')}
+      className={cn(
+        'flex h-7 items-center gap-1.5 rounded-md pr-2 text-xs tracking-tight transition-colors',
+        indent ? 'pl-6' : 'pl-2',
+        active ? 'bg-surface-1 font-semibold text-foreground shadow-2xs' : 'text-foreground/90 hover:bg-surface-1/60',
+        complete && !active && 'text-muted-foreground/70'
+      )}
     >
       <span className="min-w-0 flex-1 truncate">{group.title}</span>
       {marks ? (
-        marked ? <span className="shrink-0 rounded-full bg-warning/15 px-1.5 text-xs text-warning tabular-nums">{marked}</span> : null
+        marked ? <span className="shrink-0 rounded-sm bg-warning/15 px-1.5 py-0.5 text-xs font-mono text-warning tabular-nums">{marked}</span> : null
       ) : complete ? (
-        <Check className="size-3.5 shrink-0 text-success" aria-label="완료" />
+        <Check className="size-3 shrink-0 text-success" aria-label="완료" />
       ) : (
-        <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{done}/{group.total}</span>
+        <span className="shrink-0 text-xs font-mono text-muted-foreground/70 tabular-nums">{done}/{group.total}</span>
       )}
     </ScriptLink>
   );

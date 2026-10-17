@@ -344,7 +344,7 @@ function Knowledge() {
     <Page title="자료" flush>
       <SplitPane
         id="knowledge"
-        defaultWidth="440px"
+        defaultWidth="500px"
         className="h-full"
         pane={
           selected ? (
@@ -377,9 +377,9 @@ function Knowledge() {
           count={count}
           actions={
             <>
-              <StartAnalysis projectId={projectId} variant={analysed ? 'outline' : 'default'} />
+              <StartAnalysis projectId={projectId} variant="outline" />
               {!pairsView && (
-                <Button variant={analysed ? 'default' : 'outline'} disabled={!spec.create || create.isPending} onClick={() => create.mutate()}>
+                <Button variant="default" disabled={!spec.create || create.isPending} onClick={() => create.mutate()}>
                   <Plus /> 추가
                 </Button>
               )}
@@ -492,9 +492,20 @@ function Knowledge() {
 /** A view switch (그래프 | 표, 흐름 | 표): the picture first, labelled in words. */
 function ViewSwitch({ label, value, onChange, items }: { label: string; value: string; onChange: (value: string) => void; items: { value: string; label: string; icon: ReactNode }[] }) {
   return (
-    <ToggleGroup type="single" variant="outline" size="sm" value={value} onValueChange={(next) => next && onChange(next)} aria-label={label}>
+    <ToggleGroup
+      type="single"
+      variant="outline"
+      value={value}
+      onValueChange={(next) => next && onChange(next)}
+      aria-label={label}
+      className="bg-surface-1 border border-border/80 p-0.5 rounded-lg gap-0.5"
+    >
       {items.map((item) => (
-        <ToggleGroupItem key={item.value} value={item.value} className="gap-1.5 px-2.5">
+        <ToggleGroupItem
+          key={item.value}
+          value={item.value}
+          className="gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium tracking-tight data-[state=on]:bg-surface-2 data-[state=on]:shadow-2xs [&_svg]:size-3.5 [&_svg]:stroke-[1.65]"
+        >
           {item.icon}
           {item.label}
         </ToggleGroupItem>

@@ -217,4 +217,57 @@ describe('context builder', () => {
     expect(run('Pat is here')).toContain('Pat');
     expect(run('Patty is here')).toContain('Pat');
   });
+
+  it('filters relationship changes and future relationships to prevent spoilers based on graph passage', () => {
+    const { db, projectId, unit } = setup();
+    const mira = db.select().from(s.characters).where(eq(s.characters.name, 'MIRA')).get()!;
+    const jonas = db.select().from(s.characters).where(eq(s.characters.name, 'JONAS')).get()!;
+
+    // 1. Relationship with time-based changes
+    db.insert(s.relationships).values({
+      projectId,
+      fromId: mira.id,
+      toId: jonas.id,
+      kind: 'colleagues',
+      description: '동료 수사관',
+      changes: [
+        { at: 'panel.1', change: '의견 충돌로 갈등', cause: '조사 방식' },
+        { at: 'tower.1', change: '위기 극복 후 깊은 신뢰', cause: '탑 수리 협력' },
+      ],
+    }).run();
+
+    // 2. Secret relationship whose evidence only appears later in tower.2
+    db.insert(s.relationships).values({
+      projectId,
+      fromId: jonas.id,
+      toId: mira.id,
+      kind: 'secret_alliance',
+      description: '비밀 결사 공모',
+      evidence: ['tower.2'],
+    }).run();
+
+    const batchArrival = [{ ...unit('arrival.1'), source: 'MIRA meets JONAS at arrival.' }];
+    const ctxArrival = buildContext(db, projectId, batchArrival, config({ characters: true, relationships: true }));
+    const relArrival = ctxArrival.relationships.find((r) => r.kind === 'colleagues')!;
+    expect(relArrival).toBeDefined();
+    // In arrival, panel.1 and tower.1 have not been reached yet -> changes blocked for spoiler prevention
+    expect(relArrival.changes).toBeUndefined();
+    // Secret alliance whose evidence is in tower.2 is suppressed completely
+    expect(ctxArrival.relationships.find((r) => r.kind === 'secret_alliance')).toBeUndefined();
+    expect(ctxArrival.items.find((item) => item.label.includes('colleagues'))?.reason).toContain('미래 변화 2건 차단');
+
+    // In panel.2, panel.1 has been passed, but tower.1 has not
+    const batchPanel = [{ ...unit('panel.2'), source: 'MIRA speaks to JONAS.' }];
+    const ctxPanel = buildContext(db, projectId, batchPanel, config({ characters: true, relationships: true }));
+    const relPanel = ctxPanel.relationships.find((r) => r.kind === 'colleagues')!;
+    expect(relPanel.changes).toEqual([{ at: 'panel.1', change: '의견 충돌로 갈등', cause: '조사 방식' }]);
+    expect(ctxPanel.relationships.find((r) => r.kind === 'secret_alliance')).toBeUndefined();
+
+    // In tower.2, both panel.1 and tower.1 have been passed, and evidence for secret_alliance is met
+    const batchTower = [{ ...unit('tower.2'), source: 'MIRA and JONAS at tower.' }];
+    const ctxTower = buildContext(db, projectId, batchTower, config({ characters: true, relationships: true }));
+    const relTower = ctxTower.relationships.find((r) => r.kind === 'colleagues')!;
+    expect(relTower.changes?.map((c) => c.at)).toEqual(['panel.1', 'tower.1']);
+    expect(ctxTower.relationships.find((r) => r.kind === 'secret_alliance')).toBeDefined();
+  });
 });

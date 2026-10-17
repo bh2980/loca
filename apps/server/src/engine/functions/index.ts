@@ -129,6 +129,10 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     const params = addTermsParams.parse(raw);
     const outputs = Object.entries(input.item.data.outputs ?? {});
     const source = params.fromNodeId ? input.item.data.outputs?.[params.fromNodeId] : outputs.reverse().find(([, output]) => Array.isArray(output.terms))?.[1];
+    // Skip redundant database writes for non-leader lines in the same batch (H7).
+    if (source && typeof source === 'object' && (source as { batchLeader?: boolean }).batchLeader === false) {
+      return { port: 'out', output: { added: 0, filled: 0, batchSkipped: true } };
+    }
     const found = (Array.isArray(source?.terms) ? source.terms : []) as { source?: string; target?: string; note?: string }[];
     // New terms land as AI › 사용 방식 says (one without a Korean form stays a candidate).
     const policy = aiConfirmOf(tx as unknown as Db, input.projectId);
@@ -147,6 +151,10 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     const params = applyKnowledgeParams.parse(raw);
     const outputs = Object.entries(input.item.data.outputs ?? {});
     const source = params.fromNodeId ? input.item.data.outputs?.[params.fromNodeId] : outputs.reverse().find(([, output]) => 'knowledge' in output)?.[1];
+    // Skip redundant database writes for non-leader lines in the same batch (H7).
+    if (source && typeof source === 'object' && (source as { batchLeader?: boolean }).batchLeader === false) {
+      return { port: 'out', output: { added: 0, proposed: 0, batchSkipped: true } };
+    }
     const found = (source?.knowledge ?? null) as KnowledgeOutput | null;
     if (!found) return { port: 'out', output: { added: 0, proposed: 0, reason: '자료 변경 출력이 없습니다.' } };
     const projectId = input.projectId;
@@ -157,14 +165,14 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     let added = 0;
     let proposed = 0;
 
-    // The batch's lines all carry the same change set; every insert checks first, so applying it again adds nothing.
-    // Read from the snapshot (fresh: every write bumps its version) but copied, since this node edits what it reads.
+    // The batch's lines all carry the same change set; only the batch leader writes to the database (H7).
     const know = knowledgeOf(tx as unknown as Db, projectId);
     const people = know.allCharacters();
     const idOf = new Map(people.flatMap((c) => [c.name, ...c.aliases].map((name) => [lower(name), c.id] as const)));
     for (const person of found.characters) {
       if ([person.name, ...person.aliases].some((name) => idOf.has(lower(name)))) continue;
-      const row = tx.insert(s.characters).values({ projectId, name: person.name, aliases: person.aliases, profile: person.profile, evidence: [input.unit.key], ...ai('characters') }).returning({ id: s.characters.id }).get();
+      const evidence = (person as { evidence?: string[] }).evidence?.length ? (person as { evidence?: string[] }).evidence! : [input.unit.key];
+      const row = tx.insert(s.characters).values({ projectId, name: person.name, aliases: person.aliases, profile: person.profile, evidence, ...ai('characters') }).returning({ id: s.characters.id }).get();
       for (const name of [person.name, ...person.aliases]) idOf.set(lower(name), row.id);
       added++;
     }
@@ -176,8 +184,9 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
       if (!fromId || !toId) continue;
       const change = rel.change && rel.at ? { at: rel.at, change: rel.change, cause: '' } : null;
       const same = rels.filter((existing) => existing.fromId === fromId && existing.toId === toId);
+      const relEvidence = change?.at ? [change.at] : ((rel as { evidence?: string[] }).evidence?.length ? (rel as { evidence?: string[] }).evidence! : [input.unit.key]);
       if (!same.length) {
-        rels.push(tx.insert(s.relationships).values({ projectId, fromId, toId, kind: rel.kind, description: rel.description, changes: change ? [change] : [], evidence: change ? [change.at] : [], ...ai('relationships') }).returning().get());
+        rels.push(tx.insert(s.relationships).values({ projectId, fromId, toId, kind: rel.kind, description: rel.description, changes: change ? [change] : [], evidence: relEvidence, ...ai('relationships') }).returning().get());
         added++;
         continue;
       }
@@ -209,9 +218,10 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
       if (pair.some((existing) => existing.startKey === rule.start && existing.level === rule.level)) continue;
       // A different level for a stretch a person already decided is a proposal, not a new rule.
       const disagrees = pair.some((existing) => existing.startKey === rule.start && existing.statusBy === 'human');
+      const ruleEvidence = (rule as { evidence?: string[] }).evidence?.length ? (rule as { evidence?: string[] }).evidence! : rule.start ? [rule.start] : [input.unit.key];
       rules.push(
         tx.insert(s.speechRules)
-          .values({ projectId, fromName: rule.from, toName: rule.to, level: rule.level, address: rule.address, note: rule.note, startKey: rule.start, evidence: rule.start ? [rule.start] : [input.unit.key], ...ai('speechRules'), ...(disagrees && { status: 'candidate' as const }) })
+          .values({ projectId, fromName: rule.from, toName: rule.to, level: rule.level, address: rule.address, note: rule.note, startKey: rule.start, evidence: ruleEvidence, ...ai('speechRules'), ...(disagrees && { status: 'candidate' as const }) })
           .returning()
           .get(),
       );

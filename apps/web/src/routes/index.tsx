@@ -15,12 +15,12 @@ function Home() {
     <div className="mx-auto flex min-h-svh max-w-4xl flex-col px-6 py-12">
       <header className="mb-8 flex items-end justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Languages className="size-5" />
+          <div className="flex size-8 items-center justify-center rounded-xs bg-primary text-primary-foreground">
+            <Languages className="size-4" />
           </div>
           <div>
             <h1 className="text-base font-semibold tracking-tight">loca</h1>
-            <p className="text-sm text-muted-foreground">게임 번역 프로젝트</p>
+            <p className="text-xs text-muted-foreground">게임 번역 프로젝트</p>
           </div>
         </div>
         {!!projects.data?.length && <ImportProjectDialog />}
@@ -48,12 +48,12 @@ function Home() {
       )}
       <div className="grid gap-3 sm:grid-cols-2">
         {projects.data?.map((project) => (
-          <Link key={project.id} to="/p/$projectId" params={{ projectId: project.id }} className="rounded-xl focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
-            <Card className="h-full transition-colors hover:bg-muted/40">
-              <CardHeader>
-                <CardTitle className="truncate">{project.name}</CardTitle>
-                <CardDescription className="flex items-center gap-2">
-                  <span className="uppercase">{project.sourceLanguage}</span>→<span className="uppercase">{project.targetLanguage}</span>
+          <Link key={project.id} to="/p/$projectId" params={{ projectId: project.id }} className="rounded-md focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none">
+            <Card className="h-full border-border/80 shadow-none transition-colors hover:bg-muted/40 hover:border-border">
+              <CardHeader className="p-4">
+                <CardTitle className="truncate text-sm font-semibold">{project.name}</CardTitle>
+                <CardDescription className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span className="uppercase font-mono">{project.sourceLanguage}</span>→<span className="uppercase font-mono">{project.targetLanguage}</span>
                   <span>·</span>
                   <span className="tabular-nums">대사 {project.units.toLocaleString()}개</span>
                 </CardDescription>

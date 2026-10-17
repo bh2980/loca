@@ -240,38 +240,42 @@ export function TranslationEditor({
         </div>
       )}
       <DraftChecks unitId={unit.id} source={unit.source} draft={draft} units={line.units} terms={line.terms} tags={tags} rules={project.data?.formatRules ?? undefined} targetLanguage={project.data?.targetLanguage} onPlace={placeMissing} />
-      <div className="flex flex-wrap items-center gap-2">
-        {dirty && <span className="text-xs text-warning">저장 안 됨</span>}
+      <div className="flex flex-wrap items-center gap-2 pt-1">
+        {dirty && <span className="text-xs font-medium text-warning">저장 안 됨</span>}
         {editorAi?.enabled && editorAi.model && !ai.loading && (
-          <Button variant="ghost" size="inline" className="text-muted-foreground" title={`이어질 번역 보기 (${keyLabel('Alt+/')}, Tab으로 받기)`} onClick={() => ask(draft)}>
-            <Sparkles /> AI 자동완성
+          <Button variant="ghost" size="inline" className="text-xs text-muted-foreground hover:text-foreground" title={`이어질 번역 보기 (${keyLabel('Alt+/')}, Tab으로 받기)`} onClick={() => ask(draft)}>
+            <Sparkles className="size-3.5 text-accent-indigo" /> AI 자동완성
           </Button>
         )}
         {editorAi?.assistModel ? (
-          <>
-            <Button variant="ghost" size="inline" className="text-muted-foreground" disabled={!!assist.loading} title={`원문에서 새로 번역${draft.trim() ? '' : ` (${keyLabel('Alt+.')})`}`} onClick={() => runAssist('translate')}>
-              <Languages /> AI 번역
+          <div className="flex items-center gap-1.5">
+            <Button
+              variant="outline"
+              disabled={!!assist.loading}
+              title={`원문에서 새로 번역${draft.trim() ? '' : ` (${keyLabel('Alt+.')})`}`}
+              onClick={() => runAssist('translate')}
+            >
+              <Languages className="size-3.5 text-accent-indigo" />
+              <span>AI 번역</span>
             </Button>
             <Button
-              variant="ghost"
-              size="inline"
-              className="text-muted-foreground"
+              variant="outline"
               disabled={!!assist.loading || !draft.trim()}
               title={draft.trim() ? `틀린 곳만 고치기 (${keyLabel('Alt+.')})` : '다듬을 번역이 없습니다'}
               onClick={() => runAssist('refine')}
             >
-              <WandSparkles /> 다듬기
+              <WandSparkles className="size-3.5 text-accent-indigo" />
+              <span>다듬기</span>
             </Button>
-          </>
+          </div>
         ) : (
-          <Button variant="ghost" size="inline" className="text-muted-foreground" asChild>
+          <Button variant="ghost" size="inline" className="text-xs text-muted-foreground hover:text-foreground" asChild>
             <Link to="/p/$projectId/ai/usage" params={{ projectId }} title="AI › 사용 방식에서 AI 번역·다듬기 모델을 고르면 쓸 수 있습니다">
-              <Sparkles /> AI 번역·다듬기 모델 고르기
+              <Sparkles className="size-3.5 text-muted-foreground" /> AI 번역 모델 설정
             </Link>
           </Button>
         )}
         {assist.loading && <Waiting label={assist.loading === 'refine' ? '다듬는 중…' : 'AI 번역 중…'} onCancel={() => (assistPending.current?.abort(), setAssist({}))} />}
-        {/* A new candidate shows at the top of the suggestions; only "nothing to fix" needs saying. */}
         {assist.done === 'unchanged' && <span className="text-xs text-muted-foreground">다듬을 곳이 없습니다</span>}
         {assist.message && <span className="text-xs text-muted-foreground">{assist.message}</span>}
         {ai.loading && <Waiting label="자동완성 받는 중…" onCancel={() => (pending.current?.abort(), setAi({ dismissed: true }))} />}
@@ -287,51 +291,71 @@ export function TranslationEditor({
               되돌리기
             </Button>
           )}
-          <Button variant={next ? 'outline' : 'default'} disabled={!dirty || save.isPending} onClick={() => run(false)} title={`저장 (${keyLabel('Mod+S')})`}>
+          <Button
+            variant="outline"
+            disabled={!dirty || save.isPending}
+            onClick={() => run(false)}
+            title={`저장 (${keyLabel('Mod+S')})`}
+          >
             저장
           </Button>
           {next && (
-            <Button disabled={save.isPending} onClick={() => run(true)} title={`${dirty ? '저장하고 ' : ''}‘${next.name}’(으)로 옮기고 다음 줄 (${keyLabel('Mod+Enter')})`}>
-              <StatusDot color={next.color} /> {next.name}
+            <Button
+              variant="default"
+              disabled={save.isPending}
+              onClick={() => run(true)}
+              title={`${dirty ? '저장하고 ' : ''}‘${next.name}’(으)로 옮기고 다음 줄 (${keyLabel('Mod+Enter')})`}
+            >
+              <StatusDot color={next.color} className="size-1.5" />
+              <span>{next.name}</span>
             </Button>
           )}
         </div>
       </div>
       {!dirty && <PreviousDiff unitId={unit.id} openAtFirst={unit.statusBy === 'ai'} />}
       {suggestions.length > 0 && (
-        <ol className="divide-y rounded-md border bg-background text-sm">
-          {suggestions.map((suggestion, index) => (
-            <li key={suggestion.key}>
-              <Button variant="ghost" size="row" className="h-auto items-start gap-2 rounded-none py-1.5 text-left font-normal" title={`번역 칸에 넣기 (${keyLabel(`Alt+Shift+${index + 1}`)})`} onClick={() => replaceLineText(unit.id, suggestion.text) || setDraft(suggestion.text)}>
-                <span className="mt-px w-6 shrink-0 font-mono text-xs text-muted-foreground">{keyLabel(`Alt+Shift+${index + 1}`)}</span>
-                <span className="min-w-0 flex-1">
-                  <TokenText text={suggestion.text} source={unit.source} pattern={line.tokenPattern} className="block" />
-                  {/* Where it comes from under the text, so the text keeps the full width. */}
-                  <span className="block text-xs text-muted-foreground">
-                    {suggestion.label}
-                    {suggestion.detail && ` · ${suggestion.detail}`}
-                  </span>
-                  {suggestion.reasons?.map((reason) => (
-                    <span key={reason} className="block text-xs text-muted-foreground">
-                      {reason}
-                    </span>
-                  ))}
-                  {suggestion.diff && (
-                    <span className="block text-xs text-muted-foreground">
-                      {suggestion.diff.map((word, at) => (
-                        <span key={at} className={cn(word.changed && 'rounded-sm bg-warning/15 text-warning')}>
-                          {at > 0 && ' '}
-                          {word.text}
-                        </span>
+        <div className="mt-2.5 overflow-hidden rounded-md border border-border/80 bg-surface-1/30">
+          <div className="border-b border-border-subtle bg-surface-1/60 px-3 py-1.5 text-xs font-medium text-muted-foreground select-none">
+            유사 번역 및 후보
+          </div>
+          <ol className="divide-y divide-border-subtle">
+            {suggestions.map((suggestion, index) => (
+              <li key={suggestion.key}>
+                <Button
+                  variant="ghost"
+                  size="row"
+                  className="group flex h-auto w-full items-start gap-3 rounded-none px-3 py-2 text-left hover:bg-surface-2"
+                  title={`번역 칸에 넣기 (${keyLabel(`Alt+Shift+${index + 1}`)})`}
+                  onClick={() => replaceLineText(unit.id, suggestion.text) || setDraft(suggestion.text)}
+                >
+                  <kbd className="mt-0.5 inline-flex shrink-0 items-center justify-center rounded border border-border/80 bg-surface-2 px-1.5 py-0.5 font-mono text-xs font-semibold text-muted-foreground group-hover:border-accent-indigo/40 group-hover:text-foreground select-none">
+                    {keyLabel(`Alt+Shift+${index + 1}`)}
+                  </kbd>
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <TokenText text={suggestion.text} source={unit.source} pattern={line.tokenPattern} className="block text-sm font-medium leading-relaxed text-foreground" />
+                    <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                      <span className="font-medium text-foreground/80">{suggestion.label}</span>
+                      {suggestion.detail && <span>· {suggestion.detail}</span>}
+                      {suggestion.reasons?.map((reason) => (
+                        <span key={reason}>· {reason}</span>
                       ))}
-                    </span>
-                  )}
-                </span>
-
-              </Button>
-            </li>
-          ))}
-        </ol>
+                    </div>
+                    {suggestion.diff && (
+                      <div className="text-xs text-muted-foreground">
+                        {suggestion.diff.map((word, at) => (
+                          <span key={at} className={cn(word.changed && 'rounded-xs bg-warning/15 px-0.5 text-warning font-medium')}>
+                            {at > 0 && ' '}
+                            {word.text}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </Button>
+              </li>
+            ))}
+          </ol>
+        </div>
       )}
     </div>
   );
