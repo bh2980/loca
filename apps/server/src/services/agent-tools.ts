@@ -8,12 +8,12 @@ import { byPerson } from './status-by.ts';
 import { inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
-import { characterInput, documentInput, eventInput, relationshipInput, speechRuleInput, termInput } from '../routes/knowledge.ts';
+import { characterInput, documentInput, eventInput, relationshipInput, speechRuleInput, termInput } from '../schemas/knowledge.ts';
 import { describeRule, knownListener, speechRuleIndex } from './speech.ts';
-import { workflowIssues } from '../routes/workflows.ts';
-import { statusInput, tagInput } from '../routes/projects.ts';
+import { workflowIssues } from './workflow-issues.ts';
+import { statusInput, tagInput } from '../schemas/projects.ts';
 import { mentions } from './context.ts';
-import { createRunInSteps, selectRunUnits } from '../engine/runner.ts';
+import { createRunInSteps, selectRunUnits } from '../engine/run-create.ts';
 import { snapshotWorkflowModels } from './routes.ts';
 import { readWebPage, webSearch } from './web.ts';
 import { deleteItems, DELETABLE_KINDS } from './item-delete.ts';
@@ -27,6 +27,7 @@ import { tagOverview } from './tag-overview.ts';
 import { setKnowledgeTag } from './knowledge-tags.ts';
 import { planRun, resolveRunModels, runModelInput } from './run-plan.ts';
 import { applyBatch, checkScript, findLines, lineContext, normalizeBatch, runStats, sceneStats, scenesWith, validateBatch } from './script-query.ts';
+import { addCandidate } from './candidates.ts';
 
 /** Lines of a batch proposal checked and applied per step when it is accepted. */
 const APPLY_CHUNK = 500;
@@ -449,7 +450,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       execute: ({ unitId, text, note }) => {
         const unit = db.select({ id: s.units.id }).from(s.units).where(and(eq(s.units.id, unitId), eq(s.units.projectId, projectId))).get();
         if (!unit) return { ok: false, error: '대사를 찾을 수 없습니다.' };
-        const id = db.insert(s.candidates).values({ unitId, text, note, origin: 'ai', model: author.model }).returning().get().id;
+        const id = addCandidate(db, { unitId, text, note, origin: 'ai', model: author.model });
         changed('units');
         return { ok: true, id };
       },

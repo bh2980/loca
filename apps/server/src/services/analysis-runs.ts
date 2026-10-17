@@ -4,8 +4,8 @@ export { isAnalysisWorkflow };
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
-import { createRunInSteps, refuseSecondAnalysis, runActive } from '../engine/runner.ts';
-import { workflowIssues } from '../routes/workflows.ts';
+import { createRunInSteps, refuseSecondAnalysis, runActive } from '../engine/run-create.ts';
+import { workflowIssues } from './workflow-issues.ts';
 import { liveChoice, snapshotWorkflowModels } from './routes.ts';
 import type { SecretStore } from './secrets.ts';
 

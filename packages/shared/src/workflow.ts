@@ -400,3 +400,9 @@ export function readinessUses(definition: WorkflowDefinition) {
     glossary: translating.some((node) => node.config.context?.glossary !== false) || fn('glossaryCheck'),
   };
 }
+
+/** Whether a run picks its lines by status (its entry names statuses and the scope does not ignore them): such a run never overwrites a translation a person saved (#51). */
+export const filtersByStatus = (definition: WorkflowDefinition, scope: { ignoreStatus?: boolean }) => {
+  const entry = definition.nodes.find((node) => node.type === 'entry');
+  return entry?.type === 'entry' && entry.config.statusIds.length > 0 && !scope.ignoreStatus;
+};

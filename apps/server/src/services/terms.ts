@@ -7,7 +7,7 @@ import { eachChunk } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { logged } from './ai-calls.ts';
-import type { ModelPort } from '../engine/runner.ts';
+import type { ModelPort } from '../engine/model-port.ts';
 import { liveChoice, resolveRoutes } from './routes.ts';
 import type { SecretStore } from './secrets.ts';
 import { fillTermUsage } from './term-usage.ts';

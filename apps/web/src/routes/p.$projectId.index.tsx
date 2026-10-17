@@ -212,11 +212,11 @@ function Home() {
                   className="flex items-center gap-4 px-4 py-3 text-sm hover:bg-muted/50"
                 >
                   <span className="w-40 shrink-0 truncate">
-                    {item.title !== JOB_KIND[item.kind] && <span className="mr-1.5 text-xs text-muted-foreground">{JOB_KIND[item.kind]}</span>}
+                    {item.title !== JOB_KIND[item.kind] && <><span className="mr-1 text-xs text-muted-foreground">{JOB_KIND[item.kind]}</span>{' '}</>}
                     <span className="font-medium">{item.title}</span>
-                  </span>
-                  <JobStatusBadge status={item.status} />
-                  <JobProgress done={item.done} total={item.total} running={item.status === 'running'} className="min-w-16 flex-1" />
+                  </span>{' '}
+                  <JobStatusBadge status={item.status} />{' '}
+                  <JobProgress done={item.done} total={item.total} running={item.status === 'running'} className="min-w-16 flex-1" />{' '}
                   <span className="w-24 shrink-0 text-right whitespace-nowrap text-muted-foreground tabular-nums">
                     {item.status === 'running' && item.total <= 1 ? <Elapsed since={item.at} /> : `${item.done.toLocaleString()}/${item.total.toLocaleString()}`}
                   </span>

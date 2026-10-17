@@ -5,7 +5,7 @@ import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { packGroups } from '../engine/batches.ts';
 import { buildPrompt } from '../engine/prompts.ts';
-import { planRun, sceneLinks, selectRunUnits } from '../engine/runner.ts';
+import { planRun, sceneLinks, selectRunUnits } from '../engine/run-create.ts';
 import { buildContext } from './context.ts';
 import { choiceLabel } from './routes.ts';
 import { speechRuleIndex } from './speech.ts';

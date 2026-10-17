@@ -1,16 +1,13 @@
-import { createUIMessageStream, createUIMessageStreamResponse, type UIMessage } from 'ai';
-import { markStopped, readToEnd, type ChatTurn } from './chat-turns.ts';
-import { enqueueSteer, interjectionPrompt, takeInterjections, writeInterjections } from './chat-interject.ts';
-import { eq } from 'drizzle-orm';
+import type { UIMessage } from 'ai';
+import type { ChatTurn } from './chat-turns.ts';
+import { enqueueSteer, takeInterjections, writeInterjections } from './chat-interject.ts';
 import * as ai from '@tw/ai';
 import { startCall } from './ai-calls.ts';
 import type { Db } from '../db/index.ts';
-import * as s from '../db/schema.ts';
-import { events } from '../events.ts';
+import type * as s from '../db/schema.ts';
 import { agentCatalog, jsonSchemaOf } from './agent-catalog.ts';
-import { refusalText } from './proposal-check.ts';
-import { CHANGE_NOTE, proposeChange } from './change-gate.ts';
-import { fitText } from './tool-output.ts';
+import { CHANGE_NOTE } from './change-gate.ts';
+import { chatStream, runCatalogTool, turnPrompt } from './chat-stream.ts';
 import { catchUp, CONTEXT_BUDGET, expandSteers, messageText, textOf, transcript, type AnsweredBy } from './chat-context.ts';
 
 /**
@@ -54,13 +51,9 @@ export async function piChatResponse(input: {
       description: tool.changes ? `${tool.description} (변경 도구: ${CHANGE_NOTE})` : tool.description,
       parameters: jsonSchemaOf(tool.schema),
       execute: async (args) => {
-        if (tool.changes) {
-          const gate = await proposeChange(db, { projectId: chat.projectId, sessionId: chat.id, source: 'pi', tool: tool.name, input: args });
-          if (!gate.ok) return { text: `제안을 만들지 않았습니다: ${refusalText(gate)}`, details: { ok: false, error: `제안하지 못했습니다: ${gate.error}` } };
-          return { text: gate.text, details: { proposalId: gate.proposalId, applied: gate.applied } };
-        }
-        const result = await tool.run(args);
-        return { text: fitText(result), details: result };
+        const result = await runCatalogTool(db, chat, 'pi', tool, args);
+        if (!result.ok) return { text: `제안을 만들지 않았습니다: ${result.reason}`, details: { ok: false, error: result.error } };
+        return { text: result.text, details: result.output };
       },
     }));
     // A new session (first turn, a restart, another model) starts with the record as real messages.
@@ -79,12 +72,14 @@ export async function piChatResponse(input: {
   const last = messages.at(-1);
   // Messages a previous turn could not take come after the new one.
   const leftover = takeInterjections(db, chat.id);
-  const prompt = [catchUp(messages.slice(0, -1), current.seen, CONTEXT_BUDGET.pi), input.view, last ? textOf(last) : '', interjectionPrompt(leftover)].filter(Boolean).join('\n\n');
+  const prompt = turnPrompt({ context: catchUp(messages.slice(0, -1), current.seen, CONTEXT_BUDGET.pi), view: input.view, text: last ? textOf(last) : '', leftover });
 
-  const stream = createUIMessageStream({
-    originalMessages: messages,
-    generateId: () => crypto.randomUUID(),
-    execute: async ({ writer }) => {
+  return chatStream({
+    db,
+    chat,
+    messages,
+    turn: input.turn,
+    execute: async (writer) => {
       writer.write({ type: 'message-metadata', messageMetadata: { answeredBy: input.answeredBy } });
       writeInterjections(writer, leftover);
       let textId: string | null = null;
@@ -150,14 +145,11 @@ export async function piChatResponse(input: {
         input.turn.signal.removeEventListener('abort', abort);
       }
     },
-    onFinish: ({ messages: final }) => {
+    alsoSave: (final) => {
       current.seen = final.length;
-      db.update(s.chatSessions).set({ messages: markStopped(final, input.turn.signal) }).where(eq(s.chatSessions.id, chat.id)).run();
-      events.changed(chat.projectId, 'chat');
+      return {};
     },
-    onError: (error) => (error instanceof Error ? error.message : String(error)),
   });
-  return createUIMessageStreamResponse({ stream, ...readToEnd(input.turn) });
 }
 
 /**

@@ -1,5 +1,5 @@
 import { and, eq, inArray } from 'drizzle-orm';
-import { badRequest } from '../context.ts';
+import { badRequest } from '../http-errors.ts';
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';

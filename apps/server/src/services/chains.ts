@@ -1,4 +1,4 @@
-import type { LayoutJob } from './layout-worker.ts';
+import type { LayoutJob } from './layout-types.ts';
 
 /** Fewest nodes a straight run needs to be folded into one block. */
 export const CHAIN_MIN = 3;

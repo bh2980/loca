@@ -14,7 +14,8 @@ import { wordDiff } from '@/lib/diff';
 import { placeTags } from '@/lib/tag-placement';
 import { editorChecks, useLineContext } from '@/lib/line-context';
 import type { TokenUnit } from '@/lib/tokens';
-import { saveLineNow, useSaveLine } from '@/lib/line-save';
+import { useSaveLine } from '@/lib/line-save';
+import { offerSameSource } from '@/lib/same-source';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { keyLabel } from '@/lib/keys';
@@ -152,7 +153,7 @@ export function TranslationEditor({
         onSuccess: () => {
           // Only the draft that was sent: anything typed after it stays a draft.
           clearDraft(sent);
-          if (changed && sent.trim()) void offerSameSource(sent);
+          if (changed && sent.trim()) void offerSame(sent);
           if (advance && next) toast.success(`${changed ? '저장하고 ' : ''}‘${next.name}’(으)로 옮겼습니다.`);
           onDone?.(advance);
         },
@@ -161,32 +162,7 @@ export function TranslationEditor({
     );
   };
 
-  /**
-   * After a new translation is saved, other lines with the same source that are not final and say
-   * something else are offered the same text (one click, never by itself). Who says it to whom is
-   * named, as the speech level may rightly differ.
-   */
-  const offerSameSource = async (text: string) => {
-    const same = await queryClient.fetchQuery({ ...q.sameSource(unit.id), staleTime: 0 }).catch(() => []);
-    const others = same.filter((line) => !line.final && (line.translation ?? '').trim() !== text.trim());
-    if (!others.length) return;
-    const who = [...new Set(others.map((line) => [line.speaker, line.listener && `→ ${listenerLabel(line.listener)}`].filter(Boolean).join(' ')).filter(Boolean))];
-    toast(`같은 원문 ${others.length}줄이 ${others.some((line) => line.translation) ? '다르게 번역돼' : '번역 없이'} 있습니다`, {
-      description: `${who.slice(0, 3).join(', ')}${who.length > 3 ? ` 외 ${who.length - 3}` : ''}${who.length ? ' · 화자·청자가 다르면 말투가 다를 수 있습니다' : ''}`,
-      duration: 10000,
-      action: {
-        label: '모두 이 번역으로',
-        onClick: async () => {
-          try {
-            for (const line of others) await saveLineNow({ unitId: line.id, text, base: line.translation ?? '' });
-            toast.success(`같은 원문 ${others.length}줄에 적용했습니다.`);
-          } catch (error) {
-            toast.error(error instanceof Error ? error.message : String(error));
-          }
-        },
-      },
-    });
-  };
+  const offerSame = (text: string) => offerSameSource(queryClient, unit.id, text);
 
   return (
     <div className={cn('space-y-2', className)} onClick={(event) => event.stopPropagation()}>

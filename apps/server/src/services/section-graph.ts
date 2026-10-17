@@ -1,4 +1,4 @@
-import type { LayoutJob } from './layout-worker.ts';
+import type { LayoutJob } from './layout-types.ts';
 
 /** Size of the stand-in for lines in another section ("→ 3장"). */
 export const PORTAL_SIZE: [number, number] = [150, 40];

@@ -2,7 +2,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { choiceKey, nodeModels, withRunModels, type AiNode, type RunModels } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { workflowIssues } from '../routes/workflows.ts';
+import { workflowIssues } from './workflow-issues.ts';
 import { preflight } from './preflight.ts';
 import { snapshotChoices } from './routes.ts';
 

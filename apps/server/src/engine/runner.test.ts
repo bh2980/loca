@@ -7,7 +7,8 @@ import { importProject } from '../services/importer.ts';
 import { snapshotWorkflowModels } from '../services/routes.ts';
 import { memoryStore } from '../services/secrets.ts';
 import { promptEntries } from './prompts.ts';
-import { createRun, Runner, type ModelPort } from './runner.ts';
+import { Runner, type ModelPort } from './runner.ts';
+import { createRun } from './run-create.ts';
 
 function setup(lines = 30) {
   const db = openDatabase(':memory:');
@@ -469,7 +470,7 @@ describe('who set the status', () => {
   });
 
   it('protects a person\'s translation only in runs that pick lines by status', async () => {
-    const { filtersByStatus } = await import('./functions/index.ts');
+    const { filtersByStatus } = await import('@tw/shared');
     const entry = (statusIds: string[]) => ({ nodes: [{ id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: { statusIds } }], edges: [] }) as never;
     expect(filtersByStatus(entry(['untranslated']), {})).toBe(true);
     // '상태 무시' or a workflow without a status filter (말투만 고치기) is asked to rewrite the lines it names.

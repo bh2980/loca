@@ -3,6 +3,7 @@ import type { Db } from '../db/index.ts';
 import { eachChunk } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { applyIssueTags } from './issue-tags.ts';
+import { addCandidate } from './candidates.ts';
 
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 type Unit = Pick<typeof s.units.$inferSelect, 'id' | 'projectId' | 'translation' | 'statusId'>;
@@ -56,8 +57,7 @@ export function saveLine(tx: Tx, unit: Unit, save: LineSave): Partial<typeof s.u
     if (save.base !== undefined && (save.base ?? '') !== current && text !== current) throw new LineConflict();
     if (text !== current || candidateId) {
       // The same text twice (a double click, a resent save) is one candidate, not two.
-      candidateId ??= tx.select({ id: s.candidates.id }).from(s.candidates).where(and(eq(s.candidates.unitId, unit.id), eq(s.candidates.text, text))).get()?.id;
-      candidateId ??= tx.insert(s.candidates).values({ unitId: unit.id, text, origin: save.origin ?? 'human', model: save.model ?? null, note: save.note }).returning().get().id;
+      candidateId ??= addCandidate(tx, { unitId: unit.id, text, origin: save.origin ?? 'human', model: save.model ?? null, note: save.note, reuseSame: true });
       patch.translation = text;
       patch.candidateId = candidateId;
     }
@@ -92,4 +92,24 @@ function startedStatus(tx: Tx, projectId: string, statusId: string): string | nu
   const current = tx.select({ kind: s.statuses.kind }).from(s.statuses).where(eq(s.statuses.id, statusId)).get();
   if (current?.kind !== 'initial') return null;
   return tx.select({ id: s.statuses.id }).from(s.statuses).where(and(eq(s.statuses.projectId, projectId), eq(s.statuses.kind, 'normal'), eq(s.statuses.inReview, false))).orderBy(asc(s.statuses.sort)).get()?.id ?? null;
+}
+
+/**
+ * One text for several lines at once (same-source apply, #49): each line goes through saveLine with
+ * the translation it showed, in the caller's transaction. A line changed since is skipped rather
+ * than overwritten or stopping the rest; the counts say what happened.
+ */
+export function saveSameText(tx: Tx, lines: { unit: Unit; base: string | null }[], text: string) {
+  let applied = 0;
+  let skipped = 0;
+  for (const { unit, base } of lines) {
+    try {
+      saveLine(tx, unit, { text, base });
+      applied++;
+    } catch (error) {
+      if (!(error instanceof LineConflict)) throw error;
+      skipped++;
+    }
+  }
+  return { applied, skipped };
 }
