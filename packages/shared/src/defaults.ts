@@ -7,7 +7,7 @@ export type StatusKind = 'initial' | 'normal' | 'final';
 /** `inReview`: lines in this status are listed in the review inbox, however they got there. */
 export const DEFAULT_STATUSES: { key: string; name: string; color: string; kind: StatusKind; inReview: boolean }[] = [
   { key: 'untranslated', name: '미번역', color: '#a1a1aa', kind: 'initial', inReview: false },
-  { key: 'draft', name: 'AI 초벌', color: '#3b82f6', kind: 'normal', inReview: false },
+  { key: 'draft', name: '초벌', color: '#3b82f6', kind: 'normal', inReview: false },
   { key: 'needs-review', name: '사람 확인 필요', color: '#f59e0b', kind: 'normal', inReview: true },
   { key: 'confirmed', name: '확정', color: '#22c55e', kind: 'final', inReview: false },
 ];

@@ -32,7 +32,7 @@ const KIND_ORDER: GroupKind[] = ['scene', 'ui', 'document'];
  * there, the run page shows them). The count is exactly what will run: scope ∩ entry statuses
  * (unless ignored).
  */
-export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, unitIds, unitsLabel, viewKind, dirty, disabled, trigger, defaultIgnoreStatus = false, preferWorkflow }: {
+export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: givenGroupIds, unitIds: givenUnitIds, unitsLabel, viewKind, dirty, disabled, trigger, defaultIgnoreStatus = false, preferWorkflow }: {
   projectId: string;
   /** Omit to let the user pick a workflow (when starting from a scene or a line selection). */
   workflowId?: string;
@@ -52,6 +52,11 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
 }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  // The lines and scenes it was opened with stay its scope while it is open: picks cleared or changed
+  // behind it (another tab, a refresh of the list) must not turn '고른 대사' into the whole project.
+  const [opened, setOpened] = useState<{ unitIds?: string[]; groupIds?: string[] }>({});
+  const unitIds = open ? opened.unitIds : givenUnitIds;
+  const groupIds = open ? opened.groupIds : givenGroupIds;
   // Dialogue is nearly the whole project, so like the whole project it is never preselected.
   const preselectKind = viewKind && viewKind !== 'scene' ? viewKind : undefined;
   const initialMode: Mode | undefined = unitIds?.length ? 'units' : groupIds?.length ? 'here' : preselectKind ? 'kind' : undefined;
@@ -81,7 +86,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
   const kindIds = kinds.find((entry) => entry.kind === pickedKind)?.ids ?? [];
   const scope =
     mode === 'kind' ? { groupIds: kindIds, ignoreStatus } : mode === 'units' ? { unitIds, ignoreStatus } : mode === 'here' ? { groupIds, ignoreStatus } : mode === 'groups' ? { groupIds: [...picked], ignoreStatus } : mode === 'tags' ? { tagIds: [...pickedTags], marks: [...pickedMarks] as LineMark[], ignoreStatus } : { ignoreStatus };
-  const ready = (mode === 'kind' && kindIds.length > 0) || mode === 'all' || mode === 'units' || mode === 'here' || (mode === 'groups' && picked.size > 0) || (mode === 'tags' && (pickedTags.size > 0 || pickedMarks.size > 0));
+  const ready = (mode === 'kind' && kindIds.length > 0) || mode === 'all' || (mode === 'units' && Boolean(unitIds?.length)) || (mode === 'here' && Boolean(groupIds?.length)) || (mode === 'groups' && picked.size > 0) || (mode === 'tags' && (pickedTags.size > 0 || pickedMarks.size > 0));
   // Only finished picks go out; one still missing its model stays in the picker meanwhile.
   const chosenModels = Object.fromEntries(Object.entries(runModels).filter(([, value]) => value.connectionId && value.model));
   const request = { ...scope, ...(Object.keys(chosenModels).length ? { models: chosenModels } : {}) };
@@ -122,7 +127,8 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds, un
       onOpenChange={(next) => {
         setOpen(next);
         if (next) {
-          setMode(initialMode);
+          setOpened({ unitIds: givenUnitIds, groupIds: givenGroupIds });
+          setMode(givenUnitIds?.length ? 'units' : givenGroupIds?.length ? 'here' : preselectKind ? 'kind' : undefined);
           setPickedKind(preselectKind);
           setPicked(new Set());
           setRunModels({});
