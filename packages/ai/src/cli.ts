@@ -80,7 +80,17 @@ interface Files {
  * request from about 15k to 9k input tokens with the same answers. Set through -c, which older
  * versions ignore for names they do not know (--disable would fail on them).
  */
-const CODEX_UNUSED_FEATURES = ['hooks', 'shell_tool', 'multi_agent', 'plugins', 'apps', 'browser_use', 'browser_use_external', 'computer_use', 'code_mode_host', 'goals', 'image_generation', 'view_image', 'sleep_tool', 'unified_exec', 'tool_suggest', 'skill_search', 'in_app_browser', 'workspace_dependencies', 'worktrees', 'collaboration_modes'];
+export const CODEX_UNUSED_FEATURES = ['hooks', 'shell_tool', 'multi_agent', 'plugins', 'apps', 'browser_use', 'browser_use_external', 'computer_use', 'code_mode_host', 'goals', 'image_generation', 'view_image', 'sleep_tool', 'unified_exec', 'tool_suggest', 'skill_search', 'in_app_browser', 'workspace_dependencies', 'worktrees', 'collaboration_modes'];
+
+/** Codex with none of its own tools and our instructions in place of its coding-agent ones: one-shot calls and the project chat alike. */
+export function codexIsolationArgs(instructionsFile: string): string[] {
+  return [
+    '-c', 'approval_policy="never"', '-c', 'web_search="disabled"',
+    ...CODEX_UNUSED_FEATURES.flatMap((feature) => ['-c', `features.${feature}=false`]),
+    // The key was renamed once; an unknown one is ignored.
+    '-c', `model_instructions_file=${JSON.stringify(instructionsFile)}`, '-c', `experimental_instructions_file=${JSON.stringify(instructionsFile)}`,
+  ];
+}
 
 function args(kind: CliKind, route: ResolvedRoute, schema: object, files: Files, timeoutMs: number): string[] {
   const effort = route.effort;
@@ -90,10 +100,7 @@ function args(kind: CliKind, route: ResolvedRoute, schema: object, files: Files,
         'exec', '--model', route.model, '--sandbox', 'read-only', '--skip-git-repo-check', '--ephemeral',
         '--ignore-user-config', '--color', 'never', '--json', '--cd', files.dir,
         '--output-schema', files.schema, '--output-last-message', files.result,
-        '-c', 'approval_policy="never"', '-c', 'web_search="disabled"',
-        ...CODEX_UNUSED_FEATURES.flatMap((feature) => ['-c', `features.${feature}=false`]),
-        // The key was renamed once; an unknown one is ignored.
-        '-c', `model_instructions_file=${JSON.stringify(files.instructions)}`, '-c', `experimental_instructions_file=${JSON.stringify(files.instructions)}`,
+        ...codexIsolationArgs(files.instructions),
         ...(effort ? ['-c', `model_reasoning_effort=${JSON.stringify(effort)}`] : []),
         '-',
       ];

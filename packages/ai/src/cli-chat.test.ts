@@ -1,8 +1,27 @@
 import { describe, expect, it } from 'vitest';
-import { readCliChat, turnShare } from './cli-chat.ts';
+import { cliChatCommand, readCliChat, turnShare } from './cli-chat.ts';
+import { CODEX_UNUSED_FEATURES } from './cli.ts';
+import type { ResolvedRoute } from './types.ts';
+
+const route: ResolvedRoute = { kind: 'codex', model: 'gpt-6-luna', effort: 'medium' };
+const turn = { system: 'System instructions', prompt: 'User message', timeoutMs: 10_000 };
 
 // Shapes as the CLIs print them (grok 1.0.46, Claude Code 2.1, codex 0.154 exec --json, agy 1.3, opencode run --format json).
 describe('CLI chat output', () => {
+  it('isolates Codex on new and resumed turns and uses only the prompt as its first message', () => {
+    for (const chatTurn of [turn, { ...turn, sessionId: 'session-1' }]) {
+      const { args, input } = cliChatCommand('codex', route, chatTurn, 'new-id', '/tmp/loca-chat/instructions.md');
+      for (const feature of CODEX_UNUSED_FEATURES) expect(args).toContain(`features.${feature}=false`);
+      expect(args).toContain('--ignore-user-config');
+      expect(args).toContain('model_instructions_file="/tmp/loca-chat/instructions.md"');
+      expect(args).toContain('experimental_instructions_file="/tmp/loca-chat/instructions.md"');
+      expect(input).toBe('User message');
+    }
+    expect(cliChatCommand('codex', route, turn, 'new-id', '/tmp/instructions.md').args).toContain('--sandbox');
+    expect(cliChatCommand('codex', route, { ...turn, sessionId: 'session-1' }, 'new-id', '/tmp/instructions.md').args).toContain('sandbox_mode="read-only"');
+    expect(cliChatCommand('opencode', { ...route, kind: 'opencode' }, turn, 'new-id', '/tmp/instructions.md').input).toBe('System instructions\n\n---\n\nUser message');
+  });
+
   it('reads Grok\'s pretty-printed object and Claude Code\'s result line', () => {
     const grok = JSON.stringify({ text: 'OK.', sessionId: 'g-1', usage: { input_tokens: 10, output_tokens: 2 } }, null, 2);
     expect(readCliChat('grok', grok, 'x')).toEqual({ sessionId: 'g-1', text: 'OK.', usage: { inputTokens: 10, outputTokens: 2 } });
