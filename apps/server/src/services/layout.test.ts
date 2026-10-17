@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { computeLayouts } from './layout.ts';
+import { computeLayouts, projectsWithoutLayouts } from './layout.ts';
 
 const fixture = vi.hoisted(() => ({ result: {} as unknown, terminated: [] as ReturnType<typeof vi.fn>[] }));
 vi.mock('node:worker_threads', async () => {
@@ -57,5 +57,15 @@ describe('layout worker results under Node watch', () => {
         { status: 'failed', error: 'ELK calculation failed' },
       ]);
     } finally { db.$client.close(); }
+  });
+});
+
+describe('projects never laid out', () => {
+  it('are found when they have graph nodes and no stored layout (imported outside the import route)', () => {
+    const { db, projectId } = setup();
+    db.insert(s.projects).values({ name: 'No graph', sourceLanguage: 'en', targetLanguage: 'ko' }).run();
+    expect(projectsWithoutLayouts(db)).toEqual([projectId]);
+    db.insert(s.graphLayouts).values({ projectId, scope: 'scene', section: '', status: 'ready' }).run();
+    expect(projectsWithoutLayouts(db)).toEqual([]);
   });
 });

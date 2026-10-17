@@ -182,6 +182,18 @@ export function projectsMissingSections(db: Db) {
   return rows.map((row) => row.projectId);
 }
 
+/**
+ * Projects with a source graph but no stored layout at all: imported without the import route
+ * (scripts/seed-samples.ts writes straight to the database). Their graph pages would stay
+ * "그래프가 없습니다" forever, so the server lays them out at start.
+ */
+export function projectsWithoutLayouts(db: Db) {
+  const rows = db.all<{ projectId: string }>(sql`
+    select distinct n.project_id as projectId from ${graphNodes} n
+    where not exists (select 1 from ${graphLayouts} l where l.project_id = n.project_id and l.section = '')`);
+  return rows.map((row) => row.projectId);
+}
+
 /** Stops the layout of a project that is being deleted; its result would have nowhere to go. */
 export function cancelLayout(projectId: string) {
   const state = active.get(projectId);
