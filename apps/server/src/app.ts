@@ -20,7 +20,8 @@ export function createApp(deps: Deps) {
   const api = new Hono<Env>()
     .use(async (c, next) => {
       c.set('deps', deps);
-      const changed = await trackChanges(next);
+      // x-client: the browser tab's id, so the event for its own change can say it came from there (#20).
+      const changed = await trackChanges(next, c.req.header('x-client')?.slice(0, 64));
       if (changed.size) c.res.headers.set('x-changed', [...changed].join(','));
     })
     .get('/events', (c) =>

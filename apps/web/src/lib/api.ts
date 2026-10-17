@@ -10,9 +10,18 @@ export const setChangeListener = (listener: (topics: string[]) => void) => {
 /** Refetch these topics now, for changes whose response could not say so (a streamed chat turn). */
 export const notifyChanged = (topics: string[]) => onChanged(topics);
 
+/**
+ * This tab's id, sent with every call (x-client): the server names it on an event made only by this
+ * tab's own writes, whose answers already refetched those topics, so the tab skips it (#20, lib/live.ts).
+ */
+// randomUUID needs a secure context; a page opened over plain http on another host still gets an id.
+export const CLIENT_ID = globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+
 /** Every call through the client: a write's own answer says what it changed, so the screens never wait on the event stream. */
 export async function apiFetch(input: RequestInfo | URL, init?: RequestInit) {
-  const response = await fetch(input, init);
+  const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
+  headers.set('x-client', CLIENT_ID);
+  const response = await fetch(input, { ...init, headers });
   const changed = response.headers.get('x-changed');
   if (changed) onChanged(changed.split(','));
   return response;
