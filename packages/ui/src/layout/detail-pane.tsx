@@ -105,7 +105,7 @@ export function PaneSection({
   return (
     <section className={cn("space-y-2", className)}>
       <div className="flex min-h-5 items-center gap-2">
-        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <h3 className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
           {title}
         </h3>
         {actions && <div className="ml-auto flex items-center gap-1">{actions}</div>}
@@ -127,7 +127,7 @@ export function FieldRow({
 }) {
   return (
     <div className={cn("flex min-h-7 items-center gap-2.5 text-xs", className)}>
-      <span className="w-16 shrink-0 text-[11px] font-medium text-muted-foreground">
+      <span className="w-16 shrink-0 text-2xs font-medium text-muted-foreground">
         {label}
       </span>
       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
