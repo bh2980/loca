@@ -379,6 +379,13 @@
       "when": 1792249855350,
       "tag": "0053_rename_draft_status",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "6",
+      "when": 1792252761372,
+      "tag": "0054_proposal_reported_at",
+      "breakpoints": true
     }
   ]
 }

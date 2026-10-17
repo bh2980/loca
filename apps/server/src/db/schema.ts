@@ -645,6 +645,8 @@ export const proposals = sqliteTable(
     result: json<unknown>('result'),
     createdAt: createdAt(),
     decidedAt: integer('decided_at', { mode: 'timestamp_ms' }),
+    /** When the chat's agent was told the decision (once, whichever backend runs the next turn; #46). */
+    reportedAt: integer('reported_at', { mode: 'timestamp_ms' }),
   },
   (t) => [index('proposals_project').on(t.projectId, t.status)],
 );
@@ -660,7 +662,8 @@ export const chatSessions = sqliteTable('chat_sessions', {
   messages: json<unknown[]>('messages').notNull().default(sql`'[]'`),
   /** An agent CLI's own session for this chat (resumed each turn), and when it last took a turn. */
   /** `totals`: the CLI's running usage for the conversation, when it reports one (see cliChat). */
-  agentSession: json<{ kind: string; model: string; id: string; lastTurnAt: number; totals?: Usage }>('agent_session'),
+  /** The CLI's own session for this chat: a cache. `seen` = how many messages of the record it has been given (#46). */
+  agentSession: json<{ kind: string; model: string; id: string; lastTurnAt: number; totals?: Usage; seen?: number }>('agent_session'),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });

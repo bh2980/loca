@@ -550,6 +550,7 @@ ACP 도입 자체는 목표가 아니다. CLI를 고른 사용자도 대량 번�
 
 - **채팅 연결 세 가지**: OpenAI 호환 API(AI SDK 도구 호출, 변경 도구는 승인 카드), pi(서버 안의 pi SDK 세션. 로그인은 pi가 관리, 모델은 "공급자/모델"), **에이전트 CLI**(Claude Code·Codex·Grok·agy·opencode).
   - CLI는 자기 세션을 디스크에 두고 매 턴 이어 붙인다(Claude Code·Grok `--session-id`→`--resume`, Codex `exec resume`, agy `--conversation`, opencode `--session`). 세션 id는 대화(chat_sessions.agent_session)에 저장하고, 연결 종류나 모델이 바뀌면 새 세션에 이전 대화 기록을 넘긴다.
+  - **대화 기록 하나가 기준(SSOT, #46)**: 대화의 메시지는 서버의 `chat_sessions.messages` 하나뿐이다. 브라우저는 새 사용자 메시지(또는 다시 생성)만 보내고 서버가 기록에 합친다(`mergeIncoming`: 덧붙임, 같은 id의 마지막 메시지만 교체, 다시 생성은 끝의 답을 뺀다). 답마다 `metadata.answeredBy`(연결 종류·연결·모델)를 남긴다. 연결·모델·CLI를 바꿔도 기록은 그대로이고, 각 길이 그 기록에서 문맥을 만든다(`services/chat-context.ts`): API는 예산(약 20만 자) 안에서 최근 메시지를 그대로, 넘치면 앞부분을 요약 메시지 하나(`handover`)로. pi는 기록을 pi 세션 기록으로 심고(같은 연결·모델이면 살아 있는 세션을 재사용), CLI는 자기 세션이 본 메시지 수(`agent_session.seen`)를 기억해 그 뒤에 다른 모델이 한 말만 따라잡게 알려 준다(`catchUp`, CLI 예산 12만 자). 제안을 수락·거절한 결과는 `proposals.reported_at`이 비어 있는 것만 다음 턴에 한 번 알린다(`takeDecisions`).
   - CLI 자신의 셸·파일·웹 도구는 끈다. Grok은 셸을 한 명령으로 제한할 수 없고(deny가 모든 allow를 이김), agy는 헤드리스에서 권한을 자동 거부하기 때문이다. 대신 작업실 도구(pi·CLI와 같은 카탈로그)를 답 안의 `loca-tools` 블록으로 요청받아 서버가 실행하고(읽기는 바로, 변경은 이 대화의 제안), 결과를 같은 세션에 이어 보낸다(한 메시지에 최대 8번).
   - 스트리밍은 메시지 단위다(CLI가 한 차례 답을 끝내면 그 글과 도구 호출이 한꺼번에 보인다). 다중 턴·도구·스트리밍은 서로 다른 기능이고, CLI는 앞의 둘을 지원한다.
   pi와 CLI에서 온 변경은 바로 실행하지 않고 **제안**(proposals)으로 저장해 채팅 패널에서 수락/거절한다. AI 노드에서도 pi 연결을 쓸 수 있다.

@@ -13,7 +13,7 @@ export { ModelError, type ModelErrorCode } from './errors.ts';
 export { cliLoginStatus, cliVersion, openLoginTerminal, LOGIN_COMMANDS } from './cli.ts';
 export { CHAT_CLI_KINDS, cliChat, readCliChat, type ChatCliKind, type CliChatResult, type CliChatTurn } from './cli-chat.ts';
 export { openaiProviderOptions } from './openai.ts';
-export { createPiChatSession, piModel, piModelsWith, piResources, piRuntime, resetPiRuntime, type PiSession, type PiToolSpec } from './pi.ts';
+export { createPiChatSession, piModel, piModelsWith, piResources, piRuntime, resetPiRuntime, type PiHistoryMessage, type PiSession, type PiToolSpec } from './pi.ts';
 
 export function generate<T>(route: ResolvedRoute, request: GenerateRequest<T>): Promise<GenerateResult<T>> {
   if (route.kind === 'openai') return openaiGenerate(route, request);

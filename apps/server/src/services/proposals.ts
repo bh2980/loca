@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
@@ -77,7 +77,7 @@ export const INTERRUPTED_PROPOSAL = '적용하는 중에 서버가 꺼져 결과
 /**
  * Proposals a stopped server was still applying. They are closed as failed, not run again: the tool may
  * have changed part of the project before the stop, and running it twice is what the claim above prevents.
- * The message tells the person (and the agent, through decisionsSince) to check what landed.
+ * The message tells the person (and the agent, through takeDecisions) to check what landed.
  */
 export function closeInterruptedProposals(db: Db) {
   const rows = db
@@ -90,15 +90,22 @@ export function closeInterruptedProposals(db: Db) {
   return rows.length;
 }
 
+/** How a decision reads to the agent. */
+const DECISION_WORD = { accepted: '수락되어 반영됨', rejected: '사용자가 거절함', failed: '수락했지만 실패함', pending: '', running: '' } as const;
+
 /**
- * Decisions the chat's agent has not heard about yet, as a line for its next prompt. A decided
- * proposal is reported once: `reportedAt` would need a column, so the caller passes what it already said.
+ * Decisions the chat's agent has not heard about yet, as text for its next prompt, marked as told.
+ * One column (`reported_at`) for every backend, so a decision is told once even across a restart
+ * or a switch of model (#46). Null when there is nothing new.
  */
-export function decisionsSince(db: Db, sessionId: string, since: Date) {
-  return db
+export function takeDecisions(db: Db, sessionId: string) {
+  const decided = db
     .select()
     .from(s.proposals)
-    .where(eq(s.proposals.sessionId, sessionId))
+    .where(and(eq(s.proposals.sessionId, sessionId), isNull(s.proposals.reportedAt), isNotNull(s.proposals.decidedAt)))
     .all()
-    .filter((proposal) => proposal.decidedAt && proposal.decidedAt > since);
+    .filter((proposal) => proposal.status !== 'pending' && proposal.status !== 'running');
+  if (!decided.length) return null;
+  db.update(s.proposals).set({ reportedAt: new Date() }).where(inArray(s.proposals.id, decided.map((proposal) => proposal.id))).run();
+  return `지난 제안의 결과:\n${decided.map((proposal) => `- ${proposal.tool} (${proposal.id}): ${DECISION_WORD[proposal.status]}${proposal.status === 'failed' ? ` — ${JSON.stringify(proposal.result).slice(0, 300)}` : ''}`).join('\n')}`;
 }

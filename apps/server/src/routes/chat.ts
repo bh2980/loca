@@ -14,6 +14,7 @@ import { liveChoice } from '../services/routes.ts';
 import { closePiChat, piChatResponse } from '../services/pi-chat.ts';
 import { withFittedResults } from '../services/tool-output.ts';
 import { cliChatResponse } from '../services/cli-chat.ts';
+import { CONTEXT_BUDGET, fitMessages, mergeIncoming, type AnsweredBy } from '../services/chat-context.ts';
 
 /** pi cannot pause a tool call for a card, so change tools there record a proposal instead. */
 const PI_NOTE = `이 대화에서 프로젝트를 바꾸는 도구(save_*, propose_translation)는 바로 실행되지 않고 '제안'으로 올라갑니다. 사용자가 채팅 패널의 카드에서 수락하면 반영되고, 결과는 다음 메시지 앞에 알려 드립니다. 제안한 뒤에는 무엇을 왜 제안했는지 짧게 설명하고 기다리세요. 워크플로 노드 편집(edit_workflow_node)은 이 대화에서 쓸 수 없습니다.`;
@@ -99,8 +100,9 @@ export const chatRoutes = new Hono<Env>()
     if (row) events.changed(row.projectId, 'chat');
     return c.json({ ok: true });
   })
-  /** AI SDK UI message stream. The client sends the whole conversation; it is saved when the turn ends. */
-  .post('/chat/:sessionId/stream', validate('json', z.object({ messages: z.array(z.any()), view: viewSchema.optional() })), async (c) => {
+  // The server owns the conversation record (#46): the browser sends the new message only (an
+  // answered approval resends the reply it belongs to), and the turn reads everything else from here.
+  .post('/chat/:sessionId/stream', validate('json', z.object({ message: z.any().optional(), messages: z.array(z.any()).optional(), trigger: z.enum(['submit-message', 'regenerate-message']).optional(), view: viewSchema.optional() })), async (c) => {
     const { db, secrets } = c.var.deps;
     const session = found(db.select().from(s.chatSessions).where(eq(s.chatSessions.id, c.req.param('sessionId'))).get(), '대화');
     if (!session.connectionId || !session.model) badRequest('입력창 아래에서 채팅할 AI 연결과 모델을 고르세요.');
@@ -112,7 +114,11 @@ export const chatRoutes = new Hono<Env>()
     }
     // A chat talks to one model: the connection's fallback is for workflow and analysis requests.
     const route = live.routes[0]!;
-    const messages = c.req.valid('json').messages as UIMessage[];
+    const body = c.req.valid('json');
+    const incoming = (body.message ?? body.messages?.at(-1)) as UIMessage | undefined;
+    const messages = mergeIncoming(session.messages as UIMessage[], incoming, body.trigger);
+    if (!messages.length) badRequest('보낼 메시지가 없습니다.');
+    const answeredBy: AnsweredBy = { kind: route.kind, connectionId: session.connectionId!, model: route.model };
 
     const firstUser = messages.find((message) => message.role === 'user');
     const firstText = firstUser?.parts.find((part) => part.type === 'text');
@@ -136,6 +142,7 @@ export const chatRoutes = new Hono<Env>()
         system: AGENT_SYSTEM,
         view: view ? describeView(view) : null,
         messages,
+        answeredBy,
         timeoutMs: live.snapshot.timeoutSeconds * 1000,
         signal: turn.signal,
         onEnd: turn.end,
@@ -150,6 +157,7 @@ export const chatRoutes = new Hono<Env>()
           system: [AGENT_SYSTEM, PI_NOTE].join('\n\n'),
           view: view ? describeView(view) : null,
           messages,
+          answeredBy,
           signal: turn.signal,
           onEnd: turn.end,
         });
@@ -167,7 +175,7 @@ export const chatRoutes = new Hono<Env>()
       onAbort: () => finish({ error: '중단함' }),
       system: [AGENT_SYSTEM, view && describeView(view)].filter(Boolean).join('\n\n'),
       // An editor proposal left unanswered before the next message is dropped rather than failing the turn.
-      messages: await convertToModelMessages(messages, { ignoreIncompleteToolCalls: true }),
+      messages: await convertToModelMessages(fitMessages(messages, CONTEXT_BUDGET.api), { ignoreIncompleteToolCalls: true }),
       tools: withFittedResults(agentTools(db, session.projectId, { model: route.model })),
       stopWhen: stepCountIs(30),
       maxOutputTokens: live.snapshot.maxOutputTokens,
@@ -176,8 +184,10 @@ export const chatRoutes = new Hono<Env>()
     });
     return result.toUIMessageStreamResponse({
       originalMessages: messages,
-      // Why the turn ended, so the panel can say "hit the output limit" instead of going quiet.
-      messageMetadata: ({ part }) => (part.type === 'finish' ? { finishReason: part.finishReason } : undefined),
+      // Ids from the server, so the record and the browser name a reply the same (an approval is merged by id).
+      generateMessageId: () => crypto.randomUUID(),
+      // Who answered, and why the turn ended (the panel says "hit the output limit" instead of going quiet).
+      messageMetadata: ({ part }) => (part.type === 'start' ? { answeredBy } : part.type === 'finish' ? { answeredBy, finishReason: part.finishReason } : undefined),
       onFinish: ({ messages: final }) => {
         db.update(s.chatSessions).set({ messages: final }).where(and(eq(s.chatSessions.id, session.id))).run();
         events.changed(session.projectId, 'chat');
