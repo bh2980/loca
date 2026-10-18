@@ -13,6 +13,7 @@ import { importProject } from '../services/importer.ts';
 import type { DecidedTable } from '../services/status-by.ts';
 import { defaultModelChoice } from '../services/routes.ts';
 import { cancelLayout, computeLayouts } from '../services/layout.ts';
+import { REGEX_TARGETS, generateRegex } from '../services/regex-assist.ts';
 import { editorCallsToday } from '../services/editor-complete.ts';
 import { statusInput, tagInput } from '../schemas/projects.ts';
 
@@ -205,4 +206,11 @@ export const projectRoutes = new Hono<Env>()
       throw error;
     }
     return c.json({ ok: true });
+  })
+  /** 자연어로 정규식 만들기: one format rule from a description, checked with the settings' own pattern rule. Nothing is saved. */
+  .post('/:projectId/generate-regex', validate('json', z.object({ prompt: z.string().trim().min(1).max(500), target: z.enum(REGEX_TARGETS) })), async (c) => {
+    const { db, secrets } = c.var.deps;
+    const projectId = c.req.param('projectId');
+    found(db.select({ id: s.projects.id }).from(s.projects).where(eq(s.projects.id, projectId)).get(), '프로젝트');
+    return c.json(await generateRegex(db, secrets, projectId, c.req.valid('json'), c.req.raw.signal));
   });

@@ -8,6 +8,7 @@ import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { useFormFrom } from '@/lib/use-form-from';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
+import { AiRegexInput } from '@/components/ai-regex-input';
 
 const KIND = { placeholder: '자리표시자', tag: '서식 태그' } as const;
 
@@ -130,6 +131,16 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
           <p className="text-xs font-medium text-foreground">직접 추가 (정규식)</p>
           <p className="text-xs text-muted-foreground">이 게임에만 쓰이는 고유한 치환자나 태그 문법을 정규식으로 등록합니다.</p>
         </div>
+
+        <AiRegexInput
+          projectId={projectId}
+          target="token"
+          onRule={(rule) => {
+            if (rule.kind !== 'placeholder' && rule.kind !== 'tag') return;
+            setDraft((current) => ({ ...current, custom: [...current.custom, { label: rule.label, kind: rule.kind, pattern: rule.pattern }] }));
+            toast.success(`'${rule.label}' 규칙을 추가했습니다. 저장해야 적용됩니다.`);
+          }}
+        />
 
         {detected?.customCandidates && detected.customCandidates.length > 0 && (
           <div className="rounded-md border border-border bg-muted/40 p-3 space-y-2">
