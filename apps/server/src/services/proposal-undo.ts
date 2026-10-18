@@ -1,8 +1,6 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { events } from '../events.ts';
-import { decideProposal, propose } from './proposals.ts';
 import { readProjectSettings } from './project-settings.ts';
 
 type Proposal = typeof s.proposals.$inferSelect;
@@ -19,7 +17,7 @@ type Inverse = {
 const NONE = '이 변경은 되돌릴 수 없습니다';
 const none = (reason: string): s.ProposalUndo => ({ none: reason });
 const call = (tool: string, input: Record<string, unknown>): Call => ({ tool, input });
-const isRecord = (value: unknown): value is Record<string, unknown> =>
+export const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 const objectList = (value: unknown): Record<string, unknown>[] =>
   Array.isArray(value) ? value.filter(isRecord) : [];
@@ -354,63 +352,4 @@ export function captureUndo(db: Db, proposal: Proposal): (result: unknown) => s.
       return none(`되돌리기를 준비하지 못했습니다: ${reason}`);
     }
   };
-}
-
-export async function undoProposals(db: Db, sessionId: string, ids: string[]) {
-  const rows = db.select().from(s.proposals)
-    .where(and(eq(s.proposals.sessionId, sessionId), inArray(s.proposals.id, ids))).all()
-    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-  const results: { id: string; ok: boolean; error?: string; skipped?: string[] }[] = [];
-  for (const original of rows) {
-    if (original.status !== 'accepted' || original.undoneAt) {
-      const error = original.undoneAt ? '이미 되돌렸습니다' : '수락된 제안이 아닙니다';
-      results.push({ id: original.id, ok: false, error });
-      continue;
-    }
-    if (!original.undo || 'none' in original.undo) {
-      results.push({ id: original.id, ok: false,
-        error: original.undo && 'none' in original.undo ? original.undo.none : '되돌리기 정보를 찾을 수 없습니다' });
-      continue;
-    }
-    const skipped: string[] = [];
-    let failedTool: string | null = null;
-    let completedCalls = 0;
-    try {
-      for (const inverseCall of original.undo.calls) {
-        failedTool = inverseCall.tool;
-        const inverse = propose(db, {
-          projectId: original.projectId, sessionId, source: original.source,
-          tool: inverseCall.tool, input: inverseCall.input,
-          review: `되돌리기 (proposal ${original.id})`,
-        });
-        const applied = await decideProposal(db, inverse.id, true, 'person');
-        db.update(s.proposals).set({ reportedAt: new Date() }).where(eq(s.proposals.id, inverse.id)).run();
-        if (applied.status !== 'accepted') {
-          const value = isRecord(applied.result) && typeof applied.result.error === 'string'
-            ? applied.result.error : '도구 실행에 실패했습니다';
-          throw new Error(value);
-        }
-        if (isRecord(applied.result) && Array.isArray(applied.result.skipped)) {
-          for (const item of applied.result.skipped) {
-            if (isRecord(item) && typeof item.key === 'string') skipped.push(item.key);
-            else if (isRecord(item) && typeof item.id === 'string') skipped.push(item.id);
-          }
-        }
-        completedCalls++;
-      }
-      db.update(s.proposals).set({ undoneAt: new Date(), reportedAt: null })
-        .where(eq(s.proposals.id, original.id)).run();
-      events.changed(original.projectId, 'proposals');
-      results.push({ id: original.id, ok: true, ...(skipped.length && { skipped }) });
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      const partial = completedCalls ? '일부만 되돌렸습니다: ' : '';
-      results.push({ id: original.id, ok: false,
-        error: `${partial}${failedTool ?? '되돌리기'} 실패 — ${detail}` });
-    }
-  }
-  for (const id of ids) {
-    if (!rows.some((row) => row.id === id)) results.push({ id, ok: false, error: '제안을 찾을 수 없습니다' });
-  }
-  return results;
 }

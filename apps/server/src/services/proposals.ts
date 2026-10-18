@@ -4,7 +4,7 @@ import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { agentCatalog } from './agent-catalog.ts';
-import { captureUndo } from './proposal-undo.ts';
+import { captureUndo, isRecord } from './proposal-undo.ts';
 
 /** Stores a proposal; callers check it first with prepareProposal (proposal-check.ts). */
 export function propose(db: Db, input: { projectId: string; sessionId: string | null; model?: string | null; source: 'pi' | 'cli' | 'api'; tool: string; input: Record<string, unknown>; report?: s.ProposalReport | null; review?: string | null }) {
@@ -126,4 +126,67 @@ export function takeDecisions(db: Db, sessionId: string) {
   if (!decided.length) return null;
   db.update(s.proposals).set({ reportedAt: new Date() }).where(inArray(s.proposals.id, decided.map((proposal) => proposal.id))).run();
   return `지난 제안의 결과:\n${decided.map((proposal) => `- ${proposal.tool} (${proposal.id}): ${proposal.undoneAt ? '수락되어 반영된 뒤 사용자가 되돌림' : proposal.status === 'accepted' ? acceptedLabel(proposal.tool).decided : DECISION_WORD[proposal.status]}${proposal.status === 'rejected' && proposal.reason ? ` — 이유: ${proposal.reason}` : ''}${proposal.status === 'failed' ? ` — ${JSON.stringify(proposal.result).slice(0, 300)}` : ''}`).join('\n')}`;
+}
+
+/**
+ * Undoes accepted changes of a conversation, newest first: each inverse call (captureUndo) is a
+ * proposal the person accepts, so it goes through the same tools and checks (a line edited since is skipped).
+ */
+export async function undoProposals(db: Db, sessionId: string, ids: string[]) {
+  const rows = db.select().from(s.proposals)
+    .where(and(eq(s.proposals.sessionId, sessionId), inArray(s.proposals.id, ids))).all()
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  const results: { id: string; ok: boolean; error?: string; skipped?: string[] }[] = [];
+  for (const original of rows) {
+    if (original.status !== 'accepted' || original.undoneAt) {
+      const error = original.undoneAt ? '이미 되돌렸습니다' : '수락된 제안이 아닙니다';
+      results.push({ id: original.id, ok: false, error });
+      continue;
+    }
+    if (!original.undo || 'none' in original.undo) {
+      results.push({ id: original.id, ok: false,
+        error: original.undo && 'none' in original.undo ? original.undo.none : '되돌리기 정보를 찾을 수 없습니다' });
+      continue;
+    }
+    const skipped: string[] = [];
+    let failedTool: string | null = null;
+    let completedCalls = 0;
+    try {
+      for (const inverseCall of original.undo.calls) {
+        failedTool = inverseCall.tool;
+        const inverse = propose(db, {
+          projectId: original.projectId, sessionId, source: original.source,
+          tool: inverseCall.tool, input: inverseCall.input,
+          review: `되돌리기 (proposal ${original.id})`,
+        });
+        const applied = await decideProposal(db, inverse.id, true, 'person');
+        db.update(s.proposals).set({ reportedAt: new Date() }).where(eq(s.proposals.id, inverse.id)).run();
+        if (applied.status !== 'accepted') {
+          const value = isRecord(applied.result) && typeof applied.result.error === 'string'
+            ? applied.result.error : '도구 실행에 실패했습니다';
+          throw new Error(value);
+        }
+        if (isRecord(applied.result) && Array.isArray(applied.result.skipped)) {
+          for (const item of applied.result.skipped) {
+            if (isRecord(item) && typeof item.key === 'string') skipped.push(item.key);
+            else if (isRecord(item) && typeof item.id === 'string') skipped.push(item.id);
+          }
+        }
+        completedCalls++;
+      }
+      db.update(s.proposals).set({ undoneAt: new Date(), reportedAt: null })
+        .where(eq(s.proposals.id, original.id)).run();
+      events.changed(original.projectId, 'proposals');
+      results.push({ id: original.id, ok: true, ...(skipped.length && { skipped }) });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      const partial = completedCalls ? '일부만 되돌렸습니다: ' : '';
+      results.push({ id: original.id, ok: false,
+        error: `${partial}${failedTool ?? '되돌리기'} 실패 — ${detail}` });
+    }
+  }
+  for (const id of ids) {
+    if (!rows.some((row) => row.id === id)) results.push({ id, ok: false, error: '제안을 찾을 수 없습니다' });
+  }
+  return results;
 }

@@ -3,9 +3,8 @@ import { and, desc, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { badRequest, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
-import { decideProposal, listedProposal } from '../services/proposals.ts';
+import { decideProposal, listedProposal, undoProposals } from '../services/proposals.ts';
 import { continueAfterDecisions } from '../services/chat-run.ts';
-import { undoProposals } from '../services/proposal-undo.ts';
 
 /** Changes proposed by pi chat sessions and the CLI, decided in the chat panel. */
 export const proposalRoutes = new Hono<Env>()
