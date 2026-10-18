@@ -2,18 +2,20 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeftRight, ArrowUpDown, Copy, ExternalLink, Flag, Focus, Maximize, Minus, Network, Play, Plus, Route as RouteIcon, SlidersHorizontal, Sparkles } from 'lucide-react';
+import { ArrowLeftRight, FilePlus2, FolderPlus, MinusCircle, ArrowUpDown, Copy, ExternalLink, Flag, Focus, Maximize, Minus, Network, Play, Plus, Route as RouteIcon, SlidersHorizontal, Sparkles } from 'lucide-react';
 import { RunDialog } from '@/components/workflow/run-dialog';
-import { GraphCanvas, type GraphCanvasHandle, type NodeInfo, type Viewport } from '@/components/graph/graph-canvas';
+import { GraphCanvas, type GraphCanvasHandle, type LayoutEdge, type NodeInfo, type Viewport } from '@/components/graph/graph-canvas';
 import { LINE_CARD_WIDTH, LineCard } from '@/components/graph/line-card';
 import { FlowPane, SceneNodeDetail } from '@/components/graph/node-detail';
 import { KIND_LABEL } from '@/components/graph/shapes';
 import { TypeLegend } from '@/components/graph/type-legend';
 import { HeaderActions, Page } from '@/components/page';
-import { SearchInput, SplitPane, PaneHeader, Button, CanvasDirectionControl, CanvasOverlay, CanvasSurface, Empty, EmptyDescription, EmptyHeader, EmptyTitle, ScrollArea, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner, Switch, ViewSwitch, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, useRevealDock, GraphEndpointBar } from '@loca/ui';
+import { SearchInput, SplitPane, PaneHeader, Button, CanvasDirectionControl, CanvasOverlay, CanvasSurface, Empty, EmptyDescription, EmptyHeader, EmptyTitle, ScrollArea, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue, Input, Popover, PopoverContent, PopoverTrigger, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, Spinner, Switch, ViewSwitch, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, useRevealDock, GraphEndpointBar } from '@loca/ui';
 import { useSize } from '@/hooks/use-size';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
+import { chatDock } from '@/lib/chat-dock';
+import { OmittedPane, ViewInspector, ViewReason, briefViewPrompt, useViewActions } from '@/components/graph/view-inspector';
 import { PathMode } from '@/components/graph/path-mode';
 import { cn } from '@/lib/utils';
 
@@ -49,6 +51,10 @@ interface GraphSearch {
   mark?: string;
   /** The line open in the translation card beside its node (dialogue graph). */
   edit?: string;
+  /** The right pane shows the open view's own details (name, request, counts). */
+  viewInfo?: true;
+  /** The right pane lists what a derived edge leaves out (the edge's id in the open layout). */
+  omitted?: string;
   /** Node finder text (matches are listed under the box). */
   q?: string;
 }
@@ -75,6 +81,8 @@ export const Route = createFileRoute('/p/$projectId/graph')({
     mark: typeof raw.mark === 'string' && raw.mark ? raw.mark : undefined,
     jump: raw.jump === true || raw.jump === 'true' ? true : undefined,
     edit: typeof raw.edit === 'string' && raw.edit ? raw.edit : undefined,
+    viewInfo: raw.viewInfo === true || raw.viewInfo === 'true' || raw.viewInfo === '1' || raw.viewInfo === 1 ? true : undefined,
+    omitted: typeof raw.omitted === 'string' && raw.omitted ? raw.omitted : undefined,
     q: typeof raw.q === 'string' && raw.q ? raw.q : undefined,
   }),
   component: GraphRoute,
@@ -196,8 +204,13 @@ function GraphPage() {
   const graph = useQuery({ ...q.graph(projectId, search.scope, chosen, direction), enabled: !dialogue || !!search.section || sectionList.isSuccess });
   // A view laid out on its own (the chat's show_graph, mode "only").
   const viewId = chosen?.startsWith('view:') ? chosen.slice('view:'.length) : undefined;
-  const viewInfo = useQuery({ ...q.graphView(projectId, viewId ?? ''), enabled: !!viewId });
-  const view = viewId && graph.data?.layout?.view ? { ...graph.data.layout.view, label: viewInfo.data?.label ?? graph.data.layout.view.label } : undefined;
+  const viewDetail = useQuery({ ...q.graphView(projectId, viewId ?? ''), enabled: !!viewId });
+  const view = viewId && graph.data?.layout?.view ? { ...graph.data.layout.view, label: viewDetail.data?.label ?? graph.data.layout.view.label } : undefined;
+  const savedViews = useQuery({ ...q.graphViews(projectId), enabled: dialogue }).data ?? [];
+  const viewActions = useViewActions(projectId);
+  /** Naming a view made from the picked nodes: the small popover stands where the menu was. */
+  const [naming, setNaming] = useState<{ nodeIds: string[]; x: number; y: number } | null>(null);
+  const [newName, setNewName] = useState('');
   // Nodes the chat asked to highlight (show_graph, mode "mark"); the canvas waits for them so it opens on them.
   const mark = useQuery({ ...q.graphView(projectId, search.mark ?? ''), enabled: dialogue && !!search.mark });
   const marking = dialogue && !!search.mark && mark.isPending;
@@ -274,13 +287,13 @@ function GraphPage() {
     // A portal is navigation to the section it stands for (or, in a view of chosen scenes, to the
     // scene the lines continue in, shown in its own section), not a node to inspect.
     if (target?.groupId) void navigate({ search: { scope: 'dialogue', scene: target.groupId } });
-    else if (target) void navigate({ search: (previous) => ({ ...previous, section: target.section, node: undefined, scene: undefined }) });
+    else if (target) void navigate({ search: (previous) => ({ ...previous, section: target.section, node: undefined, scene: undefined, omitted: undefined, viewInfo: undefined }) });
     else {
       // While the translation card is open, picking another node keeps translating there (its first
       // line without a translation); clicking empty canvas or Esc ends it.
       if (id && search.edit && search.node && shown(id) === anchorOf(search.node)) return;
       if (id && search.edit && dialogue) setFollow({ node: id, direction: 0 });
-      void navigate({ search: (previous) => ({ ...previous, node: id, edit: undefined }), replace: true });
+      void navigate({ search: (previous) => ({ ...previous, node: id, edit: undefined, omitted: id ? undefined : previous.omitted }), replace: true });
     }
   };
   const layout = graph.data?.layout;
@@ -411,7 +424,7 @@ function GraphPage() {
   const looseEdges = layout?.looseEdges;
   const hidden = search.scope === 'scene' ? (layout?.hiddenEdges ?? []) : [];
   // Hidden links are drawn as straight lines between the laid-out boxes (bottom centre → top centre).
-  const edges = useMemo(() => {
+  const edges = useMemo<LayoutEdge[]>(() => {
     if (!layout || search.links !== 'all' || !hidden.length) return layout?.edges ?? [];
     const box = new Map(layout.nodes.map((node) => [node.id, node]));
     const extra = hidden.flatMap((edge, i) => {
@@ -432,6 +445,47 @@ function GraphPage() {
     if (unitIds.length) setRunUnits(unitIds);
     else toast('고른 노드에 대사가 없습니다.');
   };
+
+  /** The real node ids behind picked ids: a folded run's nodes; portals stand for none. */
+  const realNodes = (ids: Iterable<string>) => [...new Set([...ids].flatMap((id) => (portals.has(id) ? [] : (layout?.chains?.find((chain) => chain.id === id)?.nodeIds ?? [id]))))];
+  const makeView = () => {
+    if (!naming || !newName.trim()) return;
+    viewActions.create.mutate({ label: newName.trim(), nodeIds: naming.nodeIds }, {
+      onSuccess: ({ id }) => {
+        setNaming(null);
+        setNewName('');
+        setPicked(new Set());
+        void navigate({ search: (previous) => ({ ...previous, section: `view:${id}`, node: undefined, edit: undefined, omitted: undefined, viewInfo: undefined }) });
+      },
+    });
+  };
+  const addToView = (id: string, label: string, ids: Iterable<string>) => {
+    const nodeIds = realNodes(ids);
+    viewActions.change.mutate({ id, add: nodeIds }, { onSuccess: () => toast.success(`보기 "${label}"에 노드 ${nodeIds.length.toLocaleString()}개를 더했습니다.`) });
+  };
+  const leaveView = (ids: Iterable<string>) => {
+    if (!viewId) return;
+    const nodeIds = realNodes(ids);
+    viewActions.change.mutate({ id: viewId, remove: nodeIds }, {
+      onSuccess: () => {
+        setPicked(new Set());
+        if (search.node) select(undefined);
+      },
+    });
+  };
+  /** The views a node set can be added to (the open one already holds its nodes). */
+  const otherViews = savedViews.filter((saved) => saved.id !== viewId);
+  const where = view ? `보기 "${view.label}"` : chosen ? `구역 "${chosen}"` : '전체';
+  const derivedEdges = edges.filter((edge) => edge.derived).length;
+  const reasonOf = (nodeId: string) => {
+    const reasons = viewDetail.data?.reasons;
+    if (!reasons) return undefined;
+    const ids = nodeId.startsWith('chain:') ? (layout?.chains?.find((chain) => chain.id === nodeId)?.nodeIds ?? []) : [nodeId];
+    const texts = [...new Set(ids.flatMap((id) => (reasons[id] ? [reasons[id]] : [])))];
+    return texts.length ? texts.join('\n') : undefined;
+  };
+  const omittedEdge = search.omitted ? edges.find((edge) => edge.id === search.omitted && edge.omitted) : undefined;
+  const infoOpen = Boolean(search.viewInfo && viewId);
 
   const endpointIds = useMemo(() => [
     ...new Set([search.pickStart ?? search.routeStart, search.pickEnd ?? search.routeEnd].filter((id): id is string => Boolean(id)))
@@ -522,23 +576,43 @@ function GraphPage() {
             {isPicking ? '경로 선택 취소' : '경로 따라 번역'}
           </Button>
         )}
-        {dialogue && (sections.length > 1 || view) && (
+        {dialogue && (
+          <Button variant="outline" onClick={() => chatDock.prefill(projectId, briefViewPrompt(where))}>
+            <Sparkles /> AI 간략 보기
+          </Button>
+        )}
+        {dialogue && (sections.length > 1 || savedViews.length > 0 || view) && (
           <Select
             value={chosen ?? 'all'}
-            onValueChange={(value) => void navigate({ search: (previous) => ({ ...previous, section: value, node: undefined }), replace: true })}
+            // Opening another view or section is navigation (a history entry); the pane's selection does not carry over.
+            onValueChange={(value) => void navigate({ search: (previous) => ({ ...previous, section: value, node: undefined, omitted: undefined, viewInfo: undefined }) })}
           >
-            <SelectTrigger size="sm" className="w-52" aria-label="구역">
-              <span className="text-muted-foreground">구역</span>
+            <SelectTrigger size="sm" className="w-56" aria-label="보기">
+              <span className="text-muted-foreground">보기</span>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">전체 (한 장)</SelectItem>
-              {view && chosen && <SelectItem value={chosen}>보기: {view.label || `노드 ${view.nodes.toLocaleString()}개`}</SelectItem>}
               {sections.map((section) => (
                 <SelectItem key={section.name} value={section.name}>
                   {section.name} <span className="text-muted-foreground">· {section.nodes.toLocaleString()}</span>
                 </SelectItem>
               ))}
+              {(savedViews.length > 0 || view) && (
+                <>
+                  <SelectSeparator />
+                  <SelectGroup>
+                    <SelectLabel>저장된 보기</SelectLabel>
+                    {savedViews.map((saved) => (
+                      <SelectItem key={saved.id} value={`view:${saved.id}`}>
+                        {saved.origin === 'ai' && <span className="text-muted-foreground">✦ </span>}
+                        {saved.label} <span className="text-muted-foreground">· {saved.nodes.toLocaleString()}개</span>
+                      </SelectItem>
+                    ))}
+                    {view && chosen && !savedViews.some((saved) => `view:${saved.id}` === chosen) && <SelectItem value={chosen}>{view.label}</SelectItem>}
+                  </SelectGroup>
+                </>
+              )}
             </SelectContent>
           </Select>
         )}
@@ -589,13 +663,32 @@ function GraphPage() {
         <div className="relative min-h-0 flex-1 overflow-hidden">
           <SplitPane
             id="graph"
-            selectionKey={isPicking ? undefined : search.node}
+            selectionKey={isPicking ? undefined : search.node ?? (omittedEdge ? `omitted:${omittedEdge.id}` : infoOpen ? 'view-info' : undefined)}
             defaultWidth="380px"
             className="absolute inset-0"
         pane={
-          search.node && (
+          (search.node || omittedEdge || infoOpen) && (
             <div className="h-full bg-background">
-              {search.scope === 'scene' && hubs.has(search.node) ? (
+              {!search.node && omittedEdge ? (
+                <OmittedPane
+                  key={omittedEdge.id}
+                  projectId={projectId}
+                  edge={omittedEdge}
+                  sections={sections}
+                  onClose={() => void navigate({ search: (previous) => ({ ...previous, omitted: undefined }), replace: true })}
+                  // Opening the source is navigation: the section holding the stretch, centred on its first node.
+                  onOpenSource={(section, nodeId) => void navigate({ search: (previous) => ({ ...previous, section: section ?? 'all', scene: undefined, node: nodeId, jump: true, omitted: undefined, viewInfo: undefined, edit: undefined }) })}
+                />
+              ) : !search.node && viewId ? (
+                <ViewInspector
+                  projectId={projectId}
+                  viewId={viewId}
+                  shownNodes={layout ? layout.nodes.length - portals.size : 0}
+                  derivedEdges={derivedEdges}
+                  onClose={() => void navigate({ search: (previous) => ({ ...previous, viewInfo: undefined }), replace: true })}
+                  onDeleted={() => void navigate({ search: (previous) => ({ ...previous, section: undefined, viewInfo: undefined, node: undefined }) })}
+                />
+              ) : !search.node ? null : search.scope === 'scene' && hubs.has(search.node) ? (
                 <aside className="flex h-full flex-col text-sm">
                   <PaneHeader kicker="장면 그래프" title="연결점" onClose={() => select(undefined)} />
                   <p className="px-4 py-3 text-muted-foreground">
@@ -604,17 +697,22 @@ function GraphPage() {
                 </aside>
               ) : search.scope === 'dialogue' ? (
                 // One pane for a node and a folded run alike: their lines, read in order.
-                <FlowPane
-                  key={search.node}
-                  projectId={projectId}
-                  nodeIds={flowOf(search.node)}
-                  way={wayInto(search.node)}
-                  marked={chainOf.has(search.node) ? search.node : undefined}
-                  editing={search.edit}
-                  onEdit={edit}
-                  title={info.get(chainOf.get(search.node) ?? search.node)?.title ?? info.get(chainOf.get(search.node) ?? search.node)?.label ?? ''}
-                  onClose={() => select(undefined)}
-                />
+                <div className="flex h-full min-h-0 flex-col">
+                  {viewId && reasonOf(search.node) && <ViewReason reason={reasonOf(search.node)!} />}
+                  <div className="min-h-0 flex-1">
+                    <FlowPane
+                      key={search.node}
+                      projectId={projectId}
+                      nodeIds={flowOf(search.node)}
+                      way={wayInto(search.node)}
+                      marked={chainOf.has(search.node) ? search.node : undefined}
+                      editing={search.edit}
+                      onEdit={edit}
+                      title={info.get(chainOf.get(search.node) ?? search.node)?.title ?? info.get(chainOf.get(search.node) ?? search.node)?.label ?? ''}
+                      onClose={() => select(undefined)}
+                    />
+                  </div>
+                </div>
               ) : search.scope === 'scene' ? (
                 <SceneNodeDetail projectId={projectId} groupId={search.node} onClose={() => select(undefined)} />
               ) : null}
@@ -644,7 +742,7 @@ function GraphPage() {
                 const next = new Set(additive ? picked : []);
                 if (additive && search.node && !next.size) next.add(shown(search.node));
                 for (const id of ids) {
-                  if (portals.has(id)) continue;
+                  if (portals.has(id) || id.startsWith('omitted:')) continue;
                   if (additive && ids.length === 1 && next.has(id)) next.delete(id);
                   else next.add(id);
                 }
@@ -664,6 +762,11 @@ function GraphPage() {
                 setPicked(new Set());
                 if (!id) {
                   select(undefined);
+                  return;
+                }
+                // A derived edge's label: the stretch it leaves out opens in the pane.
+                if (id.startsWith('omitted:')) {
+                  if (!isPicking) void navigate({ search: (previous) => ({ ...previous, omitted: id.slice('omitted:'.length), node: undefined, edit: undefined }), replace: true });
                   return;
                 }
                 if (dialogue && isPicking) {
@@ -696,7 +799,8 @@ function GraphPage() {
                 select(id);
               }}
               // The menu acts on the node under the pointer; the selection (and the detail pane) stays as it was.
-              onContextMenu={(nodeId, pos) => {
+              onContextMenu={(rawId, pos) => {
+                const nodeId = rawId?.startsWith('omitted:') ? undefined : rawId;
                 if (nodeId && !picked.has(nodeId)) setPicked(new Set());
                 setContextMenu({ nodeId, x: pos.clientX, y: pos.clientY });
               }}
@@ -732,6 +836,37 @@ function GraphPage() {
                     <Play className="size-3.5" />
                     <span>선택한 노드의 대사로 워크플로 실행…</span>
                   </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      setNewName('');
+                      setNaming({ nodeIds: realNodes(picked), x: contextMenu.x, y: contextMenu.y });
+                    }}
+                  >
+                    <FilePlus2 className="size-3.5" />
+                    <span>선택한 노드로 보기 만들기…</span>
+                  </DropdownMenuItem>
+                  {otherViews.length > 0 && (
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>
+                        <FolderPlus className="size-3.5" />
+                        <span>보기에 추가</span>
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent className="max-h-72 w-56 overflow-auto">
+                        {otherViews.map((saved) => (
+                          <DropdownMenuItem key={saved.id} onSelect={() => addToView(saved.id, saved.label, picked)}>
+                            <span className="truncate">{saved.origin === 'ai' ? '✦ ' : ''}{saved.label}</span>
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                  )}
+                  {viewId && (
+                    <DropdownMenuItem onSelect={() => leaveView(picked)}>
+                      <MinusCircle className="size-3.5" />
+                      <span>이 보기에서 빼기 ({realNodes(picked).length.toLocaleString()}개)</span>
+                    </DropdownMenuItem>
+                  )}
                 </DropdownMenuContent>
               )}
               {search.scope === 'dialogue' && contextMenu.nodeId && !(picked.size > 1 && picked.has(contextMenu.nodeId)) && (
@@ -850,6 +985,15 @@ function GraphPage() {
                     <Copy className="size-3.5" />
                     <span>노드 키 복사</span>
                   </DropdownMenuItem>
+                  {viewId && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onSelect={() => leaveView([contextMenu.nodeId!])}>
+                        <MinusCircle className="size-3.5" />
+                        <span>이 보기에서 빼기</span>
+                      </DropdownMenuItem>
+                    </>
+                  )}
                 </DropdownMenuContent>
               )}
               {search.scope === 'scene' && contextMenu.nodeId && (
@@ -921,6 +1065,21 @@ function GraphPage() {
                 </DropdownMenuContent>
               )}
             </DropdownMenu>
+          )}
+          {naming && (
+            <Popover open onOpenChange={(open) => !open && setNaming(null)}>
+              <PopoverTrigger asChild>
+                <span aria-hidden style={{ position: 'fixed', left: naming.x, top: naming.y, width: 1, height: 1, pointerEvents: 'none' }} />
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-72 space-y-2">
+                <p className="text-xs text-muted-foreground">고른 노드 {naming.nodeIds.length.toLocaleString()}개만 남긴 보기의 이름</p>
+                <Input autoFocus value={newName} maxLength={80} aria-label="보기 이름" placeholder="예: 올렉 사망 분기" onChange={(event) => setNewName(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && makeView()} />
+                <div className="flex justify-end gap-2">
+                  <Button variant="ghost" onClick={() => setNaming(null)}>취소</Button>
+                  <Button disabled={!newName.trim() || viewActions.create.isPending} onClick={makeView}>보기 만들기</Button>
+                </div>
+              </PopoverContent>
+            </Popover>
           )}
           {runUnits && (
             <RunDialog projectId={projectId} unitIds={runUnits} unitsLabel="그래프에서 고른 노드의 대사" open onOpenChange={(open) => !open && setRunUnits(undefined)} hideTrigger />
@@ -1026,8 +1185,19 @@ function GraphPage() {
                     )}
                     {picked.size > 1 && (
                       <p className="max-w-3xl rounded-md border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground shadow-2xs select-none">
-                        노드 {picked.size.toLocaleString()}개 선택 · 오른쪽 클릭으로 워크플로 실행
+                        노드 {picked.size.toLocaleString()}개 선택 · 오른쪽 클릭으로 워크플로 실행·보기 만들기
                       </p>
+                    )}
+                    {view && viewDetail.data && (
+                      <div className="flex max-w-full flex-wrap items-center gap-2 rounded-md border border-border bg-card py-1 pr-1.5 pl-2.5 text-xs shadow-2xs backdrop-blur-xs select-none">
+                        <span className="text-xs">
+                          보기 "{view.label}" · 남김 {view.nodes.toLocaleString()} · 파생 연결 {derivedEdges.toLocaleString()} · {viewDetail.data.origin === 'ai' ? 'AI' : '직접'}
+                          {viewDetail.data.missing.length > 0 && <span className="text-destructive"> · 원본에 없음 {viewDetail.data.missing.length.toLocaleString()}</span>}
+                        </span>
+                        <Button variant="ghost" onClick={() => void navigate({ search: (previous) => ({ ...previous, viewInfo: true, node: undefined, omitted: undefined, edit: undefined }), replace: true })}>
+                          보기 정보
+                        </Button>
+                      </div>
                     )}
                     {search.mark && mark.data && layout && (
                       <div className="flex max-w-full flex-wrap items-center gap-2 rounded-md border border-border bg-card py-1 pr-1.5 pl-2.5 text-xs shadow-2xs backdrop-blur-xs select-none">

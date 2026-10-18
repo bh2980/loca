@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { and, eq, sql } from 'drizzle-orm';
 import { lineFilterSchema, nodesBetween } from '@tw/shared';
 import type { Db } from '../db/index.ts';
@@ -24,6 +24,8 @@ export interface NodePick {
   between?: { start: string; end: string };
   /** Line keys or ids, node keys or ids to leave out. */
   exclude?: string[];
+  /** Nodes picked one by one (line keys or ids, node keys or ids), each with why it is kept. */
+  keep?: { ref: string; reason?: string }[];
 }
 
 function lazy<T>(make: () => T) {
@@ -98,17 +100,72 @@ export function pickNodes(db: Db, projectId: string, pick: NodePick) {
       frontier = next;
     }
   }
+  const reasons: Record<string, string> = {};
+  for (const { ref, reason } of pick.keep ?? [])
+    for (const id of resolve([ref])) {
+      nodes.add(id);
+      if (reason?.trim()) reasons[id] = reason.trim();
+    }
   if (pick.exclude?.length) for (const id of resolve(pick.exclude)) nodes.delete(id);
-  return { nodeIds: [...nodes], unknown, scenes: groups.filter((group) => sceneIds.has(group.id)).map((group) => group.title) };
+  return { nodeIds: [...nodes], reasons, unknown, scenes: groups.filter((group) => sceneIds.has(group.id)).map((group) => group.title) };
 }
 
-/** Stores a set of nodes (same set, same id) and returns its id. */
-export function saveView(db: Db, projectId: string, nodeIds: string[], label: string) {
+/** How a view was made: by the chat from a request (with why each node was kept), or by a person from a selection. */
+export interface ViewOrigin {
+  origin: 'ai' | 'manual';
+  request?: string | null;
+  reasons?: Record<string, string>;
+}
+
+/** Stores a new view of these nodes and returns its id. */
+export function saveView(db: Db, projectId: string, nodeIds: string[], label: string, made: ViewOrigin = { origin: 'ai' }) {
   const ids = [...new Set(nodeIds)].sort();
-  const id = createHash('sha1').update(`${projectId}:${ids.join(',')}`).digest('hex').slice(0, 16);
-  db.insert(s.graphViews).values({ id, projectId, label, nodeIds: ids }).onConflictDoUpdate({ target: s.graphViews.id, set: { label } }).run();
+  const id = randomUUID().replaceAll('-', '').slice(0, 16);
+  const reasons = Object.fromEntries(Object.entries(made.reasons ?? {}).filter(([nodeId, reason]) => ids.includes(nodeId) && reason.trim()));
+  db.insert(s.graphViews).values({ id, projectId, label, nodeIds: ids, origin: made.origin, request: made.request ?? null, reasons }).run();
   events.changed(projectId, 'graph');
   return id;
+}
+
+/** Renames a view or changes its nodes; a changed node set drops its stored layouts, which are made again on the next open. */
+export function updateView(db: Db, projectId: string, id: string, change: { label?: string; add?: string[]; remove?: string[] }) {
+  const view = readView(db, projectId, id);
+  if (!view) return null;
+  const remove = new Set(change.remove ?? []);
+  const nodeIds = [...new Set([...view.nodeIds.filter((nodeId) => !remove.has(nodeId)), ...(change.add ?? [])])].sort();
+  const changed = nodeIds.join(',') !== view.nodeIds.join(',');
+  const reasons = Object.fromEntries(Object.entries(view.reasons).filter(([nodeId]) => nodeIds.includes(nodeId)));
+  db.transaction((tx) => {
+    tx.update(s.graphViews).set({ label: change.label?.trim() || view.label, nodeIds, reasons, updatedAt: new Date() }).where(eq(s.graphViews.id, id)).run();
+    if (changed) tx.delete(s.graphLayouts).where(and(eq(s.graphLayouts.projectId, projectId), eq(s.graphLayouts.section, `view:${id}`))).run();
+  });
+  events.changed(projectId, 'graph');
+  return readView(db, projectId, id)!;
+}
+
+export function deleteView(db: Db, projectId: string, id: string) {
+  db.transaction((tx) => {
+    tx.delete(s.graphLayouts).where(and(eq(s.graphLayouts.projectId, projectId), eq(s.graphLayouts.section, `view:${id}`))).run();
+    tx.delete(s.graphViews).where(and(eq(s.graphViews.id, id), eq(s.graphViews.projectId, projectId))).run();
+  });
+  events.changed(projectId, 'graph');
+}
+
+/** The project's views, newest change first. */
+export function listViews(db: Db, projectId: string) {
+  return db
+    .select({ id: s.graphViews.id, label: s.graphViews.label, origin: s.graphViews.origin, request: s.graphViews.request, nodeIds: s.graphViews.nodeIds, updatedAt: s.graphViews.updatedAt })
+    .from(s.graphViews)
+    .where(eq(s.graphViews.projectId, projectId))
+    .all()
+    .map(({ nodeIds, ...view }) => ({ ...view, nodes: nodeIds.length }))
+    .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+}
+
+/** Node ids a view keeps that the source graph no longer has (a re-import or source edit removed them). */
+export function missingNodes(db: Db, projectId: string, nodeIds: string[]) {
+  const present = new Set(db.select({ id: s.graphNodes.id }).from(s.graphNodes).where(eq(s.graphNodes.projectId, projectId)).all().map((row) => row.id));
+  return nodeIds.filter((id) => !present.has(id));
 }
 
 export function readView(db: Db, projectId: string, id: string) {

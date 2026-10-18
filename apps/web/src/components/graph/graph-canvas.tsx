@@ -39,6 +39,8 @@ export interface LayoutEdge {
   curved?: true;
   /** Stands for a path through nodes left out of the view; drawn dashed. */
   derived?: true;
+  /** A derived edge's facts from the source graph: the nodes it leaves out and what they hold. */
+  omitted?: { nodeIds: string[]; lines: number; controls: number; speakers: string[]; moreSpeakers: number };
 }
 
 /**
@@ -444,7 +446,10 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
         context.fill();
         context.lineWidth = 1;
         context.strokeStyle = edge.via ? colors.primary : colors.border;
+        // A derived edge's label is a summary, not source text: dashed like its line, muted.
+        if (edge.derived) context.setLineDash([3, 2]);
         context.stroke();
+        context.setLineDash([]);
         context.fillStyle = edge.via ? colors.primary : colors.mutedForeground;
         let text = `${edge.via ? '▶ ' : ''}${edge.label}`;
         while (text.length > 2 && context.measureText(text).width > w - 14) text = `${text.slice(0, -2)}…`;
@@ -731,11 +736,13 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
     const rect = canvas.current!.getBoundingClientRect();
     const t = transform.current;
     const x = (clientX - rect.left - t.x) / t.k, y = (clientY - rect.top - t.y) / t.k;
-    // A choice's label stands for its node: clicking it opens the choice.
+    // A choice's label stands for its node: clicking it opens the choice. A derived edge's label
+    // stands for the nodes it leaves out: `omitted:<edge id>`.
     if (t.k >= DETAIL_K)
       for (const i of index.edgeIndex?.search(x - 100, y - 20, x + 100, y + 20) ?? []) {
-        const box = edges[i].via ? labelBox(edges[i]) : null;
-        if (box && x >= box[0] && x <= box[0] + box[2] && y >= box[1] && y <= box[1] + box[3]) return edges[i].via;
+        const target = edges[i].via ?? (edges[i].derived && edges[i].omitted ? `omitted:${edges[i].id}` : undefined);
+        const box = target ? labelBox(edges[i]) : null;
+        if (box && x >= box[0] && x <= box[0] + box[2] && y >= box[1] && y <= box[1] + box[3]) return target;
       }
     const found = (index.nodeIndex?.search(x, y, x, y) ?? []);
     return found.length ? nodes[found[found.length - 1]].id : undefined;

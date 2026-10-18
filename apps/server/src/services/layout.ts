@@ -1,8 +1,8 @@
 import { Worker } from 'node:worker_threads';
 import { z } from 'zod';
-import { and, asc, eq, ne, notLike, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, ne, notLike, sql } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
-import { graphEdges, graphLayouts, graphNodes, groups, projects, type LayoutData } from '../db/schema.ts';
+import { graphEdges, graphLayouts, graphNodes, groups, projects, units, type LayoutData, type OmittedFacts } from '../db/schema.ts';
 import { contractEdges, isControlNode } from '@tw/shared';
 import { events } from '../events.ts';
 import { foldChoices } from './choices.ts';
@@ -165,7 +165,10 @@ async function computeNodeSetLayout(db: Db, projectId: string, key: string, node
   const chosen = new Set(nodeIds);
   const titleOf = new Map(db.select({ id: groups.id, title: groups.title }).from(groups).where(eq(groups.projectId, projectId)).all().map((group) => [group.id, group.title]));
   const nodes = db.select({ id: graphNodes.id, kind: graphNodes.kind, groupId: graphNodes.groupId, unitIds: graphNodes.unitIds }).from(graphNodes).where(eq(graphNodes.projectId, projectId)).all();
-  const edges = viewEdges(chosen, nodes, db.select({ id: graphEdges.id, from: graphEdges.fromId, to: graphEdges.toId }).from(graphEdges).where(eq(graphEdges.projectId, projectId)).all());
+  const { edges: viewed, via } = viewEdges(chosen, db.select({ id: graphEdges.id, from: graphEdges.fromId, to: graphEdges.toId }).from(graphEdges).where(eq(graphEdges.projectId, projectId)).all());
+  const omitted = omittedFacts(db, nodes, via);
+  // A derived edge says what it leaves out on its label, so the layout keeps room for it.
+  const edges = viewed.map((edge) => (omitted.has(edge.id) ? { ...edge, label: omittedLabel(omitted.get(edge.id)!) } : edge));
   let data: LayoutData;
   try {
     data = await runWorker(
@@ -186,7 +189,7 @@ async function computeNodeSetLayout(db: Db, projectId: string, key: string, node
     events.changed(projectId, 'graph');
     return;
   }
-  data.edges = data.edges.map((edge) => (edge.id.startsWith(BYPASS) ? { ...edge, derived: true as const } : edge));
+  data.edges = data.edges.map((edge) => (via.has(edge.id) ? { ...edge, derived: true as const, omitted: omitted.get(edge.id) } : edge));
   // Portals name the scene the lines continue in, and keep its id to open it.
   data.portals = data.portals?.map((portal) => {
     const groupId = portal.section.startsWith('scene:') ? portal.section.slice('scene:'.length) : undefined;
@@ -199,25 +202,46 @@ async function computeNodeSetLayout(db: Db, projectId: string, key: string, node
 const BYPASS = 'bypass:';
 
 /**
- * A view that leaves out line-less nodes (show_graph simplify) still reads as one flow: chosen nodes
- * joined through left-out condition/wait/state nodes get a derived edge (drawn dashed, never stored).
- * A left-out node whose neighbours are all chosen or line-less is dropped from the drawing; one that
- * also leads elsewhere keeps its edges, so the view still shows where the lines continue.
+ * A view's edges (a stored view: chosen nodes only). Edges between chosen nodes stay; every other
+ * node is left out, and two chosen nodes joined through left-out nodes only get a derived edge
+ * (drawn dashed, never stored) however far apart they are. `via`: derived edge id → the left-out
+ * nodes on its paths.
  */
-export function viewEdges(chosen: Set<string>, nodes: { id: string; kind: string; unitIds: string[] }[], edges: { id: string; from: string; to: string }[]) {
-  const control = new Set(nodes.filter((node) => !chosen.has(node.id) && isControlNode(node)).map((node) => node.id));
-  const bypass = contractEdges(edges, control).filter((edge) => chosen.has(edge.from) && chosen.has(edge.to));
-  if (!bypass.length) return edges;
-  const leadsElsewhere = new Set<string>();
-  for (const edge of edges) {
-    if (control.has(edge.from) && !chosen.has(edge.to) && !control.has(edge.to)) leadsElsewhere.add(edge.from);
-    if (control.has(edge.to) && !chosen.has(edge.from) && !control.has(edge.from)) leadsElsewhere.add(edge.to);
-  }
-  const dropped = (id: string) => control.has(id) && !leadsElsewhere.has(id);
-  return [
-    ...edges.filter((edge) => !dropped(edge.from) && !dropped(edge.to)),
-    ...bypass.map((edge) => ({ id: `${BYPASS}${edge.from}:${edge.to}`, ...edge })),
-  ];
+export function viewEdges(chosen: Set<string>, edges: { id: string; from: string; to: string }[]) {
+  const left = new Set<string>();
+  for (const edge of edges) for (const end of [edge.from, edge.to]) if (!chosen.has(end)) left.add(end);
+  const via = new Map<string, string[]>();
+  const derived = contractEdges(edges, left)
+    .filter((edge) => chosen.has(edge.from) && chosen.has(edge.to))
+    .map((edge) => {
+      const id = `${BYPASS}${edge.from}:${edge.to}`;
+      via.set(id, edge.via);
+      return { id, from: edge.from, to: edge.to };
+    });
+  return { edges: [...edges.filter((edge) => chosen.has(edge.from) && chosen.has(edge.to)), ...derived], via };
+}
+
+/** "생략 · 대사 12줄 · 조건 3 · MIRA, JONAS 외 2": counted facts only, never a summary of what happens. */
+export function omittedLabel(facts: OmittedFacts) {
+  const speakers = facts.speakers.length ? `${facts.speakers.join(', ')}${facts.moreSpeakers ? ` 외 ${facts.moreSpeakers}` : ''}` : '';
+  return ['생략', facts.lines ? `대사 ${facts.lines}줄` : '', facts.controls ? `조건·제어 ${facts.controls}` : '', speakers].filter(Boolean).join(' · ');
+}
+
+/** What each derived edge leaves out, counted from the source graph: lines, line-less nodes and who speaks there. */
+function omittedFacts(db: Db, nodes: { id: string; kind: string; unitIds: string[] }[], via: Map<string, string[]>): Map<string, OmittedFacts> {
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const unitIds = [...new Set([...via.values()].flatMap((ids) => ids.flatMap((id) => byId.get(id)?.unitIds ?? [])))];
+  const speakerOf = new Map<string, string | null>();
+  for (let at = 0; at < unitIds.length; at += 500)
+    for (const row of db.select({ id: units.id, speaker: units.speaker }).from(units).where(inArray(units.id, unitIds.slice(at, at + 500))).all()) speakerOf.set(row.id, row.speaker);
+  return new Map(
+    [...via].map(([edgeId, ids]) => {
+      const left = ids.map((id) => byId.get(id)).filter((node) => node !== undefined);
+      const lineIds = left.flatMap((node) => node.unitIds);
+      const speakers = [...new Set(lineIds.map((id) => speakerOf.get(id)).filter((speaker): speaker is string => Boolean(speaker?.trim())))];
+      return [edgeId, { nodeIds: ids, lines: lineIds.length, controls: left.filter(isControlNode).length, speakers: speakers.slice(0, 8), moreSpeakers: Math.max(0, speakers.length - 8) }] as const;
+    }),
+  );
 }
 
 /** Projects laid out before section layouts existed: their scenes span several sections but no section layout is stored. */

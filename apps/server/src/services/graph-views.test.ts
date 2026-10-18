@@ -5,7 +5,7 @@ import { importFileSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from './importer.ts';
-import { pickNodes, readView, saveView } from './graph-views.ts';
+import { deleteView, listViews, missingNodes, pickNodes, readView, saveView, updateView } from './graph-views.ts';
 
 function setup() {
   const db = openDatabase(':memory:');
@@ -45,10 +45,14 @@ describe('graph views', () => {
     expect(pickNodes(db, projectId, { between: { start: 'nope', end: keyOf(hop.end) } })).toMatchObject({ nodeIds: [], unknown: ['nope'] });
   });
 
-  it('stores the same set of nodes under the same id', () => {
+  it('keeps a view as a definition: rename, add and leave out nodes, list, delete', () => {
     const { db, projectId } = setup();
-    const id = saveView(db, projectId, ['b', 'a'], 'first');
-    expect(saveView(db, projectId, ['a', 'b', 'a'], 'second')).toBe(id);
-    expect(readView(db, projectId, id)).toMatchObject({ label: 'second', nodeIds: ['a', 'b'] });
+    const id = saveView(db, projectId, ['b', 'a', 'a'], '첫 보기', { origin: 'ai', request: '분기만', reasons: { a: '시작', zzz: '없는 노드' } });
+    expect(readView(db, projectId, id)).toMatchObject({ label: '첫 보기', nodeIds: ['a', 'b'], origin: 'ai', request: '분기만', reasons: { a: '시작' } });
+    expect(updateView(db, projectId, id, { label: '바꾼 이름', add: ['c'], remove: ['a'] })).toMatchObject({ label: '바꾼 이름', nodeIds: ['b', 'c'], reasons: {} });
+    expect(listViews(db, projectId)).toMatchObject([{ id, label: '바꾼 이름', nodes: 2, origin: 'ai' }]);
+    expect(missingNodes(db, projectId, ['b', 'c'])).toEqual(['b', 'c']);
+    deleteView(db, projectId, id);
+    expect(readView(db, projectId, id)).toBeUndefined();
   });
 });

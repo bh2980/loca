@@ -15,7 +15,8 @@ import { chatFor, dropChat } from '@/lib/chat-store';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { useViewState, type ViewItem } from '@/lib/view-context';
-import { ProposalCard, useUndo } from './proposal-card';
+import { useUndo } from './proposal-card';
+import { ProposalGroups } from './proposal-groups';
 import { PermissionModePicker } from './permission-mode';
 import type { PermissionMode } from '@tw/shared';
 import { ToolPart } from './tool-part';
@@ -278,7 +279,17 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
     void stored.chat.resumeStream();
   }, [turn?.startedAt, status]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const [input, setInput] = useState(() => sessionStorage.getItem(`tw.chat.draft.${sessionId}`) ?? '');
+  const [input, setInput] = useState(() => chatDock.takePrefill(projectId) ?? sessionStorage.getItem(`tw.chat.draft.${sessionId}`) ?? '');
+  // A page asked to start a request here (e.g. the graph's AI 간략 보기): it fills the box, the person finishes and sends it.
+  useEffect(
+    () =>
+      chatDock.onPrefill((target, text) => {
+        if (target !== projectId) return;
+        chatDock.takePrefill(projectId);
+        setInput(text);
+      }),
+    [projectId],
+  );
   const [showModelHint, setShowModelHint] = useState(false);
   // Sent while the reply was running (#44): waiting for the turn to take them at its next step.
   // Those still on the server (sent before a reload, or a turn a restart cut off) go with the next one.
@@ -543,13 +554,11 @@ function ExternalProposals({ projectId }: { projectId: string }) {
     <div className="max-h-[45%] shrink-0 overflow-y-auto border-b bg-background">
       <Button variant="ghost" size="row" className="rounded-none px-3 py-2 font-medium" onClick={() => setOpen(!open)} aria-expanded={open}>
         <ChevronRight className={cn('text-muted-foreground transition-transform', open && 'rotate-90')} />
-        CLI에서 온 제안 {pending.length}개
+        제안 {pending.length.toLocaleString()}개 대기 중
       </Button>
       {open && (
-        <div className="space-y-2 px-3 pb-3">
-          {pending.map((proposal) => (
-            <ProposalCard key={proposal.id} proposal={proposal} />
-          ))}
+        <div className="px-3 pb-3">
+          <ProposalGroups projectId={projectId} proposals={pending} title="CLI에서 온 제안" />
         </div>
       )}
     </div>

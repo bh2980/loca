@@ -16,7 +16,7 @@ import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { computeLayouts, LAYOUT_VERSION } from '../services/layout.ts';
 import type { LayoutDirection } from '../services/layout-types.ts';
-import { readView, sectionWithMost, viewSection } from '../services/graph-views.ts';
+import { deleteView, listViews, missingNodes, readView, saveView, sectionWithMost, updateView, viewSection } from '../services/graph-views.ts';
 import { graphKey } from '../services/route-slice.ts';
 import { projectSlice } from '../services/project-slice.ts';
 import { defaultPicks, effectivePicks, previewNext, projectRouteInputs, routeLines, routeProgress } from '../services/next-route.ts';
@@ -671,12 +671,44 @@ export const sourceRoutes = new Hono<Env>()
       typeof c.json<{ status: string; error: string | null; layout: s.LayoutData | null; nodes: typeof nodes; nodeTypes: typeof nodeTypes; sections: typeof sections }>
     >;
   })
-  /** A stored view of graph nodes (see graph-views.ts): what it holds and the section showing most of it. */
+  /** The project's stored views of the dialogue graph (see graph-views.ts), newest change first. */
+  .get('/projects/:projectId/graph/views', (c) => c.json(listViews(c.var.deps.db, c.req.param('projectId'))))
+  /** A view made by a person from a selection in the graph. */
+  .post('/projects/:projectId/graph/views', validate('json', z.object({ label: z.string().trim().min(1).max(80), nodeIds: z.array(z.string().min(1)).min(1).max(5000) })), (c) => {
+    const { db } = c.var.deps;
+    const projectId = c.req.param('projectId');
+    const { label, nodeIds } = c.req.valid('json');
+    return c.json({ id: saveView(db, projectId, nodeIds, label, { origin: 'manual' }) }, 201);
+  })
+  /** A stored view: what it holds, how it was made, and the section showing most of it. */
   .get('/projects/:projectId/graph/views/:id', (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     const view = found(readView(db, projectId, c.req.param('id')), '보기');
-    return c.json({ id: view.id, label: view.label, nodeIds: view.nodeIds, section: sectionWithMost(db, projectId, view.nodeIds) });
+    return c.json({
+      id: view.id,
+      label: view.label,
+      origin: view.origin,
+      request: view.request,
+      reasons: view.reasons,
+      nodeIds: view.nodeIds,
+      missing: missingNodes(db, projectId, view.nodeIds),
+      updatedAt: view.updatedAt,
+      section: sectionWithMost(db, projectId, view.nodeIds),
+    });
+  })
+  /** Rename a view, or add / leave out nodes (its layout is made again). */
+  .patch('/projects/:projectId/graph/views/:id', validate('json', z.object({ label: z.string().trim().min(1).max(80).optional(), add: z.array(z.string().min(1)).max(5000).default([]), remove: z.array(z.string().min(1)).max(5000).default([]) })), (c) => {
+    const { db } = c.var.deps;
+    const view = found(updateView(db, c.req.param('projectId'), c.req.param('id'), c.req.valid('json')) ?? undefined, '보기');
+    return c.json({ id: view.id, label: view.label, nodes: view.nodeIds.length });
+  })
+  .delete('/projects/:projectId/graph/views/:id', (c) => {
+    const { db } = c.var.deps;
+    const projectId = c.req.param('projectId');
+    found(readView(db, projectId, c.req.param('id')), '보기');
+    deleteView(db, projectId, c.req.param('id'));
+    return c.json({ ok: true });
   })
   /** Recompute stored layouts, e.g. after the layout options changed. The source graph itself is untouched. */
   .post('/projects/:projectId/graph/relayout', (c) => {
