@@ -9,10 +9,10 @@ const ICON = { ask: ShieldQuestion, auto: ShieldCheck, bypass: ShieldOff } as co
  * How the agent's changes are decided (#45): a card each, auto review, or bypass. In the composer it
  * is the conversation's mode; in settings, the mode new conversations start in.
  */
-export function PermissionModePicker({ value, onChange, compact = false, className }: { value: PermissionMode; onChange: (mode: PermissionMode) => void; compact?: boolean; className?: string }) {
+export function PermissionModePicker({ value, onChange, compact = false, className, disabled = false }: { value: PermissionMode; onChange: (mode: PermissionMode) => void; compact?: boolean; className?: string; disabled?: boolean }) {
   const Icon = ICON[value];
   return (
-    <Select value={value} onValueChange={(next) => onChange(next as PermissionMode)}>
+    <Select value={value} onValueChange={(next) => onChange(next as PermissionMode)} disabled={disabled}>
       <SelectTrigger size="sm" className={cn(compact && 'border-0 bg-transparent px-1.5 shadow-none', value === 'bypass' && 'text-warning', className)} aria-label="변경 권한 모드" title={PERMISSION_MODE_INFO[value].description}>
         <Icon />
         {/* Closed, the picker shows the mode's name only; the menu explains each. */}
