@@ -11,6 +11,8 @@ import { attachUnitTags } from '../services/tag-scope.ts';
 import { saveTerm } from '../services/terms.ts';
 import { knowledgeRoutes } from './knowledge.ts';
 import { sourceRoutes } from './source.ts';
+import { scriptRoutes } from './script.ts';
+import { startTurn } from '../services/chat-turns.ts';
 
 /** Two projects, so a write can be seen to stay in its own. Each has a dialogue line `a` and a narration line `n`. */
 function setup() {
@@ -39,13 +41,44 @@ function setup() {
       await next();
     })
     .route('/', sourceRoutes)
+    .route('/', scriptRoutes)
     .route('/projects/:projectId', knowledgeRoutes);
-  const send = (method: string, url: string, body: unknown) => app.request(url, { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const send = (method: string, url: string, body: unknown, extraHeaders: Record<string, string> = {}) => app.request(url, { method, headers: { 'content-type': 'application/json', ...extraHeaders }, body: JSON.stringify(body) });
   const tagsOf = (unitId: string) => db.select().from(s.unitTags).where(eq(s.unitTags.unitId, unitId)).all().map((row) => row.tagId);
   return { db, mine, other, send, tagsOf };
 }
 
 describe('writes stay inside the project', () => {
+  it('binds loca call proposals to a live chat token and rejects expired or unknown tokens', async () => {
+    const { db, mine, other, send } = setup();
+    const chat = db.insert(s.chatSessions).values({ projectId: mine.projectId, title: '대화', model: 'gpt-6-test', permissionMode: 'bypass' }).returning().get();
+    const running = startTurn(mine.projectId, chat.id);
+    const path = `/projects/${mine.projectId}/tools/save_character`;
+    const applied = await send('POST', path, { name: 'Bob' }, { 'x-loca-chat': running.token });
+    expect(applied.status).toBe(200);
+    const result = await applied.json() as { proposalId: string };
+    expect(db.select().from(s.proposals).where(eq(s.proposals.id, result.proposalId)).get()).toMatchObject({ sessionId: chat.id, model: 'gpt-6-test', status: 'accepted', decidedBy: 'bypass' });
+
+    expect((await send('POST', `/projects/${other.projectId}/tools/save_character`, { name: 'Wrong project' }, { 'x-loca-chat': running.token })).status).toBe(400);
+
+    const ended = startTurn(mine.projectId, chat.id);
+    ended.end();
+    for (const token of [ended.token, 'unknown-token']) {
+      const response = await send('POST', path, { name: `Other ${token}` }, { 'x-loca-chat': token });
+      expect(response.status).toBe(400);
+      expect(await response.text()).toContain('이 대화 차례가 끝나 도구를 부를 수 없습니다');
+    }
+    running.end();
+  });
+
+  it('keeps terminal tool proposals detached when no chat token is sent', async () => {
+    const { db, mine, send } = setup();
+    const response = await send('POST', `/projects/${mine.projectId}/tools/save_character`, { name: 'Carol' });
+    expect(response.status).toBe(200);
+    const result = await response.json() as { proposalId: string };
+    expect(db.select().from(s.proposals).where(eq(s.proposals.id, result.proposalId)).get()).toMatchObject({ sessionId: null, status: 'pending' });
+  });
+
   it('a bulk patch refuses another project\'s status, tags and lines, and changes nothing', async () => {
     const { db, mine, other, send, tagsOf } = setup();
     const foreignTag = other.tag('x');

@@ -4,7 +4,7 @@ import { importFileSchema } from '@tw/shared';
 import type * as ai from '@tw/ai';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { cliChatResponse, readToolCalls } from './cli-chat.ts';
+import { cliChatResponse, readLocaCall, readToolCalls } from './cli-chat.ts';
 import { importProject } from './importer.ts';
 
 function setup() {
@@ -21,7 +21,7 @@ function setup() {
   return { db, projectId, chat };
 }
 
-const fakeTurn = () => ({ signal: new AbortController().signal, end: () => {}, record: () => {}, markClosing: () => {} });
+const fakeTurn = () => ({ token: crypto.randomUUID(), signal: new AbortController().signal, end: () => {}, record: () => {}, markClosing: () => {} });
 
 const user = (text: string) => ({ id: crypto.randomUUID(), role: 'user' as const, parts: [{ type: 'text' as const, text }] });
 
@@ -30,6 +30,14 @@ describe('CLI chat', () => {
     const answer = '찾아볼게요.\n```loca-tools\n[{"tool":"find_lines","input":{"speakers":["Alice"]}}]\n```';
     expect(readToolCalls(answer)).toEqual({ visible: '찾아볼게요.', calls: [{ tool: 'find_lines', input: { speakers: ['Alice'] } }], error: undefined });
     expect(readToolCalls('```loca-tools\n[{bad json\n```').error).toMatch(/JSON/);
+  });
+
+  it('parses the supported loca call command forms and leaves other shell commands alone', () => {
+    expect(readLocaCall(`loca call find_lines '{"speakers":["Alice"]}'`)).toEqual({ tool: 'find_lines', input: { speakers: ['Alice'] } });
+    expect(readLocaCall("loca call find_lines - <<'JSON'\n{\"limit\":20}\nJSON")).toEqual({ tool: 'find_lines', input: { limit: 20 } });
+    expect(readLocaCall("loca call find_lines '{broken}'")).toEqual({ tool: 'find_lines', input: { command: "loca call find_lines '{broken}'" } });
+    expect(readLocaCall('loca call find_lines unsupported')).toEqual({ tool: 'find_lines', input: { command: 'loca call find_lines unsupported' } });
+    expect(readLocaCall('pwd')).toEqual({ command: 'pwd' });
   });
 
   it('runs requested tools, proposes changes for the chat, and resumes the same CLI session with the results', async () => {
@@ -93,14 +101,14 @@ describe('CLI chat', () => {
     expect(JSON.stringify(db.select().from(s.chatSessions).where(eq(s.chatSessions.id, chat.id)).get()!.messages)).toContain('안녕하세요.');
   });
 
-  it('corrects one Codex own-tool attempt and keeps both visible replies', async () => {
+  it('renders Codex shell commands as tool parts and does not parse loca-tools blocks', async () => {
     const { db, chat } = setup();
-    const prompts: string[] = [];
     const cli = async (_route: ai.ResolvedRoute, request: ai.CliChatTurn): Promise<ai.CliChatResult> => {
-      prompts.push(request.prompt);
-      return prompts.length === 1
-        ? { sessionId: 'codex-1', text: '조회하겠습니다.', usage: {}, ownToolAttempt: true }
-        : { sessionId: 'codex-1', text: '확인했습니다.', usage: {} };
+      expect(request.shell).toMatchObject({ env: { LOCA_PROJECT: chat.projectId, LOCA_CHAT: expect.any(String) }, readPaths: [expect.any(String)], deny: [expect.any(String)], loca: expect.stringContaining('/apps/cli/bin/loca.mjs') });
+      return {
+        sessionId: 'codex-1', text: '완료했습니다.\n```loca-tools\n[{"tool":"find_lines"}]\n```', usage: {},
+        commands: [{ command: "loca call save_character '{\"name\":\"Bob\"}'", output: '{"proposalId":"proposal-1"}', exitCode: 0 }],
+      };
     };
     const response = await cliChatResponse({
       db, chat, route: { kind: 'codex', model: 'gpt-6-luna' },
@@ -109,28 +117,10 @@ describe('CLI chat', () => {
     });
     const body = await response.text();
 
-    expect(prompts).toHaveLength(2);
-    expect(prompts[1]).toBe('답이 작업실 도구를 부르지 않은 채 끝났습니다. 이 대화에는 코드 실행(exec)이 없습니다. 작업실 도구가 필요하면 답의 맨 끝에 다음처럼 loca-tools 블록을 쓰세요:\n```loca-tools\n[{"tool": "<도구 이름>", "input": {}}]\n```\n도구가 필요 없으면 바로 답하세요.');
-    expect(body).toContain('조회하겠습니다.');
-    expect(body).toContain('확인했습니다.');
-  });
-
-  it('does not correct an own-tool attempt more than once in a turn', async () => {
-    const { db, chat } = setup();
-    const prompts: string[] = [];
-    const response = await cliChatResponse({
-      db, chat, route: { kind: 'codex', model: 'gpt-6-luna' },
-      answeredBy: { kind: 'codex', connectionId: 'conn-codex', model: 'gpt-6-luna' },
-      system: 'test', view: null, messages: [user('용어집을 확인해줘')], timeoutMs: 1000, turn: fakeTurn(),
-      cli: async (_route, request) => {
-        prompts.push(request.prompt);
-        return { sessionId: 'codex-1', text: `답 ${prompts.length}`, usage: {}, ownToolAttempt: true };
-      },
-    });
-    const body = await response.text();
-
-    expect(prompts).toHaveLength(2);
-    expect(body).toContain('답 1');
-    expect(body).toContain('답 2');
+    expect(body).toContain('"toolName":"save_character"');
+    expect(body).toContain('"proposalId":"proposal-1"');
+    expect(body).toContain('완료했습니다.');
+    expect(body).toContain('```loca-tools');
+    expect(body.match(/"type":"start-step"/g)).toHaveLength(1);
   });
 });
