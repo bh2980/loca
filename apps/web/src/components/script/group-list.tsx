@@ -80,11 +80,6 @@ export function GroupList({ projectId, groups, finalIds, initialIds, scope, revi
       }
       return next;
     });
-  // Picking a scene or section opens its section once; folding it again holds until another scene is picked.
-  const pickedSection = scope.section ?? sections.find((section) => section.groups.some((group) => group.id === scope.group))?.name;
-  useEffect(() => {
-    if (pickedSection) toggle(pickedSection, true);
-  }, [scope.group, scope.section, pickedSection]); // eslint-disable-line react-hooks/exhaustive-deps
   // A scene's count is its progress: lines translated (past 미번역), with 확정 named in the hint; the check means all 확정.
   const progressOf = (group: GroupRow) => {
     const lines = Object.entries(group.statuses);
