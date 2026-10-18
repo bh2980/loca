@@ -48,9 +48,21 @@ export function NodeCard({ kind, icon, title, summary, inputHandle, outputs = []
 
   const content = (
     <>
-      <div className={cn("min-w-0 flex-1", isHorizontal ? "flex flex-col justify-center rounded-l-md" : "")}>
-        <div className={cn("flex min-h-8 items-center gap-2 px-2.5 py-1.5", isHorizontal ? "rounded-l-md" : "rounded-t-md", isCapsule && (isHorizontal ? "rounded-l-full" : "rounded-t-full"), style.header)}>
-          <span className={cn("flex size-6 shrink-0 items-center justify-center [&_svg]:size-3.5", style.icon, isCondition && "rotate-45 rounded-sm bg-card/70 shadow-2xs")}><span className={isCondition ? "-rotate-45" : undefined}>{icon}</span></span>
+      <div className={cn("min-w-0 flex-1", isHorizontal ? "flex flex-col justify-center" : "")}>
+        <div className={cn(
+          "flex min-h-8 items-center gap-2 px-2.5 py-1.5",
+          isHorizontal
+            ? cn("rounded-tl-md rounded-tr-none rounded-b-none", isCapsule && "rounded-tl-full")
+            : cn("rounded-t-md rounded-b-none", isCapsule && "rounded-t-full"),
+          isCondition && "border-b border-review/30",
+          style.header
+        )}>
+          <span className={cn(
+            "flex size-6 shrink-0 items-center justify-center [&_svg]:size-3.5",
+            isCondition ? "rotate-45 rounded-xs bg-review text-background shadow-xs" : style.icon
+          )}>
+            <span className={isCondition ? "-rotate-45 [&_svg]:size-3.5 [&_svg]:stroke-[2]" : undefined}>{icon}</span>
+          </span>
           <span className="min-w-0 flex-1 truncate text-sm font-semibold">{title}</span>
           {errors > 0 ? (
             <span className="flex shrink-0 items-center gap-1 rounded-sm bg-destructive/10 px-1 text-xs font-medium text-destructive" title={`${errors}개 오류`}>
@@ -60,7 +72,17 @@ export function NodeCard({ kind, icon, title, summary, inputHandle, outputs = []
             <span className="flex shrink-0 items-center gap-1 text-xs text-warning" title={`${warnings}개 주의`}><AlertTriangle className="size-3" />{warnings}</span>
           ) : null}
         </div>
-        {showType && <div className={cn("px-2.5 pb-1 text-xs font-medium", style.icon)}>{style.label}</div>}
+        {showType && (
+          <div className="px-2.5 pb-1 text-xs font-medium">
+            {isCondition ? (
+              <span className="inline-flex items-center rounded-xs bg-review/20 px-1.5 py-0.5 text-2xs font-semibold text-review-ink">
+                {style.label}
+              </span>
+            ) : (
+              <span className={style.icon}>{style.label}</span>
+            )}
+          </div>
+        )}
         {summary && <p className={cn("px-2.5 py-1 text-xs text-muted-foreground", isHorizontal ? "line-clamp-2" : "min-h-7 truncate")}>{summary}</p>}
         {hasLive && <div className="flex gap-2 border-t border-border-subtle px-2.5 py-1 text-xs tabular-nums">
           {live.running > 0 && <span className="font-medium text-foreground">처리 {live.running}</span>}
@@ -71,15 +93,23 @@ export function NodeCard({ kind, icon, title, summary, inputHandle, outputs = []
       {outputs.length > 0 && <div className={cn(
         "relative text-xs",
         isHorizontal
-          ? cn("grid min-h-full min-w-24 self-stretch grid-cols-1 items-center rounded-r-md border-l border-border bg-muted/40", isCapsule && "rounded-r-full")
-          : cn("grid min-h-7 items-center rounded-b-md border-t border-border bg-muted/40", isCapsule && "rounded-b-full"),
+          ? cn(
+              "grid min-h-full min-w-14 w-14 shrink-0 self-stretch grid-cols-1 items-center rounded-r-md",
+              isCondition ? "border-l border-review/30 bg-review/10" : "border-l border-border bg-muted/40",
+              isCapsule && "rounded-r-full"
+            )
+          : cn(
+              "grid min-h-7 items-center rounded-b-md border-t",
+              isCondition ? "border-review/30 bg-review/10" : "border-border bg-muted/40",
+              isCapsule && "rounded-b-full"
+            ),
       )} style={isHorizontal ? { gridTemplateRows: `repeat(${outputs.length}, minmax(1.25rem, 1fr))` } : { gridTemplateColumns: `repeat(${outputs.length}, minmax(0, 1fr))` }}>
         {outputs.map((port) => <span key={port.id} className={cn(
           "min-w-0 truncate",
           isHorizontal ? "px-2 text-right" : "text-center",
           port.tone === "destructive" && "font-medium text-destructive",
           port.tone === "warning" && "font-medium text-warning",
-          port.tone === "neutral" && "text-muted-foreground",
+          port.tone === "neutral" && (isCondition ? "font-semibold text-success" : "text-muted-foreground"),
         )} title={port.label}>{port.label}</span>)}
       </div>}
     </>
@@ -96,15 +126,15 @@ export function NodeCard({ kind, icon, title, summary, inputHandle, outputs = []
       {isCondition ? (
         <div
           className={cn(
-            "flex min-w-0 flex-1 p-[1.5px] shadow-xs transition-colors",
+            "flex min-w-0 flex-1 p-[2px] shadow-sm transition-colors",
             isHorizontal ? "flex-row min-h-16" : "flex-col",
-            selected ? "bg-primary" : errors > 0 ? "bg-destructive" : "bg-border"
+            selected ? "bg-primary ring-2 ring-primary/40" : errors > 0 ? "bg-destructive" : "bg-review/90 dark:bg-review"
           )}
-          style={{ clipPath: "polygon(14px 0, calc(100% - 14px) 0, 100% 14px, 100% calc(100% - 14px), calc(100% - 14px) 100%, 14px 100%, 0 calc(100% - 14px), 0 14px)" }}
+          style={{ clipPath: "polygon(24px 0, calc(100% - 24px) 0, 100% 18px, 100% calc(100% - 18px), calc(100% - 24px) 100%, 24px 100%, 0 calc(100% - 18px), 0 18px)" }}
         >
           <div
-            className={cn("flex min-w-0 flex-1 bg-card text-card-foreground", isHorizontal ? "flex-row min-h-[calc(4rem-3px)]" : "flex-col")}
-            style={{ clipPath: "polygon(13px 0, calc(100% - 13px) 0, 100% 13px, 100% calc(100% - 13px), calc(100% - 13px) 100%, 13px 100%, 0 calc(100% - 13px), 0 13px)" }}
+            className={cn("flex min-w-0 flex-1 bg-card text-card-foreground", isHorizontal ? "flex-row min-h-[calc(4rem-4px)]" : "flex-col")}
+            style={{ clipPath: "polygon(22.5px 0, calc(100% - 22.5px) 0, 100% 16.5px, 100% calc(100% - 16.5px), calc(100% - 22.5px) 100%, 22.5px 100%, 0 calc(100% - 16.5px), 0 16.5px)" }}
           >
             {content}
           </div>
