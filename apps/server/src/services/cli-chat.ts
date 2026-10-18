@@ -51,7 +51,20 @@ export function codexToolProtocol(tools: CatalogTool[]) {
 }
 
 /** Extract one `loca call` tool and its JSON input from a completed shell command. */
+/**
+ * Codex reports a command as its shell ran it, `/bin/bash -lc "<command>"` (or single-quoted, with
+ * `'\''` for a quote); the command itself is that one shell word, unquoted.
+ */
+function unwrapShell(command: string) {
+  const word = /^\s*\S*\b(?:ba|z)?sh\s+-l?c\s+([\s\S]*?)\s*$/.exec(command)?.[1];
+  if (!word) return command;
+  if (word.startsWith('"') && word.endsWith('"')) return word.slice(1, -1).replace(/\\(["\\$`])/g, '$1');
+  if (word.startsWith("'") && word.endsWith("'")) return word.slice(1, -1).replaceAll(`'\\''`, "'");
+  return command;
+}
+
 export function readLocaCall(command: string): { tool: string; input: Record<string, unknown> } | { command: string } {
+  command = unwrapShell(command);
   const match = /^\s*loca\s+call\s+(\S+)(?:\s+([\s\S]*?))?\s*$/.exec(command);
   if (!match) return { command };
   const tool = match[1]!;

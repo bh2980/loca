@@ -35,6 +35,11 @@ describe('CLI chat', () => {
   it('parses the supported loca call command forms and leaves other shell commands alone', () => {
     expect(readLocaCall(`loca call find_lines '{"speakers":["Alice"]}'`)).toEqual({ tool: 'find_lines', input: { speakers: ['Alice'] } });
     expect(readLocaCall("loca call find_lines - <<'JSON'\n{\"limit\":20}\nJSON")).toEqual({ tool: 'find_lines', input: { limit: 20 } });
+    // As Codex reports them: wrapped in the shell it ran them with.
+    expect(readLocaCall(`/bin/bash -lc "loca call project_overview '{}'"`)).toEqual({ tool: 'project_overview', input: {} });
+    expect(readLocaCall(`/bin/bash -lc "loca call find_lines '{\\"q\\":\\"a\\$b\\"}'"`)).toEqual({ tool: 'find_lines', input: { q: 'a$b' } });
+    expect(readLocaCall(`/bin/bash -lc 'loca call find_lines '\\''{"q":"it'\\''s"}'\\'''`)).toEqual({ tool: 'find_lines', input: { q: "it's" } });
+    expect(readLocaCall('/bin/bash -lc "ls /tmp"')).toEqual({ command: 'ls /tmp' });
     expect(readLocaCall("loca call find_lines '{broken}'")).toEqual({ tool: 'find_lines', input: { command: "loca call find_lines '{broken}'" } });
     expect(readLocaCall('loca call find_lines unsupported')).toEqual({ tool: 'find_lines', input: { command: 'loca call find_lines unsupported' } });
     expect(readLocaCall('pwd')).toEqual({ command: 'pwd' });
