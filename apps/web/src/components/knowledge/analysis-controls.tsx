@@ -5,7 +5,7 @@ import { ANALYSIS_WORKFLOW } from '@tw/shared';
 import { CircleStop, Play, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { Elapsed, JobProgress } from '@/components/job-progress';
-import { Button, Popover, PopoverContent, PopoverTrigger } from '@loca/ui';
+import { Button, Popover, PopoverContent, PopoverTrigger, HelpTip } from '@loca/ui';
 import { AiConfirmNote } from '@/components/settings/ai-confirm';
 import { ModelPicker, useInitialModel, type ModelValue } from '@/components/model-picker';
 import { client, unwrap } from '@/lib/api';
@@ -19,7 +19,7 @@ export function JobStatus({ projectId }: { projectId: string }) {
   const jobs = useQuery(q.analysisJobs(projectId));
   const cancel = useMutation({ mutationFn: (jobId: string) => unwrap(client.projects[':projectId'].analysis[':jobId'].cancel.$post({ param: { projectId, jobId } })), onError: fail });
   const job = jobs.data?.[0];
-  if (!job) return <span>작품 분석을 돌리면 대본 전체를 읽고 아래 다섯 가지 초안을 만듭니다.</span>;
+  if (!job) return null;
   const when = dateTime(job.finishedAt ?? job.createdAt);
   if (job.status === 'running')
     return (
@@ -95,7 +95,7 @@ export function StartAnalysis({ projectId, variant = 'default' }: { projectId: s
       <PopoverContent align="end" className="w-80 space-y-3">
         <div className="space-y-1">
           <h3 className="text-sm font-semibold">작품 분석</h3>
-          <p className="text-xs text-muted-foreground">
+          <p className="flex items-center gap-1 text-xs text-muted-foreground">
             모델이 대본 전체를 한 번에 읽고 개요·인물·관계·사건·말투 규칙 초안과 용어(번역 제안 포함)를 근거와 함께 만듭니다. 번역과 상태는 바뀌지 않습니다. 긴 문맥 모델을 권장하고, 연결 설정의 최대 출력 토큰이 작으면 답이 잘릴 수 있습니다.
             {hasDrafts && ' 다시 분석하면 사람이 고치거나 확정·확인하지 않은 AI 항목이 새 결과로 바뀝니다.'}
           </p>
@@ -107,7 +107,7 @@ export function StartAnalysis({ projectId, variant = 'default' }: { projectId: s
             ) : (
               `‘${ANALYSIS_WORKFLOW}’ 워크플로`
             )}
-            를 실행합니다. 읽을 항목·지시문은 그 워크플로에서 고치고, 인물만·사건만처럼 나눈 분석은 새 워크플로의 작품 분석 템플릿으로 만듭니다.
+            를 실행합니다. <HelpTip>읽을 항목·지시문은 그 워크플로에서 고치고, 인물만·사건만처럼 나눈 분석은 새 워크플로의 작품 분석 템플릿으로 만듭니다.</HelpTip>
           </p>
         </div>
         <ModelPicker value={model} onChange={setPicked} />

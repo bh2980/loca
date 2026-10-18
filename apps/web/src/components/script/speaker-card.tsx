@@ -38,9 +38,7 @@ function SpeakerInfo({ projectId, name }: { projectId: string; name: string }) {
       </p>
       {character?.profile ? (
         <p className="line-clamp-4 text-muted-foreground">{character.profile}</p>
-      ) : (
-        <p className="text-muted-foreground">{character ? '프로필이 비어 있습니다.' : '인물로 등록돼 있지 않습니다.'}</p>
-      )}
+      ) : null}
       {character?.speech && (
         <p className="line-clamp-2">
           <span className="text-xs text-muted-foreground">말버릇 </span>

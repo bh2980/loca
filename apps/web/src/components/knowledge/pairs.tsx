@@ -4,7 +4,7 @@ import { ChevronRight, Plus } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { InferRequestType } from 'hono/client';
 import { type AutoMark, isSpecialListener, knowledgeMarksOf, listenerLabel, matchesMarks, OTHERS_LISTENER, SPEECH_LEVEL_LABELS } from '@tw/shared';
-import { EmptyState, DataTable, type ColumnDef, DetailPane, PaneSection, Badge, Button, Collapsible, CollapsibleContent, CollapsibleTrigger } from '@loca/ui';
+import { EmptyState, DataTable, type ColumnDef, DetailPane, PaneSection, Badge, Button, Collapsible, CollapsibleContent, CollapsibleTrigger, HelpTip } from '@loca/ui';
 import { DraftEditor } from '@/components/knowledge/editor';
 import { candidateRow, fail, matches, metaColumns, SourceBadge, type Draft, type KnowledgeFilterState, type KindSpec, type RelationshipRow, type SourceFilter, type SpeechRuleRow } from '@/components/knowledge/table';
 import { splitList } from '@/components/chip-input';
@@ -114,7 +114,7 @@ export function PairTable({ pairs, loading, selected, picked, onPick, onOpen, bu
       picked={picked}
       onPick={onPick}
       bulk={bulk}
-      empty={<EmptyState noun="관계나 말투 규칙이 있는 쌍" filtered={Boolean(filters.source || filters.marks?.length || filters.tags?.length)} hint="“작품 분석”으로 초안을 받거나 인물을 추가하세요." />}
+      empty={<EmptyState noun="관계나 말투 규칙이 있는 쌍" filtered={Boolean(filters.source || filters.marks?.length || filters.tags?.length)} />}
     />
   );
 }
@@ -184,7 +184,7 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
                 : '이 쌍의 말투 규칙이 없습니다. 규칙이 없으면 번역에는 청자만 들어갑니다.'}
           </p>
         )}
-        {pair.to === OTHERS_LISTENER && <p className="text-xs text-muted-foreground">{pair.from}가 자기 규칙이 없는 상대(엑스트라, 처음 보는 사람 등)에게 쓰는 말투입니다.</p>}
+        {pair.to === OTHERS_LISTENER && <p className="flex items-center gap-1 text-xs text-muted-foreground">그 밖의 사람 <HelpTip>{pair.from}가 자기 규칙이 없는 상대(엑스트라, 처음 보는 사람 등)에게 쓰는 말투입니다.</HelpTip></p>}
         <ul className="space-y-2">
           {rules.map((rule) => {
             const open = openRule === rule.id;

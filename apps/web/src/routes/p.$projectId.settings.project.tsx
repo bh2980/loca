@@ -75,7 +75,7 @@ function ProjectForm({ projectId, project }: { projectId: string; project: { nam
             {conflicts.length > 0 && <ChangedElsewhere fields={conflicts.map((field) => (field === 'name' ? '이름' : '설명'))} onTakeSaved={takeSaved} onKeepMine={keepMine} />}
             <FieldGroup className="gap-4">
               <Field>
-                <FieldLabel htmlFor="project-name">이름</FieldLabel>
+                <FieldLabel htmlFor="project-name" help="내보내기 파일 이름에도 쓰입니다.">이름</FieldLabel>
                 <Input id="project-name" value={name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
               </Field>
               <Field>

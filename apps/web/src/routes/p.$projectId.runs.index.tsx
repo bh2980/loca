@@ -4,7 +4,7 @@ import { ChevronRight, Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import { useQuery } from '@tanstack/react-query';
 import { Page } from '@/components/page';
-import { SplitPane, EmptyState, DataTable, type ColumnDef, DetailPane, JobStatusBadge, Button, Progress, Spinner, Collapsible, CollapsibleContent, CollapsibleTrigger, Skeleton } from '@loca/ui';
+import { SplitPane, EmptyState, DataTable, type ColumnDef, DetailPane, JobStatusBadge, Button, Progress, Spinner, Collapsible, CollapsibleContent, CollapsibleTrigger, Skeleton, HelpTip } from '@loca/ui';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { AnalysisSteps } from '@/components/job-progress';
@@ -159,7 +159,7 @@ function Runs() {
           loading={!rows}
           selected={search.job}
           onRowClick={(row) => (row.kind === 'run' ? void navigate({ to: '/p/$projectId/runs/$runId', params: { projectId, runId: row.id } }) : select(row.id === search.job ? undefined : row.id))}
-          empty={<EmptyState noun="실행" hint="워크플로 실행, 작품 분석, 용어 AI 채우기가 모델을 부르면 여기에 쌓입니다." />}
+          empty={<EmptyState noun="실행" hint={<HelpTip>워크플로 실행, 작품 분석, 용어 AI 채우기가 모델을 부르면 여기에 쌓입니다.</HelpTip>} />}
         />
       </SplitPane>
     </Page>

@@ -4,7 +4,7 @@ import { useMutation } from '@tanstack/react-query';
 import { Play } from 'lucide-react';
 import { FUNCTIONS, nodeName, type FunctionName, type WorkflowNode } from '@tw/shared';
 import { AiConfirmNote } from '@/components/settings/ai-confirm';
-import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, StatusIcon, TagChip } from '@loca/ui';
+import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, StatusIcon, TagChip, HelpTip } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
 import { client, unwrap } from '@/lib/api';
 import { Field, ToggleRow, type FunctionNode, type NodeRefs } from '@/components/workflow/node-config/shared';
@@ -32,7 +32,7 @@ export function FunctionConfig({ node, refs, readOnly, onChange }: { node: Funct
         </div>
       );
     case 'glossaryCheck':
-      return <p className="text-sm text-muted-foreground">설정할 것이 없습니다. 실패 이유는 다음 AI 노드의 "지적 사항"으로 전달됩니다.</p>;
+      return <p className="text-sm text-muted-foreground"><HelpTip label="함수 안내">설정할 것이 없습니다. 실패 이유는 다음 AI 노드의 "지적 사항"으로 전달됩니다.</HelpTip></p>;
     case 'setStatus':
       return <SetStatusConfig params={params} refs={refs} set={set} setMany={setMany} />;
     case 'addTerms': {
@@ -199,11 +199,10 @@ function HttpConfig({ params, refs, set }: { params: Record<string, unknown>; re
             </SelectContent>
           </Select>
         </Field>
-        <Field label="주소">
+        <Field label="주소" help="주소에도 {{unit.key}} 같은 값을 넣을 수 있습니다(자동으로 URL 인코딩).">
           <Input className="font-mono text-xs" value={params.url as string} placeholder="https://api.example.com/spell" onChange={(event) => set('url', event.target.value)} />
         </Field>
       </div>
-      <p className="-mt-2 text-xs text-muted-foreground">주소에도 {'{{unit.key}}'} 같은 값을 넣을 수 있습니다(자동으로 URL 인코딩).</p>
       <Field label="API 키 (선택)" hint={tools.length ? (selected ? 'API 키에 정한 헤더 형식으로 키를 붙여 보냅니다' : '키가 필요 없는 공개 API면 비워 둡니다') : '키가 필요한 API면 워크플로 › API 키에서 먼저 추가하세요.'}>
         <Select value={(params.connectionId as string) || 'none'} onValueChange={(value) => set('connectionId', value === 'none' ? '' : value)}>
           <SelectTrigger className="w-full">

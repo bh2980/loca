@@ -1,7 +1,7 @@
 /** Pieces shared by the node-kind configs: row layouts and the node/ref types. */
 import { useId } from 'react';
 import { ChevronRight } from 'lucide-react';
-import { Button, Collapsible, CollapsibleContent, CollapsibleTrigger, Input, Label, Switch, ControlIdContext } from '@loca/ui';
+import { Button, Collapsible, CollapsibleContent, CollapsibleTrigger, Input, Label, Switch, ControlIdContext, HelpTip } from '@loca/ui';
 import { CONNECTION_KIND_INFO, type WorkflowNode } from '@tw/shared';
 
 export type AiNode = Extract<WorkflowNode, { type: 'ai' }>;
@@ -16,14 +16,14 @@ export interface NodeRefs {
   nodes: WorkflowNode[];
 }
 
-export function Field({ label, hint, action, children }: { label: string; hint?: React.ReactNode; action?: React.ReactNode; children: React.ReactNode }) {
+export function Field({ label, hint, help, action, children }: { label: string; hint?: React.ReactNode; help?: React.ReactNode; action?: React.ReactNode; children: React.ReactNode }) {
   // The label names its control (an input, text area or select inside takes this id).
   const id = useId();
   return (
     <div className="min-w-0 space-y-1.5">
       <div className="flex min-h-7 min-w-0 items-center justify-between gap-2">
         <Label htmlFor={id} className="min-w-0 leading-snug text-xs">
-          {label}
+          {label}{help && <HelpTip>{help}</HelpTip>}
         </Label>
         {action}
       </div>
@@ -64,7 +64,7 @@ export function ToggleRow({ label, checked, onChange }: { label: string; checked
  * One part of a node's settings (출력 · 모델 · 지시 · 문맥 · 묶음, #48): a heading that folds it away.
  * Open by default, so nothing is hidden until the person folds it; `summary` says what is inside while it is folded.
  */
-export function ConfigSection({ title, summary, children }: { title: string; summary?: React.ReactNode; children: React.ReactNode }) {
+export function ConfigSection({ title, summary, children }: { title: React.ReactNode; summary?: React.ReactNode; children: React.ReactNode }) {
   return (
     <Collapsible defaultOpen className="group/section min-w-0 pt-3">
       <CollapsibleTrigger asChild>

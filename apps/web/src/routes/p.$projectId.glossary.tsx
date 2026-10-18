@@ -3,7 +3,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, CircleStop, ScanSearch } from 'lucide-react';
 import { toast } from 'sonner';
-import { DataTable, type ColumnDef, EmptyState, TagMenu, SplitPane, FilterChips, SearchInput, Toolbar, type FilterChip, Button, TagChip } from '@loca/ui';
+import { DataTable, type ColumnDef, EmptyState, TagMenu, SplitPane, FilterChips, SearchInput, Toolbar, type FilterChip, Button, TagChip, HelpTip } from '@loca/ui';
 import { HeaderFilter, MarkFilter, markTagGroups } from '@/components/header-filter';
 import { MarkChip } from '@/components/status';
 import { FillDialog } from '@/components/glossary/fill-dialog';
@@ -138,7 +138,7 @@ function Glossary() {
   const columns: ColumnDef<Term, unknown>[] = [
     { id: 'source', header: '원문', meta: { hideable: false }, cell: ({ row }) => <span className="font-medium">{row.original.source}</span> },
     { id: 'target', header: '번역', cell: ({ row }) => row.original.target || <span className="text-muted-foreground">—</span> },
-    { id: 'lines', header: () => <span title="원문에 이 용어가 나오는 대사 수">나온 줄</span>, meta: { width: 72, align: 'end', label: '나온 줄' }, cell: ({ row }) => row.original.lines ?? <span className="text-muted-foreground">—</span> },
+    { id: 'lines', header: () => <span className="inline-flex items-center gap-1">나온 줄 <HelpTip>원문에 이 용어가 나오는 대사 수</HelpTip></span>, meta: { width: 72, align: 'end', label: '나온 줄' }, cell: ({ row }) => row.original.lines ?? <span className="text-muted-foreground">—</span> },
     { id: 'note', header: '메모', meta: { className: 'text-muted-foreground' }, cell: ({ row }) => row.original.note },
     {
       id: 'origin',
@@ -221,7 +221,7 @@ function Glossary() {
           rows={terms.data && rows}
           rowId={(term) => term.id}
           loading={terms.isLoading}
-          empty={<EmptyState noun="용어" filtered={Boolean(needle || search.ids || search.source || search.marks?.length || search.tags?.length)} hint="‘대본에서 찾기’로 후보를 찾거나 ‘용어 추가’로 직접 넣으세요." />}
+          empty={<EmptyState noun="용어" filtered={Boolean(needle || search.ids || search.source || search.marks?.length || search.tags?.length)} />}
           selected={selected?.id}
           onRowClick={(term) => select(term.id === search.term ? undefined : term.id)}
           picked={picked}

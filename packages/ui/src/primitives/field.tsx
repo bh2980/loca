@@ -5,6 +5,7 @@ import { cn } from "../lib/utils"
 
 import { Label } from "./label"
 import { Separator } from "./separator"
+import { HelpTip } from "./help-tip"
 
 function FieldSet({ className, ...props }: React.ComponentProps<"fieldset">) {
   return (
@@ -108,8 +109,10 @@ function FieldContent({ className, ...props }: React.ComponentProps<"div">) {
 
 function FieldLabel({
   className,
+  help,
+  children,
   ...props
-}: React.ComponentProps<typeof Label>) {
+}: React.ComponentProps<typeof Label> & { help?: React.ReactNode }) {
   return (
     <Label
       data-slot="field-label"
@@ -120,11 +123,13 @@ function FieldLabel({
         className
       )}
       {...props}
-    />
+    >
+      {children}{help && <HelpTip>{help}</HelpTip>}
+    </Label>
   )
 }
 
-function FieldTitle({ className, ...props }: React.ComponentProps<"div">) {
+function FieldTitle({ className, help, children, ...props }: React.ComponentProps<"div"> & { help?: React.ReactNode }) {
   return (
     <div
       data-slot="field-label"
@@ -133,7 +138,9 @@ function FieldTitle({ className, ...props }: React.ComponentProps<"div">) {
         className
       )}
       {...props}
-    />
+    >
+      {children}{help && <HelpTip>{help}</HelpTip>}
+    </div>
   )
 }
 

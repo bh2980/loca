@@ -332,7 +332,7 @@ function Knowledge() {
   );
   const total = graph ? `인물 ${characters.length.toLocaleString()}명 · 관계 ${visiblePairs.length.toLocaleString()}쌍` : pairsView ? `${visiblePairs.length.toLocaleString()}쌍` : `${rows.length.toLocaleString()}${tab === 'people' ? '명' : '개'}`;
   const count = pending ? undefined : `${total}${unofficialHere > 0 ? ` · 확인 필요 ${unofficialHere.toLocaleString()}` : ''}`;
-  const empty = <EmptyState noun={`${KINDS[tableKind]} 항목`} filtered={filtered} hint="“추가”로 직접 만들거나 “작품 분석”으로 초안을 받으세요." />;
+  const empty = <EmptyState noun={`${KINDS[tableKind]} 항목`} filtered={filtered} />;
 
   return (
     <Page title="자료" flush>

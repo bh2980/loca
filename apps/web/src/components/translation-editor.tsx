@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { checkFormat, listenerLabel, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatIssue, type FormatRules } from '@tw/shared';
 import { TokenChip, TokenText } from '@/components/editor/source-text';
 import { focusEndOfLine, insertUnitIntoLine, proposeInLine, replaceLineText, TranslationInput } from '@/components/editor/translation-input';
-import { Button, AiMark, StatusIcon } from '@loca/ui';
+import { Button, AiMark, StatusIcon, HelpTip } from '@loca/ui';
 import { apiFetch } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
 import { wordDiff } from '@/lib/diff';
@@ -184,7 +184,6 @@ export function TranslationEditor({
         continuing={ai.loading}
         onDismissContinuation={() => (pending.current?.abort(), setAi((state) => ({ ...state, loading: false, dismissed: true })))}
         focusKey={focusKey}
-        placeholder="번역을 입력하세요. 저장하면 번역 칸에 바로 들어갑니다."
       />
       {marks}
       {/* What 다듬기 changed in the box and why, while the box still holds its answer. */}
@@ -219,7 +218,6 @@ export function TranslationEditor({
             <Button
               variant="outline"
               disabled={!!assist.loading}
-              title={`원문에서 새로 번역${draft.trim() ? '' : ` (${keyLabel('Alt+.')})`}`}
               onClick={() => runAssist('translate')}
             >
               <Languages className="size-3.5 text-primary" />
@@ -236,11 +234,14 @@ export function TranslationEditor({
             </Button>
           </div>
         ) : (
-          <Button variant="ghost" size="inline" className="text-xs text-muted-foreground hover:text-foreground" asChild>
-            <Link to="/p/$projectId/ai/usage" params={{ projectId }} title="AI › 사용 방식에서 AI 번역·다듬기 모델을 고르면 쓸 수 있습니다">
-              <Sparkles className="size-3.5 text-muted-foreground" /> AI 번역 모델 설정
-            </Link>
-          </Button>
+          <span className="inline-flex items-center gap-1">
+            <Button variant="ghost" size="inline" className="text-xs text-muted-foreground hover:text-foreground" asChild>
+              <Link to="/p/$projectId/ai/usage" params={{ projectId }}>
+                <Sparkles className="size-3.5 text-muted-foreground" /> AI 번역 모델 설정
+              </Link>
+            </Button>
+            <HelpTip>AI › 사용 방식에서 AI 번역·다듬기 모델을 고르면 쓸 수 있습니다.</HelpTip>
+          </span>
         )}
         {assist.loading && <Waiting label={assist.loading === 'refine' ? '다듬는 중…' : 'AI 번역 중…'} onCancel={() => (assistPending.current?.abort(), setAssist({}))} />}
         {assist.done === 'unchanged' && <span className="text-xs text-muted-foreground">다듬을 곳이 없습니다</span>}
@@ -467,8 +468,8 @@ function DraftChecks({ unitId, source, draft, units, terms, tags, rules, targetL
   const issues = checkFormat(source, draft, editorChecks(targetLanguage), rules).filter((issue) => issue.code !== 'empty' && !(missing.length && (issue.code === 'tag' || issue.code === 'placeholder')));
   if (!missing.length && !issues.length && !unusedTerms.length && !speechOff)
     return (
-      <p className="flex items-center gap-1 text-xs text-muted-foreground" title="용어 · 말투 · 서식 · 숫자 · 공백 · 줄바꿈 · 조사 검사 통과">
-        <Check className="size-3 text-success" /> 검사 통과
+      <p className="flex items-center gap-1 text-xs text-muted-foreground">
+        <Check className="size-3 text-success" /> 검사 통과 <HelpTip>용어 · 말투 · 서식 · 숫자 · 공백 · 줄바꿈 · 조사 검사 통과</HelpTip>
       </p>
     );
   return (

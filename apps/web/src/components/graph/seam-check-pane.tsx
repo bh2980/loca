@@ -2,7 +2,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { FileText } from 'lucide-react';
 import { toast } from 'sonner';
-import { DetailPane, Badge, Button } from '@loca/ui';
+import { DetailPane, Badge, Button, HelpTip } from '@loca/ui';
 import { TokenText } from '@/components/editor/source-text';
 import { client, unwrap } from '@/lib/api';
 import { tokenPatternOf } from '@/lib/line-context';
@@ -62,12 +62,11 @@ export function SeamCheckPane({ projectId, nodeId, onClose }: { projectId: strin
   return (
     <DetailPane
       kicker="이음새 점검"
-      title="이번 길이 앞선 길로 이어지는 곳"
+      title={<span className="inline-flex items-center gap-1">이번 길이 앞선 길로 이어지는 곳 <HelpTip>이번 길의 새 줄에서 이미 번역한 길의 줄로 이어집니다. 이어 읽어도 번역이 자연스러운지 확인하세요.</HelpTip></span>}
       subtitle={data && <SeamStateChip state={state} />}
       onClose={onClose}
       loading={detail.isPending}
       bodyClassName="space-y-4 p-4"
-      summary={data && <p className="text-xs text-muted-foreground">이번 길의 새 줄에서 이미 번역한 길의 줄로 이어집니다. 이어 읽어도 번역이 자연스러운지 확인하세요.</p>}
       footer={
         data && (
           <>

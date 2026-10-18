@@ -5,7 +5,7 @@ import { nodeName as nameOf, type WorkflowNode } from '@tw/shared';
 import { ContextItemList } from '@/components/ai-context';
 import { LineDetail } from '@/components/line-detail';
 import { Page } from '@/components/page';
-import { EmptyState, DataTable, type ColumnDef, Pager, Toolbar, SplitPane, JobStatusBadge, Alert, AlertDescription, AlertTitle, Badge, Button, Collapsible, CollapsibleContent, CollapsibleTrigger, Progress, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Tabs, TabsList, TabsTrigger, Skeleton } from '@loca/ui';
+import { EmptyState, DataTable, type ColumnDef, Pager, Toolbar, SplitPane, JobStatusBadge, Alert, AlertDescription, AlertTitle, Badge, Button, Collapsible, CollapsibleContent, CollapsibleTrigger, Progress, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Tabs, TabsList, TabsTrigger, Skeleton, HelpTip } from '@loca/ui';
 import { HeaderFilter } from '@/components/header-filter';
 import { client, unwrap } from '@/lib/api';
 import { ITEM_STATE } from '@/lib/labels';
@@ -281,11 +281,11 @@ function RunDetail() {
             {plan.data ? (
               plan.data.total ? (
                 <>
-                  <p className="mb-3 text-sm text-muted-foreground">실행을 시작할 때 짠 묶음입니다. 모든 AI 단계(번역·검수·수정)가 이 묶음 단위로 움직입니다.</p>
+                  <p className="mb-3 flex items-center gap-1 text-sm text-muted-foreground">번역 계획 <HelpTip>실행을 시작할 때 짠 묶음입니다. 모든 AI 단계(번역·검수·수정)가 이 묶음 단위로 움직입니다.</HelpTip></p>
                   <BatchList list={plan.data} defaultOpen />
                 </>
               ) : (
-                <EmptyState noun="저장된 번역 계획" hint="계획을 저장하기 전에 시작한 실행입니다." />
+                <EmptyState noun="저장된 번역 계획" />
               )
             ) : plan.isError ? (
               <p className="py-12 text-center text-sm text-destructive">번역 계획을 불러오지 못했습니다: {plan.error.message}</p>

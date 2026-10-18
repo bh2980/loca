@@ -1,7 +1,7 @@
 /** Config of an AI node: model, prompt, context and outputs. */
 import { Plus, Trash2, X } from 'lucide-react';
 import { AI_OUTPUTS, ANALYSIS_SECTION_LABELS, ANALYSIS_SECTIONS, analysisSectionsOf, CONNECTION_KIND_INFO, contextConfigSchema, type AiOutput, type BatchConfig, type Capability, type JsonField, type WorkflowNode } from '@tw/shared';
-import { Button, Checkbox, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, ControlIdContext } from '@loca/ui';
+import { Button, Checkbox, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, ControlIdContext, HelpTip } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
 import { Link } from '@tanstack/react-router';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
@@ -28,7 +28,7 @@ export function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRef
   return (
     <>
       <ConfigSection title="출력" summary={AI_OUTPUTS[config.output].label}>
-        <Field label="출력 형태" hint={config.output === 'verdict' ? '통과 / 실패 출구가 생깁니다.' : '완료 출구로 나갑니다. 결과는 뒤 노드와 조건에서 outputs.' + node.id + ' 로 읽습니다.'}>
+        <Field label="출력 형태" help={config.output === 'verdict' ? '통과 / 실패 출구가 생깁니다.' : '완료 출구로 나갑니다. 결과는 뒤 노드와 조건에서 outputs.' + node.id + ' 로 읽습니다.'}>
           <Select value={config.output} onValueChange={(value) => set({ output: value as AiOutput })}>
             <SelectTrigger className="w-full">
               <SelectValue />
@@ -74,7 +74,7 @@ export function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRef
           </Field>
         )}
         {config.output === 'analysis' && (
-          <Field label="읽을 항목" hint="고른 항목만 묻고 저장합니다. 하나만 고르면 그 항목만 다시 분석하는 워크플로가 됩니다(대본 전체를 읽은 실행은 지난 분석의 손대지 않은 AI 항목을 그 항목만 바꿉니다).">
+          <Field label="읽을 항목" help="고른 항목만 묻고 저장합니다. 하나만 고르면 그 항목만 다시 분석하는 워크플로가 됩니다(대본 전체를 읽은 실행은 지난 분석의 손대지 않은 AI 항목을 그 항목만 바꿉니다).">
             <div className="grid grid-cols-2 gap-1.5">
               {ANALYSIS_SECTIONS.map((section) => {
                 const picked = analysisSectionsOf(config.sections);
@@ -101,7 +101,7 @@ export function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRef
       <ConfigSection title="모델" summary={[config.model.model || '고르지 않음', extras.length > 0 && `외 ${extras.length}개`].filter(Boolean).join(' ')}>
         <Field
           label="AI 모델"
-          hint={
+          help={
             <>
               {connection?.fallback && <span className="block">이 연결이 막히면 연결 설정의 ‘막히면’으로 넘깁니다.</span>}
               시간 제한·시도 횟수·최대 출력은{' '}
@@ -111,7 +111,6 @@ export function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRef
               에서 정합니다.
               {config.output === 'verdict' && ' 판정에는 System One도 쓸 수 있습니다.'}
               {extras.length > 0 && <span className="mt-1 block">요청마다 칸이 빈 계정의 모델로 보냅니다. 같은 모델의 다른 계정을 붙이면 처리량만 늘어납니다.</span>}
-              {config.output === 'candidate' && chosenModels.size > 1 && <span className="mt-1 block text-warning">서로 다른 모델이 번역을 나누면 장면마다 문체가 달라질 수 있습니다.</span>}
             </>
           }
         >
@@ -125,6 +124,7 @@ export function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRef
                 </Button>
               </div>
             ))}
+            {config.output === 'candidate' && chosenModels.size > 1 && <p className="text-xs text-warning">서로 다른 모델이 번역을 나누면 장면마다 문체가 달라질 수 있습니다.</p>}
             <Button variant="outline" onClick={() => set({ extraModels: [...extras, { connectionId: '', model: '' }] })} disabled={extras.some((choice) => !choice.model)}>
               <Plus /> 함께 나눌 모델
             </Button>
@@ -148,6 +148,7 @@ export function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRef
       <ConfigSection title="지시" summary={config.instructions.trim() || '비어 있음'}>
         <Field
           label="지시문 (이 단계에서 할 일)"
+          help={config.output === 'analysis' ? '항목마다 무엇을 낼지는 기본 규칙이 정합니다. 여기에는 덧붙일 지시만 씁니다 (예: 인물 프로필은 세 문장 이내로).' : undefined}
           action={
             <AiButton variant="ghost" prompt={`이 AI 노드의 지시문을 ${config.instructions.trim() ? '다듬어줘' : '작성해줘'}.`}>
               {config.instructions.trim() ? 'AI로 다듬기' : 'AI로 작성'}
@@ -158,7 +159,6 @@ export function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRef
             value={config.instructions}
             onChange={(event) => set({ instructions: event.target.value })}
             className="min-h-32 text-xs"
-            placeholder={config.output === 'analysis' ? '항목마다 무엇을 낼지는 기본 규칙이 정합니다. 여기에는 덧붙일 지시만 씁니다 (예: 인물 프로필은 세 문장 이내로).' : undefined}
           />
         </Field>
         {config.output === 'candidate' && (
@@ -175,9 +175,9 @@ export function AiConfig({ node, refs, onChange }: { node: AiNode; refs: NodeRef
           </Field>
         )}
       </ConfigSection>
-      <ConfigSection title="문맥" summary={config.output === 'analysis' ? '대본 전체' : `${contextOn}개 켬 · 상한 ${context.maxTokens.toLocaleString()} 토큰`}>
+      <ConfigSection title={<>문맥 {config.output === 'analysis' && <HelpTip>작품 분석은 읽는 대본 자체가 문맥입니다. 사람이 정한 인물 이름만 함께 보내 같은 이름을 쓰게 합니다.</HelpTip>}</>} summary={config.output === 'analysis' ? '대본 전체' : `${contextOn}개 켬 · 상한 ${context.maxTokens.toLocaleString()} 토큰`}>
         {config.output === 'analysis' ? (
-          <p className="text-xs text-muted-foreground">작품 분석은 읽는 대본 자체가 문맥입니다. 사람이 정한 인물 이름만 함께 보내 같은 이름을 쓰게 합니다.</p>
+          null
         ) : (
           <div className="space-y-2.5">
             <p className="text-xs text-muted-foreground">확정된 자료만 들어갑니다. 실제로 들어간 것은 대사 패널의 AI 문맥 탭에서 봅니다.</p>

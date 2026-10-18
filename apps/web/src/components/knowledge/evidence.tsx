@@ -123,7 +123,6 @@ export function RelationshipChanges({ projectId, changes }: { projectId: string;
           return (
             <li key={`${change.at}-${change.change}`} className="rounded border p-2 text-xs">
               <p>{change.change}</p>
-              {change.cause && <p className="text-muted-foreground">계기: {change.cause}</p>}
               {line && (
                 <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.groupId, line: line.id }} className="mt-1 block text-muted-foreground hover:underline">
                   {line.speaker && `${line.speaker}: `}
