@@ -58,28 +58,31 @@ export const permissionModeOf = (db: Db, sessionId: string | null): PermissionMo
 
 /** What bypass has done in a conversation: changes it applied (or tried), and the cost its connections reported (chat calls and the runs it started). */
 export function bypassUsage(db: Db, sessionId: string): { changes: number; costUsd: number } {
-  const proposals = db.select({ tool: s.proposals.tool, result: s.proposals.result, status: s.proposals.status }).from(s.proposals)
-    .where(and(eq(s.proposals.sessionId, sessionId), eq(s.proposals.decidedBy, 'bypass'), inArray(s.proposals.status, ['accepted', 'failed']))).all();
+  // Running ones count too: concurrent tool calls claim their row before the next one checks (#99 review).
+  const proposals = db.select({ tool: s.proposals.tool, input: s.proposals.input, result: s.proposals.result, status: s.proposals.status }).from(s.proposals)
+    .where(and(eq(s.proposals.sessionId, sessionId), eq(s.proposals.decidedBy, 'bypass'), inArray(s.proposals.status, ['accepted', 'failed', 'running']))).all();
   const runIds = proposals.filter((proposal) => proposal.tool === 'start_run' && proposal.status === 'accepted')
     .map((proposal) => (proposal.result as { runId?: string } | null)?.runId).filter((id): id is string => !!id);
   const chatCost = db.select({ cost: sql<number>`coalesce(sum(${s.aiCalls.costUsd}), 0)` }).from(s.aiCalls)
     .where(eq(s.aiCalls.refId, sessionId)).get()?.cost ?? 0;
   const runCost = runIds.length ? db.select({ cost: sql<number>`coalesce(sum(${s.runSteps.costUsd}), 0)` }).from(s.runSteps)
     .where(inArray(s.runSteps.runId, runIds)).get()?.cost ?? 0 : 0;
-  return { changes: proposals.length, costUsd: chatCost + runCost };
+  // A batch counts its items, not one (#99 review).
+  return { changes: proposals.reduce((sum, proposal) => sum + itemCount(proposal.input), 0), costUsd: chatCost + runCost };
 }
 
-export function bypassCapReason(limits: { changes: number; costUsd: number | null }, usage: { changes: number; costUsd: number }): string | null {
-  if (usage.changes >= limits.changes) return `우회 한도에 닿아 묻습니다: 이 대화에서 바로 반영한 변경 ${usage.changes}개 (한도 ${limits.changes}개)`;
+/** `incoming` is the size of the change being decided: one that would go past the limit asks too. */
+export function bypassCapReason(limits: { changes: number; costUsd: number | null }, usage: { changes: number; costUsd: number }, incoming = 1): string | null {
+  if (usage.changes + incoming > limits.changes) return `우회 한도에 닿아 묻습니다: 이 대화에서 바로 반영한 변경 ${usage.changes}개${incoming > 1 ? ` + 이번 ${incoming}개` : ''} (한도 ${limits.changes}개)`;
   if (limits.costUsd !== null && usage.costUsd >= limits.costUsd) return `우회 한도에 닿아 묻습니다: 측정된 비용 $${usage.costUsd.toFixed(2)} (한도 $${limits.costUsd})`;
   return null;
 }
 
 /** Why bypass asks this conversation's next change instead of applying it; null while under the project's limits. */
-function bypassCap(db: Db, projectId: string, sessionId: string) {
+function bypassCap(db: Db, projectId: string, sessionId: string, input: Record<string, unknown>) {
   const settings = db.select({ settings: s.projects.agentSettings }).from(s.projects).where(eq(s.projects.id, projectId)).get()?.settings;
   // Rows saved before the limits existed get the defaults.
-  return bypassCapReason(agentSettingsSchema.parse(settings ?? {}).bypassLimits, bypassUsage(db, sessionId));
+  return bypassCapReason(agentSettingsSchema.parse(settings ?? {}).bypassLimits, bypassUsage(db, sessionId), itemCount(input));
 }
 
 export type GateResult =
@@ -92,7 +95,7 @@ export async function proposeChange(db: Db, request: { projectId: string; sessio
   // Read now, not at turn start: switching to bypass while the agent works applies from its next change.
   const mode = permissionModeOf(db, request.sessionId);
   const review = mode === 'auto' ? autoReview(request.tool, prepared.input, prepared.report) : null;
-  const capReason = mode === 'bypass' && request.sessionId ? bypassCap(db, request.projectId, request.sessionId) : null;
+  const capReason = mode === 'bypass' && request.sessionId ? bypassCap(db, request.projectId, request.sessionId, prepared.input) : null;
   const heldReason = review?.reason ?? capReason;
   const proposal = propose(db, { projectId: request.projectId, sessionId: request.sessionId, model: request.model, source: request.source, tool: request.tool, input: prepared.input, report: prepared.report, review: heldReason });
   if ((mode === 'bypass' && !capReason) || review?.pass) {

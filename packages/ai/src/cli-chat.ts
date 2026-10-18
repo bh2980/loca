@@ -179,6 +179,14 @@ function codexShellPaths(route: ResolvedRoute, shell: NonNullable<CliChatTurn['s
   return { readPaths: [...shell.readPaths, path.dirname(path.dirname(process.execPath)), ...(codex ? [codex] : []), cwd], deny: shell.deny };
 }
 
+/** Puts `loca` on the agent shell's PATH: a sh script, and a .cmd for Windows, which finds commands through PATHEXT (#100 review). */
+export async function writeLocaLauncher(bin: string, loca: string) {
+  const launcher = path.join(bin, 'loca');
+  await writeFile(launcher, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(loca)} "$@"\n`);
+  await chmod(launcher, 0o755);
+  await writeFile(`${launcher}.cmd`, `@"${process.execPath}" "${loca}" %*\r\n`);
+}
+
 /** Runs one turn in an empty working folder, so the agent sees no files of ours. */
 export async function cliChat(route: ResolvedRoute, turn: CliChatTurn): Promise<CliChatResult> {
   const kind = route.kind as ChatCliKind;
@@ -196,9 +204,7 @@ export async function cliChat(route: ResolvedRoute, turn: CliChatTurn): Promise<
     if (kind === 'codex' && turn.shell) {
       const bin = path.join(cwd, 'bin');
       await mkdir(bin);
-      const launcher = path.join(bin, 'loca');
-      await writeFile(launcher, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(turn.shell.loca)} "$@"\n`);
-      await chmod(launcher, 0o755);
+      await writeLocaLauncher(bin, turn.shell.loca);
       env = { ...process.env, ...turn.shell.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`, NODE_NO_WARNINGS: '1' };
     }
     const subprocess = execaCli(cliCommand(kind, route.executable), args, { cwd, env, input, timeout: turn.timeoutMs, cancelSignal: turn.signal ? AbortSignal.any([turn.signal, idle.signal]) : idle.signal, reject: false, stripFinalNewline: false });
