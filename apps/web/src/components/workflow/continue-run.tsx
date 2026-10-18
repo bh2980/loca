@@ -43,7 +43,7 @@ export function ContinueRun({ runId, failed, paused, open: controlledOpen, onOpe
       </DialogTrigger>}
       <DialogContent className="sm:max-w-lg" aria-describedby={undefined}>
         <DialogHeader>
-          <DialogTitle>{paused ? '다른 모델로 이어서 실행' : '이 실행 이어서 하기'}</DialogTitle>
+          <DialogTitle>{paused ? '모델 바꿔 재개' : '이어서 실행'}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
           {failed > 0 && (
@@ -54,7 +54,7 @@ export function ContinueRun({ runId, failed, paused, open: controlledOpen, onOpe
           )}
           {data && (
             <p className="text-sm">
-              이어서 처리할 대사 <b className="tabular-nums">{data.lines.toLocaleString()}</b>줄
+              남은 줄 <b className="tabular-nums">{data.lines.toLocaleString()}</b>
             </p>
           )}
           {nothing && <p className="text-sm text-muted-foreground">이어서 처리할 대사가 없습니다.</p>}

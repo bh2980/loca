@@ -188,14 +188,14 @@ export function EndpointPicker({ projectId, direction, step, start, end, section
   return (
     <section className="flex h-full min-h-0 flex-1 flex-col" aria-label="원본 그래프에서 경로 끝점 고르기">
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-3 py-2">
-        <span className="text-xs font-medium text-muted-foreground">{step === 'start' ? '시작 대사를 그래프에서 선택하세요' : '끝 대사를 그래프에서 선택하세요'}</span>
+        <span className="text-xs font-medium text-muted-foreground">{step === 'start' ? '시작 대사 선택' : '끝 대사 선택'}</span>
         {sections.data && sections.data.length > 1 && (
           <Select value={sectionName} onValueChange={(value) => onSectionChange(value)}>
             <SelectTrigger className="w-56 max-w-full" aria-label="장 선택"><SelectValue placeholder="장 선택" /></SelectTrigger>
             <SelectContent>{sections.data.map((item) => <SelectItem key={item.name} value={item.name}>{item.name}</SelectItem>)}</SelectContent>
           </Select>
         )}
-        {expandedChain && <Button variant="ghost" onClick={() => onGraphNavigation({ chain: undefined, focus: undefined })}>전체 그래프로 돌아가기</Button>}
+        {expandedChain && <Button variant="ghost" onClick={() => onGraphNavigation({ chain: undefined, focus: undefined })}>전체 그래프</Button>}
         <CanvasDirectionControl direction={direction} onDirectionChange={onDirectionChange} />
       </div>
       <div className="grid shrink-0 gap-1 border-b border-border px-3 py-2">

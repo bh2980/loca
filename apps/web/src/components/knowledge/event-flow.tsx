@@ -87,7 +87,7 @@ export function EventFlow({ projectId, events, selected, onOpen, badge, filtered
   const [layout, setLayout] = useState<{ key: string; positions: Record<string, { x: number; y: number }>; titles: { id: string; title: string; x: number; y: number }[] }>();
   useEffect(() => {
     let live = true;
-    const blocks = [...sections.map(([section, list]) => ({ title: section || '구역 없음', list })), ...(unplaced.length ? [{ title: '위치 모름 · 근거 대사가 대본에 없음', list: unplaced }] : [])];
+    const blocks = [...sections.map(([section, list]) => ({ title: section || '구역 없음', list })), ...(unplaced.length ? [{ title: '위치 모름', list: unplaced }] : [])];
     void Promise.all(blocks.map((block) => layoutSection(block.list, direction))).then((results) => {
       if (!live) return;
       const positions: Record<string, { x: number; y: number }> = {};

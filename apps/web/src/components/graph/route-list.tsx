@@ -317,13 +317,13 @@ export function RouteList({ projectId, sequence, stages, routeKey, untranslatedI
     <div className="flex h-full min-h-0 flex-col" data-testid="route-list" data-lines={sequence.length}>
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-1.5">
         <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground tabular-nums" data-testid="route-list-count">
-          이번 길 {sequence.length.toLocaleString()}줄 · 번역 안 한 줄 {remaining.toLocaleString()}
+          {sequence.length.toLocaleString()}줄 · 미번역 {remaining.toLocaleString()}
         </span>
-        <Button variant="ghost" disabled={previousUntranslated === undefined} title={`앞의 번역 안 한 줄 (${keyLabel('Alt+Shift+N')})`} onClick={() => goUntranslated(-1)}>
-          <ChevronUp /> 이전 안 한 줄
+        <Button variant="ghost" disabled={previousUntranslated === undefined} title={`앞의 미번역 줄 (${keyLabel('Alt+Shift+N')})`} onClick={() => goUntranslated(-1)}>
+          <ChevronUp /> 이전 미번역
         </Button>
-        <Button variant="ghost" disabled={nextUntranslated === undefined} title={`뒤의 번역 안 한 줄 (${keyLabel('Alt+N')})`} onClick={() => goUntranslated(1)}>
-          <ChevronDown /> 다음 안 한 줄
+        <Button variant="ghost" disabled={nextUntranslated === undefined} title={`뒤의 미번역 줄 (${keyLabel('Alt+N')})`} onClick={() => goUntranslated(1)}>
+          <ChevronDown /> 다음 미번역
         </Button>
       </div>
       {forks && forks.length > 0 && (

@@ -106,7 +106,7 @@ function ConnectionsSettingsPage() {
 
   const keyColumns: ColumnDef<KeyRow, unknown>[] = [
     { id: 'name', header: '이름', meta: { className: 'font-medium', hideable: false }, cell: ({ row }) => row.original.name },
-    { id: 'header', header: '키를 보내는 헤더', meta: { className: 'font-mono text-xs text-muted-foreground' }, cell: ({ row }) => row.original.headerTemplate || '–' },
+    { id: 'header', header: '헤더', meta: { className: 'font-mono text-xs text-muted-foreground' }, cell: ({ row }) => row.original.headerTemplate || '–' },
     { id: 'key', header: '키', meta: { width: 96 }, cell: ({ row }) => <Badge variant={row.original.hasKey ? 'default' : 'outline'}>{row.original.hasKey ? '저장됨' : '없음'}</Badge> },
   ];
 
@@ -124,7 +124,7 @@ function ConnectionsSettingsPage() {
         <SettingsContent width="wide">
           <div className="space-y-8">
             <SettingsSection
-              title="AI 모델 연결"
+              title="AI 연결"
               actions={
                 <Button onClick={() => openConn('new')}>
                   <Plus /> 연결 추가
@@ -145,7 +145,7 @@ function ConnectionsSettingsPage() {
             </SettingsSection>
 
             <SettingsSection
-              title="외부 API 키"
+              title="API 키"
               actions={
                 <Button onClick={() => openKey('new')}>
                   <Plus /> API 키 추가
@@ -276,7 +276,7 @@ function NewConnection({ onClose, onCreated }: { onClose: () => void; onCreated?
                 <FieldError errors={[form.formState.errors.baseUrl]} />
               </Field>
               <Field>
-                <FieldLabel htmlFor="conn-key">API 키 (선택)</FieldLabel>
+                <FieldLabel htmlFor="conn-key">API 키</FieldLabel>
                 <Input id="conn-key" type="password" autoComplete="off" {...form.register('apiKey')} />
                 <FieldDescription>API 키는 {keyStoreLabel}에 저장되며 DB·내보내기에 포함되지 않습니다.</FieldDescription>
               </Field>
@@ -285,7 +285,7 @@ function NewConnection({ onClose, onCreated }: { onClose: () => void; onCreated?
             <PiNote />
           ) : (
             <Field>
-              <FieldLabel htmlFor="conn-exe">실행 파일 경로 (선택)</FieldLabel>
+              <FieldLabel htmlFor="conn-exe">실행 파일</FieldLabel>
               <Input id="conn-exe" {...form.register('executable')} placeholder="PATH에서 찾기" />
             </Field>
           )}
@@ -428,7 +428,7 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
             )}
             {!isHttp && connection.kind !== 'pi' && (
               <Field>
-                <FieldLabel htmlFor="edit-exe">실행 파일 경로</FieldLabel>
+                <FieldLabel htmlFor="edit-exe">실행 파일</FieldLabel>
                 <Input id="edit-exe" {...form.register('executable')} placeholder="PATH에서 찾기" />
               </Field>
             )}
@@ -481,7 +481,7 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
               </div>
             </InspectorSection>
 
-            <InspectorSection title="막히면 (대체 모델)">
+            <InspectorSection title="대체 모델">
               <p className="mb-2 text-xs text-muted-foreground">채팅에는 쓰지 않습니다.</p>
               <Controller
                 control={form.control}

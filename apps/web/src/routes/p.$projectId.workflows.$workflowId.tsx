@@ -554,7 +554,7 @@ function WorkflowEditor() {
   const palette: NodeLibraryGroup[] = [
     {
       id: 'ai',
-      label: 'AI 동작',
+      label: 'AI',
       items: [
         ...Object.entries(AI_PRESETS as Record<string, PresetEntry>).map(([id, preset]) => ({
           id,
@@ -572,7 +572,7 @@ function WorkflowEditor() {
     },
     {
       id: 'function',
-      label: '함수 동작',
+      label: '함수',
       items: PALETTE_FUNCTION_NAMES.map((fn) => ({
         id: fn,
         label: FUNCTIONS[fn].label,
@@ -582,9 +582,9 @@ function WorkflowEditor() {
     },
     {
       id: 'condition',
-      label: '조건 분기',
+      label: '조건',
       items: [
-        { id: 'condition', label: '조건 분기', kind: 'condition' as const, icon: null },
+        { id: 'condition', label: '조건', kind: 'condition' as const, icon: null },
       ],
     },
   ];
@@ -660,14 +660,14 @@ function WorkflowEditor() {
       </PageHeading>
       <HeaderActions>
         <RunDialog projectId={projectId} workflowId={workflowId} disabled={errorCount > 0 || save.isPending} dirty={Boolean(draft)} />
-        {draft && <Button variant="ghost" disabled={save.isPending} onClick={discard}>저장 전 편집 되돌리기</Button>}
+        {draft && <Button variant="ghost" disabled={save.isPending} onClick={discard}>되돌리기</Button>}
       </HeaderActions>
       {save.isError && <div role="alert" className="flex items-center gap-2 border-b bg-destructive/10 px-4 py-2 text-xs text-destructive">저장하지 못했습니다. 편집은 이 브라우저에 보관됩니다. {save.error.message}<Button variant="outline" disabled={stale || !draft} onClick={() => draft && save.mutate(draft)}>다시 저장</Button></div>}
       {stale && !save.isPending && (
         <div className="flex items-center gap-3 border-b bg-warning/10 px-6 py-2 text-sm text-warning">
           편집하는 동안 다른 곳에서 이 워크플로를 저장했습니다({savedAt(workflow.data.updatedAt)}). 이 편집은 그 전 내용을 바탕으로 합니다.
           <Button variant="outline" onClick={discard}>
-            편집 버리고 최신 불러오기
+            최신 불러오기
           </Button>
         </div>
       )}
@@ -797,7 +797,7 @@ function WorkflowEditor() {
                 <DropdownMenuContent align="start" side="bottom" sideOffset={2} className="w-48">
                   <DropdownMenuItem onSelect={() => select(contextMenu.node.id)}>
                     <SlidersHorizontal className="size-3.5" />
-                    <span>노드 설정 열기</span>
+                    <span>설정 열기</span>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
@@ -810,7 +810,7 @@ function WorkflowEditor() {
                     }}
                   >
                     <Copy className="size-3.5" />
-                    <span>노드 복제</span>
+                    <span>복제</span>
                   </DropdownMenuItem>
                   {(() => {
                     const incidentEdges = current.definition.edges.filter(
@@ -824,7 +824,7 @@ function WorkflowEditor() {
                         }}
                       >
                         <Unlink className="size-3.5" />
-                        <span>연결된 선 끊기</span>
+                        <span>연결 끊기</span>
                       </DropdownMenuItem>
                     );
                   })()}
@@ -836,7 +836,7 @@ function WorkflowEditor() {
                     }}
                   >
                     <Trash2 className="size-3.5" />
-                    <span>노드 삭제</span>
+                    <span>삭제</span>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               )}
@@ -844,12 +844,12 @@ function WorkflowEditor() {
                 <DropdownMenuContent align="start" side="bottom" sideOffset={2} className="w-56">
                   <DropdownMenuItem onSelect={() => duplicateNodes(contextMenu.ids)}>
                     <Copy className="size-3.5" />
-                    <span>선택한 노드 {contextMenu.ids.length}개 복제</span>
+                    <span>{contextMenu.ids.length}개 복제</span>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem variant="destructive" onSelect={() => deleteNodes(contextMenu.ids)}>
                     <Trash2 className="size-3.5" />
-                    <span>선택한 노드 {contextMenu.ids.length}개 삭제</span>
+                    <span>{contextMenu.ids.length}개 삭제</span>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               )}
@@ -909,7 +909,7 @@ function WorkflowEditor() {
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onSelect={() => changeDirection(direction === 'vertical' ? 'horizontal' : 'vertical')}>
                     {direction === 'vertical' ? <ArrowLeftRight className="size-3.5" /> : <ArrowUpDown className="size-3.5" />}
-                    <span>{direction === 'vertical' ? '가로 배치로 전환' : '세로 배치로 전환'}</span>
+                    <span>{direction === 'vertical' ? '가로 배치' : '세로 배치'}</span>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               )}
@@ -919,7 +919,7 @@ function WorkflowEditor() {
         </div>
       </SplitPane>
       <StatusBarItem>
-        <span className="mr-3 whitespace-nowrap tabular-nums">워크플로 노드 {definitions.length}</span>
+        <span className="mr-3 whitespace-nowrap tabular-nums">노드 {definitions.length}</span>
         {issues.length > 0 && <span className={errorCount ? 'text-destructive' : 'text-warning'}>{errorCount ? `오류 ${errorCount}` : `경고 ${issues.length}`} · {issues[0]?.message}</span>}
       </StatusBarItem>
     </Page>

@@ -369,7 +369,7 @@ const refineReasons = (note: string) => (note.startsWith('다듬기') ? note.spl
 function useSuggestions(unitId: string, shown: string[]): Suggestion[] {
   const unit = useQuery(q.unit(unitId));
   const matches = useQuery(q.lineMatches(unitId));
-  const origin = { ai: 'AI 후보', human: '사람 후보', import: '가져온 후보', tool: '채팅 후보' } as const;
+  const origin = { ai: 'AI', human: '사람', import: '가져옴', tool: '채팅' } as const;
   const all: Suggestion[] = [
     ...(unit.data?.candidates ?? []).map((candidate) => {
       const reasons = candidate.origin === 'ai' ? refineReasons(candidate.note) : null;
@@ -401,7 +401,6 @@ function PreviousDiff({ unitId, openAtFirst }: { unitId: string; openAtFirst: bo
   const current = candidates[at];
   const previous = at >= 0 ? candidates.slice(at + 1).find((candidate) => candidate.text.trim() !== current.text.trim()) : undefined;
   if (!current || !previous) return null;
-  const origin = { ai: 'AI', human: '사람', import: '가져온 번역', tool: '채팅' } as const;
   const diff = wordDiff(previous.text, current.text).map((part, index) => (
     <span key={index} className={cn(part.change === 'removed' && 'text-destructive line-through decoration-destructive/60', part.change === 'added' && 'rounded-sm bg-success/15 text-success')}>
       {part.text}
@@ -409,14 +408,14 @@ function PreviousDiff({ unitId, openAtFirst }: { unitId: string; openAtFirst: bo
   ));
   if (!open)
     return (
-      <AdvancedDisclosure label="이전 번역과 비교">
-        <div className="rounded-md border bg-background px-3 py-2 text-sm"><GroupHeading className="mb-1">이전 번역({origin[previous.origin]})에서 바뀐 곳</GroupHeading><p className="break-words whitespace-pre-wrap">{diff}</p></div>
+      <AdvancedDisclosure label="이전 번역">
+        <div className="rounded-md border bg-background px-3 py-2 text-sm"><GroupHeading className="mb-1">바뀐 곳</GroupHeading><p className="break-words whitespace-pre-wrap">{diff}</p></div>
       </AdvancedDisclosure>
     );
   return (
     <div className="rounded-md border bg-background px-3 py-2 text-sm">
       <GroupHeading className="mb-1" actions={<Button variant="ghost" size="inline" onClick={() => setOpen(false)}>접기</Button>}>
-        이전 번역({origin[previous.origin]})에서 바뀐 곳
+        바뀐 곳
       </GroupHeading>
       <p className="break-words whitespace-pre-wrap">{diff}</p>
     </div>

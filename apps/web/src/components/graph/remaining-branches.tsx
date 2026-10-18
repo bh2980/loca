@@ -45,7 +45,7 @@ export function RemainingBranches({ open, onOpenChange, branches, unreachable, t
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm">{branch.label ?? line(branch.arm) ?? '이름 없는 갈래'}</p>
                   <p className="truncate text-xs text-muted-foreground" title={line(branch.firstNode) ?? undefined}>
-                    <span className="tabular-nums">번역 안 한 줄 {branch.untranslated.toLocaleString()} / {branch.lines.toLocaleString()}줄</span>
+                    <span className="tabular-nums">미번역 {branch.untranslated.toLocaleString()} / {branch.lines.toLocaleString()}줄</span>
                     {line(branch.firstNode) && ` · ${line(branch.firstNode)}`}
                   </p>
                 </div>

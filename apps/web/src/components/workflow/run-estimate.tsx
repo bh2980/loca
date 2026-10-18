@@ -17,7 +17,7 @@ export function Pace({ data }: { data: PlanData }) {
   const money = subscription && !costUsd ? '구독 사용' : costUsd === null ? null : costUsd === 0 && !subscription ? '무료' : costUsd < 0.01 ? '1센트 미만' : `약 $${costUsd.toFixed(2)}${subscription ? ' + 구독' : ''}`;
   return (
     <section className="space-y-2">
-      <SectionHeading>얼마나</SectionHeading>
+      <SectionHeading>예상</SectionHeading>
       <p className="text-sm">
         AI 요청 <b className="font-medium tabular-nums">{callText}</b>
         {seconds !== null && (

@@ -170,7 +170,7 @@ function Runs() {
                     : select(row.id)
                 }
               >
-                실행 상세 보기
+                상세
               </ContextMenuItem>
               {row.workflowId && (
                 <ContextMenuItem
@@ -278,7 +278,7 @@ function SentRequest({ projectId, callId, hasRequest, hasResponse }: { projectId
     <Collapsible open={open} onOpenChange={setOpen} className="pt-1">
       <CollapsibleTrigger asChild>
         <Button variant="ghost" size="inline" className="-ml-1 text-muted-foreground">
-          <ChevronRight className={cn('transition-transform', open && 'rotate-90')} /> {hasRequest ? (hasResponse ? '보낸 내용 · 받은 출력' : '보낸 내용') : '받은 출력'}
+          <ChevronRight className={cn('transition-transform', open && 'rotate-90')} /> {hasRequest ? (hasResponse ? '입출력' : '보낸 내용') : '받은 출력'}
         </Button>
       </CollapsibleTrigger>
       <CollapsibleContent className="mt-1 space-y-2">
@@ -287,7 +287,7 @@ function SentRequest({ projectId, callId, hasRequest, hasResponse }: { projectId
         ) : (
           <>
             {request.data.request != null && <CallText label="보낸 내용" text={request.data.request} />}
-            {request.data.response != null && <CallText label="받은 출력 (실패 전까지)" text={request.data.response} />}
+            {request.data.response != null && <CallText label="받은 출력" text={request.data.response} />}
           </>
         )}
       </CollapsibleContent>

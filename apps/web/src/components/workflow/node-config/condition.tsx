@@ -79,7 +79,7 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
         action={
           !readOnly && (
             <AiButton variant="ghost" send={false} prompt="이 조건 노드의 조건을 이렇게 바꿔줘: ">
-              말로 조건 쓰기
+              AI로 쓰기
             </AiButton>
           )
         }
@@ -219,7 +219,7 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
                   <SelectTrigger size="sm" className="w-36"><SelectValue /></SelectTrigger>
                   <SelectContent>{classifiers.map((other) => <SelectItem key={other.id} value={other.id}>{nodeName(other)}</SelectItem>)}</SelectContent>
                 </Select>
-                확신도(confidence)가
+                확신도가
                 <Input type="number" min={0} max={1} step={0.05} className="h-8 w-16" value={threshold} onChange={(event) => setThreshold(Number(event.target.value))} />
                 이상
                 <Button variant="secondary" disabled={!classifier} onClick={() => apply({ '>=': [{ var: `outputs.${classifier}.confidence` }, threshold] }, `'${label(classifier)}' 확신도 ${threshold} 이상`)}>적용</Button>
@@ -302,8 +302,8 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
                 ))}
               </SelectContent>
             </Select>
-            표시가 있음
-            <Button variant="secondary" onClick={() => apply({ in: [mark, { var: 'unit.marks' }] }, `줄에 #${AUTO_MARKS[mark].name} 표시가 있음`)}>
+            자동 태그가 있음
+            <Button variant="secondary" onClick={() => apply({ in: [mark, { var: 'unit.marks' }] }, `줄에 #${AUTO_MARKS[mark].name} 자동 태그가 있음`)}>
               적용
             </Button>
           </div>
@@ -318,7 +318,7 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
           </div>
         </div>
       )}
-      <Field label="조건식 (JSON Logic)" hint={`읽을 수 있는 값: visits.<노드ID>, outputs.<노드ID>.<필드>, candidate, issues, listenerKnown, unit.kind, unit.speaker, unit.statusId, unit.tagIds, unit.marks (${CONDITION_MARK_IDS.join(' · ')})`}>
+      <Field label="조건식" hint={`읽을 수 있는 값: visits.<노드ID>, outputs.<노드ID>.<필드>, candidate, issues, listenerKnown, unit.kind, unit.speaker, unit.statusId, unit.tagIds, unit.marks (${CONDITION_MARK_IDS.join(' · ')})`}>
         <Textarea
           value={text}
           spellCheck={false}

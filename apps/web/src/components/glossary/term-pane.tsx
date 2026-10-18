@@ -139,7 +139,7 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
       footer={dirty ? <DirtyBar dirtyCount={Object.keys(changedFields(form, saved)).length} onRevert={takeSaved} onSave={() => save.mutate()} saving={save.isPending} disabled={!form.source.trim()} /> : (candidate ? <Button variant="outline" disabled={deciding || !term.target.trim()} onClick={() => onDecide(true)}><Check /> {confirmLabel([{ ...term, evidence: [] }])}</Button> : null)}
     >
       {conflicts.length > 0 && <ChangedElsewhere fields={conflicts.map((field) => TERM_FIELD_LABEL[field as keyof typeof TERM_FIELD_LABEL])} onTakeSaved={takeSaved} onKeepMine={keepMine} />}
-      <InspectorSection title="용어 정보">
+      <InspectorSection title="기본 정보">
         <TermFields form={form} onChange={setForm} />
       </InspectorSection>
       <InspectorSection title="태그">
@@ -150,21 +150,21 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
               allTags={termTags}
               onToggle={(tagId, add) => tagMutation.mutate({ tagId, add })}
               onCreate={handleCreateTag}
-              heading="용어 태그"
+              heading="태그"
             />
           </PropertyRow>
         </PropertyGrid>
       </InspectorSection>
       {candidate && <div className="flex justify-end"><Button variant="outline" disabled={deciding || dirty || !term.target.trim()} title={term.target.trim() ? (dirty ? '먼저 저장하세요.' : undefined) : '번역을 채운 뒤 확정할 수 있습니다.'} onClick={() => onDecide(true)}><Check /> {confirmLabel([{ ...term, evidence: [] }])}</Button></div>}
       <InspectorSection
-        title={`이 용어가 나오는 대사 ${usage.data?.count ?? '…'}개`}
+        title={`등장 대사 ${usage.data?.count ?? "…"}`}
         actions={
           !!usage.data?.count && (
             <RunDialog
               projectId={projectId}
               unitIds={usage.data.unitIds}
               defaultIgnoreStatus
-              trigger={<Button variant="outline"><Play /> 워크플로 실행 · {usage.data.count}줄</Button>}
+              trigger={<Button variant="outline"><Play /> 실행 · {usage.data.count}줄</Button>}
             />
           )
         }

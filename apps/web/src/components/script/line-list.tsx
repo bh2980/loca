@@ -251,7 +251,7 @@ export function LineList({
     >
       <HeaderActions>
         <RunDialog projectId={projectId} unitIds={picked.size ? [...picked] : undefined} groupIds={picked.size ? undefined : runGroupIds} viewKind={picked.size || runGroupIds ? undefined : runKind}
-          trigger={<Button><Play /> {picked.size ? `AI 실행 · 고른 ${picked.size.toLocaleString()}줄` : 'AI 실행'}</Button>} />
+          trigger={<Button><Play /> {picked.size ? `실행 · ${picked.size.toLocaleString()}줄` : "실행"}</Button>} />
         {!find && !review && hasLineFilter(search) && <ActionBar aria-label="대사 목록 동작" items={[{ id: 'find-in-scene', label: '장면에서 찾아가기', onSelect: () => onSearch({ mode: 'find', page: undefined }) }]} />}
       </HeaderActions>
       <EditorToolbar><FilterBar>
@@ -278,7 +278,7 @@ export function LineList({
             clear: () => onSearch({ ...chip.clear, page: undefined }),
           }))}
         />
-        <span className="ml-auto whitespace-nowrap text-xs text-muted-foreground">{review && '검토함 · '}{total.toLocaleString()}줄 · 대본 순서</span>
+        <span className="ml-auto whitespace-nowrap text-xs text-muted-foreground">{review && "검토함 · "}{total.toLocaleString()}줄</span>
       </FilterBar></EditorToolbar>
       {banner}
       {showScene && (matches.isPending || lines.isPlaceholderData) && <p className="px-3 py-2 text-xs text-muted-foreground" role="status">{groupNoun}별 전체 선택 목록을 불러오는 중입니다.</p>}

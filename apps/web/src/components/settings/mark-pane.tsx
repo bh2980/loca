@@ -10,7 +10,7 @@ export function MarkPane({ mark, color, pending, onClose, onSave }: { mark: Auto
   const { draft, setDraft } = useFormFrom(color);
   const info = AUTO_MARKS[mark];
   return (
-    <Inspector header={<InspectorHeader kind="기본 태그" name={`#${info.name}`} status={`붙는 곳: ${scopeLabel(info.on)}`} onClose={onClose} />} footer={
+    <Inspector header={<InspectorHeader kind="자동 태그" name={`#${info.name}`} status={`붙는 곳: ${scopeLabel(info.on)}`} onClose={onClose} />} footer={
         <>
           <Button disabled={draft === color || pending} onClick={() => onSave(draft)}>
             저장

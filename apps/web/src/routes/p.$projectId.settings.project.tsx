@@ -92,10 +92,10 @@ function ProjectForm({ projectId, project }: { projectId: string; project: { nam
             </FieldGroup>
           </SettingsSection>
 
-          <SettingsSection title="번역 결과 내보내기">
+          <SettingsSection title="번역 결과">
             <Button variant="outline" asChild>
               <a href={`/api/projects/${projectId}/export`} download>
-                <Download /> 번역 결과 내보내기
+                <Download /> 내보내기
               </a>
             </Button>
           </SettingsSection>

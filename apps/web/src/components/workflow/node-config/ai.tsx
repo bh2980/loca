@@ -86,10 +86,10 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
       }>
         <Textarea aria-label="지시문" value={config.instructions} onChange={(event) => set({ instructions: event.target.value })} className="min-h-28 text-sm" />
         <div className="flex items-center justify-between gap-2">
-          <span className="min-w-0 truncate text-xs text-muted-foreground">{config.preset ? (preset ? `프리셋 · ${preset.label}에서 채움` : `프리셋 · ${config.preset}`) : '프리셋 없음'}</span>
+          <span className="min-w-0 truncate text-xs text-muted-foreground">{config.preset ? (preset ? `프리셋 · ${preset.label}` : `프리셋 · ${config.preset}`) : '프리셋 없음'}</span>
           <div className="flex shrink-0 items-center gap-1">
-            {preset && <Button type="button" variant="ghost" onClick={() => setRefilling(true)}>프리셋 다시 채우기</Button>}
-            <Button type="button" variant="ghost" onClick={() => setPreviewing(true)}>프롬프트 미리보기</Button>
+            {preset && <Button type="button" variant="ghost" onClick={() => setRefilling(true)}>다시 채우기</Button>}
+            <Button type="button" variant="ghost" onClick={() => setPreviewing(true)}>프롬프트</Button>
           </div>
         </div>
         <AlertDialog open={refilling} onOpenChange={setRefilling}>
@@ -106,7 +106,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
         </AlertDialog>
         <Dialog open={previewing} onOpenChange={setPreviewing}>
           <DialogContent className="flex h-[80vh] max-w-3xl flex-col">
-            <DialogHeader><DialogTitle>프롬프트 미리보기 · {nodeName(node)}</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle>프롬프트 · {nodeName(node)}</DialogTitle></DialogHeader>
             <div className="min-h-0 flex-1 space-y-2 overflow-auto">
               <PromptPreview projectId={refs.projectId} workflowId={refs.workflowId} nodeId={node.id} />
             </div>
@@ -155,7 +155,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
                 <ChoiceValues values={config.choice.values} onChange={(values) => set({ choice: { ...config.choice, values } })} />
               </Field>
             )}
-            <ToggleRow label="‘해당 없음’ 답을 허용" checked={config.choice.allowNone} onChange={(value) => set({ choice: { ...config.choice, allowNone: value } })} />
+            <ToggleRow label="‘해당 없음’ 허용" checked={config.choice.allowNone} onChange={(value) => set({ choice: { ...config.choice, allowNone: value } })} />
           </>
         )}
       </InspectorSection>
@@ -185,8 +185,8 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
           )}
           <div className="space-y-2">
             {config.output === 'text' && (
-              <AdvancedDisclosure label="입력 번역">
-                <Field label="기존 번역">
+              <AdvancedDisclosure label="기존 번역">
+                <Field label="방식">
                   <Select
                     value={config.include.candidate ? 'revise' : 'fresh'}
                     onValueChange={(value) =>
@@ -206,7 +206,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
             )}
             <AdvancedDisclosure label={`묶음 · ${batchLabel[config.batch.mode]}`}>
               <div className="grid grid-cols-2 gap-3">
-                <Field label="묶음 단위">
+                <Field label="단위">
                   <Select
                     value={config.batch.mode}
                     onValueChange={(value) =>
@@ -248,7 +248,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
                   </Field>
                 )}
                 {config.batch.mode !== 'unit' && config.batch.mode !== 'whole' && (
-                  <Field label="최대 묶음 크기">
+                  <Field label="최대 크기">
                     <Input
                       type="number"
                       min={1}
@@ -265,7 +265,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
             <AdvancedDisclosure label={`문맥 ${contextOn}개 켬 · 상한 ${context.maxTokens.toLocaleString()} 토큰`}>
               <div className="space-y-2.5">
                   <ToggleRow
-                    label="사람이 확정한 것만 (✦ 빼기)"
+                    label="확정된 것만"
                     checked={context.humanOnly}
                     onChange={(value) => set({ context: { ...context, humanOnly: value } })}
                   />
@@ -275,12 +275,12 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
                     onChange={(value) => set({ context: { ...context, glossary: value } })}
                   />
                   <ToggleRow
-                    label="청자·말투 규칙"
+                    label="청자·말투"
                     checked={context.speech}
                     onChange={(value) => set({ context: { ...context, speech: value } })}
                   />
                   <ToggleRow
-                    label="앞 단계 지적 사항"
+                    label="앞 단계 지적"
                     checked={config.include.issues}
                     onChange={(value) => set({ include: { ...config.include, issues: value } })}
                   />
@@ -295,7 +295,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
                   {context.precedingLines > 0 && (
                     <div className="pl-4">
                       <ToggleRow
-                        label="앞 대사의 현재 번역도"
+                        label="앞 대사 번역"
                         checked={context.precedingTranslations}
                         onChange={(value) =>
                           set({ context: { ...context, precedingTranslations: value } })
@@ -327,11 +327,11 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
                     onChange={(value) => set({ context: { ...context, relationships: value } })}
                   />
                   <ToggleRow
-                    label="작품 문서"
+                    label="문서"
                     checked={context.documents}
                     onChange={(value) => set({ context: { ...context, documents: value } })}
                   />
-                  <Field label="문맥 상한 (토큰)">
+                  <Field label="문맥 상한">
                     <Input
                       type="number"
                       min={500}
@@ -346,7 +346,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
               </div>
             </AdvancedDisclosure>
             <AdvancedDisclosure label="모델 분산" className="space-y-3">
-              <Field label="함께 나눌 모델">
+              <Field label="모델">
                 <div className="space-y-1.5">
                   {extras.map((extra, index) => (
                     <div key={index} className="flex min-w-0 items-center gap-1.5">

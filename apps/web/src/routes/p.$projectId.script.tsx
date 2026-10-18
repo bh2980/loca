@@ -202,7 +202,7 @@ function Script() {
         <DropdownMenuItem key="toggle-list" onSelect={toggleList}>{listOpen ? `${SOURCE_GROUP_LABEL[activeGroupKind]} 목록 접기` : `${SOURCE_GROUP_LABEL[activeGroupKind]} 목록 펴기`}</DropdownMenuItem>,
         <DropdownMenuItem key="previous" disabled={index <= 0} onSelect={() => openGroup(ordered[index - 1]?.id)}>이전 {SOURCE_GROUP_LABEL[activeGroupKind]}</DropdownMenuItem>,
         <DropdownMenuItem key="next" disabled={index < 0 || index >= ordered.length - 1} onSelect={() => openGroup(ordered[index + 1]?.id)}>다음 {SOURCE_GROUP_LABEL[activeGroupKind]}</DropdownMenuItem>,
-        ...(group?.kind === 'scene' ? [<DropdownMenuItem key="graph" asChild><Link to="/p/$projectId/graph" params={{ projectId }} search={{ scope: 'dialogue', scene: group.id }}>대사 그래프에서 보기</Link></DropdownMenuItem>] : []),
+        ...(group?.kind === 'scene' ? [<DropdownMenuItem key="graph" asChild><Link to="/p/$projectId/graph" params={{ projectId }} search={{ scope: 'dialogue', scene: group.id }}>그래프에서 보기</Link></DropdownMenuItem>] : []),
       ],
     },
     {

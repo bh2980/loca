@@ -47,7 +47,7 @@ export function PiOptionsPanel({ connectionId, options }: { connectionId: string
   return (
     <div className="space-y-4">
       <div>
-        <GroupHeading>pi에서 불러올 것</GroupHeading>
+        <GroupHeading>불러올 것</GroupHeading>
       </div>
       {conflicts.length > 0 && <ChangedElsewhere onTakeSaved={takeSaved} onKeepMine={keepMine} />}
 
@@ -90,7 +90,7 @@ export function PiOptionsPanel({ connectionId, options }: { connectionId: string
       </section>
 
       <section>
-        <GroupHeading>pi 기본 도구</GroupHeading>
+        <GroupHeading>기본 도구</GroupHeading>
         <div className="mt-1 grid grid-cols-2 gap-x-4">
           {(Object.keys(PI_BUILTIN_TOOLS) as PiBuiltinTool[]).map((tool) => (
             <label key={tool} className="flex items-center gap-2 py-1 text-sm">
@@ -118,7 +118,7 @@ export function PiOptionsPanel({ connectionId, options }: { connectionId: string
       <section>
         <Row label="스킬" hint={data ? `${data.skills.length}개 설치됨` : undefined} checked={draft.skills} onChange={(value) => update({ skills: value })} />
         <Row label="프롬프트 템플릿" hint={data ? `${data.prompts.length}개 설치됨` : undefined} checked={draft.promptTemplates} onChange={(value) => update({ promptTemplates: value })} />
-        <Row label="AGENTS.md 같은 지침 파일" checked={draft.contextFiles} onChange={(value) => update({ contextFiles: value })} />
+        <Row label="지침 파일" checked={draft.contextFiles} onChange={(value) => update({ contextFiles: value })} />
       </section>
 
       <div className="flex gap-2">

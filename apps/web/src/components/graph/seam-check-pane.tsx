@@ -60,7 +60,7 @@ export function SeamCheckPane({ projectId, nodeId, onClose }: { projectId: strin
   const heading = (text: string) => <GroupHeading className="block bg-muted px-3 py-1.5">{text}</GroupHeading>;
 
   return (
-    <Inspector header={<InspectorHeader kind="이음새 점검" name="이번 길이 앞선 길로 이어지는 곳" status={data && <SeamStateChip state={state} />} onClose={onClose} />} footer={
+    <Inspector header={<InspectorHeader kind="경로" name="이음새" status={data && <SeamStateChip state={state} />} onClose={onClose} />} footer={
         data ? (
           <>
             <Button disabled={mark.isPending || unmark.isPending} onClick={() => (state === 'checked' ? unmark.mutate() : mark.mutate(data.sig))}>
@@ -89,7 +89,7 @@ export function SeamCheckPane({ projectId, nodeId, onClose }: { projectId: strin
             이음새
             <span className="h-px flex-1 bg-border" />
           </div>
-          {heading('이미 번역한 길')}
+          {heading('번역한 길')}
           <ul>{data.after.length ? data.after.map(line) : <li className="px-3 py-2 text-xs text-muted-foreground">이음새 뒤에 대사가 없습니다.</li>}</ul>
         </div>
       )}

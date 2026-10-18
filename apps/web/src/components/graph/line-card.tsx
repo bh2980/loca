@@ -136,7 +136,7 @@ export function LineCard({ projectId, unitId, choice, position, onStep, onClose 
           </Button>
         )}
         {line && (
-          <Button variant="ghost" size="icon-xs" aria-label="번역 화면에서 자세히" title="번역 화면에서 자세히" onClick={() => void navigate({ to: '/p/$projectId/script', params: { projectId }, search: { group: line.groupId, line: line.id, detail: true } })}>
+          <Button variant="ghost" size="icon-xs" aria-label="번역 화면에서 열기" title="번역 화면에서 열기" onClick={() => void navigate({ to: '/p/$projectId/script', params: { projectId }, search: { group: line.groupId, line: line.id, detail: true } })}>
             <PanelRightOpen />
           </Button>
         )}

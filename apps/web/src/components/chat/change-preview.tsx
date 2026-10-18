@@ -34,9 +34,9 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
         </dl>
       );
     case 'save_relationship':
-      return <dl className="space-y-1">{field('작업', action)}{field('관계', `${input.from} → ${input.to} (${input.kind})`)}{field('양방향', input.mutual ? '예' : '아니오')}{field('설명', input.description)}</dl>;
+      return <dl className="space-y-1">{field('작업', action)}{field('관계', `${input.from} → ${input.to} (${input.kind})`)}{field('쌍방', input.mutual ? '예' : '아니오')}{field('설명', input.description)}</dl>;
     case 'save_document':
-      return <dl className="space-y-1">{field('작업', action)}{field('제목', input.title)}{field('종류', input.kind)}{field('번역 문맥에 넣기', input.alwaysInclude ? '예' : '아니오')}{markdown(input.body)}</dl>;
+      return <dl className="space-y-1">{field('작업', action)}{field('제목', input.title)}{field('종류', input.kind)}{field('문맥에 넣기', input.alwaysInclude ? '예' : '아니오')}{markdown(input.body)}</dl>;
     case 'tag_items': {
       const kinds: Record<string, string> = { terms: '용어', characters: '인물', relationships: '관계', speechRules: '말투 규칙', events: '사건', documents: '문서' };
       const names = (value: unknown) => ((value as string[] | undefined) ?? []).map((name) => `#${name.replace(/^#/, '')}`);

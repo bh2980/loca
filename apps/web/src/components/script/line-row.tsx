@@ -274,7 +274,7 @@ export function LineRow({
         allTags={tags}
         onToggle={handleToggleTag}
         onCreate={handleCreateTag}
-        heading="대사 태그"
+        heading="태그"
       />
     </div>
   );
@@ -457,11 +457,11 @@ export function LineRow({
                 toast.success('대사 키를 복사했습니다.');
               }}
             >
-              대사 키 복사
+              키 복사
             </ContextMenuItem>
             {onShowInGraph && (
               <ContextMenuItem onClick={onShowInGraph}>
-                대사 그래프에서 보기
+                그래프에서 보기
               </ContextMenuItem>
             )}
             {(onInsertAfter || onDelete) && <ContextMenuSeparator />}

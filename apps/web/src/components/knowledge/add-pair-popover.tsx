@@ -128,7 +128,7 @@ export function AddPairPopover({ projectId, characters, pairs, onCreated }: { pr
             </Select>
           </FieldRow>
           {!toSpecial && (
-            <FieldRow label="관계 종류 (선택)">
+            <FieldRow label="관계 종류">
               <Input aria-label="관계 종류" value={kind} onChange={(event) => setKind(event.target.value)} placeholder={`비우면 ‘${DEFAULT_KIND}’`} />
             </FieldRow>
           )}

@@ -95,7 +95,7 @@ export function AppSidebar({ projectId }: { projectId: string }) {
           <DropdownMenuLabel className="text-xs font-semibold text-foreground">프로젝트</DropdownMenuLabel>
           {projects.data?.map((entry) => <DropdownMenuItem key={entry.id} onSelect={() => void navigate({ to: '/p/$projectId', params: { projectId: entry.id } })}><span className="truncate">{entry.name}</span>{entry.id === projectId && <Check className="ml-auto" />}</DropdownMenuItem>)}
           <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={() => void navigate({ to: '/' })}><Plus /> 다른 프로젝트 가져오기</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => void navigate({ to: '/' })}><Plus /> 프로젝트 가져오기</DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu></SidebarMenuItem></SidebarMenu></SidebarHeader>
       <SidebarContent>{NAV_GROUPS.filter((group) => group.id !== 'settings').map(renderGroup)}</SidebarContent>

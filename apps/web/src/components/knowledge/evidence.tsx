@@ -36,7 +36,7 @@ export function Evidence({ projectId, keys }: { projectId: string; keys: string[
         <p className="text-sm text-muted-foreground">연결된 근거 대사가 없습니다.</p>
       </InspectorSection>
     );
-  return <InspectorSection title={`근거 대사 ${keys.length}개`} defaultOpen={false}>
+  return <InspectorSection title={`근거 대사 ${keys.length}`} defaultOpen={false}>
     <ul className="space-y-1">
       {lines.data?.map((line) => (
         <li key={line.id}>
@@ -67,7 +67,7 @@ export function RuleLines({ projectId, ruleId, candidate }: { projectId: string;
             preferWorkflow={SPEECH_FIX_WORKFLOW}
             trigger={
               <Button variant="ghost">
-                <Play /> 번역된 {lines.data.translatedIds.length.toLocaleString()}줄 말투 맞추기
+                <Play /> 말투 맞추기 · {lines.data.translatedIds.length.toLocaleString()}줄
               </Button>
             }
           />
@@ -82,7 +82,7 @@ export function RuleLines({ projectId, ruleId, candidate }: { projectId: string;
       )}
       {levels.length > 0 && (
         <p className="text-sm">
-          번역 말투(어미 추정):{' '}
+          번역 말투 · 추정:{' '}
           {levels.map(([level, count]) => `${level === 'unknown' ? '판단 불가·번역 없음' : SPEECH_LEVEL_LABELS[level as SpeechLevel]} ${count}`).join(' · ')}
         </p>
       )}

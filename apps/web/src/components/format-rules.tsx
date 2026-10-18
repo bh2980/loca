@@ -10,7 +10,7 @@ import { useFormFrom } from '@/lib/use-form-from';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
 import { AiRegexInput } from '@/components/ai-regex-input';
 
-const KIND = { placeholder: '자리표시자', tag: '서식 태그' } as const;
+const KIND = { placeholder: '치환자', tag: '서식 태그' } as const;
 
 /**
  * Which tokens the format check treats as placeholders and tags for this game. Common families
@@ -88,10 +88,10 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
 
   return (
     <SettingsSection
-      title="치환자·태그 문법"
+      title="서식 규칙"
       headerActions={
         <Button variant="outline" onClick={applyAutoDetect} disabled={!detected || detectQuery.isPending}>
-          <Sparkles className="size-3.5" /> 대본에서 자동 감지
+          <Sparkles className="size-3.5" /> 자동 감지
         </Button>
       }
       actions={
@@ -111,7 +111,7 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
 
       <div className="space-y-4">
         <div className="space-y-2">
-          <GroupHeading>자리표시자 (변수 · 제어 문자)</GroupHeading>
+          <GroupHeading>치환자</GroupHeading>
           <div className="grid gap-2 sm:grid-cols-2">
             {placeholderPresets.map(renderPresetCard)}
           </div>
@@ -126,7 +126,7 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
       </div>
 
       <div className="space-y-3">
-        <GroupHeading>직접 추가 (정규식)</GroupHeading>
+        <GroupHeading>정규식</GroupHeading>
 
         <AiRegexInput
           projectId={projectId}
@@ -141,7 +141,7 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
         {detected?.customCandidates && detected.customCandidates.length > 0 && (
           <div className="rounded-md border border-border bg-muted/40 p-3 space-y-2">
             <div className="flex items-center justify-between">
-              <GroupHeading>대본에서 발견된 추가 규칙 추천</GroupHeading>
+              <GroupHeading>추천 규칙</GroupHeading>
             </div>
             <div className="space-y-1.5">
               {detected.customCandidates.map((cand) => {
@@ -193,7 +193,7 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="placeholder">자리표시자</SelectItem>
+                    <SelectItem value="placeholder">치환자</SelectItem>
                     <SelectItem value="tag">서식 태그</SelectItem>
                   </SelectContent>
                 </Select>
@@ -212,7 +212,7 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
       </div>
 
       <div className="space-y-1.5 rounded-md bg-muted p-3">
-        <GroupHeading>시험해 보기</GroupHeading>
+        <GroupHeading>시험</GroupHeading>
         <Textarea className="min-h-16 bg-background font-mono text-sm" value={sample} onChange={(event) => setSample(event.target.value)} />
         {(['placeholder', 'tag'] as const).map((kind) => (
           <p key={kind} className="text-sm">

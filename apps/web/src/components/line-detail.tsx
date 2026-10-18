@@ -25,7 +25,7 @@ import { editorChecks, tokenPatternOf } from '@/lib/line-context';
 import { dateTime } from '@/lib/datetime';
 
 const ORIGIN = { ai: 'AI', human: '사람', import: '가져옴', tool: '도구' } as const;
-const STATE = { queued: '대기', running: '실행 중', done: '완료', failed: '실패', cancelled: '취소' } as const;
+const STATE = { queued: '대기', running: '실행 중', done: '완료', failed: '실패', cancelled: '취소됨' } as const;
 type LineRecord = InferResponseType<(typeof client.units)[':unitId']['$get']>;
 
 /** The selected line, deep: basics, candidates and similar lines, history, checks and the AI's prompt context, one scrolling pane. */
@@ -186,7 +186,7 @@ export function LineDetail({
       {line && editor && <section className="border-b border-border-subtle p-4"><TranslationEditor projectId={projectId} unit={{ id: line.id, source: line.source, translation: line.translation, statusId: line.statusId, statusBy: line.statusBy, candidates: line.candidates }} statuses={statuses.data?.statuses ?? []} /></section>}
       {line && (
         <>
-          <InspectorSection title="기본 정보 · 청자 · 태그">
+          <InspectorSection title="기본 정보">
             <PropertyGrid>
               <PropertyRow label="대사 키">
                 <code className="font-mono text-xs break-all text-muted-foreground">{line.key}</code>
@@ -219,7 +219,7 @@ export function LineDetail({
                       search={{ scope: 'dialogue', scene: line.group.id, ...(graphTarget && { node: graphTarget.id, jump: true }) }}
                       className="block truncate hover:underline"
                     >
-                      대사 그래프에서 열기
+                      그래프에서 열기
                     </Link>
                   )}
                 </PropertyRow>
@@ -231,14 +231,14 @@ export function LineDetail({
                 </div>
               </PropertyRow>}
               {line.speech && <PropertyRow label="말투 규칙"><Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', item: line.speech.ruleId }} className="block truncate hover:underline" title={line.speech.rule}>{line.speech.rule}</Link></PropertyRow>}
-              {line.speaker && <PropertyRow label="인물 자료"><Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'characters', ...(speakerPerson && { item: speakerPerson.id }) }} className="block truncate hover:underline">인물 표에서 보기</Link></PropertyRow>}
+              {line.speaker && <PropertyRow label="인물"><Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'characters', ...(speakerPerson && { item: speakerPerson.id }) }} className="block truncate hover:underline">보기</Link></PropertyRow>}
               <PropertyRow label="태그">
                 <TagListEditor
                   tags={orderedTags}
                   allTags={tags}
                   onToggle={(tagId, add) => patch.mutate({ tagIds: add ? [...line.tagIds, tagId] : line.tagIds.filter((id) => id !== tagId) })}
                   onCreate={createTagInline}
-                  heading="대사 태그"
+                  heading="태그"
                 />
               </PropertyRow>
               <PropertyRow label="메모">
@@ -258,11 +258,11 @@ export function LineDetail({
 
           <HistorySection projectId={projectId} history={line.history} />
 
-          <InspectorSection title="형식 · 규칙 검사">
+          <InspectorSection title="검증">
             <LineChecks projectId={projectId} source={line.source} text={draft} rules={project.data?.formatRules} targetLanguage={project.data?.targetLanguage} speech={line.speech} lastRun={lastRun ? { runId: lastRun.runId, workflowName: lastRun.workflowName, issues: lastRun.data.issues ?? [] } : null} />
           </InspectorSection>
 
-          <InspectorSection title="AI 프롬프트 문맥 미리보기" defaultOpen={false}>
+          <InspectorSection title="AI 프롬프트" defaultOpen={false}>
             <AiContextPanel projectId={projectId} unitKey={line.key} unitKind={line.kind} aiNode={aiNode} onAiNode={onAiNode} />
           </InspectorSection>
         </>
@@ -277,13 +277,13 @@ const ORIGIN_TITLE = { ai: 'AI', human: '사람', import: '가져온 것', tool:
 function CandidatesAndMatches({ unit, draft, onUse, tokenPattern }: { unit: LineRecord; draft: string; onUse: (text: string) => void; tokenPattern: RegExp | null }) {
   const matches = useQuery(q.lineMatches(unit.id));
   const origins = new Set(unit.candidates.map((candidate) => candidate.origin));
-  const title = origins.size === 1 ? `${ORIGIN_TITLE[unit.candidates[0]!.origin]} 후보` : '번역 후보';
+  const title = origins.size === 1 ? `${ORIGIN_TITLE[unit.candidates[0]!.origin]} 후보` : '후보';
   const subject = unit.kind === 'ui' ? 'UI 문자열' : unit.kind === 'document' ? '문서 원문' : '대사';
   const rows = matches.data ?? [];
   const inEditor = (text: string) => draft !== (unit.translation ?? '') && text === draft;
-  const useButton = (text: string) => <Button variant="ghost" disabled={inEditor(text)} onClick={() => onUse(text)}>{inEditor(text) ? '초안에 있음' : '이 번역 쓰기'}</Button>;
+  const useButton = (text: string) => <Button variant="ghost" disabled={inEditor(text)} onClick={() => onUse(text)}>{inEditor(text) ? '초안에 있음' : '쓰기'}</Button>;
   return (
-    <InspectorSection title={`번역 후보 · 유사 대사 (TM) ${unit.candidates.length + rows.length}`} actions={<>
+    <InspectorSection title={`번역 후보 ${unit.candidates.length + rows.length}`} actions={<>
       <AiButton variant="ghost" prompt={`${subject}의 번역 후보를 제안해줘.`}>AI 제안</AiButton>
       {unit.translation && <AiButton variant="ghost" send={false} prompt={`${subject}의 번역을 이렇게 다듬어줘: `}>다듬기</AiButton>}
     </>}>
@@ -307,7 +307,7 @@ function CandidatesAndMatches({ unit, draft, onUse, tokenPattern }: { unit: Line
             {!unit.candidates.length && <li className="text-sm text-muted-foreground">아직 후보가 없습니다.</li>}
           </ul>
         </Group>
-        <Group title={<>같거나 비슷한 원문의 번역 <span className="font-normal text-muted-foreground tabular-nums">{rows.length}</span></>} className="space-y-2">
+        <Group title={<>TM <span className="font-normal text-muted-foreground tabular-nums">{rows.length}</span></>} className="space-y-2">
           <ul className="space-y-2">
             {rows.map((match) => {
               const current = match.translation === (unit.translation ?? null);
@@ -342,7 +342,7 @@ function CandidatesAndMatches({ unit, draft, onUse, tokenPattern }: { unit: Line
 /** Runs that touched this line; open only when there are any. */
 function HistorySection({ projectId, history }: { projectId: string; history: LineRecord['history'] }) {
   return (
-    <InspectorSection title={`변경 이력 · 실행 ${history.length}`} defaultOpen={history.length > 0}>
+    <InspectorSection title={`이력 ${history.length}`} defaultOpen={history.length > 0}>
       {history.length ? (
         <ul className="space-y-2 text-sm">
           {history.map((item) => (
@@ -372,7 +372,7 @@ function LineChecks({ projectId, source, text, rules, targetLanguage, speech, la
   const guessed = text.trim() ? speechLevelOf(text) : null;
   return (
     <div className="space-y-4">
-      <Group title={lastRun ? <>최근 실행의 지적 · <Link to="/p/$projectId/runs/$runId" params={{ projectId, runId: lastRun.runId }} className="font-normal text-muted-foreground hover:underline">{lastRun.workflowName}</Link></> : '최근 실행의 지적'}>
+      <Group title={lastRun ? <>지적 · <Link to="/p/$projectId/runs/$runId" params={{ projectId, runId: lastRun.runId }} className="font-normal text-muted-foreground hover:underline">{lastRun.workflowName}</Link></> : '지적'}>
         {lastRun?.issues.length ? (
           <ul className="space-y-1 text-sm text-warning">{lastRun.issues.map((issue, i) => <li key={i} className="flex items-start gap-1.5"><CircleAlert className="mt-0.5 size-3.5 shrink-0" />{issue}</li>)}</ul>
         ) : (
@@ -380,13 +380,13 @@ function LineChecks({ projectId, source, text, rules, targetLanguage, speech, la
         )}
       </Group>
       {speech && (
-        <Group title={`말투 규칙 → ${listenerLabel(speech.listener)}${speech.others ? ' (그 밖의 사람 규칙)' : ''}${speech.routeDependent ? ' (루트에 따라 달라 대본 순서 기준)' : speech.byOrder ? ' (그래프 밖이라 대본 순서 기준)' : ''}`}>
+        <Group title={`말투 → ${speech.others ? "그 밖의 사람" : listenerLabel(speech.listener)}${speech.routeDependent ? ' (루트에 따라 달라 대본 순서 기준)' : speech.byOrder ? ' (그래프 밖이라 대본 순서 기준)' : ''}`}>
           <div className="flex items-center gap-2 text-sm">
             <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', item: speech.ruleId }} className="min-w-0 truncate hover:underline">
               {speech.rule}
             </Link>
             <span className={cn('ml-auto shrink-0 text-xs', !guessed || speech.level === 'other' ? 'text-muted-foreground' : guessed === speech.level ? 'text-success' : 'text-warning')}>
-              {!guessed || speech.level === 'other' ? '' : guessed === speech.level ? '맞음 (어미 추정)' : `번역은 ${SPEECH_LEVEL_LABELS[guessed]} (어미 추정)`}
+              {!guessed || speech.level === 'other' ? '' : guessed === speech.level ? '맞음 · 추정' : `번역은 ${SPEECH_LEVEL_LABELS[guessed]} · 추정`}
             </span>
           </div>
         </Group>

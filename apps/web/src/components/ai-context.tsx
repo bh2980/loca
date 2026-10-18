@@ -33,7 +33,7 @@ export function ContextItemList({ items, budget }: { items: ContextItem[]; budge
                     </span>
                     {!item.included && (
                       <Badge variant="outline" className="px-1.5 py-0 text-xs text-warning">
-                        상한 초과로 뺌
+                        상한 초과
                       </Badge>
                     )}
                     <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{tokens(item.tokens)}</span>
@@ -111,7 +111,7 @@ export function AiContextPanel({ projectId, unitKey, unitKind = 'dialogue', aiNo
         </p>
       </div>
 
-      <Group title="이 줄보다 앞서 포함된 대사">
+      <Group title="앞 대사">
         {!data.preceding ? (
           <p className="text-sm text-muted-foreground">
             {data.precedingLines === 0 ? '넣지 않습니다.' : '따로 넣지 않습니다.'}
@@ -137,14 +137,14 @@ export function AiContextPanel({ projectId, unitKey, unitKind = 'dialogue', aiNo
         )}
       </Group>
 
-      <Group title="묶음 전체에 넣는 문맥">
+      <Group title="묶음 문맥">
         <ContextItemList items={data.items} budget={data.budget} />
       </Group>
 
       <Collapsible>
         <CollapsibleTrigger className="group flex items-center gap-1 text-xs font-semibold text-foreground">
         <ChevronRight className="size-3.5 transition-transform group-data-[state=open]:rotate-90" />
-        실제 프롬프트</CollapsibleTrigger>
+        프롬프트</CollapsibleTrigger>
       <CollapsibleContent>
         <pre className="mt-1 max-h-96 overflow-auto rounded bg-muted p-2 text-xs whitespace-pre-wrap">{`${data.system}\n\n${data.prompt}`}</pre>
       </CollapsibleContent>

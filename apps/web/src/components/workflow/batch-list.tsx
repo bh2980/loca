@@ -15,7 +15,7 @@ export function BatchList({ list, defaultOpen = false }: { list: List; defaultOp
       <CollapsibleTrigger asChild>
         <Button variant="ghost" className="group -ml-2">
           <ChevronRight className="transition-transform group-data-[state=open]:rotate-90" />
-          묶음 구성 보기 ({list.total.toLocaleString()}개)
+          묶음 {list.total.toLocaleString()}
         </Button>
       </CollapsibleTrigger>
       <CollapsibleContent>

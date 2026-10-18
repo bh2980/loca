@@ -121,7 +121,7 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
                 allTags={knowledgeTags}
                 onToggle={(tagId, add) => tagMutation.mutate({ tagId, add })}
                 onCreate={handleCreateTag}
-                heading="자료 태그"
+                heading="태그"
               />
             </PropertyRow>
           )}
@@ -140,7 +140,7 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
         </InspectorSection>
       )}
       {secondaryFields.length > 0 && (
-        <InspectorSection title="근거 및 상세">
+        <InspectorSection title="근거">
           <div className="space-y-4">
             {secondaryFields.map((field) => (
               <Group key={field.name} title={<Label htmlFor={`field-${field.name}`} className="font-semibold">{field.label}</Label>}>

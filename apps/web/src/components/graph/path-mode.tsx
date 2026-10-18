@@ -111,7 +111,7 @@ export function PathMode({ projectId, toggle, start, end, via: externalVia, onVi
       <HeaderActions>
         {toggle}
         <CanvasDirectionControl direction={direction} onDirectionChange={onDirectionChange} />
-        {found && data.sequence.length > 0 && <RunDialog projectId={projectId} unitIds={data.sequence.map((line) => line.unitId)} unitsLabel="선택한 경로의 대사" />}
+        {found && data.sequence.length > 0 && <RunDialog projectId={projectId} unitIds={data.sequence.map((line) => line.unitId)} unitsLabel="경로 대사" />}
       </HeaderActions>
       <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
         <GraphEndpointBar

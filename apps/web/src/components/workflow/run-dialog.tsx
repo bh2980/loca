@@ -258,7 +258,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
                     ))}
                   </div>
                 </FieldRow>
-                <FieldRow label="표시·태그">
+                <FieldRow label="태그">
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
                     {LINE_MARK_IDS.map((mark) => (
                       <Label key={mark} className="text-sm font-normal">
@@ -316,7 +316,6 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
               projectId={projectId}
               readiness={data.readiness}
               oneScene={scopeTarget === 'here' && here?.length === 1 ? here[0].id : undefined}
-              scoped={!wholeProject || pickedStatuses.size > 0 || pickedTags.size > 0 || pickedMarks.size > 0}
               onLeave={() => setOpen(false)}
             />
           ) : null}
@@ -341,7 +340,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
           </Button>
           {/* A model picked without its model yet would quietly run on the node's own: finish or undo it first. */}
           <Button disabled={!total || !workflowId || stale || start.isPending || Object.keys(chosenModels).length !== Object.keys(runModels).length} onClick={() => start.mutate()}>
-            {start.isPending ? <Spinner /> : <Play />} {total ? `${total.toLocaleString()}줄 실행 시작` : '실행 시작'}
+            {start.isPending ? <Spinner /> : <Play />} {total ? `${total.toLocaleString()}줄 실행` : '실행 시작'}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -443,15 +442,15 @@ const toggled = (setPicked: SetPicked, id: string, checked: boolean) =>
   });
 
 /** What in these lines would make the translation worse, each with where to fix it. */
-function Readiness({ projectId, readiness, oneScene, scoped, onLeave }: { projectId: string; readiness: PlanData['readiness']; oneScene?: string; /** The run covers part of the project, not all of it. */ scoped: boolean; /** A link was followed: the dialog closes. */ onLeave: () => void }) {
+function Readiness({ projectId, readiness, oneScene, onLeave }: { projectId: string; readiness: PlanData['readiness']; oneScene?: string; /** A link was followed: the dialog closes. */ onLeave: () => void }) {
   const checks: { ok: boolean; text: ReactNode; link?: ReactNode; uses: 'speech' | 'glossary' }[] = [
     {
       uses: 'speech',
       ok: readiness.unknownListenerLines === 0,
-      text: readiness.unknownListenerLines ? `청자를 모르는 대사 ${readiness.unknownListenerLines.toLocaleString()}줄` : '대사마다 청자가 정해짐',
+      text: readiness.unknownListenerLines ? `청자 미상 ${readiness.unknownListenerLines.toLocaleString()}줄` : '청자 모두 정해짐',
       link: readiness.unknownListenerLines > 0 && (
         <Link to="/p/$projectId/script" params={{ projectId }} search={{ marks: ['unknownListener'], ...(oneScene && { group: oneScene }) }} onClick={onLeave}>
-          청자 정하기{scoped && !oneScene ? ' (프로젝트 전체 목록)' : ''}
+          청자 정하기
         </Link>
       ),
     },
@@ -461,14 +460,14 @@ function Readiness({ projectId, readiness, oneScene, scoped, onLeave }: { projec
       text: readiness.unreviewedRules.count ? `확인 안 한 말투 규칙 ${readiness.unreviewedRules.count}개 (${readiness.unreviewedRules.examples.join(', ')}${readiness.unreviewedRules.count > readiness.unreviewedRules.examples.length ? ' 등' : ''})` : '쓰이는 말투 규칙은 모두 확인됨',
       link: readiness.unreviewedRules.count > 0 && (
         <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', marks: [...UNREVIEWED_MARKS], ...(!readiness.unreviewedRules.more && { ids: readiness.unreviewedRules.ids }) }} onClick={onLeave}>
-          확인하기{readiness.unreviewedRules.more ? ' (전체 목록에서 보기)' : ''}
+          확인하기
         </Link>
       ),
     },
     {
       uses: 'speech',
       ok: readiness.pairsWithoutRule.count === 0,
-      text: readiness.pairsWithoutRule.count ? `말투 규칙 없는 화자→청자 ${readiness.pairsWithoutRule.count}쌍 (${readiness.pairsWithoutRule.examples.join(', ')}${readiness.pairsWithoutRule.count > readiness.pairsWithoutRule.examples.length ? ' 등' : ''})` : '자주 말하는 쌍마다 말투 규칙 있음',
+      text: readiness.pairsWithoutRule.count ? `말투 규칙 없는 쌍 ${readiness.pairsWithoutRule.count} (${readiness.pairsWithoutRule.examples.join(', ')}${readiness.pairsWithoutRule.count > readiness.pairsWithoutRule.examples.length ? ' 등' : ''})` : '자주 말하는 쌍마다 말투 규칙 있음',
       link: readiness.pairsWithoutRule.count > 0 && (
         <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people' }} onClick={onLeave}>
           규칙 정하기
@@ -481,7 +480,7 @@ function Readiness({ projectId, readiness, oneScene, scoped, onLeave }: { projec
       text: readiness.unreviewedTerms.count ? `확인 안 한 용어 ${readiness.unreviewedTerms.count}개 (${readiness.unreviewedTerms.examples.join(', ')}${readiness.unreviewedTerms.count > readiness.unreviewedTerms.examples.length ? ' 등' : ''})` : '나오는 용어는 모두 확인됨',
       link: readiness.unreviewedTerms.count > 0 && (
         <Link to="/p/$projectId/glossary" params={{ projectId }} search={{ marks: [...UNREVIEWED_MARKS], ...(!readiness.unreviewedTerms.more && { ids: readiness.unreviewedTerms.ids }) }} onClick={onLeave}>
-          확인하기{readiness.unreviewedTerms.more ? ' (전체 목록에서 보기)' : ''}
+          확인하기
         </Link>
       ),
     },
@@ -491,7 +490,7 @@ function Readiness({ projectId, readiness, oneScene, scoped, onLeave }: { projec
   if (!rows.length) return null;
   return (
     <section className="space-y-2">
-      <SectionHeading>준비 상태 · 이 줄들 기준</SectionHeading>
+      <SectionHeading>준비 상태</SectionHeading>
       <ul className="rounded-md border text-sm">
         {rows.map((row, index) => (
           <li key={index} className="flex items-center gap-2 px-3 py-1.5">

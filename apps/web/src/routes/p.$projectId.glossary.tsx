@@ -142,7 +142,7 @@ function Glossary() {
   const afterBulk = { onSuccess: clearPicked };
 
   const chips: FilterChip[] = [
-    ...(search.ids ? [{ key: 'ids', label: `이번 실행 범위 ${search.ids.length}개`, clear: () => setFilter({ ids: undefined }) }] : []),
+    ...(search.ids ? [{ key: 'ids', label: `실행 범위 ${search.ids.length}`, clear: () => setFilter({ ids: undefined }) }] : []),
     ...(search.source ? [{ key: 'source', label: SOURCE_LABELS[search.source], clear: () => setFilter({ source: undefined }) }] : []),
     ...(search.marks ?? []).map((mark) => ({ key: `mark:${mark}`, label: <MarkChip mark={mark} />, name: AUTO_MARKS[mark].name, clear: () => toggleMark(mark, false) })),
     ...pickedTags.map((id) => {
@@ -154,7 +154,7 @@ function Glossary() {
   const columns: ColumnDef<Term, unknown>[] = [
     { id: 'source', header: '원문', meta: { hideable: false }, cell: ({ row }) => <span className="font-medium">{row.original.source}</span> },
     { id: 'target', header: '번역', cell: ({ row }) => row.original.target || <span className="text-muted-foreground">—</span> },
-    { id: 'lines', header: '나온 줄', meta: { width: 72, align: 'end' }, cell: ({ row }) => row.original.lines ?? <span className="text-muted-foreground">—</span> },
+    { id: 'lines', header: "등장", meta: { width: 72, align: 'end' }, cell: ({ row }) => row.original.lines ?? <span className="text-muted-foreground">—</span> },
     { id: 'note', header: '메모', meta: { className: 'text-muted-foreground' }, cell: ({ row }) => row.original.note },
     {
       id: 'origin',
@@ -224,7 +224,7 @@ function Glossary() {
             }] : []),
             ...(!fill?.running && suggest.data?.pending ? [{
               id: 'fill',
-              label: `빈 번역 AI로 채우기 (${suggest.data.pending}개)`,
+              label: `AI로 채우기 (${suggest.data.pending})`,
               icon: <Sparkles />,
               priority: 5,
               onSelect: () => setFillOpen(true),
@@ -261,14 +261,14 @@ function Glossary() {
             return (
               <>
                 <ContextMenuItem onClick={() => { select(row.id); revealDock?.(); }}>
-                  상세 편집
+                  상세
                 </ContextMenuItem>
                 {isCandidateOrAi && (
                   <ContextMenuItem
                     disabled={!hasTarget && !isMulti}
                     onClick={() => decide.mutate({ ids: isMulti ? promotable.map((t) => t.id) : [row.id], accept: true }, afterBulk)}
                   >
-                    {isMulti ? `선택한 ${targetCount}개 확정` : '확정'}
+                    {isMulti ? `${targetCount}개 확정` : '확정'}
                   </ContextMenuItem>
                 )}
                 {hasTarget && (
@@ -279,7 +279,7 @@ function Glossary() {
                       toast.success(isMulti ? `${targetCount}개 번역을 ${nextLocked ? '고정' : '고정 해제'}했습니다.` : `번역을 ${nextLocked ? '고정' : '고정 해제'}했습니다.`);
                     }}
                   >
-                    {isMulti ? `선택한 ${targetCount}개 번역 고정` : ((row as any).locked ? '번역 고정 해제' : '번역 고정')}
+                    {isMulti ? `${targetCount}개 번역 고정` : ((row as any).locked ? '번역 고정 해제' : '번역 고정')}
                   </ContextMenuItem>
                 )}
                 <ContextMenuItem onClick={() => { void navigator.clipboard.writeText(row.source); toast.success('원문을 복사했습니다.'); }}>
@@ -287,24 +287,24 @@ function Glossary() {
                 </ContextMenuItem>
                 {hasTarget && (
                   <ContextMenuItem onClick={() => { void navigator.clipboard.writeText(row.target); toast.success('번역어를 복사했습니다.'); }}>
-                    번역어 복사
+                    번역 복사
                   </ContextMenuItem>
                 )}
                 <ContextMenuItem onClick={() => void navigate({ to: '/p/$projectId/script', params: { projectId }, search: { q: row.source } })}>
-                  등장 대사 보기
+                  대사 보기
                 </ContextMenuItem>
                 <ContextMenuSeparator />
                 <ContextMenuItem
                   variant="destructive"
                   onClick={() => decide.mutate({ ids: targetIds, accept: false }, afterBulk)}
                 >
-                  {isMulti ? `선택한 ${targetCount}개 거절(숨기기)` : '거절(숨기기)'}
+                  {isMulti ? `${targetCount}개 거절` : "거절"}
                 </ContextMenuItem>
                 <ContextMenuItem
                   variant="destructive"
                   onClick={() => setDeleteTarget(isMulti ? { ids: targetIds, label: `${targetCount}개` } : { ids: [row.id], label: `“${row.source}”` })}
                 >
-                  {isMulti ? `선택한 ${targetCount}개 삭제` : '삭제'}
+                  {isMulti ? `${targetCount}개 삭제` : '삭제'}
                 </ContextMenuItem>
               </>
             );
@@ -323,7 +323,7 @@ function Glossary() {
               />
               <TagMenu
                 tags={knownTags.filter((item) => !item.role)}
-                heading={`고른 ${pickedTerms.length}개의 태그`}
+                heading="태그"
                 state={(tagId) => {
                   const on = pickedTerms.filter((term) => term.tags?.some((item) => item.id === tagId)).length;
                   return on === 0 ? 'none' : on === pickedTerms.length ? 'all' : 'some';

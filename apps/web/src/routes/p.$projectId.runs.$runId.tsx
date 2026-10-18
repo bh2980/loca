@@ -120,7 +120,7 @@ function RunDetail() {
     },
     {
       id: 'verdict',
-      header: '판정·지적·오류',
+      header: '결과',
       meta: { width: 220, wrap: true, className: 'text-xs' },
       cell: ({ row }) => {
         const item = row.original;
@@ -322,7 +322,7 @@ function RunDetail() {
                               <Button variant="ghost" className="group font-normal text-muted-foreground">
                                 <ChevronRight className="transition-transform group-data-[state=open]:rotate-90" />
                                 넣은 문맥 {step.context.filter((item) => item.included).length}개
-                                {step.context.some((item) => !item.included) && ` · 상한 초과로 뺀 것 ${step.context.filter((item) => !item.included).length}개`}
+                                {step.context.some((item) => !item.included) && ` · 상한 초과 ${step.context.filter((item) => !item.included).length}`}
                               </Button>
                             </CollapsibleTrigger>
                             <CollapsibleContent>
@@ -337,7 +337,7 @@ function RunDetail() {
                             <CollapsibleTrigger asChild>
                               <Button variant="ghost" className="group font-normal text-muted-foreground">
                                 <ChevronRight className="transition-transform group-data-[state=open]:rotate-90" />
-                                보낸 프롬프트(문맥 포함)
+                                보낸 프롬프트
                               </Button>
                             </CollapsibleTrigger>
                             <CollapsibleContent>

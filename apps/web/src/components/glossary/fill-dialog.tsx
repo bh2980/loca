@@ -27,12 +27,12 @@ export function FillDialog({ projectId, pending, calls, batch, open: controlledO
     <Dialog open={open} onOpenChange={setOpen}>
       {!hideTrigger && <DialogTrigger asChild>
         <Button variant="outline">
-          <Sparkles /> 빈 번역 AI로 채우기
+          <Sparkles /> AI로 채우기
         </Button>
       </DialogTrigger>}
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>빈 번역 AI로 채우기</DialogTitle>
+          <DialogTitle>AI로 채우기</DialogTitle>
           <DialogDescription>
             번역이 빈 후보 {pending.toLocaleString()}개 · 예상 요청 {calls.toLocaleString()}회
           </DialogDescription>

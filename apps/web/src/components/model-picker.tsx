@@ -121,11 +121,11 @@ export function ModelPicker({
           variant={compact ? 'ghost' : 'outline'}
           role="combobox"
           aria-expanded={open}
-          aria-label="AI 연결·모델"
+          aria-label="모델"
           className={cn(compact ? 'max-w-full justify-start px-2 text-xs font-normal text-muted-foreground' : 'w-full justify-between font-normal', className)}
         >
           <span className="flex min-w-0 items-center gap-1.5">
-            <span className={cn('truncate', !label && 'text-muted-foreground')}>{label ?? (lockConnection ? '모델 고르기' : usable.length || !connections.data ? 'AI 연결·모델 고르기' : '쓸 수 있는 AI 연결 없음')}</span>
+            <span className={cn('truncate', !label && 'text-muted-foreground')}>{label ?? (lockConnection ? '모델 고르기' : usable.length || !connections.data ? '모델 고르기' : '쓸 수 있는 AI 연결 없음')}</span>
             {free && <Badge variant="secondary" className="shrink-0 text-xs">무료</Badge>}
           </span>
           <ChevronsUpDown className="shrink-0 opacity-50" />

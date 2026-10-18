@@ -156,8 +156,8 @@ export const APPLY_TARGETS = {
       { name: 'profile', label: '프로필', type: 'string' },
       { name: 'speech', label: '말버릇', type: 'string' },
       { name: 'gender', label: '성별', type: 'string' },
-      { name: 'ageBand', label: '연령대', type: 'string' },
-      { name: 'role', label: '비중', type: 'string' },
+      { name: 'ageBand', label: '나이대', type: 'string' },
+      { name: 'role', label: '역할', type: 'string' },
       { name: 'player', label: '플레이어 캐릭터', type: 'boolean' },
       evidenceField,
     ],
@@ -178,7 +178,7 @@ export const APPLY_TARGETS = {
         label: '변화',
         type: 'list',
         fields: [
-          { name: 'at', label: '변화가 보이는 대사', type: 'lines', required: true },
+          { name: 'at', label: '변화 대사', type: 'lines', required: true },
           { name: 'change', label: '변화', type: 'string', required: true },
           { name: 'cause', label: '원인', type: 'string' },
         ],
@@ -194,7 +194,7 @@ export const APPLY_TARGETS = {
     fields: [
       { name: 'fromName', label: '화자', type: 'string', required: true },
       { name: 'toName', label: '청자', type: 'string', required: true },
-      { name: 'level', label: '말투 등급', type: 'string', required: true },
+      { name: 'level', label: '말투', type: 'string', required: true },
       { name: 'address', label: '호칭', type: 'string' },
       { name: 'note', label: '메모', type: 'string' },
       { name: 'startKey', label: '시작 대사', type: 'lines' },
@@ -311,7 +311,7 @@ export const FUNCTIONS = {
     async: false,
   },
   glossaryCheck: {
-    label: '용어 준수 검사',
+    label: '용어 검사',
     description: '원문에 나온 확정 용어의 지정 번역이 후보에 쓰였는지 검사합니다.',
     params: z.object({}),
     ports: () => pass,

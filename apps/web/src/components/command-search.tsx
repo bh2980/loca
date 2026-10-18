@@ -104,7 +104,7 @@ export function CommandSearch({ projectId, compact = false }: { projectId: strin
   return (
     <>
       <Button variant="ghost" size={compact ? "icon-sm" : "default"} aria-label={`검색 (${keyLabel('Mod+K')})`} onClick={() => setOpen(true)}>
-        <Search /> {!compact && <>대사·용어·인물·자료·채팅 검색 <Kbd>{keyLabel('Mod+K')}</Kbd></>}
+        <Search /> {!compact && <>검색 <Kbd>{keyLabel('Mod+K')}</Kbd></>}
       </Button>
       <CommandDialog open={open} onOpenChange={setOpen} shouldFilter={false} title="검색" description="장면, 용어, 인물, 자료, 대사(원문·번역·화자·ID), 대화 기록에서 찾습니다.">
         <CommandInput value={text} onValueChange={setText} placeholder="찾을 내용을 입력하세요" />

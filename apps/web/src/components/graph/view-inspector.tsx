@@ -96,7 +96,7 @@ export function ViewInspector({ projectId, viewId, shownNodes, derivedEdges, onC
   const ai = data.origin === 'ai';
   return (
     <Inspector
-      header={<InspectorHeader kind={ai ? '보기 · AI가 만듦' : '보기 · 직접 만듦'} name={data.label} onClose={onClose} />}
+      header={<InspectorHeader kind={ai ? 'AI 보기' : '보기'} name={data.label} onClose={onClose} />}
       footer={
         <>
           {ai && (
@@ -104,7 +104,7 @@ export function ViewInspector({ projectId, viewId, shownNodes, derivedEdges, onC
               variant="outline"
               onClick={() => chatDock.prefill(projectId, remakeViewPrompt(data.label, data.request))}
             >
-              <Sparkles /> 요청 고쳐 다시 만들기
+              <Sparkles /> 다시 만들기
             </Button>
           )}
           <Button variant="outline" className="ml-auto text-destructive" onClick={() => setConfirming(true)}>
@@ -167,7 +167,7 @@ export function ViewInspector({ projectId, viewId, shownNodes, derivedEdges, onC
 /** "이 보기에 남긴 이유" above a node's lines, when the AI gave one. */
 export function ViewReason({ reason }: { reason: string }) {
   return (
-    <InspectorSection title="이 보기에 남긴 이유" className="shrink-0">
+    <InspectorSection title="남긴 이유" className="shrink-0">
       <p className="text-sm">{reason}</p>
     </InspectorSection>
   );
@@ -192,7 +192,7 @@ export function OmittedPane({ projectId, edge, sections, onOpenSource, onClose }
       header={<InspectorHeader kind="파생 연결" name={edge.label ?? '생략한 구간'} onClose={onClose} />}
       footer={
         <Button disabled={!first} onClick={() => ids[0] && onOpenSource(section, ids[0])}>
-          원본에서 이 구간 보기
+          원본에서 보기
         </Button>
       }
     >

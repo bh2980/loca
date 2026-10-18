@@ -31,7 +31,7 @@ export interface NodeCardProps {
 export const NODE_CARD_KIND_APPEARANCE: Record<NodeCardKind, { label: string; icon: string; header: string; dot: string; capsule?: boolean }> = {
   entry: { label: "진입", icon: "text-muted-foreground", header: "bg-node-header-neutral text-muted-foreground", dot: "bg-muted-foreground", capsule: true },
   ai: { label: "AI", icon: "text-ai", header: "bg-node-header-ai text-ai", dot: "bg-ai" },
-  function: { label: "검사·작업", icon: "text-primary", header: "bg-node-header-check text-primary", dot: "bg-primary" },
+  function: { label: "함수", icon: "text-primary", header: "bg-node-header-check text-primary", dot: "bg-primary" },
   condition: { label: "조건", icon: "text-review-ink", header: "bg-node-header-flow text-review-ink", dot: "bg-review" },
   status: { label: "상태 변경", icon: "text-success", header: "bg-node-header-status text-success", dot: "bg-success" },
   end: { label: "종료", icon: "text-muted-foreground", header: "", dot: "bg-muted-foreground", capsule: true },

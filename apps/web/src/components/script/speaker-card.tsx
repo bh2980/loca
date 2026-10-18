@@ -68,7 +68,7 @@ function SpeakerInfo({ projectId, name }: { projectId: string; name: string }) {
         </ul>
       )}
       <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'characters', ...(character && { item: character.id }) }} className="block text-xs text-muted-foreground underline-offset-2 hover:underline">
-        인물·관계에서 보기
+        인물 보기
       </Link>
     </>
   );

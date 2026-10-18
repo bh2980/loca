@@ -111,7 +111,7 @@ function ProjectLayout() {
                 <PopoverContent side="top" align="start" className="w-72 p-3">
                   <div className="space-y-2.5">
                     <SectionHeading as="h3" className="border-b pb-2" actions={<span className="text-xs font-normal text-muted-foreground tabular-nums">전체 {progress.total.toLocaleString()}줄 중 {progress.done.toLocaleString()}줄 확정</span>}>
-                      번역 진행 현황
+                      번역 진행
                     </SectionHeading>
                     <div className="space-y-1">
                       {progress.statuses.map((s) => {
@@ -189,7 +189,7 @@ function ProjectLayout() {
                         </Link>
                       }
                     >
-                      {activeCount > 0 ? `실행 중인 워크플로 (${activeCount}건)` : '최근 워크플로 실행'}
+                      {activeCount > 0 ? `실행 중 ${activeCount}` : '최근 실행'}
                     </SectionHeading>
                     <div className="space-y-2">
                       {(activeCount > 0 ? progress.activeRuns : progress.recentRuns).length === 0 ? (
@@ -248,7 +248,7 @@ function ProjectLayout() {
                     variant="ghost"
                     size="sm"
                     className="h-5 gap-1 rounded-none px-1.5 text-xs font-normal text-muted-foreground hover:bg-accent hover:text-foreground"
-                    aria-label="알림 및 제안"
+                    aria-label="알림"
                   >
                     <Bell className="size-3" />
                     {hasNotification && (
@@ -271,12 +271,12 @@ function ProjectLayout() {
                         ) : undefined
                       }
                     >
-                      알림 및 제안
+                      알림
                     </SectionHeading>
                     {waiting > 0 && (
                       <div className="space-y-1.5 rounded-md border border-border bg-muted/40 p-2.5">
                         <div className="flex items-center justify-between">
-                          <GroupHeading>대기 중인 AI 에이전트 제안</GroupHeading>
+                          <GroupHeading>대기 중인 제안</GroupHeading>
                           <Badge variant="default" className="text-xs">
                             {waiting}건
                           </Badge>
@@ -291,7 +291,7 @@ function ProjectLayout() {
                             chatDock.set(true);
                           }}
                         >
-                          에이전트 패널 열기
+                          에이전트 열기
                         </Button>
                       </div>
                     )}
@@ -304,7 +304,7 @@ function ProjectLayout() {
                           </Link>
                         }
                       >
-                        최근 워크플로 실행
+                        최근 실행
                       </GroupHeading>
                       {progress.recentRuns.length === 0 ? (
                         <p className="py-1 text-center text-xs text-muted-foreground">기록이 없습니다.</p>

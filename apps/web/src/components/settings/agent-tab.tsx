@@ -60,7 +60,7 @@ export function AgentTab({ projectId: propProjectId }: { projectId?: string } = 
   };
 
   const limits = (
-    <SettingsSection title="자동 반영 후 다시 확인" description="대화별 기준이며 전체 과금 상한은 아닙니다.">
+    <SettingsSection title="다시 확인" description="대화별 기준이며 전체 과금 상한은 아닙니다.">
       <div className="grid gap-3 sm:grid-cols-2">
         <Field>
           <FieldLabel htmlFor="bypass-changes">대화당 변경 수</FieldLabel>
@@ -68,7 +68,7 @@ export function AgentTab({ projectId: propProjectId }: { projectId?: string } = 
           {!changesValid && <p role="alert" className="text-xs text-destructive">1부터 10,000까지의 정수를 입력하세요.</p>}
         </Field>
         <Field>
-          <FieldLabel htmlFor="bypass-cost">대화당 보고 비용 (USD)</FieldLabel>
+          <FieldLabel htmlFor="bypass-cost">대화당 비용</FieldLabel>
           <Input id="bypass-cost" type="number" min={0} step="any" placeholder="제한 없음" value={costDraft} disabled={!loaded || save.isPending} onChange={(event) => setCostDraft(event.target.value)} aria-invalid={!costValid} />
           {!costValid && <p role="alert" className="text-xs text-destructive">0 이상의 비용을 입력하거나 비워 두세요.</p>}
         </Field>
@@ -81,11 +81,11 @@ export function AgentTab({ projectId: propProjectId }: { projectId?: string } = 
     <div>
       <p role="status" aria-live="polite" className="sr-only">{save.isPending ? '에이전트 설정 저장 중' : save.isSuccess ? '에이전트 설정 저장됨' : ''}</p>
       <div className="space-y-8">
-        <SettingsSection title="새 대화의 권한 모드">
+        <SettingsSection title="권한 모드">
           <PermissionModePicker className="w-48" value={defaultMode} disabled={!loaded || save.isPending} onChange={(mode) => saveSettings({ ...settings, defaultPermissionMode: mode })} />
         </SettingsSection>
 
-        <SettingsSection title="도구와 권한" description="채팅 AI와 터미널의 loca call에만 적용됩니다.">
+        <SettingsSection title="도구 권한" description="채팅 AI와 터미널의 loca call에만 적용됩니다.">
           <PermissionMatrix
             actions={MATRIX_ACTIONS}
             rows={MATRIX_ROWS}
@@ -95,7 +95,7 @@ export function AgentTab({ projectId: propProjectId }: { projectId?: string } = 
           />
         </SettingsSection>
 
-        {defaultMode === 'bypass' ? limits : <AdvancedDisclosure label="다른 대화에서 바로 반영 모드를 쓸 때의 한도">{limits}</AdvancedDisclosure>}
+        {defaultMode === 'bypass' ? limits : <AdvancedDisclosure label="바로 반영 한도">{limits}</AdvancedDisclosure>}
       </div>
     </div>
   );

@@ -149,7 +149,7 @@ function StatusSettings() {
       ),
     },
     { id: 'kind', header: '종류', meta: { width: 112, className: 'text-muted-foreground' }, cell: ({ row }) => STATUS_KIND[row.original.kind] },
-    { id: 'review', header: '검토함에 표시', meta: { width: 120 }, cell: ({ row }) => (row.original.inReview ? '표시' : <span className="text-muted-foreground">–</span>) },
+    { id: 'review', header: '검토함', meta: { width: 120 }, cell: ({ row }) => (row.original.inReview ? '표시' : <span className="text-muted-foreground">–</span>) },
     { id: 'human', header: '워크플로 지정 안 함', meta: { width: 132 }, cell: ({ row }) => (row.original.humanOnly ? '지정 안 함' : <span className="text-muted-foreground">–</span>) },
     { id: 'units', header: '대사 수', meta: { width: 96, align: 'end' }, cell: ({ row }) => row.original.units.toLocaleString() },
   ];
@@ -295,7 +295,7 @@ function StatusSettings() {
                   rowContextMenu={(row) => (
                     <>
                       <ContextMenuItem onClick={() => open(row.mark ? { mark: row.mark } : { tag: row.id })}>
-                        {row.mark ? '표시 색상 편집' : '태그 편집'}
+                        {row.mark ? '색상 편집' : '태그 편집'}
                       </ContextMenuItem>
                       {row.tag && !row.tag.role && (
                         <>

@@ -573,7 +573,7 @@ function GraphPage() {
             })}
           >
             <RouteIcon className="size-3.5 mr-1" />
-            {isPicking ? '경로 선택 취소' : '경로 따라 번역'}
+            {isPicking ? '취소' : '경로 따라 번역'}
           </Button>
         )}
         {dialogue && (
@@ -592,7 +592,7 @@ function GraphPage() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">전체 (한 장)</SelectItem>
+              <SelectItem value="all">전체</SelectItem>
               {sections.map((section) => (
                 <SelectItem key={section.name} value={section.name}>
                   {section.name} <span className="text-muted-foreground">· {section.nodes.toLocaleString()}</span>
@@ -834,7 +834,7 @@ function GraphPage() {
                 <DropdownMenuContent align="start" side="bottom" sideOffset={2} className="w-60">
                   <DropdownMenuItem onSelect={() => void runPicked(picked)}>
                     <Play className="size-3.5" />
-                    <span>선택한 노드의 대사로 워크플로 실행…</span>
+                    <span>워크플로 실행…</span>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
@@ -844,7 +844,7 @@ function GraphPage() {
                     }}
                   >
                     <FilePlus2 className="size-3.5" />
-                    <span>선택한 노드로 보기 만들기…</span>
+                    <span>보기 만들기…</span>
                   </DropdownMenuItem>
                   {otherViews.length > 0 && (
                     <DropdownMenuSub>
@@ -864,7 +864,7 @@ function GraphPage() {
                   {viewId && (
                     <DropdownMenuItem onSelect={() => leaveView(picked)}>
                       <MinusCircle className="size-3.5" />
-                      <span>이 보기에서 빼기 ({realNodes(picked).length.toLocaleString()}개)</span>
+                      <span>보기에서 빼기 ({realNodes(picked).length.toLocaleString()})</span>
                     </DropdownMenuItem>
                   )}
                 </DropdownMenuContent>
@@ -893,7 +893,7 @@ function GraphPage() {
                     }}
                   >
                     <SlidersHorizontal className="size-3.5" />
-                    <span>상세 속성 열기</span>
+                    <span>상세 열기</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onSelect={() => {
@@ -915,7 +915,7 @@ function GraphPage() {
                     }}
                   >
                     <ExternalLink className="size-3.5" />
-                    <span>대사 화면에서 열기</span>
+                    <span>번역 화면에서 열기</span>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
@@ -935,7 +935,7 @@ function GraphPage() {
                     }}
                   >
                     <RouteIcon className="size-3.5" />
-                    <span>경로 시작점으로 지정</span>
+                    <span>경로 시작으로</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onSelect={() => {
@@ -971,7 +971,7 @@ function GraphPage() {
                     }}
                   >
                     <Flag className="size-3.5" />
-                    <span>경로 끝점으로 지정</span>
+                    <span>경로 끝으로</span>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
@@ -983,14 +983,14 @@ function GraphPage() {
                     }}
                   >
                     <Copy className="size-3.5" />
-                    <span>노드 키 복사</span>
+                    <span>키 복사</span>
                   </DropdownMenuItem>
                   {viewId && (
                     <>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem onSelect={() => leaveView([contextMenu.nodeId!])}>
                         <MinusCircle className="size-3.5" />
-                        <span>이 보기에서 빼기</span>
+                        <span>보기에서 빼기</span>
                       </DropdownMenuItem>
                     </>
                   )}
@@ -1009,7 +1009,7 @@ function GraphPage() {
                     }}
                   >
                     <ExternalLink className="size-3.5" />
-                    <span>장면 대사 열기</span>
+                    <span>장면 열기</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onSelect={() => {
@@ -1034,7 +1034,7 @@ function GraphPage() {
                     }}
                   >
                     <SlidersHorizontal className="size-3.5" />
-                    <span>상세 속성 열기</span>
+                    <span>상세 열기</span>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               )}
@@ -1060,7 +1060,7 @@ function GraphPage() {
                     }}
                   >
                     {direction === 'vertical' ? <ArrowLeftRight className="size-3.5" /> : <ArrowUpDown className="size-3.5" />}
-                    <span>{direction === 'vertical' ? '가로 배치로 전환' : '세로 배치로 전환'}</span>
+                    <span>{direction === 'vertical' ? '가로 배치' : '세로 배치'}</span>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               )}
@@ -1081,7 +1081,7 @@ function GraphPage() {
             </Popover>
           )}
           {runUnits && (
-            <RunDialog projectId={projectId} unitIds={runUnits} unitsLabel="그래프에서 고른 노드의 대사" open onOpenChange={(open) => !open && setRunUnits(undefined)} hideTrigger />
+            <RunDialog projectId={projectId} unitIds={runUnits} unitsLabel="고른 노드" open onOpenChange={(open) => !open && setRunUnits(undefined)} hideTrigger />
           )}
           {(graph.isPending || graph.data?.status === 'pending') && (
             <div className="absolute inset-0 flex items-center justify-center gap-2 text-sm text-muted-foreground">
@@ -1183,7 +1183,7 @@ function GraphPage() {
                           {viewDetail.data.missing.length > 0 && <span className="text-destructive"> · 원본에 없음 {viewDetail.data.missing.length.toLocaleString()}</span>}
                         </span>
                         <Button variant="ghost" onClick={() => void navigate({ search: (previous) => ({ ...previous, viewInfo: true, node: undefined, omitted: undefined, edit: undefined }), replace: true })}>
-                          보기 정보
+                          보기
                         </Button>
                       </div>
                     )}
@@ -1209,7 +1209,7 @@ function GraphPage() {
                           checked={search.links === 'all'}
                           onCheckedChange={(on) => void navigate({ search: (previous) => ({ ...previous, links: on ? 'all' : undefined }), replace: true })}
                         />
-                        다른 장면을 거치는 연결 {hidden.length.toLocaleString()}개 표시
+                        장면 경유 연결 {hidden.length.toLocaleString()}
                       </label>
                     )}
                   </>

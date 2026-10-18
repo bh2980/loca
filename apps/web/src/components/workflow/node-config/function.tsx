@@ -43,7 +43,7 @@ export function FunctionConfig({ node, refs, readOnly, onChange }: { node: Funct
 
   return (
     <div className="space-y-4">
-      <Field label="함수 동작 종류">
+      <Field label="함수">
         <Select
           value={fn}
           onValueChange={(nextFn) => {
@@ -69,17 +69,17 @@ export function FunctionConfig({ node, refs, readOnly, onChange }: { node: Funct
 }
 
 const CUSTOM_RULE_KIND_LABELS: Record<CustomFormatRule['kind'], string> = {
-  forbidden: '번역문 금지 패턴',
-  preserve: '원문→번역 보존',
-  targetRequired: '번역문 필수 패턴',
+  forbidden: '금지',
+  preserve: '보존',
+  targetRequired: '필수',
 };
 
 const LENGTH_LIMITS = [
   { key: 'maxChars', label: '최대 글자 수', step: 1 },
-  { key: 'maxBytes', label: '최대 바이트(UTF-8)', step: 1 },
+  { key: 'maxBytes', label: '최대 바이트', step: 1 },
   { key: 'maxLineChars', label: '한 줄 최대 글자 수', step: 1 },
   { key: 'maxLines', label: '최대 줄 수', step: 1 },
-  { key: 'maxLengthRatio', label: '원문 대비 최대 길이 비율', step: 0.1 },
+  { key: 'maxLengthRatio', label: '최대 길이 비율', step: 0.1 },
 ] as const;
 
 function FormatCheckConfig({ params, refs, set }: { params: Record<string, unknown>; refs: NodeRefs; set: (key: string, value: unknown) => void }) {
@@ -101,13 +101,13 @@ function FormatCheckConfig({ params, refs, set }: { params: Record<string, unkno
         <ToggleRow label="서식 태그 보존" checked={params.tags as boolean} onChange={(value) => set('tags', value)} />
         <ToggleRow label="줄바꿈 수 일치" checked={params.newlines as boolean} onChange={(value) => set('newlines', value)} />
         <ToggleRow label="빈 번역 금지" checked={params.emptyText as boolean} onChange={(value) => set('emptyText', value)} />
-        <ToggleRow label="원문 숫자 누락 검사" checked={Boolean(params.numbers)} onChange={(value) => set('numbers', value)} />
-        <ToggleRow label="공백 불일치 검사" checked={Boolean(params.spaces)} onChange={(value) => set('spaces', value)} />
-        <ToggleRow label="변수 뒤 조사 검사" checked={Boolean(params.particles)} onChange={(value) => set('particles', value)} />
+        <ToggleRow label="숫자 누락" checked={Boolean(params.numbers)} onChange={(value) => set('numbers', value)} />
+        <ToggleRow label="공백 불일치" checked={Boolean(params.spaces)} onChange={(value) => set('spaces', value)} />
+        <ToggleRow label="변수 뒤 조사" checked={Boolean(params.particles)} onChange={(value) => set('particles', value)} />
       </div>
 
       {Boolean(params.particles) && (
-        <Field label="조사 판별 정규식">
+        <Field label="조사 정규식">
           <Input
             className="font-mono text-xs"
             placeholder={DEFAULT_PARTICLE_PATTERN}
@@ -132,7 +132,7 @@ function FormatCheckConfig({ params, refs, set }: { params: Record<string, unkno
 
       <div className="space-y-2 border-t border-border pt-3">
         <div className="flex items-center justify-between">
-          <GroupHeading>사용자 정의 검사 규칙 (정규식)</GroupHeading>
+          <GroupHeading>정규식 규칙</GroupHeading>
           <Button type="button" variant="outline" onClick={addRule}>
             <Plus className="size-3.5" /> 규칙 추가
           </Button>
@@ -198,7 +198,7 @@ function SetStatusConfig({ params, refs, set, setMany }: { params: Record<string
   const add = params.addTagIds as string[], remove = params.removeTagIds as string[];
   return (
     <>
-      <Field label="상태를 바꾸기">
+      <Field label="바꿀 상태">
         <Select value={(params.statusId as string) ?? 'keep'} onValueChange={(value) => set('statusId', value === 'keep' ? undefined : value)}>
           <SelectTrigger className="w-full">
             <SelectValue />
@@ -281,26 +281,26 @@ function HttpConfig({ params, refs, set }: { params: Record<string, unknown>; re
         </Select>
       </Field>
       {params.method === 'POST' && (
-        <Field label="요청 본문 (JSON)" hint={`대사마다 바뀌는 값: ${PLACEHOLDERS}`}>
+        <Field label="본문" hint={`대사마다 바뀌는 값: ${PLACEHOLDERS}`}>
           <Textarea className="min-h-28 font-mono text-xs" spellCheck={false} value={params.body as string} onChange={(event) => set('body', event.target.value)} />
         </Field>
       )}
-      <Field label="응답에서 읽을 위치 · 비우면 전체">
+      <Field label="응답 경로">
         <Input className="font-mono text-xs" placeholder="result.text" value={params.resultPath as string} onChange={(event) => set('resultPath', event.target.value)} />
       </Field>
-      <Field label="결과 쓰임">
+      <Field label="결과">
         <Select value={params.mode as string} onValueChange={(value) => set('mode', value)}>
           <SelectTrigger className="w-full">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="candidate">새 번역 후보로</SelectItem>
-            <SelectItem value="verdict">통과/실패 판정으로</SelectItem>
-            <SelectItem value="data">데이터로만 저장</SelectItem>
+            <SelectItem value="candidate">번역 후보</SelectItem>
+            <SelectItem value="verdict">판정</SelectItem>
+            <SelectItem value="data">데이터</SelectItem>
           </SelectContent>
         </Select>
       </Field>
-      <Field label="제한 시간(초)">
+      <Field label="제한 시간">
         <Input type="number" min={1} max={300} value={params.timeoutSeconds as number} onChange={(event) => set('timeoutSeconds', Number(event.target.value))} />
       </Field>
     </>
@@ -329,7 +329,7 @@ function ScriptConfig({ params, projectId, readOnly, set }: { params: Record<str
         />
       </Field>
       <Field
-        label="코드 (JavaScript)"
+        label="코드"
         action={
           <AiButton variant="ghost" send={false} prompt={`이 스크립트 노드의 코드를 작성해줘. 출구는 ${ports.join(', ')} 중 하나를 port로 반환하고${fields.length ? `, data에 ${fields.map((field) => `${field.name}(${field.type}${field.description ? `: ${field.description}` : ''})`).join(', ')} 필드를 채워줘` : ''}. 하는 일: `}>
             AI로 작성
@@ -338,13 +338,13 @@ function ScriptConfig({ params, projectId, readOnly, set }: { params: Record<str
         hint="샌드박스: 네트워크·파일 접근 없음, 2초·32MB 제한.">
         <Textarea className="min-h-56 font-mono text-xs leading-relaxed" spellCheck={false} value={params.code as string} onChange={(event) => set('code', event.target.value)} />
       </Field>
-      <Field label="출력 데이터 (JSON 필드)">
+      <Field label="출력 필드">
         <JsonFieldsEditor fields={fields} descriptionPlaceholder="설명 (코드를 쓸 때 참고)" onChange={(next) => set('fields', next)} />
       </Field>
       {!readOnly && (
         <div className="space-y-2">
           <Button variant="outline" disabled={test.isPending} onClick={() => test.mutate()}>
-            <Play /> 첫 대사로 시험 실행
+            <Play /> 시험 실행
           </Button>
           {test.data && (
             <pre className="max-h-64 overflow-auto rounded-md bg-muted p-2 text-xs">
@@ -440,7 +440,7 @@ function ApplyConfig({ node, fn, params, refs, setMany }: { node: FunctionNode; 
 
   return (
     <div className="space-y-4">
-      <Field label="결과를 가져올 노드">
+      <Field label="결과 노드">
         <Select value={params.fromNodeId || 'none'} onValueChange={(value) => pickFrom(value === 'none' ? '' : value)}>
           <SelectTrigger className="w-full">
             <SelectValue />
@@ -524,9 +524,9 @@ function ApplyConfig({ node, fn, params, refs, setMany }: { node: FunctionNode; 
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="propose">제안으로 올리기</SelectItem>
-              <SelectItem value="confirmed">바로 확정으로 넣기</SelectItem>
-              <SelectItem value="candidate">바로 후보(✦)로 넣기</SelectItem>
+              <SelectItem value="propose">제안</SelectItem>
+              <SelectItem value="confirmed">바로 확정</SelectItem>
+              <SelectItem value="candidate">바로 후보</SelectItem>
             </SelectContent>
           </Select>
         </Field>

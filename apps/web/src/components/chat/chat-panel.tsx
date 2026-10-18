@@ -123,7 +123,7 @@ export function ChatPanel({ projectId }: { projectId: string }) {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-72">
-            <DropdownMenuLabel className="text-xs font-semibold text-foreground">이 프로젝트의 대화</DropdownMenuLabel>
+            <DropdownMenuLabel className="text-xs font-semibold text-foreground">대화</DropdownMenuLabel>
             {sessions.data?.map((session) => (
               <DropdownMenuItem key={session.id} onSelect={() => setSessionId(session.id)} className={cn('group/session pr-1', session.id === sessionId && 'font-medium')}>
                 <span className="min-w-0 flex-1 truncate">{session.title}</span>
@@ -183,7 +183,7 @@ export function ChatPanel({ projectId }: { projectId: string }) {
       ) : (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center text-sm text-muted-foreground">
           <Button onClick={() => create.mutate()} disabled={create.isPending}>
-            <Plus /> 새 대화 시작
+            <Plus /> 새 대화
           </Button>
         </div>
       )}
@@ -421,7 +421,7 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
                   if (part.type.startsWith('tool-')) return <ToolPart key={index} part={part as never} proposal={proposalById.get(((part as { output?: { proposalId?: string } }).output ?? {}).proposalId ?? '')} stale={message.id !== messages.at(-1)?.id} onDecide={(id, approved) => addToolApprovalResponse({ id, approved })} onOutput={(toolCallId, output) => void addToolOutput({ tool: part.type.slice(5) as never, toolCallId, output: output as never })} />;
                   return null;
                 })}
-                {undoable.length > 0 && <Button variant="outline" onClick={() => { setReplyUndoIds(undoable); setUndoingReply(true); }}>이 답의 변경 되돌리기 ({undoable.length})</Button>}
+                {undoable.length > 0 && <Button variant="outline" onClick={() => { setReplyUndoIds(undoable); setUndoingReply(true); }}>변경 되돌리기 ({undoable.length})</Button>}
               </div>
             );
             if (!stopped && !interrupted) return view;
@@ -457,7 +457,7 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
 
       <AlertDialog open={undoingReply} onOpenChange={setUndoingReply}>
         <AlertDialogContent>
-          <AlertDialogHeader><AlertDialogTitle>이 답의 변경을 되돌릴까요?</AlertDialogTitle><AlertDialogDescription>이 답에서 반영된 변경 {replyUndoIds.length}개를 되돌리는 제안을 적용합니다. 그사이 바뀐 대사는 건너뜁니다.</AlertDialogDescription></AlertDialogHeader>
+          <AlertDialogHeader><AlertDialogTitle>변경을 되돌릴까요?</AlertDialogTitle><AlertDialogDescription>이 답에서 반영된 변경 {replyUndoIds.length}개를 되돌리는 제안을 적용합니다. 그사이 바뀐 대사는 건너뜁니다.</AlertDialogDescription></AlertDialogHeader>
           <AlertDialogFooter><AlertDialogCancel>취소</AlertDialogCancel><AlertDialogAction disabled={undoReply.isPending} onClick={() => { undoReply.mutate(replyUndoIds); setUndoingReply(false); }}>되돌리기</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -559,7 +559,7 @@ function ExternalProposals({ projectId }: { projectId: string }) {
       </Button>
       {open && (
         <div className="px-3 pb-3">
-          <ProposalGroups projectId={projectId} proposals={pending} title="CLI에서 온 제안" />
+          <ProposalGroups projectId={projectId} proposals={pending} title="CLI 제안" />
         </div>
       )}
     </div>

@@ -86,7 +86,7 @@ function Home() {
     {
       key: 'listener',
       icon: <UserRoundSearch />,
-      title: '청자 미상 대사',
+      title: '청자 미상',
       count: groups.data?.reduce((sum, group) => sum + group.unknownListeners, 0) ?? 0,
       link: <Link to="/p/$projectId/script" params={{ projectId }} search={{ marks: ['unknownListener'] }} />,
     },
@@ -129,7 +129,7 @@ function Home() {
     {
       key: 'terms',
       icon: <BookMarked />,
-      title: '후보 용어 확정',
+      title: '용어 후보',
       count: terms.data?.filter((term) => termMarksOf(term).includes('candidate')).length ?? 0,
       link: <Link to="/p/$projectId/glossary" params={{ projectId }} search={{ marks: ['candidate'] }} />,
     },

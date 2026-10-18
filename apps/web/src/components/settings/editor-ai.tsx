@@ -41,12 +41,12 @@ export function EditorAiSection({ projectId }: { projectId: string }) {
     <SettingsSection title="편집기 AI">
       <FieldGroup className="gap-4">
         <Field>
-          <FieldLabel>AI 번역·다듬기 모델</FieldLabel>
+          <FieldLabel>번역 모델</FieldLabel>
           <ModelPicker value={settings.assistModel} onChange={(assistModel) => change({ assistModel })} />
         </Field>
         <Field orientation="horizontal">
           <Switch id="editor-ai-on" checked={settings.enabled} onCheckedChange={(enabled) => change({ enabled })} />
-          <FieldLabel htmlFor="editor-ai-on">자동완성 켜기</FieldLabel>
+          <FieldLabel htmlFor="editor-ai-on">자동완성</FieldLabel>
         </Field>
         <Field>
           <FieldLabel>자동완성 모델</FieldLabel>

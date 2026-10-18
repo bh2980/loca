@@ -216,7 +216,7 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
                 allTags={knowledgeTags}
                 onToggle={(tagId, add) => pairTagMutation.mutate({ tagId, add })}
                 onCreate={handleCreatePairTag}
-                heading="인물·관계 태그"
+                heading="태그"
               />
             </PropertyRow>
           </PropertyGrid>
@@ -226,7 +226,7 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
         title="말투"
         actions={
           <Button variant="ghost" onClick={() => setPicking((value) => !value)} aria-pressed={picking}>
-            <Plus /> 말투가 바뀌는 지점 추가
+            <Plus /> 변화 지점 추가
           </Button>
         }
       >
@@ -277,7 +277,7 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
             className="mt-2 text-muted-foreground"
             onClick={() => (others ? onOpenPair(others.key) : addRule({ fromName: pair.from, toName: OTHERS_LISTENER, level: 'haeyo', address: '' }).then(() => onOpenPair(pairKey(pair.from, OTHERS_LISTENER))))}
           >
-            {others?.rules.length ? `${pair.from} → 그 밖의 사람: ${SPEECH_LEVEL_LABELS[others.rules[0].level]}` : `${pair.from} → 그 밖의 사람 말투 정하기`}
+            {others?.rules.length ? `${pair.from} → 그 밖의 사람: ${SPEECH_LEVEL_LABELS[others.rules[0].level]}` : `${pair.from} → 그 밖의 사람 말투`}
           </Button>
         )}
       </InspectorSection>
@@ -318,7 +318,7 @@ function StretchPicker({ projectId, from, to, taken, onPick, onCancel }: { proje
   return (
     <div className="mb-3 rounded-md border bg-muted p-2">
       <div className="mb-1 flex items-center gap-2 px-1">
-        <GroupHeading>말투가 바뀌기 시작하는 대사를 고르세요</GroupHeading>
+        <GroupHeading>시작 대사 선택</GroupHeading>
         <Button variant="ghost" size="inline" className="ml-auto text-muted-foreground" onClick={onCancel}>
           취소
         </Button>

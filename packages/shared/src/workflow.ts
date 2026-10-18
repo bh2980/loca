@@ -73,7 +73,7 @@ export type AiScope = keyof typeof AI_SCOPES;
  * Where a `choice` node's options come from: typed by hand, or a project list read when the run
  * sends the request (cast names plus group/public/self, line tag names, status names).
  */
-export const CHOICE_SOURCES = { custom: '직접 입력', characters: '등장인물·특수 청자', lineTags: '대사 태그', statuses: '상태' } as const;
+export const CHOICE_SOURCES = { custom: '직접 입력', characters: '인물', lineTags: '태그', statuses: '상태' } as const;
 export type ChoiceSource = keyof typeof CHOICE_SOURCES;
 export const choiceConfigSchema = z.object({
   source: z.enum(Object.keys(CHOICE_SOURCES) as [ChoiceSource, ...ChoiceSource[]]).default('custom'),
@@ -189,9 +189,9 @@ export interface NodeTypeInfo {
 
 export const NODE_TYPES: Record<WorkflowNodeType, NodeTypeInfo> = {
   entry: { label: '진입', description: '선택한 상태의 대사가 흐름에 들어옵니다.', hasInput: false },
-  ai: { label: 'AI 동작', description: '고른 모델·지시문·문맥으로 AI를 호출해 후보·판정·용어·데이터를 받습니다.', hasInput: true },
-  function: { label: '함수 동작', description: '형식 검사·상태 변경·HTTP 호출·스크립트 등 정해진 동작을 실행합니다.', hasInput: true },
-  condition: { label: '조건 분기', description: '방문 횟수·앞 노드의 출력·대사 속성 등으로 분기합니다.', hasInput: true },
+  ai: { label: 'AI', description: '고른 모델·지시문·문맥으로 AI를 호출해 후보·판정·용어·데이터를 받습니다.', hasInput: true },
+  function: { label: '함수', description: '형식 검사·상태 변경·HTTP 호출·스크립트 등 정해진 동작을 실행합니다.', hasInput: true },
+  condition: { label: '조건', description: '방문 횟수·앞 노드의 출력·대사 속성 등으로 분기합니다.', hasInput: true },
   end: { label: '종료', description: '대사의 흐름을 마칩니다.', hasInput: true },
 };
 

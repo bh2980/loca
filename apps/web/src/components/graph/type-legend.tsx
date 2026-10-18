@@ -36,8 +36,8 @@ export function TypeLegend({ nodes, nodeTypes, active, onPick }: {
     }
     const sorted = [...rows.values()].sort((a, b) => b.count - a.count);
     return [
-      { title: '콘텐츠 노드', rows: sorted.filter((row) => isContentKind(row.kind)) },
-      { title: '이벤트·제어 노드 (번역 제외)', rows: sorted.filter((row) => !isContentKind(row.kind)) },
+      { title: '콘텐츠', rows: sorted.filter((row) => isContentKind(row.kind)) },
+      { title: '이벤트·제어 · 번역 제외', rows: sorted.filter((row) => !isContentKind(row.kind)) },
     ].filter((group) => group.rows.length);
   }, [nodes, nodeTypes]);
 

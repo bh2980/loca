@@ -123,7 +123,7 @@ export function LineHeadRow({ projectId, rows, bulk, statusList, tags }: { proje
               <BulkListener speakers={[...new Set(rows.flatMap((row) => (row.speaker ? [row.speaker] : [])))]} cast={(people.data?.characters ?? []).filter((person) => person.status === 'confirmed').map((person) => person.name)} onPick={(listener) => setListener.mutate(listener)} />
               <TagMenu
                 tags={tags}
-                heading={`선택한 ${picked.size}개 대사의 태그`}
+                heading="태그"
                 state={tagState}
                 onToggle={(tagId, add) => setTag.mutate({ tagId, add })}
               />
@@ -172,7 +172,7 @@ function BulkListener({ speakers, cast, onPick }: { speakers: string[]; cast: st
         <SelectItem value="-">미상</SelectItem>
         {speakers.length > 0 && (
           <SelectGroup>
-            <SelectLabel>선택한 줄의 화자</SelectLabel>
+            <SelectLabel>화자</SelectLabel>
             {speakers.map((name) => (
               <SelectItem key={name} value={name}>
                 {name}

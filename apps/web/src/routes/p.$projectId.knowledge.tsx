@@ -129,13 +129,13 @@ function Knowledge() {
       columns: [
         { head: '제목', cell: (row) => row.title, className: 'font-medium', width: 240 },
         { head: '종류', cell: (row) => DOCUMENT_KIND[row.kind], width: 96 },
-        { head: '번역 문맥', cell: (row) => (row.alwaysInclude ? <Badge variant="outline">넣음</Badge> : null), width: 96 },
+        { head: '문맥', cell: (row) => (row.alwaysInclude ? <Badge variant="outline">넣음</Badge> : null), width: 96 },
         { head: '내용', cell: (row) => <span className="line-clamp-1 text-muted-foreground">{row.body.replace(/[#*_>`]+/g, '').replace(/\s+/g, ' ')}</span> },
       ],
       fields: [
         { name: 'title', label: '제목', type: 'text' },
         { name: 'kind', label: '종류', type: 'docKind' },
-        { name: 'alwaysInclude', label: '번역 문맥에 넣기', type: 'bool' },
+        { name: 'alwaysInclude', label: '문맥에 넣기', type: 'bool' },
         { name: 'body', label: '본문', type: 'long' },
       ],
       create: () => unwrap(api.documents.$post({ param: { projectId }, json: { title: '새 문서', kind: 'note', body: '', alwaysInclude: false } })),
@@ -156,12 +156,12 @@ function Knowledge() {
       fields: [
         { name: 'name', label: '이름', type: 'text' },
         { name: 'aliases', label: '별칭', type: 'list' },
-        { name: 'player', label: '플레이어 캐릭터', type: 'bool' },
+        { name: 'player', label: '플레이어', type: 'bool' },
         { name: 'gender', label: '성별', type: 'gender' },
         { name: 'ageBand', label: '나이대', type: 'ageBand' },
         { name: 'role', label: '역할', type: 'role' },
         { name: 'profile', label: '프로필', type: 'long' },
-        { name: 'speech', label: '말투 특징', type: 'long' },
+        { name: 'speech', label: '말버릇', type: 'long' },
         { name: 'style', label: '문체', type: 'style' },
       ],
       label: (row) => row.name,
@@ -181,7 +181,7 @@ function Knowledge() {
         { name: 'fromId', label: '누가', type: 'character' },
         { name: 'toId', label: '누구에게', type: 'character' },
         { name: 'kind', label: '관계', type: 'text' },
-        { name: 'mutual', label: '서로 같은 관계', type: 'bool' },
+        { name: 'mutual', label: '쌍방', type: 'bool' },
         { name: 'description', label: '설명', type: 'long' },
       ],
       label: (row) => `${nameOf.get(row.fromId) ?? '?'} → ${nameOf.get(row.toId) ?? '?'}`,
@@ -226,8 +226,8 @@ function Knowledge() {
         { name: 'toName', label: '청자', description: '여럿: group · 불특정 다수: public · 혼잣말: self · 그 밖의 사람: others', type: 'text' },
         { name: 'level', label: '말투', type: 'level' },
         { name: 'address', label: '호칭', type: 'chips', suggestions: (rules.data ?? []).flatMap((rule) => splitList(rule.address)) },
-        { name: 'startKey', label: '시작 대사 키', type: 'key' },
-        { name: 'note', label: '이유·메모', type: 'long' },
+        { name: 'startKey', label: '시작 대사', type: 'key' },
+        { name: 'note', label: '메모', type: 'long' },
       ],
       label: (row) => `${row.fromName} → ${listenerLabel(row.toName)}`,
       save: patchTo(api['speech-rules'][':id'].$patch),
@@ -254,7 +254,7 @@ function Knowledge() {
   const unofficial = (kind: Kind) => specs[kind].rows.filter((row) => !isSettled(row)).length;
   const unofficialHere = tab === 'people' ? unofficial('characters') + unofficial('relationships') + unofficial('speechRules') : unofficial(tab);
   useReportView('knowledge', [
-    selected && { kind: KINDS[tableKind], id: selected.id, label: spec.label(selected), detail: !isSettled(selected) ? (selected.status === 'candidate' ? '후보' : '확정 · AI 초안, 아직 사람이 확인 안 함') : undefined },
+    selected && { kind: KINDS[tableKind], id: selected.id, label: spec.label(selected), detail: !isSettled(selected) ? (selected.status === 'candidate' ? '후보' : '확정 · AI 초안') : undefined },
     pair && { kind: '관계·말투', id: pair.key, label: `${pair.from} → ${pair.to}` },
   ]);
 
@@ -348,14 +348,14 @@ function Knowledge() {
     onChange: (next) => set({ ...('source' in next && { source: next.source }), ...('marks' in next && { marks: next.marks }), ...('tags' in next && { tags: next.tags }), item: undefined }),
   };
   const filtered = Boolean(search.source || search.marks?.length || search.tags?.length || search.ids);
-  const chips = [...knowledgeFilterChips(filters), ...(search.ids ? [{ key: 'ids', label: `이번 실행 범위 ${search.ids.length}개`, clear: () => set({ ids: undefined, item: undefined }) }] : [])];
+  const chips = [...knowledgeFilterChips(filters), ...(search.ids ? [{ key: 'ids', label: `실행 범위 ${search.ids.length}`, clear: () => set({ ids: undefined, item: undefined }) }] : [])];
   const bulk = (
     <>
       <BulkDecide picked={checked.size} actionable={checkedRows} pending={decide.isPending} onConfirm={() => decide.mutate({ items: checkedItems(), action: 'confirm' })} onDiscard={() => decide.mutate({ items: checkedItems(), action: 'discard' })} />
       {/* A person's tags only: the app's own (확인 권장) come off when a person decides. */}
       <TagMenu
         tags={knowledgeTags.filter((item) => !item.role)}
-        heading={`고른 ${checked.size}개의 태그`}
+        heading="태그"
         state={(tagId) => {
           const on = pickedRows().filter(({ row }) => row.tags?.some((item) => item.id === tagId)).length;
           return on === 0 ? 'none' : on === pickedRows().length ? 'all' : 'some';
@@ -461,7 +461,7 @@ function Knowledge() {
               }
             }}
           >
-            {(row as any).alwaysInclude ? '관련될 때만 포함' : '번역 문맥에 항상 포함'}
+            {(row as any).alwaysInclude ? '관련될 때만' : '항상 포함'}
           </ContextMenuItem>
         )}
         {tab === 'people' && search.display === 'characters' && (
@@ -474,7 +474,7 @@ function Knowledge() {
               });
             }}
           >
-            이 화자의 대사 보기
+            대사 보기
           </ContextMenuItem>
         )}
         <ContextMenuSeparator />
@@ -530,8 +530,8 @@ function Knowledge() {
               onChange={(value) => set({ display: tab === 'people' ? value === 'graph' ? undefined : value === 'characters' ? 'characters' : 'table' : value === 'table' ? 'table' : undefined, item: undefined }, false)}
               items={tab === 'people' ? [
                 { value: 'graph', label: '그래프', icon: <Network /> },
-                { value: 'characters', label: '인물 표', icon: <Users /> },
-                { value: 'table', label: '관계 표', icon: <ArrowLeftRight /> },
+                { value: 'characters', label: '인물', icon: <Users /> },
+                { value: 'table', label: '관계', icon: <ArrowLeftRight /> },
               ] : [{ value: 'timeline', label: '흐름', icon: <GanttChart /> }, { value: 'table', label: '표', icon: <Table2 />}]} />
             <Separator orientation="vertical" className="mx-1 h-4" />
           </>}

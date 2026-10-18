@@ -68,14 +68,14 @@ export function KeyPane({ row, onClose, onCreated }: { row?: KeyRow; onClose: ()
           <Input id="key-name" value={name} placeholder="예: 맞춤법 검사기 키" onChange={(event) => setName(event.target.value)} />
         </Field>
         <Field>
-          <FieldLabel htmlFor="key-header">키를 보내는 헤더</FieldLabel>
+          <FieldLabel htmlFor="key-header">헤더</FieldLabel>
           <Input id="key-header" className="font-mono text-sm" value={header} onChange={(event) => setHeader(event.target.value)} />
           <FieldDescription>
             {'{key}'}는 저장한 키로 바뀝니다.
           </FieldDescription>
         </Field>
         <Field>
-          <FieldLabel htmlFor="key-secret">키 {row?.hasKey && <span className="font-normal text-muted-foreground">(저장됨)</span>}</FieldLabel>
+          <FieldLabel htmlFor="key-secret">키</FieldLabel>
           <Input id="key-secret" type="password" autoComplete="off" value={secret} onChange={(event) => setSecret(event.target.value)} />
           <FieldDescription>OS 키체인에 저장되며 DB·내보내기에 들어가지 않습니다.</FieldDescription>
         </Field>
