@@ -344,7 +344,7 @@ function SidebarHeader({ className, ...props }: React.ComponentProps<"div">) {
 
 /** Project identity used at the top of app navigation. */
 function SidebarBrand({ mark, compactMark, title, detail, end, className, ...props }: React.ComponentProps<typeof SidebarMenuButton> & {
-  mark: React.ReactNode
+  mark?: React.ReactNode
   compactMark?: React.ReactNode
   title: React.ReactNode
   detail?: React.ReactNode
@@ -352,10 +352,16 @@ function SidebarBrand({ mark, compactMark, title, detail, end, className, ...pro
 }) {
   return (
     <SidebarMenuButton size="lg" className={cn("gap-2", className)} {...props}>
-      <span className="flex h-6 w-[38px] shrink-0 items-center justify-center rounded-sm bg-sidebar-primary text-xs font-semibold tracking-tight text-sidebar-primary-foreground group-data-[collapsible=icon]:w-6">
-        <span className={compactMark != null ? "group-data-[collapsible=icon]:hidden" : undefined}>{mark}</span>
-        {compactMark != null && <span className="hidden group-data-[collapsible=icon]:inline">{compactMark}</span>}
-      </span>
+      {mark != null ? (
+        <span className="flex h-6 w-[38px] shrink-0 items-center justify-center rounded-sm bg-sidebar-primary text-xs font-semibold tracking-tight text-sidebar-primary-foreground group-data-[collapsible=icon]:w-6">
+          <span className={compactMark != null ? "group-data-[collapsible=icon]:hidden" : undefined}>{mark}</span>
+          {compactMark != null && <span className="hidden group-data-[collapsible=icon]:inline">{compactMark}</span>}
+        </span>
+      ) : compactMark != null ? (
+        <span className="hidden size-6 shrink-0 items-center justify-center rounded-sm bg-sidebar-primary text-xs font-semibold tracking-tight text-sidebar-primary-foreground group-data-[collapsible=icon]:flex">
+          {compactMark}
+        </span>
+      ) : null}
       <span className="grid min-w-0 flex-1 text-left leading-tight group-data-[collapsible=icon]:hidden">
         <span className="truncate text-sm font-semibold">{title}</span>
         {detail != null && <span className="truncate text-xs text-muted-foreground">{detail}</span>}
@@ -499,7 +505,7 @@ function SidebarMenuItem({ className, ...props }: React.ComponentProps<"li">) {
 }
 
 const sidebarMenuButtonVariants = cva(
-  "peer/menu-button flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:bg-sidebar-accent data-[active=true]:font-semibold data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0",
+  "peer/menu-button flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:bg-sidebar-accent data-[active=true]:font-semibold data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 [&>[data-sidebar=menu-icon]]:shrink-0",
   {
     variants: {
       variant: {
@@ -568,6 +574,10 @@ function SidebarMenuButton({
       />
     </Tooltip>
   )
+}
+
+function SidebarMenuIcon({ className, ...props }: React.ComponentProps<"span">) {
+  return <span data-sidebar="menu-icon" aria-hidden="true" className={cn("flex size-4 shrink-0 items-center justify-center [&>svg]:size-4", className)} {...props} />
 }
 
 function SidebarMenuAction({
@@ -739,6 +749,7 @@ export {
   SidebarMenuAction,
   SidebarMenuBadge,
   SidebarMenuButton,
+  SidebarMenuIcon,
   SidebarMenuItem,
   SidebarMenuSkeleton,
   SidebarMenuSub,
