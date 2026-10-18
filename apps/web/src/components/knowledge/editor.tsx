@@ -1,4 +1,5 @@
 /** The detail editor for one knowledge item: fields, unsaved edits that survive navigation, decide/discard. */
+import { useId } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Check, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -28,6 +29,8 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
   onDecide: (action: 'confirm' | 'discard') => void;
   embedded?: boolean;
 }) {
+  const formId = useId();
+  const fieldId = (field: Field) => `${formId}-${field.name}`;
   const saved = JSON.stringify(Object.fromEntries(spec.fields.map((field) => [field.name, row[field.name] ?? null])));
   const [draft, setDraft, clearDraft] = useDraft(`knowledge.${kind}.${row.id}`, saved);
   // What the item was when editing began: if it changes elsewhere meanwhile (a chat proposal
@@ -62,9 +65,9 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
     <>
       {changedElsewhere && <ChangedElsewhere onTakeSaved={clear} onKeepMine={() => setBase(saved)} />}
       {spec.fields.filter((field) => field.type !== 'long').length > 0 && <InspectorSection title="기본 정보"><PropertyGrid>
-        {spec.fields.filter((field) => field.type !== 'long').map((field) => <PropertyRow key={field.name} label={field.label}><FieldInput field={field} value={form[field.name]} characters={characters} onChange={(value) => update(field.name, value)} hideLabel /></PropertyRow>)}
+        {spec.fields.filter((field) => field.type !== 'long').map((field) => <PropertyRow key={field.name} label={field.label} htmlFor={fieldId(field)}><FieldInput id={fieldId(field)} field={field} value={form[field.name]} characters={characters} onChange={(value) => update(field.name, value)} hideLabel /></PropertyRow>)}
       </PropertyGrid></InspectorSection>}
-      {spec.fields.filter((field) => field.type === 'long').map((field) => <InspectorSection key={field.name} title={field.label}><FieldInput field={field} value={form[field.name]} characters={characters} onChange={(value) => update(field.name, value)} /></InspectorSection>)}
+      {spec.fields.filter((field) => field.type === 'long').map((field) => <InspectorSection key={field.name} title={field.label}><FieldInput id={fieldId(field)} field={field} value={form[field.name]} characters={characters} onChange={(value) => update(field.name, value)} /></InspectorSection>)}
       {/* The folded lists (a rule's lines, the evidence) read as one block. */}
       <div className="space-y-1">
         {spec.extra?.(row)}
@@ -151,8 +154,7 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
 
 const NORMAL = '__normal';
 
-function FieldInput({ field, value, characters, onChange, hideLabel = false }: { field: Field; value: Value; characters: { id: string; name: string }[]; onChange: (value: Value) => void; hideLabel?: boolean }) {
-  const id = `field-${field.name}`;
+function FieldInput({ id, field, value, characters, onChange, hideLabel = false }: { id: string; field: Field; value: Value; characters: { id: string; name: string }[]; onChange: (value: Value) => void; hideLabel?: boolean }) {
   if (field.type === 'bool')
     return hideLabel ? (
       <Switch id={id} checked={Boolean(value)} onCheckedChange={onChange} aria-label={field.label} />
@@ -189,9 +191,10 @@ function FieldInput({ field, value, characters, onChange, hideLabel = false }: {
         <div className="grid grid-cols-3 gap-2">
           {(Object.keys(STYLE_AXES) as StyleAxis[]).map((axis) => {
             const current = (value as Record<string, string> | null)?.[axis] ?? NORMAL;
+            const axisId = axis === 'length' ? id : `${id}-${axis}`;
             return (
               <div key={axis} className="space-y-1">
-                <span className="text-xs text-muted-foreground">{STYLE_AXES[axis].label}</span>
+                <Label htmlFor={axisId} className="text-xs text-muted-foreground">{STYLE_AXES[axis].label}</Label>
                 <Select
                   value={current}
                   onValueChange={(next) => {
@@ -199,7 +202,7 @@ function FieldInput({ field, value, characters, onChange, hideLabel = false }: {
                     onChange(next === NORMAL ? rest : { ...rest, [axis]: next });
                   }}
                 >
-                  <SelectTrigger id={axis === 'length' ? id : undefined} className="w-full" aria-label={STYLE_AXES[axis].label}>
+                  <SelectTrigger id={axisId} className="w-full" aria-label={STYLE_AXES[axis].label}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>

@@ -78,7 +78,7 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
   // Fields the person has not edited follow the saved term (a change from chat or a workflow shows);
   // the unsaved edit is kept per term, so moving to another term and back (or Back) keeps it.
   const saved = { source: term.source, target: term.target, note: term.note };
-  const { draft: form, setDraft: setForm, dirty, conflicts, keepMine, takeSaved } = useFormFrom(saved, `term.${projectId}.${term.id}`);
+  const { draft: form, setDraft: setForm, dirty, conflicts, keepMine, takeSaved, reset } = useFormFrom(saved, `term.${projectId}.${term.id}`);
   const candidate = !isSettled(term);
   const save = useMutation({
     mutationFn: () => unwrap(client.projects[':projectId'].terms[':id'].$patch({ param: { projectId, id: term.id }, json: changedFields(form, saved) })),
@@ -105,7 +105,7 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
           {term.status === 'candidate' ? <span>후보 · 아직 문맥에 쓰이지 않음</span> : <StateCell row={{ ...term, evidence: [] }} />}
         </span>
       } onClose={onClose} />}
-      footer={dirty ? <DirtyBar dirtyCount={Object.keys(changedFields(form, saved)).length} onRevert={takeSaved} onSave={() => save.mutate()} saving={save.isPending} disabled={!form.source.trim()} /> : (candidate ? <div className="flex justify-end border-t p-3"><Button variant="outline" disabled={deciding || !term.target.trim()} onClick={() => onDecide(true)}><Check /> {confirmLabel([{ ...term, evidence: [] }])}</Button></div> : null)}
+      footer={dirty ? <DirtyBar dirtyCount={Object.keys(changedFields(form, saved)).length} onRevert={reset} onSave={() => save.mutate()} saving={save.isPending} disabled={!form.source.trim()} /> : (candidate ? <div className="flex justify-end border-t p-3"><Button variant="outline" disabled={deciding || !term.target.trim()} onClick={() => onDecide(true)}><Check /> {confirmLabel([{ ...term, evidence: [] }])}</Button></div> : null)}
     >
       {conflicts.length > 0 && <ChangedElsewhere fields={conflicts.map((field) => TERM_FIELD_LABEL[field as keyof typeof TERM_FIELD_LABEL])} onTakeSaved={takeSaved} onKeepMine={keepMine} />}
       <InspectorSection title="용어"><TermFields form={form} onChange={setForm} /></InspectorSection>

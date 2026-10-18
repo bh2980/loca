@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { initialRunScope, type RunScopeMode } from '@/lib/run-scope';
+import { snapshotRunScope, type RunScopeKind, type RunScopeMode } from '@/lib/run-scope';
 import { keepPreviousData, useMutation, useQuery, type UseQueryResult } from '@tanstack/react-query';
-import type { InferResponseType } from 'hono/client';
+import type { InferRequestType, InferResponseType } from 'hono/client';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { Play } from 'lucide-react';
 import { SearchInput, Button, Checkbox, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Skeleton, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner, HelpTip } from '@loca/ui';
@@ -15,8 +15,9 @@ import { SCRIPT_VIEW } from '@/lib/labels';
 import { cn } from '@/lib/utils';
 
 type Mode = RunScopeMode;
-type GroupKind = 'scene' | 'ui' | 'document';
+type GroupKind = RunScopeKind;
 const KIND_ORDER: GroupKind[] = ['scene', 'ui', 'document'];
+type StartRun = { workflowId: string; request: InferRequestType<(typeof client.workflows)[':id']['runs']['$post']>['json'] };
 
 /**
  * Start a workflow (docs/DESIGN.md J6): one screen with what a person decides on before pressing
@@ -28,7 +29,7 @@ const KIND_ORDER: GroupKind[] = ['scene', 'ui', 'document'];
  * there, the run page shows them). The count is exactly what will run: scope ∩ entry statuses
  * (unless ignored).
  */
-export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: givenGroupIds, unitIds: givenUnitIds, unitsLabel, viewKind, dirty, disabled, trigger, defaultIgnoreStatus = false, preferWorkflow, open: controlledOpen, onOpenChange, hideTrigger = false }: {
+type RunDialogProps = {
   projectId: string;
   /** Omit to let the user pick a workflow (when starting from a scene or a line selection). */
   workflowId?: string;
@@ -46,34 +47,67 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   /** Preselect the workflow with this name when it exists (e.g. "말투만 고치기"). */
   preferWorkflow?: string;
   open?: boolean; onOpenChange?: (open: boolean) => void; hideTrigger?: boolean;
-}) {
+};
+
+export function RunDialog({ open: controlledOpen, onOpenChange, hideTrigger = false, disabled, trigger, ...props }: RunDialogProps) {
   const navigate = useNavigate();
   const [localOpen, setLocalOpen] = useState(false);
   const open = controlledOpen ?? localOpen;
-  const setOpen = (next: boolean) => { setLocalOpen(next); onOpenChange?.(next); };
-  // The lines and scenes it was opened with stay its scope while it is open: picks cleared or changed
-  // behind it (another tab, a refresh of the list) must not turn '고른 대사' into the whole project.
-  const [opened, setOpened] = useState<{ unitIds?: string[]; groupIds?: string[] }>({});
-  const unitIds = open ? opened.unitIds : givenUnitIds;
-  const groupIds = open ? opened.groupIds : givenGroupIds;
-  // Dialogue is nearly the whole project, so like the whole project it is never preselected.
-  const preselectKind = viewKind && viewKind !== 'scene' ? viewKind : undefined;
-  const [mode, setMode] = useState<Mode | undefined>(() => initialRunScope({ unitIds, groupIds, kind: preselectKind }));
-  const [pickedKind, setPickedKind] = useState<GroupKind | undefined>(preselectKind);
+  const setOpen = (next: boolean) => {
+    if (controlledOpen === undefined) setLocalOpen(next);
+    onOpenChange?.(next);
+  };
+  // Remember the workflow choice, but start each opening with fresh scope and per-run choices.
+  const [chosen, setChosen] = useState<string>();
+  // A start can still be pending after dismissal. Keep it here so reopening cannot start it twice.
+  const start = useMutation({
+    mutationFn: ({ workflowId, request }: StartRun) => unwrap(client.workflows[':id'].runs.$post({ param: { id: workflowId }, json: request })),
+    onSuccess: (run) => {
+      setOpen(false);
+      void navigate({ to: '/p/$projectId/runs/$runId', params: { projectId: props.projectId, runId: run.runId } });
+    },
+  });
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      {!hideTrigger && <DialogTrigger asChild>
+        {trigger ?? (
+          <Button disabled={disabled}>
+            <Play /> 실행
+          </Button>
+        )}
+      </DialogTrigger>}
+      {/* Mount on the actual open state, including externally controlled and initially-open dialogs. */}
+      {open && <RunForm {...props} chosen={chosen} onChoose={setChosen} onClose={() => setOpen(false)} onStart={start.mutate} starting={start.isPending} startError={start.isError ? start.error : undefined} />}
+    </Dialog>
+  );
+}
+
+function RunForm({ projectId, workflowId: fixedWorkflowId, groupIds: givenGroupIds, unitIds: givenUnitIds, unitsLabel, viewKind, dirty, defaultIgnoreStatus = false, preferWorkflow, chosen, onChoose, onClose, onStart, starting, startError }: RunDialogProps & {
+  chosen?: string;
+  onChoose: (workflowId: string) => void;
+  onClose: () => void;
+  onStart: (run: StartRun) => void;
+  starting: boolean;
+  startError?: Error;
+}) {
+  // This form lives for one opening. Refreshes behind it must not replace its captured scope.
+  const [opened] = useState(() => snapshotRunScope({ unitIds: givenUnitIds, groupIds: givenGroupIds, kind: viewKind }));
+  const { unitIds, groupIds } = opened;
+  const [mode, setMode] = useState<Mode | undefined>(opened.mode);
+  const [pickedKind, setPickedKind] = useState<GroupKind | undefined>(opened.kind);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [pickedTags, setPickedTags] = useState<Set<string>>(new Set());
   const [pickedMarks, setPickedMarks] = useState<Set<string>>(new Set());
-  const statuses = useQuery({ ...q.statuses(projectId), enabled: open });
+  const statuses = useQuery(q.statuses(projectId));
   const tags = lineTags(statuses.data?.tags);
   const [filter, setFilter] = useState('');
   const [ignoreStatus, setIgnoreStatus] = useState(defaultIgnoreStatus);
   // This run's models by AI node, where the person picked another than the node's own (the workflow is not changed).
   const [runModels, setRunModels] = useState<Record<string, ModelValue>>({});
-  const workflows = useQuery({ ...q.workflows(projectId), enabled: open });
-  const [chosen, setChosen] = useState<string>();
+  const workflows = useQuery(q.workflows(projectId));
   const workflowId = fixedWorkflowId ?? chosen ?? (preferWorkflow && workflows.data?.find((workflow) => workflow.name === preferWorkflow && !workflow.errorCount)?.id) ?? workflows.data?.find((workflow) => !workflow.errorCount)?.id;
   const workflow = workflows.data?.find((item) => item.id === workflowId);
-  const groups = useQuery({ ...q.groups(projectId), enabled: open });
+  const groups = useQuery(q.groups(projectId));
   const here = groupIds?.length ? groups.data?.filter((group) => groupIds.includes(group.id)) : undefined;
 
   // Each kind the project has, with its groups and lines (only offered when there is more than one).
@@ -91,14 +125,14 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   const plan = useQuery({
     queryKey: ['units', 'run-preflight', workflowId, request],
     queryFn: () => unwrap(client.workflows[':id'].preflight.$post({ param: { id: workflowId! }, json: request })),
-    enabled: open && Boolean(workflowId) && ready,
+    enabled: Boolean(workflowId) && ready,
     // Picking another model re-estimates without blanking the dialog (its pickers stay put).
     placeholderData: keepPreviousData,
   });
   const data = ready ? plan.data : undefined;
   // A count that takes this long is stuck (a dropped connection, a server restart): offer to ask again.
   const [slow, setSlow] = useState(false);
-  const counting = open && ready && !plan.data && !plan.isError;
+  const counting = ready && !plan.data && !plan.isError;
   useEffect(() => {
     setSlow(false);
     if (!counting) return;
@@ -108,17 +142,12 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   // The kept plan is another scope's or model's: its counts and caps must not start this run.
   const stale = plan.isPlaceholderData;
   const suggested = data?.suggestedLimits;
-  const start = useMutation({
-    mutationFn: () => {
-      // A safety net, not a choice: the suggested caps, past which the run pauses.
-      const limits = { ...(suggested?.maxCalls ? { maxCalls: suggested.maxCalls } : {}), ...(suggested?.maxInputTokens ? { maxInputTokens: suggested.maxInputTokens } : {}) };
-      return unwrap(client.workflows[':id'].runs.$post({ param: { id: workflowId! }, json: { ...request, ...(Object.keys(limits).length ? { limits } : {}) } }));
-    },
-    onSuccess: (run) => {
-      setOpen(false);
-      void navigate({ to: '/p/$projectId/runs/$runId', params: { projectId, runId: run.runId } });
-    },
-  });
+  const startRun = () => {
+    if (!workflowId || starting) return;
+    // A safety net, not a choice: the suggested caps, past which the run pauses.
+    const limits = { ...(suggested?.maxCalls ? { maxCalls: suggested.maxCalls } : {}), ...(suggested?.maxInputTokens ? { maxInputTokens: suggested.maxInputTokens } : {}) };
+    onStart({ workflowId, request: { ...request, ...(Object.keys(limits).length ? { limits } : {}) } });
+  };
   const visible = useMemo(() => (groups.data ?? []).filter((group) => `${group.title} ${group.key}`.toLowerCase().includes(filter.toLowerCase())), [groups.data, filter]);
   const total = data?.lines.total;
   const projectLines = (groups.data ?? []).reduce((sum, group) => sum + group.total, 0);
@@ -129,26 +158,6 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   );
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (next) {
-          setOpened({ unitIds: givenUnitIds, groupIds: givenGroupIds });
-          setMode(initialRunScope({ unitIds: givenUnitIds, groupIds: givenGroupIds, kind: preselectKind }));
-          setPickedKind(preselectKind);
-          setPicked(new Set());
-          setRunModels({});
-        }
-      }}
-    >
-      {!hideTrigger && <DialogTrigger asChild>
-        {trigger ?? (
-          <Button disabled={disabled}>
-            <Play /> 실행
-          </Button>
-        )}
-      </DialogTrigger>}
       <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
           {/* With the workflow picker below, the title would only repeat its name. */}
@@ -159,7 +168,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
         {/* Side padding so focus rings and the picked scope are not cut by the scroll box. */}
         <div className="-mx-1 max-h-[70svh] space-y-5 overflow-auto px-1 py-0.5">
           {!fixedWorkflowId && (
-            <Select value={workflowId} onValueChange={setChosen}>
+            <Select value={workflowId} onValueChange={onChoose}>
               <SelectTrigger className="w-full" aria-label="워크플로">
                 <SelectValue placeholder="워크플로 선택" />
               </SelectTrigger>
@@ -228,7 +237,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
             </label>
           </section>
 
-          {data && total ? <Readiness projectId={projectId} readiness={data.readiness} oneScene={mode === 'here' && here?.length === 1 ? here[0].id : undefined} scoped={mode !== 'all'} onLeave={() => setOpen(false)} /> : null}
+          {data && total ? <Readiness projectId={projectId} readiness={data.readiness} oneScene={mode === 'here' && here?.length === 1 ? here[0].id : undefined} scoped={mode !== 'all'} onLeave={onClose} /> : null}
           {data && total ? <Pace data={data} /> : null}
           {data && total ? (
             <RunModels
@@ -243,18 +252,17 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
 
         </div>
 
-        {start.isError && <p className="text-sm text-destructive">{start.error.message}</p>}
+        {startError && <p className="text-sm text-destructive">{startError.message}</p>}
         <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>
+          <Button variant="outline" onClick={onClose}>
             취소
           </Button>
           {/* A model picked without its model yet would quietly run on the node's own: finish or undo it first. */}
-          <Button disabled={!total || !workflowId || stale || start.isPending || Object.keys(chosenModels).length !== Object.keys(runModels).length} onClick={() => start.mutate()}>
-            {start.isPending ? <Spinner /> : <Play />} {total ? `${total.toLocaleString()}줄 실행 시작` : '실행 시작'}
+          <Button disabled={!total || !workflowId || stale || starting || Object.keys(chosenModels).length !== Object.keys(runModels).length} onClick={startRun}>
+            {starting ? <Spinner /> : <Play />} {total ? `${total.toLocaleString()}줄 실행 시작` : '실행 시작'}
           </Button>
         </DialogFooter>
       </DialogContent>
-    </Dialog>
   );
 }
 
