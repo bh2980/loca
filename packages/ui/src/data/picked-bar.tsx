@@ -2,6 +2,7 @@ import type { ReactNode } from "react"
 import { X } from "lucide-react"
 import { Button } from "../primitives/button"
 import { cn } from "../lib/utils"
+import { useToolbarRoving } from "../lib/use-toolbar-roving"
 
 export interface SelectionBarProps {
   count: number
@@ -16,11 +17,14 @@ export function SelectionBar({
   children,
   className,
 }: SelectionBarProps) {
+  const { rootRef, onKeyDown } = useToolbarRoving([children, count])
   return (
     <div
+      ref={rootRef}
+      onKeyDown={onKeyDown}
       className={cn(
         "@container/picked flex min-w-0 flex-wrap items-center gap-2 text-xs",
-        className
+        className,
       )}
       role="toolbar"
       aria-label="선택한 항목 동작"
