@@ -1,3 +1,4 @@
+import { existsSync, realpathSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -83,13 +84,32 @@ interface Files {
 export const CODEX_UNUSED_FEATURES = ['hooks', 'shell_tool', 'multi_agent', 'plugins', 'apps', 'browser_use', 'browser_use_external', 'computer_use', 'code_mode_host', 'goals', 'image_generation', 'view_image', 'sleep_tool', 'unified_exec', 'tool_suggest', 'skill_search', 'in_app_browser', 'workspace_dependencies', 'worktrees', 'collaboration_modes'];
 
 /** Codex with none of its own tools and our instructions in place of its coding-agent ones: one-shot calls and the project chat alike. */
-export function codexIsolationArgs(instructionsFile: string): string[] {
+export function codexIsolationArgs(instructionsFile: string, shell?: { readPaths: string[]; deny: string[] }): string[] {
+  const enabled = new Set(shell ? ['shell_tool', 'unified_exec', 'code_mode_host'] : []);
+  const filesystem = shell
+    ? `permissions.loca.filesystem={":minimal"="read", ${[...shell.readPaths.map((file) => [file, 'read'] as const), ...shell.deny.map((file) => [file, 'deny'] as const)].map(([file, access]) => `${JSON.stringify(file)}=${JSON.stringify(access)}`).join(', ')}}`
+    : undefined;
   return [
     '-c', 'approval_policy="never"', '-c', 'web_search="disabled"',
-    ...CODEX_UNUSED_FEATURES.flatMap((feature) => ['-c', `features.${feature}=false`]),
+    ...CODEX_UNUSED_FEATURES.flatMap((feature) => ['-c', `features.${feature}=${enabled.has(feature)}`]),
+    ...(shell ? ['-c', 'default_permissions="loca"', '-c', filesystem!, '-c', 'permissions.loca.network.enabled=true', '-c', 'features.network_proxy=true', '-c', 'permissions.loca.network.domains={"127.0.0.1"="allow", "localhost"="allow"}'] : []),
     // The key was renamed once; an unknown one is ignored.
     '-c', `model_instructions_file=${JSON.stringify(instructionsFile)}`, '-c', `experimental_instructions_file=${JSON.stringify(instructionsFile)}`,
   ];
+}
+
+/** Resolve Codex's executable to the package directory that contains it, when package-installed. */
+export function codexInstallDir(executable?: string): string | null {
+  const found = resolveCli(executable?.trim() || 'codex');
+  if (!found) return null;
+  const file = realpathSync(found);
+  const dir = path.dirname(file);
+  let current = dir;
+  while (current !== path.dirname(current) && /(?:^|[\\/])node_modules(?:[\\/]|$)/.test(current)) {
+    if (existsSync(path.join(current, 'package.json'))) return current;
+    current = path.dirname(current);
+  }
+  return dir;
 }
 
 function args(kind: CliKind, route: ResolvedRoute, schema: object, files: Files, timeoutMs: number): string[] {

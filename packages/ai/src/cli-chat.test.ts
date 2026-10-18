@@ -22,6 +22,23 @@ describe('CLI chat output', () => {
     expect(cliChatCommand('opencode', { ...route, kind: 'opencode' }, turn, 'new-id', '/tmp/instructions.md').input).toBe('System instructions\n\n---\n\nUser message');
   });
 
+  it('uses the Codex shell permission profile on new and resumed turns', () => {
+    const shell = { env: {}, readPaths: ['/repo'], deny: ['/repo/.workbench'], loca: '/repo/apps/cli/bin/loca.mjs' };
+    for (const chatTurn of [{ ...turn, shell }, { ...turn, shell, sessionId: 'session-1' }]) {
+      const { args } = cliChatCommand('codex', route, chatTurn, 'new-id', '/tmp/loca-chat/instructions.md');
+      expect(args).toContain('default_permissions="loca"');
+      expect(args.find((arg) => arg.startsWith('permissions.loca.filesystem='))).toContain('":minimal"="read"');
+      expect(args.find((arg) => arg.startsWith('permissions.loca.filesystem='))).toContain('"/repo"="read"');
+      expect(args.find((arg) => arg.startsWith('permissions.loca.filesystem='))).toContain('"/repo/.workbench"="deny"');
+      expect(args).toContain('permissions.loca.network.enabled=true');
+      expect(args).toContain('features.network_proxy=true');
+      expect(args).toContain('permissions.loca.network.domains={"127.0.0.1"="allow", "localhost"="allow"}');
+      for (const feature of ['shell_tool', 'unified_exec', 'code_mode_host']) expect(args).toContain(`features.${feature}=true`);
+      expect(args).not.toContain('--sandbox');
+      expect(args).not.toContain('sandbox_mode="read-only"');
+    }
+  });
+
   it('reads Grok\'s pretty-printed object and Claude Code\'s result line', () => {
     const grok = JSON.stringify({ text: 'OK.', sessionId: 'g-1', usage: { input_tokens: 10, output_tokens: 2 } }, null, 2);
     expect(readCliChat('grok', grok, 'x')).toEqual({ sessionId: 'g-1', text: 'OK.', usage: { inputTokens: 10, outputTokens: 2 } });
@@ -36,19 +53,13 @@ describe('CLI chat output', () => {
       { type: 'turn.started' },
       { type: 'item.completed', item: { id: 'i0', type: 'reasoning', text: 'thinking' } },
       { type: 'item.completed', item: { id: 'i1', type: 'agent_message', text: 'first' } },
-      { type: 'item.completed', item: { id: 'i2', type: 'agent_message', text: 'second' } },
+      { type: 'item.completed', item: { id: 'i2', type: 'command_execution', command: "loca call find_lines '{\"limit\":2}'", aggregated_output: '{"rows":[]}', exit_code: 0 } },
+      { type: 'item.completed', item: { id: 'i3', type: 'agent_message', text: 'second' } },
       { type: 'turn.completed', usage: { input_tokens: 100, output_tokens: 7 } },
     ].map((event) => JSON.stringify(event)).join('\n');
-    expect(readCliChat('codex', out, 'x')).toEqual({ sessionId: 't-9', text: 'first\n\nsecond', usage: { inputTokens: 100, outputTokens: 7 }, ownToolAttempt: true });
+    expect(readCliChat('codex', out, 'x')).toEqual({ sessionId: 't-9', text: 'first\n\nsecond', usage: { inputTokens: 100, outputTokens: 7 }, commands: [{ command: "loca call find_lines '{\"limit\":2}'", output: '{"rows":[]}', exitCode: 0 }] });
     // A resumed turn prints no thread.started: the id we resumed is kept.
     expect(readCliChat('codex', JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'again' } }), 't-9').sessionId).toBe('t-9');
-  });
-
-  it('marks only Codex calls with two non-empty agent messages as own tool attempts', () => {
-    const codex = (messages: string[]) => messages.map((text) => JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text } })).join('\n');
-    expect(readCliChat('codex', codex(['one', 'two']), 'x').ownToolAttempt).toBe(true);
-    expect(readCliChat('codex', codex(['one', '']), 'x').ownToolAttempt).toBeUndefined();
-    expect(readCliChat('grok', JSON.stringify({ text: 'one\ntwo', sessionId: 'g', usage: {} }), 'x').ownToolAttempt).toBeUndefined();
   });
 
   it('reads agy stream-json and opencode parts', () => {

@@ -1,10 +1,10 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { execa, ExecaError } from 'execa';
 import type { ConnectionKind } from '@tw/shared';
-import { cliCommand, cliMissing, codexIsolationArgs, execaCli, idleMessage, idleTimeout, opencodeUsage, watchIdle } from './cli.ts';
+import { cliCommand, cliMissing, codexInstallDir, codexIsolationArgs, execaCli, idleMessage, idleTimeout, opencodeUsage, watchIdle } from './cli.ts';
 import { ModelError } from './errors.ts';
 import { readUsage, type ResolvedRoute, type Usage } from './types.ts';
 
@@ -37,13 +37,14 @@ export interface CliChatTurn {
   signal?: AbortSignal;
   /** The conversation's running total after the previous turn (`totals` of its result). */
   totalsBefore?: Usage;
+  /** Codex-only shell profile for calling the workbench CLI. */
+  shell?: { env: Record<string, string>; readPaths: string[]; deny: string[]; loca: string };
 }
 
 export interface CliChatResult {
   sessionId: string;
   text: string;
-  /** Codex printed two or more non-empty agent messages in one call, which is how a failed call to its own tool shows. */
-  ownToolAttempt?: boolean;
+  commands?: { command: string; output: string; exitCode: number | null }[];
   /** This turn's own use. */
   usage: Usage;
   /**
@@ -103,8 +104,10 @@ export function cliChatCommand(kind: ChatCliKind, route: ResolvedRoute, turn: Cl
         args: [
           'exec', ...(turn.sessionId ? ['resume', turn.sessionId] : []),
           '--model', route.model, '--skip-git-repo-check', '--json', '--ignore-user-config',
-          ...(turn.sessionId ? ['-c', 'sandbox_mode="read-only"'] : ['--sandbox', 'read-only', '--color', 'never']),
-          ...codexIsolationArgs(instructionsFile),
+          // `exec resume` takes neither --sandbox nor --color; the permission profile replaces the sandbox.
+          ...(turn.sessionId ? [] : ['--color', 'never']),
+          ...(turn.shell ? [] : turn.sessionId ? ['-c', 'sandbox_mode="read-only"'] : ['--sandbox', 'read-only']),
+          ...codexIsolationArgs(instructionsFile, turn.shell && codexShellPaths(route, turn.shell, path.dirname(instructionsFile))),
           ...(effort ? ['-c', `model_reasoning_effort=${JSON.stringify(effort)}`] : []),
           '-',
         ],
@@ -147,8 +150,14 @@ export function readCliChat(kind: ChatCliKind, stdout: string, fallbackId: strin
       const item = event.item as Record<string, unknown> | undefined;
       return event.type === 'item.completed' && item?.type === 'agent_message' ? [String(item.text ?? '')] : [];
     });
+    const commands = events.flatMap((event) => {
+      const item = event.item as Record<string, unknown> | undefined;
+      return event.type === 'item.completed' && item?.type === 'command_execution'
+        ? [{ command: String(item.command ?? ''), output: String(item.aggregated_output ?? ''), exitCode: typeof item.exit_code === 'number' ? item.exit_code : null }]
+        : [];
+    });
     const done = events.findLast((event) => event.type === 'turn.completed');
-    return { sessionId: String(thread?.thread_id ?? fallbackId), text: messages.join('\n\n'), usage: usageOf(done?.usage), ...(messages.filter((message) => message.trim()).length >= 2 ? { ownToolAttempt: true } : {}) };
+    return { sessionId: String(thread?.thread_id ?? fallbackId), text: messages.join('\n\n'), usage: usageOf(done?.usage), commands };
   }
   if (kind === 'antigravity') {
     const init = events.find((event) => event.event === 'init');
@@ -164,6 +173,12 @@ export function readCliChat(kind: ChatCliKind, stdout: string, fallbackId: strin
   return { sessionId, text, usage: opencodeUsage(events) };
 }
 
+/** What Codex's shell may read: ours, node (for `loca`), Codex itself and the turn's folder. */
+function codexShellPaths(route: ResolvedRoute, shell: NonNullable<CliChatTurn['shell']>, cwd: string) {
+  const codex = codexInstallDir(route.executable);
+  return { readPaths: [...shell.readPaths, path.dirname(path.dirname(process.execPath)), ...(codex ? [codex] : []), cwd], deny: shell.deny };
+}
+
 /** Runs one turn in an empty working folder, so the agent sees no files of ours. */
 export async function cliChat(route: ResolvedRoute, turn: CliChatTurn): Promise<CliChatResult> {
   const kind = route.kind as ChatCliKind;
@@ -177,7 +192,16 @@ export async function cliChat(route: ResolvedRoute, turn: CliChatTurn): Promise<
     const instructionsFile = path.join(cwd, 'instructions.md');
     if (kind === 'codex') await writeFile(instructionsFile, turn.system);
     const { args, input } = cliChatCommand(kind, route, turn, newId, instructionsFile);
-    const subprocess = execaCli(cliCommand(kind, route.executable), args, { cwd, input, timeout: turn.timeoutMs, cancelSignal: turn.signal ? AbortSignal.any([turn.signal, idle.signal]) : idle.signal, reject: false, stripFinalNewline: false });
+    let env: NodeJS.ProcessEnv | undefined;
+    if (kind === 'codex' && turn.shell) {
+      const bin = path.join(cwd, 'bin');
+      await mkdir(bin);
+      const launcher = path.join(bin, 'loca');
+      await writeFile(launcher, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(turn.shell.loca)} "$@"\n`);
+      await chmod(launcher, 0o755);
+      env = { ...process.env, ...turn.shell.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`, NODE_NO_WARNINGS: '1' };
+    }
+    const subprocess = execaCli(cliCommand(kind, route.executable), args, { cwd, env, input, timeout: turn.timeoutMs, cancelSignal: turn.signal ? AbortSignal.any([turn.signal, idle.signal]) : idle.signal, reject: false, stripFinalNewline: false });
     watchdog = watchIdle([subprocess.stdout, subprocess.stderr], idleMs, () => idle.abort());
     const result = await subprocess;
     if (turn.signal?.aborted) throw new ModelError('cancelled', '중단했습니다.', false);
