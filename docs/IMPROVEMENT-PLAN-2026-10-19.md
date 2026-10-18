@@ -1,6 +1,6 @@
 # Translation Workbench (Loca) 추가 개선 및 고도화 상세 개발 명세서 (AI 구현 블루프린트)
 
-작성일: 2026-10-19
+작성일: 2026-10-19 · 개정: 2026-10-19 (과제 2·3·6 재설계, 1장 상태 표 참고)
 
 > **문서 목적**: 본 문서는 사전 맥락이 없는 다른 AI 에이전트나 개발자가 이 문서 하나만 읽고도 설계자의 의도와 100% 동일한 코드·동작·UI를 즉시 구현할 수 있도록, **수정 대상 파일 경로, 줄 번호, 정확한 Zod 스키마/타입 정의, 핵심 알고리즘, 그리고 변경 전/후 코드 블록**까지 모두 포함한 코드 레벨 명세서입니다.
 
@@ -22,16 +22,18 @@
 
 ---
 
-## 1. 전체 6대 개선 과제 요약
+## 1. 개선 과제 요약
 
-| 번호 | 과제명 | 핵심 해결 목표 |
-| :--- | :--- | :--- |
-| **과제 1** | **에디터 인라인 문맥 완결화 & `LineDetail` 자동 열림 방지 및 단일 화면 개편** | 대사 클릭 시 우측 상세창이 강제로 열리지 않게 분리하고, 좌측 원문 아래에 **용어집(`원문 → 번역`)·말투·관계**, 우측 번역 아래에 **번역 후보·유사 번역(TM) 최대 3개**를 즉시 노출. 우측 `LineDetail`은 중복된 `번역 도우미` 탭을 없애고 단일 스크롤 심층 상세 화면으로 개편. |
-| **과제 2** | **워크플로 AI 노드 출력 형태(`output`) 범용화 & `말투 규칙 검사` 제거** | 실효성이 낮은 어미 매칭 기반 `말투 규칙 검사`(`speechCheck`) 노드를 팔레트에서 제거. AI 노드의 출력을 **범용 출력 구조(Output Shape)**와 **프로젝트 반영 대상(`classifyTarget`: `listener` \| `tag` \| `none`)**으로 분리하여 선택지별 확률 추론·분류·조건 분기에 범용 활용. |
-| **과제 3** | **워크플로 `스크립트` 노드 JSON 출력 스키마(`fields`) 지정 및 조건 분기 연동** | 스크립트 노드에 JSON 출력 필드(`name`, `type: string \| number \| boolean`, `description`) 선언 UI와 런타임 검증을 추가하고, `[AI로 작성]` 프롬프트 및 `조건 분기` 노드 빌더와 연동. |
-| **과제 4** | **`형식 검사`(`formatCheck`) 비정규식 규칙 확장 & 정규식 `[✦ AI로 규칙 만들기]`** | 글자 수(`maxChars`), UTF-8 바이트 수(`maxBytes`), 줄당 글자 수(`maxLineChars`), 줄 수(`maxLines`), 원문 대비 길이 비율(`maxLengthRatio`), 금칙어(`forbiddenWords`) 추가. 설정 및 워크플로의 정규식 입력란에 자연어 → 정규식 생성(`POST /projects/:projectId/generate-regex`) 추가. |
-| **과제 5** | **`자료 › 인물·관계`의 `관계 표` 및 `그래프`에서 관계·말투 추가** | `관계 표`와 `그래프` 상단에 `[+ 관계·말투 추가]` 팝오버를 두어 화자(`from`)와 청자(`to`)를 골라 새 관계·말투 규칙을 즉시 생성하고 `PairDetail`을 오픈. |
-| **과제 6** | **그래프 드래그 상자 다중 선택 + 휠 클릭 이동 & 노드 숨기기 / AI 단순화(`show_graph`)** | 좌클릭 드래그는 다중 노드 선택 상자(Marquee Box), 휠 클릭 드래그는 화면 이동(Pan)으로 통일. 우클릭으로 다중 노드 숨기기/삭제 지원, 상단 `[단순화 보기]`(제어 노드 축약) 제공, AI 채팅 `show_graph`에 `between`·`excludeLines`·`simplify` 추가. |
+> **2026-10-19 개정:** 과제 2·3·6은 사용자 검토 후 다시 설계했다. 첫 구현(`classifyTarget`, AI 노드의 자동 반영, 규칙 기반 `단순화 보기`, 세션 숨김 노드)은 이 개정과 맞지 않으므로 지운다. 과제 1·4·5와 6.1·6.2는 구현과 브라우저 검증을 마쳤다(9b4c746까지).
+
+| 번호 | 과제명 | 핵심 목표 | 상태 |
+| :--- | :--- | :--- | :--- |
+| **과제 1** | 에디터 인라인 문맥 & `LineDetail` 자동 열림 방지 | 대사 클릭은 상세창을 열지 않는다. 원문 아래 용어·말투·관계, 번역 아래 후보·TM 상위 3개. 상세는 탭 없는 한 화면. | 완료 |
+| **과제 2** | **AI 노드: 목적과 무관한 범용 출력** | AI 노드는 프롬프트를 실행하고 정해진 형태의 결과를 낼 뿐이다. 출력 형태는 문장·판정·선택·JSON 네 가지와 출력 단위(대사마다 / 묶음 전체)뿐. 용어·자료·작품 분석은 출력 종류가 아니라 프리셋. 숨은 프롬프트와 자동 반영을 없앤다. | 재작업 |
+| **과제 3** | **반영 노드 & 숨김 없는 기본 워크플로** | 결과를 프로젝트에 넣는 일은 반영 노드가 맡는다(CLI·채팅 쓰기 도구와 같은 서비스). 필드 매핑이 보이고, 기본값은 제안으로 남기기. 기본 워크플로는 실제 노드로 그린다. 스크립트 노드 JSON 필드는 유지. | 재작업 |
+| **과제 4** | 형식 검사 비정규식 규칙 & `[AI로 규칙 만들기]` | 글자·바이트·줄·비율·금칙어, 자연어 → 정규식. | 완료 |
+| **과제 5** | 관계 표·그래프에서 관계·말투 추가 | `+ 관계·말투` 팝오버. | 완료 |
+| **과제 6** | **그래프 조작 & 저장되는 보기(view)** | 박스 선택·휠 이동(완료). 오른쪽 클릭이 선택·상세를 바꾸지 않게 고친다. 보기 = 남길 노드의 정의를 저장하고 연결은 원본에서 계산하는 DB view. AI(채팅)나 사람이 만든다. | 일부 재작업 |
 
 ---
 
@@ -287,214 +289,82 @@
 
 ---
 
-### 과제 2: 워크플로 AI 노드 출력 형태(`output`) 범용화 & `말투 규칙 검사` 제거
+### 과제 2: AI 노드 — 목적과 무관한 범용 출력
 
-#### 2.1 `말투 규칙 검사` (`speechCheck`) 함수 노드 팔레트 제거
-- **수정 파일**: [`packages/shared/src/functions.ts`](file:///Users/bh2980/Desktop/translation_workbench/packages/shared/src/functions.ts) (Lines 182–189)
-- **정확한 변경 코드**:
-  ```ts
-  // 변경 전
-  export const PALETTE_FUNCTION_NAMES: FunctionName[] = [
-    'setStatus',
-    'assignTags',
-    'formatCheck',
-    'termCheck',
-    'speechCheck',
-    'http',
-    'script',
-  ];
+#### 2.0 원칙
+- AI 노드의 관심사는 **프롬프트를 만들어 모델을 부르고, 정해진 형태의 답을 받아 다음 노드로 넘기는 것**까지다. 결과를 어디에 넣을지는 AI 노드가 알지 못한다(과제 3의 반영 노드가 맡는다).
+- 출력 형태는 **용도를 모르는 형식**만 둔다. "용어 후보", "자료 변경", "작품 분석", "청자"처럼 목적이 박힌 출력 종류는 없앤다.
+- 모델에게 가는 문장은 **모두 노드에서 보이고 고칠 수 있어야** 한다. 서버가 붙이는 것은 출력 형식 강제(스키마대로 답하라)와 입력 형식 설명뿐이며, 이것도 노드의 `프롬프트 미리보기`에서 읽기 전용으로 보인다.
+- `말투 규칙 검사`(`speechCheck`)는 삭제된 상태를 유지한다(f01d2d2).
 
-  // 변경 후: 'speechCheck' 제거 (FUNCTIONS.speechCheck 정의는 기존 저장된 워크플로 호환을 위해 유지)
-  export const PALETTE_FUNCTION_NAMES: FunctionName[] = [
-    'setStatus',
-    'assignTags',
-    'formatCheck',
-    'termCheck',
-    'http',
-    'script',
-  ];
-  ```
+#### 2.1 출력 형태 (`aiNodeConfigSchema.output`)
+| 형태 | 모델이 내는 것 | 출구 | 다음 노드가 읽는 값 |
+| :--- | :--- | :--- | :--- |
+| `text` 문장 | 대사마다 텍스트 하나 | `out` | `outputs.<노드>.text` (번역문·수정문 등. 대사의 번역 후보로 남길지는 반영 노드가 정한다) |
+| `verdict` 판정 | 통과 여부, 이유, 분류 | `pass` / `fail` | `outputs.<노드>.passed`, `.issues` |
+| `choice` 선택 | 사용자가 정한 선택지 중 하나(또는 없음), 확신도 0–1, 이유 | `out` | `outputs.<노드>.value`, `.confidence`, `.reason` |
+| `json` JSON | 사용자가 정의한 필드 | `out` | `outputs.<노드>.<필드>` |
 
-#### 2.2 AI 노드 출력 형태(`AI_OUTPUTS`) 범용화 및 `classifyTarget` 바인딩 추가
-- **수정 파일 1**: [`packages/shared/src/workflow.ts`](file:///Users/bh2980/Desktop/translation_workbench/packages/shared/src/workflow.ts) (Lines 55–94)
-  ```ts
-  export const AI_OUTPUTS: Record<AiOutputType, { label: string; description: string; ports: PortSpec[] }> = {
-    candidate: {
-      label: '문장 생성 (번역·윤문)',
-      description: '대사마다 번역문·수정문 등 새 문장을 만들어 후보로 기록합니다.',
-      ports: [{ id: 'out', label: '다음' }],
-    },
-    verdict: {
-      label: '통과·실패 판정 (검수·규칙 확인)',
-      description: '번역 품질·말투·설정 일관성 등을 판정해 통과/실패 두 출구로 나눕니다.',
-      ports: [
-        { id: 'pass', label: '통과' },
-        { id: 'fail', label: '실패' },
-      ],
-    },
-    listener: {
-      label: '분류 · 추론 (선택지 + 확신도)',
-      description: '대사마다 대상(청자·분류값·감정 등)과 확신도(0~1)를 추론합니다. 청자·태그에 반영하거나 조건 분기에 쓸 수 있습니다.',
-      ports: [{ id: 'out', label: '다음' }],
-    },
-    terms: {
-      label: '용어 추출 (원문 → 번역)',
-      description: '대사에서 반복되는 고유명사·전문용어를 뽑아 용어집에 반영합니다.',
-      ports: [{ id: 'out', label: '다음' }],
-    },
-    knowledge: {
-      label: '자료 추출 (인물·관계·사건·말투)',
-      description: '장면에서 드러난 인물, 관계 변화, 사건, 말투 규칙을 추출해 자료에 반영합니다.',
-      ports: [{ id: 'out', label: '다음' }],
-    },
-    analysis: {
-      label: '통합 작품 분석 (문서·인물·용어 일괄)',
-      description: '선택한 범위에서 세계관·줄거리 문서, 인물·관계·말투·사건, 용어집 초안을 한 번에 추출합니다.',
-      ports: [{ id: 'out', label: '다음' }],
-    },
-    json: {
-      label: '사용자 정의 JSON (다중 필드)',
-      description: '직접 정의한 JSON 필드(문자열·숫자·참/거짓)를 대사마다 채워 다음 노드로 넘깁니다.',
-      ports: [{ id: 'out', label: '다음' }],
-    },
-  };
+- `choice`의 선택지는 노드에 직접 적거나 **프로젝트 값 목록**에서 가져온다: 등장인물 이름 + 특수 청자, 대사 태그 이름, 상태 이름. 목록 출처는 프롬프트에 그대로 펼쳐 보인다.
+- `json` 필드 타입: 문자열·숫자·참거짓에 더해 **목록(하위 필드 포함)**과 **대사 근거**(대사 id 목록)를 지원한다. 작품 분석처럼 한 번에 여러 항목을 뽑는 프리셋에 필요하다. `jsonFieldSchema`를 재귀 구조로 넓히고, 편집기는 하위 필드를 접고 펼 수 있게 한다. 고급 사용자를 위해 JSON 스키마 텍스트 편집도 둔다.
+- 없앨 것: `terms`·`knowledge`·`analysis`·`listener` 출력, `sections`, `autoApply`, `asCandidate`, `classifyTarget`, `CONTRACT`의 목적별 문장, `analysisRequest`의 숨은 `SECTION_RULES`, runner의 `AUTO_APPLY_FUNCTIONS`·`shouldAutoApply`·`attachClassifiedTag`.
 
-  export const CLASSIFY_TARGETS = ['listener', 'tag', 'none'] as const;
-  export type ClassifyTarget = (typeof CLASSIFY_TARGETS)[number];
-  ```
-  - `aiNodeConfigSchema`(`workflow.ts:75`)에 다음 필드를 추가합니다:
-    ```ts
-    /** When output === 'listener' (분류·추론), where to apply the inferred value: 'listener' (default), 'tag' (attach matching line tag), or 'none' (output variable only). */
-    classifyTarget: z.enum(CLASSIFY_TARGETS).default('listener').optional(),
-    ```
+#### 2.2 출력 단위 (`aiNodeConfigSchema.scope`)
+- `line` **대사마다**: 지금처럼 대사 id마다 답 하나.
+- `batch` **묶음 전체**: 요청(묶음) 하나에 답 하나. 용어·인물 목록처럼 대사 하나에 속하지 않는 결과.
+  - 결과는 실행 단위로 한 번 저장하고(`run_batches` 또는 기존 실행 단계 기록에 묶음 id로), 그 묶음의 **모든 대사가 같은 묶음 결과를 참조**해서 들고 간다(`outputs.<노드>` = 묶음 결과).
+  - 반영 노드는 같은 묶음 결과를 **한 번만** 처리한다(묶음 id로 중복 제거). 대사마다 반복 저장하지 않는다.
+- 묶음 구성(`batch.mode`: 장면 묶음·고정 개수·대사 하나·대본 전체)은 그대로 쓴다. 대본 전체를 한 번에 읽는 작품 분석이 나눠 읽는 것보다 약 5배 싸다는 실험 결과 때문에 `whole`은 유지한다.
 
-- **수정 파일 2**: [`apps/server/src/engine/prompts.ts`](file:///Users/bh2980/Desktop/translation_workbench/apps/server/src/engine/prompts.ts) (Lines 35–42 및 215–222)
-  - `outputSchema`의 `case 'listener':`에서 `listener`(하위 호환)와 범용 `value`를 모두 받을 수 있게 확장하고 정규화합니다:
-    ```ts
-    case 'listener':
-      return lineItems(
-        z.object({
-          listener: z.string().nullable().optional().describe('추론한 대상 이름/분류값 (청자 추론 시 청자 이름 또는 self/group/public/others, 판단 불가 시 null)'),
-          value: z.string().nullable().optional().describe('범용 분류·추론 결과값 (listener와 동일하게 사용 가능)'),
-          confidence: z.number().describe('0(전혀 모름)부터 1(확실함)까지의 확신도'),
-          reason: z.string().optional().describe('판단 근거 한 줄 요약'),
-        }).transform((item) => {
-          const val = item.value !== undefined ? item.value : (item.listener ?? null);
-          return {
-            listener: val,
-            value: val,
-            confidence: item.confidence,
-            ...(item.reason ? { reason: item.reason } : {}),
-          };
-        }),
-      );
-    ```
-  - `composePrompt`의 `config.output === 'listener'`(Lines 215–222)에서:
-    - `config.classifyTarget === 'tag'` 또는 `config.classifyTarget === 'none'`일 때는 청자 후보 안내 대신 `"각 줄을 지시문에 따라 분류·추론하여 결과를 value(또는 listener)와 확신도(confidence, 0~1)로 답하세요."`를 프롬프트에 추가합니다.
-    - 기본값(`config.classifyTarget === 'listener' || !config.classifyTarget`)일 때는 기존의 청자 후보 목록 안내를 그대로 유지합니다.
+#### 2.3 지시문과 프리셋
+- 노드의 지시문 칸이 프롬프트 본문이다. 프리셋을 고르면 지시문·출력 형태·필드·문맥 설정이 **노드에 채워질 뿐**이고, 이후에는 평범한 AI 노드다.
+- 프리셋: 초벌 번역(`text`), 검수(`verdict`), 수정(`text`), 청자 추정(`choice`, 값 목록 = 등장인물+특수 청자), 용어 추출(`json`·묶음), 인물·관계 추출(`json`·묶음), 사건 추출(`json`·묶음), 작품 분석(`json`·대본 전체).
+- 예전 `SECTION_RULES`·`CONTRACT` 문장은 해당 프리셋의 지시문으로 옮긴다(한국어로 다듬어도 된다). 이미 확정된 등장인물 이름을 넣던 부분은 문맥 옵션 `등장인물 목록`(`context.cast`)으로 드러낸다.
+- `프롬프트 미리보기`: 실제로 보내는 시스템·사용자 메시지 전체를 샘플 대사로 보여준다(기존 `AiContextPanel` 재사용).
 
-- **수정 파일 3**: [`apps/server/src/engine/runner.ts`](file:///Users/bh2980/Desktop/translation_workbench/apps/server/src/engine/runner.ts)
-  - `shouldAutoApply(definition, node)` 및 `callLines`:
-    - `node.config.output === 'listener'`일 때:
-      - `const target = node.config.classifyTarget ?? 'listener';`
-      - `target === 'none'`이면 DB에 아무것도 자동 반영하지 않고 `outcome.output`(`{ listener, value, confidence, reason }`)만 `runItems.data.outputs[node.id]`에 기록합니다.
-      - `target === 'listener'`이면 기존과 동일하게 `syncFunctions.setListener`를 실행합니다.
-      - `target === 'tag'`이면 추론된 `outcome.output.value`(또는 `listener`)와 이름이 일치하는 프로젝트 대사 태그(`s.tags`)를 찾아 `attachUnitTags(tx, run.projectId, [row.id], { add: [matchedTag.id], remove: [] })`를 수행합니다.
-
-- **수정 파일 4**: [`apps/web/src/components/workflow/node-config/ai.tsx`](file:///Users/bh2980/Desktop/translation_workbench/apps/web/src/components/workflow/node-config/ai.tsx)
-  - `<InspectorSection title="출력">` 내부에서 `config.output === 'listener'`일 때 **추론 결과 활용 방식(`classifyTarget`)** 선택기를 렌더링합니다:
-    ```tsx
-    {config.output === 'listener' && (
-      <Field label="추론 결과 활용 방식" hint="추론한 값과 확신도(confidence)는 항상 다음 조건 분기 노드에서도 사용할 수 있습니다.">
-        <Select
-          value={config.classifyTarget ?? 'listener'}
-          onValueChange={(val) => set({
-            classifyTarget: val as 'listener' | 'tag' | 'none',
-            autoApply: val !== 'none',
-          })}
-          disabled={readOnly}
-        >
-          <SelectTrigger><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="listener">대사의 청자(listener)에 자동 반영</SelectItem>
-            <SelectItem value="tag">일치하는 이름의 대사 태그 부착</SelectItem>
-            <SelectItem value="none">변수(value · confidence)로만 출력 (조건 분기용)</SelectItem>
-          </SelectContent>
-        </Select>
-      </Field>
-    )}
-    ```
-
-- **수정 파일 5**: [`apps/web/src/components/workflow/node-config/condition.tsx`](file:///Users/bh2980/Desktop/translation_workbench/apps/web/src/components/workflow/node-config/condition.tsx)
-  - `자주 쓰는 조건` 섹션에서 앞선 노드 중 `node.type === 'ai' && node.config.output === 'listener'`인 노드가 있으면:
-    - **확신도 조건**: `outputs.<nodeId>.confidence >= 0.8` (임계치 입력 가능)
-    - **분류·추론값 조건**: `outputs.<nodeId>.value == "선택지"` (값 입력 가능)
-  - 앞선 노드 중 `node.type === 'ai' && node.config.output === 'json'`인 노드가 있으면:
-    - 선언된 `node.config.fields`의 각 필드를 드롭다운으로 골라 `outputs.<nodeId>.<field.name>` 조건식을 즉시 생성할 수 있게 합니다.
+#### 2.4 조건 분기
+- 앞 노드의 `choice`(값·확신도), `verdict`(통과), `json`·스크립트 필드로 조건식을 만드는 빠른 빌더는 유지한다(de952ba). 필드 경로만 새 출력 이름에 맞춘다.
 
 ---
 
-### 과제 3: 워크플로 `스크립트` 노드 JSON 출력 형식(`fields`) 지정 및 조건 분기 연동
+### 과제 3: 반영 노드 & 숨김 없는 기본 워크플로
 
-#### 3.1 `scriptParams`에 `fields` 추가 (`packages/shared/src/functions.ts`)
-- **수정 위치**: [`packages/shared/src/functions.ts`](file:///Users/bh2980/Desktop/translation_workbench/packages/shared/src/functions.ts#L88-L103)
-- **정확한 변경 코드**:
-  ```ts
-  export const scriptFieldSchema = z.object({
-    name: z.string().min(1),
-    type: z.enum(['string', 'number', 'boolean']),
-    description: z.string().default(''),
-  });
-  export type ScriptField = z.infer<typeof scriptFieldSchema>;
+#### 3.1 반영 노드 (`function` 노드의 새 묶음, 팔레트 이름 `반영`)
+- CLI·채팅이 쓰는 쓰기 도구와 **같은 서비스**를 노드로 낸다. 도구와 노드가 같은 검증·같은 저장 경로를 탄다.
 
-  export const scriptParams = z.object({
-    description: z.string().default(''),
-    code: z
-      .string()
-      .default(
-        `// line: { source, translation, speaker, listener, candidate, outputs }\n// return { port: 'out', candidate, data: { ... } }\nreturn { port: 'out' };`,
-      ),
-    ports: z.array(z.string().min(1)).min(1).default(['out']),
-    fields: z.array(scriptFieldSchema).default([]),
-  });
-  ```
+| 반영 노드 | 대응 도구/서비스 | 입력(매핑할 필드) |
+| :--- | :--- | :--- |
+| 번역 후보 기록 | 후보 저장(`applyRunCandidate`) | 문장 |
+| 청자 설정 | 청자 저장 | 값, 확신도 |
+| 태그 붙이기 | `tag_items` | 태그 이름(값) |
+| 상태 변경 | 기존 `setStatus` | (설정값) |
+| 용어 저장 | `save_terms` | 목록: 원문, 번역, 메모, 근거 |
+| 인물 저장 | `save_character` | 목록: 이름, 별칭, 프로필, 근거 |
+| 관계 저장 | `save_relationship` | 목록: 두 인물, 종류, 설명, 변화, 근거 |
+| 말투 규칙 저장 | `save_speech_rule` | 목록: 화자, 청자, 등급, 호칭, 시작 줄 |
+| 사건 저장 | `save_event` | 목록: 제목, 설명, 인물, 근거 |
+| 문서 저장 | `save_document` | 제목, 본문 |
+| 장면 청자 저장 | 장면별 청자 저장 | 목록: 장면, 청자 |
 
-#### 3.2 서버 샌드박스 실행 시 JSON `fields` 검증 (`apps/server/src/engine/functions/index.ts` & `apps/server/src/routes/workflows.ts`)
-- **검증 헬퍼 함수 추가 (`apps/server/src/engine/functions/index.ts`)**:
-  ```ts
-  export function validateScriptData(
-    raw: Record<string, unknown> | undefined,
-    fields: { name: string; type: 'string' | 'number' | 'boolean' }[],
-  ): Record<string, unknown> {
-    const data: Record<string, unknown> = { ...(raw ?? {}) };
-    for (const field of fields) {
-      if (!field.name.trim()) continue;
-      const val = data[field.name];
-      if (val === undefined || val === null) {
-        data[field.name] = field.type === 'number' ? 0 : field.type === 'boolean' ? false : '';
-        continue;
-      }
-      if (field.type === 'number' && typeof val !== 'number') {
-        const num = Number(val);
-        if (Number.isNaN(num)) throw new Error(`스크립트 출력 필드 '${field.name}'의 값이 숫자가 아닙니다: ${String(val)}`);
-        data[field.name] = num;
-      } else if (field.type === 'boolean' && typeof val !== 'boolean') {
-        data[field.name] = Boolean(val);
-      } else if (field.type === 'string' && typeof val !== 'string') {
-        data[field.name] = String(val);
-      }
-    }
-    return data;
-  }
-  ```
-- `runAsyncFunction`(`functions/index.ts:312`) 및 `POST /projects/:projectId/script-test`(`routes/workflows.ts:171`)에서 `validateScriptData(result.data, params.fields)`를 호출해 검증된 JSON을 반환합니다.
-- `POST /projects/:projectId/script-assist`(`routes/workflows.ts:190`)에서 `ports`와 `fields`를 함께 받아 AI가 선언된 `ports` 중 하나와 `data: { <fields> }` 구조로 코드를 작성하도록 프롬프트에 명시합니다.
+- **필드 매핑:** 노드 설정에 "가져올 노드" 선택과 입력 필드별 `outputs.<노드>.<필드>` 선택이 보인다. 프리셋으로 만든 AI 노드에 연결하면 이름이 같은 필드가 자동으로 채워진다. 매핑이 비면 노드에 경고가 뜨고 실행 전 검사(`preflight`)에서 막는다.
+- **반영 방식:**
+  - `☑ 제안으로 남기기` (기본값 켬): 바로 쓰지 않고 `proposals`에 올린다. `source`에 `run`을 추가하고 실행 id를 함께 남긴다. 사람이 앱에서 수락해야 반영된다.
+  - 끄면 바로 적용: 이때만 `확정으로 넣기` / `후보(✦)로 넣기`를 고른다. 사람이 정한 항목은 바꾸지 않는다는 기존 규칙(`HUMAN_OWNED_NOTE`)은 그대로.
+- **제안 화면 대량 처리:** 워크플로 하나가 제안 수백 개를 만들 수 있다. 제안 목록에 실행별 묶기, 전체 선택 수락·거절, 종류별 필터가 있어야 한다(현재 채팅 중심 UI 점검 후 보완).
+- **CLI·skills:** 반영 노드와 같은 도구 목록을 쓰므로 CLI 쪽 새 명령은 없다. 개발이 끝난 뒤 skills 문서를 한 번에 맞춘다.
 
-#### 3.3 프론트엔드 `ScriptConfig`에 JSON 필드 편집기 추가 및 `ConditionEditor` 연동
-- **수정 파일 1**: [`apps/web/src/components/workflow/node-config/function.tsx`](file:///Users/bh2980/Desktop/translation_workbench/apps/web/src/components/workflow/node-config/function.tsx#L378-L426)
-  - `ScriptConfig` 컴포넌트 하단(`출구 목록` 아래)에 **`출력 데이터 형식 (JSON 필드)`** 섹션을 추가하여 필드 이름(`name`), 타입(`문자열` | `숫자` | `참/거짓`), 설명(`description`)을 추가/삭제할 수 있게 합니다 (`ai.tsx`의 `JsonFields`와 동일한 컴팩트 UI 패턴 사용).
-- **수정 파일 2**: [`apps/web/src/components/workflow/node-config/condition.tsx`](file:///Users/bh2980/Desktop/translation_workbench/apps/web/src/components/workflow/node-config/condition.tsx)
-  - 앞선 노드 중 `node.type === 'function' && node.config.fn === 'script'`이고 `node.config.params.fields?.length > 0`인 노드가 있으면, `자주 쓰는 조건`에서 해당 스크립트 노드의 출력 필드(`outputs.<nodeId>.<field.name>`)를 선택해 비교 조건식을 즉시 생성할 수 있게 합니다.
+#### 3.2 숨김 없는 기본 워크플로
+- 기본 워크플로와 템플릿을 **실제 노드로** 그린다. 예전 "대본 읽기"처럼 이름만 다른 AI 노드 안에 프롬프트와 저장을 숨기지 않는다.
+  - 작품 분석: `진입 → AI "작품 분석"(json·대본 전체) → 문서 저장 / 인물 저장 / 관계 저장 / 말투 규칙 저장 / 사건 저장 / 용어 저장 / 장면 청자 저장 → 종료`. 필요 없는 항목은 필드와 반영 노드를 지우면 된다(예전 섹션 선택 대신).
+  - 용어 추출: `진입 → AI "용어 추출"(json·장면 묶음) → 용어 저장 → 종료`.
+  - 인물·관계 추출, 사건 추출: 같은 방식.
+  - 청자 추정: `진입 → 조건(청자 없음) → AI "청자 추정"(choice) → 조건(확신도 ≥ 0.7) → 청자 설정 → 종료`.
+  - 초벌 번역: `진입 → AI 번역(text) → 번역 후보 기록 → 형식 검사 → 상태 변경 → 종료`.
+- 지시문은 프리셋 문장이 처음부터 채워진 상태로 보이고 편집할 수 있다.
+- 자료 화면의 "작품 분석"·"인물 분석" 버튼은 저장된 워크플로를 고르는 일반 `RunDialog`를 연다(기존 결정 유지).
+
+#### 3.3 스크립트 노드 JSON 필드
+- 구현 완료(de952ba). 필드 타입은 2.1의 확장 타입을 같이 쓴다. 스크립트 결과도 반영 노드의 입력으로 매핑할 수 있다.
 
 ---
 
@@ -721,7 +591,9 @@
 
 ---
 
-### 과제 6: 그래프 드래그 상자 다중 선택 + 휠 클릭 이동 & 노드 숨기기 / AI 그래프 단순화 (`show_graph`)
+### 과제 6: 그래프 조작 & 저장되는 보기(view)
+
+> 6.1·6.2는 구현·검증 완료(f6a73ea, 2a677b8, 9b4c746). 6.3 이후는 2026-10-19 개정.
 
 #### 6.1 `GraphCanvas` 마우스 조작 개편: 좌클릭 드래그 다중 선택 상자(Marquee) + 휠 클릭 드래그 이동(Pan)
 - **수정 파일**: [`apps/web/src/components/graph/graph-canvas.tsx`](file:///Users/bh2980/Desktop/translation_workbench/apps/web/src/components/graph/graph-canvas.tsx)
@@ -767,118 +639,61 @@
   ```
 - 우클릭 컨텍스트 메뉴에서 다중 선택된 노드(`nodes.filter(n => n.selected)`)가 2개 이상일 때 `선택한 노드 N개 복제` 및 `선택한 노드 N개 삭제`가 동작하도록 처리합니다.
 
-#### 6.3 장면·대사 그래프 노드 숨기기(`hiddenIds`) & 상단 `[단순화 보기]`(`simplify`) 및 축약 엣지 연결
-- **수정 파일**: [`apps/web/src/routes/p.$projectId.graph.tsx`](file:///Users/bh2980/Desktop/translation_workbench/apps/web/src/routes/p.$projectId.graph.tsx)
-- **URL Search & SessionStorage 상태**:
-  - `GraphSearch`에 `simplify?: true` 추가 (`validateSearch`: `simplify: raw.simplify === true || raw.simplify === 'true' ? true : undefined`).
-  - 수동 숨김 노드 집합 `hiddenIds: Set<string>`는 `sessionStorage` 키 `tw.graph.hidden.${projectId}.${search.scope}.${chosen ?? 'all'}`에 저장.
-- **숨김 노드 필터링 및 축약 엣지(Edge Contraction) 알고리즘**:
-  - 숨길 노드 집합 `excludedIds`를 계산합니다:
-    - `hiddenIds`에 포함된 모든 노드 ID
-    - `search.simplify === true`일 때는 대사가 없는 제어/상태/허브 노드(`node.kind !== 'script' && node.kind !== 'choice' && node.kind !== 'chain' && node.kind !== 'portal' && (node.total ?? 0) === 0`)를 `excludedIds`에 자동 추가합니다.
-  - `visibleNodes = rawNodes.filter(n => !excludedIds.has(n.id))`
-  - **축약 엣지 생성(`contractEdges(rawEdges, excludedIds, byId)`)**:
-    - 기존 `rawEdges` 중 양 끝점이 모두 가시 노드(`!excludedIds.has(e.from) && !excludedIds.has(e.to)`)인 엣지는 그대로 유지합니다.
-    - 가시 노드 `u`에서 출발해 하나 이상의 `excludedIds` 노드를 거쳐 가시 노드 `v`에 도달하는 경로가 있으면(BFS 탐색, 최대 깊이 12), `u`의 하단 중앙(가로 방향일 때는 우측 중앙)에서 `v`의 상단 중앙(가로 방향일 때는 좌측 중앙)으로 이어지는 직선/곡선 축약 엣지(`{ id: `bypass:${u}->${v}`, from: u, to: v, points: [x1, y1, x2, y2] }`)를 생성해 추가합니다 (중복 `(u, v)` 쌍은 제거).
-- **우클릭 컨텍스트 메뉴 및 상단 바 UI**:
-  - `HeaderActions`(`scope === 'dialogue'`):
-    - **`[단순화 보기]`** 토글 버튼 (`variant={search.simplify ? 'secondary' : 'ghost'}`, 클릭 시 `simplify: search.simplify ? undefined : true`).
-  - 캔버스 상단 오버레이:
-    - `hiddenIds.size > 0 || search.simplify`일 때 `숨긴 노드 N개 · [모두 표시]` 배지 버튼을 노출하여 원클릭으로 복원 가능.
-  - 우클릭 메뉴(`contextMenu`):
-    - 다중 선택(`selectedIds.size > 1`) 시:
-      - `선택한 노드 ${selectedIds.size}개 숨기기`
-      - `선택한 노드 ${selectedIds.size}개만 남기기 (나머지 숨기기)`
-      - `선택한 노드의 대사로 워크플로 실행…`
-    - 단일 노드 우클릭 시:
-      - `이 노드 숨기기`
-      - `이 노드 주변 흐름만 보기 (앞뒤 2단계 외 숨기기)`
-    - 숨긴 노드가 있을 때:
-      - `숨긴 노드 모두 다시 표시 (${hiddenIds.size}개)`
+#### 6.3 오른쪽 클릭은 선택·상세를 바꾸지 않는다 (버그)
+- 현재 `GraphCanvas`의 `onContextMenu`가 `select(nodeId)`로 URL `node`를 바꿔 상세 패널이 열린다(장면 그래프·대사 그래프 모두).
+- 고칠 것: 오른쪽 클릭은 메뉴의 대상만 기억하고(캔버스에 대상 강조), URL 선택과 패널은 그대로 둔다. 상세는 메뉴의 `상세 속성 열기`로만 연다. 워크플로 캔버스도 같은 규칙.
 
-#### 6.4 AI 채팅 에이전트 `show_graph` 도구의 구간 서브그래프 추출(`between`) 및 제어 노드 단순화(`simplify`)
-- **수정 파일**:
-  1. [`apps/server/src/services/graph-views.ts`](file:///Users/bh2980/Desktop/translation_workbench/apps/server/src/services/graph-views.ts)
-  2. [`apps/server/src/services/layout.ts`](file:///Users/bh2980/Desktop/translation_workbench/apps/server/src/services/layout.ts)
-  3. [`apps/server/src/services/agent-tools.ts`](file:///Users/bh2980/Desktop/translation_workbench/apps/server/src/services/agent-tools.ts)
-- **상세 구현**:
-  1. **`NodePick` 인터페이스 및 `pickNodes` 확장 (`apps/server/src/services/graph-views.ts`)**:
-     ```ts
-     export interface NodePick {
-       scenes?: string[];
-       speakers?: string[];
-       lines?: string[];
-       q?: string;
-       /** 시작 대사/노드와 끝 대사/노드 사이의 모든 분기 경로에 놓인 노드들을 추출 */
-       between?: { start: string; end: string };
-       /** 결과에서 제외할 대사 키 또는 노드 ID 목록 */
-       exclude?: string[];
-       /** 제어·상태 노드를 제외하고 대사·선택지 노드만 남길지 여부 */
-       simplify?: boolean;
-       around?: number;
-     }
-     ```
-     - **`between: { start, end }` 알고리즘**:
-       - `start`와 `end` 참조(대사 키, 대사 ID, 노드 키, 노드 ID, 또는 대사 텍스트 부분 일치)를 각각의 그래프 노드 ID 집합 `startNodes`, `endNodes`로 해석합니다.
-       - 프로젝트의 방향 그래프 `graphEdges`에서:
-         - `forwardReachable`: `startNodes`에서 순방향(`from -> to`)으로 도달 가능한 모든 노드 집합 ( + 그 노드에 매달린 dead-end 자식 대사 노드 포함)
-         - `backwardReachable`: `endNodes`에서 역방향(`to -> from`)으로 도달 가능한 모든 노드 집합 ( + `startNodes`/`endNodes`에 매달린 자식 대사 노드 포함)
-         - 두 집합의 교집합(`id ∈ forwardReachable && id ∈ backwardReachable`)과 그 노드에 직접 연결된 선택지(`choice`)/첨부 대사 노드를 `nodes`에 추가합니다.
-         - 이렇게 하면 단일 선형 경로만 뽑는 `find_reading_route`와 달리, **특정 사건의 시작부터 끝 사이에 존재하는 모든 선택지 갈래(Branching subgraph)**가 통째로 수집됩니다!
-     - **`simplify: true` 및 `exclude` 처리**:
-       - `exclude`에 지정된 대사 키/노드 ID를 `nodes`에서 제거합니다.
-       - `pick.simplify`가 `true`이면 수집된 `nodes` 중에서 대사가 없는 내부 제어·상태 노드(`kind !== 'script' && kind !== 'choice' && unitIds.length === 0`)를 제거합니다.
-  2. **`nodeSetLayout`의 숨김 노드 우회 연결 지원 (`apps/server/src/services/layout.ts`)**:
-     - `nodeSetLayout(db, projectId, key, nodeIds, label, direction)`에서 `wanted = new Set(nodeIds)`에 포함되지 않은 중간 제어 노드를 통과해 `wanted` 내의 두 노드가 이어지는 경우, ELK 레이아웃 입력 엣지에 우회 엣지(`u -> v`)를 추가하여 `simplify: true`로 제어 노드를 빼더라도 ELK가 대사·선택지 노드들을 끊김 없이 위에서 아래로 매끄럽게 배치하도록 합니다.
-  3. **`show_graph` 도구 스키마 확장 (`apps/server/src/services/agent-tools.ts` Lines 243–265)**:
-     ```ts
-     show_graph: tool({
-       description:
-         'Show the user a focused or simplified part of the dialogue graph: pick nodes by scenes, speakers, lines, q, or between (all branches between a start and end line/node). Set simplify=true (default when mode="only") to strip non-dialogue control/state nodes and show only dialogue & choice branches cleanly.',
-       inputSchema: z.object({
-         scenes: z.array(z.string().min(1)).max(500).default([]),
-         speakers: z.array(z.string().min(1)).default([]),
-         lines: z.array(z.string().min(1)).max(5000).default([]),
-         q: z.string().optional(),
-         between: z.object({ start: z.string().min(1), end: z.string().min(1) }).optional(),
-         exclude: z.array(z.string().min(1)).default([]),
-         simplify: z.boolean().default(true),
-         around: z.number().int().min(0).max(5).default(0),
-         mode: z.enum(['mark', 'only']).default('only'),
-         label: z.string().max(80).describe('Short title for this simplified graph view, e.g. "올렉 바케이 사망 분기 (단순화)".'),
-       }),
-       ...
-     ```
+#### 6.4 저장되는 보기(view)
+- **개념:** DB의 view처럼 **정의만 저장**하고 연결·배치는 원본 그래프에서 계산한다.
+  - 저장: 남길 노드 id, 만든 방식(AI 요청문 / 직접), 노드별 남긴 이유(AI가 만든 경우), 이름.
+  - 계산: 남긴 노드 사이의 **파생 연결** = 남긴 노드 A에서 남기지 않은 노드만 거쳐 남긴 노드 B에 닿는 원본 경로가 있으면 A→B. 거리 제한 없음(지금 `contractEdges`의 깊이 12 제한을 없애거나 크게 올린다). AI는 연결을 만들지 않는다.
+  - 파생 연결마다 서버가 계산한 사실만 붙인다: `생략 · 대사 n줄 · 조건 k · 화자 …`. 누르면 생략된 실제 노드·대사 목록과 `원본에서 이 구간 보기`.
+  - 배치: 남긴 노드 + 파생 연결만으로 ELK가 새로 배치한다(`nodeSetLayout`의 view 배치와 `viewEdges` 재사용, 방향별 캐시). 원본이 바뀌면 다시 계산하고, 원본에서 사라진 노드는 `원본에 없음`으로 표시한다.
+  - 화면 표시: `보기 "이름" · 남김 n / 원본 m · 파생 연결 포함`. 파생 연결은 점선.
+- **스키마:** `graph_views`에 `origin`(`ai`·`manual`), `request`(AI 요청문), `reasons`(노드 id → 이유), `updatedAt`을 더한다.
+- **만들기**
+  - **AI 간략 보기:** 그래프 상단 `AI 간략 보기` 버튼 → 채팅 패널이 열리고 현재 구역이 문맥으로 들어간다. 사용자가 "올렉 사망 분기만" 같은 요청을 쓰면 채팅 AI가 읽기 도구(`find_lines`, `line_context`, `find_reading_route`, `show_graph` 등)로 노드를 고르고 `show_graph`(남길 노드 + 이유 + 이름)로 보기를 저장한 뒤 그 보기를 연다. 그래프 전용 AI는 따로 만들지 않는다.
+  - **직접 만들기:** 원본 그래프에서 박스·Shift 선택 → 오른쪽 클릭 `선택한 노드로 보기 만들기`.
+- **열기·관리**
+  - 그래프 상단의 `구역` 선택을 `보기` 선택으로 넓힌다: 원본 구역들 / 구분선 / 저장된 보기들. URL은 `section=view:<id>` 그대로(뒤로/앞으로·링크 공유).
+  - 보기를 연 상태에서 오른쪽 상세 패널(Inspector): 이름 바꾸기, 만든 방식과 요청문, 노드·연결 수, `요청 고쳐 다시 만들기`(채팅으로 이어짐), 삭제. 노드를 고르면 "이 보기에 남긴 이유"가 함께 보인다.
+  - 보기 안에서: 노드 오른쪽 클릭 `이 보기에서 빼기`. 원본 그래프에서 고른 노드 → `보기에 추가`.
+  - 보기가 많아지면 표(DataTable) 관리 화면을 둔다(1차 범위 아님).
+- **없앨 것:** 규칙 기반 `단순화 보기`(`simplify` URL 값, 대사 없는 노드 자동 제외), 세션 저장 숨김 노드(`tw.graph.hidden.*`, `이 노드 숨기기`, `주변 흐름만 보기`, `모두 표시` 배지). 숨기고 싶은 경우는 보기로 만든다.
+- **AI 요약문(2차):** 생략 구간의 한 줄 요약은 1차에 넣지 않는다. 대사 목록만으로 읽기 어렵다는 판단이 서면, 파생 연결에 `✦ AI 요약` 표시를 단 보조 문구로 붙인다(노드로 만들지 않는다).
+
+#### 6.5 채팅 `show_graph`
+- 이미 구현: `between`(두 끝 사이의 모든 갈래), `exclude`(79c1d6a).
+- 바꿀 것: `simplify` 옵션은 지운다. `nodes`(남길 노드)마다 `reason`을 받고, `mode: "view"`이면 위 보기로 저장한다. 결과는 보기 id와 여는 링크.
 
 ---
 
-## 3. 단계별 실행 및 검증 체크리스트
+## 3. 단계별 실행 및 검증 체크리스트 (2026-10-19 개정)
 
-1. **Step 1 — Shared 스키마 & 서버 엔진 구현 (`packages/shared`, `apps/server`)**
-   - [ ] `packages/shared/src/functions.ts`: `PALETTE_FUNCTION_NAMES`에서 `'speechCheck'` 제거, `scriptParams`에 `fields` 추가, `formatCheckParams`에 길이·바이트·줄 수·비율·금칙어 추가
-   - [ ] `packages/shared/src/format-check.ts`: `checkFormat` 및 `formatIssueMessages`에 길이·바이트·줄 수·비율·금칙어 검사 로직 구현
-   - [ ] `packages/shared/src/workflow.ts`: `AI_OUTPUTS` 범용 라벨/설명 개편 및 `classifyTarget` 스키마 추가
-   - [ ] `apps/server/src/engine/prompts.ts` & `runner.ts`: `classifyTarget` (`listener` | `tag` | `none`) 처리
-   - [ ] `apps/server/src/engine/functions/index.ts` & `routes/workflows.ts`: 스크립트 `fields` 검증(`validateScriptData`) 및 `script-assist` 프롬프트 반영
-   - [ ] `apps/server/src/routes/projects.ts`: `POST /projects/:projectId/generate-regex` 엔드포인트 추가
-   - [ ] `apps/server/src/services/graph-views.ts`, `layout.ts`, `agent-tools.ts`: `show_graph`의 `between`, `exclude`, `simplify` 및 우회 엣지 레이아웃 구현
-   - [ ] 검증: `pnpm --filter @tw/shared test && pnpm --filter @tw/server test`
+1. **정리 — 첫 구현에서 개정과 맞지 않는 부분 제거**
+   - [ ] `classifyTarget`, `attachClassifiedTag`, `shouldAutoApply`, `AUTO_APPLY_FUNCTIONS`, `autoApply`·`asCandidate`, 목적별 출력(`terms`·`knowledge`·`analysis`·`listener`)과 `sections`
+   - [ ] 그래프 `simplify` URL 값·자동 제외, 세션 숨김 노드와 그 메뉴·배지, `show_graph`의 `simplify`
+   - [ ] 오른쪽 클릭이 선택·상세를 바꾸는 버그(6.3)
 
-2. **Step 2 — 에디터 · 상세 · 설정 · 자료 · 워크플로 UI 구현 (`apps/web`)**
-   - [ ] `apps/web/src/components/script/line-list.tsx`: `showDetailPane = Boolean(search.line && search.detail)` 적용하여 대사 클릭 시 상세창 자동 오픈 차단
-   - [ ] `apps/web/src/components/editor/source-text.tsx`: 비선택 줄에서도 확정 용어 점선 밑줄 및 뜻 툴팁 표시
-   - [ ] `apps/web/src/components/script/line-row.tsx` & `route-list.tsx`: 선택 줄 좌측 원문 바로 아래에 `<LineHints>`(용어집 칩 클릭 삽입 + 말투·관계 요약) 표시
-   - [ ] `apps/web/src/components/translation-editor.tsx`: 우측 번역 입력창 아래에 후보 & 유사 번역(TM) 상위 3개 상시 노출 (`⌥⇧1~3`, 유사도 배지, 원문 단어 차이 하이라이트, `+N개 더보기`)
-   - [ ] `apps/web/src/components/line-detail.tsx`: `번역 도우미` 탭 및 `InspectorTabs` 제거, 단일 스크롤 심층 상세 화면으로 개편
-   - [ ] `apps/web/src/components/workflow/node-config/ai.tsx`, `function.tsx`, `condition.tsx` & `format-rules.tsx`: `classifyTarget` 선택기, 스크립트 JSON `fields` 편집기, 조건 분기 빌더 연동, 길이·바이트·금칙어 입력란, `[✦ AI로 규칙 만들기]` 구현
-   - [ ] `apps/web/src/routes/p.$projectId.knowledge.tsx`: `관계 표` 및 `그래프` 상단에 `[+ 관계·말투 추가]` 팝오버 구현
+2. **AI 노드 범용 출력 (과제 2)**
+   - [ ] `packages/shared`: `output`(`text`·`verdict`·`choice`·`json`), `scope`(`line`·`batch`), `choice` 선택지·값 목록 출처, 재귀 `jsonFieldSchema`(목록·근거 타입)
+   - [ ] 서버: 프롬프트는 지시문 + 출력 형식 강제 + 입력 형식 설명만. `analysisRequest`의 숨은 규칙 제거. 묶음 결과 저장과 대사별 참조
+   - [ ] 웹: 출력 형태·단위 선택, 확장 필드 편집기(하위 필드 접기/펴기, JSON 스키마 텍스트), 프리셋 선택, 프롬프트 미리보기
+   - [ ] mock LLM: 새 출력 형태와 묶음 출력에 응답(`mock-llm.test.ts`가 스키마 일치 확인)
 
-3. **Step 3 — 그래프 드래그 상자 다중 선택 · 휠 클릭 이동 · 노드 숨기기 (`apps/web`)**
-   - [ ] `apps/web/src/components/graph/graph-canvas.tsx`: `d3-zoom` 필터(휠 클릭/Space 드래그만 Pan), 좌클릭 드래그 Marquee Box 다중 선택(`selectedIds`), 다중 선택 하이라이트 렌더링
-   - [ ] `apps/web/src/routes/p.$projectId.workflows.$workflowId.tsx`: `ReactFlow` `selectionOnDrag` + `panOnDrag={[1]}` 및 다중 노드 삭제/복제
-   - [ ] `apps/web/src/routes/p.$projectId.graph.tsx`: 다중/단일 노드 숨기기(`hiddenIds`), 주변 흐름만 보기, 상단 `[단순화 보기]`(`simplify`), 숨겨진 노드 구간 축약 엣지 연결
+3. **반영 노드 & 기본 워크플로 (과제 3)**
+   - [ ] 반영 노드 11종(3.1 표)을 도구 서비스 위에 구현, 필드 매핑과 자동 채움, 매핑 누락 preflight
+   - [ ] `☑ 제안으로 남기기`(기본 켬) → `proposals.source = 'run'` + 실행 id. 끄면 확정/후보 선택
+   - [ ] 제안 화면: 실행별 묶기, 전체 수락·거절, 종류 필터
+   - [ ] 기본 워크플로·템플릿을 실제 노드로 다시 작성(3.2), 기존 프로젝트의 기본 워크플로 교체(레거시 호환 없음)
 
-4. **Step 4 — 전체 타입체크, 테스트 및 프로덕션 빌드 검증**
-   - [ ] `pnpm typecheck`
-   - [ ] `pnpm test`
-   - [ ] `pnpm build`
+4. **저장되는 보기 (과제 6.4–6.5)**
+   - [ ] `graph_views` 컬럼 추가(`origin`·`request`·`reasons`·`updatedAt`) + 마이그레이션
+   - [ ] 파생 연결 계산(거리 제한 없음)과 생략 구간 사실 요약, 원본 변경 시 재계산
+   - [ ] `보기` 선택, 보기 상세 패널, 보기에서 빼기·보기에 추가·선택으로 보기 만들기, `AI 간략 보기` → 채팅
+   - [ ] `show_graph`의 `nodes[].reason`·`mode: "view"`
+
+5. **검증**
+   - [ ] `pnpm typecheck`, `pnpm test`, `pnpm ui-rules`, `pnpm build`
+   - [ ] 격리 `WORKBENCH_DATA_DIR` + `pnpm mock-llm` + `samples/realistic-9k.json`으로 브라우저 전체 여정: 작품 분석 워크플로 실행 → 제안 수백 건 수락, 청자 추정 → 조건 → 청자 설정, 그래프 보기 만들기·열기·뒤로/앞으로
+   - [ ] CLI·skills는 개발 종료 후 한 번에 맞춘다
