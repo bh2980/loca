@@ -26,7 +26,7 @@ import { cleanListener, clampConfidence, setAiListener } from '../../services/li
 import { upsertAiTerm } from '../../services/terms.ts';
 import { runScript } from './sandbox.ts';
 import { aiConfirmOf } from '../../services/status-by.ts';
-import { knowledgeOf, speechMismatch, speechRuleIndex } from '../../services/speech.ts';
+import { knowledgeOf } from '../../services/speech.ts';
 import type { IssueTagChange } from '../../services/issue-tags.ts';
 import type { KnowledgeOutput } from '../prompts.ts';
 import { saveDrafts, type Analysis } from '../../services/analysis.ts';
@@ -94,16 +94,6 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
       .filter((term) => !text.toLowerCase().includes(term.target.toLowerCase()))
       .map((term) => `용어 "${term.source}"은(는) "${term.target}"(으)로 옮겨야 합니다.`);
     return { port: issues.length ? 'fail' : 'pass', issues, output: { passed: !issues.length, issues }, issueTags: issues.length ? { add: ['term'] } : { clear: ['term'] } };
-  },
-
-  speechCheck(tx, _raw, input) {
-    const text = candidateOf(input);
-    if (text === null) return { port: 'fail', issues: [NEEDS_CANDIDATE], output: { passed: false, issues: [NEEDS_CANDIDATE] } };
-    const found = speechRuleIndex(tx as unknown as Db, input.projectId).resolve([input.unit]).get(input.unit.key);
-    const issue = found ? speechMismatch(found.rule, text) : null;
-    const issues = issue ? [issue] : [];
-    // Only a line with a speech rule is checked for it; without one, nothing is said either way.
-    return { port: issues.length ? 'fail' : 'pass', issues, output: { passed: !issues.length, issues }, ...(found && { issueTags: issues.length ? { add: ['speech'] } : { clear: ['speech'] } }) };
   },
 
   setStatus(tx, raw, input) {

@@ -29,12 +29,24 @@ export interface FormatCheckOptions {
   particles?: boolean;
   /** Optional custom regex source overriding DEFAULT_PARTICLE_PATTERN when `particles` is true. */
   particlesPattern?: string;
+  /** Most characters (code points) in the translation; 0 or unset = off. */
+  maxChars?: number;
+  /** Most UTF-8 bytes in the translation; 0 or unset = off. */
+  maxBytes?: number;
+  /** Most characters on one line of the translation (split on newlines); 0 or unset = off. */
+  maxLineChars?: number;
+  /** Most lines in the translation; 0 or unset = off. */
+  maxLines?: number;
+  /** Most translation length as a multiple of the source length (1.5 = at most 1.5×); 0 or unset = off. */
+  maxLengthRatio?: number;
+  /** Words the translation must not contain, comma-separated (plain text, not regex). */
+  forbiddenWords?: string;
   /** User-defined regex validation rules on this formatCheck node. */
   customRules?: CustomFormatRule[];
 }
 
 export interface FormatIssue {
-  code: 'empty' | 'placeholder' | 'tag' | 'newline' | 'number' | 'space' | 'particle' | 'custom';
+  code: 'empty' | 'placeholder' | 'tag' | 'newline' | 'number' | 'space' | 'particle' | 'length' | 'forbiddenWord' | 'custom';
   message: string;
 }
 
@@ -130,6 +142,31 @@ const newlines = (text: string) => (text.match(/\r?\n/g) ?? []).length;
 const describe = (onlySource: string[], onlyTarget: string[]) =>
   [onlySource.length && `번역에 없음: ${onlySource.join(' ')}`, onlyTarget.length && `원문에 없음: ${onlyTarget.join(' ')}`].filter(Boolean).join(' · ');
 
+const chars = (text: string) => [...text].length;
+function lengthIssues(source: string, target: string, options: FormatCheckOptions): FormatIssue[] {
+  if (!target) return [];
+  const issues: FormatIssue[] = [];
+  const add = (message: string) => issues.push({ code: 'length', message });
+  const length = chars(target);
+  if (options.maxChars && length > options.maxChars) add(`글자 수 초과 (${length}/${options.maxChars}자).`);
+  if (options.maxBytes) {
+    const bytes = new TextEncoder().encode(target).length;
+    if (bytes > options.maxBytes) add(`바이트 수 초과 (${bytes}/${options.maxBytes}바이트).`);
+  }
+  const lines = target.split(/\r?\n/);
+  if (options.maxLines && lines.length > options.maxLines) add(`줄 수 초과 (${lines.length}/${options.maxLines}줄).`);
+  if (options.maxLineChars) {
+    const longest = Math.max(...lines.map(chars));
+    if (longest > options.maxLineChars) add(`한 줄 글자 수 초과 (${longest}/${options.maxLineChars}자).`);
+  }
+  const sourceLength = chars(source.trim());
+  if (options.maxLengthRatio && sourceLength) {
+    const ratio = length / sourceLength;
+    if (ratio > options.maxLengthRatio) add(`원문 대비 길이 초과 (${ratio.toFixed(2)}배 > ${options.maxLengthRatio}배).`);
+  }
+  return issues;
+}
+
 /** Mechanical checks only. Word order may differ between languages, so tokens are compared as multisets. */
 export function checkFormat(source: string, target: string, options: FormatCheckOptions, rules: FormatRules = DEFAULT_FORMAT_RULES): FormatIssue[] {
   const issues: FormatIssue[] = [];
@@ -171,6 +208,10 @@ export function checkFormat(source: string, target: string, options: FormatCheck
       // Ignore invalid custom particle regex at runtime
     }
   }
+  issues.push(...lengthIssues(source, target, options));
+  const forbidden = (options.forbiddenWords ?? '').split(',').map((word) => word.trim()).filter(Boolean);
+  const hit = forbidden.filter((word) => target.includes(word));
+  if (hit.length) issues.push({ code: 'forbiddenWord', message: `금칙어가 있습니다 (${[...new Set(hit)].join(', ')}).` });
   if (options.customRules?.length) {
     for (const rule of options.customRules) {
       const pat = rule.pattern.trim();

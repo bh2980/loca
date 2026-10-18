@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import Graph from 'graphology';
-import { FUNCTIONS, functionPorts, type FunctionName, type Port } from './functions.ts';
+import { FUNCTIONS, functionPorts, jsonFieldSchema, type FunctionName, type JsonField, type Port } from './functions.ts';
 import { stronglyConnectedComponents } from 'graphology-components';
 import { ANALYSIS_SECTIONS } from './knowledge.ts';
 import { choiceKey, draftModelChoiceSchema, EMPTY_MODEL_CHOICE, modelChoiceSchema, type ModelChoice } from './model-choice.ts';
@@ -54,21 +54,24 @@ const base = { id: z.string().min(1), position, label: z.string().optional() };
 
 /** What an AI node returns for each line; the choice also decides its exits. */
 export const AI_OUTPUTS = {
-  candidate: { label: '번역 후보', description: '대사마다 새 번역 후보를 만듭니다.' },
-  verdict: { label: '판정', description: '통과/실패와 의견을 냅니다.' },
+  candidate: { label: '문장 생성 (번역·윤문)', description: '대사마다 번역문·수정문 등 새 문장을 만들어 후보로 기록합니다.' },
+  verdict: { label: '통과·실패 판정', description: '번역 품질·말투·설정 일관성 등을 판정해 통과/실패 두 출구로 나눕니다.' },
   terms: { label: '용어 후보', description: '원문에서 용어(원문·번역·메모)를 뽑습니다.' },
-  listener: { label: '청자', description: '대사마다 누구에게 하는 말인지와 확신도를 냅니다.' },
+  listener: { label: '분류·추론 (값 + 확신도)', description: '대사마다 지시문에 따라 값(청자·분류·감정 등)과 확신도(0~1)를 냅니다. 청자나 태그에 반영하거나 조건 분기에만 쓸 수 있습니다.' },
   knowledge: { label: '자료 변경', description: '이 대사들에서 새로 드러난 인물·관계 변화·사건·말투 변화를 냅니다.' },
   analysis: { label: '작품 분석', description: '읽은 대본 전체에서 고른 항목(개요·인물·관계·사건·말투 규칙·장면별 청자·용어)을 근거 줄과 함께 냅니다.' },
   json: { label: '자유 형식', description: '직접 정한 필드를 대사마다 채웁니다.' },
 } as const;
 export type AiOutput = keyof typeof AI_OUTPUTS;
 
-export const jsonFieldSchema = z.object({
-  name: z.string().trim().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, '영문·숫자·_ 로 된 이름'),
-  type: z.enum(['string', 'number', 'boolean']).default('string'),
-  description: z.string().default(''),
-});
+export { jsonFieldSchema, type JsonField };
+
+/**
+ * Where a "listener" (분류·추론) node's inferred value goes: the line's listener, the line tag with
+ * that name, or nowhere (only outputs.<node>.value / .confidence for later conditions).
+ */
+export const CLASSIFY_TARGETS = ['listener', 'tag', 'none'] as const;
+export type ClassifyTarget = (typeof CLASSIFY_TARGETS)[number];
 
 export const aiNodeConfigSchema = z.object({
   model: draftModelChoiceSchema.default({ ...EMPTY_MODEL_CHOICE }),
@@ -79,6 +82,8 @@ export const aiNodeConfigSchema = z.object({
   instructions: z.string().default(''),
   output: z.enum(['candidate', 'verdict', 'terms', 'listener', 'knowledge', 'analysis', 'json']).default('candidate'),
   fields: z.array(jsonFieldSchema).default([]),
+  /** "listener" (분류·추론) output only: where the inferred value goes; unset = 'listener'. */
+  classifyTarget: z.enum(CLASSIFY_TARGETS).optional(),
   /** What an "analysis" node reads the script for; empty = every section. */
   sections: z.array(z.enum(ANALYSIS_SECTIONS)).optional(),
   /** Whether extracted terms/listener/knowledge/analysis should be saved automatically without requiring a separate save function node. */
@@ -135,7 +140,6 @@ export const workflowDefinitionSchema = z.object({
 
 export type ContextConfig = z.infer<typeof contextConfigSchema>;
 export type BatchConfig = z.infer<typeof batchConfigSchema>;
-export type JsonField = z.infer<typeof jsonFieldSchema>;
 export type WorkflowNode = z.infer<typeof workflowNodeSchema>;
 export type WorkflowNodeType = WorkflowNode['type'];
 export type WorkflowEdge = z.infer<typeof workflowEdgeSchema>;
@@ -409,7 +413,7 @@ export function readinessUses(definition: WorkflowDefinition) {
   const translating = definition.nodes.filter((node): node is AiNode => node.type === 'ai' && (node.config.output === 'candidate' || node.config.output === 'verdict'));
   const fn = (name: string) => definition.nodes.some((node) => node.type === 'function' && node.config.fn === name);
   return {
-    speech: translating.some((node) => node.config.context?.speech !== false) || fn('speechCheck'),
+    speech: translating.some((node) => node.config.context?.speech !== false),
     glossary: translating.some((node) => node.config.context?.glossary !== false) || fn('glossaryCheck'),
   };
 }

@@ -21,6 +21,14 @@ export interface FunctionInfo<P extends z.ZodType = z.ZodType> {
   async: boolean;
 }
 
+/** A named, typed field of a JSON output (AI "json" output, script data). */
+export const jsonFieldSchema = z.object({
+  name: z.string().trim().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, '영문·숫자·_ 로 된 이름'),
+  type: z.enum(['string', 'number', 'boolean']).default('string'),
+  description: z.string().default(''),
+});
+export type JsonField = z.infer<typeof jsonFieldSchema>;
+
 const pass: Port[] = [{ id: 'pass', label: '통과' }, { id: 'fail', label: '실패' }];
 const out: Port[] = [{ id: 'out', label: '다음' }];
 
@@ -33,6 +41,15 @@ export const formatCheckParams = z.object({
   spaces: z.boolean().default(false),
   particles: z.boolean().default(false),
   particlesPattern: z.string().default(''),
+  /** Length limits; 0 = off. */
+  maxChars: z.number().int().min(0).default(0),
+  maxBytes: z.number().int().min(0).default(0),
+  maxLineChars: z.number().int().min(0).default(0),
+  maxLines: z.number().int().min(0).default(0),
+  /** Translation length ÷ source length; 0 = off. */
+  maxLengthRatio: z.number().min(0).default(0),
+  /** Comma-separated plain words the translation must not contain. */
+  forbiddenWords: z.string().default(''),
   customRules: z
     .array(
       customFormatRuleSchema.extend({
@@ -46,8 +63,6 @@ export const setStatusParams = z.object({
   statusId: z.string().optional(),
   addTagIds: z.array(z.string()).default([]),
   removeTagIds: z.array(z.string()).default([]),
-  /** Kept so workflows saved before #42 (and their import files) still parse; ignored since #42. */
-  applyCandidate: z.boolean().optional(),
 });
 
 export const addTermsParams = z.object({
@@ -66,7 +81,7 @@ export const saveAnalysisParams = z.object({
 });
 
 export const setListenerParams = z.object({
-  /** AI node whose "listener" output to record. Empty = the most recent listener output on the line. */
+  /** AI node whose "listener" (분류·추론) output to record. Empty = the most recent one on the line. */
   fromNodeId: z.string().default(''),
 });
 
@@ -100,12 +115,14 @@ export const scriptParams = z.object({
     ),
   /** Exits the script may return besides "error". */
   ports: z.array(z.string().trim().min(1)).min(1).default(['out']),
+  /** The `data` object the script returns: declared fields are checked and coerced, and offered to conditions as outputs.<node>.<name>. */
+  fields: z.array(jsonFieldSchema).default([]),
 });
 
 export const FUNCTIONS = {
   formatCheck: {
     label: '형식 검사',
-    description: '켠 항목(치환자·서식 태그·줄바꿈·빈 번역·숫자·공백·한국어 조사)과 사용자 정의 정규식 규칙을 검사합니다. 치환자·태그 문법은 프로젝트 설정의 치환자·태그 문법을 따릅니다.',
+    description: '켠 항목(치환자·서식 태그·줄바꿈·빈 번역·숫자·공백·한국어 조사), 길이 제한(글자·바이트·줄·원문 대비 비율), 금칙어, 사용자 정의 정규식 규칙을 검사합니다. 치환자·태그 문법은 프로젝트 설정의 치환자·태그 문법을 따릅니다.',
     params: formatCheckParams,
     ports: () => pass,
     async: false,
@@ -113,13 +130,6 @@ export const FUNCTIONS = {
   glossaryCheck: {
     label: '용어 준수 검사',
     description: '원문에 나온 확정 용어의 지정 번역이 후보에 쓰였는지 검사합니다.',
-    params: z.object({}),
-    ports: () => pass,
-    async: false,
-  },
-  speechCheck: {
-    label: '말투 규칙 검사',
-    description: '화자→청자의 확정 말투 규칙과 번역 끝 어미(추정)가 맞는지 검사합니다. 청자를 모르거나 규칙이 없으면 통과합니다.',
     params: z.object({}),
     ports: () => pass,
     async: false,
@@ -183,7 +193,6 @@ export const PALETTE_FUNCTION_NAMES: FunctionName[] = [
   'setStatus',
   'formatCheck',
   'glossaryCheck',
-  'speechCheck',
   'script',
   'http',
 ];

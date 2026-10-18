@@ -12,7 +12,7 @@ import { Field, type ConditionNode, type NodeRefs } from '@/components/workflow/
 /** Nodes whose output has a `passed` flag a condition can test. */
 export const hasVerdict = (node: WorkflowNode) =>
   (node.type === 'ai' && node.config.output === 'verdict') ||
-  (node.type === 'function' && (node.config.fn === 'formatCheck' || node.config.fn === 'glossaryCheck' || node.config.fn === 'speechCheck' || (node.config.fn === 'http' && (node.config.params as { mode?: string }).mode === 'verdict')));
+  (node.type === 'function' && (node.config.fn === 'formatCheck' || node.config.fn === 'glossaryCheck' || (node.config.fn === 'http' && (node.config.params as { mode?: string }).mode === 'verdict')));
 
 const KIND_LABELS: Record<string, string> = {
   dialogue: '대사',

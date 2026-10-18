@@ -28,7 +28,6 @@ export function FunctionConfig({ node, refs, readOnly, onChange }: { node: Funct
       case 'formatCheck':
         return <FormatCheckConfig params={params} refs={refs} set={set} />;
       case 'glossaryCheck':
-      case 'speechCheck':
         return <p className="text-sm text-muted-foreground">별도의 설정 항목이 없습니다. 실패 사유는 다음 AI 노드의 지적 사항으로 전달됩니다.</p>;
       case 'setStatus':
         return <SetStatusConfig params={params} refs={refs} set={set} setMany={setMany} />;
