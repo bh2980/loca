@@ -126,7 +126,7 @@ export function ViewInspector({ projectId, viewId, shownNodes, derivedEdges, onC
         <PropertyGrid>
           <PropertyRow label="남긴 노드">{data.nodeIds.length.toLocaleString()}개</PropertyRow>
           <PropertyRow label="화면 노드">{shownNodes.toLocaleString()}개</PropertyRow>
-          <PropertyRow label="파생 연결">{derivedEdges.toLocaleString()}개</PropertyRow>
+          <PropertyRow label="생략 구간">{derivedEdges.toLocaleString()}개</PropertyRow>
         </PropertyGrid>
       </InspectorSection>
       {data.missing.length > 0 && (
@@ -189,19 +189,14 @@ export function OmittedPane({ projectId, edge, sections, onOpenSource, onClose }
   const section = first?.groupId ? sections.find((item) => item.groupIds.includes(first.groupId!))?.name : undefined;
   return (
     <Inspector
-      header={<InspectorHeader kind="파생 연결" name={edge.label ?? '생략한 구간'} onClose={onClose} />}
+      header={<InspectorHeader kind="생략 구간" name={edge.label ?? '생략한 구간'} onClose={onClose} />}
       footer={
         <Button disabled={!first} onClick={() => ids[0] && onOpenSource(section, ids[0])}>
           원본에서 보기
         </Button>
       }
     >
-      <InspectorSection title="생략한 구간">
-        <p className="text-sm text-muted-foreground">
-          남기지 않은 노드 {ids.length.toLocaleString()}개를 거치는 원본 경로 · 파생 연결
-        </p>
-      </InspectorSection>
-      <InspectorSection title={`대사 ${omitted?.lines.toLocaleString() ?? 0}줄`}>
+      <InspectorSection title={`노드 ${ids.length.toLocaleString()} · 대사 ${omitted?.lines.toLocaleString() ?? 0}줄`}>
         {details.length === 0 && <p className="text-sm text-muted-foreground">생략한 대사가 없습니다.</p>}
         <ul className="space-y-2">
           {details.map((result, index) =>

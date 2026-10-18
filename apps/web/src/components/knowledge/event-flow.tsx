@@ -184,9 +184,6 @@ export function EventFlow({ projectId, events, selected, onOpen, badge, filtered
     >
       <Background />
       <Controls showInteractive={false} />
-      <Panel position="bottom-right" className="max-w-sm rounded-md bg-background/90 px-2 py-1 text-xs text-muted-foreground">
-        선은 대사 그래프에서 파생
-      </Panel>
       {Object.keys(moved).length > 0 && (
         <Panel position="top-right">
           <Button variant="outline" className="bg-background" onClick={() => remember({})}>

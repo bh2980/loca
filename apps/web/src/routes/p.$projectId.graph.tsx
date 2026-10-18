@@ -692,7 +692,7 @@ function GraphPage() {
                 <aside className="flex h-full flex-col text-sm">
                   <PaneHeader kicker="장면 그래프" title="연결점" onClose={() => select(undefined)} />
                   <p className="px-4 py-3 text-muted-foreground">
-                    장면에 속하지 않는 노드 {hubs.get(search.node)!.nodes.toLocaleString()}개가 장면 {hubs.get(search.node)!.scenes.toLocaleString()}개를 잇습니다 · 대사 그래프에서 파생
+                    장면에 속하지 않는 노드 {hubs.get(search.node)!.nodes.toLocaleString()}개가 장면 {hubs.get(search.node)!.scenes.toLocaleString()}개를 잇습니다
                   </p>
                 </aside>
               ) : search.scope === 'dialogue' ? (
@@ -1179,7 +1179,7 @@ function GraphPage() {
                     {view && viewDetail.data && (
                       <div className="flex max-w-full flex-wrap items-center gap-2 rounded-md border border-border bg-card py-1 pr-1.5 pl-2.5 text-sm shadow-2xs backdrop-blur-xs select-none">
                         <span>
-                          보기 "{view.label}" · 남김 {view.nodes.toLocaleString()} · 파생 연결 {derivedEdges.toLocaleString()} · {viewDetail.data.origin === 'ai' ? 'AI' : '직접'}
+                          보기 "{view.label}" · 남김 {view.nodes.toLocaleString()} · 생략 구간 {derivedEdges.toLocaleString()} · {viewDetail.data.origin === 'ai' ? 'AI' : '직접'}
                           {viewDetail.data.missing.length > 0 && <span className="text-destructive"> · 원본에 없음 {viewDetail.data.missing.length.toLocaleString()}</span>}
                         </span>
                         <Button variant="ghost" onClick={() => void navigate({ search: (previous) => ({ ...previous, viewInfo: true, node: undefined, omitted: undefined, edit: undefined }), replace: true })}>

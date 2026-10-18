@@ -32,7 +32,6 @@ export function SceneNodeDetail({ projectId, groupId, onClose }: { projectId: st
             </Link>
           </Button>
         </div>
-        <p className="text-xs text-muted-foreground">장면 사이 연결은 대사 그래프에서 파생</p>
       </div>
     </div>
   );
