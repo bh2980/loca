@@ -4,7 +4,7 @@ import { tool } from 'ai';
 import { HTTPException } from 'hono/http-exception';
 import { and, asc, count, desc, eq, inArray, like, ne, or } from 'drizzle-orm';
 import { z } from 'zod';
-import { AI_OUTPUTS, DEFAULT_TAG_COLOR, AI_PRESETS, aiNodeConfigSchema, KNOWLEDGE_TAG_KINDS, patchOf, TAG_SCOPES, withRunModels, AUTO_MARKS, batchChangeSchema, CONDITION_MARK_IDS, CONNECTION_KIND_INFO, createGroupSchema, createUnitSchema, deleteUnitsSchema, findReadingRouteInputSchema, FUNCTIONS, LINE_MARK_IDS, lineFilterSchema, lineMarksSchema, NODE_TYPES, sourceOf, updateGroupSchema, updateUnitSchema, workflowDefinitionSchema } from '@tw/shared';
+import { APPLY_TARGETS, AI_OUTPUTS, DEFAULT_TAG_COLOR, AI_PRESETS, aiNodeConfigSchema, KNOWLEDGE_TAG_KINDS, patchOf, TAG_SCOPES, withRunModels, AUTO_MARKS, batchChangeSchema, CONDITION_MARK_IDS, CONNECTION_KIND_INFO, createGroupSchema, createUnitSchema, deleteUnitsSchema, findReadingRouteInputSchema, FUNCTIONS, LINE_MARK_IDS, lineFilterSchema, lineMarksSchema, NODE_TYPES, sourceOf, updateGroupSchema, updateUnitSchema, workflowDefinitionSchema } from '@tw/shared';
 import { z as zod } from 'zod';
 import type { Db } from '../db/index.ts';
 import { byPerson } from './status-by.ts';
@@ -25,7 +25,8 @@ import { readWebPage, webSearch } from './web.ts';
 import { deleteItems, DELETABLE_KINDS } from './item-delete.ts';
 import { projectSettingsInput, readProjectSettings, updateProjectSettings } from './project-settings.ts';
 import { pickNodes, saveView, sectionWithMost, viewSection, VIEW_LIMIT } from './graph-views.ts';
-import { saveCharacter } from './characters.ts';
+import { asNew, characterByName as characterByNameOf, saveCharacterItem, saveKnowledgeItem, saveRelationshipItem, sent } from './knowledge-save.ts';
+import { aiSetLineListeners, aiSetSceneListeners } from './ai-knowledge.ts';
 import { listTerms, saveTerm, termFilterInput } from './terms.ts';
 import { annotateKnowledge, knowledgeFilterInput } from './knowledge-list.ts';
 import { findTerm, termUsage } from './term-usage.ts';
@@ -62,18 +63,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
    * its status, translation and note.)
    */
   const upsert = <T extends z.ZodRawShape>(schema: z.ZodObject<T>) => patchOf(schema).extend({ id: z.string().optional() });
-  const sent = <T extends Record<string, unknown>>(input: T) => Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined)) as Partial<T>;
-  const asNew = <T extends z.ZodType>(schema: T, input: unknown): { ok: true; data: z.output<T> } | { ok: false; error: string } => {
-    const parsed = schema.safeParse(input);
-    return parsed.success ? { ok: true, data: parsed.data } : { ok: false, error: `새로 만들려면 빠진 값이 있습니다: ${parsed.error.issues.map((issue) => issue.path.join('.')).join(', ')}` };
-  };
-  const characterByName = (name: string) =>
-    db
-      .select()
-      .from(s.characters)
-      .where(eq(s.characters.projectId, projectId))
-      .all()
-      .find((character) => [character.name, ...character.aliases].some((alias) => alias.toLowerCase() === name.toLowerCase()));
+  const characterByName = (name: string) => characterByNameOf(db, projectId, name);
 
   const all = {
     // ── read ──────────────────────────────────────────────────────
@@ -242,7 +232,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
     }),
     show_graph: tool({
       description:
-        'Show the user part of the dialogue graph (the whole graph is too large to read): pick nodes by scenes (ids, keys or titles), speakers (lines they speak), lines (line keys), q (text in lines) and/or between (every node on any path from start to end — all branches of an event, unlike find_reading_route which finds one route; start/end are exact line keys/ids or node keys/ids, verify them with find_lines or line_context first); they add up. around adds the nodes that many steps before and after; exclude leaves lines/nodes out. mode "mark" highlights them in the graph (shown in the section holding most of them); mode "only" lays them out on their own, with labels where lines continue elsewhere. Use list_scenes, scenes_with or find_lines first when unsure. Returns a link the user clicks; tell them what you picked and why.',
+        'Show the user part of the dialogue graph (the whole graph is too large to read): pick nodes by scenes (ids, keys or titles), speakers (lines they speak), lines (line keys), q (text in lines) and/or between (every node on any path from start to end — all branches of an event, unlike find_reading_route which finds one route; start/end are exact line keys/ids or node keys/ids, verify them with find_lines or line_context first); they add up. around adds the nodes that many steps before and after; exclude leaves lines/nodes out. keep names nodes one by one (exact line keys/ids or node keys/ids) with a short Korean reason each. mode "mark" highlights them in the graph (shown in the section holding most of them); mode "view" saves them as a view (a simplified graph of only these nodes, which the user can reopen, rename and edit): nodes left out between two kept nodes are joined by dashed derived edges the app computes from the real graph, however far apart — keep only the nodes needed to understand what the user asked about, and never invent connections. Put the user\'s request in "request". Use list_scenes, scenes_with, find_lines, line_context or find_reading_route first. Returns a link the user clicks; tell them what you kept and why.',
       inputSchema: z.object({
         scenes: z.array(z.string().min(1)).max(500).default([]),
         speakers: z.array(z.string().min(1)).default([]),
@@ -250,16 +240,18 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         q: z.string().optional(),
         between: z.object({ start: z.string().min(1), end: z.string().min(1) }).optional(),
         exclude: z.array(z.string().min(1)).max(5000).default([]),
+        keep: z.array(z.object({ ref: z.string().min(1), reason: z.string().max(200).optional() })).max(2000).default([]),
         around: z.number().int().min(0).max(5).default(0),
-        mode: z.enum(['mark', 'only']).default('mark'),
+        mode: z.enum(['mark', 'view']).default('mark'),
+        request: z.string().max(500).optional().describe('What the user asked for, in their words (saved with a view so it can be remade).'),
         label: z.string().max(80).describe('A few words for the user on what this view shows, e.g. "Mira ↔ Jonas 대화".'),
       }),
-      execute: async ({ mode, label, ...pick }) => {
-        const { nodeIds, unknown, scenes } = pickNodes(db, projectId, pick);
+      execute: async ({ mode, label, request, ...pick }) => {
+        const { nodeIds, reasons, unknown, scenes } = pickNodes(db, projectId, pick);
         if (!nodeIds.length) return { ok: false, error: unknown.length ? `찾지 못함: ${unknown.slice(0, 5).join(', ')}` : '조건에 맞는 노드가 없습니다.' };
         if (nodeIds.length > VIEW_LIMIT) return { ok: false, error: `노드가 ${nodeIds.length.toLocaleString()}개라 너무 많습니다. ${VIEW_LIMIT.toLocaleString()}개 이하로 좁혀 주세요.` };
-        const id = saveView(db, projectId, nodeIds, label);
-        const search = mode === 'only' ? { scope: 'dialogue', section: await viewSection(db, projectId, id) } : { scope: 'dialogue', mark: id, section: sectionWithMost(db, projectId, nodeIds) ?? undefined };
+        const id = saveView(db, projectId, nodeIds, label, { origin: 'ai', request: request ?? null, reasons });
+        const search = mode === 'view' ? { scope: 'dialogue', section: await viewSection(db, projectId, id) } : { scope: 'dialogue', mark: id, section: sectionWithMost(db, projectId, nodeIds) ?? undefined };
         return { ok: true, nodes: nodeIds.length, scenes, unknown, label, open: { to: '/p/$projectId/graph', search } };
       },
     }),
@@ -383,6 +375,12 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         functionNode: {
           config: '{fn, params}',
           functions: Object.fromEntries(Object.entries(FUNCTIONS).map(([name, info]) => [name, { label: info.label, description: info.description, params: zod.toJSONSchema(info.params) }])),
+          applyNodes: {
+            what: 'Apply nodes (反映) put an AI/script node\'s result into the project: they are the workflow form of the write tools below and go through the same services. AI nodes only produce answers (text / verdict / choice / json); saving them is an apply node\'s job.',
+            config: 'params = { fromNodeId (the AI/script node), list (shape "list": the list field in its json output), map (target field → field of the source; nested list fields use "<list>.<sub>" or the same name), propose (default true: file a proposal the person accepts in the app, source "run"; false: write now), asCandidate (written now: as a candidate ✦ instead of confirmed) }',
+            batchOutputs: 'A json output with scope "batch" is carried by the batch\'s first line only; apply nodes skip the other lines, so a batch is applied once.',
+            targets: Object.fromEntries(Object.entries(APPLY_TARGETS).map(([name, target]) => [name, { label: target.label, shape: target.shape, files: target.tool, fields: target.fields.map((field) => `${field.name}${'required' in field && field.required ? '*' : ''}:${field.type}`) }])),
+          },
           scriptContract: 'export default function run(input) where input = {unit, candidate, issues, outputs, visits}; return {port?, candidate?, data?, issues?}. Runs in a sandbox without network.',
         },
         conditionData: `JSON Logic over {visits: {[nodeId]: count}, outputs: {[nodeId]: output}, candidate, issues, unit: {kind, speaker, statusId, tagIds, marks}} (marks: any of ${CONDITION_MARK_IDS.join(', ')}; test with {"in": ["ai", {"var": "unit.marks"}]}). Example: {"<": [{"var": "visits.review"}, 3]} or {"==": [{"var": "outputs.review.passed"}, true]}`,
@@ -429,92 +427,32 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       description: 'Create a character, or update it when id is given (call list_characters first; creating a name that already exists is refused). Profile is markdown: personality, role, translation notes; speech is how they talk in the source; player marks the player character (who may be addressed without speaking); gender (male / female / other = neither / unknown) and ageBand (child / teen / young / middle / old / unknown) only from what the script shows; role: main / supporting / minor / unknown: how central to the story. Korean speech levels belong in save_speech_rule.',
       inputSchema: upsert(characterInput),
       needsApproval: true,
-      execute: ({ id, ...input }) => {
-        if (id) {
-          const saved = saveCharacter(db, projectId, sent(input), id);
-          return saved ? { ok: true, id: saved.id } : { ok: false, error: '없는 인물입니다.' };
-        }
-        const fresh = asNew(characterInput, input);
-        if (!fresh.ok) return fresh;
-        const existing = characterByName(fresh.data.name);
-        if (existing) return { ok: false, error: '같은 이름의 인물이 이미 있습니다.', hint: `그 인물을 고치려면 id=${existing.id}로 다시 제안하세요.` };
-        const saved = saveCharacter(db, projectId, fresh.data);
-        if (!saved) return { ok: false, error: '없는 인물입니다.' };
-        return { ok: true, id: saved.id };
-      },
+      execute: (input) => saveCharacterItem(db, projectId, input),
     }),
     save_relationship: tool({
       description: 'Create a relationship between two stored characters (by name or alias), or update it when id is given.',
       inputSchema: upsert(relationshipInput.omit({ fromId: true, toId: true })).extend({ from: z.string().optional(), to: z.string().optional() }),
       needsApproval: true,
-      execute: ({ id, from, to, ...input }) => {
-        const a = from === undefined ? undefined : characterByName(from), b = to === undefined ? undefined : characterByName(to);
-        if ((from !== undefined && !a) || (to !== undefined && !b)) return { ok: false, error: `인물을 먼저 만들어야 합니다: ${from !== undefined && !a ? from : to}` };
-        const ends = { ...(a && { fromId: a.id }), ...(b && { toId: b.id }) };
-        if (id) {
-          const values = { ...sent(input), ...ends };
-          if (!db.update(s.relationships).set({ ...values, ...byPerson(db, s.relationships, projectId, id, values) }).where(and(eq(s.relationships.id, id), eq(s.relationships.projectId, projectId))).run().changes) return { ok: false, error: '없는 관계입니다.' };
-        } else {
-          const fresh = asNew(relationshipInput, { ...input, ...ends });
-          if (!fresh.ok) return fresh;
-          id = db.insert(s.relationships).values({ ...fresh.data, projectId }).returning().get().id;
-        }
-        changed('knowledge');
-        return { ok: true, id };
-      },
+      execute: (input) => saveRelationshipItem(db, projectId, input),
     }),
     save_speech_rule: tool({
       description:
         'Create a Korean speech rule for one speaker → listener direction (call list_speech_rules first), or update it when id is given. A new stretch for a pair that changes (falling out, reconciliation) is a new rule with startKey = the first line of the stretch. Use names as stored (character name or alias).',
       inputSchema: upsert(speechRuleInput),
       needsApproval: true,
-      execute: ({ id, ...input }) => {
-        if (id) {
-          // Accepted by a person: like an edit in the app (byPerson also takes 확인 권장 off).
-          const values = sent(input);
-          if (!db.update(s.speechRules).set({ ...values, ...byPerson(db, s.speechRules, projectId, id, values) }).where(and(eq(s.speechRules.id, id), eq(s.speechRules.projectId, projectId))).run().changes) return { ok: false, error: '없는 말투 규칙입니다.' };
-        } else {
-          const fresh = asNew(speechRuleInput, input);
-          if (!fresh.ok) return fresh;
-          id = db.insert(s.speechRules).values({ ...fresh.data, projectId }).returning().get().id;
-        }
-        changed('knowledge');
-        return { ok: true, id };
-      },
+      execute: (input) => saveKnowledgeItem(db, projectId, 'speechRules', input),
     }),
     save_event: tool({
       description: 'Create a story event (call list_events first), or update it when id is given. evidence are the line keys that show it.',
       inputSchema: upsert(eventInput),
       needsApproval: true,
-      execute: ({ id, ...input }) => {
-        if (id) {
-          const values = sent(input);
-          if (!db.update(s.storyEvents).set({ ...values, ...byPerson(db, s.storyEvents, projectId, id, values) }).where(and(eq(s.storyEvents.id, id), eq(s.storyEvents.projectId, projectId))).run().changes) return { ok: false, error: '없는 사건입니다.' };
-        } else {
-          const fresh = asNew(eventInput, input);
-          if (!fresh.ok) return fresh;
-          id = db.insert(s.storyEvents).values({ ...fresh.data, projectId }).returning().get().id;
-        }
-        changed('knowledge');
-        return { ok: true, id };
-      },
+      execute: (input) => saveKnowledgeItem(db, projectId, 'events', input),
     }),
     save_document: tool({
       description: 'Create a reference document (story / world / style / note), or update it when id is given. alwaysInclude (shown as 번역 문맥에 넣기) puts its full text into the prompts of AI nodes that have the 작품 문서 context on.',
       inputSchema: upsert(documentInput),
       needsApproval: true,
-      execute: ({ id, ...input }) => {
-        if (id) {
-          const values = sent(input);
-          if (!db.update(s.documents).set({ ...values, ...byPerson(db, s.documents, projectId, id, values) }).where(and(eq(s.documents.id, id), eq(s.documents.projectId, projectId))).run().changes) return { ok: false, error: '없는 문서입니다.' };
-        } else {
-          const fresh = asNew(documentInput, input);
-          if (!fresh.ok) return fresh;
-          id = db.insert(s.documents).values({ ...fresh.data, projectId }).returning().get().id;
-        }
-        changed('knowledge');
-        return { ok: true, id };
-      },
+      execute: (input) => saveKnowledgeItem(db, projectId, 'documents', input),
     }),
     save_terms: tool({
       description: 'Add glossary entries, or update existing ones by id. An update changes only the fields you send (leave out what stays). Tags go on with tag_items, not here.',
@@ -577,6 +515,22 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         const id = addCandidate(db, { unitId, text, note, origin: 'ai', model: author.model });
         changed('units');
         return { ok: true, id };
+      },
+    }),
+    set_listeners: tool({
+      description:
+        'Set who lines are addressed to, as an AI guess (origin ai, with a 0..1 confidence; a listener a person set or the import brought is never changed, and only lines said to someone take one). lines: per line (key, listener name or null, confidence). scenes: a speaker\'s listener for a whole scene (scene = the group key; stored as a scene guess that fills the scene\'s lines with no listener; exceptions name single lines). Names as stored (character name or alias), or a special listener (group, self…).',
+      inputSchema: z
+        .object({
+          lines: z.array(z.object({ key: z.string().min(1), listener: z.string().nullable(), confidence: z.number().min(0).max(1).default(1) })).max(5_000).default([]),
+          scenes: z.array(z.object({ scene: z.string().min(1), speaker: z.string().min(1), listener: z.string().nullable(), confidence: z.number().min(0).max(1).default(1), exceptions: z.array(z.object({ line: z.string().min(1), listener: z.string().nullable(), confidence: z.number().min(0).max(1).default(1) })).default([]) })).max(2_000).default([]),
+        })
+        .refine((input) => input.lines.length + input.scenes.length > 0, '청자를 하나 이상 넣으세요.'),
+      needsApproval: true,
+      execute: ({ lines, scenes }) => {
+        const result = db.transaction((tx) => ({ lines: aiSetLineListeners(tx, projectId, lines), scenes: aiSetSceneListeners(tx, projectId, scenes) }));
+        changed('units');
+        return { ok: true, lines: result.lines.set, skipped: result.lines.skipped, sceneLines: result.scenes.changed };
       },
     }),
     save_group_summary: tool({

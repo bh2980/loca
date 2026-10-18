@@ -3,9 +3,8 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Play, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { ANALYSIS_SECTION_LABELS, ANALYSIS_SECTIONS, ANALYSIS_WORKFLOW_PRESETS, ANALYSIS_WORKFLOW_PRESET_IDS, type AnalysisSection, type AnalysisWorkflowPresetId } from '@tw/shared';
 import { AiButton } from '@/components/ai-button';
-import { EmptyState, DataTable, type ColumnDef, JobStatusBadge, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Badge, Checkbox, Button, Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Input, Label, RadioGroup, RadioGroupItem, Skeleton, ContextMenuItem, ContextMenuSeparator } from '@loca/ui';
+import { EmptyState, DataTable, type ColumnDef, JobStatusBadge, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Badge, Button, Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Input, Label, RadioGroup, RadioGroupItem, Skeleton, ContextMenuItem, ContextMenuSeparator } from '@loca/ui';
 import { HeaderActions, Page } from '@/components/page';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { client, unwrap } from '@/lib/api';
@@ -194,22 +193,27 @@ function Workflows() {
   );
 }
 
-type From = 'draft' | 'template' | 'terms' | 'listener' | 'knowledge' | 'speechFix' | 'analysis' | 'blank';
+type From = 'draft' | 'template' | 'terms' | 'listener' | 'people' | 'events' | 'speechFix' | 'analysis' | 'blank';
+
+/** The templates "새 워크플로" offers (defaults.ts); each is drawn as real nodes, prompts and saves included. */
+const TEMPLATE_OPTIONS: { value: Exclude<From, 'blank'>; name: string; label: string; description: string }[] = [
+  { value: 'draft', name: '초벌 번역', label: '초벌 번역 템플릿', description: 'AI 번역 → 번역 후보 기록 → 형식 검사 → 초벌 상태로 변경' },
+  { value: 'template', name: '번역·검수', label: '검수 포함 번역 템플릿', description: '번역 → 기록 → 형식 검사 → AI 검수 ↔ 수정 → 확정' },
+  { value: 'terms', name: '용어 추출', label: '용어 추출 템플릿', description: 'AI가 장면별로 용어를 뽑고 용어 저장 노드가 제안으로 올립니다 (상태는 그대로).' },
+  { value: 'people', name: '인물·관계 추출', label: '인물·관계 추출 템플릿', description: '장면별로 인물·관계·말투 규칙을 뽑아 각 저장 노드로 제안합니다.' },
+  { value: 'events', name: '사건 추출', label: '사건 추출 템플릿', description: '장면별로 사건(원인·결과·관련 인물)을 뽑아 사건 저장 노드로 제안합니다.' },
+  { value: 'listener', name: '청자 추정', label: '청자 추정 템플릿', description: '청자 없는 대사만 AI가 고르고, 확신도 0.7 이상이면 청자 설정 노드가 적습니다.' },
+  { value: 'analysis', name: '작품 분석', label: '작품 분석 템플릿', description: '대본 전체를 한 번에 읽는 AI 노드 뒤에 목록마다 저장 노드가 이어집니다. 필요 없는 항목은 필드와 저장 노드를 지우세요.' },
+  { value: 'speechFix', name: '말투만 고치기', label: '말투만 고치기 템플릿', description: '현재 번역의 어미·호칭만 확정 규칙에 맞춥니다 (뜻·표현·상태는 그대로).' },
+];
 
 function NewWorkflow({ projectId }: { projectId: string }) {
   const navigate = Route.useNavigate();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [from, setFrom] = useState<From>('draft');
-  const [analysisPresetId, setAnalysisPresetId] = useState<AnalysisWorkflowPresetId | 'custom'>('all');
-  // A custom analysis reads only the picked sections (all of them when every box is ticked).
-  const [sections, setSections] = useState<AnalysisSection[]>([...ANALYSIS_SECTIONS]);
   const create = useMutation({
-    mutationFn: () => unwrap(client.projects[':projectId'].workflows.$post({ param: { projectId }, json: {
-      name: name.trim() || (from === 'analysis' && analysisPresetId !== 'custom' ? ANALYSIS_WORKFLOW_PRESETS[analysisPresetId].name : ''),
-      from,
-      ...(from === 'analysis' && analysisPresetId !== 'custom' ? { presetId: analysisPresetId } : from === 'analysis' && sections.length < ANALYSIS_SECTIONS.length ? { sections } : {}),
-    } })),
+    mutationFn: () => unwrap(client.projects[':projectId'].workflows.$post({ param: { projectId }, json: { name: name.trim() || (TEMPLATE_OPTIONS.find((option) => option.value === from)?.name ?? '새 워크플로'), from } })),
     onSuccess: (workflow) => {
       setOpen(false);
       void navigate({ to: '/p/$projectId/workflows/$workflowId', params: { projectId, workflowId: workflow.id } });
@@ -229,91 +233,18 @@ function NewWorkflow({ projectId }: { projectId: string }) {
         <div className="space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="wf-name">이름</Label>
-            <Input id="wf-name" value={name || (from === 'analysis' && analysisPresetId !== 'custom' ? ANALYSIS_WORKFLOW_PRESETS[analysisPresetId].name : '')} onChange={(event) => setName(event.target.value)} autoFocus />
+            <Input id="wf-name" value={name} placeholder={TEMPLATE_OPTIONS.find((option) => option.value === from)?.name} onChange={(event) => setName(event.target.value)} autoFocus />
           </div>
           <RadioGroup value={from} onValueChange={(value) => setFrom(value as From)}>
-            <label className="flex items-start gap-2 text-sm">
-              <RadioGroupItem value="draft" className="mt-0.5" />
-              <span>
-                초벌 번역 템플릿
-                <span className="block text-xs text-muted-foreground">AI 번역 → 형식 검사 → 초벌 상태로 변경</span>
-              </span>
-            </label>
-            <label className="flex items-start gap-2 text-sm">
-              <RadioGroupItem value="template" className="mt-0.5" />
-              <span>
-                검수 포함 번역 템플릿
-                <span className="block text-xs text-muted-foreground">번역 → 형식 검사 → AI 검수 ↔ 수정 → 확정</span>
-              </span>
-            </label>
-            <label className="flex items-start gap-2 text-sm">
-              <RadioGroupItem value="terms" className="mt-0.5" />
-              <span>
-                용어 추출 템플릿
-                <span className="block text-xs text-muted-foreground">장면별로 용어를 뽑아 용어집 후보로 추가 (상태는 그대로). 수락 후 번역에 쓰입니다.</span>
-              </span>
-            </label>
-            <label className="flex items-start gap-2 text-sm">
-              <RadioGroupItem value="listener" className="mt-0.5" />
-              <span>
-                청자 추정 템플릿
-                <span className="block text-xs text-muted-foreground">장면별로 대사마다 누구에게 하는 말인지와 확신도를 적습니다 (번역·상태는 그대로). 말투 규칙은 청자가 정해진 대사에만 쓰입니다.</span>
-              </span>
-            </label>
-            <label className="flex items-start gap-2 text-sm">
-              <RadioGroupItem value="knowledge" className="mt-0.5" />
-              <span>
-                자료 갱신 템플릿
-                <span className="block text-xs text-muted-foreground">장면을 읽으며 새 인물·관계 변화·사건·말투 변화를 자료에 AI 항목으로 넣습니다 (정식 자료는 그대로, 다른 의견은 후보).</span>
-              </span>
-            </label>
-            <label className="flex items-start gap-2 text-sm">
-              <RadioGroupItem value="analysis" className="mt-0.5" />
-              <span>
-                분석 워크플로 템플릿
-                <span className="block text-xs text-muted-foreground">필요한 항목만 읽는 분석 workflow를 만든 뒤 편집·실행합니다.</span>
-              </span>
-            </label>
-            {from === 'analysis' && (
-              <div className="ml-6 space-y-2">
-                <RadioGroup value={analysisPresetId} onValueChange={(value) => setAnalysisPresetId(value as AnalysisWorkflowPresetId | 'custom')} aria-label="분석 템플릿">
-                  <div className="max-h-48 space-y-1 overflow-y-auto rounded-md border p-2">
-                    {ANALYSIS_WORKFLOW_PRESET_IDS.map((presetId) => {
-                      const preset = ANALYSIS_WORKFLOW_PRESETS[presetId];
-                      return <label key={presetId} className="flex items-start gap-2 rounded px-1 py-1 text-sm hover:bg-muted">
-                        <RadioGroupItem value={presetId} className="mt-0.5" />
-                        <span className="min-w-0"><span className="block">{preset.label} 분석</span><span className="block text-xs text-muted-foreground">{preset.description}</span></span>
-                      </label>;
-                    })}
-                    <label className="flex items-start gap-2 rounded px-1 py-1 text-sm hover:bg-muted">
-                      <RadioGroupItem value="custom" className="mt-0.5" />
-                      <span><span className="block">직접 선택</span><span className="block text-xs text-muted-foreground">여러 항목을 조합하는 workflow</span></span>
-                    </label>
-                  </div>
-                </RadioGroup>
-                {analysisPresetId === 'custom' && (
-                  <div className="grid grid-cols-2 gap-1.5" role="group" aria-label="읽을 항목">
-                    {ANALYSIS_SECTIONS.map((section) => (
-                      <label key={section} className="flex items-center gap-2 text-sm">
-                        <Checkbox
-                          checked={sections.includes(section)}
-                          disabled={sections.length === 1 && sections.includes(section)}
-                          onCheckedChange={(checked) => setSections((current) => (checked ? ANALYSIS_SECTIONS.filter((one) => one === section || current.includes(one)) : current.filter((one) => one !== section)))}
-                        />
-                        {ANALYSIS_SECTION_LABELS[section]}
-                      </label>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-            <label className="flex items-start gap-2 text-sm">
-              <RadioGroupItem value="speechFix" className="mt-0.5" />
-              <span>
-                말투만 고치기 템플릿
-                <span className="block text-xs text-muted-foreground">말투 규칙·청자를 고친 뒤, 현재 번역의 어미·호칭만 확정 규칙에 맞춥니다 (뜻·표현·상태는 그대로).</span>
-              </span>
-            </label>
+            {TEMPLATE_OPTIONS.map((option) => (
+              <label key={option.value} className="flex items-start gap-2 text-sm">
+                <RadioGroupItem value={option.value} className="mt-0.5" />
+                <span>
+                  {option.label}
+                  <span className="block text-xs text-muted-foreground">{option.description}</span>
+                </span>
+              </label>
+            ))}
             <label className="flex items-start gap-2 text-sm">
               <RadioGroupItem value="blank" className="mt-0.5" />
               <span>
@@ -323,7 +254,7 @@ function NewWorkflow({ projectId }: { projectId: string }) {
           </RadioGroup>
         </div>
         <DialogFooter>
-          <Button disabled={(!name.trim() && (from !== 'analysis' || analysisPresetId === 'custom')) || create.isPending} onClick={() => create.mutate()}>
+          <Button disabled={(!name.trim() && from === 'blank') || create.isPending} onClick={() => create.mutate()}>
             만들기
           </Button>
         </DialogFooter>

@@ -21,13 +21,29 @@ export interface FunctionInfo<P extends z.ZodType = z.ZodType> {
   async: boolean;
 }
 
-/** A named, typed field of a JSON output (AI "json" output, script data). */
-export const jsonFieldSchema = z.object({
-  name: z.string().trim().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, '영문·숫자·_ 로 된 이름'),
-  type: z.enum(['string', 'number', 'boolean']).default('string'),
-  description: z.string().default(''),
-});
-export type JsonField = z.infer<typeof jsonFieldSchema>;
+/**
+ * Types a JSON output field can have (AI "json" output, script data). `strings`: a list of texts;
+ * `lines`: evidence, the ids of lines in the request (stored as line keys); `list`: a list of
+ * objects whose fields are `fields`.
+ */
+export const JSON_FIELD_TYPES = ['string', 'number', 'boolean', 'strings', 'lines', 'list'] as const;
+export type JsonFieldType = (typeof JSON_FIELD_TYPES)[number];
+export const JSON_FIELD_TYPE_LABELS: Record<JsonFieldType, string> = { string: '문자열', number: '숫자', boolean: '참/거짓', strings: '문자열 목록', lines: '대사 근거', list: '목록' };
+export interface JsonField {
+  name: string;
+  type: JsonFieldType;
+  description: string;
+  /** Item fields of a `list`. */
+  fields?: JsonField[];
+}
+export const jsonFieldSchema: z.ZodType<JsonField> = z.lazy(() =>
+  z.object({
+    name: z.string().trim().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, '영문·숫자·_ 로 된 이름'),
+    type: z.enum(JSON_FIELD_TYPES).default('string'),
+    description: z.string().default(''),
+    fields: z.array(jsonFieldSchema).optional(),
+  }),
+) as z.ZodType<JsonField>;
 
 const pass: Port[] = [{ id: 'pass', label: '통과' }, { id: 'fail', label: '실패' }];
 const out: Port[] = [{ id: 'out', label: '다음' }];
@@ -65,25 +81,192 @@ export const setStatusParams = z.object({
   removeTagIds: z.array(z.string()).default([]),
 });
 
-export const addTermsParams = z.object({
-  /** AI node whose "terms" output to add. Empty = the most recent terms output on the line. */
-  fromNodeId: z.string().default(''),
-});
+/**
+ * 반영 노드: put a node's output into the project. Each one is the workflow form of a chat/CLI
+ * write tool and goes through the same service. What they take is declared in APPLY_TARGETS.
+ *
+ * shape `line`: one value per line (outputs.<from>.<field>). `list`: a list in a batch output, one
+ * entry per item (outputs.<from>.<list>[]). `single`: one object in a batch output. Batch outputs are
+ * carried by the batch's first line only (`batchLeader`), so they are applied once per batch.
+ */
+export type ApplyShape = 'line' | 'list' | 'single';
+export interface ApplyField {
+  name: string;
+  label: string;
+  type: JsonFieldType;
+  required?: boolean;
+  /** Item fields of a `list` field (e.g. a relationship's changes); mapped as "<field>.<sub>" or by the same name. */
+  fields?: ApplyField[];
+}
+export interface ApplyTarget {
+  label: string;
+  description: string;
+  shape: ApplyShape;
+  fields: ApplyField[];
+  /** The chat/CLI tool a proposal is filed as (proposals.tool), and whose service writes it. */
+  tool: string;
+}
+const evidenceField = { name: 'evidence', label: '근거 대사', type: 'lines' } as const satisfies ApplyField;
+export const APPLY_TARGETS = {
+  saveCandidate: {
+    label: '번역 후보 기록',
+    description: '대사의 번역 후보로 남기고 번역 칸에 넣습니다. 사람이 저장한 번역은 덮어쓰지 않습니다.',
+    shape: 'line',
+    fields: [{ name: 'text', label: '번역문', type: 'string', required: true }],
+    tool: 'propose_changes',
+  },
+  setListener: {
+    label: '청자 설정',
+    description: '대사의 청자를 적습니다(출처: AI). 사람이 정했거나 가져온 청자는 바꾸지 않습니다.',
+    shape: 'line',
+    fields: [
+      { name: 'listener', label: '청자', type: 'string', required: true },
+      { name: 'confidence', label: '확신도', type: 'number' },
+    ],
+    tool: 'set_listeners',
+  },
+  tagLines: {
+    label: '태그 붙이기',
+    description: '값과 이름이 같은 대사 태그를 붙입니다. 없는 태그는 만들지 않습니다.',
+    shape: 'line',
+    fields: [{ name: 'tag', label: '태그 이름', type: 'string', required: true }],
+    tool: 'propose_changes',
+  },
+  saveTerms: {
+    label: '용어 저장',
+    description: '용어집에 용어를 넣습니다. 이미 있는 용어(대소문자 무시)는 빈 칸만 채우고, 거절한 용어는 건드리지 않습니다.',
+    shape: 'list',
+    fields: [
+      { name: 'source', label: '원문', type: 'string', required: true },
+      { name: 'target', label: '번역', type: 'string' },
+      { name: 'kind', label: '종류', type: 'string' },
+      { name: 'meaning', label: '뜻', type: 'string' },
+      { name: 'note', label: '메모', type: 'string' },
+      evidenceField,
+    ],
+    tool: 'save_terms',
+  },
+  saveCharacters: {
+    label: '인물 저장',
+    description: '인물을 넣습니다. 사람이 정한 인물은 바꾸지 않고, 이미 있는 인물은 빈 칸만 채웁니다.',
+    shape: 'list',
+    fields: [
+      { name: 'name', label: '이름', type: 'string', required: true },
+      { name: 'aliases', label: '별칭', type: 'strings' },
+      { name: 'profile', label: '프로필', type: 'string' },
+      { name: 'speech', label: '말버릇', type: 'string' },
+      { name: 'gender', label: '성별', type: 'string' },
+      { name: 'ageBand', label: '연령대', type: 'string' },
+      { name: 'role', label: '비중', type: 'string' },
+      { name: 'player', label: '플레이어 캐릭터', type: 'boolean' },
+      evidenceField,
+    ],
+    tool: 'save_knowledge',
+  },
+  saveRelationships: {
+    label: '관계 저장',
+    description: '두 인물의 관계와 그 변화를 넣습니다. 사람이 정한 관계는 바꾸지 않고, 달라진 점은 후보로 남깁니다.',
+    shape: 'list',
+    fields: [
+      { name: 'from', label: '인물', type: 'string', required: true },
+      { name: 'to', label: '상대', type: 'string', required: true },
+      { name: 'kind', label: '관계', type: 'string', required: true },
+      { name: 'description', label: '설명', type: 'string' },
+      { name: 'mutual', label: '쌍방', type: 'boolean' },
+      {
+        name: 'changes',
+        label: '변화',
+        type: 'list',
+        fields: [
+          { name: 'at', label: '변화가 보이는 대사', type: 'lines', required: true },
+          { name: 'change', label: '변화', type: 'string', required: true },
+          { name: 'cause', label: '원인', type: 'string' },
+        ],
+      },
+      evidenceField,
+    ],
+    tool: 'save_knowledge',
+  },
+  saveSpeechRules: {
+    label: '말투 규칙 저장',
+    description: '화자→청자 말투 규칙(등급·호칭)을 넣습니다. 사람이 정한 규칙과 다르면 후보로 남깁니다.',
+    shape: 'list',
+    fields: [
+      { name: 'fromName', label: '화자', type: 'string', required: true },
+      { name: 'toName', label: '청자', type: 'string', required: true },
+      { name: 'level', label: '말투 등급', type: 'string', required: true },
+      { name: 'address', label: '호칭', type: 'string' },
+      { name: 'note', label: '메모', type: 'string' },
+      { name: 'startKey', label: '시작 대사', type: 'lines' },
+      evidenceField,
+    ],
+    tool: 'save_knowledge',
+  },
+  saveEvents: {
+    label: '사건 저장',
+    description: '사건(제목·요약·원인·결과·관련 인물)을 넣습니다. 같은 제목의 사건은 넣지 않습니다.',
+    shape: 'list',
+    fields: [
+      { name: 'title', label: '제목', type: 'string', required: true },
+      { name: 'summary', label: '요약', type: 'string' },
+      { name: 'cause', label: '원인', type: 'string' },
+      { name: 'outcome', label: '결과', type: 'string' },
+      { name: 'participants', label: '관련 인물', type: 'strings' },
+      evidenceField,
+    ],
+    tool: 'save_knowledge',
+  },
+  saveDocument: {
+    label: '문서 저장',
+    description: '세계관·줄거리 같은 문서를 넣습니다. 같은 제목의 문서가 있으면 AI가 쓴 것만 내용을 바꿉니다.',
+    shape: 'single',
+    fields: [
+      { name: 'title', label: '제목', type: 'string', required: true },
+      { name: 'body', label: '본문', type: 'string', required: true },
+      { name: 'kind', label: '종류', type: 'string' },
+      evidenceField,
+    ],
+    tool: 'save_document',
+  },
+  saveSceneListeners: {
+    label: '장면 청자 저장',
+    description: '장면마다 화자별 청자를 그 장면의 청자 없는 대사에 적습니다(출처: AI, 장면 추정). 사람이 정했거나 가져온 청자는 바꾸지 않습니다.',
+    shape: 'list',
+    fields: [
+      { name: 'scene', label: '장면', type: 'string', required: true },
+      { name: 'speaker', label: '화자', type: 'string', required: true },
+      { name: 'listener', label: '청자', type: 'string', required: true },
+      { name: 'confidence', label: '확신도', type: 'number' },
+      {
+        name: 'exceptions',
+        label: '예외 대사',
+        type: 'list',
+        fields: [
+          { name: 'line', label: '대사', type: 'lines', required: true },
+          { name: 'listener', label: '청자', type: 'string', required: true },
+          { name: 'confidence', label: '확신도', type: 'number' },
+        ],
+      },
+    ],
+    tool: 'set_listeners',
+  },
+} as const satisfies Record<string, ApplyTarget>;
+export type ApplyFunctionName = keyof typeof APPLY_TARGETS;
+export const APPLY_FUNCTION_NAMES = Object.keys(APPLY_TARGETS) as ApplyFunctionName[];
 
-export const applyKnowledgeParams = z.object({
-  /** AI node whose "knowledge" output to apply. Empty = the most recent one on the line. */
+export const applyParams = z.object({
+  /** The node whose output is applied. */
   fromNodeId: z.string().default(''),
+  /** shape `list`: the list field in that output whose items are applied. */
+  list: z.string().default(''),
+  /** Target field → source field (inside the list item for `list`, inside the output otherwise). */
+  map: z.record(z.string(), z.string()).default({}),
+  /** On (default): file a proposal a person accepts in the app. Off: write now. */
+  propose: z.boolean().default(true),
+  /** Written now: as a candidate (✦, a person confirms it) instead of confirmed. */
+  asCandidate: z.boolean().default(false),
 });
-
-export const saveAnalysisParams = z.object({
-  /** AI node whose "analysis" output to save. Empty = the most recent one on the line. */
-  fromNodeId: z.string().default(''),
-});
-
-export const setListenerParams = z.object({
-  /** AI node whose "listener" (분류·추론) output to record. Empty = the most recent one on the line. */
-  fromNodeId: z.string().default(''),
-});
+export type ApplyParams = z.infer<typeof applyParams>;
 
 export const httpParams = z.object({
   /** Full address, e.g. "https://api.example.com/spell?lang=ko"; "{{unit.key}}"-style values are filled in (URL-encoded). */
@@ -141,34 +324,9 @@ export const FUNCTIONS = {
     ports: () => out,
     async: false,
   },
-  addTerms: {
-    label: '용어 후보 추가',
-    description: 'AI 노드가 뽑은 용어를 용어집에 추가합니다. 확정할지 후보로 둘지는 AI 결과 반영의 ‘용어’를 따릅니다. 이미 있는 용어(대소문자 무시)는 그대로 두고 빈 번역·메모만 채웁니다. 거절한 용어는 건드리지 않습니다.',
-    params: addTermsParams,
-    ports: () => out,
-    async: false,
-  },
-  applyKnowledge: {
-    label: '자료 반영',
-    description: 'AI 노드가 찾은 새 인물·관계 변화·사건·말투 구간을 자료에 넣습니다(출처: AI). 확정할지 후보로 둘지는 AI 결과 반영을 따릅니다. 사람이 정한 자료는 바꾸지 않고, 다르게 보는 내용은 AI 후보로 옆에 남깁니다.',
-    params: applyKnowledgeParams,
-    ports: () => out,
-    async: false,
-  },
-  saveAnalysis: {
-    label: 'AI 결과 반영',
-    description: 'AI 노드의 작품 분석(개요·인물·관계·사건·말투 규칙·장면별 청자·용어 중 고른 것)을 자료·용어집·대사 청자에 넣습니다(출처: 작품 분석). 확정할지 후보로 둘지는 AI 결과 반영을 따릅니다. 대본 전체를 읽은 실행이면 지난 분석의 손대지 않은 AI 항목을 새 결과로 바꾸고, 사람이 만들거나 고치거나 확정·버린 항목은 그대로 둡니다.',
-    params: saveAnalysisParams,
-    ports: () => out,
-    async: false,
-  },
-  setListener: {
-    label: '청자 기록',
-    description: 'AI 노드가 추정한 청자와 확신도를 대사에 적습니다(출처: AI). 사람이 정한 청자는 바꾸지 않고, 확신도가 낮은 청자는 문맥에서 “미상”으로 다룹니다.',
-    params: setListenerParams,
-    ports: () => out,
-    async: false,
-  },
+  ...(Object.fromEntries(
+    Object.entries(APPLY_TARGETS).map(([name, target]) => [name, { label: target.label, description: target.description, params: applyParams, ports: () => out, async: false }]),
+  ) as unknown as Record<ApplyFunctionName, FunctionInfo<typeof applyParams>>),
   http: {
     label: 'HTTP 호출',
     description: '외부 API(맞춤법·사전 등)를 주소로 호출하고 결과를 후보·판정·데이터로 받습니다. 키가 필요하면 설정의 API 키를 고릅니다.',

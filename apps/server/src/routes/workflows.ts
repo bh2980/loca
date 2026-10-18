@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { ANALYSIS_SECTIONS, ANALYSIS_WORKFLOW_PRESET_IDS, isAnalysisWorkflow, analysisTemplate, analysisWorkflowTemplate, CONNECTION_KIND_INFO, draftTranslationTemplate, knowledgeTemplate, lineMarksSchema, listenerTemplate, scriptParams, speechFixTemplate, termExtractionTemplate, translationTemplate, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels } from '@tw/shared';
+import { isAnalysisWorkflow, CONNECTION_KIND_INFO, draftTranslationTemplate, lineMarksSchema, MODEL_TEMPLATES, scriptParams, translationTemplate, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -45,8 +45,8 @@ function blankWorkflow(db: Db, projectId: string): WorkflowDefinition {
   });
 }
 
-/** Single-purpose templates that only need a model. */
-const TEMPLATES = { terms: termExtractionTemplate, listener: listenerTemplate, knowledge: knowledgeTemplate, speechFix: speechFixTemplate };
+/** Templates that only need a model (defaults.ts MODEL_TEMPLATES); the others need the project's statuses. */
+const MODEL_TEMPLATE_IDS = Object.keys(MODEL_TEMPLATES) as [keyof typeof MODEL_TEMPLATES, ...(keyof typeof MODEL_TEMPLATES)[]];
 
 function draftWorkflow(db: Db, projectId: string): WorkflowDefinition {
   const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).orderBy(asc(s.statuses.sort)).all();
@@ -90,16 +90,13 @@ export const workflowRoutes = new Hono<Env>()
   })
   .post(
     '/projects/:projectId/workflows',
-    validate('json', z.object({ name: z.string().trim().min(1), from: z.enum(['template', 'draft', 'blank', 'terms', 'listener', 'knowledge', 'speechFix', 'analysis']).default('draft'), /** What an analysis template reads for; empty = everything. */ sections: z.array(z.enum(ANALYSIS_SECTIONS)).optional(), presetId: z.enum(ANALYSIS_WORKFLOW_PRESET_IDS).optional() }).superRefine((input, context) => {
-      if (input.presetId && input.from !== 'analysis') context.addIssue({ code: 'custom', path: ['presetId'], message: '분석 템플릿에서만 프리셋을 고를 수 있습니다.' });
-      if (input.presetId && input.sections) context.addIssue({ code: 'custom', path: ['sections'], message: '분석 프리셋과 직접 고른 항목은 함께 보낼 수 없습니다.' });
-    })),
+    validate('json', z.object({ name: z.string().trim().min(1), from: z.enum(['template', 'draft', 'blank', ...MODEL_TEMPLATE_IDS]).default('draft') })),
     (c) => {
       const { db } = c.var.deps;
       const projectId = c.req.param('projectId');
-      const { name, from, sections, presetId } = c.req.valid('json');
+      const { name, from } = c.req.valid('json');
       const definition =
-        from === 'draft' ? draftWorkflow(db, projectId) : from === 'template' ? templateWorkflow(db, projectId) : from === 'blank' ? blankWorkflow(db, projectId) : from === 'analysis' ? presetId ? analysisWorkflowTemplate({ model: defaultModelChoice(db), presetId }) : analysisTemplate({ model: defaultModelChoice(db), sections }) : TEMPLATES[from]({ model: defaultModelChoice(db) });
+        from === 'draft' ? draftWorkflow(db, projectId) : from === 'template' ? templateWorkflow(db, projectId) : from === 'blank' ? blankWorkflow(db, projectId) : MODEL_TEMPLATES[from]({ model: defaultModelChoice(db) });
       const row = saveWorkflow(db, projectId, { name, description: '', definition });
       return c.json(row, 201);
     },

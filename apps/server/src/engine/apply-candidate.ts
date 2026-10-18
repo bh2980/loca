@@ -4,6 +4,9 @@ import * as s from '../db/schema.ts';
 import { applyIssueTags } from '../services/issue-tags.ts';
 import { filtersByStatus } from '@tw/shared';
 
+/** A person's saved translation a status-filtered run does not replace (#51); the same text the runner notes. */
+export const HUMAN_OWNED_NOTE = '사람이 저장한 번역이 있어 바꾸지 않았습니다. AI 번역은 후보로 남겨 두었습니다.';
+
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 type Run = typeof s.runs.$inferSelect;
 

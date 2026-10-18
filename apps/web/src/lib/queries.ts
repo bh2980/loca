@@ -53,6 +53,9 @@ export const q = {
   lineMatches: (unitId: string) => queryOptions({ queryKey: ['units', 'line-matches', unitId], queryFn: () => unwrap(client.units[':unitId'].matches.$get({ param: { unitId } })) }),
   graphSections: (projectId: string, direction: 'vertical' | 'horizontal' = 'vertical') =>
     queryOptions({ queryKey: ['graph', projectId, 'sections', direction], queryFn: () => unwrap(client.projects[':projectId'].graph.sections.$get({ param: { projectId }, query: { direction } })), staleTime: Infinity }),
+  /** The project's stored views of the dialogue graph (graph topic: the SSE refreshes it). */
+  graphViews: (projectId: string) =>
+    queryOptions({ queryKey: ['graph', projectId, 'views'], queryFn: () => unwrap(client.projects[':projectId'].graph.views.$get({ param: { projectId } })) }),
   /** A view of graph nodes made in the chat (show_graph). */
   graphView: (projectId: string, id: string) =>
     queryOptions({ queryKey: ['graph', projectId, 'views', id], queryFn: () => unwrap(client.projects[':projectId'].graph.views[':id'].$get({ param: { projectId, id } })), staleTime: Infinity }),

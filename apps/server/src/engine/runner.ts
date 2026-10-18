@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, gte, inArray, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
 import jsonLogic from 'json-logic-js';
 import * as ai from '@tw/ai';
-import { estimateTokens, batchConfigSchema, FUNCTIONS, choiceKey, isUnknownListener, lineMarksOf, nodeModels, nodeName, tagScope, type AiNode, type ConditionData, type FunctionName, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import { estimateTokens, batchConfigSchema, FUNCTIONS, choiceKey, isUnknownListener, lineMarksOf, nodeModels, nodeName, type AiNode, type ConditionData, type FunctionName, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -10,19 +10,20 @@ import { events, type Topic } from '../events.ts';
 import { buildContext } from '../services/context.ts';
 import { resolveRoutes } from '../services/routes.ts';
 import type { SecretStore } from '../services/secrets.ts';
-import { attachClassifiedTag, runAsyncFunction, syncFunctions, HUMAN_OWNED_NOTE, type FunctionInput } from './functions/index.ts';
-import { applyRunCandidate } from './apply-candidate.ts';
+import { runAsyncFunction, syncFunctions, type FunctionInput } from './functions/index.ts';
+import { APPLY_TOPICS } from './functions/apply.ts';
 import { packGroups, planBatches } from './batches.ts';
 import { readAiOutput, type Outcome } from './ai-output.ts';
-import { buildPrompt, outputSchema, PER_LINE_OUTPUTS, type PromptLine } from './prompts.ts';
+import { buildPrompt, isBatchScope, outputSchema, type PromptLine } from './prompts.ts';
+import { wholeScriptRequest } from './whole-script.ts';
+import { resolveChoiceOptions } from '../services/choice-options.ts';
 import { applyIssueTags } from '../services/issue-tags.ts';
 import { logged } from '../services/ai-calls.ts';
-import { analysisRequest, MIN_ANALYSIS_TIMEOUT_MS, outputCutOff } from '../services/analysis.ts';
+import { MIN_ANALYSIS_TIMEOUT_MS, outputCutOff } from '../services/analysis.ts';
 import { overheadOf } from '../services/preflight.ts';
 import type { ModelPort } from './model-port.ts';
 export type { ModelPort } from './model-port.ts';
 import { FILLING } from './run-create.ts';
-import { addCandidate } from '../services/candidates.ts';
 
 type Run = typeof s.runs.$inferSelect;
 type Item = typeof s.runItems.$inferSelect;
@@ -33,8 +34,7 @@ type StepRecord = Omit<typeof s.runSteps.$inferInsert, 'ok' | 'finishedAt'>;
 type Waiting = { id: string; unitId: string; nodeId: string; groupId: string; seq: number; kind: string; tokens: number; since: Date; plan: number | null };
 
 /** Functions that write beyond the line itself, and the change topic they touch. */
-const FUNCTION_TOPICS: Record<string, Topic[]> = { addTerms: ['terms'], applyKnowledge: ['knowledge'], saveAnalysis: ['knowledge', 'terms', 'analysis'] };
-const AUTO_APPLY_FUNCTIONS: Partial<Record<string, FunctionName>> = { terms: 'addTerms', listener: 'setListener', knowledge: 'applyKnowledge', analysis: 'saveAnalysis' };
+const FUNCTION_TOPICS: Record<string, Topic[]> = APPLY_TOPICS;
 /** A partial batch waits this long for more lines from upstream before it is sent anyway. */
 const GATHER_MS = 5_000;
 /** Lines passed through instant nodes per tick; the rest wait for the next tick, so a tick never blocks for long. */
@@ -79,7 +79,7 @@ export function sceneHalf(groupIds: string[]) {
     if (groupIds[index] !== groupIds[index - 1] && (best < 0 || Math.abs(index - middle) < Math.abs(best - middle))) best = index;
   return best > 0 ? best : middle;
 }
-const MISSING_WHAT: Record<AiNode['config']['output'], string> = { candidate: '번역', verdict: '판정', listener: '청자', json: '결과', terms: '용어', knowledge: '자료', analysis: '분석' };
+const MISSING_WHAT: Record<AiNode['config']['output'], string> = { text: '번역', verdict: '판정', choice: '선택', json: '결과' };
 const attemptsOf = (error: unknown): ai.Attempt[] => ((error as { attempts?: ai.Attempt[] }).attempts ?? []);
 
 
@@ -243,45 +243,14 @@ export class Runner {
     return run.definition.nodes.find((node) => node.id === nodeId);
   }
 
-  private shouldAutoApply(definition: WorkflowDefinition, node: AiNode): boolean {
-    if (node.config.autoApply === false) return false;
-    if (node.config.output === 'listener') {
-      // 분류·추론: the value only feeds conditions ('none'), or goes onto the line's tags without a function node ('tag').
-      const target = node.config.classifyTarget ?? 'listener';
-      if (target === 'none') return false;
-      if (target === 'tag') return true;
-    }
-    const legacyFn = AUTO_APPLY_FUNCTIONS[node.config.output];
-    if (!legacyFn) return false;
-    const hasLegacy = definition.nodes.some((other) => {
-      if (other.type !== 'function' || other.config.fn !== legacyFn) return false;
-      const params = other.config.params as { fromNodeId?: string } | undefined;
-      return params?.fromNodeId === node.id || !params?.fromNodeId;
-    });
-    if (hasLegacy) return false;
-    return true;
-  }
-
-  /** Names of the project's tags that can go on lines: what a 분류·추론 node targeting tags may answer with. */
-  private lineTagNames(projectId: string): string[] {
-    return this.db.select({ name: s.tags.name, role: s.tags.role, scope: s.tags.scope }).from(s.tags).where(eq(s.tags.projectId, projectId)).all().filter((tag) => tagScope(tag).includes('lines')).map((tag) => tag.name);
-  }
-
   /** Store what a node produced for a line, then move the line out through the chosen exit. */
-  private record(tx: Tx, run: Run, item: Item, outcome: Outcome, origin: 'ai' | 'tool' | 'human' = outcome.origin ?? 'tool') {
+  private record(tx: Tx, run: Run, item: Item, outcome: Outcome) {
     const data: ItemData = { ...item.data, outputs: { ...item.data.outputs } };
     if (outcome.output) data.outputs![item.nodeId] = outcome.output;
     if (outcome.candidate !== undefined) {
-      const candidateId = addCandidate(tx, { unitId: item.unitId, text: outcome.candidate, origin, model: outcome.model, runId: run.id, nodeId: item.nodeId });
-      data.candidateId = candidateId;
+      // The run's working text only; the line itself changes in an apply node ("번역 후보 기록").
       data.candidateText = outcome.candidate;
-      data.issues = []; // a new candidate answers the previous issues
-      // The produced text goes straight into the line (#42). A person's saved
-      // translation in a status-filtered run is kept and the run's text stays a candidate with a note.
-      if (!applyRunCandidate(tx, run, item.unitId, candidateId, outcome.candidate).applied) {
-        const notes = data.notes ?? [];
-        if (!notes.includes(HUMAN_OWNED_NOTE)) data.notes = [...notes, HUMAN_OWNED_NOTE];
-      }
+      data.issues = []; // a new text answers the previous issues
     }
     if (outcome.issues?.length) data.issues = outcome.issues;
     if (outcome.issueTags) applyIssueTags(tx, run.projectId, item.unitId, outcome.issueTags);
@@ -714,21 +683,26 @@ export class Runner {
     const { rows, lines } = this.promptLines(items);
     const round = Math.max(0, ...items.map((item) => item.data.retries?.[node.id] ?? 0));
     const step: StepRecord = { runId: run.id, nodeId: node.id, connectionId: routes[0]?.connectionId ?? null, model: routes[0]?.model ?? null, unitIds: items.map((item) => item.unitId), startedAt: new Date(), round };
-    // A work analysis reads its lines as compact script text with its own rules (services/analysis.ts);
-    // the script is its context. Every other node gets the batch prompt with the context it asks for.
-    const analysis = node.config.output === 'analysis' ? analysisRequest(this.db, run.projectId, items.map((item) => item.unitId), node.config.sections, node.config.instructions) : null;
+    const languages = { source: project.sourceLanguage, target: project.targetLanguage };
+    const choiceOptions = node.config.output === 'choice' ? resolveChoiceOptions(this.db, run.projectId, node.config.choice) : undefined;
+    // A node reading the script whole sends it as compact script text (engine/whole-script.ts), its
+    // lines numbered L1…; every other node gets the batch prompt with the context it asks for.
+    const whole = node.config.batch.mode === 'whole' ? wholeScriptRequest(this.db, run.projectId, node, languages, rows, choiceOptions) : null;
     let built: { system: string; prompt: string };
-    if (analysis) built = analysis;
-    else {
+    if (whole) {
+      for (const line of lines) line.id = whole.idOf.get(line.key) ?? line.id;
+      step.context = whole.context.items;
+      built = whole;
+    } else {
       const context = buildContext(this.db, run.projectId, rows, node.config.context);
       step.context = context.items;
-      built = buildPrompt(node, { source: project.sourceLanguage, target: project.targetLanguage }, context, lines, node.config.output === 'listener' && node.config.classifyTarget === 'tag' ? this.lineTagNames(run.projectId) : []);
+      built = buildPrompt(node, languages, context, lines, choiceOptions);
     }
     const { system, prompt } = built;
-    const perLine = PER_LINE_OUTPUTS.has(node.config.output);
+    const perLine = !isBatchScope(node);
     // A whole-script read takes minutes; the connection's per-call timeout is for single scenes.
-    const timeoutMs = analysis ? Math.max(model.timeoutSeconds * 1000, MIN_ANALYSIS_TIMEOUT_MS) : model.timeoutSeconds * 1000;
-    const request = { system, prompt, schema: analysis?.schema ?? outputSchema(node, perLine ? lines.map((line) => line.id) : undefined), maxOutputTokens: model.maxOutputTokens, temperature: node.config.temperature, timeoutMs, signal };
+    const timeoutMs = whole ? Math.max(model.timeoutSeconds * 1000, MIN_ANALYSIS_TIMEOUT_MS) : model.timeoutSeconds * 1000;
+    const request = { system, prompt, schema: outputSchema(node, perLine && !whole ? lines.map((line) => line.id) : undefined, choiceOptions), maxOutputTokens: model.maxOutputTokens, temperature: node.config.temperature, timeoutMs, signal };
     step.prompt = `${system}\n\n${prompt}`;
     // The input cap is checked before sending, counting calls still in flight, so a run stops short
     // of it instead of finding out afterwards (several calls at once could overshoot by a lot).
@@ -753,24 +727,15 @@ export class Runner {
 
     try {
       // Analysis reads are logged as such: their pace (minutes per script) would skew the run estimates.
-      const call = { projectId: run.projectId, kind: analysis ? ('analysis' as const) : ('run' as const), refId: run.id, label: `${nodeName(node)} · ${items.length.toLocaleString()}줄` };
+      const call = { projectId: run.projectId, kind: whole ? ('analysis' as const) : ('run' as const), refId: run.id, label: `${nodeName(node)} · ${items.length.toLocaleString()}줄` };
       const result = await ai.withFallback(routes, model.maxAttempts, (route) => logged(this.db, call, route, () => this.model.generate(route, request)), signal).finally(release);
       const raw = result.result.object;
-      const outcomes = readAiOutput(node, raw, lines, result.route.model, analysis?.keyOf);
+      const outcomes = readAiOutput(node, raw, lines, result.route.model, choiceOptions);
       const answered = outcomes.filter(Boolean).length;
-      const autoApply = this.shouldAutoApply(run.definition, node);
-      const tagging = autoApply && node.config.output === 'listener' && (node.config.classifyTarget ?? 'listener') === 'tag';
-      const autoFn = autoApply && !tagging ? AUTO_APPLY_FUNCTIONS[node.config.output] : undefined;
       this.db.transaction((tx) => {
         items.forEach((item, index) => {
           const outcome = outcomes[index];
           if (outcome) {
-            if (tagging && outcome.output) outcome.output = { ...outcome.output, ...attachClassifiedTag(tx, { unit: rows[index]!, projectId: run.projectId }, outcome.output) };
-            if (autoFn && outcome.output && syncFunctions[autoFn]) {
-              const itemWithOutput: Item = { ...item, data: { ...item.data, outputs: { ...item.data.outputs, [node.id]: outcome.output } } };
-              const applied = syncFunctions[autoFn]!(tx, { fromNodeId: node.id, asCandidate: node.config.asCandidate }, { unit: rows[index]!, item: itemWithOutput, tagIds: [], projectId: run.projectId, runId: run.id });
-              outcome.output = { ...outcome.output, ...(applied.output ?? {}) };
-            }
             this.record(tx, run, item, outcome);
           } else this.retryLater(tx, run, item, `모델 응답에 이 대사의 ${MISSING_WHAT[node.config.output]}이(가) 없습니다.`);
         });
@@ -778,7 +743,7 @@ export class Runner {
           .values({ ...step, ok: true, connectionId: result.route.connectionId ?? step.connectionId, model: result.route.model, output: raw, attempts: result.attempts, returnedLines: perLine ? answered : null, ...usageColumns(stepUsage(result.attempts, result.result.usage)), finishedAt: new Date() })
           .run();
       });
-      this.notify(run.id, ...(autoFn ? (FUNCTION_TOPICS[autoFn] ?? []) : []));
+      this.notify(run.id);
       this.guard(run.id);
     } catch (error) {
       if (signal.aborted) return;
@@ -786,13 +751,13 @@ export class Runner {
       const code = (error as { code?: string }).code;
       // A work analysis whose answer was cut off at the model's output limit (a whole game's listeners
       // and terms can be as long as the script) is read again in halves too, cut between scenes.
-      const splittable = code === 'invalid-output' || code === 'too-long' || (analysis !== null && outputCutOff(error));
-      if (!(splittable && items.length > 1 && depth < (analysis ? MAX_ANALYSIS_SPLITS : MAX_SPLITS))) return this.failBatch(run, items, { ...step, attempts: attemptsOf(error) }, error);
+      const splittable = code === 'invalid-output' || code === 'too-long' || (whole !== null && outputCutOff(error));
+      if (!(splittable && items.length > 1 && depth < (whole ? MAX_ANALYSIS_SPLITS : MAX_SPLITS))) return this.failBatch(run, items, { ...step, attempts: attemptsOf(error) }, error);
       // Record the failed request, then try each half on its own.
       const message = error instanceof Error ? error.message : String(error);
       this.db.insert(s.runSteps).values({ ...step, ok: false, error: `${message} (반으로 나눠 다시 보냄)`, attempts: attemptsOf(error), ...usageColumns(stepUsage(attemptsOf(error), (error as { usage?: ai.Usage }).usage)), finishedAt: new Date() }).run();
       this.guard(run.id, { code, message });
-      const half = analysis ? sceneHalf(rows.map((row) => row.groupId)) : Math.ceil(items.length / 2);
+      const half = whole ? sceneHalf(rows.map((row) => row.groupId)) : Math.ceil(items.length / 2);
       for (const part of [items.slice(0, half), items.slice(half)]) {
         if (!this.stillRunning(run.id, part)) return;
         await this.callLines(run, node, model, routes, part, signal, depth + 1);

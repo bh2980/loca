@@ -14,7 +14,7 @@ import { saveCharacter } from '../services/characters.ts';
 import { discoverAndSave, saveTerm, SUGGEST_BATCH } from '../services/terms.ts';
 import { byPerson } from '../services/status-by.ts';
 import { clearReview, setKnowledgeTag, withTags } from '../services/knowledge-tags.ts';
-import { listAnalyses, startAnalysis } from '../services/analysis-runs.ts';
+import { listAnalyses } from '../services/analysis-runs.ts';
 import { characterInput, documentInput, eventInput, relationshipInput, speechRuleInput, termInput } from '../schemas/knowledge.ts';
 
 /** Tables whose rows a person confirms or discards as drafts. */
@@ -237,15 +237,6 @@ export const knowledgeRoutes = new Hono<Env>()
   .get('/speech-rules/:id/lines', (c) => c.json(found(ruleLines(c.var.deps.db, c.req.param('projectId')!, c.req.param('id')) ?? undefined, '말투 규칙')))
   /** Work analyses (runs of analysis workflows, then the old service's jobs), newest first (#47). */
   .get('/analysis', (c) => c.json(listAnalyses(c.var.deps.db, c.req.param('projectId')!)))
-  /** The 작품 분석 button: a whole-script run of the project's analysis workflow on this model. `resume` is kept for old clients; a run continues from 실행 기록. */
-  .post('/analysis', validate('json', z.object({ model: modelChoiceSchema, resume: z.boolean().default(false) })), async (c) => {
-    try {
-      const { runId } = await startAnalysis(c.var.deps.db, c.var.deps.secrets, c.req.param('projectId')!, c.req.valid('json').model);
-      return c.json({ id: runId, runId }, 201);
-    } catch (error) {
-      badRequest(error instanceof Error ? error.message : String(error));
-    }
-  })
   .post('/analysis/:jobId/cancel', (c) => {
     const { db, runner } = c.var.deps;
     const id = c.req.param('jobId');

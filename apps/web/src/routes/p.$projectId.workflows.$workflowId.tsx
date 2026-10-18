@@ -25,7 +25,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import { ArrowLeftRight, ArrowUpDown, ChevronRight, Copy, Focus, LayoutGrid, Maximize, Pencil, Plus, SlidersHorizontal, Trash2, Unlink } from 'lucide-react';
 import { toast } from 'sonner';
-import { AI_OUTPUTS, AI_PRESETS, FUNCTIONS, FUNCTION_NAMES, NODE_TYPES, PALETTE_AI_PRESET_IDS, PALETTE_FUNCTION_NAMES, nodeModels, nodeName, nodePorts, syncEntryEdges, workflowNodeSchema, type FunctionName, type WorkflowDefinition, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
+import { AI_OUTPUTS, AI_PRESETS, APPLY_FUNCTION_NAMES, APPLY_TARGETS, FUNCTIONS, FUNCTION_NAMES, NODE_TYPES, PALETTE_FUNCTION_NAMES, nodeModels, nodeName, nodePorts, syncEntryEdges, workflowNodeSchema, type FunctionName, type WorkflowDefinition, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
 import { Page, StatusBarItem } from '@/components/page';
 import { autoLayout } from '@/components/workflow/auto-layout';
 import { NodeConfig } from '@/components/workflow/node-config';
@@ -78,6 +78,9 @@ function NameField({ name, onRename }: { name: string; onRename: (name: string) 
     </span>
   );
 }
+
+/** A preset as the palette reads it: label/description for the list, the rest is the AI node config it fills. */
+type PresetEntry = { label: string; description?: string; output: string } & Record<string, unknown>;
 
 export const Route = createFileRoute('/p/$projectId/workflows/$workflowId')({
   validateSearch: (raw: Record<string, unknown>): { node?: string; nodeTab?: 'io' | 'errors'; direction?: CanvasDirection } => ({
@@ -240,7 +243,10 @@ function WorkflowEditor() {
           return [params.statusId && `→ ${statusName.get(params.statusId as string) ?? '삭제된 상태'}`].filter(Boolean).join(' · ') || '변경 없음';
         if (node.config.fn === 'http') return `${(params.method as string) ?? 'POST'} ${connectionName.get(params.connectionId as string) ?? '연결 없음'}/${(params.path as string) ?? ''}`;
         if (node.config.fn === 'script') return `출구: ${((params.ports as string[]) ?? ['out']).join(', ')}`;
-        if (node.config.fn === 'saveAnalysis') return 'AI 분석 결과 저장';
+        if (node.config.fn in APPLY_TARGETS) {
+          const from = current?.definition.nodes.find((other) => other.id === params.fromNodeId);
+          return from ? `← ${nodeName(from)}` : '가져올 노드 없음';
+        }
         if (node.config.fn === 'formatCheck') {
           const checks = [
             params.placeholders !== false && '자리표시자',
@@ -550,15 +556,20 @@ function WorkflowEditor() {
       id: 'ai',
       label: 'AI 동작',
       items: [
-        ...PALETTE_AI_PRESET_IDS.map((id) => ({
+        ...Object.entries(AI_PRESETS as Record<string, PresetEntry>).map(([id, preset]) => ({
           id,
-          label: AI_PRESETS[id]!.label,
+          label: preset.label,
           kind: 'ai' as const,
           icon: null,
-          description: AI_OUTPUTS[AI_PRESETS[id]!.output].description,
+          description: preset.description ?? AI_OUTPUTS[preset.output as keyof typeof AI_OUTPUTS]?.description,
         })),
         { id: 'ai', label: 'AI 자유 형식', kind: 'ai' as const, icon: null, description: AI_OUTPUTS.json.description },
       ],
+    },
+    {
+      id: 'apply',
+      label: '반영',
+      items: APPLY_FUNCTION_NAMES.map((fn) => ({ id: fn, label: FUNCTIONS[fn].label, kind: 'function' as const, icon: null, description: FUNCTIONS[fn].description })),
     },
     {
       id: 'function',
@@ -580,10 +591,13 @@ function WorkflowEditor() {
     },
   ];
   const addFromLibrary = (id: string, position?: { x: number; y: number }) => {
-    const preset = AI_PRESETS[id as keyof typeof AI_PRESETS];
-    if (preset) addNode({ type: 'ai', label: preset.label, config: { model: newNodeModel(), output: preset.output, instructions: preset.instructions, include: preset.include, ...(preset.sections && { sections: preset.sections }), ...(preset.batch && { batch: preset.batch }) } }, id, position);
+    const preset = (AI_PRESETS as Record<string, PresetEntry>)[id];
+    if (preset) {
+      const { label, description: _description, ...config } = preset;
+      addNode({ type: 'ai', label, config: { ...config, model: newNodeModel(), preset: id } } as never, id, position);
+    }
     else if (FUNCTION_NAMES.includes(id as FunctionName)) addNode({ type: 'function', config: { fn: id, params: {} } }, id, position);
-    else if (id === 'ai') addNode({ type: 'ai', config: { model: newNodeModel(), output: 'json', fields: [{ name: 'note', type: 'string', description: '' }] } }, id, position);
+    else if (id === 'ai') addNode({ type: 'ai', config: { model: newNodeModel(), output: 'json', scope: 'line', fields: [{ name: 'note', type: 'string', description: '' }] } } as never, id, position);
     else if (id === 'condition') addNode({ type: 'condition', config: { expression: true, description: '' } }, id, position);
   };
   const deleteNode = (nodeId: string) => {
@@ -677,6 +691,7 @@ function WorkflowEditor() {
                   statuses: statuses.data?.statuses ?? [],
                   tags: lineTags(statuses.data?.tags),
                   projectId,
+                  workflowId,
                   connections: connections.data ?? [],
                   nodes: current.definition.nodes,
                   edges: current.definition.edges,

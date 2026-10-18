@@ -204,14 +204,26 @@ export const graphEdges = sqliteTable(
   (t) => [index('graph_edges_from').on(t.fromId), index('graph_edges_to').on(t.toId)],
 );
 
+/** What a view's derived edge leaves out: the source nodes on its paths, their lines, line-less nodes and speakers. */
+export interface OmittedFacts {
+  nodeIds: string[];
+  lines: number;
+  controls: number;
+  speakers: string[];
+  moreSpeakers: number;
+}
+
 export interface LayoutData {
   width: number;
   height: number;
   nodes: { id: string; x: number; y: number; width: number; height: number }[];
   /** `label`: a choice or condition written on the edge; `via`: the choice node it stands for. */
   /** `curved`: points are a start and (control, control, end) triples, drawn as Bézier curves. */
-  /** `derived`: a view's edge across left-out line-less nodes (see viewEdges in services/layout.ts), not a stored edge. */
-  edges: { id: string; from: string; to: string; points: number[]; label?: string; via?: string; labelAt?: [x: number, y: number, width: number, height: number]; curved?: true; derived?: true }[];
+  /**
+   * `derived`: a view's edge across nodes the view leaves out (see viewEdges in services/layout.ts),
+   * not a stored edge; `omitted` counts what it stands for, from the source graph.
+   */
+  edges: { id: string; from: string; to: string; points: number[]; label?: string; via?: string; labelAt?: [x: number, y: number, width: number, height: number]; curved?: true; derived?: true; omitted?: OmittedFacts }[];
   /** Labelled areas drawn behind nodes, e.g. the block of unconnected lines. */
   regions?: { label: string; x: number; y: number; width: number; height: number }[];
   /** Scene links left out of the drawing because another path already connects them (see reduceSceneEdges). */
@@ -254,12 +266,24 @@ export const graphLayouts = sqliteTable(
  * Jonas"): highlighted in the graph (`mark=<id>`) or laid out on their own (section "view:<id>").
  * The id is a hash of the node ids, so asking for the same set again reuses it.
  */
+/**
+ * A stored view of the dialogue graph (like a database view): only which nodes to keep. Edges
+ * between them and the layout are computed from the source graph each time (services/layout.ts
+ * viewEdges), so a view follows the graph and never stores an edge of its own.
+ */
 export const graphViews = sqliteTable('graph_views', {
   id: text('id').primaryKey(),
   projectId: projectId(),
   label: text('label').notNull(),
   nodeIds: json<string[]>('node_ids').notNull(),
+  /** ai: picked by the chat from a request; manual: picked by a person from a selection. */
+  origin: text('origin', { enum: ['ai', 'manual'] }).notNull().default('ai'),
+  /** What the person asked the chat for (ai views). */
+  request: text('request'),
+  /** Why the chat kept each node, by node id (ai views). */
+  reasons: json<Record<string, string>>('reasons').notNull().default({}),
   createdAt: createdAt(),
+  updatedAt: updatedAt(),
 });
 
 /** Where a model request came from: a workflow run, work analysis, glossary fill, a model test or a chat turn. */
@@ -666,7 +690,10 @@ export const proposals = sqliteTable(
     sessionId: text('session_id'),
     /** Model that proposed the change; null for person-originated proposals. */
     model: text('model'),
-    source: text('source', { enum: ['pi', 'cli', 'api'] }).notNull(),
+    source: text('source', { enum: ['pi', 'cli', 'api', 'run'] }).notNull(),
+    /** A workflow run's apply node filed it (source 'run'): the run and the node, so the list can group by run. */
+    runId: text('run_id').references(() => runs.id, { onDelete: 'set null' }),
+    nodeId: text('node_id'),
     tool: text('tool').notNull(),
     input: json<Record<string, unknown>>('input').notNull(),
     /** Inverse agent-tool calls, or why this change cannot be undone. */

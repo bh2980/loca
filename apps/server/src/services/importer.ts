@@ -1,14 +1,7 @@
 import {
-  ANALYSIS_WORKFLOW,
-  ANALYSIS_WORKFLOW_DESCRIPTION,
-  ANALYSIS_WORKFLOW_PRESETS,
-  analysisTemplate,
-  analysisWorkflowTemplate,
   DEFAULT_STATUSES,
+  defaultWorkflows,
   detectFormatRules,
-  draftTranslationTemplate,
-  listenerTemplate,
-  termExtractionTemplate,
   type DraftModelChoice,
   type ImportFile,
 } from '@tw/shared';
@@ -173,58 +166,7 @@ export function importProject(db: Db, file: ImportFile, model: DraftModelChoice 
     );
     insertMany(tx, s.terms, file.terms.map((term) => ({ projectId, ...term })));
 
-    tx.insert(s.workflows)
-      .values({
-        projectId,
-        name: '초벌 번역',
-        description: '미번역 대사를 AI로 번역하고 형식을 검사해 초벌 상태로 바꿉니다.',
-        definition: draftTranslationTemplate({
-          model,
-          untranslated: statusIds.untranslated,
-          draft: statusIds.draft,
-        }),
-      })
-      .run();
-    tx.insert(s.workflows)
-      .values({
-        projectId,
-        name: '청자 추정',
-        description: '청자가 아직 없는 대사만 장면별로 누구에게 하는 말인지 추정해 적습니다. 번역·상태는 바꾸지 않습니다.',
-        definition: listenerTemplate({ model }),
-      })
-      .run();
-    tx.insert(s.workflows)
-      .values({
-        projectId,
-        name: '용어 추출',
-        description: '장면별로 고유명사·반복 용어를 뽑아 용어집 후보로 추가합니다.',
-        definition: termExtractionTemplate({ model }),
-      })
-      .run();
-    tx.insert(s.workflows)
-      .values({
-        projectId,
-        name: '인물·관계 추출',
-        description: ANALYSIS_WORKFLOW_PRESETS.peopleRelations.description,
-        definition: analysisWorkflowTemplate({ model, presetId: 'peopleRelations' }),
-      })
-      .run();
-    tx.insert(s.workflows)
-      .values({
-        projectId,
-        name: '사건 추출',
-        description: ANALYSIS_WORKFLOW_PRESETS.events.description,
-        definition: analysisWorkflowTemplate({ model, presetId: 'events' }),
-      })
-      .run();
-    tx.insert(s.workflows)
-      .values({
-        projectId,
-        name: ANALYSIS_WORKFLOW,
-        description: ANALYSIS_WORKFLOW_DESCRIPTION,
-        definition: analysisTemplate({ model }),
-      })
-      .run();
+    for (const workflow of defaultWorkflows({ model, untranslated: statusIds.untranslated, draft: statusIds.draft })) tx.insert(s.workflows).values({ projectId, ...workflow }).run();
   });
   return {
     projectId,

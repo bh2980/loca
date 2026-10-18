@@ -3,9 +3,8 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { Play, Plus, Trash2 } from 'lucide-react';
-import { DEFAULT_PARTICLE_PATTERN, formatPatternError, FUNCTIONS, nodeName, PALETTE_FUNCTION_NAMES, type CustomFormatRule, type FunctionName, type JsonField, type WorkflowNode } from '@tw/shared';
-import { AiConfirmNote } from '@/components/settings/ai-confirm';
-import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, StatusIcon, TagChip } from '@loca/ui';
+import { APPLY_FUNCTION_NAMES, APPLY_TARGETS, applyIssues, DEFAULT_PARTICLE_PATTERN, formatPatternError, FUNCTIONS, JSON_FIELD_TYPE_LABELS, nodeName, PALETTE_FUNCTION_NAMES, type ApplyField, type ApplyFunctionName, type ApplyParams, type CustomFormatRule, type JsonFieldType, type WorkflowDefinition, type FunctionName, type JsonField, type WorkflowNode } from '@tw/shared';
+import { Button, Checkbox, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, StatusIcon, TagChip } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
 import { AiRegexInput } from '@/components/ai-regex-input';
 import { client, unwrap } from '@/lib/api';
@@ -24,6 +23,7 @@ export function FunctionConfig({ node, refs, readOnly, onChange }: { node: Funct
   const setMany = (patch: Record<string, unknown>) => onChange({ ...node, config: { ...node.config, params: { ...params, ...patch } } });
   const set = (key: string, value: unknown) => setMany({ [key]: value });
   const availableFns = PALETTE_FUNCTION_NAMES.includes(fn) ? PALETTE_FUNCTION_NAMES : [fn, ...PALETTE_FUNCTION_NAMES];
+  const switchable = fn in APPLY_TARGETS ? APPLY_FUNCTION_NAMES : availableFns;
 
   const renderBody = () => {
     switch (fn) {
@@ -33,99 +33,12 @@ export function FunctionConfig({ node, refs, readOnly, onChange }: { node: Funct
         return <p className="text-sm text-muted-foreground">별도의 설정 항목이 없습니다. 실패 사유는 다음 AI 노드의 지적 사항으로 전달됩니다.</p>;
       case 'setStatus':
         return <SetStatusConfig params={params} refs={refs} set={set} setMany={setMany} />;
-    case 'addTerms': {
-      const sources = refs.nodes.filter((other) => other.type === 'ai' && other.config.output === 'terms');
-      return (
-        <>
-        <Field label="용어를 가져올 AI 노드" hint="이미 용어집에 있는 원문은 건너뜁니다.">
-          <Select value={(params.fromNodeId as string) || 'latest'} onValueChange={(value) => set('fromNodeId', value === 'latest' ? '' : value)}>
-            <SelectTrigger className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="latest">가장 최근 용어 출력</SelectItem>
-              {sources.map((other) => (
-                <SelectItem key={other.id} value={other.id}>
-                  {nodeName(other)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </Field>
-        <AiConfirmNote projectId={refs.projectId} kinds={['terms']} />
-        </>
-      );
-    }
-    case 'applyKnowledge': {
-      const sources = refs.nodes.filter((other) => other.type === 'ai' && other.config.output === 'knowledge');
-      return (
-        <>
-          <Field label="자료 변경을 가져올 AI 노드" hint="사람이 정한 자료는 바꾸지 않습니다. 다른 의견은 후보로 남깁니다.">
-            <Select value={(params.fromNodeId as string) || 'latest'} onValueChange={(value) => set('fromNodeId', value === 'latest' ? '' : value)}>
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="latest">가장 최근 자료 변경 출력</SelectItem>
-                {sources.map((other) => (
-                  <SelectItem key={other.id} value={other.id}>
-                    {nodeName(other)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-          <AiConfirmNote projectId={refs.projectId} kinds={['characters', 'relationships', 'events', 'speechRules']} />
-        </>
-      );
-    }
-    case 'saveAnalysis': {
-      const sources = refs.nodes.filter((other) => other.type === 'ai' && other.config.output === 'analysis');
-      return (
-        <>
-          <Field label="분석을 가져올 AI 노드" hint="사람이 만들거나 고치거나 확정·버린 항목은 그대로 둡니다. 근거 줄이 대본에 없으면 빼고 셉니다.">
-            <Select value={(params.fromNodeId as string) || 'latest'} onValueChange={(value) => set('fromNodeId', value === 'latest' ? '' : value)}>
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="latest">가장 최근 작품 분석 출력</SelectItem>
-                {sources.map((other) => (
-                  <SelectItem key={other.id} value={other.id}>
-                    {nodeName(other)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-          <AiConfirmNote projectId={refs.projectId} kinds={['documents', 'characters', 'relationships', 'events', 'speechRules', 'terms']} />
-        </>
-      );
-    }
-    case 'setListener': {
-      const sources = refs.nodes.filter((other) => other.type === 'ai' && other.config.output === 'listener');
-      return (
-        <Field label="청자를 가져올 AI 노드" hint="사람이 정한 청자는 바꾸지 않습니다. 확신도 0.9 미만은 문맥에서 ‘미상’으로 다룹니다.">
-          <Select value={(params.fromNodeId as string) || 'latest'} onValueChange={(value) => set('fromNodeId', value === 'latest' ? '' : value)}>
-            <SelectTrigger className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="latest">가장 최근 청자 출력</SelectItem>
-              {sources.map((other) => (
-                <SelectItem key={other.id} value={other.id}>
-                  {nodeName(other)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </Field>
-      );
-    }
       case 'http':
         return <HttpConfig params={params} refs={refs} set={set} />;
       case 'script':
         return <ScriptConfig params={params} projectId={refs.projectId} readOnly={readOnly} set={set} />;
+      default:
+        return fn in APPLY_TARGETS ? <ApplyConfig node={node} fn={fn as ApplyFunctionName} params={params as ApplyParams} refs={refs} setMany={setMany} /> : null;
     }
   };
 
@@ -143,7 +56,7 @@ export function FunctionConfig({ node, refs, readOnly, onChange }: { node: Funct
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {availableFns.map((name) => (
+            {switchable.map((name) => (
               <SelectItem key={name} value={name}>
                 {FUNCTIONS[name]?.label ?? name}
               </SelectItem>
@@ -455,5 +368,195 @@ function ScriptConfig({ params, projectId, readOnly, set }: { params: Record<str
         </div>
       )}
     </>
+  );
+}
+
+// ── apply nodes (반영) ────────────────────────────────────────────────
+
+interface SourceField {
+  name: string;
+  type: JsonFieldType;
+  fields?: SourceField[];
+}
+
+/** The fields a node's output offers to later nodes. */
+function outputFields(node: WorkflowNode): SourceField[] {
+  if (node.type === 'function') return ((node.config.params as { fields?: SourceField[] }).fields ?? []);
+  if (node.type !== 'ai') return [];
+  switch (node.config.output) {
+    case 'text':
+      return [{ name: 'text', type: 'string' }];
+    case 'verdict':
+      return [{ name: 'passed', type: 'boolean' }, { name: 'issues', type: 'strings' }];
+    case 'choice':
+      return [{ name: 'value', type: 'string' }, { name: 'confidence', type: 'number' }, { name: 'reason', type: 'string' }];
+    default:
+      return node.config.fields;
+  }
+}
+
+/** Which source types a target field of the given type can take. */
+const ACCEPTS: Record<JsonFieldType, JsonFieldType[]> = {
+  string: ['string', 'number', 'boolean'],
+  number: ['number'],
+  boolean: ['boolean'],
+  strings: ['strings', 'string'],
+  lines: ['lines', 'strings'],
+  list: ['list'],
+};
+
+/** Nodes whose output can reach this one: AI and script nodes upstream (any AI/script node when no lines are drawn yet). */
+function upstreamSources(node: WorkflowNode, refs: NodeRefs) {
+  const edges = refs.edges ?? [];
+  const before = new Set<string>();
+  const queue = [node.id];
+  while (queue.length) {
+    const id = queue.pop()!;
+    for (const edge of edges) if (edge.target === id && !before.has(edge.source)) { before.add(edge.source); queue.push(edge.source); }
+  }
+  return refs.nodes.filter((other) => other.id !== node.id && (before.has(other.id) || !edges.length) && (other.type === 'ai' || (other.type === 'function' && other.config.fn === 'script')));
+}
+
+function autoMap(targets: ApplyField[], sources: SourceField[]) {
+  const map: Record<string, string> = {};
+  for (const target of targets) if (sources.some((source) => source.name === target.name && ACCEPTS[target.type].includes(source.type))) map[target.name] = target.name;
+  return map;
+}
+
+function ApplyConfig({ node, fn, params, refs, setMany }: { node: FunctionNode; fn: ApplyFunctionName; params: ApplyParams; refs: NodeRefs; setMany: (patch: Record<string, unknown>) => void }) {
+  const target = APPLY_TARGETS[fn];
+  const targetFields: ApplyField[] = target.fields;
+  const sources = upstreamSources(node, refs);
+  const from = refs.nodes.find((other) => other.id === params.fromNodeId);
+  const topFields = from ? outputFields(from) : [];
+  const lists = topFields.filter((field) => field.type === 'list');
+  const rowSources = target.shape === 'list' ? (lists.find((field) => field.name === params.list)?.fields ?? []) : topFields;
+  const definition = { nodes: refs.nodes, edges: refs.edges ?? [] } as unknown as WorkflowDefinition;
+  const issues = applyIssues(definition, fn, params);
+
+  const pickFrom = (id: string) => {
+    const next = refs.nodes.find((other) => other.id === id);
+    const nextTop = next ? outputFields(next) : [];
+    const nextLists = nextTop.filter((field) => field.type === 'list');
+    const list = target.shape === 'list' ? (nextLists.length === 1 ? nextLists[0]!.name : '') : '';
+    const rows = target.shape === 'list' ? (nextLists.find((field) => field.name === list)?.fields ?? []) : nextTop;
+    setMany({ fromNodeId: id, list, map: autoMap(targetFields, rows) });
+  };
+  const pickList = (list: string) => setMany({ list, map: autoMap(targetFields, lists.find((field) => field.name === list)?.fields ?? []) });
+  const setMap = (name: string, source: string) => {
+    const { [name]: _dropped, ...rest } = params.map;
+    setMany({ map: source === 'none' ? rest : { ...rest, [name]: source } });
+  };
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-muted-foreground">{target.description}</p>
+      <Field label="결과를 가져올 노드" hint="이 노드보다 앞에 있는 AI·스크립트 노드입니다. 연결하면 이름이 같은 필드가 자동으로 이어집니다.">
+        <Select value={params.fromNodeId || 'none'} onValueChange={(value) => pickFrom(value === 'none' ? '' : value)}>
+          <SelectTrigger className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">고르지 않음</SelectItem>
+            {sources.map((other) => (
+              <SelectItem key={other.id} value={other.id}>
+                {nodeName(other)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </Field>
+
+      {from && target.shape === 'list' && (
+        <Field label="목록 필드" hint={lists.length ? '이 목록의 항목 하나가 한 건씩 저장됩니다.' : '이 노드에는 ‘목록’ 타입 필드가 없습니다. JSON 필드에 목록을 추가하세요.'}>
+          <Select value={params.list || 'none'} onValueChange={(value) => pickList(value === 'none' ? '' : value)}>
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">고르지 않음</SelectItem>
+              {lists.map((field) => (
+                <SelectItem key={field.name} value={field.name}>
+                  {field.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+      )}
+
+      {from && (target.shape !== 'list' || params.list) && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-medium">필드 연결</p>
+            <Button variant="outline" onClick={() => setMany({ map: { ...autoMap(targetFields, rowSources), ...params.map } })}>
+              자동 연결
+            </Button>
+          </div>
+          <div className="space-y-2">
+            {targetFields.map((field) => {
+              const options = rowSources.filter((source) => ACCEPTS[field.type].includes(source.type));
+              const value = params.map[field.name];
+              return (
+                <div key={field.name} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] items-center gap-2">
+                  <span className="min-w-0 text-sm">
+                    {field.label}
+                    {field.required && <span className="text-destructive" title="필수"> *</span>}
+                    <span className="block text-xs text-muted-foreground">{JSON_FIELD_TYPE_LABELS[field.type]}</span>
+                  </span>
+                  <Select value={value ?? 'none'} onValueChange={(next) => setMap(field.name, next)}>
+                    <SelectTrigger className="w-full" aria-label={`${field.label} 연결`}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">연결 안 함</SelectItem>
+                      {value && !options.some((option) => option.name === value) && <SelectItem value={value}>{value} (없어짐)</SelectItem>}
+                      {options.map((option) => (
+                        <SelectItem key={option.name} value={option.name}>
+                          {option.name} · {JSON_FIELD_TYPE_LABELS[option.type]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-2 border-t border-border pt-3">
+        <label className="flex items-start gap-2 text-sm">
+          <Checkbox className="mt-0.5" checked={params.propose} onCheckedChange={(on) => setMany({ propose: Boolean(on) })} />
+          <span className="min-w-0">
+            제안으로 남기기
+            <span className="block text-xs text-muted-foreground">
+              {params.propose ? '바로 쓰지 않고 제안으로 올립니다. 앱에서 수락해야 반영됩니다.' : '실행 중에 바로 적용합니다. 사람이 정한 항목은 바꾸지 않습니다.'}
+            </span>
+          </span>
+        </label>
+        {!params.propose && (
+          <Field label="바로 적용할 때">
+            <Select value={params.asCandidate ? 'candidate' : 'confirmed'} onValueChange={(value) => setMany({ asCandidate: value === 'candidate' })}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="confirmed">확정으로 넣기</SelectItem>
+                <SelectItem value="candidate">후보(✦)로 넣기</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+        )}
+      </div>
+
+      {issues.length > 0 && (
+        <ul className="space-y-0.5 text-xs text-warning">
+          {issues.map((message) => (
+            <li key={message}>{message}</li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

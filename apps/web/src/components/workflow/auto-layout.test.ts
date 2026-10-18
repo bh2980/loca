@@ -34,7 +34,7 @@ function expectNoNodeOverlap(result: WorkflowDefinition, direction: 'vertical' |
 }
 
 function expectForwardSpacing(result: WorkflowDefinition, direction: 'vertical' | 'horizontal') {
-  const chain = ['entry', 'translate', 'draft', 'check', 'review', 'confirm'];
+  const chain = ['entry', 'translate', 'save', 'draft', 'check', 'review', 'confirm'];
   const gaps = chain.slice(1).map((id, index) => {
     const before = result.nodes.find((node) => node.id === chain[index])!;
     const after = result.nodes.find((node) => node.id === id)!;
@@ -126,12 +126,12 @@ function expectLabelsStayClear(result: WorkflowDefinition, direction: 'vertical'
 }
 
 describe('workflow auto layout direction on the relay retry pipeline', () => {
-  it.each(['vertical', 'horizontal'] as const)('keeps all 9 nodes readable and routes their declared ports in %s mode', async (direction) => {
+  it.each(['vertical', 'horizontal'] as const)('keeps all 11 nodes readable and routes their declared ports in %s mode', async (direction) => {
     const result = await autoLayout(definition, sizesFor(direction), direction);
 
     expect(result.direction).toBe(direction);
-    expect(result.nodes).toHaveLength(9);
-    expect(result.edges).toHaveLength(10);
+    expect(result.nodes).toHaveLength(11);
+    expect(result.edges).toHaveLength(12);
     expectNoNodeOverlap(result, direction);
     expectForwardSpacing(result, direction);
     expectEdgesUseTheirDeclaredPorts(result, direction);
@@ -141,8 +141,8 @@ describe('workflow auto layout direction on the relay retry pipeline', () => {
 
   it.each(['vertical', 'horizontal'] as const)('routes the retry feedback around unrelated node interiors in %s mode', async (direction) => {
     const result = await autoLayout(definition, sizesFor(direction), direction);
-    const feedback = result.edges.find((edge) => edge.id === 'e11')!;
-    expect(feedback.source).toBe('revise');
+    const feedback = result.edges.find((edge) => edge.id === 'save-revision-out-check')!;
+    expect(feedback.source).toBe('save-revision');
     expect(feedback.target).toBe('check');
     expect(feedback.layout!.points.length).toBeGreaterThan(2);
     expectRoutesAvoidUnrelatedNodes({ ...result, edges: [feedback] }, direction);
