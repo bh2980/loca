@@ -21,7 +21,7 @@ const program = new Command('loca')
   .showHelpAfterError();
 
 const globals = () => program.opts<{ url: string; project?: string; json?: boolean }>();
-const api = () => hc<AppType>(globals().url.replace(/\/+$/, '')).api;
+const api = () => hc<AppType>(globals().url.replace(/\/+$/, ''), { headers: process.env.LOCA_CHAT !== undefined ? { 'x-loca-chat': process.env.LOCA_CHAT } : undefined }).api;
 const log = (...parts: unknown[]) => console.error(...parts);
 
 class CliError extends Error {}
