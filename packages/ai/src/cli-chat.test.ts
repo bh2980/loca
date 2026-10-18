@@ -42,7 +42,7 @@ describe('CLI chat output', () => {
       expect(args.find((arg) => arg.startsWith('permissions.loca.filesystem='))).toContain('"/repo/.workbench"="deny"');
       expect(args).toContain('permissions.loca.network.enabled=true');
       expect(args).toContain('features.network_proxy=true');
-      expect(args).toContain('permissions.loca.network.domains={"127.0.0.1"="allow", "localhost"="allow"}');
+      expect(args).toContain('permissions.loca.network.domains={"::1"="allow"}');
       for (const feature of ['shell_tool', 'unified_exec', 'code_mode_host']) expect(args).toContain(`features.${feature}=true`);
       expect(args).not.toContain('--sandbox');
       expect(args).not.toContain('sandbox_mode="read-only"');

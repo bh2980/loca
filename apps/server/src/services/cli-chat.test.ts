@@ -4,7 +4,7 @@ import { importFileSchema } from '@tw/shared';
 import type * as ai from '@tw/ai';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { cliChatResponse, parsedOutput, readLocaCall, readToolCalls } from './cli-chat.ts';
+import { cliChatResponse, parsedOutput, readLocaCall, readToolCalls, setAgentShellUrl } from './cli-chat.ts';
 import { importProject } from './importer.ts';
 
 function setup() {
@@ -115,8 +115,9 @@ describe('CLI chat', () => {
 
   it('renders Codex shell commands as tool parts and does not parse loca-tools blocks', async () => {
     const { db, chat } = setup();
+    setAgentShellUrl('http://[::1]:5000');
     const cli = async (_route: ai.ResolvedRoute, request: ai.CliChatTurn): Promise<ai.CliChatResult> => {
-      expect(request.shell).toMatchObject({ env: { LOCA_PROJECT: chat.projectId, LOCA_CHAT: expect.any(String) }, readPaths: [expect.any(String)], deny: [expect.any(String)], loca: expect.stringContaining('/apps/cli/bin/loca.mjs') });
+      expect(request.shell).toMatchObject({ env: { LOCA_URL: 'http://[::1]:5000', LOCA_PROJECT: chat.projectId, LOCA_CHAT: expect.any(String) }, readPaths: [expect.any(String)], deny: [expect.any(String)], loca: expect.stringContaining('/apps/cli/bin/loca.mjs') });
       return {
         sessionId: 'codex-1', text: '완료했습니다.\n```loca-tools\n[{"tool":"find_lines"}]\n```', usage: {},
         commands: [{ command: "loca call save_character '{\"name\":\"Bob\"}'", output: '{"proposalId":"proposal-1"}', exitCode: 0 }],

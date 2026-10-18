@@ -83,7 +83,11 @@ interface Files {
  */
 export const CODEX_UNUSED_FEATURES = ['hooks', 'shell_tool', 'multi_agent', 'plugins', 'apps', 'browser_use', 'browser_use_external', 'computer_use', 'code_mode_host', 'goals', 'image_generation', 'view_image', 'sleep_tool', 'unified_exec', 'tool_suggest', 'skill_search', 'in_app_browser', 'workspace_dependencies', 'worktrees', 'collaboration_modes'];
 
-/** Codex with none of its own tools and our instructions in place of its coding-agent ones: one-shot calls and the project chat alike. */
+/**
+ * Codex with none of its own tools and our instructions in place of its coding-agent ones: one-shot calls and the project chat alike.
+ * With a shell, its network reaches only ::1, where the server answers agent tools alone: Codex's host
+ * rules ignore ports, so allowing 127.0.0.1 would open every local service and the whole API (#100 review).
+ */
 export function codexIsolationArgs(instructionsFile: string, shell?: { readPaths: string[]; deny: string[] }): string[] {
   const enabled = new Set(shell ? ['shell_tool', 'unified_exec', 'code_mode_host'] : []);
   const filesystem = shell
@@ -92,7 +96,7 @@ export function codexIsolationArgs(instructionsFile: string, shell?: { readPaths
   return [
     '-c', 'approval_policy="never"', '-c', 'web_search="disabled"',
     ...CODEX_UNUSED_FEATURES.flatMap((feature) => ['-c', `features.${feature}=${enabled.has(feature)}`]),
-    ...(shell ? ['-c', 'default_permissions="loca"', '-c', filesystem!, '-c', 'permissions.loca.network.enabled=true', '-c', 'features.network_proxy=true', '-c', 'permissions.loca.network.domains={"127.0.0.1"="allow", "localhost"="allow"}'] : []),
+    ...(shell ? ['-c', 'default_permissions="loca"', '-c', filesystem!, '-c', 'permissions.loca.network.enabled=true', '-c', 'features.network_proxy=true', '-c', 'permissions.loca.network.domains={"::1"="allow"}'] : []),
     // The key was renamed once; an unknown one is ignored.
     '-c', `model_instructions_file=${JSON.stringify(instructionsFile)}`, '-c', `experimental_instructions_file=${JSON.stringify(instructionsFile)}`,
   ];
