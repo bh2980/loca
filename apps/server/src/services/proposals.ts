@@ -4,6 +4,7 @@ import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { agentCatalog } from './agent-catalog.ts';
+import { undoBefore, undoOf } from './proposal-undo.ts';
 
 /** Stores a proposal; callers check it first with prepareProposal (proposal-check.ts). */
 export function propose(db: Db, input: { projectId: string; sessionId: string | null; model?: string | null; source: 'pi' | 'cli' | 'api'; tool: string; input: Record<string, unknown>; report?: s.ProposalReport | null; review?: string | null }) {
@@ -20,6 +21,7 @@ const PREVIEW_CHANGES = 50;
  * the first lines, and accepting still runs the stored input.
  */
 export function listedProposal(proposal: typeof s.proposals.$inferSelect) {
+  proposal = { ...proposal, undo: proposal.undo && 'calls' in proposal.undo ? { calls: proposal.undo.calls.length } as unknown as s.ProposalUndo : proposal.undo };
   // The check's report can name every line too (a warning per line): first entries plus counts.
   const report = proposal.report;
   if (report && (report.dropped.length > PREVIEW_CHANGES || report.warnings.length > PREVIEW_CHANGES))
@@ -59,16 +61,21 @@ export async function decideProposal(db: Db, id: string, accept: boolean, by: 'p
   if (!accept) return claimed;
   let status: 'accepted' | 'failed' = 'accepted';
   let result: unknown = null;
+  let undo: s.ProposalUndo = { none: '이 변경은 되돌릴 수 없습니다' };
   const tool = agentCatalog(db, proposal.projectId, { model: proposal.model ?? null }).find((candidate) => candidate.name === proposal.tool && candidate.changes);
   try {
     if (!tool) throw new Error(`알 수 없는 도구입니다: ${proposal.tool}`);
+    let before: Record<string, unknown> = {};
+    let captured = true;
+    try { before = undoBefore(db, proposal); } catch (error) { captured = false; undo = { none: `되돌리기를 준비하지 못했습니다: ${error instanceof Error ? error.message : String(error)}` }; }
     result = await tool.run(proposal.input);
     if (result && typeof result === 'object' && (result as { ok?: boolean }).ok === false) status = 'failed';
+    else if (captured) try { undo = undoOf(db, proposal, before, result); } catch (error) { undo = { none: `되돌리기를 준비하지 못했습니다: ${error instanceof Error ? error.message : String(error)}` }; }
   } catch (error) {
     status = 'failed';
     result = { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
-  const row = db.update(s.proposals).set({ status, result, decidedAt: new Date() }).where(eq(s.proposals.id, id)).returning().get();
+  const row = db.update(s.proposals).set({ status, result, undo, decidedAt: new Date() }).where(eq(s.proposals.id, id)).returning().get();
   events.changed(proposal.projectId, 'proposals');
   return row;
 }
@@ -110,5 +117,5 @@ export function takeDecisions(db: Db, sessionId: string) {
   const decided = db.select().from(s.proposals).where(unreported(sessionId)).all();
   if (!decided.length) return null;
   db.update(s.proposals).set({ reportedAt: new Date() }).where(inArray(s.proposals.id, decided.map((proposal) => proposal.id))).run();
-  return `지난 제안의 결과:\n${decided.map((proposal) => `- ${proposal.tool} (${proposal.id}): ${proposal.status === 'accepted' ? acceptedLabel(proposal.tool).decided : DECISION_WORD[proposal.status]}${proposal.status === 'rejected' && proposal.reason ? ` — 이유: ${proposal.reason}` : ''}${proposal.status === 'failed' ? ` — ${JSON.stringify(proposal.result).slice(0, 300)}` : ''}`).join('\n')}`;
+  return `지난 제안의 결과:\n${decided.map((proposal) => `- ${proposal.tool} (${proposal.id}): ${proposal.undoneAt ? '수락되어 반영된 뒤 사용자가 되돌림' : proposal.status === 'accepted' ? acceptedLabel(proposal.tool).decided : DECISION_WORD[proposal.status]}${proposal.status === 'rejected' && proposal.reason ? ` — 이유: ${proposal.reason}` : ''}${proposal.status === 'failed' ? ` — ${JSON.stringify(proposal.result).slice(0, 300)}` : ''}`).join('\n')}`;
 }

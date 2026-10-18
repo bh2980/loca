@@ -416,6 +416,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       needsApproval: true,
       execute: ({ terms }) => {
         const skipped: { id?: string; source?: string; reason: string }[] = [];
+        const created: string[] = [];
         // A refused term (a duplicate source) is reported and the rest are saved.
         db.transaction((tx) => {
           for (const { id, ...term } of terms) {
@@ -426,10 +427,11 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
             }
             const saved = saveTerm(tx, projectId, fresh ? fresh.data : sent(term), { id, by: 'person' });
             if (!saved.ok) skipped.push({ id, source: term.source, reason: saved.error });
+            else if (!id) created.push(saved.row.id);
           }
         });
         changed('terms');
-        return { ok: true, count: terms.length - skipped.length, ...(skipped.length && { skipped }) };
+        return { ok: true, count: terms.length - skipped.length, created, ...(skipped.length && { skipped }) };
       },
     }),
     save_workflow: tool({

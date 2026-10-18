@@ -9,11 +9,14 @@ import { ChangePreview, LABEL } from './change-preview';
 
 export interface Proposal {
   id: string;
+  sessionId?: string | null;
   tool: string;
   input: Record<string, unknown>;
   /** running: accepted, the change still being applied (another window or a resent click may have started it). */
   status: 'pending' | 'running' | 'accepted' | 'rejected' | 'failed';
   result: unknown;
+  undo?: { calls: number } | { none: string } | null;
+  undoneAt?: Date | string | null;
   /** Why the person rejected it, if they said; the agent hears it with the decision. */
   reason?: string | null;
   source: 'pi' | 'cli' | 'api';
@@ -31,6 +34,15 @@ const DECIDED_BY = { auto: '자동 검토로', bypass: '우회 모드로' } as c
 /** A change an agent proposed (pi chat or the CLI). Accepting runs it now; nothing changes before that. */
 export function ProposalCard({ proposal }: { proposal: Proposal }) {
   const queryClient = useQueryClient();
+  const undo = useMutation({
+    mutationFn: () => unwrap(client.chat[':sessionId'].undo.$post({ param: { sessionId: proposal.sessionId! }, json: { ids: [proposal.id] } })),
+    onSuccess: (rows) => {
+      void queryClient.invalidateQueries({ queryKey: ['proposals'] });
+      const row = rows[0];
+      if (row?.ok) toast.success('되돌렸습니다'); else toast.error(row?.error ?? '되돌리지 못했습니다');
+    },
+    onError: (error) => toast.error(error.message),
+  });
   // Shown decided at once: the card turns 적용됨/거절함 before the server answers (back to pending on
   // failure), and takes the server's row (failed, skipped) as soon as it comes instead of waiting for the refetch.
   const patch = (update: (row: Proposal) => Proposal) => queryClient.setQueriesData<Proposal[]>({ queryKey: ['proposals'] }, (list) => list?.map((row) => (row.id === proposal.id ? update(row) : row)));
@@ -57,7 +69,7 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
         <CardTitle>{LABEL[proposal.tool] ?? proposal.tool}</CardTitle>
         {proposal.source === 'cli' && <span className="font-normal text-muted-foreground">· CLI</span>}
         <span className="ml-auto text-right">
-          {proposal.status !== 'pending' && (
+          {proposal.undoneAt ? <span className="ml-auto text-muted-foreground">되돌림</span> : proposal.status !== 'pending' && (
             <span className={proposal.status === 'accepted' ? 'text-success' : proposal.status === 'failed' ? 'text-destructive' : 'text-muted-foreground'}>
               {proposal.decidedBy && proposal.decidedBy !== 'person' && `${DECIDED_BY[proposal.decidedBy]} `}
               {proposal.status === 'accepted' ? acceptedLabel(proposal.tool).short : proposal.status === 'failed' && proposal.decidedBy && proposal.decidedBy !== 'person' ? '적용하려 했지만 실패' : STATUS[proposal.status]}
@@ -100,6 +112,9 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
             <Check /> 수락
           </Button>
         </div>
+      )}
+      {proposal.sessionId && proposal.status === 'accepted' && proposal.undo && 'calls' in proposal.undo && proposal.undo.calls > 0 && !proposal.undoneAt && (
+        <div className="flex justify-end border-t px-3 py-2"><Button size="sm" variant="outline" disabled={undo.isPending} onClick={() => undo.mutate()}>{undo.isPending ? <Spinner /> : null} 되돌리기</Button></div>
       )}
     </div>
   );
