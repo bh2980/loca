@@ -1,105 +1,67 @@
 import { useRouterState } from '@tanstack/react-router';
-import { BookOpenText, Bot, Cog, Home, Languages, Sparkles, Workflow, type LucideIcon } from 'lucide-react';
+import { BookMarked, Bot, FileText, GitBranch, History, Home, KeyRound, Languages, Milestone, Settings2, Sparkles, Tags, UsersRound, WandSparkles, Workflow, type LucideIcon } from 'lucide-react';
 
-/** One screen inside a menu section: shown as a tab in the top bar. */
-export interface SectionTab {
+export interface NavItem {
+  id: string;
   label: string;
-  /** Route path under /p/$projectId (no trailing slash). */
   path: string;
-  /** Search params that tell this tab apart from another on the same path (자료 tabs). */
-  search?: Record<string, string>;
-  /** Other paths that belong to this tab (a run's detail under 실행 기록). */
-  also?: string[];
-}
-
-export interface Section {
-  id: 'home' | 'translate' | 'knowledge' | 'workflows' | 'ai' | 'agent' | 'settings';
-  label: string;
-  /** The sidebar's block: the home, the work on the text, what automates it; settings sit at the bottom. */
-  group: 'home' | 'text' | 'automation' | 'settings';
   icon: LucideIcon;
-  tabs: SectionTab[];
+  search?: Record<string, string>;
+  also?: string[];
+  groupId: 'home' | 'translate' | 'knowledge' | 'automation' | 'settings';
+  groupLabel: string;
 }
 
-/**
- * The menus, in the order the work goes (#48): what to do next; translating (lines, graph and the
- * glossary that goes with them) and 자료, the knowledge AI nodes read; the workflows that move lines
- * (API 키 is theirs: the HTTP call node), the AI they call (connections, how AI results land) and the
- * chat agent's own page (its tools and default permission mode); settings. A menu's screens are tabs.
- */
-export const SECTIONS: Section[] = [
-  { id: 'home', label: '홈', group: 'home', icon: Home, tabs: [{ label: '홈', path: '' }] },
-  {
-    id: 'translate',
-    label: '번역',
-    group: 'text',
-    icon: Languages,
-    tabs: [
-      { label: '대사', path: '/script', also: ['/reviews'] },
-      { label: '그래프', path: '/graph' },
-      { label: '용어집', path: '/glossary' },
-    ],
-  },
-  {
-    id: 'knowledge',
-    label: '자료',
-    group: 'text',
-    icon: BookOpenText,
-    tabs: [
-      { label: '문서', path: '/knowledge', search: { tab: 'documents' } },
-      { label: '인물·관계', path: '/knowledge', search: { tab: 'people' } },
-      { label: '사건', path: '/knowledge', search: { tab: 'events' } },
-    ],
-  },
-  {
-    id: 'workflows',
-    label: '워크플로',
-    group: 'automation',
-    icon: Workflow,
-    tabs: [
-      { label: '워크플로', path: '/workflows' },
-      { label: '실행 기록', path: '/runs' },
-      // Only the HTTP call node uses these (AI connections keep their own key).
-      { label: 'API 키', path: '/keys' },
-    ],
-  },
-  {
-    id: 'ai',
-    label: 'AI',
-    group: 'automation',
-    icon: Sparkles,
-    tabs: [
-      { label: '연결', path: '/ai/connections' },
-      { label: '사용 방식', path: '/ai/usage' },
-    ],
-  },
-  { id: 'agent', label: '에이전트', group: 'automation', icon: Bot, tabs: [{ label: '에이전트', path: '/agent' }] },
-  {
-    id: 'settings',
-    label: '설정',
-    group: 'settings',
-    icon: Cog,
-    tabs: [
-      { label: '프로젝트', path: '/settings/project' },
-      { label: '상태·태그', path: '/settings/statuses' },
-    ],
-  },
+export interface NavGroup {
+  id: NavItem['groupId'];
+  label: string;
+  items: NavItem[];
+}
+
+const item = (id: NavItem['id'], label: string, path: string, icon: LucideIcon, groupId: NavItem['groupId'], groupLabel: string, extra: Partial<NavItem> = {}): NavItem => ({ id, label, path, icon, groupId, groupLabel, ...extra });
+
+export const NAV_GROUPS: NavGroup[] = [
+  { id: 'home', label: '', items: [item('home', '홈', '', Home, 'home', '')] },
+  { id: 'translate', label: '번역', items: [
+    item('script', '대사', '/script', Languages, 'translate', '번역', { also: ['/reviews'] }),
+    item('graph', '그래프', '/graph', GitBranch, 'translate', '번역'),
+    item('glossary', '용어집', '/glossary', BookMarked, 'translate', '번역'),
+  ] },
+  { id: 'knowledge', label: '자료', items: [
+    item('people', '인물·관계', '/knowledge', UsersRound, 'knowledge', '자료', { search: { tab: 'people' } }),
+    item('documents', '문서', '/knowledge', FileText, 'knowledge', '자료', { search: { tab: 'documents' } }),
+    item('events', '사건', '/knowledge', Milestone, 'knowledge', '자료', { search: { tab: 'events' } }),
+  ] },
+  { id: 'automation', label: '자동화', items: [
+    item('workflows', '워크플로', '/workflows', Workflow, 'automation', '자동화'),
+    item('runs', '실행 기록', '/runs', History, 'automation', '자동화'),
+  ] },
+  { id: 'settings', label: '설정', items: [
+    item('project-settings', '프로젝트', '/settings/project', Settings2, 'settings', '설정'),
+    item('statuses', '상태·태그', '/settings/statuses', Tags, 'settings', '설정'),
+    item('connections', 'AI 연결', '/ai/connections', Sparkles, 'settings', '설정'),
+    item('editor-ai', '편집기 AI', '/ai/usage', WandSparkles, 'settings', '설정'),
+    item('agent', '에이전트', '/agent', Bot, 'settings', '설정'),
+    item('keys', 'API 키', '/keys', KeyRound, 'settings', '설정'),
+  ] },
 ];
 
+export const NAV_ITEMS = NAV_GROUPS.flatMap((group) => group.items);
 const under = (rest: string, path: string) => (path === '' ? rest === '' : rest === path || rest.startsWith(`${path}/`));
 
-/** Whether a path under /p/$projectId is one of the section's screens (a remembered one may have moved since). */
-export const holds = (section: Section, rest: string) => section.tabs.some((tab) => under(rest, tab.path) || tab.also?.some((path) => under(rest, path)));
+export function holds(item: NavItem, rest: string, search: Record<string, unknown> = {}) {
+  const matchesPath = under(rest, item.path) || item.also?.some((path) => under(rest, path));
+  if (!matchesPath) return false;
+  if (item.search && !Object.entries(item.search).every(([key, value]) => search[key] === value)) {
+    if (!(item.id === 'documents' && rest === '/knowledge' && search.tab == null)) return false;
+  }
+  return true;
+}
 
-/** The section and tab the current URL is in. 자료 without `tab` is its first tab (문서). */
-export function useCurrentNav(projectId: string): { section: Section; tab: SectionTab } {
+export function useCurrentNav(projectId: string): { group: NavGroup; item: NavItem } {
   const { pathname, search } = useRouterState({ select: (s) => ({ pathname: s.location.pathname, search: s.location.search as Record<string, unknown> }) });
   const rest = pathname.replace(`/p/${projectId}`, '').replace(/\/$/, '');
-  for (const section of SECTIONS) {
-    const onPath = section.tabs.filter((tab) => under(rest, tab.path) || tab.also?.some((path) => under(rest, path)));
-    if (!onPath.length) continue;
-    const exact = onPath.find((tab) => tab.search && Object.entries(tab.search).every(([key, value]) => search[key] === value));
-    return { section, tab: exact ?? onPath[0] };
-  }
-  return { section: SECTIONS[0], tab: SECTIONS[0].tabs[0] };
+  const selected = NAV_ITEMS.find((entry) => holds(entry, rest, search)) ?? NAV_ITEMS[0];
+  const group = NAV_GROUPS.find((entry) => entry.id === selected.groupId)!;
+  return { group, item: selected };
 }
