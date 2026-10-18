@@ -33,7 +33,7 @@ const REFINE = [
 /** Why 다듬기 changed something, by the order it checks. */
 export const REFINE_KINDS = ['meaning', 'rule', 'language'] as const;
 const refineSchema = z.object({
-  translations: z
+  results: z
     .array(z.object({ id: z.string(), text: z.string(), changes: z.array(z.object({ kind: z.enum(REFINE_KINDS), why: z.string() })).default([]) }))
     .describe('Exactly 1 entry, for line id 1.'),
 });
@@ -67,7 +67,7 @@ export async function assistLine(db: Db, secrets: SecretStore, unitId: string, r
     position: { x: 0, y: 0 },
     config: aiNodeConfigSchema.parse({
       instructions: refine ? REFINE : AI_PRESETS.translate.instructions,
-      output: 'candidate',
+      output: 'text',
       include: { candidate: refine, issues: false },
     }),
   } as AiNode;
@@ -82,7 +82,7 @@ export async function assistLine(db: Db, secrets: SecretStore, unitId: string, r
       if (error instanceof ai.ModelError && error.code === 'rate-limit') throw new CompleteRefused('모델 요청 한도에 걸렸습니다. 잠시 뒤 다시.', 429, 60);
       throw error;
     });
-  const entry = (result.result.object as { translations?: { id: string; text: string; changes?: { kind: (typeof REFINE_KINDS)[number]; why: string }[] }[] }).translations?.find((item) => item.id === '1');
+  const entry = (result.result.object as { results?: { id: string; text: string; changes?: { kind: (typeof REFINE_KINDS)[number]; why: string }[] }[] }).results?.find((item) => item.id === '1');
   const text = entry?.text?.trim();
   if (!text) throw new CompleteRefused('모델이 번역을 돌려주지 않았습니다. 다시 해 보세요.', 400);
   const usage = { callsToday: editorCallsToday(db, unit.projectId), dailyCap: settings.dailyCap };

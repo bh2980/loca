@@ -10,6 +10,8 @@ export type ConditionNode = Extract<WorkflowNode, { type: 'condition' }>;
 
 export interface NodeRefs {
   projectId: string;
+  /** The saved workflow being edited (the prompt preview reads the stored node). */
+  workflowId?: string;
   statuses: { id: string; name: string; color: string; humanOnly?: boolean }[];
   tags: { id: string; name: string; color: string }[];
   connections: { id: string; name: string; kind: keyof typeof CONNECTION_KIND_INFO; baseUrl: string | null; fallback: { connectionId: string; model: string } | null }[];

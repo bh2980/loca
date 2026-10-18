@@ -136,6 +136,13 @@ function RunDetail() {
                   {nodeName(nodeId)} {output.passed ? '통과' : '실패'}
                 </p>
               ))}
+            {Object.entries(item.data.outputs ?? {})
+              .filter(([, output]) => 'confidence' in output && 'value' in output)
+              .map(([nodeId, output]) => (
+                <p key={`choice:${nodeId}`} className="text-muted-foreground">
+                  {nodeName(nodeId)}: {output.value == null ? '해당 없음' : String(output.value)} (확신도 {Number(output.confidence).toFixed(2)})
+                </p>
+              ))}
           </>
         );
       },

@@ -242,10 +242,3 @@ export const politenessOf = (text: string): Politeness | null => politenessOfLev
 export const TERM_KINDS = ['person', 'place', 'organization', 'item', 'concept', 'title', 'ui', 'other'] as const;
 export type TermKind = (typeof TERM_KINDS)[number];
 export const TERM_KIND_LABELS: Record<TermKind, string> = { person: '인물', place: '장소', organization: '조직', item: '물건·기술', concept: '개념·은어', title: '호칭·직함', ui: 'UI', other: '' };
-
-/** What a work analysis can read the script for (an "analysis" AI node's sections). */
-export const ANALYSIS_SECTIONS = ['overview', 'characters', 'relationships', 'events', 'speechRules', 'sceneListeners', 'terms'] as const;
-export type AnalysisSection = (typeof ANALYSIS_SECTIONS)[number];
-export const ANALYSIS_SECTION_LABELS: Record<AnalysisSection, string> = { overview: '작품 개요', characters: '인물', relationships: '관계', events: '사건', speechRules: '말투 규칙', sceneListeners: '장면별 청자', terms: '용어' };
-/** The sections a node reads: its own, or every one when it names none. */
-export const analysisSectionsOf = (sections: readonly AnalysisSection[] | undefined): AnalysisSection[] => (sections?.length ? ANALYSIS_SECTIONS.filter((section) => sections.includes(section)) : [...ANALYSIS_SECTIONS]);

@@ -37,7 +37,7 @@ const port: ModelPort = {
     const lines = promptEntries(request.prompt) as { id: string }[];
     const usage = { inputTokens: 10, outputTokens: 5 };
     if (request.system.includes('Review each')) return { object: { results: lines.map((line) => ({ id: line.id, passed: true, issues: [] })) }, usage } as never;
-    return { object: { translations: lines.map((line) => ({ id: line.id, text: `[ko] ${line.id}` })) }, usage } as never;
+    return { object: { results: lines.map((line) => ({ id: line.id, text: `[ko] ${line.id}` })) }, usage } as never;
   },
 };
 

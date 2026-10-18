@@ -1,48 +1,55 @@
 import { z } from 'zod';
-import { analysisSectionsOf, ISSUE_CATEGORY_GUIDE, ISSUE_KIND_IDS, type IssueKind, lineKindOf, SPEECH_LEVEL_GUIDE, SPEECH_LEVELS, type AiNode, type JsonField } from '@tw/shared';
+import { ISSUE_CATEGORY_GUIDE, ISSUE_KIND_IDS, type IssueKind, lineKindOf, type AiNode, type JsonField } from '@tw/shared';
 import type { BatchContext, LineContext } from '../services/context.ts';
-import { analysisSchemaFor } from '../services/analysis.ts';
+import { choiceOptionsSentence, FORMAT_CHOICE, FORMAT_JSON_BATCH, FORMAT_JSON_LINE, FORMAT_TEXT, FORMAT_VERDICT } from './format-sentences.ts';
 
 const hasBranches = (context: BatchContext) => Object.values(context.preceding).some((preceding) => preceding.branches.length > 0);
 
 const hasAiNotes = (context: BatchContext) => Object.values(context.aiNotes).some((list) => list.length > 0);
 
-const fieldType = (field: JsonField) => (field.type === 'number' ? z.number() : field.type === 'boolean' ? z.boolean() : z.string());
+/** A JSON output field as a zod type, nested lists included. `lines` are ids of the request's lines (turned into line keys when read). */
+function fieldSchema(field: JsonField): z.ZodType<unknown> {
+  const type =
+    field.type === 'number'
+      ? z.number()
+      : field.type === 'boolean'
+        ? z.boolean()
+        : field.type === 'strings'
+          ? z.array(z.string())
+          : field.type === 'lines'
+            ? z.array(z.string()).describe('ids of the request\'s lines that show this')
+            : field.type === 'list'
+              ? z.array(fieldsSchema(field.fields ?? []))
+              : z.string();
+  return field.description ? type.describe(field.description) : type;
+}
+const fieldsSchema = (fields: JsonField[]) => z.object(Object.fromEntries(fields.map((field) => [field.name, fieldSchema(field)])));
 
-/** What a "knowledge" AI node returns for a batch; line ids are the prompt's ("1", "2"…). */
-export const knowledgeOutputSchema = z.object({
-  characters: z.array(z.object({ name: z.string(), aliases: z.array(z.string()), profile: z.string(), evidence: z.array(z.string()).default([]) })),
-  relationships: z.array(z.object({ from: z.string(), to: z.string(), kind: z.string(), description: z.string(), change: z.string().nullable(), at: z.string().nullable() })),
-  events: z.array(z.object({ title: z.string(), summary: z.string(), outcome: z.string(), participants: z.array(z.string()), evidence: z.array(z.string()) })),
-  speechRules: z.array(z.object({ from: z.string(), to: z.string(), level: z.enum(SPEECH_LEVELS), address: z.string(), note: z.string(), start: z.string().nullable() })),
-});
-export type KnowledgeOutput = z.infer<typeof knowledgeOutputSchema>;
+/** Whether a node answers once for the whole request instead of once per line. */
+export const isBatchScope = (node: AiNode) => node.config.output === 'json' && node.config.scope === 'batch';
 
 /**
- * The structured answer an AI node must return, by output kind. Every per-line entry carries the
- * line id; with `ids` the schema also says which ids and how many, so a large batch is less likely
- * to come back short (the runner still asks again for whatever is missing).
+ * The structured answer an AI node must return, by output form. Per-line entries carry the line id;
+ * with `ids` the schema also says which ids and how many, so a large batch is less likely to come
+ * back short (the runner still asks again for whatever is missing). `options` are a choice node's
+ * resolved options (resolveChoiceOptions).
  */
-export function outputSchema(node: AiNode, ids?: string[]): z.ZodType<unknown> {
+export function outputSchema(node: AiNode, ids?: string[], options: string[] = node.config.choice.values): z.ZodType<unknown> {
   const perLine = <T extends z.ZodRawShape>(shape: T) => {
     const list = z.array(z.object({ id: z.string(), ...shape }));
     return ids?.length ? list.describe(`Exactly ${ids.length} entries, one for each line id: ${ids.join(', ')}.`) : list;
   };
   switch (node.config.output) {
-    case 'candidate':
-      return z.object({ translations: perLine({ text: z.string() }) });
+    case 'text':
+      return z.object({ results: perLine({ text: z.string() }) });
     case 'verdict':
       return z.object({ results: perLine({ passed: z.boolean(), issues: z.array(z.string()), categories: z.array(z.enum(ISSUE_KIND_IDS as [IssueKind, ...IssueKind[]])).default([]) }) });
-    case 'terms':
-      return z.object({ terms: z.array(z.object({ source: z.string(), target: z.string(), note: z.string() })) });
-    case 'knowledge':
-      return knowledgeOutputSchema;
-    case 'analysis':
-      return analysisSchemaFor(analysisSectionsOf(node.config.sections));
-    case 'listener':
-      return z.object({ listeners: perLine({ value: z.string().nullable(), confidence: z.number(), reason: z.string().optional() }) });
+    case 'choice': {
+      const value = options.length ? z.enum(options as [string, ...string[]]) : z.string();
+      return z.object({ results: perLine({ value: node.config.choice.allowNone ? value.nullable() : value, confidence: z.number().min(0).max(1), reason: z.string().optional() }) });
+    }
     case 'json':
-      return z.object({ results: perLine(Object.fromEntries(node.config.fields.map((field) => [field.name, fieldType(field).describe(field.description)]))) });
+      return node.config.scope === 'batch' ? fieldsSchema(node.config.fields) : z.object({ results: perLine(fieldsSchema(node.config.fields).shape) });
   }
 }
 
@@ -50,19 +57,19 @@ export function outputSchema(node: AiNode, ids?: string[]): z.ZodType<unknown> {
 export const promptEntries = <T = { id: string; source: string; speaker?: string; candidate?: string }>(prompt: string): T[] =>
   (JSON.parse(prompt) as { scenes: { lines: T[] }[] }).scenes.flatMap((scene) => scene.lines);
 
-/** Output kinds that answer per line, so a missing line can be asked for again. */
-export const PER_LINE_OUTPUTS = new Set<AiNode['config']['output']>(['candidate', 'verdict', 'listener', 'json']);
-
-const CONTRACT: Record<AiNode['config']['output'], string> = {
-  candidate: 'Return one translation per line id in "translations".',
-  verdict: `Return one result per line id in "results": passed, concrete issues (empty when passed), and the categories of those issues: ${ISSUE_CATEGORY_GUIDE}.`,
-  terms: 'Return the terms found across all lines in "terms" (source, target, note). Return an empty list when there are none.',
-  knowledge: `Return what these lines add in "characters" (with evidence line ids), "relationships" (with "change" and the line id "at" where it shows), "events" (with evidence line ids) and "speechRules" (level is one of: ${SPEECH_LEVEL_GUIDE}; "start" is the line id where the new level begins). Empty lists when nothing is new.`,
-  listener: 'Return one entry per line id in "listeners": value (your answer, or null when you cannot tell), confidence (0 to 1) and optionally a one-line reason.',
-  // Analysis nodes build their own prompt (services/analysis.ts analysisRequest).
-  analysis: '',
-  json: 'Return one object per line id in "results" with the requested fields.',
-};
+/** What the server adds about the answer's form (and a choice's options): the only hidden part of a node's prompt. */
+export function formatSentences(node: AiNode, choiceOptions: string[] = node.config.choice.values): string {
+  switch (node.config.output) {
+    case 'text':
+      return FORMAT_TEXT;
+    case 'verdict':
+      return FORMAT_VERDICT(ISSUE_CATEGORY_GUIDE);
+    case 'choice':
+      return [FORMAT_CHOICE, choiceOptionsSentence(choiceOptions, node.config.choice.allowNone)].join(' ');
+    case 'json':
+      return node.config.scope === 'batch' ? FORMAT_JSON_BATCH : FORMAT_JSON_LINE;
+  }
+}
 
 /** How to read lines that are not spoken dialogue, for the kinds this batch has. */
 function kindGuide(lines: PromptLine[]) {
@@ -89,32 +96,27 @@ export interface PromptLine {
   issues?: string[];
 }
 
-/** What a 분류·추론 node (output "listener") may answer, by where its value goes. */
-function classifyGuide(node: AiNode, lineTags: string[]) {
-  switch (node.config.classifyTarget ?? 'listener') {
-    case 'listener':
-      return '"value" is the line\'s listener: a cast name, "group", "public", "self" or null.';
-    case 'tag':
-      return lineTags.length
-        ? `"value" must be exactly one of these line tags, or null when none fits: ${lineTags.map((name) => JSON.stringify(name)).join(', ')}.`
-        : '"value" is the label you assign to the line, or null when none fits.';
-    case 'none':
-      return 'Classify each line as the instructions say: "value" is your answer, confidence says how sure you are.';
-  }
-}
+/** The parts of a request's context that belong to the project, not to a line (also the context of a whole-script request). */
+export const projectParts = (context: BatchContext) => ({
+  documents: context.documents.length ? context.documents : undefined,
+  cast: context.cast.length ? context.cast : undefined,
+  glossary: context.terms.length ? context.terms : undefined,
+  characters: context.characters.length ? context.characters : undefined,
+  relationships: context.relationships.length ? context.relationships : undefined,
+  aiNotes: hasAiNotes(context) ? { ...(context.aiNotes.characters.length && { characters: context.aiNotes.characters }), ...(context.aiNotes.relationships.length && { relationships: context.aiNotes.relationships }), ...(context.aiNotes.documents.length && { documents: context.aiNotes.documents }) } : undefined,
+});
 
 export function buildPrompt(
   node: AiNode,
   languages: { source: string; target: string },
   context: BatchContext,
   lines: PromptLine[],
-  lineTags: string[] = [],
+  choiceOptions: string[] = node.config.choice.values,
 ) {
   const system = [
     `You are a professional game localizer working from ${languages.source} to ${languages.target}.`,
     node.config.instructions.trim(),
-    CONTRACT[node.config.output],
-    node.config.output === 'listener' ? classifyGuide(node, lineTags) : '',
+    formatSentences(node, choiceOptions),
     'Story notes, character profiles and preceding lines are context only.',
     hasAiNotes(context) ? '"aiNotes" are AI inferences nobody has verified: unverified guesses, not facts. Use one only when the lines themselves agree with it, and never let it override the lines, the glossary or a speech rule.' : '',
     Object.values(context.speech).some((entry) => entry.rule)
@@ -168,17 +170,6 @@ export function buildPrompt(
     scenes.at(-1)!.lines.push(promptLine(line));
   }
   // Project-wide parts first and this batch's lines last, so prompt caches can match the prefix.
-  const input = {
-    documents: context.documents.length ? context.documents : undefined,
-    cast: context.cast.length ? context.cast : undefined,
-    glossary: context.terms.length ? context.terms : undefined,
-    characters: context.characters.length ? context.characters : undefined,
-    voices: Object.keys(context.voices).length ? context.voices : undefined,
-    people: Object.keys(context.people).length ? context.people : undefined,
-    relationships: context.relationships.length ? context.relationships : undefined,
-    aiNotes: hasAiNotes(context) ? { ...(context.aiNotes.characters.length && { characters: context.aiNotes.characters }), ...(context.aiNotes.relationships.length && { relationships: context.aiNotes.relationships }), ...(context.aiNotes.documents.length && { documents: context.aiNotes.documents }) } : undefined,
-    previousScenes: context.previousScenes.length ? context.previousScenes : undefined,
-    scenes,
-  };
+  const input = { ...projectParts(context), voices: Object.keys(context.voices).length ? context.voices : undefined, people: Object.keys(context.people).length ? context.people : undefined, previousScenes: context.previousScenes.length ? context.previousScenes : undefined, scenes };
   return { system, prompt: JSON.stringify(input) };
 }

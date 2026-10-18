@@ -1,42 +1,58 @@
 import { describe, expect, it } from 'vitest';
+import { workflowNodeSchema, type AiNode } from '@tw/shared';
 import { readAiOutput } from './ai-output.ts';
 
-const node = (output: string, extra: Record<string, unknown> = {}) => ({ id: 'n', type: 'ai', config: { output, ...extra } }) as never;
+const node = (config: Record<string, unknown>) => workflowNodeSchema.parse({ id: 'n', type: 'ai', position: { x: 0, y: 0 }, config }) as AiNode;
 const lines = [{ id: '1', key: 'k1' }, { id: '2', key: 'k2' }] as never;
 
 describe('reading an AI answer line by line (#49)', () => {
-  it('candidate: a missing or blank translation leaves the line out', () => {
-    const out = readAiOutput(node('candidate'), { translations: [{ id: '1', text: '안녕' }, { id: '2', text: '  ' }] }, lines, 'm');
+  it('text: a candidate; a missing or blank text leaves the line out', () => {
+    const out = readAiOutput(node({ output: 'text' }), { results: [{ id: '1', text: '안녕' }, { id: '2', text: '  ' }] }, lines, 'm');
     expect(out[0]).toEqual({ port: 'out', candidate: '안녕', origin: 'ai', model: 'm', output: { text: '안녕' } });
     expect(out[1]).toBeNull();
   });
 
   it('verdict: passing clears every kind; failing without a category is 기타 (other)', () => {
-    const out = readAiOutput(node('verdict'), { results: [{ id: '1', passed: true, issues: [] }, { id: '2', passed: false, issues: ['x'] }] }, lines, 'm');
+    const out = readAiOutput(node({ output: 'verdict' }), { results: [{ id: '1', passed: true, issues: [] }, { id: '2', passed: false, issues: ['x'] }] }, lines, 'm');
     expect(out[0]).toMatchObject({ port: 'pass', issues: undefined, issueTags: { clear: 'all' } });
     expect(out[1]).toMatchObject({ port: 'fail', issues: ['x'], output: { categories: ['other'] }, issueTags: { add: ['other'] } });
   });
 
-  it('listener: trims the name, clamps confidence, a blank name is no listener', () => {
-    const out = readAiOutput(node('listener'), { listeners: [{ id: '1', value: ' Bob ', confidence: 3, reason: ' why ' }, { id: '2', value: ' ', confidence: 'x' }] }, lines, 'm');
+  it('choice: value, clamped confidence and reason; an answer outside the options is none; a missing line is left out', () => {
+    const ai = node({ output: 'choice', choice: { source: 'custom', values: ['Bob', 'group'], allowNone: true } });
+    const out = readAiOutput(ai, { results: [{ id: '1', value: ' Bob ', confidence: 3, reason: ' why ' }, { id: '2', value: 'Zed', confidence: 'x' }] }, lines, 'm');
     expect(out.map((entry) => entry?.output)).toEqual([{ value: 'Bob', confidence: 1, reason: 'why' }, { value: null, confidence: 0 }]);
+    expect(out[0]).toMatchObject({ port: 'out' });
+    expect(readAiOutput(ai, { results: [{ id: '2', value: null, confidence: 0.2 }] }, lines, 'm')).toEqual([null, { port: 'out', output: { value: null, confidence: 0.2 } }]);
+    // The resolved options (a project list) decide, not the node's typed ones.
+    const listed = node({ output: 'choice', choice: { source: 'characters', values: [], allowNone: true } });
+    expect(readAiOutput(listed, { results: [{ id: '1', value: 'Mira', confidence: 0.9 }, { id: '2', value: 'Zed', confidence: 0.9 }] }, lines, 'm', ['Mira']).map((entry) => (entry?.output as { value: string | null }).value)).toEqual(['Mira', null]);
   });
 
-  it('json: the fields without the id; a line not answered is left out', () => {
-    const out = readAiOutput(node('json'), { results: [{ id: '2', score: 4 }] }, lines, 'm');
+  it('json line scope: the fields without the id; a line not answered is left out', () => {
+    const out = readAiOutput(node({ output: 'json', fields: [{ name: 'score', type: 'number' }] }), { results: [{ id: '2', score: 4 }] }, lines, 'm');
     expect(out).toEqual([null, { port: 'out', output: { score: 4 } }]);
   });
 
-  it('terms and knowledge: the first line carries the batch, line ids become keys', () => {
-    const terms = readAiOutput(node('terms'), { terms: [{ source: 'a' }] }, lines, 'm');
-    expect(terms.map((entry) => entry?.output)).toEqual([{ terms: [{ source: 'a' }], batchLeader: true }, { terms: [{ source: 'a' }], batchLeader: false }]);
-    const raw = { characters: [{ name: 'A', evidence: ['1', 'gone'] }], relationships: [{ from: 'A', to: 'B', at: '2' }], events: [{ title: 'e', evidence: ['2'] }], speechRules: [{ speaker: 'A', start: 'nope' }] };
-    const [first, second] = readAiOutput(node('knowledge'), raw, lines, 'm');
-    const knowledge = (first!.output as { knowledge: Record<string, Record<string, unknown>[]> }).knowledge;
-    expect(knowledge.characters![0]!.evidence).toEqual(['k1']);
-    expect(knowledge.relationships![0]).toMatchObject({ at: 'k2', evidence: ['k2'] });
-    expect(knowledge.events![0]!.evidence).toEqual(['k2']);
-    expect(knowledge.speechRules![0]).toMatchObject({ start: null, evidence: [] });
-    expect(second!.output).toEqual({ knowledge: { characters: [], relationships: [], events: [], speechRules: [] }, batchLeader: false });
+  const fields = [
+    { name: 'title', type: 'string' },
+    { name: 'evidence', type: 'lines' },
+    { name: 'people', type: 'list', fields: [{ name: 'name', type: 'string' }, { name: 'evidence', type: 'lines' }, { name: 'moments', type: 'list', fields: [{ name: 'at', type: 'lines' }] }] },
+  ];
+
+  it('json: lines fields become line keys at any depth, unknown ids are dropped', () => {
+    const [out] = readAiOutput(
+      node({ output: 'json', fields }),
+      { results: [{ id: '1', title: 't', evidence: ['2', 'gone'], people: [{ name: 'A', evidence: ['1', ' 2 '], moments: [{ at: ['2'] }, { at: ['nope'] }] }] }] },
+      lines,
+      'm',
+    );
+    expect(out!.output).toEqual({ title: 't', evidence: ['k2'], people: [{ name: 'A', evidence: ['k1', 'k2'], moments: [{ at: ['k2'] }, { at: [] }] }] });
+  });
+
+  it('json batch scope: only the first line carries the answer (batchLeader), with line keys', () => {
+    const raw = { title: 't', evidence: ['1'], people: [{ name: 'A', evidence: ['2'], moments: [] }] };
+    const out = readAiOutput(node({ output: 'json', scope: 'batch', fields }), raw, lines, 'm');
+    expect(out.map((entry) => entry?.output)).toEqual([{ title: 't', evidence: ['k1'], people: [{ name: 'A', evidence: ['k2'], moments: [] }], batchLeader: true }, { batchLeader: false }]);
   });
 });

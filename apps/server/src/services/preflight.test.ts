@@ -32,7 +32,7 @@ function model(): ModelPort {
           },
           usage: { inputTokens: 25_000, outputTokens: 10 },
         } as never;
-      return { object: { translations: lines.map((line) => ({ id: line.id, text: `[ko] ${line.source}` })) }, usage: { inputTokens: 25_000, outputTokens: 10 } } as never;
+      return { object: { results: lines.map((line) => ({ id: line.id, text: `[ko] ${line.source}` })) }, usage: { inputTokens: 25_000, outputTokens: 10 } } as never;
     },
   };
 }

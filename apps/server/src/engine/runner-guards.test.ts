@@ -67,7 +67,7 @@ function model(fail: (call: number) => Error | null = () => null): ModelPort & {
       if (error) throw error;
       const usage = { inputTokens: 100, cachedInputTokens: 60, outputTokens: 20, reasoningTokens: 5, costUsd: 0.01 };
       if (request.system.includes('Review each')) return { object: { results: input.lines.map((line) => ({ id: line.id, passed: true, issues: [] })) }, usage } as never;
-      return { object: { translations: input.lines.map((line) => ({ id: line.id, text: `[ko] ${line.source}` })) }, usage } as never;
+      return { object: { results: input.lines.map((line) => ({ id: line.id, text: `[ko] ${line.source}` })) }, usage } as never;
     },
   };
 }
@@ -199,7 +199,7 @@ describe('incomplete answers', () => {
         // The first translate request drops its last three lines.
         const kept = !review && call === 1 ? input.lines.slice(0, -3) : input.lines;
         if (review) return { object: { results: kept.map((line) => ({ id: line.id, passed: true, issues: [] })) }, usage: {} } as never;
-        return { object: { translations: kept.map((line) => ({ id: line.id, text: `[ko] ${line.source}` })) }, usage: {} } as never;
+        return { object: { results: kept.map((line) => ({ id: line.id, text: `[ko] ${line.source}` })) }, usage: {} } as never;
       },
     };
     await new Runner(db, memoryStore(), fake).drain();
@@ -224,7 +224,7 @@ describe('incomplete answers', () => {
         if (input.lines.some((line) => line.source.endsWith('L5'))) throw new ai.ModelError('invalid-output', 'bad JSON', false, { inputTokens: 10 });
         const review = request.system.includes('Review each');
         if (review) return { object: { results: input.lines.map((line) => ({ id: line.id, passed: true, issues: [] })) }, usage: {} } as never;
-        return { object: { translations: input.lines.map((line) => ({ id: line.id, text: `[ko] ${line.source}` })) }, usage: {} } as never;
+        return { object: { results: input.lines.map((line) => ({ id: line.id, text: `[ko] ${line.source}` })) }, usage: {} } as never;
       },
     };
     await new Runner(db, memoryStore(), fake).drain();
@@ -245,7 +245,7 @@ describe('incomplete answers', () => {
         const lines = promptEntries(request.prompt) as { id: string; source: string }[];
         if (lines.length > 4) throw new ai.ModelError('too-long', 'maximum context length exceeded', false);
         if (request.system.includes('Review each')) return { object: { results: lines.map((line) => ({ id: line.id, passed: true, issues: [] })) }, usage: {} } as never;
-        return { object: { translations: lines.map((line) => ({ id: line.id, text: `[ko] ${line.source}` })) }, usage: {} } as never;
+        return { object: { results: lines.map((line) => ({ id: line.id, text: `[ko] ${line.source}` })) }, usage: {} } as never;
       },
     };
     await new Runner(db, memoryStore(), fake).drain();
@@ -307,7 +307,7 @@ describe('slots per account', () => {
         now.set(account, now.get(account)! - 1);
         const lines = promptEntries(request.prompt);
         if (review) return { object: { results: lines.map((line) => ({ id: line.id, passed: true, issues: [] })) }, usage: {} } as never;
-        return { object: { translations: lines.map((line) => ({ id: line.id, text: `[ko] ${line.source}` })) }, usage: {} } as never;
+        return { object: { results: lines.map((line) => ({ id: line.id, text: `[ko] ${line.source}` })) }, usage: {} } as never;
       },
     };
     return { port, peak, order };

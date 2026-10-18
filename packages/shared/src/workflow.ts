@@ -1,8 +1,7 @@
 import { z } from 'zod';
 import Graph from 'graphology';
-import { FUNCTIONS, functionPorts, jsonFieldSchema, type FunctionName, type JsonField, type Port } from './functions.ts';
+import { APPLY_TARGETS, FUNCTIONS, functionPorts, jsonFieldSchema, type ApplyFunctionName, type ApplyParams, type FunctionName, type JsonField, type Port } from './functions.ts';
 import { stronglyConnectedComponents } from 'graphology-components';
-import { ANALYSIS_SECTIONS } from './knowledge.ts';
 import { choiceKey, draftModelChoiceSchema, EMPTY_MODEL_CHOICE, modelChoiceSchema, type ModelChoice } from './model-choice.ts';
 
 /**
@@ -52,26 +51,39 @@ export const batchConfigSchema = z.object({
 const position = z.object({ x: z.number(), y: z.number() });
 const base = { id: z.string().min(1), position, label: z.string().optional() };
 
-/** What an AI node returns for each line; the choice also decides its exits. */
+/**
+ * What an AI node returns: a form, not a purpose. Where a result goes in the project is up to the
+ * apply nodes after it (APPLY_TARGETS); terms, characters or a work analysis are `json` outputs made
+ * from a preset, not kinds of their own.
+ */
 export const AI_OUTPUTS = {
-  candidate: { label: '문장 생성 (번역·윤문)', description: '대사마다 번역문·수정문 등 새 문장을 만들어 후보로 기록합니다.' },
-  verdict: { label: '통과·실패 판정', description: '번역 품질·말투·설정 일관성 등을 판정해 통과/실패 두 출구로 나눕니다.' },
-  terms: { label: '용어 후보', description: '원문에서 용어(원문·번역·메모)를 뽑습니다.' },
-  listener: { label: '분류·추론 (값 + 확신도)', description: '대사마다 지시문에 따라 값(청자·분류·감정 등)과 확신도(0~1)를 냅니다. 청자나 태그에 반영하거나 조건 분기에만 쓸 수 있습니다.' },
-  knowledge: { label: '자료 변경', description: '이 대사들에서 새로 드러난 인물·관계 변화·사건·말투 변화를 냅니다.' },
-  analysis: { label: '작품 분석', description: '읽은 대본 전체에서 고른 항목(개요·인물·관계·사건·말투 규칙·장면별 청자·용어)을 근거 줄과 함께 냅니다.' },
-  json: { label: '자유 형식', description: '직접 정한 필드를 대사마다 채웁니다.' },
+  text: { label: '문장', description: '대사마다 텍스트 하나(번역문·수정문 등). 흐름의 현재 번역문이 됩니다.' },
+  verdict: { label: '판정', description: '대사마다 통과/실패와 이유. 통과·실패 두 출구로 나뉩니다.' },
+  choice: { label: '선택', description: '대사마다 정한 선택지 중 하나(또는 없음)와 확신도(0~1).' },
+  json: { label: 'JSON', description: '직접 정한 필드를 채웁니다. 대사마다 또는 묶음 전체에 하나.' },
 } as const;
 export type AiOutput = keyof typeof AI_OUTPUTS;
+export const AI_OUTPUT_IDS = Object.keys(AI_OUTPUTS) as AiOutput[];
 
-export { jsonFieldSchema, type JsonField };
+/** `line`: one answer per line. `batch`: one answer per request (lists that belong to no single line). Only `json` can be `batch`. */
+export const AI_SCOPES = { line: '대사마다', batch: '묶음 전체' } as const;
+export type AiScope = keyof typeof AI_SCOPES;
 
 /**
- * Where a "listener" (분류·추론) node's inferred value goes: the line's listener, the line tag with
- * that name, or nowhere (only outputs.<node>.value / .confidence for later conditions).
+ * Where a `choice` node's options come from: typed by hand, or a project list read when the run
+ * sends the request (cast names plus group/public/self, line tag names, status names).
  */
-export const CLASSIFY_TARGETS = ['listener', 'tag', 'none'] as const;
-export type ClassifyTarget = (typeof CLASSIFY_TARGETS)[number];
+export const CHOICE_SOURCES = { custom: '직접 입력', characters: '등장인물·특수 청자', lineTags: '대사 태그', statuses: '상태' } as const;
+export type ChoiceSource = keyof typeof CHOICE_SOURCES;
+export const choiceConfigSchema = z.object({
+  source: z.enum(Object.keys(CHOICE_SOURCES) as [ChoiceSource, ...ChoiceSource[]]).default('custom'),
+  values: z.array(z.string().trim().min(1)).default([]),
+  /** The model may answer "none of these" (null). */
+  allowNone: z.boolean().default(true),
+});
+export type ChoiceConfig = z.infer<typeof choiceConfigSchema>;
+
+export { jsonFieldSchema, type JsonField };
 
 export const aiNodeConfigSchema = z.object({
   model: draftModelChoiceSchema.default({ ...EMPTY_MODEL_CHOICE }),
@@ -79,17 +91,14 @@ export const aiNodeConfigSchema = z.object({
   extraModels: z.array(draftModelChoiceSchema).default([]),
   /** Empty = the model's default. Only some API models take it. */
   temperature: z.number().min(0).max(2).optional(),
+  /** The prompt. Everything the model is told is here or in the read-only format part shown in the preview. */
   instructions: z.string().default(''),
-  output: z.enum(['candidate', 'verdict', 'terms', 'listener', 'knowledge', 'analysis', 'json']).default('candidate'),
+  output: z.enum(AI_OUTPUT_IDS as [AiOutput, ...AiOutput[]]).default('text'),
+  scope: z.enum(['line', 'batch']).default('line'),
   fields: z.array(jsonFieldSchema).default([]),
-  /** "listener" (분류·추론) output only: where the inferred value goes; unset = 'listener'. */
-  classifyTarget: z.enum(CLASSIFY_TARGETS).optional(),
-  /** What an "analysis" node reads the script for; empty = every section. */
-  sections: z.array(z.enum(ANALYSIS_SECTIONS)).optional(),
-  /** Whether extracted terms/listener/knowledge/analysis should be saved automatically without requiring a separate save function node. */
-  autoApply: z.boolean().optional(),
-  /** When true, extracted terms/knowledge/analysis items are saved as 'candidate' instead of 'confirmed' (✦). */
-  asCandidate: z.boolean().optional(),
+  choice: choiceConfigSchema.default(choiceConfigSchema.parse({})),
+  /** The preset this node was filled from (shown as a hint; the node is an ordinary AI node). */
+  preset: z.string().optional(),
   /** Also show the model the line's current candidate / the latest failing issues. */
   include: z
     .object({ candidate: z.boolean().default(true), issues: z.boolean().default(true) })
@@ -324,8 +333,10 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
       else if (!refs.connections.has(model.connectionId)) error('고른 AI 연결이 삭제되었습니다. 다시 고르세요.', { nodeId: node.id });
       if (extraModels.some((choice) => !choice.connectionId || !choice.model)) error('함께 나눌 모델을 고르거나 그 칸을 지우세요.', { nodeId: node.id });
       else if (extraModels.some((choice) => !refs.connections.has(choice.connectionId))) error('함께 나눌 모델 중 연결이 삭제된 것이 있습니다.', { nodeId: node.id });
-      if (node.config.output === 'json' && !node.config.fields.length) error('자유 형식 출력에는 필드가 하나 이상 필요합니다.', { nodeId: node.id });
-      if (node.config.output === 'analysis' && node.config.batch.mode !== 'whole') warn("작품 분석은 '대본 전체' 묶음에서 가장 정확하고 쌉니다. 장면 묶음으로 나누면 부분마다 같은 인물을 다시 읽습니다.", { nodeId: node.id });
+      if (node.config.output === 'json' && !node.config.fields.length) error('JSON 출력에는 필드가 하나 이상 필요합니다.', { nodeId: node.id });
+      if (node.config.output === 'json' && node.config.fields.some((field) => field.type === 'list' && !field.fields?.length)) error('목록 필드에는 항목 필드가 하나 이상 필요합니다.', { nodeId: node.id });
+      if (node.config.output === 'choice' && node.config.choice.source === 'custom' && !node.config.choice.values.length) error('선택지를 하나 이상 적으세요.', { nodeId: node.id });
+      if (node.config.scope === 'batch' && node.config.output !== 'json') error("'묶음 전체' 출력은 JSON에서만 쓸 수 있습니다.", { nodeId: node.id });
     }
     if (node.type === 'entry')
       for (const id of node.config.statusIds) if (!refs.statusIds.has(id)) error('삭제된 상태가 있습니다.', { nodeId: node.id });
@@ -350,22 +361,7 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
         if (!/^https?:\/\//.test(String(params.url).trim())) error('HTTP 호출할 주소(https://…)를 입력하세요.', { nodeId: node.id });
         if (params.connectionId && !refs.toolConnectionIds.has(params.connectionId as string)) error('삭제된 API 키입니다.', { nodeId: node.id });
       }
-      if (node.config.fn === 'addTerms' && params.fromNodeId) {
-        const from = definition.nodes.find((other) => other.id === params.fromNodeId);
-        if (from?.type !== 'ai' || from.config.output !== 'terms') error('용어 후보를 내는 AI 노드를 선택하세요.', { nodeId: node.id });
-      }
-      if (node.config.fn === 'applyKnowledge' && params.fromNodeId) {
-        const from = definition.nodes.find((other) => other.id === params.fromNodeId);
-        if (from?.type !== 'ai' || from.config.output !== 'knowledge') error('자료 변경을 내는 AI 노드를 선택하세요.', { nodeId: node.id });
-      }
-      if (node.config.fn === 'saveAnalysis' && params.fromNodeId) {
-        const from = definition.nodes.find((other) => other.id === params.fromNodeId);
-        if (from?.type !== 'ai' || from.config.output !== 'analysis') error('작품 분석을 내는 AI 노드를 선택하세요.', { nodeId: node.id });
-      }
-      if (node.config.fn === 'setListener' && params.fromNodeId) {
-        const from = definition.nodes.find((other) => other.id === params.fromNodeId);
-        if (from?.type !== 'ai' || from.config.output !== 'listener') error('청자를 내는 AI 노드를 선택하세요.', { nodeId: node.id });
-      }
+      if (node.config.fn in APPLY_TARGETS) for (const message of applyIssues(definition, node.config.fn as ApplyFunctionName, params as ApplyParams)) error(message, { nodeId: node.id });
     }
     if (node.type === 'condition' && (node.config.expression === undefined || node.config.expression === null))
       error('조건식을 입력하세요.', { nodeId: node.id });
@@ -398,9 +394,25 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
   return issues;
 }
 
-/** The work-analysis nodes of a workflow (AI nodes with the "analysis" output, #47). */
-export const analysisNodes = (definition: WorkflowDefinition) => definition.nodes.filter((node): node is AiNode => node.type === 'ai' && node.config.output === 'analysis');
-/** A workflow that runs a work analysis: only one such run at a time per project. */
+/**
+ * What is wrong with an apply node's source and mapping: the source must be an AI or script node
+ * before it, a `list` target needs the list field, and every required field must be mapped.
+ */
+export function applyIssues(definition: WorkflowDefinition, fn: ApplyFunctionName, params: ApplyParams): string[] {
+  const target = APPLY_TARGETS[fn];
+  const from = definition.nodes.find((other) => other.id === params.fromNodeId);
+  if (!params.fromNodeId) return ['결과를 가져올 노드를 고르세요.'];
+  if (!from || !(from.type === 'ai' || (from.type === 'function' && from.config.fn === 'script'))) return ['결과를 가져올 AI·스크립트 노드를 고르세요.'];
+  const issues: string[] = [];
+  if (target.shape === 'list' && !params.list) issues.push('항목을 가져올 목록 필드를 고르세요.');
+  const missing = target.fields.filter((field) => 'required' in field && field.required && !params.map[field.name]);
+  if (missing.length) issues.push(`필드를 연결하세요: ${missing.map((field) => field.label).join(', ')}`);
+  return issues;
+}
+
+/** AI nodes that read the whole script in one request (batch mode "whole"), like the work analysis (#47). */
+export const analysisNodes = (definition: WorkflowDefinition) => definition.nodes.filter((node): node is AiNode => node.type === 'ai' && node.config.batch.mode === 'whole');
+/** A workflow that reads the whole script at once: only one such run at a time per project. */
 export const isAnalysisWorkflow = (definition: WorkflowDefinition) => analysisNodes(definition).length > 0;
 
 /**
@@ -410,7 +422,7 @@ export const isAnalysisWorkflow = (definition: WorkflowDefinition) => analysisNo
  * analysis, listener guess or term extraction reads the script for itself and gets no warnings.
  */
 export function readinessUses(definition: WorkflowDefinition) {
-  const translating = definition.nodes.filter((node): node is AiNode => node.type === 'ai' && (node.config.output === 'candidate' || node.config.output === 'verdict'));
+  const translating = definition.nodes.filter((node): node is AiNode => node.type === 'ai' && (node.config.output === 'text' || node.config.output === 'verdict'));
   const fn = (name: string) => definition.nodes.some((node) => node.type === 'function' && node.config.fn === name);
   return {
     speech: translating.some((node) => node.config.context?.speech !== false),

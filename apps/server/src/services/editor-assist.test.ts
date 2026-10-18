@@ -29,7 +29,7 @@ const fake = (text: string, seen: { system?: string; prompt?: string } = {}, cha
   (async (_route: unknown, request: { system: string; prompt: string }) => {
     seen.system = request.system;
     seen.prompt = request.prompt;
-    return { object: { translations: [{ id: '1', text, ...(changes && { changes }) }] }, usage: { inputTokens: 1, outputTokens: 1 } };
+    return { object: { results: [{ id: '1', text, ...(changes && { changes }) }] }, usage: { inputTokens: 1, outputTokens: 1 } };
   }) as unknown as typeof ai.generate;
 
 describe('the editor AI assist', () => {

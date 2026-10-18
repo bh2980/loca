@@ -1,3 +1,5 @@
+import { FORMAT_CHOICE, FORMAT_JSON_BATCH, FORMAT_JSON_LINE, FORMAT_TEXT, FORMAT_VERDICT_HEAD, INPUT_SCRIPT } from '../apps/server/src/engine/format-sentences.ts';
+
 /**
  * The mock LLM's brain, free of HTTP: (system, user text, options) → response body + usage.
  * `scripts/mock-llm.ts` serves it; `apps/server/src/engine/mock-llm.test.ts` checks every structured
@@ -94,22 +96,20 @@ export function usageFor(promptChars: number, completionChars: number, options: 
   return { prompt_tokens: prompt, completion_tokens: completion, total_tokens: prompt + completion, prompt_tokens_details: { cached_tokens: Math.min(options.cachedTokens, prompt) } };
 }
 
-export type MockKind = 'analysis' | 'complete' | 'test' | 'regex' | 'candidate' | 'revise' | 'refine' | 'verdict' | 'terms' | 'glossary' | 'listener' | 'knowledge' | 'json';
+export type MockKind = 'complete' | 'test' | 'regex' | 'glossary' | 'text' | 'revise' | 'refine' | 'verdict' | 'choice' | 'json' | 'jsonBatch';
 
-/** Which answer the prompt asks for. The server's CONTRACT sentence names the output; instructions tell translate from revise. */
+/** Which answer the prompt asks for. The server's FORMAT sentences (engine/format-sentences.ts) name the output form; instructions tell translate from revise. */
 export function detectKind(system: string): MockKind {
-  if (system.includes('complete script of a game') || system.includes('reading the script of a game')) return 'analysis';
   if (system.startsWith('Translate the text into')) return 'test';
   if (system.includes('JavaScript 정규식 전문가')) return 'regex';
   if (system.includes('continue a Korean game translation')) return 'complete';
   if (system.includes('Korean localization glossary')) return 'glossary';
-  if (system.includes('"relationships" (with "change"')) return 'knowledge';
-  if (system.includes('in "listeners"')) return 'listener';
-  if (system.includes('in "terms"')) return 'terms';
-  if (system.includes('in "results": passed')) return 'verdict';
-  if (system.includes('with the requested fields')) return 'json';
+  if (system.includes(FORMAT_JSON_BATCH)) return 'jsonBatch';
+  if (system.includes(FORMAT_JSON_LINE)) return 'json';
+  if (system.includes(FORMAT_CHOICE)) return 'choice';
+  if (system.includes(FORMAT_VERDICT_HEAD)) return 'verdict';
   if (system.includes('Do not rephrase what is already correct')) return 'refine';
-  return system.includes('Revise each') ? 'revise' : 'candidate';
+  return system.includes('Revise each') ? 'revise' : 'text';
 }
 
 interface Row {
@@ -119,70 +119,67 @@ interface Row {
   candidate?: string;
 }
 
-/** Lines of a work-analysis script: "L<n> <Speaker>: <text>". */
-function analysis(user: string) {
-  const lines = [...user.matchAll(/^\s*(L\d+) ([^:[]+?): /gm)].map((match) => ({ id: match[1], speaker: match[2].trim() })).filter((line) => line.speaker !== '-');
-  const counts = Map.groupBy(lines, (line) => line.speaker);
-  const cast = [...counts.entries()].sort((a, b) => b[1].length - a[1].length).slice(0, 8);
-  const pairs = new Map<string, { from: string; to: string; evidence: string[] }>();
-  lines.forEach((line, index) => {
-    const next = lines.slice(index + 1).find((other) => other.speaker !== line.speaker);
-    if (!next || !cast.some(([name]) => name === line.speaker) || !cast.some(([name]) => name === next.speaker)) return;
-    const key = `${line.speaker}|${next.speaker}`;
-    const pair = pairs.get(key) ?? { from: line.speaker, to: next.speaker, evidence: [] };
-    if (pair.evidence.length < 3) pair.evidence.push(line.id);
-    pairs.set(key, pair);
-  });
-  const levels = ['hae', 'haeyo', 'hasipsio', 'haera'] as const;
-  const list = [...pairs.values()];
-  return {
-    count: lines.length,
-    body: {
-      overview: { setting: '모의 분석: 대본에 나온 장소', mainConflict: '모의 갈등', plot: `모의 줄거리 (대사 ${lines.length}줄을 읽음)`, evidence: lines.slice(0, 3).map((line) => line.id) },
-      characters: cast.map(([name, rows], index) => ({ name, aliases: [], profile: `대사 ${rows.length}줄`, speech: '모의 말투 설명', player: index === cast.length - 1, evidence: rows.slice(0, 3).map((row) => row.id) })),
-      relationships: list.slice(0, 6).map((pair, index) => ({
-        from: pair.from,
-        to: pair.to,
-        kind: '아는 사이',
-        description: '모의 관계',
-        changes: index === 0 ? [{ at: pair.evidence[0], change: '모의 변화', cause: '모의 원인' }] : [],
-        evidence: pair.evidence,
-      })),
-      events: [{ title: '모의 사건', summary: '처음 장면의 일', cause: '', outcome: '', participants: cast.slice(0, 2).map(([name]) => name), evidence: lines.slice(0, 2).map((line) => line.id) }],
-      speechRules: list.map((pair, index) => ({ from: pair.from, to: pair.to, level: levels[index % 4], address: '', note: '모의 규칙', start: null, evidence: pair.evidence })),
-      // The speakers as terms, so a mock analysis fills the glossary like a real one.
-      terms: cast.map(([name, rows]) => ({ source: name, kind: 'person', meaning: '모의 용어 설명', target: `[KO] ${name}`, evidence: rows.slice(0, 2).map((row) => row.id) })),
-    },
-  };
+/** Lines of a whole-script request: "L<n> <Speaker>: <text>"; their ids are the script's. */
+function scriptRows(user: string): Row[] {
+  return [...user.matchAll(/^\s*(L\d+) ([^:[]+?|\[[^\]]+\]): (.*)$/gm)].map((match) => ({ id: match[1], speaker: match[2] === '-' || match[2].startsWith('[') ? undefined : match[2].trim(), source: match[3] }));
 }
 
-/** For a "json" node the field names are only in the response schema, so fill each property by its type. */
-function jsonRows(rows: Row[], schema: unknown) {
-  const properties = (schema as { properties?: { results?: { items?: { properties?: Record<string, { type?: string }> } } } } | undefined)?.properties?.results?.items?.properties ?? {};
-  return rows.map((row) => ({
-    id: row.id,
-    ...Object.fromEntries(
-      Object.entries(properties)
-        .filter(([name]) => name !== 'id')
-        .map(([name, def]) => [name, def.type === 'number' ? row.source.length : def.type === 'boolean' ? row.source.length % 2 === 0 : `모의 ${name}`]),
-    ),
-  }));
+interface JsonDef {
+  type?: string;
+  description?: string;
+  enum?: unknown[];
+  anyOf?: JsonDef[];
+  items?: JsonDef;
+  properties?: Record<string, JsonDef>;
 }
+/** Names of people, for fields that look like they hold one. */
+const NAME_FIELD = /^(name|from|to|speaker|listener|who|person|character|participants?|scene)/i;
+
+/**
+ * Fills a JSON-schema definition with plausible values by type, as a "json" node's fields are only
+ * known from the response schema: nested lists get two items, evidence fields cite the request's
+ * line ids, enums take their first value.
+ */
+function fillDef(def: JsonDef, name: string, ctx: { ids: string[]; speakers: string[]; source: number; at: number }): unknown {
+  const options = def.anyOf?.filter((option) => option.type !== 'null');
+  if (options?.length === 1 && def.anyOf!.length > options.length) return fillDef({ ...options[0], description: def.description ?? options[0].description }, name, ctx);
+  if (def.enum?.length) return def.enum[0];
+  switch (def.type) {
+    case 'number':
+    case 'integer':
+      return ctx.source;
+    case 'boolean':
+      return ctx.source % 2 === 0;
+    case 'array': {
+      const item = def.items ?? {};
+      if (item.type === 'object') return [0, 1].map((n) => fillObject(item, { ...ctx, at: ctx.at + n }));
+      if (item.type === 'string' && /ids of the request's lines/.test(def.description ?? '')) return ctx.ids.slice(0, 2);
+      return [fillDef(item, name, ctx)];
+    }
+    case 'object':
+      return fillObject(def, ctx);
+    default:
+      return NAME_FIELD.test(name) && ctx.speakers.length ? ctx.speakers[ctx.at % ctx.speakers.length] : `모의 ${name}`;
+  }
+}
+const fillObject = (def: JsonDef, ctx: { ids: string[]; speakers: string[]; source: number; at: number }): Record<string, unknown> =>
+  Object.fromEntries(Object.entries(def.properties ?? {}).map(([name, property]) => [name, fillDef(property, name, ctx)]));
 
 /** Lines mentioning "orders" never pass review, so they end up waiting for a person. */
 const stubborn = (source: string) => /orders/i.test(source);
 
-function structured(kind: Exclude<MockKind, 'analysis' | 'glossary' | 'test' | 'complete' | 'regex'>, system: string, rows: Row[], schema: unknown): { body: unknown; entries?: { key: string; textKey?: string } } {
+function structured(kind: Exclude<MockKind, 'glossary' | 'test' | 'complete' | 'regex'>, rows: Row[], schema: unknown): { body: unknown; entries?: { key: string; textKey?: string } } {
+  const properties = (schema as JsonDef | undefined)?.properties ?? {};
   switch (kind) {
     // The editor's 다듬기: a "[KO] " draft is marked checked (one reasoned change); anything else has nothing to fix.
     case 'refine':
       return {
-        body: { translations: rows.map((row) => (row.candidate?.startsWith('[KO] ') ? { id: row.id, text: row.candidate.replace('[KO] ', '[KO✓] '), changes: [{ kind: 'language', why: '모의: [KO]를 [KO✓]로' }] } : { id: row.id, text: row.candidate ?? '', changes: [] })) },
-        entries: { key: 'translations', textKey: 'text' },
+        body: { results: rows.map((row) => (row.candidate?.startsWith('[KO] ') ? { id: row.id, text: row.candidate.replace('[KO] ', '[KO✓] '), changes: [{ kind: 'language', why: '모의: [KO]를 [KO✓]로' }] } : { id: row.id, text: row.candidate ?? '', changes: [] })) },
+        entries: { key: 'results', textKey: 'text' },
       };
-    case 'candidate':
+    case 'text':
     case 'revise':
-      return { body: { translations: rows.map((row) => ({ id: row.id, text: kind === 'revise' ? `[KO✓] ${row.source}` : `[KO] ${row.source}` })) }, entries: { key: 'translations', textKey: 'text' } };
+      return { body: { results: rows.map((row) => ({ id: row.id, text: kind === 'revise' ? `[KO✓] ${row.source}` : `[KO] ${row.source}` })) }, entries: { key: 'results', textKey: 'text' } };
     case 'verdict':
       return {
         body: {
@@ -193,42 +190,39 @@ function structured(kind: Exclude<MockKind, 'analysis' | 'glossary' | 'test' | '
         },
         entries: { key: 'results' },
       };
-    case 'terms': {
-      // Capitalised words that are not sentence starts stand in for proper nouns.
-      const words = new Set(rows.flatMap((row) => [...row.source.matchAll(/(?<=\s)([A-Z][a-z]{3,})/g)].map((match) => match[1])));
-      return { body: { terms: [...words].map((source) => ({ source, target: `[${source}]`, note: '모의 추출' })) } };
-    }
-    case 'listener':
-      // The listener is the next different speaker in the batch (else the previous one); the first line of a batch is unsure.
+    case 'choice': {
+      // The options are in the schema's enum (or, with none given, any text). The next different speaker is
+      // chosen when it is an option (a listener guess), else the first option; the first line is less sure.
+      const value = (properties.results as JsonDef | undefined)?.items?.properties?.value;
+      const options = ((value?.enum ?? value?.anyOf?.find((option) => option.enum)?.enum ?? []) as string[]).map(String);
       return {
         body: {
-          listeners: rows.map((row, index) => {
+          results: rows.map((row, index) => {
             const other = rows.slice(index + 1).find((next) => next.speaker && next.speaker !== row.speaker) ?? rows.slice(0, index).reverse().find((previous) => previous.speaker && previous.speaker !== row.speaker);
-            return { id: row.id, value: other?.speaker ?? null, confidence: index === 0 ? 0.6 : other ? 0.95 : 0.3 };
+            const chosen = other?.speaker && (!options.length || options.includes(other.speaker)) ? other.speaker : (options[0] ?? null);
+            return { id: row.id, value: chosen, confidence: 0.9, reason: '모의 선택' };
           }),
         },
-        entries: { key: 'listeners' },
-      };
-    case 'knowledge': {
-      // One event per scene, named after its first line; nothing else is new. Line ids are the prompt's.
-      const first = rows[0];
-      return {
-        body: {
-          characters: [],
-          relationships: [],
-          events: first ? [{ title: `모의 사건: ${first.source.slice(0, 30)}`, summary: '모의 요약', outcome: '', participants: [], evidence: [first.id] }] : [],
-          speechRules: [],
-        },
+        entries: { key: 'results' },
       };
     }
-    case 'json':
-      return { body: { results: jsonRows(rows, schema) }, entries: { key: 'results' } };
+    case 'json': {
+      const item = (properties.results as JsonDef | undefined)?.items ?? {};
+      const speakers = [...new Set(rows.flatMap((row) => (row.speaker ? [row.speaker] : [])))];
+      return { body: { results: rows.map((row, at) => ({ ...fillObject(item, { ids: [row.id], speakers, source: row.source.length, at }), id: row.id })) }, entries: { key: 'results' } };
+    }
+    case 'jsonBatch': {
+      // One object for the whole request; people are the speakers most often heard, evidence the request's first lines.
+      const counts = Map.groupBy(rows.filter((row) => row.speaker), (row) => row.speaker!);
+      const speakers = [...counts.entries()].sort((a, b) => b[1].length - a[1].length).slice(0, 8).map(([name]) => name);
+      return { body: fillObject(schema as JsonDef, { ids: rows.map((row) => row.id), speakers, source: rows.length, at: 0 }) };
+    }
   }
 }
 
 export interface MockRequest {
   system: string;
-  /** The user message text (the server sends JSON for per-line nodes, a script for analysis). */
+  /** The user message text (the server sends JSON for per-line nodes, a script for whole-script nodes). */
   user: string;
   /** The response_format JSON schema, when known (only used to fill "json" node fields). */
   schema?: unknown;
@@ -236,7 +230,7 @@ export interface MockRequest {
 
 export interface MockOutcome {
   kind: MockKind;
-  /** Lines in the request (0 for analysis). */
+  /** Lines in the request (0 when the answer is not about lines). */
   lines: number;
   status: 200 | 429;
   retryAfterSeconds?: number;
@@ -248,13 +242,15 @@ export interface MockOutcome {
   faults: string[];
 }
 
-const DEFAULT_LATENCY: Record<'analysis' | 'other', number> = { analysis: 1500, other: 400 };
+const DEFAULT_LATENCY: Record<'script' | 'other', number> = { script: 1500, other: 400 };
 
 /** The whole decision for one structured request. `rand` drives every fault so a seed reproduces a run. */
 export function respond(request: MockRequest, options: MockOptions, rand: () => number = makeRand(options.seed)): MockOutcome {
   const kind = detectKind(request.system);
+  // A whole-script request carries the script as text (INPUT_SCRIPT explains it) instead of per-line JSON.
+  const script = request.system.includes(INPUT_SCRIPT);
   const promptChars = request.system.length + request.user.length;
-  const base = options.latencyMs ?? DEFAULT_LATENCY[kind === 'analysis' ? 'analysis' : 'other'];
+  const base = options.latencyMs ?? DEFAULT_LATENCY[script ? 'script' : 'other'];
   const delayMs = Math.round(base + rand() * base * 0.25);
   const faults: string[] = [];
 
@@ -273,11 +269,7 @@ export function respond(request: MockRequest, options: MockOptions, rand: () => 
   let rows: Row[] = [];
   let lines = 0;
   let body: unknown;
-  if (kind === 'analysis') {
-    const result = analysis(request.user);
-    body = result.body;
-    lines = result.count;
-  } else if (kind === 'regex') {
+  if (kind === 'regex') {
     // 자연어로 정규식 만들기: a placeholder rule for token rules, a forbidden one for checks.
     body = request.user.includes('치환자(placeholder)')
       ? { label: '모의 이중 대괄호 변수', kind: 'placeholder', pattern: String.raw`\[\[[A-Z_]+\]\]`, example: '[[NAME]]' }
@@ -298,11 +290,14 @@ export function respond(request: MockRequest, options: MockOptions, rand: () => 
       }),
     };
   } else {
-    // The server groups a batch's lines by scene; older prompts listed them flat.
-    const input = JSON.parse(request.user) as { lines?: Row[]; scenes?: { lines: Row[] }[] };
-    rows = input.scenes ? input.scenes.flatMap((scene) => scene.lines) : (input.lines ?? []);
+    // The server groups a batch's lines by scene; a whole-script request is the script as text.
+    if (script) rows = scriptRows(request.user);
+    else {
+      const input = JSON.parse(request.user) as { lines?: Row[]; scenes?: { lines: Row[] }[] };
+      rows = input.scenes ? input.scenes.flatMap((scene) => scene.lines) : (input.lines ?? []);
+    }
     lines = rows.length;
-    const result = structured(kind, request.system, rows, request.schema);
+    const result = structured(kind, rows, request.schema);
     body = result.body;
     const list = result.entries && ((body as Record<string, Record<string, unknown>[]>)[result.entries.key] as Record<string, unknown>[]);
     if (list) {

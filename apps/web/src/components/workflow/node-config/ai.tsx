@@ -1,16 +1,58 @@
 /** AI node settings, grouped by the user's task: model, instruction, output, advanced. */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Plus, X } from 'lucide-react';
-import { AI_OUTPUTS, ANALYSIS_SECTION_LABELS, ANALYSIS_SECTIONS, analysisSectionsOf, CONNECTION_KIND_INFO, contextConfigSchema, nodeName, type AiOutput, type BatchConfig, type Capability, type ClassifyTarget, type WorkflowNode } from '@tw/shared';
-import { AdvancedDisclosure, Button, Checkbox, Dialog, DialogContent, DialogHeader, DialogTitle, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, InspectorSection } from '@loca/ui';
+import { AI_OUTPUTS, AI_PRESETS, AI_SCOPES, CHOICE_SOURCES, CONNECTION_KIND_INFO, contextConfigSchema, nodeName, type AiOutput, type AiScope, type BatchConfig, type Capability, type ChoiceSource, type WorkflowNode } from '@tw/shared';
+import { AdvancedDisclosure, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Button, Dialog, DialogContent, DialogHeader, DialogTitle, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, InspectorSection } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
+import { AiContextPanel } from '@/components/ai-context';
 import { Link } from '@tanstack/react-router';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
+import { client, unwrap } from '@/lib/api';
 import { JsonFieldsEditor } from '@/components/workflow/node-config/json-fields-editor';
 import { Field, CountRow, ToggleRow, type AiNode, type NodeRefs } from '@/components/workflow/node-config/shared';
 
+/** The fields a preset fills into a node (a full AI node config minus the model). */
+type PresetFill = Partial<Pick<AiNode['config'], 'instructions' | 'output' | 'scope' | 'fields' | 'choice'>>;
+
+/** Custom choice values, one per line; the text is kept locally so a trailing newline can be typed. */
+function ChoiceValues({ values, onChange }: { values: string[]; onChange: (values: string[]) => void }) {
+  const [text, setText] = useState(values.join('\n'));
+  useEffect(() => {
+    setText((current) => (current.split('\n').map((item) => item.trim()).filter(Boolean).join('\n') === values.join('\n') ? current : values.join('\n')));
+  }, [values]);
+  return (
+    <Textarea
+      aria-label="선택지"
+      value={text}
+      placeholder={'한 줄에 하나씩\n예: Casual'}
+      className="min-h-20 text-xs"
+      onChange={(event) => {
+        setText(event.target.value);
+        onChange(event.target.value.split('\n').map((item) => item.trim()).filter(Boolean));
+      }}
+    />
+  );
+}
+
+/** The saved node's whole prompt (the read-only format part included) for a sample line. */
+function PromptPreview({ projectId, workflowId, nodeId }: { projectId: string; workflowId?: string; nodeId: string }) {
+  const [aiNode, setAiNode] = useState(workflowId ? `${workflowId}:${nodeId}` : undefined);
+  const sample = useQuery({
+    queryKey: ['units', 'prompt-sample', projectId],
+    queryFn: () => unwrap(client.projects[':projectId'].lines.find.$post({ param: { projectId }, json: { offset: 0, limit: 1 } })),
+  });
+  const key = sample.data?.rows[0]?.key;
+  if (!workflowId) return <p className="text-xs text-muted-foreground">저장된 워크플로에서 볼 수 있습니다.</p>;
+  if (sample.isSuccess && !key) return <p className="text-xs text-muted-foreground">샘플로 쓸 대사가 없습니다.</p>;
+  if (!key) return <p className="text-xs text-muted-foreground">샘플 대사를 불러오는 중…</p>;
+  return <AiContextPanel projectId={projectId} unitKey={key} aiNode={aiNode} onAiNode={setAiNode} />;
+}
+
 export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest'; node: AiNode; refs: NodeRefs; onChange: (node: WorkflowNode) => void }) {
   const [expanded, setExpanded] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
+  const [refilling, setRefilling] = useState(false);
   const config = node.config;
   // Saved workflows may predate a context setting; show its default.
   const context = contextConfigSchema.parse(config.context ?? {});
@@ -22,6 +64,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
   const connection = refs.connections.find((item) => item.id === config.model.connectionId);
   const takesTemperature = connection ? CONNECTION_KIND_INFO[connection.kind].transport !== 'cli' && connection.kind !== 'systemone' : false;
   const contextOn = [context.glossary, context.speech, config.include.issues, context.precedingLines > 0, context.previousScenes > 0, context.cast, context.characters, context.relationships, context.documents].filter(Boolean).length;
+  const preset = config.preset ? (AI_PRESETS as Record<string, { label: string } & PresetFill>)[config.preset] : undefined;
   const batchLabel: Record<BatchConfig['mode'], string> = { group: '장면별', count: '개수별', unit: '대사 하나씩', whole: '대본 전체' };
 
   if (part === 'model') {
@@ -53,8 +96,36 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
               </AiButton>
             </div>
       }>
-        {config.output === 'analysis' && <p className="text-xs text-muted-foreground">항목마다 무엇을 낼지는 기본 규칙이 정합니다. 여기에는 덧붙일 지시만 씁니다 (예: 인물 프로필은 세 문장 이내로).</p>}
+        <p className="text-xs text-muted-foreground">모델에게 보내는 지시문 전체입니다. 출력 형식과 입력 형식 설명만 서버가 덧붙이며, 프롬프트 미리보기에서 읽기 전용으로 보입니다.</p>
         <Textarea aria-label="지시문" value={config.instructions} onChange={(event) => set({ instructions: event.target.value })} className="min-h-28 text-xs" />
+        <div className="flex items-center justify-between gap-2">
+          <span className="min-w-0 truncate text-xs text-muted-foreground">{config.preset ? (preset ? `프리셋 · ${preset.label}에서 채움` : `프리셋 · ${config.preset}`) : '프리셋 없음'}</span>
+          <div className="flex shrink-0 items-center gap-1">
+            {preset && <Button type="button" variant="ghost" onClick={() => setRefilling(true)}>프리셋 다시 채우기</Button>}
+            <Button type="button" variant="ghost" onClick={() => setPreviewing(true)}>프롬프트 미리보기</Button>
+          </div>
+        </div>
+        <AlertDialog open={refilling} onOpenChange={setRefilling}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>프리셋으로 다시 채울까요?</AlertDialogTitle>
+              <AlertDialogDescription>지시문·출력 형태·필드·선택지가 ‘{preset?.label}’ 프리셋의 값으로 바뀝니다. 지금 쓴 내용은 사라집니다.</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>취소</AlertDialogCancel>
+              <AlertDialogAction onClick={() => preset && set({ instructions: preset.instructions, output: preset.output, scope: preset.scope, fields: preset.fields, choice: preset.choice } as Partial<AiNode['config']>)}>다시 채우기</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+        <Dialog open={previewing} onOpenChange={setPreviewing}>
+          <DialogContent className="flex h-[80vh] max-w-3xl flex-col">
+            <DialogHeader><DialogTitle>프롬프트 미리보기 · {nodeName(node)}</DialogTitle></DialogHeader>
+            <div className="min-h-0 flex-1 space-y-2 overflow-auto">
+              <p className="text-xs text-muted-foreground">저장된 워크플로 기준이며, 첫 대사를 샘플로 씁니다. ‘실제 프롬프트’를 펼치면 서버가 붙이는 형식 부분까지 보입니다.</p>
+              <PromptPreview projectId={refs.projectId} workflowId={refs.workflowId} nodeId={node.id} />
+            </div>
+          </DialogContent>
+        </Dialog>
         <Dialog open={expanded} onOpenChange={setExpanded}>
           <DialogContent className="flex h-[75vh] max-w-3xl flex-col">
             <DialogHeader><DialogTitle>지시문 · {nodeName(node)}</DialogTitle></DialogHeader>
@@ -64,67 +135,43 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
       </InspectorSection>
 
       <InspectorSection title="출력">
-        <Field label="출력 형태" help={config.output === 'verdict' ? '통과 / 실패 출구가 생깁니다.' : `완료 출구로 나갑니다. 결과는 뒤 노드와 조건에서 outputs.${node.id} 로 읽습니다.`}>
-          <Select value={config.output} onValueChange={(value) => set({ output: value as AiOutput })}>
+        <Field label="출력 형태" help={config.output === 'verdict' ? '통과 / 실패 출구가 생깁니다.' : `완료 출구로 나갑니다. 결과는 뒤 노드와 조건에서 outputs.${node.id} 로 읽습니다.`} hint={AI_OUTPUTS[config.output].description}>
+          <Select value={config.output} onValueChange={(value) => set({ output: value as AiOutput, ...(value !== 'json' && { scope: 'line' as AiScope }) })}>
             <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
             <SelectContent>
               {(Object.keys(AI_OUTPUTS) as AiOutput[]).map((output) => <SelectItem key={output} value={output}>{AI_OUTPUTS[output].label} <span className="text-muted-foreground">— {AI_OUTPUTS[output].description}</span></SelectItem>)}
             </SelectContent>
           </Select>
         </Field>
-        {config.output === 'listener' && (
-          <Field label="추론 결과 활용" hint={`추론한 값(value)·확신도(confidence)·이유(reason)는 어느 쪽이든 조건 노드에서 outputs.${node.id}.value 로 읽을 수 있습니다.`}>
-            <Select value={config.classifyTarget ?? 'listener'} onValueChange={(value) => set({ classifyTarget: value as ClassifyTarget })}>
-              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="listener">청자에 반영</SelectItem>
-                <SelectItem value="tag">같은 이름의 대사 태그 부착</SelectItem>
-                <SelectItem value="none">조건 분기용 값으로만 출력</SelectItem>
-              </SelectContent>
-            </Select>
-          </Field>
-        )}
-        {(config.output === 'terms' || (config.output === 'listener' && config.classifyTarget !== 'none') || config.output === 'knowledge' || config.output === 'analysis') && (
-          <div className="space-y-2 pt-1">
-            <ToggleRow
-              label="추출·분석 결과를 프로젝트에 바로 반영"
-              checked={config.autoApply !== false}
-              onChange={(value) => set({ autoApply: value })}
-            />
-            {(config.output === 'terms' || config.output === 'knowledge' || config.output === 'analysis') && config.autoApply !== false && (
-              <div className="space-y-1 pl-4">
-                <ToggleRow
-                  label="후보로만 저장 (사람이 확인 후 번역 문맥에 반영)"
-                  checked={Boolean(config.asCandidate)}
-                  onChange={(value) => set({ asCandidate: value })}
-                />
-                <p className="text-xs text-muted-foreground">
-                  {config.asCandidate
-                    ? '추출된 항목이 ‘후보’ 상태로 저장되어 사람이 확정한 뒤부터 번역에 쓰입니다.'
-                    : '추출된 항목이 ‘확정 (✦ AI 초안)’ 상태로 바로 반영되어 다음 번역부터 즉시 활용됩니다.'}
-                </p>
-              </div>
-            )}
-          </div>
-        )}
         {config.output === 'json' && (
-          <Field label="출력 필드">
-            <JsonFieldsEditor fields={config.fields} descriptionPlaceholder="설명 (AI에게 보임)" onChange={(fields) => set({ fields })} />
-          </Field>
+          <>
+            <Field label="출력 단위" hint={config.scope === 'batch' ? '요청(묶음) 하나에 답 하나. 묶음의 모든 대사가 같은 결과를 참조합니다.' : '대사 id마다 답 하나.'}>
+              <Select value={config.scope} onValueChange={(value) => set({ scope: value as AiScope })}>
+                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>{(Object.keys(AI_SCOPES) as AiScope[]).map((scope) => <SelectItem key={scope} value={scope}>{AI_SCOPES[scope]}</SelectItem>)}</SelectContent>
+              </Select>
+            </Field>
+            <Field label="출력 필드" hint={`뒤 노드는 outputs.${node.id}.<필드> 로 읽습니다.`}>
+              <JsonFieldsEditor fields={config.fields} descriptionPlaceholder="설명 (AI에게 보임)" onChange={(fields) => set({ fields })} />
+            </Field>
+          </>
         )}
-        {config.output === 'analysis' && (
-          <Field label="읽을 항목" help="고른 항목만 묻고 저장합니다. 하나만 고르면 해당 항목만 다시 분석합니다.">
-            <div className="grid grid-cols-2 gap-1.5">
-              {ANALYSIS_SECTIONS.map((section) => {
-                const picked = analysisSectionsOf(config.sections);
-                const on = picked.includes(section);
-                return <label key={section} className="flex items-center gap-2 text-xs"><Checkbox checked={on} disabled={on && picked.length === 1} onCheckedChange={(value) => {
-                  const next = value ? [...picked, section] : picked.filter((item) => item !== section);
-                  set({ sections: next.length === ANALYSIS_SECTIONS.length ? undefined : ANALYSIS_SECTIONS.filter((item) => next.includes(item)) });
-                }} />{ANALYSIS_SECTION_LABELS[section]}</label>;
-              })}
-            </div>
-          </Field>
+        {config.output === 'choice' && (
+          <>
+            <Field label="선택지 출처" hint={config.choice.source === 'custom' ? undefined : '실행할 때 프로젝트의 목록을 읽어 프롬프트에 그대로 펼칩니다.'}>
+              <Select value={config.choice.source} onValueChange={(value) => set({ choice: { ...config.choice, source: value as ChoiceSource } })}>
+                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>{(Object.keys(CHOICE_SOURCES) as ChoiceSource[]).map((source) => <SelectItem key={source} value={source}>{CHOICE_SOURCES[source]}</SelectItem>)}</SelectContent>
+              </Select>
+            </Field>
+            {config.choice.source === 'custom' && (
+              <Field label="선택지" hint="한 줄에 하나씩 적습니다.">
+                <ChoiceValues values={config.choice.values} onChange={(values) => set({ choice: { ...config.choice, values } })} />
+              </Field>
+            )}
+            <ToggleRow label="‘해당 없음’ 답을 허용" checked={config.choice.allowNone} onChange={(value) => set({ choice: { ...config.choice, allowNone: value } })} />
+            <p className="text-xs text-muted-foreground">뒤 노드는 outputs.{node.id}.value · confidence · reason 으로 읽습니다.</p>
+          </>
         )}
       </InspectorSection>
 
@@ -152,7 +199,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
             </Field>
           )}
           <div className="space-y-2">
-            {config.output === 'candidate' && (
+            {config.output === 'text' && (
               <AdvancedDisclosure label="입력 번역">
                 <Field label="기존 번역">
                   <Select
@@ -231,12 +278,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
               </div>
             </AdvancedDisclosure>
             <AdvancedDisclosure label={`문맥 ${contextOn}개 켬 · 상한 ${context.maxTokens.toLocaleString()} 토큰`}>
-              {config.output === 'analysis' ? (
-                <p className="text-xs text-muted-foreground">
-                  작품 분석은 읽는 대본 자체가 문맥입니다. 사람이 정한 인물 이름만 함께 보내 같은 이름을 쓰게 합니다.
-                </p>
-              ) : (
-                <div className="space-y-2.5">
+              <div className="space-y-2.5">
                   <p className="text-xs text-muted-foreground">
                     확정된 자료만 들어갑니다. 실제로 들어간 것은 대사 패널의 AI 문맥 탭에서 봅니다.
                   </p>
@@ -322,8 +364,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
                       }
                     />
                   </Field>
-                </div>
-              )}
+              </div>
             </AdvancedDisclosure>
             <AdvancedDisclosure label="모델 분산" className="space-y-3">
               <Field
@@ -352,7 +393,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
                       </Button>
                     </div>
                   ))}
-                  {config.output === 'candidate' && chosenModels.size > 1 && (
+                  {config.output === 'text' && chosenModels.size > 1 && (
                     <p className="text-xs text-warning">
                       서로 다른 모델이 번역을 나누면 장면마다 문체가 달라질 수 있습니다.
                     </p>

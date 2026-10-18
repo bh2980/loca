@@ -1,7 +1,7 @@
 /** Edits one workflow node's config; the node kinds live beside this file. */
 import { useState } from 'react';
 import { Trash2 } from 'lucide-react';
-import { AI_OUTPUTS, ANALYSIS_SECTION_LABELS, ANALYSIS_SECTIONS, analysisSectionsOf, FUNCTIONS, NODE_TYPES, nodeName, nodePorts, type FunctionName, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
+import { AI_OUTPUTS, AI_SCOPES, CHOICE_SOURCES, FUNCTIONS, JSON_FIELD_TYPE_LABELS, NODE_TYPES, nodeName, nodePorts, type FunctionName, type JsonField, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
 import { Button, DangerZone, Inspector, InspectorHeader, InspectorSection, InspectorTabs, PropertyGrid, PropertyRow, StatusIcon, Checkbox, Input } from '@loca/ui';
 import { nodeIcon } from '../node-view';
 import { AiConfig } from '@/components/workflow/node-config/ai';
@@ -10,6 +10,13 @@ import { FunctionConfig } from '@/components/workflow/node-config/function';
 import { Field, type NodeRefs } from '@/components/workflow/node-config/shared';
 
 export type { NodeRefs };
+
+/** Nested fields as flat rows: a list's item fields are indented under it. */
+const fieldRows = (fields: JsonField[], depth = 0): { key: string; label: string; description: string }[] =>
+  fields.flatMap((field, index) => [
+    { key: `${depth}:${field.name}:${index}`, label: `${'· '.repeat(depth)}${field.name} · ${JSON_FIELD_TYPE_LABELS[field.type]}`, description: field.description || '설명 없음' },
+    ...(field.type === 'list' ? fieldRows(field.fields ?? [], depth + 1) : []),
+  ]);
 export type NodeConfigTab = 'settings' | 'io' | 'errors';
 
 /** Edits one node. Every change goes straight into the draft; saving is separate. */
@@ -128,8 +135,8 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
               <div className="mt-3 space-y-2">
                 <p className="text-xs font-medium">설정된 결과 · {AI_OUTPUTS[node.config.output].label}</p>
                 <p className="text-xs text-muted-foreground">{AI_OUTPUTS[node.config.output].description}</p>
-                {node.config.output === 'json' && <PropertyGrid>{node.config.fields.map((field, index) => <PropertyRow key={`${field.name}:${index}`} label={`${field.name} · ${field.type}`}>{field.description || '설명 없음'}</PropertyRow>)}</PropertyGrid>}
-                {node.config.output === 'analysis' && <PropertyRow label="읽을 항목">{analysisSectionsOf(node.config.sections).map((section) => ANALYSIS_SECTION_LABELS[section]).join(' · ') || ANALYSIS_SECTIONS.map((section) => ANALYSIS_SECTION_LABELS[section]).join(' · ')}</PropertyRow>}
+                {node.config.output === 'json' && <PropertyGrid><PropertyRow label="출력 단위">{AI_SCOPES[node.config.scope]}</PropertyRow>{fieldRows(node.config.fields).map((row) => <PropertyRow key={row.key} label={row.label}>{row.description}</PropertyRow>)}</PropertyGrid>}
+                {node.config.output === 'choice' && <PropertyGrid><PropertyRow label="선택지">{node.config.choice.source === 'custom' ? node.config.choice.values.join(' · ') || '없음' : CHOICE_SOURCES[node.config.choice.source]}</PropertyRow><PropertyRow label="없음 허용">{node.config.choice.allowNone ? '예' : '아니오'}</PropertyRow></PropertyGrid>}
               </div>
             )}
           </InspectorSection>

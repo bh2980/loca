@@ -5,11 +5,12 @@ import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { packGroups } from '../engine/batches.ts';
 import { buildPrompt } from '../engine/prompts.ts';
+import { wholeScriptRequest } from '../engine/whole-script.ts';
+import { resolveChoiceOptions } from './choice-options.ts';
 import { planRun, sceneLinks, selectRunUnits } from '../engine/run-create.ts';
 import { buildContext } from './context.ts';
 import { choiceLabel } from './routes.ts';
 import { speechRuleIndex } from './speech.ts';
-import { analysisRequest } from './analysis.ts';
 
 /** Prompts built per node to estimate request size; more would only slow the preview down. */
 const SAMPLE = 8;
@@ -276,15 +277,16 @@ function samplePrompt(db: Db, projectId: string, node: AiNode, languages: { sour
   const step = Math.max(1, Math.floor(requests.length / SAMPLE));
   const picked = requests.filter((_, index) => index % step === 0).slice(0, SAMPLE);
   const sizes = picked.map((request) => {
-    // A work analysis sends the script text and the chosen sections' rules, not the translation context.
-    if (node.config.output === 'analysis') {
-      const { system, prompt } = analysisRequest(db, projectId, request.map((line) => line.id), node.config.sections, node.config.instructions ?? '');
+    const rows = db.select().from(s.units).where(inArray(s.units.id, request.map((line) => line.id))).all().sort((a, b) => a.seq - b.seq);
+    const choiceOptions = node.config.output === 'choice' ? resolveChoiceOptions(db, projectId, node.config.choice) : undefined;
+    // A node reading the script whole sends the script text, not the per-line context.
+    if (node.config.batch.mode === 'whole') {
+      const { system, prompt } = wholeScriptRequest(db, projectId, node, languages, rows, choiceOptions);
       return estimateTokens(`${system}\n\n${prompt}`);
     }
-    const rows = db.select().from(s.units).where(inArray(s.units.id, request.map((line) => line.id))).all().sort((a, b) => a.seq - b.seq);
     const context = buildContext(db, projectId, rows, node.config.context);
     const lines = rows.map((row, index) => ({ id: String(index + 1), unitId: row.id, groupId: row.groupId, key: row.key, kind: row.kind, speaker: row.speaker, source: row.source, candidate: row.translation ?? undefined }));
-    const { system, prompt } = buildPrompt(node, languages, context, lines);
+    const { system, prompt } = buildPrompt(node, languages, context, lines, choiceOptions);
     return estimateTokens(`${system}\n\n${prompt}`);
   });
   return Math.round(sizes.reduce((total, size) => total + size, 0) / sizes.length);

@@ -16,7 +16,7 @@ const FUNCTION_ICON: Record<string, Icon> = {
   http: Globe,
   script: Code,
 };
-const AI_ICON: Record<string, Icon> = { candidate: Sparkles, verdict: ScanSearch, terms: BookPlus, listener: MessageCircleQuestion, knowledge: NotebookPen, json: Braces };
+const AI_ICON: Record<string, Icon> = { text: Sparkles, verdict: ScanSearch, choice: MessageCircleQuestion, json: Braces };
 
 export function nodeIcon(node: WorkflowNode): Icon {
   switch (node.type) {

@@ -15,8 +15,11 @@ export const hasVerdict = (node: WorkflowNode) =>
   (node.type === 'function' && (node.config.fn === 'formatCheck' || node.config.fn === 'glossaryCheck' || (node.config.fn === 'http' && (node.config.params as { mode?: string }).mode === 'verdict')));
 
 /** Nodes that hand declared fields to later conditions (outputs.<id>.<field>): an AI JSON output or a script with `data` fields. */
-const declaredFields = (node: WorkflowNode): JsonField[] =>
-  node.type === 'ai' && node.config.output === 'json' ? node.config.fields : node.type === 'function' && node.config.fn === 'script' ? ((node.config.params as { fields?: JsonField[] }).fields ?? []).filter((field) => field.name) : [];
+const declaredFields = (node: WorkflowNode): JsonField[] => {
+  const fields = node.type === 'ai' && node.config.output === 'json' ? node.config.fields : node.type === 'function' && node.config.fn === 'script' ? ((node.config.params as { fields?: JsonField[] }).fields ?? []) : [];
+  // Only top-level scalars can be compared in a form; lists and evidence go through the JSON Logic box.
+  return fields.filter((field) => field.name && (field.type === 'string' || field.type === 'number' || field.type === 'boolean'));
+};
 
 const OPERATORS = { '>=': '이상', '<=': '이하', '==': '같음', '!=': '다름' } as const;
 type Operator = keyof typeof OPERATORS;
@@ -50,7 +53,9 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
   const [mark, setMark] = useState<AutoMark>(CONDITION_MARK_IDS[0]);
   const [statusId, setStatusId] = useState(statuses[0]?.id ?? '');
   const [tagId, setTagId] = useState(tags[0]?.id ?? '');
-  const classifiers = nodes.filter((other) => other.type === 'ai' && other.config.output === 'listener');
+  const classifiers = nodes.filter((other) => other.type === 'ai' && other.config.output === 'choice');
+  const texters = nodes.filter((other) => other.type === 'ai' && other.config.output === 'text');
+  const [texter, setTexter] = useState(texters[0]?.id ?? '');
   const fielded = nodes.filter((other) => declaredFields(other).length > 0);
   const [classifier, setClassifier] = useState(classifiers[0]?.id ?? '');
   const [threshold, setThreshold] = useState(0.9);
@@ -214,17 +219,28 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
                   <SelectTrigger size="sm" className="w-36"><SelectValue /></SelectTrigger>
                   <SelectContent>{classifiers.map((other) => <SelectItem key={other.id} value={other.id}>{nodeName(other)}</SelectItem>)}</SelectContent>
                 </Select>
-                확신도가
+                확신도(confidence)가
                 <Input type="number" min={0} max={1} step={0.05} className="h-8 w-16" value={threshold} onChange={(event) => setThreshold(Number(event.target.value))} />
                 이상
                 <Button variant="secondary" disabled={!classifier} onClick={() => apply({ '>=': [{ var: `outputs.${classifier}.confidence` }, threshold] }, `'${label(classifier)}' 확신도 ${threshold} 이상`)}>적용</Button>
               </div>
               <div className="flex flex-wrap items-center gap-1.5 text-sm">
-                '{label(classifier)}' 값이
+                '{label(classifier)}' 선택(value)이
                 <Input className="h-8 w-32" value={answer} placeholder="예: Casual" aria-label="비교할 값" onChange={(event) => setAnswer(event.target.value)} />
                 와 같음
                 <Button variant="secondary" disabled={!classifier || !answer.trim()} onClick={() => apply({ '==': [{ var: `outputs.${classifier}.value` }, answer.trim()] }, `'${label(classifier)}' 값이 "${answer.trim()}"`)}>적용</Button>
               </div>
+            </div>
+          )}
+
+          {texters.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 text-sm">
+              <Select value={texter || texters[0]!.id} onValueChange={setTexter}>
+                <SelectTrigger size="sm" className="w-36"><SelectValue /></SelectTrigger>
+                <SelectContent>{texters.map((other) => <SelectItem key={other.id} value={other.id}>{nodeName(other)}</SelectItem>)}</SelectContent>
+              </Select>
+              의 문장이 비어 있지 않음
+              <Button variant="secondary" onClick={() => { const id = texter || texters[0]!.id; apply({ '!!': { var: `outputs.${id}.text` } }, `'${label(id)}' 문장이 비어 있지 않음`); }}>적용</Button>
             </div>
           )}
 
