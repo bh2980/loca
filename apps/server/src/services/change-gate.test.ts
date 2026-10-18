@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { importFileSchema } from '@tw/shared';
+import { agentSettingsSchema, importFileSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { AUTO_MAX_ITEMS, autoReview, gatedTools, proposeChange } from './change-gate.ts';
@@ -12,6 +12,9 @@ function setup(mode: 'ask' | 'auto' | 'bypass') {
   const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', speaker: 'Alice', source: 'Hi' }], characters: [{ name: 'Alice' }] }));
   const chat = db.insert(s.chatSessions).values({ projectId, title: 't', permissionMode: mode }).returning().get();
   return { db, projectId, chat };
+}
+function setBypassLimits(db: ReturnType<typeof setup>['db'], projectId: string, bypassLimits: { changes: number; costUsd: number | null }) {
+  db.update(s.projects).set({ agentSettings: agentSettingsSchema.parse({ bypassLimits }) }).where(eq(s.projects.id, projectId)).run();
 }
 const characterNamed = (db: ReturnType<typeof setup>['db'], name: string) => db.select().from(s.characters).where(eq(s.characters.name, name)).get();
 
@@ -60,6 +63,38 @@ describe('change gate (#45)', () => {
     expect(gate.ok && gate.text).toContain('현재 번역은 그대로');
     expect(db.select().from(s.candidates).where(eq(s.candidates.unitId, unit.id)).get()).toBeDefined();
     expect(db.select().from(s.units).where(eq(s.units.id, unit.id)).get()?.translation).toBeNull();
+  });
+
+  it('bypass: applies under the change cap and holds the next change with its reason', async () => {
+    const { db, projectId, chat } = setup('bypass');
+    setBypassLimits(db, projectId, { changes: 1, costUsd: null });
+    const first = await proposeChange(db, { projectId, sessionId: chat.id, source: 'api', tool: 'save_character', input: { name: 'Bob' } });
+    expect(first).toMatchObject({ ok: true, applied: true });
+    const next = await proposeChange(db, { projectId, sessionId: chat.id, source: 'api', tool: 'save_character', input: { name: 'Cara' } });
+    expect(next).toMatchObject({ ok: true, applied: false, status: 'pending', review: expect.stringContaining('변경 1개 (한도 1개)') });
+    expect(next.ok && next.text).toContain('우회 한도로 사용자에게 넘겼습니다');
+    expect(characterNamed(db, 'Cara')).toBeUndefined();
+  });
+
+  it('bypass: counts reported chat-call costs by session refId', async () => {
+    const { db, projectId, chat } = setup('bypass');
+    setBypassLimits(db, projectId, { changes: 10, costUsd: 0.5 });
+    db.insert(s.aiCalls).values({ projectId, kind: 'chat', refId: chat.id, label: 'chat', costUsd: 0.6, startedAt: new Date() }).run();
+    const next = await proposeChange(db, { projectId, sessionId: chat.id, source: 'api', tool: 'save_character', input: { name: 'Bob' } });
+    expect(next).toMatchObject({ ok: true, applied: false, status: 'pending', review: expect.stringContaining('측정된 비용 $0.60') });
+    expect(characterNamed(db, 'Bob')).toBeUndefined();
+  });
+
+  it('bypass: a null cost cap leaves only the change cap; ask and auto stay unchanged', async () => {
+    const bypass = setup('bypass');
+    setBypassLimits(bypass.db, bypass.projectId, { changes: 10, costUsd: null });
+    bypass.db.insert(s.aiCalls).values({ projectId: bypass.projectId, kind: 'chat', refId: bypass.chat.id, label: 'chat', costUsd: 500, startedAt: new Date() }).run();
+    expect(await proposeChange(bypass.db, { projectId: bypass.projectId, sessionId: bypass.chat.id, source: 'api', tool: 'save_character', input: { name: 'Bob' } })).toMatchObject({ ok: true, applied: true });
+    const ask = setup('ask');
+    const auto = setup('auto');
+    expect(await proposeChange(ask.db, { projectId: ask.projectId, sessionId: ask.chat.id, source: 'api', tool: 'save_character', input: { name: 'Bob' } })).toMatchObject({ ok: true, applied: false, status: 'pending' });
+    expect(await proposeChange(auto.db, { projectId: auto.projectId, sessionId: auto.chat.id, source: 'api', tool: 'save_character', input: { name: 'Bob' } })).toMatchObject({ ok: true, applied: true });
+    expect(agentSettingsSchema.parse({ disabledTools: [] }).bypassLimits).toEqual({ changes: 100, costUsd: 1 });
   });
 
   it('auto: a small checked change applies; a run, a large batch or a warning asks', async () => {
