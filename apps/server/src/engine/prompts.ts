@@ -40,7 +40,7 @@ export function outputSchema(node: AiNode, ids?: string[]): z.ZodType<unknown> {
     case 'analysis':
       return analysisSchemaFor(analysisSectionsOf(node.config.sections));
     case 'listener':
-      return z.object({ listeners: perLine({ listener: z.string().nullable(), confidence: z.number() }) });
+      return z.object({ listeners: perLine({ value: z.string().nullable(), confidence: z.number(), reason: z.string().optional() }) });
     case 'json':
       return z.object({ results: perLine(Object.fromEntries(node.config.fields.map((field) => [field.name, fieldType(field).describe(field.description)]))) });
   }
@@ -58,7 +58,7 @@ const CONTRACT: Record<AiNode['config']['output'], string> = {
   verdict: `Return one result per line id in "results": passed, concrete issues (empty when passed), and the categories of those issues: ${ISSUE_CATEGORY_GUIDE}.`,
   terms: 'Return the terms found across all lines in "terms" (source, target, note). Return an empty list when there are none.',
   knowledge: `Return what these lines add in "characters" (with evidence line ids), "relationships" (with "change" and the line id "at" where it shows), "events" (with evidence line ids) and "speechRules" (level is one of: ${SPEECH_LEVEL_GUIDE}; "start" is the line id where the new level begins). Empty lists when nothing is new.`,
-  listener: 'Return one entry per line id in "listeners": listener (a cast name, "group", "public", "self" or null) and confidence (0 to 1).',
+  listener: 'Return one entry per line id in "listeners": value (your answer, or null when you cannot tell), confidence (0 to 1) and optionally a one-line reason.',
   // Analysis nodes build their own prompt (services/analysis.ts analysisRequest).
   analysis: '',
   json: 'Return one object per line id in "results" with the requested fields.',
@@ -89,16 +89,32 @@ export interface PromptLine {
   issues?: string[];
 }
 
+/** What a 분류·추론 node (output "listener") may answer, by where its value goes. */
+function classifyGuide(node: AiNode, lineTags: string[]) {
+  switch (node.config.classifyTarget ?? 'listener') {
+    case 'listener':
+      return '"value" is the line\'s listener: a cast name, "group", "public", "self" or null.';
+    case 'tag':
+      return lineTags.length
+        ? `"value" must be exactly one of these line tags, or null when none fits: ${lineTags.map((name) => JSON.stringify(name)).join(', ')}.`
+        : '"value" is the label you assign to the line, or null when none fits.';
+    case 'none':
+      return 'Classify each line as the instructions say: "value" is your answer, confidence says how sure you are.';
+  }
+}
+
 export function buildPrompt(
   node: AiNode,
   languages: { source: string; target: string },
   context: BatchContext,
   lines: PromptLine[],
+  lineTags: string[] = [],
 ) {
   const system = [
     `You are a professional game localizer working from ${languages.source} to ${languages.target}.`,
     node.config.instructions.trim(),
     CONTRACT[node.config.output],
+    node.config.output === 'listener' ? classifyGuide(node, lineTags) : '',
     'Story notes, character profiles and preceding lines are context only.',
     hasAiNotes(context) ? '"aiNotes" are AI inferences nobody has verified: unverified guesses, not facts. Use one only when the lines themselves agree with it, and never let it override the lines, the glossary or a speech rule.' : '',
     Object.values(context.speech).some((entry) => entry.rule)

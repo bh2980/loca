@@ -18,8 +18,8 @@ describe('reading an AI answer line by line (#49)', () => {
   });
 
   it('listener: trims the name, clamps confidence, a blank name is no listener', () => {
-    const out = readAiOutput(node('listener'), { listeners: [{ id: '1', listener: ' Bob ', confidence: 3 }, { id: '2', listener: ' ', confidence: 'x' }] }, lines, 'm');
-    expect(out.map((entry) => entry?.output)).toEqual([{ listener: 'Bob', confidence: 1 }, { listener: null, confidence: 0 }]);
+    const out = readAiOutput(node('listener'), { listeners: [{ id: '1', value: ' Bob ', confidence: 3, reason: ' why ' }, { id: '2', value: ' ', confidence: 'x' }] }, lines, 'm');
+    expect(out.map((entry) => entry?.output)).toEqual([{ value: 'Bob', confidence: 1, reason: 'why' }, { value: null, confidence: 0 }]);
   });
 
   it('json: the fields without the id; a line not answered is left out', () => {

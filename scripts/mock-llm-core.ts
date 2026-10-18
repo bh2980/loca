@@ -203,7 +203,7 @@ function structured(kind: Exclude<MockKind, 'analysis' | 'glossary' | 'test' | '
         body: {
           listeners: rows.map((row, index) => {
             const other = rows.slice(index + 1).find((next) => next.speaker && next.speaker !== row.speaker) ?? rows.slice(0, index).reverse().find((previous) => previous.speaker && previous.speaker !== row.speaker);
-            return { id: row.id, listener: other?.speaker ?? null, confidence: index === 0 ? 0.6 : other ? 0.95 : 0.3 };
+            return { id: row.id, value: other?.speaker ?? null, confidence: index === 0 ? 0.6 : other ? 0.95 : 0.3 };
           }),
         },
         entries: { key: 'listeners' },

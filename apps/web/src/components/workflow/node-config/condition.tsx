@@ -1,7 +1,7 @@
 /** Config of a condition node: common conditions as a form, anything else as JSON Logic. */
 import { useEffect, useState } from 'react';
 import { AUTO_MARKS, type AutoMark, CONDITION_MARK_IDS } from '@tw/shared';
-import { nodeName, type WorkflowNode } from '@tw/shared';
+import { nodeName, type JsonField, type WorkflowNode } from '@tw/shared';
 import { MarkChip } from '@/components/status';
 import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, StatusIcon, TagChip, Textarea } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
@@ -13,6 +13,13 @@ import { Field, type ConditionNode, type NodeRefs } from '@/components/workflow/
 export const hasVerdict = (node: WorkflowNode) =>
   (node.type === 'ai' && node.config.output === 'verdict') ||
   (node.type === 'function' && (node.config.fn === 'formatCheck' || node.config.fn === 'glossaryCheck' || (node.config.fn === 'http' && (node.config.params as { mode?: string }).mode === 'verdict')));
+
+/** Nodes that hand declared fields to later conditions (outputs.<id>.<field>): an AI JSON output or a script with `data` fields. */
+const declaredFields = (node: WorkflowNode): JsonField[] =>
+  node.type === 'ai' && node.config.output === 'json' ? node.config.fields : node.type === 'function' && node.config.fn === 'script' ? ((node.config.params as { fields?: JsonField[] }).fields ?? []).filter((field) => field.name) : [];
+
+const OPERATORS = { '>=': '이상', '<=': '이하', '==': '같음', '!=': '다름' } as const;
+type Operator = keyof typeof OPERATORS;
 
 const KIND_LABELS: Record<string, string> = {
   dialogue: '대사',
@@ -43,6 +50,17 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
   const [mark, setMark] = useState<AutoMark>(CONDITION_MARK_IDS[0]);
   const [statusId, setStatusId] = useState(statuses[0]?.id ?? '');
   const [tagId, setTagId] = useState(tags[0]?.id ?? '');
+  const classifiers = nodes.filter((other) => other.type === 'ai' && other.config.output === 'listener');
+  const fielded = nodes.filter((other) => declaredFields(other).length > 0);
+  const [classifier, setClassifier] = useState(classifiers[0]?.id ?? '');
+  const [threshold, setThreshold] = useState(0.9);
+  const [answer, setAnswer] = useState('');
+  const [fieldNode, setFieldNode] = useState(fielded[0]?.id ?? '');
+  const [fieldName, setFieldName] = useState('');
+  const [operator, setOperator] = useState<Operator>('==');
+  const [operand, setOperand] = useState('');
+  const fieldList = declaredFields(nodes.find((other) => other.id === fieldNode) ?? node);
+  const pickedField = fieldList.find((field) => field.name === fieldName) ?? fieldList[0];
   const [lineKind, setLineKind] = useState<'dialogue' | 'ui' | 'document'>('dialogue');
   const label = (id: string) => {
     const other = nodes.find((candidate) => candidate.id === id);
@@ -184,6 +202,71 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
               </Select>
               을(를) 통과했음
               <Button variant="secondary" onClick={() => apply({ '==': [{ var: `outputs.${passNode}.passed` }, true] }, `'${label(passNode)}' 통과`)}>
+                적용
+              </Button>
+            </div>
+          )}
+
+          {classifiers.length > 0 && (
+            <div className="space-y-1.5">
+              <div className="flex flex-wrap items-center gap-1.5 text-sm">
+                <Select value={classifier} onValueChange={setClassifier}>
+                  <SelectTrigger size="sm" className="w-36"><SelectValue /></SelectTrigger>
+                  <SelectContent>{classifiers.map((other) => <SelectItem key={other.id} value={other.id}>{nodeName(other)}</SelectItem>)}</SelectContent>
+                </Select>
+                확신도가
+                <Input type="number" min={0} max={1} step={0.05} className="h-8 w-16" value={threshold} onChange={(event) => setThreshold(Number(event.target.value))} />
+                이상
+                <Button variant="secondary" disabled={!classifier} onClick={() => apply({ '>=': [{ var: `outputs.${classifier}.confidence` }, threshold] }, `'${label(classifier)}' 확신도 ${threshold} 이상`)}>적용</Button>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5 text-sm">
+                '{label(classifier)}' 값이
+                <Input className="h-8 w-32" value={answer} placeholder="예: Casual" aria-label="비교할 값" onChange={(event) => setAnswer(event.target.value)} />
+                와 같음
+                <Button variant="secondary" disabled={!classifier || !answer.trim()} onClick={() => apply({ '==': [{ var: `outputs.${classifier}.value` }, answer.trim()] }, `'${label(classifier)}' 값이 "${answer.trim()}"`)}>적용</Button>
+              </div>
+            </div>
+          )}
+
+          {fielded.length > 0 && pickedField && (
+            <div className="flex flex-wrap items-center gap-1.5 text-sm">
+              <Select value={fieldNode} onValueChange={(value) => { setFieldNode(value); setFieldName(''); }}>
+                <SelectTrigger size="sm" className="w-36"><SelectValue /></SelectTrigger>
+                <SelectContent>{fielded.map((other) => <SelectItem key={other.id} value={other.id}>{nodeName(other)}</SelectItem>)}</SelectContent>
+              </Select>
+              <Select value={pickedField.name} onValueChange={setFieldName}>
+                <SelectTrigger size="sm" className="w-28 font-mono" aria-label="필드"><SelectValue /></SelectTrigger>
+                <SelectContent>{fieldList.map((field) => <SelectItem key={field.name} value={field.name}>{field.name}</SelectItem>)}</SelectContent>
+              </Select>
+              {pickedField.type === 'boolean' ? (
+                <Select value={operand === 'false' ? 'false' : 'true'} onValueChange={setOperand}>
+                  <SelectTrigger size="sm" className="w-24" aria-label="값"><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="true">참</SelectItem><SelectItem value="false">거짓</SelectItem></SelectContent>
+                </Select>
+              ) : (
+                <>
+                  <Select value={operator} onValueChange={(value) => setOperator(value as Operator)}>
+                    <SelectTrigger size="sm" className="w-24" aria-label="비교"><SelectValue /></SelectTrigger>
+                    <SelectContent>{(Object.keys(OPERATORS) as Operator[]).filter((op) => pickedField.type === 'number' || op === '==' || op === '!=').map((op) => <SelectItem key={op} value={op}>{OPERATORS[op]}</SelectItem>)}</SelectContent>
+                  </Select>
+                  <Input type={pickedField.type === 'number' ? 'number' : 'text'} className="h-8 w-24" value={operand} aria-label="비교할 값" onChange={(event) => setOperand(event.target.value)} />
+                </>
+              )}
+              <Button
+                variant="secondary"
+                disabled={pickedField.type !== 'boolean' && operand.trim() === ''}
+                onClick={() => {
+                  const reference = { var: `outputs.${fieldNode}.${pickedField.name}` };
+                  const text = `'${label(fieldNode)}'의 ${pickedField.name}`;
+                  if (pickedField.type === 'boolean') {
+                    const expected = operand !== 'false';
+                    apply({ '==': [reference, expected] }, `${text}이(가) ${expected ? '참' : '거짓'}`);
+                  } else {
+                    const value = pickedField.type === 'number' ? Number(operand) : operand.trim();
+                    apply({ [operator]: [reference, value] }, `${text} ${OPERATORS[operator]} ${value}`);
+                  }
+                }}
+              >
                 적용
               </Button>
             </div>

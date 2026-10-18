@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, gte, inArray, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
 import jsonLogic from 'json-logic-js';
 import * as ai from '@tw/ai';
-import { estimateTokens, batchConfigSchema, FUNCTIONS, choiceKey, isUnknownListener, lineMarksOf, nodeModels, nodeName, type AiNode, type ConditionData, type FunctionName, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import { estimateTokens, batchConfigSchema, FUNCTIONS, choiceKey, isUnknownListener, lineMarksOf, nodeModels, nodeName, tagScope, type AiNode, type ConditionData, type FunctionName, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -10,7 +10,7 @@ import { events, type Topic } from '../events.ts';
 import { buildContext } from '../services/context.ts';
 import { resolveRoutes } from '../services/routes.ts';
 import type { SecretStore } from '../services/secrets.ts';
-import { runAsyncFunction, syncFunctions, HUMAN_OWNED_NOTE, type FunctionInput } from './functions/index.ts';
+import { attachClassifiedTag, runAsyncFunction, syncFunctions, HUMAN_OWNED_NOTE, type FunctionInput } from './functions/index.ts';
 import { applyRunCandidate } from './apply-candidate.ts';
 import { packGroups, planBatches } from './batches.ts';
 import { readAiOutput, type Outcome } from './ai-output.ts';
@@ -245,6 +245,12 @@ export class Runner {
 
   private shouldAutoApply(definition: WorkflowDefinition, node: AiNode): boolean {
     if (node.config.autoApply === false) return false;
+    if (node.config.output === 'listener') {
+      // 분류·추론: the value only feeds conditions ('none'), or goes onto the line's tags without a function node ('tag').
+      const target = node.config.classifyTarget ?? 'listener';
+      if (target === 'none') return false;
+      if (target === 'tag') return true;
+    }
     const legacyFn = AUTO_APPLY_FUNCTIONS[node.config.output];
     if (!legacyFn) return false;
     const hasLegacy = definition.nodes.some((other) => {
@@ -254,6 +260,11 @@ export class Runner {
     });
     if (hasLegacy) return false;
     return true;
+  }
+
+  /** Names of the project's tags that can go on lines: what a 분류·추론 node targeting tags may answer with. */
+  private lineTagNames(projectId: string): string[] {
+    return this.db.select({ name: s.tags.name, role: s.tags.role, scope: s.tags.scope }).from(s.tags).where(eq(s.tags.projectId, projectId)).all().filter((tag) => tagScope(tag).includes('lines')).map((tag) => tag.name);
   }
 
   /** Store what a node produced for a line, then move the line out through the chosen exit. */
@@ -711,7 +722,7 @@ export class Runner {
     else {
       const context = buildContext(this.db, run.projectId, rows, node.config.context);
       step.context = context.items;
-      built = buildPrompt(node, { source: project.sourceLanguage, target: project.targetLanguage }, context, lines);
+      built = buildPrompt(node, { source: project.sourceLanguage, target: project.targetLanguage }, context, lines, node.config.output === 'listener' && node.config.classifyTarget === 'tag' ? this.lineTagNames(run.projectId) : []);
     }
     const { system, prompt } = built;
     const perLine = PER_LINE_OUTPUTS.has(node.config.output);
@@ -747,11 +758,14 @@ export class Runner {
       const raw = result.result.object;
       const outcomes = readAiOutput(node, raw, lines, result.route.model, analysis?.keyOf);
       const answered = outcomes.filter(Boolean).length;
-      const autoFn = this.shouldAutoApply(run.definition, node) ? AUTO_APPLY_FUNCTIONS[node.config.output] : undefined;
+      const autoApply = this.shouldAutoApply(run.definition, node);
+      const tagging = autoApply && node.config.output === 'listener' && (node.config.classifyTarget ?? 'listener') === 'tag';
+      const autoFn = autoApply && !tagging ? AUTO_APPLY_FUNCTIONS[node.config.output] : undefined;
       this.db.transaction((tx) => {
         items.forEach((item, index) => {
           const outcome = outcomes[index];
           if (outcome) {
+            if (tagging && outcome.output) outcome.output = { ...outcome.output, ...attachClassifiedTag(tx, { unit: rows[index]!, projectId: run.projectId }, outcome.output) };
             if (autoFn && outcome.output && syncFunctions[autoFn]) {
               const itemWithOutput: Item = { ...item, data: { ...item.data, outputs: { ...item.data.outputs, [node.id]: outcome.output } } };
               const applied = syncFunctions[autoFn]!(tx, { fromNodeId: node.id, asCandidate: node.config.asCandidate }, { unit: rows[index]!, item: itemWithOutput, tagIds: [], projectId: run.projectId, runId: run.id });

@@ -14,6 +14,7 @@ import {
   setStatusParams,
   type AnalysisSection,
   needsListener,
+  tagScope,
   type FunctionName,
   type WorkflowDefinition,
   filtersByStatus,
@@ -267,20 +268,56 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
   setListener(tx, raw, input) {
     const params = setListenerParams.parse(raw);
     const outputs = Object.entries(input.item.data.outputs ?? {});
-    const source = params.fromNodeId ? input.item.data.outputs?.[params.fromNodeId] : outputs.reverse().find(([, output]) => 'confidence' in output && 'listener' in output)?.[1];
-    if (!source || !('listener' in source)) return { port: 'out', output: { recorded: false, reason: '청자 출력이 없습니다.' } };
+    const source = params.fromNodeId ? input.item.data.outputs?.[params.fromNodeId] : outputs.reverse().find(([, output]) => 'confidence' in output && 'value' in output)?.[1];
+    if (!source || !('value' in source)) return { port: 'out', output: { recorded: false, reason: '청자 출력이 없습니다.' } };
     // Only lines said to someone have a listener (needsListener: not narration, not format tokens
     // only), so none is made up for the rest; what the import or a person set is never overwritten by the AI.
     const rules = tx.select({ formatRules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, input.projectId)).get()?.formatRules;
     if (!needsListener(input.unit, rules)) return { port: 'out', output: { recorded: false, reason: input.unit.kind !== 'dialogue' ? '대사가 아니라 청자가 필요 없습니다.' : !input.unit.speaker?.trim() ? '화자가 없는 지문이라 청자가 필요 없습니다.' : '서식만 있는 줄이라 청자가 필요 없습니다.' } };
     if (input.unit.listenerOrigin === 'human') return { port: 'out', output: { recorded: false, reason: '사람이 정한 청자가 있습니다.' } };
     if (input.unit.listenerOrigin === 'import' && input.unit.listener) return { port: 'out', output: { recorded: false, reason: '가져온 청자가 있습니다.' } };
-    const listener = cleanListener(typeof source.listener === 'string' ? source.listener : null);
+    const listener = cleanListener(typeof source.value === 'string' ? source.value : null);
     const confidence = clampConfidence(source.confidence);
     setAiListener(tx, input.unit, listener, confidence, 'ai', rules);
     return { port: 'out', output: { recorded: true, listener, confidence } };
   },
 };
+
+/**
+ * 분류·추론 node with target "tag": put on the line the line tag whose name is the inferred value
+ * (case-insensitive). A value that names no line tag does nothing; tags are never created here.
+ */
+export function attachClassifiedTag(tx: Tx, input: Pick<FunctionInput, 'unit' | 'projectId'>, source: { value?: unknown }): Record<string, unknown> {
+  const value = typeof source.value === 'string' ? source.value.trim().toLowerCase() : '';
+  if (!value) return { tagged: false, reason: '추론한 값이 없습니다.' };
+  const tag = tx.select({ id: s.tags.id, name: s.tags.name, role: s.tags.role, scope: s.tags.scope }).from(s.tags).where(eq(s.tags.projectId, input.projectId)).all().find((candidate) => candidate.name.trim().toLowerCase() === value && tagScope(candidate).includes('lines'));
+  if (!tag) return { tagged: false, reason: '같은 이름의 대사 태그가 없습니다.' };
+  attachUnitTags(tx, input.projectId, [input.unit.id], { add: [tag.id] }, { onMisplaced: 'skip' });
+  return { tagged: true, tag: tag.name };
+}
+
+/**
+ * A script's `data` held to the fields its node declares: a missing field gets its type's empty
+ * value, numbers and booleans are coerced, and a value that cannot be a number is an error naming the field.
+ */
+export function validateScriptData(raw: Record<string, unknown> | undefined, fields: readonly { name: string; type: 'string' | 'number' | 'boolean' }[]): Record<string, unknown> {
+  const data: Record<string, unknown> = { ...(raw ?? {}) };
+  for (const field of fields) {
+    const value = data[field.name];
+    if (value === undefined || value === null) {
+      data[field.name] = field.type === 'number' ? 0 : field.type === 'boolean' ? false : '';
+    } else if (field.type === 'number' && typeof value !== 'number') {
+      const number = typeof value === 'string' && !value.trim() ? Number.NaN : Number(value);
+      if (!Number.isFinite(number)) throw new Error(`스크립트 출력 필드 '${field.name}'의 값이 숫자가 아닙니다: ${String(value)}`);
+      data[field.name] = number;
+    } else if (field.type === 'boolean' && typeof value !== 'boolean') {
+      data[field.name] = value === 'false' || value === '0' ? false : Boolean(value);
+    } else if (field.type === 'string' && typeof value !== 'string') {
+      data[field.name] = typeof value === 'object' ? JSON.stringify(value) : String(value);
+    }
+  }
+  return data;
+}
 
 // ── slow functions (dispatched like AI calls) ────────────────────────
 
@@ -304,7 +341,7 @@ export async function runAsyncFunction(
     const result = await runScript(params.code, lineView(input));
     const port = result.port ?? params.ports[0];
     if (!params.ports.includes(port)) throw new Error(`스크립트가 선언하지 않은 출구를 반환했습니다: ${port}`);
-    return { port, candidate: result.candidate, output: result.data ?? {}, issues: result.issues };
+    return { port, candidate: result.candidate, output: validateScriptData(result.data, params.fields), issues: result.issues };
   }
 
   if (fn === 'http') {

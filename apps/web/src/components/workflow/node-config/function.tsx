@@ -3,11 +3,13 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { Play, Plus, Trash2 } from 'lucide-react';
-import { DEFAULT_PARTICLE_PATTERN, formatPatternError, FUNCTIONS, nodeName, PALETTE_FUNCTION_NAMES, type CustomFormatRule, type FunctionName, type WorkflowNode } from '@tw/shared';
+import { DEFAULT_PARTICLE_PATTERN, formatPatternError, FUNCTIONS, nodeName, PALETTE_FUNCTION_NAMES, type CustomFormatRule, type FunctionName, type JsonField, type WorkflowNode } from '@tw/shared';
 import { AiConfirmNote } from '@/components/settings/ai-confirm';
 import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, StatusIcon, TagChip } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
+import { AiRegexInput } from '@/components/ai-regex-input';
 import { client, unwrap } from '@/lib/api';
+import { JsonFieldsEditor } from '@/components/workflow/node-config/json-fields-editor';
 import { Field, ToggleRow, type FunctionNode, type NodeRefs } from '@/components/workflow/node-config/shared';
 
 // ── function node ─────────────────────────────────────────────────────
@@ -160,6 +162,14 @@ const CUSTOM_RULE_KIND_LABELS: Record<CustomFormatRule['kind'], string> = {
   targetRequired: '번역문 필수 패턴',
 };
 
+const LENGTH_LIMITS = [
+  { key: 'maxChars', label: '최대 글자 수', step: 1 },
+  { key: 'maxBytes', label: '최대 바이트(UTF-8)', step: 1 },
+  { key: 'maxLineChars', label: '한 줄 최대 글자 수', step: 1 },
+  { key: 'maxLines', label: '최대 줄 수', step: 1 },
+  { key: 'maxLengthRatio', label: '원문 대비 최대 길이 비율', step: 0.1 },
+] as const;
+
 function FormatCheckConfig({ params, refs, set }: { params: Record<string, unknown>; refs: NodeRefs; set: (key: string, value: unknown) => void }) {
   const customRules = (params.customRules as CustomFormatRule[] | undefined) ?? [];
   const updateRule = (index: number, patch: Partial<CustomFormatRule>) => {
@@ -204,6 +214,18 @@ function FormatCheckConfig({ params, refs, set }: { params: Record<string, unkno
         </Field>
       )}
 
+      <div className="grid grid-cols-2 gap-3 border-t border-border pt-3">
+        {LENGTH_LIMITS.map(({ key, label, step }) => (
+          <Field key={key} label={label} hint="0 = 끔">
+            <Input type="number" min={0} step={step} value={(params[key] as number) ?? 0} onChange={(event) => set(key, Math.max(0, Number(event.target.value) || 0))} />
+          </Field>
+        ))}
+      </div>
+
+      <Field label="금칙어" hint="쉼표로 구분. 번역문에 그대로 들어 있으면 실패합니다.">
+        <Input value={(params.forbiddenWords as string) ?? ''} placeholder="예: 암튼, 대충" onChange={(event) => set('forbiddenWords', event.target.value)} />
+      </Field>
+
       <div className="space-y-2 border-t border-border pt-3">
         <div className="flex items-center justify-between">
           <p className="text-xs font-medium">사용자 정의 검사 규칙 (정규식)</p>
@@ -211,6 +233,14 @@ function FormatCheckConfig({ params, refs, set }: { params: Record<string, unkno
             <Plus className="size-3.5" /> 규칙 추가
           </Button>
         </div>
+        <AiRegexInput
+          projectId={refs.projectId}
+          target="check"
+          onRule={(rule) => {
+            if (rule.kind === 'placeholder' || rule.kind === 'tag') return;
+            set('customRules', [...customRules, { label: rule.label, kind: rule.kind, pattern: rule.pattern }]);
+          }}
+        />
         {customRules.length === 0 ? (
           <p className="text-xs text-muted-foreground">추가된 사용자 정의 정규식 규칙이 없습니다.</p>
         ) : (
@@ -376,9 +406,10 @@ function HttpConfig({ params, refs, set }: { params: Record<string, unknown>; re
 
 function ScriptConfig({ params, projectId, readOnly, set }: { params: Record<string, unknown>; projectId: string; readOnly?: boolean; set: (key: string, value: unknown) => void }) {
   const ports = params.ports as string[];
+  const fields = (params.fields as JsonField[] | undefined) ?? [];
   const [portsText, setPortsText] = useState(ports.join(', '));
   const test = useMutation({
-    mutationFn: () => unwrap(client.projects[':projectId']['script-test'].$post({ param: { projectId }, json: { code: params.code as string, ports } })),
+    mutationFn: () => unwrap(client.projects[':projectId']['script-test'].$post({ param: { projectId }, json: { code: params.code as string, ports, fields } })),
   });
   return (
     <>
@@ -397,12 +428,15 @@ function ScriptConfig({ params, projectId, readOnly, set }: { params: Record<str
       <Field
         label="코드 (JavaScript)"
         action={
-          <AiButton variant="ghost" send={false} prompt="이 스크립트 노드의 코드를 작성해줘. 하는 일: ">
+          <AiButton variant="ghost" send={false} prompt={`이 스크립트 노드의 코드를 작성해줘. 출구는 ${ports.join(', ')} 중 하나를 port로 반환하고${fields.length ? `, data에 ${fields.map((field) => `${field.name}(${field.type}${field.description ? `: ${field.description}` : ''})`).join(', ')} 필드를 채워줘` : ''}. 하는 일: `}>
             AI로 작성
           </AiButton>
         }
         hint="격리된 샌드박스에서 실행됩니다. 네트워크·파일 접근이 없고 2초·32MB로 제한됩니다. 외부 호출은 HTTP 함수를 쓰세요.">
         <Textarea className="min-h-56 font-mono text-xs leading-relaxed" spellCheck={false} value={params.code as string} onChange={(event) => set('code', event.target.value)} />
+      </Field>
+      <Field label="출력 데이터 (JSON 필드)" hint="스크립트가 data로 반환할 값. 비면 타입의 기본값(빈 문자열·0·거짓)으로 채우고, 숫자가 아니면 오류입니다. 조건에서 outputs.<노드ID>.<이름> 으로 읽습니다.">
+        <JsonFieldsEditor fields={fields} descriptionPlaceholder="설명 (코드를 쓸 때 참고)" onChange={(next) => set('fields', next)} />
       </Field>
       {!readOnly && (
         <div className="space-y-2">

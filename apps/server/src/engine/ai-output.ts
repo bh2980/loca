@@ -19,7 +19,7 @@ export interface Outcome extends FunctionResult {
  */
 export function readAiOutput(node: AiNode, raw: unknown, lines: PromptLine[], model: string, analysisKeys?: Map<string, string>): (Outcome | null)[] {
   const missing = (_what: string) => null;
-  const value = raw as { translations?: { id: string; text: string }[]; results?: ({ id: string } & Record<string, unknown>)[]; terms?: unknown[]; listeners?: { id: string; listener: unknown; confidence: unknown }[] };
+  const value = raw as { translations?: { id: string; text: string }[]; results?: ({ id: string } & Record<string, unknown>)[]; terms?: unknown[]; listeners?: { id: string; value: unknown; confidence: unknown; reason?: unknown }[] };
   switch (node.config.output) {
     case 'candidate':
       return lines.map((line) => {
@@ -76,9 +76,10 @@ export function readAiOutput(node: AiNode, raw: unknown, lines: PromptLine[], mo
     case 'listener':
       return lines.map((line) => {
         const entry = value.listeners?.find((candidate) => candidate.id === line.id);
-        if (!entry) return missing('청자');
-        const listener = typeof entry.listener === 'string' && entry.listener.trim() ? entry.listener.trim() : null;
-        return { port: 'out', output: { listener, confidence: Math.min(1, Math.max(0, Number(entry.confidence) || 0)) } };
+        if (!entry) return missing('분류·추론');
+        const answer = typeof entry.value === 'string' && entry.value.trim() ? entry.value.trim() : null;
+        const reason = typeof entry.reason === 'string' && entry.reason.trim() ? entry.reason.trim() : undefined;
+        return { port: 'out', output: { value: answer, confidence: Math.min(1, Math.max(0, Number(entry.confidence) || 0)), ...(reason && { reason }) } };
       });
     case 'json':
       return lines.map((line) => {

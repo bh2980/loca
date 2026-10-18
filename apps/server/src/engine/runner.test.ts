@@ -178,7 +178,7 @@ describe('listener estimation', () => {
       generate: async (_route, request) => {
         prompts.push(request.prompt);
         const input = { lines: promptEntries(request.prompt) as { id: string }[] };
-        return { object: { listeners: input.lines.map((line, index) => ({ id: line.id, listener: index === 0 ? 'Pat' : null, confidence: index === 0 ? 0.95 : 0.4 })) }, usage: {} } as never;
+        return { object: { listeners: input.lines.map((line, index) => ({ id: line.id, value: index === 0 ? 'Pat' : null, confidence: index === 0 ? 0.95 : 0.4 })) }, usage: {} } as never;
       },
     });
     createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: {} });
@@ -244,7 +244,7 @@ describe('listener template', () => {
       generate: async (_route, request) => {
         const entries = promptEntries(request.prompt) as { id: string; source: string }[];
         sent.push(...entries.map((entry) => entry.source));
-        return { object: { listeners: entries.map((entry) => ({ id: entry.id, listener: 'Zed', confidence: 0.95 })) }, usage: {} } as never;
+        return { object: { listeners: entries.map((entry) => ({ id: entry.id, value: 'Zed', confidence: 0.95 })) }, usage: {} } as never;
       },
     });
     createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: { ignoreStatus: true } });
@@ -267,12 +267,48 @@ describe('listener template', () => {
     ]);
   });
 
+  it.each([['tag'], ['none']] as const)('classify target %s: tag attaches only an existing same-named line tag, none writes nothing but keeps the output', async (target) => {
+    const { db, projectId, choice } = setup(3);
+    db.update(s.units).set({ speaker: 'Ann' }).where(eq(s.units.projectId, projectId)).run();
+    const tag = db.insert(s.tags).values({ projectId, name: 'Casual', color: 'slate' }).returning().get();
+    const definition = listenerTemplate({ model: choice });
+    for (const node of definition.nodes) if (node.type === 'ai') node.config.classifyTarget = target;
+    const workflow = db.insert(s.workflows).values({ projectId, name: '분류', definition }).returning().get();
+    const prompts: string[] = [];
+    const runner = new Runner(db, memoryStore(), {
+      judge: async () => {
+        throw new Error('unused');
+      },
+      generate: async (_route, request) => {
+        prompts.push(request.system);
+        const entries = promptEntries(request.prompt) as { id: string }[];
+        return { object: { listeners: entries.map((entry, index) => ({ id: entry.id, value: index === 0 ? 'casual' : 'Nope', confidence: 0.9, reason: 'r' })) }, usage: {} } as never;
+      },
+    });
+    createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: { ignoreStatus: true } });
+    await runner.drain();
+
+    const units = db.select().from(s.units).where(eq(s.units.projectId, projectId)).orderBy(s.units.sort).all();
+    const tagged = db.select().from(s.unitTags).where(eq(s.unitTags.tagId, tag.id)).all().map((row) => row.unitId);
+    expect(units.every((unit) => unit.listener === null)).toBe(true);
+    expect(db.select().from(s.tags).where(eq(s.tags.projectId, projectId)).all().map((row) => row.name)).toContain('Casual');
+    expect(db.select().from(s.tags).where(eq(s.tags.name, 'Nope')).all()).toEqual([]);
+    if (target === 'tag') {
+      expect(tagged).toHaveLength(1);
+      expect(prompts[0]).toContain('"Casual"');
+    } else {
+      expect(tagged).toEqual([]);
+      const items = db.select().from(s.runItems).all();
+      expect(items.some((item) => Object.values(item.data.outputs ?? {}).some((output) => (output as { value?: string }).value === 'casual'))).toBe(true);
+    }
+  });
+
   it('setListener alone skips import listeners, non-dialogue, narration and token-only lines', async () => {
     const { syncFunctions } = await import('./functions/index.ts');
     const record = (unit: Record<string, unknown>) => {
       const updates: unknown[] = [];
       const tx = { update: () => ({ set: (values: unknown) => ({ where: () => ({ run: () => updates.push(values) }) }) }), select: () => ({ from: () => ({ where: () => ({ get: () => undefined }) }) }) };
-      const input = { unit, item: { data: { outputs: { n: { listener: 'Zed', confidence: 0.99 } } }, visits: {} } };
+      const input = { unit, item: { data: { outputs: { n: { value: 'Zed', confidence: 0.99 } } }, visits: {} } };
       const result = syncFunctions.setListener!(tx as never, { fromNodeId: 'n' }, input as never);
       return { updates, result };
     };

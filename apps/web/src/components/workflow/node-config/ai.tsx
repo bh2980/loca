@@ -1,11 +1,12 @@
 /** AI node settings, grouped by the user's task: model, instruction, output, advanced. */
 import { useState } from 'react';
-import { Plus, Trash2, X } from 'lucide-react';
-import { AI_OUTPUTS, ANALYSIS_SECTION_LABELS, ANALYSIS_SECTIONS, analysisSectionsOf, CONNECTION_KIND_INFO, contextConfigSchema, nodeName, type AiOutput, type BatchConfig, type Capability, type JsonField, type WorkflowNode } from '@tw/shared';
-import { AdvancedDisclosure, Button, Checkbox, Dialog, DialogContent, DialogHeader, DialogTitle, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, ControlIdContext, InspectorSection } from '@loca/ui';
+import { Plus, X } from 'lucide-react';
+import { AI_OUTPUTS, ANALYSIS_SECTION_LABELS, ANALYSIS_SECTIONS, analysisSectionsOf, CONNECTION_KIND_INFO, contextConfigSchema, nodeName, type AiOutput, type BatchConfig, type Capability, type ClassifyTarget, type WorkflowNode } from '@tw/shared';
+import { AdvancedDisclosure, Button, Checkbox, Dialog, DialogContent, DialogHeader, DialogTitle, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, InspectorSection } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
 import { Link } from '@tanstack/react-router';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
+import { JsonFieldsEditor } from '@/components/workflow/node-config/json-fields-editor';
 import { Field, CountRow, ToggleRow, type AiNode, type NodeRefs } from '@/components/workflow/node-config/shared';
 
 export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest'; node: AiNode; refs: NodeRefs; onChange: (node: WorkflowNode) => void }) {
@@ -22,7 +23,6 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
   const takesTemperature = connection ? CONNECTION_KIND_INFO[connection.kind].transport !== 'cli' && connection.kind !== 'systemone' : false;
   const contextOn = [context.glossary, context.speech, config.include.issues, context.precedingLines > 0, context.previousScenes > 0, context.cast, context.characters, context.relationships, context.documents].filter(Boolean).length;
   const batchLabel: Record<BatchConfig['mode'], string> = { group: '장면별', count: '개수별', unit: '대사 하나씩', whole: '대본 전체' };
-  const setField = (index: number, patch: Partial<JsonField>) => set({ fields: config.fields.map((field, i) => (i === index ? { ...field, ...patch } : field)) });
 
   if (part === 'model') {
     return (
@@ -72,7 +72,19 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
             </SelectContent>
           </Select>
         </Field>
-        {(config.output === 'terms' || config.output === 'listener' || config.output === 'knowledge' || config.output === 'analysis') && (
+        {config.output === 'listener' && (
+          <Field label="추론 결과 활용" hint={`추론한 값(value)·확신도(confidence)·이유(reason)는 어느 쪽이든 조건 노드에서 outputs.${node.id}.value 로 읽을 수 있습니다.`}>
+            <Select value={config.classifyTarget ?? 'listener'} onValueChange={(value) => set({ classifyTarget: value as ClassifyTarget })}>
+              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="listener">청자에 반영</SelectItem>
+                <SelectItem value="tag">같은 이름의 대사 태그 부착</SelectItem>
+                <SelectItem value="none">조건 분기용 값으로만 출력</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+        )}
+        {(config.output === 'terms' || (config.output === 'listener' && config.classifyTarget !== 'none') || config.output === 'knowledge' || config.output === 'analysis') && (
           <div className="space-y-2 pt-1">
             <ToggleRow
               label="추출·분석 결과를 프로젝트에 바로 반영"
@@ -97,24 +109,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
         )}
         {config.output === 'json' && (
           <Field label="출력 필드">
-            <ControlIdContext.Provider value={undefined}>
-              <div className="space-y-2">
-                {config.fields.map((field, index) => (
-                  <div key={index} className="flex min-w-0 items-center gap-1.5">
-                    <Input className="h-8 w-28 shrink-0 font-mono text-xs" value={field.name} placeholder="name" aria-label={`필드 ${index + 1} 이름`} onChange={(event) => setField(index, { name: event.target.value })} />
-                    <Select value={field.type} onValueChange={(value) => setField(index, { type: value as JsonField['type'] })}>
-                      <SelectTrigger size="sm" className="w-24" aria-label={`필드 ${index + 1} 형식`}><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="string">문자</SelectItem><SelectItem value="number">숫자</SelectItem><SelectItem value="boolean">참/거짓</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Input className="h-8 min-w-0 flex-1 text-xs" value={field.description} placeholder="설명 (AI에게 보임)" aria-label={`필드 ${index + 1} 설명`} onChange={(event) => setField(index, { description: event.target.value })} />
-                    <Button size="icon" variant="ghost" className="text-destructive" aria-label="필드 삭제" onClick={() => set({ fields: config.fields.filter((_, i) => i !== index) })}><Trash2 /></Button>
-                  </div>
-                ))}
-                <Button variant="outline" onClick={() => set({ fields: [...config.fields, { name: `field${config.fields.length + 1}`, type: 'string', description: '' }] })}><Plus /> 필드 추가</Button>
-              </div>
-            </ControlIdContext.Provider>
+            <JsonFieldsEditor fields={config.fields} descriptionPlaceholder="설명 (AI에게 보임)" onChange={(fields) => set({ fields })} />
           </Field>
         )}
         {config.output === 'analysis' && (

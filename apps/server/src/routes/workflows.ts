@@ -1,13 +1,13 @@
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { ANALYSIS_SECTIONS, ANALYSIS_WORKFLOW_PRESET_IDS, isAnalysisWorkflow, analysisTemplate, analysisWorkflowTemplate, CONNECTION_KIND_INFO, draftTranslationTemplate, knowledgeTemplate, lineMarksSchema, listenerTemplate, speechFixTemplate, termExtractionTemplate, translationTemplate, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels } from '@tw/shared';
+import { ANALYSIS_SECTIONS, ANALYSIS_WORKFLOW_PRESET_IDS, isAnalysisWorkflow, analysisTemplate, analysisWorkflowTemplate, CONNECTION_KIND_INFO, draftTranslationTemplate, knowledgeTemplate, lineMarksSchema, listenerTemplate, scriptParams, speechFixTemplate, termExtractionTemplate, translationTemplate, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { workflowIssues } from '../services/workflow-issues.ts';
 import { events } from '../events.ts';
-import { lineView } from '../engine/functions/index.ts';
+import { lineView, validateScriptData } from '../engine/functions/index.ts';
 import { runScript } from '../engine/functions/sandbox.ts';
 import { ANALYSIS_BUSY, createRunInSteps, FILLING, refuseSecondAnalysis, selectRunUnits } from '../engine/run-create.ts';
 import { listBatches, preflight } from '../services/preflight.ts';
@@ -168,9 +168,9 @@ export const workflowRoutes = new Hono<Env>()
   })
 
   /** Try a script node on one real line. Read-only: nothing is stored. */
-  .post('/projects/:projectId/script-test', validate('json', z.object({ code: z.string(), ports: z.array(z.string()).min(1), unitId: z.string().optional() })), async (c) => {
+  .post('/projects/:projectId/script-test', validate('json', z.object({ code: z.string(), ports: z.array(z.string()).min(1), fields: scriptParams.shape.fields, unitId: z.string().optional() })), async (c) => {
     const { db } = c.var.deps;
-    const { code, ports, unitId } = c.req.valid('json');
+    const { code, ports, fields, unitId } = c.req.valid('json');
     const unit = unitId
       ? db.select().from(s.units).where(and(eq(s.units.id, unitId), eq(s.units.projectId, c.req.param('projectId')))).get()
       : db.select().from(s.units).where(eq(s.units.projectId, c.req.param('projectId'))).orderBy(asc(s.units.seq)).limit(1).get();
@@ -180,7 +180,8 @@ export const workflowRoutes = new Hono<Env>()
     try {
       const result = await runScript(code, input);
       const port = result.port ?? ports[0];
-      return c.json({ ok: true as const, input, result, port, validPort: ports.includes(port), ms: Date.now() - started });
+      // The data as the run would store it: held to the declared fields (a bad value is reported as the error).
+      return c.json({ ok: true as const, input, result: { ...result, data: validateScriptData(result.data, fields) }, port, validPort: ports.includes(port), ms: Date.now() - started });
     } catch (error) {
       return c.json({ ok: false as const, input, error: error instanceof Error ? error.message : String(error), ms: Date.now() - started });
     }
