@@ -104,13 +104,21 @@ export function parsedOutput(output: string): unknown {
   return output;
 }
 
+let agentShellUrl: string | null = null;
+/** Where the agent-tools-only listener (agentShellApp) answers; set once it listens. */
+export function setAgentShellUrl(url: string | null) {
+  agentShellUrl = url;
+}
+
 /**
- * Codex's shell for `loca call` (Option A): it may read the repo but not the data, reach only this
- * server, and its changes belong to this turn's conversation through a token that dies with the turn.
+ * Codex's shell for `loca call` (Option A): it may read the repo but not the data, reach only the
+ * agent tools (not the rest of the API, #100 review), and its changes belong to this turn's
+ * conversation through a token that dies with the turn.
  */
 function codexShell(projectId: string, token: string): ai.CliChatTurn['shell'] {
+  if (!agentShellUrl) throw new ai.ModelError('config', 'Codex가 도구를 부를 통로(::1)를 열지 못해 Codex 채팅을 쓸 수 없습니다. 서버 로그를 확인하세요.', false);
   return {
-    env: { LOCA_URL: `http://127.0.0.1:${config.port}`, LOCA_PROJECT: projectId, LOCA_CHAT: token },
+    env: { LOCA_URL: agentShellUrl, LOCA_PROJECT: projectId, LOCA_CHAT: token },
     readPaths: [config.root],
     deny: [...new Set([path.join(config.root, '.workbench'), config.dataDir])],
     loca: path.join(config.root, 'apps/cli/bin/loca.mjs'),

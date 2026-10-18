@@ -13,6 +13,7 @@ import { sourceRoutes } from './routes/source.ts';
 import { workflowRoutes } from './routes/workflows.ts';
 import { proposalRoutes } from './routes/proposals.ts';
 import { scriptRoutes } from './routes/script.ts';
+import { chatOfToken } from './services/chat-turns.ts';
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 
@@ -72,3 +73,26 @@ export function createApp(deps: Deps) {
 }
 
 export type AppType = ReturnType<typeof createApp>;
+
+const AGENT_TOOL_PATH = /^\/api\/projects\/([^/]+)\/tools(?:\/[^/]+)?$/;
+
+/**
+ * What Codex's shell can reach (#100 review): only the agent tools of the project whose chat turn
+ * is running, with that turn's token, and the project list `loca` resolves LOCA_PROJECT with,
+ * cut to that project. Served on its own loopback address, so the shell's network rule (which
+ * names hosts, not ports) can allow it without allowing the whole API.
+ */
+export function agentShellApp(app: AppType) {
+  return new Hono().all('*', async (c) => {
+    const chat = chatOfToken(c.req.header('x-loca-chat') ?? '');
+    const path = new URL(c.req.url).pathname;
+    if (chat && c.req.method === 'GET' && path === '/api/cli/projects') {
+      // Asked without accept-encoding, so the list comes back as plain JSON to filter.
+      const plain = new Request(c.req.url, { headers: { host: c.req.header('host') ?? '' } });
+      const projects = (await (await app.fetch(plain)).json()) as { id: string; name: string }[];
+      return c.json(projects.filter((project) => project.id === chat.projectId));
+    }
+    if (!chat || AGENT_TOOL_PATH.exec(path)?.[1] !== chat.projectId) return c.json({ error: '이 대화 차례의 에이전트 도구만 부를 수 있습니다.' }, 403);
+    return app.fetch(c.req.raw);
+  });
+}
