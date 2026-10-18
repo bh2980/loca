@@ -642,8 +642,14 @@ export interface ProposalReport {
 }
 
 export type ProposalStatus = 'pending' | 'running' | 'accepted' | 'rejected' | 'failed';
+export type KnowledgeKind = 'characters' | 'relationships' | 'speechRules' | 'events' | 'documents';
+export type UndoCall = {
+  tool: string;
+  input: Record<string, unknown>;
+  expect?: { kind: KnowledgeKind | 'terms'; id: string; values: Record<string, unknown> }[];
+};
 /** Existing agent-tool calls that restore a proposal's previous values. */
-export type ProposalUndo = { calls: { tool: string; input: Record<string, unknown> }[] } | { none: string };
+export type ProposalUndo = { calls: UndoCall[]; lineRevs?: Record<string, number> } | { none: string };
 export const proposals = sqliteTable(
   'proposals',
   {
