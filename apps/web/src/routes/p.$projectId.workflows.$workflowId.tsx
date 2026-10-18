@@ -8,6 +8,7 @@ import {
   MiniMap,
   NodeToolbar,
   Position,
+  SelectionMode,
   useViewport,
   MarkerType,
   ReactFlow,
@@ -171,8 +172,12 @@ function WorkflowEditor() {
   // definition, so their selection is kept here.
   const [edgeId, setEdgeId] = useState<string>();
   const [hoveredEdgeId, setHoveredEdgeId] = useState<string>();
+  // A box selection of 2+ nodes. One selected node lives in the URL (?node=) and opens its config pane;
+  // a group has no pane, so it is kept here and only exists while two or more are selected.
+  const [multi, setMulti] = useState<string[]>([]);
   const [contextMenu, setContextMenu] = useState<
     | { kind: 'node'; node: WorkflowNode; x: number; y: number }
+    | { kind: 'nodes'; ids: string[]; x: number; y: number }
     | { kind: 'edge'; edgeId: string; x: number; y: number }
     | { kind: 'pane'; x: number; y: number }
     | null
@@ -285,7 +290,7 @@ function WorkflowEditor() {
         type: 'workflow',
         position: node.position,
         measured: measured[node.id],
-        selected: node.id === search.node,
+        selected: multi.length ? multi.includes(node.id) : node.id === search.node,
         deletable: node.type !== 'entry',
         data: {
           node,
@@ -302,7 +307,7 @@ function WorkflowEditor() {
         },
       }));
     },
-    [definitions, search.node, direction, issues, liveCounts, statuses.data, connections.data, measured], // eslint-disable-line react-hooks/exhaustive-deps
+    [definitions, search.node, multi, direction, issues, liveCounts, statuses.data, connections.data, measured], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const edges: FlowEdge[] = useMemo(
     () => {
@@ -381,7 +386,21 @@ function WorkflowEditor() {
       return !node || node.position.x !== change.position.x || node.position.y !== change.position.y;
     });
     const removed = changes.filter((change) => change.type === 'remove').map((change) => change.id);
+    const picks = changes.filter((change) => change.type === 'select');
+    if (picks.length) {
+      const picked = new Set(multi.length ? multi : search.node ? [search.node] : []);
+      for (const change of picks) if (change.type === 'select') (change.selected ? picked.add(change.id) : picked.delete(change.id));
+      const ids = [...picked];
+      if (ids.length >= 2) {
+        setMulti(ids);
+        if (search.node) select(undefined);
+      } else {
+        if (multi.length) setMulti([]);
+        if (ids[0] !== search.node && (ids[0] || multi.length === 0)) select(ids[0]);
+      }
+    }
     if (!moved.length && !removed.length) return;
+    if (removed.length) setMulti([]);
     const next = applyNodeChanges(moved, nodes);
     setDraft((draftValue) => ({
       ...draftValue,
@@ -578,6 +597,42 @@ function WorkflowEditor() {
     }));
     if (search.node === nodeId) select(undefined);
   };
+  /** Deletes several nodes at once (same as deleting each: no confirmation, the edit is an undoable draft). */
+  const deleteNodes = (ids: string[]) => {
+    const doomed = new Set(ids.filter((id) => current?.definition.nodes.find((node) => node.id === id)?.type !== 'entry'));
+    if (!doomed.size) return;
+    setDraft((value) => ({
+      ...value,
+      definition: syncEntryEdges({
+        ...value.definition,
+        nodes: value.definition.nodes.filter((node) => !doomed.has(node.id)),
+        edges: value.definition.edges.filter((edge) => !doomed.has(edge.source) && !doomed.has(edge.target)),
+      }),
+    }));
+    setMulti([]);
+    if (search.node && doomed.has(search.node)) select(undefined);
+  };
+  /** Copies several nodes, keeping the lines that run between the copied nodes. */
+  const duplicateNodes = (ids: string[]) => {
+    if (!current) return;
+    const originals = current.definition.nodes.filter((node) => ids.includes(node.id) && node.type !== 'entry');
+    if (!originals.length) return;
+    const taken = new Set(current.definition.nodes.map((node) => node.id));
+    const renamed = new Map<string, string>();
+    for (const node of originals) {
+      let id = `${node.id}-copy`;
+      for (let n = 2; taken.has(id); n++) id = `${node.id}-copy${n}`;
+      taken.add(id);
+      renamed.set(node.id, id);
+    }
+    const copies = originals.map((node) => workflowNodeSchema.parse({ ...structuredClone(node), id: renamed.get(node.id), position: { x: node.position.x + 240, y: node.position.y } }));
+    const lines = current.definition.edges
+      .filter((edge) => renamed.has(edge.source) && renamed.has(edge.target))
+      .map((edge) => ({ id: `e-${crypto.randomUUID().slice(0, 8)}`, source: renamed.get(edge.source)!, sourceHandle: edge.sourceHandle, target: renamed.get(edge.target)! }));
+    setDraft((value) => ({ ...value, definition: syncEntryEdges({ ...value.definition, nodes: [...value.definition.nodes, ...copies], edges: [...value.definition.edges, ...lines] }) }));
+    setMulti(copies.length >= 2 ? copies.map((node) => node.id) : []);
+    select(copies.length === 1 ? copies[0]!.id : undefined);
+  };
   const deleteSelected = () => {
     if (!selected || selected.type === 'entry') return;
     deleteNode(selected.id);
@@ -653,11 +708,13 @@ function WorkflowEditor() {
             onEdgeClick={(_event, edge) => (setEdgeId(edge.id), setContextMenu(null))}
             onEdgeMouseEnter={(_event, edge) => setHoveredEdgeId(edge.id)}
             onEdgeMouseLeave={() => setHoveredEdgeId(undefined)}
-            onPaneClick={() => (select(undefined), setEdgeId(undefined), setContextMenu(null))}
+            onPaneClick={() => (select(undefined), setMulti([]), setEdgeId(undefined), setContextMenu(null))}
             onNodeContextMenu={(event, flowNode) => {
               event.preventDefault();
-              select(flowNode.id);
               setEdgeId(undefined);
+              if (multi.length >= 2 && multi.includes(flowNode.id)) return setContextMenu({ kind: 'nodes', ids: multi, x: event.clientX, y: event.clientY });
+              setMulti([]);
+              select(flowNode.id);
               const node = current.definition.nodes.find((n) => n.id === flowNode.id);
               if (node) {
                 setContextMenu({
@@ -689,6 +746,10 @@ function WorkflowEditor() {
             }}
             onInit={(instance) => { const held = readViewport(workflowId, direction); if (held) void instance.setViewport(held); else focusWorkflowNode(instance, search.node ?? definitions[0]?.id, direction, canvasRef.current); }}
             onMoveEnd={(_event, viewport) => sessionStorage.setItem(viewportKey(workflowId, direction), JSON.stringify(viewport))}
+            selectionOnDrag
+            selectionMode={SelectionMode.Partial}
+            panOnDrag={[1]}
+            panActivationKeyCode="Space"
             minZoom={0.05}
             deleteKeyCode={['Backspace', 'Delete']}
             proOptions={{ hideAttribution: true }}
@@ -757,6 +818,19 @@ function WorkflowEditor() {
                   >
                     <Trash2 className="size-3.5" />
                     <span>노드 삭제</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              )}
+              {contextMenu.kind === 'nodes' && (
+                <DropdownMenuContent align="start" side="bottom" sideOffset={2} className="w-56">
+                  <DropdownMenuItem onSelect={() => duplicateNodes(contextMenu.ids)}>
+                    <Copy className="size-3.5" />
+                    <span>선택한 노드 {contextMenu.ids.length}개 복제</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem variant="destructive" onSelect={() => deleteNodes(contextMenu.ids)}>
+                    <Trash2 className="size-3.5" />
+                    <span>선택한 노드 {contextMenu.ids.length}개 삭제</span>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               )}
