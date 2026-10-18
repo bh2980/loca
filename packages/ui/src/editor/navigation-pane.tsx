@@ -59,7 +59,7 @@ export function NavigationBranch({ label, open, onOpenChange, navigation, childr
         </CollapsibleTrigger>
         {navigation}
       </div>
-      <CollapsibleContent className="pl-3.5">{children}</CollapsibleContent>
+      <CollapsibleContent className="pl-8">{children}</CollapsibleContent>
     </Collapsible>
   )
 }
