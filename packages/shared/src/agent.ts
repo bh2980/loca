@@ -68,6 +68,16 @@ export const AGENT_TOOLS: Record<string, { target: AgentToolTarget; action: Agen
   read_web_page: tool('web', 'read', '웹 페이지 읽기'),
 };
 
+/** Tools that add candidates without changing the current translation. */
+export const CANDIDATE_ONLY_TOOLS = new Set(['propose_translation']);
+
+/** How an accepted change reads: to the agent and the CLI (decided) and on cards (short). */
+export function acceptedLabel(toolName: string): { decided: string; short: string } {
+  return CANDIDATE_ONLY_TOOLS.has(toolName)
+    ? { decided: '수락되어 후보로 추가됨', short: '후보로 추가됨' }
+    : { decided: '수락되어 반영됨', short: '적용됨' };
+}
+
 /**
  * How a conversation's changes are decided (#45). Every change becomes a proposal row either way, so
  * the agent hears the result the same way and the change log is one.

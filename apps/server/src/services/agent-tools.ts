@@ -43,6 +43,9 @@ const MODELS_HELP = 'Optional: this run only, other models than the AI nodes\' o
 /** A tag that cannot go where it was asked: undoes the whole tag_items change. */
 class TagRefused extends Error {}
 
+/** A failed knowledge item undoes the whole save_knowledge batch. */
+class KnowledgeRefused extends Error {}
+
 export function agentTools(db: Db, projectId: string, author: { model: string | null } = { model: null }) {
   const changed = (...topics: Parameters<typeof events.changed>[1][]) => events.changed(projectId, ...topics);
   /**
@@ -623,24 +626,34 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
   const bulk = {
     save_knowledge: tool({
       description:
-        'Save many knowledge items in one change: characters, relationships, speechRules, events, documents (each item exactly like the matching single save_* tool: with id = update only the fields sent, without id = create). Up to 200 items. Items are saved in order (characters first, so new relationships can name new characters); a failing item is reported and the others are kept.',
+        'Save many knowledge items in one change: characters, relationships, speechRules, events, documents (each item exactly like the matching single save_* tool: with id = update only the fields sent, without id = create). Up to 200 items. Items are saved in order (characters first, so new relationships can name new characters); if any item fails, nothing in the batch is saved. Fix failed items and resend the whole batch.',
       inputSchema: z.object(Object.fromEntries(Object.entries(KNOWLEDGE_SAVES).map(([kind, save]) => [kind, z.array(save.inputSchema as unknown as z.ZodType).max(200).optional()])) as Record<SaveKind, z.ZodOptional<z.ZodArray<z.ZodType>>>).refine((input) => Object.values(input).reduce((sum, items) => sum + (items?.length ?? 0), 0) <= 200, '한 번에 200개까지입니다.'),
       needsApproval: true,
-      execute: async (input) => {
+      execute: (input) => {
         const results: { kind: SaveKind; index: number; ok: boolean; id?: string; error?: string; hint?: string }[] = [];
-        for (const kind of Object.keys(KNOWLEDGE_SAVES) as SaveKind[]) {
-          const save = KNOWLEDGE_SAVES[kind] as unknown as { execute: (item: unknown, options: unknown) => unknown };
-          for (const [index, item] of (input[kind] ?? []).entries()) {
-            try {
-              const result = (await save.execute(item, { toolCallId: 'save_knowledge', messages: [] })) as { ok: boolean; id?: string; error?: string; hint?: string };
-              results.push({ kind, index, ...result });
-            } catch (error) {
-              results.push({ kind, index, ok: false, error: error instanceof Error ? error.message : String(error) });
+        try {
+          db.transaction(() => {
+            for (const kind of Object.keys(KNOWLEDGE_SAVES) as SaveKind[]) {
+              const save = KNOWLEDGE_SAVES[kind] as unknown as { execute: (item: unknown, options: unknown) => unknown };
+              for (const [index, item] of (input[kind] ?? []).entries()) {
+                try {
+                  const value = save.execute(item, { toolCallId: 'save_knowledge', messages: [] });
+                  if (value && typeof (value as { then?: unknown }).then === 'function') throw new Error('save_knowledge item execute returned a Promise');
+                  results.push({ kind, index, ...(value as { ok: boolean; id?: string; error?: string; hint?: string }) });
+                } catch (error) {
+                  results.push({ kind, index, ok: false, error: error instanceof Error ? error.message : String(error) });
+                }
+              }
             }
-          }
+            if (results.some((result) => !result.ok)) throw new KnowledgeRefused();
+          });
+        } catch (error) {
+          if (!(error instanceof KnowledgeRefused)) throw error;
+          const failed = results.filter((result) => !result.ok);
+          // Rolled back: the ids of the items that went through no longer exist.
+          return { ok: false, saved: 0, failed: failed.length, results: results.map(({ id: _rolledBack, ...result }) => result), error: `${results.length}개 중 ${failed.length}개를 저장하지 못해 아무것도 저장하지 않았습니다. 실패한 항목을 고쳐 전체를 다시 보내세요.` };
         }
-        const failed = results.filter((result) => !result.ok);
-        return { ok: failed.length === 0, saved: results.length - failed.length, failed: failed.length, results, ...(failed.length && { error: `${results.length}개 중 ${failed.length}개를 저장하지 못했습니다.` }) };
+        return { ok: true, saved: results.length, failed: 0, results };
       },
     }),
     delete_items: tool({

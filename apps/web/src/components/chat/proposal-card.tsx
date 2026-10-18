@@ -3,6 +3,7 @@ import { Check, Wrench, X } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { Button, Input, Spinner } from '@loca/ui';
+import { acceptedLabel } from '@tw/shared';
 import { client, unwrap } from '@/lib/api';
 import { ChangePreview, LABEL } from './change-preview';
 
@@ -24,7 +25,7 @@ export interface Proposal {
   report?: { dropped: { key: string; reason: string }[]; warnings: { key: string; issues: string[] }[]; counts?: { dropped: number; warnings: number } } | null;
 }
 
-const STATUS = { running: '적용 중', accepted: '적용됨', rejected: '거절함', failed: '실패' } as const;
+const STATUS = { running: '적용 중', rejected: '거절함', failed: '실패' } as const;
 const DECIDED_BY = { auto: '자동 검토로', bypass: '우회 모드로' } as const;
 
 /** A change an agent proposed (pi chat or the CLI). Accepting runs it now; nothing changes before that. */
@@ -59,7 +60,7 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
           {proposal.status !== 'pending' && (
             <span className={proposal.status === 'accepted' ? 'text-success' : proposal.status === 'failed' ? 'text-destructive' : 'text-muted-foreground'}>
               {proposal.decidedBy && proposal.decidedBy !== 'person' && `${DECIDED_BY[proposal.decidedBy]} `}
-              {proposal.status === 'failed' && proposal.decidedBy && proposal.decidedBy !== 'person' ? '적용하려 했지만 실패' : STATUS[proposal.status]}
+              {proposal.status === 'accepted' ? acceptedLabel(proposal.tool).short : proposal.status === 'failed' && proposal.decidedBy && proposal.decidedBy !== 'person' ? '적용하려 했지만 실패' : STATUS[proposal.status]}
               {failure && ` · ${failure}`}
               {proposal.status === 'rejected' && proposal.reason && ` · ${proposal.reason}`}
               {skipped > 0 && ` · ${skipped.toLocaleString()}개는 건너뜀(그사이 바뀌었거나 바꿀 수 없음)`}
