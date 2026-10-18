@@ -1,7 +1,7 @@
 /** Right-hand pane to add or edit one status. */
 import { ArrowDown, ArrowUp, Trash2 } from 'lucide-react';
 import { DEFAULT_STATUS_COLOR } from '@tw/shared';
-import { DetailPane, FieldRow, PaneSection, Button, Field, FieldDescription, FieldGroup, FieldLabel, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Switch } from '@loca/ui';
+import { InspectorSection, PropertyRow, PropertyGrid, InspectorHeader, Inspector, Button, Field, FieldDescription, FieldGroup, FieldLabel, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Switch } from '@loca/ui';
 import { STATUS_KIND } from '@/lib/labels';
 import { changedFields, useFormFrom } from '@/lib/use-form-from';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
@@ -37,12 +37,7 @@ export function StatusPane({
   const { draft: form, setDraft: setForm, dirty: changed, conflicts, keepMine, takeSaved } = useFormFrom(saved, status && `status.${status.id}`);
   const dirty = !status || changed;
   return (
-    <DetailPane
-      kicker="상태"
-      title={status ? status.name : '상태 추가'}
-      subtitle={status ? `대사 ${status.units.toLocaleString()}개` : undefined}
-      onClose={onClose}
-      footer={
+    <Inspector header={<InspectorHeader kind="상태" name={status ? status.name : '상태 추가'} status={status ? `대사 ${status.units.toLocaleString()}개` : undefined} onClose={onClose} />} footer={
         <>
           <Button disabled={!form.name.trim() || !dirty || pending} onClick={() => onSave(form, changedFields(form, saved))}>
             {status ? '저장' : '추가'}
@@ -53,10 +48,9 @@ export function StatusPane({
             </Button>
           )}
         </>
-      }
-    >
+      }>
       {conflicts.length > 0 && <ChangedElsewhere fields={conflicts.map((field) => STATUS_FIELD_LABEL[field as keyof StatusForm])} onTakeSaved={takeSaved} onKeepMine={keepMine} />}
-      <PaneSection title="설정">
+      <InspectorSection title="설정">
         <FieldGroup className="gap-4">
           <Field>
             <FieldLabel htmlFor="status-name">이름</FieldLabel>
@@ -92,19 +86,19 @@ export function StatusPane({
           </Field>
           <FieldDescription>워크플로는 이 상태 대신 검토함으로 보냅니다.</FieldDescription>
         </FieldGroup>
-      </PaneSection>
+      </InspectorSection>
       {status && onMove && (
-        <PaneSection title="순서">
-          <FieldRow label={`${index + 1} / ${count}`}>
+        <InspectorSection title="순서">
+          <PropertyRow label={`${index + 1} / ${count}`}>
             <Button variant="outline" size="icon" disabled={index === 0 || reordering} onClick={() => onMove(-1)} aria-label={`${status.name} 위로`}>
               <ArrowUp />
             </Button>
             <Button variant="outline" size="icon" disabled={index === count - 1 || reordering} onClick={() => onMove(1)} aria-label={`${status.name} 아래로`}>
               <ArrowDown />
             </Button>
-          </FieldRow>
-        </PaneSection>
+          </PropertyRow>
+        </InspectorSection>
       )}
-    </DetailPane>
+    </Inspector>
   );
 }

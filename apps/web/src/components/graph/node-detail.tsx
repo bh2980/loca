@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { CornerDownRight, FileText, Network, PencilLine } from 'lucide-react';
-import { PaneHeader, DetailPane, Button, Skeleton, HelpTip } from '@loca/ui';
+import { Inspector, InspectorHeader, Button, Skeleton, HelpTip } from '@loca/ui';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { KIND_LABEL } from './shapes';
@@ -17,7 +17,7 @@ export function SceneNodeDetail({ projectId, groupId, onClose }: { projectId: st
   if (!group.data) return <Skeleton className="m-4 h-24" />;
   return (
     <div className="flex h-full flex-col">
-      <PaneHeader kicker="장면" title={group.data.title} subtitle={<span className="font-mono">{group.data.key}</span>} onClose={onClose} />
+      <InspectorHeader kind="장면" name={group.data.title} status={<span className="font-mono">{group.data.key}</span>} onClose={onClose} />
       <div className="space-y-3 p-4">
         {group.data.description && <p className="text-sm">{group.data.description}</p>}
         <div className="flex flex-col gap-2">
@@ -152,11 +152,15 @@ export function FlowPane({ projectId, nodeIds, title, way, extra, marked, editin
   });
 
   return (
-    <DetailPane
-      kicker={first?.group?.title ?? '대사 그래프'}
-      title={title}
-      subtitle={lineCount ? `대사 ${lineCount}줄 · 번역 ${translated}줄` : undefined}
-      onClose={onClose}
+    <Inspector
+      header={
+        <InspectorHeader
+          kind={first?.group?.title ?? '대사 그래프'}
+          name={title}
+          status={lineCount ? `대사 ${lineCount}줄 · 번역 ${translated}줄` : undefined}
+          onClose={onClose}
+        />
+      }
       loading={loading && !nodes.length}
       bodyClassName="space-y-0 p-0"
       footer={
@@ -200,7 +204,7 @@ export function FlowPane({ projectId, nodeIds, title, way, extra, marked, editin
         />
         <ol>{lines}</ol>
       </div>
-    </DetailPane>
+    </Inspector>
   );
 }
 
