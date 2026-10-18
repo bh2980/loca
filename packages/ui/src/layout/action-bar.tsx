@@ -57,7 +57,14 @@ export function ActionBar({ items, "aria-label": ariaLabel, className }: ActionB
     const measure = measureRef.current
     if (!root || !measure) return
     const update = () => {
-      setAvailable(root.getBoundingClientRect().width)
+      const container = root.closest("header, [role='region'], .flex-1") || root.parentElement
+      let maxAvailable = root.getBoundingClientRect().width
+      if (container) {
+        const siblings = Array.from(container.querySelectorAll(":scope > *")).filter((el) => !el.contains(root))
+        const siblingsWidth = siblings.reduce((sum, el) => sum + el.getBoundingClientRect().width, 0)
+        maxAvailable = Math.max(root.getBoundingClientRect().width, container.getBoundingClientRect().width - siblingsWidth - 16)
+      }
+      setAvailable(maxAvailable)
       const next: Record<string, number> = {}
       measure.querySelectorAll<HTMLElement>("[data-action-id]").forEach((el) => {
         next[el.dataset.actionId!] = el.getBoundingClientRect().width
@@ -68,6 +75,9 @@ export function ActionBar({ items, "aria-label": ariaLabel, className }: ActionB
     const observer = new ResizeObserver(update)
     observer.observe(root)
     observer.observe(measure)
+    if (root.parentElement) observer.observe(root.parentElement)
+    const container = root.closest("header")
+    if (container) observer.observe(container)
     return () => observer.disconnect()
   }, [items, rootRef])
 

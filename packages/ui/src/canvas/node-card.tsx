@@ -41,7 +41,6 @@ export const NODE_CARD_KIND_APPEARANCE: Record<NodeCardKind, { label: string; ic
 export function NodeCard({ kind, icon, title, summary, inputHandle, outputs = [], errors = 0, warnings = 0, live, selected, disabled, direction = "vertical", className }: NodeCardProps) {
   const style = NODE_CARD_KIND_APPEARANCE[kind]
   const hasLive = live && live.queued + live.running + live.failed > 0
-  const showType = title.trim() !== style.label
   const isHorizontal = direction === "horizontal"
   const isCondition = kind === "condition"
   const isCapsule = style.capsule
@@ -72,18 +71,7 @@ export function NodeCard({ kind, icon, title, summary, inputHandle, outputs = []
             <span className="flex shrink-0 items-center gap-1 text-xs text-warning" title={`${warnings}개 주의`}><AlertTriangle className="size-3" />{warnings}</span>
           ) : null}
         </div>
-        {showType && (
-          <div className="px-2.5 pb-1 text-xs font-medium">
-            {isCondition ? (
-              <span className="inline-flex items-center rounded-xs bg-review/20 px-1.5 py-0.5 text-2xs font-semibold text-review-ink">
-                {style.label}
-              </span>
-            ) : (
-              <span className={style.icon}>{style.label}</span>
-            )}
-          </div>
-        )}
-        {summary && <p className={cn("px-2.5 py-1 text-xs text-muted-foreground", isHorizontal ? "line-clamp-2" : "min-h-7 truncate")}>{summary}</p>}
+        {summary && <p className={cn("px-2.5 py-1.5 text-xs text-muted-foreground", isHorizontal ? "line-clamp-2" : "min-h-7 truncate")}>{summary}</p>}
         {hasLive && <div className="flex gap-2 border-t border-border-subtle px-2.5 py-1 text-xs tabular-nums">
           {live.running > 0 && <span className="font-medium text-foreground">처리 {live.running}</span>}
           {live.queued > 0 && <span className="text-muted-foreground">대기 {live.queued}</span>}
@@ -94,7 +82,7 @@ export function NodeCard({ kind, icon, title, summary, inputHandle, outputs = []
         "relative text-xs",
         isHorizontal
           ? cn(
-              "grid min-h-full min-w-14 w-14 shrink-0 self-stretch grid-cols-1 items-center rounded-r-md",
+              "grid min-h-full min-w-10 w-10 shrink-0 self-stretch grid-cols-1 items-center rounded-r-md",
               isCondition ? "border-l border-review/30 bg-review/10" : "border-l border-border bg-muted/40",
               isCapsule && "rounded-r-full"
             )
@@ -106,10 +94,10 @@ export function NodeCard({ kind, icon, title, summary, inputHandle, outputs = []
       )} style={isHorizontal ? { gridTemplateRows: `repeat(${outputs.length}, minmax(1.25rem, 1fr))` } : { gridTemplateColumns: `repeat(${outputs.length}, minmax(0, 1fr))` }}>
         {outputs.map((port) => <span key={port.id} className={cn(
           "min-w-0 truncate",
-          isHorizontal ? "px-2 text-right" : "text-center",
-          port.tone === "destructive" && "font-medium text-destructive",
-          port.tone === "warning" && "font-medium text-warning",
-          port.tone === "neutral" && (isCondition ? "font-semibold text-success" : "text-muted-foreground"),
+          isHorizontal ? "px-1 text-center font-medium" : "text-center",
+          port.tone === "destructive" && "text-destructive font-semibold",
+          port.tone === "warning" && "text-warning font-semibold",
+          port.tone === "neutral" && (isCondition ? "text-success font-semibold" : "text-muted-foreground"),
         )} title={port.label}>{port.label}</span>)}
       </div>}
     </>
@@ -123,33 +111,24 @@ export function NodeCard({ kind, icon, title, summary, inputHandle, outputs = []
       className,
     )}>
       {inputHandle}
-      {isCondition ? (
-        <div
-          className={cn(
-            "flex min-w-0 flex-1 p-[2px] shadow-sm transition-colors",
-            isHorizontal ? "flex-row min-h-16" : "flex-col",
-            selected ? "bg-primary ring-2 ring-primary/40" : errors > 0 ? "bg-destructive" : "bg-review/90 dark:bg-review"
-          )}
-          style={{ clipPath: "polygon(24px 0, calc(100% - 24px) 0, 100% 18px, 100% calc(100% - 18px), calc(100% - 24px) 100%, 24px 100%, 0 calc(100% - 18px), 0 18px)" }}
-        >
-          <div
-            className={cn("flex min-w-0 flex-1 bg-card text-card-foreground", isHorizontal ? "flex-row min-h-[calc(4rem-4px)]" : "flex-col")}
-            style={{ clipPath: "polygon(22.5px 0, calc(100% - 22.5px) 0, 100% 16.5px, 100% calc(100% - 16.5px), calc(100% - 22.5px) 100%, 22.5px 100%, 0 calc(100% - 16.5px), 0 16.5px)" }}
-          >
-            {content}
-          </div>
-        </div>
-      ) : (
-        <div className={cn(
-          "relative flex min-w-0 flex-1 overflow-visible rounded-md border border-border bg-card text-card-foreground shadow-xs",
-          isHorizontal ? "min-h-16 flex-row" : "flex-col",
-          isCapsule && (kind === "end" || !isHorizontal ? "rounded-full" : "rounded-l-full"),
-          selected && "border-primary ring-1 ring-primary",
-          errors > 0 && "border-destructive",
-        )}>
-          {content}
-        </div>
-      )}
+      <div className={cn(
+        "relative flex min-w-0 flex-1 overflow-visible rounded-md border bg-card text-card-foreground shadow-xs",
+        isCondition
+          ? selected
+            ? "border-primary ring-2 ring-primary/40"
+            : errors > 0
+              ? "border-destructive"
+              : "border-review/70"
+          : selected
+            ? "border-primary ring-1 ring-primary"
+            : errors > 0
+              ? "border-destructive"
+              : "border-border",
+        isHorizontal ? "min-h-16 flex-row" : "flex-col",
+        isCapsule && (kind === "end" || !isHorizontal ? "rounded-full" : "rounded-l-full"),
+      )}>
+        {content}
+      </div>
       {outputs.map((port) => <span key={`${port.id}-handle`}>{port.handle}</span>)}
     </div>
   )
