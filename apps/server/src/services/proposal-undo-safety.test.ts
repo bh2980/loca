@@ -92,6 +92,25 @@ describe('undo safety', () => {
     expect(db.select().from(s.relationships).where(eq(s.relationships.id, human.id)).get()).toBeDefined();
   });
 
+  it('keeps created characters whose created relationship a person has since edited (#104 review)', async () => {
+    const { db, apply, undo, character } = setup();
+    const id = await apply('save_knowledge', { characters: [{ name: 'Gina' }, { name: 'Hal' }], relationships: [{ from: 'Gina', to: 'Hal', kind: '남매' }] });
+    const link = db.select().from(s.relationships).where(eq(s.relationships.fromId, character('Gina')!.id)).get()!;
+    db.update(s.relationships).set({ kind: '사람이 고친 관계' }).where(eq(s.relationships.id, link.id)).run();
+    const [result] = await undo(id);
+    expect(result.skipped).toEqual(expect.arrayContaining([link.id, character('Gina')!.id, character('Hal')!.id]));
+    expect(db.select().from(s.relationships).where(eq(s.relationships.id, link.id)).get()?.kind).toBe('사람이 고친 관계');
+  });
+
+  it('still deletes created characters once their created relationship is undone', async () => {
+    const { db, apply, undo, character } = setup();
+    const id = await apply('save_knowledge', { characters: [{ name: 'Ivy' }, { name: 'Jon' }], relationships: [{ from: 'Ivy', to: 'Jon', kind: '친구' }] });
+    await undo(id);
+    expect(character('Ivy')).toBeUndefined();
+    expect(character('Jon')).toBeUndefined();
+    expect(db.select().from(s.relationships).where(eq(s.relationships.kind, '친구')).get()).toBeUndefined();
+  });
+
   it('undoes two changes of the same line in one reply back to the value before both', async () => {
     const { db, apply, undo } = setup();
     const first = await apply('propose_changes', { origin: 'ai', changes: [{ key: 'line', translation: '하나' }] });
