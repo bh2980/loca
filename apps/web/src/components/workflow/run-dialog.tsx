@@ -392,11 +392,12 @@ function GroupPicker({ groups, picked, setPicked, filter, setFilter }: { groups:
           const expanded = Boolean(needle) || open.has(kind);
           return (
             <div key={kind}>
-              {/* Each level steps in by the fold button's width: 전체 → kind → its groups. */}
+              {/* Each level steps in by 16px: 전체 → kind → its groups. The fold arrow sits in that step. */}
               <div className="flex min-w-0 items-center pl-2">
                 <Button
                   variant="ghost"
                   size="icon-xs"
+                  className="w-4"
                   aria-label={`${SCRIPT_VIEW[kind]} ${expanded ? '접기' : '펼치기'}`}
                   aria-expanded={expanded}
                   onClick={() => toggled(setOpen as SetPicked, kind, !open.has(kind))}
@@ -410,7 +411,7 @@ function GroupPicker({ groups, picked, setPicked, filter, setFilter }: { groups:
                 </label>
               </div>
               {expanded && (
-                <ul className="ml-12">
+                <ul className="ml-8">
                   {shown.map((group) => (
                     <li key={group.id}>
                       <label className={row}>
