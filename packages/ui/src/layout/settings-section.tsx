@@ -14,6 +14,7 @@ export function SettingsSection({
   title,
   description,
   help,
+  headerActions,
   actions,
   tone = "default",
   children,
@@ -22,6 +23,8 @@ export function SettingsSection({
   title: ReactNode
   description?: ReactNode
   help?: ReactNode
+  /** Controls placed at the right of the header row (e.g. counts, add buttons). */
+  headerActions?: ReactNode
   /** The block's save / revert buttons, under its fields. */
   actions?: ReactNode
   tone?: "default" | "danger"
@@ -38,9 +41,15 @@ export function SettingsSection({
         className
       )}
     >
-      <div className="space-y-1">
-        <h2 className={cn("flex items-center gap-1 text-base font-semibold", danger && "text-destructive")}>{title}{help && <HelpTip>{help}</HelpTip>}</h2>
-        {description && <p className="text-xs text-muted-foreground">{description}</p>}
+      <div className="flex items-center justify-between gap-4">
+        <div className="space-y-1">
+          <h2 className={cn("flex items-center gap-1.5 text-base font-semibold", danger && "text-destructive")}>
+            {title}
+            {help && <HelpTip>{help}</HelpTip>}
+          </h2>
+          {description && <p className="text-xs text-muted-foreground">{description}</p>}
+        </div>
+        {headerActions && <div className="flex shrink-0 items-center gap-2">{headerActions}</div>}
       </div>
       {children}
       {actions && <div className="flex items-center gap-2">{actions}</div>}

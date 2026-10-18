@@ -132,11 +132,11 @@ export function AiMark({ by, className }: { by: "ai" | "human" | null | undefine
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span role="img" aria-label="AI가 정함" className={cn("inline-flex shrink-0 text-ai", className)}>
+        <span role="img" aria-label="AI 초안" className={cn("inline-flex shrink-0 text-ai", className)}>
           <Sparkles className="size-3" />
         </span>
       </TooltipTrigger>
-      <TooltipContent>AI가 정함 · 아직 사람이 확인하지 않음</TooltipContent>
+      <TooltipContent>AI 초안 · 아직 사람이 확인하지 않음</TooltipContent>
     </Tooltip>
   )
 }

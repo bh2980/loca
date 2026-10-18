@@ -403,7 +403,7 @@ const terms = program
   .command('terms')
   .description('용어집 목록: 원문, 번역어, 상태, 나온 줄(대본에서 쓰이는 대사 수), 표시(#), 태그. 앱 용어집 화면의 필터와 같은 규칙')
   .option('-q, --q <글자>', '원문·번역어에 들어 있는 글자')
-  .addOption(new Option('--mark <marks...>', '자동 표시. 후보와 AI가 정함을 함께 주면 둘 중 하나').choices(TERM_MARK_IDS))
+  .addOption(new Option('--mark <marks...>', '자동 표시. 후보와 AI 초안을 함께 주면 둘 중 하나').choices(TERM_MARK_IDS))
   .option('--unreviewed', '사람이 아직 정하지 않은 용어 (--mark candidate ai와 같음)')
   .option('--tag <tags...>', '태그 이름 (모두 붙은 용어)')
   .option('--limit <n>', '최대 몇 개까지')
@@ -452,7 +452,7 @@ const KNOWLEDGE_KINDS = {
 program
   .command('knowledge <종류>')
   .description(`작품 자료 목록: ${Object.entries(KNOWLEDGE_KINDS).map(([kind, info]) => `${kind}(${info.label})`).join(', ')}. 상태, 표시(#), 태그 포함. 앱 작품 자료 화면의 필터와 같은 규칙`)
-  .addOption(new Option('--mark <marks...>', '자동 표시. 후보와 AI가 정함을 함께 주면 둘 중 하나').choices(KNOWLEDGE_MARK_IDS))
+  .addOption(new Option('--mark <marks...>', '자동 표시. 후보와 AI 초안을 함께 주면 둘 중 하나').choices(KNOWLEDGE_MARK_IDS))
   .option('--unreviewed', '사람이 아직 정하지 않은 항목 (--mark candidate ai와 같음)')
   .option('--tag <tags...>', '태그 이름 (모두 붙은 항목)')
   .option('--jsonl', '한 줄에 하나씩 JSON으로 출력')

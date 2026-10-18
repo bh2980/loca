@@ -18,9 +18,9 @@ export interface GroupRow {
   unknownListeners: number;
 }
 
-/** Sections start open; explicit folds are a per-tab convenience, like the graph viewport. */
-const storageKey = (projectId: string) => `tw.script.collapsed.${projectId}`;
-const readCollapsed = (projectId: string): string[] => {
+/** Sections start closed by default; explicit unfolds are a per-tab convenience, like the graph viewport. */
+const storageKey = (projectId: string) => `tw.script.expanded.${projectId}`;
+const readExpanded = (projectId: string): string[] => {
   try {
     return JSON.parse(sessionStorage.getItem(storageKey(projectId)) ?? '[]');
   } catch {
@@ -66,13 +66,13 @@ export function GroupList({ projectId, groups, finalIds, initialIds, scope, revi
   statuses?: StatusLike[];
 }) {
   const sections = useMemo(() => sectionsOf(groups ?? []), [groups]);
-  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set(readCollapsed(projectId)));
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(readExpanded(projectId)));
   const toggle = (name: string, open: boolean) =>
-    setCollapsed((previous) => {
-      if (previous.has(name) === !open) return previous;
+    setExpanded((previous) => {
+      if (previous.has(name) === open) return previous;
       const next = new Set(previous);
-      if (open) next.delete(name);
-      else next.add(name);
+      if (open) next.add(name);
+      else next.delete(name);
       try {
         sessionStorage.setItem(storageKey(projectId), JSON.stringify([...next]));
       } catch {
@@ -80,11 +80,11 @@ export function GroupList({ projectId, groups, finalIds, initialIds, scope, revi
       }
       return next;
     });
-  // Picking a scene opens its section once; folding it again holds until another scene is picked.
-  const pickedSection = sections.find((section) => section.groups.some((group) => group.id === scope.group))?.name;
+  // Picking a scene or section opens its section once; folding it again holds until another scene is picked.
+  const pickedSection = scope.section ?? sections.find((section) => section.groups.some((group) => group.id === scope.group))?.name;
   useEffect(() => {
     if (pickedSection) toggle(pickedSection, true);
-  }, [scope.group, pickedSection]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [scope.group, scope.section, pickedSection]); // eslint-disable-line react-hooks/exhaustive-deps
   // A scene's count is its progress: lines translated (past 미번역), with 확정 named in the hint; the check means all 확정.
   const progressOf = (group: GroupRow) => {
     const lines = Object.entries(group.statuses);
@@ -104,8 +104,8 @@ export function GroupList({ projectId, groups, finalIds, initialIds, scope, revi
         {!groups && <p className="px-3 py-2 text-xs text-muted-foreground">불러오는 중…</p>}
         {groups?.length === 0 && <p className="px-3 py-2 text-sm text-muted-foreground">맞는 항목이 없습니다.</p>}
         {sections.map((section) => {
-          // A scene search shows its matches wherever they are.
-          const open = Boolean(gq) || !section.name || !collapsed.has(section.name);
+          // A scene search shows its matches wherever they are; otherwise sections default to closed unless opened or active.
+          const open = Boolean(gq) || !section.name || expanded.has(section.name);
           const items = section.groups.map((group) => <GroupItem key={group.id} projectId={projectId} group={group} progress={progressOf(group)} statuses={statuses} active={group.id === scope.group} indent={Boolean(section.name)} marks={marks} />);
           if (!section.name) return <Fragment key={section.key}>{items}</Fragment>;
           const count = section.groups.reduce((sum, group) => sum + group.total, 0);

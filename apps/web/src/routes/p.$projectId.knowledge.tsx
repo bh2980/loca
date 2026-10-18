@@ -1,16 +1,46 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
-import { ArrowLeftRight, GanttChart, Network, Plus, Sparkles, Table2, Users } from 'lucide-react';
+import { ArrowLeftRight, GanttChart, Network, Plus, Table2, Users } from 'lucide-react';
 import { toast } from 'sonner';
-import { CHARACTER_ROLE_LABELS, OTHERS_LISTENER, parseMarks, type AutoMark, styleNames, isSettled, KNOWLEDGE_SOURCES, listenerLabel, REVIEW_TAG, SPEECH_LEVEL_LABELS, type KnowledgeSource, personLabel } from '@tw/shared';
-import { EmptyState, TagMenu, SplitPane, FilterChips, FilterBar, ActionBar, ViewSwitch, Separator, Badge, Button, Skeleton, Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
+import { CHARACTER_ROLE_LABELS, OTHERS_LISTENER, PALETTE, parseMarks, type AutoMark, styleNames, isSettled, aiDecided, KNOWLEDGE_SOURCES, listenerLabel, REVIEW_TAG, SPEECH_LEVEL_LABELS, type KnowledgeSource, personLabel } from '@tw/shared';
+import {
+  EmptyState,
+  TagMenu,
+  SplitPane,
+  FilterChips,
+  FilterBar,
+  ViewSwitch,
+  CanvasDirectionControl,
+  Separator,
+  Badge,
+  Button,
+  Skeleton,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  DataTable,
+  type ColumnDef,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  useRevealDock,
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogCancel,
+  AlertDialogAction,
+} from '@loca/ui';
 import { HeaderActions, Page, StatusBarItem } from '@/components/page';
 import { RelationshipGraph } from '@/components/relationship-graph';
-import { hasAnalysis, JobStatus, StartAnalysis } from '@/components/knowledge/analysis-controls';
+import { RunDialog } from '@/components/workflow/run-dialog';
+import { Play } from 'lucide-react';
+import { JobStatus } from '@/components/knowledge/analysis-controls';
 import { DraftEditor } from '@/components/knowledge/editor';
 import { RelationshipChanges, RuleLines } from '@/components/knowledge/evidence';
-import { BulkDecide, fail, KINDS, KnowledgeFilters, knowledgeFilterChips, KNOWLEDGE_MARK_IDS, KnowledgeTable, matches, type KnowledgeFilterState, SourceBadge, type Kind, type KindSpec, type Row, type SourceFilter, defineKind } from '@/components/knowledge/table';
+import { BulkDecide, fail, KINDS, KnowledgeFilters, knowledgeFilterChips, KNOWLEDGE_MARK_IDS, matches, type KnowledgeFilterState, SourceBadge, type Kind, type KindSpec, type Row, type SourceFilter, defineKind, metaColumns, candidateRow } from '@/components/knowledge/table';
 import { pairKey, buildPairs, PairDetail, pairItems, pairMatches, pairSummary, PairTable, type Pair, type SpeechRuleCreate } from '@/components/knowledge/pairs';
 import { EventFlow } from '@/components/knowledge/event-flow';
 import { splitList } from '@/components/chip-input';
@@ -38,6 +68,7 @@ interface KnowledgeSearch {
   item?: string;
   /** Presentation. Default is the picture (relationship graph / event flow); 'table' is the table instead (인물·관계: pairs), 'characters' the people table in 인물·관계. */
   display?: 'table' | 'characters';
+  direction?: 'vertical' | 'horizontal';
 }
 
 export const Route = createFileRoute('/p/$projectId/knowledge')({
@@ -49,6 +80,7 @@ export const Route = createFileRoute('/p/$projectId/knowledge')({
     ids: Array.isArray(raw.ids) && raw.ids.length && raw.ids.every((id) => typeof id === 'string') ? (raw.ids as string[]) : undefined,
     item: typeof raw.item === 'string' && raw.item ? raw.item : undefined,
     display: raw.display === 'table' || raw.display === 'characters' ? raw.display : undefined,
+    direction: raw.direction === 'horizontal' || raw.direction === 'vertical' ? raw.direction : undefined,
   }),
   component: Knowledge,
 });
@@ -63,11 +95,13 @@ function Knowledge() {
   const { projectId } = Route.useParams();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
+  const revealDock = useRevealDock();
   const tab: Tab = search.tab ?? 'documents';
   // 인물·관계 is one graph (people and their relationships) or two tables (pairs / people).
   const graph = tab === 'people' && !search.display;
   const pairsView = tab === 'people' && search.display === 'table';
   const timeline = tab === 'events' && search.display !== 'table';
+  const direction = search.direction ?? 'vertical';
   const set = (next: Partial<KnowledgeSearch>, replace = true) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace });
 
   const statuses = useQuery(q.statuses(projectId));
@@ -100,8 +134,8 @@ function Knowledge() {
       fields: [
         { name: 'title', label: '제목', type: 'text' },
         { name: 'kind', label: '종류', type: 'docKind' },
-        { name: 'alwaysInclude', label: '번역 문맥에 넣기 (‘작품 문서’를 켠 AI 노드에 전문이 들어감)', type: 'bool' },
-        { name: 'body', label: '본문 (마크다운)', type: 'long' },
+        { name: 'alwaysInclude', label: '번역 문맥에 넣기', description: '‘작품 문서’를 켠 AI 노드에 문서 전문이 들어갑니다.', type: 'bool' },
+        { name: 'body', label: '본문', description: '마크다운 형식입니다.', type: 'long' },
       ],
       create: () => unwrap(api.documents.$post({ param: { projectId }, json: { title: '새 문서', kind: 'note', body: '', alwaysInclude: false } })),
       label: (row) => row.title,
@@ -122,12 +156,12 @@ function Knowledge() {
         { name: 'name', label: '이름', type: 'text' },
         { name: 'aliases', label: '별칭', type: 'list' },
         { name: 'player', label: '플레이어 캐릭터', type: 'bool' },
-        { name: 'gender', label: '성별 (그 외: 안드로이드·무성 등, 자세한 건 프로필에)', type: 'gender' },
+        { name: 'gender', label: '성별', description: '그 외의 성별(예: 안드로이드·무성)은 프로필에 적어 주세요.', type: 'gender' },
         { name: 'ageBand', label: '나이대', type: 'ageBand' },
         { name: 'role', label: '역할', type: 'role' },
         { name: 'profile', label: '프로필', type: 'long' },
-        { name: 'speech', label: '말투 특징 (원문 관찰)', type: 'long' },
-        { name: 'style', label: '문체 (이 인물 대사의 번역에 지시로 들어감)', type: 'style' },
+        { name: 'speech', label: '말투 특징', description: '원문에서 관찰한 말투를 적어 주세요.', type: 'long' },
+        { name: 'style', label: '문체', description: '이 인물 대사를 번역할 때 지시로 전달됩니다.', type: 'style' },
       ],
       label: (row) => row.name,
       save: patchTo(api.characters[':id'].$patch),
@@ -188,11 +222,11 @@ function Knowledge() {
       ],
       fields: [
         { name: 'fromName', label: '화자', type: 'text' },
-        { name: 'toName', label: '청자 (여럿 group · 불특정 다수 public · 혼잣말 self · 그 밖의 사람 others)', type: 'text' },
+        { name: 'toName', label: '청자', description: '여럿: group · 불특정 다수: public · 혼잣말: self · 그 밖의 사람: others', type: 'text' },
         { name: 'level', label: '말투', type: 'level' },
         { name: 'address', label: '호칭', type: 'chips', suggestions: (rules.data ?? []).flatMap((rule) => splitList(rule.address)) },
-        { name: 'startKey', label: '시작 대사 키 (비우면 처음부터)', type: 'key' },
-        { name: 'note', label: '이유·메모 (사람이 보는 설명, AI에 보내지 않음)', type: 'long' },
+        { name: 'startKey', label: '시작 대사 키', description: '비우면 처음부터 적용합니다.', type: 'key' },
+        { name: 'note', label: '이유·메모', description: '사람이 보는 설명이며 AI에 보내지 않습니다.', type: 'long' },
       ],
       label: (row) => `${row.fromName} → ${listenerLabel(row.toName)}`,
       save: patchTo(api['speech-rules'][':id'].$patch),
@@ -219,7 +253,7 @@ function Knowledge() {
   const unofficial = (kind: Kind) => specs[kind].rows.filter((row) => !isSettled(row)).length;
   const unofficialHere = tab === 'people' ? unofficial('characters') + unofficial('relationships') + unofficial('speechRules') : unofficial(tab);
   useReportView('knowledge', [
-    selected && { kind: KINDS[tableKind], id: selected.id, label: spec.label(selected), detail: !isSettled(selected) ? (selected.status === 'candidate' ? '후보' : '확정 · AI가 정함, 아직 사람이 확인 안 함') : undefined },
+    selected && { kind: KINDS[tableKind], id: selected.id, label: spec.label(selected), detail: !isSettled(selected) ? (selected.status === 'candidate' ? '후보' : '확정 · AI 초안, 아직 사람이 확인 안 함') : undefined },
     pair && { kind: '관계·말투', id: pair.key, label: `${pair.from} → ${pair.to}` },
   ]);
 
@@ -302,8 +336,6 @@ function Knowledge() {
   );
 
   const jobs = useQuery(q.analysisJobs(projectId));
-  const analysed = hasAnalysis(jobs.data);
-  const [analysisOpen, setAnalysisOpen] = useState(false);
   const pending = tab === 'documents' ? documents.isPending : tab === 'events' ? storyEvents.isPending : people.isPending || rules.isPending;
   // Only the tags that belong on knowledge items (자료).
   const knowledgeTags = tagsIn(statuses.data?.tags, 'knowledge');
@@ -328,6 +360,20 @@ function Knowledge() {
           return on === 0 ? 'none' : on === pickedRows().length ? 'all' : 'some';
         }}
         onToggle={(tagId, add) => tag.mutate({ items: pickedRows(), tagId, add })}
+        onCreate={async (name) => {
+          try {
+            const color = (PALETTE[knowledgeTags.length % PALETTE.length] as any).light ?? PALETTE[knowledgeTags.length % PALETTE.length].hex;
+            const res = await unwrap(api.tags.$post({
+              param: { projectId },
+              json: { name, color, scope: ['lines', 'terms', 'knowledge'] },
+            }));
+            await tag.mutateAsync({ items: pickedRows(), tagId: res.id, add: true });
+            queryClient.invalidateQueries({ queryKey: ['statuses', projectId] });
+            toast.success(`'${name}' 태그를 만들고 고른 항목에 붙였습니다.`);
+          } catch (err: unknown) {
+            toast.error(err instanceof Error ? err.message : '태그를 만들지 못했습니다.');
+          }
+        }}
       />
     </>
   );
@@ -335,10 +381,119 @@ function Knowledge() {
   const count = pending ? undefined : `${total}${unofficialHere > 0 ? ` · 확인 필요 ${unofficialHere.toLocaleString()}` : ''}`;
   const empty = <EmptyState noun={`${KINDS[tableKind]} 항목`} filtered={filtered} />;
 
+  const [deletingIds, setDeletingIds] = useState<string[] | null>(null);
+
+  const deleteMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      for (const id of ids) {
+        await spec.remove(id);
+      }
+    },
+    onSuccess: (_data, ids) => {
+      if (search.item && ids.includes(search.item)) {
+        set({ item: undefined });
+      }
+      clearChecked();
+      queryClient.invalidateQueries({ queryKey: [tableKind, projectId] });
+      if (tableKind === 'characters') {
+        queryClient.invalidateQueries({ queryKey: q.characters(projectId).queryKey });
+      } else if (tableKind === 'documents') {
+        queryClient.invalidateQueries({ queryKey: q.documents(projectId).queryKey });
+      } else if (tableKind === 'events') {
+        queryClient.invalidateQueries({ queryKey: q.storyEvents(projectId).queryKey });
+      }
+      toast.success(ids.length > 1 ? `${ids.length}개 항목을 삭제했습니다.` : '항목을 삭제했습니다.');
+      setDeletingIds(null);
+    },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : '삭제하지 못했습니다.');
+      setDeletingIds(null);
+    },
+  });
+
+  const columns = useMemo<ColumnDef<Row, unknown>[]>(
+    () => [
+      ...spec.columns.map(
+        (column, index): ColumnDef<Row, unknown> => ({
+          id: column.head,
+          header: column.head,
+          meta: { width: column.width, className: column.className, hideable: index === 0 ? false : undefined },
+          cell: ({ row }) => column.cell(row.original),
+        })
+      ),
+      ...metaColumns<Row>((row) => row, filters),
+    ],
+    [spec.columns, filters]
+  );
+
+  const renderRowContextMenu = (row: Row) => {
+    const isCandidateOrAi = aiDecided(row) || row.status === 'candidate';
+    return (
+      <>
+        <ContextMenuItem
+          onClick={() => {
+            set({ item: row.id });
+            revealDock?.();
+          }}
+        >
+          상세 편집
+        </ContextMenuItem>
+        {isCandidateOrAi && (
+          <ContextMenuItem
+            onClick={() => {
+              decide.mutate({ items: [{ kind: tableKind, ids: [row.id] }], action: 'confirm' });
+            }}
+          >
+            확정 / 확인함
+          </ContextMenuItem>
+        )}
+        {tab === 'documents' && (
+          <ContextMenuItem
+            onClick={async () => {
+              const doc = row as typeof specs.documents.rows[number];
+              try {
+                await unwrap(api.documents[':id'].$patch({ param: { projectId, id: row.id }, json: { alwaysInclude: !doc.alwaysInclude } }));
+                queryClient.invalidateQueries({ queryKey: q.documents(projectId).queryKey });
+                toast.success(!doc.alwaysInclude ? '번역 문맥에 항상 포함하도록 변경했습니다.' : '관련될 때만 포함하도록 변경했습니다.');
+              } catch (err) {
+                toast.error(err instanceof Error ? err.message : '문맥 설정을 변경하지 못했습니다.');
+              }
+            }}
+          >
+            {(row as any).alwaysInclude ? '관련될 때만 포함' : '번역 문맥에 항상 포함'}
+          </ContextMenuItem>
+        )}
+        {tab === 'people' && search.display === 'characters' && (
+          <ContextMenuItem
+            onClick={() => {
+              void navigate({
+                to: '/p/$projectId/script',
+                params: { projectId },
+                search: { speaker: (row as any).name } as any,
+              });
+            }}
+          >
+            이 화자의 대사 보기
+          </ContextMenuItem>
+        )}
+        <ContextMenuSeparator />
+        <ContextMenuItem
+          variant="destructive"
+          onClick={() => {
+            const ids = checked.has(row.id) && checked.size > 1 ? [...checked] : [row.id];
+            setDeletingIds(ids);
+          }}
+        >
+          삭제
+        </ContextMenuItem>
+      </>
+    );
+  };
+
   return (
     <Page title="자료" flush>
       <SplitPane
-        id="knowledge"
+        id="knowledge" selectionKey={search.item}
         defaultWidth="500px"
         className="h-full"
         pane={
@@ -379,10 +534,13 @@ function Knowledge() {
               ] : [{ value: 'timeline', label: '흐름', icon: <GanttChart /> }, { value: 'table', label: '표', icon: <Table2 />}]} />
             <Separator orientation="vertical" className="mx-1 h-4" />
           </>}
+          {timeline && <>
+            <CanvasDirectionControl direction={direction} onDirectionChange={(next) => set({ direction: next }, false)} disabled={storyEvents.isPending} />
+            <Separator orientation="vertical" className="mx-1 h-4" />
+          </>}
           {!pairsView && spec.create && <Button disabled={create.isPending} onClick={() => create.mutate()}><Plus /> {KINDS[tableKind]}</Button>}
-          <ActionBar aria-label="작품 지식 동작" items={[{ id: 'analysis', label: analysed ? '작품 다시 분석' : '작품 분석', icon: <Sparkles />, disabled: jobs.data?.[0]?.status === 'running', overflow: 'always', onSelect: () => setAnalysisOpen(true) }]} />
+          <RunDialog projectId={projectId} trigger={<Button variant="ghost"><Play /> 워크플로 실행</Button>} />
         </HeaderActions>
-        <StartAnalysis projectId={projectId} hideTrigger open={analysisOpen} onOpenChange={setAnalysisOpen} />
         <FilterBar end={<span className="text-2xs font-medium text-subtle-foreground tabular-nums">{count}</span>}>
           {(graph || timeline) && <KnowledgeFilters {...filters} />}
           <FilterChips chips={chips} />
@@ -412,9 +570,11 @@ function Knowledge() {
               <Skeleton className="m-4 h-40" />
             ) : (
               <EventFlow
+                key={direction}
                 projectId={projectId}
                 filtered={filtered}
                 events={specs.events.rows.filter(shown)}
+                direction={direction}
                 selected={search.item}
                 onOpen={(id) => set({ item: id })}
                 badge={(event) => <SourceBadge row={rows.find((row) => row.id === event.id)!} />}
@@ -433,21 +593,49 @@ function Knowledge() {
             filters={filters}
           />
         ) : (
-          <KnowledgeTable
+          <DataTable
             id={`knowledge-${tableKind}`}
-            spec={spec}
+            columns={columns}
             rows={pending ? undefined : rows}
             loading={pending}
+            rowId={(row) => row.id}
             selected={search.item}
-            onOpen={(id) => set({ item: id === search.item ? undefined : id })}
+            onRowClick={(row) => set({ item: row.id === search.item ? undefined : row.id })}
+            rowClassName={candidateRow}
             picked={checked}
             onPick={pick}
             bulk={bulk}
             empty={empty}
-            filters={filters}
+            rowContextMenu={renderRowContextMenu}
           />
         )}
       </SplitPane>
+      <AlertDialog open={Boolean(deletingIds)} onOpenChange={(open) => !open && setDeletingIds(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {deletingIds && deletingIds.length > 1 ? `${deletingIds.length}개 항목을 삭제할까요?` : '항목을 삭제할까요?'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              삭제한 항목은 사라지고 더 이상 AI 문맥에 쓰이지 않습니다.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>취소</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={deleteMutation.isPending}
+              onClick={() => {
+                if (deletingIds) {
+                  deleteMutation.mutate(deletingIds);
+                }
+              }}
+            >
+              삭제
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Page>
   );
 }

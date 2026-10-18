@@ -238,7 +238,7 @@ export function TranslationEditor({
         {save.isPending && <span className="text-xs text-muted-foreground" aria-live="polite">저장 중…</span>}
         {marks === undefined && !dirty && unit.statusBy === 'ai' && (
           <span className="flex items-center gap-1 text-xs text-muted-foreground">
-            <AiMark by="ai" /> AI가 정함
+            <AiMark by="ai" /> AI 초안
           </span>
         )}
         <InlineEditorActions
