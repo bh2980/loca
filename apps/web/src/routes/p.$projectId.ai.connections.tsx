@@ -7,7 +7,7 @@ import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { z } from 'zod';
 import { CONNECTION_CALL_DEFAULTS, CONNECTION_KIND_INFO, CONNECTION_KINDS, connectionInputSchema, isFreeModel, type Capability, type ConnectionKind } from '@tw/shared';
-import { EmptyState, DataTable, type ColumnDef, DetailPane, PaneSection, SplitPane, Badge, Button, Field, FieldDescription, FieldError, FieldGroup, FieldLabel, Input, Textarea, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner, HelpTip } from '@loca/ui';
+import { EmptyState, DataTable, type ColumnDef, Inspector, InspectorHeader, InspectorSection, DirtyBar, DangerZone, SplitPane, Badge, Button, Field, FieldDescription, FieldError, FieldGroup, FieldLabel, Input, Textarea, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner, HelpTip } from '@loca/ui';
 import { HeaderActions, Page } from '@/components/page';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
 import { DeleteButton } from '@/components/settings/delete-button';
@@ -142,17 +142,12 @@ function NewConnection({ onClose }: { onClose: () => void }) {
   });
 
   return (
-    <DetailPane
-      kicker="연결"
-      title="연결 추가"
-      onClose={onClose}
-      footer={
-        <Button type="submit" form="new-connection-form" disabled={create.isPending}>
+    <Inspector header={<InspectorHeader kind="연결" name="연결 추가" onClose={onClose} />} footer={
+        <div className="flex justify-end border-t p-3"><Button type="submit" form="new-connection-form" disabled={create.isPending}>
           {create.isPending && <Spinner />}
           추가
-        </Button>
-      }
-    >
+        </Button></div>
+      }>
       <form id="new-connection-form" onSubmit={form.handleSubmit((values) => create.mutate(values))}>
         <FieldGroup className="gap-5">
           <Field>
@@ -213,7 +208,7 @@ function NewConnection({ onClose }: { onClose: () => void }) {
           )}
         </FieldGroup>
       </form>
-    </DetailPane>
+    </Inspector>
   );
 }
 
@@ -329,22 +324,8 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
   const LOGIN_LABEL: Record<string, string> = { 'signed-in': '로그인됨', 'signed-out': '로그인 안 됨', unknown: '확인할 수 없음' };
 
   return (
-    <DetailPane
-      kicker="연결"
-      title={connection.name}
-      subtitle={isTool ? <span className="inline-flex items-center gap-1">HTTP 호출 <HelpTip>워크플로의 ‘HTTP 호출’ 함수가 이 연결로 외부 API를 부릅니다.</HelpTip></span> : info.label}
-      onClose={onClose}
-      footer={
-        <>
-          <Button type="submit" form="edit-connection-form" disabled={save.isPending || !form.formState.isDirty}>
-            {save.isPending && <Spinner />}
-            저장
-          </Button>
-          <DeleteButton label={`연결 '${connection.name}'`} description="워크플로 노드·대화·다른 연결의 ‘막히면’이 이 연결을 쓰고 있으면 삭제되지 않습니다. 저장된 API 키도 함께 삭제됩니다." pending={remove.isPending} onConfirm={() => remove.mutate()} />
-        </>
-      }
-    >
-      <PaneSection title="설정">
+    <Inspector header={<InspectorHeader kind="연결" name={connection.name} status={isTool ? 'HTTP 호출' : info.label} onClose={onClose} />} footer={<DirtyBar dirtyCount={Object.keys(dirtyFields).length} onRevert={() => form.reset()} onSave={() => form.handleSubmit((values) => save.mutate(values))()} saving={save.isPending} disabled={!form.formState.isDirty} />}>
+      <InspectorSection title="설정">
         <form id="edit-connection-form" onSubmit={form.handleSubmit((values) => save.mutate(values))}>
           <FieldGroup className="gap-4">
             <Field data-invalid={!!form.formState.errors.name}>
@@ -382,11 +363,11 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
             )}
           </FieldGroup>
         </form>
-      </PaneSection>
+      </InspectorSection>
 
       {!isTool && (
         <>
-          <PaneSection title={<span className="flex items-center gap-1">기본 모델 <HelpTip>이 연결을 고르면 먼저 채워지는 모델입니다. 템플릿·가져온 프로젝트의 AI 노드도 이 모델로 시작합니다.</HelpTip></span>}>
+          <InspectorSection title="기본 모델">
             <Controller
               control={form.control}
               name="defaultModel"
@@ -402,9 +383,9 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
                 />
               )}
             />
-          </PaneSection>
+          </InspectorSection>
 
-          <PaneSection title="호출 조건">
+          <InspectorSection title="호출 조건">
             <div className="grid grid-cols-2 gap-4">
               <Field data-invalid={!!errors.timeoutSeconds}>
                 <FieldLabel htmlFor="edit-timeout">시간 제한(초)</FieldLabel>
@@ -423,9 +404,9 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
               </Field>
             </div>
             <div className="flex items-center gap-1 text-xs text-muted-foreground">호출 조건 기본값 <HelpTip>이 연결로 가는 모든 요청(워크플로·작품 분석·용어 채우기·채팅)에 적용됩니다. 기본값: {CONNECTION_CALL_DEFAULTS.timeoutSeconds}초, {CONNECTION_CALL_DEFAULTS.maxAttempts}번, {CONNECTION_CALL_DEFAULTS.maxOutputTokens.toLocaleString()} 토큰.</HelpTip></div>
-          </PaneSection>
+          </InspectorSection>
 
-          <PaneSection
+          <InspectorSection
             title="막히면"
             actions={
               <Controller
@@ -450,12 +431,12 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
               render={({ field }) => <ModelPicker exclude={connection.id} value={field.value} onChange={(next: ModelValue) => field.onChange(next.model ? next : { ...next, model: '' })} />}
             />
             <FieldError errors={[errors.fallback?.model ?? errors.fallback]} />
-          </PaneSection>
+          </InspectorSection>
         </>
       )}
 
       {isHttp && (
-        <PaneSection title="API 키">
+        <InspectorSection title="API 키">
           <Field>
             <FieldLabel htmlFor="edit-key">{connection.hasKey ? '저장됨 — 값은 표시되지 않습니다' : '저장된 키 없음'}</FieldLabel>
             <div className="flex gap-2">
@@ -469,18 +450,18 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
             </div>
             <FieldDescription>API 키는 {keyStoreLabel}에 저장되며 DB·내보내기에 포함되지 않습니다.</FieldDescription>
           </Field>
-        </PaneSection>
+        </InspectorSection>
       )}
 
       {connection.kind === 'pi' && (
-        <PaneSection title="pi 옵션">
+        <InspectorSection title="pi 옵션">
           <PiOptionsPanel connectionId={connection.id} options={connection.options} />
-        </PaneSection>
+        </InspectorSection>
       )}
 
       {!isTool && <ModelTest connectionId={connection.id} need={need} defaultModel={connection.defaultModel} defaultEffort={connection.defaultEffort} />}
 
-      <PaneSection title="연결 시험">
+      <InspectorSection title="연결 시험">
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" disabled={probe.isPending} onClick={() => probe.mutate()}>
             {probe.isPending && <Spinner />}
@@ -530,8 +511,9 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
             )}
           </div>
         )}
-      </PaneSection>
-    </DetailPane>
+      </InspectorSection>
+      <DangerZone title="연결 삭제"><DeleteButton label={`연결 '${connection.name}'`} description="워크플로 노드·대화·다른 연결의 ‘막히면’이 이 연결을 쓰고 있으면 삭제되지 않습니다. 저장된 API 키도 함께 삭제됩니다." pending={remove.isPending} onConfirm={() => remove.mutate()} /></DangerZone>
+    </Inspector>
   );
 }
 
@@ -548,7 +530,7 @@ function ModelTest({ connectionId, need, defaultModel, defaultEffort }: { connec
   const tests = useQuery(q.connectionTests(connectionId));
   const result = test.data;
   return (
-    <PaneSection title="모델 시험">
+    <InspectorSection title="모델 시험">
       <div className="flex flex-col gap-2">
         <p className="text-sm text-muted-foreground">한 문장을 번역해 봅니다. 저장된 호출 조건과 ‘막히면’으로 실행되고, 결과는 프로젝트에 저장되지 않습니다.</p>
         <ModelPicker lockConnection need={need} value={choice} onChange={setChoice} />
@@ -586,6 +568,6 @@ function ModelTest({ connectionId, need, defaultModel, defaultEffort }: { connec
           </ul>
         )}
       </div>
-    </PaneSection>
+    </InspectorSection>
   );
 }

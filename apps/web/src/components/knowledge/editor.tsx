@@ -3,7 +3,7 @@ import { useMutation } from '@tanstack/react-query';
 import { Check, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { DOCUMENT_KINDS, STYLE_AXES, type StyleAxis, type CharacterRole, type Gender, type AgeBand, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled, AGE_BAND_LABELS, CHARACTER_ROLE_LABELS, GENDER_LABELS } from '@tw/shared';
-import { DetailPane, PaneSection, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Switch, Textarea, AiMark } from '@loca/ui';
+import { Inspector, InspectorHeader, InspectorSection, PropertyGrid, PropertyRow, DirtyBar, DangerZone, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Switch, Textarea, AiMark } from '@loca/ui';
 import { ChipInput, joinList, splitList } from '@/components/chip-input';
 import { useDraft } from '@/lib/drafts';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
@@ -61,13 +61,10 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
   const body = (
     <>
       {changedElsewhere && <ChangedElsewhere onTakeSaved={clear} onKeepMine={() => setBase(saved)} />}
-      <PaneSection title="내용">
-        <div className="flex flex-col gap-4">
-          {spec.fields.map((field) => (
-            <FieldInput key={field.name} field={field} value={form[field.name]} characters={characters} onChange={(value) => update(field.name, value)} />
-          ))}
-        </div>
-      </PaneSection>
+      {spec.fields.filter((field) => field.type !== 'long').length > 0 && <InspectorSection title="기본 정보"><PropertyGrid>
+        {spec.fields.filter((field) => field.type !== 'long').map((field) => <PropertyRow key={field.name} label={field.label}><FieldInput field={field} value={form[field.name]} characters={characters} onChange={(value) => update(field.name, value)} hideLabel /></PropertyRow>)}
+      </PropertyGrid></InspectorSection>}
+      {spec.fields.filter((field) => field.type === 'long').map((field) => <InspectorSection key={field.name} title={field.label}><FieldInput field={field} value={form[field.name]} characters={characters} onChange={(value) => update(field.name, value)} /></InspectorSection>)}
       {/* The folded lists (a rule's lines, the evidence) read as one block. */}
       <div className="space-y-1">
         {spec.extra?.(row)}
@@ -135,38 +132,39 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
       </div>
     );
   return (
-    <DetailPane
-      kicker={KINDS[kind]}
-      title={spec.label(row)}
-      subtitle={
+    <Inspector
+      header={<InspectorHeader kind={KINDS[kind]} name={spec.label(row)} status={
         <span className="flex items-center gap-1.5">
           <SourceBadge row={row} />
           <span>·</span>
           {row.status === 'candidate' ? <span>후보</span> : <span className="inline-flex items-center gap-1">확정 <AiMark by={row.statusBy} /></span>}
         </span>
-      }
-      onClose={onClose}
-      footer={actions}
+      } onClose={onClose} />}
+      footer={dirty ? <DirtyBar dirtyCount={1} onRevert={clear} onSave={() => save.mutate(draft)} saving={save.isPending} /> : (!official ? <div className="flex justify-end border-t p-3"><Button disabled={save.isPending} onClick={() => onDecide('confirm')}><Check /> {confirmLabel([row])}</Button></div> : null)}
     >
       {body}
-    </DetailPane>
+      {!official && <DangerZone title="후보 처리"><Button variant="ghost" className="text-destructive" onClick={() => onDecide('discard')}>버리기</Button></DangerZone>}
+      {official && <DangerZone title="삭제"><AlertDialog><AlertDialogTrigger asChild><Button variant="ghost" className="text-destructive"><Trash2 /> 삭제</Button></AlertDialogTrigger><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>사람이 정한 항목을 삭제할까요?</AlertDialogTitle><AlertDialogDescription>“{spec.label(row)}”이(가) 사라지고 더 이상 AI 문맥에 쓰이지 않습니다.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>취소</AlertDialogCancel><AlertDialogAction onClick={() => remove.mutate()}>삭제</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog></DangerZone>}
+    </Inspector>
   );
 }
 
 const NORMAL = '__normal';
 
-function FieldInput({ field, value, characters, onChange }: { field: Field; value: Value; characters: { id: string; name: string }[]; onChange: (value: Value) => void }) {
+function FieldInput({ field, value, characters, onChange, hideLabel = false }: { field: Field; value: Value; characters: { id: string; name: string }[]; onChange: (value: Value) => void; hideLabel?: boolean }) {
   const id = `field-${field.name}`;
   if (field.type === 'bool')
-    return (
+    return hideLabel ? (
+      <Switch id={id} checked={Boolean(value)} onCheckedChange={onChange} aria-label={field.label} />
+    ) : (
       <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-panel p-3">
         <Label htmlFor={id} className="cursor-pointer text-xs font-medium leading-snug text-foreground">{field.label}</Label>
         <Switch id={id} checked={Boolean(value)} onCheckedChange={onChange} />
       </div>
     );
   return (
-    <div className="space-y-1.5">
-      <Label htmlFor={id} className="text-xs font-medium text-muted-foreground">{field.label}</Label>
+      <div className={hideLabel ? undefined : 'space-y-1.5'}>
+        {!hideLabel && <Label htmlFor={id} className="text-xs font-medium text-muted-foreground">{field.label}</Label>}
       {field.type === 'long' ? (
         <Textarea id={id} rows={field.name === 'body' ? 6 : 3} className={field.name === 'body' ? 'font-mono text-xs leading-relaxed' : 'text-xs leading-relaxed'} value={text(value)} onChange={(event) => onChange(event.target.value)} />
       ) : field.type === 'docKind' || field.type === 'character' ? (

@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ChevronRight, Play } from 'lucide-react';
 import { SPEECH_FIX_WORKFLOW, SPEECH_LEVEL_LABELS, type SpeechLevel } from '@tw/shared';
 import { RunDialog } from '@/components/workflow/run-dialog';
-import { PaneSection, Button, Collapsible, CollapsibleContent, CollapsibleTrigger } from '@loca/ui';
+import { InspectorSection, Button, Collapsible, CollapsibleContent, CollapsibleTrigger } from '@loca/ui';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
@@ -58,7 +58,7 @@ export function RuleLines({ projectId, ruleId, candidate }: { projectId: string;
   const lines = useQuery(q.ruleLines(projectId, ruleId));
   const levels = Object.entries(lines.data?.levels ?? {}).sort((a, b) => b[1] - a[1]);
   return (
-    <PaneSection
+    <InspectorSection
       title={`${candidate ? '확정하면 적용될' : '이 규칙이 적용되는'} 대사 ${lines.data?.count ?? '…'}개`}
       actions={
         lines.data?.translatedIds.length && !candidate ? (
@@ -107,7 +107,7 @@ export function RuleLines({ projectId, ruleId, candidate }: { projectId: string;
       </ul>
       </Fold>
       </div>
-    </PaneSection>
+    </InspectorSection>
   );
 }
 
@@ -116,7 +116,7 @@ export function RelationshipChanges({ projectId, changes }: { projectId: string;
   if (!changes.length) return null;
   const byKey = new Map(lines.data?.map((line) => [line.key, line]));
   return (
-    <PaneSection title="관계 변화">
+    <InspectorSection title="관계 변화">
       <ul className="space-y-2">
         {changes.map((change) => {
           const line = byKey.get(change.at);
@@ -133,6 +133,6 @@ export function RelationshipChanges({ projectId, changes }: { projectId: string;
           );
         })}
       </ul>
-    </PaneSection>
+    </InspectorSection>
   );
 }
