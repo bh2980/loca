@@ -4,7 +4,7 @@ import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { agentCatalog } from './agent-catalog.ts';
-import { captureUndo, isRecord } from './proposal-undo.ts';
+import { captureUndo, dropConflicts, isRecord, orderedCalls, rebaseLineCall, rememberLineRevisions } from './proposal-undo.ts';
 
 /** Stores a proposal; callers check it first with prepareProposal (proposal-check.ts). */
 export function propose(db: Db, input: { projectId: string; sessionId: string | null; model?: string | null; source: 'pi' | 'cli' | 'api'; tool: string; input: Record<string, unknown>; report?: s.ProposalReport | null; review?: string | null }) {
@@ -137,6 +137,7 @@ export async function undoProposals(db: Db, sessionId: string, ids: string[]) {
     .where(and(eq(s.proposals.sessionId, sessionId), inArray(s.proposals.id, ids))).all()
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   const results: { id: string; ok: boolean; error?: string; skipped?: string[] }[] = [];
+  const rebasedLines = new Map<string, { before: number; now: number }>();
   for (const original of rows) {
     if (original.status !== 'accepted' || original.undoneAt) {
       const error = original.undoneAt ? '이미 되돌렸습니다' : '수락된 제안이 아닙니다';
@@ -152,11 +153,19 @@ export async function undoProposals(db: Db, sessionId: string, ids: string[]) {
     let failedTool: string | null = null;
     let completedCalls = 0;
     try {
-      for (const inverseCall of original.undo.calls) {
-        failedTool = inverseCall.tool;
+      const calls = orderedCalls(original.undo.calls);
+      const deletingRelationshipIds = new Set(calls.flatMap((call) => call.tool === 'delete_items' &&
+        call.input.kind === 'relationships' && Array.isArray(call.input.ids)
+        ? call.input.ids.filter((id): id is string => typeof id === 'string') : []));
+      for (const inverseCall of calls) {
+        const rebased = rebaseLineCall(inverseCall, rebasedLines);
+        const filtered = dropConflicts(db, original.projectId, rebased, deletingRelationshipIds);
+        skipped.push(...filtered.dropped);
+        if (!filtered.call) continue;
+        failedTool = filtered.call.tool;
         const inverse = propose(db, {
           projectId: original.projectId, sessionId, source: original.source,
-          tool: inverseCall.tool, input: inverseCall.input,
+          tool: filtered.call.tool, input: filtered.call.input,
           review: `되돌리기 (proposal ${original.id})`,
         });
         const applied = await decideProposal(db, inverse.id, true, 'person');
@@ -172,6 +181,7 @@ export async function undoProposals(db: Db, sessionId: string, ids: string[]) {
             else if (isRecord(item) && typeof item.id === 'string') skipped.push(item.id);
           }
         }
+        rememberLineRevisions(db, original, filtered.call, applied.result, rebasedLines);
         completedCalls++;
       }
       db.update(s.proposals).set({ undoneAt: new Date(), reportedAt: null })

@@ -1,5 +1,8 @@
+import { mkdtemp, readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { cliChatCommand, readCliChat, turnShare } from './cli-chat.ts';
+import { cliChatCommand, readCliChat, turnShare, writeLocaLauncher } from './cli-chat.ts';
 import { CODEX_UNUSED_FEATURES } from './cli.ts';
 import type { ResolvedRoute } from './types.ts';
 
@@ -20,6 +23,13 @@ describe('CLI chat output', () => {
     expect(cliChatCommand('codex', route, turn, 'new-id', '/tmp/instructions.md').args).toContain('--sandbox');
     expect(cliChatCommand('codex', route, { ...turn, sessionId: 'session-1' }, 'new-id', '/tmp/instructions.md').args).toContain('sandbox_mode="read-only"');
     expect(cliChatCommand('opencode', { ...route, kind: 'opencode' }, turn, 'new-id', '/tmp/instructions.md').input).toBe('System instructions\n\n---\n\nUser message');
+  });
+
+  it('writes the loca launcher for sh and for Windows cmd', async () => {
+    const bin = await mkdtemp(path.join(tmpdir(), 'loca-bin-'));
+    await writeLocaLauncher(bin, '/repo/apps/cli/bin/loca.mjs');
+    expect(await readFile(path.join(bin, 'loca'), 'utf8')).toContain('"/repo/apps/cli/bin/loca.mjs" "$@"');
+    expect(await readFile(path.join(bin, 'loca.cmd'), 'utf8')).toBe(`@"${process.execPath}" "/repo/apps/cli/bin/loca.mjs" %*\r\n`);
   });
 
   it('uses the Codex shell permission profile on new and resumed turns', () => {

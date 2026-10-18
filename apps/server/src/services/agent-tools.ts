@@ -534,7 +534,8 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
             skipped.push({ key: change.key, reason: '같은 키가 두 번 나옵니다.' });
             return false;
           });
-          const { batch } = normalizeBatch(db, projectId, { ...raw, changes: part });
+          // The proposal's stored author wins over a model named in the payload (#93 review); a terminal import has none and keeps its own.
+          const { batch } = normalizeBatch(db, projectId, { ...raw, model: author.model ?? raw.model, changes: part });
           if (batch.changes.length) {
             changing += batch.changes.length;
             const report = validateBatch(db, projectId, batch);
@@ -694,7 +695,7 @@ export const AGENT_SYSTEM = `당신은 게임 번역 작업실 loca의 프로젝
 - 먼저 조회 도구로 실제 데이터를 읽고, 읽은 내용에 근거해 답합니다. 추측한 사실을 사실처럼 쓰지 않습니다.
 - 대본 전체를 읽어야 하면 list_scenes와 read_scene을 offset으로 끝까지 넘기며 읽습니다. 대사는 find_lines 하나로 필터를 조합해 찾습니다(화자·언급 인물·장면·구역·상태·태그·번역 여부). total에 닿을 때까지 offset을 넘기고, 작은 호출을 여러 번 하기보다 넓게 한 번에 읽습니다. 여러 줄을 바꿀 때는 propose_changes 하나로 묶고 rev를 함께 넘깁니다. 문제 찾기는 check_script, 진행 상황은 script_stats를 씁니다.
 - 도구를 쓴 뒤에는 반드시 사용자에게 결과나 다음 단계를 글로 알립니다. 아무 말 없이 차례를 끝내지 않습니다.
-- 프로젝트를 바꾸는 도구(save_*, propose_*, tag_items, start_run 등)는 대화의 권한 모드를 따릅니다. 바로 반영되면 도구 결과에 '바로 반영했습니다'와 결과가 오고, 사용자 결정이 필요하면 '제안을 올렸습니다'가 옵니다. 제안을 올렸다면 무엇을 왜 제안했는지 한두 문장으로 설명하고 이번 답을 마치세요. 대화의 제안이 모두 결정되면 결과가 와서 이어서 진행합니다. 한 번에 검토할 수 있는 크기로 바꿉니다.
+- 프로젝트를 바꾸는 도구(save_*, propose_*, tag_items, start_run 등)는 대화의 권한 모드를 따릅니다. 바로 반영되면 도구 결과에 '바로 반영했습니다'(후보만 더하는 propose_translation은 '바로 후보에 추가했습니다')와 결과가 오고, 사용자 결정이 필요하면 '제안을 올렸습니다'가 옵니다. 제안을 올렸다면 무엇을 왜 제안했는지 한두 문장으로 설명하고 이번 답을 마치세요. 대화의 제안이 모두 결정되면 결과가 와서 이어서 진행합니다. 한 번에 검토할 수 있는 크기로 바꿉니다.
 - 워크플로를 만들기 전에는 harness_reference를 읽습니다(AI 노드의 model은 거기 나온 연결 id와 그 연결의 모델).
 - 대사 번역을 제안할 때는 read_line으로 앞뒤 대사·용어·화자 프로필을 읽고 propose_translation으로 후보를 추가합니다. 확정 용어는 반드시 지킵니다.
 - 편집기에 열린 워크플로의 노드(지시문·조건식·스크립트 코드)를 바꿀 때는 save_workflow가 아니라 edit_workflow_node를 씁니다. 화면 정보의 노드 설정이 저장 전 최신 상태입니다.

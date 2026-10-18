@@ -75,7 +75,7 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
               </div>
             ) : null;
           })}
-          <p className="text-muted-foreground">항목마다 따로 저장됩니다. 실패한 항목이 있어도 나머지는 저장됩니다.</p>
+          <p className="text-muted-foreground">모두 함께 저장됩니다. 한 항목이라도 실패하면 아무것도 저장하지 않으니, 실패한 항목을 고쳐 다시 보내게 됩니다.</p>
         </div>
       );
     }
