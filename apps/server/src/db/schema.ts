@@ -638,9 +638,12 @@ export const runSteps = sqliteTable(
 export interface ProposalReport {
   dropped: { key: string; reason: string }[];
   warnings: { key: string; issues: string[] }[];
+  counts?: { dropped: number; warnings: number };
 }
 
 export type ProposalStatus = 'pending' | 'running' | 'accepted' | 'rejected' | 'failed';
+/** Existing agent-tool calls that restore a proposal's previous values. */
+export type ProposalUndo = { calls: { tool: string; input: Record<string, unknown> }[] } | { none: string };
 export const proposals = sqliteTable(
   'proposals',
   {
@@ -653,6 +656,10 @@ export const proposals = sqliteTable(
     source: text('source', { enum: ['pi', 'cli', 'api'] }).notNull(),
     tool: text('tool').notNull(),
     input: json<Record<string, unknown>>('input').notNull(),
+    /** Inverse agent-tool calls, or why this change cannot be undone. */
+    undo: json<ProposalUndo>('undo'),
+    /** When this accepted change was undone through inverse proposals. */
+    undoneAt: integer('undone_at', { mode: 'timestamp_ms' }),
     /** What the check at proposing time left out or warns about (see proposal-check.ts). */
     report: json<ProposalReport>('report'),
     /** running: accepted and its tool still applying (see decideProposal); never left so across a restart. */

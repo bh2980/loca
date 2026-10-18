@@ -3,7 +3,7 @@ import { and, desc, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { badRequest, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
-import { decideProposal, listedProposal } from '../services/proposals.ts';
+import { decideProposal, listedProposal, undoProposals } from '../services/proposals.ts';
 import { continueAfterDecisions } from '../services/chat-run.ts';
 
 /** Changes proposed by pi chat sessions and the CLI, decided in the chat panel. */
@@ -33,4 +33,7 @@ export const proposalRoutes = new Hono<Env>()
     } catch (error) {
       badRequest(error instanceof Error ? error.message : String(error));
     }
+  })
+  .post('/chat/:sessionId/undo', validate('json', z.object({ ids: z.array(z.string()).min(1).max(500) })), async (c) => {
+    return c.json(await undoProposals(c.var.deps.db, c.req.param('sessionId'), c.req.valid('json').ids));
   });

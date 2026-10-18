@@ -15,7 +15,7 @@ import { chatFor, dropChat } from '@/lib/chat-store';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { useViewState, type ViewItem } from '@/lib/view-context';
-import { ProposalCard } from './proposal-card';
+import { ProposalCard, useUndo } from './proposal-card';
 import { PermissionModePicker } from './permission-mode';
 import type { PermissionMode } from '@tw/shared';
 import { ToolPart } from './tool-part';
@@ -210,6 +210,7 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
   onMode: (mode: PermissionMode) => void;
   onModel: (next: ModelValue) => Promise<void>;
 }) {
+  const queryClient = useQueryClient();
   const ready = Boolean(model?.connectionId && model.model);
   const view = useViewState();
   const location = useLocation();
@@ -281,6 +282,9 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
   // pi chats store change requests as proposals; their cards are decided through the API.
   const proposals = useQuery(q.proposals(projectId, sessionId));
   const proposalById = new Map(proposals.data?.map((proposal) => [proposal.id, proposal]));
+  const [undoingReply, setUndoingReply] = useState(false);
+  const [replyUndoIds, setReplyUndoIds] = useState<string[]>([]);
+  const undoReply = useUndo(projectId, sessionId);
   // A finished turn whose last part is a tool call said nothing about the result: say so and offer to continue.
   const lastMessage = messages.at(-1);
   const lastPart = lastMessage?.parts.filter((part) => part.type !== 'step-start').at(-1);
@@ -364,6 +368,11 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
         <div className="space-y-5">
           {messages.map((message) => {
             const { stopped, interrupted } = (message.metadata as { stopped?: boolean; interrupted?: boolean } | undefined) ?? {};
+            const undoable = message.role === 'assistant' ? [...new Set(message.parts.flatMap((part) => {
+              const id = ((part as { output?: { proposalId?: string } }).output ?? {}).proposalId;
+              const proposal = id ? proposalById.get(id) : undefined;
+              return proposal?.status === 'accepted' && proposal.undo && 'calls' in proposal.undo && proposal.undo.calls > 0 && !proposal.undoneAt ? [proposal.id] : [];
+            }))] : [];
             const view =
             message.role === 'user' && (message.metadata as { kind?: string } | undefined)?.kind === 'decisions' ? (
               <DecisionNotice key={message.id} text={message.parts.map((part) => (part.type === 'text' ? part.text : '')).join('')} />
@@ -384,9 +393,10 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
                     const data = (part as { data: { text: string; kind?: string } }).data;
                     return data.kind === 'decisions' ? <DecisionNotice key={index} text={data.text} /> : <SteerBubble key={index} text={data.text} />;
                   }
-                  if (part.type.startsWith('tool-')) return <ToolPart key={index} part={part as never} proposal={proposalById.get(((part as { output?: { proposalId?: string } }).output ?? {}).proposalId ?? '') as never} stale={message.id !== messages.at(-1)?.id} onDecide={(id, approved) => addToolApprovalResponse({ id, approved })} onOutput={(toolCallId, output) => void addToolOutput({ tool: part.type.slice(5) as never, toolCallId, output: output as never })} />;
+                  if (part.type.startsWith('tool-')) return <ToolPart key={index} part={part as never} proposal={proposalById.get(((part as { output?: { proposalId?: string } }).output ?? {}).proposalId ?? '')} stale={message.id !== messages.at(-1)?.id} onDecide={(id, approved) => addToolApprovalResponse({ id, approved })} onOutput={(toolCallId, output) => void addToolOutput({ tool: part.type.slice(5) as never, toolCallId, output: output as never })} />;
                   return null;
                 })}
+                {undoable.length > 0 && <Button variant="outline" onClick={() => { setReplyUndoIds(undoable); setUndoingReply(true); }}>이 답의 변경 되돌리기 ({undoable.length})</Button>}
               </div>
             );
             if (!stopped && !interrupted) return view;
@@ -419,6 +429,13 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
           {error && <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">{error.message}</p>}
         </div>
       </div>
+
+      <AlertDialog open={undoingReply} onOpenChange={setUndoingReply}>
+        <AlertDialogContent>
+          <AlertDialogHeader><AlertDialogTitle>이 답의 변경을 되돌릴까요?</AlertDialogTitle><AlertDialogDescription>이 답에서 반영된 변경 {replyUndoIds.length}개를 되돌리는 제안을 적용합니다. 그사이 바뀐 대사는 건너뜁니다.</AlertDialogDescription></AlertDialogHeader>
+          <AlertDialogFooter><AlertDialogCancel>취소</AlertDialogCancel><AlertDialogAction disabled={undoReply.isPending} onClick={() => { undoReply.mutate(replyUndoIds); setUndoingReply(false); }}>되돌리기</AlertDialogAction></AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <div className="shrink-0 border-t bg-background p-2">
         {attached.length > 0 && (
@@ -516,7 +533,7 @@ function ExternalProposals({ projectId }: { projectId: string }) {
       {open && (
         <div className="space-y-2 px-3 pb-3">
           {pending.map((proposal) => (
-            <ProposalCard key={proposal.id} proposal={proposal as never} />
+            <ProposalCard key={proposal.id} proposal={proposal} />
           ))}
         </div>
       )}
