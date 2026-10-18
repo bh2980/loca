@@ -111,14 +111,21 @@ export function StatusBar({ statuses, counts, className }: { statuses: StatusLik
   const total = Object.values(counts).reduce((sum, value) => sum + value, 0)
   return (
     <div
-      className={cn("flex h-1 w-full gap-px overflow-hidden rounded-full bg-muted", className)}
+      className={cn("flex h-1 w-full gap-px overflow-hidden rounded-full bg-meter-track", className)}
       role="img"
       aria-label={statuses.map((status) => `${status.name} ${counts[status.id] ?? 0}`).join(", ")}
     >
       {total > 0 &&
-        statuses.map((status) =>
-          counts[status.id] ? <div key={status.id} style={{ width: `${(counts[status.id] / total) * 100}%`, backgroundColor: paletteColor(status.color) }} /> : null
-        )}
+        statuses.map((status) => {
+          const isInitial = status.kind === "initial" || status.name === "미번역"
+          if (isInitial || !counts[status.id]) return null
+          return (
+            <div
+              key={status.id}
+              style={{ width: `${(counts[status.id] / total) * 100}%`, backgroundColor: paletteColor(status.color) }}
+            />
+          )
+        })}
     </div>
   )
 }
