@@ -1,4 +1,5 @@
 import { and, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
+import { acceptedLabel } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
@@ -91,7 +92,7 @@ export function closeInterruptedProposals(db: Db) {
 }
 
 /** How a decision reads to the agent. */
-const DECISION_WORD = { accepted: '수락되어 반영됨', rejected: '사용자가 거절함', failed: '수락했지만 실패함', pending: '', running: '' } as const;
+const DECISION_WORD = { rejected: '사용자가 거절함', failed: '수락했지만 실패함', pending: '', running: '' } as const;
 
 const unreported = (sessionId: string) => and(eq(s.proposals.sessionId, sessionId), isNull(s.proposals.reportedAt), isNotNull(s.proposals.decidedAt), inArray(s.proposals.status, ['accepted', 'rejected', 'failed']));
 
@@ -109,5 +110,5 @@ export function takeDecisions(db: Db, sessionId: string) {
   const decided = db.select().from(s.proposals).where(unreported(sessionId)).all();
   if (!decided.length) return null;
   db.update(s.proposals).set({ reportedAt: new Date() }).where(inArray(s.proposals.id, decided.map((proposal) => proposal.id))).run();
-  return `지난 제안의 결과:\n${decided.map((proposal) => `- ${proposal.tool} (${proposal.id}): ${DECISION_WORD[proposal.status]}${proposal.status === 'rejected' && proposal.reason ? ` — 이유: ${proposal.reason}` : ''}${proposal.status === 'failed' ? ` — ${JSON.stringify(proposal.result).slice(0, 300)}` : ''}`).join('\n')}`;
+  return `지난 제안의 결과:\n${decided.map((proposal) => `- ${proposal.tool} (${proposal.id}): ${proposal.status === 'accepted' ? acceptedLabel(proposal.tool).decided : DECISION_WORD[proposal.status]}${proposal.status === 'rejected' && proposal.reason ? ` — 이유: ${proposal.reason}` : ''}${proposal.status === 'failed' ? ` — ${JSON.stringify(proposal.result).slice(0, 300)}` : ''}`).join('\n')}`;
 }

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { Command, Option } from 'commander';
 import { hc } from 'hono/client';
 import type { AppType } from '@tw/server/app';
-import { AUTO_MARKS, CHECK_KINDS, CONTEXT_ITEM_KINDS, importFileJsonSchema, importFileSchema, importWarnings, KNOWLEDGE_MARK_IDS, KNOWLEDGE_STATUS_LABELS, LINE_MARK_IDS, lineChangeSchema, summarizeImport, TERM_MARK_IDS, type AutoMark, type KnowledgeStatus, type LineFilterInput, type LineMark, personLabel } from '@tw/shared';
+import { acceptedLabel, AUTO_MARKS, CHECK_KINDS, CONTEXT_ITEM_KINDS, importFileJsonSchema, importFileSchema, importWarnings, KNOWLEDGE_MARK_IDS, KNOWLEDGE_STATUS_LABELS, LINE_MARK_IDS, lineChangeSchema, summarizeImport, TERM_MARK_IDS, type AutoMark, type KnowledgeStatus, type LineFilterInput, type LineMark, personLabel } from '@tw/shared';
 
 /**
  * loca — the workbench from a terminal, for people and for agents with a shell (codex, claude, pi).
@@ -544,8 +544,8 @@ program
   .action(async (id: string) => {
     const proposal = await unwrap(api().projects[':projectId'].proposals[':id'].$get({ param: { projectId: await projectId(), id } }));
     if (globals().json) return print(proposal);
-    const word = { pending: '대기 중', running: '수락되어 적용하는 중', accepted: '수락되어 반영됨', rejected: '거절됨', failed: '수락했지만 실패' } as const;
-    console.log(`${proposal.tool}: ${word[proposal.status]}${proposal.result ? `\n${JSON.stringify(proposal.result)}` : ''}`);
+    const word = { pending: '대기 중', running: '수락되어 적용하는 중', rejected: '거절됨', failed: '수락했지만 실패' } as const;
+    console.log(`${proposal.tool}: ${proposal.status === 'accepted' ? acceptedLabel(proposal.tool).decided : word[proposal.status]}${proposal.result ? `\n${JSON.stringify(proposal.result)}` : ''}`);
   });
 
 // ── standard file, without the app ───────────────────────────────────
