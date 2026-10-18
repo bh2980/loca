@@ -147,3 +147,5 @@
   --xy-controls-button-border-color: var(--border);
   --xy-minimap-background-color: var(--panel);
 }
+/* After a box selection the picked nodes show their own selected outline; React Flow's extra frame around them only gets in the way. */
+.react-flow__nodesselection-rect { display: none; }

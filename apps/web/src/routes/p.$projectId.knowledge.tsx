@@ -540,7 +540,8 @@ function Knowledge() {
             <Separator orientation="vertical" className="mx-1 h-4" />
           </>}
           {(pairsView || graph) && <AddPairPopover projectId={projectId} characters={characters} pairs={pairs} onCreated={(key) => set({ item: key, source: undefined, marks: undefined, ids: undefined })} />}
-          {!pairsView && spec.create && <Button disabled={create.isPending} onClick={() => create.mutate()}><Plus /> {KINDS[tableKind]}</Button>}
+          {/* One primary action: in the graph, adding a pair leads and adding a person steps back. */}
+          {!pairsView && spec.create && <Button variant={graph ? 'outline' : 'default'} disabled={create.isPending} onClick={() => create.mutate()}><Plus /> {KINDS[tableKind]}</Button>}
           <RunDialog projectId={projectId} trigger={<Button variant="ghost"><Play /> 워크플로 실행</Button>} />
         </HeaderActions>
         <FilterBar end={<span className="text-2xs font-medium text-subtle-foreground tabular-nums">{count}</span>}>

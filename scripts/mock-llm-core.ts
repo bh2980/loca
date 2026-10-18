@@ -94,12 +94,13 @@ export function usageFor(promptChars: number, completionChars: number, options: 
   return { prompt_tokens: prompt, completion_tokens: completion, total_tokens: prompt + completion, prompt_tokens_details: { cached_tokens: Math.min(options.cachedTokens, prompt) } };
 }
 
-export type MockKind = 'analysis' | 'complete' | 'test' | 'candidate' | 'revise' | 'refine' | 'verdict' | 'terms' | 'glossary' | 'listener' | 'knowledge' | 'json';
+export type MockKind = 'analysis' | 'complete' | 'test' | 'regex' | 'candidate' | 'revise' | 'refine' | 'verdict' | 'terms' | 'glossary' | 'listener' | 'knowledge' | 'json';
 
 /** Which answer the prompt asks for. The server's CONTRACT sentence names the output; instructions tell translate from revise. */
 export function detectKind(system: string): MockKind {
   if (system.includes('complete script of a game') || system.includes('reading the script of a game')) return 'analysis';
   if (system.startsWith('Translate the text into')) return 'test';
+  if (system.includes('JavaScript 정규식 전문가')) return 'regex';
   if (system.includes('continue a Korean game translation')) return 'complete';
   if (system.includes('Korean localization glossary')) return 'glossary';
   if (system.includes('"relationships" (with "change"')) return 'knowledge';
@@ -171,7 +172,7 @@ function jsonRows(rows: Row[], schema: unknown) {
 /** Lines mentioning "orders" never pass review, so they end up waiting for a person. */
 const stubborn = (source: string) => /orders/i.test(source);
 
-function structured(kind: Exclude<MockKind, 'analysis' | 'glossary' | 'test' | 'complete'>, system: string, rows: Row[], schema: unknown): { body: unknown; entries?: { key: string; textKey?: string } } {
+function structured(kind: Exclude<MockKind, 'analysis' | 'glossary' | 'test' | 'complete' | 'regex'>, system: string, rows: Row[], schema: unknown): { body: unknown; entries?: { key: string; textKey?: string } } {
   switch (kind) {
     // The editor's 다듬기: a "[KO] " draft is marked checked (one reasoned change); anything else has nothing to fix.
     case 'refine':
@@ -276,6 +277,12 @@ export function respond(request: MockRequest, options: MockOptions, rand: () => 
     const result = analysis(request.user);
     body = result.body;
     lines = result.count;
+  } else if (kind === 'regex') {
+    // 자연어로 정규식 만들기: a placeholder rule for token rules, a forbidden one for checks.
+    body = request.user.includes('치환자(placeholder)')
+      ? { label: '모의 이중 대괄호 변수', kind: 'placeholder', pattern: String.raw`\[\[[A-Z_]+\]\]`, example: '[[NAME]]' }
+      : { label: '모의 영문 대문자 약어', kind: 'forbidden', pattern: String.raw`\b[A-Z]{2,}\b`, example: 'HP NPC' };
+    lines = 1;
   } else if (kind === 'test') {
     // A model test (AI 연결 › 모델 시험): one plain sentence, not a JSON batch.
     body = { text: `[KO] ${request.user}` };

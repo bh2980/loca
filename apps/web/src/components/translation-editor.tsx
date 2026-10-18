@@ -317,10 +317,9 @@ function SuggestionList({ suggestions, source, tokenPattern, onPick }: { suggest
                 {keyLabel(`Alt+Shift+${index + 1}`)}
               </kbd>
               <div className="min-w-0 flex-1 space-y-0.5">
-                <div className="flex min-w-0 items-start gap-1.5">
-                  <Badge variant="outline" className="mt-0.5 shrink-0">{suggestion.label}</Badge>
-                  <TokenText text={suggestion.text} source={source} pattern={tokenPattern} className="block min-w-0 flex-1 text-sm leading-5 text-foreground" />
-                </div>
+                {/* The label stays on its own line: beside the text it would squeeze a narrow column down to a letter per line. */}
+                <Badge variant="outline" className="max-w-full truncate">{suggestion.label}</Badge>
+                <TokenText text={suggestion.text} source={source} pattern={tokenPattern} className="block min-w-0 text-sm leading-5 text-foreground [overflow-wrap:anywhere]" />
                 {(suggestion.detail || suggestion.reasons?.length) && (
                   <p className="truncate text-xs text-muted-foreground">{[suggestion.detail, ...(suggestion.reasons ?? [])].filter(Boolean).join(' · ')}</p>
                 )}

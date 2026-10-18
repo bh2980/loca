@@ -482,7 +482,7 @@ function GraphPage() {
     if (!excluded.size || !layout) return edges;
     const box = new Map(layout.nodes.map((node) => [node.id, node]));
     const kept = edges.filter((edge) => !excluded.has(edge.from) && !excluded.has(edge.to) && !excluded.has((edge as { via?: string }).via ?? ''));
-    const joined = contractEdges([...edges, ...(looseEdges ?? [])], excluded).flatMap(({ from, to }) => {
+    const joined = contractEdges(edges, excluded).flatMap(({ from, to }) => {
       const a = box.get(from);
       const b = box.get(to);
       return a && b ? [{ id: `joined:${from}:${to}`, from, to, derived: true as const, points: direction === 'horizontal'
@@ -491,7 +491,16 @@ function GraphPage() {
     });
     return [...kept, ...joined];
   }, [edges, looseEdges, layout, excluded, direction]);
-  const visibleLoose = useMemo(() => (excluded.size ? looseEdges?.filter((edge) => !excluded.has(edge.from) && !excluded.has(edge.to)) : looseEdges), [looseEdges, excluded]);
+  // A path through a hub's edges stays a hub edge: drawn only while one of its ends is selected.
+  const visibleLoose = useMemo(() => {
+    if (!excluded.size || !looseEdges?.length) return looseEdges;
+    const drawn = new Set(contractEdges(edges, excluded).map((edge) => `${edge.from}|${edge.to}`));
+    const through = contractEdges([...edges, ...looseEdges], excluded).filter((edge) => !drawn.has(`${edge.from}|${edge.to}`));
+    return [
+      ...looseEdges.filter((edge) => !excluded.has(edge.from) && !excluded.has(edge.to)),
+      ...through.map(({ from, to }) => ({ id: `joined:${from}:${to}`, from, to })),
+    ];
+  }, [edges, looseEdges, excluded]);
   const hide = (ids: Iterable<string>) => {
     setHiddenNodes(new Set([...hiddenNodes, ...ids]));
     setPicked(new Set());
