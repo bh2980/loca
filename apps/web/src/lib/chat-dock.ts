@@ -10,11 +10,21 @@ let open = (() => {
   }
 })();
 const listeners = new Set<() => void>();
+type SessionListener = (projectId: string, sessionId: string) => void;
+const sessionListeners = new Set<SessionListener>();
 
 export const chatDock = {
   subscribe(listener: () => void) {
     listeners.add(listener);
-    return () => listeners.delete(listener);
+    return () => {
+      listeners.delete(listener);
+    };
+  },
+  onOpenSession(listener: SessionListener) {
+    sessionListeners.add(listener);
+    return () => {
+      sessionListeners.delete(listener);
+    };
   },
   get: () => open,
   set(next: boolean) {
@@ -27,6 +37,16 @@ export const chatDock = {
     listeners.forEach((listener) => listener());
   },
   toggle: () => chatDock.set(!open),
+  openSession(projectId: string, sessionId: string) {
+    try {
+      sessionStorage.setItem(`tw.chat.session.${projectId}`, sessionId);
+      localStorage.setItem(`tw.chat.session.${projectId}`, sessionId);
+    } catch {
+      /* private mode */
+    }
+    chatDock.set(true);
+    sessionListeners.forEach((listener) => listener(projectId, sessionId));
+  },
 };
 
 export const useChatDockOpen = () => useSyncExternalStore(chatDock.subscribe, chatDock.get);

@@ -113,6 +113,30 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
         </dl>
       );
     }
+    case 'update_status':
+      return <dl className="space-y-1">{field('상태', input.id)}{field('이름', input.name)}{field('종류', input.kind)}{field('색', input.color)}{field('검토', input.inReview === undefined ? undefined : input.inReview ? '검토 필요' : '검토 불필요')}</dl>;
+    case 'delete_status':
+      return <dl className="space-y-1">{field('삭제할 상태', input.id)}{field('대사를 옮길 상태', input.moveTo)}{pending && <p className="text-destructive">대사의 상태가 바뀌고 상태를 삭제합니다.</p>}</dl>;
+    case 'update_tag':
+      return <dl className="space-y-1">{field('태그', input.id)}{field('이름', input.name)}{field('색', input.color)}{field('붙는 곳', input.scope)}</dl>;
+    case 'delete_tag':
+      return <dl className="space-y-1">{field('삭제할 태그', input.id)}{pending && <p className="text-destructive">항목에 붙은 이 태그도 함께 제거됩니다.</p>}</dl>;
+    case 'delete_workflow':
+      return <dl className="space-y-1">{field('삭제할 워크플로', input.id)}{pending && <p className="text-destructive">워크플로와 실행 계획을 삭제합니다.</p>}</dl>;
+    case 'create_group':
+      return <dl className="space-y-1">{field('종류', { scene: '장면', document: '문서 묶음', ui: 'UI 묶음' }[input.kind as string])}{field('제목', input.title)}{field('키', input.key)}{field('설명', input.description)}<p className="text-muted-foreground">묶음만 추가합니다. 원문이나 그래프 연결은 만들지 않습니다.</p></dl>;
+    case 'update_group':
+      return <dl className="space-y-1">{field('묶음', input.groupId)}{field('제목', input.title)}{field('키', input.key)}{field('설명', input.description)}{field('구역', input.section)}</dl>;
+    case 'delete_group':
+      return <dl className="space-y-1">{field('삭제할 묶음', input.groupId)}{pending && <p className="text-destructive">묶음과 안의 원문을 모두 삭제합니다.</p>}</dl>;
+    case 'create_unit':
+      return <dl className="space-y-1">{field('묶음', input.groupId)}{field('키', input.key)}{field('화자', input.speaker)}{field('청자', input.listener)}{field('원문', input.source)}<p className="text-muted-foreground">새 원문 항목이며 번역 후보가 아닙니다.</p></dl>;
+    case 'update_unit':
+      return <dl className="space-y-1">{field('원문 항목', input.unitId)}{field('묶음', input.groupId)}{field('키', input.key)}{field('화자', input.speaker)}{field('청자', input.listener)}{field('원문', input.source)}</dl>;
+    case 'delete_units': {
+      const ids = (input.ids as unknown[] | undefined) ?? [];
+      return <dl className="space-y-1">{field('삭제', `원문 대사 ${ids.length}개`)}{field('id', ids.slice(0, 10).join(', ') + (ids.length > 10 ? ` 외 ${ids.length - 10}개` : ''))}{pending && <p className="text-destructive">원문 대사와 번역, 후보가 삭제됩니다. 되돌릴 수 없습니다.</p>}</dl>;
+    }
     case 'save_terms': {
       const terms = (input.terms as { source: string; target: string; id?: string }[]) ?? [];
       return (

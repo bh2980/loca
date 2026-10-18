@@ -11,7 +11,7 @@ import { ChangePreview, LABEL } from './change-preview';
 export type Proposal = Awaited<ReturnType<NonNullable<ReturnType<typeof q.proposals>['queryFn']>>>[number];
 
 const STATUS = { running: '적용 중', rejected: '거절함', failed: '실패' } as const;
-const DECIDED_BY = { auto: '자동 검토로', bypass: '우회 모드로' } as const;
+const DECIDED_BY = { auto: '자동 검토로', bypass: '바로 반영 모드로' } as const;
 
 /** One undo request and its shared outcome message for cards and whole replies. */
 export function useUndo(projectId: string, sessionId: string) {

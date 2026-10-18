@@ -29,6 +29,7 @@ import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { detectKind, envGetter, hashString, headerGetter, makeRand, resolveOptions, respond, usageFor, type Usage } from './mock-llm-core.ts';
+import { readingRouteCall } from './mock-llm-chat.ts';
 
 const port = Number(process.env.MOCK_LLM_PORT ?? 4398);
 const app = new Hono();
@@ -136,6 +137,7 @@ app.post('/v1/chat/completions', async (c) => {
         : /스크립트/.test(user)
           ? { name: 'edit_workflow_node', args: { workflowId, nodeId, field: 'code', value: 'export default function run(input) {\n  return { port: input.candidate ? "ok" : "fail" };\n}' } }
           : { name: 'edit_workflow_node', args: { workflowId, nodeId, field: 'instructions', value: '[모의 지시문] 원문의 말투와 장면 분위기를 유지해 자연스러운 한국어로 옮기세요.' } };
+    else if (tools.has('find_reading_route') && /경로|흐름/.test(user)) call = readingRouteCall(user, system, tools);
     else if (/번역\s*(바꿔|고쳐|수정)/.test(user) && tools.has('find_lines') && tools.has('propose_changes')) call = { name: 'find_lines', args: { limit: 3 } };
     else if (/용어\s*많이/.test(user) && tools.has('save_terms'))
       // Over auto review's 20 items: held for the person even in 자동 검토.
