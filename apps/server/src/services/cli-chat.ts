@@ -81,14 +81,22 @@ export function readLocaCall(command: string): { tool: string; input: Record<str
   return input && typeof input === 'object' && !Array.isArray(input) ? { tool, input: input as Record<string, unknown> } : { tool, input: { command } };
 }
 
-/** `loca call` prints its result as JSON; anything else is shown as text. */
-const parsedOutput = (output: string): unknown => {
+/**
+ * `loca call` prints its result as JSON on stdout; a change also says on stderr whether it applied,
+ * and Codex reports both streams as one text. The JSON is from the first line that opens it to the
+ * end, and the note before it is kept as `message` (the panel finds the proposal's card by proposalId).
+ */
+export function parsedOutput(output: string): unknown {
+  const start = output.search(/^[[{]/m);
+  if (start < 0) return output;
   try {
-    return JSON.parse(output);
+    const value: unknown = JSON.parse(output.slice(start));
+    const message = output.slice(0, start).trim();
+    return message && value && typeof value === 'object' && !Array.isArray(value) ? { ...value, message } : value;
   } catch {
     return output;
   }
-};
+}
 
 /**
  * Codex's shell for `loca call` (Option A): it may read the repo but not the data, reach only this

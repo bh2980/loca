@@ -4,7 +4,7 @@ import { importFileSchema } from '@tw/shared';
 import type * as ai from '@tw/ai';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { cliChatResponse, readLocaCall, readToolCalls } from './cli-chat.ts';
+import { cliChatResponse, parsedOutput, readLocaCall, readToolCalls } from './cli-chat.ts';
 import { importProject } from './importer.ts';
 
 function setup() {
@@ -35,6 +35,10 @@ describe('CLI chat', () => {
   it('parses the supported loca call command forms and leaves other shell commands alone', () => {
     expect(readLocaCall(`loca call find_lines '{"speakers":["Alice"]}'`)).toEqual({ tool: 'find_lines', input: { speakers: ['Alice'] } });
     expect(readLocaCall("loca call find_lines - <<'JSON'\n{\"limit\":20}\nJSON")).toEqual({ tool: 'find_lines', input: { limit: 20 } });
+    // A change's note (stderr) comes before its JSON (stdout) in Codex's output.
+    expect(parsedOutput('제안을 올렸습니다 (proposal p1).\n{\n  "proposalId": "p1"\n}\n')).toEqual({ proposalId: 'p1', message: '제안을 올렸습니다 (proposal p1).' });
+    expect(parsedOutput('[1, 2]')).toEqual([1, 2]);
+    expect(parsedOutput('오류: 없는 도구입니다')).toBe('오류: 없는 도구입니다');
     // As Codex reports them: wrapped in the shell it ran them with.
     expect(readLocaCall(`/bin/bash -lc "loca call project_overview '{}'"`)).toEqual({ tool: 'project_overview', input: {} });
     expect(readLocaCall(`/bin/bash -lc "loca call find_lines '{\\"q\\":\\"a\\$b\\"}'"`)).toEqual({ tool: 'find_lines', input: { q: 'a$b' } });
