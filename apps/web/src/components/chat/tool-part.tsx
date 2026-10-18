@@ -38,7 +38,7 @@ export function ToolPart({ part, stale, onDecide, onOutput, proposal }: {
     const output = part.output as { applied?: boolean } | undefined;
     return (
       <div className="overflow-hidden rounded-lg border bg-background text-sm">
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 border-b bg-muted/40 px-3 py-1.5 text-xs font-medium">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 border-b bg-muted px-3 py-1.5 text-xs font-medium">
           <CardTitle>{label}</CardTitle>
           <span className="ml-auto text-right">
             {output?.applied === true && <span className="text-success">편집기에 적용됨 · 저장 필요</span>}
@@ -80,7 +80,7 @@ export function ToolPart({ part, stale, onDecide, onOutput, proposal }: {
     const refused = part.state === 'output-available' && output?.ok === false && !output?.status;
     return (
       <div className="overflow-hidden rounded-lg border bg-background text-sm">
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 border-b bg-muted/40 px-3 py-1.5 text-xs font-medium">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 border-b bg-muted px-3 py-1.5 text-xs font-medium">
           <CardTitle>{label}</CardTitle>
           <span className="ml-auto text-right">
             {part.state === 'output-denied' && <span className="text-muted-foreground">거절함</span>}
@@ -129,7 +129,7 @@ export function ToolPart({ part, stale, onDecide, onOutput, proposal }: {
         <ChevronRight className="size-3 transition-transform group-data-[state=open]:rotate-90" />
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <pre className="mt-1 max-h-48 overflow-auto rounded-md bg-muted/50 p-2 text-xs">
+        <pre className="mt-1 max-h-48 overflow-auto rounded-md bg-muted p-2 text-xs">
           {part.state === 'output-error' ? part.errorText : JSON.stringify(part.output ?? part.input, null, 1)?.slice(0, 4000)}
         </pre>
       </CollapsibleContent>

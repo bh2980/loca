@@ -88,7 +88,7 @@ function ConnectionSettings() {
 /** The note shown for pi connections, in the add form and the edit pane alike. */
 function PiNote() {
   return (
-    <p className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+    <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
       pi는 작업실 서버 안에서 돌고, 로그인은 pi가 관리합니다. 터미널에서 <code>pi</code>를 실행해 <code>/login</code>으로 구독(OAuth)이나 API 키를 연결하면, 여기서 그 모델들을 고를 수 있습니다. 모델 이름은 “공급자/모델” 형식입니다.
     </p>
   );

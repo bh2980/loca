@@ -4,8 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { listenerLabel, SPECIAL_LISTENERS } from '@tw/shared';
-import { StatusDot } from '@/components/status';
-import { PickedBar, PickedLabel, TagMenu, Button, Checkbox, Input, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@loca/ui';
+import { PickedBar, PickedLabel, TagMenu, Button, Checkbox, Input, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue, StatusIcon } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
 import { lineTags, q } from '@/lib/queries';
@@ -67,7 +66,7 @@ export function LineHeadRow({ projectId, rows, bulk, statusList, tags }: { proje
   return (
     <>
       {!!rows.length && (
-        <div className="flex min-h-10 shrink-0 items-center border-b bg-muted/30 text-xs text-muted-foreground">
+        <div className="flex min-h-10 shrink-0 items-center border-b bg-muted text-xs text-muted-foreground">
           <span className="flex w-10 shrink-0 justify-center">
             <Checkbox
               aria-label="보이는 줄 모두 선택"
@@ -94,7 +93,7 @@ export function LineHeadRow({ projectId, rows, bulk, statusList, tags }: { proje
                 <SelectContent>
                   {statusList.map((item) => (
                     <SelectItem key={item.id} value={item.id}>
-                      <StatusDot color={item.color} /> {item.name}
+                      <StatusIcon status={item} /> {item.name}
                     </SelectItem>
                   ))}
                 </SelectContent>

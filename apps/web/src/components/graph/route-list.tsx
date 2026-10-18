@@ -7,9 +7,8 @@ import { SeamStateChip } from '@/components/graph/seam-check-pane';
 import { buildItems, indexOfLine, nodeStarts, routeSequence, translatedIds, untranslatedFrom, type RouteItem } from '@/components/graph/route-list-model';
 import { LineSourceText, TokenText } from '@/components/editor/source-text';
 import { LineHints } from '@/components/script/line-row';
-import { AiMark, StatusDot } from '@/components/status';
 import { TranslationEditor } from '@/components/translation-editor';
-import { Button, Skeleton } from '@loca/ui';
+import { Button, Skeleton, AiMark, StatusIcon } from '@loca/ui';
 import { client, unwrap, type InferResponseType } from '@/lib/api';
 import { tokenPatternOf } from '@/lib/line-context';
 import { keyLabel } from '@/lib/keys';
@@ -72,12 +71,12 @@ function RouteLineRow({ projectId, unitId, row, selected, status, statusList, to
       data-unit={row.id}
       data-selected={selected || undefined}
       onClick={() => !selected && onSelect()}
-      className={cn('border-b px-4 py-2.5', selected ? 'bg-muted/60 shadow-[inset_2px_0_0_var(--primary)]' : 'cursor-pointer hover:bg-muted/40')}
+      className={cn('px-4 py-2.5', selected ? 'bg-muted shadow-[inset_2px_0_0_var(--primary)]' : 'cursor-pointer hover:bg-accent')}
     >
       <p className="mb-1 flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
         <span className="truncate">{row.speaker ?? '지문·문구'}</span>
         <span className="ml-auto flex shrink-0 items-center gap-1">
-          <StatusDot color={status?.color ?? '#a1a1aa'} />
+          <StatusIcon status={status} />
           {status?.name}
           <AiMark by={row.statusBy} />
         </span>
@@ -94,7 +93,7 @@ function RouteLineRow({ projectId, unitId, row, selected, status, statusList, to
       ) : (
         <div className="space-y-1 text-sm">
           <TokenText text={row.source} source={row.source} pattern={tokenPattern} className={narration ? 'text-muted-foreground' : undefined} />
-          {row.translation ? <TokenText text={row.translation} source={row.source} pattern={tokenPattern} className="border-l-2 pl-2" /> : <p className="border-l-2 border-transparent pl-2 text-muted-foreground/60">번역 없음</p>}
+          {row.translation ? <TokenText text={row.translation} source={row.source} pattern={tokenPattern} className="border-l-2 pl-2" /> : <p className="border-l-2 border-transparent pl-2 text-subtle-foreground">번역 없음</p>}
         </div>
       )}
     </div>
@@ -118,7 +117,7 @@ function SeamBand({ projectId, nodeId, state, entries }: { projectId: string; no
   });
   const busy = mark.isPending || unmark.isPending;
   return (
-    <div role="separator" data-testid="seam-band" data-seam={nodeId} className="flex items-center gap-2 border-y bg-muted/40 px-4 py-1.5 text-xs text-muted-foreground">
+    <div role="separator" data-testid="seam-band" data-seam={nodeId} className="flex items-center gap-2 border-y bg-muted px-4 py-1.5 text-xs text-muted-foreground">
       <span className="shrink-0">이번 길의 새 줄 ↑</span>
       <span className="h-px min-w-4 flex-1 bg-border" />
       <span className="shrink-0">이음새</span>
@@ -335,7 +334,7 @@ export function RouteList({ projectId, slice, checks, at, edit, onEdit, onAt }: 
     if (item.kind === 'seam') return <SeamBand projectId={projectId} nodeId={item.nodeId} state={checks?.[item.nodeId]?.state} entries={seamEntries.get(item.nodeId) ?? 1} />;
     if (item.kind === 'fold')
       return (
-        <Button variant="ghost" className="w-full justify-start rounded-none border-b bg-muted/40 px-4 font-normal text-muted-foreground" data-testid="route-fold" title="앞선 길에서 번역을 마친 줄입니다. 누르면 펼칩니다." onClick={() => expand(item.unitIds)}>
+        <Button variant="ghost" className="w-full justify-start rounded-none bg-muted px-4 font-normal text-muted-foreground" data-testid="route-fold" title="앞선 길에서 번역을 마친 줄입니다. 누르면 펼칩니다." onClick={() => expand(item.unitIds)}>
           번역함 · {item.unitIds.length.toLocaleString()}줄
         </Button>
       );

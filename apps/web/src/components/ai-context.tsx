@@ -29,7 +29,7 @@ export function ContextItemList({ items, budget }: { items: ContextItem[]; budge
             </p>
             <ul className="space-y-1">
               {group.map((item, index) => (
-                <li key={`${item.label}-${index}`} className={cn('rounded-md border px-2 py-1.5 text-xs', !item.included && 'bg-muted/40 text-muted-foreground')}>
+                <li key={`${item.label}-${index}`} className={cn('rounded-md border px-2 py-1.5 text-xs', !item.included && 'bg-muted text-muted-foreground')}>
                   <div className="flex items-center gap-2">
                     <span className={cn('min-w-0 flex-1 truncate font-medium', !item.included && 'line-through')} title={item.label}>
                       {item.label}
@@ -151,7 +151,7 @@ export function AiContextPanel({ projectId, unitKey, aiNode, onAiNode }: { proje
         <ChevronRight className="size-3.5 transition-transform group-data-[state=open]:rotate-90" />
         실제 프롬프트</CollapsibleTrigger>
       <CollapsibleContent>
-        <pre className="mt-1 max-h-96 overflow-auto rounded bg-muted/50 p-2 text-xs whitespace-pre-wrap">{`${data.system}\n\n${data.prompt}`}</pre>
+        <pre className="mt-1 max-h-96 overflow-auto rounded bg-muted p-2 text-xs whitespace-pre-wrap">{`${data.system}\n\n${data.prompt}`}</pre>
       </CollapsibleContent>
       </Collapsible>
     </div>

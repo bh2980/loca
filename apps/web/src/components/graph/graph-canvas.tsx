@@ -11,6 +11,8 @@ const MINIMAP_PAD = 10;
 /** Space between a node and the card beside it, and between the card and the canvas edge. */
 const ANCHOR_GAP = 12;
 import { drawShape } from './shapes';
+import { getCanvasColors } from './canvas-colors';
+import { useTheme } from '@/lib/theme';
 
 /** Below this zoom node labels are unreadable, so they are not drawn. */
 const DETAIL_K = 0.22;
@@ -172,6 +174,7 @@ interface Props {
  * so each frame only touches what is on screen. One <canvas>, no per-node DOM.
  */
 export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, hubs, info, width, height, selectedId, highlight, highlightEdges, initialViewport, initialFocus, onViewportChange, onSelect, onOpen, anchor, handle }: Props) {
+  const theme = useTheme();
   const canvas = useRef<HTMLCanvasElement>(null);
   const minimap = useRef<HTMLCanvasElement>(null);
   const transform = useRef<ZoomTransform>(zoomIdentity);
@@ -305,9 +308,9 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
     context.scale(t.k, t.k);
 
     const view = { minX: -t.x / t.k, minY: -t.y / t.k, maxX: (width - t.x) / t.k, maxY: (height - t.y) / t.k };
-    const style = getComputedStyle(element);
-    const edgeColor = style.getPropertyValue('--graph-edge').trim() || '#bbb';
-    const selectColor = style.getPropertyValue('--graph-select').trim() || '#3b6cf6';
+    const colors = getCanvasColors();
+    const edgeColor = colors.graphEdge;
+    const selectColor = colors.graphSelect;
     const dimmed = focus && focus.size > 0;
     const selectedEdges = selected ? index.adjacent.get(selected) : undefined;
 
@@ -318,19 +321,19 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
     regions.forEach((region) => {
       context.save();
       if (overviewMode) {
-        context.fillStyle = 'rgba(244, 244, 245, 0.9)';
-        context.strokeStyle = '#d4d4d8';
+        context.fillStyle = colors.card;
+        context.strokeStyle = colors.graphNodeLine;
         context.lineWidth = 1 / t.k;
         context.fillRect(region.x - 24, region.y - 24, region.width + 48, region.height + 48);
         context.strokeRect(region.x - 24, region.y - 24, region.width + 48, region.height + 48);
       } else {
         context.setLineDash([8 / t.k, 6 / t.k]);
-        context.strokeStyle = '#d4d4d8';
+        context.strokeStyle = colors.graphNodeLine;
         context.lineWidth = 1 / t.k;
         context.strokeRect(region.x - 24, region.y - 24, region.width + 48, region.height + 48);
         context.setLineDash([]);
       }
-      context.fillStyle = '#71717a';
+      context.fillStyle = colors.mutedForeground;
       context.font = `${13 / Math.max(t.k, 0.05)}px Pretendard, system-ui, sans-serif`;
       // Labels keep their screen size, so zoomed out they are cut to the region's width instead of running into the next one.
       const room = region.width + 48;
@@ -343,7 +346,7 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
     // Loose (hub) edges lie beneath everything else, in a single pass.
     const segments = index.segments;
     if (segments.length) {
-      const muted = style.getPropertyValue('--muted-foreground').trim() || '#71717a';
+      const muted = colors.mutedForeground;
       const own = selected ? new Set(index.looseByNode.get(selected)) : undefined;
       context.strokeStyle = muted;
       context.lineWidth = Math.max(0.5, 0.75 / t.k);
@@ -378,7 +381,7 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
     if (t.k > 0.08) for (const i of visibleEdges) if (!selectedEdges?.has(String(i)) && !route.has(i)) arrowHead(context, edges[i].points, 7, edgeColor, dimmed ? 0.35 : 1);
     // The emphasised edges (the main route) at full strength, thicker, in the text colour: not the selection's colour.
     if (route.size) {
-      const strong = style.getPropertyValue('--foreground').trim() || '#18181b';
+      const strong = colors.foreground;
       const shown = visibleEdges.filter((i) => route.has(i) && !selectedEdges?.has(String(i)));
       context.strokeStyle = strong;
       context.lineWidth = Math.max(1.8, 2 / t.k);
@@ -408,12 +411,12 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
         context.globalAlpha = dimmed && !selectedEdges?.has(String(i)) && !route.has(i) ? 0.45 : 1;
         context.beginPath();
         context.roundRect(x, y, w, h, h / 2);
-        context.fillStyle = edge.via ? '#eff6ff' : '#ffffff';
+        context.fillStyle = edge.via ? colors.primarySoft : colors.card;
         context.fill();
         context.lineWidth = 1;
-        context.strokeStyle = edge.via ? '#93c5fd' : '#e4e4e7';
+        context.strokeStyle = edge.via ? colors.primary : colors.border;
         context.stroke();
-        context.fillStyle = edge.via ? '#1d4ed8' : '#52525b';
+        context.fillStyle = edge.via ? colors.primary : colors.mutedForeground;
         let text = `${edge.via ? '▶ ' : ''}${edge.label}`;
         while (text.length > 2 && context.measureText(text).width > w - 14) text = `${text.slice(0, -2)}…`;
         context.fillText(text, x + 7, y + h / 2 + 0.5);
@@ -431,11 +434,11 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
       context.globalAlpha = faded || overviewMode ? 0.25 : 1;
       const hub = props.current.hubs?.get(node.id);
       if (hub) {
-        drawHub(context, node, hub, { selected: isSelected, selectColor, detailed, k: t.k, style });
+        drawHub(context, node, hub, { selected: isSelected, selectColor, detailed, k: t.k, colors });
         continue;
       }
-      drawShape(context, meta?.kind ?? 'unknown', node, { selected: isSelected, selectColor, detailed, k: t.k });
-      if (detailed && meta) drawLabel(context, meta, node);
+      drawShape(context, meta?.kind ?? 'unknown', node, { selected: isSelected, selectColor, detailed, k: t.k, colors });
+      if (detailed && meta) drawLabel(context, meta, node, colors);
     }
     context.globalAlpha = 1;
     if (overviewMode)
@@ -443,12 +446,12 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
         const cx = region.x + region.width / 2, cy = region.y + region.height / 2;
         const size = 15 / t.k;
         context.textAlign = 'center';
-        context.fillStyle = '#18181b';
+        context.fillStyle = colors.foreground;
         context.font = `600 ${size}px Pretendard, system-ui, sans-serif`;
         let label = region.label;
         while (label.length > 1 && context.measureText(label).width > region.width + 40) label = `${label.slice(0, -2)}…`;
         context.fillText(label, cx, cy);
-        context.fillStyle = '#71717a';
+        context.fillStyle = colors.mutedForeground;
         context.font = `${12 / t.k}px Pretendard, system-ui, sans-serif`;
         context.fillText(`노드 ${regionCounts[i].toLocaleString()}개 · 눌러서 확대`, cx, cy + size * 1.4);
         context.textAlign = 'start';
@@ -474,10 +477,10 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
     off.width = boxW || 1;
     off.height = boxH || 1;
     const context = off.getContext('2d')!;
-    context.fillStyle = '#a1a1aa';
+    context.fillStyle = getCanvasColors().graphNode;
     for (const node of nodes) context.fillRect(offX + (node.x - index.bounds.minX) * scale, offY + (node.y - index.bounds.minY) * scale, Math.max(1, node.width * scale), Math.max(1, node.height * scale));
     return { image: off, scale, offX, offY };
-  }, [nodes, index, width, height]);
+  }, [nodes, index, width, height, theme]);
 
   const drawMinimap = () => {
     const element = minimap.current;
@@ -492,7 +495,7 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
     context.drawImage(overview.image, 0, 0);
     const t = transform.current;
     const s = overview.scale;
-    context.strokeStyle = '#3b6cf6';
+    context.strokeStyle = getCanvasColors().graphSelect;
     context.lineWidth = 1.5;
     context.strokeRect(overview.offX + ((-t.x / t.k) - index.bounds.minX) * s, overview.offY + ((-t.y / t.k) - index.bounds.minY) * s, (width / t.k) * s, (height / t.k) * s);
   };
@@ -534,6 +537,10 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
     return () => void selection.on('.zoom', null);
     // The layout identity decides the starting view; size changes are handled below.
   }, [index]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    schedule();
+  }, [theme]); // redraw with the active semantic palette
 
   useEffect(() => {
     const element = canvas.current!;
@@ -666,9 +673,9 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
   );
 }
 
-function drawHub(context: CanvasRenderingContext2D, node: LayoutNode, hub: HubInfo, options: { selected: boolean; selectColor: string; detailed: boolean; k: number; style: CSSStyleDeclaration }) {
-  const muted = options.style.getPropertyValue('--muted').trim() || '#f4f4f5';
-  const mutedForeground = options.style.getPropertyValue('--muted-foreground').trim() || '#71717a';
+function drawHub(context: CanvasRenderingContext2D, node: LayoutNode, hub: HubInfo, options: { selected: boolean; selectColor: string; detailed: boolean; k: number; colors: ReturnType<typeof getCanvasColors> }) {
+  const muted = options.colors.muted;
+  const mutedForeground = options.colors.mutedForeground;
   context.beginPath();
   context.roundRect(node.x, node.y, node.width, node.height, node.height / 2);
   context.fillStyle = muted;
@@ -721,19 +728,19 @@ function arrowHead(context: CanvasRenderingContext2D, points: number[], size: nu
   context.restore();
 }
 
-function drawLabel(context: CanvasRenderingContext2D, meta: NodeInfo, node: LayoutNode) {
+function drawLabel(context: CanvasRenderingContext2D, meta: NodeInfo, node: LayoutNode, colors: ReturnType<typeof getCanvasColors>) {
   context.save();
-  context.fillStyle = '#18181b';
+  context.fillStyle = colors.foreground;
   if (meta.kind === 'choice') {
     // A choice: its text in the pill, after the play mark.
     context.beginPath();
     context.rect(node.x + 14, node.y + 4, node.width - 28, node.height - 8);
     context.clip();
     context.font = '500 11px Pretendard, system-ui, sans-serif';
-    context.fillStyle = '#2563eb';
+    context.fillStyle = colors.primary;
     context.fillText('▶ 선택지', node.x + 22, node.y + 22);
     context.font = '600 13px Pretendard, system-ui, sans-serif';
-    context.fillStyle = '#1e3a8a';
+    context.fillStyle = colors.primaryInk;
     context.fillText(meta.body ?? meta.preview ?? meta.label ?? '', node.x + 22, node.y + 40);
   } else if (meta.kind === 'script' || meta.kind === 'scene' || meta.kind === 'chain') {
     context.beginPath();
@@ -742,18 +749,18 @@ function drawLabel(context: CanvasRenderingContext2D, meta: NodeInfo, node: Layo
     context.font = '600 12px Pretendard, system-ui, sans-serif';
     context.fillText(meta.title ?? (meta.kind === 'scene' || meta.kind === 'chain' ? (meta.label ?? meta.key) : meta.key), node.x + 12, node.y + 22);
     context.font = '12px Pretendard, system-ui, sans-serif';
-    context.fillStyle = '#52525b';
+    context.fillStyle = colors.mutedForeground;
     wrapText(context, meta.body ?? meta.preview ?? meta.label ?? '', node.x + 12, node.y + 42, node.width - 24, 16, 2);
   } else if (meta.kind === 'portal') {
     // Section stand-in: the name sits inside the box.
     context.font = '11px Pretendard, system-ui, sans-serif';
     context.textAlign = 'center';
-    context.fillStyle = '#52525b';
+    context.fillStyle = colors.mutedForeground;
     context.fillText(meta.label ?? '', node.x + node.width / 2, node.y + node.height / 2 + 4);
   } else if (node.width > 40) {
     context.font = '11px Pretendard, system-ui, sans-serif';
     context.textAlign = 'center';
-    context.fillStyle = '#3f3f46';
+    context.fillStyle = colors.foreground;
     const text = meta.label ?? meta.kind;
     context.fillText(text.length > 18 ? `${text.slice(0, 17)}…` : text, node.x + node.width / 2, node.y + node.height + 13);
   }

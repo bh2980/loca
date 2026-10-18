@@ -526,7 +526,7 @@ export function TranslationInput(props: TranslationInputProps) {
     <div
       ref={host}
       className={cn(
-        'min-h-16 rounded-md border border-input bg-background px-3 py-2 text-base shadow-2xs transition-all focus-within:border-accent-indigo focus-within:ring-1 focus-within:ring-accent-indigo/40 md:text-sm',
+        'min-h-16 rounded-md border border-input bg-background px-3 py-2 text-base shadow-2xs transition-all focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/40 md:text-sm',
         props.className,
       )}
     />

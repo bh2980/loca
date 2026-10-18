@@ -50,7 +50,7 @@ export function Page({
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-background">
       {toolbar && (
-        <div className="flex min-h-10 shrink-0 flex-wrap items-center gap-2 border-b border-border/80 bg-background/50 px-3.5 py-1.5 backdrop-blur-xs">
+        <div className="flex min-h-10 shrink-0 flex-wrap items-center gap-2 border-b border-border bg-background/50 px-3.5 py-1.5 backdrop-blur-xs">
           {back && <div className="-ml-1 shrink-0">{back}</div>}
           <div className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
             {meta}

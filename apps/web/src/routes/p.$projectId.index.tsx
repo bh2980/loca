@@ -3,10 +3,9 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { BookMarked, ChevronRight, CircleAlert, Inbox, MessageSquareQuote, Sparkles, UserRoundSearch, Workflow } from 'lucide-react';
 import { GettingStarted } from '@/components/getting-started';
-import { JobStatusBadge, Button, Skeleton } from '@loca/ui';
+import { JobStatusBadge, Button, Skeleton, StatusBar, StatusIcon } from '@loca/ui';
 import { Elapsed, JobProgress } from '@/components/job-progress';
 import { Page } from '@/components/page';
-import { StatusBar, StatusDot } from '@/components/status';
 import { AUTO_MARKS, termMarksOf } from '@tw/shared';
 import { q, useReviewTagId } from '@/lib/queries';
 import { cn } from '@/lib/utils';
@@ -158,7 +157,7 @@ function Home() {
             <Skeleton className="h-16" />
           </div>
         ) : open.length ? (
-          <ul className="divide-y rounded-md border border-border/80">
+          <ul className="rounded-md border border-border">
             {open.map((todo) => (
               <li key={todo.key}>
                 <TodoRow todo={todo} />
@@ -166,7 +165,7 @@ function Home() {
             ))}
           </ul>
         ) : (
-          <p className="rounded-md border border-border/80 px-4 py-6 text-xs text-muted-foreground">지금 할 일이 없습니다. 모든 대사가 처리됐고 검토할 것도 없습니다.</p>
+          <p className="rounded-md border border-border px-4 py-6 text-xs text-muted-foreground">지금 할 일이 없습니다. 모든 대사가 처리됐고 검토할 것도 없습니다.</p>
         )}
       </section>
 
@@ -181,8 +180,8 @@ function Home() {
         <ul className="mt-3 flex flex-wrap gap-x-1 gap-y-1">
           {statusList.map((status) => (
             <li key={status.id}>
-              <Link to="/p/$projectId/script" params={{ projectId }} search={{ status: status.id }} className="flex items-center gap-1.5 rounded-xs px-2 py-1 text-xs hover:bg-muted/60 transition-colors">
-                <StatusDot color={status.color} />
+              <Link to="/p/$projectId/script" params={{ projectId }} search={{ status: status.id }} className="flex items-center gap-1.5 rounded-xs px-2 py-1 text-xs hover:bg-muted transition-colors">
+                <StatusIcon status={status} />
                 {status.name}
                 <span className="text-muted-foreground tabular-nums">{(counts[status.id] ?? 0).toLocaleString()}</span>
               </Link>
@@ -202,14 +201,14 @@ function Home() {
           </Button>
         </div>
         {runs.data?.length === 0 && jobs.data?.jobs.length === 0 ? (
-          <p className="rounded-md border border-border/80 px-4 py-6 text-xs text-muted-foreground">아직 실행한 적이 없습니다. 워크플로 {workflows.data?.length ?? 0}개가 준비되어 있습니다.</p>
+          <p className="rounded-md border border-border px-4 py-6 text-xs text-muted-foreground">아직 실행한 적이 없습니다. 워크플로 {workflows.data?.length ?? 0}개가 준비되어 있습니다.</p>
         ) : (
-          <ul className="divide-y rounded-md border border-border/80">
+          <ul className="rounded-md border border-border">
             {recent.map((item) => (
               <li key={item.id}>
                 <Link
                   {...(item.kind === 'run' ? { to: '/p/$projectId/runs/$runId', params: { projectId, runId: item.id } } : { to: '/p/$projectId/runs', params: { projectId }, search: { job: item.id } })}
-                  className="flex items-center gap-4 px-4 py-3 text-sm hover:bg-muted/50"
+                  className="flex items-center gap-4 px-4 py-3 text-sm hover:bg-muted"
                 >
                   <span className="w-40 shrink-0 truncate">
                     {item.title !== JOB_KIND[item.kind] && <><span className="mr-1 text-xs text-muted-foreground">{JOB_KIND[item.kind]}</span>{' '}</>}
@@ -243,5 +242,5 @@ function TodoRow({ todo }: { todo: Todo }) {
       <ChevronRight className="size-4 text-muted-foreground" />
     </>
   );
-  return cloneElement(todo.link, { className: 'flex items-center gap-4 px-4 py-3 hover:bg-muted/50', children: content });
+  return cloneElement(todo.link, { className: 'flex items-center gap-4 px-4 py-3 hover:bg-muted', children: content });
 }

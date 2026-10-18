@@ -4,16 +4,25 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>loca</title>
+    <script>
+      /* Theme before first paint (lib/theme.ts owns the key): no white flash in the dark theme. */
+      try {
+        var t = localStorage.getItem('tw.theme');
+        if (t === 'dark' || (t !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches)) document.documentElement.classList.add('dark');
+      } catch (e) {}
+    </script>
     <style>
-      /* Static loading frame: plain CSS, before Tailwind loads. Colours follow index.css (canvas, surface-1, border). */
-      html, body { margin: 0; background: oklch(0.992 0.002 90); }
-      .boot { position: fixed; inset: 0; display: flex; font: 13px/1.5 "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: oklch(0.48 0 0); }
-      .boot-side { width: 16rem; flex: none; background: oklch(0.975 0.002 90); border-right: 1px solid oklch(0.915 0.002 90); padding: 12px; box-sizing: border-box; }
-      .boot-logo { width: 28px; height: 28px; border-radius: 6px; background: oklch(0.205 0 0); margin-bottom: 20px; }
-      .boot-bar { height: 10px; border-radius: 4px; background: oklch(0.94 0.002 90); margin: 14px 4px; }
+      /* Static loading frame: plain CSS, before Tailwind loads. Colours are theme.css's chrome, background and border. */
+      :root { --b-bg: oklch(0.995 0.002 258); --b-chrome: oklch(0.968 0.006 258); --b-line: oklch(0.91 0.008 258); --b-bar: oklch(0.925 0.012 258); --b-fg: oklch(0.43 0.02 262); --b-logo: oklch(0.53 0.19 262); }
+      :root.dark { --b-bg: oklch(0.205 0.012 265); --b-chrome: oklch(0.17 0.011 265); --b-line: oklch(0.17 0.011 265); --b-bar: oklch(0.28 0.016 265); --b-fg: oklch(0.76 0.012 265); --b-logo: oklch(0.8 0.12 192); }
+      html, body { margin: 0; background: var(--b-bg); }
+      .boot { position: fixed; inset: 0; display: flex; font: 13px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--b-fg); }
+      .boot-side { width: 16rem; flex: none; background: var(--b-chrome); border-right: 1px solid var(--b-line); padding: 12px; box-sizing: border-box; }
+      .boot-logo { width: 28px; height: 28px; border-radius: 6px; background: var(--b-logo); margin-bottom: 20px; }
+      .boot-bar { height: 10px; border-radius: 4px; background: var(--b-bar); margin: 14px 4px; }
       .boot-bar.short { width: 60%; }
       .boot-main { flex: 1; display: flex; flex-direction: column; }
-      .boot-top { height: 44px; border-bottom: 1px solid oklch(0.915 0.002 90); }
+      .boot-top { height: 44px; border-bottom: 1px solid var(--b-line); }
       .boot-text { margin: auto; animation: boot-in 0.2s ease-out 0.3s both; }
       @keyframes boot-in { from { opacity: 0; } to { opacity: 1; } }
       @media (prefers-reduced-motion: reduce) { .boot-text { animation: none; } }

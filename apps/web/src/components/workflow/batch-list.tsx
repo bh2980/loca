@@ -19,7 +19,7 @@ export function BatchList({ list, defaultOpen = false }: { list: List; defaultOp
         </Button>
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <ul className="mt-2 divide-y rounded-md border">
+        <ul className="mt-2 rounded-md border">
           {list.batches.map((batch, index) => (
             <li key={index} className="space-y-1 px-3 py-2 text-sm">
               <p className="text-xs text-muted-foreground tabular-nums">

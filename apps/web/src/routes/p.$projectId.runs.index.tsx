@@ -213,7 +213,7 @@ function JobCalls({ projectId, job, onClose }: { projectId: string; job: { id: s
       {calls.data?.calls.length === 0 ? (
         <p className="px-4 py-6 text-sm text-muted-foreground">이 작업의 AI 호출 기록이 없습니다. 호출 기록이 생기기 전에 돈 작업은 합계만 남아 있습니다.</p>
       ) : (
-        <ul className="divide-y">
+        <ul>
           {calls.data?.calls.map((call) => (
             <li key={call.id} className="space-y-0.5 px-4 py-2.5 text-sm">
               <div className="flex items-center gap-2">
@@ -278,7 +278,7 @@ function CallText({ label, text }: { label: string; text: string }) {
           <Copy /> 복사
         </Button>
       </div>
-      <pre className="max-h-96 overflow-auto rounded-md border bg-muted/40 p-2 font-mono text-xs break-words whitespace-pre-wrap">{text}</pre>
+      <pre className="max-h-96 overflow-auto rounded-md border bg-muted p-2 font-mono text-xs break-words whitespace-pre-wrap">{text}</pre>
     </div>
   );
 }

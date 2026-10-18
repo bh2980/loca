@@ -66,7 +66,7 @@ export function ToggleRow({ label, checked, onChange }: { label: string; checked
  */
 export function ConfigSection({ title, summary, children }: { title: string; summary?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <Collapsible defaultOpen className="group/section min-w-0 border-t pt-3 first:border-t-0 first:pt-0">
+    <Collapsible defaultOpen className="group/section min-w-0 pt-3">
       <CollapsibleTrigger asChild>
         <Button variant="ghost" size="row" className="-mx-2 w-[calc(100%+1rem)] min-w-0 justify-start">
           <ChevronRight className="text-muted-foreground transition-transform group-data-[state=open]/section:rotate-90" />

@@ -82,7 +82,7 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
         </Button>
       </div>
 
-      <div className="space-y-1.5 rounded-md bg-muted/40 p-3">
+      <div className="space-y-1.5 rounded-md bg-muted p-3">
         <p className="text-xs font-medium">시험해 보기</p>
         <Textarea className="min-h-16 bg-background font-mono text-xs" value={sample} onChange={(event) => setSample(event.target.value)} />
         {(['placeholder', 'tag'] as const).map((kind) => (

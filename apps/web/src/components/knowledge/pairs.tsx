@@ -263,7 +263,7 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
 function StretchPicker({ projectId, from, to, taken, onPick, onCancel }: { projectId: string; from: string; to: string; taken: Set<string>; onPick: (key: string) => void; onCancel: () => void }) {
   const lines = useQuery(q.units(projectId, { speaker: from, listener: to, limit: 300 }));
   return (
-    <div className="mb-3 rounded-md border bg-muted/30 p-2">
+    <div className="mb-3 rounded-md border bg-muted p-2">
       <div className="mb-1 flex items-center gap-2 px-1">
         <p className="text-xs font-medium">말투가 바뀌기 시작하는 대사를 고르세요</p>
         <Button variant="ghost" size="inline" className="ml-auto text-muted-foreground" onClick={onCancel}>

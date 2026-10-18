@@ -113,7 +113,7 @@ export function FlowPane({ projectId, nodeIds, title, way, extra, marked, editin
       data-marked={options.scrollTo || undefined}
       data-editing={(options.unitId && options.unitId === editing) || undefined}
       title={options.unitId ? '눌러서 번역 (노드 옆 카드)' : undefined}
-      className={cn('group relative grid gap-3 px-3 py-2', options.unitId && 'cursor-pointer hover:bg-muted/50', options.unitId && options.unitId === editing && 'bg-primary/5 shadow-[inset_2px_0_0_var(--primary)]', options.className)}
+      className={cn('group relative grid gap-3 px-3 py-2', options.unitId && 'cursor-pointer hover:bg-muted', options.unitId && options.unitId === editing && 'bg-primary/5 shadow-[inset_2px_0_0_var(--primary)]', options.className)}
       style={{ gridTemplateColumns: `${width}px minmax(0,1fr)` }}
       onClick={options.unitId ? () => onEdit(options.unitId!) : undefined}
     >
@@ -136,7 +136,7 @@ export function FlowPane({ projectId, nodeIds, title, way, extra, marked, editin
           { className: 'bg-choice/5', unitId: choice?.id },
         ),
       ];
-    if (!node.units.length) return [row(node.id, KIND_LABEL[node.kind] ?? node.kind, <span className="text-muted-foreground">{node.label ?? node.typeInfo?.label ?? ''}</span>, { className: 'bg-muted/40' })];
+    if (!node.units.length) return [row(node.id, KIND_LABEL[node.kind] ?? node.kind, <span className="text-muted-foreground">{node.label ?? node.typeInfo?.label ?? ''}</span>, { className: 'bg-muted' })];
     return node.units.map((unit) => {
       const here = node.id === marked;
       return row(
@@ -169,9 +169,9 @@ export function FlowPane({ projectId, nodeIds, title, way, extra, marked, editin
         )
       }
     >
-      {extra && <div className="space-y-4 border-b p-4">{extra}</div>}
+      {extra && <div className="space-y-4 p-4">{extra}</div>}
       {way && way.labels.length > 0 && (
-        <p className="flex flex-wrap items-center gap-1 border-b bg-muted/30 px-3 py-1.5 text-xs text-muted-foreground" title="이 대사로 들어오는 길">
+        <p className="flex flex-wrap items-center gap-1 bg-muted px-3 py-1.5 text-xs text-muted-foreground" title="이 대사로 들어오는 길">
           <CornerDownRight className="size-3.5" aria-label="들어오는 길" />
           {way.labels.map((label, index) => (
             <span key={index} className={cn('rounded-full border px-1.5', label.choice ? 'border-choice/30 bg-choice/10 text-choice' : 'bg-background')}>
@@ -198,7 +198,7 @@ export function FlowPane({ projectId, nodeIds, title, way, extra, marked, editin
           }}
           onDoubleClick={() => setSpeakerWidth(undefined)}
         />
-        <ol className="divide-y border-b">{lines}</ol>
+        <ol>{lines}</ol>
       </div>
     </DetailPane>
   );

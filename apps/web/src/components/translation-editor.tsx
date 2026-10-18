@@ -6,8 +6,7 @@ import { toast } from 'sonner';
 import { checkFormat, listenerLabel, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatIssue, type FormatRules } from '@tw/shared';
 import { TokenChip, TokenText } from '@/components/editor/source-text';
 import { focusEndOfLine, insertUnitIntoLine, proposeInLine, replaceLineText, TranslationInput } from '@/components/editor/translation-input';
-import { AiMark, StatusDot } from '@/components/status';
-import { Button } from '@loca/ui';
+import { Button, AiMark, StatusIcon } from '@loca/ui';
 import { apiFetch } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
 import { wordDiff } from '@/lib/diff';
@@ -212,7 +211,7 @@ export function TranslationEditor({
         {dirty && <span className="text-xs font-medium text-warning">저장 안 됨</span>}
         {editorAi?.enabled && editorAi.model && !ai.loading && (
           <Button variant="ghost" size="inline" className="text-xs text-muted-foreground hover:text-foreground" title={`이어질 번역 보기 (${keyLabel('Alt+/')}, Tab으로 받기)`} onClick={() => ask(draft)}>
-            <Sparkles className="size-3.5 text-accent-indigo" /> AI 자동완성
+            <Sparkles className="size-3.5 text-primary" /> AI 자동완성
           </Button>
         )}
         {editorAi?.assistModel ? (
@@ -223,7 +222,7 @@ export function TranslationEditor({
               title={`원문에서 새로 번역${draft.trim() ? '' : ` (${keyLabel('Alt+.')})`}`}
               onClick={() => runAssist('translate')}
             >
-              <Languages className="size-3.5 text-accent-indigo" />
+              <Languages className="size-3.5 text-primary" />
               <span>AI 번역</span>
             </Button>
             <Button
@@ -232,7 +231,7 @@ export function TranslationEditor({
               title={draft.trim() ? `틀린 곳만 고치기 (${keyLabel('Alt+.')})` : '다듬을 번역이 없습니다'}
               onClick={() => runAssist('refine')}
             >
-              <WandSparkles className="size-3.5 text-accent-indigo" />
+              <WandSparkles className="size-3.5 text-primary" />
               <span>다듬기</span>
             </Button>
           </div>
@@ -274,7 +273,7 @@ export function TranslationEditor({
               onClick={() => run(true)}
               title={`${dirty ? '저장하고 ' : ''}‘${next.name}’(으)로 옮기고 다음 줄 (${keyLabel('Mod+Enter')})`}
             >
-              <StatusDot color={next.color} className="size-1.5" />
+              <StatusIcon status={next} className="size-1.5" />
               <span>{next.name}</span>
             </Button>
           )}
@@ -282,21 +281,21 @@ export function TranslationEditor({
       </div>
       {!dirty && <PreviousDiff unitId={unit.id} openAtFirst={unit.statusBy === 'ai'} />}
       {suggestions.length > 0 && (
-        <div className="mt-2.5 overflow-hidden rounded-md border border-border/80 bg-surface-1/30">
-          <div className="border-b border-border-subtle bg-surface-1/60 px-3 py-1.5 text-xs font-medium text-muted-foreground select-none">
+        <div className="mt-2.5 overflow-hidden rounded-md border border-border bg-panel">
+          <div className="bg-panel px-3 py-1.5 text-xs font-medium text-muted-foreground select-none">
             유사 번역 및 후보
           </div>
-          <ol className="divide-y divide-border-subtle">
+          <ol>
             {suggestions.map((suggestion, index) => (
               <li key={suggestion.key}>
                 <Button
                   variant="ghost"
                   size="row"
-                  className="group flex h-auto w-full items-start gap-3 rounded-none px-3 py-2 text-left hover:bg-surface-2"
+                  className="group flex h-auto w-full items-start gap-3 rounded-none px-3 py-2 text-left hover:bg-accent"
                   title={`번역 칸에 넣기 (${keyLabel(`Alt+Shift+${index + 1}`)})`}
                   onClick={() => replaceLineText(unit.id, suggestion.text) || setDraft(suggestion.text)}
                 >
-                  <kbd className="mt-0.5 inline-flex shrink-0 items-center justify-center rounded border border-border/80 bg-surface-2 px-1.5 py-0.5 font-mono text-xs font-semibold text-muted-foreground group-hover:border-accent-indigo/40 group-hover:text-foreground select-none">
+                  <kbd className="mt-0.5 inline-flex shrink-0 items-center justify-center rounded border border-border bg-card px-1.5 py-0.5 font-mono text-xs font-semibold text-muted-foreground group-hover:border-primary/40 group-hover:text-foreground select-none">
                     {keyLabel(`Alt+Shift+${index + 1}`)}
                   </kbd>
                   <div className="min-w-0 flex-1 space-y-1">

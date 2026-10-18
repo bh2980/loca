@@ -270,11 +270,11 @@ function Table<T>({
             ))}
             {id && <col style={{ width: menuWidth }} />}
           </colgroup>
-          <thead className="sticky top-0 z-10 bg-surface-1/80 backdrop-blur-xs select-none">
+          <thead className="sticky top-0 z-10 bg-chrome backdrop-blur-xs select-none">
             {table.getHeaderGroups().map((group) => (
               <tr key={group.id}>
                 {pickable && (
-                  <th className="h-8 border-b border-border/80 pl-3.5 text-left align-middle">
+                  <th className="h-8 pl-3.5 text-left align-middle">
                     <Checkbox
                       aria-label="모두 선택"
                       checked={
@@ -291,7 +291,7 @@ function Table<T>({
                 {bulking ? (
                   <th
                     colSpan={group.headers.length + (id ? 1 : 0)}
-                    className="h-8 border-b border-border/80 px-3 text-left align-middle font-normal"
+                    className="h-8 px-3 text-left align-middle font-normal"
                   >
                     <PickedBar
                       count={picked!.size}
@@ -305,7 +305,7 @@ function Table<T>({
                     <th
                       key={header.id}
                       className={cn(
-                        "group/th relative h-8 border-b border-border/80 px-3 text-left align-middle text-xs font-medium tracking-tight text-muted-foreground whitespace-nowrap",
+                        "group/th relative h-8  px-3 text-left align-middle text-xs font-medium tracking-tight text-muted-foreground whitespace-nowrap",
                         index === 0 && !pickable && "pl-4",
                         header.column.columnDef.meta?.align === "end" && "text-right"
                       )}
@@ -329,9 +329,9 @@ function Table<T>({
                           >
                             <span
                               className={cn(
-                                "h-full w-px bg-transparent transition-colors group-hover/th:bg-border hover:bg-accent-indigo",
+                                "h-full w-px bg-transparent transition-colors group-hover/th:bg-border hover:bg-primary",
                                 resizing === header.column.id &&
-                                  "w-0.5 bg-accent-indigo group-hover/th:bg-accent-indigo"
+                                  "w-0.5 bg-primary group-hover/th:bg-primary"
                               )}
                             />
                           </span>
@@ -340,7 +340,7 @@ function Table<T>({
                   ))
                 )}
                 {id && !bulking && (
-                  <th className="sticky right-0 h-7 border-b border-border/80 bg-surface-1/80 px-1 text-right align-middle">
+                  <th className="sticky right-0 h-7 bg-chrome px-1 text-right align-middle">
                     <ColumnMenu
                       items={menuItems}
                       onReorder={(order) => setSaved((previous) => ({ ...previous, order }))}
@@ -359,7 +359,7 @@ function Table<T>({
               </tr>
             ))}
           </thead>
-          <tbody className="divide-y divide-border-subtle bg-surface-2">
+          <tbody className="bg-background">
             {loading || !rows
               ? Array.from({ length: 8 }, (_, i) => (
                   <tr key={i}>
@@ -381,8 +381,8 @@ function Table<T>({
                       onClick={onRowClick ? () => onRowClick(row.original) : undefined}
                       className={cn(
                         "group/row transition-colors",
-                        onRowClick && "cursor-pointer hover:bg-surface-1/60",
-                        isSelected && "bg-accent-indigo/[0.04] hover:bg-accent-indigo/[0.07]",
+                        onRowClick && "cursor-pointer hover:bg-accent",
+                        isSelected && "bg-selection hover:bg-selection",
                         rowClassName?.(row.original)
                       )}
                     >
@@ -390,7 +390,7 @@ function Table<T>({
                         <td
                           className={cn(
                             "pl-3.5 align-middle py-2.5",
-                            isSelected && "shadow-[inset_2px_0_0_var(--accent-indigo)]"
+                            isSelected && ""
                           )}
                           onClick={(event) => event.stopPropagation()}
                         >
@@ -414,7 +414,7 @@ function Table<T>({
                               index === 0 &&
                                 !pickable &&
                                 isSelected &&
-                                "shadow-[inset_2px_0_0_var(--accent-indigo)]",
+                                "",
                               meta?.wrap ? "break-words whitespace-pre-wrap" : "truncate",
                               meta?.align === "end" && "text-right tabular-nums",
                               meta?.className

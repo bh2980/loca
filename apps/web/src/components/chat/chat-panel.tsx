@@ -419,7 +419,7 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
           )}
           {!busy && !error && lastMessage?.role === 'user' && <TurnState turn={turn} onStop={halt} onRetry={() => void regenerate()} canRetry={ready} />}
           {stalled && (
-            <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+            <div className="flex items-center gap-2 rounded-md border bg-muted px-3 py-2 text-sm">
               <span className="text-muted-foreground">{finishReason === 'length' ? '출력 한도(AI 연결 설정의 최대 출력 토큰)에 걸려 멈췄습니다.' : '에이전트가 결과를 말하지 않고 멈췄습니다.'}</span>
               <Button variant="outline" className="ml-auto" disabled={!ready} onClick={() => void sendMessage({ text: '계속해줘' })}>
                 계속
@@ -553,7 +553,7 @@ function TurnState({ turn, onStop, onRetry, canRetry }: { turn: Turn | null; onS
     const rounds = Number(/도구 결과 후 (\d+)/.exec(turn.call?.label ?? '')?.[1] ?? 0);
     const step = turn.call?.status === 'running' ? (rounds ? `도구 결과를 받고 이어서 쓰는 중 (${rounds + 1}번째 요청)` : '답을 쓰는 중') : '도구를 쓰는 중';
     return (
-      <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+      <div className="flex items-center gap-2 rounded-md border bg-muted px-3 py-2 text-sm text-muted-foreground">
         <Spinner className="size-3.5" />
         <span className="min-w-0 flex-1">
           {step} · <Elapsed since={new Date(turn.startedAt)} />
@@ -567,7 +567,7 @@ function TurnState({ turn, onStop, onRetry, canRetry }: { turn: Turn | null; onS
   }
   const reason = turn?.call?.status === 'failed' ? turn.call.error : null;
   return (
-    <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+    <div className="flex items-center gap-2 rounded-md border bg-muted px-3 py-2 text-sm">
       <span className="min-w-0 flex-1 text-muted-foreground">
         답을 받지 못했습니다.
         <span className="block text-xs">{reason ?? '답이 끝나기 전에 끊겼습니다.'}</span>

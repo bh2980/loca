@@ -379,7 +379,7 @@ function Readiness({ projectId, readiness, oneScene, scoped, onLeave }: { projec
   return (
     <section className="space-y-2">
       <h3 className="text-xs text-muted-foreground">준비 상태 · 이 줄들 기준</h3>
-      <ul className="divide-y rounded-md border text-sm">
+      <ul className="rounded-md border text-sm">
         {rows.map((row, index) => (
           <li key={index} className="flex items-center gap-2 px-3 py-1.5">
             <span className={cn('size-2 shrink-0 rounded-full', row.ok ? 'bg-success' : 'bg-warning')} />

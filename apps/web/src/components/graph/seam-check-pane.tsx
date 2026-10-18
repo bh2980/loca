@@ -57,7 +57,7 @@ export function SeamCheckPane({ projectId, nodeId, onClose }: { projectId: strin
       </Button>
     </li>
   );
-  const heading = (text: string) => <p className="border-b bg-muted/40 px-3 py-1 text-xs text-muted-foreground">{text}</p>;
+  const heading = (text: string) => <p className="bg-muted px-3 py-1 text-xs text-muted-foreground">{text}</p>;
 
   return (
     <DetailPane
@@ -90,16 +90,16 @@ export function SeamCheckPane({ projectId, nodeId, onClose }: { projectId: strin
           {data.before.map((entry, i) => (
             <div key={entry.from}>
               {heading(data.before.length > 1 ? `이번 길 ${i + 1}/${data.before.length}` : '이번 길')}
-              <ul className="divide-y">{entry.lines.length ? entry.lines.map(line) : <li className="px-3 py-2 text-xs text-muted-foreground">이 갈래에는 이음새 앞 대사가 없습니다.</li>}</ul>
+              <ul>{entry.lines.length ? entry.lines.map(line) : <li className="px-3 py-2 text-xs text-muted-foreground">이 갈래에는 이음새 앞 대사가 없습니다.</li>}</ul>
             </div>
           ))}
-          <div role="separator" className="flex items-center gap-2 border-y bg-muted/40 px-3 py-1 text-xs text-muted-foreground">
+          <div role="separator" className="flex items-center gap-2 border-y bg-muted px-3 py-1 text-xs text-muted-foreground">
             <span className="h-px flex-1 bg-border" />
             이음새
             <span className="h-px flex-1 bg-border" />
           </div>
           {heading('이미 번역한 길')}
-          <ul className="divide-y">{data.after.length ? data.after.map(line) : <li className="px-3 py-2 text-xs text-muted-foreground">이음새 뒤에 대사가 없습니다.</li>}</ul>
+          <ul>{data.after.length ? data.after.map(line) : <li className="px-3 py-2 text-xs text-muted-foreground">이음새 뒤에 대사가 없습니다.</li>}</ul>
         </div>
       )}
     </DetailPane>

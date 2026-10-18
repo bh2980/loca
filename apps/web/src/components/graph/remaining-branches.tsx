@@ -39,7 +39,7 @@ export function RemainingBranches({ open, onOpenChange, branches, unreachable, t
           </DialogDescription>
         </DialogHeader>
         {branches.length ? (
-          <ul className="-mx-2 max-h-[60vh] divide-y overflow-y-auto" data-testid="remaining-branches">
+          <ul className="-mx-2 max-h-[60vh] overflow-y-auto" data-testid="remaining-branches">
             {branches.map((branch) => (
               <li key={`${branch.fork}:${branch.arm}`} className="flex items-center gap-3 px-2 py-2">
                 <div className="min-w-0 flex-1">

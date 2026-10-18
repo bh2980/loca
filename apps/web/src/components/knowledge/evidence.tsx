@@ -32,7 +32,7 @@ export function Evidence({ projectId, keys }: { projectId: string; keys: string[
   const lines = useQuery(q.linesByKeys(projectId, keys.slice(0, 50)));
   if (!keys.length)
     return (
-      <div className="rounded-md border border-border/60 bg-surface-1/30 px-3 py-2 text-xs text-muted-foreground">
+      <div className="rounded-md border border-border bg-panel px-3 py-2 text-xs text-muted-foreground">
         연결된 근거 대사가 없습니다.
       </div>
     );

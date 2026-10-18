@@ -3,11 +3,10 @@ import { useMutation } from '@tanstack/react-query';
 import { Check, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { DOCUMENT_KINDS, STYLE_AXES, type StyleAxis, type CharacterRole, type Gender, type AgeBand, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled, AGE_BAND_LABELS, CHARACTER_ROLE_LABELS, GENDER_LABELS } from '@tw/shared';
-import { DetailPane, PaneSection, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Switch, Textarea } from '@loca/ui';
+import { DetailPane, PaneSection, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Switch, Textarea, AiMark } from '@loca/ui';
 import { ChipInput, joinList, splitList } from '@/components/chip-input';
 import { useDraft } from '@/lib/drafts';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
-import { AiMark } from '@/components/status';
 import { DOCUMENT_KIND } from '@/lib/labels';
 import { Evidence } from '@/components/knowledge/evidence';
 import { confirmLabel, fail, KINDS, SourceBadge, text, type Kind, type KindSpec, type Row, type Field } from '@/components/knowledge/table';
@@ -160,7 +159,7 @@ function FieldInput({ field, value, characters, onChange }: { field: Field; valu
   const id = `field-${field.name}`;
   if (field.type === 'bool')
     return (
-      <div className="flex items-center justify-between gap-3 rounded-md border border-border/80 bg-surface-1/40 p-3">
+      <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-panel p-3">
         <Label htmlFor={id} className="cursor-pointer text-xs font-medium leading-snug text-foreground">{field.label}</Label>
         <Switch id={id} checked={Boolean(value)} onCheckedChange={onChange} />
       </div>

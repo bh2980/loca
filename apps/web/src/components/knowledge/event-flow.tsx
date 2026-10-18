@@ -4,6 +4,7 @@ import ELK, { type ElkNode } from 'elkjs/lib/elk.bundled.js';
 import '@xyflow/react/dist/style.css';
 import { EmptyState, Button } from '@loca/ui';
 import { cn } from '@/lib/utils';
+import { useIsDark } from '@/lib/theme';
 
 const elk = new ELK();
 const CARD = { width: 288, height: 92 };
@@ -56,6 +57,7 @@ const nodeTypes = { event: EventCard, section: SectionTitle };
  * this browser until "배치 되돌리기". Events whose evidence is not in the script sit in a last block.
  */
 export function EventFlow({ projectId, events, selected, onOpen, badge, filtered }: { projectId: string; events: FlowEvent[]; /** Filters are set (so none matching is not the same as none yet). */ filtered?: boolean; selected?: string; onOpen: (id?: string) => void; badge: (event: FlowEvent) => ReactNode }) {
+  const dark = useIsDark();
   const placed = useMemo(() => events.filter((event) => event.at).sort((a, b) => a.at!.seq - b.at!.seq), [events]);
   const sections = useMemo(() => [...Map.groupBy(placed, (event) => event.at!.section ?? '').entries()], [placed]);
   const unplaced = useMemo(() => events.filter((event) => !event.at), [events]);
@@ -153,7 +155,7 @@ export function EventFlow({ projectId, events, selected, onOpen, badge, filtered
   if (!layout) return <div className="flex h-full items-center justify-center text-sm text-muted-foreground">배치 계산 중…</div>;
   return (
     <div ref={frame} className="h-full">
-    <ReactFlow
+    <ReactFlow colorMode={dark ? 'dark' : 'light'}
       key={layout.key}
       nodes={flowNodes}
       edges={edges}

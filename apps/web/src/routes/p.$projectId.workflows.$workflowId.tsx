@@ -33,6 +33,7 @@ import { useReportView } from '@/lib/view-context';
 import { workflowEdits } from '@/lib/workflow-edits';
 import { sameWorkflowDraft } from '@/lib/workflow-draft';
 import { dateTime } from '@/lib/datetime';
+import { useIsDark } from '@/lib/theme';
 
 /** When the workflow was last saved: 10. 13. 오전 06:16. Runs keep their own copy of what they ran. */
 const savedAt = (at: string) => dateTime(at);
@@ -99,6 +100,7 @@ const readDraft = (id: string): Draft | null => {
 const nodeTypes = { workflow: WorkflowNodeView };
 
 function WorkflowEditor() {
+  const dark = useIsDark();
   const { projectId, workflowId } = Route.useParams();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
@@ -257,8 +259,8 @@ function WorkflowEditor() {
           type: 'smoothstep',
           markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
           selected: edge.id === edgeId,
-          ...(branches > 1 ? { label: '모두 보냄', labelStyle: { fontSize: 11, fill: '#71717a' }, labelBgStyle: { fill: '#ffffff' } } : {}),
-          style: { ...(negative ? { stroke: '#fb7185', strokeDasharray: '5 4' } : { stroke: '#a1a1aa' }), ...(edge.id === edgeId && { strokeWidth: 2.5 }) },
+          ...(branches > 1 ? { label: '모두 보냄', labelStyle: { fontSize: 11, fill: 'var(--subtle-foreground)' }, labelBgStyle: { fill: 'var(--card)' } } : {}),
+          style: { ...(negative ? { stroke: 'var(--destructive)', strokeDasharray: '5 4' } : { stroke: 'var(--graph-edge)' }), ...(edge.id === edgeId && { strokeWidth: 2.5 }) },
         };
       });
     },
@@ -497,7 +499,7 @@ function WorkflowEditor() {
         }
       >
         <div className="min-w-0 flex-1">
-          <ReactFlow
+          <ReactFlow colorMode={dark ? 'dark' : 'light'}
             nodes={nodes}
             edges={edges}
             nodeTypes={nodeTypes}

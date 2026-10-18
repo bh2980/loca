@@ -1,10 +1,11 @@
 import { Fragment, useEffect } from 'react';
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Check, ChevronsUpDown, Languages, Plus } from 'lucide-react';
-import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuBadge, SidebarMenuButton, SidebarMenuItem, SidebarRail, SidebarSeparator, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@loca/ui';
+import { Check, ChevronsUpDown, Languages, Monitor, Moon, Plus, Sun } from 'lucide-react';
+import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuBadge, SidebarMenuButton, SidebarMenuItem, SidebarRail, SidebarSeparator, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@loca/ui';
 import { holds, SECTIONS, useCurrentNav, type Section } from '@/lib/nav';
 import { q } from '@/lib/queries';
+import { setTheme, useTheme, type ThemeChoice } from '@/lib/theme';
 
 /** Where each menu was left in this tab, so going back to a menu returns to that screen (sessionStorage, like drafts). */
 const lastKey = (projectId: string, section: string) => `tw.nav.${projectId}.${section}`;
@@ -30,6 +31,39 @@ function SectionItem({ section, projectId, active, badge }: { section: Section; 
         </Link>
       </SidebarMenuButton>
       {!!badge && <SidebarMenuBadge title="검토 대기">{badge}</SidebarMenuBadge>}
+    </SidebarMenuItem>
+  );
+}
+
+const THEMES: { value: ThemeChoice; label: string; icon: typeof Sun }[] = [
+  { value: 'light', label: '밝게', icon: Sun },
+  { value: 'dark', label: '어둡게', icon: Moon },
+  { value: 'system', label: '시스템 설정', icon: Monitor },
+];
+
+/** Light or dark theme for this browser (lib/theme.ts). */
+function ThemeItem() {
+  const theme = useTheme();
+  const current = THEMES.find((item) => item.value === theme)!;
+  return (
+    <SidebarMenuItem>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <SidebarMenuButton tooltip={`화면 테마: ${current.label}`}>
+            <current.icon />
+            <span>테마</span>
+          </SidebarMenuButton>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent side="right" align="end" className="min-w-40">
+          <DropdownMenuRadioGroup value={theme} onValueChange={(value) => setTheme(value as ThemeChoice)}>
+            {THEMES.map((item) => (
+              <DropdownMenuRadioItem key={item.value} value={item.value}>
+                <item.icon /> {item.label}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </SidebarMenuItem>
   );
 }
@@ -107,6 +141,7 @@ export function AppSidebar({ projectId }: { projectId: string }) {
       <SidebarFooter>
         <SidebarMenu>
           <SectionItem section={SECTIONS.find((section) => section.id === 'settings')!} projectId={projectId} active={current.section.id === 'settings'} />
+          <ThemeItem />
         </SidebarMenu>
       </SidebarFooter>
       <SidebarRail />

@@ -61,7 +61,7 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
   const skipped = proposal.status === 'accepted' ? ((proposal.result as { skipped?: unknown[] } | null)?.skipped?.length ?? 0) : 0;
   return (
     <div className="overflow-hidden rounded-lg border bg-background text-sm">
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 border-b bg-muted/40 px-3 py-1.5 text-xs font-medium">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 border-b bg-muted px-3 py-1.5 text-xs font-medium">
         <CardTitle>{LABEL[proposal.tool] ?? proposal.tool}</CardTitle>
         {proposal.source === 'cli' && <span className="font-normal text-muted-foreground">· CLI</span>}
         <span className="ml-auto text-right">

@@ -3,6 +3,7 @@ import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 import { BookPlus, Braces, CircleDot, Code, Flag, GitFork, Globe, ListChecks, MessageCircleQuestion, NotebookPen, ScanSearch, Sparkles, SpellCheck, Tag, UserCheck } from 'lucide-react';
 import { nodeName, nodePorts, type WorkflowNode } from '@tw/shared';
 import { cn } from '@/lib/utils';
+import { paletteColor } from '@loca/ui';
 
 type Icon = typeof Sparkles;
 
@@ -34,8 +35,8 @@ export function nodeIcon(node: WorkflowNode): Icon {
 }
 
 const NEGATIVE = new Set(['error', 'fail', 'false', 'rejected']);
-const handleClass = (port: string) => cn('!size-2.5 !border-2 !border-background', NEGATIVE.has(port) ? '!bg-rose-400' : '!bg-zinc-500');
-const inputHandle = <Handle type="target" position={Position.Left} id="in" className="!size-2.5 !border-2 !border-background !bg-zinc-400" />;
+const handleClass = (port: string) => cn('!size-2.5 !border-2 !border-background', NEGATIVE.has(port) ? '!bg-destructive' : '!bg-muted-foreground');
+const inputHandle = <Handle type="target" position={Position.Left} id="in" className="!size-2.5 !border-2 !border-background !bg-subtle-foreground" />;
 
 export type FlowNode = Node<
   {
@@ -96,11 +97,11 @@ export const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected 
   if (node.type === 'entry' || node.type === 'end') {
     const entry = node.type === 'entry';
     return (
-      <div className={cn('flex min-w-36 items-center gap-2 rounded-full border px-3 py-2 text-sm shadow-xs', entry ? 'border-zinc-800 bg-zinc-900 text-white' : 'bg-zinc-100 text-zinc-600', ring)}>
+      <div className={cn('flex min-w-36 items-center gap-2 rounded-full border px-3 py-2 text-sm shadow-xs', entry ? 'border-border bg-card text-foreground' : 'bg-muted text-muted-foreground', ring)}>
         {!entry && inputHandle}
         <Icon className="size-4 shrink-0" />
         <span className="truncate font-medium">{nodeName(node)}</span>
-        {entry && <span className="max-w-40 truncate text-xs text-zinc-300">{summary}</span>}
+        {entry && <span className="max-w-40 truncate text-xs text-subtle-foreground">{summary}</span>}
         <Badges errors={errors} warnings={[]} />
         {entry && <Handle type="source" position={Position.Right} id="out" className={handleClass('out')} />}
       </div>
@@ -111,9 +112,9 @@ export const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected 
     return (
       <div className="relative flex w-56 flex-col items-center">
         <div className="relative flex size-28 items-center justify-center">
-          <div className={cn('absolute inset-3 rotate-45 rounded-md border-2 border-amber-300 bg-amber-50 shadow-xs', ring)} />
+          <div className={cn('absolute inset-3 rotate-45 rounded-md border-2 border-review bg-review/10 shadow-xs', ring)} />
           {inputHandle}
-          <Icon className="relative size-5 text-amber-600" />
+          <Icon className="relative size-5 text-review-ink" />
           <Handle type="source" position={Position.Right} id="true" className={handleClass('true')} />
           <span className="absolute top-[38%] right-0 translate-x-full pl-2 text-xs text-muted-foreground">참</span>
           <Handle type="source" position={Position.Bottom} id="false" className={handleClass('false')} />
@@ -129,11 +130,11 @@ export const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected 
   }
 
   if (node.type === 'function' && node.config.fn === 'setStatus') {
-    const color = status?.color ?? '#a1a1aa';
+    const color = paletteColor(status?.color);
     return (
       <div className={cn('flex min-w-44 items-center gap-2 rounded-full border-2 bg-background py-1.5 pr-4 pl-2 shadow-xs', ring)} style={{ borderColor: color }}>
         {inputHandle}
-        <span className="flex size-6 items-center justify-center rounded-full" style={{ backgroundColor: `${color}22` }}>
+        <span className="flex size-6 items-center justify-center rounded-full" style={{ backgroundColor: `color-mix(in oklch, ${color} 14%, transparent)` }}>
           <Icon className="size-3.5" style={{ color }} />
         </span>
         <div className="min-w-0">
@@ -151,14 +152,14 @@ export const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected 
     <div
       className={cn(
         'w-56 bg-background text-left shadow-xs',
-        ai && 'rounded-2xl border border-violet-200',
-        node.type === 'function' && 'rounded-md border border-sky-300',
+        ai && 'rounded-lg border border-ai/30',
+        node.type === 'function' && 'rounded-md border border-primary/30',
         ring,
       )}
     >
       {inputHandle}
-      <div className={cn('flex items-center gap-2 border-b px-3 py-2', ai && 'rounded-t-2xl border-violet-100 bg-violet-50/60', node.type === 'function' && 'rounded-t-md border-sky-100 bg-sky-50/60')}>
-        <Icon className={cn('size-4 shrink-0', ai ? 'text-violet-600' : 'text-sky-600')} />
+      <div className={cn('flex items-center gap-2 border-b px-3 py-2', ai && 'rounded-t-lg border-ai/20 bg-ai-soft', node.type === 'function' && 'rounded-t-md border-primary/20 bg-primary-soft')}>
+        <Icon className={cn('size-4 shrink-0', ai ? 'text-ai' : 'text-primary')} />
         <span className={cn('truncate text-sm font-medium')}>{nodeName(node)}</span>
         <span className="ml-auto" />
         <Badges errors={errors} warnings={warnings} />

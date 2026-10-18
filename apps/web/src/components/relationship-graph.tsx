@@ -5,6 +5,7 @@ import ELK from 'elkjs/lib/elk.bundled.js';
 import '@xyflow/react/dist/style.css';
 import type { CharacterRole } from '@tw/shared';
 import { cn } from '@/lib/utils';
+import { useIsDark } from '@/lib/theme';
 
 export interface GraphCharacter {
   id: string;
@@ -65,7 +66,7 @@ type RelationEdge = Edge<{ offset: number; rows: LabelRow[]; dim: boolean; focus
 function PersonNodeView({ data, selected }: NodeProps<PersonNode>) {
   return (
     <div
-      className={cn('flex items-center justify-center rounded-md border border-border/80 bg-background px-3 text-xs font-medium shadow-none transition-opacity', data.role === 'main' && 'border-2 border-foreground/70 font-semibold', data.role === 'minor' && 'border-dashed text-muted-foreground', selected && 'border-primary ring-1 ring-primary/40', data.dim && 'opacity-30')}
+      className={cn('flex items-center justify-center rounded-md border border-border bg-background px-3 text-xs font-medium shadow-none transition-opacity', data.role === 'main' && 'border-2 border-foreground/70 font-semibold', data.role === 'minor' && 'border-dashed text-muted-foreground', selected && 'border-primary ring-1 ring-primary/40', data.dim && 'opacity-30')}
       style={{ width: NODE_WIDTH, height: NODE_HEIGHT }}
     >
       <span className="truncate">{data.label}</span>
@@ -102,7 +103,7 @@ function FloatingEdge({ id, source, target, markerStart, markerEnd, data, select
   const label = { x: 0.25 * from.x + 0.5 * control.x + 0.25 * to.x, y: 0.25 * from.y + 0.5 * control.y + 0.25 * to.y };
   return (
     <>
-      <BaseEdge id={id} path={path} markerStart={markerStart} markerEnd={markerEnd} interactionWidth={20} style={{ stroke: selected || data?.focus ? 'var(--color-primary)' : '#a1a1aa', strokeWidth: selected ? 2.5 : data?.focus ? 2 : 1.5, opacity: data?.dim ? 0.2 : 1, strokeDasharray: data?.dashed ? '5 4' : undefined }} />
+      <BaseEdge id={id} path={path} markerStart={markerStart} markerEnd={markerEnd} interactionWidth={20} style={{ stroke: selected || data?.focus ? 'var(--primary)' : 'var(--graph-edge)', strokeWidth: selected ? 2.5 : data?.focus ? 2 : 1.5, opacity: data?.dim ? 0.2 : 1, strokeDasharray: data?.dashed ? '5 4' : undefined }} />
       {/* Labels of every relationship at once pile up; they show for the selected or hovered person, or on the selected line. */}
       {(selected || data?.showLabel) && (
         <EdgeLabelRenderer>
@@ -145,6 +146,7 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
   onSelectRelationship: (id: string) => void;
   onClear: () => void;
 }) {
+  const dark = useIsDark();
   const known = useMemo(() => new Set(characters.map((character) => character.id)), [characters]);
   const drawable = useMemo(() => relationships.filter((relationship) => known.has(relationship.fromId) && known.has(relationship.toId)), [relationships, known]);
   const layoutKey = useMemo(() => JSON.stringify([characters.map((c) => c.id), drawable.map((r) => [r.fromId, r.toId])]), [characters, drawable]);
@@ -231,7 +233,7 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
   const [dragging, setDragging] = useState(false);
   const flowNodes = useMemo(() => nodes.map((node) => (moving[node.id] ? { ...node, position: moving[node.id] } : node)), [nodes, moving]);
   const edges = useMemo<RelationEdge[]>(() => {
-    const marker = { type: MarkerType.ArrowClosed, color: '#71717a' };
+    const marker = { type: MarkerType.ArrowClosed, color: 'var(--subtle-foreground)' };
     const result: RelationEdge[] = [];
     for (const list of Map.groupBy(drawable, (relationship) => [relationship.fromId, relationship.toId].sort().join('|')).values()) {
       // One relationship each way: one line, arrows at both ends, both names in its label.
@@ -266,7 +268,7 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
 
   if (!positions) return <div className="flex h-full items-center justify-center text-sm text-muted-foreground">배치 계산 중…</div>;
   return (
-    <ReactFlow
+    <ReactFlow colorMode={dark ? 'dark' : 'light'}
       key={positions.key}
       nodes={flowNodes}
       edges={edges}
