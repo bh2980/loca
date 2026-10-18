@@ -1,9 +1,11 @@
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
-import { eachChunk } from '../db/chunk.ts';
+import { eachChunk, inChunks } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { applyIssueTags } from './issue-tags.ts';
 import { addCandidate } from './candidates.ts';
+import { assertProjectRefs } from './project-refs.ts';
+import { badRequest } from '../http-errors.ts';
 
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 type Unit = Pick<typeof s.units.$inferSelect, 'id' | 'projectId' | 'translation' | 'statusId'>;
@@ -43,6 +45,7 @@ export class LineConflict extends Error {
 }
 
 export function saveLine(tx: Tx, unit: Unit, save: LineSave): Partial<typeof s.units.$inferInsert> {
+  assertProjectRefs(tx, unit.projectId, { statusId: save.statusId, candidateId: save.candidateId });
   const current = unit.translation ?? '';
   let text = save.text;
   let candidateId: string | undefined;
@@ -52,6 +55,9 @@ export function saveLine(tx: Tx, unit: Unit, save: LineSave): Partial<typeof s.u
     text = candidate.text;
     candidateId = candidate.id;
   }
+  const targetStatusId = save.statusId ?? unit.statusId;
+  const targetStatus = tx.select({ kind: s.statuses.kind }).from(s.statuses).where(and(eq(s.statuses.id, targetStatusId), eq(s.statuses.projectId, unit.projectId))).get();
+  if (targetStatus?.kind === 'final' && (text ?? current).trim() === '') badRequest('완료 상태에는 번역이 있어야 합니다.');
   const patch: Partial<typeof s.units.$inferInsert> = {};
   if (text !== undefined) {
     if (save.base !== undefined && (save.base ?? '') !== current && text !== current) throw new LineConflict();
@@ -78,6 +84,14 @@ export function saveLine(tx: Tx, unit: Unit, save: LineSave): Partial<typeof s.u
 /** A status (or 확인함) for many lines at once: the same rule as saveLine without text. */
 export function saveStatuses(tx: Tx, projectId: string, unitIds: string[], save: { statusId?: string; checked?: boolean }) {
   if (!save.statusId && !save.checked) return;
+  assertProjectRefs(tx, projectId, { unitIds, statusId: save.statusId });
+  if (save.statusId) {
+    const targetStatus = tx.select({ kind: s.statuses.kind }).from(s.statuses).where(and(eq(s.statuses.id, save.statusId), eq(s.statuses.projectId, projectId))).get();
+    if (targetStatus?.kind === 'final') {
+      const lines = inChunks(unitIds, (slice) => tx.select({ translation: s.units.translation }).from(s.units).where(and(eq(s.units.projectId, projectId), inArray(s.units.id, slice))).all());
+      if (lines.some((line) => !(line.translation ?? '').trim())) badRequest('완료 상태에는 번역이 있어야 합니다.');
+    }
+  }
   const patch = { ...(save.statusId && { statusId: save.statusId }), statusBy: 'human' as const, statusRunId: null };
   // Chunked: a selection can be a whole project, and SQLite caps bound variables per statement.
   eachChunk(unitIds, (slice) => tx.update(s.units).set(patch).where(and(eq(s.units.projectId, projectId), inArray(s.units.id, slice))).run());

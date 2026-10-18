@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Play } from 'lucide-react';
 import { LineDetail } from '@/components/line-detail';
-import { SplitPane, EditorToolbar, FilterChips, Pager, SearchInput, FilterBar, ActionBar, EmptyState, Button, Skeleton, TagChip } from '@loca/ui';
+import { useRevealDock, SplitPane, EditorToolbar, FilterChips, Pager, SearchInput, FilterBar, ActionBar, EmptyState, Button, Skeleton, TagChip } from '@loca/ui';
 import { HeaderActions } from '@/components/page';
 import { MarkChip } from '@/components/status';
 import { tokenPatternOf } from '@/lib/line-context';
@@ -11,6 +11,11 @@ import { lineTags, q } from '@/lib/queries';
 import { hasLineFilter, LineFilters, filterChips, type LinesSearch } from '@/components/script/line-filters';
 import { LineHeadRow, useLineBulk } from '@/components/script/line-bulk';
 import { LineRow } from '@/components/script/line-row';
+import { sceneSelectionState } from '@/components/script/scene-selection';
+
+const LineRowItem = LineRow as React.ComponentType<
+  React.ComponentProps<typeof LineRow> & { onOpenDetail?: () => void }
+>;
 
 export { filterChips, isFinding, linesSearchSchema, type LinesSearch } from '@/components/script/line-filters';
 
@@ -27,8 +32,10 @@ const typing = (target: EventTarget | null) => target instanceof HTMLElement && 
 export function LineList({
   projectId,
   groupId,
+  section,
   review,
   kind,
+  displayKind,
   search,
   onSearch,
   runGroupIds,
@@ -36,13 +43,18 @@ export function LineList({
   onOpenScene,
   find,
   banner,
-  display,
+  dockEditor,
+  dockSelectionKey,
+  emptyAction,
+  withSpeakers = true,
 }: {
   projectId: string;
-  display?: 'focus' | 'review';
   groupId?: string;
+  section?: string;
   review?: boolean;
   kind?: 'scene' | 'document' | 'ui';
+  /** Active source kind even when a selected group narrows the query and `kind` is unset. */
+  displayKind?: 'scene' | 'document' | 'ui';
   search: LinesSearch;
   onSearch: (next: Partial<LinesSearch>, options?: { replace?: boolean }) => void;
   /** What 'AI 실행' runs when no line is picked (the open scene; none = the whole list's scope). */
@@ -55,6 +67,11 @@ export function LineList({
   find?: { ids: Set<string>; label: string };
   /** Shown between the toolbar and the lines (the find bar). */
   banner?: ReactNode;
+  /** An alternate right dock view such as the source editor, selected from the script header. */
+  dockEditor?: ReactNode;
+  dockSelectionKey?: string;
+  emptyAction?: ReactNode;
+  withSpeakers?: boolean;
 }) {
   const statuses = useQuery(q.statuses(projectId));
   // Format tokens read as numbered chips (#1) in every row; the full token is on hover.
@@ -77,9 +94,25 @@ export function LineList({
       projectId,
       find
         ? { groupId, focus: focusing, offset: page * PAGE_SIZE, limit: PAGE_SIZE }
-        : { groupId, kind, review: review ? '1' : undefined, marks: search.marks?.join(','), q: search.q, statusId: search.status, tagIds: search.tags?.join(','), speaker: search.speaker, listener: search.listener, focus: focusing, offset: page * PAGE_SIZE, limit: PAGE_SIZE },
+        : { groupId, section, kind, review: review ? '1' : undefined, marks: search.marks?.join(','), q: search.q, statusId: search.status, tagIds: search.tags?.join(','), speaker: search.speaker, listener: search.listener, focus: focusing, offset: page * PAGE_SIZE, limit: PAGE_SIZE },
     ),
   );
+  // Scene checkboxes operate on the entire filtered result, not just this page. Keep the
+  // projection in sync with the visible rows while the list is showing previous-filter data.
+  const showScene = !groupId;
+  const matchesQuery = q.unitMatches(projectId, {
+    groupId,
+    section,
+    kind,
+    review: review ? '1' : undefined,
+    marks: search.marks?.join(','),
+    q: search.q,
+    statusId: search.status,
+    tagIds: search.tags?.join(','),
+    speaker: search.speaker,
+    listener: search.listener,
+  });
+  const matches = useQuery({ ...matchesQuery, enabled: showScene });
   useEffect(() => {
     if (!focusing || !lines.data || lines.isPlaceholderData) return;
     const held = Math.floor(lines.data.offset / PAGE_SIZE);
@@ -90,18 +123,28 @@ export function LineList({
   const statusById = new Map(statusList.map((status) => [status.id, status]));
   const tagById = new Map(statuses.data?.tags.map((tag) => [tag.id, tag]));
   const rows = lines.data?.rows;
-  useEffect(() => {
-    if (display === 'focus' && rows?.length && !rows.some((row) => row.id === search.line)) onSearch({ line: rows[0].id }, { replace: true });
-  }, [display, rows, search.line, onSearch]);
   const total = lines.data?.total ?? 0;
-  const showScene = !groupId;
+  const matchesReady = !lines.isPlaceholderData && !matches.isPending && !matches.isError && matches.data !== undefined;
+  const matchRows = matchesReady ? matches.data.rows : [];
+  const matchingByScene = useMemo(() => {
+    const grouped = new Map<string, typeof matchRows>();
+    for (const row of matchRows) {
+      const group = grouped.get(row.groupId);
+      if (group) group.push(row);
+      else grouped.set(row.groupId, [row]);
+    }
+    return grouped;
+  }, [matchRows]);
+  const emptyNoun = review ? '검토할 대사' : (displayKind ?? kind) === 'ui' ? 'UI 문자열' : (displayKind ?? kind) === 'document' ? '문서 원문' : '대사';
+  const groupNoun = (displayKind ?? kind) === 'ui' ? 'UI 묶음' : (displayKind ?? kind) === 'document' ? '문서 묶음' : (displayKind ?? kind) === 'scene' ? '장면' : '묶음';
   const speakers = useQuery(q.speakers(projectId));
+  const listeners = useQuery(q.listeners(projectId));
   // Bumped whenever the picked line's editor should take the focus; 0 = just looking.
   const [focusTick, setFocusTick] = useState(0);
   const setEditing = (edit: boolean) => setFocusTick((tick) => (edit ? tick + 1 : 0));
 
   // Lines picked by their checkboxes; the head row above the lines acts on them.
-  const bulk = useLineBulk({ projectId, pickKey: review ? 'review' : (groupId ?? (kind ? `all.${kind}` : 'all')), rows, tagName: (tagId) => tagById.get(tagId)?.name, marks: search.marks });
+  const bulk = useLineBulk({ projectId, pickKey: review ? 'review' : (groupId ?? (kind ? `all.${kind}` : 'all')), rows, selectionRows: matchRows, tagName: (tagId) => tagById.get(tagId)?.name, marks: search.marks });
   const { picked, pick } = bulk;
   // Moving past the end of a page opens the next page and lands on its first (or last) line.
   const landing = useRef<'first' | 'last' | null>(null);
@@ -113,11 +156,14 @@ export function LineList({
     onSearch({ line: target.id }, { replace: true });
   }, [rows, lines.isPlaceholderData, onSearch]);
 
+  const revealDock = useRevealDock();
   const select = (id: string | undefined, edit: boolean) => {
     pickedHere.current = id;
     setEditing(edit);
     onSearch({ line: id }, { replace: true });
   };
+  const patch = (next: Omit<Partial<LinesSearch>, 'detail'> & { detail?: true | '1' | boolean }, replace = true) =>
+    onSearch({ ...next, detail: next.detail ? true : undefined }, { replace });
   const move = (step: 1 | -1, edit = false) => {
     if (!rows?.length) return;
     const index = rows.findIndex((row) => row.id === search.line);
@@ -189,9 +235,11 @@ export function LineList({
   return (
     <SplitPane
       id="lines"
+      autoActivate={Boolean(search.detail)}
+      selectionKey={dockSelectionKey ?? search.line}
       defaultWidth="380px"
       className="h-full min-h-0"
-      pane={
+      pane={dockEditor ?? (
         search.line &&
         (
           <LineDetail
@@ -205,7 +253,7 @@ export function LineList({
             onAiNode={(aiNode) => onSearch({ aiNode }, { replace: true })}
           />
         )
-      }
+      )}
     >
       <HeaderActions>
         <RunDialog projectId={projectId} unitIds={picked.size ? [...picked] : undefined} groupIds={picked.size ? undefined : runGroupIds} viewKind={picked.size || runGroupIds ? undefined : runKind}
@@ -214,11 +262,17 @@ export function LineList({
       </HeaderActions>
       <EditorToolbar><FilterBar>
         <SearchInput value={search.q} onChange={(value) => onSearch({ q: value, page: undefined })} placeholder="원문·번역 찾기" className="w-56" />
-        <LineFilters
+          <LineFilters
           projectId={projectId}
           statuses={statusList}
           tags={lineTags(statuses.data?.tags)}
           speakers={(speakers.data ?? []).flatMap((row) => (row.speaker ? [{ name: row.speaker, lines: row.lines }] : []))}
+          listeners={listeners.data?.listeners ?? []}
+          unknownListenerCount={listeners.data?.unknownCount ?? 0}
+          listenersPending={listeners.isPending}
+          listenersError={listeners.isError}
+          onRetryListeners={() => { void listeners.refetch(); }}
+            withSpeakers={withSpeakers}
           search={search}
           onSearch={(next) => onSearch({ ...next, page: undefined })}
         />
@@ -230,11 +284,17 @@ export function LineList({
             clear: () => onSearch({ ...chip.clear, page: undefined }),
           }))}
         />
-        <span className="ml-auto whitespace-nowrap text-xs text-muted-foreground">{total.toLocaleString()}줄 · 대본 순서</span>
+        <span className="ml-auto whitespace-nowrap text-xs text-muted-foreground">{review && '검토함 · 최근 검사 지적 표시 · '}{total.toLocaleString()}줄 · 대본 순서</span>
       </FilterBar></EditorToolbar>
       {banner}
-      {display === 'focus' && <ActionBar aria-label="집중 보기 탐색" items={[{ id: 'previous', label: '이전 대사', onSelect: () => move(-1) }, { id: 'next', label: '다음 대사', onSelect: () => move(1) }]} />}
-      {display !== 'focus' && !!rows?.length && <LineHeadRow projectId={projectId} rows={rows} bulk={bulk} statusList={statusList} tags={lineTags(statuses.data?.tags)} />}
+      {showScene && (matches.isPending || lines.isPlaceholderData) && <p className="px-3 py-2 text-xs text-muted-foreground" role="status">{groupNoun}별 전체 선택 목록을 불러오는 중입니다.</p>}
+      {showScene && matches.isError && !lines.isPlaceholderData && (
+        <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground" role="alert">
+          <span>{groupNoun}별 전체 선택 목록을 불러오지 못했습니다.</span>
+          <Button variant="outline" onClick={() => void matches.refetch()}>다시 시도</Button>
+        </div>
+      )}
+      {!!rows?.length && <LineHeadRow projectId={projectId} rows={rows} bulk={bulk} statusList={statusList} tags={lineTags(statuses.data?.tags)} />}
       <div className="min-h-0 flex-1 overflow-y-auto">
         {!rows ? (
           <div className="space-y-4 p-4">
@@ -243,19 +303,23 @@ export function LineList({
             ))}
           </div>
         ) : rows.length === 0 ? (
-          <EmptyState className="py-16" noun={review ? '검토할 대사' : '대사'} filtered={!review && hasLineFilter(search)} />
+          <EmptyState className="py-16" noun={emptyNoun} filtered={!review && hasLineFilter(search)} action={!review && !hasLineFilter(search) ? emptyAction : undefined} />
         ) : (
           <ul>
             {rows.map((line, index) => {
-              if (display === 'focus' && line.id !== search.line) return null;
               const selected = line.id === search.line;
               return (
-                <LineRow
+                <LineRowItem
                   key={line.id}
                   projectId={projectId}
                   line={line}
-                  display={display}
                   newScene={showScene && rows[index - 1]?.groupId !== line.groupId}
+                  sceneSelection={showScene && rows[index - 1]?.groupId !== line.groupId ? {
+                    checked: sceneSelectionState(picked, (matchingByScene.get(line.groupId) ?? []).map((row) => row.id)),
+                    disabled: !matchesReady || !(matchingByScene.get(line.groupId)?.length),
+                    count: matchesReady ? `${(matchingByScene.get(line.groupId) ?? []).length.toLocaleString()}줄` : undefined,
+                    onChange: (selected) => pick((matchingByScene.get(line.groupId) ?? []).map((row) => row.id), selected),
+                  } : undefined}
                   selected={selected}
                   marked={find?.ids.has(line.id)}
                   findLabel={find?.label}
@@ -271,6 +335,7 @@ export function LineList({
                   focusTick={focusTick}
                   onPick={(on) => pick([line.id], on)}
                   onSelect={() => select(line.id, true)}
+                  onOpenDetail={() => { revealDock?.(); patch({ line: line.id, detail: '1' }, true); }}
                   onOpenScene={onOpenScene}
                   onArrivedEnd={() => setArrived(undefined)}
                   onNoting={setNoting}

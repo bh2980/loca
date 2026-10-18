@@ -1,13 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { MoreHorizontal, ChevronDown, ChevronRight, ChevronUp, X } from 'lucide-react';
+import { MoreHorizontal, ChevronDown, ChevronRight, ChevronUp, Plus, X } from 'lucide-react';
 import { Page } from '@/components/page';
 import { GroupList, type GroupRow } from '@/components/script/group-list';
 import { filterChips, isFinding, LineList, linesSearchSchema, type LinesSearch } from '@/components/script/line-list';
-import { Button, usePanelWidth, EditorToolbarProvider, EditorToolbarSlot, PageHeading, SegmentedControl, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, ResizableHandle, ResizablePanel, ResizablePanelGroup, Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
+import { SourceEditor, type SourceEditorMode, type SourceSaved } from '@/components/script/source-editor';
+import { Button, ResizableNavigationPanel, EditorToolbarProvider, EditorToolbarSlot, PageHeading, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, ResizablePanel, ResizablePanelGroup, Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
 import { askAgent } from '@/lib/agent';
-import { GROUP_KIND } from '@/lib/labels';
+import { GROUP_KIND, SCRIPT_VIEW, SOURCE_GROUP_LABEL, SOURCE_UNIT_LABEL } from '@/lib/labels';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { keyLabel } from '@/lib/keys';
@@ -19,6 +20,8 @@ interface ScriptSearch extends LinesSearch {
   group?: string;
   /** Only lines waiting in the review inbox. */
   review?: true;
+  /** All lines inside one chapter/section. */
+  section?: string;
   /**
    * The view: the scenes' dialogue, UI strings or documents, each with its own groups on the left.
    * Unset = the picked group's kind, else the first kind the project has. One kind = no views.
@@ -26,7 +29,9 @@ interface ScriptSearch extends LinesSearch {
   kind?: Kind;
   /** The group list's own search, kept while lines change. */
   gq?: string;
-  display?: 'focus' | 'review';
+  /** Source create/edit mode mounted in the line detail dock. */
+  sourceAction?: SourceEditorMode;
+  sourceKind?: Kind;
 }
 
 /** Whether the group list is shown is a per-tab convenience (sessionStorage), like folded sections. */
@@ -42,11 +47,13 @@ const readListOpen = () => {
 export const Route = createFileRoute('/p/$projectId/script')({
   validateSearch: (raw: Record<string, unknown>): ScriptSearch => ({
     ...linesSearchSchema(raw),
-    display: raw.display === 'focus' || raw.display === 'review' ? raw.display : undefined,
     group: typeof raw.group === 'string' && raw.group ? raw.group : undefined,
     review: raw.review === true || raw.review === 'true' ? true : undefined,
+    section: typeof raw.section === 'string' && raw.section ? raw.section : undefined,
     kind: typeof raw.kind === 'string' && raw.kind in GROUP_KIND ? (raw.kind as Kind) : undefined,
     gq: typeof raw.gq === 'string' && raw.gq ? raw.gq : undefined,
+    sourceAction: ['create-group', 'edit-group', 'create-unit', 'edit-unit'].includes(String(raw.sourceAction)) ? raw.sourceAction as SourceEditorMode : undefined,
+    sourceKind: typeof raw.sourceKind === 'string' && raw.sourceKind in GROUP_KIND ? raw.sourceKind as Kind : undefined,
   }),
   component: Script,
 });
@@ -63,24 +70,24 @@ function Script() {
   const allGroups = useQuery(q.groups(projectId));
   const searched = useQuery({ ...q.groups(projectId, { q: search.gq }), enabled: Boolean(search.gq) });
   const statuses = useQuery(q.statuses(projectId));
-  // Scenes, UI and documents are separate views, not one mixed list: each kind the project has gets one.
-  const views = VIEW_ORDER.filter((kind) => allGroups.data?.some((item) => item.kind === kind)).map((kind) => ({
+  // Keep all source kinds available, including empty ones, so standard-format documents are discoverable.
+  const views = VIEW_ORDER.map((kind) => ({
     kind,
     lines: (allGroups.data ?? []).filter((item) => item.kind === kind).reduce((sum, item) => sum + item.total, 0),
   }));
-  const split = views.length > 1;
-  const view: Kind = allGroups.data?.find((item) => item.id === search.group)?.kind ?? search.kind ?? views[0]?.kind ?? 'scene';
+  const view: Kind = allGroups.data?.find((item) => item.id === search.group)?.kind ?? search.kind ?? 'scene';
+  const selectedSection = search.section ? allGroups.data?.find((item) => item.kind === view && item.section === search.section)?.section : undefined;
   const groups = search.gq ? searched : allGroups;
-  const ordered = [...(groups.data ?? [])].filter((item) => !split || item.kind === view).sort((a, b) => a.sort - b.sort);
+  const ordered = [...(groups.data ?? [])].filter((item) => item.kind === view).sort((a, b) => a.sort - b.sort);
+  const kindGroupCount = (allGroups.data ?? []).filter((item) => item.kind === view).length;
   const index = ordered.findIndex((item) => item.id === search.group);
   const group = index >= 0 ? ordered[index] : undefined;
+  const sectionGroupIds = search.section ? (allGroups.data ?? []).filter((item) => item.kind === view && item.section === search.section).map((item) => item.id) : undefined;
   const finalIds = new Set(statuses.data?.statuses.filter((status) => status.kind === 'final').map((status) => status.id));
   const initialIds = new Set(statuses.data?.statuses.filter((status) => status.kind === 'initial').map((status) => status.id));
-  const lineTotal = project.data?.byStatus.reduce((sum, row) => sum + row.count, 0) ?? 0;
   const [listOpen, setListOpen] = useState(() => readListOpen());
   // The list's width is dragged by its edge and remembered, like every right-hand pane.
-  const showGroups = listOpen && search.display !== 'focus';
-  const groupWidth = usePanelWidth('script-groups', 216);
+  const showGroups = listOpen;
   const toggleList = () =>
     setListOpen((open) => {
       try {
@@ -90,13 +97,13 @@ function Script() {
       }
       return !open;
     });
-  useReportView('script', [group && { kind: GROUP_KIND[group.kind], id: group.id, label: group.title }]);
+  useReportView('script', [group && { kind: SOURCE_GROUP_LABEL[group.kind], id: group.id, label: group.title }]);
 
   // 찾아가기: the filter's lines are walked one by one inside their scenes instead of listed apart.
   const finding = isFinding(search) && !search.review;
   const matches = useQuery({
     // Walking a filter stays inside the open view (대사 · UI · 문서).
-    ...q.unitMatches(projectId, { kind: split ? view : undefined, statusId: search.status, tagIds: search.tags?.join(','), q: search.q, speaker: search.speaker, listener: search.listener, marks: search.marks?.join(',') }),
+    ...q.unitMatches(projectId, { kind: view, section: search.section, statusId: search.status, tagIds: search.tags?.join(','), q: search.q, speaker: search.speaker, listener: search.listener, marks: search.marks?.join(',') }),
     enabled: finding,
   });
   const matchRows = useMemo(() => (finding ? (matches.data?.rows ?? []) : []), [finding, matches.data]);
@@ -106,7 +113,7 @@ function Script() {
     return counts;
   }, [matchRows]);
   const position = matchRows.findIndex((row) => row.id === search.line);
-  const goToMatch = useCallback((row: { id: string; groupId: string } | undefined) => row && void navigate({ search: (previous) => ({ ...previous, group: row.groupId, line: row.id, page: undefined }), replace: true }), [navigate]);
+  const goToMatch = useCallback((row: { id: string; groupId: string } | undefined) => row && void navigate({ search: (previous) => ({ ...previous, group: row.groupId, section: undefined, line: row.id, page: undefined }), replace: true }), [navigate]);
   // Next/previous from the picked line; from a line that is not a match, the nearest one after or before it in script order.
   const step = (direction: 1 | -1) => {
     if (!matchRows.length) return;
@@ -149,21 +156,67 @@ function Script() {
   const clearFilters = { q: undefined, status: undefined, tags: undefined, speaker: undefined, listener: undefined, marks: undefined, mode: undefined, page: undefined };
 
   const onSearch = useCallback((next: Partial<ScriptSearch>, options?: { replace?: boolean }) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace: options?.replace }), [navigate]);
-  // Moving to another scene keeps a filter being walked (찾아가기); otherwise only the list's own search and marks.
-  const openGroup = (id: string | undefined) =>
-    void navigate({ search: (previous) => (finding ? { ...previous, group: id, line: undefined, page: undefined, detail: undefined } : { gq: previous.gq, marks: previous.marks, group: id }) });
+  // Scene navigation changes location, not the user's active filters.
+  const openGroup = (id: string | undefined, line?: string) =>
+    void navigate({ search: (previous) => ({ ...previous, sourceAction: undefined, sourceKind: undefined, group: id, section: undefined, review: undefined, kind: id ? undefined : previous.kind, line, page: undefined, detail: undefined, lineTab: undefined }) });
+  const openSourceEditor = (mode: SourceEditorMode, kind: Kind = view) =>
+    void navigate({ search: (previous) => ({ ...previous, sourceAction: mode, sourceKind: kind }) });
+  const closeSourceEditor = () => void navigate({ search: (previous) => ({ ...previous, sourceAction: undefined, sourceKind: undefined }), replace: true });
+  const onSourceSaved = (result: SourceSaved) => {
+    // Land on the saved source even if the prior filters would have hidden it.
+    void navigate({ search: (previous) => ({
+      ...previous,
+      sourceAction: undefined,
+      sourceKind: undefined,
+      kind: result.entity === 'group' ? undefined : previous.kind,
+      group: result.groupId,
+      section: undefined,
+      review: undefined,
+      line: result.entity === 'unit' ? result.id : undefined,
+      q: undefined, status: undefined, tags: undefined, speaker: undefined, listener: undefined, marks: undefined, mode: undefined,
+      page: undefined, detail: undefined, lineTab: undefined,
+    }) });
+  };
+
+  const activeGroupKind = group?.kind ?? view;
+  const sourceActions = [
+    {
+      label: '추가',
+      items: [
+        ...(['scene', 'ui', 'document'] as const).map((kind) => (
+          <DropdownMenuItem key={`unit-${kind}`} onSelect={() => openSourceEditor('create-unit', kind)}><Plus />{SOURCE_UNIT_LABEL[kind]} 추가</DropdownMenuItem>
+        )),
+        <DropdownMenuItem key="group" onSelect={() => openSourceEditor('create-group', view)}><Plus />{SOURCE_GROUP_LABEL[view]} 추가</DropdownMenuItem>,
+      ],
+    },
+    {
+      label: '편집',
+      items: [
+        ...(group ? [<DropdownMenuItem key="edit-group" onSelect={() => openSourceEditor('edit-group', group.kind)}>{SOURCE_GROUP_LABEL[group.kind]} 편집</DropdownMenuItem>] : []),
+        ...(search.line ? [<DropdownMenuItem key="edit-unit" onSelect={() => openSourceEditor('edit-unit', activeGroupKind)}>{SOURCE_UNIT_LABEL[activeGroupKind]} 편집</DropdownMenuItem>] : []),
+      ],
+    },
+    {
+      label: '탐색',
+      items: [
+        <DropdownMenuItem key="toggle-list" onSelect={toggleList}>{listOpen ? `${SOURCE_GROUP_LABEL[activeGroupKind]} 목록 접기` : `${SOURCE_GROUP_LABEL[activeGroupKind]} 목록 펴기`}</DropdownMenuItem>,
+        <DropdownMenuItem key="previous" disabled={index <= 0} onSelect={() => openGroup(ordered[index - 1]?.id)}>이전 {SOURCE_GROUP_LABEL[activeGroupKind]}</DropdownMenuItem>,
+        <DropdownMenuItem key="next" disabled={index < 0 || index >= ordered.length - 1} onSelect={() => openGroup(ordered[index + 1]?.id)}>다음 {SOURCE_GROUP_LABEL[activeGroupKind]}</DropdownMenuItem>,
+        ...(group?.kind === 'scene' ? [<DropdownMenuItem key="graph" asChild><Link to="/p/$projectId/graph" params={{ projectId }} search={{ scope: 'dialogue', scene: group.id }}>대사 그래프에서 보기</Link></DropdownMenuItem>] : []),
+      ],
+    },
+    {
+      label: 'AI',
+      items: group?.kind === 'scene' ? [<DropdownMenuItem key="summary" onSelect={() => askAgent('이 장면을 끝까지 읽고 요약해줘.', { send: true })}>AI로 장면 요약</DropdownMenuItem>] : [],
+    },
+  ].filter((section) => section.items.length > 0);
 
   const heading = <>
-    <span className="text-sm font-semibold">대사</span><ChevronRight className="size-3 text-muted-foreground" />
-    <span className="max-w-36 truncate text-xs text-muted-foreground">{group?.title ?? (search.review ? '검토 대기' : '모든 장면')}</span>
-    <SegmentedControl ariaLabel="대사 보기" value={search.display ?? 'grid'} onChange={(value) => onSearch({ display: value === 'grid' ? undefined : value as 'focus' | 'review' })} items={[{ value: 'grid', label: '격자' }, { value: 'focus', label: '집중' }, { value: 'review', label: '검토' }]} />
-    <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon-sm" aria-label="대사 보기 메뉴"><MoreHorizontal /></Button></DropdownMenuTrigger>
+    <span className="text-sm font-semibold">{search.review ? '검토함' : SCRIPT_VIEW[view]}</span><ChevronRight className="size-3 text-muted-foreground" />
+    <span className="max-w-48 truncate text-xs text-muted-foreground">{group?.title ?? selectedSection ?? (search.review ? '검토 대기' : `전체 ${view === 'scene' ? '대사' : view === 'ui' ? 'UI' : '문서'}`)}</span>
+    <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon-sm" aria-label="원문 보기 메뉴"><MoreHorizontal /></Button></DropdownMenuTrigger>
       <DropdownMenuContent align="start">
-        <DropdownMenuItem onSelect={toggleList}>{listOpen ? '장면 목록 접기' : '장면 목록 펴기'}</DropdownMenuItem>
-        <DropdownMenuItem disabled={index <= 0} onSelect={() => openGroup(ordered[index - 1]?.id)}>이전 장면</DropdownMenuItem>
-        <DropdownMenuItem disabled={index < 0 || index >= ordered.length - 1} onSelect={() => openGroup(ordered[index + 1]?.id)}>다음 장면</DropdownMenuItem>
-        {group?.kind === 'scene' && <DropdownMenuItem asChild><Link to="/p/$projectId/graph" params={{ projectId }} search={{ scope: 'dialogue', scene: group.id }}>대사 그래프에서 보기</Link></DropdownMenuItem>}
-        {group && <DropdownMenuItem onSelect={() => askAgent(`이 ${GROUP_KIND[group.kind]}을 끝까지 읽고 요약해줘.`, { send: true })}>AI로 장면 요약</DropdownMenuItem>}
+        {sourceActions.map((section, index) => <Fragment key={section.label}>{index > 0 && <DropdownMenuSeparator />}<DropdownMenuGroup aria-label={section.label}><DropdownMenuLabel>{section.label}</DropdownMenuLabel>{section.items}</DropdownMenuGroup></Fragment>)}
       </DropdownMenuContent>
     </DropdownMenu>
   </>;
@@ -174,47 +227,43 @@ function Script() {
       <EditorToolbarSlot />
       <PageHeading>{heading}</PageHeading>
       <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
-        {showGroups && (
-          <>
-            <ResizablePanel id="groups" {...groupWidth} minSize="180px" maxSize="50%" className="min-w-0">
-              <GroupList
-                statuses={statuses.data?.statuses}
-                projectId={projectId}
-                groups={groups.data && ordered}
-                finalIds={finalIds}
-                initialIds={initialIds}
-                scope={{ group: search.group, review: search.review, kind: split ? view : undefined }}
-                views={split ? views : undefined}
-                lineTotal={lineTotal}
-                reviewCount={project.data?.reviewCount ?? 0}
-                gq={search.gq}
-                onFilter={(gq) => onSearch({ gq }, { replace: true })}
-                marks={finding ? perScene : undefined}
-              />
-            </ResizablePanel>
-            <ResizableHandle withHandle />
-          </>
-        )}
+        <ResizableNavigationPanel id="groups" widthKey="script-groups" defaultWidth={216} open={showGroups}>
+          <GroupList
+            statuses={statuses.data?.statuses}
+            projectId={projectId}
+            groups={groups.data && ordered}
+            finalIds={finalIds}
+            initialIds={initialIds}
+            scope={{ group: search.group, review: search.review, section: search.section, kind: view }}
+            views={views}
+            reviewCount={project.data?.reviewCount ?? 0}
+            gq={search.gq}
+            onFilter={(gq) => onSearch({ gq }, { replace: true })}
+            marks={finding ? perScene : undefined}
+          />
+        </ResizableNavigationPanel>
         <ResizablePanel id="lines" minSize="360px" className="flex min-w-0 flex-col">
           <LineList
-            key={`${search.group ?? ''}:${search.review ?? ''}:${search.group || search.review ? '' : view}`}
+            key={`${search.group ?? ''}:${search.section ?? ''}:${search.review ?? ''}:${search.group || search.review ? '' : view}`}
             projectId={projectId}
             groupId={search.group}
             review={search.review}
-            kind={search.group || search.review || !split ? undefined : view}
+            kind={search.group || search.review ? undefined : view}
+            displayKind={view}
+            section={search.group || search.review ? undefined : search.section}
             search={search}
             onSearch={onSearch}
-            onOpenScene={(groupId, line) => void navigate({ search: { group: groupId, line } })}
+            onOpenScene={(groupId, line) => openGroup(groupId, line)}
             find={finding && search.group ? { ids: new Set(matchRows.filter((row) => row.groupId === search.group).map((row) => row.id)), label: findLabel } : undefined}
             banner={
               finding && (
                 <div className="flex shrink-0 items-center gap-2 border-b bg-warning/5 px-4 py-1.5 text-sm">
                   {/* Says it is the whole scene, the matches marked: the list alone shows only the matches. */}
                   <span className="truncate">
-                    {GROUP_KIND[group?.kind ?? view]} 전체에서 <span className="font-medium">{findLabel}</span> 찾는 중
+                    {SOURCE_GROUP_LABEL[group?.kind ?? view]} 전체에서 <span className="font-medium">{findLabel}</span> 찾는 중
                   </span>
                   <span className="text-xs whitespace-nowrap text-muted-foreground tabular-nums">
-                    {!matches.data ? '찾는 중…' : !matchRows.length ? '해당하는 줄이 없습니다' : `${position >= 0 ? (position + 1).toLocaleString() : '–'} / ${matchRows.length.toLocaleString()}줄 · 이 장면 ${(perScene.get(search.group ?? '') ?? 0).toLocaleString()}줄`}
+                    {!matches.data ? '찾는 중…' : !matchRows.length ? '해당하는 줄이 없습니다' : `${position >= 0 ? (position + 1).toLocaleString() : '–'} / ${matchRows.length.toLocaleString()}줄 · 이 ${SOURCE_GROUP_LABEL[group?.kind ?? view]} ${(perScene.get(search.group ?? '') ?? 0).toLocaleString()}줄`}
                   </span>
                   <span className="ml-auto flex items-center gap-1">
                     <Tooltip>
@@ -243,9 +292,30 @@ function Script() {
                 </div>
               )
             }
-            display={search.display}
-            runGroupIds={group ? [group.id] : undefined}
-            runKind={split && !search.group && !search.review ? view : undefined}
+            runGroupIds={group ? [group.id] : sectionGroupIds}
+            runKind={!search.group && !search.review && !search.section ? view : undefined}
+            withSpeakers={view === 'scene'}
+            emptyAction={kindGroupCount === 0 ? <Button variant="outline" onClick={() => openSourceEditor('create-group', view)}>{SOURCE_GROUP_LABEL[view]} 추가</Button> : <Button variant="outline" onClick={() => openSourceEditor('create-unit', view)}>{SOURCE_UNIT_LABEL[view]} 추가</Button>}
+            dockSelectionKey={search.sourceAction ? `source:${search.sourceAction}:${search.sourceKind ?? ''}:${search.group ?? ''}:${search.line ?? ''}` : undefined}
+            dockEditor={search.sourceAction ? <SourceEditor
+              projectId={projectId}
+              kind={search.sourceKind ?? group?.kind ?? view}
+              groupId={search.sourceAction === 'edit-group' || (search.sourceAction === 'create-unit' && (group?.kind ?? view) === (search.sourceKind ?? view)) ? search.group : undefined}
+              unitId={search.sourceAction === 'edit-unit' ? search.line : undefined}
+              mode={search.sourceAction}
+              onClose={closeSourceEditor}
+              onSaved={onSourceSaved}
+              onCreateGroup={() => openSourceEditor('create-group', search.sourceKind ?? view)}
+              onDeleted={() => void navigate({ search: (previous) => ({
+                ...previous,
+                sourceAction: undefined,
+                sourceKind: undefined,
+                ...(search.sourceAction === 'edit-group' ? { group: undefined, kind: search.sourceKind ?? view, section: undefined, review: undefined, page: undefined } : {}),
+                line: undefined,
+                detail: undefined,
+                lineTab: undefined,
+              }), replace: true })}
+            /> : undefined}
           />
         </ResizablePanel>
       </ResizablePanelGroup>

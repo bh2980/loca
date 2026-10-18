@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { compileFormatRules, mentions } from '@tw/shared';
+import { compileFormatRules, termMatcher } from '@tw/shared';
 import { q } from '@/lib/queries';
 import { numberTokens, tokenUnits, type TokenKind } from '@/lib/tokens';
 
@@ -49,15 +49,22 @@ const wordPattern = (name: string) => new RegExp(`(?<![\\p{L}\\p{N}])${escape(na
 export function useLineContext(projectId: string, source: string) {
   const project = useQuery(q.project(projectId));
   const terms = useQuery(q.terms(projectId));
+
+  const confirmedTerms = useMemo(
+    () =>
+      (terms.data ?? [])
+        .filter((term) => term.status === 'confirmed' && term.target)
+        .sort((a, b) => b.source.length - a.source.length)
+        .map((term) => ({ source: term.source, target: term.target })),
+    [terms.data],
+  );
+  const matcher = useMemo(() => termMatcher(confirmedTerms, (term) => term.source), [confirmedTerms]);
+  const tokenPattern = useMemo(() => tokenPatternOf(project.data?.formatRules ?? undefined), [project.data?.formatRules]);
+
   return useMemo(() => {
-    const tokenPattern = tokenPatternOf(project.data?.formatRules ?? undefined);
     const units = tokenUnits(source, tokenPattern);
     const plain = withoutTokens(source, tokenPattern);
-    const used = (terms.data ?? [])
-      .filter((term) => term.status === 'confirmed' && term.target && mentions(plain, term.source))
-      // Longer names first, so "Captain Allen" wins over "Allen".
-      .sort((a, b) => b.source.length - a.source.length)
-      .map((term) => ({ source: term.source, target: term.target }));
+    const used = matcher.find(plain);
 
     // Cut the source into plain text, tokens and term mentions (tokens win over terms).
     const marks: { start: number; end: number; part: SourcePart }[] = [];
@@ -77,5 +84,5 @@ export function useLineContext(projectId: string, source: string) {
     }
     if (at < source.length) cut.push({ text: source.slice(at) });
     return { tokenPattern, units, terms: used, parts: cut, formatRules: project.data?.formatRules };
-  }, [project.data?.formatRules, terms.data, source]);
+  }, [tokenPattern, matcher, source, project.data?.formatRules]);
 }
