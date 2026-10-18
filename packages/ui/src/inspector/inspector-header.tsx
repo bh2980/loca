@@ -28,7 +28,7 @@ export function InspectorHeader({
       {icon && <div className="mt-0.5 shrink-0 text-muted-foreground">{icon}</div>}
       <div className="min-w-0 flex-1">
         {kind && <div className="text-xs font-medium text-subtle-foreground">{kind}</div>}
-        <h2 className="truncate text-lg font-semibold tracking-tight text-foreground">{name}</h2>
+        <h2 className="truncate text-base font-semibold leading-snug text-foreground">{name}</h2>
         {status != null && <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs">{status}</div>}
       </div>
       {actions && <div className="flex shrink-0 items-center gap-1">{actions}</div>}

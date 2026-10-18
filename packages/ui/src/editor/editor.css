@@ -1,13 +1,8 @@
 .speaker-avatar {
   background-color: var(--speaker-color);
-  color: var(--background);
+  color: var(--foreground);
 }
 
-.dark .speaker-avatar {
-  background-color: var(--speaker-color);
-  color: var(--background);
-}
-
-.dark .speaker-name {
+.speaker-name {
   color: var(--speaker-color);
 }

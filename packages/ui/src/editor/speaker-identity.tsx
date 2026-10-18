@@ -21,10 +21,12 @@ export function SpeakerIdentity({ speaker, listener, listenerIsPerson: _listener
   return (
     <span className={cn("inline-flex min-w-0 items-center gap-1.5 text-xs", className)}>
       <span className="speaker-name truncate font-medium text-muted-foreground" style={{ "--speaker-color": color } as CSSProperties}>{label}</span>
-      {listener !== undefined && <>
-        <span aria-hidden="true" className="text-subtle-foreground">→</span>
-        <span className="truncate text-subtle-foreground">{listener?.trim() || "청자 미상"}</span>
-      </>}
+      {Boolean(listener?.trim()) && (
+        <>
+          <span aria-hidden="true" className="text-subtle-foreground">→</span>
+          <span className="truncate text-subtle-foreground">{listener!.trim()}</span>
+        </>
+      )}
     </span>
   )
 }

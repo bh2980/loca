@@ -5,6 +5,7 @@ import { usePanelRef } from 'react-resizable-panels';
 import { Button } from '../primitives/button';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '../primitives/resizable';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../primitives/tooltip';
+import { SegmentedControl } from './segmented-control';
 import { cn } from '../lib/utils';
 import { usePanelWidth } from './use-panel-width';
 
@@ -14,7 +15,9 @@ interface DockContextValue {
   setTarget: (target: HTMLDivElement | null) => void;
   register: (entry: Entry) => () => void;
   active?: string;
+  hasContent: boolean;
   activate?: () => void;
+  revealDock?: () => void;
 }
 const DockContext = createContext<DockContextValue | null>(null);
 const DockDepth = createContext(0);
@@ -28,15 +31,19 @@ export function DockProvider({ children, onActivate, onContentChange }: { childr
     return () => setEntries((previous) => previous.filter((item) => item.id !== entry.id));
   }, []);
   const active = entries.reduce<Entry | undefined>((best, item) => !best || item.depth >= best.depth ? item : best, undefined)?.id;
-  useEffect(() => { onContentChange?.(Boolean(active)); }, [active, onContentChange]);
-  const context = useMemo(() => ({ target, setTarget, register, active, activate: onActivate }), [target, register, active, onActivate]);
+  const hasContent = Boolean(active);
+  useEffect(() => { onContentChange?.(hasContent); }, [hasContent, onContentChange]);
+  const revealDock = useCallback(() => {
+    if (hasContent) onActivate?.();
+  }, [hasContent, onActivate]);
+  const context = useMemo(() => ({ target, setTarget, register, active, hasContent, activate: onActivate, revealDock }), [target, register, active, hasContent, onActivate, revealDock]);
   return <DockContext.Provider value={context}>{children}</DockContext.Provider>;
 }
 
 export function useHasDock() { return useContext(DockContext) !== null; }
-export function useRevealDock() { return useContext(DockContext)?.activate; }
+export function useRevealDock() { return useContext(DockContext)?.revealDock; }
 
-export function DockContent({ children, selectionKey }: { children: ReactNode; selectionKey?: string }) {
+export function DockContent({ children, selectionKey, autoActivate = true }: { children: ReactNode; selectionKey?: string; autoActivate?: boolean }) {
   const dock = useContext(DockContext);
   const depth = useContext(DockDepth);
   const id = useId();
@@ -45,7 +52,7 @@ export function DockContent({ children, selectionKey }: { children: ReactNode; s
   const activate = dock?.activate;
   useEffect(() => present && register ? register({ id, depth }) : undefined, [register, id, depth, present]);
   // A new selection reveals its inspector, but query refreshes and drafts never reopen it.
-  useEffect(() => { if (present) activate?.(); }, [activate, present, selectionKey]);
+  useEffect(() => { if (present && autoActivate) activate?.(); }, [activate, present, selectionKey, autoActivate]);
   return dock?.target && present ? createPortal(
     <div className={cn('h-full min-h-0', dock.active !== id && 'hidden')} aria-hidden={dock.active !== id || undefined}>{children}</div>, dock.target,
   ) : null;
@@ -68,9 +75,10 @@ export function DockInspector({ empty }: { empty?: ReactNode }) {
   </div>;
 }
 
-export function DockHeader({ mode, onMode, unread, tools, onToggle, open = true }: {
+export function DockHeader({ mode, onMode, unread, tools, onToggle, open = true, hasProperties = true }: {
   mode: 'properties' | 'agent'; onMode: (mode: 'properties' | 'agent') => void;
   unread?: boolean; tools?: ReactNode; onToggle: () => void; open?: boolean;
+  hasProperties?: boolean;
 }) {
   if (!open) {
     return <div className="flex items-center gap-1">{tools}
@@ -78,12 +86,30 @@ export function DockHeader({ mode, onMode, unread, tools, onToggle, open = true 
     </div>;
   }
   return <div className="flex h-12 shrink-0 items-center gap-1 border-b border-border px-4">
-    <div className="flex items-center gap-1" role="group" aria-label="오른쪽 패널">
-      <Button variant={mode === 'properties' ? 'secondary' : 'ghost'} aria-pressed={mode === 'properties'} onClick={() => onMode('properties')}>속성</Button>
-      <Button variant={mode === 'agent' ? 'secondary' : 'ghost'} aria-pressed={mode === 'agent'} onClick={() => onMode('agent')}>
-        에이전트 {unread && <span className="size-1.5 rounded-full bg-primary" aria-label="새 소식" />}
-      </Button>
-    </div>
+    {hasProperties ? (
+      <SegmentedControl
+        ariaLabel="오른쪽 패널"
+        value={mode}
+        onChange={(val) => onMode(val as 'properties' | 'agent')}
+        items={[
+          { value: 'properties', label: '속성' },
+          {
+            value: 'agent',
+            label: (
+              <>
+                에이전트
+                {unread && <span className="size-1.5 rounded-full bg-primary" aria-label="새 소식" />}
+              </>
+            ),
+          },
+        ]}
+      />
+    ) : (
+      <span className="inline-flex items-center gap-1.5 px-1.5 text-xs font-medium text-foreground">
+        에이전트
+        {unread && <span className="size-1.5 rounded-full bg-primary" aria-label="새 소식" />}
+      </span>
+    )}
     <div className="ml-auto flex items-center gap-1">{tools}
       <Tooltip><TooltipTrigger asChild><Button size="icon-sm" variant="ghost" aria-label="오른쪽 패널 접기" onClick={onToggle}><PanelRight /></Button></TooltipTrigger><TooltipContent>오른쪽 패널 접기</TooltipContent></Tooltip>
     </div>
