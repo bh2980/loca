@@ -4,8 +4,7 @@ import { importFileSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from './importer.ts';
-import { decideProposal, propose, takeDecisions } from './proposals.ts';
-import { undoProposals } from './proposals.ts';
+import { decideProposal, propose, takeDecisions, undoProposals } from './proposals.ts';
 import { saveLine } from './line-save.ts';
 
 function setup() {
