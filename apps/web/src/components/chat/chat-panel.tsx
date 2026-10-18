@@ -2,7 +2,7 @@ import { Fragment, useEffect, useRef, useState } from 'react';
 import { useChat } from '@ai-sdk/react';
 import type { UIMessage } from 'ai';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useLocation } from '@tanstack/react-router';
+import { Link, useLocation } from '@tanstack/react-router';
 import { ArrowUp, Check, ChevronRight, History, Plus, Square, Trash2, X } from 'lucide-react';
 import { Markdown } from './markdown';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, Spinner, Textarea } from '@loca/ui';
@@ -266,6 +266,7 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
   }, [turn?.startedAt, status]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [input, setInput] = useState(() => sessionStorage.getItem(`tw.chat.draft.${sessionId}`) ?? '');
+  const [showModelHint, setShowModelHint] = useState(false);
   // Sent while the reply was running (#44): waiting for the turn to take them at its next step.
   // Those still on the server (sent before a reload, or a turn a restart cut off) go with the next one.
   const [queued, setQueued] = useState<string[]>(pending);
@@ -439,12 +440,23 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
           onKeyDown={(event) => {
             if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault();
+              if (!ready) {
+                setShowModelHint(true);
+                return;
+              }
               send();
             }
           }}
           placeholder={ready ? (busy || elsewhere ? '답하는 중에도 보낼 수 있습니다 (다음 단계에 전달)' : '메시지 (Enter 전송, Shift+Enter 줄바꿈)') : '먼저 아래에서 채팅할 AI 연결과 모델을 고르세요'}
           className="max-h-48 min-h-16 resize-none border-0 bg-transparent px-1 shadow-none focus-visible:ring-0"
         />
+        {!ready && (input.trim() || showModelHint) && (
+          <p className="px-1 text-xs text-muted-foreground">
+            보내려면 아래에서 채팅할 AI 연결과 모델을 고르세요. 연결이 없으면{' '}
+            <Link to="/p/$projectId/ai/connections" params={{ projectId }} className="underline">AI 연결 화면</Link>
+            에서 추가합니다.
+          </p>
+        )}
         <div className="flex items-center gap-2">
           <div className="min-w-0 flex-1">
             <ModelPicker compact need={['chat']} value={model} onChange={(next) => void onModel(next)} />
