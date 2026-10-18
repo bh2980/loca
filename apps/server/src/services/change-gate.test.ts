@@ -52,6 +52,16 @@ describe('change gate (#45)', () => {
     expect(hasUnreportedDecisions(db, chat.id)).toBe(false);
   });
 
+  it('bypass: adds a translation candidate and says the current translation is unchanged', async () => {
+    const { db, projectId, chat } = setup('bypass');
+    const unit = db.select().from(s.units).get()!;
+    const gate = await proposeChange(db, { projectId, sessionId: chat.id, source: 'api', tool: 'propose_translation', input: { unitId: unit.id, text: '안녕', note: '' } });
+    expect(gate.ok && gate.text).toContain('후보');
+    expect(gate.ok && gate.text).toContain('현재 번역은 그대로');
+    expect(db.select().from(s.candidates).where(eq(s.candidates.unitId, unit.id)).get()).toBeDefined();
+    expect(db.select().from(s.units).where(eq(s.units.id, unit.id)).get()?.translation).toBeNull();
+  });
+
   it('auto: a small checked change applies; a run, a large batch or a warning asks', async () => {
     const { db, projectId, chat } = setup('auto');
     const small = await proposeChange(db, { projectId, sessionId: chat.id, source: 'cli', tool: 'save_character', input: { name: 'Bob' } });

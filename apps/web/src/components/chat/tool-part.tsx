@@ -1,7 +1,7 @@
 import { useNavigate, useParams } from '@tanstack/react-router';
 import { Check, ChevronRight, CircleAlert, Network, Wrench, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { AGENT_TOOLS } from '@tw/shared';
+import { acceptedLabel, AGENT_TOOLS } from '@tw/shared';
 import { workflowEdits, type WorkflowNodeEdit } from '@/lib/workflow-edits';
 import { ChangePreview, LABEL } from './change-preview';
 import { ProposalCard, type Proposal } from './proposal-card';
@@ -84,7 +84,7 @@ export function ToolPart({ part, stale, onDecide, onOutput, proposal }: {
           <CardTitle>{label}</CardTitle>
           <span className="ml-auto text-right">
             {part.state === 'output-denied' && <span className="text-muted-foreground">거절함</span>}
-            {part.state === 'output-available' && !failed && !waiting && <span className="text-success">적용됨</span>}
+            {part.state === 'output-available' && !failed && !waiting && <span className="text-success">{acceptedLabel(name).short}</span>}
             {waiting && <span className="text-muted-foreground">결정 기다리는 중</span>}
             {failed && <span className="text-destructive">{output?.status === 'rejected' ? '거절함' : String(output?.error ?? '실패')}</span>}
             {part.state === 'approval-responded' && <Spinner className="size-3" />}

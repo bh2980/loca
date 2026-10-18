@@ -481,7 +481,7 @@ function SteerBubble({ text, waiting = false }: { text: string; waiting?: boolea
 function DecisionNotice({ text }: { text: string }) {
   const lines = text.split('\n').filter((line) => line.startsWith('- '));
   const count = (word: string) => lines.filter((line) => line.includes(word)).length;
-  const summary = [['수락되어 반영됨', '반영'], ['거절함', '거절'], ['실패함', '실패']].flatMap(([word, label]) => (count(word) ? [`${label} ${count(word)}`] : [])).join(' · ');
+  const summary = [['수락되어 반영됨', '반영'], ['수락되어 후보로 추가됨', '후보 추가'], ['거절함', '거절'], ['실패함', '실패']].flatMap(([word, label]) => (count(word) ? [`${label} ${count(word)}`] : [])).join(' · ');
   return (
     <p className="flex items-center gap-1.5 text-xs text-muted-foreground" title={text}>
       <Check className="size-3.5" /> 제안 결과를 에이전트에게 알렸습니다{summary && ` (${summary})`}
