@@ -2,7 +2,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { TriangleAlert } from 'lucide-react';
 import { toast } from 'sonner';
 import { PI_BUILTIN_TOOLS, piOptionsSchema, type PiBuiltinTool, type PiOptions } from '@tw/shared';
-import { Button, Checkbox, Input, Spinner, Switch } from '@loca/ui';
+import { Button, Checkbox, Input, Spinner, Switch, HelpTip } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { useFormFrom } from '@/lib/use-form-from';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
@@ -14,7 +14,7 @@ function Row({ label, hint, checked, onChange }: { label: string; hint?: string;
     <label className="flex items-start justify-between gap-3 py-1.5 text-sm">
       <span>
         {label}
-        {hint && <span className="block text-xs text-muted-foreground">{hint}</span>}
+        {hint && <span className="ml-1 inline-flex align-middle"><HelpTip>{hint}</HelpTip></span>}
       </span>
       <Switch checked={checked} onCheckedChange={onChange} className="mt-0.5" />
     </label>
@@ -47,8 +47,7 @@ export function PiOptionsPanel({ connectionId, options }: { connectionId: string
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-sm font-semibold">pi에서 불러올 것</h3>
-        <p className="text-xs text-muted-foreground">작업실 도구(대본·용어·제안 카드)는 항상 붙습니다. 그 밖에 pi에 설치한 것을 여기서 켜고 끕니다.</p>
+        <h3 className="flex items-center gap-1 text-sm font-semibold">pi에서 불러올 것 <HelpTip>작업실 도구(대본·용어·제안 카드)는 항상 붙습니다. 그 밖에 pi에 설치한 것을 여기서 켜고 끕니다.</HelpTip></h3>
       </div>
       {conflicts.length > 0 && <ChangedElsewhere onTakeSaved={takeSaved} onKeepMine={keepMine} />}
 
@@ -91,8 +90,7 @@ export function PiOptionsPanel({ connectionId, options }: { connectionId: string
       </section>
 
       <section>
-        <p className="text-sm">pi 기본 도구</p>
-        <p className="text-xs text-muted-foreground">이 컴퓨터의 파일을 읽거나 고치고 명령을 실행합니다. 번역 작업에는 보통 필요 없습니다.</p>
+        <p className="flex items-center gap-1 text-sm">pi 기본 도구 <HelpTip>이 컴퓨터의 파일을 읽거나 고치고 명령을 실행합니다. 번역 작업에는 보통 필요 없습니다.</HelpTip></p>
         <div className="mt-1 grid grid-cols-2 gap-x-4">
           {(Object.keys(PI_BUILTIN_TOOLS) as PiBuiltinTool[]).map((tool) => (
             <label key={tool} className="flex items-center gap-2 py-1 text-sm">

@@ -54,7 +54,7 @@ export function TermPick({ projectId, unitId, children }: { projectId: string; u
             >
               <p className="text-xs text-muted-foreground">용어로 추가</p>
               <Input aria-label="원문" value={pick.source} onChange={(event) => setPick({ ...pick, source: event.target.value })} />
-              <Input aria-label="번역" placeholder="번역 (편집기에서 골라 두면 채워짐)" value={pick.target} autoFocus onChange={(event) => setPick({ ...pick, target: event.target.value })} />
+              <Input aria-label="번역어" placeholder="번역어" value={pick.target} autoFocus onChange={(event) => setPick({ ...pick, target: event.target.value })} />
               {existing && (
                 <p className="text-xs text-warning">
                   이미 있습니다: {existing.source} → {existing.target || '(번역 없음)'}

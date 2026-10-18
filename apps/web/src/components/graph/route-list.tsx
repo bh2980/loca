@@ -8,7 +8,7 @@ import { buildItems, indexOfLine, nodeStarts, routeSequence, translatedIds, untr
 import { LineSourceText, TokenText } from '@/components/editor/source-text';
 import { LineHints } from '@/components/script/line-row';
 import { TranslationEditor } from '@/components/translation-editor';
-import { Button, Skeleton, AiMark, StatusIcon } from '@loca/ui';
+import { Button, Skeleton, AiMark, StatusIcon, HelpTip } from '@loca/ui';
 import { client, unwrap, type InferResponseType } from '@/lib/api';
 import { tokenPatternOf } from '@/lib/line-context';
 import { keyLabel } from '@/lib/keys';
@@ -122,7 +122,7 @@ function SeamBand({ projectId, nodeId, state, entries }: { projectId: string; no
       <span className="h-px min-w-4 flex-1 bg-border" />
       <span className="shrink-0">이음새</span>
       <SeamStateChip state={state} className="h-5 px-1.5 text-xs" />
-      {entries > 1 && <span className="shrink-0" title="이 이음새로 새 줄 갈래가 여럿 들어옵니다. 다른 갈래의 마지막 줄은 지도에서 이음새를 눌러 확인하세요.">갈래 {entries}개</span>}
+      {entries > 1 && <span className="inline-flex shrink-0 items-center gap-1">갈래 {entries}개 <HelpTip>이 이음새로 새 줄 갈래가 여럿 들어옵니다. 다른 갈래의 마지막 줄은 지도에서 이음새를 눌러 확인하세요.</HelpTip></span>}
       <Button variant="outline" disabled={busy} onClick={() => (state === 'checked' ? unmark.mutate() : mark.mutate())} title={state === 'stale' ? '점검한 뒤 이 줄들의 번역이 바뀌었습니다. 다시 점검하면 지금 내용 기준이 됩니다.' : undefined}>
         {state === 'checked' ? '점검 취소' : '점검함'}
       </Button>

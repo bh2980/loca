@@ -4,7 +4,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Play, Plus, Trash2 } from 'lucide-react';
 import { ANALYSIS_SECTION_LABELS, ANALYSIS_SECTIONS, type AnalysisSection } from '@tw/shared';
 import { AiButton } from '@/components/ai-button';
-import { EmptyState, DataTable, type ColumnDef, JobStatusBadge, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Badge, Checkbox, Button, Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Input, Label, RadioGroup, RadioGroupItem, Skeleton } from '@loca/ui';
+import { EmptyState, DataTable, type ColumnDef, JobStatusBadge, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Badge, Checkbox, Button, Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Input, Label, RadioGroup, RadioGroupItem, Skeleton, HelpTip } from '@loca/ui';
 import { HeaderActions, Page } from '@/components/page';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { client, unwrap } from '@/lib/api';
@@ -167,7 +167,7 @@ function NewWorkflow({ projectId }: { projectId: string }) {
               <RadioGroupItem value="template" className="mt-0.5" />
               <span>
                 기본 번역 템플릿
-                <span className="block text-xs text-muted-foreground">번역 → 형식 검사 → 검수 → 확정, 실패는 3회 수정 후 ‘사람 확인 필요’(검토함)로</span>
+                <span className="ml-1 inline-flex align-middle"><HelpTip>번역 → 형식 검사 → 검수 → 확정, 실패는 3회 수정 후 ‘사람 확인 필요’(검토함)로</HelpTip></span>
               </span>
             </label>
             <label className="flex items-start gap-2 text-sm">
@@ -223,7 +223,6 @@ function NewWorkflow({ projectId }: { projectId: string }) {
               <RadioGroupItem value="blank" className="mt-0.5" />
               <span>
                 빈 워크플로
-                <span className="block text-xs text-muted-foreground">진입과 종료만 있는 상태에서 시작</span>
               </span>
             </label>
           </RadioGroup>

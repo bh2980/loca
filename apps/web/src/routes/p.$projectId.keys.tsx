@@ -3,7 +3,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { EmptyState, DataTable, type ColumnDef, DetailPane, SplitPane, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Badge, Button, Field, FieldDescription, FieldGroup, FieldLabel, Input } from '@loca/ui';
+import { EmptyState, DataTable, type ColumnDef, DetailPane, SplitPane, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Badge, Button, Field, FieldDescription, FieldGroup, FieldLabel, Input, HelpTip } from '@loca/ui';
 import { HeaderActions, Page } from '@/components/page';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
@@ -47,9 +47,9 @@ function ApiKeys() {
         pane={(search.key === 'new' || selected) && <KeyPane key={selected?.id ?? 'new'} row={selected} onClose={() => open(undefined)} onCreated={(id) => open(id)} />}
       >
         <HeaderActions>
-          <Button onClick={() => open('new')}>
+          <div className="flex items-center gap-1"><Button onClick={() => open('new')}>
             <Plus /> API 키 추가
-          </Button>
+          </Button><HelpTip>워크플로의 ‘HTTP 호출’ 노드가 키가 필요한 API를 부를 때 고릅니다. 주소는 노드에 적고, 키는 여기(OS 키체인)에만 둡니다. 공개 API는 키가 필요 없습니다.</HelpTip></div>
         </HeaderActions>
         <DataTable id="keys"
           columns={columns}
@@ -59,7 +59,6 @@ function ApiKeys() {
           empty={<EmptyState noun="API 키" />}
           onRowClick={(row) => open(row.id === search.key ? undefined : row.id)}
         />
-        <p className="max-w-2xl px-4 py-3 text-xs text-muted-foreground">워크플로의 ‘HTTP 호출’ 노드가 키가 필요한 API를 부를 때 고릅니다. 주소는 노드에 적고, 키는 여기(OS 키체인)에만 둡니다. 공개 API는 키가 필요 없습니다.</p>
       </SplitPane>
     </Page>
   );

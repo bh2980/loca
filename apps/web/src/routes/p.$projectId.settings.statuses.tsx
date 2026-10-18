@@ -8,7 +8,7 @@ import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { AUTO_MARK_IDS, AUTO_MARKS, markColor, REVIEW_TAG, type AutoMark, type MarkColors } from '@tw/shared';
-import { EmptyState, DataTable, type ColumnDef, SplitPane, Toolbar, AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, StatusIcon, TagChip } from '@loca/ui';
+import { EmptyState, DataTable, type ColumnDef, SplitPane, Toolbar, AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, StatusIcon, TagChip, HelpTip } from '@loca/ui';
 import { Page } from '@/components/page';
 import { MarkChip } from '@/components/status';
 import { client, unwrap } from '@/lib/api';
@@ -235,7 +235,7 @@ function StatusSettings() {
           >
             <div>
               <h2 className="text-sm font-semibold">상태</h2>
-              <p className="text-xs text-muted-foreground">‘검토함에 표시’를 켠 상태의 대사는 사람이 바꾸든 워크플로가 바꾸든 검토함에 모입니다. 검토함에서는 다른 상태 중 하나를 골라 옮기는 것으로 결정합니다.</p>
+              <p className="flex items-center gap-1 text-xs text-muted-foreground">‘검토함에 표시’ 상태 <HelpTip>이 상태의 대사는 사람이 바꾸든 워크플로가 바꾸든 검토함에 모입니다. 검토함에서는 다른 상태 중 하나를 골라 옮기는 것으로 결정합니다.</HelpTip></p>
             </div>
           </Toolbar>
           <DataTable id="statuses"
@@ -258,7 +258,7 @@ function StatusSettings() {
           >
             <div>
               <h2 className="text-sm font-semibold">태그</h2>
-              <p className="text-xs text-muted-foreground">상태와 별개로 여러 개 붙는 표시입니다. 필터·실행 범위·워크플로 조건에서 고릅니다. ‘기본’은 앱이 붙이거나 읽어 내는 태그로, 지우거나 이름을 바꿀 수 없고 색만 바꿉니다. 내 태그(예: #재검토)는 대사를 골라 붙이거나 상태 변경 노드로 붙입니다.</p>
+              <p className="flex items-center gap-1 text-xs text-muted-foreground">태그 <HelpTip>상태와 별개로 여러 개 붙는 표시입니다. 필터·실행 범위·워크플로 조건에서 고릅니다. ‘기본’은 앱이 붙이거나 읽어 내는 태그로, 지우거나 이름을 바꿀 수 없고 색만 바꿉니다. 내 태그(예: #재검토)는 대사를 골라 붙이거나 상태 변경 노드로 붙입니다.</HelpTip></p>
             </div>
           </Toolbar>
           <DataTable
@@ -283,7 +283,7 @@ function StatusSettings() {
           </AlertDialogHeader>
           <Select value={moveTo} onValueChange={setMoveTo}>
             <SelectTrigger className="w-full" aria-label="옮길 상태">
-              <SelectValue placeholder="대사를 옮길 상태 선택" />
+              <SelectValue />
             </SelectTrigger>
             <SelectContent>
               {(statuses ?? [])

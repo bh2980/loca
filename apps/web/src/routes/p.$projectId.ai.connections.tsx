@@ -7,7 +7,7 @@ import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { z } from 'zod';
 import { CONNECTION_CALL_DEFAULTS, CONNECTION_KIND_INFO, CONNECTION_KINDS, connectionInputSchema, isFreeModel, type Capability, type ConnectionKind } from '@tw/shared';
-import { EmptyState, DataTable, type ColumnDef, DetailPane, PaneSection, SplitPane, Badge, Button, Field, FieldDescription, FieldError, FieldGroup, FieldLabel, Input, Textarea, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner } from '@loca/ui';
+import { EmptyState, DataTable, type ColumnDef, DetailPane, PaneSection, SplitPane, Badge, Button, Field, FieldDescription, FieldError, FieldGroup, FieldLabel, Input, Textarea, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner, HelpTip } from '@loca/ui';
 import { HeaderActions, Page } from '@/components/page';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
 import { DeleteButton } from '@/components/settings/delete-button';
@@ -89,7 +89,7 @@ function ConnectionSettings() {
 function PiNote() {
   return (
     <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
-      pi는 작업실 서버 안에서 돌고, 로그인은 pi가 관리합니다. 터미널에서 <code>pi</code>를 실행해 <code>/login</code>으로 구독(OAuth)이나 API 키를 연결하면, 여기서 그 모델들을 고를 수 있습니다. 모델 이름은 “공급자/모델” 형식입니다.
+      pi는 작업실 서버 안에서 돌고, 로그인은 pi가 관리합니다. 터미널에서 <code>pi</code>를 실행해 <code>/login</code>으로 구독(OAuth)이나 API 키를 연결하면, 여기서 그 모델들을 고를 수 있습니다. <HelpTip>모델 이름은 “공급자/모델” 형식입니다.</HelpTip>
     </p>
   );
 }
@@ -207,8 +207,8 @@ function NewConnection({ onClose }: { onClose: () => void }) {
             <PiNote />
           ) : (
             <Field>
-              <FieldLabel htmlFor="conn-exe">실행 파일 경로 (선택)</FieldLabel>
-              <Input id="conn-exe" {...form.register('executable')} placeholder="비워 두면 PATH에서 찾습니다" />
+              <FieldLabel htmlFor="conn-exe" help="비워 두면 PATH에서 찾습니다.">실행 파일 경로 (선택)</FieldLabel>
+              <Input id="conn-exe" {...form.register('executable')} />
             </Field>
           )}
         </FieldGroup>
@@ -332,7 +332,7 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
     <DetailPane
       kicker="연결"
       title={connection.name}
-      subtitle={isTool ? '워크플로의 ‘HTTP 호출’ 함수가 이 연결로 외부 API(맞춤법·사전 등)를 부릅니다.' : info.label}
+      subtitle={isTool ? <span className="inline-flex items-center gap-1">HTTP 호출 <HelpTip>워크플로의 ‘HTTP 호출’ 함수가 이 연결로 외부 API를 부릅니다.</HelpTip></span> : info.label}
       onClose={onClose}
       footer={
         <>
@@ -362,22 +362,21 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
               <PiNote />
             ) : (
               <Field>
-                <FieldLabel htmlFor="edit-exe">실행 파일 경로</FieldLabel>
-                <Input id="edit-exe" {...form.register('executable')} placeholder="비워 두면 PATH에서 찾습니다" />
+                <FieldLabel htmlFor="edit-exe" help="비워 두면 PATH에서 찾습니다.">실행 파일 경로</FieldLabel>
+                <Input id="edit-exe" {...form.register('executable')} />
               </Field>
             )}
             {isTool && (
               <Field>
-                <FieldLabel htmlFor="edit-header">키를 보내는 헤더</FieldLabel>
+                <FieldLabel htmlFor="edit-header" help="'{key}' 자리에 저장한 키가 들어갑니다.">키를 보내는 헤더</FieldLabel>
                 <Input id="edit-header" className="font-mono text-xs" {...form.register('headerTemplate')} placeholder="Authorization: Bearer {key}" />
-                <FieldDescription>{'{key}'} 자리에 저장한 키가 들어갑니다.</FieldDescription>
               </Field>
             )}
             {!isTool && (
               <Field data-invalid={!!form.formState.errors.concurrency}>
                 <FieldLabel htmlFor="edit-concurrency">동시 실행 수</FieldLabel>
                 <Input id="edit-concurrency" type="number" min={1} max={32} step={1} {...form.register('concurrency', { setValueAs: (value: string) => (value === '' ? undefined : Number(value)) })} aria-invalid={!!form.formState.errors.concurrency} />
-                <FieldDescription>이 계정으로 동시에 보내는 AI 호출 수입니다. 모든 실행이 함께 씁니다. 구독 한도가 빡빡하면 줄이세요.</FieldDescription>
+                <FieldDescription>모든 실행이 함께 쓰는 동시 호출 수입니다. 구독 한도가 빡빡하면 줄이세요.</FieldDescription>
                 <FieldError errors={[form.formState.errors.concurrency]} />
               </Field>
             )}
@@ -387,7 +386,7 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
 
       {!isTool && (
         <>
-          <PaneSection title="기본 모델">
+          <PaneSection title={<span className="flex items-center gap-1">기본 모델 <HelpTip>이 연결을 고르면 먼저 채워지는 모델입니다. 템플릿·가져온 프로젝트의 AI 노드도 이 모델로 시작합니다.</HelpTip></span>}>
             <Controller
               control={form.control}
               name="defaultModel"
@@ -403,7 +402,6 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
                 />
               )}
             />
-            <p className="mt-2 text-sm text-muted-foreground">이 연결을 고르면 먼저 채워지는 모델입니다. 템플릿·가져온 프로젝트의 AI 노드도 이 모델로 시작합니다.</p>
           </PaneSection>
 
           <PaneSection title="호출 조건">
@@ -424,9 +422,7 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
                 <FieldError errors={[errors.maxOutputTokens]} />
               </Field>
             </div>
-            <p className="mt-2 text-sm text-muted-foreground">
-              이 연결로 가는 모든 요청(워크플로·작품 분석·용어 채우기·채팅)에 적용됩니다. 기본값: {CONNECTION_CALL_DEFAULTS.timeoutSeconds}초, {CONNECTION_CALL_DEFAULTS.maxAttempts}번, {CONNECTION_CALL_DEFAULTS.maxOutputTokens.toLocaleString()} 토큰.
-            </p>
+            <div className="flex items-center gap-1 text-xs text-muted-foreground">호출 조건 기본값 <HelpTip>이 연결로 가는 모든 요청(워크플로·작품 분석·용어 채우기·채팅)에 적용됩니다. 기본값: {CONNECTION_CALL_DEFAULTS.timeoutSeconds}초, {CONNECTION_CALL_DEFAULTS.maxAttempts}번, {CONNECTION_CALL_DEFAULTS.maxOutputTokens.toLocaleString()} 토큰.</HelpTip></div>
           </PaneSection>
 
           <PaneSection

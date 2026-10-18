@@ -4,7 +4,7 @@ import { keepPreviousData, useMutation, useQuery, type UseQueryResult } from '@t
 import type { InferResponseType } from 'hono/client';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { Play } from 'lucide-react';
-import { SearchInput, Button, Checkbox, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Skeleton, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner } from '@loca/ui';
+import { SearchInput, Button, Checkbox, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Skeleton, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner, HelpTip } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { LINE_MARK_IDS, type LineMark, UNREVIEWED_MARKS } from '@tw/shared';
 import { MarkChip } from '@/components/status';
@@ -189,7 +189,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
             {mode === 'tags' && <TagPicker tags={tags} picked={pickedTags} setPicked={setPickedTags} marks={pickedMarks} setMarks={setPickedMarks} />}
             <p className="text-sm">
               {!mode ? (
-                <span className="text-muted-foreground">실행할 범위를 고르세요.</span>
+                null
               ) : total === undefined && plan.isError ? (
                 <span className="text-destructive">
                   줄 수를 세지 못했습니다: {plan.error.message}{' '}
@@ -303,7 +303,7 @@ function TagPicker({ tags, picked, setPicked, marks, setMarks }: { tags: { id: s
   return (
     <div className="space-y-2 rounded-md border p-2">
       <div className="space-y-1">
-        <p className="px-2 text-xs text-muted-foreground">고른 표시와 태그를 모두 가진 줄 · 자동 표시</p>
+        <p className="flex items-center gap-1 px-2 text-xs text-muted-foreground">고른 표시와 태그 <HelpTip>선택한 표시와 태그를 모두 가진 줄만 포함합니다. 자동 표시는 시스템이 붙입니다.</HelpTip></p>
         <div className="flex flex-wrap gap-2">
           {LINE_MARK_IDS.map((mark) => (
             <label key={mark} className="flex items-center gap-1.5 rounded px-2 py-1 text-sm hover:bg-muted">

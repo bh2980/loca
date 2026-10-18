@@ -4,7 +4,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Check, CircleStop, Play, X } from 'lucide-react';
 import { hasAnalysis, StartAnalysis } from '@/components/knowledge/analysis-controls';
 import { RunDialog } from '@/components/workflow/run-dialog';
-import { Button } from '@loca/ui';
+import { Button, HelpTip } from '@loca/ui';
 import { HeaderActions } from '@/components/page';
 import { AnalysisSteps } from '@/components/job-progress';
 import { client, unwrap } from '@/lib/api';
@@ -199,7 +199,7 @@ export function GettingStarted({ projectId }: { projectId: string }) {
                   {step.title}
                   {step.optional && <span className="ml-2 text-xs font-normal text-muted-foreground">선택</span>}
                 </p>
-                {!step.done && <p className="text-xs text-muted-foreground">{step.why}</p>}
+                {!step.done && <HelpTip label={`${step.title} 도움말`}>{step.why}</HelpTip>}
                 {step.progress}
               </div>
               {!step.done && !step.progress && (current || step.optional) && <div className="shrink-0">{step.action(current)}</div>}

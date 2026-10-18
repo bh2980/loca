@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation } from '@tanstack/react-router';
 import { ArrowUp, Check, ChevronRight, History, Plus, Square, Trash2, X } from 'lucide-react';
 import { Markdown } from './markdown';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, Spinner, Textarea } from '@loca/ui';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, Spinner, Textarea, HelpTip } from '@loca/ui';
 import { Elapsed } from '@/components/job-progress';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
 import { client, unwrap } from '@/lib/api';
@@ -161,10 +161,9 @@ export function ChatPanel({ projectId }: { projectId: string }) {
         <Conversation key={current.id} projectId={projectId} sessionId={current.id} mode={current.permissionMode} model={current.connectionId ? { connectionId: current.connectionId, model: current.model ?? '', ...(current.effort && { effort: current.effort }) } : null} />
       ) : (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center text-sm text-muted-foreground">
-          <p>프로젝트의 원문·자료·워크플로를 읽고 인물 프로필이나 참조 문서, 워크플로를 제안하는 에이전트입니다.</p>
-          <Button onClick={() => create.mutate()} disabled={create.isPending}>
+          <div className="flex items-center gap-1"><Button onClick={() => create.mutate()} disabled={create.isPending}>
             <Plus /> 새 대화 시작
-          </Button>
+          </Button><HelpTip>프로젝트의 원문·자료·워크플로를 읽고 인물 프로필이나 참조 문서, 워크플로를 제안하는 에이전트입니다.</HelpTip></div>
         </div>
       )}
     </aside>
