@@ -430,9 +430,7 @@ export function orderedCalls(calls: s.UndoCall[]) {
  * The inverse without items a person changed since (they no longer hold the values the change left)
  * and without created characters a kept relationship still points to. Dropped ids are reported as skipped.
  */
-export function dropConflicts(
-  db: Db, projectId: string, call: s.UndoCall, deletingRelationshipIds: Set<string> = new Set(),
-) {
+export function dropConflicts(db: Db, projectId: string, call: s.UndoCall) {
   const expectations = call.expect ?? [];
   const conflicts = new Set(expectations.filter((item) => !matchesExpectation(db, projectId, item))
     .map((item) => item.id));
@@ -452,13 +450,14 @@ export function dropConflicts(
   }
   if (call.tool === 'delete_items' && Array.isArray(input.ids)) {
     const ids = input.ids.filter((id): id is string => typeof id === 'string' && !conflicts.has(id));
-    const deleted = new Set(ids);
     const dropped = [...conflicts];
+    // Relationship deletes run first (orderedCalls), so any relationship still here is one being kept
+    // (a person's, or one whose delete was skipped): deleting its character would cascade into it.
     if (input.kind === 'characters') {
       for (const id of [...ids]) {
-        const refs = db.select({ id: s.relationships.id }).from(s.relationships)
-          .where(and(eq(s.relationships.projectId, projectId), or(eq(s.relationships.fromId, id), eq(s.relationships.toId, id)))).all();
-        if (refs.some((row) => !deleted.has(row.id) && !deletingRelationshipIds.has(row.id))) {
+        const linked = db.select({ id: s.relationships.id }).from(s.relationships)
+          .where(and(eq(s.relationships.projectId, projectId), or(eq(s.relationships.fromId, id), eq(s.relationships.toId, id)))).get();
+        if (linked) {
           ids.splice(ids.indexOf(id), 1);
           dropped.push(id);
         }

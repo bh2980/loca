@@ -154,12 +154,9 @@ export async function undoProposals(db: Db, sessionId: string, ids: string[]) {
     let completedCalls = 0;
     try {
       const calls = orderedCalls(original.undo.calls);
-      const deletingRelationshipIds = new Set(calls.flatMap((call) => call.tool === 'delete_items' &&
-        call.input.kind === 'relationships' && Array.isArray(call.input.ids)
-        ? call.input.ids.filter((id): id is string => typeof id === 'string') : []));
       for (const inverseCall of calls) {
         const rebased = rebaseLineCall(inverseCall, rebasedLines);
-        const filtered = dropConflicts(db, original.projectId, rebased, deletingRelationshipIds);
+        const filtered = dropConflicts(db, original.projectId, rebased);
         skipped.push(...filtered.dropped);
         if (!filtered.call) continue;
         failedTool = filtered.call.tool;
