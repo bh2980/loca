@@ -42,7 +42,7 @@ export function PathMode({ projectId, toggle, start, end, via: externalVia, onVi
     const unit = role === 'start' ? detail.units[0] : detail.units[detail.units.length - 1];
     const source = unit?.source ?? detail.label ?? detail.key;
     const text = source.replace(/\s+/g, ' ').trim();
-    const label = `${unit?.speaker?.trim() ? `${unit.speaker.trim()}: ` : ''}${text}${detail.key ? ` · ${detail.key}` : ''}${detail.units.length > 1 ? ` · ${detail.units.length}줄` : ''}`;
+    const label = `${unit?.speaker?.trim() ? `${unit.speaker.trim()}: ` : ''}${text}${detail.units.length > 1 ? ` · ${detail.units.length}줄` : ''}`;
     return { id, label };
   };
 

@@ -452,15 +452,18 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
       <div className="shrink-0 border-t bg-background p-2">
         {attached.length > 0 && (
           <div className="mb-1.5 flex flex-wrap gap-1" aria-label="첨부된 화면 정보">
-            {attached.map((item) => (
-              <span key={`${item.kind}:${item.id}`} className="inline-flex max-w-full items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-xs">
-                <span className="text-muted-foreground">{item.kind}</span>
-                <span className="truncate">{item.label}</span>
-                <Button variant="ghost" size="icon-xs" aria-label={`${item.label} 첨부 빼기`} className="text-muted-foreground" onClick={() => setExcluded((set) => new Set(set).add(`${item.kind}:${item.id}`))}>
-                  <X />
-                </Button>
-              </span>
-            ))}
+            {attached.map((item) => {
+              const label = item.label.replace(/^asset-[a-f0-9-]+\s*·\s*/i, '');
+              return (
+                <span key={`${item.kind}:${item.id}`} className="inline-flex max-w-full items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-xs">
+                  <span className="text-muted-foreground">{item.kind}</span>
+                  <span className="truncate">{label}</span>
+                  <Button variant="ghost" size="icon-xs" aria-label={`${label} 첨부 빼기`} className="text-muted-foreground" onClick={() => setExcluded((set) => new Set(set).add(`${item.kind}:${item.id}`))}>
+                    <X />
+                  </Button>
+                </span>
+              );
+            })}
           </div>
         )}
         <Textarea
