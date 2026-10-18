@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { MoreHorizontal } from 'lucide-react';
+import { Play } from 'lucide-react';
 import { toast } from 'sonner';
 import { SeamCheckPane } from '@/components/graph/seam-check-pane';
 import { PathGraph, type PathNodeText } from '@/components/graph/path-graph';
@@ -8,9 +8,8 @@ import { PathNodeExtras, PathNodePane, describeNode, forkChoices } from '@/compo
 import { RouteList } from '@/components/graph/route-list';
 import { RemainingBranches } from '@/components/graph/remaining-branches';
 import { loopTargets, mapPlace, resolveAt, stops } from '@/components/graph/path-window';
-import { AiButton } from '@/components/ai-button';
-import { Page } from '@/components/page';
-import { Toolbar, PaneHeader, SplitPane, Button, DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, Empty, EmptyDescription, EmptyHeader, EmptyTitle, Spinner } from '@loca/ui';
+import { HeaderActions, Page } from '@/components/page';
+import { ActionBar, Separator, PaneHeader, SplitPane, Button, Empty, EmptyDescription, EmptyHeader, EmptyTitle, Spinner } from '@loca/ui';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { routeSequence, translatedIds } from '@/components/graph/route-list-model';
 import { keyLabel } from '@/lib/keys';
@@ -70,6 +69,7 @@ export function PathMode({ projectId, toggle, node, edit, at, all, onSelect, onE
   // 남은 갈래 (docs/PLAN-30.md): what the route does not pass, and 이 갈래로.
   const left = useQuery(q.routeRemaining(projectId)).data;
   const [branchesOpen, setBranchesOpen] = useState(false);
+  const [runOpen, setRunOpen] = useState(false);
   // The node 이 갈래로 went for: once the new slice has it, the window moves there.
   const [goTo, setGoTo] = useState<string>();
   const through = useMutation({
@@ -171,67 +171,21 @@ export function PathMode({ projectId, toggle, node, edit, at, all, onSelect, onE
   return (
     <Page title="그래프" flush>
       <div className="absolute inset-0 flex flex-col">
-        <Toolbar
-          actions={
-            toolbar && (
-              <>
-                {/* AI 번역: the existing run dialog, scoped to this route's untranslated lines (the ones the list counts). */}
-                <RunDialog
-                  projectId={projectId}
-                  unitIds={untranslated.length ? untranslated : undefined}
-                  unitsLabel="이번 길 번역 안 한 줄"
-                  defaultIgnoreStatus
-                  trigger={
-                    <AiButton disabled={!untranslated.length} title={untranslated.length ? '이번 길에서 번역하지 않은 줄만 워크플로로 AI 번역합니다. 시작 전에 범위와 모델을 확인합니다.' : '이번 길에 번역하지 않은 줄이 없습니다.'}>
-                      이번 길 새 줄 AI 번역 ({untranslated.length.toLocaleString()}줄)
-                    </AiButton>
-                  }
-                />
-                <Button variant="ghost" disabled={!slice.canGoBack || busy} title="바로 앞 길의 선택으로 되돌립니다" onClick={() => prevRoute.mutate()}>
-                  이전 길
-                </Button>
-                <Button disabled={!next || finished || stay || busy} title={nextTitle} onClick={() => nextRoute.mutate()}>
-                  {nextLabel}
-                </Button>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" title="더보기">
-                      <MoreHorizontal /> 더보기
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuCheckboxItem checked={all} onCheckedChange={(checked) => onAll(checked === true)}>
-                      전체 보기
-                    </DropdownMenuCheckboxItem>
-                    <DropdownMenuItem disabled={!left} onSelect={() => setBranchesOpen(true)}>
-                      남은 갈래{left ? ` ${left.branches.length.toLocaleString()}` : ''}
-                    </DropdownMenuItem>
-                    {round >= 2 && (
-                      <DropdownMenuItem disabled={!nextSeam} onSelect={goSeam}>
-                        다음 이음새
-                      </DropdownMenuItem>
-                    )}
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem disabled={all || !around?.previous} onSelect={() => go(around?.previous)}>
-                      이전 갈림
-                      <span className="ml-auto pl-4 text-xs text-muted-foreground">{keyLabel('Alt+Up')}</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem disabled={all || !around?.next} onSelect={() => go(around?.next)}>
-                      다음 갈림
-                      <span className="ml-auto pl-4 text-xs text-muted-foreground">{keyLabel('Alt+Down')}</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem disabled={picks === 0 || reset.isPending} onSelect={() => reset.mutate()}>
-                      선택 초기화
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </>
-            )
-          }
-        >
-          {toggle}
-        </Toolbar>
+        {toolbar && <HeaderActions>
+          {toggle}<Separator orientation="vertical" className="mx-1 h-4" />
+          <Button disabled={!untranslated.length} title={untranslated.length ? '이번 길에서 번역하지 않은 줄만 워크플로로 AI 번역합니다. 시작 전에 범위와 모델을 확인합니다.' : '이번 길에 번역하지 않은 줄이 없습니다.'} onClick={() => setRunOpen(true)}><Play /> 이번 길 새 줄 AI 번역 ({untranslated.length.toLocaleString()}줄)</Button>
+          <ActionBar aria-label="경로 동작" items={[
+            { id: 'previous-route', label: '이전 길', priority: 3, disabled: !slice.canGoBack || busy, onSelect: () => prevRoute.mutate() },
+            { id: 'next-route', label: nextLabel, priority: 4, disabled: !next || finished || stay || busy, onSelect: () => nextRoute.mutate() },
+            { id: 'all-view', label: all ? '창 보기' : '전체 보기', priority: 0, onSelect: () => onAll(!all) },
+            { id: 'branches', label: `남은 갈래${left ? ` ${left.branches.length.toLocaleString()}` : ''}`, priority: 1, disabled: !left, onSelect: () => setBranchesOpen(true) },
+            ...(round >= 2 ? [{ id: 'next-seam', label: '다음 이음새', priority: 1, disabled: !nextSeam, onSelect: goSeam }] : []),
+            { id: 'previous-choice', label: `이전 갈림 · ${keyLabel('Alt+Up')}`, priority: -1, disabled: all || !around?.previous, onSelect: () => go(around?.previous) },
+            { id: 'next-choice', label: `다음 갈림 · ${keyLabel('Alt+Down')}`, priority: -1, disabled: all || !around?.next, onSelect: () => go(around?.next) },
+            { id: 'reset', label: '선택 초기화', priority: -2, destructive: true, disabled: picks === 0 || reset.isPending, onSelect: () => reset.mutate() },
+          ]} />
+        </HeaderActions>}
+        {toolbar && <RunDialog projectId={projectId} unitIds={untranslated.length ? untranslated : undefined} unitsLabel="이번 길 번역 안 한 줄" defaultIgnoreStatus hideTrigger open={runOpen} onOpenChange={setRunOpen} />}
         {/* The route's facts: one muted line under the toolbar (never wraps, the full text is the tooltip). */}
         {left && (
           <RemainingBranches open={branchesOpen} onOpenChange={setBranchesOpen} branches={left.branches} unreachable={left.unreachable} texts={texts} busy={busy} onGo={(branch) => through.mutate(branch.firstNode)} />

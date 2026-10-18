@@ -9,7 +9,7 @@ import {
   type RowData,
   type VisibilityState,
 } from "@tanstack/react-table"
-import { PickedBar } from "./picked-bar"
+import { SelectionBar } from "./picked-bar"
 import { EmptyState } from "./empty-state"
 import { ColumnMenu } from "./column-menu"
 import { Checkbox } from "../primitives/checkbox"
@@ -293,12 +293,12 @@ function Table<T>({
                     colSpan={group.headers.length + (id ? 1 : 0)}
                     className="h-8 px-3 text-left align-middle font-normal"
                   >
-                    <PickedBar
+                    <SelectionBar
                       count={picked!.size}
                       onClear={() => onPick?.([...picked!], false)}
                     >
                       {bulk}
-                    </PickedBar>
+                    </SelectionBar>
                   </th>
                 ) : (
                   group.headers.map((header, index) => (

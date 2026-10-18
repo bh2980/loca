@@ -9,38 +9,29 @@ import {
 } from "../primitives/input-group"
 import { cn } from "../lib/utils"
 
-export interface ToolbarProps {
+export interface FilterBarProps {
   children?: ReactNode
-  count?: ReactNode
-  actions?: ReactNode
+  end?: ReactNode
   className?: string
 }
 
 /**
- * Standard table toolbar: left filters/search, right count + actions.
+ * One-line filter row: filters on the left, count and display controls on the right.
  */
-export function Toolbar({
+export function FilterBar({
   children,
-  count,
-  actions,
+  end,
   className,
-}: ToolbarProps) {
+}: FilterBarProps) {
   return (
     <div
       className={cn(
-        "flex min-h-9 shrink-0 flex-wrap items-center gap-1.5 border-b border-border bg-card px-3 py-1 backdrop-blur-xs",
+        "flex min-h-9 shrink-0 flex-nowrap items-center gap-1.5 overflow-hidden border-b border-border bg-card px-3 py-1 backdrop-blur-xs",
         className
       )}
     >
-      {children}
-      <div className="ml-auto flex items-center gap-1.5">
-        {count != null && (
-          <span className="text-2xs font-medium text-subtle-foreground tabular-nums">
-            {count}
-          </span>
-        )}
-        {actions}
-      </div>
+      <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-1.5 overflow-hidden">{children}</div>
+      {end != null && <div className="ml-auto flex min-w-0 shrink-0 flex-nowrap items-center gap-1.5">{end}</div>}
     </div>
   )
 }

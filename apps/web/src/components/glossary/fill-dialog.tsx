@@ -8,8 +8,10 @@ import { Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogH
 import { client, unwrap } from '@/lib/api';
 
 /** Confirm a batched AI fill of the empty translations: the expected number of requests, and the AI to use. */
-export function FillDialog({ projectId, pending, calls, batch }: { projectId: string; pending: number; calls: number; batch: number }) {
-  const [open, setOpen] = useState(false);
+export function FillDialog({ projectId, pending, calls, batch, open: controlledOpen, onOpenChange, hideTrigger = false }: { projectId: string; pending: number; calls: number; batch: number; open?: boolean; onOpenChange?: (open: boolean) => void; hideTrigger?: boolean }) {
+  const [localOpen, setLocalOpen] = useState(false);
+  const open = controlledOpen ?? localOpen;
+  const setOpen = (next: boolean) => { setLocalOpen(next); onOpenChange?.(next); };
   const initial = useInitialModel(['generate']);
   const [picked, setPicked] = useState<ModelValue | null>(null);
   const model = picked ?? initial;
@@ -23,11 +25,11 @@ export function FillDialog({ projectId, pending, calls, batch }: { projectId: st
   });
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
+      {!hideTrigger && <DialogTrigger asChild>
         <Button variant="outline">
           <Sparkles /> 빈 번역 AI로 채우기
         </Button>
-      </DialogTrigger>
+      </DialogTrigger>}
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>빈 번역 AI로 채우기</DialogTitle>

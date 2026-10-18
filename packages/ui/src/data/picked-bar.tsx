@@ -3,25 +3,27 @@ import { X } from "lucide-react"
 import { Button } from "../primitives/button"
 import { cn } from "../lib/utils"
 
-export interface PickedBarProps {
+export interface SelectionBarProps {
   count: number
   onClear: () => void
   children?: ReactNode
   className?: string
 }
 
-export function PickedBar({
+export function SelectionBar({
   count,
   onClear,
   children,
   className,
-}: PickedBarProps) {
+}: SelectionBarProps) {
   return (
     <div
       className={cn(
         "@container/picked flex min-w-0 flex-wrap items-center gap-2 text-xs",
         className
       )}
+      role="toolbar"
+      aria-label="선택한 항목 동작"
     >
       <span className="shrink-0 font-semibold text-foreground tabular-nums">
         {count.toLocaleString()}개
@@ -43,7 +45,7 @@ export function PickedBar({
   )
 }
 
-export function PickedLabel({
+export function SelectionLabel({
   children,
   from = "md",
 }: {

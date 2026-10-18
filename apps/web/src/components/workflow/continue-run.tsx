@@ -11,8 +11,10 @@ import { Pace, RunModels } from './run-estimate';
  * lines again, see the estimate for what is left, then go on. Only this run changes; the
  * workflow keeps its own models.
  */
-export function ContinueRun({ runId, failed, paused }: { runId: string; failed: number; paused: boolean }) {
-  const [open, setOpen] = useState(false);
+export function ContinueRun({ runId, failed, paused, open: controlledOpen, onOpenChange, hideTrigger = false }: { runId: string; failed: number; paused: boolean; open?: boolean; onOpenChange?: (open: boolean) => void; hideTrigger?: boolean }) {
+  const [localOpen, setLocalOpen] = useState(false);
+  const open = controlledOpen ?? localOpen;
+  const setOpen = (next: boolean) => { setLocalOpen(next); onOpenChange?.(next); };
   const [picked, setPicked] = useState<Record<string, ModelValue>>({});
   const [retryFailed, setRetryFailed] = useState(failed > 0);
   const queryClient = useQueryClient();
@@ -36,9 +38,9 @@ export function ContinueRun({ runId, failed, paused }: { runId: string; failed: 
   const nothing = data?.lines === 0;
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
+      {!hideTrigger && <DialogTrigger asChild>
         <Button variant={paused ? 'outline' : 'default'}>{paused ? <Play /> : <RotateCcw />} {paused ? '모델 바꿔 재개' : '실패한 줄 다시'}</Button>
-      </DialogTrigger>
+      </DialogTrigger>}
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{paused ? '다른 모델로 이어서 실행' : '이 실행 이어서 하기'}</DialogTitle>

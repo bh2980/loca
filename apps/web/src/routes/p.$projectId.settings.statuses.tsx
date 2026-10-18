@@ -8,7 +8,7 @@ import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { AUTO_MARK_IDS, AUTO_MARKS, markColor, REVIEW_TAG, type AutoMark, type MarkColors } from '@tw/shared';
-import { EmptyState, DataTable, type ColumnDef, SplitPane, Toolbar, AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, StatusIcon, TagChip, HelpTip } from '@loca/ui';
+import { EmptyState, DataTable, type ColumnDef, SplitPane, FilterBar, AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, StatusIcon, TagChip, HelpTip } from '@loca/ui';
 import { Page } from '@/components/page';
 import { MarkChip } from '@/components/status';
 import { client, unwrap } from '@/lib/api';
@@ -225,16 +225,12 @@ function StatusSettings() {
     <Page title="상태·태그" flush>
       <SplitPane id="settings-statuses" defaultWidth="384px" className="h-full" pane={pane}>
         <div className="min-h-0 flex-1 overflow-auto">
-          <Toolbar
-            count={statuses ? `${statuses.length}개` : undefined}
-            actions={
-              <Button variant="outline" onClick={() => open({ status: 'new' })}>
-                <Plus /> 추가
-              </Button>
-            }
-          >
+          <FilterBar end={<>
+            {statuses && <span className="text-2xs font-medium text-subtle-foreground tabular-nums">{statuses.length}개</span>}
+            <Button variant="outline" size="sm" onClick={() => open({ status: 'new' })}><Plus /> 추가</Button>
+          </>}>
             <h2 className="flex items-center gap-1 text-sm font-semibold">상태 <HelpTip label="‘검토함에 표시’ 상태 도움말">이 상태의 대사는 사람이 바꾸든 워크플로가 바꾸든 검토함에 모입니다. 검토함에서는 다른 상태 중 하나를 골라 옮기는 것으로 결정합니다.</HelpTip></h2>
-          </Toolbar>
+          </FilterBar>
           <DataTable id="statuses"
             className="flex-none"
             columns={statusColumns}
@@ -244,17 +240,12 @@ function StatusSettings() {
             empty={<EmptyState noun="상태" />}
             onRowClick={(row) => open({ status: row.id })}
           />
-          <Toolbar
-            className="mt-8"
-            count={allTags ? `${allTags.length}개` : undefined}
-            actions={
-              <Button variant="outline" onClick={() => open({ tag: 'new' })}>
-                <Plus /> 추가
-              </Button>
-            }
-          >
+          <FilterBar className="mt-8" end={<>
+            {allTags && <span className="text-2xs font-medium text-subtle-foreground tabular-nums">{allTags.length}개</span>}
+            <Button variant="outline" size="sm" onClick={() => open({ tag: 'new' })}><Plus /> 추가</Button>
+          </>}>
             <h2 className="flex items-center gap-1 text-sm font-semibold">태그 <HelpTip label="태그 도움말">상태와 별개로 여러 개 붙는 표시입니다. 필터·실행 범위·워크플로 조건에서 고릅니다. ‘기본’은 앱이 붙이거나 읽어 내는 태그로, 지우거나 이름을 바꿀 수 없고 색만 바꿉니다. 내 태그(예: #재검토)는 대사를 골라 붙이거나 상태 변경 노드로 붙입니다.</HelpTip></h2>
-          </Toolbar>
+          </FilterBar>
           <DataTable
             id="tags"
             className="flex-none"

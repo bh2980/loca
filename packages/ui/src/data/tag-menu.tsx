@@ -7,7 +7,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "../primitives/dropdown-menu"
-import { PickedLabel } from "./picked-bar"
+import { SelectionLabel } from "./picked-bar"
 import { TagChip, type StatusLike } from "../tokens/status"
 
 export type TagState = "all" | "some" | "none"
@@ -26,7 +26,7 @@ export function TagMenu({ tags, state, onToggle, heading }: TagMenuProps) {
       <DropdownMenuTrigger asChild>
         <Button variant="outline" size="xs" aria-label="태그 붙이기·떼기" className="h-6 gap-1 px-2 text-xs">
           <Tags className="size-3 opacity-70" />
-          <PickedLabel>태그</PickedLabel>
+          <SelectionLabel>태그</SelectionLabel>
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-52">

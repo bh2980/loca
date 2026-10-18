@@ -28,7 +28,7 @@ const KIND_ORDER: GroupKind[] = ['scene', 'ui', 'document'];
  * there, the run page shows them). The count is exactly what will run: scope ∩ entry statuses
  * (unless ignored).
  */
-export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: givenGroupIds, unitIds: givenUnitIds, unitsLabel, viewKind, dirty, disabled, trigger, defaultIgnoreStatus = false, preferWorkflow }: {
+export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: givenGroupIds, unitIds: givenUnitIds, unitsLabel, viewKind, dirty, disabled, trigger, defaultIgnoreStatus = false, preferWorkflow, open: controlledOpen, onOpenChange, hideTrigger = false }: {
   projectId: string;
   /** Omit to let the user pick a workflow (when starting from a scene or a line selection). */
   workflowId?: string;
@@ -45,9 +45,12 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   defaultIgnoreStatus?: boolean;
   /** Preselect the workflow with this name when it exists (e.g. "말투만 고치기"). */
   preferWorkflow?: string;
+  open?: boolean; onOpenChange?: (open: boolean) => void; hideTrigger?: boolean;
 }) {
   const navigate = useNavigate();
-  const [open, setOpen] = useState(false);
+  const [localOpen, setLocalOpen] = useState(false);
+  const open = controlledOpen ?? localOpen;
+  const setOpen = (next: boolean) => { setLocalOpen(next); onOpenChange?.(next); };
   // The lines and scenes it was opened with stay its scope while it is open: picks cleared or changed
   // behind it (another tab, a refresh of the list) must not turn '고른 대사' into the whole project.
   const [opened, setOpened] = useState<{ unitIds?: string[]; groupIds?: string[] }>({});
@@ -139,13 +142,13 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
         }
       }}
     >
-      <DialogTrigger asChild>
+      {!hideTrigger && <DialogTrigger asChild>
         {trigger ?? (
           <Button disabled={disabled}>
             <Play /> 실행
           </Button>
         )}
-      </DialogTrigger>
+      </DialogTrigger>}
       <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
           {/* With the workflow picker below, the title would only repeat its name. */}

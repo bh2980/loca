@@ -16,7 +16,7 @@ import { useCurrentNav } from '@/lib/nav';
 import { keyLabel } from '@/lib/keys';
 import { ShortcutHelp } from '@/components/shortcut-help';
 import { HEADER_ACTIONS_ID } from '@/components/page';
-import { AppStatusBar, StatusBar } from '@loca/ui';
+import { AppStatusBar, StatusBar, STATUS_BAR_SLOT_ID } from '@loca/ui';
 import { useProgress } from '@/lib/use-progress';
 
 export const Route = createFileRoute('/p/$projectId')({
@@ -115,6 +115,7 @@ function ProjectLayout() {
             <AppStatusBar>
               <StatusBar statuses={progress.statuses} counts={progress.counts} className="h-1 w-24 shrink-0" />
               <span className="whitespace-nowrap tabular-nums">확정 {progress.done.toLocaleString()}/{progress.total.toLocaleString()}</span>
+              <div id={STATUS_BAR_SLOT_ID} className="min-w-0 flex-1 truncate" />
               {progress.runningRuns > 0 && <Link to="/p/$projectId/runs" params={{ projectId }} className="ml-auto whitespace-nowrap hover:text-foreground">실행 중 {progress.runningRuns}</Link>}
             </AppStatusBar>
           </ResizablePanel>
