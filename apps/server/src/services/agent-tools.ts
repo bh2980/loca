@@ -199,14 +199,14 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
     }),
     list_characters: tool({
       description:
-        'Stored characters (profile, how they speak, gender and age band, whether they are the player character) and their relationships (with changes). Each item says its status (confirmed = used as AI context, candidate = not yet), statusBy (ai = AI set that status and no person has looked yet, human = a person decided), source (who wrote the content: analysis, workflow, script, import, human), marks (candidate, ai, noEvidence) and tags. Filter with marks / unreviewed (candidate or AI-decided, i.e. not yet seen by a person) / tags.',
+        'Stored characters (profile, how they speak, gender, age band, role and whether they are the player character) and their relationships (with changes). Each item says its status (confirmed = used as AI context, candidate = not yet), statusBy (ai = AI set that status and no person has looked yet, human = a person decided), source (who wrote the content: analysis, workflow, script, import, human), marks (candidate, ai, noEvidence) and tags. Filter with marks / unreviewed (candidate or AI-decided, i.e. not yet seen by a person) / tags.',
       inputSchema: z.object(knowledgeFilterInput),
       execute: (filter) => {
         const characters = db.select().from(s.characters).where(and(eq(s.characters.projectId, projectId), ne(s.characters.status, 'rejected'))).all();
         const names = new Map(db.select({ id: s.characters.id, name: s.characters.name }).from(s.characters).where(eq(s.characters.projectId, projectId)).all().map((character) => [character.id, character.name]));
         const relationships = db.select().from(s.relationships).where(and(eq(s.relationships.projectId, projectId), ne(s.relationships.status, 'rejected'))).all();
         return {
-          characters: annotateKnowledge(db, projectId, 'characters', characters, filter).map(({ id, name, aliases, profile, speech, player, gender, ageBand, status, origin, jobId, statusBy, marks, tags }) => ({ id, name, aliases, profile, speech, player, gender, ageBand, status, statusBy, source: sourceOf({ origin, jobId }), marks, tags })),
+          characters: annotateKnowledge(db, projectId, 'characters', characters, filter).map(({ id, name, aliases, profile, speech, player, gender, ageBand, role, status, origin, jobId, statusBy, marks, tags }) => ({ id, name, aliases, profile, speech, player, gender, ageBand, role, status, statusBy, source: sourceOf({ origin, jobId }), marks, tags })),
           relationships: annotateKnowledge(db, projectId, 'relationships', relationships, filter).map((rel) => ({ id: rel.id, from: names.get(rel.fromId), to: names.get(rel.toId), kind: rel.kind, description: rel.description, mutual: rel.mutual, changes: rel.changes, status: rel.status, statusBy: rel.statusBy, source: sourceOf(rel), marks: rel.marks, tags: rel.tags })),
         };
       },
@@ -320,7 +320,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
 
     // ── changes (need the user's approval) ───────────────────────
     save_character: tool({
-      description: 'Create a character, or update it when id is given (call list_characters first; creating a name that already exists is refused). Profile is markdown: personality, role, translation notes; speech is how they talk in the source; player marks the player character (who may be addressed without speaking); gender (male / female / other = neither / unknown) and ageBand (child / teen / young / middle / old / unknown) only from what the script shows. Korean speech levels belong in save_speech_rule.',
+      description: 'Create a character, or update it when id is given (call list_characters first; creating a name that already exists is refused). Profile is markdown: personality, role, translation notes; speech is how they talk in the source; player marks the player character (who may be addressed without speaking); gender (male / female / other = neither / unknown) and ageBand (child / teen / young / middle / old / unknown) only from what the script shows; role: main / supporting / minor / unknown: how central to the story. Korean speech levels belong in save_speech_rule.',
       inputSchema: upsert(characterInput),
       needsApproval: true,
       execute: ({ id, ...input }) => {

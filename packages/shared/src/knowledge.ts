@@ -161,6 +161,10 @@ export const GENDER_LABELS: Record<Gender, string> = { unknown: '모름', male: 
 export const AGE_BANDS = ['unknown', 'child', 'teen', 'young', 'middle', 'old'] as const;
 export type AgeBand = (typeof AGE_BANDS)[number];
 export const AGE_BAND_LABELS: Record<AgeBand, string> = { unknown: '모름', child: '어린이', teen: '청소년', young: '청년', middle: '중년', old: '노년' };
+/** How central the character is to the story; 'unknown' until a person or the analysis decides. */
+export const CHARACTER_ROLES = ['unknown', 'main', 'supporting', 'minor'] as const;
+export type CharacterRole = (typeof CHARACTER_ROLES)[number];
+export const CHARACTER_ROLE_LABELS: Record<CharacterRole, string> = { unknown: '모름', main: '주연', supporting: '조연', minor: '단역' };
 const GENDER_WORDS: Record<Gender, string | undefined> = { unknown: undefined, male: 'male', female: 'female', other: 'neither male nor female' };
 const AGE_WORDS: Record<AgeBand, string | undefined> = { unknown: undefined, child: 'child', teen: 'teenager', young: 'young adult', middle: 'middle-aged', old: 'elderly' };
 /** Gender and age band in plain words for a prompt ("female, young adult"), or undefined when both are unknown. */

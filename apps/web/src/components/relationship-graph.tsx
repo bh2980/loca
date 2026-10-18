@@ -3,11 +3,13 @@ import { BaseEdge, Background, Controls, EdgeLabelRenderer, Handle, MarkerType, 
 import { Button } from '@loca/ui';
 import ELK from 'elkjs/lib/elk.bundled.js';
 import '@xyflow/react/dist/style.css';
+import type { CharacterRole } from '@tw/shared';
 import { cn } from '@/lib/utils';
 
 export interface GraphCharacter {
   id: string;
   name: string;
+  role: CharacterRole;
 }
 export interface GraphRelationship {
   id: string;
@@ -55,7 +57,7 @@ function keepLayout(storageKey: string, layout: Layout, store = true) {
   return layout;
 }
 
-type PersonNode = Node<{ label: string; dim: boolean }, 'person'>;
+type PersonNode = Node<{ label: string; role: GraphCharacter['role']; dim: boolean }, 'person'>;
 /** A line's label: one row per relationship it stands for (two when the pair goes both ways). */
 type LabelRow = { id: string; text: string; selected: boolean };
 type RelationEdge = Edge<{ offset: number; rows: LabelRow[]; dim: boolean; focus: boolean; dashed?: boolean; showLabel: boolean; onPick: (id: string) => void }, 'relation'>;
@@ -63,7 +65,7 @@ type RelationEdge = Edge<{ offset: number; rows: LabelRow[]; dim: boolean; focus
 function PersonNodeView({ data, selected }: NodeProps<PersonNode>) {
   return (
     <div
-      className={cn('flex items-center justify-center rounded-md border border-border/80 bg-background px-3 text-xs font-medium shadow-none transition-opacity', selected && 'border-primary ring-1 ring-primary/40', data.dim && 'opacity-30')}
+      className={cn('flex items-center justify-center rounded-md border border-border/80 bg-background px-3 text-xs font-medium shadow-none transition-opacity', data.role === 'main' && 'border-2 border-foreground/70 font-semibold', data.role === 'minor' && 'border-dashed text-muted-foreground', selected && 'border-primary ring-1 ring-primary/40', data.dim && 'opacity-30')}
       style={{ width: NODE_WIDTH, height: NODE_HEIGHT }}
     >
       <span className="truncate">{data.label}</span>
@@ -216,7 +218,7 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
         id: character.id,
         type: 'person',
         position: placed[character.id] ?? positions?.byId[character.id] ?? { x: 0, y: 0 },
-        data: { label: character.name, dim: emphasis.active && !emphasis.nodeIds.has(character.id) },
+        data: { label: character.name, role: character.role, dim: emphasis.active && !emphasis.nodeIds.has(character.id) },
         selected: character.id === selectedCharacterId,
         width: NODE_WIDTH,
         height: NODE_HEIGHT,

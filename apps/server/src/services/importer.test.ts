@@ -15,3 +15,14 @@ describe('default workflows of a new project', () => {
     expect(names).toEqual(['기본 번역', '작품 분석', '용어 추출', '청자 추정', '말투만 고치기']);
   });
 });
+
+
+describe('character roles in imports', () => {
+  it('keeps supplied roles and defaults older files to unknown', () => {
+    const supplied = importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', source: 'Hi' }], characters: [{ name: 'Lead', role: 'main' }, { name: 'Extra' }] });
+    expect(supplied.characters.map((character) => character.role)).toEqual(['main', 'unknown']);
+    const db = openDatabase(':memory:');
+    const { projectId } = importProject(db, supplied);
+    expect(db.select().from(s.characters).where(eq(s.characters.projectId, projectId)).all().map((character) => character.role)).toEqual(['main', 'unknown']);
+  });
+});

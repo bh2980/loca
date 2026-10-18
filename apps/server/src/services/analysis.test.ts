@@ -31,8 +31,8 @@ function setup() {
 const draft = (rule: Analysis['speechRules'][number]['level']): Analysis => ({
   overview: { setting: '항구', mainConflict: '', plot: '앨리스가 늦은 밥을 꾸짖는다.', evidence: ['L1'] },
   characters: [
-    { name: 'Alice', aliases: [], profile: '선장', speech: '짧고 단호함', player: false, gender: 'female', ageBand: 'middle', evidence: ['L1', 'L3'] },
-    { name: 'Bob', aliases: [], profile: '선원', speech: '', player: true, gender: 'female', ageBand: 'unknown', evidence: ['L2'] },
+    { name: 'Alice', aliases: [], profile: '선장', speech: '짧고 단호함', player: false, gender: 'female', ageBand: 'middle', role: 'main', evidence: ['L1', 'L3'] },
+    { name: 'Bob', aliases: [], profile: '선원', speech: '', player: true, gender: 'female', ageBand: 'unknown', role: 'supporting', evidence: ['L2'] },
   ],
   relationships: [{ from: 'Bob', to: 'Alice', kind: '부하', description: '', changes: [{ at: 'L3', change: '긴장', cause: '지각' }], evidence: ['L2', 'L99'] }],
   events: [{ title: '지각', summary: '', cause: '', outcome: '', participants: ['Bob'], evidence: ['L1'] }],
@@ -124,13 +124,21 @@ describe('work analysis', () => {
   it('fills the empty fields of a person already in the cast and leaves written ones alone', () => {
     const { db, projectId } = setup();
     const { keyOf } = scriptText(db, projectId);
-    db.insert(s.characters).values([{ projectId, name: 'Alice', origin: 'import', status: 'confirmed' }, { projectId, name: 'Bob', profile: '사람이 쓴 설명', gender: 'unknown', origin: 'human', status: 'confirmed' }]).run();
+    db.insert(s.characters).values([{ projectId, name: 'Alice', origin: 'import', role: 'unknown', status: 'confirmed' }, { projectId, name: 'Bob', profile: '사람이 쓴 설명', gender: 'unknown', role: 'unknown', origin: 'human', status: 'confirmed' }]).run();
     saveDrafts(db, projectId, 'job', draft('haeyo'), keyOf);
     const people = new Map(db.select().from(s.characters).where(eq(s.characters.projectId, projectId)).all().map((c) => [c.name, c]));
     expect(people.size).toBe(2);
-    expect(people.get('Alice')).toMatchObject({ profile: '선장', speech: '짧고 단호함', gender: 'female', ageBand: 'middle', origin: 'import' });
+    expect(people.get('Alice')).toMatchObject({ profile: '선장', speech: '짧고 단호함', gender: 'female', ageBand: 'middle', role: 'main', origin: 'import' });
     // A person's 'unknown' stays (the draft says female).
-    expect(people.get('Bob')).toMatchObject({ profile: '사람이 쓴 설명', speech: '', gender: 'unknown' });
+    expect(people.get('Bob')).toMatchObject({ profile: '사람이 쓴 설명', speech: '', gender: 'unknown', role: 'unknown' });
+  });
+
+  it('takes the analysis role for a new character', () => {
+    const { db, projectId } = setup();
+    const { keyOf } = scriptText(db, projectId);
+    const analysis = { ...draft('haeyo'), characters: [...draft('haeyo').characters, { name: 'Guard', aliases: [], profile: '', speech: '', player: false, gender: 'unknown' as const, ageBand: 'unknown' as const, role: 'minor' as const, evidence: ['L2'] }] };
+    saveDrafts(db, projectId, 'job', analysis, keyOf);
+    expect(db.select().from(s.characters).where(eq(s.characters.name, 'Guard')).get()).toMatchObject({ role: 'minor' });
   });
 
   it("keeps an AI rule as a candidate beside a person's rule that says otherwise", () => {
