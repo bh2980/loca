@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, CircleStop, ScanSearch } from 'lucide-react';
+import { Plus, CircleStop, ScanSearch, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
-import { DataTable, type ColumnDef, EmptyState, TagMenu, SplitPane, FilterChips, SearchInput, Toolbar, type FilterChip, Button, TagChip, HelpTip } from '@loca/ui';
+import { DataTable, type ColumnDef, EmptyState, TagMenu, SplitPane, FilterChips, SearchInput, FilterBar, ActionBar, type FilterChip, Button, TagChip, HelpTip, StatusBarItem } from '@loca/ui';
 import { HeaderFilter, MarkFilter, markTagGroups } from '@/components/header-filter';
 import { MarkChip } from '@/components/status';
 import { FillDialog } from '@/components/glossary/fill-dialog';
 import { NEW_TERM, NewTermPane, TermEditor, type Term } from '@/components/glossary/term-pane';
-import { Page } from '@/components/page';
+import { HeaderActions, Page } from '@/components/page';
 import { JobProgress } from '@/components/job-progress';
 import { BulkDecide, matches, SourceBadge, TagCell } from '@/components/knowledge/table';
 import { AUTO_MARKS, type AutoMark, isSettled, matchesMarks, parseMarks, TERM_MARK_IDS, termMarksOf, KNOWLEDGE_SOURCES, SOURCE_LABELS, type KnowledgeSource } from '@tw/shared';
@@ -49,6 +49,7 @@ function Glossary() {
   const { picked, pick, clear: clearPicked } = usePicked(`glossary.${projectId}`);
   const suggest = useQuery(q.termSuggest(projectId));
   const fill = suggest.data?.state;
+  const [fillOpen, setFillOpen] = useState(false);
   const cancelFill = useMutation({
     mutationFn: () => unwrap(client.projects[':projectId'].terms.suggest.cancel.$post({ param: { projectId } })),
     onError: (error) => toast.error(error.message),
@@ -185,36 +186,23 @@ function Glossary() {
           )
         }
       >
-        <Toolbar
-          count={terms.data && `${rows.length.toLocaleString()}개${needle ? ` / 전체 ${all.length.toLocaleString()}개` : ''}`}
-          actions={
-            <>
-              {fill?.running ? (
-                <span className="flex items-center gap-2 text-xs text-muted-foreground tabular-nums">
-                  <JobProgress done={fill.done} total={fill.total} running className="w-20" />
-                  용어 번역 채우는 중 {fill.done.toLocaleString()}/{fill.total.toLocaleString()}
-                  <Button variant="ghost" size="inline" disabled={cancelFill.isPending} onClick={() => cancelFill.mutate()}>
-                    <CircleStop /> 중단
-                  </Button>
-                </span>
-              ) : (
-                <>
-                  {fill && (fill.error ? <span className="text-xs text-muted-foreground">용어 번역 채우기 실패: {fill.error}</span> : fill.done > 0 && <span className="text-xs text-muted-foreground tabular-nums">{fill.done.toLocaleString()}개 채움</span>)}
-                  {!!suggest.data?.pending && <FillDialog projectId={projectId} pending={suggest.data.pending} calls={suggest.data.calls} batch={suggest.data.batch} />}
-                </>
-              )}
-              <Button variant="outline" disabled={discover.isPending} onClick={() => discover.mutate()}>
-                <ScanSearch /> 대본에서 찾기
-              </Button>
-              <Button onClick={() => select(NEW_TERM)}>
-                <Plus /> 용어 추가
-              </Button>
-            </>
-          }
-        >
+        <HeaderActions>
+          <Button onClick={() => select(NEW_TERM)}><Plus /> 용어</Button>
+          <ActionBar aria-label="용어집 동작" items={[
+            { id: 'discover', label: '대본에서 찾기', icon: <ScanSearch />, disabled: discover.isPending, onSelect: () => discover.mutate() },
+            ...(fill?.running ? [{ id: 'cancel-fill', label: '채우기 중단', icon: <CircleStop />, disabled: cancelFill.isPending, onSelect: () => cancelFill.mutate() }] : []),
+            ...(!fill?.running && suggest.data?.pending ? [{ id: 'fill', label: '빈 번역 AI로 채우기', icon: <Sparkles />, onSelect: () => setFillOpen(true) }] : []),
+          ]} />
+        </HeaderActions>
+        {!!suggest.data?.pending && !fill?.running && <FillDialog projectId={projectId} pending={suggest.data.pending} calls={suggest.data.calls} batch={suggest.data.batch} hideTrigger open={fillOpen} onOpenChange={setFillOpen} />}
+        {(fill?.running || fill?.error || fill?.done) && <StatusBarItem>
+          {fill.running ? <span className="flex min-w-0 items-center gap-2 tabular-nums"><JobProgress done={fill.done} total={fill.total} running className="w-20 shrink-0" /><span className="truncate">용어 번역 채우는 중 {fill.done.toLocaleString()}/{fill.total.toLocaleString()}</span></span>
+            : fill.error ? <span className="truncate">용어 번역 채우기 실패: {fill.error}</span> : fill.done > 0 ? <span>{fill.done.toLocaleString()}개 채움</span> : null}
+        </StatusBarItem>}
+        <FilterBar end={terms.data && <span className="text-2xs font-medium text-subtle-foreground tabular-nums">{rows.length.toLocaleString()}개{needle ? ` / 전체 ${all.length.toLocaleString()}개` : ''}</span>}>
           <SearchInput value={search.q} placeholder="원문·번역·메모 검색" onChange={(value) => void navigate({ search: (previous) => ({ ...previous, q: value }), replace: true })} />
           <FilterChips chips={chips} />
-        </Toolbar>
+        </FilterBar>
         <DataTable
           id="glossary"
           columns={columns}

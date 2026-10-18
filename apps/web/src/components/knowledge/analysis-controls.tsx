@@ -5,7 +5,7 @@ import { ANALYSIS_WORKFLOW } from '@tw/shared';
 import { CircleStop, Play, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { Elapsed, JobProgress } from '@/components/job-progress';
-import { Button, Popover, PopoverContent, PopoverTrigger, HelpTip } from '@loca/ui';
+import { Button, Popover, PopoverAnchor, PopoverContent, PopoverTrigger, HelpTip } from '@loca/ui';
 import { AiConfirmNote } from '@/components/settings/ai-confirm';
 import { ModelPicker, useInitialModel, type ModelValue } from '@/components/model-picker';
 import { client, unwrap } from '@/lib/api';
@@ -62,13 +62,15 @@ export function JobStatus({ projectId }: { projectId: string }) {
 export const hasAnalysis = (jobs: { status: string }[] | undefined) => (jobs ?? []).some((job) => job.status === 'completed');
 
 /** Start (or redo) a work analysis with a connection + model; how its drafts land is AI › 사용 방식. */
-export function StartAnalysis({ projectId, variant = 'default' }: { projectId: string; /** Outline once drafts exist and another action is the screen's primary. */ variant?: 'default' | 'outline' }) {
+export function StartAnalysis({ projectId, variant = 'default', open: controlledOpen, onOpenChange, hideTrigger = false }: { projectId: string; variant?: 'default' | 'outline'; open?: boolean; onOpenChange?: (open: boolean) => void; hideTrigger?: boolean }) {
   const jobs = useQuery(q.analysisJobs(projectId));
   const workflows = useQuery(q.workflows(projectId));
   const initial = useInitialModel(['generate'], jobs.data?.[0]);
   const [picked, setPicked] = useState<ModelValue | null>(null);
   const model = picked ?? initial;
-  const [open, setOpen] = useState(false);
+  const [localOpen, setLocalOpen] = useState(false);
+  const open = controlledOpen ?? localOpen;
+  const setOpen = (next: boolean) => { setLocalOpen(next); onOpenChange?.(next); };
   // The button runs the project's 작품 분석 workflow (#47); a failed run continues from 실행 기록.
   const workflow = workflows.data?.find((row) => row.name === ANALYSIS_WORKFLOW);
   const last = jobs.data?.[0];
@@ -87,11 +89,12 @@ export function StartAnalysis({ projectId, variant = 'default' }: { projectId: s
   if (running) return null;
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
+      {!hideTrigger && <PopoverTrigger asChild>
         <Button variant={variant}>
           <Sparkles className="size-3.5 text-primary" /> {hasDrafts ? '작품 다시 분석' : '작품 분석'}
         </Button>
-      </PopoverTrigger>
+      </PopoverTrigger>}
+      {hideTrigger && <PopoverAnchor className="fixed top-11 right-4 size-px" />}
       <PopoverContent align="end" className="w-80 space-y-3">
         <div className="space-y-1">
           <h3 className="text-sm font-semibold">작품 분석</h3>

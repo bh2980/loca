@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { listenerLabel, SPECIAL_LISTENERS } from '@tw/shared';
-import { PickedBar, PickedLabel, TagMenu, Button, Checkbox, Input, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue, StatusIcon } from '@loca/ui';
+import { SelectionBar, SelectionLabel, TagMenu, Button, Checkbox, Input, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue, StatusIcon } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
 import { lineTags, q } from '@/lib/queries';
@@ -80,10 +80,10 @@ export function LineHeadRow({ projectId, rows, bulk, statusList, tags }: { proje
               <span className="min-w-0 flex-1 self-stretch border-l px-3 leading-10">번역</span>
             </>
           ) : (
-            <PickedBar count={picked.size} onClear={stopPicking} className="flex-1 pr-4">
+            <SelectionBar count={picked.size} onClear={stopPicking} className="flex-1 pr-4">
               <Button variant="outline" disabled={pickedByAi.length === 0 || check.isPending} aria-label="확인함" title="상태는 그대로 두고 사람이 확인한 것으로 표시합니다(✦ 없앰)" onClick={() => check.mutate(pickedByAi)}>
                 <Check />
-                <PickedLabel from="lg">확인함</PickedLabel>
+                <SelectionLabel from="lg">확인함</SelectionLabel>
                 {pickedByAi.length ? <span className="tabular-nums">{pickedByAi.length}</span> : null}
               </Button>
               <Select value="" onValueChange={(statusId) => setStatus.mutate(statusId)}>
@@ -105,7 +105,7 @@ export function LineHeadRow({ projectId, rows, bulk, statusList, tags }: { proje
                 state={tagState}
                 onToggle={(tagId, add) => setTag.mutate({ tagId, add })}
               />
-            </PickedBar>
+            </SelectionBar>
           )}
         </div>
       )}

@@ -1,11 +1,12 @@
+import { useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, OctagonAlert, Pause, Play, CircleStop } from 'lucide-react';
 import { nodeName as nameOf, type WorkflowNode } from '@tw/shared';
 import { ContextItemList } from '@/components/ai-context';
 import { LineDetail } from '@/components/line-detail';
-import { Page } from '@/components/page';
-import { EmptyState, DataTable, type ColumnDef, Pager, Toolbar, SplitPane, JobStatusBadge, Alert, AlertDescription, AlertTitle, Badge, Button, Collapsible, CollapsibleContent, CollapsibleTrigger, Progress, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Tabs, TabsList, TabsTrigger, Skeleton, HelpTip } from '@loca/ui';
+import { HeaderActions, Page } from '@/components/page';
+import { EmptyState, DataTable, type ColumnDef, Pager, FilterBar, ActionBar, Separator, SplitPane, JobStatusBadge, StatusBarItem, Alert, AlertDescription, AlertTitle, Badge, Button, Collapsible, CollapsibleContent, CollapsibleTrigger, Progress, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Tabs, TabsList, TabsTrigger, Skeleton, HelpTip } from '@loca/ui';
 import { HeaderFilter } from '@/components/header-filter';
 import { client, unwrap } from '@/lib/api';
 import { ITEM_STATE } from '@/lib/labels';
@@ -45,6 +46,8 @@ const PAGE = 100;
 type Item = InferResponseType<(typeof client.runs)[':id']['items']['$get'], 200>['rows'][number];
 
 function RunDetail() {
+  const [continueOpen, setContinueOpen] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(false);
   const { projectId, runId } = Route.useParams();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
@@ -142,12 +145,7 @@ function RunDetail() {
   ];
 
   const stop = (
-    <AlertDialog>
-      <AlertDialogTrigger asChild>
-        <Button variant="ghost" className="text-destructive hover:text-destructive">
-          <CircleStop /> 실행 취소
-        </Button>
-      </AlertDialogTrigger>
+    <AlertDialog open={cancelOpen} onOpenChange={setCancelOpen}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>실행을 취소할까요?</AlertDialogTitle>
@@ -162,7 +160,7 @@ function RunDetail() {
   );
 
   return (
-    <Page title={data.workflowName} flush>
+    <Page title={data.workflowName} flush back={<Button variant="ghost" asChild><Link to="/p/$projectId/runs" params={{ projectId }}><ChevronLeft /> 실행 기록</Link></Button>}>
       <SplitPane
         id="run-lines"
         defaultWidth="400px"
@@ -183,32 +181,7 @@ function RunDetail() {
           )
         }
       >
-        <Toolbar
-          count={view === 'items' && items.data ? `${total.toLocaleString()}줄` : undefined}
-          actions={
-            <>
-              {data.status === 'running' && (
-                <Button onClick={() => control.mutate('pause')}>
-                  <Pause /> 일시정지
-                </Button>
-              )}
-              {data.status === 'paused' && (
-                <Button onClick={() => control.mutate('resume')}>
-                  <Play /> 재개
-                </Button>
-              )}
-              {(data.status === 'paused' || (data.status === 'completed' && (totals.failed ?? 0) > 0)) && !data.filling && <ContinueRun runId={runId} failed={totals.failed ?? 0} paused={data.status === 'paused'} />}
-              {active && stop}
-            </>
-          }
-        >
-          <Button variant="ghost" asChild className="-ml-2">
-            <Link to="/p/$projectId/runs" params={{ projectId }}>
-              <ChevronLeft /> 실행 기록
-            </Link>
-          </Button>
-          <JobStatusBadge status={data.status} />
-          {/* The app's one tab style (line tabs); boxed segments are for view switches only. */}
+        <HeaderActions>
           <Tabs value={view} onValueChange={(value) => setSearch({ tab: value === 'steps' || value === 'plan' ? value : undefined }, true)} className="self-stretch">
             <TabsList variant="line" className="h-full border-b-0" aria-label="보기">
               <TabsTrigger value="items">대사별</TabsTrigger>
@@ -216,12 +189,25 @@ function RunDetail() {
               <TabsTrigger value="plan">번역 계획</TabsTrigger>
             </TabsList>
           </Tabs>
+          <Separator orientation="vertical" className="mx-1 h-4" />
+          {data.status === 'running' && <Button onClick={() => control.mutate('pause')}><Pause /> 일시정지</Button>}
+          {data.status === 'paused' && <Button onClick={() => control.mutate('resume')}><Play /> 재개</Button>}
+          {data.status === 'completed' && (totals.failed ?? 0) > 0 && !data.filling && <ContinueRun runId={runId} failed={totals.failed ?? 0} paused={false} />}
+          {(active || data.status === 'paused') && <ActionBar aria-label="실행 동작" items={[
+            ...(active ? [{ id: 'cancel', label: '실행 취소', icon: <CircleStop />, destructive: true, onSelect: () => setCancelOpen(true) }] : []),
+            ...(data.status === 'paused' && !data.filling ? [{ id: 'continue', label: '모델 바꿔 재개', icon: <Play />, onSelect: () => setContinueOpen(true) }] : []),
+          ]} />}
+        </HeaderActions>
+        {data.status === 'paused' && !data.filling && <ContinueRun runId={runId} failed={totals.failed ?? 0} paused hideTrigger open={continueOpen} onOpenChange={setContinueOpen} />}
+        {active && stop}
+        <StatusBarItem><JobStatusBadge status={data.status} /></StatusBarItem>
+        <FilterBar end={view === 'items' && items.data ? <span className="text-2xs tabular-nums">{total.toLocaleString()}줄</span> : undefined}>
           {filtered && view === 'items' && (
             <Button variant="ghost" onClick={() => setSearch({ state: undefined, node: undefined, page: undefined, line: undefined }, true)}>
               필터 지우기
             </Button>
           )}
-        </Toolbar>
+        </FilterBar>
 
         <div className="shrink-0 space-y-3 border-b px-4 py-3">
           {data.status === 'paused' && data.notice && (

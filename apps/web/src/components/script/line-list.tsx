@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Play } from 'lucide-react';
 import { LineDetail } from '@/components/line-detail';
-import { SplitPane, FilterChips, Pager, SearchInput, Toolbar, EmptyState, Button, Skeleton, TagChip } from '@loca/ui';
+import { SplitPane, FilterChips, Pager, SearchInput, FilterBar, ActionBar, EmptyState, Button, Skeleton, TagChip } from '@loca/ui';
+import { HeaderActions } from '@/components/page';
 import { MarkChip } from '@/components/status';
 import { tokenPatternOf } from '@/lib/line-context';
 import { RunDialog } from '@/components/workflow/run-dialog';
@@ -204,23 +205,13 @@ export function LineList({
         )
       }
     >
-      <Toolbar
-        actions={
-          // One 'AI 실행': the picked lines when there are any, else the open scene.
-          <RunDialog
-            projectId={projectId}
-            unitIds={picked.size ? [...picked] : undefined}
-            groupIds={picked.size ? undefined : runGroupIds}
-            viewKind={picked.size || runGroupIds ? undefined : runKind}
-            trigger={
-              <Button variant="outline">
-                <Play /> {picked.size ? `AI 실행 · 고른 ${picked.size.toLocaleString()}줄` : 'AI 실행'}
-              </Button>
-            }
-          />
-        }
-      >
-        <div className="mr-1 min-w-0">{heading}</div>
+      <HeaderActions>
+        <RunDialog projectId={projectId} unitIds={picked.size ? [...picked] : undefined} groupIds={picked.size ? undefined : runGroupIds} viewKind={picked.size || runGroupIds ? undefined : runKind}
+          trigger={<Button><Play /> {picked.size ? `AI 실행 · 고른 ${picked.size.toLocaleString()}줄` : 'AI 실행'}</Button>} />
+        {!find && !review && hasLineFilter(search) && <ActionBar aria-label="대사 목록 동작" items={[{ id: 'find-in-scene', label: '장면에서 찾아가기', onSelect: () => onSearch({ mode: 'find', page: undefined }) }]} />}
+      </HeaderActions>
+      <FilterBar>
+        <div className="mr-1 min-w-0 shrink">{heading}</div>
         <SearchInput value={search.q} onChange={(value) => onSearch({ q: value, page: undefined })} placeholder="찾기" className="w-44" />
         <LineFilters
           projectId={projectId}
@@ -238,12 +229,7 @@ export function LineList({
             clear: () => onSearch({ ...chip.clear, page: undefined }),
           }))}
         />
-        {!find && !review && hasLineFilter(search) && (
-          <Button variant="ghost" onClick={() => onSearch({ mode: 'find', page: undefined })}>
-            장면에서 찾아가기
-          </Button>
-        )}
-      </Toolbar>
+      </FilterBar>
       {banner}
       {!!rows?.length && <LineHeadRow projectId={projectId} rows={rows} bulk={bulk} statusList={statusList} tags={lineTags(statuses.data?.tags)} />}
       <div className="min-h-0 flex-1 overflow-y-auto">

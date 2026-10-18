@@ -8,8 +8,8 @@ import { LINE_CARD_WIDTH, LineCard } from '@/components/graph/line-card';
 import { FlowPane, SceneNodeDetail } from '@/components/graph/node-detail';
 import { KIND_LABEL } from '@/components/graph/shapes';
 import { TypeLegend } from '@/components/graph/type-legend';
-import { Page } from '@/components/page';
-import { SearchInput, SplitPane, PaneHeader, Button, Empty, EmptyDescription, EmptyHeader, EmptyTitle, ScrollArea, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner, Switch, ToggleGroup, ToggleGroupItem } from '@loca/ui';
+import { HeaderActions, Page } from '@/components/page';
+import { SearchInput, SplitPane, PaneHeader, Button, Empty, EmptyDescription, EmptyHeader, EmptyTitle, ScrollArea, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner, Switch, ViewSwitch } from '@loca/ui';
 import { useSize } from '@/hooks/use-size';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
@@ -76,25 +76,9 @@ const readViewport = (key: string): Viewport | undefined => {
 const GRAPH_MODES = ['scene', 'dialogue', 'path'] as const;
 /** The graph's three modes in one sleek segment control */
 function ModeToggle({ value, onChange }: { value: (typeof GRAPH_MODES)[number]; onChange: (value: (typeof GRAPH_MODES)[number]) => void }) {
-  return (
-    <ToggleGroup
-      type="single"
-      variant="outline"
-      value={value}
-      onValueChange={(next) => next && onChange(next as (typeof GRAPH_MODES)[number])}
-      className="bg-chrome border border-border p-0.5 rounded-lg gap-0.5"
-    >
-      <ToggleGroupItem value="scene" className="px-2.5 py-1 rounded-md text-xs font-medium tracking-tight data-[state=on]:bg-card data-[state=on]:shadow-2xs">
-        장면
-      </ToggleGroupItem>
-      <ToggleGroupItem value="dialogue" className="px-2.5 py-1 rounded-md text-xs font-medium tracking-tight data-[state=on]:bg-card data-[state=on]:shadow-2xs">
-        대사
-      </ToggleGroupItem>
-      <ToggleGroupItem value="path" className="px-2.5 py-1 rounded-md text-xs font-medium tracking-tight data-[state=on]:bg-card data-[state=on]:shadow-2xs">
-        경로
-      </ToggleGroupItem>
-    </ToggleGroup>
-  );
+  return <ViewSwitch label="그래프 보기" value={value} onChange={(next) => onChange(next as (typeof GRAPH_MODES)[number])} items={[
+    { value: 'scene', label: '장면' }, { value: 'dialogue', label: '대사' }, { value: 'path', label: '경로' },
+  ]} />;
 }
 
 function GraphRoute() {
@@ -342,10 +326,9 @@ function GraphPage() {
   }, [layout, hidden, search.links]);
 
   return (
-    <Page
-      title="그래프"
-      actions={
-        <div className="flex items-center gap-2">
+    <Page title="그래프" flush>
+      <HeaderActions>
+        <ModeToggle value={search.scope} onChange={(mode) => void navigate({ search: mode === 'path' ? { scope: 'dialogue', view: 'path' } : { scope: mode } })} />
           {dialogue && (sections.length > 1 || view) && (
             <Select
               value={chosen ?? 'all'}
@@ -366,11 +349,7 @@ function GraphPage() {
               </SelectContent>
             </Select>
           )}
-          <ModeToggle value={search.scope} onChange={(mode) => void navigate({ search: mode === 'path' ? { scope: 'dialogue', view: 'path' } : { scope: mode } })} />
-        </div>
-      }
-      flush
-    >
+      </HeaderActions>
       <SplitPane
         id="graph"
         defaultWidth="380px"

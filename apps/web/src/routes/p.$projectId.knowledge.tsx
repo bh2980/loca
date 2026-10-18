@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
-import { ArrowLeftRight, GanttChart, Network, Plus, Table2, Users } from 'lucide-react';
+import { ArrowLeftRight, GanttChart, Network, Plus, Sparkles, Table2, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { CHARACTER_ROLE_LABELS, OTHERS_LISTENER, parseMarks, type AutoMark, styleNames, isSettled, KNOWLEDGE_SOURCES, listenerLabel, REVIEW_TAG, SPEECH_LEVEL_LABELS, type KnowledgeSource, personLabel } from '@tw/shared';
-import { EmptyState, TagMenu, SplitPane, FilterChips, Toolbar, Badge, Button, Skeleton, ToggleGroup, ToggleGroupItem, Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
-import { Page } from '@/components/page';
+import { EmptyState, TagMenu, SplitPane, FilterChips, FilterBar, ActionBar, ViewSwitch, Separator, Badge, Button, Skeleton, Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
+import { HeaderActions, Page, StatusBarItem } from '@/components/page';
 import { RelationshipGraph } from '@/components/relationship-graph';
 import { hasAnalysis, JobStatus, StartAnalysis } from '@/components/knowledge/analysis-controls';
 import { DraftEditor } from '@/components/knowledge/editor';
@@ -303,6 +303,7 @@ function Knowledge() {
 
   const jobs = useQuery(q.analysisJobs(projectId));
   const analysed = hasAnalysis(jobs.data);
+  const [analysisOpen, setAnalysisOpen] = useState(false);
   const pending = tab === 'documents' ? documents.isPending : tab === 'events' ? storyEvents.isPending : people.isPending || rules.isPending;
   // Only the tags that belong on knowledge items (자료).
   const knowledgeTags = tagsIn(statuses.data?.tags, 'knowledge');
@@ -367,59 +368,26 @@ function Knowledge() {
           ) : null
         }
       >
-        <Toolbar
-          count={count}
-          actions={
-            <>
-              <StartAnalysis projectId={projectId} variant="outline" />
-              {!pairsView && (
-                <Button variant="default" disabled={!spec.create || create.isPending} onClick={() => create.mutate()}>
-                  <Plus /> 추가
-                </Button>
-              )}
-            </>
-          }
-        >
-          {tab === 'people' && (
-            <ViewSwitch
-              label="보기"
-              value={graph ? 'graph' : 'table'}
-              onChange={(value) => set({ display: value === 'table' ? 'table' : undefined, item: undefined }, false)}
-              items={[
+        <HeaderActions>
+          {(tab === 'people' || tab === 'events') && <>
+            <ViewSwitch label="보기" value={tab === 'people' ? graph ? 'graph' : search.display === 'characters' ? 'characters' : 'table' : timeline ? 'timeline' : 'table'}
+              onChange={(value) => set({ display: tab === 'people' ? value === 'graph' ? undefined : value === 'characters' ? 'characters' : 'table' : value === 'table' ? 'table' : undefined, item: undefined }, false)}
+              items={tab === 'people' ? [
                 { value: 'graph', label: '그래프', icon: <Network /> },
-                { value: 'table', label: '표', icon: <Table2 /> },
-              ]}
-            />
-          )}
-          {tab === 'people' && !graph && (
-            <ViewSwitch
-              label="표 종류"
-              value={search.display === 'characters' ? 'characters' : 'pairs'}
-              onChange={(value) => set({ display: value === 'characters' ? 'characters' : 'table', item: undefined }, false)}
-              items={[
-                { value: 'pairs', label: '관계', icon: <ArrowLeftRight /> },
-                { value: 'characters', label: '인물', icon: <Users /> },
-              ]}
-            />
-          )}
-          {tab === 'events' && (
-            <ViewSwitch
-              label="보기"
-              value={timeline ? 'timeline' : 'table'}
-              onChange={(value) => set({ display: value === 'table' ? 'table' : undefined })}
-              items={[
-                { value: 'timeline', label: '흐름', icon: <GanttChart /> },
-                { value: 'table', label: '표', icon: <Table2 /> },
-              ]}
-            />
-          )}
+                { value: 'characters', label: '인물 표', icon: <Users /> },
+                { value: 'table', label: '관계 표', icon: <ArrowLeftRight /> },
+              ] : [{ value: 'timeline', label: '흐름', icon: <GanttChart /> }, { value: 'table', label: '표', icon: <Table2 />}]} />
+            <Separator orientation="vertical" className="mx-1 h-4" />
+          </>}
+          {!pairsView && spec.create && <Button disabled={create.isPending} onClick={() => create.mutate()}><Plus /> {KINDS[tableKind]}</Button>}
+          <ActionBar aria-label="작품 지식 동작" items={[{ id: 'analysis', label: analysed ? '작품 다시 분석' : '작품 분석', icon: <Sparkles />, disabled: jobs.data?.[0]?.status === 'running', overflow: 'always', onSelect: () => setAnalysisOpen(true) }]} />
+        </HeaderActions>
+        <StartAnalysis projectId={projectId} hideTrigger open={analysisOpen} onOpenChange={setAnalysisOpen} />
+        <FilterBar end={<span className="text-2xs font-medium text-subtle-foreground tabular-nums">{count}</span>}>
           {(graph || timeline) && <KnowledgeFilters {...filters} />}
           <FilterChips chips={chips} />
-          {/* The last analysis takes what is left of the row and is cut short there (#48): the toolbar stays one line at 1280. */}
-          <div className="min-w-0 flex-1 basis-0 truncate text-xs text-muted-foreground">
-            <JobStatus projectId={projectId} />
-          </div>
-        </Toolbar>
+        </FilterBar>
+        <StatusBarItem><div className="min-w-0 truncate"><JobStatus projectId={projectId} /></div></StatusBarItem>
         {graph ? (
           <div className="min-h-0 flex-1">
             {/* Pairs come from speech rules too: laying out before they arrive would lay out twice. */}
@@ -484,27 +452,3 @@ function Knowledge() {
   );
 }
 
-/** A view switch (그래프 | 표, 흐름 | 표): the picture first, labelled in words. */
-function ViewSwitch({ label, value, onChange, items }: { label: string; value: string; onChange: (value: string) => void; items: { value: string; label: string; icon: ReactNode }[] }) {
-  return (
-    <ToggleGroup
-      type="single"
-      variant="outline"
-      value={value}
-      onValueChange={(next) => next && onChange(next)}
-      aria-label={label}
-      className="bg-chrome border border-border p-0.5 rounded-lg gap-0.5"
-    >
-      {items.map((item) => (
-        <ToggleGroupItem
-          key={item.value}
-          value={item.value}
-          className="gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium tracking-tight data-[state=on]:bg-card data-[state=on]:shadow-2xs [&_svg]:size-3.5 [&_svg]:stroke-[1.65]"
-        >
-          {item.icon}
-          {item.label}
-        </ToggleGroupItem>
-      ))}
-    </ToggleGroup>
-  );
-}
