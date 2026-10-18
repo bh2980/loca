@@ -33,7 +33,7 @@ export function AiConfirmNote({ projectId, kinds }: { projectId: string; kinds: 
 
 /**
  * One choice per kind of knowledge for what AI results become: used right away (✦ until a person
- * looks) or candidates a person confirms. Every AI step that writes these follows it (docs/DESIGN.md 3.5).
+ * looks) or candidates a person confirms. Every AI step that writes these follows it.
  */
 export function AiConfirmList({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient();

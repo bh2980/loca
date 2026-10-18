@@ -1,7 +1,7 @@
 import type { UIMessage } from 'ai';
 
 /**
- * Model context built from the one conversation record (`chat_sessions.messages`, docs/DESIGN.md 7).
+ * Model context built from the one conversation record (`chat_sessions.messages`).
  * Every backend reads the same record: the API chat sends it as messages, pi is seeded with it, a
  * CLI gets it as text. A backend's own session (pi in memory, a CLI on disk) is only a cache that
  * remembers how much of the record it has seen; what it missed is handed over from here (#46).

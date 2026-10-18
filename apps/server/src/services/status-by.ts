@@ -4,7 +4,7 @@ import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { clearReview } from './knowledge-tags.ts';
 
-/** Knowledge tables and the glossary: rows a person or AI confirms (docs/DESIGN.md 3.5). */
+/** Knowledge tables and the glossary: rows a person or AI confirms. */
 export type DecidedTable = typeof s.documents | typeof s.characters | typeof s.relationships | typeof s.storyEvents | typeof s.speechRules | typeof s.terms;
 
 const KIND_OF = new Map<DecidedTable, KnowledgeTagKind>([

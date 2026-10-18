@@ -109,8 +109,8 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
   setStatus(tx, raw, input) {
     const params = setStatusParams.parse(raw);
     // Translations now go into the line when a node produces them (engine/apply-candidate.ts, #42);
-    // this node only sets the status and tags. A run sets the line's status, so AI set it
-    // (docs/DESIGN.md 3.5); a person's change later makes it theirs. A run that picks lines by status
+    // this node only sets the status and tags. A run sets the line's status, so AI set it;
+    // a person's change later makes it theirs. A run that picks lines by status
     // never replaces a translation a person wrote (#51): its entry skips such lines, and one a person
     // saved while the run was on it keeps its status here. A run on lines named regardless of status
     // (말투만 고치기, '상태 무시') is asked to rewrite them, so its status change goes through.

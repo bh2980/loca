@@ -1,7 +1,7 @@
 import { windowOf, type Overview } from './path-window';
 
 /**
- * The path view's translation list (docs/DESIGN.md J2c, 길 번역 목록): the route's lines in reading
+ * The path view's translation list (길 번역 목록): the route's lines in reading
  * order, with the stretches that need no look folded and the seams marked. Plain data in, plain data out.
  */
 export interface SequenceLine {

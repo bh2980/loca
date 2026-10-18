@@ -265,7 +265,7 @@ export class Runner {
       data.candidateId = candidateId;
       data.candidateText = outcome.candidate;
       data.issues = []; // a new candidate answers the previous issues
-      // The produced text goes straight into the line (docs/DESIGN.md 3.5, #42). A person's saved
+      // The produced text goes straight into the line (#42). A person's saved
       // translation in a status-filtered run is kept and the run's text stays a candidate with a note.
       if (!applyRunCandidate(tx, run, item.unitId, candidateId, outcome.candidate).applied) {
         const notes = data.notes ?? [];

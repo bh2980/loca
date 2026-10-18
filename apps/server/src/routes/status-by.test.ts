@@ -24,7 +24,7 @@ function setup() {
   return { db, projectId, send };
 }
 
-describe('who set it (docs/DESIGN.md 3.5)', () => {
+describe('who set it', () => {
   it('a run sets a line, a person takes it over by editing, changing the status or 확인함', async () => {
     const { db, projectId, send } = setup();
     const units = db.select().from(s.units).where(eq(s.units.projectId, projectId)).orderBy(s.units.seq).all();

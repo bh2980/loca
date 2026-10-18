@@ -21,7 +21,7 @@ type GraphDirection = 'vertical' | 'horizontal';
 interface GraphSearch {
   scope: Scope;
   direction?: GraphDirection;
-  /** 길 따라 보기: the slice of the dialogue graph for the stored choices (docs/DESIGN.md J2c). */
+  /** 길 따라 보기: the slice of the dialogue graph for the stored choices. */
   view?: 'path';
   /** Reading route endpoints belong to this URL, independent of persisted legacy graph slices. */
   routeStart?: string;

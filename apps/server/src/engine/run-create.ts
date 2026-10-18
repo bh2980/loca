@@ -25,7 +25,7 @@ export function selectRunUnits(db: Db, projectId: string, definition: WorkflowDe
   if (statusIds.length && !scope.ignoreStatus) {
     conditions.push(inArray(s.units.statusId, statusIds));
     // A line a person translated is not "untranslated", even while it still sits in an initial status:
-    // the entry filter must not pick it again and overwrite what they wrote (docs/DESIGN.md 3.5).
+    // the entry filter must not pick it again and overwrite what they wrote.
     const initial = db.select({ id: s.statuses.id }).from(s.statuses).where(eq(s.statuses.kind, 'initial'));
     conditions.push(or(notInArray(s.units.statusId, initial), ne(s.units.statusBy, 'human'), sql`coalesce(trim(${s.units.translation}), '') = ''`)!);
   }

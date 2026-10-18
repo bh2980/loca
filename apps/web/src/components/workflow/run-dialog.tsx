@@ -18,7 +18,7 @@ type GroupKind = 'scene' | 'ui' | 'document';
 const KIND_ORDER: GroupKind[] = ['scene', 'ui', 'document'];
 
 /**
- * Start a workflow (docs/DESIGN.md J6): one screen with what a person decides on before pressing
+ * Start a workflow: one screen with what a person decides on before pressing
  * start — which lines (the scene in view, picked scenes, tagged lines, picked lines, every line of
  * one kind — 대사 · UI · 문서, preselected only from the UI or documents view — or the whole
  * project, never preselected), what in those lines would spoil the translation and where to fix it,

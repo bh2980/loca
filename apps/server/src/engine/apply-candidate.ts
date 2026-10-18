@@ -8,7 +8,7 @@ type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 type Run = typeof s.runs.$inferSelect;
 
 /**
- * Writes a candidate a workflow produced straight into the line (docs/DESIGN.md 3.5, #42): the
+ * Writes a candidate a workflow produced straight into the line (#42): the
  * translation column is the produced text the moment it is made, set by AI. A run that picks lines
  * by status does not overwrite a translation a person saved after the run started (the #51 rule);
  * that line keeps its text and only gains the candidate. A changed translation clears the

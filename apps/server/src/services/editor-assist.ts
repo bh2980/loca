@@ -16,7 +16,7 @@ import { addCandidate } from './candidates.ts';
 export type AssistMode = 'translate' | 'refine';
 
 /**
- * 다듬기 (docs/DESIGN.md J3b C): the draft is the translator's own work, so only what has a reason
+ * 다듬기: the draft is the translator's own work, so only what has a reason
  * changes — meaning, then the project's rules, then the target language — and each change says why.
  * Nothing to fix is an answer too: the draft comes back as it is and no candidate is made.
  */
@@ -40,7 +40,7 @@ const refineSchema = z.object({
 const KIND_LABELS: Record<(typeof REFINE_KINDS)[number], string> = { meaning: '의미', rule: '규칙', language: '표현' };
 
 /**
- * The editor's 'AI 번역' and '다듬기' for one line (docs/DESIGN.md J3b C): the same prompt and
+ * The editor's 'AI 번역' and '다듬기' for one line: the same prompt and
  * context as a workflow's AI node (speech rule, glossary, preceding lines, voices), sent to the
  * model picked in AI › 사용 방식 (a CLI too). The answer becomes an AI candidate of the line (its
  * note says what 다듬기 changed and why); the line's translation does not change. 다듬기 with

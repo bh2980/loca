@@ -341,7 +341,7 @@ export const sourceRoutes = new Hono<Env>()
     const sceneNames = [...distance].sort((a, b) => a[1] - b[1]).map(([name]) => name);
     return c.json({ ...unit, group, neighbors, candidates, tagIds, history, graphNodes: nodes, speech, sceneNames });
   })
-  /** The editor's AI continuation of a line (docs/DESIGN.md J3b A): the whole line, starting with `prefix`. Cancelled with the request. */
+  /** The editor's AI continuation of a line: the whole line, starting with `prefix`. Cancelled with the request. */
   .post('/units/:unitId/complete', validate('json', z.object({ prefix: z.string().max(4000).default('') })), async (c) => {
     const { db, secrets } = c.var.deps;
     try {
@@ -351,7 +351,7 @@ export const sourceRoutes = new Hono<Env>()
       throw error;
     }
   })
-  /** The editor's 'AI 번역' / '다듬기' of a line (docs/DESIGN.md J3b C): a new AI candidate. Cancelled with the request. */
+  /** The editor's 'AI 번역' / '다듬기' of a line: a new AI candidate. Cancelled with the request. */
   .post('/units/:unitId/assist', validate('json', z.object({ mode: z.enum(['translate', 'refine']), draft: z.string().max(8000).default('') })), async (c) => {
     const { db, secrets } = c.var.deps;
     try {

@@ -32,7 +32,7 @@ export function patchedLine(json: { statusId?: string; listener?: string | null;
   return (row: Row): Row => ({
     ...row,
     ...(json.statusId !== undefined && { statusId: json.statusId }),
-    // A person's status or translation (or 확인함) makes the status theirs: the ✦ goes (docs/DESIGN.md 3.5).
+    // A person's status or translation (or 확인함) makes the status theirs: the ✦ goes.
     ...((json.statusId !== undefined || json.translation !== undefined || json.checked) && 'statusBy' in row && { statusBy: 'human', statusRunId: null }),
     ...(json.listener !== undefined && { listener: json.listener, listenerOrigin: 'human', listenerConfidence: null }),
     ...(json.translation !== undefined && { translation: json.translation, origin: 'human', model: null }),

@@ -50,7 +50,7 @@ export function useInitialModel(need: Capability[], last?: { connectionId: strin
 }
 
 /**
- * The one way to choose AI wherever it is used (docs/DESIGN.md 4.1): a connection, one of its models
+ * The one way to choose AI wherever it is used: a connection, one of its models
  * and a reasoning effort, in one popover. Connections that cannot do what the place needs are left
  * out; picking a connection fills in its default model. `compact` is the chat composer's ghost button.
  */

@@ -57,7 +57,7 @@ export interface RouteSlice {
   forks: SliceFork[];
   stubs: SliceStub[];
   /**
-   * 이음새 (docs/DESIGN.md J2c), from round 2 on: where the route's new lines (lines on no earlier
+   * 이음새, from round 2 on: where the route's new lines (lines on no earlier
    * round's route) hand back into a block that belongs to an earlier route. One entry per path edge;
    * several can enter the same block (parallel arms). Empty in round 1.
    */

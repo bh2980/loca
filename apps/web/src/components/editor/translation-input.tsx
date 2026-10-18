@@ -17,7 +17,7 @@ const editors = new Map<string, EditorView>();
 const numberings = new Map<string, () => { source: string; pattern: RegExp | null }>();
 
 /**
- * Proposed tokens shown as faint chips where they would go (docs/DESIGN.md J3b B): Tab puts them
+ * Proposed tokens shown as faint chips where they would go: Tab puts them
  * in, Esc or any edit drops them. Nothing changes the text until Tab.
  */
 const setGhost = StateEffect.define<TagInsert[] | null>();
@@ -56,7 +56,7 @@ function takeGhost(view: EditorView) {
 }
 
 /**
- * The AI continuation (docs/DESIGN.md J3b A): faint text after the cursor while it is at the end
+ * The AI continuation: faint text after the cursor while it is at the end
  * of the text. Tab takes it, ⌘→ one word. The text comes from the editor's owner (the `continuation`
  * prop); an edit clears it until the owner sets it again.
  */

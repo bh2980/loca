@@ -7,7 +7,7 @@ import { choiceKey, draftModelChoiceSchema, EMPTY_MODEL_CHOICE, modelChoiceSchem
 
 /**
  * What an AI node pulls into its prompt. Every field maps to stored project data.
- * Defaults follow the experiments (docs/DESIGN.md 2.4): a known listener with a confirmed speech rule,
+ * Defaults follow the experiments: a known listener with a confirmed speech rule,
  * glossary, preceding lines and the scene description help; character profiles, relationship bundles
  * and documents did nothing or hurt, so they are opt-in per node.
  */

@@ -189,7 +189,7 @@ export function saveDrafts(
       return key ? [key] : [];
     });
   const keyOrNull = (id: string | null) => (id ? (keyOf.get(id.trim()) ?? null) : null);
-  // Each kind lands as AI › 사용 방식 says; AI set the status either way (docs/DESIGN.md 3.5).
+  // Each kind lands as AI › 사용 방식 says; AI set the status either way.
   const draft = (kind: AiConfirmKind) => ({ status: aiStatus(policy, kind), statusBy: 'ai' as const, origin: 'ai' as const, jobId });
   const counts = { listeners: 0, rulesForReview: 0, terms: 0 };
 

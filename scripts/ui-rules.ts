@@ -1,5 +1,5 @@
 /**
- * UI consistency check (docs/DESIGN.md 4.1): screens are built from the shared parts, so these
+ * UI consistency check: screens are built from the shared parts, so these
  * patterns must not appear outside components/ui. Run with `pnpm ui-rules`; part of `pnpm verify`.
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';

@@ -10,7 +10,7 @@ import { q } from '@/lib/queries';
 import { useFormFrom } from '@/lib/use-form-from';
 
 /**
- * The editor's AI (docs/DESIGN.md J3b): the model for 'AI 번역·다듬기' (any connection, a CLI too:
+ * The editor's AI: the model for 'AI 번역·다듬기' (any connection, a CLI too:
  * the translator waits for it), the continuation (자동완성: on or off, an API model only, a CLI takes
  * seconds, too slow to follow typing), and how many calls a day both make at most, with today's count.
  */

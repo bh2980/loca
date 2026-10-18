@@ -71,7 +71,7 @@ export function TranslationEditor({
   const detail = useQuery(q.unit(unit.id));
   const candidates = unit.candidates ?? detail.data?.candidates ?? [];
   const suggestions = useSuggestions(unit.id, [unit.translation ?? '', draft]);
-  // The AI continuation (docs/DESIGN.md J3b A): asked once when the line opens empty, or with ⌥/.
+  // The AI continuation: asked once when the line opens empty, or with ⌥/.
   const project = useQuery(q.project(projectId));
   const editorAi = project.data?.editorAi;
   const [ai, setAi] = useState<{ text?: string; loading?: boolean; message?: string; dismissed?: boolean }>(() => ({ text: continuations.get(unit.id) }));
@@ -102,7 +102,7 @@ export function TranslationEditor({
     if (editorAi?.enabled && editorAi.model && !draft.trim() && !continuations.has(unit.id)) ask('', false);
     return () => pending.current?.abort();
   }, [unit.id, editorAi?.enabled]); // eslint-disable-line react-hooks/exhaustive-deps
-  // AI 번역 / 다듬기 (docs/DESIGN.md J3b C): waited for, then a new AI candidate of the line (the text itself does not change).
+  // AI 번역 / 다듬기: waited for, then a new AI candidate of the line (the text itself does not change).
   const [assist, setAssist] = useState<{ loading?: 'translate' | 'refine'; done?: 'translate' | 'refine' | 'unchanged'; message?: string; from?: string; text?: string; reasons?: string[] }>({});
   const assistPending = useRef<AbortController>(null);
   const runAssist = (mode: 'translate' | 'refine') => {
@@ -133,7 +133,7 @@ export function TranslationEditor({
   // What is shown: the rest of the AI's line after what is typed (while it still matches), up to the end of the next sentence.
   const continuation = ai.text && !ai.dismissed && ai.text.startsWith(draft) ? nextSentence(ai.text.slice(draft.length)) : '';
 
-  // Missing format units the rules can place (docs/DESIGN.md J3b B).
+  // Missing format units the rules can place.
   const tags = useMemo(() => placeTags(unit.source, draft, line.tokenPattern, line.terms), [unit.source, draft, line.tokenPattern, line.terms]);
   const placeMissing = () => tags.inserts.length > 0 && proposeInLine(unit.id, tags.inserts);
 
@@ -435,7 +435,7 @@ function Waiting({ label, onCancel }: { label: string; onCancel: () => void }) {
 const CHECK_LABELS: Partial<Record<FormatIssue['code'], string>> = { number: '숫자', space: '공백', newline: '줄바꿈', particle: '조사', placeholder: '서식', tag: '서식' };
 
 /**
- * The draft's format checks (docs/DESIGN.md J3), short: each missing token as its chip (click puts
+ * The draft's format checks, short: each missing token as its chip (click puts
  * it at the cursor; the same chips are ringed in the source), one icon and word per other problem
  * (the full sentence in its tooltip), or a quiet ✓ when all pass.
  */

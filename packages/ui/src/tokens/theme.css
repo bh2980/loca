@@ -1,5 +1,5 @@
 /*
- * loca design tokens (docs/DESIGN.md 4.0). One set of semantic names, two themes:
+ * loca design tokens. One set of semantic names, two themes:
  *   light = "A Slate"   cool slate neutrals (hue 258), one cobalt accent, lines only between regions.
  *   .dark = "C Night"   graphite (hue 265), one signal-teal accent, regions by tone steps.
  * Components use the semantic names only (bg-chrome, text-subtle-foreground, bg-primary …), never raw

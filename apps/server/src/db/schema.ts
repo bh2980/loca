@@ -18,7 +18,7 @@ const knowledge = () => ({
   origin: text('origin', { enum: KNOWLEDGE_ORIGINS }).notNull().default('human'),
   evidence: json<string[]>('evidence').notNull().default(sql`'[]'`),
   jobId: text('job_id'),
-  /** Who put it in its current status (docs/DESIGN.md 3.5). An AI item a person never touched stays "ai"; a new analysis may replace it. */
+  /** Who put it in its current status. An AI item a person never touched stays "ai"; a new analysis may replace it. */
   statusBy: text('status_by', { enum: STATUS_BY }).notNull().default('human'),
 });
 

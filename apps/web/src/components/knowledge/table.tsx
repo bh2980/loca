@@ -17,7 +17,7 @@ export interface Draft {
   id: string;
   status: KnowledgeStatus;
   origin: KnowledgeOrigin;
-  /** Who set the status (docs/DESIGN.md 3.5). */
+  /** Who set the status. */
   statusBy: StatusBy;
   evidence: string[];
   /** The work analysis that put it in, if any. */

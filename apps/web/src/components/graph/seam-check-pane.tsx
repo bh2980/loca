@@ -22,7 +22,7 @@ export function SeamStateChip({ state, className }: { state: SeamState | undefin
 type Line = { unitId: string; key: string; groupId: string; speaker: string | null; source: string; translation: string | null };
 
 /**
- * 이음새 점검 (docs/DESIGN.md J2c): a seam of the path view, where this route's new lines hand back
+ * 이음새 점검: a seam of the path view, where this route's new lines hand back
  * into lines of an earlier route. Shows the route's last lines before the seam, a divider, and the
  * first lines of the earlier route after it. Read-only; a line opens in the script view to be
  * changed. The mark is stored with a signature of what was read.

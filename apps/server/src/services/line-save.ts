@@ -11,8 +11,8 @@ type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 type Unit = Pick<typeof s.units.$inferSelect, 'id' | 'projectId' | 'translation' | 'statusId'>;
 
 /**
- * The one way a person's (or an accepted proposal's) change reaches a line's text and status
- * (docs/DESIGN.md 3.5). Text, the candidate it came from and the status are written together in
+ * The one way a person's (or an accepted proposal's) change reaches a line's text and status.
+ * Text, the candidate it came from and the status are written together in
  * the caller's transaction, so a save can never leave the text in a candidate and the line empty.
  * The editor, the line pane, same-source apply, the CLI/agent batch and bulk status changes all
  * come here; there is no other writer of `units.translation` for people (workflows write through

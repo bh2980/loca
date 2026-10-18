@@ -4,7 +4,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "../primitives/tooltip"
 import { cn } from "../lib/utils"
 
 /**
- * Statuses, tags and marks (docs/DESIGN.md 4.0). The one place their colours and shapes are drawn:
+ * Statuses, tags and marks. The one place their colours and shapes are drawn:
  * screens use these parts, never a coloured span of their own.
  */
 export interface StatusLike {
@@ -131,7 +131,7 @@ export function StatusBar({ statuses, counts, className }: { statuses: StatusLik
 }
 
 /**
- * ✦ beside a status or 확정 that AI set and no person has looked at since (docs/DESIGN.md 3.5).
+ * ✦ beside a status or 확정 that AI set and no person has looked at since.
  * The same mark everywhere: lines, knowledge, terms. Renders nothing when a person set it.
  */
 export function AiMark({ by, className }: { by: "ai" | "human" | null | undefined; className?: string }) {
