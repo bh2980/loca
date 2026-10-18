@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { listenerLabel, SPECIAL_LISTENERS } from '@tw/shared';
-import { SelectionBar, SelectionLabel, TagMenu, Button, Checkbox, Input, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue, StatusIcon } from '@loca/ui';
+import { SelectionBar, SelectionLabel, TagMenu, Button, Checkbox, Input, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue, StatusIcon, TranslationColumnHeader } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
 import { lineTags, q } from '@/lib/queries';
@@ -63,23 +63,21 @@ export type LineBulk = ReturnType<typeof useLineBulk>;
 export function LineHeadRow({ projectId, rows, bulk, statusList, tags }: { projectId: string; rows: { id: string; speaker: string | null }[]; bulk: LineBulk; statusList: { id: string; name: string; color: string }[]; tags: ComponentProps<typeof TagMenu>['tags'] }) {
   const { picked, pick, stopPicking, check, pickedByAi, setStatus, setListener, tagState, setTag } = bulk;
   const people = useQuery(q.characters(projectId));
+  const project = useQuery(q.project(projectId));
+  const sourceLanguage = project.data?.sourceLanguage?.split('-')[0]?.toLocaleUpperCase();
+  const targetLanguage = project.data?.targetLanguage?.split('-')[0]?.toLocaleUpperCase();
   return (
     <>
       {!!rows.length && (
-        <div className="flex min-h-10 shrink-0 items-center border-b bg-muted text-xs text-muted-foreground">
-          <span className="flex w-10 shrink-0 justify-center">
-            <Checkbox
-              aria-label="보이는 줄 모두 선택"
-              checked={rows.every((row) => picked.has(row.id)) ? true : rows.some((row) => picked.has(row.id)) ? 'indeterminate' : false}
-              onCheckedChange={(on) => pick(rows.map((row) => row.id), on === true)}
-            />
-          </span>
-          {picked.size === 0 ? (
-            <>
-              <span className="min-w-0 flex-1 px-3">원문</span>
-              <span className="min-w-0 flex-1 self-stretch border-l px-3 leading-10">번역</span>
-            </>
-          ) : (
+        <TranslationColumnHeader
+          checkbox={<Checkbox
+            aria-label="보이는 줄 모두 선택"
+            checked={rows.every((row) => picked.has(row.id)) ? true : rows.some((row) => picked.has(row.id)) ? 'indeterminate' : false}
+            onCheckedChange={(on) => pick(rows.map((row) => row.id), on === true)}
+          />}
+          source={<span>원문{sourceLanguage && <span className="ml-1 text-subtle-foreground">· {sourceLanguage}</span>}</span>}
+          translation={<span>번역{targetLanguage && <span className="ml-1 text-subtle-foreground">· {targetLanguage}</span>}</span>}
+          selection={picked.size > 0 ? (
             <SelectionBar count={picked.size} onClear={stopPicking} className="flex-1 pr-4">
               <Button variant="outline" disabled={pickedByAi.length === 0 || check.isPending} aria-label="확인함" title="상태는 그대로 두고 사람이 확인한 것으로 표시합니다(✦ 없앰)" onClick={() => check.mutate(pickedByAi)}>
                 <Check />
@@ -106,8 +104,8 @@ export function LineHeadRow({ projectId, rows, bulk, statusList, tags }: { proje
                 onToggle={(tagId, add) => setTag.mutate({ tagId, add })}
               />
             </SelectionBar>
-          )}
-        </div>
+          ) : undefined}
+        />
       )}
     </>
   );

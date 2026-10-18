@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Play } from 'lucide-react';
 import { LineDetail } from '@/components/line-detail';
-import { SplitPane, FilterChips, Pager, SearchInput, FilterBar, ActionBar, EmptyState, Button, Skeleton, TagChip } from '@loca/ui';
+import { SplitPane, EditorToolbar, FilterChips, Pager, SearchInput, FilterBar, ActionBar, EmptyState, Button, Skeleton, TagChip } from '@loca/ui';
 import { HeaderActions } from '@/components/page';
 import { MarkChip } from '@/components/status';
 import { tokenPatternOf } from '@/lib/line-context';
@@ -31,20 +31,20 @@ export function LineList({
   kind,
   search,
   onSearch,
-  heading,
   runGroupIds,
   runKind,
   onOpenScene,
   find,
   banner,
+  display,
 }: {
   projectId: string;
+  display?: 'focus' | 'review';
   groupId?: string;
   review?: boolean;
   kind?: 'scene' | 'document' | 'ui';
   search: LinesSearch;
   onSearch: (next: Partial<LinesSearch>, options?: { replace?: boolean }) => void;
-  heading: ReactNode;
   /** What 'AI 실행' runs when no line is picked (the open scene; none = the whole list's scope). */
   runGroupIds?: string[];
   /** The script view (대사 · UI · 문서) the list shows, for 'AI 실행' to start from that kind's lines. */
@@ -90,17 +90,19 @@ export function LineList({
   const statusById = new Map(statusList.map((status) => [status.id, status]));
   const tagById = new Map(statuses.data?.tags.map((tag) => [tag.id, tag]));
   const rows = lines.data?.rows;
+  useEffect(() => {
+    if (display === 'focus' && rows?.length && !rows.some((row) => row.id === search.line)) onSearch({ line: rows[0].id }, { replace: true });
+  }, [display, rows, search.line, onSearch]);
   const total = lines.data?.total ?? 0;
   const showScene = !groupId;
   const speakers = useQuery(q.speakers(projectId));
-  const people = useQuery(q.characters(projectId));
   // Bumped whenever the picked line's editor should take the focus; 0 = just looking.
   const [focusTick, setFocusTick] = useState(0);
   const setEditing = (edit: boolean) => setFocusTick((tick) => (edit ? tick + 1 : 0));
 
   // Lines picked by their checkboxes; the head row above the lines acts on them.
   const bulk = useLineBulk({ projectId, pickKey: review ? 'review' : (groupId ?? (kind ? `all.${kind}` : 'all')), rows, tagName: (tagId) => tagById.get(tagId)?.name, marks: search.marks });
-  const { picked, pick, stopPicking } = bulk;
+  const { picked, pick } = bulk;
   // Moving past the end of a page opens the next page and lands on its first (or last) line.
   const landing = useRef<'first' | 'last' | null>(null);
   useEffect(() => {
@@ -191,14 +193,14 @@ export function LineList({
       className="h-full min-h-0"
       pane={
         search.line &&
-        search.detail && (
+        (
           <LineDetail
             projectId={projectId}
             unitId={search.line}
-            onClose={() => onSearch({ detail: undefined, lineTab: undefined }, { replace: true })}
+            onClose={() => onSearch({ line: undefined, detail: undefined, lineTab: undefined }, { replace: true })}
             showScene={showScene}
-            tab={search.lineTab ?? 'checks'}
-            onTab={(tab) => onSearch({ lineTab: tab === 'checks' ? undefined : tab }, { replace: true })}
+            tab={search.lineTab ?? 'context'}
+            onTab={(tab) => onSearch({ lineTab: tab === 'context' ? undefined : tab }, { replace: true })}
             aiNode={search.aiNode}
             onAiNode={(aiNode) => onSearch({ aiNode }, { replace: true })}
           />
@@ -210,9 +212,8 @@ export function LineList({
           trigger={<Button><Play /> {picked.size ? `AI 실행 · 고른 ${picked.size.toLocaleString()}줄` : 'AI 실행'}</Button>} />
         {!find && !review && hasLineFilter(search) && <ActionBar aria-label="대사 목록 동작" items={[{ id: 'find-in-scene', label: '장면에서 찾아가기', onSelect: () => onSearch({ mode: 'find', page: undefined }) }]} />}
       </HeaderActions>
-      <FilterBar>
-        <div className="mr-1 min-w-0 shrink">{heading}</div>
-        <SearchInput value={search.q} onChange={(value) => onSearch({ q: value, page: undefined })} placeholder="찾기" className="w-44" />
+      <EditorToolbar><FilterBar>
+        <SearchInput value={search.q} onChange={(value) => onSearch({ q: value, page: undefined })} placeholder="원문·번역 찾기" className="w-56" />
         <LineFilters
           projectId={projectId}
           statuses={statusList}
@@ -229,9 +230,11 @@ export function LineList({
             clear: () => onSearch({ ...chip.clear, page: undefined }),
           }))}
         />
-      </FilterBar>
+        <span className="ml-auto whitespace-nowrap text-xs text-muted-foreground">{total.toLocaleString()}줄 · 대본 순서</span>
+      </FilterBar></EditorToolbar>
       {banner}
-      {!!rows?.length && <LineHeadRow projectId={projectId} rows={rows} bulk={bulk} statusList={statusList} tags={lineTags(statuses.data?.tags)} />}
+      {display === 'focus' && <ActionBar aria-label="집중 보기 탐색" items={[{ id: 'previous', label: '이전 대사', onSelect: () => move(-1) }, { id: 'next', label: '다음 대사', onSelect: () => move(1) }]} />}
+      {display !== 'focus' && !!rows?.length && <LineHeadRow projectId={projectId} rows={rows} bulk={bulk} statusList={statusList} tags={lineTags(statuses.data?.tags)} />}
       <div className="min-h-0 flex-1 overflow-y-auto">
         {!rows ? (
           <div className="space-y-4 p-4">
@@ -244,12 +247,14 @@ export function LineList({
         ) : (
           <ul>
             {rows.map((line, index) => {
+              if (display === 'focus' && line.id !== search.line) return null;
               const selected = line.id === search.line;
               return (
                 <LineRow
                   key={line.id}
                   projectId={projectId}
                   line={line}
+                  display={display}
                   newScene={showScene && rows[index - 1]?.groupId !== line.groupId}
                   selected={selected}
                   marked={find?.ids.has(line.id)}
@@ -269,7 +274,6 @@ export function LineList({
                   onOpenScene={onOpenScene}
                   onArrivedEnd={() => setArrived(undefined)}
                   onNoting={setNoting}
-                  onDetail={() => onSearch({ detail: true }, { replace: true })}
                   onEscape={() => setEditing(false)}
                   onDone={(advanced) => (advanced ? advanceFrom(line.id) : select(undefined, false))}
                   onFilterTag={(tagId) => onSearch({ tags: [tagId], page: undefined })}

@@ -49,6 +49,8 @@ export * from "./lib/use-mobile"
 
 // Layout (Design System 4.1)
 export * from "./layout/page"
+export * from "./layout/page-header"
+export * from "./layout/right-dock"
 export * from "./layout/app-status-bar"
 export * from "./layout/toolbar"
 export * from "./layout/action-bar"
@@ -57,6 +59,7 @@ export * from "./layout/split-pane"
 export * from "./layout/pane-header"
 export * from "./layout/sidebar"
 export * from "./layout/settings-section"
+export * from "./layout/segmented-control"
 
 // Data (Design System 4.1)
 export * from "./data/data-table"
@@ -67,3 +70,21 @@ export * from "./data/tag-menu"
 
 // Inspector primitives (P3)
 export * from "./inspector"
+
+// Reference-screen components: register before application use.
+export * from "./canvas/node-card"
+export * from "./canvas/node-library"
+export * from "./canvas/canvas-toolbar"
+export * from "./canvas/selection-toolbox"
+export * from "./editor/speaker-identity"
+export * from "./editor/translation-row"
+export * from "./editor/editor-toolbar"
+export * from "./editor/translation-column-header"
+export * from "./editor/inline-editor-actions"
+export * from "./editor/navigation-pane"
+export * from "./editor/scene-section-header"
+export * from "./editor/candidate-card"
+export * from "./editor/context-line"
+
+export { usePanelWidth } from './layout/use-panel-width'
+export { CanvasLegend } from './canvas/canvas-legend'

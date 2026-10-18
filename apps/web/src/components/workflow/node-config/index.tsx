@@ -1,7 +1,8 @@
 /** Edits one workflow node's config; the node kinds live beside this file. */
+import { useState } from 'react';
 import { Trash2 } from 'lucide-react';
-import { AI_OUTPUTS, CONNECTION_KIND_INFO, FUNCTIONS, NODE_TYPES, nodeName, type FunctionName, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
-import { Inspector, InspectorHeader, DangerZone, Button, Checkbox, Input, ScrollArea, StatusIcon } from '@loca/ui';
+import { AI_OUTPUTS, ANALYSIS_SECTION_LABELS, ANALYSIS_SECTIONS, analysisSectionsOf, FUNCTIONS, NODE_TYPES, nodeName, nodePorts, type FunctionName, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
+import { Button, DangerZone, Inspector, InspectorHeader, InspectorSection, InspectorTabs, PropertyGrid, PropertyRow, StatusIcon, Checkbox, Input } from '@loca/ui';
 import { nodeIcon } from '../node-view';
 import { AiConfig } from '@/components/workflow/node-config/ai';
 import { ConditionEditor } from '@/components/workflow/node-config/condition';
@@ -9,9 +10,10 @@ import { FunctionConfig } from '@/components/workflow/node-config/function';
 import { Field, type NodeRefs } from '@/components/workflow/node-config/shared';
 
 export type { NodeRefs };
+export type NodeConfigTab = 'settings' | 'io' | 'errors';
 
-/** Edits one node's config. Every change goes straight into the draft; saving is separate. */
-export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, onClose }: {
+/** Edits one node. Every change goes straight into the draft; saving is separate. */
+export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, onClose, tab, onTab }: {
   node: WorkflowNode;
   issues: WorkflowIssue[];
   refs: NodeRefs;
@@ -19,66 +21,112 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
   onChange: (node: WorkflowNode) => void;
   onDelete: () => void;
   onClose: () => void;
+  tab?: NodeConfigTab;
+  onTab?: (tab: NodeConfigTab) => void;
 }) {
+  const [localTab, setLocalTab] = useState<NodeConfigTab>('settings');
+  const activeTab = tab ?? localTab;
+  const changeTab = onTab ?? setLocalTab;
   const Icon = nodeIcon(node);
-  const description = node.type === 'function' ? (FUNCTIONS[node.config.fn as FunctionName]?.description ?? '') : node.type === 'ai' ? AI_OUTPUTS[node.config.output].description : NODE_TYPES[node.type].description;
+  const description = node.type === 'function'
+    ? (FUNCTIONS[node.config.fn as FunctionName]?.description ?? '')
+    : node.type === 'ai'
+      ? AI_OUTPUTS[node.config.output].description
+      : NODE_TYPES[node.type].description;
+  const incoming = refs.edges?.filter((edge) => edge.target === node.id) ?? [];
+  const outgoing = refs.edges?.filter((edge) => edge.source === node.id) ?? [];
+  const outgoingPorts = nodePorts(node);
 
   return (
     <Inspector
       className="min-w-0 border-l-0"
+      header={<InspectorHeader icon={<Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />} kind={`${NODE_TYPES[node.type].label} · ${node.id}`} name={nodeName(node)} status={description} onClose={onClose} />}
+      tabs={<InspectorTabs<NodeConfigTab> value={activeTab} onChange={changeTab} items={[{ value: 'settings', label: '설정' }, { value: 'io', label: '입출력' }, { value: 'errors', label: '오류' }]} />}
       bodyClassName="space-y-0 p-0"
-      header={
-        <InspectorHeader
-          icon={<Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />}
-          kind={NODE_TYPES[node.type].label}
-          name={nodeName(node)}
-          status={description}
-          onClose={onClose}
-        />
-      }
     >
-      <ScrollArea className="min-h-0 min-w-0 flex-1 overflow-x-hidden">
-        {/* A fieldset is as wide as its widest content by default (min-width: min-content): min-w-0 keeps it to the panel. */}
-        <fieldset disabled={readOnly} className="min-w-0 space-y-5 p-4">
-          {issues.length > 0 && (
-            <ul className="space-y-1 rounded-md border border-destructive/30 bg-destructive/5 p-2.5 text-xs">
-              {issues.map((issue, index) => (
-                <li key={index} className={issue.level === 'error' ? 'text-destructive' : 'text-warning'}>
-                  {issue.message}
-                </li>
-              ))}
+      {activeTab === 'settings' && (
+        <fieldset disabled={readOnly} className="min-w-0">
+          <InspectorSection title="기본">
+            <Field label="이름">
+              <Input value={node.label ?? ''} placeholder={nodeName({ ...node, label: undefined } as WorkflowNode)} onChange={(event) => onChange({ ...node, label: event.target.value || undefined })} />
+            </Field>
+            {node.type === 'ai' && <AiConfig part="model" node={node} refs={refs} onChange={onChange} />}
+            {node.type === 'entry' && (
+              <Field label="들어올 대사의 상태" help="선택한 상태 중 하나인 대사만 실행 대상이 됩니다. 아무것도 고르지 않으면 범위 안의 모든 대사.">
+                <div className="space-y-1.5">
+                  {refs.statuses.map((status) => (
+                    <label key={status.id} className="flex items-center gap-2 text-sm">
+                      <Checkbox checked={node.config.statusIds.includes(status.id)} onCheckedChange={(checked) => onChange({ ...node, config: { statusIds: checked ? [...node.config.statusIds, status.id] : node.config.statusIds.filter((id) => id !== status.id) } })} />
+                      <StatusIcon status={status} /> {status.name}
+                    </label>
+                  ))}
+                </div>
+              </Field>
+            )}
+          </InspectorSection>
+
+          {node.type === 'ai' ? (
+            <AiConfig part="rest" node={node} refs={refs} onChange={onChange} />
+          ) : node.type === 'function' || node.type === 'condition' ? (
+            <InspectorSection title="설정">
+              {node.type === 'function' && <FunctionConfig node={node} refs={refs} readOnly={readOnly} onChange={onChange} />}
+              {node.type === 'condition' && <ConditionEditor node={node} nodes={refs.nodes} readOnly={readOnly} onChange={onChange} />}
+            </InspectorSection>
+          ) : null}
+          {!readOnly && node.type !== 'entry' && (
+            <DangerZone title="노드 삭제">
+              <Button variant="ghost" className="text-destructive" onClick={onDelete}>
+                <Trash2 /> 노드 삭제
+              </Button>
+            </DangerZone>
+          )}
+        </fieldset>
+      )}
+
+      {activeTab === 'io' && (
+        <div className="min-w-0">
+          <InspectorSection title="입력">
+            {node.type === 'entry' && <PropertyGrid><PropertyRow label="대상 상태">{node.config.statusIds.length ? node.config.statusIds.map((id) => refs.statuses.find((status) => status.id === id)?.name ?? '삭제된 상태').join(' · ') : '범위 안의 모든 대사'}</PropertyRow></PropertyGrid>}
+            {refs.edges ? incoming.length ? (
+              <PropertyGrid>
+                {incoming.map((edge) => {
+                  const source = refs.nodes.find((item) => item.id === edge.source);
+                  const port = source && nodePorts(source).find((item) => item.id === edge.sourceHandle);
+                  return <PropertyRow key={edge.id} label={port?.label ?? edge.sourceHandle}>{source ? nodeName(source) : `삭제된 노드 (${edge.source})`}</PropertyRow>;
+                })}
+              </PropertyGrid>
+            ) : <p className="text-sm text-muted-foreground">연결된 입력이 없습니다.</p> : <p className="text-sm text-muted-foreground">연결 정보를 불러올 수 없습니다.</p>}
+          </InspectorSection>
+          <InspectorSection title="출력">
+            <PropertyGrid>
+              {outgoingPorts.length ? outgoingPorts.map((port) => {
+                const targets = outgoing.filter((edge) => edge.sourceHandle === port.id).map((edge) => refs.nodes.find((item) => item.id === edge.target));
+                return <PropertyRow key={port.id} label={port.label}>{targets.length ? targets.map((target, index) => <span key={`${target?.id ?? index}`} className="block">{target ? nodeName(target) : '삭제된 노드'}</span>) : <span className="text-muted-foreground">연결 없음</span>}</PropertyRow>;
+              }) : <PropertyRow label="출구">이 노드는 대사 흐름을 마칩니다.</PropertyRow>}
+            </PropertyGrid>
+            {node.type === 'function' && <PropertyGrid><PropertyRow label="동작">{FUNCTIONS[node.config.fn as FunctionName]?.description ?? node.config.fn}</PropertyRow></PropertyGrid>}
+            {node.type === 'condition' && <PropertyGrid><PropertyRow label="조건">{node.config.description || '조건식'}</PropertyRow></PropertyGrid>}
+            {node.type === 'ai' && (
+              <div className="mt-3 space-y-2">
+                <p className="text-xs font-medium">설정된 결과 · {AI_OUTPUTS[node.config.output].label}</p>
+                <p className="text-xs text-muted-foreground">{AI_OUTPUTS[node.config.output].description}</p>
+                {node.config.output === 'json' && <PropertyGrid>{node.config.fields.map((field, index) => <PropertyRow key={`${field.name}:${index}`} label={`${field.name} · ${field.type}`}>{field.description || '설명 없음'}</PropertyRow>)}</PropertyGrid>}
+                {node.config.output === 'analysis' && <PropertyRow label="읽을 항목">{analysisSectionsOf(node.config.sections).map((section) => ANALYSIS_SECTION_LABELS[section]).join(' · ') || ANALYSIS_SECTIONS.map((section) => ANALYSIS_SECTION_LABELS[section]).join(' · ')}</PropertyRow>}
+              </div>
+            )}
+          </InspectorSection>
+          <p className="px-5 py-3 text-xs text-muted-foreground">실행 결과는 이 설정 화면에 없습니다. 실제 값은 실행 기록에서 확인하세요.</p>
+        </div>
+      )}
+
+      {activeTab === 'errors' && (
+        <div className="min-w-0">
+          {issues.length === 0 ? <p className="px-5 py-3 text-sm text-muted-foreground">현재 설정에서 발견된 문제가 없습니다.</p> : (
+            <ul className="space-y-2 px-5 py-3">
+              {issues.map((issue, index) => <li key={index} className={issue.level === 'error' ? 'text-destructive' : 'text-warning'}><span className="font-medium">{issue.level === 'error' ? '오류' : '경고'} · </span>{issue.message}</li>)}
             </ul>
           )}
-          <Field label="이름" hint={<span className="font-mono">id: {node.id}</span>}>
-            <Input value={node.label ?? ''} placeholder={nodeName({ ...node, label: undefined } as WorkflowNode)} onChange={(event) => onChange({ ...node, label: event.target.value || undefined })} />
-          </Field>
-
-          {node.type === 'entry' && (
-            <Field label="들어올 대사의 상태" hint="선택한 상태 중 하나인 대사만 실행 대상이 됩니다. 아무것도 고르지 않으면 범위 안의 모든 대사.">
-              <div className="space-y-1.5">
-                {refs.statuses.map((status) => (
-                  <label key={status.id} className="flex items-center gap-2 text-sm">
-                    <Checkbox
-                      checked={node.config.statusIds.includes(status.id)}
-                      onCheckedChange={(checked) => onChange({ ...node, config: { statusIds: checked ? [...node.config.statusIds, status.id] : node.config.statusIds.filter((id) => id !== status.id) } })}
-                    />
-                    <StatusIcon status={status} /> {status.name}
-                  </label>
-                ))}
-              </div>
-            </Field>
-          )}
-          {node.type === 'ai' && <AiConfig node={node} refs={refs} onChange={onChange} />}
-          {node.type === 'function' && <FunctionConfig node={node} refs={refs} readOnly={readOnly} onChange={onChange} />}
-          {node.type === 'condition' && <ConditionEditor node={node} nodes={refs.nodes} readOnly={readOnly} onChange={onChange} />}
-        </fieldset>
-      </ScrollArea>
-      {!readOnly && node.type !== 'entry' && (
-        <DangerZone title="노드 삭제">
-          <Button variant="ghost" className="text-destructive" onClick={onDelete}>
-            <Trash2 /> 노드 삭제
-          </Button>
-        </DangerZone>
+        </div>
       )}
     </Inspector>
   );

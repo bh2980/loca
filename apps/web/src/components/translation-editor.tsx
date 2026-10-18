@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { Check, CircleAlert, Languages, Sparkles, WandSparkles } from 'lucide-react';
+import { CircleAlert, Languages, MoreHorizontal, Save, Sparkles, Undo2, WandSparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { checkFormat, listenerLabel, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatIssue, type FormatRules } from '@tw/shared';
 import { TokenChip, TokenText } from '@/components/editor/source-text';
 import { focusEndOfLine, insertUnitIntoLine, proposeInLine, replaceLineText, TranslationInput } from '@/components/editor/translation-input';
-import { Button, AiMark, StatusIcon, HelpTip } from '@loca/ui';
+import { AdvancedDisclosure, Button, AiMark, StatusIcon, InlineEditorActions, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@loca/ui';
 import { apiFetch } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
 import { wordDiff } from '@/lib/diff';
@@ -167,6 +167,7 @@ export function TranslationEditor({
     <div className={cn('space-y-2', className)} onClick={(event) => event.stopPropagation()}>
       <TranslationInput
         unitId={unit.id}
+        className="text-base leading-6 md:text-base"
         value={draft}
         onChange={setDraft}
         source={unit.source}
@@ -207,85 +208,50 @@ export function TranslationEditor({
       )}
       <DraftChecks unitId={unit.id} source={unit.source} draft={draft} units={line.units} terms={line.terms} tags={tags} rules={project.data?.formatRules ?? undefined} targetLanguage={project.data?.targetLanguage} onPlace={placeMissing} />
       <div className="flex flex-wrap items-center gap-2 pt-1">
-        {dirty && <span className="text-xs font-medium text-warning">저장 안 됨</span>}
-        {editorAi?.enabled && editorAi.model && !ai.loading && (
-          <Button variant="ghost" size="inline" className="text-xs text-muted-foreground hover:text-foreground" title={`이어질 번역 보기 (${keyLabel('Alt+/')}, Tab으로 받기)`} onClick={() => ask(draft)}>
-            <Sparkles className="size-3.5 text-primary" /> AI 자동완성
-          </Button>
-        )}
-        {editorAi?.assistModel ? (
-          <div className="flex items-center gap-1.5">
-            <Button
-              variant="outline"
-              disabled={!!assist.loading}
-              onClick={() => runAssist('translate')}
-            >
-              <Languages className="size-3.5 text-primary" />
-              <span>AI 번역</span>
-            </Button>
-            <Button
-              variant="outline"
-              disabled={!!assist.loading || !draft.trim()}
-              title={draft.trim() ? `틀린 곳만 고치기 (${keyLabel('Alt+.')})` : '다듬을 번역이 없습니다'}
-              onClick={() => runAssist('refine')}
-            >
-              <WandSparkles className="size-3.5 text-primary" />
-              <span>다듬기</span>
-            </Button>
-          </div>
-        ) : (
-          <span className="inline-flex items-center gap-1">
-            <Button variant="ghost" size="inline" className="text-xs text-muted-foreground hover:text-foreground" asChild>
-              <Link to="/p/$projectId/ai/usage" params={{ projectId }}>
-                <Sparkles className="size-3.5 text-muted-foreground" /> AI 번역 모델 설정
-              </Link>
-            </Button>
-            <HelpTip>AI › 사용 방식에서 AI 번역·다듬기 모델을 고르면 쓸 수 있습니다.</HelpTip>
-          </span>
-        )}
-        {assist.loading && <Waiting label={assist.loading === 'refine' ? '다듬는 중…' : 'AI 번역 중…'} onCancel={() => (assistPending.current?.abort(), setAssist({}))} />}
-        {assist.done === 'unchanged' && <span className="text-xs text-muted-foreground">다듬을 곳이 없습니다</span>}
-        {assist.message && <span className="text-xs text-muted-foreground">{assist.message}</span>}
-        {ai.loading && <Waiting label="자동완성 받는 중…" onCancel={() => (pending.current?.abort(), setAi({ dismissed: true }))} />}
-        {ai.message && <span className="text-xs text-muted-foreground">{ai.message}</span>}
+        {dirty && <span className="order-last text-xs font-medium text-warning" title="이 브라우저에 자동 보관됩니다. 확정하면 서버에 저장됩니다.">초안 보관됨</span>}
+        {save.isPending && <span className="text-xs text-muted-foreground" aria-live="polite">저장 중…</span>}
         {marks === undefined && !dirty && unit.statusBy === 'ai' && (
           <span className="flex items-center gap-1 text-xs text-muted-foreground">
             <AiMark by="ai" /> AI가 정함
           </span>
         )}
-        <div className="ml-auto flex items-center gap-2">
-          {dirty && (
-            <Button variant="ghost" onClick={() => clearDraft()}>
-              되돌리기
-            </Button>
-          )}
-          <Button
-            variant="outline"
-            disabled={!dirty || save.isPending}
-            onClick={() => run(false)}
-            title={`저장 (${keyLabel('Mod+S')})`}
-          >
-            저장
-          </Button>
-          {next && (
-            <Button
-              variant="default"
-              disabled={save.isPending}
-              onClick={() => run(true)}
-              title={`${dirty ? '저장하고 ' : ''}‘${next.name}’(으)로 옮기고 다음 줄 (${keyLabel('Mod+Enter')})`}
-            >
-              <StatusIcon status={next} className="size-1.5" />
-              <span>{next.name}</span>
-            </Button>
-          )}
-        </div>
+        <InlineEditorActions
+          className="shrink-0"
+          primary={(next || onDone) && <Button variant="default" disabled={save.isPending} onClick={() => run(true)} title={`${dirty ? '저장하고 ' : ''}${next ? `‘${next.name}’(으)로 옮기고 ` : ''}다음 줄 (${keyLabel('Mod+Enter')})`}>
+            {next && <StatusIcon status={next} className="size-1.5" />} {next ? `${next.name}하고 다음` : dirty ? '저장하고 다음' : '다음 줄'}
+          </Button>}
+          ai={editorAi?.assistModel && <Button variant="ghost" disabled={!!assist.loading} onClick={() => runAssist('translate')} title="AI 번역을 다시 요청합니다. 새 응답은 이 초안 칸에 들어갑니다.">
+            <Languages className="size-3.5 text-muted-foreground" /> AI 다시
+          </Button>}
+          overflow={<DropdownMenu>
+            <DropdownMenuTrigger asChild><Button variant="ghost" size="icon-sm" aria-label="번역 동작 더보기"><MoreHorizontal /></Button></DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-48">
+              {dirty && <>
+                <DropdownMenuItem disabled={save.isPending} onSelect={() => run(false)}><Save /> 저장만 <span className="ml-auto text-xs text-muted-foreground">{keyLabel('Mod+S')}</span></DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => clearDraft()}><Undo2 /> 되돌리기</DropdownMenuItem>
+                <DropdownMenuSeparator />
+              </>}
+              {editorAi?.assistModel && <DropdownMenuItem disabled={!!assist.loading || !draft.trim()} onSelect={() => runAssist('refine')} title={draft.trim() ? `틀린 곳만 고치기 (${keyLabel('Alt+.')})` : '다듬을 번역이 없습니다'}><WandSparkles /> 다듬기 <span className="ml-auto text-xs text-muted-foreground">{keyLabel('Alt+.')}</span></DropdownMenuItem>}
+              {editorAi?.enabled && editorAi.model && <DropdownMenuItem disabled={!!ai.loading} onSelect={() => ask(draft)} title={`이어질 번역 보기 (${keyLabel('Alt+/')}, Tab으로 받기)`}><Sparkles /> AI 자동완성 <span className="ml-auto text-xs text-muted-foreground">{keyLabel('Alt+/')}</span></DropdownMenuItem>}
+              {!editorAi?.assistModel && <>
+                {editorAi?.enabled && editorAi.model && <DropdownMenuSeparator />}
+                <DropdownMenuItem asChild><Link to="/p/$projectId/ai/usage" params={{ projectId }}><Sparkles /> AI 모델 설정</Link></DropdownMenuItem>
+              </>}
+            </DropdownMenuContent>
+          </DropdownMenu>}
+        />
       </div>
+      {(assist.loading || assist.done === 'unchanged' || assist.message || ai.loading || ai.message) && <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground" aria-live="polite">
+        {assist.loading && <Waiting label={assist.loading === 'refine' ? '다듬는 중…' : 'AI 번역 중…'} onCancel={() => (assistPending.current?.abort(), setAssist({}))} />}
+        {assist.done === 'unchanged' && <span>다듬을 곳이 없습니다</span>}
+        {assist.message && <span role="alert">{assist.message}</span>}
+        {ai.loading && <Waiting label="자동완성 받는 중…" onCancel={() => (pending.current?.abort(), setAi({ dismissed: true }))} />}
+        {ai.message && <span role="alert">{ai.message}</span>}
+      </div>}
       {!dirty && <PreviousDiff unitId={unit.id} openAtFirst={unit.statusBy === 'ai'} />}
       {suggestions.length > 0 && (
-        <div className="mt-2.5 overflow-hidden rounded-md border border-border bg-panel">
-          <div className="bg-panel px-3 py-1.5 text-xs font-medium text-muted-foreground select-none">
-            유사 번역 및 후보
-          </div>
+        <AdvancedDisclosure label={`유사 번역 및 후보 · ${suggestions.length}`} className="mt-1">
+          <div className="overflow-hidden rounded-md border border-border bg-panel">
           <ol>
             {suggestions.map((suggestion, index) => (
               <li key={suggestion.key}>
@@ -323,7 +289,8 @@ export function TranslationEditor({
               </li>
             ))}
           </ol>
-        </div>
+          </div>
+        </AdvancedDisclosure>
       )}
     </div>
   );
@@ -384,11 +351,16 @@ function PreviousDiff({ unitId, openAtFirst }: { unitId: string; openAtFirst: bo
   const previous = at >= 0 ? candidates.slice(at + 1).find((candidate) => candidate.text.trim() !== current.text.trim()) : undefined;
   if (!current || !previous) return null;
   const origin = { ai: 'AI', human: '사람', import: '가져온 번역', tool: '채팅' } as const;
+  const diff = wordDiff(previous.text, current.text).map((part, index) => (
+    <span key={index} className={cn(part.change === 'removed' && 'text-destructive line-through decoration-destructive/60', part.change === 'added' && 'rounded-sm bg-success/15 text-success')}>
+      {part.text}
+    </span>
+  ));
   if (!open)
     return (
-      <Button variant="ghost" size="inline" className="text-muted-foreground" onClick={() => setOpen(true)}>
-        이전 번역과 비교
-      </Button>
+      <AdvancedDisclosure label="이전 번역과 비교">
+        <div className="rounded-md border bg-background px-3 py-2 text-sm"><p className="mb-1 text-xs text-muted-foreground">이전 번역({origin[previous.origin]})에서 바뀐 곳</p><p className="break-words whitespace-pre-wrap">{diff}</p></div>
+      </AdvancedDisclosure>
     );
   return (
     <div className="rounded-md border bg-background px-3 py-2 text-sm">
@@ -398,13 +370,7 @@ function PreviousDiff({ unitId, openAtFirst }: { unitId: string; openAtFirst: bo
           접기
         </Button>
       </p>
-      <p className="break-words whitespace-pre-wrap">
-        {wordDiff(previous.text, current.text).map((part, index) => (
-          <span key={index} className={cn(part.change === 'removed' && 'text-destructive line-through decoration-destructive/60', part.change === 'added' && 'rounded-sm bg-success/15 text-success')}>
-            {part.text}
-          </span>
-        ))}
-      </p>
+      <p className="break-words whitespace-pre-wrap">{diff}</p>
     </div>
   );
 }
@@ -467,11 +433,7 @@ function DraftChecks({ unitId, source, draft, units, terms, tags, rules, targetL
   // Missing tokens are shown as chips; the tag/placeholder sentence is only needed when nothing is missing (an extra or broken token).
   const issues = checkFormat(source, draft, editorChecks(targetLanguage), rules).filter((issue) => issue.code !== 'empty' && !(missing.length && (issue.code === 'tag' || issue.code === 'placeholder')));
   if (!missing.length && !issues.length && !unusedTerms.length && !speechOff)
-    return (
-      <p className="flex items-center gap-1 text-xs text-muted-foreground">
-        <Check className="size-3 text-success" /> 검사 통과 <HelpTip>용어 · 말투 · 서식 · 숫자 · 공백 · 줄바꿈 · 조사 검사 통과</HelpTip>
-      </p>
-    );
+    return null;
   return (
     <div className="flex flex-wrap items-center gap-1.5 text-xs text-warning" onClick={(event) => event.stopPropagation()}>
       {missing.length > 0 && <CircleAlert className="size-3" aria-label="빠진 서식" />}

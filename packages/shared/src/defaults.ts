@@ -79,7 +79,7 @@ export function translationTemplate(ids: {
     batch: { mode: 'group' as const, size: 60, maxTokens: 6_000 },
   });
   const status = (statusId: string) => ({ fn: 'setStatus', params: { statusId, addTagIds: [], removeTagIds: [] } });
-  const at = (column: number, row: number) => ({ x: column * 300, y: row * 180 });
+  const at = (column: number, row: number) => ({ x: (row - 1) * 280, y: column * 120 });
   return {
     settings: { maxVisitsPerNode: 5, concurrency: 2, maxConsecutiveFailures: 3 },
     nodes: [
@@ -131,7 +131,7 @@ export function termExtractionTemplate(ids: { model: DraftModelChoice }): Workfl
       {
         id: 'terms',
         type: 'ai',
-        position: { x: 300, y: 0 },
+        position: { x: 0, y: 120 },
         label: AI_PRESETS.terms.label,
         config: {
           model: ids.model,
@@ -145,8 +145,8 @@ export function termExtractionTemplate(ids: { model: DraftModelChoice }): Workfl
           batch: { mode: 'group', size: 60, maxTokens: 6_000 },
         },
       },
-      { id: 'add', type: 'function', position: { x: 600, y: 0 }, label: '용어 후보 추가', config: { fn: 'addTerms', params: { fromNodeId: 'terms' } } },
-      { id: 'end', type: 'end', position: { x: 900, y: 0 }, config: {} },
+      { id: 'add', type: 'function', position: { x: 0, y: 240 }, label: '용어 후보 추가', config: { fn: 'addTerms', params: { fromNodeId: 'terms' } } },
+      { id: 'end', type: 'end', position: { x: 0, y: 360 }, config: {} },
     ],
     edges: [
       { id: 'e1', source: 'entry', sourceHandle: 'out', target: 'terms' },
@@ -171,14 +171,14 @@ export function listenerTemplate(ids: { model: DraftModelChoice }): WorkflowDefi
       {
         id: 'needs',
         type: 'condition',
-        position: { x: 300, y: 0 },
+        position: { x: 0, y: 120 },
         label: '청자가 이미 있나?',
         config: { expression: { var: 'listenerKnown' }, description: '가져오기·사람·확신 높은 AI 청자가 있거나 대사가 아니면 건너뜁니다.' },
       },
       {
         id: 'listener',
         type: 'ai',
-        position: { x: 600, y: 0 },
+        position: { x: 0, y: 240 },
         label: AI_PRESETS.listener.label,
         config: {
           model: ids.model,
@@ -191,8 +191,8 @@ export function listenerTemplate(ids: { model: DraftModelChoice }): WorkflowDefi
           batch: { mode: 'group', size: 80, maxTokens: 6_000 },
         },
       },
-      { id: 'record', type: 'function', position: { x: 900, y: 0 }, label: '청자 기록', config: { fn: 'setListener', params: { fromNodeId: 'listener' } } },
-      { id: 'end', type: 'end', position: { x: 1200, y: 0 }, config: {} },
+      { id: 'record', type: 'function', position: { x: 0, y: 360 }, label: '청자 기록', config: { fn: 'setListener', params: { fromNodeId: 'listener' } } },
+      { id: 'end', type: 'end', position: { x: 0, y: 480 }, config: {} },
     ],
     edges: [
       { id: 'e1', source: 'entry', sourceHandle: 'out', target: 'needs' },
@@ -217,7 +217,7 @@ export function speechFixTemplate(ids: { model: DraftModelChoice }): WorkflowDef
       {
         id: 'fit',
         type: 'ai',
-        position: { x: 300, y: 0 },
+        position: { x: 0, y: 120 },
         label: AI_PRESETS.speechFix.label,
         config: {
           model: ids.model,
@@ -230,7 +230,7 @@ export function speechFixTemplate(ids: { model: DraftModelChoice }): WorkflowDef
           batch: { mode: 'group', size: 40, maxTokens: 6_000 },
         },
       },
-      { id: 'end', type: 'end', position: { x: 900, y: 0 }, config: {} },
+      { id: 'end', type: 'end', position: { x: 0, y: 360 }, config: {} },
     ],
     edges: [
       { id: 'e1', source: 'entry', sourceHandle: 'out', target: 'fit' },
@@ -255,7 +255,7 @@ export function knowledgeTemplate(ids: { model: DraftModelChoice }): WorkflowDef
       {
         id: 'find',
         type: 'ai',
-        position: { x: 300, y: 0 },
+        position: { x: 0, y: 120 },
         label: AI_PRESETS.knowledge.label,
         config: {
           model: ids.model,
@@ -268,8 +268,8 @@ export function knowledgeTemplate(ids: { model: DraftModelChoice }): WorkflowDef
           batch: { mode: 'group', size: 120, maxTokens: 6_000 },
         },
       },
-      { id: 'apply', type: 'function', position: { x: 600, y: 0 }, label: '자료 반영', config: { fn: 'applyKnowledge', params: { fromNodeId: 'find' } } },
-      { id: 'end', type: 'end', position: { x: 900, y: 0 }, config: {} },
+      { id: 'apply', type: 'function', position: { x: 0, y: 240 }, label: '자료 반영', config: { fn: 'applyKnowledge', params: { fromNodeId: 'find' } } },
+      { id: 'end', type: 'end', position: { x: 0, y: 360 }, config: {} },
     ],
     edges: [
       { id: 'e1', source: 'entry', sourceHandle: 'out', target: 'find' },
@@ -297,7 +297,7 @@ export function analysisTemplate(ids: { model: DraftModelChoice; sections?: Anal
       {
         id: 'analyze',
         type: 'ai',
-        position: { x: 300, y: 0 },
+        position: { x: 0, y: 120 },
         label: '대본 읽기',
         config: {
           model: ids.model,
@@ -312,8 +312,8 @@ export function analysisTemplate(ids: { model: DraftModelChoice; sections?: Anal
           batch: { mode: 'whole', size: 200, maxTokens: 300_000 },
         },
       },
-      { id: 'save', type: 'function', position: { x: 600, y: 0 }, label: '분석 반영', config: { fn: 'saveAnalysis', params: { fromNodeId: 'analyze' } } },
-      { id: 'end', type: 'end', position: { x: 900, y: 0 }, config: {} },
+      { id: 'save', type: 'function', position: { x: 0, y: 240 }, label: '분석 반영', config: { fn: 'saveAnalysis', params: { fromNodeId: 'analyze' } } },
+      { id: 'end', type: 'end', position: { x: 0, y: 360 }, config: {} },
     ],
     edges: [
       { id: 'e1', source: 'entry', sourceHandle: 'out', target: 'analyze' },

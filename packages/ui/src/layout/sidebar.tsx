@@ -25,7 +25,7 @@ import {
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state"
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
-const SIDEBAR_WIDTH = "16rem"
+const SIDEBAR_WIDTH = "13rem"
 const SIDEBAR_WIDTH_MOBILE = "18rem"
 const SIDEBAR_WIDTH_ICON = "3rem"
 const SIDEBAR_KEYBOARD_SHORTCUT = "b"
@@ -342,6 +342,29 @@ function SidebarHeader({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
+/** Project identity used at the top of app navigation. */
+function SidebarBrand({ mark, compactMark, title, detail, end, className, ...props }: React.ComponentProps<typeof SidebarMenuButton> & {
+  mark: React.ReactNode
+  compactMark?: React.ReactNode
+  title: React.ReactNode
+  detail?: React.ReactNode
+  end?: React.ReactNode
+}) {
+  return (
+    <SidebarMenuButton size="lg" className={cn("gap-2", className)} {...props}>
+      <span className="flex h-6 w-[38px] shrink-0 items-center justify-center rounded-sm bg-sidebar-primary text-xs font-semibold tracking-tight text-sidebar-primary-foreground group-data-[collapsible=icon]:w-6">
+        <span className={compactMark != null ? "group-data-[collapsible=icon]:hidden" : undefined}>{mark}</span>
+        {compactMark != null && <span className="hidden group-data-[collapsible=icon]:inline">{compactMark}</span>}
+      </span>
+      <span className="grid min-w-0 flex-1 text-left leading-tight group-data-[collapsible=icon]:hidden">
+        <span className="truncate text-sm font-semibold">{title}</span>
+        {detail != null && <span className="truncate text-xs text-muted-foreground">{detail}</span>}
+      </span>
+      {end != null && <span className="group-data-[collapsible=icon]:hidden">{end}</span>}
+    </SidebarMenuButton>
+  )
+}
+
 function SidebarFooter({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -395,8 +418,9 @@ function SidebarGroup({ className, ...props }: React.ComponentProps<"div">) {
 function SidebarGroupLabel({
   className,
   asChild = false,
+  icon,
   ...props
-}: React.ComponentProps<"div"> & { asChild?: boolean }) {
+}: React.ComponentProps<"div"> & { asChild?: boolean; icon?: React.ReactNode }) {
   const Comp = asChild ? Slot : "div"
 
   return (
@@ -409,7 +433,9 @@ function SidebarGroupLabel({
         className
       )}
       {...props}
-    />
+    >
+      {asChild ? props.children : <>{icon != null && <span className="mr-2 flex shrink-0 [&_svg]:size-4">{icon}</span>}<span className="truncate">{props.children}</span></>}
+    </Comp>
   )
 }
 
@@ -699,6 +725,7 @@ function SidebarMenuSubButton({
 
 export {
   Sidebar,
+  SidebarBrand,
   SidebarContent,
   SidebarFooter,
   SidebarGroup,

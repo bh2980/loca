@@ -24,7 +24,7 @@ interface RunSearch {
   page?: number;
   line?: string;
   tab?: 'steps' | 'plan';
-  lineTab?: 'candidates' | 'context';
+  lineTab?: 'candidates' | 'checks' | 'terms' | 'history';
   aiNode?: string;
 }
 
@@ -35,7 +35,7 @@ export const Route = createFileRoute('/p/$projectId/runs/$runId')({
     page: typeof raw.page === 'number' && raw.page > 0 ? raw.page : undefined,
     line: typeof raw.line === 'string' ? raw.line : undefined,
     tab: raw.tab === 'steps' || raw.tab === 'plan' ? raw.tab : undefined,
-    lineTab: raw.lineTab === 'context' || raw.lineTab === 'candidates' ? raw.lineTab : undefined,
+    lineTab: raw.lineTab === 'checks' || raw.lineTab === 'candidates' || raw.lineTab === 'terms' || raw.lineTab === 'history' ? raw.lineTab : undefined,
     aiNode: typeof raw.aiNode === 'string' && raw.aiNode.includes(':') ? raw.aiNode : undefined,
   }),
   component: RunDetail,
@@ -173,8 +173,8 @@ function RunDetail() {
               onClose={() => setSearch({ line: undefined }, true)}
               showScene
               editor
-              tab={search.lineTab ?? 'checks'}
-              onTab={(tab) => setSearch({ lineTab: tab === 'checks' ? undefined : tab }, true)}
+              tab={search.lineTab ?? 'context'}
+              onTab={(tab) => setSearch({ lineTab: tab === 'context' ? undefined : tab }, true)}
               aiNode={search.aiNode}
               onAiNode={(aiNode) => setSearch({ aiNode }, true)}
             />

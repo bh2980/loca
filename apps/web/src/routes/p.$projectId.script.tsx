@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { useDefaultLayout } from 'react-resizable-panels';
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Network, PanelLeftClose, PanelLeftOpen, Sparkles, X } from 'lucide-react';
+import { MoreHorizontal, ChevronDown, ChevronRight, ChevronUp, X } from 'lucide-react';
 import { Page } from '@/components/page';
 import { GroupList, type GroupRow } from '@/components/script/group-list';
 import { filterChips, isFinding, LineList, linesSearchSchema, type LinesSearch } from '@/components/script/line-list';
-import { Button, ResizableHandle, ResizablePanel, ResizablePanelGroup, Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
+import { Button, usePanelWidth, EditorToolbarProvider, EditorToolbarSlot, PageHeading, SegmentedControl, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, ResizableHandle, ResizablePanel, ResizablePanelGroup, Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
 import { askAgent } from '@/lib/agent';
-import { GROUP_KIND, SCRIPT_VIEW } from '@/lib/labels';
+import { GROUP_KIND } from '@/lib/labels';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { keyLabel } from '@/lib/keys';
@@ -27,6 +26,7 @@ interface ScriptSearch extends LinesSearch {
   kind?: Kind;
   /** The group list's own search, kept while lines change. */
   gq?: string;
+  display?: 'focus' | 'review';
 }
 
 /** Whether the group list is shown is a per-tab convenience (sessionStorage), like folded sections. */
@@ -42,6 +42,7 @@ const readListOpen = () => {
 export const Route = createFileRoute('/p/$projectId/script')({
   validateSearch: (raw: Record<string, unknown>): ScriptSearch => ({
     ...linesSearchSchema(raw),
+    display: raw.display === 'focus' || raw.display === 'review' ? raw.display : undefined,
     group: typeof raw.group === 'string' && raw.group ? raw.group : undefined,
     review: raw.review === true || raw.review === 'true' ? true : undefined,
     kind: typeof raw.kind === 'string' && raw.kind in GROUP_KIND ? (raw.kind as Kind) : undefined,
@@ -78,7 +79,8 @@ function Script() {
   const lineTotal = project.data?.byStatus.reduce((sum, row) => sum + row.count, 0) ?? 0;
   const [listOpen, setListOpen] = useState(() => readListOpen());
   // The list's width is dragged by its edge and remembered, like every right-hand pane.
-  const layout = useDefaultLayout({ id: 'tw-script-groups', panelIds: listOpen ? ['groups', 'lines'] : ['lines'], storage: localStorage });
+  const showGroups = listOpen && search.display !== 'focus';
+  const groupWidth = usePanelWidth('script-groups', 216);
   const toggleList = () =>
     setListOpen((open) => {
       try {
@@ -151,63 +153,32 @@ function Script() {
   const openGroup = (id: string | undefined) =>
     void navigate({ search: (previous) => (finding ? { ...previous, group: id, line: undefined, page: undefined, detail: undefined } : { gq: previous.gq, marks: previous.marks, group: id }) });
 
-  const heading = (
-    <span className="flex min-w-0 items-center gap-1">
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button variant="ghost" size="icon" onClick={toggleList} aria-label={listOpen ? '장면 목록 접기' : '장면 목록 펴기'}>
-            {listOpen ? <PanelLeftClose /> : <PanelLeftOpen />}
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>{listOpen ? '장면 목록 접기' : '장면 목록 펴기'}</TooltipContent>
-      </Tooltip>
-      {search.group ? (
-        <>
-          <Button variant="ghost" size="icon" disabled={index <= 0} aria-label="이전 장면" onClick={() => openGroup(ordered[index - 1]?.id)}>
-            <ChevronLeft />
-          </Button>
-          <span className="max-w-72 truncate text-sm font-semibold" title={group?.title}>
-            {group?.title ?? '…'}
-          </span>
-          <Button variant="ghost" size="icon" disabled={index < 0 || index >= ordered.length - 1} aria-label="다음 장면" onClick={() => openGroup(ordered[index + 1]?.id)}>
-            <ChevronRight />
-          </Button>
-          {group?.kind === 'scene' && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon" aria-label="대사 그래프에서 보기" asChild>
-                  <Link to="/p/$projectId/graph" params={{ projectId }} search={{ scope: 'dialogue', scene: group.id }}>
-                    <Network />
-                  </Link>
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>대사 그래프에서 보기</TooltipContent>
-            </Tooltip>
-          )}
-          {group && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon" aria-label="AI로 요약" onClick={() => askAgent(`이 ${GROUP_KIND[group.kind]}을 끝까지 읽고 요약해줘.`, { send: true })}>
-                  <Sparkles />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>채팅에서 AI로 {GROUP_KIND[group.kind]} 요약</TooltipContent>
-            </Tooltip>
-          )}
-        </>
-      ) : (
-        <span className="px-1 text-sm font-semibold">{search.review ? '검토함' : split ? SCRIPT_VIEW[view] : '모든 대사'}</span>
-      )}
-    </span>
-  );
+  const heading = <>
+    <span className="text-sm font-semibold">대사</span><ChevronRight className="size-3 text-muted-foreground" />
+    <span className="max-w-36 truncate text-xs text-muted-foreground">{group?.title ?? (search.review ? '검토 대기' : '모든 장면')}</span>
+    <SegmentedControl ariaLabel="대사 보기" value={search.display ?? 'grid'} onChange={(value) => onSearch({ display: value === 'grid' ? undefined : value as 'focus' | 'review' })} items={[{ value: 'grid', label: '격자' }, { value: 'focus', label: '집중' }, { value: 'review', label: '검토' }]} />
+    <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon-sm" aria-label="대사 보기 메뉴"><MoreHorizontal /></Button></DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        <DropdownMenuItem onSelect={toggleList}>{listOpen ? '장면 목록 접기' : '장면 목록 펴기'}</DropdownMenuItem>
+        <DropdownMenuItem disabled={index <= 0} onSelect={() => openGroup(ordered[index - 1]?.id)}>이전 장면</DropdownMenuItem>
+        <DropdownMenuItem disabled={index < 0 || index >= ordered.length - 1} onSelect={() => openGroup(ordered[index + 1]?.id)}>다음 장면</DropdownMenuItem>
+        {group?.kind === 'scene' && <DropdownMenuItem asChild><Link to="/p/$projectId/graph" params={{ projectId }} search={{ scope: 'dialogue', scene: group.id }}>대사 그래프에서 보기</Link></DropdownMenuItem>}
+        {group && <DropdownMenuItem onSelect={() => askAgent(`이 ${GROUP_KIND[group.kind]}을 끝까지 읽고 요약해줘.`, { send: true })}>AI로 장면 요약</DropdownMenuItem>}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  </>;
 
   return (
-    <Page title="번역" flush>
-      <ResizablePanelGroup orientation="horizontal" defaultLayout={layout.defaultLayout} onLayoutChanged={layout.onLayoutChanged} className="h-full min-h-0">
-        {listOpen && (
+    <Page title="번역" flush className="flex flex-col">
+      <EditorToolbarProvider>
+      <EditorToolbarSlot />
+      <PageHeading>{heading}</PageHeading>
+      <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
+        {showGroups && (
           <>
-            <ResizablePanel id="groups" defaultSize="300px" minSize="200px" maxSize="50%" className="min-w-0">
+            <ResizablePanel id="groups" {...groupWidth} minSize="180px" maxSize="50%" className="min-w-0">
               <GroupList
+                statuses={statuses.data?.statuses}
                 projectId={projectId}
                 groups={groups.data && ordered}
                 finalIds={finalIds}
@@ -224,7 +195,7 @@ function Script() {
             <ResizableHandle withHandle />
           </>
         )}
-        <ResizablePanel id="lines" minSize="480px" className="flex min-w-0 flex-col">
+        <ResizablePanel id="lines" minSize="360px" className="flex min-w-0 flex-col">
           <LineList
             key={`${search.group ?? ''}:${search.review ?? ''}:${search.group || search.review ? '' : view}`}
             projectId={projectId}
@@ -272,12 +243,13 @@ function Script() {
                 </div>
               )
             }
-            heading={heading}
+            display={search.display}
             runGroupIds={group ? [group.id] : undefined}
             runKind={split && !search.group && !search.review ? view : undefined}
           />
         </ResizablePanel>
       </ResizablePanelGroup>
+      </EditorToolbarProvider>
     </Page>
   );
 }

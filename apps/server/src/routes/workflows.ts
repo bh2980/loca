@@ -39,7 +39,7 @@ function blankWorkflow(db: Db, projectId: string): WorkflowDefinition {
   return workflowDefinitionSchema.parse({
     nodes: [
       { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: { statusIds: initial ? [initial.id] : [] } },
-      { id: 'end', type: 'end', position: { x: 320, y: 0 }, config: {} },
+      { id: 'end', type: 'end', position: { x: 0, y: 120 }, config: {} },
     ],
     edges: [{ id: 'e1', source: 'entry', sourceHandle: 'out', target: 'end' }],
   });

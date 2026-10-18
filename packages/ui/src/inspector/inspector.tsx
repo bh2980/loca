@@ -29,13 +29,13 @@ export function Inspector({
       {tabs}
       <ScrollArea className="min-h-0 flex-1">
         {loading ? (
-          <div className="space-y-3 p-3" aria-label="불러오는 중" aria-busy="true">
+          <div className="space-y-inspector-compact p-3" aria-label="불러오는 중" aria-busy="true">
             <Skeleton className="h-3.5 w-1/2" />
             <Skeleton className="h-16" />
             <Skeleton className="h-3.5 w-2/3" />
           </div>
         ) : (
-          <div className={cn("space-y-6 p-5", bodyClassName)}>{children}</div>
+          <div className={cn("space-y-0", bodyClassName)}>{children}</div>
         )}
       </ScrollArea>
       {footer}

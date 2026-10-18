@@ -20,12 +20,16 @@
   --font-code: "Geist Mono Variable", "Geist Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
 
   /* Two radii: controls / panels and nodes. */
+  --radius-detail: 2px;
   --radius-control: 6px;
   --radius-panel: 8px;
   --icon-stroke: 1.75px;
+  --floating-toolbar: oklch(0.24 0.02 262);
+  --floating-toolbar-foreground: oklch(0.97 0.002 262);
 
   --chrome: oklch(0.968 0.006 258);
   --panel: oklch(0.984 0.004 258);
+  --navigation: oklch(0.984 0.004 258);
   --background: oklch(0.995 0.002 258);
   --card: oklch(1 0 0);
   --popover: oklch(1 0 0);
@@ -76,7 +80,7 @@
 
   --sidebar: var(--chrome);
   --sidebar-foreground: var(--foreground);
-  --sidebar-primary: var(--primary);
+  --sidebar-primary: var(--foreground);
   --sidebar-primary-foreground: var(--primary-foreground);
   --sidebar-accent: oklch(0.925 0.012 258);
   --sidebar-accent-foreground: var(--foreground);
@@ -115,9 +119,16 @@
   color-scheme: dark;
   --radius-panel: 10px;
   --icon-stroke: 1.9px;
+  --sidebar-primary: var(--primary);
+  --floating-toolbar: oklch(0.32 0.012 265);
+  --node-header-ai: oklch(0.38 0.055 278);
+  --node-header-check: oklch(0.37 0.05 256);
+  --node-header-flow: oklch(0.34 0.012 265);
+  --node-header-status: oklch(0.36 0.06 230);
 
   --chrome: oklch(0.17 0.011 265);
   --panel: oklch(0.235 0.013 265);
+  --navigation: oklch(0.185 0.012 265);
   --background: oklch(0.205 0.012 265);
   --card: oklch(0.255 0.014 265);
   --popover: oklch(0.27 0.014 265);
@@ -130,7 +141,7 @@
   --primary-foreground: oklch(0.2 0.03 220);
   --primary-soft: oklch(0.32 0.05 192);
   --primary-ink: oklch(0.85 0.1 192);
-  --selection: oklch(0.29 0.03 200);
+  --selection: oklch(0.275 0.012 265);
 
   --secondary: oklch(0.29 0.014 265);
   --muted: oklch(0.255 0.013 265);
@@ -144,7 +155,7 @@
   --ai: oklch(0.84 0.08 300);
   --ai-soft: oklch(0.32 0.06 300);
 
-  --token-1: oklch(0.82 0.1 200);
+  --token-1: oklch(0.82 0.1 310);
   --token-2: oklch(0.82 0.1 165);
   --token-3: oklch(0.82 0.11 350);
   --token-4: oklch(0.8 0.1 235);

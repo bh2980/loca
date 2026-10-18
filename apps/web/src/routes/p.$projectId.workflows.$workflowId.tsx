@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   addEdge,
   Background,
-  Controls,
+  Panel,
+  MiniMap,
+  NodeToolbar,
+  Position,
+  useViewport,
   MarkerType,
   ReactFlow,
   ReactFlowProvider,
@@ -18,20 +22,20 @@ import {
   applyNodeChanges,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { ChevronLeft, LayoutGrid, Pencil, Plus, RotateCcw, Save, Trash2 } from 'lucide-react';
+import { ChevronRight, Copy, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { AI_OUTPUTS, AI_PRESETS, FUNCTIONS, FUNCTION_NAMES, nodeModels, nodeName, workflowNodeSchema, type FunctionName, type WorkflowDefinition, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
+import { AI_OUTPUTS, AI_PRESETS, FUNCTIONS, FUNCTION_NAMES, nodeModels, nodeName, nodePorts, workflowNodeSchema, type FunctionName, type WorkflowDefinition, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
 import { Page } from '@/components/page';
 import { autoLayout } from '@/components/workflow/auto-layout';
 import { NodeConfig } from '@/components/workflow/node-config';
-import { nodeIcon, WorkflowNodeView, type FlowNode } from '@/components/workflow/node-view';
+import { WorkflowNodeView, type FlowNode } from '@/components/workflow/node-view';
 import { RunDialog } from '@/components/workflow/run-dialog';
-import { SplitPane, Badge, Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, Input, Skeleton, HelpTip } from '@loca/ui';
+import { SplitPane, PageHeading, HeaderActions, NodeLibrary, CanvasToolbar, CanvasLegend, SelectionToolbox, type NodeLibraryGroup, Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Input, Skeleton } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { lineTags, q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { workflowEdits } from '@/lib/workflow-edits';
-import { sameWorkflowDraft } from '@/lib/workflow-draft';
+import { sameWorkflowDraft, reconcileSavedDraft, normalizeWorkflowDraft } from '@/lib/workflow-draft';
 import { dateTime } from '@/lib/datetime';
 import { useIsDark } from '@/lib/theme';
 
@@ -74,13 +78,16 @@ function NameField({ name, onRename }: { name: string; onRename: (name: string) 
 }
 
 export const Route = createFileRoute('/p/$projectId/workflows/$workflowId')({
-  validateSearch: (raw: Record<string, unknown>): { node?: string } => ({ node: typeof raw.node === 'string' ? raw.node : undefined }),
-  component: () => (
-    <ReactFlowProvider>
-      <WorkflowEditor />
-    </ReactFlowProvider>
-  ),
+  validateSearch: (raw: Record<string, unknown>): { node?: string; nodeTab?: 'io' | 'errors' } => ({
+    node: typeof raw.node === 'string' ? raw.node : undefined,
+    nodeTab: raw.nodeTab === 'io' || raw.nodeTab === 'errors' ? raw.nodeTab : undefined,
+  }),
+  component: WorkflowRoute,
 });
+function WorkflowRoute() {
+  const { workflowId } = Route.useParams();
+  return <ReactFlowProvider key={workflowId}><WorkflowEditor /></ReactFlowProvider>;
+}
 
 interface Draft {
   baseVersion: number;
@@ -98,6 +105,13 @@ const readDraft = (id: string): Draft | null => {
 };
 
 const nodeTypes = { workflow: WorkflowNodeView };
+const viewportKey = (id: string) => `loca.workflow.viewport.${id}`;
+function readViewport(id: string): { x: number; y: number; zoom: number } | undefined {
+  try {
+    const value = JSON.parse(sessionStorage.getItem(viewportKey(id)) ?? 'null');
+    return value && [value.x, value.y, value.zoom].every(Number.isFinite) && value.zoom > 0 ? value : undefined;
+  } catch { return undefined; }
+}
 
 function WorkflowEditor() {
   const dark = useIsDark();
@@ -105,6 +119,9 @@ function WorkflowEditor() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const flow = useReactFlow();
+  const cache = useQueryClient();
+  const { zoom } = useViewport();
+  const [minimap, setMinimap] = useState(false);
   const workflow = useQuery(q.workflow(workflowId));
   const statuses = useQuery(q.statuses(projectId));
   const connections = useQuery(q.connections());
@@ -114,6 +131,7 @@ function WorkflowEditor() {
 
   // The draft survives navigation and reloads; it is dropped only on save or explicit discard.
   const [draft, setDraftState] = useState<Draft | null>(() => readDraft(workflowId));
+  const inFlight = useRef<Draft | null>(null);
   const setDraft = useCallback(
     (update: (current: Draft) => Draft) =>
       setDraftState((current) => {
@@ -123,7 +141,7 @@ function WorkflowEditor() {
         // React Flow reports no-op position changes while it renders; an edit equal to the saved
         // version (or to the current draft) is not a change and must not mark the workflow dirty.
         const saved = workflow.data && { baseVersion: workflow.data.version, name: workflow.data.name, definition: workflow.data.definition };
-        if (saved && sameWorkflowDraft(next, saved)) {
+        if (!normalizeWorkflowDraft(next, saved, inFlight.current)) {
           sessionStorage.removeItem(draftKey(workflowId));
           return null;
         }
@@ -150,22 +168,37 @@ function WorkflowEditor() {
   useEffect(() => {
     if (!current) return;
     if (!draft) return setIssues(workflow.data?.issues ?? []);
+    let cancelled = false;
     const timer = setTimeout(() => {
       void unwrap(client.workflows[':id'].validate.$post({ param: { id: workflowId }, json: { definition: current.definition } }))
-        .then(setIssues)
+        .then((result) => { if (!cancelled) setIssues(result); })
         .catch(() => undefined);
     }, 300);
-    return () => clearTimeout(timer);
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [current?.definition, draft, workflow.data, workflowId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const save = useMutation({
-    mutationFn: () => unwrap(client.workflows[':id'].$put({ param: { id: workflowId }, json: { name: current!.name, description: workflow.data!.description, definition: current!.definition, version: workflow.data!.version } })),
-    onSuccess: (row) => {
-      discard();
+    mutationFn: (sent: Draft) => {
+      inFlight.current = sent;
+      return unwrap(client.workflows[':id'].$put({ param: { id: workflowId }, json: { name: sent.name, description: workflow.data!.description, definition: sent.definition, version: sent.baseVersion } }));
+    },
+    onSettled: () => { inFlight.current = null; },
+    onSuccess: (row, sent) => {
+      cache.setQueryData(q.workflow(workflowId).queryKey, (old) => old && old.version > row.version ? old : row);
+      setDraftState((latest) => {
+        const next = reconcileSavedDraft(latest, sent, row.version);
+        if (next) sessionStorage.setItem(draftKey(workflowId), JSON.stringify(next));
+        else sessionStorage.removeItem(draftKey(workflowId));
+        return next;
+      });
       setIssues(row.issues);
-      toast.success('저장했습니다.');
     },
   });
+  useEffect(() => {
+    if (!draft || stale || save.isPending || save.isError) return;
+    const timer = setTimeout(() => save.mutate(draft), 800);
+    return () => clearTimeout(timer);
+  }, [draft, stale, save.isPending, save.isError, save.mutate]);
 
   const statusName = new Map(statuses.data?.statuses.map((status) => [status.id, status.name]));
   const connectionName = new Map(connections.data?.map((connection) => [connection.id, connection.name]));
@@ -181,9 +214,8 @@ function WorkflowEditor() {
       case 'entry':
         return node.config.statusIds.length ? node.config.statusIds.map((id) => statusName.get(id) ?? '삭제된 상태').join(', ') : '범위 안의 모든 대사';
       case 'ai': {
-        const batch = node.config.batch.mode === 'unit' ? '하나씩' : node.config.batch.mode === 'group' ? `장면별 ≤${node.config.batch.size}` : node.config.batch.mode === 'whole' ? '대본 전체' : `${node.config.batch.size}개씩`;
         const model = node.config.model.model ? [connectionName.get(node.config.model.connectionId) ?? (connections.data ? '삭제된 연결' : undefined), node.config.model.model].filter(Boolean).join(' · ') : '모델 없음';
-        return `${AI_OUTPUTS[node.config.output].label} · ${model}${nodeModels(node).length > 1 ? ` 외 ${nodeModels(node).length - 1}개` : ''} · ${batch}`;
+        return `${model}${nodeModels(node).length > 1 ? ` 외 ${nodeModels(node).length - 1}개` : ''}`;
       }
       case 'function': {
         const params = node.config.params as Record<string, unknown>;
@@ -249,25 +281,26 @@ function WorkflowEditor() {
       const all = current?.definition.edges ?? [];
       return all.map((edge) => {
         const branches = all.filter((other) => other.source === edge.source && other.sourceHandle === edge.sourceHandle).length;
-        const negative = ['error', 'fail', 'false', 'rejected'].includes(edge.sourceHandle);
+        const source = current?.definition.nodes.find((node) => node.id === edge.source);
         return {
           id: edge.id,
           source: edge.source,
           sourceHandle: edge.sourceHandle,
           target: edge.target,
           targetHandle: 'in',
-          type: 'smoothstep',
+          type: 'default',
           markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
           selected: edge.id === edgeId,
-          ...(branches > 1 ? { label: '모두 보냄', labelStyle: { fontSize: 11, fill: 'var(--subtle-foreground)' }, labelBgStyle: { fill: 'var(--card)' } } : {}),
-          style: { ...(negative ? { stroke: 'var(--destructive)', strokeDasharray: '5 4' } : { stroke: 'var(--graph-edge)' }), ...(edge.id === edgeId && { strokeWidth: 2.5 }) },
+          label: branches > 1 ? '모두 보냄' : source && nodePorts(source).find((port) => port.id === edge.sourceHandle)?.label,
+          labelStyle: { fontSize: 11, fill: 'var(--muted-foreground)' }, labelBgStyle: { fill: 'var(--background)' },
+          style: { stroke: 'var(--graph-edge)', ...(edge.id === edgeId && { strokeWidth: 2.5 }) },
         };
       });
     },
-    [current?.definition.edges, edgeId],
+    [current?.definition, edgeId],
   );
 
-  const select = (id: string | undefined) => void navigate({ search: { node: id }, replace: true });
+  const select = (id: string | undefined) => void navigate({ search: (previous) => ({ ...previous, node: id }) });
   const selected = current?.definition.nodes.find((node) => node.id === search.node);
   useReportView('workflow', [
     workflow.data && { kind: '워크플로', id: workflow.data.id, label: workflow.data.name },
@@ -344,8 +377,8 @@ function WorkflowEditor() {
   };
 
   /** New nodes appear at the centre of the view; AI presets and functions are just pre-filled configs. */
-  const addNode = (seed: Pick<WorkflowNode, 'type'> & { label?: string; config?: unknown }, prefix: string) => {
-    const position = flow.screenToFlowPosition({ x: window.innerWidth / 2 - 200, y: window.innerHeight / 2 });
+  const addNode = (seed: Pick<WorkflowNode, 'type'> & { label?: string; config?: unknown }, prefix: string, drop?: { x: number; y: number }) => {
+    const position = drop ?? flow.screenToFlowPosition({ x: window.innerWidth / 2 - 200, y: window.innerHeight / 2 });
     const taken = new Set(current?.definition.nodes.map((node) => node.id));
     let id = prefix;
     for (let n = 2; taken.has(id); n++) id = `${prefix}${n}`;
@@ -356,10 +389,13 @@ function WorkflowEditor() {
 
   const arrange = async () => {
     if (!current) return;
-    const sizes = new Map(flow.getNodes().map((node) => [node.id, { width: node.measured?.width ?? 224, height: node.measured?.height ?? 120 }]));
-    const next = await autoLayout(current.definition, sizes);
-    setDraft((value) => ({ ...value, definition: next }));
-    requestAnimationFrame(() => fitReadable(flow, 300));
+    const sizes = new Map(flow.getNodes().map((node) => [node.id, { width: node.measured?.width ?? 224, height: node.measured?.height ?? 66 }]));
+    try {
+      const next = await autoLayout(current.definition, sizes);
+      const positions = new Map(next.nodes.map((node) => [node.id, node.position]));
+      setDraft((value) => ({ ...value, definition: { ...value.definition, nodes: value.definition.nodes.map((node) => ({ ...node, position: positions.get(node.id) ?? node.position })) } }));
+      requestAnimationFrame(() => fitReadable(flow, 300));
+    } catch (error) { toast.error(error instanceof Error ? error.message : '자동 정렬하지 못했습니다.'); }
   };
 
   if (!workflow.data || !current)
@@ -372,88 +408,50 @@ function WorkflowEditor() {
   const errorCount = issues.filter((issue) => issue.level === 'error').length;
   const hasEntry = current.definition.nodes.some((node) => node.type === 'entry');
 
+  const palette: NodeLibraryGroup[] = [
+    { id: 'ai', label: 'AI', items: Object.entries(AI_PRESETS).map(([id, preset]) => ({ id, label: preset.label, kind: 'ai', icon: null, description: AI_OUTPUTS[preset.output].description })) },
+    { id: 'checks', label: '검사', items: FUNCTION_NAMES.filter((fn) => fn.endsWith('Check')).map((fn) => ({ id: fn, label: FUNCTIONS[fn].label, kind: 'function', icon: null })) },
+    { id: 'flow', label: '흐름', items: [
+      { id: 'condition', label: '조건 분기', kind: 'condition', icon: null },
+      ...FUNCTION_NAMES.filter((fn) => !fn.endsWith('Check') && fn !== 'http').map((fn) => ({ id: fn, label: FUNCTIONS[fn].label, kind: (fn === 'setStatus' ? 'status' : 'function') as 'status' | 'function', icon: null })),
+      { id: 'end', label: '종료', kind: 'end', icon: null },
+      ...(!hasEntry ? [{ id: 'entry', label: '진입', kind: 'entry' as const, icon: null }] : []),
+      { id: 'ai', label: 'AI 자유 형식', kind: 'ai', icon: null },
+    ] },
+    { id: 'connect', label: '연결', items: [{ id: 'http', label: 'HTTP 호출', kind: 'function', icon: null }] },
+  ];
+  const addFromLibrary = (id: string, position?: { x: number; y: number }) => {
+    const preset = AI_PRESETS[id as keyof typeof AI_PRESETS];
+    if (preset) addNode({ type: 'ai', label: preset.label, config: { model: newNodeModel(), output: preset.output, instructions: preset.instructions, include: preset.include } }, id, position);
+    else if (FUNCTION_NAMES.includes(id as FunctionName)) addNode({ type: 'function', config: { fn: id, params: {} } }, id, position);
+    else if (id === 'ai') addNode({ type: 'ai', config: { model: newNodeModel(), output: 'json', fields: [{ name: 'note', type: 'string', description: '' }] } }, id, position);
+    else if (id === 'condition') addNode({ type: 'condition', config: { expression: true, description: '' } }, id, position);
+    else if (id === 'entry' || id === 'end') addNode({ type: id, config: {} }, id, position);
+  };
+  const deleteSelected = () => {
+    if (!selected || selected.type === 'entry') return;
+    setDraft((value) => ({ ...value, definition: { ...value.definition, nodes: value.definition.nodes.filter((node) => node.id !== selected.id), edges: value.definition.edges.filter((edge) => edge.source !== selected.id && edge.target !== selected.id) } }));
+    select(undefined);
+  };
   return (
-    <Page
-      title={current.name || '워크플로'}
-      back={
-        <Button variant="ghost" asChild>
-          <Link to="/p/$projectId/workflows" params={{ projectId }}>
-            <ChevronLeft /> 워크플로 목록
-          </Link>
-        </Button>
-      }
-      meta={
-        <span className="flex items-center gap-2">
-          <NameField name={current.name} onRename={(name) => setDraft((value) => ({ ...value, name }))} />
-          {draft ? <Badge variant="secondary">저장 안 됨</Badge> : <span className="text-xs text-muted-foreground">{savedAt(workflow.data.updatedAt)} 저장</span>}
-          {errorCount > 0 && <span className="truncate text-destructive">오류 {errorCount}개 — 저장한 버전에 오류가 없어야 실행할 수 있습니다.</span>}
-        </span>
-      }
-      actions={
-        <>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline">
-                <Plus /> 노드 추가
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="max-h-[70vh] w-80 overflow-auto">
-              <DropdownMenuLabel className="text-xs text-muted-foreground">AI</DropdownMenuLabel>
-              {Object.entries(AI_PRESETS).map(([key, preset]) => (
-                <PaletteItem
-                  key={key}
-                  icon={nodeIcon({ type: 'ai', config: { output: preset.output } } as WorkflowNode)}
-                  title={preset.label}
-                  description={AI_OUTPUTS[preset.output].description}
-                  onSelect={() => addNode({ type: 'ai', label: preset.label, config: { model: newNodeModel(), output: preset.output, instructions: preset.instructions, include: preset.include } }, key)}
-                />
-              ))}
-              <PaletteItem
-                icon={nodeIcon({ type: 'ai', config: { output: 'json' } } as WorkflowNode)}
-                title="AI 자유 형식"
-                description="필드를 직접 정해 대사마다 채우게 합니다."
-                onSelect={() => addNode({ type: 'ai', config: { model: newNodeModel(), output: 'json', fields: [{ name: 'note', type: 'string', description: '' }] } }, 'ai')}
-              />
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel className="text-xs text-muted-foreground">함수</DropdownMenuLabel>
-              {FUNCTION_NAMES.map((fn) => (
-                <PaletteItem
-                  key={fn}
-                  icon={nodeIcon({ type: 'function', config: { fn, params: {} } } as WorkflowNode)}
-                  title={FUNCTIONS[fn].label}
-                  description={FUNCTIONS[fn].description}
-                  onSelect={() => addNode({ type: 'function', config: { fn, params: {} } }, fn)}
-                />
-              ))}
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel className="text-xs text-muted-foreground">흐름</DropdownMenuLabel>
-              <PaletteItem icon={nodeIcon({ type: 'condition' } as WorkflowNode)} title="조건" description="방문 횟수·앞 노드 출력으로 분기합니다." onSelect={() => addNode({ type: 'condition', config: { expression: true, description: '' } }, 'condition')} />
-              <PaletteItem icon={nodeIcon({ type: 'end' } as WorkflowNode)} title="종료" onSelect={() => addNode({ type: 'end', config: {} }, 'end')} />
-              {!hasEntry && <PaletteItem icon={nodeIcon({ type: 'entry' } as WorkflowNode)} title="진입" onSelect={() => addNode({ type: 'entry', config: {} }, 'entry')} />}
-            </DropdownMenuContent>
-          </DropdownMenu>
-          {edgeId && current?.definition.edges.some((edge) => edge.id === edgeId) && (
-            <Button variant="ghost" className="text-destructive" onClick={() => removeEdges([edgeId])}>
-              <Trash2 /> 선 삭제
-            </Button>
-          )}
-          <Button variant="outline" onClick={() => void arrange()}>
-            <LayoutGrid /> 자동 정렬
-          </Button>
-          {draft && (
-            <Button variant="ghost" onClick={discard}>
-              <RotateCcw /> 되돌리기
-            </Button>
-          )}
-          <Button variant="outline" disabled={!draft || stale || save.isPending} onClick={() => save.mutate()}>
-            <Save /> 저장
-          </Button>
-          <RunDialog projectId={projectId} workflowId={workflowId} disabled={(workflow.data.issues ?? []).some((issue) => issue.level === 'error')} dirty={Boolean(draft)} />
-        </>
-      }
-      flush
-    >
-      {stale && (
+    <Page title={current.name || '워크플로'} flush>
+      <PageHeading>
+        <Link to="/p/$projectId/workflows" params={{ projectId }} className="text-xs text-muted-foreground">워크플로</Link><ChevronRight className="size-3 text-muted-foreground" />
+        <NameField name={current.name} onRename={(name) => setDraft((value) => ({ ...value, name }))} />
+        <span className="text-xs text-muted-foreground">v{workflow.data.version}</span>
+        <span className="truncate text-xs text-muted-foreground" role="status">{save.isPending ? '저장 중…' : save.isError ? '저장 실패 · 편집 보관됨' : draft ? '저장 대기' : `자동 저장됨 ${savedAt(workflow.data.updatedAt)}`}</span>
+      </PageHeading>
+      <HeaderActions>
+        <RunDialog projectId={projectId} workflowId={workflowId} disabled={errorCount > 0 || save.isPending} dirty={Boolean(draft)} />
+        <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon-sm" aria-label="워크플로 메뉴"><MoreHorizontal /></Button></DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onSelect={() => void arrange()}>세로로 자동 정렬</DropdownMenuItem>
+            <DropdownMenuItem disabled={!draft || save.isPending} onSelect={discard}>저장 전 편집 되돌리기</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </HeaderActions>
+      {save.isError && <div role="alert" className="flex items-center gap-2 border-b bg-destructive/10 px-4 py-2 text-xs text-destructive">저장하지 못했습니다. 편집은 이 브라우저에 보관됩니다. {save.error.message}<Button variant="outline" disabled={stale || !draft} onClick={() => draft && save.mutate(draft)}>다시 저장</Button></div>}
+      {stale && !save.isPending && (
         <div className="flex items-center gap-3 border-b bg-warning/10 px-6 py-2 text-sm text-warning">
           편집하는 동안 다른 곳에서 이 워크플로를 저장했습니다({savedAt(workflow.data.updatedAt)}). 이 편집은 그 전 내용을 바탕으로 합니다.
           <Button variant="outline" onClick={discard}>
@@ -464,14 +462,15 @@ function WorkflowEditor() {
       <SplitPane
         id="workflow"
         defaultWidth="360px"
-        className="absolute inset-0"
-        style={stale ? { top: 41 } : undefined}
+        className="h-full"
         pane={
           selected && (
             <div className="h-full min-w-0 overflow-x-hidden bg-background">
               <NodeConfig
                 key={`${selected.id}:${revision}`}
                 node={selected}
+                tab={search.nodeTab ?? 'settings'}
+                onTab={(nodeTab) => void navigate({ search: (previous) => ({ ...previous, nodeTab: nodeTab === 'settings' ? undefined : nodeTab }) })}
                 issues={issues.filter((issue) => issue.nodeId === selected.id)}
                 refs={{
                   statuses: statuses.data?.statuses ?? [],
@@ -479,26 +478,23 @@ function WorkflowEditor() {
                   projectId,
                   connections: connections.data ?? [],
                   nodes: current.definition.nodes,
+                  edges: current.definition.edges,
                 }}
                 onChange={(next) => setDraft((value) => ({ ...value, definition: { ...value.definition, nodes: value.definition.nodes.map((node) => (node.id === next.id ? next : node)) } }))}
-                onDelete={() => {
-                  setDraft((value) => ({
-                    ...value,
-                    definition: {
-                      ...value.definition,
-                      nodes: value.definition.nodes.filter((node) => node.id !== selected.id),
-                      edges: value.definition.edges.filter((edge) => edge.source !== selected.id && edge.target !== selected.id),
-                    },
-                  }));
-                  select(undefined);
-                }}
+                onDelete={deleteSelected}
                 onClose={() => select(undefined)}
               />
             </div>
           )
         }
       >
-        <div className="min-w-0 flex-1">
+        <div className="flex min-h-0 flex-1 pb-7">
+        <NodeLibrary groups={palette} onSelect={(item) => addFromLibrary(item.id)} className="w-[200px] shrink-0 border-r border-border" />
+        <div className="relative min-w-0 flex-1" onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; }} onDrop={(event) => {
+          event.preventDefault();
+          const id = event.dataTransfer.getData('application/x-loca-workflow-node');
+          if (palette.some((group) => group.items.some((item) => item.id === id))) addFromLibrary(id, flow.screenToFlowPosition({ x: event.clientX, y: event.clientY }));
+        }}>
           <ReactFlow colorMode={dark ? 'dark' : 'light'}
             nodes={nodes}
             edges={edges}
@@ -509,16 +505,29 @@ function WorkflowEditor() {
             onNodeClick={(_event, node) => (select(node.id), setEdgeId(undefined))}
             onEdgeClick={(_event, edge) => setEdgeId(edge.id)}
             onPaneClick={() => (select(undefined), setEdgeId(undefined))}
-            onInit={(instance) => fitReadable(instance)}
+            onInit={(instance) => { const held = readViewport(workflowId); if (held) void instance.setViewport(held); else fitReadable(instance); }}
+            onMoveEnd={(_event, viewport) => sessionStorage.setItem(viewportKey(workflowId), JSON.stringify(viewport))}
             minZoom={0.2}
             deleteKeyCode={['Backspace', 'Delete']}
             proOptions={{ hideAttribution: true }}
           >
-            <Background gap={20} color="var(--graph-grid)" />
-            <Controls showInteractive={false} position="bottom-right" />
+            <Background size={1.5} gap={20} color="var(--graph-grid)" />
+            <Panel position="bottom-left"><CanvasLegend /></Panel>
+            <Panel position="bottom-right"><CanvasToolbar zoomPercent={zoom * 100} onZoomIn={() => void flow.zoomIn()} onZoomOut={() => void flow.zoomOut()} onFit={() => fitReadable(flow, 200)} onLayout={() => void arrange()} minimapVisible={minimap} onToggleMinimap={() => setMinimap((value) => !value)} /></Panel>
+            {minimap && <MiniMap position="top-right" pannable zoomable />}
+            {selected && <NodeToolbar nodeId={selected.id} isVisible position={Position.Top} offset={16}><SelectionToolbox actions={[
+              ...(selected.type !== 'entry' ? [{ id: 'copy', label: '복제', icon: <Copy />, onSelect: () => addNode({ type: selected.type, label: selected.label, config: structuredClone(selected.config) }, selected.id + '-copy', { x: selected.position.x + 240, y: selected.position.y }) },
+              { id: 'delete', label: '삭제', icon: <Trash2 />, destructive: true, onSelect: deleteSelected }] : []),
+            ]} /></NodeToolbar>}
+            {edgeId && <Panel position="top-center"><SelectionToolbox actions={[{ id: 'delete-edge', label: '연결 삭제', icon: <Trash2 />, destructive: true, onSelect: () => removeEdges([edgeId]) }]} /></Panel>}
           </ReactFlow>
         </div>
+        </div>
       </SplitPane>
+      <div className="absolute inset-x-0 bottom-0 flex h-7 items-center gap-3 border-t border-border bg-panel px-4 text-xs text-muted-foreground pointer-events-none">
+        <span>노드 {current.definition.nodes.length}</span>
+        {issues.length > 0 && <span className={errorCount ? 'text-destructive' : 'text-warning'}>{errorCount ? `오류 ${errorCount}` : `경고 ${issues.length}`} · {issues[0]?.message}</span>}
+      </div>
     </Page>
   );
 }
@@ -533,21 +542,9 @@ function fitReadable<N extends Node>(flow: ReactFlowInstance<N, Edge>, duration 
   const nodes = flow.getNodes();
   if (!nodes.length) return;
   void flow.fitView({ padding: 0.1, maxZoom: 1, minZoom: READABLE_ZOOM, duration }).then(() => {
-    const { zoom, y } = flow.getViewport();
+    const { zoom, x } = flow.getViewport();
     if (zoom > READABLE_ZOOM + 0.001) return;
     const bounds = flow.getNodesBounds(nodes);
-    void flow.setViewport({ x: 32 - bounds.x * zoom, y, zoom }, { duration });
+    void flow.setViewport({ x, y: 32 - bounds.y * zoom, zoom }, { duration });
   });
-}
-
-function PaletteItem({ icon: Icon, title, description, onSelect }: { icon: typeof Plus; title: string; description?: string; onSelect: () => void }) {
-  return (
-    <DropdownMenuItem onSelect={onSelect} className="items-start">
-      <Icon className="mt-0.5" />
-      <div>
-        <p className="text-sm">{title}</p>
-      </div>
-      {description && <HelpTip>{description}</HelpTip>}
-    </DropdownMenuItem>
-  );
 }

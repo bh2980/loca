@@ -3,6 +3,17 @@ export function sameWorkflowDraft(a: { name: string; definition: unknown }, b: {
   return a.name === b.name && deepEqual(a.definition, b.definition);
 }
 
+/** Normalize a no-op edit only when no save is currently changing the server baseline. */
+export function normalizeWorkflowDraft<T extends { baseVersion: number; name: string; definition: unknown }>(next: T, saved: T | null | undefined, inFlight: T | null): T | null {
+  return !inFlight && saved && sameWorkflowDraft(next, saved) ? null : next;
+}
+
+/** An in-flight save must never erase edits made after its request was sent. */
+export function reconcileSavedDraft<T extends { baseVersion: number; name: string; definition: unknown }>(current: T | null, sent: T, version: number): T | null {
+  if (!current || sameWorkflowDraft(current, sent)) return null;
+  return current.baseVersion === sent.baseVersion ? { ...current, baseVersion: version } : current;
+}
+
 function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (Array.isArray(a) || Array.isArray(b)) {

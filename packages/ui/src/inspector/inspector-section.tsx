@@ -16,7 +16,7 @@ export interface InspectorSectionProps {
 export function InspectorSection({ title, children, actions, defaultOpen = true, id, className }: InspectorSectionProps) {
   return (
     <Collapsible defaultOpen={defaultOpen} asChild>
-      <section id={id} className={cn("scroll-mt-4 space-y-2", className)}>
+      <section id={id} className={cn("scroll-mt-4 space-y-inspector-compact border-b border-border-subtle px-5 py-3", className)}>
         <div className="flex min-h-7 items-center gap-2">
           <CollapsibleTrigger asChild>
             <Button type="button" variant="ghost" className="group h-7 min-w-0 justify-start gap-1 px-1 text-sm font-semibold">
@@ -26,7 +26,7 @@ export function InspectorSection({ title, children, actions, defaultOpen = true,
           </CollapsibleTrigger>
           {actions && <div className="ml-auto flex shrink-0 items-center gap-1">{actions}</div>}
         </div>
-        <CollapsibleContent className="space-y-3">{children}</CollapsibleContent>
+        <CollapsibleContent className="space-y-inspector-compact">{children}</CollapsibleContent>
       </section>
     </Collapsible>
   )

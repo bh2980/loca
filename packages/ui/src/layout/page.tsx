@@ -1,8 +1,10 @@
 import { useEffect, useState, type ReactNode } from "react"
 import { createPortal } from "react-dom"
 import { cn } from "../lib/utils"
+import { useHasDock } from "./right-dock"
 
 export const HEADER_ACTIONS_ID = "page-header-actions"
+export const PAGE_HEADING_ID = "loca-page-heading"
 
 /**
  * Slot portal for main actions in the top app navigation bar.
@@ -13,6 +15,13 @@ export function HeaderActions({ children }: { children: ReactNode }) {
     setSlot(document.getElementById(HEADER_ACTIONS_ID))
   }, [])
   return slot ? createPortal(children, slot) : null
+}
+
+/** Breadcrumb or back context placed beside the app header's page title. */
+export function PageHeading({ children }: { children: ReactNode }) {
+  const [target, setTarget] = useState<HTMLElement | null>(null)
+  useEffect(() => setTarget(document.getElementById(PAGE_HEADING_ID)), [])
+  return target ? createPortal(children, target) : null
 }
 
 export interface PageProps {
@@ -46,10 +55,18 @@ export function Page({
   }, [title, onTitle])
 
   const toolbar = back || meta || actions
+  const hasDock = useHasDock()
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-background">
-      {toolbar && (
+      {hasDock && (back || meta) && <PageHeading>
+        <div className="flex min-w-0 items-center gap-2">
+          {back && <div className="-ml-1 shrink-0">{back}</div>}
+          {meta && <div className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{meta}</div>}
+        </div>
+      </PageHeading>}
+      {hasDock && actions && <HeaderActions>{actions}</HeaderActions>}
+      {toolbar && !hasDock && (
         <div className="flex min-h-10 shrink-0 flex-wrap items-center gap-2 border-b border-border bg-background/50 px-3.5 py-1.5 backdrop-blur-xs">
           {back && <div className="-ml-1 shrink-0">{back}</div>}
           <div className="min-w-0 flex-1 truncate text-xs text-muted-foreground">

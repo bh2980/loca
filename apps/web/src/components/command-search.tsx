@@ -14,7 +14,7 @@ const has = (needle: string, ...texts: (string | null | undefined)[]) => texts.s
  * ⌘K: anywhere in the project — scenes, glossary terms, people, documents and lines (source,
  * translation, speaker, key) — and jump there. The line list's own 찾기 only narrows what it shows.
  */
-export function CommandSearch({ projectId }: { projectId: string }) {
+export function CommandSearch({ projectId, compact = false }: { projectId: string; compact?: boolean }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [text, setText] = useState('');
@@ -48,9 +48,8 @@ export function CommandSearch({ projectId }: { projectId: string }) {
 
   return (
     <>
-      <Button variant="outline" className="w-56 justify-start text-muted-foreground" onClick={() => setOpen(true)}>
-        <Search /> 대사·용어·인물·자료 검색
-        <Kbd className="ml-auto">{keyLabel('Mod+K')}</Kbd>
+      <Button variant="ghost" size={compact ? "icon-sm" : "default"} aria-label={`검색 (${keyLabel('Mod+K')})`} onClick={() => setOpen(true)}>
+        <Search /> {!compact && <>대사·용어·인물·자료 검색 <Kbd>{keyLabel('Mod+K')}</Kbd></>}
       </Button>
       <CommandDialog open={open} onOpenChange={setOpen} shouldFilter={false} title="검색" description="장면, 용어, 인물, 자료, 대사(원문·번역·화자·ID)에서 찾습니다.">
         <CommandInput value={text} onValueChange={setText} placeholder="찾을 내용을 입력하세요" />

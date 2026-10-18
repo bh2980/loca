@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { and, asc, count, desc, eq, inArray, like, ne, notLike, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, inArray, like, lt, ne, notLike, or, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { isSpecialListener, type NodeType } from '@tw/shared';
 import { attachUnitTags } from '../services/tag-scope.ts';
@@ -273,6 +273,11 @@ export const sourceRoutes = new Hono<Env>()
     const unitId = c.req.param('unitId');
     const unit = found(db.select().from(s.units).where(eq(s.units.id, unitId)).get(), '대사');
     const group = db.select({ id: s.groups.id, title: s.groups.title, key: s.groups.key }).from(s.groups).where(eq(s.groups.id, unit.groupId)).get()!;
+    const neighborFields = { id: s.units.id, speaker: s.units.speaker, source: s.units.source, translation: s.units.translation };
+    const neighbors = {
+      previous: db.select(neighborFields).from(s.units).where(and(eq(s.units.groupId, unit.groupId), lt(s.units.seq, unit.seq))).orderBy(desc(s.units.seq)).limit(1).get(),
+      next: db.select(neighborFields).from(s.units).where(and(eq(s.units.groupId, unit.groupId), gt(s.units.seq, unit.seq))).orderBy(asc(s.units.seq)).limit(1).get(),
+    };
     const candidates = db.select().from(s.candidates).where(eq(s.candidates.unitId, unitId)).orderBy(desc(s.candidates.createdAt)).all();
     const tagIds = db.select({ tagId: s.unitTags.tagId }).from(s.unitTags).where(eq(s.unitTags.unitId, unitId)).all().map((row) => row.tagId);
     const history = db
@@ -298,7 +303,7 @@ export const sourceRoutes = new Hono<Env>()
       }
     }
     const sceneNames = [...distance].sort((a, b) => a[1] - b[1]).map(([name]) => name);
-    return c.json({ ...unit, group, candidates, tagIds, history, graphNodes: nodes, speech, sceneNames });
+    return c.json({ ...unit, group, neighbors, candidates, tagIds, history, graphNodes: nodes, speech, sceneNames });
   })
   /** The editor's AI continuation of a line (docs/DESIGN.md J3b A): the whole line, starting with `prefix`. Cancelled with the request. */
   .post('/units/:unitId/complete', validate('json', z.object({ prefix: z.string().max(4000).default('') })), async (c) => {
