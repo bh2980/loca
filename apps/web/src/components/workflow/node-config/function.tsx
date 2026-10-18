@@ -338,9 +338,7 @@ function ScriptConfig({ params, projectId, readOnly, set }: { params: Record<str
         hint="샌드박스: 네트워크·파일 접근 없음, 2초·32MB 제한.">
         <Textarea className="min-h-56 font-mono text-xs leading-relaxed" spellCheck={false} value={params.code as string} onChange={(event) => set('code', event.target.value)} />
       </Field>
-      <Field label="출력 필드">
-        <JsonFieldsEditor fields={fields} descriptionPlaceholder="설명 (코드를 쓸 때 참고)" onChange={(next) => set('fields', next)} />
-      </Field>
+      <JsonFieldsEditor label="출력 필드" fields={fields} descriptionPlaceholder="설명" onChange={(next) => set('fields', next)} />
       {!readOnly && (
         <div className="space-y-2">
           <Button variant="outline" disabled={test.isPending} onClick={() => test.mutate()}>

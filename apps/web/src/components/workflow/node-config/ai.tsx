@@ -137,9 +137,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
                 <SelectContent>{(Object.keys(AI_SCOPES) as AiScope[]).map((scope) => <SelectItem key={scope} value={scope}>{AI_SCOPES[scope]}</SelectItem>)}</SelectContent>
               </Select>
             </Field>
-            <Field label="출력 필드">
-              <JsonFieldsEditor fields={config.fields} descriptionPlaceholder="설명 (AI에게 보임)" onChange={(fields) => set({ fields })} />
-            </Field>
+            <JsonFieldsEditor label="출력 필드" fields={config.fields} descriptionPlaceholder="AI에게 주는 설명" onChange={(fields) => set({ fields })} />
           </>
         )}
         {config.output === 'choice' && (
