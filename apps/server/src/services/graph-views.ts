@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { and, eq, sql } from 'drizzle-orm';
-import { isControlNode, lineFilterSchema, nodesBetween } from '@tw/shared';
+import { lineFilterSchema, nodesBetween } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { nodeSetLayout } from './layout.ts';
@@ -24,8 +24,6 @@ export interface NodePick {
   between?: { start: string; end: string };
   /** Line keys or ids, node keys or ids to leave out. */
   exclude?: string[];
-  /** Leave out nodes without lines (conditions, waits, state changes); the view joins the flow across them. */
-  simplify?: boolean;
 }
 
 function lazy<T>(make: () => T) {
@@ -101,7 +99,6 @@ export function pickNodes(db: Db, projectId: string, pick: NodePick) {
     }
   }
   if (pick.exclude?.length) for (const id of resolve(pick.exclude)) nodes.delete(id);
-  if (pick.simplify) for (const node of graph().nodes) if (nodes.has(node.id) && isControlNode(node)) nodes.delete(node.id);
   return { nodeIds: [...nodes], unknown, scenes: groups.filter((group) => sceneIds.has(group.id)).map((group) => group.title) };
 }
 

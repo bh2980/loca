@@ -27,7 +27,7 @@ describe('graph views', () => {
     expect(pickNodes(db, projectId, { scenes: ['no such scene'] })).toMatchObject({ nodeIds: [], unknown: ['no such scene'] });
   });
 
-  it('picks every node between two lines, then leaves out excluded and line-less ones', () => {
+  it('picks every node between two lines, then leaves out excluded ones', () => {
     const { db, projectId } = setup();
     const nodes = db.select().from(s.graphNodes).where(eq(s.graphNodes.projectId, projectId)).all();
     const edges = db.select().from(s.graphEdges).where(eq(s.graphEdges.projectId, projectId)).all();
@@ -41,7 +41,6 @@ describe('graph views', () => {
     const keyOf = (nodeId: string) => db.select({ key: s.units.key }).from(s.units).where(eq(s.units.id, byId.get(nodeId)!.unitIds[0]!)).get()!.key;
     const between = pickNodes(db, projectId, { between: { start: keyOf(hop.start), end: keyOf(hop.end) } });
     expect(between.nodeIds).toEqual(expect.arrayContaining([hop.start, hop.mid, hop.end]));
-    expect(pickNodes(db, projectId, { between: { start: keyOf(hop.start), end: keyOf(hop.end) }, simplify: true }).nodeIds).not.toContain(hop.mid);
     expect(pickNodes(db, projectId, { between: { start: keyOf(hop.start), end: keyOf(hop.end) }, exclude: [keyOf(hop.end)] }).nodeIds).not.toContain(hop.end);
     expect(pickNodes(db, projectId, { between: { start: 'nope', end: keyOf(hop.end) } })).toMatchObject({ nodeIds: [], unknown: ['nope'] });
   });

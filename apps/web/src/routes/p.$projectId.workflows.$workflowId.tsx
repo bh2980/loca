@@ -23,7 +23,7 @@ import {
   applyNodeChanges,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { ArrowLeftRight, ArrowUpDown, ChevronRight, Copy, Focus, LayoutGrid, Maximize, Pencil, Plus, Trash2, Unlink } from 'lucide-react';
+import { ArrowLeftRight, ArrowUpDown, ChevronRight, Copy, Focus, LayoutGrid, Maximize, Pencil, Plus, SlidersHorizontal, Trash2, Unlink } from 'lucide-react';
 import { toast } from 'sonner';
 import { AI_OUTPUTS, AI_PRESETS, FUNCTIONS, FUNCTION_NAMES, NODE_TYPES, PALETTE_AI_PRESET_IDS, PALETTE_FUNCTION_NAMES, nodeModels, nodeName, nodePorts, syncEntryEdges, workflowNodeSchema, type FunctionName, type WorkflowDefinition, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
 import { Page, StatusBarItem } from '@/components/page';
@@ -713,8 +713,7 @@ function WorkflowEditor() {
               event.preventDefault();
               setEdgeId(undefined);
               if (multi.length >= 2 && multi.includes(flowNode.id)) return setContextMenu({ kind: 'nodes', ids: multi, x: event.clientX, y: event.clientY });
-              setMulti([]);
-              select(flowNode.id);
+              // The menu acts on this node; the selection (and its config pane) stays as it was.
               const node = current.definition.nodes.find((n) => n.id === flowNode.id);
               if (node) {
                 setContextMenu({
@@ -782,6 +781,11 @@ function WorkflowEditor() {
               </DropdownMenuTrigger>
               {contextMenu.kind === 'node' && (
                 <DropdownMenuContent align="start" side="bottom" sideOffset={2} className="w-48">
+                  <DropdownMenuItem onSelect={() => select(contextMenu.node.id)}>
+                    <SlidersHorizontal className="size-3.5" />
+                    <span>노드 설정 열기</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
                   <DropdownMenuItem
                     onSelect={() => {
                       addNode(
