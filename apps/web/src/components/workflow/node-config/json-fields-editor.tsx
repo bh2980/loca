@@ -35,14 +35,13 @@ function FieldItem({ field, path, first, last, descriptionPlaceholder, editing, 
         onClick={() => editing.open(path)}
         onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); editing.open(path); } }}
       >
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="truncate font-mono text-sm font-semibold text-foreground">{field.name || 'name'}</span>
-          <span className="shrink-0 text-xs text-muted-foreground">{JSON_FIELD_TYPE_LABELS[field.type]}{field.type === 'list' && editing.folded.has(path) && ` · 필드 ${field.fields?.length ?? 0}개`}</span>
-          {field.type === 'list' && (
+        <div className="flex min-w-0 items-center gap-1">
+          {/* Every row keeps the fold slot so names line up; only a list fills it. */}
+          {field.type === 'list' ? (
             <Button
               variant="ghost"
               size="icon-xs"
-              className="-my-1 shrink-0 text-muted-foreground"
+              className="-my-1 w-4 shrink-0 text-muted-foreground"
               aria-label={`${field.name || '목록'} ${editing.folded.has(path) ? '펴기' : '접기'}`}
               aria-expanded={!editing.folded.has(path)}
               onClick={(event) => { event.stopPropagation(); editing.fold(path); }}
@@ -50,9 +49,11 @@ function FieldItem({ field, path, first, last, descriptionPlaceholder, editing, 
             >
               <ChevronRight className={cn('transition-transform', !editing.folded.has(path) && 'rotate-90')} />
             </Button>
-          )}
+          ) : <span className="w-4 shrink-0" />}
+          <span className="truncate font-mono text-sm font-semibold text-foreground">{field.name || 'name'}</span>
+          <span className="ml-1 shrink-0 text-xs text-muted-foreground">{JSON_FIELD_TYPE_LABELS[field.type]}{field.type === 'list' && editing.folded.has(path) && ` · 필드 ${field.fields?.length ?? 0}개`}</span>
         </div>
-        {field.description && <p className="text-xs whitespace-pre-wrap text-muted-foreground">{field.description}</p>}
+        {field.description && <p className="pl-5 text-xs whitespace-pre-wrap text-muted-foreground">{field.description}</p>}
       </div>
     );
   }
@@ -117,7 +118,7 @@ function FieldRows({ fields, descriptionPlaceholder, path, editing, onChange }: 
             onRemove={() => onChange(fields.filter((_, i) => i !== index))}
           />
           {field.type === 'list' && !editing.folded.has(`${path}${index}`) && (
-            <div className={cn('mt-1 ml-1 border-l-2 pl-3', editing.path?.startsWith(`${path}${index}.`) ? 'border-muted-foreground' : 'border-muted-foreground/30')}>
+            <div className={cn('mt-1 ml-1.5 border-l-2 pl-2.5', editing.path?.startsWith(`${path}${index}.`) ? 'border-muted-foreground' : 'border-muted-foreground/30')}>
               <FieldRows fields={field.fields ?? []} descriptionPlaceholder={descriptionPlaceholder} path={`${path}${index}.`} editing={editing} onChange={(children) => setField(index, { fields: children })} />
             </div>
           )}
