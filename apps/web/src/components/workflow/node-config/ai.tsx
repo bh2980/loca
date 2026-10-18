@@ -32,7 +32,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
           <>
             {connection?.fallback && <span className="block">이 연결이 막히면 연결 설정의 ‘막히면’으로 넘깁니다.</span>}
             시간 제한·시도 횟수·최대 출력은{' '}
-            <Link to="/p/$projectId/ai/connections" params={{ projectId: refs.projectId }} search={{ conn: config.model.connectionId || undefined }} className="underline">AI 연결 설정</Link>
+            <Link to="/p/$projectId/settings/connections" params={{ projectId: refs.projectId }} search={{ conn: config.model.connectionId || undefined }} className="underline">AI 연결 설정</Link>
             에서 정합니다.
             {config.output === 'verdict' && ' 판정에는 System One도 쓸 수 있습니다.'}
           </>

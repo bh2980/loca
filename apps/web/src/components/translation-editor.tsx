@@ -170,7 +170,7 @@ export function TranslationEditor({
 
   const openAssistSettings = () => {
     toast.info('편집기 AI 모델이 설정되지 않아 설정으로 이동합니다. 작성 중인 초안은 브라우저에 보관됩니다.');
-    void navigate({ to: '/p/$projectId/ai/usage', params: { projectId } });
+    void navigate({ to: '/p/$projectId/settings/editor', params: { projectId } });
   };
   const requestAssist = (mode: 'translate' | 'refine') => {
     if (project.isPending) {

@@ -485,7 +485,7 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
         {!ready && (input.trim() || showModelHint) && (
           <p className="px-1 text-xs text-muted-foreground">
             보내려면 아래에서 채팅할 AI 연결과 모델을 고르세요. 연결이 없으면{' '}
-            <Link to="/p/$projectId/ai/connections" params={{ projectId }} className="underline">AI 연결 화면</Link>
+            <Link to="/p/$projectId/settings/connections" params={{ projectId }} className="underline">AI 연결 화면</Link>
             에서 추가합니다.
           </p>
         )}

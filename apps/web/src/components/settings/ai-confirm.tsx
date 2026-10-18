@@ -11,7 +11,7 @@ const AI_CONFIRM_LABELS = { auto: '자동 확정', candidate: '후보로만' } a
 
 /**
  * Where an AI step that writes knowledge or terms says how its results land: the project's
- * AI › 사용 방식 (there is no switch of its own), with a link there.
+ * AI 결과 반영 (there is no switch of its own), with a link there.
  */
 export function AiConfirmNote({ projectId, kinds }: { projectId: string; kinds: AiConfirmKind[] }) {
   const project = useQuery(q.project(projectId));
@@ -24,8 +24,8 @@ export function AiConfirmNote({ projectId, kinds }: { projectId: string; kinds: 
   return (
     <p className="text-xs text-muted-foreground">
       결과: {summary} ·{' '}
-      <Link to="/p/$projectId/ai/usage" params={{ projectId }} className="underline underline-offset-2 hover:text-foreground">
-        AI 사용 방식
+      <Link to="/p/$projectId/settings/agent" params={{ projectId }} className="underline underline-offset-2 hover:text-foreground">
+        에이전트 설정
       </Link>
     </p>
   );
@@ -53,7 +53,7 @@ export function AiConfirmList({ projectId }: { projectId: string }) {
       {(Object.keys(AI_CONFIRM_KINDS) as AiConfirmKind[]).map((kind) => (
         <li key={kind} className="flex items-center gap-3 px-4 py-2">
           <span className="min-w-0 flex-1 text-sm font-medium">{AI_CONFIRM_KINDS[kind]}</span>
-          <Select value={policy[kind]} disabled={!project.data} onValueChange={(value) => save.mutate({ ...policy, [kind]: value as 'auto' | 'candidate' })}>
+          <Select value={policy[kind]} disabled={!project.data || save.isPending} onValueChange={(value) => save.mutate({ ...policy, [kind]: value as 'auto' | 'candidate' })}>
             <SelectTrigger size="sm" className="w-32" aria-label={`${AI_CONFIRM_KINDS[kind]} AI 결과`}>
               <SelectValue />
             </SelectTrigger>

@@ -3,14 +3,13 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Download, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { type FormatRules } from '@tw/shared';
-import { FormatRulesSection } from '@/components/format-rules';
 import { Page } from '@/components/page';
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Field, FieldDescription, FieldGroup, FieldLabel, Skeleton, Textarea, SettingsSection, SettingsContent } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { changedFields, useFormFrom } from '@/lib/use-form-from';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
+import type { FormatRules } from '@tw/shared';
 
 export const Route = createFileRoute('/p/$projectId/settings/project')({
   component: ProjectSettings,
@@ -92,8 +91,6 @@ function ProjectForm({ projectId, project }: { projectId: string; project: { nam
               </Field>
             </FieldGroup>
           </SettingsSection>
-
-          <FormatRulesSection projectId={projectId} rules={project.formatRules} />
 
           <SettingsSection title="번역 결과 내보내기" description="모든 대사의 키, 원문, 번역, 상태를 JSON 파일로 내려받습니다. 원본 게임 파일은 바뀌지 않습니다.">
             <Button variant="outline" asChild>

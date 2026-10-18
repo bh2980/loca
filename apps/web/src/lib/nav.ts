@@ -1,5 +1,5 @@
 import { useRouterState } from '@tanstack/react-router';
-import { BookMarked, Bot, FileText, GitBranch, History, Home, KeyRound, Languages, Milestone, Settings2, Sparkles, Tags, UsersRound, WandSparkles, Workflow, type LucideIcon } from 'lucide-react';
+import { BookMarked, Bot, FileText, GitBranch, History, Home, Languages, Milestone, PenLine, Plug, Settings2, Sparkles, Tags, UsersRound, Workflow, type LucideIcon } from 'lucide-react';
 
 export interface NavItem {
   id: string;
@@ -39,10 +39,9 @@ export const NAV_GROUPS: NavGroup[] = [
   { id: 'settings', label: '설정', items: [
     item('project-settings', '프로젝트', '/settings/project', Settings2, 'settings', '설정'),
     item('statuses', '상태·태그', '/settings/statuses', Tags, 'settings', '설정'),
-    item('connections', 'AI 연결', '/ai/connections', Sparkles, 'settings', '설정'),
-    item('editor-ai', '편집기 AI', '/ai/usage', WandSparkles, 'settings', '설정'),
-    item('agent', '에이전트', '/agent', Bot, 'settings', '설정'),
-    item('keys', 'API 키', '/keys', KeyRound, 'settings', '설정'),
+    item('editor-settings', '에디터', '/settings/editor', PenLine, 'settings', '설정', { also: ['/ai/usage'] }),
+    item('agent-settings', '에이전트', '/settings/agent', Bot, 'settings', '설정', { also: ['/agent', '/settings/ai-results'] }),
+    item('connections', '연결', '/settings/connections', Plug, 'settings', '설정', { also: ['/ai/connections', '/keys'] }),
   ] },
 ];
 

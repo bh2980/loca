@@ -17,8 +17,9 @@ const MATRIX_ROWS = RESOURCES.map((id) => {
   return { id, label: resource.label, description: 'description' in resource ? resource.description : undefined, supported: resource.actions as readonly AgentAction[] };
 });
 
-export function AgentTab() {
-  const { projectId } = useParams({ from: '/p/$projectId/agent' });
+export function AgentTab({ projectId: propProjectId }: { projectId?: string } = {}) {
+  const params = useParams({ strict: false }) as { projectId?: string };
+  const projectId = propProjectId ?? params.projectId!;
   const queryClient = useQueryClient();
   const project = useQuery(q.project(projectId));
   const loaded = !!project.data;

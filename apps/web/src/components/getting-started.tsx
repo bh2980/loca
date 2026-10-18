@@ -75,7 +75,7 @@ export function GettingStarted({ projectId }: { projectId: string }) {
       done: aiConnections.length > 0,
       action: (primary) => (
         <Button asChild variant={primary ? 'default' : 'outline'}>
-          <Link to="/p/$projectId/ai/connections" params={{ projectId }} search={{ conn: aiConnections.length ? undefined : 'new' }}>
+          <Link to="/p/$projectId/settings/connections" params={{ projectId }} search={{ conn: aiConnections.length ? undefined : 'new' }}>
             AI 연결 추가
           </Link>
         </Button>

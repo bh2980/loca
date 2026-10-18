@@ -212,7 +212,7 @@ export function ModelPicker({
           <p className="p-3 text-sm text-muted-foreground">
             {connections.isPending ? '연결을 불러오는 중…' : '여기에 쓸 수 있는 AI 연결이 없습니다. '}
             {!connections.isPending && params.projectId && (
-              <Link to="/p/$projectId/ai/connections" params={{ projectId: params.projectId }} className="underline" onClick={() => setOpen(false)}>
+              <Link to="/p/$projectId/settings/connections" params={{ projectId: params.projectId }} className="underline" onClick={() => setOpen(false)}>
                 AI 연결 추가
               </Link>
             )}
