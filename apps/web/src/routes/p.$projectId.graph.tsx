@@ -2,7 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeftRight, ArrowUpDown, Copy, ExternalLink, Flag, Focus, Maximize, Minus, Network, Plus, Route as RouteIcon, SlidersHorizontal, Sparkles } from 'lucide-react';
+import { ArrowLeftRight, ArrowUpDown, Copy, Eye, EyeOff, ExternalLink, Flag, Focus, Maximize, Minus, Network, Play, Plus, Route as RouteIcon, Shrink, SlidersHorizontal, Sparkles } from 'lucide-react';
+import { contractEdges } from '@tw/shared';
+import { RunDialog } from '@/components/workflow/run-dialog';
 import { GraphCanvas, type GraphCanvasHandle, type NodeInfo, type Viewport } from '@/components/graph/graph-canvas';
 import { LINE_CARD_WIDTH, LineCard } from '@/components/graph/line-card';
 import { FlowPane, SceneNodeDetail } from '@/components/graph/node-detail';
@@ -50,6 +52,8 @@ interface GraphSearch {
   edit?: string;
   /** Node finder text (matches are listed under the box). */
   q?: string;
+  /** Dialogue graph without nodes that hold no line (conditions, waits, state changes); the flow is joined across them. */
+  simplify?: true;
 }
 
 export const Route = createFileRoute('/p/$projectId/graph')({
@@ -75,6 +79,7 @@ export const Route = createFileRoute('/p/$projectId/graph')({
     jump: raw.jump === true || raw.jump === 'true' ? true : undefined,
     edit: typeof raw.edit === 'string' && raw.edit ? raw.edit : undefined,
     q: typeof raw.q === 'string' && raw.q ? raw.q : undefined,
+    simplify: raw.simplify === true || raw.simplify === 'true' ? true : undefined,
   }),
   component: GraphRoute,
 });
@@ -88,6 +93,43 @@ const readViewport = (key: string): Viewport | undefined => {
     return undefined;
   }
 };
+
+/** Nodes a person hid in one graph sheet: a per-tab working state, kept in sessionStorage like the viewport. */
+const hiddenKey = (projectId: string, scope: Scope, sheet: string, direction: GraphDirection) => `tw.graph.hidden.${projectId}.${scope}.${direction}.${sheet}`;
+function useHiddenNodes(key: string) {
+  const read = () => {
+    try {
+      return new Set<string>(JSON.parse(sessionStorage.getItem(key) ?? '[]'));
+    } catch {
+      return new Set<string>();
+    }
+  };
+  const [state, setState] = useState(() => ({ key, ids: read() }));
+  const ids = state.key === key ? state.ids : read();
+  const set = (next: Set<string>) => {
+    setState({ key, ids: next });
+    try {
+      if (next.size) sessionStorage.setItem(key, JSON.stringify([...next]));
+      else sessionStorage.removeItem(key);
+    } catch {
+      /* ignore */
+    }
+  };
+  return [ids, set] as const;
+}
+
+/** Nodes within `steps` edges of `id`, either way. */
+function around(edges: readonly { from: string; to: string }[], id: string, steps: number) {
+  const near = new Map<string, string[]>();
+  for (const edge of edges) {
+    (near.get(edge.from) ?? near.set(edge.from, []).get(edge.from)!).push(edge.to);
+    (near.get(edge.to) ?? near.set(edge.to, []).get(edge.to)!).push(edge.from);
+  }
+  const found = new Set([id]);
+  let frontier = [id];
+  for (let step = 0; step < steps; step++) frontier = frontier.flatMap((at) => (near.get(at) ?? []).filter((other) => !found.has(other) && found.add(other)));
+  return found;
+}
 
 const GRAPH_MODES = ['scene', 'dialogue'] as const;
 /** The graph's modes in one sleek segment control: scene vs dialogue */
@@ -208,6 +250,10 @@ function GraphPage() {
     x: number;
     y: number;
   } | null>(null);
+  const [hiddenNodes, setHiddenNodes] = useHiddenNodes(hiddenKey(projectId, search.scope, dialogue ? (chosen ?? 'all') : (search.scene ?? ''), direction));
+  /** Box or modifier-click selection; a single selection stays in the URL (`node`). */
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [runUnits, setRunUnits] = useState<string[]>();
   const find = search.q ?? '';
   const setFind = (q: string | undefined) => void navigate({ search: (previous) => ({ ...previous, q }), replace: true });
 
@@ -420,6 +466,46 @@ function GraphPage() {
     return [...layout.edges, ...extra];
   }, [layout, hidden, search.links]);
 
+  // Hidden nodes (by hand, or every line-less node when simplified) are left out of the drawing;
+  // visible nodes joined only through them get a dashed edge, so the flow is not cut.
+  const lineless = useMemo(() => {
+    if (!dialogue || !search.simplify || !layout) return new Set<string>();
+    const kinds = new Map((graph.data?.nodes ?? []).map((node) => [node.id, node] as const));
+    return new Set(layout.nodes.filter((node) => {
+      const raw = kinds.get(node.id);
+      return raw && raw.kind !== 'script' && raw.kind !== 'choice' && !(raw.total ?? 0);
+    }).map((node) => node.id));
+  }, [dialogue, search.simplify, layout, graph.data]);
+  const excluded = useMemo(() => new Set([...hiddenNodes, ...lineless]), [hiddenNodes, lineless]);
+  const visibleNodes = useMemo(() => (excluded.size ? (layout?.nodes ?? []).filter((node) => !excluded.has(node.id)) : (layout?.nodes ?? [])), [layout, excluded]);
+  const visibleEdges = useMemo(() => {
+    if (!excluded.size || !layout) return edges;
+    const box = new Map(layout.nodes.map((node) => [node.id, node]));
+    const kept = edges.filter((edge) => !excluded.has(edge.from) && !excluded.has(edge.to) && !excluded.has((edge as { via?: string }).via ?? ''));
+    const joined = contractEdges([...edges, ...(looseEdges ?? [])], excluded).flatMap(({ from, to }) => {
+      const a = box.get(from);
+      const b = box.get(to);
+      return a && b ? [{ id: `joined:${from}:${to}`, from, to, derived: true as const, points: direction === 'horizontal'
+        ? [a.x + a.width, a.y + a.height / 2, b.x, b.y + b.height / 2]
+        : [a.x + a.width / 2, a.y + a.height, b.x + b.width / 2, b.y] }] : [];
+    });
+    return [...kept, ...joined];
+  }, [edges, looseEdges, layout, excluded, direction]);
+  const visibleLoose = useMemo(() => (excluded.size ? looseEdges?.filter((edge) => !excluded.has(edge.from) && !excluded.has(edge.to)) : looseEdges), [looseEdges, excluded]);
+  const hide = (ids: Iterable<string>) => {
+    setHiddenNodes(new Set([...hiddenNodes, ...ids]));
+    setPicked(new Set());
+    if (search.node && excluded.has(shown(search.node))) select(undefined);
+  };
+  /** The lines of the picked nodes (a folded run's nodes; portals hold none), for a workflow run. */
+  const runPicked = async (ids: Iterable<string>) => {
+    const nodeIds = [...ids].flatMap((id) => (portals.has(id) ? [] : (layout?.chains?.find((chain) => chain.id === id)?.nodeIds ?? [id])));
+    const details = await Promise.all(nodeIds.map((id) => queryClient.fetchQuery(q.graphNode(id))));
+    const unitIds = [...new Set(details.flatMap((detail) => detail.units.map((unit) => unit.id)))];
+    if (unitIds.length) setRunUnits(unitIds);
+    else toast('고른 노드에 대사가 없습니다.');
+  };
+
   const endpointIds = useMemo(() => [
     ...new Set([search.pickStart ?? search.routeStart, search.pickEnd ?? search.routeEnd].filter((id): id is string => Boolean(id)))
   ], [search.pickStart, search.routeStart, search.pickEnd, search.routeEnd]);
@@ -483,6 +569,18 @@ function GraphPage() {
           })}
         />
         <CanvasDirectionControl direction={direction} onDirectionChange={(next) => void navigate({ search: (previous) => ({ ...previous, direction: next }) })} />
+        {dialogue && (
+          <Button
+            variant={search.simplify ? 'secondary' : 'ghost'}
+            size="sm"
+            aria-pressed={Boolean(search.simplify)}
+            title="대사 없는 조건·대기·상태 노드를 빼고, 그 노드를 거쳐 이어지던 흐름은 점선으로 잇습니다."
+            onClick={() => void navigate({ search: (previous) => ({ ...previous, simplify: previous.simplify ? undefined : true }), replace: true })}
+          >
+            <Shrink className="size-3.5" />
+            단순화 보기
+          </Button>
+        )}
         {dialogue && (
           <Button
             variant={isPicking ? 'secondary' : 'outline'}
@@ -614,16 +712,32 @@ function GraphPage() {
             <GraphCanvas
               key={`${search.scope}:${direction}:${chosen ?? 'all'}:${search.scene ?? ''}:${search.mark ?? ''}`}
               handle={canvas}
-              nodes={layout.nodes}
+              nodes={visibleNodes}
               regions={layout.regions}
-              edges={edges}
-              looseEdges={looseEdges}
+              edges={visibleEdges}
+              looseEdges={visibleLoose}
               direction={direction}
               hubs={hubs}
               info={info}
               width={size.width}
               height={size.height}
               selectedId={isPicking ? undefined : search.node ? shown(search.node) : undefined}
+              selectedIds={picked}
+              onSelectMany={isPicking ? undefined : (ids, additive) => {
+                setContextMenu(null);
+                const next = new Set(additive ? picked : []);
+                if (additive && search.node && !next.size) next.add(shown(search.node));
+                for (const id of ids) {
+                  if (portals.has(id)) continue;
+                  if (additive && ids.length === 1 && next.has(id)) next.delete(id);
+                  else next.add(id);
+                }
+                setPicked(next);
+                // One node picked is the ordinary selection, with its pane.
+                if (next.size === 1) select([...next][0]);
+                else if (search.node) select(undefined);
+                if (next.size === 1) setPicked(new Set());
+              }}
               highlight={highlight}
               endpointMarkers={endpointMarkers}
               initialViewport={search.jump ? undefined : readViewport(key)}
@@ -631,6 +745,7 @@ function GraphPage() {
               onViewportChange={(viewport) => sessionStorage.setItem(key, JSON.stringify(viewport))}
               onSelect={(id) => {
                 setContextMenu(null);
+                setPicked(new Set());
                 if (!id) {
                   select(undefined);
                   return;
@@ -665,7 +780,10 @@ function GraphPage() {
                 select(id);
               }}
               onContextMenu={(nodeId, pos) => {
-                if (nodeId) select(nodeId);
+                if (nodeId && !picked.has(nodeId)) {
+                  setPicked(new Set());
+                  select(nodeId);
+                }
                 setContextMenu({ nodeId, x: pos.clientX, y: pos.clientY });
               }}
               onOpen={dialogue ? startLine : undefined}
@@ -694,8 +812,25 @@ function GraphPage() {
                   }}
                 />
               </DropdownMenuTrigger>
-              {search.scope === 'dialogue' && contextMenu.nodeId && (
-                <DropdownMenuContent align="start" side="bottom" sideOffset={2} className="w-48">
+              {search.scope === 'dialogue' && contextMenu.nodeId && picked.size > 1 && picked.has(contextMenu.nodeId) && (
+                <DropdownMenuContent align="start" side="bottom" sideOffset={2} className="w-60">
+                  <DropdownMenuItem onSelect={() => hide(picked)}>
+                    <EyeOff className="size-3.5" />
+                    <span>선택한 노드 {picked.size.toLocaleString()}개 숨기기</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => hide(visibleNodes.map((node) => node.id).filter((id) => !picked.has(id)))}>
+                    <Focus className="size-3.5" />
+                    <span>선택한 노드만 남기기</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => void runPicked(picked)}>
+                    <Play className="size-3.5" />
+                    <span>선택한 노드의 대사로 워크플로 실행…</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              )}
+              {search.scope === 'dialogue' && contextMenu.nodeId && !(picked.size > 1 && picked.has(contextMenu.nodeId)) && (
+                <DropdownMenuContent align="start" side="bottom" sideOffset={2} className="w-56">
                   <DropdownMenuItem
                     onSelect={() => {
                       const id = contextMenu.nodeId!;
@@ -810,6 +945,26 @@ function GraphPage() {
                     <Copy className="size-3.5" />
                     <span>노드 키 복사</span>
                   </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => hide([contextMenu.nodeId!])}>
+                    <EyeOff className="size-3.5" />
+                    <span>이 노드 숨기기</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      const near = around(visibleEdges, contextMenu.nodeId!, 2);
+                      hide(visibleNodes.map((node) => node.id).filter((id) => !near.has(id)));
+                    }}
+                  >
+                    <Focus className="size-3.5" />
+                    <span>이 노드 주변 흐름만 보기 (앞뒤 2단계)</span>
+                  </DropdownMenuItem>
+                  {hiddenNodes.size > 0 && (
+                    <DropdownMenuItem onSelect={() => setHiddenNodes(new Set())}>
+                      <Eye className="size-3.5" />
+                      <span>숨긴 노드 모두 다시 표시 ({hiddenNodes.size.toLocaleString()}개)</span>
+                    </DropdownMenuItem>
+                  )}
                 </DropdownMenuContent>
               )}
               {search.scope === 'scene' && contextMenu.nodeId && (
@@ -878,9 +1033,18 @@ function GraphPage() {
                     {direction === 'vertical' ? <ArrowLeftRight className="size-3.5" /> : <ArrowUpDown className="size-3.5" />}
                     <span>{direction === 'vertical' ? '가로 배치로 전환' : '세로 배치로 전환'}</span>
                   </DropdownMenuItem>
+                  {hiddenNodes.size > 0 && (
+                    <DropdownMenuItem onSelect={() => setHiddenNodes(new Set())}>
+                      <Eye className="size-3.5" />
+                      <span>숨긴 노드 모두 다시 표시 ({hiddenNodes.size.toLocaleString()}개)</span>
+                    </DropdownMenuItem>
+                  )}
                 </DropdownMenuContent>
               )}
             </DropdownMenu>
+          )}
+          {runUnits && (
+            <RunDialog projectId={projectId} unitIds={runUnits} unitsLabel="그래프에서 고른 노드의 대사" open onOpenChange={(open) => !open && setRunUnits(undefined)} hideTrigger />
           )}
           {(graph.isPending || graph.data?.status === 'pending') && (
             <div className="absolute inset-0 flex items-center justify-center gap-2 text-sm text-muted-foreground">
@@ -979,6 +1143,25 @@ function GraphPage() {
                     {search.scope === 'scene' && hubs.size > 0 && (
                       <p className="max-w-3xl rounded-md border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground">
                         연결점: 장면에 속하지 않으면서 여러 장면을 잇는 노드 묶음 (대사 그래프에서 파생)
+                      </p>
+                    )}
+                    {excluded.size > 0 && (
+                      <div className="flex max-w-full flex-wrap items-center gap-2 rounded-md border border-border bg-card py-1 pr-1.5 pl-2.5 text-xs shadow-2xs backdrop-blur-xs select-none">
+                        <EyeOff className="size-3.5 text-muted-foreground" />
+                        <span>
+                          {[hiddenNodes.size > 0 && `숨긴 노드 ${hiddenNodes.size.toLocaleString()}개`, lineless.size > 0 && `단순화로 뺀 대사 없는 노드 ${lineless.size.toLocaleString()}개`].filter(Boolean).join(' · ')} · 점선은 뺀 노드를 거쳐 이어지는 흐름
+                        </span>
+                        <Button variant="ghost" onClick={() => {
+                          setHiddenNodes(new Set());
+                          if (search.simplify) void navigate({ search: (previous) => ({ ...previous, simplify: undefined }), replace: true });
+                        }}>
+                          모두 표시
+                        </Button>
+                      </div>
+                    )}
+                    {picked.size > 1 && (
+                      <p className="max-w-3xl rounded-md border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground shadow-2xs select-none">
+                        노드 {picked.size.toLocaleString()}개 선택 · 오른쪽 클릭으로 숨기기·워크플로 실행
                       </p>
                     )}
                     {search.mark && mark.data && layout && (

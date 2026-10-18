@@ -37,6 +37,8 @@ export interface LayoutEdge {
   labelAt?: [number, number, number, number];
   /** Points are a start and (control, control, end) triples: drawn as Bézier curves. */
   curved?: true;
+  /** Stands for a path through nodes left out of the view; drawn dashed. */
+  derived?: true;
 }
 
 /**
@@ -142,6 +144,13 @@ interface Props {
   width: number;
   height: number;
   selectedId?: string;
+  /** More selected nodes (box or modifier-click selection), drawn like the selected one. */
+  selectedIds?: Set<string>;
+  /**
+   * Turns left-drag into box selection (pan moves to the middle button or Space+drag). Called with
+   * the nodes in the box, or the one node of a Shift/Ctrl/⌘-click; `additive` asks to add/toggle them.
+   */
+  onSelectMany?: (ids: string[], additive: boolean) => void;
   /** Nodes to emphasise (e.g. the scene being inspected); others are dimmed when non-empty. */
   highlight?: Set<string>;
   /** Path endpoints to mark on this graph; folded nodes should be keyed by their visible chain id. */
@@ -167,7 +176,7 @@ interface Props {
  * Draws a precomputed ELK layout. d3-zoom owns pan/zoom, Flatbush owns spatial queries,
  * so each frame only touches what is on screen. One <canvas>, no per-node DOM.
  */
-export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, direction = 'vertical', hubs, info, width, height, selectedId, highlight, endpointMarkers, highlightEdges, initialViewport, initialFocus, initialFocusAlign = 'center', onViewportChange, onSelect, onContextMenu, onOpen, anchor, handle }: Props) {
+export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, direction = 'vertical', hubs, info, width, height, selectedId, selectedIds, onSelectMany, highlight, endpointMarkers, highlightEdges, initialViewport, initialFocus, initialFocusAlign = 'center', onViewportChange, onSelect, onContextMenu, onOpen, anchor, handle }: Props) {
   const theme = useTheme();
   const canvas = useRef<HTMLCanvasElement>(null);
   const minimap = useRef<HTMLCanvasElement>(null);
@@ -199,8 +208,16 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
   const edges = laidOut;
   // Which of the drawn edges are emphasised, by position.
   const emphasised = useMemo(() => new Set(highlightEdges?.size ? edges.flatMap((edge, i) => (highlightEdges.has(`${edge.from}|${edge.to}`) ? [i] : [])) : []), [edges, highlightEdges]);
-  const props = useRef({ selectedId, highlight, endpointMarkers, emphasised, onViewportChange, onSelect, onOpen, hubs, anchorId: anchor?.id, onContextMenu });
-  props.current = { selectedId, highlight, endpointMarkers, emphasised, onViewportChange, onSelect, onOpen, hubs, anchorId: anchor?.id, onContextMenu };
+  const props = useRef({ selectedId, selectedIds, onSelectMany, highlight, endpointMarkers, emphasised, onViewportChange, onSelect, onOpen, hubs, anchorId: anchor?.id, onContextMenu });
+  props.current = { selectedId, selectedIds, onSelectMany, highlight, endpointMarkers, emphasised, onViewportChange, onSelect, onOpen, hubs, anchorId: anchor?.id, onContextMenu };
+  const boxSelect = Boolean(onSelectMany);
+  /** Space held: left-drag pans even where it would draw a selection box. */
+  const spaceDown = useRef(false);
+  /** The selection box being dragged, in canvas pixels; `moved` once it passed the click distance. */
+  const drag = useRef<{ x0: number; y0: number; x1: number; y1: number; moved: boolean; additive: boolean } | null>(null);
+  const [box, setBox] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
+  /** Swallows the click that ends a box drag. */
+  const suppressClick = useRef(false);
 
   const index = useMemo(() => {
     const byId = new Map(nodes.map((node) => [node.id, node]));
@@ -380,10 +397,15 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
     context.globalAlpha = dimmed ? 0.35 : 1;
     context.beginPath();
     for (const i of visibleEdges) {
-      if (selectedEdges?.has(String(i)) || route.has(i)) continue;
+      if (selectedEdges?.has(String(i)) || route.has(i) || edges[i].derived) continue;
       traceEdge(context, edges[i]);
     }
     context.stroke();
+    context.setLineDash([6 / t.k, 5 / t.k]);
+    context.beginPath();
+    for (const i of visibleEdges) if (edges[i].derived && !selectedEdges?.has(String(i)) && !route.has(i)) traceEdge(context, edges[i]);
+    context.stroke();
+    context.setLineDash([]);
     context.globalAlpha = 1;
     if (t.k > 0.08) for (const i of visibleEdges) if (!selectedEdges?.has(String(i)) && !route.has(i)) arrowHead(context, edges[i].points, 8, edgeColor, dimmed ? 0.35 : 1);
     // The emphasised edges (the main route) at full strength, thicker, in the text colour: not the selection's colour.
@@ -449,7 +471,7 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
     for (const i of visible) {
       const node = nodes[i];
       const meta = info.get(node.id);
-      const isSelected = node.id === selected;
+      const isSelected = node.id === selected || Boolean(props.current.selectedIds?.has(node.id));
       const faded = dimmed && !focus!.has(node.id) && !isSelected;
       context.globalAlpha = faded || overviewMode ? 0.25 : 1;
       const hub = props.current.hubs?.get(node.id);
@@ -547,6 +569,14 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
     const zoom = d3zoom<HTMLCanvasElement, unknown>()
       .scaleExtent([MIN_K, MAX_K])
       .clickDistance(4)
+      // Wheel and touch always zoom/pan. The middle button always pans; the left button pans unless
+      // left-drag selects (then only with Space held). Ctrl+drag is left to the browser, as in d3's default.
+      .filter((event: MouseEvent | WheelEvent | TouchEvent) => {
+        if (event.type === 'wheel' || event.type.startsWith('touch')) return true;
+        const mouse = event as MouseEvent;
+        if (mouse.button === 1) return true;
+        return mouse.button === 0 && !mouse.ctrlKey && (!props.current.onSelectMany || spaceDown.current);
+      })
       .on('zoom', (event: { transform: ZoomTransform }) => {
         transform.current = event.transform;
         schedule();
@@ -611,7 +641,41 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
 
   useEffect(() => {
     schedule();
-  }, [selectedId, highlight, endpointMarkers, emphasised, info, hubs]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedId, selectedIds, highlight, endpointMarkers, emphasised, info, hubs]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!boxSelect) return;
+    const typing = (target: EventTarget | null) => target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
+    const down = (event: KeyboardEvent) => {
+      if (event.code !== 'Space' || typing(event.target)) return;
+      spaceDown.current = true;
+      if (canvas.current) canvas.current.style.cursor = 'grab';
+    };
+    const up = (event: KeyboardEvent) => {
+      if (event.code !== 'Space') return;
+      spaceDown.current = false;
+      if (canvas.current) canvas.current.style.cursor = '';
+    };
+    window.addEventListener('keydown', down);
+    window.addEventListener('keyup', up);
+    return () => {
+      window.removeEventListener('keydown', down);
+      window.removeEventListener('keyup', up);
+    };
+  }, [boxSelect]);
+
+  const finishBox = () => {
+    const d = drag.current;
+    drag.current = null;
+    setBox(null);
+    if (!d?.moved) return;
+    suppressClick.current = true;
+    const t = transform.current;
+    const [x0, x1] = [Math.min(d.x0, d.x1), Math.max(d.x0, d.x1)].map((x) => (x - t.x) / t.k);
+    const [y0, y1] = [Math.min(d.y0, d.y1), Math.max(d.y0, d.y1)].map((y) => (y - t.y) / t.k);
+    const ids = (index.nodeIndex?.search(x0, y0, x1, y1) ?? []).map((i) => nodes[i].id);
+    props.current.onSelectMany?.(ids, d.additive);
+  };
 
   // The card is placed again when it opens on another node or its content changes height. Until
   // then it is transparent, not hidden: a hidden card would drop the editor's focus.
@@ -682,11 +746,46 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
       <canvas
         ref={canvas}
         style={{ width, height }}
-        className="block cursor-grab touch-none outline-none active:cursor-grabbing focus-visible:ring-2 focus-visible:ring-ring"
+        className={`block touch-none outline-none focus-visible:ring-2 focus-visible:ring-ring ${boxSelect ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'}`}
         tabIndex={0}
+        onMouseDown={(event) => {
+          // The middle button pans; without this the browser starts its own autoscroll.
+          if (event.button === 1) event.preventDefault();
+        }}
+        onPointerDown={(event) => {
+          if (!boxSelect || event.button !== 0 || spaceDown.current || event.ctrlKey) return;
+          const rect = event.currentTarget.getBoundingClientRect();
+          const x = event.clientX - rect.left, y = event.clientY - rect.top;
+          drag.current = { x0: x, y0: y, x1: x, y1: y, moved: false, additive: event.shiftKey || event.metaKey };
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }}
+        onPointerMove={(event) => {
+          const d = drag.current;
+          if (!d) return;
+          const rect = event.currentTarget.getBoundingClientRect();
+          d.x1 = event.clientX - rect.left;
+          d.y1 = event.clientY - rect.top;
+          if (!d.moved && Math.hypot(d.x1 - d.x0, d.y1 - d.y0) < 4) return;
+          d.moved = true;
+          setBox({ left: Math.min(d.x0, d.x1), top: Math.min(d.y0, d.y1), width: Math.abs(d.x1 - d.x0), height: Math.abs(d.y1 - d.y0) });
+        }}
+        onPointerUp={finishBox}
+        onPointerCancel={() => {
+          drag.current = null;
+          setBox(null);
+        }}
         role="img"
         aria-label={`그래프: 노드 ${nodes.length.toLocaleString()}개, 연결 ${(edges.length + (looseEdges?.length ?? 0)).toLocaleString()}개`}
         onClick={(event) => {
+          if (suppressClick.current) {
+            suppressClick.current = false;
+            return;
+          }
+          if (boxSelect && (event.shiftKey || event.metaKey || event.ctrlKey)) {
+            const id = hit(event.clientX, event.clientY);
+            if (id) props.current.onSelectMany?.([id], true);
+            return;
+          }
           const region = transform.current.k < DETAIL_K && regions.length > 1 ? regionAt(event.clientX, event.clientY) : undefined;
           if (region) animateTo(fitTransform({ minX: region.x - 24, minY: region.y - 24, maxX: region.x + region.width + 24, maxY: region.y + region.height + 24 }));
           else props.current.onSelect(hit(event.clientX, event.clientY));
@@ -710,6 +809,7 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
           else if (event.key === 'Escape') props.current.onSelect(undefined);
         }}
       />
+      {box && <div aria-hidden className="pointer-events-none absolute rounded-sm border border-primary bg-primary/10" style={box} />}
       {anchor && (
         <div ref={anchorBox} className="absolute top-0 left-0 z-20 opacity-0">
           {anchor.content}
