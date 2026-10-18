@@ -1,5 +1,5 @@
 import { and, eq, inArray } from 'drizzle-orm';
-import { REVIEW_TAG, type KnowledgeTagKind } from '@tw/shared';
+import { REVIEW_TAG, knowledgeKindScope, type KnowledgeTagKind } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import { eachChunk } from '../db/chunk.ts';
 import { scopeRefusal } from './tag-scope.ts';
@@ -53,7 +53,7 @@ export function setKnowledgeTag(tx: Pick<Db, 'select' | 'insert' | 'delete'>, pr
   const tag = tx.select({ role: s.tags.role }).from(s.tags).where(and(eq(s.tags.id, tagId), eq(s.tags.projectId, projectId))).get();
   if (!tag) return '태그를 찾을 수 없습니다.';
   if (add && tag.role) return '앱이 붙이는 태그는 직접 붙일 수 없습니다.';
-  const refusal = add ? scopeRefusal(tx, projectId, [tagId], kind === 'terms' ? 'terms' : 'knowledge') : null;
+  const refusal = add ? scopeRefusal(tx, projectId, [tagId], knowledgeKindScope(kind)) : null;
   if (refusal) return refusal;
   eachChunk(ids, (slice) => {
     if (add) tx.insert(s.knowledgeTags).values(slice.map((itemId) => ({ kind, itemId, tagId }))).onConflictDoNothing().run();

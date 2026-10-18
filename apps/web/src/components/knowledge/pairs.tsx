@@ -168,7 +168,7 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
 
   const queryClient = useQueryClient();
   const statuses = useQuery(q.statuses(projectId));
-  const knowledgeTags = tagsIn(statuses.data?.tags, 'knowledge');
+  const knowledgeTags = tagsIn(statuses.data?.tags, 'people');
   const summaryTags = pairSummary(pair).tags ?? [];
   const attachedPairTags = summaryTags
     .map((item) => statuses.data?.tags?.find((t) => t.id === item.id))
@@ -195,7 +195,7 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
       const color = (PALETTE[knowledgeTags.length % PALETTE.length] as any).light ?? PALETTE[knowledgeTags.length % PALETTE.length].hex;
       const created = await unwrap(client.projects[':projectId'].tags.$post({
         param: { projectId },
-        json: { name, color, scope: ['lines', 'terms', 'knowledge'] },
+        json: { name, color, scope: ['people'] },
       }));
       await pairTagMutation.mutateAsync({ tagId: created.id, add: true });
       queryClient.invalidateQueries({ queryKey: ['statuses', projectId] });

@@ -76,9 +76,9 @@ export function listAnalyses(db: Db, projectId: string) {
       .where(eq(s.runItems.runId, run.id))
       .get();
     const result: Record<string, number> = {};
-    if (save)
-      for (const row of db.select({ counts: sql<string | null>`json_extract(${s.runItems.data}, ${`$.outputs."${save.id}".counts`})` }).from(s.runItems).where(and(eq(s.runItems.runId, run.id), sql`json_extract(${s.runItems.data}, ${`$.outputs."${save.id}".counts`}) is not null`)).all())
-        for (const [key, value] of Object.entries(JSON.parse(row.counts ?? '{}') as Record<string, number>)) result[key] = (result[key] ?? 0) + value;
+    const countNodeId = save?.id ?? node.id;
+    for (const row of db.select({ counts: sql<string | null>`json_extract(${s.runItems.data}, ${`$.outputs."${countNodeId}".counts`})` }).from(s.runItems).where(and(eq(s.runItems.runId, run.id), sql`json_extract(${s.runItems.data}, ${`$.outputs."${countNodeId}".counts`}) is not null`)).all())
+      for (const [key, value] of Object.entries(JSON.parse(row.counts ?? '{}') as Record<string, number>)) result[key] = (result[key] ?? 0) + value;
     const done = steps.filter((step) => step.ok).length;
     const failedStep = steps.findLast((step) => !step.ok);
     const status: AnalysisStatus = runActive(run)

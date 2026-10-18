@@ -32,25 +32,23 @@ export function Evidence({ projectId, keys }: { projectId: string; keys: string[
   const lines = useQuery(q.linesByKeys(projectId, keys.slice(0, 50)));
   if (!keys.length)
     return (
-      <div className="rounded-md border border-border bg-panel px-3 py-2 text-xs text-muted-foreground">
-        연결된 근거 대사가 없습니다.
-      </div>
+      <InspectorSection title="근거 대사">
+        <p className="text-xs text-muted-foreground">연결된 근거 대사가 없습니다.</p>
+      </InspectorSection>
     );
-  return (
-    <Fold label={`근거 대사 ${keys.length}개`}>
-      <ul className="space-y-1">
-        {lines.data?.map((line) => (
-          <li key={line.id}>
-            <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.groupId, line: line.id }} className="block rounded px-2 py-1 text-xs hover:bg-muted">
-              <span className="text-muted-foreground">{line.groupTitle} · </span>
-              {line.speaker && <span className="font-medium">{line.speaker}: </span>}
-              {line.source}
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </Fold>
-  );
+  return <InspectorSection title={`근거 대사 ${keys.length}개`} defaultOpen={false}>
+    <ul className="space-y-1">
+      {lines.data?.map((line) => (
+        <li key={line.id}>
+          <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.groupId, line: line.id }} className="block rounded px-2 py-1 text-xs hover:bg-muted">
+            <span className="text-muted-foreground">{line.groupTitle} · </span>
+            {line.speaker && <span className="font-medium">{line.speaker}: </span>}
+            {line.source}
+          </Link>
+        </li>
+      ))}
+    </ul>
+  </InspectorSection>;
 }
 
 /** Lines the rule governs and what their translations end in; after fixing the rule, re-run just these. */

@@ -73,4 +73,23 @@ describe('discoverTerms (language-agnostic)', () => {
     expect(sources).not.toContain('[Sector 7]');
     expect(sources).toContain('Cyber City');
   });
+
+  it('ignores English function words (For, To, You, With) and sentence-initial common words while extracting proper nouns', () => {
+    const units = [
+      { key: 'u1', source: 'For the record, Orwell is watching you.' },
+      { key: 'u2', source: 'To be honest, you should talk to Orwell with care.' },
+      { key: 'u3', source: 'You know that for sure, with or without BNSA.' },
+      { key: 'u4', source: 'With time, people forget what BNSA did to you.' },
+      { key: 'u5', source: 'Time is running out for you and me.' },
+    ];
+    const found = discoverTerms(units, [], { sourceLanguage: 'en', minLines: 2 });
+    const lowerSources = found.map((t) => t.source.toLowerCase());
+    expect(lowerSources).not.toContain('for');
+    expect(lowerSources).not.toContain('to');
+    expect(lowerSources).not.toContain('you');
+    expect(lowerSources).not.toContain('with');
+    expect(lowerSources).not.toContain('time');
+    expect(found.map((t) => t.source)).toContain('Orwell');
+    expect(found.map((t) => t.source)).toContain('BNSA');
+  });
 });

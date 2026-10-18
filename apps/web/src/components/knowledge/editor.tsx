@@ -1,15 +1,20 @@
 /** The detail editor for one knowledge item: fields, unsaved edits that survive navigation, decide/discard. */
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { DOCUMENT_KINDS, STYLE_AXES, type StyleAxis, type CharacterRole, type Gender, type AgeBand, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled, AGE_BAND_LABELS, CHARACTER_ROLE_LABELS, GENDER_LABELS } from '@tw/shared';
-import { Inspector, InspectorHeader, InspectorSection, PropertyGrid, PropertyRow, DirtyBar, DangerZone, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Switch, Textarea, AiMark } from '@loca/ui';
+import { DOCUMENT_KINDS, STYLE_AXES, type StyleAxis, type CharacterRole, type Gender, type AgeBand, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled, AGE_BAND_LABELS, CHARACTER_ROLE_LABELS, GENDER_LABELS, PALETTE, knowledgeKindScope, type TagScope, type KnowledgeTagKind } from '@tw/shared';
+import { Inspector, InspectorHeader, InspectorSection, PropertyGrid, PropertyRow, TagListEditor, DirtyBar, DangerZone, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Switch, Textarea, AiMark } from '@loca/ui';
 import { ChipInput, joinList, splitList } from '@/components/chip-input';
 import { useDraft } from '@/lib/drafts';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
 import { DOCUMENT_KIND } from '@/lib/labels';
 import { Evidence } from '@/components/knowledge/evidence';
 import { confirmLabel, fail, KINDS, SourceBadge, text, type Kind, type KindSpec, type Row, type Field } from '@/components/knowledge/table';
+import { client, unwrap } from '@/lib/api';
+import { q, tagsIn } from '@/lib/queries';
+
+const PRIMARY_FIELD_NAMES = new Set(['title', 'name', 'kind', 'role', 'gender', 'age', 'fromId', 'toId', 'fromName', 'toName', 'level', 'mutual']);
+const CONTENT_FIELD_NAMES = new Set(['body', 'profile', 'summary', 'cause', 'outcome', 'description', 'style']);
 
 /** A field's value in the draft (the form is kept as JSON in sessionStorage). */
 type Value = string | boolean | string[] | Record<string, string> | null;
@@ -58,22 +63,104 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
   const remove = useMutation({ mutationFn: () => spec.remove(row.id), onSuccess: onClose, onError: fail });
   const official = isSettled(row);
 
+  const queryClient = useQueryClient();
+  const statuses = useQuery(q.statuses(projectId));
+  const tagKind = kind as KnowledgeTagKind;
+  const scope: TagScope = tagKind ? knowledgeKindScope(tagKind) : 'documents';
+  const knowledgeTags = tagsIn(statuses.data?.tags, scope);
+  const attachedTags = (row.tags ?? [])
+    .map((item) => statuses.data?.tags?.find((t) => t.id === item.id))
+    .filter(Boolean) as (Parameters<typeof TagListEditor>[0]['tags'][number])[];
+
+  const tagMutation = useMutation({
+    mutationFn: async ({ tagId, add }: { tagId: string; add: boolean }) => {
+      await unwrap(client.projects[':projectId']['knowledge-tags'].$post({
+        param: { projectId },
+        json: { kind, ids: [row.id], tagId, add },
+      }));
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['knowledge'] });
+    },
+    onError: fail,
+  });
+
+  const handleCreateTag = async (name: string) => {
+    try {
+      const color = (PALETTE[knowledgeTags.length % PALETTE.length] as any).light ?? PALETTE[knowledgeTags.length % PALETTE.length].hex;
+      const created = await unwrap(client.projects[':projectId'].tags.$post({
+        param: { projectId },
+        json: { name, color, scope: [scope] },
+      }));
+      await tagMutation.mutateAsync({ tagId: created.id, add: true });
+      queryClient.invalidateQueries({ queryKey: ['statuses', projectId] });
+      toast.success(`'${name}' 태그를 만들고 항목에 붙였습니다.`);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : '태그를 만들지 못했습니다.');
+    }
+  };
+
+  const primaryFields = spec.fields.filter((field) => PRIMARY_FIELD_NAMES.has(field.name));
+  const contentFields = spec.fields.filter((field) => CONTENT_FIELD_NAMES.has(field.name));
+  const secondaryFields = spec.fields.filter((field) => !PRIMARY_FIELD_NAMES.has(field.name) && !CONTENT_FIELD_NAMES.has(field.name));
+
   const body = (
     <>
       {changedElsewhere && <ChangedElsewhere onTakeSaved={clear} onKeepMine={() => setBase(saved)} />}
-      {spec.fields.filter((field) => field.type !== 'long').length > 0 && <InspectorSection title="기본 정보"><PropertyGrid>
-        {spec.fields.filter((field) => field.type !== 'long').map((field) => field.type === 'style' ? (
-          <div key={field.name} className="col-span-2 space-y-2">
-            <p className="text-xs font-medium text-muted-foreground">{field.label}</p>
-            {field.description && <p className="text-xs text-muted-foreground">{field.description}</p>}
-            <FieldInput field={field} value={form[field.name]} characters={characters} onChange={(value) => update(field.name, value)} hideLabel />
+      <InspectorSection title="기본 정보">
+        <PropertyGrid>
+          {primaryFields.map((field) => (
+            <PropertyRow key={field.name} label={field.label} description={field.description}>
+              <FieldInput field={field} value={form[field.name]} characters={characters} onChange={(value) => update(field.name, value)} hideLabel />
+            </PropertyRow>
+          ))}
+          {row.id && (
+            <PropertyRow label="태그">
+              <TagListEditor
+                tags={attachedTags}
+                allTags={knowledgeTags}
+                onToggle={(tagId, add) => tagMutation.mutate({ tagId, add })}
+                onCreate={handleCreateTag}
+                heading="자료 태그"
+              />
+            </PropertyRow>
+          )}
+        </PropertyGrid>
+      </InspectorSection>
+      {contentFields.length > 0 && (
+        <InspectorSection title="내용">
+          <div className="space-y-3">
+            {contentFields.map((field) =>
+              field.type === 'style' ? (
+                <div key={field.name} className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground">{field.label}</p>
+                  {field.description && <p className="text-xs text-muted-foreground">{field.description}</p>}
+                  <FieldInput field={field} value={form[field.name]} characters={characters} onChange={(value) => update(field.name, value)} hideLabel />
+                </div>
+              ) : (
+                <div key={field.name} className="space-y-1.5">
+                  <Label htmlFor={`field-${field.name}`} className="text-xs font-medium text-muted-foreground">{field.label}</Label>
+                  {field.description && <p className="text-xs text-muted-foreground">{field.description}</p>}
+                  <FieldInput field={field} value={form[field.name]} characters={characters} onChange={(value) => update(field.name, value)} hideLabel />
+                </div>
+              )
+            )}
           </div>
-        ) : <PropertyRow key={field.name} label={field.label} description={field.description}><FieldInput field={field} value={form[field.name]} characters={characters} onChange={(value) => update(field.name, value)} hideLabel /></PropertyRow>)}
-      </PropertyGrid></InspectorSection>}
-      {spec.fields.filter((field) => field.type === 'long').map((field) => <InspectorSection key={field.name} title={field.label}>
-        {field.description && <p className="text-xs text-muted-foreground">{field.description}</p>}
-        <FieldInput field={field} value={form[field.name]} characters={characters} onChange={(value) => update(field.name, value)} hideLabel />
-      </InspectorSection>)}
+        </InspectorSection>
+      )}
+      {secondaryFields.length > 0 && (
+        <InspectorSection title="근거 및 상세">
+          <div className="space-y-3">
+            {secondaryFields.map((field) => (
+              <div key={field.name} className="space-y-1.5">
+                <Label htmlFor={`field-${field.name}`} className="text-xs font-medium text-muted-foreground">{field.label}</Label>
+                {field.description && <p className="text-xs text-muted-foreground">{field.description}</p>}
+                <FieldInput field={field} value={form[field.name]} characters={characters} onChange={(value) => update(field.name, value)} hideLabel />
+              </div>
+            ))}
+          </div>
+        </InspectorSection>
+      )}
       {spec.extra?.(row)}
       <Evidence projectId={projectId} keys={row.evidence} />
     </>

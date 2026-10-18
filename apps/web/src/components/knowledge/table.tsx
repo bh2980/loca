@@ -73,6 +73,7 @@ export interface Field {
   name: string;
   label: string;
   type: FieldType;
+  description?: string;
   /** Values offered while typing a 'list' or 'chips' field. */
   suggestions?: string[];
 }
