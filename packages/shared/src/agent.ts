@@ -95,6 +95,8 @@ export const agentSettingsSchema = z.object({
   disabledTools: z.array(z.string()).default([]),
   /** The permission mode a new conversation starts in. */
   defaultPermissionMode: z.enum(PERMISSION_MODES).default('ask'),
+  /** Bypass applies changes without asking, so these limits bound a runaway conversation. */
+  bypassLimits: z.object({ changes: z.number().int().min(1).max(10_000), costUsd: z.number().min(0).nullable() }).default({ changes: 100, costUsd: 1 }),
 });
 export type AgentSettings = z.infer<typeof agentSettingsSchema>;
 

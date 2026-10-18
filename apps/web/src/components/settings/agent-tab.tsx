@@ -2,12 +2,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams } from '@tanstack/react-router';
 import { ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
-import { AGENT_TOOL_ACTIONS, AGENT_TOOL_TARGETS, AGENT_TOOLS, type AgentToolAction, type AgentToolTarget, type PermissionMode } from '@tw/shared';
+import { AGENT_TOOL_ACTIONS, AGENT_TOOL_TARGETS, AGENT_TOOLS, agentSettingsSchema, type AgentToolAction, type AgentToolTarget, type PermissionMode } from '@tw/shared';
 import { PermissionModePicker } from '@/components/chat/permission-mode';
-import { Button, Collapsible, CollapsibleContent, CollapsibleTrigger, Switch } from '@loca/ui';
+import { Button, Collapsible, CollapsibleContent, CollapsibleTrigger, Field, FieldDescription, FieldLabel, Input, Switch } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { optimistic } from '@/lib/optimistic';
 import { q } from '@/lib/queries';
+import { useFormFrom } from '@/lib/use-form-from';
 
 const TARGETS = Object.keys(AGENT_TOOL_TARGETS) as AgentToolTarget[];
 const ACTIONS = Object.keys(AGENT_TOOL_ACTIONS) as AgentToolAction[];
@@ -24,11 +25,16 @@ export function AgentTab() {
   const queryClient = useQueryClient();
   const project = useQuery(q.project(projectId));
   const loaded = !!project.data;
-  const disabled = new Set(project.data?.agentSettings.disabledTools ?? []);
-  const defaultMode: PermissionMode = project.data?.agentSettings.defaultPermissionMode ?? 'ask';
+  // Parsed, so settings saved before a field existed come with its default (the whole object is saved back).
+  const settings = agentSettingsSchema.parse(project.data?.agentSettings ?? {});
+  const disabled = new Set(settings.disabledTools);
+  const defaultMode: PermissionMode = settings.defaultPermissionMode;
+  const { bypassLimits } = settings;
+  const { draft: changesDraft, setDraft: setChangesDraft } = useFormFrom(String(bypassLimits.changes), `agent-bypass-changes.${projectId}`);
+  const { draft: costDraft, setDraft: setCostDraft } = useFormFrom(bypassLimits.costUsd === null ? '' : String(bypassLimits.costUsd), `agent-bypass-cost.${projectId}`);
   // The whole settings object goes each time: a field left out would fall back to its default.
   const save = useMutation({
-    mutationFn: (next: { disabledTools: string[]; defaultPermissionMode: PermissionMode }) => unwrap(client.projects[':projectId'].$patch({ param: { projectId }, json: { agentSettings: next } })),
+    mutationFn: (next: typeof settings) => unwrap(client.projects[':projectId'].$patch({ param: { projectId }, json: { agentSettings: next } })),
     // Switches flip at once; the projects change event brings the saved settings.
     onMutate: async (next) => ({
       undo: await optimistic(queryClient, [{ key: ['units', 'project', projectId], update: (data: { agentSettings: object }) => ({ ...data, agentSettings: { ...data.agentSettings, ...next } }) }]),
@@ -42,7 +48,7 @@ export function AgentTab() {
     const next = new Set(disabled);
     for (const name of names) if (on) next.delete(name);
     else next.add(name);
-    save.mutate({ disabledTools: [...next], defaultPermissionMode: defaultMode });
+    save.mutate({ ...settings, disabledTools: [...next] });
   };
 
   return (
@@ -55,7 +61,28 @@ export function AgentTab() {
           <p className="text-sm font-medium">새 대화의 권한 모드</p>
           <p className="text-xs text-muted-foreground">대화마다 입력창 아래에서 바꿀 수 있습니다. 어느 모드든 변경은 제안 기록으로 남습니다.</p>
         </div>
-        <PermissionModePicker className="w-40 shrink-0" value={defaultMode} onChange={(mode) => save.mutate({ disabledTools: [...disabled], defaultPermissionMode: mode })} />
+        <PermissionModePicker className="w-40 shrink-0" value={defaultMode} onChange={(mode) => save.mutate({ ...settings, disabledTools: [...disabled], defaultPermissionMode: mode })} />
+      </div>
+      <div className="rounded-lg border px-3 py-2">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field>
+            <FieldLabel htmlFor="bypass-changes">우회 모드 한도 — 대화당 바로 반영할 변경 수</FieldLabel>
+            <Input id="bypass-changes" type="number" min={1} max={10_000} step={1} value={changesDraft} disabled={!loaded || save.isPending} onChange={(event) => setChangesDraft(event.target.value)} onBlur={() => {
+              const changes = Math.max(1, Math.min(10_000, Math.round(Number(changesDraft) || 1)));
+              setChangesDraft(String(changes));
+              if (changes !== bypassLimits.changes) save.mutate({ ...settings, bypassLimits: { ...bypassLimits, changes } });
+            }} />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="bypass-cost">대화당 비용(USD, 비우면 제한 없음)</FieldLabel>
+            <Input id="bypass-cost" type="number" min={0} step="any" value={costDraft} disabled={!loaded || save.isPending} onChange={(event) => setCostDraft(event.target.value)} onBlur={() => {
+              const costUsd = costDraft === '' ? null : Math.max(0, Number(costDraft) || 0);
+              setCostDraft(costUsd === null ? '' : String(costUsd));
+              if (costUsd !== bypassLimits.costUsd) save.mutate({ ...settings, bypassLimits: { ...bypassLimits, costUsd } });
+            }} />
+          </Field>
+        </div>
+        <FieldDescription className="mt-2">비용은 연결이 보고한 것만 셉니다(구독 CLI는 0). 한도에 닿으면 이후 변경은 카드로 묻습니다.</FieldDescription>
       </div>
       <div className="rounded-lg border">
         <div className="grid grid-cols-[minmax(0,1fr)_repeat(4,5.5rem)] items-center gap-2 border-b px-2 py-1.5 text-xs text-muted-foreground">
