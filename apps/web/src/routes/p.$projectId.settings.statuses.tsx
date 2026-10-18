@@ -227,7 +227,7 @@ function StatusSettings() {
         <div className="min-h-0 flex-1 overflow-auto">
           <FilterBar end={<>
             {statuses && <span className="text-2xs font-medium text-subtle-foreground tabular-nums">{statuses.length}개</span>}
-            <Button variant="outline" size="sm" onClick={() => open({ status: 'new' })}><Plus /> 추가</Button>
+            <Button variant="outline" onClick={() => open({ status: 'new' })}><Plus /> 추가</Button>
           </>}>
             <h2 className="flex items-center gap-1 text-sm font-semibold">상태 <HelpTip label="‘검토함에 표시’ 상태 도움말">이 상태의 대사는 사람이 바꾸든 워크플로가 바꾸든 검토함에 모입니다. 검토함에서는 다른 상태 중 하나를 골라 옮기는 것으로 결정합니다.</HelpTip></h2>
           </FilterBar>
@@ -242,7 +242,7 @@ function StatusSettings() {
           />
           <FilterBar className="mt-8" end={<>
             {allTags && <span className="text-2xs font-medium text-subtle-foreground tabular-nums">{allTags.length}개</span>}
-            <Button variant="outline" size="sm" onClick={() => open({ tag: 'new' })}><Plus /> 추가</Button>
+            <Button variant="outline" onClick={() => open({ tag: 'new' })}><Plus /> 추가</Button>
           </>}>
             <h2 className="flex items-center gap-1 text-sm font-semibold">태그 <HelpTip label="태그 도움말">상태와 별개로 여러 개 붙는 표시입니다. 필터·실행 범위·워크플로 조건에서 고릅니다. ‘기본’은 앱이 붙이거나 읽어 내는 태그로, 지우거나 이름을 바꿀 수 없고 색만 바꿉니다. 내 태그(예: #재검토)는 대사를 골라 붙이거나 상태 변경 노드로 붙입니다.</HelpTip></h2>
           </FilterBar>
