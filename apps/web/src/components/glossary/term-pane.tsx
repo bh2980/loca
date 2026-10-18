@@ -4,7 +4,7 @@ import { Link } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Check, Play, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { DetailPane, PaneSection, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Label, Textarea } from '@loca/ui';
+import { Inspector, InspectorHeader, InspectorSection, DirtyBar, DangerZone, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Label, Textarea } from '@loca/ui';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { confirmLabel, SourceBadge, StateCell, type ItemTag } from '@/components/knowledge/table';
 import { isSettled, type KnowledgeOrigin, type KnowledgeStatus, type StatusBy } from '@tw/shared';
@@ -62,18 +62,13 @@ export function NewTermPane({ projectId, onClose, onCreated }: { projectId: stri
     onError: (error) => toast.error(error.message),
   });
   return (
-    <DetailPane
-      kicker="용어"
-      title="새 용어"
-      onClose={onClose}
-      footer={
-        <Button className="ml-auto" disabled={!form.source.trim() || create.isPending} onClick={() => create.mutate()}>
+    <Inspector header={<InspectorHeader kind="용어" name="새 용어" onClose={onClose} />} footer={
+        <div className="flex justify-end border-t p-3"><Button disabled={!form.source.trim() || create.isPending} onClick={() => create.mutate()}>
           <Plus /> 추가
-        </Button>
-      }
-    >
-      <TermFields form={form} onChange={setForm} />
-    </DetailPane>
+        </Button></div>
+      }>
+      <InspectorSection title="용어"><TermFields form={form} onChange={setForm} /></InspectorSection>
+    </Inspector>
   );
 }
 
@@ -102,19 +97,39 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
   const usage = useQuery(q.termUsage(projectId, term.id));
 
   return (
-    <DetailPane
-      kicker="용어"
-      title={term.source}
-      subtitle={
+    <Inspector
+      header={<InspectorHeader kind="용어" name={term.source} status={
         <span className="flex items-center gap-2">
           <SourceBadge row={{ ...term, evidence: [] }} />
           <span>·</span>
           {term.status === 'candidate' ? <span>후보 · 아직 문맥에 쓰이지 않음</span> : <StateCell row={{ ...term, evidence: [] }} />}
         </span>
-      }
-      onClose={onClose}
-      footer={
-        <>
+      } onClose={onClose} />}
+      footer={dirty ? <DirtyBar dirtyCount={Object.keys(changedFields(form, saved)).length} onRevert={takeSaved} onSave={() => save.mutate()} saving={save.isPending} disabled={!form.source.trim()} /> : (candidate ? <div className="flex justify-end border-t p-3"><Button variant="outline" disabled={deciding || !term.target.trim()} onClick={() => onDecide(true)}><Check /> {confirmLabel([{ ...term, evidence: [] }])}</Button></div> : null)}
+    >
+      {conflicts.length > 0 && <ChangedElsewhere fields={conflicts.map((field) => TERM_FIELD_LABEL[field as keyof typeof TERM_FIELD_LABEL])} onTakeSaved={takeSaved} onKeepMine={keepMine} />}
+      <InspectorSection title="용어"><TermFields form={form} onChange={setForm} /></InspectorSection>
+      {candidate && <div className="flex justify-end"><Button variant="outline" disabled={deciding || dirty || !term.target.trim()} title={term.target.trim() ? (dirty ? '먼저 저장하세요.' : undefined) : '번역을 채운 뒤 확정할 수 있습니다.'} onClick={() => onDecide(true)}><Check /> {confirmLabel([{ ...term, evidence: [] }])}</Button></div>}
+      <InspectorSection
+        title={`이 용어가 나오는 대사 ${usage.data?.count ?? '…'}개`}
+        actions={
+          !!usage.data?.count && (
+            <RunDialog
+              projectId={projectId}
+              unitIds={usage.data.unitIds}
+              defaultIgnoreStatus
+              trigger={<Button variant="outline"><Play /> 워크플로 실행 · {usage.data.count}줄</Button>}
+            />
+          )
+        }
+      >
+        <p className="mb-2 text-xs text-muted-foreground">번역어를 바꿨다면 이 대사들만 골라 워크플로를 실행해 새 번역어를 반영합니다(실행 창에서 워크플로를 고름).</p>
+        <ul className="max-h-60 space-y-1 overflow-auto">
+          {usage.data?.rows.map((row) => <li key={row.id}><Link to="/p/$projectId/script" params={{ projectId }} search={{ group: row.groupId, line: row.id }} className="block rounded px-2 py-1 text-xs hover:bg-muted"><span className="text-muted-foreground">{row.groupTitle} · </span>{row.speaker && <span className="font-medium">{row.speaker}: </span>}{row.source}{row.translation && <span className="block text-muted-foreground">{row.translation}</span>}</Link></li>)}
+        </ul>
+      </InspectorSection>
+      <DangerZone title="용어 삭제">
+        <p className="text-xs text-muted-foreground">용어가 용어집에서 사라집니다. 이미 번역된 대사는 바뀌지 않습니다.</p>
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button variant="ghost" className="text-destructive">
@@ -133,54 +148,9 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
             </AlertDialogContent>
           </AlertDialog>
           {candidate && (
-            <>
-              <Button variant="ghost" className="text-destructive" disabled={deciding} onClick={() => onDecide(false)}>
-                버리기
-              </Button>
-              <Button variant="outline" disabled={deciding || dirty || !term.target.trim()} title={term.target.trim() ? (dirty ? '먼저 저장하세요.' : undefined) : '번역을 채운 뒤 확정할 수 있습니다.'} onClick={() => onDecide(true)}>
-                <Check /> {confirmLabel([{ ...term, evidence: [] }])}
-              </Button>
-            </>
+            <Button variant="ghost" className="text-destructive" disabled={deciding} onClick={() => onDecide(false)}>버리기</Button>
           )}
-          <Button className="ml-auto" disabled={!dirty || !form.source.trim() || save.isPending} onClick={() => save.mutate()}>
-            저장
-          </Button>
-        </>
-      }
-    >
-      {conflicts.length > 0 && <ChangedElsewhere fields={conflicts.map((field) => TERM_FIELD_LABEL[field as keyof typeof TERM_FIELD_LABEL])} onTakeSaved={takeSaved} onKeepMine={keepMine} />}
-      <TermFields form={form} onChange={setForm} />
-      <PaneSection
-        title={`이 용어가 나오는 대사 ${usage.data?.count ?? '…'}개`}
-        actions={
-          !!usage.data?.count && (
-            <RunDialog
-              projectId={projectId}
-              unitIds={usage.data.unitIds}
-              defaultIgnoreStatus
-              trigger={
-                <Button variant="outline">
-                  <Play /> 워크플로 실행 · {usage.data.count}줄
-                </Button>
-              }
-            />
-          )
-        }
-      >
-        <p className="mb-2 text-xs text-muted-foreground">번역어를 바꿨다면 이 대사들만 골라 워크플로를 실행해 새 번역어를 반영합니다(실행 창에서 워크플로를 고름).</p>
-        <ul className="max-h-60 space-y-1 overflow-auto">
-          {usage.data?.rows.map((row) => (
-            <li key={row.id}>
-              <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: row.groupId, line: row.id }} className="block rounded px-2 py-1 text-xs hover:bg-muted">
-                <span className="text-muted-foreground">{row.groupTitle} · </span>
-                {row.speaker && <span className="font-medium">{row.speaker}: </span>}
-                {row.source}
-                {row.translation && <span className="block text-muted-foreground">{row.translation}</span>}
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </PaneSection>
-    </DetailPane>
+      </DangerZone>
+    </Inspector>
   );
 }

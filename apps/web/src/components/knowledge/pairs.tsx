@@ -4,7 +4,7 @@ import { ChevronRight, Plus } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { InferRequestType } from 'hono/client';
 import { type AutoMark, isSpecialListener, knowledgeMarksOf, listenerLabel, matchesMarks, OTHERS_LISTENER, SPEECH_LEVEL_LABELS } from '@tw/shared';
-import { EmptyState, DataTable, type ColumnDef, DetailPane, PaneSection, Badge, Button, Collapsible, CollapsibleContent, CollapsibleTrigger, HelpTip } from '@loca/ui';
+import { EmptyState, DataTable, type ColumnDef, Inspector, InspectorHeader, InspectorSection, Badge, Button, Collapsible, CollapsibleContent, CollapsibleTrigger, HelpTip } from '@loca/ui';
 import { DraftEditor } from '@/components/knowledge/editor';
 import { candidateRow, fail, matches, metaColumns, SourceBadge, type Draft, type KnowledgeFilterState, type KindSpec, type RelationshipRow, type SourceFilter, type SpeechRuleRow } from '@/components/knowledge/table';
 import { splitList } from '@/components/chip-input';
@@ -165,8 +165,8 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
     return line ? `“${line.source.length > 28 ? `${line.source.slice(0, 27)}…` : line.source}”부터` : `${rule.startKey}부터`;
   };
   return (
-    <DetailPane kicker="관계·말투" title={`${pair.from} → ${listenerLabel(pair.to)}`} onClose={onClose}>
-      <PaneSection
+    <Inspector header={<InspectorHeader kind="관계·말투" name={`${pair.from} → ${listenerLabel(pair.to)}`} onClose={onClose} />}>
+      <InspectorSection
         title="말투"
         actions={
           <Button variant="ghost" onClick={() => setPicking((value) => !value)} aria-pressed={picking}>
@@ -227,7 +227,7 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
             {others?.rules.length ? `${pair.from} → 그 밖의 사람: ${SPEECH_LEVEL_LABELS[others.rules[0].level]}` : `${pair.from} → 그 밖의 사람 말투 정하기`}
           </Button>
         )}
-      </PaneSection>
+      </InspectorSection>
       <Collapsible>
         <CollapsibleTrigger asChild>
           <Button variant="ghost" size="row" className="group/rel -mx-2 w-[calc(100%+1rem)] text-xs font-medium text-muted-foreground">
@@ -255,7 +255,7 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
           )}
         </CollapsibleContent>
       </Collapsible>
-    </DetailPane>
+    </Inspector>
   );
 }
 
