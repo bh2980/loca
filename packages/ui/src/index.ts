@@ -48,6 +48,7 @@ export * from "./lib/use-mobile"
 
 // Layout (Design System 4.1)
 export * from "./layout/page"
+export * from "./layout/app-status-bar"
 export * from "./layout/toolbar"
 export * from "./layout/split-pane"
 export * from "./layout/detail-pane"

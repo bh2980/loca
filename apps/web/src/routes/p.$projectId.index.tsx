@@ -10,6 +10,7 @@ import { AUTO_MARKS, termMarksOf } from '@tw/shared';
 import { q, useReviewTagId } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { dateTime } from '@/lib/datetime';
+import { useProgress } from '@/lib/use-progress';
 
 export const Route = createFileRoute('/p/$projectId/')({ component: Home });
 
@@ -34,7 +35,7 @@ interface Todo {
 function Home() {
   const { projectId } = Route.useParams();
   const project = useQuery(q.project(projectId));
-  const statuses = useQuery(q.statuses(projectId));
+  const progress = useProgress(projectId);
   const groups = useQuery(q.groups(projectId));
   const rules = useQuery(q.speechRules(projectId));
   const reviewTag = useReviewTagId(projectId);
@@ -44,11 +45,7 @@ function Home() {
   // Work analyses and glossary fills run beside workflows; the list shows them together, newest first.
   const jobs = useQuery(q.jobs(projectId));
 
-  const counts = Object.fromEntries(project.data?.byStatus.map((row) => [row.statusId, row.count]) ?? []);
-  const total = Object.values(counts).reduce((sum, value) => sum + value, 0);
-  const statusList = statuses.data?.statuses ?? [];
-  const finalIds = new Set(statusList.filter((status) => status.kind === 'final').map((status) => status.id));
-  const done = Object.entries(counts).reduce((sum, [id, value]) => sum + (finalIds.has(id) ? value : 0), 0);
+  const { counts, total, done, statuses: statusList } = progress;
   const initial = statusList.find((status) => status.kind === 'initial');
   const aiDecided = project.data?.aiDecided;
   const stopped = runs.data?.filter((run) => run.status === 'paused') ?? [];
