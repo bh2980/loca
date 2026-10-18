@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from '@tanstack/react-router';
-import { CircleAlert, Languages, MoreHorizontal, Save, Sparkles, Undo2, WandSparkles } from 'lucide-react';
+import { useNavigate } from '@tanstack/react-router';
+import { ArrowDown, Check, CircleAlert, Languages, MoreHorizontal, Save, Sparkles, Undo2, WandSparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { checkFormat, listenerLabel, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatIssue, type FormatRules } from '@tw/shared';
 import { TokenChip, TokenText } from '@/components/editor/source-text';
 import { focusEndOfLine, insertUnitIntoLine, proposeInLine, replaceLineText, TranslationInput } from '@/components/editor/translation-input';
-import { AdvancedDisclosure, Button, AiMark, StatusIcon, InlineEditorActions, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@loca/ui';
+import { AdvancedDisclosure, Button, AiMark, EditorAction, InlineEditorActions, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@loca/ui';
 import { apiFetch } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
 import { wordDiff } from '@/lib/diff';
@@ -138,11 +138,16 @@ export function TranslationEditor({
   const placeMissing = () => tags.inserts.length > 0 && proposeInLine(unit.id, tags.inserts);
 
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const save = useSaveLine();
   // Everything sent is what was typed when saving began: typing goes on while it is on its way.
   const run = (advance: boolean) => {
     if (save.isPending) return;
     const sent = draft;
+    if (advance && (next || (dirty && statuses.find((status) => status.id === unit.statusId)?.kind === 'final')) && !sent.trim()) {
+      toast.error('번역을 입력한 뒤 확정하세요.');
+      return;
+    }
     const changed = dirty;
     const statusId = advance && next ? next.id : undefined;
     if (!changed && !statusId) return onDone?.(advance);
@@ -163,6 +168,27 @@ export function TranslationEditor({
 
   const offerSame = (text: string) => offerSameSource(queryClient, unit.id, text);
 
+  const openAssistSettings = () => {
+    toast.info('편집기 AI 모델이 설정되지 않아 설정으로 이동합니다. 작성 중인 초안은 브라우저에 보관됩니다.');
+    void navigate({ to: '/p/$projectId/ai/usage', params: { projectId } });
+  };
+  const requestAssist = (mode: 'translate' | 'refine') => {
+    if (project.isPending) {
+      toast.info('편집기 AI 설정을 확인하고 있습니다.');
+      return;
+    }
+    if (!editorAi?.assistModel) {
+      openAssistSettings();
+      return;
+    }
+    if (mode === 'refine' && !draft.trim()) {
+      toast.info('다듬을 번역이 없습니다.');
+      return;
+    }
+    runAssist(mode);
+  };
+  const canShowOverflow = dirty;
+
   return (
     <div className={cn('space-y-2', className)} onClick={(event) => event.stopPropagation()}>
       <TranslationInput
@@ -180,7 +206,7 @@ export function TranslationEditor({
         onPick={(index) => suggestions[index] && (replaceLineText(unit.id, suggestions[index].text) || setDraft(suggestions[index].text))}
         onPlaceTags={placeMissing}
         continuation={continuation}
-        onAssist={() => runAssist(draft.trim() ? 'refine' : 'translate')}
+        onAssist={() => requestAssist(draft.trim() ? 'refine' : 'translate')}
         onContinue={editorAi?.enabled ? () => ask(draft) : undefined}
         continuing={ai.loading}
         onDismissContinuation={() => (pending.current?.abort(), setAi((state) => ({ ...state, loading: false, dismissed: true })))}
@@ -208,7 +234,7 @@ export function TranslationEditor({
       )}
       <DraftChecks unitId={unit.id} source={unit.source} draft={draft} units={line.units} terms={line.terms} tags={tags} rules={project.data?.formatRules ?? undefined} targetLanguage={project.data?.targetLanguage} onPlace={placeMissing} />
       <div className="flex flex-wrap items-center gap-2 pt-1">
-        {dirty && <span className="order-last text-xs font-medium text-warning" title="이 브라우저에 자동 보관됩니다. 확정하면 서버에 저장됩니다.">초안 보관됨</span>}
+        {dirty && <span className="order-last text-xs font-medium text-warning" title="이 브라우저에 자동 보관됩니다. 저장하거나 확정하면 서버에 저장됩니다.">초안 보관됨</span>}
         {save.isPending && <span className="text-xs text-muted-foreground" aria-live="polite">저장 중…</span>}
         {marks === undefined && !dirty && unit.statusBy === 'ai' && (
           <span className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -217,26 +243,30 @@ export function TranslationEditor({
         )}
         <InlineEditorActions
           className="shrink-0"
-          primary={(next || onDone) && <Button variant="default" disabled={save.isPending} onClick={() => run(true)} title={`${dirty ? '저장하고 ' : ''}${next ? `‘${next.name}’(으)로 옮기고 ` : ''}다음 줄 (${keyLabel('Mod+Enter')})`}>
-            {next && <StatusIcon status={next} className="size-1.5" />} {next ? `${next.name}하고 다음` : dirty ? '저장하고 다음' : '다음 줄'}
-          </Button>}
-          ai={editorAi?.assistModel && <Button variant="ghost" disabled={!!assist.loading} onClick={() => runAssist('translate')} title="AI 번역을 다시 요청합니다. 새 응답은 이 초안 칸에 들어갑니다.">
-            <Languages className="size-3.5 text-muted-foreground" /> AI 다시
-          </Button>}
-          overflow={<DropdownMenu>
+          primary={next ? <EditorAction icon={Check} disabled={save.isPending || !draft.trim()} onClick={() => run(true)} title={`${dirty ? '저장하고 ' : ''}‘${next.name}’(으)로 옮깁니다${onDone ? ' · 다음 줄로 이동' : ''} (${keyLabel('Mod+Enter')})`}>
+            {next.name}{onDone ? '하고 다음' : '하기'}
+          </EditorAction> : onDone ? <EditorAction icon={ArrowDown} disabled={save.isPending || (dirty && !draft.trim() && statuses.find((status) => status.id === unit.statusId)?.kind === 'final')} onClick={() => run(true)} title={`다음 줄 (${keyLabel('Mod+Enter')})`}>
+            {dirty ? '저장하고 다음 줄' : '다음 줄'}
+          </EditorAction> : dirty ? <EditorAction icon={Save} disabled={save.isPending} onClick={() => run(false)} title={`초안을 저장합니다 (${keyLabel('Mod+S')})`}>
+            저장
+          </EditorAction> : null}
+          ai={<>
+            <EditorAction icon={Languages} variant="ghost" disabled={!!assist.loading || project.isPending} onClick={() => requestAssist('translate')} title={project.isPending ? '편집기 AI 설정을 불러오는 중입니다.' : !editorAi?.assistModel ? '모델 설정으로 이동합니다. 작성 중인 초안은 유지됩니다.' : 'AI 번역 결과를 현재 초안 칸에 넣습니다.'}>
+              {draft.trim() ? 'AI 다시' : 'AI 번역'}
+            </EditorAction>
+            <EditorAction icon={WandSparkles} variant="ghost" disabled={!!assist.loading || project.isPending || Boolean(editorAi?.assistModel && !draft.trim())} onClick={() => requestAssist('refine')} title={project.isPending ? '편집기 AI 설정을 불러오는 중입니다.' : !editorAi?.assistModel ? '모델 설정으로 이동합니다. 작성 중인 초안은 유지됩니다.' : draft.trim() ? `현재 번역을 다듬습니다 (${keyLabel('Alt+.')})` : '다듬을 번역이 없습니다'}>
+              다듬기
+            </EditorAction>
+          </>}
+          overflow={canShowOverflow && <DropdownMenu>
             <DropdownMenuTrigger asChild><Button variant="ghost" size="icon-sm" aria-label="번역 동작 더보기"><MoreHorizontal /></Button></DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-48">
               {dirty && <>
                 <DropdownMenuItem disabled={save.isPending} onSelect={() => run(false)}><Save /> 저장만 <span className="ml-auto text-xs text-muted-foreground">{keyLabel('Mod+S')}</span></DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => clearDraft()}><Undo2 /> 되돌리기</DropdownMenuItem>
-                <DropdownMenuSeparator />
               </>}
-              {editorAi?.assistModel && <DropdownMenuItem disabled={!!assist.loading || !draft.trim()} onSelect={() => runAssist('refine')} title={draft.trim() ? `틀린 곳만 고치기 (${keyLabel('Alt+.')})` : '다듬을 번역이 없습니다'}><WandSparkles /> 다듬기 <span className="ml-auto text-xs text-muted-foreground">{keyLabel('Alt+.')}</span></DropdownMenuItem>}
+              {dirty && editorAi?.enabled && editorAi.model && <DropdownMenuSeparator />}
               {editorAi?.enabled && editorAi.model && <DropdownMenuItem disabled={!!ai.loading} onSelect={() => ask(draft)} title={`이어질 번역 보기 (${keyLabel('Alt+/')}, Tab으로 받기)`}><Sparkles /> AI 자동완성 <span className="ml-auto text-xs text-muted-foreground">{keyLabel('Alt+/')}</span></DropdownMenuItem>}
-              {!editorAi?.assistModel && <>
-                {editorAi?.enabled && editorAi.model && <DropdownMenuSeparator />}
-                <DropdownMenuItem asChild><Link to="/p/$projectId/ai/usage" params={{ projectId }}><Sparkles /> AI 모델 설정</Link></DropdownMenuItem>
-              </>}
             </DropdownMenuContent>
           </DropdownMenu>}
         />

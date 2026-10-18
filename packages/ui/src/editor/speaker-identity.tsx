@@ -10,14 +10,21 @@ function speakerHue(name: string) {
   return SPEAKER_HUES[hash % SPEAKER_HUES.length]
 }
 
-export function SpeakerIdentity({ speaker, listener, className, avatar = "theme" }: { speaker: string; listener?: string | null; className?: string; avatar?: "theme" | "always" }) {
-  const initial = [...speaker.trim()][0]?.toLocaleUpperCase() ?? "?"
-  const color = `var(--hue-${speakerHue(speaker)})`
+export function PersonAvatar({ name: _name }: { name?: string | null }) {
+  return null
+}
+
+export function SpeakerIdentity({ speaker, listener, listenerIsPerson: _listenerIsPerson = true, className }: { speaker: string | null; listener?: string | null; listenerIsPerson?: boolean; className?: string }) {
+  const name = speaker?.trim() ?? ""
+  const label = name || "화자 없음"
+  const color = name ? `var(--hue-${speakerHue(name)})` : "var(--muted-foreground)"
   return (
     <span className={cn("inline-flex min-w-0 items-center gap-1.5 text-xs", className)}>
-      <span aria-hidden="true" className={cn("speaker-avatar hidden size-4 shrink-0 items-center justify-center rounded-full text-xs font-medium", avatar === "always" ? "flex" : "dark:flex")} style={{ "--speaker-color": color } as CSSProperties}>{initial}</span>
-      <span className="speaker-name truncate font-medium text-muted-foreground" style={{ "--speaker-color": color } as CSSProperties}>{speaker}</span>
-      {listener !== undefined && <><span aria-hidden="true" className="text-subtle-foreground">→</span><span className="truncate text-subtle-foreground">{listener || "청자 미상"}</span></>}
+      <span className="speaker-name truncate font-medium text-muted-foreground" style={{ "--speaker-color": color } as CSSProperties}>{label}</span>
+      {listener !== undefined && <>
+        <span aria-hidden="true" className="text-subtle-foreground">→</span>
+        <span className="truncate text-subtle-foreground">{listener?.trim() || "청자 미상"}</span>
+      </>}
     </span>
   )
 }

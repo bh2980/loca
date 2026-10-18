@@ -44,7 +44,10 @@ function CommandDialog({
   return (
     <Dialog {...props}>
       <DialogContent
-        className={cn("overflow-hidden p-0 shadow-lg", className)}
+        className={cn(
+          "overflow-hidden p-0 shadow-lg [&_[data-slot=dialog-close]]:top-[9px] [&_[data-slot=dialog-close]]:right-2.5",
+          className
+        )}
         showCloseButton={showCloseButton}
       >
         {/* Inside the content, so the title is read only while the dialog is open (not on every page). */}
@@ -76,7 +79,7 @@ function CommandInput({
       <CommandPrimitive.Input
         data-slot="command-input"
         className={cn(
-          "flex h-8 w-full rounded-none bg-transparent py-1 text-xs outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50",
+          "flex h-8 w-full rounded-none bg-transparent py-1 pr-8 text-xs outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50",
           className
         )}
         {...props}

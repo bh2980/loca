@@ -41,6 +41,10 @@ export function ActionBar({ items, "aria-label": ariaLabel, className }: ActionB
       shown.splice(shown.indexOf(next), 1)
       menu.push(next)
     }
+    if (menu.length === 1 && menu[0].overflow !== "always" && !menu[0].destructive) {
+      const single = menu.pop()!
+      shown.push(single)
+    }
     return {
       visible: items.filter((item) => shown.includes(item)),
       overflowed: items.filter((item) => menu.includes(item)),

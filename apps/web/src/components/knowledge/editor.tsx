@@ -62,14 +62,20 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
     <>
       {changedElsewhere && <ChangedElsewhere onTakeSaved={clear} onKeepMine={() => setBase(saved)} />}
       {spec.fields.filter((field) => field.type !== 'long').length > 0 && <InspectorSection title="기본 정보"><PropertyGrid>
-        {spec.fields.filter((field) => field.type !== 'long').map((field) => <PropertyRow key={field.name} label={field.label}><FieldInput field={field} value={form[field.name]} characters={characters} onChange={(value) => update(field.name, value)} hideLabel /></PropertyRow>)}
+        {spec.fields.filter((field) => field.type !== 'long').map((field) => field.type === 'style' ? (
+          <div key={field.name} className="col-span-2 space-y-2">
+            <p className="text-xs font-medium text-muted-foreground">{field.label}</p>
+            {field.description && <p className="text-xs text-muted-foreground">{field.description}</p>}
+            <FieldInput field={field} value={form[field.name]} characters={characters} onChange={(value) => update(field.name, value)} hideLabel />
+          </div>
+        ) : <PropertyRow key={field.name} label={field.label} description={field.description}><FieldInput field={field} value={form[field.name]} characters={characters} onChange={(value) => update(field.name, value)} hideLabel /></PropertyRow>)}
       </PropertyGrid></InspectorSection>}
-      {spec.fields.filter((field) => field.type === 'long').map((field) => <InspectorSection key={field.name} title={field.label}><FieldInput field={field} value={form[field.name]} characters={characters} onChange={(value) => update(field.name, value)} /></InspectorSection>)}
-      {/* The folded lists (a rule's lines, the evidence) read as one block. */}
-      <div className="space-y-1">
-        {spec.extra?.(row)}
-        <Evidence projectId={projectId} keys={row.evidence} />
-      </div>
+      {spec.fields.filter((field) => field.type === 'long').map((field) => <InspectorSection key={field.name} title={field.label}>
+        {field.description && <p className="text-xs text-muted-foreground">{field.description}</p>}
+        <FieldInput field={field} value={form[field.name]} characters={characters} onChange={(value) => update(field.name, value)} hideLabel />
+      </InspectorSection>)}
+      {spec.extra?.(row)}
+      <Evidence projectId={projectId} keys={row.evidence} />
     </>
   );
   const actions = !official ? (
@@ -140,7 +146,7 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
           {row.status === 'candidate' ? <span>후보</span> : <span className="inline-flex items-center gap-1">확정 <AiMark by={row.statusBy} /></span>}
         </span>
       } onClose={onClose} />}
-      footer={dirty ? <DirtyBar dirtyCount={1} onRevert={clear} onSave={() => save.mutate(draft)} saving={save.isPending} /> : (!official ? <div className="flex justify-end border-t p-3"><Button disabled={save.isPending} onClick={() => onDecide('confirm')}><Check /> {confirmLabel([row])}</Button></div> : null)}
+      footer={dirty ? <DirtyBar dirtyCount={1} onRevert={clear} onSave={() => save.mutate(draft)} saving={save.isPending} /> : (!official ? <Button disabled={save.isPending} onClick={() => onDecide('confirm')}><Check /> {confirmLabel([row])}</Button> : null)}
     >
       {body}
       {!official && <DangerZone title="후보 처리"><Button variant="ghost" className="text-destructive" onClick={() => onDecide('discard')}>버리기</Button></DangerZone>}
@@ -166,7 +172,7 @@ function FieldInput({ field, value, characters, onChange, hideLabel = false }: {
       <div className={hideLabel ? undefined : 'space-y-1.5'}>
         {!hideLabel && <Label htmlFor={id} className="text-xs font-medium text-muted-foreground">{field.label}</Label>}
       {field.type === 'long' ? (
-        <Textarea id={id} rows={field.name === 'body' ? 6 : 3} className={field.name === 'body' ? 'font-mono text-xs leading-relaxed' : 'text-xs leading-relaxed'} value={text(value)} onChange={(event) => onChange(event.target.value)} />
+        <Textarea id={id} aria-label={hideLabel ? field.label : undefined} rows={field.name === 'body' ? 6 : 3} className={field.name === 'body' ? 'font-mono text-xs leading-relaxed' : 'text-xs leading-relaxed'} value={text(value)} onChange={(event) => onChange(event.target.value)} />
       ) : field.type === 'docKind' || field.type === 'character' ? (
         <Select value={text(value)} onValueChange={onChange}>
           <SelectTrigger id={id} className="w-full">
@@ -186,12 +192,12 @@ function FieldInput({ field, value, characters, onChange, hideLabel = false }: {
         <ChipInput id={id} value={splitList(value)} onChange={(chips) => onChange(joinList(chips))} suggestions={field.suggestions} placeholder="쉼표나 Enter로 추가" />
       ) : field.type === 'style' ? (
         // One pick per axis; 보통 leaves the axis out of the prompt.
-        <div className="grid grid-cols-3 gap-2">
+        <div className="space-y-2">
           {(Object.keys(STYLE_AXES) as StyleAxis[]).map((axis) => {
             const current = (value as Record<string, string> | null)?.[axis] ?? NORMAL;
             return (
-              <div key={axis} className="space-y-1">
-                <span className="text-xs text-muted-foreground">{STYLE_AXES[axis].label}</span>
+              <div key={axis} className="flex min-w-0 items-center gap-3">
+                <span className="min-w-0 flex-1 text-xs text-muted-foreground">{STYLE_AXES[axis].label}</span>
                 <Select
                   value={current}
                   onValueChange={(next) => {
@@ -199,7 +205,7 @@ function FieldInput({ field, value, characters, onChange, hideLabel = false }: {
                     onChange(next === NORMAL ? rest : { ...rest, [axis]: next });
                   }}
                 >
-                  <SelectTrigger id={axis === 'length' ? id : undefined} className="w-full" aria-label={STYLE_AXES[axis].label}>
+                  <SelectTrigger id={axis === 'length' ? id : undefined} className="w-32 shrink-0" aria-label={STYLE_AXES[axis].label}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>

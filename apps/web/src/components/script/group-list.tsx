@@ -1,9 +1,9 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { LineMark } from '@tw/shared';
 import { Link } from '@tanstack/react-router';
-import { AppWindow, Check, ChevronRight, FileText, Inbox, MessageSquareText, Rows3 } from 'lucide-react';
-import { SearchInput, Button, Collapsible, CollapsibleContent, CollapsibleTrigger, NavigationItem, NavigationPane, StatusBar, type StatusLike } from '@loca/ui';
-import { GROUP_KIND, SCRIPT_VIEW } from '@/lib/labels';
+import { AppWindow, Check, FileText, Inbox, MessageSquareText } from 'lucide-react';
+import { SearchInput, NavigationBranch, NavigationItem, NavigationPane, StatusBar, commonNavigationItem, type StatusLike } from '@loca/ui';
+import { GROUP_KIND, SCRIPT_VIEW, SOURCE_GROUP_LABEL } from '@/lib/labels';
 import { cn } from '@/lib/utils';
 
 export interface GroupRow {
@@ -39,15 +39,15 @@ function sectionsOf(groups: GroupRow[]) {
   return sections;
 }
 
-export type ScriptScope = { group?: string; review?: true; kind?: GroupRow['kind'] };
+export type ScriptScope = { group?: string; review?: true; kind?: GroupRow['kind']; section?: string };
 
 const VIEW_ICON = { scene: <MessageSquareText />, ui: <AppWindow />, document: <FileText /> };
 
 /**
- * The script's scenes down the left of the translation screen, with saved views after the scenes.
+ * Source kinds and chapter navigation down the left of the translation screen, with review pinned below.
  * Each scene shows only how many of its lines are done (in a final status), or a check when all are.
  */
-export function GroupList({ projectId, groups, finalIds, initialIds, scope, lineTotal, reviewCount, gq, onFilter, marks, views, statuses }: {
+export function GroupList({ projectId, groups, finalIds, initialIds, scope, reviewCount, gq, onFilter, marks, views, statuses }: {
   projectId: string;
   groups: GroupRow[] | undefined;
   /** Statuses that count as done. */
@@ -55,7 +55,6 @@ export function GroupList({ projectId, groups, finalIds, initialIds, scope, line
   /** 미번역 and the like: a line past these has been started (translated at least once). */
   initialIds: Set<string>;
   scope: ScriptScope;
-  lineTotal: number;
   reviewCount: number;
   gq?: string;
   onFilter: (gq: string | undefined) => void;
@@ -92,19 +91,16 @@ export function GroupList({ projectId, groups, finalIds, initialIds, scope, line
     return { translated: lines.reduce((sum, [id, n]) => sum + (initialIds.has(id) ? 0 : n), 0), final: lines.reduce((sum, [id, n]) => sum + (finalIds.has(id) ? n : 0), 0) };
   };
 
-  const search = <SearchInput value={gq} onChange={onFilter} placeholder={`${GROUP_KIND[scope.kind ?? 'scene']} 찾기`} className="w-full" />;
-  const savedViews = (
-    <div className="space-y-1">
-      <div className="px-2 pt-1 text-xs font-medium text-subtle-foreground">보기</div>
-      {views ? views.map((view) => <ScopeLink key={view.kind} projectId={projectId} scope={{ kind: view.kind }} active={!scope.group && !scope.review && scope.kind === view.kind} icon={VIEW_ICON[view.kind]} label={SCRIPT_VIEW[view.kind]} count={view.lines} />) : (
-        <ScopeLink projectId={projectId} scope={{}} active={!scope.group && !scope.review} icon={<Rows3 />} label="모든 대사" count={lineTotal} />
-      )}
-      <ScopeLink projectId={projectId} scope={{ review: true }} active={Boolean(scope.review)} icon={<Inbox />} label="검토함" count={reviewCount} highlight={reviewCount > 0} />
-    </div>
+  const search = <SearchInput value={gq} onChange={onFilter} placeholder={`${SOURCE_GROUP_LABEL[scope.kind ?? 'scene']} 찾기`} className="w-full" />;
+  const kindsNav = (
+    <nav aria-label="원본 종류" className="space-y-1">
+      {views?.map((view) => <ScopeLink key={view.kind} projectId={projectId} scope={{ kind: view.kind }} clearPeopleFilters={view.kind !== scope.kind} active={!scope.group && !scope.section && !scope.review && scope.kind === view.kind} icon={VIEW_ICON[view.kind]} label={`전체 ${SCRIPT_VIEW[view.kind]}`} count={view.lines} />)}
+    </nav>
   );
+  const reviewNav = <ScopeLink projectId={projectId} scope={{ review: true }} active={Boolean(scope.review)} icon={<Inbox />} label="검토함" count={reviewCount} highlight={reviewCount > 0} />;
 
   return (
-    <NavigationPane search={search}>
+    <NavigationPane search={<div className="space-y-2">{kindsNav}{search}</div>} footer={reviewNav}>
         {!groups && <p className="px-3 py-2 text-xs text-muted-foreground">불러오는 중…</p>}
         {groups?.length === 0 && <p className="px-3 py-2 text-sm text-muted-foreground">맞는 항목이 없습니다.</p>}
         {sections.map((section) => {
@@ -112,35 +108,43 @@ export function GroupList({ projectId, groups, finalIds, initialIds, scope, line
           const open = Boolean(gq) || !section.name || !collapsed.has(section.name);
           const items = section.groups.map((group) => <GroupItem key={group.id} projectId={projectId} group={group} progress={progressOf(group)} statuses={statuses} active={group.id === scope.group} indent={Boolean(section.name)} marks={marks} />);
           if (!section.name) return <Fragment key={section.key}>{items}</Fragment>;
-          return (
-            <Collapsible key={section.key} open={open} onOpenChange={(next) => toggle(section.name!, next)}>
-              <CollapsibleTrigger asChild>
-                <Button variant="ghost" size="row" className="mt-2 text-xs font-medium text-muted-foreground">
-                  <ChevronRight className={cn('transition-transform', open && 'rotate-90')} />
-                  <span className="min-w-0 flex-1 truncate">{section.name}</span>
-                </Button>
-              </CollapsibleTrigger>
-              <CollapsibleContent>{items}</CollapsibleContent>
-            </Collapsible>
-          );
+          const count = section.groups.reduce((sum, group) => sum + group.total, 0);
+          const active = scope.section === section.name;
+          return <NavigationBranch key={section.key} label={section.name} open={open} onOpenChange={(next) => toggle(section.name!, next)} disabled={Boolean(gq)} navigation={
+              <ScriptLink projectId={projectId} scope={{ kind: scope.kind, section: section.name }} aria-current={active ? 'page' : undefined} className={commonNavigationItem(active, 'min-w-0 flex-1')}>
+                <span className="min-w-0 flex-1 truncate font-medium">{section.name}</span>
+                <span className="shrink-0 font-mono text-xs tabular-nums text-subtle-foreground">{count.toLocaleString()}</span>
+              </ScriptLink>
+            }>
+            {items}
+          </NavigationBranch>;
         })}
-        {savedViews}
     </NavigationPane>
   );
 }
 
 /** A link that changes what the center shows, keeping the list's own search and its automatic marks. */
-function ScriptLink({ projectId, scope, keep, className, children, ...props }: { projectId: string; scope: ScriptScope; keep?: boolean; className?: string; children: ReactNode; title?: string; 'aria-current'?: 'page' }) {
+function ScriptLink({ projectId, scope, clearPeopleFilters, className, children, ...props }: { projectId: string; scope: ScriptScope; clearPeopleFilters?: boolean; className?: string; children: ReactNode; title?: string; 'aria-current'?: 'page' }) {
   return (
     <Link
       to="/p/$projectId/script"
       params={{ projectId }}
-      // keep: a filter being walked stays on (찾아가기); the scene opens at its first match.
-      search={(previous) =>
-        keep
-          ? { gq: previous.gq, marks: previous.marks as LineMark[] | undefined, q: previous.q, status: previous.status, tags: previous.tags, speaker: previous.speaker, listener: previous.listener, mode: previous.mode === 'find' ? ('find' as const) : undefined, ...scope }
-          : { gq: previous.gq, marks: previous.marks as LineMark[] | undefined, ...scope }
-      }
+      search={(previous) => ({
+        // Navigation changes only the source scope; user filters remain in the URL and Back/Forward.
+        gq: previous.gq,
+        marks: previous.marks as LineMark[] | undefined,
+        q: previous.q,
+        status: previous.status,
+        tags: previous.tags,
+        speaker: clearPeopleFilters ? undefined : previous.speaker,
+        listener: clearPeopleFilters ? undefined : previous.listener,
+        mode: previous.mode === 'find' ? ('find' as const) : undefined,
+        group: undefined,
+        review: undefined,
+        kind: undefined,
+        section: undefined,
+        ...scope,
+      })}
       className={className}
       {...props}
     >
@@ -149,10 +153,10 @@ function ScriptLink({ projectId, scope, keep, className, children, ...props }: {
   );
 }
 
-function ScopeLink({ projectId, scope, active, icon, label, count, highlight }: { projectId: string; scope: ScriptScope; active: boolean; icon: ReactNode; label: string; count: number; highlight?: boolean }) {
+function ScopeLink({ projectId, scope, active, icon, label, count, highlight, clearPeopleFilters }: { projectId: string; scope: ScriptScope; active: boolean; icon: ReactNode; label: string; count: number; highlight?: boolean; clearPeopleFilters?: boolean }) {
   return (
     <NavigationItem asChild active={active}>
-      <ScriptLink projectId={projectId} scope={scope} aria-current={active ? 'page' : undefined}>
+      <ScriptLink projectId={projectId} scope={scope} clearPeopleFilters={clearPeopleFilters} aria-current={active ? 'page' : undefined}>
         <span className="[&_svg]:size-3.5 [&_svg]:text-muted-foreground">{icon}</span>
         <span className="min-w-0 flex-1 truncate">{label}</span>
         <span className={cn('ml-auto text-xs tabular-nums font-mono', highlight ? 'font-medium text-foreground' : 'text-subtle-foreground')}>{count.toLocaleString()}</span>
@@ -168,15 +172,13 @@ function GroupItem({ projectId, group, progress, statuses, active, indent, marks
     <ScriptLink
       projectId={projectId}
       scope={{ group: group.id }}
-      keep={Boolean(marks)}
       title={group.title}
       aria-current={active ? 'page' : undefined}
-      className={cn(
-        'flex min-h-7 flex-col items-stretch gap-1 rounded-md py-1 pr-2 text-xs tracking-tight transition-colors',
-        indent ? 'pl-6' : 'pl-2',
-        active ? 'bg-chrome font-semibold text-foreground shadow-2xs' : 'text-foreground/90 hover:bg-accent',
+      className={commonNavigationItem(active, cn(
+        'h-auto min-h-7 flex-col items-stretch gap-1 py-1 px-2',
+        !active && 'text-foreground/90',
         complete && !active && 'text-subtle-foreground'
-      )}
+      ))}
     >
       <span className="flex min-w-0 items-center gap-1.5">
         <span className="min-w-0 flex-1 truncate">{group.title}</span>

@@ -25,6 +25,7 @@ export function ListenerPicker({ line, cast, onPick, inline = false }: {
   const rest = cast.filter((person) => !scene.includes(person.name) && person.name !== line.speaker);
   const listed = new Set([...scene, ...rest.map((person) => person.name), ...Object.keys(SPECIAL_LISTENERS)]);
   const confidence = (line.listenerConfidence ?? 0).toFixed(2);
+  const listenerIsPerson = !unsure && Boolean(line.listener) && !Object.hasOwn(SPECIAL_LISTENERS, line.listener!);
   const hint = !line.listenerOrigin
     ? null
     : unsure
@@ -62,7 +63,7 @@ export function ListenerPicker({ line, cast, onPick, inline = false }: {
             onClick={(event) => event.stopPropagation()}
             className={cn('h-auto min-w-0 gap-0.5 border-0 data-[size=default]:h-auto bg-transparent p-0 text-xs shadow-none hover:underline dark:bg-transparent dark:hover:bg-transparent [&>svg]:size-3', value === '-' ? 'text-warning' : 'text-muted-foreground')}
           >
-            <span className="truncate">→ {value === '-' ? '청자 미상' : listenerLabel(value)}</span>
+            <span className="inline-flex min-w-0 items-center gap-1.5 truncate"><span className="truncate">→ {value === '-' ? '청자 미상' : listenerLabel(value)}</span></span>
           </SelectTrigger>
         ) : (
           <SelectTrigger size="sm" className="w-40" aria-label="청자">
@@ -71,19 +72,19 @@ export function ListenerPicker({ line, cast, onPick, inline = false }: {
         )}
         {/* Inline, the default item-aligned placement lands off screen; open below the text instead. */}
         <SelectContent {...(inline && { position: 'popper' as const, align: 'start' as const })}>
-          <SelectItem value="-">미상</SelectItem>
+          <SelectItem value="-"><span>청자 미상</span></SelectItem>
           {scene.length > 0 && (
             <SelectGroup>
-              <SelectLabel>이 장면에서 말하는 사람 (가까운 순)</SelectLabel>
+              <SelectLabel description="가까운 순">이 장면 인물</SelectLabel>
               {scene.map((name) => (
                 <SelectItem key={name} value={name}>
-                  {name}
+                  <span className="truncate">{name}</span>
                 </SelectItem>
               ))}
             </SelectGroup>
           )}
           <SelectGroup>
-            <SelectLabel>여러 사람 · 혼잣말</SelectLabel>
+            <SelectLabel>여럿 · 혼잣말</SelectLabel>
             {Object.entries(SPECIAL_LISTENERS).map(([key, label]) => (
               <SelectItem key={key} value={key}>
                 {label}
@@ -95,13 +96,13 @@ export function ListenerPicker({ line, cast, onPick, inline = false }: {
               <SelectLabel>다른 인물</SelectLabel>
               {rest.map((person) => (
                 <SelectItem key={person.name} value={person.name}>
-                  {person.name}
+                  <span className="truncate">{person.name}</span>
                   {person.player && ' · 플레이어'}
                 </SelectItem>
               ))}
             </SelectGroup>
           )}
-          {value !== '-' && !listed.has(value) && <SelectItem value={value}>{value}</SelectItem>}
+          {value !== '-' && !listed.has(value) && <SelectItem value={value}><span className="truncate">{value}</span></SelectItem>}
           <SelectItem value={TYPE_NAME}>직접 입력…</SelectItem>
         </SelectContent>
       </Select>
