@@ -59,4 +59,15 @@ describe('chat save tools', () => {
     const made = await run('save_status', { type: 'tag', name: '고유명사', scope: ['terms'] });
     expect(db.select().from(s.tags).where(and(eq(s.tags.projectId, projectId), eq(s.tags.id, made.id!))).get()).toMatchObject({ name: '고유명사', scope: ['terms'] });
   });
+
+  it('saves and lists character roles, defaulting new characters to unknown', async () => {
+    const { db, projectId, run } = setup();
+    const made = await run('save_character', { name: 'Lead', role: 'main' });
+    expect(db.select().from(s.characters).where(eq(s.characters.id, made.id!)).get()).toMatchObject({ role: 'main' });
+    const defaulted = await run('save_character', { name: 'Extra' });
+    expect(db.select().from(s.characters).where(eq(s.characters.id, defaulted.id!)).get()).toMatchObject({ role: 'unknown' });
+    const listed = await run('list_characters', {});
+    expect(JSON.stringify(listed)).toContain('main');
+  });
+
 });

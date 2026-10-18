@@ -1,4 +1,4 @@
-import { AGE_BANDS, GENDERS } from './knowledge.ts';
+import { AGE_BANDS, CHARACTER_ROLES, GENDERS } from './knowledge.ts';
 import { formatRulesSchema } from './format-check.ts';
 import { z } from 'zod';
 import { relationshipChangeSchema, SPEECH_LEVELS } from './knowledge.ts';
@@ -91,6 +91,8 @@ export const importCharacterSchema = z.object({
   gender: z.enum(GENDERS).default('unknown'),
   /** child, teen, young (adult), middle(-aged), old, or unknown. */
   ageBand: z.enum(AGE_BANDS).default('unknown'),
+  /** How central the character is to the story. */
+  role: z.enum(CHARACTER_ROLES).default('unknown'),
 });
 
 export const importRelationshipSchema = z.object({

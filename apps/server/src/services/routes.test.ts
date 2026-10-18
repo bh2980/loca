@@ -1,11 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { fillDefaultModels, liveChoice, snapshotChoice, withDefaultModels } from './routes.ts';
+import { defaultModelChoice, fillDefaultModels, liveChoice, snapshotChoice, withDefaultModels } from './routes.ts';
 import { eq } from 'drizzle-orm';
 import { memoryStore } from './secrets.ts';
 
 describe('model choices', () => {
+  it('uses the requested capability when choosing a connection default, with generate as the default', () => {
+    const db = openDatabase(':memory:');
+    db.insert(s.connections).values([
+      { id: 'judge', kind: 'systemone', name: 'A Judge', defaultModel: 'judge-model' },
+      { id: 'chat', kind: 'openai', name: 'B Chat', defaultModel: 'chat-model', defaultEffort: 'low' },
+    ]).run();
+    expect(defaultModelChoice(db)).toEqual({ connectionId: 'chat', model: 'chat-model', effort: 'low' });
+    expect(defaultModelChoice(db, 'chat')).toEqual({ connectionId: 'chat', model: 'chat-model', effort: 'low' });
+    expect(defaultModelChoice(db, 'judge')).toEqual({ connectionId: 'judge', model: 'judge-model' });
+    db.delete(s.connections).where(eq(s.connections.id, 'chat')).run();
+    expect(defaultModelChoice(db, 'chat')).toEqual({ connectionId: '', model: '' });
+  });
+
   it('follow each connection\'s fallback in turn, stopping at a loop, with the picked connection\'s call settings', () => {
     const db = openDatabase(':memory:');
     db.insert(s.connections).values([

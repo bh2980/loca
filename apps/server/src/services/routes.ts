@@ -102,12 +102,12 @@ export function connectionRoute(db: Db, connectionId: string, secrets: SecretSto
 }
 
 /** What templates and imported workflows start with: the first AI connection (by name) that has a default model. */
-export function defaultModelChoice(db: Db): { connectionId: string; model: string; effort?: string } {
+export function defaultModelChoice(db: Db, capability: Capability = 'generate'): { connectionId: string; model: string; effort?: string } {
   const connection = db
     .select()
     .from(connections)
     .all()
-    .filter((row) => row.defaultModel && CONNECTION_KIND_INFO[row.kind].capabilities.includes('generate'))
+    .filter((row) => row.defaultModel && CONNECTION_KIND_INFO[row.kind].capabilities.includes(capability))
     .sort((a, b) => a.name.localeCompare(b.name))[0];
   return connection ? { connectionId: connection.id, model: connection.defaultModel!, ...(connection.defaultEffort && { effort: connection.defaultEffort }) } : { connectionId: '', model: '' };
 }

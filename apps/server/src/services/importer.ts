@@ -132,7 +132,7 @@ export function importProject(db: Db, file: ImportFile, model: DraftModelChoice 
       file.characters.map((character) => {
         const id = crypto.randomUUID();
         for (const name of [character.name, ...character.aliases]) characterIds.set(name, id);
-        return { id, projectId, name: character.name, aliases: character.aliases, profile: character.profile, speech: character.speech, player: character.player, gender: character.gender, ageBand: character.ageBand, origin: 'import' as const };
+        return { id, projectId, name: character.name, aliases: character.aliases, profile: character.profile, speech: character.speech, player: character.player, gender: character.gender, ageBand: character.ageBand, role: character.role, origin: 'import' as const };
       }),
     );
     insertMany(

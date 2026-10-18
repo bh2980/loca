@@ -3,7 +3,7 @@ import { type ReactNode } from 'react';
 import { Check, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { InferResponseType } from 'hono/client';
-import { AUTO_MARKS, type AgeBand, type CharacterStyle, type Gender, type DOCUMENT_KINDS, type SpeechLevel, type AutoMark, KNOWLEDGE_MARK_IDS, knowledgeMarksOf, matchesMarks, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, sourceOf, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type StatusBy } from '@tw/shared';
+import { AUTO_MARKS, type AgeBand, type CharacterRole, type CharacterStyle, type Gender, type DOCUMENT_KINDS, type SpeechLevel, type AutoMark, KNOWLEDGE_MARK_IDS, knowledgeMarksOf, matchesMarks, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, sourceOf, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type StatusBy } from '@tw/shared';
 import { DataTable, type ColumnDef, type FilterChip, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button } from '@loca/ui';
 import { AiMark, MarkChip, TagChip } from '@/components/status';
 import { HeaderFilter, MarkFilter, markTagGroups, type FilterOption } from '@/components/header-filter';
@@ -66,6 +66,7 @@ interface FieldValues {
   style: CharacterStyle;
   gender: Gender;
   ageBand: AgeBand;
+  role: CharacterRole;
 }
 export type FieldType = keyof FieldValues;
 export interface Field {
