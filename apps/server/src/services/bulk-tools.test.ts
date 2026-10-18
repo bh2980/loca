@@ -16,10 +16,27 @@ function setup() {
 }
 
 describe('bulk and project tools (#45)', () => {
-  it('save_knowledge saves in order and reports each item; a failure keeps the rest', async () => {
+  it('save_knowledge rolls back every item when one relationship fails', async () => {
     const { db, run } = setup();
     const result = await run('save_knowledge', { characters: [{ name: 'Alice' }, { name: 'Bob' }], relationships: [{ from: 'Alice', to: 'Bob', kind: '친구' }, { from: 'Alice', to: 'Nobody', kind: '적' }] });
-    expect(result).toMatchObject({ ok: false, saved: 3, failed: 1 });
+    expect(result).toMatchObject({ ok: false, saved: 0, failed: 1, error: '4개 중 1개를 저장하지 못해 아무것도 저장하지 않았습니다. 실패한 항목을 고쳐 전체를 다시 보내세요.', results: [
+      { kind: 'characters', index: 0, ok: true },
+      { kind: 'characters', index: 1, ok: true },
+      { kind: 'relationships', index: 0, ok: true },
+      { kind: 'relationships', index: 1, ok: false, error: '인물을 먼저 만들어야 합니다: Nobody' },
+    ] });
+    expect(db.select().from(s.characters).all()).toHaveLength(0);
+    expect(db.select().from(s.relationships).all()).toHaveLength(0);
+  });
+
+  it('save_knowledge saves all items and relationships can name newly created characters', async () => {
+    const { db, run } = setup();
+    const result = await run('save_knowledge', { characters: [{ name: 'Alice' }, { name: 'Bob' }], relationships: [{ from: 'Alice', to: 'Bob', kind: '친구' }] });
+    expect(result).toMatchObject({ ok: true, saved: 3, failed: 0, results: [
+      { kind: 'characters', index: 0, ok: true },
+      { kind: 'characters', index: 1, ok: true },
+      { kind: 'relationships', index: 0, ok: true },
+    ] });
     expect(db.select().from(s.characters).all().map((c) => c.name).sort()).toEqual(['Alice', 'Bob']);
     expect(db.select().from(s.relationships).all()).toHaveLength(1);
   });
