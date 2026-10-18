@@ -83,19 +83,25 @@ export function readLocaCall(command: string): { tool: string; input: Record<str
 
 /**
  * `loca call` prints its result as JSON on stdout; a change also says on stderr whether it applied,
- * and Codex reports both streams as one text. The JSON is from the first line that opens it to the
- * end, and the note before it is kept as `message` (the panel finds the proposal's card by proposalId).
+ * and Codex reports both streams as one text, in either order. The JSON is the block from the first
+ * line that opens it to the last line that closes it; the rest is kept as `message` (the panel finds
+ * the proposal's card by proposalId).
  */
 export function parsedOutput(output: string): unknown {
-  const start = output.search(/^[[{]/m);
+  const lines = output.split('\n');
+  const start = lines.findIndex((line) => /^[[{]/.test(line));
+  const end = lines.findLastIndex((line) => /^[\]}]/.test(line));
   if (start < 0) return output;
-  try {
-    const value: unknown = JSON.parse(output.slice(start));
-    const message = output.slice(0, start).trim();
-    return message && value && typeof value === 'object' && !Array.isArray(value) ? { ...value, message } : value;
-  } catch {
-    return output;
+  for (const last of end > start ? [end, start] : [start]) {
+    try {
+      const value: unknown = JSON.parse(lines.slice(start, last + 1).join('\n'));
+      const message = [...lines.slice(0, start), ...lines.slice(last + 1)].join('\n').trim();
+      return message && value && typeof value === 'object' && !Array.isArray(value) ? { ...value, message } : value;
+    } catch {
+      // not this block
+    }
   }
+  return output;
 }
 
 /**

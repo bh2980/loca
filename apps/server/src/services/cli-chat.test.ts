@@ -38,6 +38,9 @@ describe('CLI chat', () => {
     // A change's note (stderr) comes before its JSON (stdout) in Codex's output.
     expect(parsedOutput('제안을 올렸습니다 (proposal p1).\n{\n  "proposalId": "p1"\n}\n')).toEqual({ proposalId: 'p1', message: '제안을 올렸습니다 (proposal p1).' });
     expect(parsedOutput('[1, 2]')).toEqual([1, 2]);
+    // …or after it: Codex interleaves the two streams in either order.
+    expect(parsedOutput('{\n  "proposalId": "p2"\n}\n우회 모드로 바로 반영했습니다 (proposal p2).\n')).toEqual({ proposalId: 'p2', message: '우회 모드로 바로 반영했습니다 (proposal p2).' });
+    expect(parsedOutput('{"a":1}\n')).toEqual({ a: 1 });
     expect(parsedOutput('오류: 없는 도구입니다')).toBe('오류: 없는 도구입니다');
     // As Codex reports them: wrapped in the shell it ran them with.
     expect(readLocaCall(`/bin/bash -lc "loca call project_overview '{}'"`)).toEqual({ tool: 'project_overview', input: {} });
