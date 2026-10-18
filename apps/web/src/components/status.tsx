@@ -14,7 +14,7 @@ export function MarkChip({ mark, projectId, className }: { mark: AutoMark; proje
   const colors = useMarkColors(projectId ?? params.projectId);
   const color = markColor(mark, colors);
   return (
-    <span className={cn('inline-flex items-center rounded-sm px-1.5 py-0.5 text-xs font-medium whitespace-nowrap', className)} style={chipStyle(color)} title={AUTO_MARKS[mark].description}>
+    <span className={cn('inline-flex items-center rounded-sm px-1.5 py-0.5 text-xs font-medium whitespace-nowrap', className)} style={chipStyle(color)}>
       #{AUTO_MARKS[mark].name}
     </span>
   );

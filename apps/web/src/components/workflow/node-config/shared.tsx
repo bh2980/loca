@@ -20,12 +20,12 @@ export interface NodeRefs {
 }
 
 /** Labels and hints are composed from the shared UI field primitives. */
-export function Field({ label, hint, help, action, children }: { label: string; hint?: React.ReactNode; help?: React.ReactNode; action?: React.ReactNode; children: React.ReactNode }) {
+export function Field({ label, hint, action, children }: { label: string; hint?: React.ReactNode; action?: React.ReactNode; children: React.ReactNode }) {
   const id = useId();
   return (
     <UiField className="min-w-0 gap-1.5">
       <div className="flex min-h-7 min-w-0 items-center justify-between gap-2">
-        <FieldLabel htmlFor={id} help={help} className="min-w-0 text-xs">
+        <FieldLabel htmlFor={id} className="min-w-0 text-xs">
           {label}
         </FieldLabel>
         {action}

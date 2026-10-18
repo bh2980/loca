@@ -1,7 +1,7 @@
 /** Right-hand pane to add or edit one status. */
 import { ArrowDown, ArrowUp, Trash2 } from 'lucide-react';
 import { DEFAULT_STATUS_COLOR } from '@tw/shared';
-import { InspectorSection, PropertyRow, PropertyGrid, InspectorHeader, Inspector, Button, Field, FieldDescription, FieldGroup, FieldLabel, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Switch } from '@loca/ui';
+import { InspectorSection, PropertyRow, PropertyGrid, InspectorHeader, Inspector, Button, Field, FieldGroup, FieldLabel, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Switch } from '@loca/ui';
 import { STATUS_KIND } from '@/lib/labels';
 import { changedFields, useFormFrom } from '@/lib/use-form-from';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
@@ -9,7 +9,7 @@ import { type Kind, type StatusForm, type StatusRowData } from '@/components/set
 import { Swatches } from '@/components/settings/swatches';
 
 /** Add or edit one status: its fields are a draft until saved; the order buttons act at once. */
-const STATUS_FIELD_LABEL: Record<keyof StatusForm, string> = { name: '이름', color: '색상', kind: '종류', inReview: '검토함에 표시', humanOnly: '사람만 지정' };
+const STATUS_FIELD_LABEL: Record<keyof StatusForm, string> = { name: '이름', color: '색상', kind: '종류', inReview: '검토함에 표시', humanOnly: '워크플로가 지정하지 않음' };
 
 export function StatusPane({
   status,
@@ -79,12 +79,10 @@ export function StatusPane({
             <FieldLabel htmlFor="status-review">검토함에 표시</FieldLabel>
             <Switch id="status-review" checked={form.inReview} onCheckedChange={(inReview) => setForm((current) => ({ ...current, inReview }))} />
           </Field>
-          <FieldDescription>켜면 이 상태의 대사가 검토함에 모입니다.</FieldDescription>
           <Field orientation="horizontal">
-            <FieldLabel htmlFor="status-human">사람만 지정</FieldLabel>
+            <FieldLabel htmlFor="status-human">워크플로가 지정하지 않음</FieldLabel>
             <Switch id="status-human" checked={form.humanOnly} onCheckedChange={(humanOnly) => setForm((current) => ({ ...current, humanOnly }))} />
           </Field>
-          <FieldDescription>워크플로는 이 상태 대신 검토함으로 보냅니다.</FieldDescription>
         </FieldGroup>
       </InspectorSection>
       {status && onMove && (

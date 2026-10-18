@@ -10,13 +10,13 @@ import { AnalysisSteps } from '@/components/job-progress';
 import { client, unwrap } from '@/lib/api';
 import { q, useReviewTagId } from '@/lib/queries';
 import { cn } from '@/lib/utils';
-import { keyLabel } from '@/lib/keys';
 import { termMarksOf } from '@tw/shared';
 
 interface Step {
   key: string;
   title: string;
-  why: string;
+  /** A fact about the step's current state, not an explanation. */
+  why?: string;
   done: boolean;
   /** Worth doing but not needed to translate; never "the next step". */
   optional?: boolean;
@@ -71,7 +71,6 @@ export function GettingStarted({ projectId }: { projectId: string }) {
     {
       key: 'ai',
       title: 'AI 연결 추가',
-      why: 'AI를 부를 통로(API·CLI 등)를 추가하고 기본 모델을 정합니다. 분석·번역·채팅에서 이 연결과 모델을 고릅니다.',
       done: aiConnections.length > 0,
       action: (primary) => (
         <Button asChild variant={primary ? 'default' : 'outline'}>
@@ -84,7 +83,6 @@ export function GettingStarted({ projectId }: { projectId: string }) {
     {
       key: 'analysis',
       title: '작품 분석',
-      why: '워크플로에서 필요한 자료와 읽을 원문 범위를 정합니다. 인물·사건·작품 개요 등 필요한 분석 노드와 템플릿을 선택할 수 있습니다.',
       done: analysed,
       action: (primary) => <RunDialog projectId={projectId} trigger={<Button variant={primary ? 'default' : 'outline'}>워크플로 실행</Button>} />,
       progress: reading && (
@@ -114,7 +112,7 @@ export function GettingStarted({ projectId }: { projectId: string }) {
     {
       key: 'check',
       title: '말투 규칙 훑어보기',
-      why: toCheck ? `확인 권장으로 표시된 말투 규칙이 ${toCheck}개 있습니다. 틀린 규칙은 많은 줄의 말투를 틀리게 합니다.` : '분석이 만든 화자 → 청자 말투 규칙을 훑어봅니다. 나중에 고쳐도 됩니다.',
+      why: toCheck ? `확인 권장 ${toCheck}개` : undefined,
       done: analysed && toCheck === 0,
       optional: true,
       action: () => (
@@ -128,13 +126,7 @@ export function GettingStarted({ projectId }: { projectId: string }) {
     {
       key: 'terms',
       title: '용어 정하기',
-      why: !terms.data.length
-        ? analysed
-          ? '작품 분석이 용어를 찾지 못했습니다. 용어집에서 직접 추가할 수 있습니다.'
-          : '작품 분석이 용어 후보도 만듭니다.'
-        : !candidates && !emptyTerms
-          ? `확정한 용어 ${confirmedTerms.toLocaleString()}개. 확정한 용어만 번역 문맥에 들어갑니다. 용어집에서 더 추가할 수 있습니다.`
-          : `용어 후보 ${candidates.toLocaleString()}개${emptyTerms ? ` · 번역어가 없는 용어 ${emptyTerms.toLocaleString()}개 (후보 아닌 것 포함)` : ''}. 용어집에서 빈 번역을 AI로 채우고, 확인해서 확정하세요. 확정한 용어만 번역 문맥에 들어갑니다.`,
+      why: candidates || emptyTerms ? `용어 후보 ${candidates.toLocaleString()}개${emptyTerms ? ` · 번역어 없음 ${emptyTerms.toLocaleString()}개` : ''}` : confirmedTerms ? `확정한 용어 ${confirmedTerms.toLocaleString()}개` : undefined,
       done: confirmedTerms > 0,
       optional: true,
       action: () => (
@@ -148,7 +140,6 @@ export function GettingStarted({ projectId }: { projectId: string }) {
     {
       key: 'run',
       title: '번역 실행',
-      why: '워크플로(초벌 번역: AI 번역 → 형식 검사 → 초벌)를 범위를 골라 실행합니다. 시작 전에 호출 수와 토큰 예상치를 보여 줍니다.',
       done: ran,
       action: (primary) => (
         <RunDialog
@@ -165,7 +156,6 @@ export function GettingStarted({ projectId }: { projectId: string }) {
     {
       key: 'review',
       title: '검토하고 확정',
-      why: `검수에서 걸린 줄은 검토함에 모입니다. 번역 화면에서 고치고 ${keyLabel('Mod+Enter')}로 확정합니다.`,
       done: false,
       action: () => (
         <Button asChild variant="ghost">
@@ -182,7 +172,7 @@ export function GettingStarted({ projectId }: { projectId: string }) {
     <section>
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-base font-semibold">시작하기</h2>
-        <Button variant="ghost" size="icon" aria-label="시작하기 닫기" title="닫기 (머리줄의 '시작하기'로 다시 열기)" onClick={() => hide(true)}>
+        <Button variant="ghost" size="icon" aria-label="시작하기 닫기" onClick={() => hide(true)}>
           <X />
         </Button>
       </div>
@@ -199,7 +189,7 @@ export function GettingStarted({ projectId }: { projectId: string }) {
                   {step.title}
                   {step.optional && <span className="ml-2 text-xs font-normal text-muted-foreground">선택</span>}
                 </p>
-                {!step.done && <p className="mt-0.5 text-xs text-muted-foreground">{step.why}</p>}
+                {!step.done && step.why && <p className="mt-0.5 text-xs text-muted-foreground">{step.why}</p>}
                 {step.progress}
               </div>
               {!step.done && !step.progress && (current || step.optional) && <div className="shrink-0">{step.action(current)}</div>}

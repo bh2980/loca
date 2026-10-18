@@ -6,7 +6,6 @@ import { AI_OUTPUTS, AI_PRESETS, AI_SCOPES, CHOICE_SOURCES, CONNECTION_KIND_INFO
 import { AdvancedDisclosure, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Button, Dialog, DialogContent, DialogHeader, DialogTitle, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, InspectorSection } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
 import { AiContextPanel } from '@/components/ai-context';
-import { Link } from '@tanstack/react-router';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
 import { client, unwrap } from '@/lib/api';
 import { JsonFieldsEditor } from '@/components/workflow/node-config/json-fields-editor';
@@ -69,18 +68,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
 
   if (part === 'model') {
     return (
-      <Field
-        label="모델"
-        help={
-          <>
-            {connection?.fallback && <span className="block">이 연결이 막히면 연결 설정의 ‘막히면’으로 넘깁니다.</span>}
-            시간 제한·시도 횟수·최대 출력은{' '}
-            <Link to="/p/$projectId/settings/connections" params={{ projectId: refs.projectId }} search={{ conn: config.model.connectionId || undefined }} className="underline">AI 연결 설정</Link>
-            에서 정합니다.
-            {config.output === 'verdict' && ' 판정에는 System One도 쓸 수 있습니다.'}
-          </>
-        }
-      >
+      <Field label="모델">
         <ModelPicker need={need} value={config.model} onChange={(model) => set({ model })} />
       </Field>
     );
@@ -96,7 +84,6 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
               </AiButton>
             </div>
       }>
-        <p className="text-xs text-muted-foreground">모델에게 보내는 지시문 전체입니다. 출력 형식과 입력 형식 설명만 서버가 덧붙이며, 프롬프트 미리보기에서 읽기 전용으로 보입니다.</p>
         <Textarea aria-label="지시문" value={config.instructions} onChange={(event) => set({ instructions: event.target.value })} className="min-h-28 text-xs" />
         <div className="flex items-center justify-between gap-2">
           <span className="min-w-0 truncate text-xs text-muted-foreground">{config.preset ? (preset ? `프리셋 · ${preset.label}에서 채움` : `프리셋 · ${config.preset}`) : '프리셋 없음'}</span>
@@ -121,7 +108,6 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
           <DialogContent className="flex h-[80vh] max-w-3xl flex-col">
             <DialogHeader><DialogTitle>프롬프트 미리보기 · {nodeName(node)}</DialogTitle></DialogHeader>
             <div className="min-h-0 flex-1 space-y-2 overflow-auto">
-              <p className="text-xs text-muted-foreground">저장된 워크플로 기준이며, 첫 대사를 샘플로 씁니다. ‘실제 프롬프트’를 펼치면 서버가 붙이는 형식 부분까지 보입니다.</p>
               <PromptPreview projectId={refs.projectId} workflowId={refs.workflowId} nodeId={node.id} />
             </div>
           </DialogContent>
@@ -135,42 +121,41 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
       </InspectorSection>
 
       <InspectorSection title="출력">
-        <Field label="출력 형태" help={config.output === 'verdict' ? '통과 / 실패 출구가 생깁니다.' : `완료 출구로 나갑니다. 결과는 뒤 노드와 조건에서 outputs.${node.id} 로 읽습니다.`} hint={AI_OUTPUTS[config.output].description}>
+        <Field label="출력 형태">
           <Select value={config.output} onValueChange={(value) => set({ output: value as AiOutput, ...(value !== 'json' && { scope: 'line' as AiScope }) })}>
             <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
             <SelectContent>
-              {(Object.keys(AI_OUTPUTS) as AiOutput[]).map((output) => <SelectItem key={output} value={output}>{AI_OUTPUTS[output].label} <span className="text-muted-foreground">— {AI_OUTPUTS[output].description}</span></SelectItem>)}
+              {(Object.keys(AI_OUTPUTS) as AiOutput[]).map((output) => <SelectItem key={output} value={output}>{AI_OUTPUTS[output].label}</SelectItem>)}
             </SelectContent>
           </Select>
         </Field>
         {config.output === 'json' && (
           <>
-            <Field label="출력 단위" hint={config.scope === 'batch' ? '요청(묶음) 하나에 답 하나. 묶음의 모든 대사가 같은 결과를 참조합니다.' : '대사 id마다 답 하나.'}>
+            <Field label="출력 단위">
               <Select value={config.scope} onValueChange={(value) => set({ scope: value as AiScope })}>
                 <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                 <SelectContent>{(Object.keys(AI_SCOPES) as AiScope[]).map((scope) => <SelectItem key={scope} value={scope}>{AI_SCOPES[scope]}</SelectItem>)}</SelectContent>
               </Select>
             </Field>
-            <Field label="출력 필드" hint={`뒤 노드는 outputs.${node.id}.<필드> 로 읽습니다.`}>
+            <Field label="출력 필드">
               <JsonFieldsEditor fields={config.fields} descriptionPlaceholder="설명 (AI에게 보임)" onChange={(fields) => set({ fields })} />
             </Field>
           </>
         )}
         {config.output === 'choice' && (
           <>
-            <Field label="선택지 출처" hint={config.choice.source === 'custom' ? undefined : '실행할 때 프로젝트의 목록을 읽어 프롬프트에 그대로 펼칩니다.'}>
+            <Field label="선택지 출처">
               <Select value={config.choice.source} onValueChange={(value) => set({ choice: { ...config.choice, source: value as ChoiceSource } })}>
                 <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                 <SelectContent>{(Object.keys(CHOICE_SOURCES) as ChoiceSource[]).map((source) => <SelectItem key={source} value={source}>{CHOICE_SOURCES[source]}</SelectItem>)}</SelectContent>
               </Select>
             </Field>
             {config.choice.source === 'custom' && (
-              <Field label="선택지" hint="한 줄에 하나씩 적습니다.">
+              <Field label="선택지">
                 <ChoiceValues values={config.choice.values} onChange={(values) => set({ choice: { ...config.choice, values } })} />
               </Field>
             )}
             <ToggleRow label="‘해당 없음’ 답을 허용" checked={config.choice.allowNone} onChange={(value) => set({ choice: { ...config.choice, allowNone: value } })} />
-            <p className="text-xs text-muted-foreground">뒤 노드는 outputs.{node.id}.value · confidence · reason 으로 읽습니다.</p>
           </>
         )}
       </InspectorSection>
@@ -178,7 +163,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
       <InspectorSection title="고급">
         <div className="space-y-2.5">
           {takesTemperature && (
-            <Field label="온도" hint="비우면 모델 기본값. 낮을수록 같은 입력에 같은 답을 냅니다.">
+            <Field label="온도">
               <Input
                 type="number"
                 min={0}
@@ -249,7 +234,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
                   </Select>
                 </Field>
                 {config.batch.mode === 'whole' && (
-                  <Field label="요청당 최대 토큰 (추정)" hint="넘는 대본은 장면 경계에서 나눠 읽습니다.">
+                  <Field label="요청당 최대 토큰">
                     <Input
                       type="number"
                       min={500}
@@ -279,9 +264,6 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
             </AdvancedDisclosure>
             <AdvancedDisclosure label={`문맥 ${contextOn}개 켬 · 상한 ${context.maxTokens.toLocaleString()} 토큰`}>
               <div className="space-y-2.5">
-                  <p className="text-xs text-muted-foreground">
-                    확정된 자료만 들어갑니다. 실제로 들어간 것은 대사 패널의 AI 문맥 탭에서 봅니다.
-                  </p>
                   <ToggleRow
                     label="사람이 확정한 것만 (✦ 빼기)"
                     checked={context.humanOnly}
@@ -349,10 +331,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
                     checked={context.documents}
                     onChange={(value) => set({ context: { ...context, documents: value } })}
                   />
-                  <Field
-                    label="문맥 상한 (토큰, 추정)"
-                    hint="넘치면 덜 중요한 것부터 빼고 실행 기록에 남깁니다."
-                  >
+                  <Field label="문맥 상한 (토큰)">
                     <Input
                       type="number"
                       min={500}
@@ -367,10 +346,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
               </div>
             </AdvancedDisclosure>
             <AdvancedDisclosure label="모델 분산" className="space-y-3">
-              <Field
-                label="함께 나눌 모델"
-                hint="요청마다 칸이 빈 계정의 모델로 보냅니다. 같은 모델의 다른 계정을 붙이면 처리량만 늘어납니다."
-              >
+              <Field label="함께 나눌 모델">
                 <div className="space-y-1.5">
                   {extras.map((extra, index) => (
                     <div key={index} className="flex min-w-0 items-center gap-1.5">

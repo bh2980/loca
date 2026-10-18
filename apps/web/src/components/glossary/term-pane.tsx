@@ -136,7 +136,7 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
         <span className="flex items-center gap-2">
           <SourceBadge row={{ ...term, evidence: [] }} />
           <span>·</span>
-          {term.status === 'candidate' ? <span>후보 · 아직 문맥에 쓰이지 않음</span> : <StateCell row={{ ...term, evidence: [] }} />}
+          {term.status === 'candidate' ? <span>후보</span> : <StateCell row={{ ...term, evidence: [] }} />}
         </span>
       } onClose={onClose} />}
       footer={dirty ? <DirtyBar dirtyCount={Object.keys(changedFields(form, saved)).length} onRevert={takeSaved} onSave={() => save.mutate()} saving={save.isPending} disabled={!form.source.trim()} /> : (candidate ? <Button variant="outline" disabled={deciding || !term.target.trim()} onClick={() => onDecide(true)}><Check /> {confirmLabel([{ ...term, evidence: [] }])}</Button> : null)}
@@ -172,13 +172,11 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
           )
         }
       >
-        <p className="mb-2 text-xs text-muted-foreground">번역어를 바꿨다면 이 대사들만 골라 워크플로를 실행해 새 번역어를 반영합니다(실행 창에서 워크플로를 고름).</p>
         <ul className="max-h-60 space-y-1 overflow-auto">
           {usage.data?.rows.map((row) => <li key={row.id}><Link to="/p/$projectId/script" params={{ projectId }} search={{ group: row.groupId, line: row.id }} className="block rounded px-2 py-1 text-xs hover:bg-muted"><span className="text-muted-foreground">{row.groupTitle} · </span>{row.speaker && <span className="font-medium">{row.speaker}: </span>}{row.source}{row.translation && <span className="block text-muted-foreground">{row.translation}</span>}</Link></li>)}
         </ul>
       </InspectorSection>
       <DangerZone title="용어 삭제">
-        <p className="text-xs text-muted-foreground">용어가 용어집에서 사라집니다. 이미 번역된 대사는 바뀌지 않습니다.</p>
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button variant="ghost" className="text-destructive">

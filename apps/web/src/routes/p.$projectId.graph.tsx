@@ -692,7 +692,7 @@ function GraphPage() {
                 <aside className="flex h-full flex-col text-sm">
                   <PaneHeader kicker="장면 그래프" title="연결점" onClose={() => select(undefined)} />
                   <p className="px-4 py-3 text-muted-foreground">
-                    장면에 속하지 않는 노드 {hubs.get(search.node)!.nodes.toLocaleString()}개가 장면 {hubs.get(search.node)!.scenes.toLocaleString()}개를 잇습니다. 대사 그래프에서 파생한 연결입니다.
+                    장면에 속하지 않는 노드 {hubs.get(search.node)!.nodes.toLocaleString()}개가 장면 {hubs.get(search.node)!.scenes.toLocaleString()}개를 잇습니다 · 대사 그래프에서 파생
                   </p>
                 </aside>
               ) : search.scope === 'dialogue' ? (
@@ -1072,7 +1072,6 @@ function GraphPage() {
                 <span aria-hidden style={{ position: 'fixed', left: naming.x, top: naming.y, width: 1, height: 1, pointerEvents: 'none' }} />
               </PopoverTrigger>
               <PopoverContent align="start" className="w-72 space-y-2">
-                <p className="text-xs text-muted-foreground">고른 노드 {naming.nodeIds.length.toLocaleString()}개만 남긴 보기의 이름</p>
                 <Input autoFocus value={newName} maxLength={80} aria-label="보기 이름" placeholder="예: 올렉 사망 분기" onChange={(event) => setNewName(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && makeView()} />
                 <div className="flex justify-end gap-2">
                   <Button variant="ghost" onClick={() => setNaming(null)}>취소</Button>
@@ -1094,7 +1093,7 @@ function GraphPage() {
             <Empty className="absolute inset-0">
               <EmptyHeader>
                 <EmptyTitle>그래프가 없습니다</EmptyTitle>
-                <EmptyDescription>가져온 표준 파일에 그래프 정보가 없거나 장면 사이 연결이 없습니다.</EmptyDescription>
+                <EmptyDescription>가져온 파일에 그래프 정보가 없습니다.</EmptyDescription>
               </EmptyHeader>
             </Empty>
           ) : null}
@@ -1172,20 +1171,9 @@ function GraphPage() {
                 }
                 details={
                   <>
-                    <p className="max-w-3xl break-words rounded-md border border-border bg-card px-2.5 py-1 text-xs font-mono text-muted-foreground tabular-nums shadow-2xs backdrop-blur-xs select-none">
-                      {search.scope === 'scene'
-                        ? `장면 ${(layout.nodes.length - hubs.size).toLocaleString()}${hubs.size ? ` · 연결점 ${hubs.size.toLocaleString()}` : ''} · 연결 ${(edges.length + (looseEdges?.length ?? 0)).toLocaleString()}${looseEdges?.length ? ` (연결점 직선 ${looseEdges.length.toLocaleString()})` : ''}`
-                        : `${view ? `보기${view.label ? ` "${view.label}"` : ''} · ` : chosen ? `구역 ${chosen} · ` : sections.length > 1 ? '전체 · ' : ''}노드 ${(layout.nodes.length - portals.size - (layout.chains?.length ?? 0) + (layout.chains ?? []).reduce((sum, chain) => sum + chain.nodeIds.length, 0)).toLocaleString()}개${layout.chains?.length ? ` (한 길로 이어진 ${(layout.chains ?? []).reduce((sum, chain) => sum + chain.nodeIds.length, 0).toLocaleString()}개는 덩어리 ${layout.chains.length.toLocaleString()}개로 접음)` : ''}${portals.size ? ` · 다른 구역으로 이어지는 이름표 ${portals.size.toLocaleString()}` : ''} · 연결 ${(edges.length + (looseEdges?.length ?? 0)).toLocaleString()}`}
-                      {highlight && !mark.data && ` · 강조 ${highlight.size.toLocaleString()}`}
-                    </p>
-                    {search.scope === 'scene' && hubs.size > 0 && (
-                      <p className="max-w-3xl rounded-md border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground">
-                        연결점: 장면에 속하지 않으면서 여러 장면을 잇는 노드 묶음 (대사 그래프에서 파생)
-                      </p>
-                    )}
                     {picked.size > 1 && (
                       <p className="max-w-3xl rounded-md border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground shadow-2xs select-none">
-                        노드 {picked.size.toLocaleString()}개 선택 · 오른쪽 클릭으로 워크플로 실행·보기 만들기
+                        노드 {picked.size.toLocaleString()}개 선택
                       </p>
                     )}
                     {view && viewDetail.data && (
@@ -1215,18 +1203,13 @@ function GraphPage() {
                         </Button>
                       </div>
                     )}
-                    {search.scope === 'dialogue' && !!looseEdges?.length && (
-                      <p className="max-w-3xl break-words rounded-md border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground shadow-2xs backdrop-blur-xs select-none">
-                        허브 연결 {looseEdges.length.toLocaleString()}개는 숨김 · 허브를 누르면 그 선만 보입니다
-                      </p>
-                    )}
                     {hidden.length > 0 && (
                       <label className="flex max-w-full flex-wrap items-center gap-2 rounded-md border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground shadow-2xs backdrop-blur-xs select-none">
                         <Switch
                           checked={search.links === 'all'}
                           onCheckedChange={(on) => void navigate({ search: (previous) => ({ ...previous, links: on ? 'all' : undefined }), replace: true })}
                         />
-                        다른 장면을 거쳐도 이어지는 연결 {hidden.length.toLocaleString()}개 {search.links === 'all' ? '표시 중' : '숨김'}
+                        다른 장면을 거치는 연결 {hidden.length.toLocaleString()}개 표시
                       </label>
                     )}
                   </>

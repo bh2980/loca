@@ -42,7 +42,7 @@ export function AiConfirmList({ projectId }: { projectId: string }) {
   const save = useMutation({
     mutationFn: (next: AiConfirm) => unwrap(client.projects[':projectId'].$patch({ param: { projectId }, json: { aiConfirm: next } })),
     onMutate: async (next) => ({ undo: await optimistic(queryClient, [{ key: q.project(projectId).queryKey, update: (data: object) => ({ ...data, aiConfirm: next }) }]) }),
-    onSuccess: () => toast.success('저장했습니다. 다음 분석·실행부터 적용됩니다.'),
+    onSuccess: () => toast.success('저장했습니다.'),
     onError: (error, _next, context) => {
       context?.undo();
       toast.error(error.message);

@@ -66,7 +66,7 @@ export function RuleLines({ projectId, ruleId, candidate }: { projectId: string;
             defaultIgnoreStatus
             preferWorkflow={SPEECH_FIX_WORKFLOW}
             trigger={
-              <Button variant="ghost" title={`“${SPEECH_FIX_WORKFLOW}” 워크플로로 번역된 줄의 어미·호칭만 이 규칙에 맞춥니다`}>
+              <Button variant="ghost">
                 <Play /> 번역된 {lines.data.translatedIds.length.toLocaleString()}줄 말투 맞추기
               </Button>
             }
@@ -75,19 +75,14 @@ export function RuleLines({ projectId, ruleId, candidate }: { projectId: string;
       }
     >
       <div className="space-y-2">
-      <p className="text-xs text-muted-foreground">
-        {lines.data && !lines.data.translatedIds.length
-          ? '아직 번역된 줄이 없습니다. 이 줄들을 번역할 때 이 규칙이 들어갑니다.'
-          : `규칙을 고쳤다면 “말투 맞추기”로 이미 번역된 줄의 어미·호칭만 다시 맞춥니다. 뜻과 표현은 그대로 둡니다.`}
-      </p>
       {!!lines.data?.routeDependent && (
         <p className="text-xs text-warning">
-          이 중 {lines.data.routeDependent.toLocaleString()}개는 구간 시작을 거쳤는지가 루트에 따라 달라, 대본 순서로 이 규칙을 골랐습니다. 번역은 한 줄에 하나라 루트 하나에만 맞을 수 있으니 확인하세요.
+          이 중 {lines.data.routeDependent.toLocaleString()}개는 루트에 따라 규칙이 달라질 수 있어 대본 순서로 골랐습니다. 확인하세요.
         </p>
       )}
       {levels.length > 0 && (
         <p className="text-xs">
-          지금 번역의 말투(어미 추정):{' '}
+          번역 말투(어미 추정):{' '}
           {levels.map(([level, count]) => `${level === 'unknown' ? '판단 불가·번역 없음' : SPEECH_LEVEL_LABELS[level as SpeechLevel]} ${count}`).join(' · ')}
         </p>
       )}

@@ -31,7 +31,7 @@ export function LineNote({ unitId, note, editing, onEditing }: { unitId: string;
   if (!editing && !note) return null;
   if (!editing)
     return (
-      <Button variant="ghost" size="row" className="mt-2 h-auto items-start gap-1.5 rounded-md border border-warning/30 bg-warning/5 py-1.5 text-left text-sm font-normal whitespace-pre-wrap" title="메모 고치기" onClick={() => (setText(note), onEditing(true))}>
+      <Button variant="ghost" size="row" className="mt-2 h-auto items-start gap-1.5 rounded-md border border-warning/30 bg-warning/5 py-1.5 text-left text-sm font-normal whitespace-pre-wrap" onClick={() => (setText(note), onEditing(true))}>
         <StickyNote className="mt-0.5 size-3.5 shrink-0 text-warning" />
         <span className="min-w-0 break-words">{note}</span>
       </Button>
@@ -45,7 +45,7 @@ export function LineNote({ unitId, note, editing, onEditing }: { unitId: string;
       autoFocus
       className="mt-2"
       aria-label="메모"
-      placeholder="메모 (의문점, 개발사에 물어볼 것) · Enter 저장 · 비우면 지움"
+      placeholder="메모 · Enter 저장"
       value={text}
       onClick={(event) => event.stopPropagation()}
       onChange={(event) => setText(event.target.value)}

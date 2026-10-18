@@ -92,7 +92,7 @@ function ProjectForm({ projectId, project }: { projectId: string; project: { nam
             </FieldGroup>
           </SettingsSection>
 
-          <SettingsSection title="번역 결과 내보내기" description="모든 대사의 키, 원문, 번역, 상태를 JSON 파일로 내려받습니다. 원본 게임 파일은 바뀌지 않습니다.">
+          <SettingsSection title="번역 결과 내보내기">
             <Button variant="outline" asChild>
               <a href={`/api/projects/${projectId}/export`} download>
                 <Download /> 번역 결과 내보내기
@@ -100,7 +100,7 @@ function ProjectForm({ projectId, project }: { projectId: string; project: { nam
             </Button>
           </SettingsSection>
 
-          <SettingsSection tone="danger" title="위험 구역 · 프로젝트 삭제" description="프로젝트의 장면, 대사, 번역, 워크플로, 실행 기록이 모두 삭제되며 되돌릴 수 없습니다. 실행 중인 작업은 취소됩니다.">
+          <SettingsSection tone="danger" title="위험 구역 · 프로젝트 삭제" description="프로젝트의 모든 데이터가 삭제되며 되돌릴 수 없습니다.">
             <AlertDialog onOpenChange={() => setConfirmName('')}>
               <AlertDialogTrigger asChild>
                 <Button variant="destructive">

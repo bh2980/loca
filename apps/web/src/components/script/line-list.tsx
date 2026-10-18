@@ -278,7 +278,7 @@ export function LineList({
             clear: () => onSearch({ ...chip.clear, page: undefined }),
           }))}
         />
-        <span className="ml-auto whitespace-nowrap text-xs text-muted-foreground">{review && '검토함 · 최근 검사 지적 표시 · '}{total.toLocaleString()}줄 · 대본 순서</span>
+        <span className="ml-auto whitespace-nowrap text-xs text-muted-foreground">{review && '검토함 · '}{total.toLocaleString()}줄 · 대본 순서</span>
       </FilterBar></EditorToolbar>
       {banner}
       {showScene && (matches.isPending || lines.isPlaceholderData) && <p className="px-3 py-2 text-xs text-muted-foreground" role="status">{groupNoun}별 전체 선택 목록을 불러오는 중입니다.</p>}

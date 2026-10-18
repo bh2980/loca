@@ -71,7 +71,7 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
               {proposal.status === 'accepted' ? acceptedLabel(proposal.tool).short : proposal.status === 'failed' && proposal.decidedBy && proposal.decidedBy !== 'person' ? '적용하려 했지만 실패' : STATUS[proposal.status]}
               {failure && ` · ${failure}`}
               {proposal.status === 'rejected' && proposal.reason && ` · ${proposal.reason}`}
-              {skipped > 0 && ` · ${skipped.toLocaleString()}개는 건너뜀(그사이 바뀌었거나 바꿀 수 없음)`}
+              {skipped > 0 && ` · ${skipped.toLocaleString()}개는 건너뜀`}
             </span>
           )}
           {decide.isPending && <Spinner className="size-3" />}
@@ -90,7 +90,7 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
             decide.mutate('reject');
           }}
         >
-          <Input autoFocus value={reason} onChange={(event) => setReason(event.target.value)} placeholder="거절 이유(선택) — 에이전트에게 전달됩니다" aria-label="거절 이유" />
+          <Input autoFocus value={reason} onChange={(event) => setReason(event.target.value)} placeholder="거절 이유(선택)" aria-label="거절 이유" />
           <Button type="button" variant="ghost" disabled={decide.isPending} onClick={() => setRejecting(false)}>
             취소
           </Button>

@@ -3,7 +3,7 @@ import { useParams } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { AGENT_ACTIONS, AGENT_RESOURCES, agentSettingsSchema, effectiveAgentPermissions, type AgentAction, type AgentPermissions, type AgentResource, type AgentSettings, type PermissionMode } from '@tw/shared';
 import { PermissionModePicker } from '@/components/chat/permission-mode';
-import { AdvancedDisclosure, Button, Field, FieldDescription, FieldLabel, Input, PermissionMatrix, SettingsSection, Switch } from '@loca/ui';
+import { AdvancedDisclosure, Button, Field, FieldLabel, Input, PermissionMatrix, SettingsSection, Switch } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { optimistic } from '@/lib/optimistic';
 import { q } from '@/lib/queries';
@@ -14,7 +14,8 @@ const ACTIONS = Object.keys(AGENT_ACTIONS) as AgentAction[];
 const MATRIX_ACTIONS = ACTIONS.map((id) => ({ id, label: AGENT_ACTIONS[id] }));
 const MATRIX_ROWS = RESOURCES.map((id) => {
   const resource = AGENT_RESOURCES[id];
-  return { id, label: resource.label, description: 'description' in resource ? resource.description : undefined, supported: resource.actions as readonly AgentAction[] };
+  // Only a consequence a person would not expect is spelled out (running a workflow can write to the project).
+  return { id, label: resource.label, supported: resource.actions as readonly AgentAction[], ...('description' in resource && { description: resource.description }) };
 });
 
 export function AgentTab({ projectId: propProjectId }: { projectId?: string } = {}) {
@@ -59,7 +60,7 @@ export function AgentTab({ projectId: propProjectId }: { projectId?: string } = 
   };
 
   const limits = (
-    <SettingsSection title="자동 반영 후 다시 확인" description="이 한도는 바로 반영 모드의 대화별로 적용됩니다. 변경 수와 연결이 보고한 비용을 기준으로 다시 확인하며, 전체 과금 상한은 아닙니다.">
+    <SettingsSection title="자동 반영 후 다시 확인" description="대화별 기준이며 전체 과금 상한은 아닙니다.">
       <div className="grid gap-3 sm:grid-cols-2">
         <Field>
           <FieldLabel htmlFor="bypass-changes">대화당 변경 수</FieldLabel>
@@ -68,8 +69,7 @@ export function AgentTab({ projectId: propProjectId }: { projectId?: string } = 
         </Field>
         <Field>
           <FieldLabel htmlFor="bypass-cost">대화당 보고 비용 (USD)</FieldLabel>
-          <Input id="bypass-cost" type="number" min={0} step="any" value={costDraft} disabled={!loaded || save.isPending} onChange={(event) => setCostDraft(event.target.value)} aria-invalid={!costValid} />
-          <FieldDescription>비우면 제한하지 않습니다.</FieldDescription>
+          <Input id="bypass-cost" type="number" min={0} step="any" placeholder="제한 없음" value={costDraft} disabled={!loaded || save.isPending} onChange={(event) => setCostDraft(event.target.value)} aria-invalid={!costValid} />
           {!costValid && <p role="alert" className="text-xs text-destructive">0 이상의 비용을 입력하거나 비워 두세요.</p>}
         </Field>
       </div>
@@ -81,11 +81,11 @@ export function AgentTab({ projectId: propProjectId }: { projectId?: string } = 
     <div>
       <p role="status" aria-live="polite" className="sr-only">{save.isPending ? '에이전트 설정 저장 중' : save.isSuccess ? '에이전트 설정 저장됨' : ''}</p>
       <div className="space-y-8">
-        <SettingsSection title="새 대화의 권한 모드" description="대화마다 입력창 아래에서 바꿀 수 있습니다.">
+        <SettingsSection title="새 대화의 권한 모드">
           <PermissionModePicker className="w-48" value={defaultMode} disabled={!loaded || save.isPending} onChange={(mode) => saveSettings({ ...settings, defaultPermissionMode: mode })} />
         </SettingsSection>
 
-        <SettingsSection title="도구와 권한" description="이 설정은 채팅 AI와 터미널의 loca call에 적용됩니다. 앱에서 직접 편집하거나 워크플로를 직접 실행하는 동작에는 적용되지 않습니다. 여러 자료를 함께 조회하는 호출은 포함된 자료 모두의 조회 권한이 필요합니다.">
+        <SettingsSection title="도구와 권한" description="채팅 AI와 터미널의 loca call에만 적용됩니다.">
           <PermissionMatrix
             actions={MATRIX_ACTIONS}
             rows={MATRIX_ROWS}

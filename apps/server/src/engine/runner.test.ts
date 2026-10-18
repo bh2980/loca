@@ -387,7 +387,7 @@ describe('who set the status', () => {
     const units = db.select().from(s.units).where(eq(s.units.projectId, projectId)).all();
     expect(units.map((unit) => [unit.statusId, unit.statusBy, unit.statusRunId])).toEqual(units.map(() => [inbox.id, 'ai', runId]));
     const items = db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all();
-    expect(items.every((item) => item.data.issues?.[0]?.includes('사람만 지정할 수 있어 검토함으로 보냈습니다'))).toBe(true);
+    expect(items.every((item) => item.data.issues?.[0]?.includes('워크플로가 지정하지 않는 상태라 검토함으로 보냈습니다'))).toBe(true);
 
     // Without a review-inbox status the line stays where it was, with the same reason.
     db.update(s.statuses).set({ inReview: false }).where(eq(s.statuses.projectId, projectId)).run();
@@ -395,7 +395,7 @@ describe('who set the status', () => {
     const again = createRun(db, { projectId, workflow, models: {}, scope: { unitIds: [units[0].id], ignoreStatus: true } });
     await new Runner(db, memoryStore(), noModel).drain();
     expect(db.select().from(s.units).where(eq(s.units.id, units[0].id)).get()!.statusId).toBe(before);
-    expect(db.select().from(s.runItems).where(eq(s.runItems.runId, again.runId)).get()!.data.issues?.[0]).toContain('상태를 바꾸지 않았습니다');
+    expect(db.select().from(s.runItems).where(eq(s.runItems.runId, again.runId)).get()!.data.issues?.[0]).toContain('상태라 바꾸지 않았습니다');
   });
 
   it('keeps a person\'s translation and status in a status-filtered run, and only reports it', async () => {

@@ -63,7 +63,7 @@ export function AnalysisSteps({ job, actions }: { job: AnalysisJob; actions?: Re
         </>
       ),
     },
-    { label: '결과 검사와 저장', state: reading ? 'later' : 'now', detail: '근거 대사가 대본에 있는지 확인하고 인물·관계·사건·말투 규칙·장면별 청자는 자료에, 용어 후보는 용어집에 넣습니다' },
+    { label: '결과 검사와 저장', state: reading ? 'later' : 'now', detail: null },
   ] as const;
   return (
     <div className="space-y-2">

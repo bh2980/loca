@@ -227,14 +227,14 @@ export function TranslationEditor({
               {reason}
             </p>
           ))}
-          <Button variant="ghost" size="inline" className="text-muted-foreground" title={`다듬기 전 글로 (${keyLabel('Mod+Z')})`} onClick={() => replaceLineText(unit.id, assist.from!) || setDraft(assist.from!)}>
+          <Button variant="ghost" size="inline" className="text-muted-foreground" title={keyLabel('Mod+Z')} onClick={() => replaceLineText(unit.id, assist.from!) || setDraft(assist.from!)}>
             원래대로
           </Button>
         </div>
       )}
       <DraftChecks unitId={unit.id} source={unit.source} draft={draft} units={line.units} terms={line.terms} tags={tags} rules={project.data?.formatRules ?? undefined} targetLanguage={project.data?.targetLanguage} onPlace={placeMissing} />
       <div className="flex flex-wrap items-center gap-2 pt-1">
-        {dirty && <span className="order-last text-xs font-medium text-warning" title="이 브라우저에 자동 보관됩니다. 저장하거나 확정하면 서버에 저장됩니다.">초안 보관됨</span>}
+        {dirty && <span className="order-last text-xs font-medium text-warning">초안 보관됨</span>}
         {save.isPending && <span className="text-xs text-muted-foreground" aria-live="polite">저장 중…</span>}
         {marks === undefined && !dirty && unit.statusBy === 'ai' && (
           <span className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -243,18 +243,18 @@ export function TranslationEditor({
         )}
         <InlineEditorActions
           className="shrink-0"
-          primary={next ? <EditorAction icon={Check} disabled={save.isPending || !draft.trim()} onClick={() => run(true)} title={`${dirty ? '저장하고 ' : ''}‘${next.name}’(으)로 옮깁니다${onDone ? ' · 다음 줄로 이동' : ''} (${keyLabel('Mod+Enter')})`}>
+          primary={next ? <EditorAction icon={Check} disabled={save.isPending || !draft.trim()} onClick={() => run(true)} title={keyLabel('Mod+Enter')}>
             {next.name}{onDone ? '하고 다음' : '하기'}
-          </EditorAction> : onDone ? <EditorAction icon={ArrowDown} disabled={save.isPending || (dirty && !draft.trim() && statuses.find((status) => status.id === unit.statusId)?.kind === 'final')} onClick={() => run(true)} title={`다음 줄 (${keyLabel('Mod+Enter')})`}>
+          </EditorAction> : onDone ? <EditorAction icon={ArrowDown} disabled={save.isPending || (dirty && !draft.trim() && statuses.find((status) => status.id === unit.statusId)?.kind === 'final')} onClick={() => run(true)} title={keyLabel('Mod+Enter')}>
             {dirty ? '저장하고 다음 줄' : '다음 줄'}
-          </EditorAction> : dirty ? <EditorAction icon={Save} disabled={save.isPending} onClick={() => run(false)} title={`초안을 저장합니다 (${keyLabel('Mod+S')})`}>
+          </EditorAction> : dirty ? <EditorAction icon={Save} disabled={save.isPending} onClick={() => run(false)} title={keyLabel('Mod+S')}>
             저장
           </EditorAction> : null}
           ai={<>
-            <EditorAction icon={Languages} variant="ghost" disabled={!!assist.loading || project.isPending} onClick={() => requestAssist('translate')} title={project.isPending ? '편집기 AI 설정을 불러오는 중입니다.' : !editorAi?.assistModel ? '모델 설정으로 이동합니다. 작성 중인 초안은 유지됩니다.' : 'AI 번역 결과를 현재 초안 칸에 넣습니다.'}>
+            <EditorAction icon={Languages} variant="ghost" disabled={!!assist.loading || project.isPending} onClick={() => requestAssist('translate')} title={!project.isPending && !editorAi?.assistModel ? '모델 설정으로 이동합니다. 작성 중인 초안은 유지됩니다.' : undefined}>
               {draft.trim() ? 'AI 다시' : 'AI 번역'}
             </EditorAction>
-            <EditorAction icon={WandSparkles} variant="ghost" disabled={!!assist.loading || project.isPending || Boolean(editorAi?.assistModel && !draft.trim())} onClick={() => requestAssist('refine')} title={project.isPending ? '편집기 AI 설정을 불러오는 중입니다.' : !editorAi?.assistModel ? '모델 설정으로 이동합니다. 작성 중인 초안은 유지됩니다.' : draft.trim() ? `현재 번역을 다듬습니다 (${keyLabel('Alt+.')})` : '다듬을 번역이 없습니다'}>
+            <EditorAction icon={WandSparkles} variant="ghost" disabled={!!assist.loading || project.isPending || Boolean(editorAi?.assistModel && !draft.trim())} onClick={() => requestAssist('refine')} title={!project.isPending && !editorAi?.assistModel ? '모델 설정으로 이동합니다. 작성 중인 초안은 유지됩니다.' : keyLabel('Alt+.')}>
               다듬기
             </EditorAction>
           </>}
@@ -266,7 +266,7 @@ export function TranslationEditor({
                 <DropdownMenuItem onSelect={() => clearDraft()}><Undo2 /> 되돌리기</DropdownMenuItem>
               </>}
               {dirty && editorAi?.enabled && editorAi.model && <DropdownMenuSeparator />}
-              {editorAi?.enabled && editorAi.model && <DropdownMenuItem disabled={!!ai.loading} onSelect={() => ask(draft)} title={`이어질 번역 보기 (${keyLabel('Alt+/')}, Tab으로 받기)`}><Sparkles /> AI 자동완성 <span className="ml-auto text-xs text-muted-foreground">{keyLabel('Alt+/')}</span></DropdownMenuItem>}
+              {editorAi?.enabled && editorAi.model && <DropdownMenuItem disabled={!!ai.loading} onSelect={() => ask(draft)}><Sparkles /> AI 자동완성 <span className="ml-auto text-xs text-muted-foreground">{keyLabel('Alt+/')}</span></DropdownMenuItem>}
             </DropdownMenuContent>
           </DropdownMenu>}
         />
@@ -310,7 +310,6 @@ function SuggestionList({ suggestions, source, tokenPattern, onPick }: { suggest
               variant="ghost"
               size="row"
               className="group flex h-auto w-full items-start gap-2 rounded-none px-2 py-1.5 text-left hover:bg-accent"
-              title={index < VISIBLE_SUGGESTIONS ? `번역 칸에 넣기 (${keyLabel(`Alt+Shift+${index + 1}`)})` : '번역 칸에 넣기'}
               onClick={() => onPick(suggestion.text)}
             >
               <kbd className={cn('mt-0.5 inline-flex min-w-8 shrink-0 select-none items-center justify-center rounded border border-border bg-card px-1 py-0.5 font-mono text-2xs font-semibold text-muted-foreground group-hover:border-primary/40 group-hover:text-foreground', index >= VISIBLE_SUGGESTIONS && 'invisible')}>
@@ -494,12 +493,12 @@ function DraftChecks({ unitId, source, draft, units, terms, tags, rules, targetL
           key={unit.number}
           part={{ text: unit.close ? `${unit.open}…${unit.close}` : unit.open, token: { number: unit.number, kind: 'single' } }}
           missing
-          hint={`번역에 없음 · 눌러서 넣기 (${keyLabel(`Alt+${unit.number}`)})`}
+          hint={`번역에 없음 · ${keyLabel(`Alt+${unit.number}`)}`}
           onPick={() => insertUnitIntoLine(unitId, unit)}
         />
       ))}
       {tags.placed.length > 0 && (
-        <Button variant="ghost" size="inline" className="text-xs text-muted-foreground" title={`자리를 찾은 ${tags.placed.length}개 넣기 (${keyLabel('Alt+T')}, Tab으로 받기)`} onClick={onPlace}>
+        <Button variant="ghost" size="inline" className="text-xs text-muted-foreground" title={keyLabel('Alt+T')} onClick={onPlace}>
           제자리에 넣기
         </Button>
       )}

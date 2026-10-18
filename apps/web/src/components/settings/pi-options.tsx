@@ -36,7 +36,7 @@ export function PiOptionsPanel({ connectionId, options }: { connectionId: string
   });
   const save = useMutation({
     mutationFn: () => unwrap(client.connections[':id'].$patch({ param: { id: connectionId }, json: { options: draft } })),
-    onSuccess: () => toast.success('pi 설정을 저장했습니다. 다음 메시지부터 적용됩니다.'),
+    onSuccess: () => toast.success('pi 설정을 저장했습니다.'),
     onError: (error) => toast.error(error.message),
   });
   const update = (patch: Partial<PiOptions>) => setDraft((current) => ({ ...current, ...patch }));
@@ -52,7 +52,7 @@ export function PiOptionsPanel({ connectionId, options }: { connectionId: string
       {conflicts.length > 0 && <ChangedElsewhere onTakeSaved={takeSaved} onKeepMine={keepMine} />}
 
       <section>
-        <Row label="패키지·확장" hint="웹 검색(pi-web-access), 라우터, 다중 계정, 가드레일 등 pi에 설치한 것" checked={draft.extensions} onChange={(value) => update({ extensions: value })} />
+        <Row label="패키지·확장" checked={draft.extensions} onChange={(value) => update({ extensions: value })} />
         {draft.extensions && (
           <div className="mt-1 max-h-56 overflow-auto rounded-md border p-2">
             {resources.isPending ? (
@@ -110,7 +110,7 @@ export function PiOptionsPanel({ connectionId, options }: { connectionId: string
         {draft.builtinTools.length > 0 || draft.contextFiles ? (
           <div className="mt-2 space-y-1">
             <p className="text-xs">작업 폴더</p>
-            <Input className="font-mono text-xs" value={draft.cwd} placeholder="비워 두면 임시 폴더" onChange={(event) => update({ cwd: event.target.value })} />
+            <Input className="font-mono text-xs" value={draft.cwd} placeholder="임시 폴더" onChange={(event) => update({ cwd: event.target.value })} />
           </div>
         ) : null}
       </section>
@@ -118,7 +118,7 @@ export function PiOptionsPanel({ connectionId, options }: { connectionId: string
       <section>
         <Row label="스킬" hint={data ? `${data.skills.length}개 설치됨` : undefined} checked={draft.skills} onChange={(value) => update({ skills: value })} />
         <Row label="프롬프트 템플릿" hint={data ? `${data.prompts.length}개 설치됨` : undefined} checked={draft.promptTemplates} onChange={(value) => update({ promptTemplates: value })} />
-        <Row label="AGENTS.md 같은 지침 파일" hint="작업 폴더와 pi 설정 폴더에서 찾아 함께 넣습니다" checked={draft.contextFiles} onChange={(value) => update({ contextFiles: value })} />
+        <Row label="AGENTS.md 같은 지침 파일" checked={draft.contextFiles} onChange={(value) => update({ contextFiles: value })} />
       </section>
 
       <div className="flex gap-2">

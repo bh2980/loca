@@ -47,7 +47,7 @@ export function ListenerPicker({ line, cast, onPick, inline = false }: {
           } else if (event.key === 'Escape') setTyping(null);
         }}
         onBlur={() => setTyping(null)}
-        placeholder="이름 입력 후 Enter"
+        placeholder="이름"
         className={inline ? 'h-6 w-36 text-xs' : 'w-40'}
         aria-label="청자 이름"
       />
@@ -59,7 +59,6 @@ export function ListenerPicker({ line, cast, onPick, inline = false }: {
           // Reads as the speaker row's text; the small chevron says it can be changed.
           <SelectTrigger
             aria-label="청자 바꾸기"
-            title={hint ? `청자 바꾸기 · ${hint}` : '청자 바꾸기'}
             onClick={(event) => event.stopPropagation()}
             className={cn('h-auto min-w-0 gap-0.5 border-0 data-[size=default]:h-auto bg-transparent p-0 text-xs shadow-none hover:underline dark:bg-transparent dark:hover:bg-transparent [&>svg]:size-3', value === '-' ? 'text-warning' : 'text-muted-foreground')}
           >
@@ -75,7 +74,7 @@ export function ListenerPicker({ line, cast, onPick, inline = false }: {
           <SelectItem value="-"><span>청자 미상</span></SelectItem>
           {scene.length > 0 && (
             <SelectGroup>
-              <SelectLabel description="가까운 순">이 장면 인물</SelectLabel>
+              <SelectLabel>이 장면 인물</SelectLabel>
               {scene.map((name) => (
                 <SelectItem key={name} value={name}>
                   <span className="truncate">{name}</span>

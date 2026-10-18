@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { FileUp } from 'lucide-react';
-import { Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Spinner } from '@loca/ui';
+import { Button, Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Spinner } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -52,12 +52,9 @@ export function ImportProjectDialog({ trigger }: { trigger?: React.ReactNode }) 
           </Button>
         )}
       </DialogTrigger>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-lg" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>새 프로젝트 가져오기</DialogTitle>
-          <DialogDescription>
-            게임 추출기가 만든 <code className="text-xs">loca/v1</code> 형식의 JSON 파일을 선택하세요.
-          </DialogDescription>
         </DialogHeader>
         {/* Click to pick, or drop the file here. */}
         <label

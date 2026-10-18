@@ -99,7 +99,7 @@ export function JsonFieldsEditor({ fields, descriptionPlaceholder, onChange }: {
         {asSchema ? (
           <>
             <Textarea aria-label="필드 JSON 스키마" spellCheck={false} value={text} className="min-h-40 font-mono text-xs" onChange={(event) => edit(event.target.value)} />
-            {error ? <p className="text-xs text-destructive">{error}</p> : <p className="text-xs text-muted-foreground">{'[{ "name", "type", "description", "fields"? }]'} 형식입니다. type은 {JSON_FIELD_TYPES.join(' · ')}.</p>}
+            {error && <p className="text-xs text-destructive">{error}</p>}
           </>
         ) : (
           <FieldRows fields={fields} descriptionPlaceholder={descriptionPlaceholder} depth={0} onChange={onChange} />

@@ -1,4 +1,4 @@
-import { Button, Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@loca/ui';
+import { Button, Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Empty, EmptyHeader, EmptyTitle } from '@loca/ui';
 import type { PathNodeText } from '@/components/graph/path-graph';
 
 export interface RemainingBranchItem {
@@ -34,8 +34,8 @@ export function RemainingBranches({ open, onOpenChange, branches, unreachable, t
         <DialogHeader>
           <DialogTitle>남은 갈래 {branches.length.toLocaleString()}</DialogTitle>
           <DialogDescription>
-            이번 길이 지나지 않는 곳 중 번역하지 않은 줄이 있는 갈래입니다. 이번 길에서 갈라지는 선택지 순서로 보여 줍니다.
-            {unreachable > 0 && ` 어떤 길로도 닿지 않는 줄 ${unreachable.toLocaleString()}줄은 여기에 없습니다(그래프에서 시작점과 이어지지 않은 노드).`}
+            이번 길이 지나지 않는, 번역 안 한 줄이 있는 갈래
+            {unreachable > 0 && ` · 어떤 길로도 닿지 않는 ${unreachable.toLocaleString()}줄 제외`}
           </DialogDescription>
         </DialogHeader>
         {branches.length ? (
@@ -49,7 +49,7 @@ export function RemainingBranches({ open, onOpenChange, branches, unreachable, t
                     {line(branch.firstNode) && ` · ${line(branch.firstNode)}`}
                   </p>
                 </div>
-                <Button variant="outline" disabled={busy} title="이 갈래의 첫 번역 안 한 줄을 지나도록 길을 바꿉니다. 이번 길을 다 번역했으면 다음 길로 넘어갑니다." onClick={() => onGo(branch)}>
+                <Button variant="outline" disabled={busy} onClick={() => onGo(branch)}>
                   이 갈래로
                 </Button>
               </li>
@@ -59,7 +59,7 @@ export function RemainingBranches({ open, onOpenChange, branches, unreachable, t
           <Empty>
             <EmptyHeader>
               <EmptyTitle>남은 갈래가 없습니다</EmptyTitle>
-              <EmptyDescription>닿을 수 있는 줄은 모두 이번 길에 있거나 번역했습니다.</EmptyDescription>
+              
             </EmptyHeader>
           </Empty>
         )}

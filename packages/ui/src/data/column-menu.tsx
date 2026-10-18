@@ -139,7 +139,6 @@ export function ColumnMenu({
           variant="ghost"
           size="xs"
           className="mt-1.5 w-full text-xs text-muted-foreground hover:text-foreground"
-          title="열 순서, 보이기, 너비를 모두 처음으로"
           onClick={onReset}
         >
           기본으로

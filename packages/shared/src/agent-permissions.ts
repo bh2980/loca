@@ -3,7 +3,7 @@ import { z } from 'zod';
 export const AGENT_ACTIONS = { create: '생성', read: '조회', update: '변경', delete: '삭제', run: '실행' } as const;
 export type AgentAction = keyof typeof AGENT_ACTIONS;
 export const AGENT_RESOURCES = {
-  script: { label: '대사', actions: ['create', 'read', 'update', 'delete'], description: '생성은 새 대사 항목을 만듭니다. 기존 대사의 번역 후보를 추가하려면 변경 권한이 필요합니다.' },
+  script: { label: '대사', actions: ['create', 'read', 'update', 'delete'] },
   scenes: { label: '장면', actions: ['create', 'read', 'update', 'delete'] },
   characters: { label: '인물', actions: ['create', 'read', 'update', 'delete'] },
   relationships: { label: '관계', actions: ['create', 'read', 'update', 'delete'] },
@@ -13,7 +13,7 @@ export const AGENT_RESOURCES = {
   terms: { label: '용어집', actions: ['create', 'read', 'update', 'delete'] },
   statuses: { label: '상태', actions: ['create', 'read', 'update', 'delete'] },
   tags: { label: '태그', actions: ['create', 'read', 'update', 'delete'] },
-  workflows: { label: '워크플로', actions: ['create', 'read', 'update', 'delete', 'run'], description: '실행을 허용하면 해당 워크플로에 설정된 번역·자료 반영도 수행합니다.' },
+  workflows: { label: '워크플로', actions: ['create', 'read', 'update', 'delete', 'run'], description: '실행하면 워크플로의 반영 노드가 바로 적용하는 변경도 함께 일어납니다.' },
   project: { label: '프로젝트 설정', actions: ['read', 'update'] },
   web: { label: '웹', actions: ['read'] },
 } as const satisfies Record<string, { label: string; actions: readonly AgentAction[]; description?: string }>;

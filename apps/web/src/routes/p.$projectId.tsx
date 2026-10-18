@@ -280,9 +280,6 @@ function ProjectLayout() {
                             {waiting}건
                           </Badge>
                         </div>
-                        <p className="text-xs text-muted-foreground">
-                          에이전트가 제안한 변경 사항이 승인을 기다리고 있습니다.
-                        </p>
                         <Button
                           size="sm"
                           variant="outline"

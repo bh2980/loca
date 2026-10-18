@@ -128,7 +128,7 @@ export function ChatPanel({ projectId }: { projectId: string }) {
               <DropdownMenuItem key={session.id} onSelect={() => setSessionId(session.id)} className={cn('group/session pr-1', session.id === sessionId && 'font-medium')}>
                 <span className="min-w-0 flex-1 truncate">{session.title}</span>
                 {session.calls > 0 && (
-                  <span className="shrink-0 text-xs text-muted-foreground tabular-nums" title={`모델 요청 ${session.calls}건 · 토큰 ${session.tokens.toLocaleString()}`}>
+                  <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
                     {session.calls}건 · {compactTokens(session.tokens)}
                   </span>
                 )}
@@ -388,11 +388,6 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
         {!messages.length && (
           <div className="space-y-2 pt-6 text-sm text-muted-foreground">
             <p className="font-medium text-foreground">무엇을 도와드릴까요?</p>
-            {['대본을 끝까지 읽고 주요 인물 프로필을 만들어줘', '지금 진행 상황을 요약해줘', '검수를 더 엄격하게 하는 워크플로를 제안해줘'].map((example) => (
-              <Button key={example} variant="outline" size="row" className="px-3 py-2" onClick={() => setInput(example)}>
-                {example}
-              </Button>
-            ))}
           </div>
         )}
         <div className="space-y-5">
@@ -444,7 +439,7 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
           ))}
           {busy && (
             <p className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Spinner /> {status === 'submitted' ? '생각하는 중…' : '작업 중… (도구로 자료를 읽거나 답을 쓰고 있습니다)'}
+              <Spinner /> {status === 'submitted' ? '생각하는 중…' : '작업 중…'}
             </p>
           )}
           {!busy && !error && lastMessage?.role === 'user' && <TurnState turn={turn} onStop={halt} onRetry={() => void regenerate()} canRetry={ready} />}
@@ -497,14 +492,13 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
               send();
             }
           }}
-          placeholder={ready ? (busy || elsewhere ? '답하는 중에도 보낼 수 있습니다 (다음 단계에 전달)' : '메시지 (Enter 전송, Shift+Enter 줄바꿈)') : '먼저 아래에서 채팅할 AI 연결과 모델을 고르세요'}
+          placeholder={ready ? '메시지' : '모델을 먼저 고르세요'}
           className="max-h-48 min-h-16 resize-none border-0 bg-transparent px-1 shadow-none focus-visible:ring-0"
         />
         {!ready && (input.trim() || showModelHint) && (
           <p className="px-1 text-xs text-muted-foreground">
-            보내려면 아래에서 채팅할 AI 연결과 모델을 고르세요. 연결이 없으면{' '}
-            <Link to="/p/$projectId/settings/connections" params={{ projectId }} className="underline">AI 연결 화면</Link>
-            에서 추가합니다.
+            아래에서 AI 연결과 모델을 고르세요.{' '}
+            <Link to="/p/$projectId/settings/connections" params={{ projectId }} className="underline">AI 연결 추가</Link>
           </p>
         )}
         <div className="flex items-center gap-2">
@@ -519,7 +513,7 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
               </Button>
             )}
             {/* While the reply runs, a message goes in at its next step instead of waiting for it to end. */}
-            <Button size="icon" aria-label={busy || elsewhere ? '진행 중인 답에 끼워 보내기' : '보내기'} title={busy || elsewhere ? '지금 답에 끼워 보내기 (다음 단계에 전달)' : undefined} disabled={!input.trim() || !ready} onClick={send}>
+            <Button size="icon" aria-label={busy || elsewhere ? '진행 중인 답에 끼워 보내기' : '보내기'} disabled={!input.trim() || !ready} onClick={send}>
               <ArrowUp />
             </Button>
           </div>
@@ -533,7 +527,7 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
 function SteerBubble({ text, waiting = false }: { text: string; waiting?: boolean }) {
   return (
     <div className={cn('ml-8 rounded-lg bg-background px-3 py-2 text-sm whitespace-pre-wrap shadow-xs ring-1 ring-border', waiting && 'text-muted-foreground')}>
-      <span className="mb-0.5 block text-xs text-muted-foreground">{waiting ? '전달 대기 중 · 답의 다음 단계에 들어갑니다' : '진행 중에 보냄'}</span>
+      <span className="mb-0.5 block text-xs text-muted-foreground">{waiting ? '전달 대기 중' : '진행 중에 보냄'}</span>
       {text}
     </div>
   );
@@ -588,7 +582,6 @@ function TurnState({ turn, onStop, onRetry, canRetry }: { turn: Turn | null; onS
         <Spinner className="size-3.5" />
         <span className="min-w-0 flex-1">
           {step} · <Elapsed since={new Date(turn.startedAt)} />
-          <span className="block text-xs">새로고침 전에 보낸 질문입니다. 답이 끝나면 여기에 나타납니다.</span>
         </span>
         <Button variant="outline" onClick={onStop}>
           중단

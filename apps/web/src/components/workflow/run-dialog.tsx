@@ -237,7 +237,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
-              {workflows.data?.length ? '워크플로를 만들거나 수정하려면 ' : '저장된 워크플로가 없습니다. '}
+              {!workflows.data?.length && '저장된 워크플로가 없습니다. '}
               <Link to="/p/$projectId/workflows" params={{ projectId }} className="underline underline-offset-2">워크플로 관리</Link>
             </p>
             </div>
@@ -525,7 +525,7 @@ function Readiness({ projectId, readiness, oneScene, scoped, onLeave }: { projec
     {
       uses: 'speech',
       ok: readiness.unknownListenerLines === 0,
-      text: readiness.unknownListenerLines ? `청자를 모르는 대사 ${readiness.unknownListenerLines.toLocaleString()}줄 (말투 규칙이 안 걸림)` : '대사마다 청자가 정해짐',
+      text: readiness.unknownListenerLines ? `청자를 모르는 대사 ${readiness.unknownListenerLines.toLocaleString()}줄` : '대사마다 청자가 정해짐',
       link: readiness.unknownListenerLines > 0 && (
         <Link to="/p/$projectId/script" params={{ projectId }} search={{ marks: ['unknownListener'], ...(oneScene && { group: oneScene }) }} onClick={onLeave}>
           청자 정하기{scoped && !oneScene ? ' (프로젝트 전체 목록)' : ''}

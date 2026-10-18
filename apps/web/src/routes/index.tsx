@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { FolderOpen, Languages } from 'lucide-react';
-import { Card, CardDescription, CardHeader, CardTitle, Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle, Skeleton } from '@loca/ui';
+import { Card, CardDescription, CardHeader, CardTitle, Empty, EmptyContent, EmptyHeader, EmptyMedia, EmptyTitle, Skeleton } from '@loca/ui';
 import { ImportProjectDialog } from '@/components/import-project';
 import { q } from '@/lib/queries';
 
@@ -18,7 +18,6 @@ function Home() {
           </div>
           <div>
             <h1 className="text-base font-semibold tracking-tight">loca</h1>
-            <p className="text-xs text-muted-foreground">게임 번역 프로젝트</p>
           </div>
         </div>
         {!!projects.data?.length && <ImportProjectDialog />}
@@ -37,7 +36,6 @@ function Home() {
               <FolderOpen />
             </EmptyMedia>
             <EmptyTitle>프로젝트가 없습니다</EmptyTitle>
-            <EmptyDescription>게임에서 추출한 표준 포맷 파일을 가져와 시작하세요. 저장소의 samples 폴더에 예시가 있습니다.</EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
             <ImportProjectDialog />

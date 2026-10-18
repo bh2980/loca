@@ -205,7 +205,6 @@ export function LineDetail({
                             params={{ projectId }}
                             search={{ scope: 'dialogue', scene: line.group.id, node: item.id, jump: true }}
                             className="flex min-w-0 items-center gap-1.5 hover:underline"
-                            title={`${item.key}에서 열기`}
                           >
                             <Network className="size-3.5 shrink-0 text-muted-foreground" />
                             <span className="min-w-0 truncate">{item.key}에서 열기</span>
@@ -282,7 +281,7 @@ function CandidatesAndMatches({ unit, draft, onUse, tokenPattern }: { unit: Line
   const subject = unit.kind === 'ui' ? 'UI 문자열' : unit.kind === 'document' ? '문서 원문' : '대사';
   const rows = matches.data ?? [];
   const inEditor = (text: string) => draft !== (unit.translation ?? '') && text === draft;
-  const useButton = (text: string) => <Button variant="ghost" title={inEditor(text) ? '현재 초안에 이미 있습니다' : '현재 번역 초안에 적용'} disabled={inEditor(text)} onClick={() => onUse(text)}>{inEditor(text) ? '초안에 있음' : '이 번역 쓰기'}</Button>;
+  const useButton = (text: string) => <Button variant="ghost" disabled={inEditor(text)} onClick={() => onUse(text)}>{inEditor(text) ? '초안에 있음' : '이 번역 쓰기'}</Button>;
   return (
     <InspectorSection title={`번역 후보 · 유사 대사 (TM) ${unit.candidates.length + rows.length}`} actions={<>
       <AiButton variant="ghost" prompt={`${subject}의 번역 후보를 제안해줘.`}>AI 제안</AiButton>
@@ -412,7 +411,7 @@ function LineChecks({ projectId, source, text, rules, targetLanguage, speech, la
         ) : (
           <p className="flex items-center gap-1.5 text-sm text-success">
             <CircleCheck className="size-3.5" />
-            자리표시자·태그·줄바꿈이 원문과 맞습니다.
+            원문과 맞습니다.
           </p>
         )}
       </div>

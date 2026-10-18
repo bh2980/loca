@@ -522,7 +522,7 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
         context.fillText(label, cx, cy);
         context.fillStyle = colors.mutedForeground;
         context.font = `${12 / t.k}px Pretendard, system-ui, sans-serif`;
-        context.fillText(`노드 ${regionCounts[i].toLocaleString()}개 · 눌러서 확대`, cx, cy + size * 1.4);
+        context.fillText(`노드 ${regionCounts[i].toLocaleString()}개`, cx, cy + size * 1.4);
         context.textAlign = 'start';
       });
     drawMinimap();

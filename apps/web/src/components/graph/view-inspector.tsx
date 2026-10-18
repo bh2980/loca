@@ -116,9 +116,8 @@ export function ViewInspector({ projectId, viewId, shownNodes, derivedEdges, onC
       <InspectorSection title="이름">
         <InlineName value={data.label} onSave={(label) => actions.change.mutate({ id: data.id, label })} />
       </InspectorSection>
-      <InspectorSection title="만든 방식">
+      <InspectorSection title="정보">
         <PropertyGrid>
-          <PropertyRow label="방식">{ai ? 'AI가 채팅으로 고름' : '그래프에서 직접 고름'}</PropertyRow>
           <PropertyRow label="수정">{new Date(data.updatedAt).toLocaleString()}</PropertyRow>
         </PropertyGrid>
         {data.request && <p className="mt-3 whitespace-pre-wrap rounded-md border border-border bg-card px-3 py-2 text-sm">{data.request}</p>}
@@ -127,12 +126,12 @@ export function ViewInspector({ projectId, viewId, shownNodes, derivedEdges, onC
         <PropertyGrid>
           <PropertyRow label="남긴 노드">{data.nodeIds.length.toLocaleString()}개</PropertyRow>
           <PropertyRow label="화면 노드">{shownNodes.toLocaleString()}개</PropertyRow>
-          <PropertyRow label="파생 연결">{derivedEdges.toLocaleString()}개 · 남기지 않은 노드를 건너뛰는 선</PropertyRow>
+          <PropertyRow label="파생 연결">{derivedEdges.toLocaleString()}개</PropertyRow>
         </PropertyGrid>
       </InspectorSection>
       {data.missing.length > 0 && (
         <InspectorSection title="원본에 없음">
-          <p className="text-sm text-destructive">남긴 노드 {data.missing.length.toLocaleString()}개가 원본 그래프에서 사라졌습니다. 이 보기에는 그려지지 않습니다.</p>
+          <p className="text-sm text-destructive">남긴 노드 {data.missing.length.toLocaleString()}개가 원본 그래프에서 사라졌습니다. </p>
           <Button variant="outline" className="mt-2" onClick={() => actions.change.mutate({ id: data.id, remove: data.missing })}>
             없는 노드 정리
           </Button>
@@ -199,7 +198,7 @@ export function OmittedPane({ projectId, edge, sections, onOpenSource, onClose }
     >
       <InspectorSection title="생략한 구간">
         <p className="text-sm text-muted-foreground">
-          이 보기에 남기지 않은 노드 {ids.length.toLocaleString()}개를 거치는 원본 경로입니다. 연결은 원본 그래프에서 계산한 것이며 AI가 만든 것이 아닙니다.
+          남기지 않은 노드 {ids.length.toLocaleString()}개를 거치는 원본 경로 · 파생 연결
         </p>
       </InspectorSection>
       <InspectorSection title={`대사 ${omitted?.lines.toLocaleString() ?? 0}줄`}>
@@ -226,7 +225,7 @@ export function OmittedPane({ projectId, edge, sections, onOpenSource, onClose }
             ),
           )}
         </ul>
-        {ids.length > shown.length && <p className="mt-2 text-xs text-muted-foreground">노드 {(ids.length - shown.length).toLocaleString()}개는 원본에서 확인하세요.</p>}
+        {ids.length > shown.length && <p className="mt-2 text-xs text-muted-foreground">외 노드 {(ids.length - shown.length).toLocaleString()}개</p>}
       </InspectorSection>
     </Inspector>
   );

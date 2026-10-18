@@ -28,7 +28,7 @@ export function SourceText({ parts, units = [], unitId, missing = [], className 
               key={index}
               part={part}
               missing={!!part.token.number && missing.includes(part.token.number)}
-              hint={unitId ? `${missing.includes(part.token.number) ? '번역에 없음 · ' : ''}눌러서 넣기${part.token.number && part.token.number <= 9 ? ` (${keyLabel(`Alt+${part.token.number}`)})` : ''}` : undefined}
+              hint={unitId ? [missing.includes(part.token.number) && '번역에 없음', part.token.number && part.token.number <= 9 && keyLabel(`Alt+${part.token.number}`)].filter(Boolean).join(' · ') || undefined : undefined}
               onPick={
                 unitId
                   ? () => {
@@ -54,7 +54,6 @@ export function SourceText({ parts, units = [], unitId, missing = [], className 
               </TooltipTrigger>
               <TooltipContent>
                 {part.term.source} → {part.term.target}
-                {unitId && <span className="text-muted-foreground"> · 눌러서 넣기</span>}
               </TooltipContent>
             </Tooltip>
           );

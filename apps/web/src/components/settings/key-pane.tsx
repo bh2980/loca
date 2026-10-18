@@ -71,13 +71,13 @@ export function KeyPane({ row, onClose, onCreated }: { row?: KeyRow; onClose: ()
           <FieldLabel htmlFor="key-header">키를 보내는 헤더</FieldLabel>
           <Input id="key-header" className="font-mono text-xs" value={header} onChange={(event) => setHeader(event.target.value)} />
           <FieldDescription>
-            {'{key}'} 자리에 저장한 키가 들어갑니다. 예: X-API-Key: {'{key}'}
+            {'{key}'}는 저장한 키로 바뀝니다.
           </FieldDescription>
         </Field>
         <Field>
-          <FieldLabel htmlFor="key-secret">키 {row?.hasKey && <span className="font-normal text-muted-foreground">(저장됨 — 바꿀 때만 입력)</span>}</FieldLabel>
+          <FieldLabel htmlFor="key-secret">키 {row?.hasKey && <span className="font-normal text-muted-foreground">(저장됨)</span>}</FieldLabel>
           <Input id="key-secret" type="password" autoComplete="off" value={secret} onChange={(event) => setSecret(event.target.value)} />
-          <FieldDescription>OS 키체인에 저장되며 DB·워크플로·내보내기에 들어가지 않습니다.</FieldDescription>
+          <FieldDescription>OS 키체인에 저장되며 DB·내보내기에 들어가지 않습니다.</FieldDescription>
         </Field>
       </FieldGroup>
     </Inspector>

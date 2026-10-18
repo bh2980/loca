@@ -89,7 +89,6 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
   return (
     <SettingsSection
       title="치환자·태그 문법"
-      description="대본 에디터(원문 토큰 하이라이트·클릭 삽입)와 워크플로 형식 검사에서 무엇을 게임 치환자({name}, %s 등)·서식 태그(<b> 등)로 인식할지 정합니다. 개별 검사 항목과 추가 정규식 규칙은 워크플로의 ‘형식 검사’ 노드에서 설정합니다."
       headerActions={
         <Button variant="outline" onClick={applyAutoDetect} disabled={!detected || detectQuery.isPending}>
           <Sparkles className="size-3.5" /> 대본에서 자동 감지
@@ -127,10 +126,7 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
       </div>
 
       <div className="space-y-3">
-        <div className="space-y-1">
-          <p className="text-xs font-medium text-foreground">직접 추가 (정규식)</p>
-          <p className="text-xs text-muted-foreground">이 게임에만 쓰이는 고유한 치환자나 태그 문법을 정규식으로 등록합니다.</p>
-        </div>
+        <p className="text-xs font-medium text-foreground">직접 추가 (정규식)</p>
 
         <AiRegexInput
           projectId={projectId}
@@ -146,7 +142,6 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
           <div className="rounded-md border border-border bg-muted/40 p-3 space-y-2">
             <div className="flex items-center justify-between">
               <p className="text-xs font-medium text-foreground">대본에서 발견된 추가 규칙 추천</p>
-              <span className="text-xs text-muted-foreground">대본에 규칙적으로 등장하는 패턴입니다</span>
             </div>
             <div className="space-y-1.5">
               {detected.customCandidates.map((cand) => {

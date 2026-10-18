@@ -71,7 +71,7 @@ export function DockInspector({ empty }: { empty?: ReactNode }) {
   useEffect(() => { setTarget?.(target.current); return () => setTarget?.(null); }, [setTarget]);
   return <div className="relative min-h-0 flex-1">
     <div ref={target} className="h-full min-h-0" />
-    {!dock?.active && <div className="absolute inset-0 overflow-auto p-5 text-sm text-muted-foreground">{empty ?? '항목을 선택하면 속성이 여기에 표시됩니다.'}</div>}
+    {!dock?.active && <div className="absolute inset-0 overflow-auto p-5 text-sm text-muted-foreground">{empty ?? '선택 없음'}</div>}
   </div>;
 }
 

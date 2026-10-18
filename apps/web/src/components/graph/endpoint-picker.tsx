@@ -217,10 +217,9 @@ export function EndpointPicker({ projectId, direction, step, start, end, section
       ) : graph.isPending || graph.data?.status !== 'ready' || !currentLayout ? (
         <div className="flex min-h-0 flex-1 items-center justify-center gap-2 text-sm text-muted-foreground" role="status"><Spinner /> 원본 그래프를 불러오는 중…</div>
       ) : !currentLayout.nodes.length ? (
-        <Empty className="flex-1"><EmptyHeader><EmptyTitle>이 장에 대사가 없습니다</EmptyTitle><EmptyDescription>다른 장을 선택하거나 그래프 장면으로 돌아가세요.</EmptyDescription></EmptyHeader></Empty>
+        <Empty className="flex-1"><EmptyHeader><EmptyTitle>이 장에 대사가 없습니다</EmptyTitle></EmptyHeader></Empty>
       ) : (
         <CanvasSurface ref={sizeRef} className="min-h-0 min-w-0 flex-1" data-testid="endpoint-source-graph">
-          {expandedChain && <div className="absolute left-2 top-2 z-10 rounded-md border border-border bg-card px-2 py-1 text-xs text-muted-foreground">접힌 대사 흐름 · 원래 순서</div>}
           <GraphCanvas
             key={`${direction}:${sectionName ?? 'all'}:${expandedChain ?? 'source'}:${focusId ?? ''}`}
             nodes={displayedNodes}

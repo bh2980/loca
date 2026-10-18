@@ -233,14 +233,11 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
         {picking && <StretchPicker projectId={projectId} from={pair.from} to={pair.to} taken={new Set(pair.rules.map((rule) => rule.startKey ?? ''))} onPick={(key) => addStretch.mutate(key)} onCancel={() => setPicking(false)} />}
         {rules.length === 0 && (
           <p className="text-xs text-muted-foreground">
-            {pair.to === OTHERS_LISTENER
-              ? `${pair.from}의 그 밖의 사람 규칙이 없습니다.`
-              : others?.rules.length
-                ? `이 쌍의 규칙이 없어 ${pair.from}의 ‘그 밖의 사람’ 규칙(${SPEECH_LEVEL_LABELS[others.rules[0].level]})이 쓰입니다.`
-                : '이 쌍의 말투 규칙이 없습니다. 규칙이 없으면 번역에는 청자만 들어갑니다.'}
+            {pair.to !== OTHERS_LISTENER && others?.rules.length
+              ? `규칙이 없어 ${pair.from}의 ‘그 밖의 사람’ 규칙(${SPEECH_LEVEL_LABELS[others.rules[0].level]})이 쓰입니다.`
+              : '말투 규칙이 없습니다.'}
           </p>
         )}
-        {pair.to === OTHERS_LISTENER && <p className="text-xs text-muted-foreground">{pair.from}가 별도 규칙이 없는 상대에게 쓰는 기본 말투입니다.</p>}
         <ul className="space-y-2">
           {rules.map((rule) => {
             const open = openRule === rule.id;

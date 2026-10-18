@@ -177,7 +177,7 @@ export function ModelPicker({
                     )}
                   </CommandList>
                 </Command>
-                {models.data && !models.data.ok && <p className="text-xs text-muted-foreground">모델 목록을 못 불러왔습니다. 모델 이름을 직접 입력하세요.</p>}
+                {models.data && !models.data.ok && <p className="text-xs text-muted-foreground">모델 목록을 못 불러왔습니다.</p>}
                 {value?.model && !list.includes(value.model) && <p className="text-xs text-muted-foreground">지금: {value.model}</p>}
               </Field>
             )}

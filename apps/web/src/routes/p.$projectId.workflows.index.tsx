@@ -132,7 +132,7 @@ function Workflows() {
             <AlertDialogContent>
               <AlertDialogHeader>
                 <AlertDialogTitle>‘{row.original.name}’을 삭제할까요?</AlertDialogTitle>
-                <AlertDialogDescription>지난 실행 기록은 그대로 남습니다(실행 당시 정의를 따로 보관합니다).</AlertDialogDescription>
+                <AlertDialogDescription>지난 실행 기록은 남습니다.</AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>취소</AlertDialogCancel>
@@ -181,7 +181,7 @@ function Workflows() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>‘{deleteTarget?.name}’을 삭제할까요?</AlertDialogTitle>
-            <AlertDialogDescription>지난 실행 기록은 그대로 남습니다(실행 당시 정의를 따로 보관합니다).</AlertDialogDescription>
+            <AlertDialogDescription>지난 실행 기록은 남습니다.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>취소</AlertDialogCancel>
@@ -196,15 +196,15 @@ function Workflows() {
 type From = 'draft' | 'template' | 'terms' | 'listener' | 'people' | 'events' | 'speechFix' | 'analysis' | 'blank';
 
 /** The templates "새 워크플로" offers (defaults.ts); each is drawn as real nodes, prompts and saves included. */
-const TEMPLATE_OPTIONS: { value: Exclude<From, 'blank'>; name: string; label: string; description: string }[] = [
-  { value: 'draft', name: '초벌 번역', label: '초벌 번역 템플릿', description: 'AI 번역 → 번역 후보 기록 → 형식 검사 → 초벌 상태로 변경' },
-  { value: 'template', name: '번역·검수', label: '검수 포함 번역 템플릿', description: '번역 → 기록 → 형식 검사 → AI 검수 ↔ 수정 → 확정' },
-  { value: 'terms', name: '용어 추출', label: '용어 추출 템플릿', description: 'AI가 장면별로 용어를 뽑고 용어 저장 노드가 제안으로 올립니다 (상태는 그대로).' },
-  { value: 'people', name: '인물·관계 추출', label: '인물·관계 추출 템플릿', description: '장면별로 인물·관계·말투 규칙을 뽑아 각 저장 노드로 제안합니다.' },
-  { value: 'events', name: '사건 추출', label: '사건 추출 템플릿', description: '장면별로 사건(원인·결과·관련 인물)을 뽑아 사건 저장 노드로 제안합니다.' },
-  { value: 'listener', name: '청자 추정', label: '청자 추정 템플릿', description: '청자 없는 대사만 AI가 고르고, 확신도 0.7 이상이면 청자 설정 노드가 적습니다.' },
-  { value: 'analysis', name: '작품 분석', label: '작품 분석 템플릿', description: '대본 전체를 한 번에 읽는 AI 노드 뒤에 목록마다 저장 노드가 이어집니다. 필요 없는 항목은 필드와 저장 노드를 지우세요.' },
-  { value: 'speechFix', name: '말투만 고치기', label: '말투만 고치기 템플릿', description: '현재 번역의 어미·호칭만 확정 규칙에 맞춥니다 (뜻·표현·상태는 그대로).' },
+const TEMPLATE_OPTIONS: { value: Exclude<From, 'blank'>; name: string; label: string }[] = [
+  { value: 'draft', name: '초벌 번역', label: '초벌 번역 · 초벌 상태로' },
+  { value: 'template', name: '번역·검수', label: '번역 + AI 검수 · 확정까지' },
+  { value: 'terms', name: '용어 추출', label: '용어 추출' },
+  { value: 'people', name: '인물·관계 추출', label: '인물·관계 추출' },
+  { value: 'events', name: '사건 추출', label: '사건 추출' },
+  { value: 'listener', name: '청자 추정', label: '청자 추정' },
+  { value: 'analysis', name: '작품 분석', label: '작품 분석' },
+  { value: 'speechFix', name: '말투만 고치기', label: '말투만 고치기' },
 ];
 
 function NewWorkflow({ projectId }: { projectId: string }) {
@@ -239,17 +239,12 @@ function NewWorkflow({ projectId }: { projectId: string }) {
             {TEMPLATE_OPTIONS.map((option) => (
               <label key={option.value} className="flex items-start gap-2 text-sm">
                 <RadioGroupItem value={option.value} className="mt-0.5" />
-                <span>
-                  {option.label}
-                  <span className="block text-xs text-muted-foreground">{option.description}</span>
-                </span>
+                <span>{option.label}</span>
               </label>
             ))}
             <label className="flex items-start gap-2 text-sm">
               <RadioGroupItem value="blank" className="mt-0.5" />
-              <span>
-                빈 워크플로
-              </span>
+              <span>빈 워크플로</span>
             </label>
           </RadioGroup>
         </div>

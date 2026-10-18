@@ -72,7 +72,7 @@ export function TagPane({ tag, pending, onClose, onSave, onDelete }: { tag?: Tag
                 ))}
               </div>
             )}
-            <FieldDescription>{tag?.role ? '앱이 쓰는 태그라 붙는 곳을 바꿀 수 없습니다.' : '이 태그를 붙일 수 있고 메뉴·필터에 나오는 곳입니다. 이미 붙은 곳은 태그를 먼저 떼야 뺄 수 있습니다.'}</FieldDescription>
+            {!tag?.role && <FieldDescription>이미 붙은 곳은 태그를 먼저 떼야 뺄 수 있습니다.</FieldDescription>}
           </Field>
         </FieldGroup>
       </InspectorSection>

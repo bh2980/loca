@@ -181,7 +181,7 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
       <Button variant="outline" className={dirty ? undefined : 'ml-auto'} disabled={!dirty || save.isPending} onClick={() => save.mutate(draft)}>
         저장
       </Button>
-      <Button disabled={dirty} title={dirty ? '먼저 저장하세요' : row.status === 'candidate' ? '이대로 확정해 문맥에 씁니다' : '상태는 그대로 두고 사람이 확인한 것으로 표시합니다'} onClick={() => onDecide('confirm')}>
+      <Button disabled={dirty} title={dirty ? '먼저 저장하세요' : undefined} onClick={() => onDecide('confirm')}>
         <Check /> {confirmLabel([row])}
       </Button>
     </>

@@ -45,6 +45,5 @@ export function NodeLibrary({ groups, onSelect, onDragStart, placeholder = "노�
       </div>)}
       {filtered.length === 0 && <p className="px-2 py-3 text-xs text-muted-foreground">검색 결과가 없습니다.</p>}
     </div>
-    <p className="shrink-0 px-4 py-4 text-xs text-subtle-foreground">끌어서 캔버스에 놓기</p>
   </section>
 }

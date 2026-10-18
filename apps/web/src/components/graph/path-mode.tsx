@@ -131,11 +131,6 @@ export function PathMode({ projectId, toggle, start, end, via: externalVia, onVi
             <Button variant="outline" onClick={() => void route.refetch()}>다시 시도</Button>
           </div>
         )}
-        {data?.status === 'unreachable' && (
-          <div className="shrink-0 border-b border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground" role="status">
-            연결이 없거나 함께 실행되는 갈래가 끝 대사에 합류하지 않습니다. 시작 또는 끝 대사를 바꿔 보세요.
-          </div>
-        )}
         {found && data.sequence.length > 0 ? (
           <div className="flex h-full min-h-0 flex-1 overflow-hidden" data-testid="reading-route" data-route-nodes={data.nodeIds.length}>
             <GraphScriptSplit

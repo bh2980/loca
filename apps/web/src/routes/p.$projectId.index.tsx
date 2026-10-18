@@ -23,7 +23,7 @@ interface Todo {
   key: string;
   icon: ReactNode;
   title: string;
-  description: string;
+  description?: string;
   count: number;
   /** Something is wrong (a run stopped), not just waiting. */
   alert?: boolean;
@@ -45,7 +45,6 @@ function Home() {
   const reviewTag = useReviewTagId(projectId);
   const terms = useQuery(q.terms(projectId));
   const runs = useQuery(q.runs(projectId));
-  const workflows = useQuery(q.workflows(projectId));
   // Work analyses and glossary fills run beside workflows; the list shows them together, newest first.
   const jobs = useQuery(q.jobs(projectId));
 
@@ -72,7 +71,6 @@ function Home() {
       key: 'review',
       icon: <Inbox />,
       title: '검토함',
-      description: '‘검토함에 표시’ 상태의 대사. 번역을 확인하고 다음 상태로 옮기세요.',
       count: project.data?.reviewCount ?? 0,
       link: <Link to="/p/$projectId/script" params={{ projectId }} search={{ review: true }} />,
     },
@@ -80,7 +78,7 @@ function Home() {
       key: 'stopped',
       icon: <CircleAlert />,
       title: '멈춘 실행',
-      description: stopped[0]?.notice ?? '실행이 스스로 일시정지했습니다. 이유를 보고 이어서 실행하세요.',
+      description: stopped[0]?.notice ?? undefined,
       count: stopped.length,
       alert: true,
       link: stopped.length === 1 ? <Link to="/p/$projectId/runs/$runId" params={{ projectId, runId: stopped[0].id }} /> : <Link to="/p/$projectId/runs" params={{ projectId }} />,
@@ -89,7 +87,6 @@ function Home() {
       key: 'listener',
       icon: <UserRoundSearch />,
       title: '청자 미상 대사',
-      description: '누구에게 하는 말인지 모르면 말투 규칙을 쓸 수 없습니다. 대사 패널에서 고르거나 청자 추정 워크플로를 돌리세요.',
       count: groups.data?.reduce((sum, group) => sum + group.unknownListeners, 0) ?? 0,
       link: <Link to="/p/$projectId/script" params={{ projectId }} search={{ marks: ['unknownListener'] }} />,
     },
@@ -97,7 +94,6 @@ function Home() {
       key: 'rules',
       icon: <MessageSquareQuote />,
       title: '확인 권장 말투 규칙',
-      description: '대사가 많은 쌍이거나 근거가 엇갈리는 규칙. 틀리면 많은 줄의 번역이 틀립니다.',
       count: rules.data?.filter((rule) => rule.tags.some((tag) => tag.id === reviewTag)).length ?? 0,
       link: <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', ...(reviewTag && { tags: [reviewTag] }) }} />,
     },
@@ -105,8 +101,7 @@ function Home() {
     ...aiLinesByKind.map(({ kind, count }) => ({
       key: `ai-lines-${kind}`,
       icon: <Sparkles />,
-      title: `${AUTO_MARKS.ai.name} ${LINE_KIND_LABEL[kind]}`,
-      description: '워크플로가 상태를 정하고 아직 사람이 확인하지 않은 줄.',
+      title: `${AUTO_MARKS.ai.name} ${LINE_KIND_LABEL[kind]} 확인 전`,
       count,
       link: <Link to="/p/$projectId/script" params={{ projectId }} search={{ kind, marks: ['ai'] }} />,
     })),
@@ -120,24 +115,21 @@ function Home() {
     ).map(([key, name, where]) => ({
       key: `ai-${key}`,
       icon: <Sparkles />,
-      title: `${AUTO_MARKS.ai.name} ${name}`,
-      description: key === 'pairs' ? '문맥에 쓰이지만 아직 사람이 확인하지 않은 AI 자료(관계·말투 규칙 항목 수). 표는 쌍으로 묶어 보여 줍니다.' : '문맥에 쓰이지만 아직 사람이 확인하지 않은 AI 자료.',
+      title: `${AUTO_MARKS.ai.name} ${name} 확인 전`,
       count: aiDecided?.knowledge[key] ?? 0,
       link: <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ display: 'table', ...where, marks: ['ai'] }} />,
     })),
     {
       key: 'ai-terms',
       icon: <Sparkles />,
-      title: `${AUTO_MARKS.ai.name} 용어`,
-      description: '문맥에 쓰이고 있지만 아직 사람이 확인하지 않은 AI 용어.',
+      title: `${AUTO_MARKS.ai.name} 용어 확인 전`,
       count: aiDecided?.terms ?? 0,
       link: <Link to="/p/$projectId/glossary" params={{ projectId }} search={{ marks: ['ai'] }} />,
     },
     {
       key: 'terms',
       icon: <BookMarked />,
-      title: '후보 용어',
-      description: '확정해야 번역 문맥에 들어갑니다.',
+      title: '후보 용어 확정',
       count: terms.data?.filter((term) => termMarksOf(term).includes('candidate')).length ?? 0,
       link: <Link to="/p/$projectId/glossary" params={{ projectId }} search={{ marks: ['candidate'] }} />,
     },
@@ -145,7 +137,6 @@ function Home() {
       key: `untranslated-${kind}`,
       icon: <Workflow />,
       title: `${initial?.name ?? '미번역'} ${LINE_KIND_LABEL[kind]}`,
-      description: `${SCRIPT_VIEW[kind]}에서 번역할 줄을 찾아갑니다.`,
       count: initial ? statusCounts[initial.id] ?? 0 : 0,
       link: <Link to="/p/$projectId/script" params={{ projectId }} search={{ kind, status: initial?.id, mode: 'find' }} />,
     })),
@@ -172,7 +163,7 @@ function Home() {
             ))}
           </ul>
         ) : (
-          <p className="rounded-md border border-border px-4 py-6 text-xs text-muted-foreground">지금 할 일이 없습니다. 모든 대사가 처리됐고 검토할 것도 없습니다.</p>
+          <p className="rounded-md border border-border px-4 py-6 text-xs text-muted-foreground">지금 할 일이 없습니다.</p>
         )}
       </section>
 
@@ -215,7 +206,7 @@ function Home() {
           </Button>
         </div>
         {runs.data?.length === 0 && jobs.data?.jobs.length === 0 ? (
-          <p className="rounded-md border border-border px-4 py-6 text-xs text-muted-foreground">아직 실행한 적이 없습니다. 워크플로 {workflows.data?.length ?? 0}개가 준비되어 있습니다.</p>
+          <p className="rounded-md border border-border px-4 py-6 text-xs text-muted-foreground">아직 실행한 적이 없습니다.</p>
         ) : (
           <ul className="rounded-md border border-border">
             {recent.map((item) => (
@@ -250,7 +241,7 @@ function TodoRow({ todo }: { todo: Todo }) {
       <span className={cn('flex size-9 shrink-0 items-center justify-center rounded-md bg-muted [&_svg]:size-4', todo.alert && 'bg-destructive/10 text-destructive')}>{todo.icon}</span>
       <span className="min-w-0 flex-1">
         <span className="block text-sm font-medium">{todo.title}</span>
-        <span className="block truncate text-xs text-muted-foreground">{todo.description}</span>
+        {todo.description && <span className="block truncate text-xs text-muted-foreground">{todo.description}</span>}
       </span>
       <span className={cn('text-base font-semibold tabular-nums', todo.alert && 'text-destructive')}>{todo.count.toLocaleString()}</span>
       <ChevronRight className="size-4 text-muted-foreground" />

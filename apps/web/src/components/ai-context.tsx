@@ -93,7 +93,6 @@ export function AiContextPanel({ projectId, unitKey, unitKind = 'dialogue', aiNo
   if (!data.picked) return <p className="text-sm text-muted-foreground">AI 노드가 있는 워크플로가 없습니다.</p>;
   const value = `${data.picked.workflowId}:${data.picked.nodeId}`;
   const inBatch = data.batch.keys.length;
-  const currentUnitName = unitKind === 'ui' ? '이 문자열' : unitKind === 'document' ? '이 문서 원문' : '이 대사';
   const batchName = unitKind === 'dialogue' ? '장면' : '묶음';
   return (
     <div className="space-y-4">
@@ -111,8 +110,7 @@ export function AiContextPanel({ projectId, unitKey, unitKind = 'dialogue', aiNo
           </SelectContent>
         </Select>
         <p className="text-xs text-muted-foreground">
-          모델을 부르지 않고, 실행할 때와 같은 방식으로 만든 문맥입니다. {currentUnitName}이 속한 {batchName}에서 {inBatch}줄을 한 번에 보낸다고 보고 계산했습니다
-          {data.batch.mode === 'count' ? '(‘개수’ 묶음은 실제로는 장면을 넘을 수 있음)' : ''}. 실행 범위와 진입 상태에 따라 묶음이 더 작을 수 있습니다. 프롬프트 전체 {tokens(data.promptTokens)} 토큰(추정).
+          {batchName} 기준 {inBatch}줄을 한 번에 보내는 경우{data.batch.mode === 'count' ? ' (‘개수’ 묶음은 장면을 넘을 수 있음)' : ''} · 프롬프트 전체 {tokens(data.promptTokens)} 토큰(추정)
         </p>
       </div>
 
@@ -120,7 +118,7 @@ export function AiContextPanel({ projectId, unitKey, unitKind = 'dialogue', aiNo
         <h3 className="mb-1.5 text-xs font-medium text-muted-foreground">이 줄보다 앞서 포함된 대사</h3>
         {!data.preceding ? (
           <p className="text-xs text-muted-foreground">
-            {data.precedingLines === 0 ? '이 노드는 앞 대사를 넣지 않도록 설정되어 있습니다.' : '따로 넣지 않습니다. 앞 대사가 같은 묶음 안에 있거나, 묶음의 더 앞 대사에 이미 붙었습니다.'}
+            {data.precedingLines === 0 ? '넣지 않습니다.' : '따로 넣지 않습니다.'}
           </p>
         ) : (
           <div className="space-y-2 rounded-md border p-2">

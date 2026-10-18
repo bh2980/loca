@@ -154,7 +154,7 @@ function RunDetail() {
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>실행을 취소할까요?</AlertDialogTitle>
-          <AlertDialogDescription>아직 처리하지 않은 대사는 이 실행에서 빠집니다. 이미 반영된 번역·상태는 그대로이고, 다시 실행하면 남은 대사를 처리할 수 있습니다.</AlertDialogDescription>
+          <AlertDialogDescription>아직 처리하지 않은 대사는 이 실행에서 빠집니다. 이미 반영된 번역·상태는 그대로입니다.</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>계속 실행</AlertDialogCancel>
@@ -217,7 +217,7 @@ function RunDetail() {
             <Alert variant="destructive">
               <OctagonAlert />
               <AlertTitle>실행이 멈췄습니다</AlertTitle>
-              <AlertDescription>{data.notice} 원인을 확인한 뒤 위의 재개 버튼으로 이어서 실행할 수 있습니다.</AlertDescription>
+              <AlertDescription>{data.notice}</AlertDescription>
             </Alert>
           )}
           <p className="truncate text-xs text-muted-foreground">

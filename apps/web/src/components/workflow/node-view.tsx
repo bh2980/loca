@@ -62,7 +62,7 @@ export const WorkflowNodeView = memo(function WorkflowNodeView({ id, data, selec
   const ports = nodePorts(node);
   const isEntry = node.type === 'entry';
   const isVertical = direction === 'vertical';
-  const inputHandle = !isEntry && <Handle type="target" position={isVertical ? Position.Top : Position.Left} id="in" title="입력" aria-label="입력" className="!size-2.5 !border-2 !border-card !bg-muted-foreground" />;
+  const inputHandle = !isEntry && <Handle type="target" position={isVertical ? Position.Top : Position.Left} id="in" aria-label="입력" className="!size-2.5 !border-2 !border-card !bg-muted-foreground" />;
   const outputs = ports.map((port, index) => ({
     id: port.id,
     label: port.id === 'error' ? '오류' : port.label,
@@ -71,7 +71,6 @@ export const WorkflowNodeView = memo(function WorkflowNodeView({ id, data, selec
       type="source"
       position={isVertical ? Position.Bottom : Position.Right}
       id={port.id}
-      title={portHelp[port.id] ?? port.label}
       aria-label={portHelp[port.id] ?? port.label}
       className={handleClass(port.id)}
       style={isVertical

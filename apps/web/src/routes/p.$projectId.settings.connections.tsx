@@ -7,7 +7,6 @@ import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { z } from 'zod';
 import {
-  CONNECTION_CALL_DEFAULTS,
   CONNECTION_KIND_INFO,
   CONNECTION_KINDS,
   connectionInputSchema,
@@ -126,7 +125,6 @@ function ConnectionsSettingsPage() {
           <div className="space-y-8">
             <SettingsSection
               title="AI 모델 연결"
-              description="번역, 대사 추천, 채팅, 판정에 사용할 모델 제공자 연결입니다."
               actions={
                 <Button onClick={() => openConn('new')}>
                   <Plus /> 연결 추가
@@ -148,7 +146,6 @@ function ConnectionsSettingsPage() {
 
             <SettingsSection
               title="외부 API 키"
-              description="워크플로의 HTTP 호출 노드에서 사용할 외부 API 키입니다. 운영체제 키체인에 안전하게 보관됩니다."
               actions={
                 <Button onClick={() => openKey('new')}>
                   <Plus /> API 키 추가
@@ -178,7 +175,7 @@ function ConnectionsSettingsPage() {
 function PiNote() {
   return (
     <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
-      pi는 작업실 서버 안에서 돌고, 로그인은 pi가 관리합니다. 터미널에서 <code>pi</code>를 실행해 <code>/login</code>으로 구독(OAuth)이나 API 키를 연결하면, 여기서 그 모델들을 고를 수 있습니다.
+      로그인은 pi가 관리합니다. 터미널에서 <code>pi</code>를 실행해 <code>/login</code>으로 연결하세요.
     </p>
   );
 }
@@ -288,8 +285,8 @@ function NewConnection({ onClose, onCreated }: { onClose: () => void; onCreated?
             <PiNote />
           ) : (
             <Field>
-              <FieldLabel htmlFor="conn-exe" help="비워 두면 PATH에서 찾습니다.">실행 파일 경로 (선택)</FieldLabel>
-              <Input id="conn-exe" {...form.register('executable')} />
+              <FieldLabel htmlFor="conn-exe">실행 파일 경로 (선택)</FieldLabel>
+              <Input id="conn-exe" {...form.register('executable')} placeholder="PATH에서 찾기" />
             </Field>
           )}
         </FieldGroup>
@@ -431,8 +428,8 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
             )}
             {!isHttp && connection.kind !== 'pi' && (
               <Field>
-                <FieldLabel htmlFor="edit-exe">실행 파일 경로 (비워 두면 PATH)</FieldLabel>
-                <Input id="edit-exe" {...form.register('executable')} />
+                <FieldLabel htmlFor="edit-exe">실행 파일 경로</FieldLabel>
+                <Input id="edit-exe" {...form.register('executable')} placeholder="PATH에서 찾기" />
               </Field>
             )}
             {connection.kind === 'pi' && <PiNote />}
@@ -482,13 +479,10 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
                   <FieldError errors={[errors.maxOutputTokens]} />
                 </Field>
               </div>
-              <div className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
-                호출 조건 기본값: {CONNECTION_CALL_DEFAULTS.timeoutSeconds}초, {CONNECTION_CALL_DEFAULTS.maxAttempts}번, {CONNECTION_CALL_DEFAULTS.maxOutputTokens.toLocaleString()} 토큰.
-              </div>
             </InspectorSection>
 
             <InspectorSection title="막히면 (대체 모델)">
-              <p className="mb-2 text-xs text-muted-foreground">요청 한도·네트워크·시간 초과로 시도를 다 써도 실패하면 이 연결·모델로 넘깁니다. 그 연결의 ‘막히면’도 이어서 따릅니다. 채팅에는 쓰지 않습니다.</p>
+              <p className="mb-2 text-xs text-muted-foreground">채팅에는 쓰지 않습니다.</p>
               <Controller
                 control={form.control}
                 name="fallback"
@@ -502,7 +496,7 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
         {isHttp && (
           <InspectorSection title="API 키">
             <Field>
-              <FieldLabel htmlFor="edit-key">{connection.hasKey ? '저장됨 — 값은 표시되지 않습니다' : '저장된 키 없음'}</FieldLabel>
+              <FieldLabel htmlFor="edit-key">{connection.hasKey ? '저장됨' : '저장된 키 없음'}</FieldLabel>
               <div className="flex gap-2">
                 <Input id="edit-key" type="password" autoComplete="off" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="새 키 입력" />
                 <Button variant="outline" disabled={!apiKey.trim() || saveKey.isPending} onClick={() => saveKey.mutate()}>키 저장</Button>
@@ -563,7 +557,7 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
               ) : models.detail ? (
                 <p className="text-destructive">{models.detail}</p>
               ) : (
-                <p className="text-muted-foreground">이 연결은 모델 목록을 제공하지 않습니다. 모델 이름을 직접 입력하세요.</p>
+                <p className="text-muted-foreground">이 연결은 모델 목록을 제공하지 않습니다.</p>
               )}
             </div>
           )}
@@ -595,7 +589,7 @@ function ModelTest({ connectionId, need, defaultModel, defaultEffort }: { connec
   return (
     <InspectorSection title="모델 시험">
       <div className="flex flex-col gap-2">
-        <p className="text-sm text-muted-foreground">한 문장을 번역해 봅니다. 저장된 호출 조건과 ‘막히면’으로 실행되고, 결과는 프로젝트에 저장되지 않습니다.</p>
+        <p className="text-sm text-muted-foreground">실제 모델을 호출합니다.</p>
         <ModelPicker lockConnection need={need} value={choice} onChange={setChoice} />
         <Textarea rows={3} value={source} onChange={(event) => setSource(event.target.value)} placeholder="번역해 볼 원문 문장" />
         <Button type="button" variant="outline" className="self-start" disabled={!source.trim() || !choice.model || test.isPending} onClick={() => test.mutate()}>

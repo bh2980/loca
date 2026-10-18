@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Button, CanvasOverlay, CanvasSurface, CanvasToolbar, Empty, EmptyDescription, EmptyHeader, EmptyTitle, Spinner } from '@loca/ui';
+import { Button, CanvasSurface, CanvasToolbar, Empty, EmptyDescription, EmptyHeader, EmptyTitle, Spinner } from '@loca/ui';
 import { useSize } from '@/hooks/use-size';
 import { q } from '@/lib/queries';
 import { useQuery } from '@tanstack/react-query';
@@ -115,7 +115,7 @@ export function ReadingRouteGraph({ projectId, stages, routeKey, direction, onDi
         </Empty>
       ) : !routeNodes.length ? (
         <Empty className="absolute inset-0">
-          <EmptyHeader><EmptyTitle>표시할 대사 노드가 없습니다</EmptyTitle><EmptyDescription>선택한 경로에 연결된 원문 대사 노드가 없습니다.</EmptyDescription></EmptyHeader>
+          <EmptyHeader><EmptyTitle>표시할 대사 노드가 없습니다</EmptyTitle></EmptyHeader>
         </Empty>
       ) : !size.width || !size.height ? (
         <div className="absolute inset-0" role="status" aria-label="그래프 영역 크기를 계산하는 중" />
@@ -140,9 +140,6 @@ export function ReadingRouteGraph({ projectId, stages, routeKey, direction, onDi
               try { sessionStorage.setItem(viewportKey, JSON.stringify(viewport)); } catch { /* ignore unavailable storage */ }
             }}
             onSelect={(id) => onEdit(routeNodes.find((node) => node.id === id)?.firstUnitId || undefined)}
-          />
-          <CanvasOverlay
-            tools={<div className="rounded-md border border-border bg-card/95 px-2.5 py-1.5 text-xs text-muted-foreground shadow-2xs">선택한 구간 · 단일 경로</div>}
           />
           <CanvasToolbar
             direction={direction}

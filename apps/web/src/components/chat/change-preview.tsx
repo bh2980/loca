@@ -44,7 +44,6 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
           {field('대상', `${kinds[input.kind as string] ?? String(input.kind)} ${((input.ids as unknown[] | undefined) ?? []).length}개`)}
           {field('붙이기', names(input.add))}
           {field('떼기', names(input.remove))}
-          <p className="text-muted-foreground">다른 태그와 항목 내용은 그대로입니다.</p>
         </dl>
       );
     }
@@ -75,7 +74,6 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
               </div>
             ) : null;
           })}
-          <p className="text-muted-foreground">모두 함께 저장됩니다. 한 항목이라도 실패하면 아무것도 저장하지 않으니, 실패한 항목을 고쳐 다시 보내게 됩니다.</p>
         </div>
       );
     }
@@ -187,7 +185,7 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
             ))}
           </ul>
           {changes.length > 50 && <p className="text-muted-foreground">외 {changes.length - 50}개</p>}
-          {pending && <p className="text-muted-foreground">수락하면 한 번에 반영됩니다. 그사이 다른 곳에서 바뀐 대사는 덮어쓰지 않고 건너뜁니다.</p>}
+          {pending && <p className="text-muted-foreground">그사이 바뀐 대사는 덮어쓰지 않고 건너뜁니다.</p>}
         </div>
       );
     }
@@ -215,7 +213,7 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
     case 'propose_translation':
       return <dl className="space-y-1">{field('번역', input.text)}{field('메모', input.note)}</dl>;
     case 'save_group_summary':
-      return <dl className="space-y-1">{field('요약', input.description)}<p className="text-muted-foreground">AI 번역 노드가 이 장면의 문맥으로 받습니다.</p></dl>;
+      return <dl className="space-y-1">{field('요약', input.description)}</dl>;
     case 'edit_workflow_node': {
       const value = input.field === 'expression' ? JSON.stringify(input.value, null, 2) : String(input.value ?? '');
       return (

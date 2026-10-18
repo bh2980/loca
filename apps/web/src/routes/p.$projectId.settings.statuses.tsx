@@ -150,7 +150,7 @@ function StatusSettings() {
     },
     { id: 'kind', header: '종류', meta: { width: 112, className: 'text-muted-foreground' }, cell: ({ row }) => STATUS_KIND[row.original.kind] },
     { id: 'review', header: '검토함에 표시', meta: { width: 120 }, cell: ({ row }) => (row.original.inReview ? '표시' : <span className="text-muted-foreground">–</span>) },
-    { id: 'human', header: '사람만 지정', meta: { width: 104 }, cell: ({ row }) => (row.original.humanOnly ? '사람만' : <span className="text-muted-foreground">–</span>) },
+    { id: 'human', header: '워크플로 지정 안 함', meta: { width: 132 }, cell: ({ row }) => (row.original.humanOnly ? '지정 안 함' : <span className="text-muted-foreground">–</span>) },
     { id: 'units', header: '대사 수', meta: { width: 96, align: 'end' }, cell: ({ row }) => row.original.units.toLocaleString() },
   ];
   // One table: the built-in tags first (marks the app reads off, then tags the app puts on), then the person's own.

@@ -1,7 +1,7 @@
 /** Edits one workflow node's config; the node kinds live beside this file. */
 import { useState } from 'react';
 import { Trash2 } from 'lucide-react';
-import { AI_OUTPUTS, AI_SCOPES, CHOICE_SOURCES, FUNCTIONS, JSON_FIELD_TYPE_LABELS, NODE_TYPES, nodeName, nodePorts, type FunctionName, type JsonField, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
+import { AI_OUTPUTS, AI_SCOPES, CHOICE_SOURCES, JSON_FIELD_TYPE_LABELS, NODE_TYPES, nodeName, nodePorts, type JsonField, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
 import { Button, DangerZone, Inspector, InspectorHeader, InspectorSection, InspectorTabs, PropertyGrid, PropertyRow, StatusIcon, Checkbox, Input } from '@loca/ui';
 import { nodeIcon } from '../node-view';
 import { AiConfig } from '@/components/workflow/node-config/ai';
@@ -35,11 +35,6 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
   const activeTab = tab ?? localTab;
   const changeTab = onTab ?? setLocalTab;
   const Icon = nodeIcon(node);
-  const description = node.type === 'function'
-    ? (FUNCTIONS[node.config.fn as FunctionName]?.description ?? '')
-    : node.type === 'ai'
-      ? AI_OUTPUTS[node.config.output].description
-      : NODE_TYPES[node.type].description;
   const incoming = refs.edges?.filter((edge) => edge.target === node.id) ?? [];
   const outgoing = refs.edges?.filter((edge) => edge.source === node.id) ?? [];
   const outgoingPorts = nodePorts(node);
@@ -47,7 +42,7 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
   return (
     <Inspector
       className="min-w-0 border-l-0"
-      header={<InspectorHeader icon={<Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />} kind={`${NODE_TYPES[node.type].label} · ${node.id}`} name={nodeName(node)} status={description} onClose={onClose} />}
+      header={<InspectorHeader icon={<Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />} kind={`${NODE_TYPES[node.type].label} · ${node.id}`} name={nodeName(node)} onClose={onClose} />}
       tabs={<InspectorTabs<NodeConfigTab> value={activeTab} onChange={changeTab} items={[{ value: 'settings', label: '설정' }, { value: 'io', label: '입출력' }, { value: 'errors', label: '오류' }]} />}
       bodyClassName="space-y-0 p-0"
     >
@@ -59,7 +54,7 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
             </Field>
             {node.type === 'ai' && <AiConfig part="model" node={node} refs={refs} onChange={onChange} />}
             {node.type === 'entry' && (
-              <Field label="들어올 대사의 상태" help="선택한 상태 중 하나인 대사만 실행 대상이 됩니다. 아무것도 고르지 않으면 범위 안의 모든 대사.">
+              <Field label="들어올 대사의 상태 · 비우면 전체">
                 <div className="space-y-1.5">
                   {refs.statuses.map((status) => (
                     <label key={status.id} className="flex items-center gap-2 text-sm">
@@ -127,20 +122,17 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
                     )}
                   </PropertyRow>
                 );
-              }) : <PropertyRow label="출구">이 노드는 대사 흐름을 마칩니다.</PropertyRow>}
+              }) : <PropertyRow label="출구">없음</PropertyRow>}
             </PropertyGrid>
-            {node.type === 'function' && <PropertyGrid><PropertyRow label="동작">{FUNCTIONS[node.config.fn as FunctionName]?.description ?? node.config.fn}</PropertyRow></PropertyGrid>}
             {node.type === 'condition' && <PropertyGrid><PropertyRow label="조건">{node.config.description || '조건식'}</PropertyRow></PropertyGrid>}
             {node.type === 'ai' && (
               <div className="mt-3 space-y-2">
                 <p className="text-xs font-medium">설정된 결과 · {AI_OUTPUTS[node.config.output].label}</p>
-                <p className="text-xs text-muted-foreground">{AI_OUTPUTS[node.config.output].description}</p>
                 {node.config.output === 'json' && <PropertyGrid><PropertyRow label="출력 단위">{AI_SCOPES[node.config.scope]}</PropertyRow>{fieldRows(node.config.fields).map((row) => <PropertyRow key={row.key} label={row.label}>{row.description}</PropertyRow>)}</PropertyGrid>}
                 {node.config.output === 'choice' && <PropertyGrid><PropertyRow label="선택지">{node.config.choice.source === 'custom' ? node.config.choice.values.join(' · ') || '없음' : CHOICE_SOURCES[node.config.choice.source]}</PropertyRow><PropertyRow label="없음 허용">{node.config.choice.allowNone ? '예' : '아니오'}</PropertyRow></PropertyGrid>}
               </div>
             )}
           </InspectorSection>
-          <p className="px-5 py-3 text-xs text-muted-foreground">실행 결과는 이 설정 화면에 없습니다. 실제 값은 실행 기록에서 확인하세요.</p>
         </div>
       )}
 

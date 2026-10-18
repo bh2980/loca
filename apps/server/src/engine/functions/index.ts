@@ -81,8 +81,8 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
           const inbox = tx.select({ id: s.statuses.id }).from(s.statuses).where(and(eq(s.statuses.projectId, input.projectId), eq(s.statuses.inReview, true), eq(s.statuses.humanOnly, false))).orderBy(asc(s.statuses.sort)).get();
           if (inbox) {
             patch.statusId = inbox.id;
-            issues.push(`‘${target.name}’은(는) 사람만 지정할 수 있어 검토함으로 보냈습니다.`);
-          } else issues.push(`‘${target.name}’은(는) 사람만 지정할 수 있어 상태를 바꾸지 않았습니다(검토함에 표시하는 상태가 없음).`);
+            issues.push(`‘${target.name}’은(는) 워크플로가 지정하지 않는 상태라 검토함으로 보냈습니다.`);
+          } else issues.push(`‘${target.name}’은(는) 워크플로가 지정하지 않는 상태라 바꾸지 않았습니다(검토함 상태가 없음).`);
         } else patch.statusId = params.statusId;
         if (patch.statusId) Object.assign(patch, { statusBy: 'ai', statusRunId: input.runId });
       }

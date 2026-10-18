@@ -89,7 +89,7 @@ export function LineHints({ projectId, line, part }: { projectId: string; line: 
         type="button"
         variant="ghost"
         size="inline"
-        title={ok === false ? `번역에 없음 · 눌러서 ‘${term.target}’ 넣기` : `눌러서 ‘${term.target}’ 넣기`}
+        title={ok === false ? '번역에 없음' : undefined}
         onClick={() => { if (!insertIntoLine(line.id, term.target)) toast.info('번역 칸이 열려 있지 않습니다.'); }}
         className={cn('h-auto gap-1 rounded-md border border-border bg-card px-1.5 py-0.5 text-xs font-normal shadow-2xs hover:bg-accent', ok === false && 'border-warning/40 text-warning')}
       >
@@ -328,7 +328,7 @@ export function LineRow({
   ) : null;
   // The details pane opens only from here or the row's menu; picking a line never opens it.
   const detailButton = selected && onOpenDetail ? (
-    <Button variant="ghost" size="inline" className="text-muted-foreground" title="이 줄의 상세 정보를 오른쪽 패널에 엽니다" onClick={(event) => (event.stopPropagation(), onOpenDetail())}>
+    <Button variant="ghost" size="inline" className="text-muted-foreground" onClick={(event) => (event.stopPropagation(), onOpenDetail())}>
       상세
     </Button>
   ) : null;

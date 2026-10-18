@@ -32,7 +32,7 @@ export function SceneNodeDetail({ projectId, groupId, onClose }: { projectId: st
             </Link>
           </Button>
         </div>
-        <p className="text-xs text-muted-foreground">장면 사이 연결은 대사 그래프에서 파생한 것입니다. 원본에 장면 순서가 기록된 것은 아닙니다.</p>
+        <p className="text-xs text-muted-foreground">장면 사이 연결은 대사 그래프에서 파생</p>
       </div>
     </div>
   );
@@ -112,7 +112,6 @@ export function FlowPane({ projectId, nodeIds, title, way, extra, marked, editin
       key={key}
       data-marked={options.scrollTo || undefined}
       data-editing={(options.unitId && options.unitId === editing) || undefined}
-      title={options.unitId ? '눌러서 번역 (노드 옆 카드)' : undefined}
       className={cn('group relative grid gap-3 px-3 py-2', options.unitId && 'cursor-pointer hover:bg-muted', options.unitId && options.unitId === editing && 'bg-primary/5 shadow-[inset_2px_0_0_var(--primary)]', options.className)}
       style={{ gridTemplateColumns: `${width}px minmax(0,1fr)` }}
       onClick={options.unitId ? () => onEdit(options.unitId!) : undefined}

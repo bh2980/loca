@@ -24,7 +24,7 @@ export function MarkPane({ mark, color, pending, onClose, onSave }: { mark: Auto
         <FieldGroup className="gap-4">
           <Field>
             <FieldLabel>뜻</FieldLabel>
-            <FieldDescription>{info.description}. 앱이 읽어 내므로 이름을 바꾸거나 지울 수 없습니다.</FieldDescription>
+            <FieldDescription>{info.description}</FieldDescription>
           </Field>
           <Field>
             <FieldLabel>색상</FieldLabel>

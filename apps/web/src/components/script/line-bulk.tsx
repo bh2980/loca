@@ -105,7 +105,7 @@ export function LineHeadRow({ projectId, rows, bulk, statusList, tags }: { proje
           translation={<span>번역{targetLanguage && <span className="ml-1 text-subtle-foreground">· {targetLanguage}</span>}</span>}
           selection={picked.size > 0 ? (
             <SelectionBar count={picked.size} onClear={stopPicking} className="flex-1 pr-4">
-              <EditorAction icon={Check} variant="outline" disabled={!hasAi || check.isPending} aria-label="AI가 정한 줄을 확인함" title="상태는 그대로 두고 사람이 확인한 것으로 표시합니다(✦ 없앰)" onClick={() => check.mutate(pickedByAi)}>
+              <EditorAction icon={Check} variant="outline" disabled={!hasAi || check.isPending} aria-label="AI가 정한 줄을 확인함" onClick={() => check.mutate(pickedByAi)}>
                 확인함{hasAi ? ` ${pickedByAi.length}` : ''}
               </EditorAction>
               <Select value="" onValueChange={(statusId) => setStatus.mutate(statusId)}>
@@ -158,7 +158,7 @@ function BulkListener({ speakers, cast, onPick }: { speakers: string[]; cast: st
           } else if (event.key === 'Escape') setTyping(null);
         }}
         onBlur={() => setTyping(null)}
-        placeholder="이름 입력 후 Enter"
+        placeholder="이름"
         className="h-8 w-40"
         aria-label="청자 이름"
       />

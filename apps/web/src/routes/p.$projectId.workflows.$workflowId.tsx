@@ -25,7 +25,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import { ArrowLeftRight, ArrowUpDown, ChevronRight, Copy, Focus, LayoutGrid, Maximize, Pencil, Plus, SlidersHorizontal, Trash2, Unlink } from 'lucide-react';
 import { toast } from 'sonner';
-import { AI_OUTPUTS, AI_PRESETS, APPLY_FUNCTION_NAMES, APPLY_TARGETS, FUNCTIONS, FUNCTION_NAMES, NODE_TYPES, PALETTE_FUNCTION_NAMES, nodeModels, nodeName, nodePorts, syncEntryEdges, workflowNodeSchema, type FunctionName, type WorkflowDefinition, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
+import { AI_PRESETS, APPLY_FUNCTION_NAMES, APPLY_TARGETS, FUNCTIONS, FUNCTION_NAMES, PALETTE_FUNCTION_NAMES, nodeModels, nodeName, nodePorts, syncEntryEdges, workflowNodeSchema, type FunctionName, type WorkflowDefinition, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
 import { Page, StatusBarItem } from '@/components/page';
 import { autoLayout } from '@/components/workflow/auto-layout';
 import { NodeConfig } from '@/components/workflow/node-config';
@@ -561,15 +561,14 @@ function WorkflowEditor() {
           label: preset.label,
           kind: 'ai' as const,
           icon: null,
-          description: preset.description ?? AI_OUTPUTS[preset.output as keyof typeof AI_OUTPUTS]?.description,
         })),
-        { id: 'ai', label: 'AI 자유 형식', kind: 'ai' as const, icon: null, description: AI_OUTPUTS.json.description },
+        { id: 'ai', label: 'AI 자유 형식', kind: 'ai' as const, icon: null },
       ],
     },
     {
       id: 'apply',
       label: '반영',
-      items: APPLY_FUNCTION_NAMES.map((fn) => ({ id: fn, label: FUNCTIONS[fn].label, kind: 'function' as const, icon: null, description: FUNCTIONS[fn].description })),
+      items: APPLY_FUNCTION_NAMES.map((fn) => ({ id: fn, label: FUNCTIONS[fn].label, kind: 'function' as const, icon: null })),
     },
     {
       id: 'function',
@@ -579,14 +578,13 @@ function WorkflowEditor() {
         label: FUNCTIONS[fn].label,
         kind: (fn === 'setStatus' ? 'status' : 'function') as 'status' | 'function',
         icon: null,
-        description: FUNCTIONS[fn].description,
       })),
     },
     {
       id: 'condition',
       label: '조건 분기',
       items: [
-        { id: 'condition', label: '조건 분기', kind: 'condition' as const, icon: null, description: NODE_TYPES.condition.description },
+        { id: 'condition', label: '조건 분기', kind: 'condition' as const, icon: null },
       ],
     },
   ];

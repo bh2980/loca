@@ -34,7 +34,7 @@ export function FillDialog({ projectId, pending, calls, batch, open: controlledO
         <DialogHeader>
           <DialogTitle>빈 번역 AI로 채우기</DialogTitle>
           <DialogDescription>
-            번역이 빈 후보 {pending.toLocaleString()}개 · 예상 요청 {calls.toLocaleString()}회 (요청당 {batch}개, 예문 2줄씩)
+            번역이 빈 후보 {pending.toLocaleString()}개 · 예상 요청 {calls.toLocaleString()}회
           </DialogDescription>
         </DialogHeader>
         <ModelPicker value={model} onChange={setPicked} />

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Play, RotateCcw } from 'lucide-react';
-import { Button, Checkbox, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Skeleton } from '@loca/ui';
+import { Button, Checkbox, Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Skeleton } from '@loca/ui';
 import type { ModelValue } from '@/components/model-picker';
 import { client, unwrap } from '@/lib/api';
 import { Pace, RunModels } from './run-estimate';
@@ -41,10 +41,9 @@ export function ContinueRun({ runId, failed, paused, open: controlledOpen, onOpe
       {!hideTrigger && <DialogTrigger asChild>
         <Button variant={paused ? 'outline' : 'default'}>{paused ? <Play /> : <RotateCcw />} {paused ? '모델 바꿔 재개' : '실패한 줄 다시'}</Button>
       </DialogTrigger>}
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-lg" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>{paused ? '다른 모델로 이어서 실행' : '이 실행 이어서 하기'}</DialogTitle>
-          <DialogDescription>남은 줄부터 고른 모델로 처리합니다. 이미 끝난 줄과 워크플로의 모델은 그대로이고, 어느 호출이 어떤 연결로 갔는지는 AI 호출 기록에 남습니다.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           {failed > 0 && (
@@ -58,7 +57,7 @@ export function ContinueRun({ runId, failed, paused, open: controlledOpen, onOpe
               이어서 처리할 대사 <b className="tabular-nums">{data.lines.toLocaleString()}</b>줄
             </p>
           )}
-          {nothing && <p className="text-sm text-muted-foreground">이어서 처리할 대사가 없습니다.{failed > 0 && ' 실패한 줄을 다시 하려면 위를 고르세요.'}</p>}
+          {nothing && <p className="text-sm text-muted-foreground">이어서 처리할 대사가 없습니다.</p>}
           {data && !nothing && <Pace data={data.plan} />}
           {data && !nothing && (
             <RunModels
@@ -69,7 +68,6 @@ export function ContinueRun({ runId, failed, paused, open: controlledOpen, onOpe
               changedNote="남은 줄부터"
             />
           )}
-          {data && !nothing && <p className="text-xs text-muted-foreground">예상은 남은 줄이 모든 단계를 처음부터 거친다고 보고 계산한 최대치입니다.</p>}
           {plan.isPending && <Skeleton className="h-24 w-full" />}
           {plan.isError && <p className="text-sm text-destructive">{plan.error.message}</p>}
         </div>
