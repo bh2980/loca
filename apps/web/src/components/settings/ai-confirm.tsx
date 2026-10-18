@@ -52,7 +52,7 @@ export function AiConfirmList({ projectId }: { projectId: string }) {
     <ul className="rounded-lg border">
       {(Object.keys(AI_CONFIRM_KINDS) as AiConfirmKind[]).map((kind) => (
         <li key={kind} className="flex items-center gap-3 px-4 py-2">
-          <span className="min-w-0 flex-1 text-sm font-medium">{AI_CONFIRM_KINDS[kind]}</span>
+          <span className="min-w-0 flex-1 text-sm">{AI_CONFIRM_KINDS[kind]}</span>
           <Select value={policy[kind]} disabled={!project.data || save.isPending} onValueChange={(value) => save.mutate({ ...policy, [kind]: value as 'auto' | 'candidate' })}>
             <SelectTrigger size="sm" className="w-32" aria-label={`${AI_CONFIRM_KINDS[kind]} AI 결과`}>
               <SelectValue />

@@ -1,4 +1,4 @@
-import { DockProvider, DockInspector, DockHeader, WorkspaceShell, PageHeader, Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle, Button, SidebarInset, SidebarProvider, SidebarTrigger, AppStatusBar, StatusBar, STATUS_BAR_SLOT_ID, Popover, PopoverContent, PopoverTrigger, StatusIcon, Badge, Spinner, Progress } from '@loca/ui';
+import { DockProvider, DockInspector, DockHeader, WorkspaceShell, PageHeader, Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle, Button, SidebarInset, SidebarProvider, SidebarTrigger, AppStatusBar, StatusBar, STATUS_BAR_SLOT_ID, Popover, PopoverContent, PopoverTrigger, SectionHeading, GroupHeading, StatusIcon, Badge, Spinner, Progress } from '@loca/ui';
 import { useCallback, useEffect, useState } from 'react';
 import { createFileRoute, Link, Outlet } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
@@ -110,12 +110,9 @@ function ProjectLayout() {
                 </PopoverTrigger>
                 <PopoverContent side="top" align="start" className="w-72 p-3">
                   <div className="space-y-2.5">
-                    <div className="flex items-center justify-between border-b pb-2">
-                      <span className="text-xs font-semibold text-foreground">번역 진행 현황</span>
-                      <span className="text-xs text-muted-foreground tabular-nums">
-                        전체 {progress.total.toLocaleString()}줄 중 {progress.done.toLocaleString()}줄 확정
-                      </span>
-                    </div>
+                    <SectionHeading as="h3" className="border-b pb-2" actions={<span className="text-xs font-normal text-muted-foreground tabular-nums">전체 {progress.total.toLocaleString()}줄 중 {progress.done.toLocaleString()}줄 확정</span>}>
+                      번역 진행 현황
+                    </SectionHeading>
                     <div className="space-y-1">
                       {progress.statuses.map((s) => {
                         const count = progress.counts[s.id] ?? 0;
@@ -126,13 +123,13 @@ function ProjectLayout() {
                             to="/p/$projectId/script"
                             params={{ projectId }}
                             search={{ status: s.id }}
-                            className="flex items-center justify-between rounded px-1.5 py-1 text-xs hover:bg-accent hover:text-accent-foreground"
+                            className="flex items-center justify-between rounded px-1.5 py-1 text-sm hover:bg-accent hover:text-accent-foreground"
                           >
                             <span className="flex items-center gap-1.5">
                               <StatusIcon status={s} />
                               <span>{s.name}</span>
                             </span>
-                            <span className="text-muted-foreground tabular-nums">
+                            <span className="text-xs text-muted-foreground tabular-nums">
                               {count.toLocaleString()}줄 ({pct}%)
                             </span>
                           </Link>
@@ -145,7 +142,7 @@ function ProjectLayout() {
                           to="/p/$projectId/script"
                           params={{ projectId }}
                           search={{ review: true }}
-                          className="flex items-center justify-between rounded px-1.5 py-1 text-xs text-warning hover:bg-warning/10"
+                          className="flex items-center justify-between rounded px-1.5 py-1 text-sm text-warning hover:bg-warning/10"
                         >
                           <span className="flex items-center gap-1.5">
                             <TriangleAlert className="size-3.5" />
@@ -183,18 +180,17 @@ function ProjectLayout() {
                 </PopoverTrigger>
                 <PopoverContent side="top" align="end" className="w-80 p-3">
                   <div className="space-y-2.5">
-                    <div className="flex items-center justify-between border-b pb-2">
-                      <span className="text-xs font-semibold text-foreground">
-                        {activeCount > 0 ? `실행 중인 워크플로 (${activeCount}건)` : '최근 워크플로 실행'}
-                      </span>
-                      <Link
-                        to="/p/$projectId/runs"
-                        params={{ projectId }}
-                        className="text-xs text-muted-foreground underline hover:text-foreground"
-                      >
-                        전체 보기
-                      </Link>
-                    </div>
+                    <SectionHeading
+                      as="h3"
+                      className="border-b pb-2"
+                      actions={
+                        <Link to="/p/$projectId/runs" params={{ projectId }} className="text-xs font-normal text-muted-foreground underline hover:text-foreground">
+                          전체 보기
+                        </Link>
+                      }
+                    >
+                      {activeCount > 0 ? `실행 중인 워크플로 (${activeCount}건)` : '최근 워크플로 실행'}
+                    </SectionHeading>
                     <div className="space-y-2">
                       {(activeCount > 0 ? progress.activeRuns : progress.recentRuns).length === 0 ? (
                         <p className="py-2 text-center text-xs text-muted-foreground">실행 기록이 없습니다.</p>
@@ -208,10 +204,10 @@ function ProjectLayout() {
                               key={run.id}
                               to="/p/$projectId/runs/$runId"
                               params={{ projectId, runId: run.id }}
-                              className="block space-y-1 rounded p-1.5 text-xs hover:bg-accent hover:text-accent-foreground"
+                              className="block space-y-1 rounded p-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
                             >
                               <div className="flex items-center justify-between gap-2">
-                                <span className="truncate font-medium">{run.workflowName}</span>
+                                <span className="truncate">{run.workflowName}</span>
                                 <Badge
                                   variant={
                                     run.status === 'running'
@@ -264,18 +260,23 @@ function ProjectLayout() {
                 </PopoverTrigger>
                 <PopoverContent side="top" align="end" className="w-80 p-3">
                   <div className="space-y-3">
-                    <div className="flex items-center justify-between border-b pb-2">
-                      <span className="text-xs font-semibold text-foreground">알림 및 제안</span>
-                      {waiting > 0 && (
-                        <Badge variant="secondary" className="text-xs">
-                          {waiting}건 대기
-                        </Badge>
-                      )}
-                    </div>
+                    <SectionHeading
+                      as="h3"
+                      className="border-b pb-2"
+                      actions={
+                        waiting > 0 ? (
+                          <Badge variant="secondary" className="text-xs">
+                            {waiting}건 대기
+                          </Badge>
+                        ) : undefined
+                      }
+                    >
+                      알림 및 제안
+                    </SectionHeading>
                     {waiting > 0 && (
                       <div className="space-y-1.5 rounded-md border border-border bg-muted/40 p-2.5">
                         <div className="flex items-center justify-between">
-                          <span className="text-xs font-medium text-foreground">대기 중인 AI 에이전트 제안</span>
+                          <GroupHeading>대기 중인 AI 에이전트 제안</GroupHeading>
                           <Badge variant="default" className="text-xs">
                             {waiting}건
                           </Badge>
@@ -295,16 +296,16 @@ function ProjectLayout() {
                       </div>
                     )}
                     <div className="space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium text-muted-foreground">최근 워크플로 실행</span>
-                        <Link
-                          to="/p/$projectId/runs"
-                          params={{ projectId }}
-                          className="text-xs text-muted-foreground underline hover:text-foreground"
-                        >
-                          실행 기록
-                        </Link>
-                      </div>
+                      <GroupHeading
+                        className="mb-0"
+                        actions={
+                          <Link to="/p/$projectId/runs" params={{ projectId }} className="text-xs font-normal text-muted-foreground underline hover:text-foreground">
+                            실행 기록
+                          </Link>
+                        }
+                      >
+                        최근 워크플로 실행
+                      </GroupHeading>
                       {progress.recentRuns.length === 0 ? (
                         <p className="py-1 text-center text-xs text-muted-foreground">기록이 없습니다.</p>
                       ) : (
@@ -313,7 +314,7 @@ function ProjectLayout() {
                             key={run.id}
                             to="/p/$projectId/runs/$runId"
                             params={{ projectId, runId: run.id }}
-                            className="flex items-center justify-between rounded p-1.5 text-xs hover:bg-accent hover:text-accent-foreground"
+                            className="flex items-center justify-between rounded p-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
                           >
                             <div className="flex min-w-0 items-center gap-1.5 truncate">
                               {run.status === 'completed' && (run.states.failed ?? 0) === 0 && <CheckCircle2 className="size-3 shrink-0 text-success" />}

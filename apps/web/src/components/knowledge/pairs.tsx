@@ -5,7 +5,7 @@ import type { ReactNode } from 'react';
 import type { InferRequestType } from 'hono/client';
 import { toast } from 'sonner';
 import { type AutoMark, isSpecialListener, knowledgeMarksOf, listenerLabel, matchesMarks, OTHERS_LISTENER, PALETTE, SPEECH_LEVEL_LABELS } from '@tw/shared';
-import { EmptyState, DataTable, type ColumnDef, Inspector, InspectorHeader, InspectorSection, PropertyGrid, PropertyRow, TagListEditor, Badge, Button, Collapsible, CollapsibleContent, CollapsibleTrigger } from '@loca/ui';
+import { EmptyState, DataTable, type ColumnDef, Inspector, GroupHeading, InspectorHeader, InspectorSection, PropertyGrid, PropertyRow, TagListEditor, Badge, Button, Collapsible, CollapsibleContent, CollapsibleTrigger } from '@loca/ui';
 import { DraftEditor } from '@/components/knowledge/editor';
 import { candidateRow, fail, matches, metaColumns, SourceBadge, type Draft, type KnowledgeFilterState, type KindSpec, type RelationshipRow, type SourceFilter, type SpeechRuleRow } from '@/components/knowledge/table';
 import { splitList } from '@/components/chip-input';
@@ -232,7 +232,7 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
       >
         {picking && <StretchPicker projectId={projectId} from={pair.from} to={pair.to} taken={new Set(pair.rules.map((rule) => rule.startKey ?? ''))} onPick={(key) => addStretch.mutate(key)} onCancel={() => setPicking(false)} />}
         {rules.length === 0 && (
-          <p className="text-xs text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             {pair.to !== OTHERS_LISTENER && others?.rules.length
               ? `규칙이 없어 ${pair.from}의 ‘그 밖의 사람’ 규칙(${SPEECH_LEVEL_LABELS[others.rules[0].level]})이 쓰입니다.`
               : '말투 규칙이 없습니다.'}
@@ -261,7 +261,7 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
                   </CollapsibleTrigger>
                   <CollapsibleContent>
                     <div className="space-y-3 border-t p-3">
-                      {review && <p className="text-xs text-warning">확인 권장: {review}</p>}
+                      {review && <p className="text-sm text-warning">확인 권장: {review}</p>}
                       <DraftEditor embedded projectId={projectId} kind="speechRules" spec={ruleSpec} row={rule} characters={characters} onDecide={(action) => onDecide('speechRules', [rule.id], action)} />
                     </div>
                   </CollapsibleContent>
@@ -283,7 +283,7 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
       </InspectorSection>
       <Collapsible>
         <CollapsibleTrigger asChild>
-          <Button variant="ghost" size="row" className="group/rel -mx-2 w-[calc(100%+1rem)] text-xs font-medium text-muted-foreground">
+          <Button variant="ghost" size="row" className="group/rel -mx-2 w-[calc(100%+1rem)] text-sm font-semibold text-foreground">
             <ChevronRight className="transition-transform group-data-[state=open]/rel:rotate-90" />
             관계{pair.relationship ? ` · ${pair.relationship.kind}` : ' 없음'}
             {pair.relationship && <span className="ml-auto"><SourceBadge row={pair.relationship} /></span>}
@@ -318,22 +318,22 @@ function StretchPicker({ projectId, from, to, taken, onPick, onCancel }: { proje
   return (
     <div className="mb-3 rounded-md border bg-muted p-2">
       <div className="mb-1 flex items-center gap-2 px-1">
-        <p className="text-xs font-medium">말투가 바뀌기 시작하는 대사를 고르세요</p>
+        <GroupHeading>말투가 바뀌기 시작하는 대사를 고르세요</GroupHeading>
         <Button variant="ghost" size="inline" className="ml-auto text-muted-foreground" onClick={onCancel}>
           취소
         </Button>
       </div>
       {!lines.data ? (
-        <p className="px-1 py-2 text-xs text-muted-foreground">불러오는 중…</p>
+        <p className="px-1 py-2 text-sm text-muted-foreground">불러오는 중…</p>
       ) : lines.data.rows.length === 0 ? (
-        <p className="px-1 py-2 text-xs text-muted-foreground">청자가 {listenerLabel(to)}로 정해진 {from}의 대사가 없습니다.</p>
+        <p className="px-1 py-2 text-sm text-muted-foreground">청자가 {listenerLabel(to)}로 정해진 {from}의 대사가 없습니다.</p>
       ) : (
         <ul className="max-h-64 overflow-auto">
           {lines.data.rows.map((line) => (
             <li key={line.id}>
-              <Button variant="ghost" size="row" className="text-xs" disabled={taken.has(line.key)} onClick={() => onPick(line.key)}>
+              <Button variant="ghost" size="row" className="text-sm" disabled={taken.has(line.key)} onClick={() => onPick(line.key)}>
                 <span className="min-w-0">
-                  <span className="text-muted-foreground">{line.groupTitle} · </span>
+                  <span className="text-xs text-muted-foreground">{line.groupTitle} · </span>
                   {line.source}
                 </span>
               </Button>

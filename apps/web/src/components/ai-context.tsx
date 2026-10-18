@@ -1,7 +1,7 @@
 import { ChevronRight } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { CONTEXT_ITEM_KINDS, CONTEXT_PRIORITY, type ContextItem } from '@tw/shared';
-import { Badge, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Skeleton, Collapsible, CollapsibleContent, CollapsibleTrigger } from '@loca/ui';
+import { Badge, Group, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Skeleton, Collapsible, CollapsibleContent, CollapsibleTrigger } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -9,10 +9,10 @@ const tokens = (value: number) => `약 ${value.toLocaleString()}`;
 
 /** What went into an AI call besides the lines: grouped in fill order, dropped items struck through. */
 export function ContextItemList({ items, budget }: { items: ContextItem[]; budget?: { limit: number; used: number } }) {
-  if (!items.length) return <p className="text-xs text-muted-foreground">현재 줄 외에 따로 넣은 문맥이 없습니다.</p>;
+  if (!items.length) return <p className="text-sm text-muted-foreground">현재 줄 외에 따로 넣은 문맥이 없습니다.</p>;
   const dropped = items.filter((item) => !item.included);
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       {budget && (
         <p className="text-xs text-muted-foreground">
           문맥 {tokens(budget.used)} / 상한 {budget.limit.toLocaleString()} 토큰 (추정)
@@ -23,13 +23,10 @@ export function ContextItemList({ items, budget }: { items: ContextItem[]; budge
         const group = items.filter((item) => item.kind === kind);
         if (!group.length) return null;
         return (
-          <div key={kind}>
-            <p className="mb-1 text-xs font-medium text-muted-foreground">
-              {CONTEXT_ITEM_KINDS[kind]} {group.length}
-            </p>
-            <ul className="space-y-1">
+          <Group key={kind} title={<>{CONTEXT_ITEM_KINDS[kind]} <span className="font-normal text-muted-foreground tabular-nums">{group.length}</span></>}>
+            <ul className="space-y-1.5">
               {group.map((item, index) => (
-                <li key={`${item.label}-${index}`} className={cn('rounded-md border px-2 py-1.5 text-xs', !item.included && 'bg-muted text-muted-foreground')}>
+                <li key={`${item.label}-${index}`} className={cn('rounded-md border px-2.5 py-2 text-sm', !item.included && 'bg-muted text-muted-foreground')}>
                   <div className="flex items-center gap-2">
                     <span className={cn('min-w-0 flex-1 truncate font-medium', !item.included && 'line-through')} title={item.label}>
                       {item.label}
@@ -39,13 +36,13 @@ export function ContextItemList({ items, budget }: { items: ContextItem[]; budge
                         상한 초과로 뺌
                       </Badge>
                     )}
-                    <span className="shrink-0 tabular-nums text-muted-foreground">{tokens(item.tokens)}</span>
+                    <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{tokens(item.tokens)}</span>
                   </div>
-                  <p className="mt-0.5 text-muted-foreground">{item.reason}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{item.reason}</p>
                 </li>
               ))}
             </ul>
-          </div>
+          </Group>
         );
       })}
     </div>
@@ -62,7 +59,7 @@ function Lines({ lines }: { lines: PrecedingLine[] }) {
   return (
     <ol className="space-y-0.5">
       {lines.map((line) => (
-        <li key={line.key} className="text-xs">
+        <li key={line.key} className="text-sm">
           <span className="text-muted-foreground">{line.speaker ? `${line.speaker}: ` : ''}</span>
           {line.source}
         </li>
@@ -114,10 +111,9 @@ export function AiContextPanel({ projectId, unitKey, unitKind = 'dialogue', aiNo
         </p>
       </div>
 
-      <section>
-        <h3 className="mb-1.5 text-xs font-medium text-muted-foreground">이 줄보다 앞서 포함된 대사</h3>
+      <Group title="이 줄보다 앞서 포함된 대사">
         {!data.preceding ? (
-          <p className="text-xs text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             {data.precedingLines === 0 ? '넣지 않습니다.' : '따로 넣지 않습니다.'}
           </p>
         ) : (
@@ -139,15 +135,14 @@ export function AiContextPanel({ projectId, unitKey, unitKind = 'dialogue', aiNo
             )}
           </div>
         )}
-      </section>
+      </Group>
 
-      <section>
-        <h3 className="mb-1.5 text-xs font-medium text-muted-foreground">묶음 전체에 넣는 문맥</h3>
+      <Group title="묶음 전체에 넣는 문맥">
         <ContextItemList items={data.items} budget={data.budget} />
-      </section>
+      </Group>
 
       <Collapsible>
-        <CollapsibleTrigger className="group flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+        <CollapsibleTrigger className="group flex items-center gap-1 text-xs font-semibold text-foreground">
         <ChevronRight className="size-3.5 transition-transform group-data-[state=open]:rotate-90" />
         실제 프롬프트</CollapsibleTrigger>
       <CollapsibleContent>

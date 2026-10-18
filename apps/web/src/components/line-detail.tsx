@@ -4,7 +4,7 @@ import { Link } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { CircleAlert, CircleCheck, Network, Pencil } from 'lucide-react';
 import { checkFormat, isUnknownListener, listenerLabel, needsListener, PALETTE, SPEECH_LEVEL_LABELS, speechLevelOf, TAG_SCOPES, type FormatRules, type SpeechLevel } from '@tw/shared';
-import { AiMark, Badge, Button, CandidateCard, InspectorHeader, Inspector, InspectorSection, PropertyGrid, PropertyRow, SpeakerIdentity, StatusIcon, TagChip, TagListEditor } from '@loca/ui';
+import { AiMark, Badge, Button, CandidateCard, Group, InspectorHeader, Inspector, InspectorSection, PropertyGrid, PropertyRow, SpeakerIdentity, StatusIcon, TagChip, TagListEditor } from '@loca/ui';
 import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
 import { AiButton } from '@/components/ai-button';
 import { AiContextPanel } from '@/components/ai-context';
@@ -287,9 +287,8 @@ function CandidatesAndMatches({ unit, draft, onUse, tokenPattern }: { unit: Line
       <AiButton variant="ghost" prompt={`${subject}의 번역 후보를 제안해줘.`}>AI 제안</AiButton>
       {unit.translation && <AiButton variant="ghost" send={false} prompt={`${subject}의 번역을 이렇게 다듬어줘: `}>다듬기</AiButton>}
     </>}>
-      <div className="space-y-3">
-        <div className="space-y-2">
-          <h4 className="text-xs font-medium text-muted-foreground">{title} {unit.candidates.length}</h4>
+      <div className="space-y-4">
+        <Group title={<>{title} <span className="font-normal text-muted-foreground tabular-nums">{unit.candidates.length}</span></>} className="space-y-2">
           <ul className="space-y-2">
             {unit.candidates.map((candidate) => {
               const current = candidate.text === (unit.translation ?? null);
@@ -307,9 +306,8 @@ function CandidatesAndMatches({ unit, draft, onUse, tokenPattern }: { unit: Line
             })}
             {!unit.candidates.length && <li className="text-sm text-muted-foreground">아직 후보가 없습니다.</li>}
           </ul>
-        </div>
-        <div className="space-y-2">
-          <h4 className="text-xs font-medium text-muted-foreground">같거나 비슷한 원문의 번역 {rows.length}</h4>
+        </Group>
+        <Group title={<>같거나 비슷한 원문의 번역 <span className="font-normal text-muted-foreground tabular-nums">{rows.length}</span></>} className="space-y-2">
           <ul className="space-y-2">
             {rows.map((match) => {
               const current = match.translation === (unit.translation ?? null);
@@ -335,7 +333,7 @@ function CandidatesAndMatches({ unit, draft, onUse, tokenPattern }: { unit: Line
             })}
             {!rows.length && <li className="text-sm text-muted-foreground">{matches.isPending ? '찾는 중…' : '같거나 비슷한 원문이 없습니다.'}</li>}
           </ul>
-        </div>
+        </Group>
       </div>
     </InspectorSection>
   );
@@ -373,18 +371,16 @@ function LineChecks({ projectId, source, text, rules, targetLanguage, speech, la
   const formatIssues = text.trim() ? checkFormat(source, text, editorChecks(targetLanguage, true), rules) : [];
   const guessed = text.trim() ? speechLevelOf(text) : null;
   return (
-    <div className="space-y-3">
-      <div className="space-y-1">
-        <h4 className="text-xs font-medium text-muted-foreground">{lastRun ? <>최근 실행의 지적 · <Link to="/p/$projectId/runs/$runId" params={{ projectId, runId: lastRun.runId }} className="hover:underline">{lastRun.workflowName}</Link></> : '최근 실행의 지적'}</h4>
+    <div className="space-y-4">
+      <Group title={lastRun ? <>최근 실행의 지적 · <Link to="/p/$projectId/runs/$runId" params={{ projectId, runId: lastRun.runId }} className="font-normal text-muted-foreground hover:underline">{lastRun.workflowName}</Link></> : '최근 실행의 지적'}>
         {lastRun?.issues.length ? (
           <ul className="space-y-1 text-sm text-warning">{lastRun.issues.map((issue, i) => <li key={i} className="flex items-start gap-1.5"><CircleAlert className="mt-0.5 size-3.5 shrink-0" />{issue}</li>)}</ul>
         ) : (
           <p className="text-sm text-muted-foreground">최근 실행에서 지적된 내용이 없습니다.</p>
         )}
-      </div>
+      </Group>
       {speech && (
-        <div className="space-y-1">
-          <h4 className="text-xs font-medium text-muted-foreground">{`말투 규칙 → ${listenerLabel(speech.listener)}${speech.others ? ' (그 밖의 사람 규칙)' : ''}${speech.routeDependent ? ' (루트에 따라 달라 대본 순서 기준)' : speech.byOrder ? ' (그래프 밖이라 대본 순서 기준)' : ''}`}</h4>
+        <Group title={`말투 규칙 → ${listenerLabel(speech.listener)}${speech.others ? ' (그 밖의 사람 규칙)' : ''}${speech.routeDependent ? ' (루트에 따라 달라 대본 순서 기준)' : speech.byOrder ? ' (그래프 밖이라 대본 순서 기준)' : ''}`}>
           <div className="flex items-center gap-2 text-sm">
             <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', item: speech.ruleId }} className="min-w-0 truncate hover:underline">
               {speech.rule}
@@ -393,10 +389,9 @@ function LineChecks({ projectId, source, text, rules, targetLanguage, speech, la
               {!guessed || speech.level === 'other' ? '' : guessed === speech.level ? '맞음 (어미 추정)' : `번역은 ${SPEECH_LEVEL_LABELS[guessed]} (어미 추정)`}
             </span>
           </div>
-        </div>
+        </Group>
       )}
-      <div className="space-y-1">
-        <h4 className="text-xs font-medium text-muted-foreground">형식</h4>
+      <Group title="형식">
         {!text.trim() ? (
           <p className="text-sm text-muted-foreground">번역이 없습니다.</p>
         ) : formatIssues.length ? (
@@ -414,7 +409,7 @@ function LineChecks({ projectId, source, text, rules, targetLanguage, speech, la
             원문과 맞습니다.
           </p>
         )}
-      </div>
+      </Group>
     </div>
   );
 }

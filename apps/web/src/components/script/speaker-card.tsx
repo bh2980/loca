@@ -31,13 +31,13 @@ function SpeakerInfo({ projectId, name }: { projectId: string; name: string }) {
   const pending = (status: string) => status !== 'confirmed' && <span className="text-xs text-muted-foreground"> · 확인 전</span>;
   return (
     <>
-      <p className="flex min-w-0 items-center gap-2 font-medium">
+      <p className="flex min-w-0 items-center gap-2 font-semibold">
         <span className="truncate">{character?.name ?? name}</span>
         {character && personLabel(character) && <span className="text-xs font-normal text-muted-foreground"> · {personLabel(character)}</span>}
         {character && pending(character.status)}
       </p>
       {character?.profile ? (
-        <p className="line-clamp-4 text-muted-foreground">{character.profile}</p>
+        <p className="line-clamp-4">{character.profile}</p>
       ) : null}
       {character?.speech && (
         <p className="line-clamp-2">

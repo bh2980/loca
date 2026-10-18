@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import { AI_OUTPUTS, AI_SCOPES, CHOICE_SOURCES, JSON_FIELD_TYPE_LABELS, NODE_TYPES, nodeName, nodePorts, type JsonField, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
-import { Button, DangerZone, Inspector, InspectorHeader, InspectorSection, InspectorTabs, PropertyGrid, PropertyRow, StatusIcon, Checkbox, Input } from '@loca/ui';
+import { Button, DangerZone, Inspector, InspectorHeader, InspectorSection, InspectorTabs, PropertyGrid, PropertyRow, StatusIcon, Checkbox, Input, GroupHeading } from '@loca/ui';
 import { nodeIcon } from '../node-view';
 import { AiConfig } from '@/components/workflow/node-config/ai';
 import { ConditionEditor } from '@/components/workflow/node-config/condition';
@@ -127,7 +127,7 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
             {node.type === 'condition' && <PropertyGrid><PropertyRow label="조건">{node.config.description || '조건식'}</PropertyRow></PropertyGrid>}
             {node.type === 'ai' && (
               <div className="mt-3 space-y-2">
-                <p className="text-xs font-medium">설정된 결과 · {AI_OUTPUTS[node.config.output].label}</p>
+                <GroupHeading>설정된 결과 · {AI_OUTPUTS[node.config.output].label}</GroupHeading>
                 {node.config.output === 'json' && <PropertyGrid><PropertyRow label="출력 단위">{AI_SCOPES[node.config.scope]}</PropertyRow>{fieldRows(node.config.fields).map((row) => <PropertyRow key={row.key} label={row.label}>{row.description}</PropertyRow>)}</PropertyGrid>}
                 {node.config.output === 'choice' && <PropertyGrid><PropertyRow label="선택지">{node.config.choice.source === 'custom' ? node.config.choice.values.join(' · ') || '없음' : CHOICE_SOURCES[node.config.choice.source]}</PropertyRow><PropertyRow label="없음 허용">{node.config.choice.allowNone ? '예' : '아니오'}</PropertyRow></PropertyGrid>}
               </div>

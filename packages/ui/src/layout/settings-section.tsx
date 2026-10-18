@@ -41,7 +41,7 @@ export function SettingsSection({
       <div className="flex items-center justify-between gap-4">
         <div className="space-y-1">
           <h2 className={cn("text-base font-semibold", danger && "text-destructive")}>{title}</h2>
-          {description && <p className="text-xs text-muted-foreground">{description}</p>}
+          {description && <p className="text-sm text-muted-foreground">{description}</p>}
         </div>
         {headerActions && <div className="flex shrink-0 items-center gap-2">{headerActions}</div>}
       </div>

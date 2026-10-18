@@ -15,6 +15,7 @@ const LEGACY_RULES: { name: string; pattern: RegExp }[] = [
   { name: 'arbitrary text size (use the type roles: text-2xs … text-xl)', pattern: /text-\[\d+(\.\d+)?(px|rem)\]/ },
   { name: 'Button size="sm"/"xs" (sm is the default; one size)', pattern: /<(Button|AiButton)\b[^>]*\bsize="(sm|xs)"/ },
   { name: 'Button height/size override in className', pattern: /<(Button|AiButton)\b[^>]*className="[^"]*\b(h-\d+|size-\d+)\b/ },
+  { name: 'styled heading (use SectionHeading / GroupHeading, or FieldRow labels)', pattern: /<(h[1-6]|legend)\b[^>]*className=/ },
 
 ];
 const TOKEN_RULES: { name: string; pattern: RegExp }[] = [

@@ -34,14 +34,14 @@ export function PermissionMatrix<Row extends string, Action extends string>({
         </colgroup>
         <thead>
           <tr className="border-b border-border bg-muted/50 text-xs text-muted-foreground">
-            <th scope="col" className="w-full px-3 py-2 text-left font-medium">대상</th>
-            {actions.map((action) => <th key={action.id} scope="col" className="w-20 px-1 py-2 text-center font-medium">{action.label}</th>)}
+            <th scope="col" className="w-full px-3 py-2 text-left font-normal">대상</th>
+            {actions.map((action) => <th key={action.id} scope="col" className="w-20 px-1 py-2 text-center font-normal">{action.label}</th>)}
           </tr>
         </thead>
         <tbody>
           {rows.map((row) => (
             <tr key={row.id} className="border-b border-border-subtle last:border-0">
-              <th scope="row" className="px-3 py-2 text-left align-middle font-medium">
+              <th scope="row" className="px-3 py-2 text-left align-middle font-normal text-foreground">
                 <span className="block">{row.label}</span>
                 {row.description && <span className="mt-0.5 block text-xs font-normal text-muted-foreground">{row.description}</span>}
               </th>

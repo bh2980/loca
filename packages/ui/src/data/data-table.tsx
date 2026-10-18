@@ -324,7 +324,7 @@ function Table<T>({
             <td
               key={cell.id}
               className={cn(
-                "px-3 py-2.5 align-middle text-xs text-foreground",
+                "px-3 py-2.5 align-middle text-sm text-foreground",
                 index === 0 && !pickable && "pl-4",
                 index === 0 && !pickable && isSelected && "",
                 meta?.wrap ? "break-words whitespace-pre-wrap" : "truncate",
@@ -354,7 +354,7 @@ function Table<T>({
     <div className={cn("flex min-h-0 flex-1 flex-col bg-background", className)}>
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
         <table
-          className="w-full table-fixed border-separate border-spacing-0 text-xs"
+          className="w-full table-fixed border-separate border-spacing-0 text-sm"
           style={{ minWidth }}
         >
           <colgroup>
@@ -402,7 +402,7 @@ function Table<T>({
                     <th
                       key={header.id}
                       className={cn(
-                        "group/th relative h-8  px-3 text-left align-middle text-xs font-medium tracking-tight text-muted-foreground whitespace-nowrap",
+                        "group/th relative h-8  px-3 text-left align-middle text-xs font-normal text-muted-foreground whitespace-nowrap",
                         index === 0 && !pickable && "pl-4",
                         header.column.columnDef.meta?.align === "end" && "text-right"
                       )}

@@ -42,15 +42,15 @@ export function ToolPart({ part, stale, onDecide, onOutput, proposal }: {
     const output = part.output as { applied?: boolean; reason?: string } | undefined;
     return (
       <div className="overflow-hidden rounded-lg border bg-background text-sm">
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 border-b bg-muted px-3 py-1.5 text-xs font-medium">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 border-b bg-muted px-3 py-1.5 text-sm font-semibold">
           <CardTitle>{label}</CardTitle>
-          <span className="ml-auto text-right">
+          <span className="ml-auto text-right text-xs font-normal">
             {output?.applied === true && <span className="text-success">편집기에 적용됨 · 자동 저장 예정</span>}
             {output?.applied === false && <span className="text-muted-foreground">{output.reason === '사용자가 거절했습니다.' ? '거절함' : '적용하지 않음'}</span>}
             {!output && stale && <span className="text-muted-foreground">응답하지 않음</span>}
           </span>
         </div>
-        <div className="px-3 py-2 text-xs">
+        <div className="px-3 py-2 text-sm">
           <ChangePreview name={name} input={part.input} />
         </div>
         {part.state === 'input-available' && !stale && (
@@ -108,9 +108,9 @@ export function ToolPart({ part, stale, onDecide, onOutput, proposal }: {
     const refused = part.state === 'output-available' && output?.ok === false && !output?.status;
     return (
       <div className="overflow-hidden rounded-lg border bg-background text-sm">
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 border-b bg-muted px-3 py-1.5 text-xs font-medium">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 border-b bg-muted px-3 py-1.5 text-sm font-semibold">
           <CardTitle>{label}</CardTitle>
-          <span className="ml-auto text-right">
+          <span className="ml-auto text-right text-xs font-normal">
             {part.state === 'output-denied' && <span className="text-muted-foreground">거절함</span>}
             {part.state === 'output-available' && !failed && !waiting && <span className="text-success">{acceptedLabel(name).short}</span>}
             {waiting && <span className="text-muted-foreground">결정 기다리는 중</span>}
@@ -118,7 +118,7 @@ export function ToolPart({ part, stale, onDecide, onOutput, proposal }: {
             {part.state === 'approval-responded' && <Spinner className="size-3" />}
           </span>
         </div>
-        <div className="px-3 py-2 text-xs">
+        <div className="px-3 py-2 text-sm">
           {part.input &&
             (refused ? (
               // Nothing was proposed (the check refused it): what the agent asked for, folded, not as items to add.
@@ -203,12 +203,12 @@ function ReadingRouteToolCard({ output }: { output: ReturnType<typeof findReadin
     <p className="mt-1 text-foreground">{output.error}</p>
   </div>;
   return <div className="overflow-hidden rounded-lg border bg-background text-sm">
-    <div className="flex items-center gap-2 border-b bg-muted px-3 py-1.5 text-xs font-medium">
+    <div className="flex items-center gap-2 border-b bg-muted px-3 py-1.5 text-sm font-semibold">
       <Network className="size-3.5 text-muted-foreground" />
       <span>경로 대본</span>
       <span className="ml-auto font-normal text-muted-foreground">대사 {output.lineCount.toLocaleString()}줄</span>
     </div>
-    <div className="grid gap-2 px-3 py-2 text-xs">
+    <div className="grid gap-2 px-3 py-2 text-sm">
       <RouteEndpoint label="시작" endpoint={output.start} />
       <RouteEndpoint label="끝" endpoint={output.end} />
     </div>

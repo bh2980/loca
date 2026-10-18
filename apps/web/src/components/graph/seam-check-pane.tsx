@@ -2,7 +2,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { FileText } from 'lucide-react';
 import { toast } from 'sonner';
-import { InspectorHeader, Inspector, Badge, Button } from '@loca/ui';
+import { InspectorHeader, Inspector, Badge, Button, GroupHeading } from '@loca/ui';
 import { TokenText } from '@/components/editor/source-text';
 import { client, unwrap } from '@/lib/api';
 import { tokenPatternOf } from '@/lib/line-context';
@@ -57,7 +57,7 @@ export function SeamCheckPane({ projectId, nodeId, onClose }: { projectId: strin
       </Button>
     </li>
   );
-  const heading = (text: string) => <p className="bg-muted px-3 py-1 text-xs text-muted-foreground">{text}</p>;
+  const heading = (text: string) => <GroupHeading className="block bg-muted px-3 py-1.5">{text}</GroupHeading>;
 
   return (
     <Inspector header={<InspectorHeader kind="이음새 점검" name="이번 길이 앞선 길로 이어지는 곳" status={data && <SeamStateChip state={state} />} onClose={onClose} />} footer={

@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { ChevronDown, ChevronRight, ChevronUp, Plus, Trash2 } from 'lucide-react';
 import { z } from 'zod';
 import { JSON_FIELD_TYPES, JSON_FIELD_TYPE_LABELS, jsonFieldSchema, type JsonField, type JsonFieldType } from '@tw/shared';
-import { Button, Collapsible, CollapsibleContent, CollapsibleTrigger, ControlIdContext, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Switch, Textarea } from '@loca/ui';
+import { Button, Collapsible, CollapsibleContent, CollapsibleTrigger, ControlIdContext, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Switch, Textarea, GroupHeading } from '@loca/ui';
 
 const fieldsSchema = z.array(jsonFieldSchema);
 
@@ -48,7 +48,7 @@ function FieldRows({ fields, descriptionPlaceholder, depth, onChange }: { fields
             {field.type === 'list' && (
               <CollapsibleContent>
                 <div className="ml-4 border-l border-border-subtle pl-3">
-                  <p className="mb-1.5 text-xs text-muted-foreground">{field.name || '목록'}의 항목마다 채울 필드</p>
+                  <GroupHeading className="mb-1.5">{field.name || '목록'}의 항목마다 채울 필드</GroupHeading>
                   <FieldRows fields={field.fields ?? []} descriptionPlaceholder={descriptionPlaceholder} depth={depth + 1} onChange={(children) => setField(index, { fields: children })} />
                 </div>
               </CollapsibleContent>

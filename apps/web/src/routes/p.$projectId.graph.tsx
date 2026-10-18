@@ -1106,7 +1106,7 @@ function GraphPage() {
                     <div className="relative w-[26rem] max-w-full min-w-0 shrink select-none">
                       <SearchInput value={search.q} onChange={setFind} placeholder="노드 찾기 (키·라벨·첫 대사)" className="w-full h-7 bg-card border-border shadow-2xs text-xs rounded-md" />
                       {matches.length > 0 && (
-                        <ul className="absolute left-0 top-full z-50 mt-1 max-h-72 w-full overflow-auto rounded-lg border border-border bg-popover/95 p-1 text-xs shadow-md backdrop-blur-md">
+                        <ul className="absolute left-0 top-full z-50 mt-1 max-h-72 w-full overflow-auto rounded-lg border border-border bg-popover/95 p-1 text-sm shadow-md backdrop-blur-md">
                           {matches.map((node) => (
                             <li key={node.id}>
                               <Button
@@ -1150,7 +1150,7 @@ function GraphPage() {
                               >
                                 <span className="w-14 shrink-0 pt-0.5 text-xs text-muted-foreground">{KIND_LABEL[node.kind] ?? node.kind}</span>
                                 <span className="min-w-0 flex-1">
-                                  <span className="block truncate text-xs text-foreground">{node.label ?? node.key}</span>
+                                  <span className="block truncate text-sm text-foreground">{node.label ?? node.key}</span>
                                   {node.preview && <span className="block truncate text-xs text-muted-foreground">{node.preview}</span>}
                                 </span>
                               </Button>
@@ -1172,13 +1172,13 @@ function GraphPage() {
                 details={
                   <>
                     {picked.size > 1 && (
-                      <p className="max-w-3xl rounded-md border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground shadow-2xs select-none">
+                      <p className="max-w-3xl rounded-md border border-border bg-card px-2.5 py-1 text-sm text-muted-foreground shadow-2xs select-none">
                         노드 {picked.size.toLocaleString()}개 선택
                       </p>
                     )}
                     {view && viewDetail.data && (
-                      <div className="flex max-w-full flex-wrap items-center gap-2 rounded-md border border-border bg-card py-1 pr-1.5 pl-2.5 text-xs shadow-2xs backdrop-blur-xs select-none">
-                        <span className="text-xs">
+                      <div className="flex max-w-full flex-wrap items-center gap-2 rounded-md border border-border bg-card py-1 pr-1.5 pl-2.5 text-sm shadow-2xs backdrop-blur-xs select-none">
+                        <span>
                           보기 "{view.label}" · 남김 {view.nodes.toLocaleString()} · 파생 연결 {derivedEdges.toLocaleString()} · {viewDetail.data.origin === 'ai' ? 'AI' : '직접'}
                           {viewDetail.data.missing.length > 0 && <span className="text-destructive"> · 원본에 없음 {viewDetail.data.missing.length.toLocaleString()}</span>}
                         </span>
@@ -1188,9 +1188,9 @@ function GraphPage() {
                       </div>
                     )}
                     {search.mark && mark.data && layout && (
-                      <div className="flex max-w-full flex-wrap items-center gap-2 rounded-md border border-border bg-card py-1 pr-1.5 pl-2.5 text-xs shadow-2xs backdrop-blur-xs select-none">
+                      <div className="flex max-w-full flex-wrap items-center gap-2 rounded-md border border-border bg-card py-1 pr-1.5 pl-2.5 text-sm shadow-2xs backdrop-blur-xs select-none">
                         <span className="size-1.5 rounded-full bg-primary" />
-                        <span className="text-xs">
+                        <span>
                           강조{mark.data.label ? ` "${mark.data.label}"` : ''} · 이 화면 {layout.nodes.filter((node) => highlight?.has(node.id)).length.toLocaleString()} / {mark.data.nodeIds.length.toLocaleString()}개
                         </span>
                         {mark.data.section && mark.data.section !== chosen && (
@@ -1204,7 +1204,7 @@ function GraphPage() {
                       </div>
                     )}
                     {hidden.length > 0 && (
-                      <label className="flex max-w-full flex-wrap items-center gap-2 rounded-md border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground shadow-2xs backdrop-blur-xs select-none">
+                      <label className="flex max-w-full flex-wrap items-center gap-2 rounded-md border border-border bg-card px-2.5 py-1 text-sm text-muted-foreground shadow-2xs backdrop-blur-xs select-none">
                         <Switch
                           checked={search.links === 'all'}
                           onCheckedChange={(on) => void navigate({ search: (previous) => ({ ...previous, links: on ? 'all' : undefined }), replace: true })}

@@ -61,10 +61,10 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
   const skipped = proposal.status === 'accepted' ? ((proposal.result as { skipped?: unknown[] } | null)?.skipped?.length ?? 0) : 0;
   return (
     <div className="overflow-hidden rounded-lg border bg-background text-sm">
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 border-b bg-muted px-3 py-1.5 text-xs font-medium">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 border-b bg-muted px-3 py-1.5 text-sm font-semibold">
         <CardTitle>{LABEL[proposal.tool] ?? proposal.tool}</CardTitle>
         {proposal.source === 'cli' && <span className="font-normal text-muted-foreground">· CLI</span>}
-        <span className="ml-auto text-right">
+        <span className="ml-auto text-right text-xs font-normal">
           {proposal.undoneAt ? <span className="ml-auto text-muted-foreground">되돌림</span> : proposal.status !== 'pending' && (
             <span className={proposal.status === 'accepted' ? 'text-success' : proposal.status === 'failed' ? 'text-destructive' : 'text-muted-foreground'}>
               {proposal.decidedBy && proposal.decidedBy !== 'person' && `${DECIDED_BY[proposal.decidedBy]} `}
@@ -77,7 +77,7 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
           {decide.isPending && <Spinner className="size-3" />}
         </span>
       </div>
-      <div className="px-3 py-2 text-xs">
+      <div className="px-3 py-2 text-sm">
         <ChangePreview name={proposal.tool} input={proposal.input} pending={proposal.status === 'pending'} />
         {proposal.report && <ProposalReport report={proposal.report} />}
         {proposal.status === 'pending' && proposal.review && <p className="mt-2 border-t pt-2 text-muted-foreground">자동 검토가 넘김: {proposal.review}</p>}

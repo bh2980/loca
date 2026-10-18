@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { DOCUMENT_KINDS, STYLE_AXES, type StyleAxis, type CharacterRole, type Gender, type AgeBand, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled, AGE_BAND_LABELS, CHARACTER_ROLE_LABELS, GENDER_LABELS, PALETTE, knowledgeKindScope, type TagScope, type KnowledgeTagKind } from '@tw/shared';
-import { Inspector, InspectorHeader, InspectorSection, PropertyGrid, PropertyRow, TagListEditor, DirtyBar, DangerZone, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Switch, Textarea, AiMark } from '@loca/ui';
+import { Inspector, InspectorHeader, InspectorSection, PropertyGrid, PropertyRow, TagListEditor, DirtyBar, DangerZone, Group, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Switch, Textarea, AiMark } from '@loca/ui';
 import { ChipInput, joinList, splitList } from '@/components/chip-input';
 import { useDraft } from '@/lib/drafts';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
@@ -129,34 +129,24 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
       </InspectorSection>
       {contentFields.length > 0 && (
         <InspectorSection title="내용">
-          <div className="space-y-3">
-            {contentFields.map((field) =>
-              field.type === 'style' ? (
-                <div key={field.name} className="space-y-2">
-                  <p className="text-xs font-medium text-muted-foreground">{field.label}</p>
-                  {field.description && <p className="text-xs text-muted-foreground">{field.description}</p>}
-                  <FieldInput field={field} value={form[field.name]} characters={characters} onChange={(value) => update(field.name, value)} hideLabel />
-                </div>
-              ) : (
-                <div key={field.name} className="space-y-1.5">
-                  <Label htmlFor={`field-${field.name}`} className="text-xs font-medium text-muted-foreground">{field.label}</Label>
-                  {field.description && <p className="text-xs text-muted-foreground">{field.description}</p>}
-                  <FieldInput field={field} value={form[field.name]} characters={characters} onChange={(value) => update(field.name, value)} hideLabel />
-                </div>
-              )
-            )}
+          <div className="space-y-4">
+            {contentFields.map((field) => (
+              <Group key={field.name} title={field.type === 'style' ? field.label : <Label htmlFor={`field-${field.name}`} className="font-semibold">{field.label}</Label>}>
+                {field.description && <p className="text-xs text-muted-foreground">{field.description}</p>}
+                <FieldInput field={field} value={form[field.name]} characters={characters} onChange={(value) => update(field.name, value)} hideLabel />
+              </Group>
+            ))}
           </div>
         </InspectorSection>
       )}
       {secondaryFields.length > 0 && (
         <InspectorSection title="근거 및 상세">
-          <div className="space-y-3">
+          <div className="space-y-4">
             {secondaryFields.map((field) => (
-              <div key={field.name} className="space-y-1.5">
-                <Label htmlFor={`field-${field.name}`} className="text-xs font-medium text-muted-foreground">{field.label}</Label>
+              <Group key={field.name} title={<Label htmlFor={`field-${field.name}`} className="font-semibold">{field.label}</Label>}>
                 {field.description && <p className="text-xs text-muted-foreground">{field.description}</p>}
                 <FieldInput field={field} value={form[field.name]} characters={characters} onChange={(value) => update(field.name, value)} hideLabel />
-              </div>
+              </Group>
             ))}
           </div>
         </InspectorSection>
@@ -251,7 +241,7 @@ function FieldInput({ field, value, characters, onChange, hideLabel = false }: {
       <Switch id={id} checked={Boolean(value)} onCheckedChange={onChange} aria-label={field.label} />
     ) : (
       <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-panel p-3">
-        <Label htmlFor={id} className="cursor-pointer text-xs font-medium leading-snug text-foreground">{field.label}</Label>
+        <Label htmlFor={id} className="cursor-pointer text-sm font-medium leading-snug text-foreground">{field.label}</Label>
         <Switch id={id} checked={Boolean(value)} onCheckedChange={onChange} />
       </div>
     );
@@ -259,7 +249,7 @@ function FieldInput({ field, value, characters, onChange, hideLabel = false }: {
       <div className={hideLabel ? undefined : 'space-y-1.5'}>
         {!hideLabel && <Label htmlFor={id} className="text-xs font-medium text-muted-foreground">{field.label}</Label>}
       {field.type === 'long' ? (
-        <Textarea id={id} aria-label={hideLabel ? field.label : undefined} rows={field.name === 'body' ? 6 : 3} className={field.name === 'body' ? 'font-mono text-xs leading-relaxed' : 'text-xs leading-relaxed'} value={text(value)} onChange={(event) => onChange(event.target.value)} />
+        <Textarea id={id} aria-label={hideLabel ? field.label : undefined} rows={field.name === 'body' ? 6 : 3} className={field.name === 'body' ? 'font-mono text-sm leading-relaxed' : 'text-sm leading-relaxed'} value={text(value)} onChange={(event) => onChange(event.target.value)} />
       ) : field.type === 'docKind' || field.type === 'character' ? (
         <Select value={text(value)} onValueChange={onChange}>
           <SelectTrigger id={id} className="w-full">
@@ -335,7 +325,7 @@ function FieldInput({ field, value, characters, onChange, hideLabel = false }: {
           </SelectContent>
         </Select>
       ) : (
-        <Input id={id} className={field.type === 'key' ? 'font-mono text-xs' : undefined} value={text(value)} onChange={(event) => onChange(field.type === 'key' ? event.target.value.trim() || null : event.target.value)} />
+        <Input id={id} className={field.type === 'key' ? 'font-mono text-sm' : undefined} value={text(value)} onChange={(event) => onChange(field.type === 'key' ? event.target.value.trim() || null : event.target.value)} />
       )}
     </div>
   );

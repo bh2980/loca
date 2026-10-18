@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { FolderOpen, Languages } from 'lucide-react';
-import { Card, CardDescription, CardHeader, CardTitle, Empty, EmptyContent, EmptyHeader, EmptyMedia, EmptyTitle, Skeleton } from '@loca/ui';
+import { Card, CardDescription, SectionHeading, CardHeader, CardTitle, Empty, EmptyContent, EmptyHeader, EmptyMedia, EmptyTitle, Skeleton } from '@loca/ui';
 import { ImportProjectDialog } from '@/components/import-project';
 import { q } from '@/lib/queries';
 
@@ -17,7 +17,7 @@ function Home() {
             <Languages className="size-4" />
           </div>
           <div>
-            <h1 className="text-base font-semibold tracking-tight">loca</h1>
+            <SectionHeading page as="h1">loca</SectionHeading>
           </div>
         </div>
         {!!projects.data?.length && <ImportProjectDialog />}

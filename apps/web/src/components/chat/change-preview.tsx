@@ -1,5 +1,6 @@
 import { AGENT_TOOLS, type AgeBand, type AutoMark, type Gender, personLabel, CHARACTER_ROLE_LABELS, type CharacterRole } from '@tw/shared';
 import { MarkChip } from '@/components/status';
+import { GroupHeading } from '@loca/ui';
 import { Markdown } from './markdown';
 
 export const LABEL: Record<string, string> = Object.fromEntries(Object.entries(AGENT_TOOLS).map(([name, info]) => [name, info.label]));
@@ -9,7 +10,7 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
   const field = (label: string, value: unknown) =>
     value === undefined || value === '' ? null : (
       <div className="grid grid-cols-[5rem_1fr] gap-2">
-        <dt className="text-muted-foreground">{label}</dt>
+        <dt className="text-xs text-muted-foreground">{label}</dt>
         <dd className="min-w-0 break-words">{Array.isArray(value) ? value.join(', ') : String(value)}</dd>
       </div>
     );
@@ -61,9 +62,9 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
             const items = (input[key] as Record<string, unknown>[] | undefined) ?? [];
             return items.length ? (
               <div key={key}>
-                <p className="font-medium">
+                <GroupHeading>
                   {label} {items.length}개
-                </p>
+                </GroupHeading>
                 <ul className="space-y-0.5">
                   {items.map((item, index) => (
                     <li key={index}>
@@ -95,7 +96,7 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
         <dl className="space-y-1">
           {Object.entries(input).map(([key, value]) => (
             <div key={key} className="grid grid-cols-[5rem_1fr] gap-2">
-              <dt className="text-muted-foreground">{labels[key] ?? key}</dt>
+              <dt className="text-xs text-muted-foreground">{labels[key] ?? key}</dt>
               <dd className="min-w-0 break-words">{typeof value === 'string' ? value : <pre className="max-h-32 overflow-auto text-xs whitespace-pre-wrap">{JSON.stringify(value, null, 2)}</pre>}</dd>
             </div>
           ))}
@@ -197,7 +198,7 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
         <dl className="space-y-1">
           {field('워크플로', input.workflowId)}
           <div className="grid grid-cols-[5rem_1fr] gap-2">
-            <dt className="text-muted-foreground">범위</dt>
+            <dt className="text-xs text-muted-foreground">범위</dt>
             <dd className="flex min-w-0 flex-wrap items-center gap-1 break-words">
               {scope || marks.length === 0 ? scope || '진입 조건에 맞는 모든 대사' : null}
               {marks.map((mark) => (

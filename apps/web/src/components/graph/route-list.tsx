@@ -7,7 +7,7 @@ import { isUnknownListener, listenerLabel, needsListener, PALETTE, SPECIAL_LISTE
 import { TranslationEditor } from '@/components/translation-editor';
 import { LineSourceText, MarkedSourceText, TokenText } from '@/components/editor/source-text';
 import { LineHints } from '@/components/script/line-row';
-import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger, ScriptReadingRow, Skeleton, TagChip, TagListEditor, type StatusLike } from '@loca/ui';
+import { Button, GroupHeading, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger, ScriptReadingRow, Skeleton, TagChip, TagListEditor, type StatusLike } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { tokenPatternOf } from '@/lib/line-context';
 import { keyLabel } from '@/lib/keys';
@@ -78,7 +78,7 @@ function RouteLineRow({ projectId, row, selected, status, statusList, rules, tag
 
   if (!row) return (
     <div role="listitem" className="px-4 py-3 sm:px-6">
-      {stageLabel && <p className="mb-2 text-xs font-medium text-muted-foreground">{stageLabel}</p>}
+      {stageLabel && <GroupHeading className="mb-2 block">{stageLabel}</GroupHeading>}
       {loadError ? (
         <div className="flex w-full max-w-4xl items-center gap-3" role="alert">
           <p className="text-sm text-destructive">이 줄을 불러오지 못했습니다.</p>
@@ -158,7 +158,7 @@ function RouteLineRow({ projectId, row, selected, status, statusList, rules, tag
 
   return (
     <div role="listitem" data-unit={row.id} data-selected={selected || undefined} onClick={() => !selected && onSelect()}>
-      {stageLabel && <p className="px-4 pt-3 text-xs font-medium text-muted-foreground sm:px-6">{stageLabel}</p>}
+      {stageLabel && <GroupHeading className="block px-4 pt-3 sm:px-6">{stageLabel}</GroupHeading>}
       <ScriptReadingRow speaker={row.speaker} listener={listener} listenerIsPerson={listenerIsPerson} status={status} statusBy={row.statusBy} source={source} translation={translation} selected={selected} />
     </div>
   );
@@ -340,7 +340,7 @@ export function RouteList({ projectId, sequence, stages, routeKey, untranslatedI
               return (
                 <DropdownMenu key={fork.nodeId}>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="outline" className="text-xs shrink-0">
+                    <Button variant="outline" className="shrink-0">
                       <span className="max-w-[200px] truncate">
                         {forkTitle}: {selectedOption?.label ?? '선택'} ({fork.options.length}갈래)
                       </span>
@@ -362,7 +362,7 @@ export function RouteList({ projectId, sequence, stages, routeKey, untranslatedI
                             isSelected && 'font-medium bg-muted/40'
                           )}
                         >
-                          <div className="flex w-full items-center justify-between text-xs">
+                          <div className="flex w-full items-center justify-between text-sm">
                             <span className="truncate font-medium">{opt.label}</span>
                             {isSelected && (
                               <span className="text-xs text-primary font-medium">선택됨</span>
@@ -384,7 +384,7 @@ export function RouteList({ projectId, sequence, stages, routeKey, untranslatedI
             <>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" className="text-xs shrink-0">
+                  <Button variant="outline" className="shrink-0">
                     <span>갈림길 {forks.length}곳 선택</span>
                     <ChevronDown className="ml-1 size-3 opacity-60" />
                   </Button>
@@ -408,7 +408,7 @@ export function RouteList({ projectId, sequence, stages, routeKey, untranslatedI
                                 isSelected && 'font-medium bg-muted/40'
                               )}
                             >
-                              <div className="flex w-full items-center justify-between text-xs">
+                              <div className="flex w-full items-center justify-between text-sm">
                                 <span className="truncate font-medium">{opt.label}</span>
                                 {isSelected && (
                                   <span className="text-xs text-primary font-medium">선택됨</span>
@@ -433,7 +433,7 @@ export function RouteList({ projectId, sequence, stages, routeKey, untranslatedI
                 return (
                   <DropdownMenu key={fork.nodeId}>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="outline" className="text-xs shrink-0">
+                      <Button variant="outline" className="shrink-0">
                         <span className="max-w-[140px] truncate">
                           {forkTitle}: {selectedOption?.label ?? '선택'}
                         </span>
@@ -455,7 +455,7 @@ export function RouteList({ projectId, sequence, stages, routeKey, untranslatedI
                               isSelected && 'font-medium bg-muted/40'
                             )}
                           >
-                            <div className="flex w-full items-center justify-between text-xs">
+                            <div className="flex w-full items-center justify-between text-sm">
                               <span className="truncate font-medium">{opt.label}</span>
                               {isSelected && (
                                 <span className="text-xs text-primary font-medium">선택됨</span>

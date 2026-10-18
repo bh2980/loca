@@ -230,7 +230,7 @@ function StatusSettings() {
               title="상태"
               headerActions={
                 <>
-                  {statuses && <span className="text-2xs font-medium text-subtle-foreground tabular-nums">{statuses.length}개</span>}
+                  {statuses && <span className="text-xs text-muted-foreground tabular-nums">{statuses.length}개</span>}
                   <Button variant="outline" onClick={() => open({ status: 'new' })}><Plus /> 추가</Button>
                 </>
               }
@@ -278,7 +278,7 @@ function StatusSettings() {
               title="태그"
               headerActions={
                 <>
-                  {allTags && <span className="text-2xs font-medium text-subtle-foreground tabular-nums">{allTags.length}개</span>}
+                  {allTags && <span className="text-xs text-muted-foreground tabular-nums">{allTags.length}개</span>}
                   <Button variant="outline" onClick={() => open({ tag: 'new' })}><Plus /> 추가</Button>
                 </>
               }

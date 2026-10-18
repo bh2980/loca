@@ -4,7 +4,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Check, CircleStop, Play, X } from 'lucide-react';
 import { hasAnalysis } from '@/components/knowledge/analysis-controls';
 import { RunDialog } from '@/components/workflow/run-dialog';
-import { Button } from '@loca/ui';
+import { Button, SectionHeading } from '@loca/ui';
 import { HeaderActions } from '@/components/page';
 import { AnalysisSteps } from '@/components/job-progress';
 import { client, unwrap } from '@/lib/api';
@@ -171,7 +171,7 @@ export function GettingStarted({ projectId }: { projectId: string }) {
   return (
     <section>
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-base font-semibold">시작하기</h2>
+        <SectionHeading page>시작하기</SectionHeading>
         <Button variant="ghost" size="icon" aria-label="시작하기 닫기" onClick={() => hide(true)}>
           <X />
         </Button>

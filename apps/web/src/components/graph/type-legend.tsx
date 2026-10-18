@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { Shapes } from 'lucide-react';
 import { isContentKind, type NodeType } from '@tw/shared';
-import { Button, Popover, PopoverContent, PopoverTrigger } from '@loca/ui';
+import { Button, GroupHeading, Popover, PopoverContent, PopoverTrigger } from '@loca/ui';
 import { cn } from '@/lib/utils';
 import { KIND_LABEL } from './shapes';
 
@@ -52,7 +52,7 @@ export function TypeLegend({ nodes, nodeTypes, active, onPick }: {
         <div className="max-h-[60vh] overflow-auto py-1">
           {groups.map((group) => (
             <section key={group.title} className="px-1 py-1">
-              <h3 className="px-2 pt-1 text-xs font-medium">{group.title}</h3>
+              <GroupHeading className="block px-2 pt-1">{group.title}</GroupHeading>
               <ul>
                 {group.rows.map((row) => (
                   <li key={row.key}>

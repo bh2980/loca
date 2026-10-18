@@ -2,7 +2,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { TriangleAlert } from 'lucide-react';
 import { toast } from 'sonner';
 import { PI_BUILTIN_TOOLS, piOptionsSchema, type PiBuiltinTool, type PiOptions } from '@tw/shared';
-import { Button, Checkbox, Input, Spinner, Switch } from '@loca/ui';
+import { Button, Checkbox, GroupHeading, Input, Spinner, Switch } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { useFormFrom } from '@/lib/use-form-from';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
@@ -47,11 +47,11 @@ export function PiOptionsPanel({ connectionId, options }: { connectionId: string
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-sm font-semibold">pi에서 불러올 것</h3>
+        <GroupHeading>pi에서 불러올 것</GroupHeading>
       </div>
       {conflicts.length > 0 && <ChangedElsewhere onTakeSaved={takeSaved} onKeepMine={keepMine} />}
 
-      <section>
+      <section className="space-y-1.5">
         <Row label="패키지·확장" checked={draft.extensions} onChange={(value) => update({ extensions: value })} />
         {draft.extensions && (
           <div className="mt-1 max-h-56 overflow-auto rounded-md border p-2">
@@ -62,7 +62,7 @@ export function PiOptionsPanel({ connectionId, options }: { connectionId: string
             ) : data ? (
               data.extensions.length ? (
                 data.extensions.map((extension) => (
-                  <label key={extension.path} className="flex items-start gap-2 py-1 text-xs">
+                  <label key={extension.path} className="flex items-start gap-2 py-1 text-sm">
                     <Checkbox
                       className="mt-0.5"
                       checked={!disabled.has(extension.path)}
@@ -71,10 +71,10 @@ export function PiOptionsPanel({ connectionId, options }: { connectionId: string
                       }
                     />
                     <span className="min-w-0">
-                      <span className="block truncate font-medium" title={extension.path}>
+                      <span className="block truncate" title={extension.path}>
                         {extension.source || extension.path.split('/').at(-1)}
                       </span>
-                      {extension.tools.length > 0 && <span className="block truncate text-muted-foreground">도구: {extension.tools.join(', ')}</span>}
+                      {extension.tools.length > 0 && <span className="block truncate text-xs text-muted-foreground">도구: {extension.tools.join(', ')}</span>}
                     </span>
                   </label>
                 ))
@@ -90,7 +90,7 @@ export function PiOptionsPanel({ connectionId, options }: { connectionId: string
       </section>
 
       <section>
-        <p className="text-sm font-semibold">pi 기본 도구</p>
+        <GroupHeading>pi 기본 도구</GroupHeading>
         <div className="mt-1 grid grid-cols-2 gap-x-4">
           {(Object.keys(PI_BUILTIN_TOOLS) as PiBuiltinTool[]).map((tool) => (
             <label key={tool} className="flex items-center gap-2 py-1 text-sm">
@@ -109,8 +109,8 @@ export function PiOptionsPanel({ connectionId, options }: { connectionId: string
         )}
         {draft.builtinTools.length > 0 || draft.contextFiles ? (
           <div className="mt-2 space-y-1">
-            <p className="text-xs">작업 폴더</p>
-            <Input className="font-mono text-xs" value={draft.cwd} placeholder="임시 폴더" onChange={(event) => update({ cwd: event.target.value })} />
+            <p className="text-xs text-muted-foreground">작업 폴더</p>
+            <Input className="font-mono text-sm" value={draft.cwd} placeholder="임시 폴더" onChange={(event) => update({ cwd: event.target.value })} />
           </div>
         ) : null}
       </section>

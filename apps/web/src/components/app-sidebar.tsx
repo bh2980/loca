@@ -92,7 +92,7 @@ export function AppSidebar({ projectId }: { projectId: string }) {
       <SidebarHeader><SidebarMenu><SidebarMenuItem><DropdownMenu>
         <DropdownMenuTrigger asChild><SidebarBrand compactMark={info?.name?.trim().charAt(0) || 'P'} title={info?.name ?? '…'} detail={info ? `${info.sourceLanguage} → ${info.targetLanguage}` : undefined} end={<ChevronsUpDown className="ml-auto size-4" />} /></DropdownMenuTrigger>
         <DropdownMenuContent className="w-(--radix-dropdown-menu-trigger-width) min-w-56" align="start">
-          <DropdownMenuLabel className="text-xs text-muted-foreground">프로젝트</DropdownMenuLabel>
+          <DropdownMenuLabel className="text-xs font-semibold text-foreground">프로젝트</DropdownMenuLabel>
           {projects.data?.map((entry) => <DropdownMenuItem key={entry.id} onSelect={() => void navigate({ to: '/p/$projectId', params: { projectId: entry.id } })}><span className="truncate">{entry.name}</span>{entry.id === projectId && <Check className="ml-auto" />}</DropdownMenuItem>)}
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={() => void navigate({ to: '/' })}><Plus /> 다른 프로젝트 가져오기</DropdownMenuItem>

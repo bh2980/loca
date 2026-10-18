@@ -33,15 +33,15 @@ export function Evidence({ projectId, keys }: { projectId: string; keys: string[
   if (!keys.length)
     return (
       <InspectorSection title="근거 대사">
-        <p className="text-xs text-muted-foreground">연결된 근거 대사가 없습니다.</p>
+        <p className="text-sm text-muted-foreground">연결된 근거 대사가 없습니다.</p>
       </InspectorSection>
     );
   return <InspectorSection title={`근거 대사 ${keys.length}개`} defaultOpen={false}>
     <ul className="space-y-1">
       {lines.data?.map((line) => (
         <li key={line.id}>
-          <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.groupId, line: line.id }} className="block rounded px-2 py-1 text-xs hover:bg-muted">
-            <span className="text-muted-foreground">{line.groupTitle} · </span>
+          <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.groupId, line: line.id }} className="block rounded px-2 py-1 text-sm hover:bg-muted">
+            <span className="text-xs text-muted-foreground">{line.groupTitle} · </span>
             {line.speaker && <span className="font-medium">{line.speaker}: </span>}
             {line.source}
           </Link>
@@ -76,12 +76,12 @@ export function RuleLines({ projectId, ruleId, candidate }: { projectId: string;
     >
       <div className="space-y-2">
       {!!lines.data?.routeDependent && (
-        <p className="text-xs text-warning">
+        <p className="text-sm text-warning">
           이 중 {lines.data.routeDependent.toLocaleString()}개는 루트에 따라 규칙이 달라질 수 있어 대본 순서로 골랐습니다. 확인하세요.
         </p>
       )}
       {levels.length > 0 && (
-        <p className="text-xs">
+        <p className="text-sm">
           번역 말투(어미 추정):{' '}
           {levels.map(([level, count]) => `${level === 'unknown' ? '판단 불가·번역 없음' : SPEECH_LEVEL_LABELS[level as SpeechLevel]} ${count}`).join(' · ')}
         </p>
@@ -90,8 +90,8 @@ export function RuleLines({ projectId, ruleId, candidate }: { projectId: string;
       <ul className="max-h-60 space-y-1 overflow-auto">
         {lines.data?.rows.map((line) => (
           <li key={line.id}>
-            <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.groupId, line: line.id }} className="block rounded px-2 py-1 text-xs hover:bg-muted">
-              <span className="text-muted-foreground">{line.groupTitle} · </span>
+            <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.groupId, line: line.id }} className="block rounded px-2 py-1 text-sm hover:bg-muted">
+              <span className="text-xs text-muted-foreground">{line.groupTitle} · </span>
               {line.source}
               {line.translation && <span className="block text-muted-foreground">{line.translation}</span>}
             </Link>
@@ -114,7 +114,7 @@ export function RelationshipChanges({ projectId, changes }: { projectId: string;
         {changes.map((change) => {
           const line = byKey.get(change.at);
           return (
-            <li key={`${change.at}-${change.change}`} className="rounded border p-2 text-xs">
+            <li key={`${change.at}-${change.change}`} className="rounded border p-2 text-sm">
               <p>{change.change}</p>
               {line && (
                 <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.groupId, line: line.id }} className="mt-1 block text-muted-foreground hover:underline">

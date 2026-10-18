@@ -3,7 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Plus, Sparkles, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { compileFormatRules, FORMAT_PRESET_IDS, FORMAT_PRESETS, formatPatternError, matchTokens, type FormatRules } from '@tw/shared';
-import { Badge, Button, Checkbox, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, SettingsSection } from '@loca/ui';
+import { Badge, Button, Checkbox, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, SettingsSection, GroupHeading } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { useFormFrom } from '@/lib/use-form-from';
@@ -111,14 +111,14 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
 
       <div className="space-y-4">
         <div className="space-y-2">
-          <h4 className="text-xs font-semibold text-foreground">자리표시자 (변수 · 제어 문자)</h4>
+          <GroupHeading>자리표시자 (변수 · 제어 문자)</GroupHeading>
           <div className="grid gap-2 sm:grid-cols-2">
             {placeholderPresets.map(renderPresetCard)}
           </div>
         </div>
 
         <div className="space-y-2">
-          <h4 className="text-xs font-semibold text-foreground">서식 태그</h4>
+          <GroupHeading>서식 태그</GroupHeading>
           <div className="grid gap-2 sm:grid-cols-2">
             {tagPresets.map(renderPresetCard)}
           </div>
@@ -126,7 +126,7 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
       </div>
 
       <div className="space-y-3">
-        <p className="text-xs font-medium text-foreground">직접 추가 (정규식)</p>
+        <GroupHeading>직접 추가 (정규식)</GroupHeading>
 
         <AiRegexInput
           projectId={projectId}
@@ -141,13 +141,13 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
         {detected?.customCandidates && detected.customCandidates.length > 0 && (
           <div className="rounded-md border border-border bg-muted/40 p-3 space-y-2">
             <div className="flex items-center justify-between">
-              <p className="text-xs font-medium text-foreground">대본에서 발견된 추가 규칙 추천</p>
+              <GroupHeading>대본에서 발견된 추가 규칙 추천</GroupHeading>
             </div>
             <div className="space-y-1.5">
               {detected.customCandidates.map((cand) => {
                 const alreadyAdded = draft.custom.some((c) => c.pattern === cand.pattern);
                 return (
-                  <div key={cand.pattern} className="flex items-center justify-between gap-2 text-xs rounded border border-border-subtle bg-background/50 px-2.5 py-1.5">
+                  <div key={cand.pattern} className="flex items-center justify-between gap-2 text-sm rounded border border-border-subtle bg-background/50 px-2.5 py-1.5">
                     <div className="flex min-w-0 items-center gap-2 truncate">
                       <span className="font-medium text-foreground">{cand.label}</span>
                       <code className="font-mono text-xs text-muted-foreground">({cand.pattern})</code>
@@ -155,7 +155,7 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
                         대본 {cand.count.toLocaleString()}줄
                       </Badge>
                       {cand.examples.length > 0 && (
-                        <span className="truncate text-muted-foreground">
+                        <span className="truncate text-xs text-muted-foreground">
                           예: {cand.examples.slice(0, 3).join('  ')}
                         </span>
                       )}
@@ -197,7 +197,7 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
                     <SelectItem value="tag">서식 태그</SelectItem>
                   </SelectContent>
                 </Select>
-                <Input className="flex-1 font-mono text-xs" placeholder="예: @[a-z]+@" value={rule.pattern} spellCheck={false} onChange={(event) => setRule(index, { pattern: event.target.value })} />
+                <Input className="flex-1 font-mono text-sm" placeholder="예: @[a-z]+@" value={rule.pattern} spellCheck={false} onChange={(event) => setRule(index, { pattern: event.target.value })} />
                 <Button size="icon" variant="ghost" className="text-destructive" aria-label="규칙 삭제" onClick={() => setDraft((current) => ({ ...current, custom: current.custom.filter((_, i) => i !== index) }))}>
                   <Trash2 />
                 </Button>
@@ -212,10 +212,10 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
       </div>
 
       <div className="space-y-1.5 rounded-md bg-muted p-3">
-        <p className="text-xs font-medium text-foreground">시험해 보기</p>
-        <Textarea className="min-h-16 bg-background font-mono text-xs" value={sample} onChange={(event) => setSample(event.target.value)} />
+        <GroupHeading>시험해 보기</GroupHeading>
+        <Textarea className="min-h-16 bg-background font-mono text-sm" value={sample} onChange={(event) => setSample(event.target.value)} />
         {(['placeholder', 'tag'] as const).map((kind) => (
-          <p key={kind} className="text-xs">
+          <p key={kind} className="text-sm">
             <span className="text-muted-foreground">{KIND[kind]}: </span>
             {found[kind].length ? found[kind].map((token, i) => <code key={i} className="mr-1 rounded bg-background px-1 py-0.5 ring-1 ring-border">{token}</code>) : <span className="text-muted-foreground">없음</span>}
           </p>

@@ -4,7 +4,7 @@ import { keepPreviousData, useMutation, useQuery, type UseQueryResult } from '@t
 import type { InferResponseType } from 'hono/client';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { ChevronRight, Play } from 'lucide-react';
-import { SearchInput, Button, Checkbox, Label, RadioGroup, RadioGroupItem, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Skeleton, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner, StatusIcon } from '@loca/ui';
+import { SearchInput, Button, Checkbox, Label, RadioGroup, RadioGroupItem, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Skeleton, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner, StatusIcon, SectionHeading, FieldRows, FieldRow } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { LINE_MARK_IDS, type LineMark, UNREVIEWED_MARKS } from '@tw/shared';
 import { MarkChip } from '@/components/status';
@@ -215,7 +215,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
 
           <section className="space-y-4">
             <fieldset className="space-y-2">
-              <legend className="mb-2 text-xs text-muted-foreground">대상</legend>
+              <SectionHeading as="legend" className="mb-2">대상</SectionHeading>
               {/* A choice only when the dialog came with lines or groups picked; otherwise the table is the whole choice. */}
               {unitIds?.length || groupIds?.length ? (
                 <RadioGroup value={scopeTarget} onValueChange={(value) => setScopeTarget(value as ScopeTarget)} className="gap-2">
@@ -245,32 +245,36 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
             </fieldset>
 
             <fieldset className="space-y-2">
-              <legend className="mb-2 text-xs text-muted-foreground">필터</legend>
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                <span className="w-16 text-xs text-muted-foreground">상태</span>
-                {(statuses.data?.statuses ?? []).map((status) => (
-                  <Label key={status.id} className="text-sm font-normal">
-                    <Checkbox checked={pickedStatuses.has(status.id)} onCheckedChange={(checked) => toggled(setPickedStatuses, status.id, checked === true)} />
-                    <StatusIcon status={status} />
-                    {status.name}
-                  </Label>
-                ))}
-              </div>
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                <span className="w-16 text-xs text-muted-foreground">표시·태그</span>
-                {LINE_MARK_IDS.map((mark) => (
-                  <Label key={mark} className="text-sm font-normal">
-                    <Checkbox checked={pickedMarks.has(mark)} onCheckedChange={(checked) => toggled(setPickedMarks, mark, checked === true)} />
-                    <MarkChip mark={mark} />
-                  </Label>
-                ))}
-                {tags.map((tag) => (
-                  <Label key={tag.id} className="text-sm font-normal">
-                    <Checkbox checked={pickedTags.has(tag.id)} onCheckedChange={(checked) => toggled(setPickedTags, tag.id, checked === true)} />
-                    #{tag.name}
-                  </Label>
-                ))}
-              </div>
+              <SectionHeading as="legend" className="mb-2">필터</SectionHeading>
+              <FieldRows>
+                <FieldRow label="상태">
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                    {(statuses.data?.statuses ?? []).map((status) => (
+                      <Label key={status.id} className="text-sm font-normal">
+                        <Checkbox checked={pickedStatuses.has(status.id)} onCheckedChange={(checked) => toggled(setPickedStatuses, status.id, checked === true)} />
+                        <StatusIcon status={status} />
+                        {status.name}
+                      </Label>
+                    ))}
+                  </div>
+                </FieldRow>
+                <FieldRow label="표시·태그">
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                    {LINE_MARK_IDS.map((mark) => (
+                      <Label key={mark} className="text-sm font-normal">
+                        <Checkbox checked={pickedMarks.has(mark)} onCheckedChange={(checked) => toggled(setPickedMarks, mark, checked === true)} />
+                        <MarkChip mark={mark} />
+                      </Label>
+                    ))}
+                    {tags.map((tag) => (
+                      <Label key={tag.id} className="text-sm font-normal">
+                        <Checkbox checked={pickedTags.has(tag.id)} onCheckedChange={(checked) => toggled(setPickedTags, tag.id, checked === true)} />
+                        #{tag.name}
+                      </Label>
+                    ))}
+                  </div>
+                </FieldRow>
+              </FieldRows>
             </fieldset>
 
             <p className="text-sm">
@@ -485,7 +489,7 @@ function Readiness({ projectId, readiness, oneScene, scoped, onLeave }: { projec
   if (!rows.length) return null;
   return (
     <section className="space-y-2">
-      <h3 className="text-xs text-muted-foreground">준비 상태 · 이 줄들 기준</h3>
+      <SectionHeading>준비 상태 · 이 줄들 기준</SectionHeading>
       <ul className="rounded-md border text-sm">
         {rows.map((row, index) => (
           <li key={index} className="flex items-center gap-2 px-3 py-1.5">

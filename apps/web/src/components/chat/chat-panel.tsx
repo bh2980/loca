@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation } from '@tanstack/react-router';
 import { ArrowUp, Check, ChevronRight, History, Plus, Square, Trash2, X } from 'lucide-react';
 import { Markdown } from './markdown';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, Spinner, Textarea } from '@loca/ui';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, SectionHeading, Spinner, Textarea } from '@loca/ui';
 import { Elapsed } from '@/components/job-progress';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
 import { client, unwrap } from '@/lib/api';
@@ -123,7 +123,7 @@ export function ChatPanel({ projectId }: { projectId: string }) {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-72">
-            <DropdownMenuLabel className="text-xs text-muted-foreground">이 프로젝트의 대화</DropdownMenuLabel>
+            <DropdownMenuLabel className="text-xs font-semibold text-foreground">이 프로젝트의 대화</DropdownMenuLabel>
             {sessions.data?.map((session) => (
               <DropdownMenuItem key={session.id} onSelect={() => setSessionId(session.id)} className={cn('group/session pr-1', session.id === sessionId && 'font-medium')}>
                 <span className="min-w-0 flex-1 truncate">{session.title}</span>
@@ -387,7 +387,7 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
       >
         {!messages.length && (
           <div className="space-y-2 pt-6 text-sm text-muted-foreground">
-            <p className="font-medium text-foreground">무엇을 도와드릴까요?</p>
+            <SectionHeading>무엇을 도와드릴까요?</SectionHeading>
           </div>
         )}
         <div className="space-y-5">
@@ -553,7 +553,7 @@ function ExternalProposals({ projectId }: { projectId: string }) {
   if (!pending.length) return null;
   return (
     <div className="max-h-[45%] shrink-0 overflow-y-auto border-b bg-background">
-      <Button variant="ghost" size="row" className="rounded-none px-3 py-2 font-medium" onClick={() => setOpen(!open)} aria-expanded={open}>
+      <Button variant="ghost" size="row" className="rounded-none px-3 py-2 font-semibold" onClick={() => setOpen(!open)} aria-expanded={open}>
         <ChevronRight className={cn('text-muted-foreground transition-transform', open && 'rotate-90')} />
         제안 {pending.length.toLocaleString()}개 대기 중
       </Button>

@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { checkFormat, listenerLabel, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatIssue, type FormatRules } from '@tw/shared';
 import { TokenChip, TokenText } from '@/components/editor/source-text';
 import { focusEndOfLine, insertUnitIntoLine, proposeInLine, replaceLineText, TranslationInput } from '@/components/editor/translation-input';
-import { AdvancedDisclosure, Badge, Button, AiMark, EditorAction, InlineEditorActions, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@loca/ui';
+import { AdvancedDisclosure, Badge, Button, GroupHeading, AiMark, EditorAction, InlineEditorActions, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@loca/ui';
 import { apiFetch } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
 import { wordDiff } from '@/lib/diff';
@@ -215,7 +215,7 @@ export function TranslationEditor({
       {marks}
       {/* What 다듬기 changed in the box and why, while the box still holds its answer. */}
       {assist.done === 'refine' && assist.text === draft && assist.from !== undefined && (
-        <div className="space-y-0.5 rounded-md border bg-background px-2 py-1.5 text-xs">
+        <div className="space-y-0.5 rounded-md border bg-background px-2 py-1.5 text-sm">
           <p className="break-words whitespace-pre-wrap">
             {wordDiff(assist.from, assist.text).map((part, index) => (
               // Tokens stay chips inside the marked words.
@@ -223,7 +223,7 @@ export function TranslationEditor({
             ))}
           </p>
           {assist.reasons?.map((reason) => (
-            <p key={reason} className="text-muted-foreground">
+            <p key={reason} className="text-xs text-muted-foreground">
               {reason}
             </p>
           ))}
@@ -410,17 +410,14 @@ function PreviousDiff({ unitId, openAtFirst }: { unitId: string; openAtFirst: bo
   if (!open)
     return (
       <AdvancedDisclosure label="이전 번역과 비교">
-        <div className="rounded-md border bg-background px-3 py-2 text-sm"><p className="mb-1 text-xs text-muted-foreground">이전 번역({origin[previous.origin]})에서 바뀐 곳</p><p className="break-words whitespace-pre-wrap">{diff}</p></div>
+        <div className="rounded-md border bg-background px-3 py-2 text-sm"><GroupHeading className="mb-1">이전 번역({origin[previous.origin]})에서 바뀐 곳</GroupHeading><p className="break-words whitespace-pre-wrap">{diff}</p></div>
       </AdvancedDisclosure>
     );
   return (
     <div className="rounded-md border bg-background px-3 py-2 text-sm">
-      <p className="mb-1 flex items-center gap-2 text-xs text-muted-foreground">
+      <GroupHeading className="mb-1" actions={<Button variant="ghost" size="inline" onClick={() => setOpen(false)}>접기</Button>}>
         이전 번역({origin[previous.origin]})에서 바뀐 곳
-        <Button variant="ghost" size="inline" className="ml-auto" onClick={() => setOpen(false)}>
-          접기
-        </Button>
-      </p>
+      </GroupHeading>
       <p className="break-words whitespace-pre-wrap">{diff}</p>
     </div>
   );

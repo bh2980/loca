@@ -69,7 +69,7 @@ export function KeyPane({ row, onClose, onCreated }: { row?: KeyRow; onClose: ()
         </Field>
         <Field>
           <FieldLabel htmlFor="key-header">키를 보내는 헤더</FieldLabel>
-          <Input id="key-header" className="font-mono text-xs" value={header} onChange={(event) => setHeader(event.target.value)} />
+          <Input id="key-header" className="font-mono text-sm" value={header} onChange={(event) => setHeader(event.target.value)} />
           <FieldDescription>
             {'{key}'}는 저장한 키로 바뀝니다.
           </FieldDescription>

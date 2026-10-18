@@ -1,5 +1,5 @@
 import type { InferResponseType } from 'hono/client';
-import { Button } from '@loca/ui';
+import { Button, SectionHeading } from '@loca/ui';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
 import type { client } from '@/lib/api';
 
@@ -16,8 +16,8 @@ export function Pace({ data }: { data: PlanData }) {
   // Only what is known: no time without history, no cost the provider never reported.
   const money = subscription && !costUsd ? '구독 사용' : costUsd === null ? null : costUsd === 0 && !subscription ? '무료' : costUsd < 0.01 ? '1센트 미만' : `약 $${costUsd.toFixed(2)}${subscription ? ' + 구독' : ''}`;
   return (
-    <section className="space-y-1">
-      <h3 className="text-xs text-muted-foreground">얼마나</h3>
+    <section className="space-y-2">
+      <SectionHeading>얼마나</SectionHeading>
       <p className="text-sm">
         AI 요청 <b className="font-medium tabular-nums">{callText}</b>
         {seconds !== null && (
@@ -40,7 +40,7 @@ export function Pace({ data }: { data: PlanData }) {
 export function RunModels({ nodes, picked, onPick, onReset, changedNote = '이번 실행만' }: { nodes: PlanData['nodes']; picked: Record<string, ModelValue>; onPick: (nodeId: string, value: ModelValue) => void; onReset: (nodeId: string) => void; /** Says how far a picked model reaches. */ changedNote?: string }) {
   return (
     <section className="space-y-2">
-      <h3 className="text-xs text-muted-foreground">모델</h3>
+      <SectionHeading>모델</SectionHeading>
       {nodes.map((node) => {
         const own = node.choice.connectionId && node.choice.model ? node.choice : null;
         const changed = Boolean(picked[node.nodeId]);

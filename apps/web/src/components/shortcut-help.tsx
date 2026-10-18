@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Keyboard } from 'lucide-react';
-import { Button, Kbd, Popover, PopoverContent, PopoverTrigger } from '@loca/ui';
+import { Button, Kbd, Popover, PopoverContent, PopoverTrigger, SectionHeading } from '@loca/ui';
 import { keyLabel } from '@/lib/keys';
 
 /** Every shortcut of the app, by where it works. Keys are written once and shown for the user's platform. */
@@ -87,7 +87,7 @@ export function ShortcutHelp() {
       <PopoverContent align="end" className="max-h-[80vh] w-96 overflow-auto p-0">
         {SECTIONS.map((section) => (
           <section key={section.title} className="border-b px-4 py-3 last:border-b-0">
-            <h3 className="mb-2 text-xs font-medium text-muted-foreground">{section.title}</h3>
+            <SectionHeading as="h3" className="mb-2">{section.title}</SectionHeading>
             <dl className="space-y-1.5 text-sm">
               {section.keys.map(([keys, what]) => (
                 <div key={keys + what} className="flex items-start justify-between gap-3">

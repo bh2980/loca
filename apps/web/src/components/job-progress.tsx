@@ -70,13 +70,13 @@ export function AnalysisSteps({ job, actions }: { job: AnalysisJob; actions?: Re
       <JobProgress done={job.partsDone} total={job.partsTotal} running />
       <ol className="space-y-1.5">
         {steps.map((step) => (
-          <li key={step.label} className="flex items-start gap-2 text-xs">
+          <li key={step.label} className="flex items-start gap-2 text-sm">
             <span className={cn('mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border', step.state === 'done' && 'border-success bg-success text-background', step.state === 'now' && 'border-foreground')}>
               {step.state === 'done' ? <Check className="size-3" /> : step.state === 'now' ? <span className="size-1.5 animate-pulse rounded-full bg-foreground" /> : null}
             </span>
             <span className="min-w-0">
               <span className={cn('font-medium', step.state === 'later' && 'text-muted-foreground')}>{step.label}</span>
-              {step.detail && <span className="block text-muted-foreground">{step.detail}</span>}
+              {step.detail && <span className="block text-xs text-muted-foreground">{step.detail}</span>}
             </span>
           </li>
         ))}

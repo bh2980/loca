@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Play, Plus, Trash2 } from 'lucide-react';
 import { APPLY_FUNCTION_NAMES, APPLY_TARGETS, applyIssues, DEFAULT_PARTICLE_PATTERN, formatPatternError, FUNCTIONS, JSON_FIELD_TYPE_LABELS, nodeName, PALETTE_FUNCTION_NAMES, type ApplyField, type ApplyFunctionName, type ApplyParams, type CustomFormatRule, type JsonFieldType, type WorkflowDefinition, type FunctionName, type JsonField, type WorkflowNode } from '@tw/shared';
-import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, StatusIcon, TagChip } from '@loca/ui';
+import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, StatusIcon, TagChip, GroupHeading } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
 import { AiRegexInput } from '@/components/ai-regex-input';
 import { client, unwrap } from '@/lib/api';
@@ -132,7 +132,7 @@ function FormatCheckConfig({ params, refs, set }: { params: Record<string, unkno
 
       <div className="space-y-2 border-t border-border pt-3">
         <div className="flex items-center justify-between">
-          <p className="text-xs font-medium">사용자 정의 검사 규칙 (정규식)</p>
+          <GroupHeading>사용자 정의 검사 규칙 (정규식)</GroupHeading>
           <Button type="button" variant="outline" onClick={addRule}>
             <Plus className="size-3.5" /> 규칙 추가
           </Button>
@@ -477,7 +477,7 @@ function ApplyConfig({ node, fn, params, refs, setMany }: { node: FunctionNode; 
       {from && (target.shape !== 'list' || params.list) && (
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <p className="text-xs font-medium">필드 연결</p>
+            <GroupHeading>필드 연결</GroupHeading>
             <Button variant="outline" onClick={() => setMany({ map: { ...autoMap(targetFields, rowSources), ...params.map } })}>
               자동 연결
             </Button>

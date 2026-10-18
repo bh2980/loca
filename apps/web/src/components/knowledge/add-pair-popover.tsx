@@ -3,7 +3,7 @@ import { useMutation } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { OTHERS_LISTENER, SPECIAL_LISTENERS, SPEECH_LEVELS, SPEECH_LEVEL_LABELS, type SpeechLevel } from '@tw/shared';
-import { Button, Input, Label, Popover, PopoverContent, PopoverTrigger, SearchableSelect, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, type SearchableSelectOption } from '@loca/ui';
+import { Button, FieldRow, FieldRows, Input, Popover, PopoverContent, PopoverTrigger, SearchableSelect, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, type SearchableSelectOption } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { pairKey, type Pair } from './pairs';
 
@@ -20,11 +20,12 @@ interface Person {
 /** One end of the pair: a picked person, or a new name; listeners can also be 여럿 / 불특정 다수 / 혼잣말 / 그 밖의 사람. */
 function End({ label, value, name, onValue, onName, options, placeholder }: { label: string; value: string; name: string; onValue: (value: string) => void; onName: (name: string) => void; options: SearchableSelectOption[]; placeholder: string }) {
   return (
-    <div className="grid gap-1.5">
-      <Label>{label}</Label>
+    <FieldRow label={label}>
+     <div className="grid gap-1.5">
       <SearchableSelect ariaLabel={label} value={value} onValueChange={onValue} options={options} placeholder={placeholder} searchPlaceholder="이름 검색" />
       {value === NEW && <Input aria-label={`${label} 새 이름`} autoFocus value={name} onChange={(event) => onName(event.target.value)} placeholder="새 인물 이름" />}
-    </div>
+     </div>
+    </FieldRow>
   );
 }
 
@@ -109,10 +110,10 @@ export function AddPairPopover({ projectId, characters, pairs, onCreated }: { pr
             if (ready && !submit.isPending) submit.mutate();
           }}
         >
+          <FieldRows>
           <End label="화자" value={from} name={fromName} onValue={setFrom} onName={setFromName} options={fromOptions} placeholder="말하는 사람" />
           <End label="청자" value={to} name={toName} onValue={setTo} onName={setToName} options={toOptions} placeholder="듣는 사람" />
-          <div className="grid gap-1.5">
-            <Label>말투</Label>
+          <FieldRow label="말투">
             <Select value={level} onValueChange={(value) => setLevel(value as SpeechLevel)}>
               <SelectTrigger aria-label="말투" className="w-full">
                 <SelectValue />
@@ -125,13 +126,13 @@ export function AddPairPopover({ projectId, characters, pairs, onCreated }: { pr
                 ))}
               </SelectContent>
             </Select>
-          </div>
+          </FieldRow>
           {!toSpecial && (
-            <div className="grid gap-1.5">
-              <Label>관계 종류 (선택)</Label>
+            <FieldRow label="관계 종류 (선택)">
               <Input aria-label="관계 종류" value={kind} onChange={(event) => setKind(event.target.value)} placeholder={`비우면 ‘${DEFAULT_KIND}’`} />
-            </div>
+            </FieldRow>
           )}
+          </FieldRows>
           <Button type="submit" disabled={!ready || submit.isPending}>
             추가
           </Button>

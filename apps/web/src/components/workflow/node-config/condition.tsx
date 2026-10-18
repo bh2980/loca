@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { AUTO_MARKS, type AutoMark, CONDITION_MARK_IDS } from '@tw/shared';
 import { nodeName, type JsonField, type WorkflowNode } from '@tw/shared';
 import { MarkChip } from '@/components/status';
-import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, StatusIcon, TagChip, Textarea } from '@loca/ui';
+import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, StatusIcon, TagChip, Textarea, GroupHeading } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
 import { Field, type ConditionNode, type NodeRefs } from '@/components/workflow/node-config/shared';
 
@@ -88,7 +88,7 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
       </Field>
       {!readOnly && (
         <div className="space-y-3 rounded-md border p-3">
-          <p className="text-xs font-medium">자주 쓰는 조건</p>
+          <GroupHeading>자주 쓰는 조건</GroupHeading>
 
           {statuses.length > 0 && (
             <div className="flex flex-wrap items-center gap-1.5 text-sm">

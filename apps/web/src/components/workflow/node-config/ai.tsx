@@ -25,7 +25,7 @@ function ChoiceValues({ values, onChange }: { values: string[]; onChange: (value
       aria-label="선택지"
       value={text}
       placeholder={'한 줄에 하나씩\n예: Casual'}
-      className="min-h-20 text-xs"
+      className="min-h-20 text-sm"
       onChange={(event) => {
         setText(event.target.value);
         onChange(event.target.value.split('\n').map((item) => item.trim()).filter(Boolean));
@@ -84,7 +84,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
               </AiButton>
             </div>
       }>
-        <Textarea aria-label="지시문" value={config.instructions} onChange={(event) => set({ instructions: event.target.value })} className="min-h-28 text-xs" />
+        <Textarea aria-label="지시문" value={config.instructions} onChange={(event) => set({ instructions: event.target.value })} className="min-h-28 text-sm" />
         <div className="flex items-center justify-between gap-2">
           <span className="min-w-0 truncate text-xs text-muted-foreground">{config.preset ? (preset ? `프리셋 · ${preset.label}에서 채움` : `프리셋 · ${config.preset}`) : '프리셋 없음'}</span>
           <div className="flex shrink-0 items-center gap-1">
