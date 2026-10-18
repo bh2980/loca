@@ -392,7 +392,8 @@ function GroupPicker({ groups, picked, setPicked, filter, setFilter }: { groups:
           const expanded = Boolean(needle) || open.has(kind);
           return (
             <div key={kind}>
-              <div className="flex min-w-0 items-center">
+              {/* Each level steps in by the fold button's width: 전체 → kind → its groups. */}
+              <div className="flex min-w-0 items-center pl-2">
                 <Button
                   variant="ghost"
                   size="icon-xs"
@@ -402,7 +403,7 @@ function GroupPicker({ groups, picked, setPicked, filter, setFilter }: { groups:
                 >
                   <ChevronRight className={cn('transition-transform', expanded && 'rotate-90')} />
                 </Button>
-                <label className={cn(row, 'min-w-0 flex-1 pl-1')}>
+                <label className={cn(row, 'min-w-0 flex-1 pl-0')}>
                   <Checkbox checked={state(all)} onCheckedChange={(checked) => setMany(all, checked === true)} />
                   <span className="min-w-0 flex-1 truncate">{SCRIPT_VIEW[kind]}</span>
                   <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{all.length.toLocaleString()}개 · {lines(all).toLocaleString()}줄</span>
