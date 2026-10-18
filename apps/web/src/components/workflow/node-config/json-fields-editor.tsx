@@ -1,6 +1,6 @@
 /** Editor for a list of JSON fields (name / type / description, lists nest): an AI node's JSON output and a script's `data`. */
 import { useEffect, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, MoreHorizontal, Plus, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronRight, MoreHorizontal, Plus, Trash2 } from 'lucide-react';
 import { z } from 'zod';
 import { JSON_FIELD_TYPES, JSON_FIELD_TYPE_LABELS, jsonFieldSchema, type JsonField, type JsonFieldType } from '@tw/shared';
 import { Button, ControlIdContext, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Switch, Textarea, cn } from '@loca/ui';
@@ -8,7 +8,7 @@ import { Field } from '@/components/workflow/node-config/shared';
 
 const fieldsSchema = z.array(jsonFieldSchema);
 
-type Editing = { path: string | null; open: (path: string | null) => void };
+type Editing = { path: string | null; open: (path: string | null) => void; folded: Set<string>; fold: (path: string) => void };
 
 /** One field: read as `name` · type over its description; a click opens just this field for editing (Esc or a click elsewhere closes it). */
 function FieldItem({ field, path, first, last, descriptionPlaceholder, editing, onChange, onMove, onRemove }: { field: JsonField; path: string; first: boolean; last: boolean; descriptionPlaceholder: string; editing: Editing; onChange: (patch: Partial<JsonField> | JsonField) => void; onMove: (by: -1 | 1) => void; onRemove: () => void }) {
@@ -35,9 +35,22 @@ function FieldItem({ field, path, first, last, descriptionPlaceholder, editing, 
         onClick={() => editing.open(path)}
         onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); editing.open(path); } }}
       >
-        <div className="flex min-w-0 items-baseline gap-2">
+        <div className="flex min-w-0 items-center gap-2">
           <span className="truncate font-mono text-sm font-semibold text-foreground">{field.name || 'name'}</span>
-          <span className="shrink-0 text-xs text-muted-foreground">{JSON_FIELD_TYPE_LABELS[field.type]}</span>
+          <span className="shrink-0 text-xs text-muted-foreground">{JSON_FIELD_TYPE_LABELS[field.type]}{field.type === 'list' && editing.folded.has(path) && ` · 필드 ${field.fields?.length ?? 0}개`}</span>
+          {field.type === 'list' && (
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className="-my-1 shrink-0 text-muted-foreground"
+              aria-label={`${field.name || '목록'} ${editing.folded.has(path) ? '펴기' : '접기'}`}
+              aria-expanded={!editing.folded.has(path)}
+              onClick={(event) => { event.stopPropagation(); editing.fold(path); }}
+              onKeyDown={(event) => event.stopPropagation()}
+            >
+              <ChevronRight className={cn('transition-transform', !editing.folded.has(path) && 'rotate-90')} />
+            </Button>
+          )}
         </div>
         {field.description && <p className="text-xs whitespace-pre-wrap text-muted-foreground">{field.description}</p>}
       </div>
@@ -103,7 +116,7 @@ function FieldRows({ fields, descriptionPlaceholder, path, editing, onChange }: 
             onMove={(by) => move(index, by)}
             onRemove={() => onChange(fields.filter((_, i) => i !== index))}
           />
-          {field.type === 'list' && (
+          {field.type === 'list' && !editing.folded.has(`${path}${index}`) && (
             <div className={cn('mt-1 ml-1 border-l-2 pl-3', editing.path?.startsWith(`${path}${index}.`) ? 'border-muted-foreground' : 'border-muted-foreground/30')}>
               <FieldRows fields={field.fields ?? []} descriptionPlaceholder={descriptionPlaceholder} path={`${path}${index}.`} editing={editing} onChange={(children) => setField(index, { fields: children })} />
             </div>
@@ -119,7 +132,13 @@ function FieldRows({ fields, descriptionPlaceholder, path, editing, onChange }: 
 export function JsonFieldsEditor({ label, fields, descriptionPlaceholder, onChange }: { label: string; fields: JsonField[]; descriptionPlaceholder: string; onChange: (fields: JsonField[]) => void }) {
   const [asSchema, setAsSchema] = useState(false);
   const [editingPath, setEditingPath] = useState<string | null>(null);
-  const editing: Editing = { path: editingPath, open: setEditingPath };
+  const [folded, setFolded] = useState<Set<string>>(() => new Set());
+  const editing: Editing = {
+    path: editingPath,
+    open: setEditingPath,
+    folded,
+    fold: (path) => setFolded((current) => { const next = new Set(current); if (next.has(path)) next.delete(path); else next.add(path); return next; }),
+  };
   const [text, setText] = useState('');
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
