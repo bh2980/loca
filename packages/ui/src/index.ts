@@ -66,3 +66,5 @@ export * from "./data/picked-bar"
 export * from "./data/empty-state"
 export * from "./data/tag-menu"
 
+// Inspector primitives (P3)
+export * from "./inspector"
