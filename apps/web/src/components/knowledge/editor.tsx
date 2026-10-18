@@ -159,7 +159,7 @@ function FieldInput({ field, value, characters, onChange }: { field: Field; valu
   const id = `field-${field.name}`;
   if (field.type === 'bool')
     return (
-      <div className="flex items-center justify-between gap-3 rounded-md border border-border/80 bg-surface-1/40 p-3">
+      <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-panel p-3">
         <Label htmlFor={id} className="cursor-pointer text-xs font-medium leading-snug text-foreground">{field.label}</Label>
         <Switch id={id} checked={Boolean(value)} onCheckedChange={onChange} />
       </div>

@@ -47,7 +47,7 @@ function Home() {
       <div className="grid gap-3 sm:grid-cols-2">
         {projects.data?.map((project) => (
           <Link key={project.id} to="/p/$projectId" params={{ projectId: project.id }} className="rounded-md focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none">
-            <Card className="h-full border-border/80 shadow-none transition-colors hover:bg-muted/40 hover:border-border">
+            <Card className="h-full border-border shadow-none transition-colors hover:bg-muted hover:border-border">
               <CardHeader className="p-4">
                 <CardTitle className="truncate text-sm font-semibold">{project.name}</CardTitle>
                 <CardDescription className="flex items-center gap-2 text-xs text-muted-foreground">

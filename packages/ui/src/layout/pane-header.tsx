@@ -28,7 +28,7 @@ export function PaneHeader({
   return (
     <div
       className={cn(
-        "flex shrink-0 items-start gap-2 border-b border-border/80 bg-background px-3.5 py-2.5",
+        "flex shrink-0 items-start gap-2 border-b border-border bg-background px-3.5 py-2.5",
         className
       )}
     >

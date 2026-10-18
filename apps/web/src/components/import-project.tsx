@@ -61,7 +61,7 @@ export function ImportProjectDialog({ trigger }: { trigger?: React.ReactNode }) 
         </DialogHeader>
         {/* Click to pick, or drop the file here. */}
         <label
-          className={cn('flex cursor-pointer flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border/80 px-4 py-8 text-xs text-muted-foreground hover:bg-muted/40 transition-colors', dragging && 'border-primary bg-muted/60 text-foreground')}
+          className={cn('flex cursor-pointer flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border px-4 py-8 text-xs text-muted-foreground hover:bg-muted transition-colors', dragging && 'border-primary bg-muted text-foreground')}
           onDragOver={(event) => {
             event.preventDefault();
             event.dataTransfer.dropEffect = 'copy';
@@ -85,7 +85,7 @@ export function ImportProjectDialog({ trigger }: { trigger?: React.ReactNode }) 
         )}
         {result && 'parseError' in result && <p className="text-sm text-destructive">JSON을 읽지 못했습니다: {result.parseError}</p>}
         {result && 'issues' in result && !result.ok && (
-          <div className="max-h-56 overflow-auto rounded-md border bg-muted/40 p-3 text-xs">
+          <div className="max-h-56 overflow-auto rounded-md border bg-muted p-3 text-xs">
             <p className="mb-2 font-medium text-destructive">형식 오류 {result.issues.length}개 — 아무것도 저장하지 않았습니다.</p>
             <ul className="space-y-1 font-mono">
               {result.issues.map((issue, index) => (

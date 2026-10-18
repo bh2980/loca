@@ -282,7 +282,7 @@ function ScriptConfig({ params, projectId, readOnly, set }: { params: Record<str
             <Play /> 첫 대사로 시험 실행
           </Button>
           {test.data && (
-            <pre className="max-h-64 overflow-auto rounded-md bg-muted/50 p-2 text-xs">
+            <pre className="max-h-64 overflow-auto rounded-md bg-muted p-2 text-xs">
               {test.data.ok
                 ? `출구: ${test.data.port}${test.data.validPort ? '' : ' (선언하지 않은 출구!)'}  ·  ${test.data.ms}ms\n${JSON.stringify(test.data.result, null, 2)}`
                 : `오류: ${test.data.error}`}

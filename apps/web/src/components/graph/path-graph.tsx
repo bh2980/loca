@@ -11,6 +11,7 @@ import { q } from '@/lib/queries';
 import { useQuery } from '@tanstack/react-query';
 import { foldTranslated, splitBackEdges, windowOf, placeSeams, type Arm, type Hub, type Overview } from '@/components/graph/path-window';
 import { cn } from '@/lib/utils';
+import { useIsDark } from '@/lib/theme';
 
 /** What a slice block needs from the graph's node list (the first line of a node). */
 export interface PathNodeText {
@@ -152,7 +153,7 @@ function PathNodeView({ data, selected }: NodeProps<PathNode>) {
   if (data.shape === 'folded')
     return (
       <div style={size} className="flex items-center">
-        <Button variant="outline" className="nodrag h-full w-full border-dashed bg-muted/50 font-normal text-muted-foreground" title={`번역을 마친 ${data.parts?.toLocaleString()}개 구간을 접었습니다. 누르면 펼칩니다.`} onClick={data.onExpand}>
+        <Button variant="outline" className="nodrag h-full w-full border-dashed bg-muted font-normal text-muted-foreground" title={`번역을 마친 ${data.parts?.toLocaleString()}개 구간을 접었습니다. 누르면 펼칩니다.`} onClick={data.onExpand}>
           번역함 · {data.lines.toLocaleString()}줄
           {data.arm && <ArmChip arm={data.arm} className="ml-2" />}
         </Button>
@@ -407,6 +408,7 @@ export function PathGraph({ projectId, slice, texts, checks, at, all, selectedId
   /** Called once the first layout is on screen (for timing). */
   onReady?: () => void;
 }) {
+  const dark = useIsDark();
   const moveRef = useRef(onMove);
   moveRef.current = onMove;
   // Folded stretches the person opened (first overview node of the stretch): a session convenience, not page state.
@@ -551,7 +553,7 @@ export function PathGraph({ projectId, slice, texts, checks, at, all, selectedId
   const opening = all && fitted < MIN_FIT_ZOOM ? placed.filter((item) => positions.at[item.id].y < size.height / OPEN_ZOOM).map((item) => ({ id: item.id })) : undefined;
   return (
     <div ref={frame} className="h-full w-full" data-path-nodes={placed.length}>
-    <ReactFlow
+    <ReactFlow colorMode={dark ? 'dark' : 'light'}
       key={key}
       nodes={nodes}
       edges={edges}

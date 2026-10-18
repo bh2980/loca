@@ -42,7 +42,7 @@ export function DetailPane<T extends string>({
   bodyClassName,
 }: DetailPaneProps<T>) {
   return (
-    <div className={cn("flex h-full min-h-0 flex-col bg-background border-l border-border/80", className)}>
+    <div className={cn("flex h-full min-h-0 flex-col bg-panel border-l border-border", className)}>
       <PaneHeader
         kicker={kicker}
         title={title}
@@ -51,7 +51,7 @@ export function DetailPane<T extends string>({
         onClose={onClose}
       />
       {summary && !loading && (
-        <div className="shrink-0 space-y-2.5 border-b border-border/60 bg-muted/10 p-3 text-xs">
+        <div className="shrink-0 space-y-2.5 bg-muted p-3 text-xs">
           {summary}
         </div>
       )}
@@ -59,7 +59,7 @@ export function DetailPane<T extends string>({
         <Tabs
           value={tabs.value}
           onValueChange={(value) => tabs.onChange(value as T)}
-          className="shrink-0 border-b border-border/60 px-3 py-1.5"
+          className="shrink-0 px-3 py-1.5"
         >
           <TabsList variant="line" className="w-full justify-start">
             {tabs.items.map((item) => (
@@ -82,7 +82,7 @@ export function DetailPane<T extends string>({
         )}
       </ScrollArea>
       {footer && (
-        <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border/80 bg-surface-1/50 px-4 py-3 backdrop-blur-xs">
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border bg-panel px-4 py-3 backdrop-blur-xs">
           {footer}
         </div>
       )}

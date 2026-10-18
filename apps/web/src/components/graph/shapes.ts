@@ -1,3 +1,4 @@
+import type { CanvasColors } from './canvas-colors';
 /**
  * Node shapes by meaning, so kind is readable without color:
  * line/scene = rounded rectangle, condition = diamond, wait = hourglass, event = circle,
@@ -11,18 +12,7 @@ interface Box {
   height: number;
 }
 
-const FILL: Record<string, string> = {
-  script: '#ffffff',
-  scene: '#ffffff',
-  chain: '#ffffff',
-  choice: '#eff6ff',
-  condition: '#fef3c7',
-  wait: '#e0e7ff',
-  event: '#dcfce7',
-  state: '#fce7f3',
-  connector: '#71717a',
-  unknown: '#f4f4f5',
-};
+const fillFor = (kind: string, colors: CanvasColors) => ({ script: colors.graphNode, scene: colors.graphNode, chain: colors.graphNode, choice: colors.choice, condition: colors.condition, wait: colors.wait, event: colors.event, state: colors.state, connector: colors.mutedForeground, unknown: colors.muted }[kind] ?? colors.muted);
 
 export const KIND_LABEL: Record<string, string> = {
   script: '대사',
@@ -37,7 +27,7 @@ export const KIND_LABEL: Record<string, string> = {
   unknown: '미분류',
 };
 
-export function drawShape(context: CanvasRenderingContext2D, kind: string, box: Box, options: { selected: boolean; selectColor: string; detailed: boolean; k: number }) {
+export function drawShape(context: CanvasRenderingContext2D, kind: string, box: Box, options: { selected: boolean; selectColor: string; detailed: boolean; k: number; colors: CanvasColors }) {
   const { x, y, width: w, height: h } = box;
   const cx = x + w / 2, cy = y + h / 2;
   context.beginPath();
@@ -78,10 +68,10 @@ export function drawShape(context: CanvasRenderingContext2D, kind: string, box: 
     case 'chain':
       // A folded run: a box with a second edge behind it, like a small stack.
       context.roundRect(x + 5, y + 5, w, h, Math.min(10, h / 4));
-      context.fillStyle = options.detailed ? '#f4f4f5' : '#d4d4d8';
+      context.fillStyle = options.detailed ? options.colors.muted : options.colors.graphNodeLine;
       context.fill();
       if (options.detailed) {
-        context.strokeStyle = '#d4d4d8';
+        context.strokeStyle = options.colors.graphNodeLine;
         context.lineWidth = 1;
         context.stroke();
       }
@@ -95,11 +85,11 @@ export function drawShape(context: CanvasRenderingContext2D, kind: string, box: 
       context.roundRect(x, y, w, h, Math.min(10, h / 4));
   }
   // Zoomed out there is no outline, so white boxes need a visible fill.
-  context.fillStyle = !options.detailed && (kind === 'script' || kind === 'scene' || kind === 'chain') ? '#a1a1aa' : !options.detailed && kind === 'choice' ? '#93c5fd' : (FILL[kind] ?? FILL.unknown);
+  context.fillStyle = !options.detailed && (kind === 'script' || kind === 'scene' || kind === 'chain') ? options.colors.graphNode : !options.detailed && kind === 'choice' ? options.colors.primary : fillFor(kind, options.colors);
   context.fill();
   if (!options.detailed && !options.selected) return;
   context.lineWidth = options.selected ? Math.max(2.5, 2.5 / options.k) : 1;
-  context.strokeStyle = options.selected ? options.selectColor : kind === 'choice' ? '#93c5fd' : '#d4d4d8';
+  context.strokeStyle = options.selected ? options.selectColor : kind === 'choice' ? options.colors.primary : options.colors.graphNodeLine;
   if (kind === 'unknown' && !options.selected) context.setLineDash([4, 3]);
   context.stroke();
   context.setLineDash([]);

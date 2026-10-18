@@ -94,7 +94,7 @@ export function GroupList({ projectId, groups, finalIds, initialIds, scope, line
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-sidebar/40">
+    <div className="flex h-full min-h-0 flex-col bg-chrome">
       <div className="space-y-0.5 border-b p-2">
         {views ? (
           views.map((view) => <ScopeLink key={view.kind} projectId={projectId} scope={{ kind: view.kind }} active={!scope.group && !scope.review && scope.kind === view.kind} icon={VIEW_ICON[view.kind]} label={SCRIPT_VIEW[view.kind]} count={view.lines} />)
@@ -120,7 +120,7 @@ export function GroupList({ projectId, groups, finalIds, initialIds, scope, line
           return (
             <Collapsible key={section.key} open={open} onOpenChange={(next) => toggle(section.name!, next)}>
               <CollapsibleTrigger asChild>
-                <Button variant="ghost" size="row" className="mt-1 text-xs font-medium text-muted-foreground">
+                <Button variant="ghost" size="row" className="mt-1 border-t border-border-subtle text-xs font-medium text-muted-foreground">
                   <ChevronRight className={cn('transition-transform', open && 'rotate-90')} />
                   <span className="min-w-0 flex-1 truncate">{section.name}</span>
                 </Button>
@@ -156,10 +156,10 @@ function ScriptLink({ projectId, scope, keep, className, children, ...props }: {
 
 function ScopeLink({ projectId, scope, active, icon, label, count, highlight }: { projectId: string; scope: ScriptScope; active: boolean; icon: ReactNode; label: string; count: number; highlight?: boolean }) {
   return (
-    <ScriptLink projectId={projectId} scope={scope} aria-current={active ? 'page' : undefined} className={cn('flex h-7 items-center gap-2 rounded-md px-2 text-xs tracking-tight transition-colors hover:bg-surface-1/80 [&_svg]:size-3.5 [&_svg]:text-muted-foreground', active ? 'bg-surface-1 font-semibold text-foreground shadow-2xs' : 'text-muted-foreground')}>
+    <ScriptLink projectId={projectId} scope={scope} aria-current={active ? 'page' : undefined} className={cn('flex h-7 items-center gap-2 rounded-md px-2 text-xs tracking-tight transition-colors hover:bg-accent [&_svg]:size-3.5 [&_svg]:text-muted-foreground', active ? 'bg-chrome font-semibold text-foreground shadow-2xs' : 'text-muted-foreground')}>
       {icon}
       <span>{label}</span>
-      <span className={cn('ml-auto text-xs tabular-nums font-mono', highlight ? 'font-medium text-foreground' : 'text-muted-foreground/70')}>{count.toLocaleString()}</span>
+      <span className={cn('ml-auto text-xs tabular-nums font-mono', highlight ? 'font-medium text-foreground' : 'text-subtle-foreground')}>{count.toLocaleString()}</span>
     </ScriptLink>
   );
 }
@@ -177,8 +177,8 @@ function GroupItem({ projectId, group, progress, active, indent, marks }: { proj
       className={cn(
         'flex h-7 items-center gap-1.5 rounded-md pr-2 text-xs tracking-tight transition-colors',
         indent ? 'pl-6' : 'pl-2',
-        active ? 'bg-surface-1 font-semibold text-foreground shadow-2xs' : 'text-foreground/90 hover:bg-surface-1/60',
-        complete && !active && 'text-muted-foreground/70'
+        active ? 'bg-chrome font-semibold text-foreground shadow-2xs' : 'text-foreground/90 hover:bg-accent',
+        complete && !active && 'text-subtle-foreground'
       )}
     >
       <span className="min-w-0 flex-1 truncate">{group.title}</span>
@@ -187,7 +187,7 @@ function GroupItem({ projectId, group, progress, active, indent, marks }: { proj
       ) : complete ? (
         <Check className="size-3 shrink-0 text-success" aria-label="완료" />
       ) : (
-        <span className="shrink-0 text-xs font-mono text-muted-foreground/70 tabular-nums" title={`번역함 ${progress.translated}줄 · 확정 ${progress.final}줄 / 전체 ${group.total}줄`} aria-label={`번역함 ${progress.translated} / ${group.total}`}>
+        <span className="shrink-0 text-xs font-mono text-subtle-foreground tabular-nums" title={`번역함 ${progress.translated}줄 · 확정 ${progress.final}줄 / 전체 ${group.total}줄`} aria-label={`번역함 ${progress.translated} / ${group.total}`}>
           {progress.translated}/{group.total}
         </span>
       )}

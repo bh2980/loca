@@ -37,8 +37,8 @@ function SelectTrigger({
       data-slot="select-trigger"
       data-size={size}
       className={cn(
-        "flex w-fit items-center justify-between gap-1.5 rounded-xs border border-border/80 bg-background px-2.5 py-1 text-xs whitespace-nowrap shadow-xs transition-colors",
-        "outline-none hover:bg-muted/30 focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
+        "flex w-fit items-center justify-between gap-1.5 rounded-xs border border-border bg-background px-2.5 py-1 text-xs whitespace-nowrap shadow-xs transition-colors",
+        "outline-none hover:bg-muted focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
         "data-[size=xs]:h-6 data-[size=xs]:px-2 data-[size=xs]:text-2xs",
         "data-[size=sm]:h-7 data-[size=sm]:px-2.5 data-[size=sm]:text-xs",
         "data-[size=default]:h-8 data-[size=default]:px-3 data-[size=default]:text-sm",
@@ -70,7 +70,7 @@ function SelectContent({
         sideOffset={sideOffset}
         position={position}
         className={cn(
-          "relative z-50 max-h-[var(--radix-select-content-available-height)] min-w-[8rem] overflow-hidden rounded-md border border-border/80 bg-popover text-popover-foreground shadow-md backdrop-blur-xs",
+          "relative z-50 max-h-[var(--radix-select-content-available-height)] min-w-[8rem] overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md backdrop-blur-xs",
           "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
           "data-[side=bottom]:slide-in-from-top-1 data-[side=left]:slide-in-from-right-1 data-[side=right]:slide-in-from-left-1 data-[side=top]:slide-in-from-bottom-1",
           className

@@ -89,6 +89,11 @@
   --graph-node: oklch(1 0 0);
   --graph-node-line: oklch(0.88 0.01 258);
   --graph-select: var(--primary);
+  --graph-kind-choice: var(--primary-soft);
+  --graph-kind-condition: color-mix(in oklch, var(--review) 18%, var(--card));
+  --graph-kind-wait: var(--muted);
+  --graph-kind-event: color-mix(in oklch, var(--success) 16%, var(--card));
+  --graph-kind-state: color-mix(in oklch, var(--hue-12) 15%, var(--card));
 
   --shadow-color: oklch(0.24 0.02 262 / 0.08);
 

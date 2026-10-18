@@ -238,7 +238,15 @@ AI는 대본에서 **근거 달린 주장**을 뽑는다. 예: "Bob은 Carol을 
 [우측 전역 채팅 패널]  어느 화면에서든 열고 닫음. 본문 탐색과 독립.
 ```
 
-UI 규칙(표·우측 패널·AlertDialog)은 `AGENTS.md`를 따른다. 공통 UI는 독립 패키지 `@loca/ui`에서만 개발하며, 웹 앱(`apps/web`)은 이를 가져와 사용한다. 디자인 위계는 Apple Pro Apps(Xcode, Final Cut) 및 Google Material 3의 원칙을 따르며, 과도하게 둥근 모서리(10px+) 대신 4px(`rounded-md`) / 2~3px(`rounded-xs`, `rounded-sm`)의 flat & crisp한 실무 도구 룩과 1px 절제된 테두리, 정제된 단일 elevation 그림자(`shadow-xs`, `shadow-sm`, `shadow-md`)를 일관되게 적용한다. 우측 패널은 모두 경계를 끌어 폭을 바꾸고 화면마다 기억한다(채팅 패널과 같은 방식).
+UI 규칙(표·우측 패널·AlertDialog)은 `AGENTS.md`를 따른다. 공통 UI는 독립 패키지 `@loca/ui`에서만 개발하며, 웹 앱(`apps/web`)은 이를 가져와 사용한다. 우측 패널은 모두 경계를 끌어 폭을 바꾸고 화면마다 기억한다(채팅 패널과 같은 방식).
+
+**시각 토큰 [구현됨: 2026-10-18 리디자인 P0.5]** (`packages/ui/src/tokens/theme.css`, 근거 `loca-review/ui-refs/VISUAL.md`)
+- 테마 둘, 이름은 하나: 기본 **슬레이트**(차가운 슬레이트 중성색, 코발트 강조 하나)와 다크 **야간 작업실**(흑연, 청록 강조 하나). `<html class="dark">`로 바꾸고(`lib/theme.ts`, 사이드바 › 테마), 선택은 브라우저마다 저장한다. 화면은 의미 이름(`bg-chrome`, `bg-panel`, `text-subtle-foreground`, `bg-primary` …)만 쓰고 색 값을 직접 쓰지 않는다(`pnpm ui-rules`가 hex·Tailwind 색 이름·투명도로 만든 회색을 막는다).
+- 글꼴은 앱에 싣는다: Wanted Sans Variable(한글·라틴) + Geist Mono(키·토큰·id), 둘 다 OFL(`packages/ui/src/fonts`). 굵기는 400 / 500 / 650 세 단계(다크는 한 단계 위).
+- 면 세 단계(크롬 · 패널 · 본문)로 영역을 나누고, 선은 영역 경계에만 쓴다. 표 행·섹션 사이에는 선이 없고 간격과 hover 면으로 나눈다. 모서리는 두 값(조작부 6px / 패널·노드 8px).
+- 강조색은 하나다: 주 버튼 = 선택 = 포커스. 의미색은 한 색에 한 뜻(빨강 위험·오류, 주황 경고, 호박 사람 확인 필요, 초록 완료, 보라 AI).
+- 상태는 **모양 + 색**(`StatusIcon`): 빈 원 = 시작 전(initial), 반원 = 진행 중, 채운 원 + ! = 사람 확인(inReview), 채운 원 + ✓ = 최종(final). 색만으로 말하지 않는다.
+- 상태·태그·표시 색은 12색 팔레트(`PALETTE`, 한 색조에 하나)에서 고른다. 저장 값은 라이트 hex이고 화면은 테마별 `--hue-N`으로 보인다. 옛 20색은 가장 가까운 팔레트 색으로 보인다(데이터는 그대로).
 
 ### 4.1 화면 부품 (`@loca/ui`) [구현됨]
 

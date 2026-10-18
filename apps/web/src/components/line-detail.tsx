@@ -217,7 +217,7 @@ export function LineDetail({
                 const current = candidate.text === (line.translation ?? null);
                 const inEditor = draft !== (line.translation ?? '') && candidate.text === draft;
                 return (
-                  <li key={candidate.id} className={cn('rounded-md border p-3 text-sm', current && 'border-foreground/30 bg-muted/40')}>
+                  <li key={candidate.id} className={cn('rounded-md border p-3 text-sm', current && 'border-foreground/30 bg-muted')}>
                     <p className="whitespace-pre-wrap">{candidate.text}</p>
                     <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
                       <Badge variant="outline">{ORIGIN[candidate.origin]}</Badge>

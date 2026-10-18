@@ -35,10 +35,6 @@
 
   --color-chrome: var(--chrome);
   --color-panel: var(--panel);
-  --color-canvas: var(--background);
-  --color-surface-1: var(--chrome);
-  --color-surface-2: var(--card);
-  --color-surface-elevated: var(--popover);
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -227,4 +223,16 @@
   .cm-continuation { @apply text-subtle-foreground italic; }
   /* A glossary translation in use. */
   .cm-term-hit { @apply rounded-sm bg-primary/5 underline decoration-primary/40 underline-offset-4; }
+}
+
+/* React Flow canvases (workflow, dialogue paths, people, events) on the theme's canvas surface and edges. */
+.react-flow {
+  --xy-background-color: var(--graph-canvas);
+  --xy-background-pattern-color: var(--graph-grid);
+  --xy-edge-stroke: var(--graph-edge);
+  --xy-controls-button-background-color: var(--card);
+  --xy-controls-button-background-color-hover: var(--accent);
+  --xy-controls-button-color: var(--foreground);
+  --xy-controls-button-border-color: var(--border);
+  --xy-minimap-background-color: var(--panel);
 }

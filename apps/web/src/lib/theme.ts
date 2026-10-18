@@ -59,3 +59,10 @@ function subscribe(listener: () => void) {
 export function useTheme(): ThemeChoice {
   return useSyncExternalStore(subscribe, readTheme, () => 'system');
 }
+
+const isDark = () => document.documentElement.classList.contains('dark');
+
+/** Whether the dark theme is showing now (the choice resolved against the OS), for libraries that take a mode (React Flow). */
+export function useIsDark(): boolean {
+  return useSyncExternalStore(subscribe, isDark, () => false);
+}

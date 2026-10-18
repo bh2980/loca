@@ -15,7 +15,7 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
     );
   const markdown = (value: unknown) =>
     typeof value === 'string' && value ? (
-      <div className="prose-chat max-h-64 overflow-auto rounded-md border bg-muted/30 px-3 py-2">
+      <div className="prose-chat max-h-64 overflow-auto rounded-md border bg-muted px-3 py-2">
         <Markdown>{value}</Markdown>
       </div>
     ) : null;
@@ -199,7 +199,7 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
           {field('노드', input.nodeId)}
           {field('항목', { instructions: '지시문', expression: '조건식', code: '스크립트 코드' }[input.field as string])}
           {field('설명', input.description)}
-          <pre className="max-h-64 overflow-auto rounded-md border bg-muted/30 p-2 text-xs whitespace-pre-wrap">{value}</pre>
+          <pre className="max-h-64 overflow-auto rounded-md border bg-muted p-2 text-xs whitespace-pre-wrap">{value}</pre>
         </dl>
       );
     }

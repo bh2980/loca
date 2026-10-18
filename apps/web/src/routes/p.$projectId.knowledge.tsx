@@ -493,13 +493,13 @@ function ViewSwitch({ label, value, onChange, items }: { label: string; value: s
       value={value}
       onValueChange={(next) => next && onChange(next)}
       aria-label={label}
-      className="bg-surface-1 border border-border/80 p-0.5 rounded-lg gap-0.5"
+      className="bg-chrome border border-border p-0.5 rounded-lg gap-0.5"
     >
       {items.map((item) => (
         <ToggleGroupItem
           key={item.value}
           value={item.value}
-          className="gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium tracking-tight data-[state=on]:bg-surface-2 data-[state=on]:shadow-2xs [&_svg]:size-3.5 [&_svg]:stroke-[1.65]"
+          className="gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium tracking-tight data-[state=on]:bg-card data-[state=on]:shadow-2xs [&_svg]:size-3.5 [&_svg]:stroke-[1.65]"
         >
           {item.icon}
           {item.label}

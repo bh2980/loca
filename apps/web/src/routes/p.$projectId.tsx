@@ -64,7 +64,7 @@ function ProjectLayout() {
       <SidebarInset className="min-w-0 overflow-hidden">
         <ResizablePanelGroup orientation="horizontal" defaultLayout={layout.defaultLayout} onLayoutChanged={layout.onLayoutChanged}>
           <ResizablePanel id="main" minSize="320px" className="flex min-w-0 flex-col">
-            <header className="flex h-9 shrink-0 items-center gap-2 border-b border-border/80 bg-surface-2/70 px-2.5 backdrop-blur-xs select-none">
+            <header className="flex h-9 shrink-0 items-center gap-2 border-b border-border bg-chrome px-2.5 backdrop-blur-xs select-none">
               <Tooltip>
                 <TooltipTrigger asChild>
                   <SidebarTrigger className="size-7" />
@@ -89,11 +89,11 @@ function ProjectLayout() {
                     >
                       <MessageSquare className="size-3.5" />
                       {waiting > 0 ? (
-                        <span className="absolute -top-1 -right-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-accent-indigo px-1 text-xs font-bold leading-none text-white tabular-nums ring-2 ring-background">
+                        <span className="absolute -top-1 -right-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-1 text-xs font-bold leading-none text-primary-foreground tabular-nums ring-2 ring-background">
                           {waiting}
                         </span>
                       ) : (
-                        unread && <span className="absolute top-1 right-1 size-1.5 rounded-full bg-accent-indigo ring-2 ring-background" />
+                        unread && <span className="absolute top-1 right-1 size-1.5 rounded-full bg-primary ring-2 ring-background" />
                       )}
                     </Button>
                   </TooltipTrigger>
@@ -104,7 +104,7 @@ function ProjectLayout() {
                 </Tooltip>
               </div>
             </header>
-            <main className="flex min-h-0 flex-1 flex-col overflow-auto bg-canvas">
+            <main className="flex min-h-0 flex-1 flex-col overflow-auto bg-background">
               <Outlet />
             </main>
           </ResizablePanel>
@@ -141,7 +141,7 @@ function SectionTabs({ projectId }: { projectId: string }) {
               'relative flex items-center px-2.5 text-xs font-medium whitespace-nowrap transition-colors select-none',
               isCurrent
                 ? 'text-foreground font-semibold after:absolute after:bottom-0 after:inset-x-2 after:h-[2px] after:bg-foreground after:rounded-full'
-                : 'text-muted-foreground hover:text-foreground hover:bg-surface-1/60 rounded-md'
+                : 'text-muted-foreground hover:text-foreground hover:bg-accent rounded-md'
             )}
           >
             {tab.label}

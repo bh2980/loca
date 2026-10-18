@@ -85,7 +85,7 @@ export function AgentTab() {
         <FieldDescription className="mt-2">비용은 연결이 보고한 것만 셉니다(구독 CLI는 0). 한도에 닿으면 이후 변경은 카드로 묻습니다.</FieldDescription>
       </div>
       <div className="rounded-lg border">
-        <div className="grid grid-cols-[minmax(0,1fr)_repeat(4,5.5rem)] items-center gap-2 border-b px-2 py-1.5 text-xs text-muted-foreground">
+        <div className="grid grid-cols-[minmax(0,1fr)_repeat(4,5.5rem)] items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground">
           <span className="pl-7">대상</span>
           {ACTIONS.map((action) => (
             <span key={action} className="text-center" title={AGENT_TOOL_ACTIONS[action].description}>
@@ -93,7 +93,7 @@ export function AgentTab() {
             </span>
           ))}
         </div>
-        <ul className="divide-y">
+        <ul>
           {TARGETS.map((target) => (
             <li key={target}>
               <Collapsible className="group/tools">
@@ -118,7 +118,7 @@ export function AgentTab() {
                 </div>
                 <CollapsibleContent>
                   {/* The same rows on a darker ground: each tool's switch sits in its own column, under the cell that switches them together. */}
-                  <ul className="divide-y border-t bg-muted/60">
+                  <ul className="bg-muted">
                     {toolsIn(target).map((name) => (
                       <li key={name} className="grid grid-cols-[minmax(0,1fr)_repeat(4,5.5rem)] items-center gap-2 px-2 py-1">
                         <span className="flex h-8 min-w-0 items-center pl-9 text-sm" title={name}>

@@ -28,14 +28,14 @@ export function Toolbar({
   return (
     <div
       className={cn(
-        "flex min-h-9 shrink-0 flex-wrap items-center gap-1.5 border-b border-border/80 bg-surface-2/70 px-3 py-1 backdrop-blur-xs",
+        "flex min-h-9 shrink-0 flex-wrap items-center gap-1.5 border-b border-border bg-card px-3 py-1 backdrop-blur-xs",
         className
       )}
     >
       {children}
       <div className="ml-auto flex items-center gap-1.5">
         {count != null && (
-          <span className="text-2xs font-medium text-muted-foreground/80 tabular-nums">
+          <span className="text-2xs font-medium text-subtle-foreground tabular-nums">
             {count}
           </span>
         )}
@@ -153,7 +153,7 @@ export function Pager({ page, total, pageSize, onPage, className }: PagerProps) 
   return (
     <div
       className={cn(
-        "flex shrink-0 items-center justify-end gap-1.5 border-t border-border/80 bg-background/50 px-3 py-1.5",
+        "flex shrink-0 items-center justify-end gap-1.5 border-t border-border bg-background/50 px-3 py-1.5",
         className
       )}
     >

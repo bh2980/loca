@@ -186,11 +186,11 @@ export function GettingStarted({ projectId }: { projectId: string }) {
           <X />
         </Button>
       </div>
-      <ol className="divide-y rounded-md border border-border/80 bg-background/50">
+      <ol className="rounded-md border border-border bg-background/50">
         {steps.map((step, i) => {
           const current = step === next;
           return (
-            <li key={step.key} className={cn('flex items-start gap-4 px-4 py-3', current && 'bg-muted/40')}>
+            <li key={step.key} className={cn('flex items-start gap-4 px-4 py-3', current && 'bg-muted')}>
               <span className={cn('mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full border text-xs tabular-nums', step.done ? 'border-success bg-success text-background' : current ? 'border-foreground font-medium text-foreground' : 'text-muted-foreground')}>
                 {step.done ? <Check className="size-3.5" /> : i + 1}
               </span>

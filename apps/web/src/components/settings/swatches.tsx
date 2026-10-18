@@ -29,7 +29,7 @@ export function Swatches({ value, onChange }: { value: string; onChange: (color:
       ))}
       {/* Any other color: the browser's picker, shown filled when the color is not in the palette. */}
       <label className={cn('relative flex size-8 cursor-pointer items-center justify-center rounded-md hover:bg-muted', current < 0 && 'bg-muted ring-1 ring-foreground/40')} title="다른 색">
-        <span aria-hidden className="size-4 rounded-full" style={current >= 0 ? { background: WHEEL } : { backgroundColor: value }} />
+        <span aria-hidden className="size-4 rounded-full" style={current >= 0 ? { background: WHEEL } : { backgroundColor: paletteColor(value) }} />
         <Input type="color" aria-label="다른 색" value={value} onChange={(event) => onChange(event.target.value)} className="absolute inset-0 size-full cursor-pointer opacity-0" />
       </label>
     </div>

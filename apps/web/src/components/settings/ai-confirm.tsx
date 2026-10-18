@@ -49,7 +49,7 @@ export function AiConfirmList({ projectId }: { projectId: string }) {
     },
   });
   return (
-    <ul className="divide-y rounded-lg border">
+    <ul className="rounded-lg border">
       {(Object.keys(AI_CONFIRM_KINDS) as AiConfirmKind[]).map((kind) => (
         <li key={kind} className="flex items-center gap-3 px-4 py-2">
           <span className="min-w-0 flex-1 text-sm font-medium">{AI_CONFIRM_KINDS[kind]}</span>

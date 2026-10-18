@@ -39,7 +39,7 @@ export function EmptyState({
           ? `조건에 맞는 ${noun}${particle} 없습니다.`
           : `아직 ${noun}${particle} 없습니다.`}
       </p>
-      {!filtered && hint && <p className="mt-1 text-muted-foreground/80">{hint}</p>}
+      {!filtered && hint && <p className="mt-1 text-subtle-foreground">{hint}</p>}
       {!filtered && action && <div className="mt-3 flex justify-center">{action}</div>}
     </div>
   )

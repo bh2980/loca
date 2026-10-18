@@ -248,7 +248,7 @@ function StatusSettings() {
             onRowClick={(row) => open({ status: row.id })}
           />
           <Toolbar
-            className="mt-8 border-t"
+            className="mt-8"
             count={allTags ? `${allTags.length}개` : undefined}
             actions={
               <Button variant="outline" onClick={() => open({ tag: 'new' })}>

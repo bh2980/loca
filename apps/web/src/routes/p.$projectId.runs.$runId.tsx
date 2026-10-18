@@ -302,7 +302,7 @@ function RunDetail() {
                 <Skeleton className="h-4 w-3/4" />
               </div>
             ) : (
-              <ul className="divide-y">
+              <ul>
                 {steps.data.map((step) => (
                   <li key={step.id} className="px-4 py-2 text-sm">
                     <Collapsible>
@@ -352,7 +352,7 @@ function RunDetail() {
                               </Button>
                             </CollapsibleTrigger>
                             <CollapsibleContent>
-                              <pre className="mt-1 max-h-80 overflow-auto rounded bg-muted/50 p-2 text-xs whitespace-pre-wrap">{step.prompt}</pre>
+                              <pre className="mt-1 max-h-80 overflow-auto rounded bg-muted p-2 text-xs whitespace-pre-wrap">{step.prompt}</pre>
                             </CollapsibleContent>
                           </Collapsible>
                         )}
@@ -365,7 +365,7 @@ function RunDetail() {
                               </Button>
                             </CollapsibleTrigger>
                             <CollapsibleContent>
-                              <pre className="mt-1 max-h-80 overflow-auto rounded bg-muted/50 p-2 text-xs">{JSON.stringify(step.output, null, 2)}</pre>
+                              <pre className="mt-1 max-h-80 overflow-auto rounded bg-muted p-2 text-xs">{JSON.stringify(step.output, null, 2)}</pre>
                             </CollapsibleContent>
                           </Collapsible>
                         )}

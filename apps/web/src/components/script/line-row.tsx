@@ -56,7 +56,7 @@ export function LineHints({ projectId, line, part }: { projectId: string; line: 
   }, [terms.data, line.source, project.data?.formatRules]);
 
   const hint = (key: string, ok: boolean | null, label: ReactNode, title?: string) => (
-    <span key={key} title={title} className={cn('inline-flex items-center gap-1 rounded-md border border-border/80 bg-surface-2 px-1.5 py-0.5 text-xs shadow-2xs', ok === false && 'border-warning/40 text-warning')}>
+    <span key={key} title={title} className={cn('inline-flex items-center gap-1 rounded-md border border-border bg-card px-1.5 py-0.5 text-xs shadow-2xs', ok === false && 'border-warning/40 text-warning')}>
       {ok === true && <Check className="size-3 text-success" />}
       {ok === false && <CircleAlert className="size-3" />}
       {label}
@@ -232,7 +232,7 @@ export function LineRow({ projectId, line, newScene, selected, marked, findLabel
   const narration = line.kind === 'dialogue' && !line.speaker?.trim();
   const sourceClass = narration ? 'text-muted-foreground' : line.kind === 'document' ? 'leading-relaxed' : undefined;
   const header = newScene && (
-    <li className="sticky top-0 z-10 flex items-center gap-2 border-b border-border/80 bg-surface-1/90 px-3 py-1 text-xs text-muted-foreground backdrop-blur-xs select-none">
+    <li className="sticky top-0 z-10 flex items-center gap-2 border-t border-border-subtle bg-chrome px-3 py-1 text-xs text-muted-foreground backdrop-blur-xs select-none">
       <span className="truncate font-semibold tracking-tight text-foreground">{line.groupTitle}</span>
       {onOpenScene && (
         <Button variant="ghost" size="inline" className="ml-auto text-xs" onClick={() => onOpenScene(line.groupId, line.id)}>
@@ -251,7 +251,7 @@ export function LineRow({ projectId, line, newScene, selected, marked, findLabel
         <li
           ref={rowRef}
           onClick={onSelect}
-          className={cn('grid cursor-pointer grid-cols-[2.5rem_minmax(0,1fr)_minmax(0,1fr)] border-b border-border-subtle transition-colors hover:bg-surface-1/60', marked && 'bg-warning/5 shadow-[inset_2px_0_0_var(--warning)]')}
+          className={cn('grid cursor-pointer grid-cols-[2.5rem_minmax(0,1fr)_minmax(0,1fr)] transition-colors hover:bg-accent', marked && 'bg-warning/5')}
           style={arrived ? { animation: 'line-arrived 2s ease-out' } : undefined}
           onAnimationEnd={onArrivedEnd}
         >
@@ -262,7 +262,7 @@ export function LineRow({ projectId, line, newScene, selected, marked, findLabel
             </span>
             <TokenText text={line.source} source={line.source} pattern={tokenPattern} className="min-w-0 text-sm" />
           </div>
-          <div className="flex min-w-0 items-baseline gap-2 border-l border-border-subtle px-3 py-2 text-sm">
+          <div className="flex min-w-0 items-baseline gap-2 px-3 py-2 text-sm">
             {/* Empty when untranslated: the status beside it already says so. */}
             <span className="min-w-0 flex-1">{line.translation && <TokenText text={line.translation} source={line.source} pattern={tokenPattern} />}</span>
             {tagRow}
@@ -288,7 +288,7 @@ export function LineRow({ projectId, line, newScene, selected, marked, findLabel
       <li
         ref={rowRef}
         onClick={() => !selected && onSelect()}
-        className={cn('grid grid-cols-[2.5rem_minmax(0,1fr)_minmax(0,1fr)] border-b border-border-subtle transition-colors', selected ? 'bg-accent-indigo/[0.04] shadow-[inset_2px_0_0_var(--accent-indigo)]' : 'cursor-pointer hover:bg-surface-1/60', marked && !selected && 'bg-warning/5 shadow-[inset_2px_0_0_var(--warning)]')}
+        className={cn('grid grid-cols-[2.5rem_minmax(0,1fr)_minmax(0,1fr)] transition-colors', selected ? 'bg-selection' : 'cursor-pointer hover:bg-accent', marked && !selected && 'bg-warning/5')}
         style={arrived ? { animation: 'line-arrived 2s ease-out' } : undefined}
         onAnimationEnd={onArrivedEnd}
       >
@@ -306,7 +306,7 @@ export function LineRow({ projectId, line, newScene, selected, marked, findLabel
                       (selected ? (
                         <PickedListener projectId={projectId} line={line} />
                       ) : who.unknown ? (
-                        <Button variant="ghost" size="inline" className="h-auto shrink-0 p-0 text-xs font-normal text-muted-foreground/80 hover:bg-transparent hover:text-warning" title={`#${AUTO_MARKS.unknownListener.name} 줄만 보기`} onClick={(event) => (event.stopPropagation(), onFilterMark('unknownListener'))}>
+                        <Button variant="ghost" size="inline" className="h-auto shrink-0 p-0 text-xs font-normal text-subtle-foreground hover:bg-transparent hover:text-warning" title={`#${AUTO_MARKS.unknownListener.name} 줄만 보기`} onClick={(event) => (event.stopPropagation(), onFilterMark('unknownListener'))}>
                           → {who.text}
                         </Button>
                       ) : (
@@ -317,7 +317,7 @@ export function LineRow({ projectId, line, newScene, selected, marked, findLabel
                     {marked && <span className="shrink-0 text-warning">● {findLabel}</span>}
                   </p>
                   {/* The translation's status (✦ when a run set it), and the picked line's links. */}
-                  <p className="flex min-w-0 items-center gap-1 border-l px-3 pt-3.5 pb-1.5 text-xs text-muted-foreground">
+                  <p className="flex min-w-0 items-center gap-1 px-3 pt-3.5 pb-1.5 text-xs text-muted-foreground">
                     <StatusIcon status={status} />
                     <span className="truncate">{status?.name}</span>
                     <AiMark by={line.statusBy} />
@@ -338,7 +338,7 @@ export function LineRow({ projectId, line, newScene, selected, marked, findLabel
                       <TokenText text={line.source} source={line.source} pattern={tokenPattern} className={cn('text-base', sourceClass)} />
                     )}
                   </div>
-                  <div className={cn('row-start-2 min-w-0 border-l px-3', selected || !tagRow ? 'pb-3.5' : '')}>
+                  <div className={cn('row-start-2 min-w-0 px-3', selected || !tagRow ? 'pb-3.5' : '')}>
                     {selected ? (
                       <>
                         <TranslationEditor key={`editor-${line.id}`} projectId={projectId} unit={line} statuses={statusList} focusKey={focusTick} marks={tagRow} onEscape={onEscape} onDone={onDone} />
@@ -361,7 +361,7 @@ export function LineRow({ projectId, line, newScene, selected, marked, findLabel
                       </div>
                     )}
                   </div>
-                  {!selected && tagRow && <div className="col-start-3 row-start-3 min-w-0 border-l px-3 pt-1 pb-3.5">{tagRow}</div>}
+                  {!selected && tagRow && <div className="col-start-3 row-start-3 min-w-0 px-3 pt-1 pb-3.5">{tagRow}</div>}
                 </li>
                 </>
   );

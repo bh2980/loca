@@ -66,7 +66,7 @@ export function LineHeadRow({ projectId, rows, bulk, statusList, tags }: { proje
   return (
     <>
       {!!rows.length && (
-        <div className="flex min-h-10 shrink-0 items-center border-b bg-muted/30 text-xs text-muted-foreground">
+        <div className="flex min-h-10 shrink-0 items-center border-b bg-muted text-xs text-muted-foreground">
           <span className="flex w-10 shrink-0 justify-center">
             <Checkbox
               aria-label="보이는 줄 모두 선택"

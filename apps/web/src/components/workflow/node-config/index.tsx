@@ -63,7 +63,7 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
         </fieldset>
       </ScrollArea>
       {!readOnly && node.type !== 'entry' && (
-        <div className="border-t p-3">
+        <div className="p-3">
           <Button variant="ghost" className="text-destructive" onClick={onDelete}>
             <Trash2 /> 노드 삭제
           </Button>
