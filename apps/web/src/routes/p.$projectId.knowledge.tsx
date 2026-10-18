@@ -42,6 +42,7 @@ import { DraftEditor } from '@/components/knowledge/editor';
 import { RelationshipChanges, RuleLines } from '@/components/knowledge/evidence';
 import { BulkDecide, fail, KINDS, KnowledgeFilters, knowledgeFilterChips, KNOWLEDGE_MARK_IDS, matches, type KnowledgeFilterState, SourceBadge, type Kind, type KindSpec, type Row, type SourceFilter, defineKind, metaColumns, candidateRow } from '@/components/knowledge/table';
 import { pairKey, buildPairs, PairDetail, pairItems, pairMatches, pairSummary, PairTable, type Pair, type SpeechRuleCreate } from '@/components/knowledge/pairs';
+import { AddPairPopover } from '@/components/knowledge/add-pair-popover';
 import { EventFlow } from '@/components/knowledge/event-flow';
 import { splitList } from '@/components/chip-input';
 import { client, unwrap } from '@/lib/api';
@@ -538,6 +539,7 @@ function Knowledge() {
             <CanvasDirectionControl direction={direction} onDirectionChange={(next) => set({ direction: next }, false)} disabled={storyEvents.isPending} />
             <Separator orientation="vertical" className="mx-1 h-4" />
           </>}
+          {(pairsView || graph) && <AddPairPopover projectId={projectId} characters={characters} pairs={pairs} onCreated={(key) => set({ item: key, source: undefined, marks: undefined, ids: undefined })} />}
           {!pairsView && spec.create && <Button disabled={create.isPending} onClick={() => create.mutate()}><Plus /> {KINDS[tableKind]}</Button>}
           <RunDialog projectId={projectId} trigger={<Button variant="ghost"><Play /> 워크플로 실행</Button>} />
         </HeaderActions>
