@@ -71,7 +71,7 @@ export const tags = sqliteTable('tags', {
   /** A tag the app keeps: a problem type on lines (ISSUE_KINDS) or 확인 권장 on knowledge (REVIEW_TAG); null for a person's own tag. */
   role: text('role', { enum: TAG_ROLES as unknown as [TagRole, ...TagRole[]] }),
   /** Where a person's own tag can be put (the app's tags derive theirs from the role: tagScope). */
-  scope: json<TagScope[]>('scope').notNull().default(sql`'["lines","knowledge","terms"]'`),
+  scope: json<TagScope[]>('scope').notNull().default(sql`'["lines","terms","people","documents","events"]'`),
 });
 
 export const groups = sqliteTable(
@@ -119,7 +119,10 @@ export const units = sqliteTable(
     /** A person's note on the line (a doubt, a question for the developer); empty = none. */
     note: text('note').notNull().default(''),
     meta: json<Record<string, unknown>>('meta'),
-    updatedAt: updatedAt(),
+    // This is also the optimistic-concurrency revision. Multiple writes in one millisecond
+    // (or a clock correction) must not make a later human edit invisible to undo/conflict checks.
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date())
+      .$onUpdateFn(() => sql`max(updated_at + 1, ${Date.now()})`),
   },
   (t) => [
     uniqueIndex('units_key').on(t.projectId, t.key),
@@ -236,12 +239,13 @@ export const graphLayouts = sqliteTable(
     scope: text('scope', { enum: ['dialogue', 'scene'] }).notNull(),
     /** '' for the whole graph; a section name for that section's own dialogue layout. */
     section: text('section').notNull().default(''),
+    direction: text('direction', { enum: ['vertical', 'horizontal'] }).notNull().default('vertical'),
     status: text('status', { enum: ['pending', 'ready', 'failed'] }).notNull(),
     data: json<LayoutData>('data'),
     error: text('error'),
     updatedAt: updatedAt(),
   },
-  (t) => [primaryKey({ columns: [t.projectId, t.scope, t.section] })],
+  (t) => [primaryKey({ columns: [t.projectId, t.scope, t.section, t.direction] })],
 );
 
 /**
@@ -491,6 +495,8 @@ export interface RunScope {
   tagIds?: string[];
   /** Automatic marks (services/line-marks.ts): lines must have every one of them. */
   marks?: LineMark[];
+  /** Specific status IDs to run on (overriding or supplementing entry node statusIds). */
+  statusIds?: string[];
   /** Run the picked lines even if their status is not one the entry node accepts. */
   ignoreStatus?: boolean;
 }

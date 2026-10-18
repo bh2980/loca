@@ -17,7 +17,7 @@ export function SceneNodeDetail({ projectId, groupId, onClose }: { projectId: st
   if (!group.data) return <Skeleton className="m-4 h-24" />;
   return (
     <div className="flex h-full flex-col">
-      <InspectorHeader kind="장면" name={group.data.title} status={<span className="font-mono">{group.data.key}</span>} onClose={onClose} />
+      <InspectorHeader kind="장면" name={group.data.title} status={<span className="font-mono text-xs break-all" title={group.data.key}>{group.data.key}</span>} onClose={onClose} />
       <div className="space-y-3 p-4">
         {group.data.description && <p className="text-sm">{group.data.description}</p>}
         <div className="flex flex-col gap-2">

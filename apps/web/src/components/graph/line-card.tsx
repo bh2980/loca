@@ -1,15 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { ChevronDown, ChevronUp, PanelRightOpen, StickyNote, X } from 'lucide-react';
+import { toast } from 'sonner';
+import { PALETTE, TAG_SCOPES } from '@tw/shared';
 import { LineHints } from '@/components/script/line-row';
 import { TranslationEditor } from '@/components/translation-editor';
 import { LineSourceText } from '@/components/editor/source-text';
-import { Button, Skeleton } from '@loca/ui';
-import { q } from '@/lib/queries';
+import { Button, Skeleton, TagListEditor } from '@loca/ui';
+import { client, unwrap } from '@/lib/api';
+import { lineTags, q } from '@/lib/queries';
 import { keyLabel } from '@/lib/keys';
 import { SpeakerCard } from '@/components/script/speaker-card';
 import { LineNote } from '@/components/script/line-note';
+import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
 
 /** The card's width; the graph keeps this much room beside the node when it opens. */
 export const LINE_CARD_WIDTH = 384;
@@ -34,6 +38,58 @@ export function LineCard({ projectId, unitId, choice, position, onStep, onClose 
   const statuses = useQuery(q.statuses(projectId));
   const navigate = useNavigate();
   const line = unit.data;
+  const tags = lineTags(statuses.data?.tags);
+  const attachedTags = line ? tags.filter((tag) => line.tagIds.includes(tag.id)) : [];
+  const orderedTags = [...attachedTags.filter((tag) => tag.role), ...attachedTags.filter((tag) => !tag.role)];
+
+  const queryClient = useQueryClient();
+  const patch = useMutation({
+    mutationFn: (json: { tagIds?: string[] }) => unwrap(client.units[':unitId'].$patch({ param: { unitId }, json })),
+    onMutate: async (json) => ({ undo: await optimistic(queryClient, unitChanges([unitId], patchedLine(json))) }),
+    onError: (error, _json, context) => {
+      context?.undo();
+      toast.error(error.message);
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['statuses', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['units', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['unit', unitId] });
+    },
+  });
+
+  const handleToggleTag = (tagId: string, add: boolean) => {
+    if (!line) return;
+    const nextTagIds = add ? [...line.tagIds, tagId] : line.tagIds.filter((id) => id !== tagId);
+    patch.mutate({ tagIds: nextTagIds });
+  };
+
+  const handleCreateTag = async (name: string) => {
+    if (!line) return;
+    try {
+      const color = (PALETTE[tags.length % PALETTE.length] as any).light ?? PALETTE[tags.length % PALETTE.length].hex;
+      const res = await unwrap(client.projects[':projectId'].tags.$post({
+        param: { projectId },
+        json: { name, color, scope: [...TAG_SCOPES] },
+      }));
+      await patch.mutateAsync({ tagIds: [...line.tagIds, res.id] });
+      toast.success(`'${name}' 태그를 만들고 줄에 붙였습니다.`);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : '태그를 만들지 못했습니다.');
+    }
+  };
+
+  const marks = line && (
+    <div className="mt-1 flex flex-wrap items-center gap-1" role="group" aria-label="이 줄의 태그" onClick={(event) => event.stopPropagation()}>
+      <TagListEditor
+        tags={orderedTags}
+        allTags={tags}
+        onToggle={handleToggleTag}
+        onCreate={handleCreateTag}
+        heading="대사 태그"
+      />
+    </div>
+  );
+
   const [noting, setNoting] = useState(false);
   useEffect(() => setNoting(false), [unitId]);
   // While the next line loads its editor is gone; the card holds the focus so ⌥↓ and Esc keep working.
@@ -99,6 +155,7 @@ export function LineCard({ projectId, unitId, choice, position, onStep, onClose 
             unit={line}
             statuses={statuses.data?.statuses ?? []}
             focusKey={1}
+            marks={marks}
             onEscape={onClose}
             onDone={(moved) => moved && onStep(1)}
           />

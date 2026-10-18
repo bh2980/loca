@@ -1,328 +1,276 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { ChevronDown, ChevronUp } from 'lucide-react';
+import { ChevronDown, ChevronUp, GitFork } from 'lucide-react';
 import { toast } from 'sonner';
-import { SeamStateChip } from '@/components/graph/seam-check-pane';
-import { buildItems, indexOfLine, nodeStarts, routeSequence, translatedIds, untranslatedFrom, type RouteItem } from '@/components/graph/route-list-model';
-import { LineSourceText, TokenText } from '@/components/editor/source-text';
-import { LineHints } from '@/components/script/line-row';
+import { isUnknownListener, listenerLabel, needsListener, PALETTE, SPECIAL_LISTENERS, TAG_SCOPES, type ReadingRouteFork } from '@tw/shared';
 import { TranslationEditor } from '@/components/translation-editor';
-import { Button, Skeleton, AiMark, StatusIcon, HelpTip } from '@loca/ui';
-import { client, unwrap, type InferResponseType } from '@/lib/api';
+import { TokenText } from '@/components/editor/source-text';
+import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger, ScriptReadingRow, Skeleton, TagChip, TagListEditor, type StatusLike } from '@loca/ui';
+import { client, unwrap } from '@/lib/api';
 import { tokenPatternOf } from '@/lib/line-context';
 import { keyLabel } from '@/lib/keys';
-import { q } from '@/lib/queries';
+import { lineTags, q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
+import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
+import type { InferResponseType } from '@/lib/api';
 
-type RouteData = InferResponseType<(typeof client.projects)[':projectId']['route']['$get']>;
 type Row = InferResponseType<(typeof client.projects)[':projectId']['units']['by-ids']['$post']>['rows'][number];
+type Status = Parameters<typeof TranslationEditor>[0]['statuses'][number];
 
-/** Lines are read from the server this many at a time (reading order), the chunks around what is on screen. */
+/** Lines are loaded in bounded chunks around the virtualized reader viewport. */
 const CHUNK = 40;
-const typing = (target: EventTarget | null) => target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName));
+const scrollKey = (projectId: string, routeKey: string) => `tw.graph.route.reading.${projectId}.${encodeURIComponent(routeKey)}`;
 
-/** Opened folds are a session convenience (not page state): kept per project in sessionStorage. */
-const foldStore = (projectId: string) => `tw.graph.route.folds.${projectId}`;
-const topStore = (projectId: string) => `tw.graph.route.top.${projectId}`;
-function readSet(key: string): Set<string> {
+function readScroll(key: string) {
   try {
-    const raw: unknown = JSON.parse(sessionStorage.getItem(key) ?? '[]');
-    return new Set(Array.isArray(raw) ? raw.filter((item): item is string => typeof item === 'string') : []);
+    const value = Number(sessionStorage.getItem(key));
+    return Number.isFinite(value) && value > 0 ? value : 0;
   } catch {
-    return new Set();
+    return 0;
   }
 }
-function readTop(projectId: string): { round: number; unitId: string } | undefined {
+
+function writeScroll(key: string, value: number) {
   try {
-    const raw = JSON.parse(sessionStorage.getItem(topStore(projectId)) ?? 'null') as { round?: unknown; unitId?: unknown } | null;
-    return raw && typeof raw.round === 'number' && typeof raw.unitId === 'string' ? { round: raw.round, unitId: raw.unitId } : undefined;
+    sessionStorage.setItem(key, String(value));
   } catch {
-    return undefined;
+    // Scroll restoration is a convenience when session storage is unavailable.
   }
 }
-const writeSession = (key: string, value: unknown) => {
-  try {
-    sessionStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    // A convenience: without storage the list opens at `at` again.
-  }
-};
 
-/** One line of the route: who says it, the source and the translation; the picked line opens the script view's translation editor in place. */
-function RouteLineRow({ projectId, unitId, row, selected, status, statusList, tokenPattern, focusTick, onSelect, onEscape, onDone }: {
+function typing(target: EventTarget | null) {
+  return target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA'].includes(target.tagName));
+}
+
+function RouteLineRow({ projectId, row, selected, status, statusList, rules, tags, tokenPattern, focusTick, loadError, stageLabel, onRetry, onSelect, onEscape, onDone }: {
   projectId: string;
-  unitId: string;
   row: Row | undefined;
   selected: boolean;
-  status: { name: string; color: string } | undefined;
-  statusList: Parameters<typeof TranslationEditor>[0]['statuses'];
+  status: StatusLike | undefined;
+  statusList: Status[];
+  rules: Parameters<typeof needsListener>[1];
+  tags: (StatusLike & { role?: string | null })[];
   tokenPattern: RegExp | null;
   focusTick: number;
+  loadError: boolean;
+  stageLabel?: string;
+  onRetry: () => void;
   onSelect: () => void;
   onEscape: () => void;
   onDone: (advanced: boolean) => void;
 }) {
-  if (!row) return <Skeleton className="m-3 h-12" data-testid="route-row-loading" data-unit={unitId} />;
-  const narration = row.kind === 'dialogue' && !row.speaker?.trim();
-  return (
-    <div
-      role="listitem"
-      data-unit={row.id}
-      data-selected={selected || undefined}
-      onClick={() => !selected && onSelect()}
-      className={cn('px-4 py-2.5', selected ? 'bg-muted shadow-[inset_2px_0_0_var(--primary)]' : 'cursor-pointer hover:bg-accent')}
-    >
-      <p className="mb-1 flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
-        <span className="truncate">{row.speaker ?? '지문·문구'}</span>
-        <span className="ml-auto flex shrink-0 items-center gap-1">
-          <StatusIcon status={status} />
-          {status?.name}
-          <AiMark by={row.statusBy} />
-        </span>
-      </p>
-      {selected ? (
-        <div className="space-y-2">
-          <div>
-            <LineSourceText projectId={projectId} unitId={row.id} source={row.source} translation={row.translation} className={cn('text-sm', narration && 'text-muted-foreground')} />
-            <LineHints projectId={projectId} line={row} part="context" />
-          </div>
-          <TranslationEditor key={`editor-${row.id}`} projectId={projectId} unit={row} statuses={statusList} focusKey={focusTick} onEscape={onEscape} onDone={onDone} />
-          <LineHints projectId={projectId} line={row} part="result" />
-        </div>
-      ) : (
-        <div className="space-y-1 text-sm">
-          <TokenText text={row.source} source={row.source} pattern={tokenPattern} className={narration ? 'text-muted-foreground' : undefined} />
-          {row.translation ? <TokenText text={row.translation} source={row.source} pattern={tokenPattern} className="border-l-2 pl-2" /> : <p className="border-l-2 border-transparent pl-2 text-subtle-foreground">번역 없음</p>}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** The seam between this route's new lines (above) and an earlier route's lines (below): its check state and the check. */
-function SeamBand({ projectId, nodeId, state, entries }: { projectId: string; nodeId: string; state: 'checked' | 'stale' | undefined; entries: number }) {
   const queryClient = useQueryClient();
-  const mark = useMutation({
-    // The signature is of the lines as they read right now (the server refuses a check made against older text).
-    mutationFn: async () => {
-      const detail = await queryClient.fetchQuery({ ...q.seamDetail(projectId, nodeId), staleTime: 0 });
-      return unwrap(client.projects[':projectId']['seam-checks'][':nodeId'].$put({ param: { projectId, nodeId }, json: { sig: detail.sig } }));
+  const patch = useMutation({
+    mutationFn: (json: { tagIds?: string[] }) => unwrap(client.units[':unitId'].$patch({ param: { unitId: row!.id }, json })),
+    onMutate: async (json) => ({ undo: await optimistic(queryClient, unitChanges([row!.id], patchedLine(json))) }),
+    onError: (error, _json, context) => {
+      context?.undo();
+      toast.error(error.message);
     },
-    onError: (error) => toast.error(error.message),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['statuses', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['units', projectId] });
+      if (row) queryClient.invalidateQueries({ queryKey: ['unit', row.id] });
+    },
   });
-  const unmark = useMutation({
-    mutationFn: () => unwrap(client.projects[':projectId']['seam-checks'][':nodeId'].$delete({ param: { projectId, nodeId } })),
-    onError: (error) => toast.error(error.message),
-  });
-  const busy = mark.isPending || unmark.isPending;
+
+  if (!row) return (
+    <div role="listitem" className="px-4 py-3 sm:px-6">
+      {stageLabel && <p className="mb-2 text-xs font-medium text-muted-foreground">{stageLabel}</p>}
+      {loadError ? (
+        <div className="flex w-full max-w-4xl items-center gap-3" role="alert">
+          <p className="text-sm text-destructive">이 줄을 불러오지 못했습니다.</p>
+          <Button variant="outline" onClick={onRetry}>다시 시도</Button>
+        </div>
+      ) : <Skeleton className="h-28 w-full max-w-4xl" aria-label="줄을 불러오는 중" />}
+    </div>
+  );
+
+  const attachedTags = row.tagIds ? tags.filter((tag) => row.tagIds.includes(tag.id)) : [];
+  const orderedTags = [...attachedTags.filter((tag) => tag.role), ...attachedTags.filter((tag) => !tag.role)];
+
+  const handleToggleTag = (tagId: string, add: boolean) => {
+    const nextTagIds = add ? [...row.tagIds, tagId] : row.tagIds.filter((id) => id !== tagId);
+    patch.mutate({ tagIds: nextTagIds });
+  };
+
+  const handleCreateTag = async (name: string) => {
+    try {
+      const color = (PALETTE[tags.length % PALETTE.length] as any).light ?? PALETTE[tags.length % PALETTE.length].hex;
+      const res = await unwrap(client.projects[':projectId'].tags.$post({
+        param: { projectId },
+        json: { name, color, scope: [...TAG_SCOPES] },
+      }));
+      await patch.mutateAsync({ tagIds: [...row.tagIds, res.id] });
+      toast.success(`'${name}' 태그를 만들고 줄에 붙였습니다.`);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : '태그를 만들지 못했습니다.');
+    }
+  };
+
+  const marks = (
+    <div className="mt-1 flex flex-wrap items-center gap-1" role="group" aria-label="이 줄의 태그" onClick={(event) => event.stopPropagation()}>
+      <TagListEditor
+        tags={orderedTags}
+        allTags={tags}
+        onToggle={handleToggleTag}
+        onCreate={handleCreateTag}
+        heading="대사 태그"
+      />
+    </div>
+  );
+
+  const tagRow = orderedTags.length > 0 ? (
+    <div className="mt-1 flex flex-wrap gap-1" role="group" aria-label="이 줄의 태그">
+      {orderedTags.map((tag) => (
+        <TagChip key={tag.id} tag={tag} />
+      ))}
+    </div>
+  ) : null;
+
+  const narration = row.kind === 'dialogue' && !row.speaker?.trim();
+  const unknownListener = isUnknownListener(row, rules) || !row.listener;
+  const said = needsListener(row, rules) || (Boolean(row.listener) && (row.listenerOrigin === 'human' || row.listenerOrigin === 'import'));
+  const listener = said ? (unknownListener ? null : listenerLabel(row.listener!)) : undefined;
+  const listenerIsPerson = !row.listener || (!Object.hasOwn(SPECIAL_LISTENERS, row.listener) && !unknownListener);
+  const source = <TokenText text={row.source} source={row.source} pattern={tokenPattern} className={cn('whitespace-pre-wrap', narration && 'text-muted-foreground', row.kind === 'document' && 'leading-relaxed')} />;
+  const translation = selected ? (
+    <TranslationEditor key={`editor-${row.id}`} projectId={projectId} unit={row} statuses={statusList} focusKey={focusTick} marks={marks} onEscape={onEscape} onDone={onDone} />
+  ) : (
+    <>
+      {row.translation ? (
+        <TokenText text={row.translation} source={row.source} pattern={tokenPattern} className="whitespace-pre-wrap" />
+      ) : (
+        <span className="text-subtle-foreground select-none">미번역</span>
+      )}
+      {tagRow}
+    </>
+  );
+
   return (
-    <div role="separator" data-testid="seam-band" data-seam={nodeId} className="flex items-center gap-2 border-y bg-muted px-4 py-1.5 text-xs text-muted-foreground">
-      <span className="shrink-0">이번 길의 새 줄 ↑</span>
-      <span className="h-px min-w-4 flex-1 bg-border" />
-      <span className="shrink-0">이음새</span>
-      <SeamStateChip state={state} className="h-5 px-1.5 text-xs" />
-      {entries > 1 && <span className="inline-flex shrink-0 items-center gap-1">갈래 {entries}개 <HelpTip>이 이음새로 새 줄 갈래가 여럿 들어옵니다. 다른 갈래의 마지막 줄은 지도에서 이음새를 눌러 확인하세요.</HelpTip></span>}
-      <Button variant="outline" disabled={busy} onClick={() => (state === 'checked' ? unmark.mutate() : mark.mutate())} title={state === 'stale' ? '점검한 뒤 이 줄들의 번역이 바뀌었습니다. 다시 점검하면 지금 내용 기준이 됩니다.' : undefined}>
-        {state === 'checked' ? '점검 취소' : '점검함'}
-      </Button>
-      <span className="h-px min-w-4 flex-1 bg-border" />
-      <span className="shrink-0">↓ 이미 번역한 길</span>
+    <div role="listitem" data-unit={row.id} data-selected={selected || undefined} onClick={() => !selected && onSelect()}>
+      {stageLabel && <p className="px-4 pt-3 text-xs font-medium text-muted-foreground sm:px-6">{stageLabel}</p>}
+      <ScriptReadingRow speaker={row.speaker} listener={listener} listenerIsPerson={listenerIsPerson} status={status} statusBy={row.statusBy} source={source} translation={translation} selected={selected} />
     </div>
   );
 }
 
-/**
- * 길 번역 목록 (docs/DESIGN.md J2c): the route's lines in reading order, virtualized, each row editable in
- * place with the script view's TranslationEditor. Stretches translated on an earlier route fold into
- * '번역함 · N줄'; a seam is a band with the two lines either side of it, all editable. `at` (the map's
- * place) follows the scroll and the list follows `at` when something else moves it; neither pushes history.
- */
-export function RouteList({ projectId, slice, checks, at, edit, onEdit, onAt }: {
+/** A continuous, virtualized reading order for the current path. The URL owns the picked editor line. */
+export function RouteList({ projectId, sequence, stages, routeKey, untranslatedIds, edit, onEdit, forks, onPickFork }: {
   projectId: string;
-  slice: RouteData;
-  checks: Record<string, { state: 'checked' | 'stale' }> | undefined;
-  /** The overview node the map is at. */
-  at: string | undefined;
-  /** The picked line (URL `edit`). */
-  edit: string | undefined;
+  sequence: { unitId: string; nodeId: string }[];
+  stages: { id: string; nodeIds: string[]; unitIds: string[]; parallel: boolean }[];
+  routeKey: string;
+  untranslatedIds: string[];
+  edit?: string;
   onEdit: (unitId: string | undefined) => void;
-  /** The list scrolled to another node (replaces the history entry). */
-  onAt: (nodeId: string) => void;
+  forks?: ReadingRouteFork[];
+  onPickFork?: (nodeId: string, targetId: string) => void;
 }) {
   const statuses = useQuery(q.statuses(projectId));
   const statusList = useMemo(() => statuses.data?.statuses ?? [], [statuses.data]);
   const statusById = useMemo(() => new Map(statusList.map((status) => [status.id, status])), [statusList]);
+  const tags = useMemo(() => lineTags(statuses.data?.tags), [statuses.data?.tags]);
   const project = useQuery(q.project(projectId));
-  const tokenPattern = useMemo(() => tokenPatternOf(project.data?.formatRules ?? undefined), [project.data?.formatRules]);
-
-  const sequence = useMemo(() => routeSequence(slice.overview), [slice.overview]);
-  const seqIndex = useMemo(() => new Map(sequence.map((line, i) => [line.unitId, i] as const)), [sequence]);
-  const translated = useMemo(() => translatedIds(slice.blocks, slice.translatedMask), [slice.blocks, slice.translatedMask]);
-  const earlier = useMemo(() => new Set(slice.blocks.filter((block) => block.earlier).flatMap((block) => block.unitIds)), [slice.blocks]);
-  const seamNodes = useMemo(() => new Set(slice.seamAround.map((seam) => seam.nodeId)), [slice.seamAround]);
-  const seamEntries = useMemo(() => new Map(slice.seamAround.map((seam) => [seam.nodeId, seam.before.length] as const)), [slice.seamAround]);
-  // Lines that stay open: the two either side of a seam, and the picked one.
-  const open = useMemo(() => new Set([...slice.seamAround.flatMap((seam) => [...seam.before.flatMap((entry) => entry.unitIds), ...seam.after]), ...(edit ? [edit] : [])]), [slice.seamAround, edit]);
-  const [expanded, setExpanded] = useState<Set<string>>(() => readSet(foldStore(projectId)));
-  const expand = useCallback(
-    (unitIds: string[]) =>
-      setExpanded((current) => {
-        const next = new Set([...current, ...unitIds]);
-        writeSession(foldStore(projectId), [...next]);
-        return next;
-      }),
-    [projectId],
-  );
-  const items = useMemo(
-    () => buildItems({ sequence, round: slice.round, translated: (id) => translated.has(id), earlier: (id) => earlier.has(id), open, expanded, seams: seamNodes }),
-    [sequence, slice.round, translated, earlier, open, expanded, seamNodes],
-  );
-  const starts = useMemo(() => nodeStarts(items), [items]);
-  const remaining = useMemo(() => sequence.filter((line) => !translated.has(line.unitId)).length, [sequence, translated]);
-
+  const rules = project.data?.formatRules ?? undefined;
+  const tokenPattern = useMemo(() => tokenPatternOf(rules), [rules]);
+  const indexById = useMemo(() => new Map(sequence.map((line, index) => [line.unitId, index] as const)), [sequence]);
+  const parallelStageStarts = useMemo(() => new Map(stages.filter((stage) => stage.parallel && stage.unitIds.length > 0).map((stage) => [stage.unitIds[0]!, `함께 실행 · ${stage.unitIds.length.toLocaleString()}줄`] as const)), [stages]);
+  const untranslated = useMemo(() => new Set(untranslatedIds), [untranslatedIds]);
+  const remaining = useMemo(() => sequence.reduce((count, line) => count + Number(untranslated.has(line.unitId)), 0), [sequence, untranslated]);
   const parent = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
-    count: items.length,
+    count: sequence.length,
     getScrollElement: () => parent.current,
-    estimateSize: (index) => (items[index]?.kind === 'line' ? 76 : 44),
-    getItemKey: (index) => items[index]?.key ?? index,
-    overscan: 6,
+    estimateSize: () => 104,
+    getItemKey: (index) => sequence[index]?.unitId ?? index,
+    overscan: 7,
   });
   const virtual = virtualizer.getVirtualItems();
+  const chunks = new Set(virtual.map((entry) => Math.floor(entry.index / CHUNK)));
+  const editIndex = edit ? indexById.get(edit) : undefined;
+  if (editIndex !== undefined) chunks.add(Math.floor(editIndex / CHUNK));
+  const chunkIndexes = [...chunks].filter((chunk) => chunk * CHUNK < sequence.length).sort((a, b) => a - b);
+  const chunkIds = chunkIndexes.map((chunk) => sequence.slice(chunk * CHUNK, (chunk + 1) * CHUNK).map((line) => line.unitId));
+  const results = useQueries({ queries: chunkIds.map((ids) => q.routeRows(projectId, ids)) });
+  const rows = useMemo(() => {
+    const byId = new Map<string, Row>();
+    for (const result of results) for (const row of result.data?.rows ?? []) byId.set(row.id, row);
+    return byId;
+  }, [results]);
+  const resultByChunk = useMemo(() => new Map(chunkIndexes.map((chunk, index) => [chunk, results[index]] as const)), [chunkIndexes.join(','), results]);
 
-  // The lines on screen come from the server in chunks of the reading order (the chunk after the last one too, for scrolling on).
-  const chunks = new Set<number>();
-  for (const entry of virtual) {
-    const item = items[entry.index];
-    const first = item?.kind === 'line' ? seqIndex.get(item.unitId) : undefined;
-    if (first !== undefined) chunks.add(Math.floor(first / CHUNK));
-  }
-  if (edit && seqIndex.has(edit)) chunks.add(Math.floor(seqIndex.get(edit)! / CHUNK));
-  if (chunks.size) chunks.add(Math.max(...chunks) + 1);
-  const chunkIds = [...chunks].sort((a, b) => a - b).map((chunk) => sequence.slice(chunk * CHUNK, (chunk + 1) * CHUNK).map((line) => line.unitId));
-  const results = useQueries({ queries: chunkIds.filter((ids) => ids.length).map((ids) => q.routeRows(projectId, ids)) });
-  const rows = new Map<string, Row>();
-  for (const result of results) for (const row of result.data?.rows ?? []) rows.set(row.id, row);
+  const currentScrollKey = scrollKey(projectId, routeKey);
+  const scrollKeyRef = useRef(currentScrollKey);
+  scrollKeyRef.current = currentScrollKey;
+  const restored = useRef<string | undefined>(undefined);
+  const jump = useCallback((index: number, align: 'start' | 'center' | 'auto') => {
+    virtualizer.scrollToIndex(index, { align });
+  }, [virtualizer]);
+  useEffect(() => {
+    const element = parent.current;
+    if (!element || !sequence.length || restored.current === currentScrollKey) return;
+    restored.current = currentScrollKey;
+    element.scrollTop = readScroll(currentScrollKey);
+  }, [currentScrollKey, sequence.length]);
+  useEffect(() => {
+    if (editIndex !== undefined) jump(editIndex, 'center');
+  }, [editIndex, routeKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (edit && editIndex === undefined) onEdit(undefined);
+  }, [edit, editIndex, onEdit]);
 
-  // ── where the list is ────────────────────────────────────────────────
-  /** A scroll the page asked for: the report of the node under the top is held back while it settles. */
-  const programmatic = useRef(0);
-  const reported = useRef<string | undefined>(at);
-  const jump = useCallback(
-    (index: number, align: 'start' | 'center' | 'auto') => {
-      programmatic.current = performance.now();
-      virtualizer.scrollToIndex(index, { align });
-    },
-    [virtualizer],
-  );
-  const startsRef = useRef(starts);
-  startsRef.current = starts;
-  const itemsRef = useRef(items);
-  itemsRef.current = items;
-  // Opening (and a reload): the picked line, else where this tab last was, else the map's node.
-  const opened = useRef(false);
-  useEffect(() => {
-    if (opened.current || !items.length) return;
-    opened.current = true;
-    const picked = edit ? indexOfLine(items, edit) : -1;
-    const top = readTop(projectId);
-    const remembered = top && top.round === slice.round ? indexOfLine(items, top.unitId) : -1;
-    const target = picked >= 0 ? picked : remembered >= 0 ? remembered : (at ? (starts.get(at) ?? 0) : 0);
-    if (target > 0) jump(target, picked >= 0 ? 'center' : 'start');
-  }, [items.length]); // eslint-disable-line react-hooks/exhaustive-deps
-  // The map (a click, the toolbar's steps) moved `at`: the list goes to that node.
-  useEffect(() => {
-    if (!opened.current || !at || at === reported.current) return;
-    reported.current = at;
-    const index = startsRef.current.get(at);
-    if (index !== undefined) jump(index, 'start');
-  }, [at]); // eslint-disable-line react-hooks/exhaustive-deps
-  // A new route starts from the top; a picked line the route no longer has is forgotten.
-  const round = useRef(slice.round);
-  useEffect(() => {
-    if (round.current !== slice.round) {
-      round.current = slice.round;
-      programmatic.current = performance.now();
-      virtualizer.scrollToOffset(0);
-      // The list starts over, so the URL's place does too (the scroll report is held back while it moves).
-      const first = items.find((item) => item.nodeId)?.nodeId;
-      if (first && first !== at) {
-        reported.current = first;
-        onAt(first);
-      }
-    }
-  }, [slice.round]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    if (edit && !seqIndex.has(edit)) onEdit(undefined);
-  }, [edit, seqIndex]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Scrolling: the node under the top of the list is where the map is.
-  const topIndex = virtualizer.range?.startIndex;
-  useEffect(() => {
-    if (topIndex === undefined) return;
-    const item = itemsRef.current[topIndex];
-    if (!item) return;
-    if (item.kind !== 'seam') writeSession(topStore(projectId), { round: slice.round, unitId: item.kind === 'line' ? item.unitId : item.unitIds[0] });
-    if (performance.now() - programmatic.current < 700 || item.nodeId === reported.current) return;
-    reported.current = item.nodeId;
-    onAt(item.nodeId);
-  }, [topIndex]); // eslint-disable-line react-hooks/exhaustive-deps
+  const onScroll = useCallback(() => {
+    const element = parent.current;
+    if (element) writeScroll(scrollKeyRef.current, element.scrollTop);
+  }, []);
 
-  // ── picking and moving ───────────────────────────────────────────────
-  // Bumped whenever the picked line's editor should take the focus; 0 = just looking.
   const [focusTick, setFocusTick] = useState(0);
-  const pickedHere = useRef<string | undefined>(undefined);
-  const select = useCallback(
-    (unitId: string | undefined, editing: boolean) => {
-      pickedHere.current = unitId;
-      setFocusTick((tick) => (editing ? tick + 1 : 0));
-      onEdit(unitId);
-    },
-    [onEdit],
-  );
-  // A line picked here only scrolls as far as needed; one that came with the URL (Back, a link) is brought into view.
-  useEffect(() => {
-    if (!edit || !opened.current) return;
-    const index = indexOfLine(itemsRef.current, edit);
-    if (index >= 0 && !(virtualizer.range && index >= virtualizer.range.startIndex && index <= virtualizer.range.endIndex)) jump(index, edit === pickedHere.current ? 'auto' : 'center');
-    pickedHere.current = edit;
-  }, [edit]); // eslint-disable-line react-hooks/exhaustive-deps
+  const select = useCallback((unitId: string | undefined, editing: boolean) => {
+    setFocusTick((tick) => (editing ? tick + 1 : 0));
+    onEdit(unitId);
+  }, [onEdit]);
 
-  const moveLine = (direction: 1 | -1, editing: boolean) => {
-    const from = edit ? indexOfLine(items, edit) : (virtualizer.range?.startIndex ?? 0) - (direction === 1 ? 1 : -1);
-    for (let i = from + direction; i >= 0 && i < items.length; i += direction) {
-      const item = items[i]!;
-      if (item.kind === 'line') return select(item.unitId, editing);
+  const currentIndex = editIndex ?? virtualizer.range?.startIndex ?? 0;
+  const adjacentUntranslated = (direction: 1 | -1) => {
+    for (let index = currentIndex + direction; index >= 0 && index < sequence.length; index += direction) {
+      if (untranslated.has(sequence[index]!.unitId)) return index;
     }
-    toast(direction === 1 ? '이 길의 마지막 줄입니다.' : '이 길의 첫 줄입니다.');
+    return undefined;
   };
+  const previousUntranslated = adjacentUntranslated(-1);
+  const nextUntranslated = adjacentUntranslated(1);
   const goUntranslated = (direction: 1 | -1) => {
-    const top = items[virtualizer.range?.startIndex ?? 0];
-    const from = edit ?? (top?.kind === 'line' ? top.unitId : top?.kind === 'fold' ? top.unitIds[0] : undefined);
-    const target = untranslatedFrom(sequence, (id) => translated.has(id), from, direction);
-    if (target) select(target, true);
+    const index = adjacentUntranslated(direction);
+    if (index !== undefined) select(sequence[index]!.unitId, true);
     else toast(direction === 1 ? '이 길에는 뒤에 번역할 줄이 없습니다.' : '이 길에는 앞에 번역할 줄이 없습니다.');
+  };
+  const moveLine = (direction: 1 | -1, editing: boolean) => {
+    const index = currentIndex + direction;
+    if (index >= 0 && index < sequence.length) select(sequence[index]!.unitId, editing);
+    else toast(direction === 1 ? '이 길의 마지막 줄입니다.' : '이 길의 첫 줄입니다.');
   };
   const keys = useRef({ moveLine, goUntranslated, edit, select });
   keys.current = { moveLine, goUntranslated, edit, select };
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return;
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey) return;
+      const target = event.target instanceof Element ? event.target : null;
+      if (target && target !== document.body && !target.closest('[data-testid="route-list"]')) return;
+      if (target?.closest('button, a, select, [role="menu"], [role="listbox"], [role="dialog"], [data-route-inspector]')) return;
       const inField = typing(event.target);
-      // Alt+N / Alt+Shift+N: the next / previous line without a translation (the physical key: with Korean input or ⌥ on a Mac the character differs).
-      if (event.altKey && !event.metaKey && !event.ctrlKey && event.code === 'KeyN') {
+      if (event.altKey && event.code === 'KeyN') {
         event.preventDefault();
         keys.current.goUntranslated(event.shiftKey ? -1 : 1);
         return;
       }
-      if (event.metaKey || event.ctrlKey || (event.key !== 'ArrowDown' && event.key !== 'ArrowUp' && event.key !== 'Enter')) return;
-      // As in the script view: ↑↓ move the pick, Alt+↑↓ do too while typing; Alt+↑↓ outside a field are the previous/next choice (the page's).
       if (event.key === 'Enter') {
-        if (!inField && keys.current.edit && !document.querySelector('[role="dialog"]')) (event.preventDefault(), keys.current.select(keys.current.edit, true));
+        if (!inField && keys.current.edit) (event.preventDefault(), keys.current.select(keys.current.edit, true));
         return;
       }
+      if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
       if (inField ? !event.altKey : event.altKey) return;
-      if (!inField && document.querySelector('[role="dialog"], [role="menu"], [role="listbox"]')) return;
       event.preventDefault();
       keys.current.moveLine(event.key === 'ArrowDown' ? 1 : -1, inField);
     };
@@ -330,26 +278,27 @@ export function RouteList({ projectId, slice, checks, at, edit, onEdit, onAt }: 
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  const renderItem = (item: RouteItem) => {
-    if (item.kind === 'seam') return <SeamBand projectId={projectId} nodeId={item.nodeId} state={checks?.[item.nodeId]?.state} entries={seamEntries.get(item.nodeId) ?? 1} />;
-    if (item.kind === 'fold')
-      return (
-        <Button variant="ghost" className="w-full justify-start rounded-none bg-muted px-4 font-normal text-muted-foreground" data-testid="route-fold" title="앞선 길에서 번역을 마친 줄입니다. 누르면 펼칩니다." onClick={() => expand(item.unitIds)}>
-          번역함 · {item.unitIds.length.toLocaleString()}줄
-        </Button>
-      );
-    const row = rows.get(item.unitId);
+  const renderLine = (index: number) => {
+    const entry = sequence[index]!;
+    const row = rows.get(entry.unitId);
+    const chunk = Math.floor(index / CHUNK);
+    const result = resultByChunk.get(chunk);
     return (
       <RouteLineRow
+        key={entry.unitId}
         projectId={projectId}
-        unitId={item.unitId}
         row={row}
-        selected={item.unitId === edit}
-        status={row && statusById.get(row.statusId)}
+        selected={entry.unitId === edit}
+        status={row ? statusById.get(row.statusId) : undefined}
         statusList={statusList}
+        rules={rules}
+        tags={tags}
         tokenPattern={tokenPattern}
         focusTick={focusTick}
-        onSelect={() => select(item.unitId, true)}
+        loadError={Boolean(result?.isError && !row)}
+        stageLabel={parallelStageStarts.get(entry.unitId)}
+        onRetry={() => { void result?.refetch(); }}
+        onSelect={() => select(entry.unitId, true)}
         onEscape={() => setFocusTick(0)}
         onDone={(advanced) => (advanced ? moveLine(1, true) : select(undefined, false))}
       />
@@ -357,30 +306,179 @@ export function RouteList({ projectId, slice, checks, at, edit, onEdit, onAt }: 
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col" data-testid="route-list" data-items={items.length} data-lines={sequence.length}>
+    <div className="flex h-full min-h-0 flex-col" data-testid="route-list" data-lines={sequence.length}>
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-1.5">
         <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground tabular-nums" data-testid="route-list-count">
           이번 길 {sequence.length.toLocaleString()}줄 · 번역 안 한 줄 {remaining.toLocaleString()}
         </span>
-        <Button variant="ghost" disabled={!remaining} title={`앞의 번역 안 한 줄 (${keyLabel('Alt+Shift+N')})`} onClick={() => goUntranslated(-1)}>
+        <Button variant="ghost" disabled={previousUntranslated === undefined} title={`앞의 번역 안 한 줄 (${keyLabel('Alt+Shift+N')})`} onClick={() => goUntranslated(-1)}>
           <ChevronUp /> 이전 안 한 줄
         </Button>
-        <Button variant="ghost" disabled={!remaining} title={`뒤의 번역 안 한 줄 (${keyLabel('Alt+N')})`} onClick={() => goUntranslated(1)}>
+        <Button variant="ghost" disabled={nextUntranslated === undefined} title={`뒤의 번역 안 한 줄 (${keyLabel('Alt+N')})`} onClick={() => goUntranslated(1)}>
           <ChevronDown /> 다음 안 한 줄
         </Button>
       </div>
-      <div ref={parent} className="min-h-0 flex-1 overflow-y-auto" data-testid="route-scroll">
-        <div role="list" className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
-          {virtual.map((entry) => {
-            const item = items[entry.index];
-            if (!item) return null;
-            return (
-              <div key={entry.key} data-index={entry.index} ref={virtualizer.measureElement} className="absolute top-0 left-0 w-full" style={{ transform: `translateY(${entry.start}px)` }}>
-                {renderItem(item)}
-              </div>
-            );
-          })}
+      {forks && forks.length > 0 && (
+        <div className="flex shrink-0 items-center gap-2 border-b bg-muted/20 px-4 py-1 overflow-x-auto" data-testid="route-forks">
+          <span className="flex shrink-0 items-center gap-1.5 text-xs font-medium text-muted-foreground">
+            <GitFork className="size-3.5" />
+            갈림길 ({forks.length})
+          </span>
+          {forks.length === 1 ? (
+            (() => {
+              const fork = forks[0]!;
+              const selectedOption = fork.options.find((opt) => opt.targetId === fork.selectedId) ?? fork.options[0];
+              const forkTitle = fork.label && !fork.label.startsWith('Sibling') ? fork.label : '분기 1';
+              return (
+                <DropdownMenu key={fork.nodeId}>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" className="text-xs shrink-0">
+                      <span className="max-w-[200px] truncate">
+                        {forkTitle}: {selectedOption?.label ?? '선택'} ({fork.options.length}갈래)
+                      </span>
+                      <ChevronDown className="ml-1 size-3 opacity-60" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-80">
+                    <DropdownMenuLabel className="text-xs text-muted-foreground">
+                      {forkTitle} 선택 ({fork.options.length}갈래)
+                    </DropdownMenuLabel>
+                    {fork.options.map((opt) => {
+                      const isSelected = opt.targetId === fork.selectedId;
+                      return (
+                        <DropdownMenuItem
+                          key={opt.targetId}
+                          onSelect={() => onPickFork?.(fork.nodeId, opt.targetId)}
+                          className={cn(
+                            'flex flex-col items-start gap-0.5 py-1.5 cursor-pointer',
+                            isSelected && 'font-medium bg-muted/40'
+                          )}
+                        >
+                          <div className="flex w-full items-center justify-between text-xs">
+                            <span className="truncate font-medium">{opt.label}</span>
+                            {isSelected && (
+                              <span className="text-xs text-primary font-medium">선택됨</span>
+                            )}
+                          </div>
+                          {opt.preview && opt.preview !== opt.label && (
+                            <span className="line-clamp-2 text-xs text-muted-foreground font-normal">
+                              {opt.preview}
+                            </span>
+                          )}
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              );
+            })()
+          ) : (
+            <>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" className="text-xs shrink-0">
+                    <span>갈림길 {forks.length}곳 선택</span>
+                    <ChevronDown className="ml-1 size-3 opacity-60" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="max-h-96 w-80 overflow-y-auto">
+                  {forks.map((fork, idx) => {
+                    const forkTitle = `분기 ${idx + 1}/${forks.length}${fork.label && !fork.label.startsWith('Sibling') ? ` · ${fork.label}` : ''}`;
+                    return (
+                      <div key={fork.nodeId} className={idx > 0 ? 'border-t border-border-subtle pt-1 mt-1' : ''}>
+                        <DropdownMenuLabel className="text-xs text-muted-foreground">
+                          {forkTitle}
+                        </DropdownMenuLabel>
+                        {fork.options.map((opt) => {
+                          const isSelected = opt.targetId === fork.selectedId;
+                          return (
+                            <DropdownMenuItem
+                              key={opt.targetId}
+                              onSelect={() => onPickFork?.(fork.nodeId, opt.targetId)}
+                              className={cn(
+                                'flex flex-col items-start gap-0.5 py-1.5 cursor-pointer',
+                                isSelected && 'font-medium bg-muted/40'
+                              )}
+                            >
+                              <div className="flex w-full items-center justify-between text-xs">
+                                <span className="truncate font-medium">{opt.label}</span>
+                                {isSelected && (
+                                  <span className="text-xs text-primary font-medium">선택됨</span>
+                                )}
+                              </div>
+                              {opt.preview && opt.preview !== opt.label && (
+                                <span className="line-clamp-2 text-xs text-muted-foreground font-normal">
+                                  {opt.preview}
+                                </span>
+                              )}
+                            </DropdownMenuItem>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </DropdownMenuContent>
+              </DropdownMenu>
+              {forks.slice(0, 2).map((fork, idx) => {
+                const selectedOption = fork.options.find((opt) => opt.targetId === fork.selectedId) ?? fork.options[0];
+                const forkTitle = fork.label && !fork.label.startsWith('Sibling') ? fork.label : `분기 ${idx + 1}`;
+                return (
+                  <DropdownMenu key={fork.nodeId}>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" className="text-xs shrink-0">
+                        <span className="max-w-[140px] truncate">
+                          {forkTitle}: {selectedOption?.label ?? '선택'}
+                        </span>
+                        <ChevronDown className="ml-1 size-3 opacity-60" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="w-80">
+                      <DropdownMenuLabel className="text-xs text-muted-foreground">
+                        {forkTitle} 선택 ({fork.options.length}갈래)
+                      </DropdownMenuLabel>
+                      {fork.options.map((opt) => {
+                        const isSelected = opt.targetId === fork.selectedId;
+                        return (
+                          <DropdownMenuItem
+                            key={opt.targetId}
+                            onSelect={() => onPickFork?.(fork.nodeId, opt.targetId)}
+                            className={cn(
+                              'flex flex-col items-start gap-0.5 py-1.5 cursor-pointer',
+                              isSelected && 'font-medium bg-muted/40'
+                            )}
+                          >
+                            <div className="flex w-full items-center justify-between text-xs">
+                              <span className="truncate font-medium">{opt.label}</span>
+                              {isSelected && (
+                                <span className="text-xs text-primary font-medium">선택됨</span>
+                              )}
+                            </div>
+                            {opt.preview && opt.preview !== opt.label && (
+                              <span className="line-clamp-2 text-xs text-muted-foreground font-normal">
+                                {opt.preview}
+                              </span>
+                            )}
+                          </DropdownMenuItem>
+                        );
+                      })}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                );
+              })}
+            </>
+          )}
         </div>
+      )}
+      <div ref={parent} className="min-h-0 flex-1 overflow-y-auto" data-testid="route-scroll" onScroll={onScroll}>
+        {sequence.length === 0 ? <p className="p-6 text-sm text-muted-foreground">이 길에는 대사가 없습니다.</p> : (
+          <div role="list" className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
+            {virtual.map((entry) => (
+              <div key={entry.key} data-index={entry.index} ref={virtualizer.measureElement} className="absolute top-0 left-0 w-full" style={{ transform: `translateY(${entry.start}px)` }}>
+                {renderLine(entry.index)}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

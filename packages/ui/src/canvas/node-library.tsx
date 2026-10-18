@@ -3,7 +3,7 @@ import { Search } from "lucide-react"
 import { Button } from "../primitives/button"
 import { Input } from "../primitives/input"
 import { cn } from "../lib/utils"
-import type { NodeCardKind } from "./node-card"
+import { NODE_CARD_KIND_APPEARANCE, type NodeCardKind } from "./node-card"
 
 export interface NodeLibraryItem {
   id: string
@@ -22,10 +22,6 @@ export interface NodeLibraryProps {
   className?: string
 }
 
-const kindDots: Record<NodeCardKind, string> = {
-  entry: "bg-muted-foreground", ai: "bg-ai", function: "bg-primary", condition: "bg-review", status: "bg-success", end: "bg-muted-foreground",
-}
-
 /** Searchable node palette. Items can be clicked or dragged onto a canvas. */
 export function NodeLibrary({ groups, onSelect, onDragStart, placeholder = "노드 찾기", className }: NodeLibraryProps) {
   const [query, setQuery] = useState("")
@@ -42,7 +38,7 @@ export function NodeLibrary({ groups, onSelect, onDragStart, placeholder = "노�
       {filtered.map((group) => <div key={group.id} className="mb-3">
         <h3 className="px-2 py-1 text-xs font-medium text-muted-foreground">{group.label}</h3>
         {group.items.map((item) => <Button key={item.id} variant="ghost" size="row" draggable onClick={() => onSelect(item)} onDragStart={(event) => { event.dataTransfer.setData("application/x-loca-workflow-node", item.id); event.dataTransfer.effectAllowed = "copy"; onDragStart?.(item, event) }} className="h-7 gap-2 rounded-sm px-2 text-xs">
-          <span className={cn("size-2 shrink-0 rounded-[2px]", kindDots[item.kind])} aria-hidden="true" />
+          <span className={cn("size-2 shrink-0 rounded-[2px]", NODE_CARD_KIND_APPEARANCE[item.kind].dot)} aria-hidden="true" />
           {item.icon != null && <span className="flex shrink-0 [&_svg]:size-3.5">{item.icon}</span>}
           <span className="truncate">{item.label}</span>
         </Button>)}

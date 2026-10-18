@@ -4,6 +4,7 @@ import { lineFilterSchema } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { nodeSetLayout } from './layout.ts';
+import type { LayoutDirection } from './layout-types.ts';
 import { events } from '../events.ts';
 import { allLines } from './script-query.ts';
 
@@ -97,10 +98,10 @@ export function sectionWithMost(db: Db, projectId: string, nodeIds: string[]) {
 }
 
 /** Lays out a stored view on its own (once) and returns the section key the graph route serves it under. */
-export async function viewSection(db: Db, projectId: string, id: string) {
+export async function viewSection(db: Db, projectId: string, id: string, direction: LayoutDirection = 'vertical') {
   const view = readView(db, projectId, id);
   if (!view) throw new Error('없는 보기입니다.');
   const key = `view:${id}`;
-  await nodeSetLayout(db, projectId, key, view.nodeIds, view.label);
+  await nodeSetLayout(db, projectId, key, view.nodeIds, view.label, direction);
   return key;
 }

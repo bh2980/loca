@@ -483,21 +483,30 @@ function GraphPage() {
           })}
         />
         <CanvasDirectionControl direction={direction} onDirectionChange={(next) => void navigate({ search: (previous) => ({ ...previous, direction: next }) })} />
-        {dialogue && !isPicking && (
+        {dialogue && (
           <Button
-            variant="outline"
+            variant={isPicking ? 'secondary' : 'outline'}
             size="sm"
             onClick={() => void navigate({
-              search: (prev) => ({
-                ...prev,
-                pickStep: 'start',
-                node: undefined,
-                edit: undefined,
-              }),
+              search: (prev) => isPicking
+                ? {
+                    ...prev,
+                    routeStart: undefined,
+                    routeEnd: undefined,
+                    pickStart: undefined,
+                    pickEnd: undefined,
+                    pickStep: undefined,
+                  }
+                : {
+                    ...prev,
+                    pickStep: 'start',
+                    node: undefined,
+                    edit: undefined,
+                  },
             })}
           >
             <RouteIcon className="size-3.5 mr-1" />
-            경로 따라 번역
+            {isPicking ? '경로 선택 취소' : '경로 따라 번역'}
           </Button>
         )}
         {dialogue && (sections.length > 1 || view) && (

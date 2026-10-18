@@ -1,12 +1,12 @@
 import { parentPort, workerData } from 'node:worker_threads';
 import ELK, { type ElkNode } from 'elkjs/lib/elk.bundled.js';
 import type { LayoutData } from '../db/schema.ts';
-import type { LayoutJob } from './layout-types.ts';
+import type { LayoutDirection, LayoutJob } from './layout-types.ts';
 import { deriveSceneGraph, depthBlocks, reduceSceneEdges } from './scene-graph.ts';
 import { foldChains } from './chains.ts';
 import { sectionJobs, type SectionNode } from './section-graph.ts';
 
-export type { LayoutJob } from './layout-types.ts';
+export type { LayoutDirection, LayoutJob } from './layout-types.ts';
 
 /**
  * The raw dialogue graph for the scene layout. Deriving scene links (and dropping the ones also
@@ -14,6 +14,7 @@ export type { LayoutJob } from './layout-types.ts';
  * the server's event loop.
  */
 export interface SceneSource {
+  direction?: LayoutDirection;
   scenes: string[];
   /** Section (chapter, act, day…) of each scene, in the order of `scenes`. */
   sections: (string | null)[];
@@ -26,9 +27,9 @@ export type WorkerJob =
   | { kind: 'layout'; job: LayoutJob }
   | { kind: 'scenes'; source: SceneSource }
   /** The dialogue graph split by section, each section laid out on its own (see section-graph.ts). */
-  | { kind: 'sections'; nodes: SectionNode[]; edges: LayoutJob['edges']; order: string[] }
+  | { kind: 'sections'; nodes: SectionNode[]; edges: LayoutJob['edges']; order: string[]; direction?: LayoutDirection }
   /** Only the section named `view` of such a split: chosen scenes, with portals named after the scenes around them. */
-  | { kind: 'view'; nodes: SectionNode[]; edges: LayoutJob['edges']; view: string };
+  | { kind: 'view'; nodes: SectionNode[]; edges: LayoutJob['edges']; view: string; direction?: LayoutDirection };
 
 /** What the 'sections' job returns: one layout per section. */
 export interface SectionLayouts {
@@ -78,6 +79,7 @@ function sceneLayoutJob(source: SceneSource): LayoutJob & { hidden: { from: stri
   const keptAnchors = anchors.filter((edge) => !headed.has(edge.to));
   const keptLoose = loose.filter((edge) => !implied(edge));
   return {
+    direction: source.direction,
     nodes: [...source.scenes.map((id) => ({ id, width: source.size[0], height: source.size[1] })), ...graph.hubs.map((hub) => ({ id: hub.id, width: HUB_SIZE[0], height: HUB_SIZE[1] }))],
     edges: [...kept, ...keptAnchors].map((edge, index) => ({ id: `s${index}`, from: edge.from, to: edge.to })),
     hidden: hidden.map(({ from, to }) => ({ from, to })),
@@ -133,6 +135,7 @@ async function run(work: WorkerJob): Promise<LayoutData | SectionLayouts> {
   if (work.kind === 'view') {
     const section = sectionJobs(work.nodes, work.edges, [work.view]).find((job) => job.name === work.view);
     if (!section) return { width: 0, height: 0, nodes: [], edges: [] };
+    section.job.direction = work.direction;
     const data = await dialogueLayout(section.job);
     if (section.portals.length) data.portals = section.portals;
     return data;
@@ -140,6 +143,7 @@ async function run(work: WorkerJob): Promise<LayoutData | SectionLayouts> {
   if (work.kind === 'sections') {
     const sections: SectionLayouts['sections'] = [];
     for (const section of sectionJobs(work.nodes, work.edges, work.order)) {
+      section.job.direction = work.direction;
       const data = await dialogueLayout(section.job);
       if (section.portals.length) data.portals = section.portals;
       sections.push({ name: section.name, data });
@@ -155,8 +159,9 @@ async function run(work: WorkerJob): Promise<LayoutData | SectionLayouts> {
 }
 
 /**
- * Plain ELK layered, top to bottom. No layer-width bound and no hand-made component stacking:
- * ELK packs disconnected components itself and Brandes–Köpf keeps chains on one vertical line.
+ * Plain ELK layered, down for source graphs and right for their horizontal view. No layer-width
+ * bound or hand-made component stacking: ELK places disconnected components and routes edges
+ * around upright nodes in either direction.
  * Runs in a worker with a large stack because ELK's cycle breaking recurses along long chains.
  */
 /** Size given to an edge label (a choice's text): about 8px a character (capitals are wide) plus the play mark, one line. */
@@ -165,7 +170,6 @@ const labelWidth = (text: string) => Math.min(240, 30 + Math.ceil(text.length * 
 
 const OPTIONS = {
   'elk.algorithm': 'layered',
-  'elk.direction': 'DOWN',
   // Straight segments with slanted bends: right-angled edges share their horizontal runs like bus
   // lines where branches part and meet, and splines wobble (long S-curves between layers); a
   // polyline keeps each edge its own line and straight where it can be.
@@ -174,17 +178,18 @@ const OPTIONS = {
   // The edge runs through its label (a choice), and the label has its own room, so it neither
   // floats beside the line nor lies under a node.
   'elk.edgeLabels.inline': 'true',
-  'elk.spacing.edgeLabel': '4',
+  'elk.spacing.edgeLabel': '20',
   'elk.separateConnectedComponents': 'true',
   'elk.layered.cycleBreaking.strategy': 'DEPTH_FIRST',
   'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
   'elk.layered.nodePlacement.strategy': 'BRANDES_KOEPF',
   'elk.layered.nodePlacement.bk.fixedAlignment': 'BALANCED',
-  'elk.spacing.nodeNode': '48',
+  'elk.spacing.nodeNode': '64',
   'elk.spacing.componentComponent': '120',
-  'elk.layered.spacing.nodeNodeBetweenLayers': '64',
-  'elk.layered.spacing.edgeNodeBetweenLayers': '24',
-  'elk.layered.spacing.edgeEdgeBetweenLayers': '12',
+  'elk.layered.spacing.nodeNodeBetweenLayers': '112',
+  'elk.layered.spacing.edgeNodeBetweenLayers': '32',
+  'elk.layered.spacing.edgeEdgeBetweenLayers': '20',
+  'elk.spacing.edgeNode': '32',
   'elk.layered.thoroughness': '3',
   'elk.randomSeed': '1',
 };
@@ -193,6 +198,7 @@ const GAP = 400;
 
 async function layout(job: LayoutJob): Promise<LayoutData> {
   const elk = new ELK();
+  const horizontal = job.direction === 'horizontal';
   const linked = new Set(job.edges.flatMap((edge) => [edge.from, edge.to]));
   const inOrder = new Set(job.ordered?.blocks.flatMap((block) => [...(block.heads ?? []), ...block.rows.flat()]).filter((id) => !linked.has(id)));
   const connected = job.nodes.filter((node) => linked.has(node.id));
@@ -201,7 +207,7 @@ async function layout(job: LayoutJob): Promise<LayoutData> {
   const main: ElkNode = connected.length
     ? await elk.layout({
         id: 'root',
-        layoutOptions: OPTIONS,
+        layoutOptions: { ...OPTIONS, 'elk.direction': horizontal ? 'RIGHT' : 'DOWN' },
         children: connected.map((node) => ({ id: node.id, width: node.width, height: node.height })),
         // A labelled edge gets room for its label (ELK places it and routes around it).
         edges: job.edges.map((edge) => ({ id: edge.id, sources: [edge.from], targets: [edge.to], ...(edge.label && { labels: [{ id: `${edge.id}:label`, text: edge.label, width: labelWidth(edge.label), height: LABEL_HEIGHT }] }) })),
@@ -213,11 +219,12 @@ async function layout(job: LayoutJob): Promise<LayoutData> {
   const loose: ElkNode | undefined = isolated.length
     ? await elk.layout({
         id: 'loose',
-        layoutOptions: { 'elk.algorithm': 'rectpacking', 'elk.aspectRatio': '1.0', 'elk.spacing.nodeNode': '24' },
+        layoutOptions: { 'elk.algorithm': 'rectpacking', 'elk.aspectRatio': horizontal ? '2.0' : '1.0', 'elk.spacing.nodeNode': '24' },
         children: isolated.map((node) => ({ id: node.id, width: node.width, height: node.height })),
       })
     : undefined;
-  const offsetX = connected.length ? (main.width ?? 0) + GAP : 0;
+  const offsetX = horizontal ? 0 : connected.length ? (main.width ?? 0) + GAP : 0;
+  const offsetY = horizontal ? (main.height ?? 0) + (isolated.length ? GAP : 0) : 0;
 
   // Nodes joined only through drawn edges (scenes reached through a hub): one block per section,
   // side by side below the flow, rows from top to bottom (see depthBlocks).
@@ -225,15 +232,32 @@ async function layout(job: LayoutJob): Promise<LayoutData> {
   const blocks = (job.ordered?.blocks ?? [])
     .map((block) => ({ name: block.name, scenes: block.rows.flat().filter((id) => inOrder.has(id)).length, rows: [block.heads ?? [], ...block.rows].map((row) => row.filter((id) => inOrder.has(id)).map((id) => byId.get(id)!)).filter((row) => row.length) }))
     .filter((block) => block.rows.length);
-  const gridTop = Math.max(main.height ?? 0, loose?.height ?? 0) + (blocks.length ? GAP : 0);
+  const gridTop = horizontal ? 0 : Math.max(main.height ?? 0, loose?.height ?? 0) + (blocks.length ? GAP : 0);
+  const gridLeft = horizontal ? Math.max(main.width ?? 0, loose?.width ?? 0) + (blocks.length ? GAP : 0) : 0;
   const gridNodes: { id: string; x: number; y: number; width: number; height: number }[] = [];
   const gridRegions: { label: string; x: number; y: number; width: number; height: number }[] = [];
   let blockLeft = 0;
+  let blockTop = 0;
   let gridHeight = 0;
+  let gridWidth = 0;
   for (const block of blocks) {
     const all = block.rows.flat();
     const cellWidth = Math.max(...all.map((node) => node.width)) + 24;
     const cellHeight = Math.max(...all.map((node) => node.height)) + 40;
+    if (horizontal) {
+      const width = block.rows.length * cellWidth;
+      const height = Math.max(...block.rows.map((row) => row.length)) * cellHeight;
+      block.rows.forEach((row, depthIndex) => {
+        const indent = (height - row.length * cellHeight) / 2;
+        row.forEach((node, index) => gridNodes.push({ id: node.id, x: gridLeft + depthIndex * cellWidth, y: blockTop + indent + index * cellHeight, width: node.width, height: node.height }));
+      });
+      const label = job.ordered!.label.replace('{n}', block.scenes.toLocaleString());
+      gridRegions.push({ label: block.name ? `${block.name} · ${label}` : label, x: gridLeft, y: blockTop, width, height });
+      blockTop += height + GAP / 2;
+      gridWidth = Math.max(gridWidth, width);
+      gridHeight = Math.max(gridHeight, blockTop - GAP / 2);
+      continue;
+    }
     const width = Math.max(...block.rows.map((row) => row.length)) * cellWidth;
     block.rows.forEach((row, rowIndex) => {
       // Rows are centred so a narrow level sits under the middle of a wide one.
@@ -245,15 +269,16 @@ async function layout(job: LayoutJob): Promise<LayoutData> {
     gridRegions.push({ label: block.name ? `${block.name} · ${label}` : label, x: blockLeft, y: gridTop, width, height });
     blockLeft += width + GAP / 2;
     gridHeight = Math.max(gridHeight, height);
+    gridWidth = Math.max(gridWidth, blockLeft - GAP / 2);
   }
-  const gridWidth = blocks.length ? blockLeft - GAP / 2 : 0;
+  if (!horizontal) gridWidth = blocks.length ? blockLeft - GAP / 2 : 0;
 
   const ends = new Map(job.edges.map((edge) => [edge.id, edge]));
-  const place = (node: ElkNode, dx = 0) => ({ id: node.id, x: (node.x ?? 0) + dx, y: node.y ?? 0, width: node.width ?? 0, height: node.height ?? 0 });
+  const place = (node: ElkNode, dx = 0, dy = 0) => ({ id: node.id, x: (node.x ?? 0) + dx, y: (node.y ?? 0) + dy, width: node.width ?? 0, height: node.height ?? 0 });
   return {
-    width: Math.max(offsetX + (loose?.width ?? 0), gridWidth),
-    height: blocks.length ? gridTop + gridHeight : Math.max(main.height ?? 0, loose?.height ?? 0),
-    nodes: [...(main.children ?? []).map((node) => place(node)), ...(loose?.children ?? []).map((node) => place(node, offsetX)), ...gridNodes],
+    width: Math.max(horizontal ? gridLeft + gridWidth : offsetX + (loose?.width ?? 0), main.width ?? 0),
+    height: Math.max(gridTop + gridHeight, offsetY + (loose?.height ?? 0), main.height ?? 0),
+    nodes: [...(main.children ?? []).map((node) => place(node)), ...(loose?.children ?? []).map((node) => place(node, offsetX, offsetY)), ...gridNodes],
     edges: (main.edges ?? []).map((edge) => {
       const points: number[] = [];
       for (const section of edge.sections ?? []) {

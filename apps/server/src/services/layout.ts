@@ -5,7 +5,7 @@ import type { Db } from '../db/index.ts';
 import { graphEdges, graphLayouts, graphNodes, groups, projects, type LayoutData } from '../db/schema.ts';
 import { events } from '../events.ts';
 import { foldChoices } from './choices.ts';
-import type { LayoutJob, SceneSource, SectionLayouts, WorkerJob } from './layout-worker.ts';
+import type { LayoutDirection, LayoutJob, SceneSource, SectionLayouts, WorkerJob } from './layout-worker.ts';
 
 const NODE_SIZE: Record<string, [number, number]> = {
   script: [260, 76],
@@ -25,7 +25,7 @@ const LAYOUT_TIMEOUT_MS = 5 * 60_000;
 class Cancelled extends Error {}
 
 /** Projects whose layout is being computed: the live worker, and whether another run was asked for meanwhile. */
-const active = new Map<string, { worker: Worker | null; rerun: boolean; cancelled: boolean }>();
+const active = new Map<string, { worker: Worker | null; rerun: Set<LayoutDirection>; cancelled: boolean }>();
 
 const workerResultSchema = z.discriminatedUnion('ok', [
   z.object({ ok: z.literal(true), data: z.record(z.string(), z.unknown()) }),
@@ -61,33 +61,33 @@ function runWorker<T = LayoutData>(job: WorkerJob, onWorker: (worker: Worker) =>
   });
 }
 
-/** Bumped when layouts are made differently (2: straight runs folded, hub-only scenes by depth; 3: choices on their edges, edge labels; 4: curved edges; 5: room kept for labels; 6: conservative splines, not ELK's sloppy default; 7: straight polylines, splines wobbled); older ones are recomputed at startup. */
-export const LAYOUT_VERSION = 7;
+/** Bumped when layouts are made differently (8: direction variants and roomier ELK spacing); older cached layouts are recomputed at startup. */
+export const LAYOUT_VERSION = 8;
 
-/** Projects with a stored layout made by an older LAYOUT_VERSION (agent views excepted: they are made again on request). */
+/** Stored direction variants with a stored layout made by an older LAYOUT_VERSION. */
 export function projectsWithOldLayouts(db: Db) {
   return db
-    .selectDistinct({ projectId: graphLayouts.projectId })
+    .selectDistinct({ projectId: graphLayouts.projectId, direction: graphLayouts.direction })
     .from(graphLayouts)
     .where(and(eq(graphLayouts.status, 'ready'), sql`coalesce(json_extract(${graphLayouts.data}, '$.version'), 0) < ${LAYOUT_VERSION}`, sql`${graphLayouts.section} not like 'view:%'`))
-    .all()
-    .map((row) => row.projectId);
+    .all();
 }
 
-function save(db: Db, projectId: string, scope: 'dialogue' | 'scene', given: Partial<typeof graphLayouts.$inferInsert>, section = '') {
+function save(db: Db, projectId: string, scope: 'dialogue' | 'scene', given: Partial<typeof graphLayouts.$inferInsert>, section = '', direction: LayoutDirection = 'vertical') {
   const value = given.data ? { ...given, data: { ...given.data, version: LAYOUT_VERSION } } : given;
   db.insert(graphLayouts)
-    .values({ projectId, scope, section, status: 'pending', ...value })
-    .onConflictDoUpdate({ target: [graphLayouts.projectId, graphLayouts.scope, graphLayouts.section], set: { ...value, updatedAt: new Date() } })
+    .values({ projectId, scope, section, direction, status: 'pending', ...value })
+    .onConflictDoUpdate({ target: [graphLayouts.projectId, graphLayouts.scope, graphLayouts.section, graphLayouts.direction], set: { ...value, updatedAt: new Date() } })
     .run();
 }
 
 /** The dialogue graph's nodes with their scene's section, in script order of sections. */
-export function sectionSource(db: Db, projectId: string) {
+export function sectionSource(db: Db, projectId: string, direction: LayoutDirection = 'vertical') {
   const groupRows = db.select({ id: groups.id, section: groups.section }).from(groups).where(eq(groups.projectId, projectId)).orderBy(asc(groups.sort), asc(groups.key)).all();
   const sectionOf = new Map(groupRows.map((group) => [group.id, group.section || null]));
   const { nodes, edges } = dialogueSource(db, projectId);
   return {
+    direction,
     nodes: nodes.map((node) => {
       const [width, height] = NODE_SIZE[node.kind] ?? NODE_SIZE.unknown;
       return { id: node.id, width, height, group: node.groupId, section: node.groupId ? (sectionOf.get(node.groupId) ?? null) : null, ...(node.kind === 'choice' && { keep: true }) };
@@ -110,11 +110,12 @@ function dialogueSource(db: Db, projectId: string) {
 }
 
 /** What the worker needs to derive and lay out the scene graph (see SceneSource). */
-export function sceneSource(db: Db, projectId: string): SceneSource {
+export function sceneSource(db: Db, projectId: string, direction: LayoutDirection = 'vertical'): SceneSource {
   const rows = db.select({ id: groups.id, section: groups.section }).from(groups).where(and(eq(groups.projectId, projectId), eq(groups.kind, 'scene'))).orderBy(asc(groups.sort), asc(groups.key)).all();
   const sceneIds = rows.map((group) => group.id);
   const scenes = new Set(sceneIds);
   return {
+    direction,
     scenes: sceneIds,
     sections: rows.map((group) => group.section),
     nodes: db.select({ id: graphNodes.id, groupId: graphNodes.groupId }).from(graphNodes).where(eq(graphNodes.projectId, projectId)).all().map((node) => ({ id: node.id, groupId: node.groupId && scenes.has(node.groupId) ? node.groupId : null })),
@@ -123,9 +124,10 @@ export function sceneSource(db: Db, projectId: string): SceneSource {
   };
 }
 
-export function dialogueJob(db: Db, projectId: string): LayoutJob {
+export function dialogueJob(db: Db, projectId: string, direction: LayoutDirection = 'vertical'): LayoutJob {
   const { nodes, edges } = dialogueSource(db, projectId);
   return {
+    direction,
     nodes: nodes.map((node) => {
       const [width, height] = NODE_SIZE[node.kind] ?? NODE_SIZE.unknown;
       // A player's choice stays its own box, never folded into a run of lines.
@@ -138,37 +140,58 @@ export function dialogueJob(db: Db, projectId: string): LayoutJob {
 const projectExists = (db: Db, projectId: string) => !!db.select({ id: projects.id }).from(projects).where(eq(projects.id, projectId)).get();
 
 const VIEW = '보기';
+const viewJobs = new Map<string, Promise<void>>();
 
 /**
  * A chosen set of dialogue-graph nodes laid out on its own, once (a few hundred nodes take a
  * second or two), stored under section `key` so the graph route serves it like a section. Lines
  * that continue outside the set end in portals named after the scene they continue in.
  */
-export async function nodeSetLayout(db: Db, projectId: string, key: string, nodeIds: string[], label = '') {
-  const existing = db.select({ status: graphLayouts.status }).from(graphLayouts).where(and(eq(graphLayouts.projectId, projectId), eq(graphLayouts.scope, 'dialogue'), eq(graphLayouts.section, key))).get();
-  if (existing?.status === 'ready') return;
+export function nodeSetLayout(db: Db, projectId: string, key: string, nodeIds: string[], label = '', direction: LayoutDirection = 'vertical'): Promise<void> {
+  const jobKey = `${projectId}:${key}:${direction}`;
+  const running = viewJobs.get(jobKey);
+  if (running) return running;
+  const job = computeNodeSetLayout(db, projectId, key, nodeIds, label, direction).finally(() => viewJobs.delete(jobKey));
+  viewJobs.set(jobKey, job);
+  return job;
+}
+
+async function computeNodeSetLayout(db: Db, projectId: string, key: string, nodeIds: string[], label: string, direction: LayoutDirection) {
+  const existing = db.select({ status: graphLayouts.status, version: sql<number>`coalesce(json_extract(${graphLayouts.data}, '$.version'), 0)` }).from(graphLayouts).where(and(eq(graphLayouts.projectId, projectId), eq(graphLayouts.scope, 'dialogue'), eq(graphLayouts.section, key), eq(graphLayouts.direction, direction))).get();
+  if (existing?.status === 'ready' && existing.version >= LAYOUT_VERSION) return;
+  save(db, projectId, 'dialogue', { status: 'pending', data: null, error: null }, key, direction);
+  events.changed(projectId, 'graph');
   const chosen = new Set(nodeIds);
   const titleOf = new Map(db.select({ id: groups.id, title: groups.title }).from(groups).where(eq(groups.projectId, projectId)).all().map((group) => [group.id, group.title]));
   const nodes = db.select({ id: graphNodes.id, kind: graphNodes.kind, groupId: graphNodes.groupId }).from(graphNodes).where(eq(graphNodes.projectId, projectId)).all();
   const edges = db.select({ id: graphEdges.id, from: graphEdges.fromId, to: graphEdges.toId }).from(graphEdges).where(eq(graphEdges.projectId, projectId)).all();
-  const data = await runWorker(
-    {
-      kind: 'view',
-      view: VIEW,
-      edges,
-      nodes: nodes.map((node) => {
-        const [width, height] = NODE_SIZE[node.kind] ?? NODE_SIZE.unknown;
-        return { id: node.id, width, height, group: node.groupId, section: chosen.has(node.id) ? VIEW : node.groupId ? `scene:${node.groupId}` : null };
-      }),
-    },
-    () => {},
-  );
+  let data: LayoutData;
+  try {
+    data = await runWorker(
+      {
+        kind: 'view',
+        view: VIEW,
+        direction,
+        edges,
+        nodes: nodes.map((node) => {
+          const [width, height] = NODE_SIZE[node.kind] ?? NODE_SIZE.unknown;
+          return { id: node.id, width, height, group: node.groupId, section: chosen.has(node.id) ? VIEW : node.groupId ? `scene:${node.groupId}` : null };
+        }),
+      },
+      () => {},
+    );
+  } catch (error) {
+    save(db, projectId, 'dialogue', { status: 'failed', error: error instanceof Error ? error.message : String(error) }, key, direction);
+    events.changed(projectId, 'graph');
+    return;
+  }
   // Portals name the scene the lines continue in, and keep its id to open it.
   data.portals = data.portals?.map((portal) => {
     const groupId = portal.section.startsWith('scene:') ? portal.section.slice('scene:'.length) : undefined;
     return groupId ? { ...portal, section: titleOf.get(groupId) ?? groupId, groupId } : portal;
   });
-  save(db, projectId, 'dialogue', { status: 'ready', data: { ...data, view: { label, nodes: chosen.size } }, error: null }, key);
+  save(db, projectId, 'dialogue', { status: 'ready', data: { ...data, view: { label, nodes: chosen.size } }, error: null }, key, direction);
+  events.changed(projectId, 'graph');
 }
 
 /** Projects laid out before section layouts existed: their scenes span several sections but no section layout is stored. */
@@ -178,7 +201,7 @@ export function projectsMissingSections(db: Db) {
     where g.section is not null and g.section != ''
       and exists (select 1 from ${graphNodes} n where n.group_id = g.id)
     group by g.project_id having count(distinct g.section) > 1
-      and not exists (select 1 from ${graphLayouts} l where l.project_id = g.project_id and l.scope = 'dialogue' and l.section != '' and l.section not like 'view:%')`);
+      and not exists (select 1 from ${graphLayouts} l where l.project_id = g.project_id and l.scope = 'dialogue' and l.direction = 'vertical' and l.section != '' and l.section not like 'view:%')`);
   return rows.map((row) => row.projectId);
 }
 
@@ -190,7 +213,7 @@ export function projectsMissingSections(db: Db) {
 export function projectsWithoutLayouts(db: Db) {
   const rows = db.all<{ projectId: string }>(sql`
     select distinct n.project_id as projectId from ${graphNodes} n
-    where not exists (select 1 from ${graphLayouts} l where l.project_id = n.project_id and l.section = '')`);
+    where not exists (select 1 from ${graphLayouts} l where l.project_id = n.project_id and l.direction = 'vertical' and l.section = '')`);
   return rows.map((row) => row.projectId);
 }
 
@@ -199,7 +222,7 @@ export function cancelLayout(projectId: string) {
   const state = active.get(projectId);
   if (!state) return;
   state.cancelled = true;
-  state.rerun = false;
+  state.rerun.clear();
   void state.worker?.terminate().catch(() => {});
 }
 
@@ -208,19 +231,29 @@ export function cancelLayout(projectId: string) {
  * a failure ends up as a failed layout, and a project deleted meanwhile is dropped quietly. One
  * computation per project at a time; a request that arrives meanwhile reruns once afterwards.
  */
-export async function computeLayouts(db: Db, projectId: string, options: { sectionsOnly?: boolean } = {}): Promise<void> {
+export async function computeLayouts(db: Db, projectId: string, options: { sectionsOnly?: boolean; direction?: LayoutDirection } = {}): Promise<void> {
+  const direction = options.direction ?? 'vertical';
   const running = active.get(projectId);
   if (running) {
-    running.rerun = true;
+    // A second orientation may be requested while the first is laying out. Publish pending rows
+    // now so the route can render a loading state and repeated section reads won't queue reruns.
+    if (!options.sectionsOnly && !running.rerun.has(direction)) {
+      save(db, projectId, 'scene', { status: 'pending', data: null, error: null }, '', direction);
+      save(db, projectId, 'dialogue', { status: 'pending', data: null, error: null }, '', direction);
+      events.changed(projectId, 'graph');
+    }
+    running.rerun.add(direction);
     return;
   }
-  const state = { worker: null as Worker | null, rerun: false, cancelled: false };
+  const state = { worker: null as Worker | null, rerun: new Set<LayoutDirection>(), cancelled: false };
   active.set(projectId, state);
   try {
-    do {
-      state.rerun = false;
-      await computeOnce(db, projectId, state, options.sectionsOnly);
-    } while (state.rerun && !state.cancelled);
+    let next: LayoutDirection | undefined = direction;
+    while (next && !state.cancelled) {
+      state.rerun.delete(next);
+      await computeOnce(db, projectId, state, options.sectionsOnly, next);
+      next = state.rerun.values().next().value;
+    }
   } catch (error) {
     if (!(error instanceof Cancelled)) console.error('layout failed', error);
   } finally {
@@ -228,42 +261,42 @@ export async function computeLayouts(db: Db, projectId: string, options: { secti
   }
 }
 
-async function computeOnce(db: Db, projectId: string, state: { worker: Worker | null; cancelled: boolean }, sectionsOnly = false) {
+async function computeOnce(db: Db, projectId: string, state: { worker: Worker | null; cancelled: boolean }, sectionsOnly = false, direction: LayoutDirection = 'vertical') {
   const guarded = (write: () => void) => {
     if (state.cancelled || !projectExists(db, projectId)) throw new Cancelled();
     write();
   };
   const jobs = [
-    ['scene', (): WorkerJob => ({ kind: 'scenes', source: sceneSource(db, projectId) })],
-    ['dialogue', (): WorkerJob => ({ kind: 'layout', job: dialogueJob(db, projectId) })],
+    ['scene', (): WorkerJob => ({ kind: 'scenes', source: sceneSource(db, projectId, direction) })],
+    ['dialogue', (): WorkerJob => ({ kind: 'layout', job: dialogueJob(db, projectId, direction) })],
   ] as const;
   for (const [scope, build] of sectionsOnly ? [] : jobs) {
-    guarded(() => save(db, projectId, scope, { status: 'pending', data: null, error: null }));
+    guarded(() => save(db, projectId, scope, { status: 'pending', data: null, error: null }, '', direction));
     events.changed(projectId, 'graph');
     try {
       const work = build();
       const empty = work.kind === 'scenes' ? !work.source.scenes.length : work.kind === 'layout' ? !work.job.nodes.length : !work.nodes.length;
       const data: LayoutData = empty ? { width: 0, height: 0, nodes: [], edges: [] } : await runWorker(work, (worker) => (state.worker = worker));
       state.worker = null;
-      guarded(() => save(db, projectId, scope, { status: 'ready', data, error: null }));
+      guarded(() => save(db, projectId, scope, { status: 'ready', data, error: null }, '', direction));
     } catch (error) {
       state.worker = null;
       if (error instanceof Cancelled) throw error;
-      guarded(() => save(db, projectId, scope, { status: 'failed', error: error instanceof Error ? error.message : String(error) }));
+      guarded(() => save(db, projectId, scope, { status: 'failed', error: error instanceof Error ? error.message : String(error) }, '', direction));
     }
     events.changed(projectId, 'graph');
   }
 
   // Each section's own dialogue layout, when the script has more than one section with lines in the graph.
-  guarded(() => db.delete(graphLayouts).where(and(eq(graphLayouts.projectId, projectId), eq(graphLayouts.scope, 'dialogue'), ne(graphLayouts.section, ''), notLike(graphLayouts.section, 'view:%'))).run());
-  const source = sectionSource(db, projectId);
+  guarded(() => db.delete(graphLayouts).where(and(eq(graphLayouts.projectId, projectId), eq(graphLayouts.scope, 'dialogue'), eq(graphLayouts.direction, direction), ne(graphLayouts.section, ''), notLike(graphLayouts.section, 'view:%'))).run());
+  const source = sectionSource(db, projectId, direction);
   const used = new Set(source.nodes.flatMap((node) => (node.section ? [node.section] : [])));
   if (used.size < 2) return;
   try {
     const { sections } = await runWorker<SectionLayouts>({ kind: 'sections', ...source }, (worker) => (state.worker = worker));
     state.worker = null;
     guarded(() => db.transaction(() => {
-      for (const section of sections) save(db, projectId, 'dialogue', { status: 'ready', data: section.data, error: null }, section.name);
+      for (const section of sections) save(db, projectId, 'dialogue', { status: 'ready', data: section.data, error: null }, section.name, direction);
     }));
   } catch (error) {
     state.worker = null;
