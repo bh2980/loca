@@ -638,6 +638,7 @@ export const runSteps = sqliteTable(
 export interface ProposalReport {
   dropped: { key: string; reason: string }[];
   warnings: { key: string; issues: string[] }[];
+  counts?: { dropped: number; warnings: number };
 }
 
 export type ProposalStatus = 'pending' | 'running' | 'accepted' | 'rejected' | 'failed';

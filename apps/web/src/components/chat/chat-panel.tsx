@@ -3,7 +3,6 @@ import { useChat } from '@ai-sdk/react';
 import type { UIMessage } from 'ai';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation } from '@tanstack/react-router';
-import { toast } from 'sonner';
 import { ArrowUp, Check, ChevronRight, History, Plus, Square, Trash2, X } from 'lucide-react';
 import { Markdown } from './markdown';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, Spinner, Textarea } from '@loca/ui';
@@ -16,7 +15,7 @@ import { chatFor, dropChat } from '@/lib/chat-store';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { useViewState, type ViewItem } from '@/lib/view-context';
-import { ProposalCard } from './proposal-card';
+import { ProposalCard, useUndo } from './proposal-card';
 import { PermissionModePicker } from './permission-mode';
 import type { PermissionMode } from '@tw/shared';
 import { ToolPart } from './tool-part';
@@ -285,18 +284,7 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
   const proposalById = new Map(proposals.data?.map((proposal) => [proposal.id, proposal]));
   const [undoingReply, setUndoingReply] = useState(false);
   const [replyUndoIds, setReplyUndoIds] = useState<string[]>([]);
-  const undoReply = useMutation({
-    mutationFn: (ids: string[]) => unwrap(client.chat[':sessionId'].undo.$post({ param: { sessionId }, json: { ids } })),
-    onSuccess: (rows) => {
-      void queryClient.invalidateQueries({ queryKey: ['proposals', projectId, sessionId] });
-      const done = rows.filter((row) => row.ok).length;
-      const failures = rows.filter((row) => !row.ok).length;
-      const skipped = rows.reduce((sum, row) => sum + (row.skipped?.length ?? 0), 0);
-      toast.success(`${done}개 되돌림${skipped ? `, ${skipped}개는 그사이 바뀌어 건너뜀` : ''}${failures ? `, 실패 ${failures}개` : ''}`);
-      setUndoingReply(false);
-    },
-    onError: (error) => toast.error(error.message),
-  });
+  const undoReply = useUndo(projectId, sessionId);
   // A finished turn whose last part is a tool call said nothing about the result: say so and offer to continue.
   const lastMessage = messages.at(-1);
   const lastPart = lastMessage?.parts.filter((part) => part.type !== 'step-start').at(-1);
@@ -380,11 +368,10 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
         <div className="space-y-5">
           {messages.map((message) => {
             const { stopped, interrupted } = (message.metadata as { stopped?: boolean; interrupted?: boolean } | undefined) ?? {};
-            const replyUndoIds = message.role === 'assistant' ? [...new Set(message.parts.flatMap((part) => {
+            const undoable = message.role === 'assistant' ? [...new Set(message.parts.flatMap((part) => {
               const id = ((part as { output?: { proposalId?: string } }).output ?? {}).proposalId;
               const proposal = id ? proposalById.get(id) : undefined;
-              const undo = proposal?.undo as unknown as { calls: number } | { none: string } | null;
-              return proposal?.status === 'accepted' && undo && 'calls' in undo && undo.calls > 0 && !proposal.undoneAt ? [proposal.id] : [];
+              return proposal?.status === 'accepted' && proposal.undo && 'calls' in proposal.undo && proposal.undo.calls > 0 && !proposal.undoneAt ? [proposal.id] : [];
             }))] : [];
             const view =
             message.role === 'user' && (message.metadata as { kind?: string } | undefined)?.kind === 'decisions' ? (
@@ -406,10 +393,10 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
                     const data = (part as { data: { text: string; kind?: string } }).data;
                     return data.kind === 'decisions' ? <DecisionNotice key={index} text={data.text} /> : <SteerBubble key={index} text={data.text} />;
                   }
-                  if (part.type.startsWith('tool-')) return <ToolPart key={index} part={part as never} proposal={proposalById.get(((part as { output?: { proposalId?: string } }).output ?? {}).proposalId ?? '') as never} stale={message.id !== messages.at(-1)?.id} onDecide={(id, approved) => addToolApprovalResponse({ id, approved })} onOutput={(toolCallId, output) => void addToolOutput({ tool: part.type.slice(5) as never, toolCallId, output: output as never })} />;
+                  if (part.type.startsWith('tool-')) return <ToolPart key={index} part={part as never} proposal={proposalById.get(((part as { output?: { proposalId?: string } }).output ?? {}).proposalId ?? '')} stale={message.id !== messages.at(-1)?.id} onDecide={(id, approved) => addToolApprovalResponse({ id, approved })} onOutput={(toolCallId, output) => void addToolOutput({ tool: part.type.slice(5) as never, toolCallId, output: output as never })} />;
                   return null;
                 })}
-                {replyUndoIds.length > 0 && <Button size="sm" variant="outline" onClick={() => { setReplyUndoIds(replyUndoIds); setUndoingReply(true); }}>이 답의 변경 되돌리기 ({replyUndoIds.length})</Button>}
+                {undoable.length > 0 && <Button size="sm" variant="outline" onClick={() => { setReplyUndoIds(undoable); setUndoingReply(true); }}>이 답의 변경 되돌리기 ({undoable.length})</Button>}
               </div>
             );
             if (!stopped && !interrupted) return view;
@@ -446,7 +433,7 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
       <AlertDialog open={undoingReply} onOpenChange={setUndoingReply}>
         <AlertDialogContent>
           <AlertDialogHeader><AlertDialogTitle>이 답의 변경을 되돌릴까요?</AlertDialogTitle><AlertDialogDescription>이 답에서 반영된 변경 {replyUndoIds.length}개를 되돌리는 제안을 적용합니다. 그사이 바뀐 대사는 건너뜁니다.</AlertDialogDescription></AlertDialogHeader>
-          <AlertDialogFooter><AlertDialogCancel>취소</AlertDialogCancel><AlertDialogAction disabled={undoReply.isPending} onClick={() => undoReply.mutate(replyUndoIds)}>되돌리기</AlertDialogAction></AlertDialogFooter>
+          <AlertDialogFooter><AlertDialogCancel>취소</AlertDialogCancel><AlertDialogAction disabled={undoReply.isPending} onClick={() => { undoReply.mutate(replyUndoIds); setUndoingReply(false); }}>되돌리기</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
@@ -546,7 +533,7 @@ function ExternalProposals({ projectId }: { projectId: string }) {
       {open && (
         <div className="space-y-2 px-3 pb-3">
           {pending.map((proposal) => (
-            <ProposalCard key={proposal.id} proposal={proposal as never} />
+            <ProposalCard key={proposal.id} proposal={proposal} />
           ))}
         </div>
       )}

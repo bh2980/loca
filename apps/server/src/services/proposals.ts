@@ -4,7 +4,7 @@ import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { agentCatalog } from './agent-catalog.ts';
-import { undoBefore, undoOf } from './proposal-undo.ts';
+import { captureUndo } from './proposal-undo.ts';
 
 /** Stores a proposal; callers check it first with prepareProposal (proposal-check.ts). */
 export function propose(db: Db, input: { projectId: string; sessionId: string | null; model?: string | null; source: 'pi' | 'cli' | 'api'; tool: string; input: Record<string, unknown>; report?: s.ProposalReport | null; review?: string | null }) {
@@ -15,26 +15,38 @@ export function propose(db: Db, input: { projectId: string; sessionId: string | 
 
 /** Lines of a batch proposal sent with the list; the panel previews these and shows the counts. */
 const PREVIEW_CHANGES = 50;
+type PreviewChange = { translation?: string; status?: string; addTags?: string[]; removeTags?: string[] };
+const isPreviewChange = (value: unknown): value is PreviewChange =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
 
 /**
  * A batch proposal can carry a whole game (50k lines, several MB): the list sends its counts and
  * the first lines, and accepting still runs the stored input.
  */
 export function listedProposal(proposal: typeof s.proposals.$inferSelect) {
-  proposal = { ...proposal, undo: proposal.undo && 'calls' in proposal.undo ? { calls: proposal.undo.calls.length } as unknown as s.ProposalUndo : proposal.undo };
+  const { undo, ...rest } = proposal;
+  const summary: { calls: number } | { none: string } | null = undo && 'calls' in undo
+    ? { calls: undo.calls.length }
+    : undo ?? null;
   // The check's report can name every line too (a warning per line): first entries plus counts.
-  const report = proposal.report;
-  if (report && (report.dropped.length > PREVIEW_CHANGES || report.warnings.length > PREVIEW_CHANGES))
-    proposal = { ...proposal, report: { dropped: report.dropped.slice(0, PREVIEW_CHANGES), warnings: report.warnings.slice(0, PREVIEW_CHANGES), counts: { dropped: report.dropped.length, warnings: report.warnings.length } } as s.ProposalReport };
-  const changes = (proposal.input as { changes?: { translation?: string; status?: string; addTags?: string[]; removeTags?: string[] }[] }).changes;
-  if (!Array.isArray(changes) || changes.length <= PREVIEW_CHANGES) return proposal;
+  const report = rest.report;
+  const listedReport = report && (report.dropped.length > PREVIEW_CHANGES || report.warnings.length > PREVIEW_CHANGES)
+    ? {
+      dropped: report.dropped.slice(0, PREVIEW_CHANGES),
+      warnings: report.warnings.slice(0, PREVIEW_CHANGES),
+      counts: { dropped: report.dropped.length, warnings: report.warnings.length },
+    }
+    : report;
+  const listed = { ...rest, undo: summary, report: listedReport };
+  const changes = Array.isArray(listed.input.changes) ? listed.input.changes.filter(isPreviewChange) : null;
+  if (!changes || changes.length <= PREVIEW_CHANGES) return listed;
   const counts = {
     lines: changes.length,
     translations: changes.filter((change) => change.translation !== undefined).length,
     statuses: changes.filter((change) => change.status).length,
     tagged: changes.filter((change) => change.addTags?.length || change.removeTags?.length).length,
   };
-  return { ...proposal, input: { ...proposal.input, changes: changes.slice(0, PREVIEW_CHANGES), counts } };
+  return { ...listed, input: { ...listed.input, changes: changes.slice(0, PREVIEW_CHANGES), counts } };
 }
 
 /** What an agent is told when it proposes a change instead of making it. */
@@ -61,21 +73,17 @@ export async function decideProposal(db: Db, id: string, accept: boolean, by: 'p
   if (!accept) return claimed;
   let status: 'accepted' | 'failed' = 'accepted';
   let result: unknown = null;
-  let undo: s.ProposalUndo = { none: '이 변경은 되돌릴 수 없습니다' };
   const tool = agentCatalog(db, proposal.projectId, { model: proposal.model ?? null }).find((candidate) => candidate.name === proposal.tool && candidate.changes);
+  const undoAfter = captureUndo(db, proposal);
   try {
     if (!tool) throw new Error(`알 수 없는 도구입니다: ${proposal.tool}`);
-    let before: Record<string, unknown> = {};
-    let captured = true;
-    try { before = undoBefore(db, proposal); } catch (error) { captured = false; undo = { none: `되돌리기를 준비하지 못했습니다: ${error instanceof Error ? error.message : String(error)}` }; }
     result = await tool.run(proposal.input);
     if (result && typeof result === 'object' && (result as { ok?: boolean }).ok === false) status = 'failed';
-    else if (captured) try { undo = undoOf(db, proposal, before, result); } catch (error) { undo = { none: `되돌리기를 준비하지 못했습니다: ${error instanceof Error ? error.message : String(error)}` }; }
   } catch (error) {
     status = 'failed';
     result = { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
-  const row = db.update(s.proposals).set({ status, result, undo, decidedAt: new Date() }).where(eq(s.proposals.id, id)).returning().get();
+  const row = db.update(s.proposals).set({ status, result, undo: status === 'accepted' ? undoAfter(result) : null, decidedAt: new Date() }).where(eq(s.proposals.id, id)).returning().get();
   events.changed(proposal.projectId, 'proposals');
   return row;
 }

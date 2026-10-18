@@ -5,44 +5,40 @@ import { toast } from 'sonner';
 import { Button, Input, Spinner } from '@loca/ui';
 import { acceptedLabel } from '@tw/shared';
 import { client, unwrap } from '@/lib/api';
+import { q } from '@/lib/queries';
 import { ChangePreview, LABEL } from './change-preview';
 
-export interface Proposal {
-  id: string;
-  sessionId?: string | null;
-  tool: string;
-  input: Record<string, unknown>;
-  /** running: accepted, the change still being applied (another window or a resent click may have started it). */
-  status: 'pending' | 'running' | 'accepted' | 'rejected' | 'failed';
-  result: unknown;
-  undo?: { calls: number } | { none: string } | null;
-  undoneAt?: Date | string | null;
-  /** Why the person rejected it, if they said; the agent hears it with the decision. */
-  reason?: string | null;
-  source: 'pi' | 'cli' | 'api';
-  /** Who decided: the person, or the conversation's permission mode (#45). */
-  decidedBy?: 'person' | 'auto' | 'bypass' | null;
-  /** Auto review's reason: why it asked, or that it passed. */
-  review?: string | null;
-  /** What the check left out when the proposal was made, and warnings about what it kept (first entries; counts when trimmed). */
-  report?: { dropped: { key: string; reason: string }[]; warnings: { key: string; issues: string[] }[]; counts?: { dropped: number; warnings: number } } | null;
-}
+export type Proposal = Awaited<ReturnType<NonNullable<ReturnType<typeof q.proposals>['queryFn']>>>[number];
 
 const STATUS = { running: '적용 중', rejected: '거절함', failed: '실패' } as const;
 const DECIDED_BY = { auto: '자동 검토로', bypass: '우회 모드로' } as const;
 
-/** A change an agent proposed (pi chat or the CLI). Accepting runs it now; nothing changes before that. */
-export function ProposalCard({ proposal }: { proposal: Proposal }) {
+/** One undo request and its shared outcome message for cards and whole replies. */
+export function useUndo(projectId: string, sessionId: string) {
   const queryClient = useQueryClient();
-  const undo = useMutation({
-    mutationFn: () => unwrap(client.chat[':sessionId'].undo.$post({ param: { sessionId: proposal.sessionId! }, json: { ids: [proposal.id] } })),
-    onSuccess: (rows) => {
-      void queryClient.invalidateQueries({ queryKey: ['proposals'] });
-      const row = rows[0];
-      if (row?.ok) toast.success('되돌렸습니다'); else toast.error(row?.error ?? '되돌리지 못했습니다');
+  return useMutation({
+    mutationFn: (ids: string[]) => unwrap(client.chat[':sessionId'].undo.$post({
+      param: { sessionId }, json: { ids },
+    })),
+    onSuccess: (rows, ids) => {
+      void queryClient.invalidateQueries({ queryKey: ['proposals', projectId, sessionId] });
+      const done = rows.filter((row) => row.ok).length;
+      const failures = rows.filter((row) => !row.ok);
+      const skipped = rows.reduce((sum, row) => sum + (row.skipped?.length ?? 0), 0);
+      if (ids.length === 1 && failures[0]) {
+        toast.error(failures[0].error ?? '되돌리지 못했습니다');
+        return;
+      }
+      toast.success(`${done}개 되돌림${skipped ? ` · ${skipped}개는 그사이 바뀌어 건너뜀` : ''}${failures.length ? ` · 실패 ${failures.length}개` : ''}`);
     },
     onError: (error) => toast.error(error.message),
   });
+}
+
+/** A change an agent proposed (pi chat or the CLI). Accepting runs it now; nothing changes before that. */
+export function ProposalCard({ proposal }: { proposal: Proposal }) {
+  const queryClient = useQueryClient();
+  const undo = useUndo(proposal.projectId, proposal.sessionId ?? '');
   // Shown decided at once: the card turns 적용됨/거절함 before the server answers (back to pending on
   // failure), and takes the server's row (failed, skipped) as soon as it comes instead of waiting for the refetch.
   const patch = (update: (row: Proposal) => Proposal) => queryClient.setQueriesData<Proposal[]>({ queryKey: ['proposals'] }, (list) => list?.map((row) => (row.id === proposal.id ? update(row) : row)));
@@ -55,7 +51,7 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
       await queryClient.cancelQueries({ queryKey: ['proposals'] });
       patch((row) => ({ ...row, status: action === 'accept' ? 'accepted' : 'rejected', reason: action === 'reject' ? reason.trim() || null : row.reason }));
     },
-    onSuccess: (row) => patch((old) => ({ ...old, ...(row as Partial<Proposal>) })),
+    onSuccess: (row) => patch((old) => ({ ...old, status: row.status, result: row.result, reason: row.reason, decidedBy: row.decidedBy, undoneAt: row.undoneAt, undo: old.undo })),
     onError: (error) => {
       patch((row) => ({ ...row, status: 'pending' }));
       toast.error(error.message);
@@ -114,14 +110,14 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
         </div>
       )}
       {proposal.sessionId && proposal.status === 'accepted' && proposal.undo && 'calls' in proposal.undo && proposal.undo.calls > 0 && !proposal.undoneAt && (
-        <div className="flex justify-end border-t px-3 py-2"><Button size="sm" variant="outline" disabled={undo.isPending} onClick={() => undo.mutate()}>{undo.isPending ? <Spinner /> : null} 되돌리기</Button></div>
+        <div className="flex justify-end border-t px-3 py-2"><Button size="sm" variant="outline" disabled={undo.isPending} onClick={() => undo.mutate([proposal.id])}>{undo.isPending ? <Spinner /> : null} 되돌리기</Button></div>
       )}
     </div>
   );
 }
 
 /** The check made when the proposal was created: lines it left out and warnings about the rest. */
-function ProposalReport({ report }: { report: NonNullable<Proposal['report']> }) {
+function ProposalReport({ report }: { report: NonNullable<Proposal['report']> & { counts?: { dropped: number; warnings: number } } }) {
   const dropped = report.counts?.dropped ?? report.dropped.length;
   const warnings = report.counts?.warnings ?? report.warnings.length;
   return (

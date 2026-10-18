@@ -7,160 +7,410 @@ import { readProjectSettings } from './project-settings.ts';
 
 type Proposal = typeof s.proposals.$inferSelect;
 type Call = { tool: string; input: Record<string, unknown> };
-type Before = Record<string, unknown>;
-type Inverse = { before?: (db: Db, proposal: Proposal) => Before; after: (db: Db, proposal: Proposal, before: Before, result: unknown) => s.ProposalUndo };
-const none = (reason: string): s.ProposalUndo => ({ none: reason });
-const calls = (...value: Call[]): s.ProposalUndo => ({ calls: value });
-const sent = (input: Record<string, unknown>, fields: string[]) => Object.fromEntries(fields.filter((key) => input[key] !== undefined).map((key) => [key, input[key]]));
-const RESTORE_FIELDS: Record<string, string[]> = {
-  save_character: ['name', 'aliases', 'profile', 'speech', 'style', 'gender', 'ageBand', 'player', 'status'],
-  save_relationship: ['kind', 'description', 'mutual', 'changes', 'status'], save_speech_rule: ['fromName', 'toName', 'level', 'address', 'note', 'startKey', 'evidence', 'status'],
-  save_event: ['title', 'summary', 'cause', 'outcome', 'participants', 'evidence', 'status'], save_document: ['kind', 'title', 'body', 'alwaysInclude', 'status'],
+type Capture = Record<string, unknown>;
+type KnowledgeKind = 'characters' | 'relationships' | 'speechRules' | 'events' | 'documents';
+type KnowledgeRow = typeof s.characters.$inferSelect | typeof s.relationships.$inferSelect |
+  typeof s.speechRules.$inferSelect | typeof s.storyEvents.$inferSelect | typeof s.documents.$inferSelect;
+type Inverse = {
+  before?: (db: Db, proposal: Proposal) => Capture;
+  after: (db: Db, proposal: Proposal, before: Capture, result: unknown) => s.ProposalUndo;
 };
-function rowFor(db: Db, tableName: string, projectId: string, id: string) {
-  const tables: Record<string, any> = { save_character: s.characters, save_relationship: s.relationships, save_speech_rule: s.speechRules, save_event: s.storyEvents, save_document: s.documents };
-  const table = tables[tableName];
-  return table ? db.select().from(table).where(and(eq(table.id, id), eq(table.projectId, projectId))).get() : undefined;
+
+const NONE = '이 변경은 되돌릴 수 없습니다';
+const none = (reason: string): s.ProposalUndo => ({ none: reason });
+const call = (tool: string, input: Record<string, unknown>): Call => ({ tool, input });
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
+const objectList = (value: unknown): Record<string, unknown>[] =>
+  Array.isArray(value) ? value.filter(isRecord) : [];
+
+const TOOL_BY_KIND: Record<KnowledgeKind, string> = {
+  characters: 'save_character', relationships: 'save_relationship',
+  speechRules: 'save_speech_rule', events: 'save_event', documents: 'save_document',
+};
+const KIND_BY_TOOL: Record<string, KnowledgeKind> = {
+  save_character: 'characters', save_relationship: 'relationships',
+  save_speech_rule: 'speechRules', save_event: 'events', save_document: 'documents',
+};
+const RESTORE_FIELDS: Record<string, string[]> = {
+  save_character: ['name', 'role', 'aliases', 'profile', 'speech', 'style', 'gender', 'ageBand', 'player', 'status'],
+  save_relationship: ['kind', 'description', 'mutual', 'changes', 'status'],
+  save_speech_rule: ['fromName', 'toName', 'level', 'address', 'note', 'startKey', 'evidence', 'status'],
+  save_event: ['title', 'summary', 'cause', 'outcome', 'participants', 'evidence', 'status'],
+  save_document: ['kind', 'title', 'body', 'alwaysInclude', 'status'],
+};
+
+function sent(input: Record<string, unknown>, fields: string[]) {
+  return Object.fromEntries(fields.filter((key) => input[key] !== undefined).map((key) => [key, input[key]]));
 }
-function knowledgeBefore(db: Db, proposal: Proposal): Before {
-  const input = proposal.input;
+
+function rowFor(db: Db, kind: KnowledgeKind, projectId: string, id: string): KnowledgeRow | undefined {
+  switch (kind) {
+    case 'characters':
+      return db.select().from(s.characters).where(and(
+        eq(s.characters.id, id), eq(s.characters.projectId, projectId),
+      )).get();
+    case 'relationships':
+      return db.select().from(s.relationships).where(and(
+        eq(s.relationships.id, id), eq(s.relationships.projectId, projectId),
+      )).get();
+    case 'speechRules':
+      return db.select().from(s.speechRules).where(and(
+        eq(s.speechRules.id, id), eq(s.speechRules.projectId, projectId),
+      )).get();
+    case 'events':
+      return db.select().from(s.storyEvents).where(and(
+        eq(s.storyEvents.id, id), eq(s.storyEvents.projectId, projectId),
+      )).get();
+    case 'documents':
+      return db.select().from(s.documents).where(and(
+        eq(s.documents.id, id), eq(s.documents.projectId, projectId),
+      )).get();
+  }
+}
+
+function rowValues(row: KnowledgeRow): Record<string, unknown> {
+  return { ...row };
+}
+
+function knowledgeBefore(db: Db, proposal: Proposal): Capture {
   if (proposal.tool === 'save_knowledge') {
-    const items: Record<string, unknown[]> = {};
-    for (const [kind, values] of Object.entries(input)) if (Array.isArray(values)) items[kind] = values.map((item) => {
-      const request = item as Record<string, unknown>, tool = ({ characters: 'save_character', relationships: 'save_relationship', speechRules: 'save_speech_rule', events: 'save_event', documents: 'save_document' } as Record<string, string>)[kind];
-      return { id: request.id, row: request.id && tool ? rowFor(db, tool, proposal.projectId, String(request.id)) : null };
-    });
+    const items: Record<string, { request: Record<string, unknown>; row: Record<string, unknown> | null }[]> = {};
+    for (const kind of Object.keys(TOOL_BY_KIND) as KnowledgeKind[]) {
+      items[kind] = objectList(proposal.input[kind]).map((request) => {
+        const row = typeof request.id === 'string'
+          ? rowFor(db, kind, proposal.projectId, request.id)
+          : undefined;
+        return { request, row: row ? rowValues(row) : null };
+      });
+    }
     return { items };
   }
-  const row = input.id ? rowFor(db, proposal.tool, proposal.projectId, String(input.id)) : null;
-  if (proposal.tool === 'save_relationship' && row) {
-    const from = db.select({ name: s.characters.name }).from(s.characters).where(eq(s.characters.id, row.fromId)).get()?.name;
-    const to = db.select({ name: s.characters.name }).from(s.characters).where(eq(s.characters.id, row.toId)).get()?.name;
-    return { row: { ...row, from, to } };
+
+  const kind = KIND_BY_TOOL[proposal.tool];
+  const id = proposal.input.id;
+  const row = kind && typeof id === 'string' ? rowFor(db, kind, proposal.projectId, id) : undefined;
+  if (!row) return { row: null };
+  const values = rowValues(row);
+  if (kind === 'relationships') {
+    const fromId = values.fromId;
+    const toId = values.toId;
+    if (typeof fromId !== 'string' || typeof toId !== 'string') return { row: values };
+    values.from = db.select({ name: s.characters.name }).from(s.characters)
+      .where(eq(s.characters.id, fromId)).get()?.name;
+    values.to = db.select({ name: s.characters.name }).from(s.characters)
+      .where(eq(s.characters.id, toId)).get()?.name;
   }
-  return { row };
+  return { row: values };
 }
-function knowledgeAfter(db: Db, proposal: Proposal, before: Before, result: unknown): s.ProposalUndo {
-  const output = result as { ok?: boolean; id?: string; results?: { kind: string; index: number; id?: string; ok: boolean }[] };
-  if (!output?.ok) return none('변경이 적용되지 않았습니다');
+
+function restoreInput(tool: string, request: Record<string, unknown>, row: Record<string, unknown>) {
+  const fields = RESTORE_FIELDS[tool] ?? [];
+  const restore = Object.fromEntries(fields.filter((key) => request[key] !== undefined && key in row)
+    .map((key) => [key, row[key]]));
+  if (tool === 'save_relationship') {
+    if (request.from !== undefined && row.from !== undefined) restore.from = row.from;
+    if (request.to !== undefined && row.to !== undefined) restore.to = row.to;
+  }
+  return restore;
+}
+
+function knowledgeAfter(_db: Db, proposal: Proposal, before: Capture, result: unknown): s.ProposalUndo {
+  if (!isRecord(result) || result.ok !== true) return none('변경이 적용되지 않았습니다');
   if (proposal.tool !== 'save_knowledge') {
-    if (!proposal.input.id) return output.id ? calls({ tool: 'delete_items', input: { kind: ({ save_character: 'characters', save_relationship: 'relationships', save_speech_rule: 'speechRules', save_event: 'events', save_document: 'documents' } as Record<string, string>)[proposal.tool], ids: [output.id] } }) : none('만든 항목 id를 확인하지 못했습니다');
-    const row = (before.row ?? {}) as Record<string, unknown>;
-    const fields = sent(proposal.input, RESTORE_FIELDS[proposal.tool] ?? []);
-    if (proposal.tool === 'save_relationship') { if (proposal.input.from !== undefined) fields.from = row.from; if (proposal.input.to !== undefined) fields.to = row.to; }
-    return calls({ tool: proposal.tool, input: { id: proposal.input.id, ...Object.fromEntries(Object.keys(fields).filter((key) => key in row || key === 'from' || key === 'to').map((key) => [key, (row as any)[key]])) } });
+    const kind = KIND_BY_TOOL[proposal.tool];
+    if (typeof proposal.input.id !== 'string') {
+      return typeof result.id === 'string'
+        ? { calls: [call('delete_items', { kind, ids: [result.id] })] }
+        : none('만든 항목 id를 확인하지 못했습니다');
+    }
+    const row = isRecord(before.row) ? before.row : null;
+    if (!row) return none('수정 전 항목을 찾지 못했습니다');
+    return { calls: [call(proposal.tool, {
+      id: proposal.input.id, ...restoreInput(proposal.tool, proposal.input, row),
+    })] };
   }
-  const itemRows = before.items as Record<string, { id?: string; row: Record<string, unknown> | null }[]>;
-  const saves: Record<string, unknown[]> = {}, deletes: Call[] = [];
-  for (const [kind, entries] of Object.entries(itemRows)) for (const [index, entry] of entries.entries()) {
-    const saved = output.results?.find((r) => r.kind === kind && r.index === index);
-    if (!saved?.ok || !saved.id) continue;
-    if (entry.id && entry.row) {
-      const tool = ({ characters: 'save_character', relationships: 'save_relationship', speechRules: 'save_speech_rule', events: 'save_event', documents: 'save_document' } as Record<string, string>)[kind];
-      const original = (proposal.input[kind] as Record<string, unknown>[])[index];
-      const fields = sent(original, RESTORE_FIELDS[tool] ?? []);
-      saves[kind] ??= []; saves[kind].push({ id: entry.id, ...Object.fromEntries(Object.keys(fields).filter((key) => key in entry.row!).map((key) => [key, entry.row![key]])) });
-    } else deletes.push({ tool: 'delete_items', input: { kind, ids: [saved.id] } });
+
+  const items = isRecord(before.items) ? before.items : {};
+  const results = Array.isArray(result.results) ? result.results.filter(isRecord) : [];
+  const saves: Record<string, Record<string, unknown>[]> = {};
+  const deletes: Call[] = [];
+  for (const [kind, tool] of Object.entries(TOOL_BY_KIND) as [KnowledgeKind, string][]) {
+    const entries = Array.isArray(items[kind]) ? items[kind] as Capture[] : [];
+    entries.forEach((entry, index) => {
+      const saved = results.find((item) => item.kind === kind && item.index === index);
+      if (!saved || saved.ok !== true || typeof saved.id !== 'string') return;
+      const row = isRecord(entry.row) ? entry.row : null;
+      const request = isRecord(entry.request) ? entry.request : {};
+      if (typeof request.id === 'string' && row) {
+        saves[kind] ??= [];
+        saves[kind].push({ id: request.id, ...restoreInput(tool, request, row) });
+      } else {
+        deletes.push(call('delete_items', { kind, ids: [saved.id] }));
+      }
+    });
   }
-  return { calls: [...(Object.keys(saves).length ? [{ tool: 'save_knowledge', input: saves }] : []), ...deletes] };
+  const calls = Object.keys(saves).length ? [call('save_knowledge', saves), ...deletes] : deletes;
+  return { calls };
+}
+
+type PreviousLine = {
+  key: string; missing?: true; translation?: string; status?: string;
+  tags?: string[]; listener?: string | null; touched?: string[];
+};
+
+function readLineTags(db: Db, unitId: string) {
+  return db.select({ name: s.tags.name }).from(s.unitTags)
+    .innerJoin(s.tags, eq(s.unitTags.tagId, s.tags.id))
+    .where(eq(s.unitTags.unitId, unitId)).all().map((tag) => tag.name);
+}
+
+function captureLines(db: Db, proposal: Proposal): Capture {
+  const changes = objectList(proposal.input.changes);
+  const previous: PreviousLine[] = changes.map((change) => {
+    const key = String(change.key ?? '');
+    const unit = db.select().from(s.units)
+      .where(and(eq(s.units.projectId, proposal.projectId), eq(s.units.key, key))).get();
+    if (!unit) return { key, missing: true };
+    const status = db.select({ name: s.statuses.name }).from(s.statuses)
+      .where(eq(s.statuses.id, unit.statusId)).get()?.name;
+    return {
+      key, translation: unit.translation ?? '', status, tags: readLineTags(db, unit.id),
+      listener: unit.listener,
+      touched: Object.keys(change).filter((field) =>
+        ['translation', 'status', 'addTags', 'removeTags', 'listener'].includes(field)),
+    };
+  });
+  return { previous };
+}
+
+function inverseLineChange(
+  db: Db, proposal: Proposal, prior: PreviousLine,
+): Record<string, unknown> | null {
+  if (prior.missing) return null;
+  const current = db.select().from(s.units)
+    .where(and(eq(s.units.projectId, proposal.projectId), eq(s.units.key, prior.key))).get();
+  if (!current) return null;
+  const touched = new Set(prior.touched ?? []);
+  const beforeTags = prior.tags ?? [];
+  const nowTags = readLineTags(db, current.id);
+  const addTags = beforeTags.filter((tag) => !nowTags.includes(tag));
+  const removeTags = nowTags.filter((tag) => !beforeTags.includes(tag));
+  const undo: Record<string, unknown> = { key: prior.key, rev: current.updatedAt.getTime() };
+  if (touched.has('translation')) undo.translation = prior.translation ?? '';
+  if (touched.has('status') && prior.status) undo.status = prior.status;
+  if (touched.has('listener')) undo.listener = prior.listener ?? '';
+  if (touched.has('addTags') || touched.has('removeTags')) {
+    if (addTags.length) undo.addTags = addTags;
+    if (removeTags.length) undo.removeTags = removeTags;
+  }
+  return undo;
+}
+
+function undoLines(db: Db, proposal: Proposal, before: Capture, result: unknown): s.ProposalUndo {
+  const skipped = new Set(isRecord(result) && Array.isArray(result.skipped)
+    ? result.skipped.filter(isRecord).map((item) => item.key) : []);
+  const previous = Array.isArray(before.previous) ? before.previous as PreviousLine[] : [];
+  const changes = previous.flatMap((prior) => {
+    if (skipped.has(prior.key)) return [];
+    const undo = inverseLineChange(db, proposal, prior);
+    return undo ? [undo] : [];
+  });
+  return { calls: changes.length ? [call('propose_changes', { origin: 'human', changes })] : [] };
+}
+
+function beforeTerms(db: Db, proposal: Proposal): Capture {
+  const terms = objectList(proposal.input.terms).map((request) => {
+    const row = typeof request.id === 'string'
+      ? db.select().from(s.terms).where(and(eq(s.terms.id, request.id), eq(s.terms.projectId, proposal.projectId))).get()
+      : undefined;
+    return { request, row: row ? { ...row } : null };
+  });
+  return { terms };
+}
+
+function afterTerms(_db: Db, proposal: Proposal, before: Capture, result: unknown): s.ProposalUndo {
+  const output = isRecord(result) ? result : {};
+  const previous = Array.isArray(before.terms) ? before.terms.filter(isRecord) : [];
+  const requests = objectList(proposal.input.terms);
+  const restored = previous.flatMap((entry, index) => {
+    const request = requests[index];
+    if (!request || typeof request.id !== 'string' || !isRecord(entry.row)) return [];
+    const row = entry.row;
+    if (!isRecord(row)) return [];
+    const values = Object.fromEntries(Object.keys(request).filter((key) => key in row)
+      .map((key) => [key, row[key]]));
+    return [{ id: request.id, ...values }];
+  });
+  const created = Array.isArray(output.created) ? output.created.filter((id): id is string => typeof id === 'string') : [];
+  const calls: Call[] = [];
+  if (restored.length) calls.push(call('save_terms', { terms: restored }));
+  if (created.length) calls.push(call('delete_items', { kind: 'terms', ids: created }));
+  return { calls };
+}
+
+function beforeTags(db: Db, proposal: Proposal): Capture {
+  const tags = db.select({ id: s.tags.id, name: s.tags.name }).from(s.tags)
+    .where(eq(s.tags.projectId, proposal.projectId)).all();
+  const kind = proposal.input.kind;
+  const ids = Array.isArray(proposal.input.ids) ? proposal.input.ids.filter((id): id is string => typeof id === 'string') : [];
+  const links: Record<string, string[]> = {};
+  const add = Array.isArray(proposal.input.add) ? proposal.input.add : [];
+  const remove = Array.isArray(proposal.input.remove) ? proposal.input.remove : [];
+  for (const ref of [...add, ...remove]) {
+    if (typeof ref !== 'string') continue;
+    const tag = tags.find((row) => row.id === ref || row.name === ref || row.name === ref.replace(/^#/, ''));
+    if (!tag || typeof kind !== 'string') continue;
+    const tagKind = kind as typeof s.knowledgeTags.$inferSelect.kind;
+    links[tag.id] = db.select({ id: s.knowledgeTags.itemId }).from(s.knowledgeTags)
+      .where(and(eq(s.knowledgeTags.kind, tagKind),
+        eq(s.knowledgeTags.tagId, tag.id), inArray(s.knowledgeTags.itemId, ids))).all().map((row) => row.id);
+  }
+  return { tags, links, ids, kind };
+}
+
+function afterTags(_db: Db, proposal: Proposal, before: Capture): s.ProposalUndo {
+  const tags = Array.isArray(before.tags) ? before.tags as { id: string; name: string }[] : [];
+  const links = isRecord(before.links) ? before.links as Record<string, string[]> : {};
+  const ids = Array.isArray(before.ids) ? before.ids as string[] : [];
+  const inverse: Call[] = [];
+  for (const [field, adding] of [['add', false], ['remove', true]] as const) {
+    const refs = Array.isArray(proposal.input[field]) ? proposal.input[field] as unknown[] : [];
+    for (const ref of refs) {
+      if (typeof ref !== 'string') continue;
+      const tag = tags.find((row) => row.id === ref || row.name === ref || row.name === ref.replace(/^#/, ''));
+      if (!tag) continue;
+      const had = new Set(links[tag.id] ?? []);
+      const originalAdded = field === 'add';
+      const changed = ids.filter((id) => originalAdded ? !had.has(id) : had.has(id));
+      if (changed.length) inverse.push(call('tag_items', {
+        kind: before.kind, ids: changed, add: adding ? [tag.name] : [], remove: adding ? [] : [tag.name],
+      }));
+    }
+  }
+  return { calls: inverse };
 }
 
 const INVERSES: Record<string, Inverse> = {
-  propose_changes: {
-    before(db, proposal) {
-      const changes = (proposal.input.changes as Record<string, unknown>[]).map((change) => {
-        const unit = db.select().from(s.units).where(and(eq(s.units.projectId, proposal.projectId), eq(s.units.key, String(change.key)))).get();
-        if (!unit) return { key: change.key, missing: true };
-        const status = db.select({ name: s.statuses.name }).from(s.statuses).where(eq(s.statuses.id, unit.statusId)).get()?.name;
-        const tags = db.select({ name: s.tags.name }).from(s.unitTags).innerJoin(s.tags, eq(s.unitTags.tagId, s.tags.id)).where(eq(s.unitTags.unitId, unit.id)).all().map((tag) => tag.name);
-        return { key: change.key, translation: unit.translation ?? '', status, tags, listener: unit.listener, touched: Object.keys(change).filter((key) => ['translation', 'status', 'addTags', 'removeTags', 'listener'].includes(key)) };
-      });
-      return { changes };
-    },
-    after(db, proposal, before, result) {
-      const skipped = new Set(((result as any)?.skipped ?? []).map((entry: any) => entry.key));
-      const original = proposal.input.changes as Record<string, any>[];
-      const changes = (before.changes as any[]).flatMap((prior) => {
-        if (prior.missing || skipped.has(prior.key)) return [];
-        const current = db.select().from(s.units).where(and(eq(s.units.projectId, proposal.projectId), eq(s.units.key, prior.key))).get();
-        if (!current) return [];
-        const touched = new Set(prior.touched), source = original.find((item) => item.key === prior.key)!;
-        const nowTags = db.select({ name: s.tags.name }).from(s.unitTags).innerJoin(s.tags, eq(s.unitTags.tagId, s.tags.id)).where(eq(s.unitTags.unitId, current.id)).all().map((tag) => tag.name);
-        return [{ key: prior.key, rev: current.updatedAt.getTime(), ...(touched.has('translation') && { translation: prior.translation }), ...(touched.has('status') && { status: prior.status }), ...(touched.has('listener') && { listener: prior.listener ?? '' }), addTags: touched.has('addTags') || touched.has('removeTags') ? prior.tags.filter((tag: string) => !nowTags.includes(tag)) : [], removeTags: touched.has('addTags') || touched.has('removeTags') ? nowTags.filter((tag: string) => !prior.tags.includes(tag)) : [] }].map((change) => ({ ...change, addTags: source.removeTags ? [...new Set([...(change.addTags ?? []), ...source.removeTags.filter((tag: string) => prior.tags.includes(tag))])] : change.addTags, removeTags: source.addTags ? [...new Set([...(change.removeTags ?? []), ...source.addTags.filter((tag: string) => !prior.tags.includes(tag))])] : change.removeTags }));
-      });
-      return changes.length ? calls({ tool: 'propose_changes', input: { origin: 'human', changes } }) : { calls: [] };
-    },
-  },
-  ...Object.fromEntries(Object.keys(RESTORE_FIELDS).map((tool) => [tool, { before: knowledgeBefore, after: knowledgeAfter }])),
+  propose_changes: { before: captureLines, after: undoLines },
+  ...Object.fromEntries(Object.keys(RESTORE_FIELDS).map((tool) =>
+    [tool, { before: knowledgeBefore, after: knowledgeAfter }])) as Record<string, Inverse>,
   save_knowledge: { before: knowledgeBefore, after: knowledgeAfter },
-  save_terms: {
-    before: (db, proposal) => ({ rows: (proposal.input.terms as Record<string, unknown>[]).map((item) => ({ id: item.id, row: item.id ? db.select().from(s.terms).where(and(eq(s.terms.id, String(item.id)), eq(s.terms.projectId, proposal.projectId))).get() : null })) }),
-    after: (_db, proposal, before, result) => {
-      const output = result as { created?: string[]; skipped?: unknown[] };
-      const terms = (proposal.input.terms as Record<string, unknown>[]).flatMap((item, index) => item.id && (before.rows as any[])[index]?.row ? [{ id: item.id, ...sent((before.rows as any[])[index].row, Object.keys(item)) }] : []);
-      const deletes = output?.created?.length ? [{ tool: 'delete_items', input: { kind: 'terms', ids: output.created } }] : [];
-      return { calls: [...(terms.length ? [{ tool: 'save_terms', input: { terms } }] : []), ...deletes] };
-    },
+  save_terms: { before: beforeTerms, after: afterTerms },
+  save_group_summary: {
+    before: (db, proposal) => ({ description: db.select({ description: s.groups.description })
+      .from(s.groups).where(and(eq(s.groups.id, String(proposal.input.groupId)),
+        eq(s.groups.projectId, proposal.projectId))).get()?.description ?? '' }),
+    after: (_db, proposal, before) => typeof before.description === 'string' && before.description
+      ? { calls: [call('save_group_summary', { groupId: proposal.input.groupId, description: before.description })] }
+      : none('이전 장면 요약이 비어 있어 복원할 수 없습니다'),
   },
-  save_group_summary: { before: (db, p) => ({ description: db.select({ description: s.groups.description }).from(s.groups).where(and(eq(s.groups.id, String(p.input.groupId)), eq(s.groups.projectId, p.projectId))).get()?.description ?? '' }), after: (_db, p, before) => before.description ? calls({ tool: 'save_group_summary', input: { groupId: p.input.groupId, description: before.description } }) : none('이전 장면 요약이 비어 있어 복원할 수 없습니다') },
-  tag_items: {
-    before(db, p) {
-      const tags = db.select({ id: s.tags.id, name: s.tags.name }).from(s.tags).where(eq(s.tags.projectId, p.projectId)).all();
-      const links: Record<string, string[]> = {};
-      const tables: Record<string, any> = { terms: s.terms, characters: s.characters, relationships: s.relationships, speechRules: s.speechRules, events: s.storyEvents, documents: s.documents };
-      const table = tables[p.input.kind as string];
-      for (const ref of [...(p.input.add as string[]), ...(p.input.remove as string[])]) {
-        const tag = tags.find((row) => row.id === ref || row.name === ref || row.name === ref.replace(/^#/, ''));
-        if (tag && table) links[tag.id] = db.select({ id: s.knowledgeTags.itemId }).from(s.knowledgeTags).where(and(eq(s.knowledgeTags.kind, p.input.kind as any), eq(s.knowledgeTags.tagId, tag.id), inArray(s.knowledgeTags.itemId, p.input.ids as string[]))).all().map((row) => row.id);
-      }
-      return { tags, links, ids: p.input.ids, kind: p.input.kind };
-    },
-    after(_db, p, before) {
-      const tags = before.tags as { id: string; name: string }[];
-      const ids = p.input.ids as string[];
-      const links = before.links as Record<string, string[]>;
-      const inverse: Call[] = [];
-      for (const [field, adding] of [['add', false], ['remove', true]] as const) for (const ref of p.input[field] as string[]) {
-        const tag = tags.find((row) => row.id === ref || row.name === ref || row.name === ref.replace(/^#/, ''));
-        if (!tag) continue;
-        const had = new Set(links[tag.id] ?? []);
-        const changed = ids.filter((id) => had.has(id) !== adding);
-        if (changed.length) inverse.push({ tool: 'tag_items', input: { kind: before.kind, ids: changed, add: adding ? [tag.name] : [], remove: adding ? [] : [tag.name] } });
-      }
-      return { calls: inverse };
-    },
+  tag_items: { before: beforeTags, after: afterTags },
+  save_status: {
+    after: (_db, proposal, _before, result) => proposal.input.type === 'tag' && isRecord(result) && typeof result.id === 'string'
+      ? { calls: [call('delete_items', { kind: 'tags', ids: [result.id] })] }
+      : none('상태는 지울 수 없습니다'),
   },
-  save_status: { before: () => ({}), after: (_db, p, _b, result) => p.input.type === 'tag' && (result as any)?.id ? calls({ tool: 'delete_items', input: { kind: 'tags', ids: [(result as any).id] } }) : none('상태는 지울 수 없습니다') },
-  save_workflow: { before: (db, p) => ({ row: p.input.id ? db.select().from(s.workflows).where(and(eq(s.workflows.id, String(p.input.id)), eq(s.workflows.projectId, p.projectId))).get() : null }), after: (_db, p, before) => before.row ? calls({ tool: 'save_workflow', input: { id: p.input.id, name: (before.row as any).name, description: (before.row as any).description, definition: (before.row as any).definition } }) : none('새 워크플로는 되돌릴 수 없습니다') },
-  update_project_settings: { before: (db, p) => { const settings = readProjectSettings(db, p.projectId); return { values: sent(settings as unknown as Record<string, unknown>, Object.keys(p.input)) }; }, after: (_db, _p, before) => calls({ tool: 'update_project_settings', input: before.values as Record<string, unknown> }) },
+  save_workflow: {
+    before: (db, proposal) => ({ row: typeof proposal.input.id === 'string'
+      ? db.select().from(s.workflows).where(and(eq(s.workflows.id, proposal.input.id),
+        eq(s.workflows.projectId, proposal.projectId))).get() ?? null : null }),
+    after: (_db, proposal, before) => isRecord(before.row)
+      ? { calls: [call('save_workflow', {
+        id: proposal.input.id, name: before.row.name, description: before.row.description,
+        definition: before.row.definition,
+      })] }
+      : none('새 워크플로는 되돌릴 수 없습니다'),
+  },
+  update_project_settings: {
+    before: (db, proposal) => {
+      const settings = readProjectSettings(db, proposal.projectId);
+      return { values: settings ? sent(settings as Record<string, unknown>, Object.keys(proposal.input)) : {} };
+    },
+    after: (_db, _proposal, before) => isRecord(before.values)
+      ? { calls: [call('update_project_settings', before.values)] } : { calls: [] },
+  },
   propose_translation: { after: () => none('후보만 추가했고 현재 번역은 그대로입니다') },
   start_run: { after: () => none('실행 기록은 되돌릴 수 없습니다') },
   delete_items: { after: () => none('삭제된 항목은 되살릴 수 없습니다') },
 };
 
-export function undoBefore(db: Db, proposal: Proposal): Before { return INVERSES[proposal.tool]?.before?.(db, proposal) ?? {}; }
-export function undoOf(db: Db, proposal: Proposal, before: Before, result: unknown): s.ProposalUndo { return INVERSES[proposal.tool]?.after(db, proposal, before, result) ?? none('이 변경은 되돌릴 수 없습니다'); }
+/** Captures an inverse before the write, then builds it after; capture failures never block the write. */
+export function captureUndo(db: Db, proposal: Proposal): (result: unknown) => s.ProposalUndo {
+  const inverse = INVERSES[proposal.tool];
+  if (!inverse) return () => none(NONE);
+  let before: Capture = {};
+  try {
+    before = inverse.before?.(db, proposal) ?? {};
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return () => none(`되돌리기를 준비하지 못했습니다: ${reason}`);
+  }
+  return (result) => {
+    try {
+      return inverse.after(db, proposal, before, result);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      return none(`되돌리기를 준비하지 못했습니다: ${reason}`);
+    }
+  };
+}
 
 export async function undoProposals(db: Db, sessionId: string, ids: string[]) {
-  const rows = db.select().from(s.proposals).where(and(eq(s.proposals.sessionId, sessionId), inArray(s.proposals.id, ids))).all().sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  const rows = db.select().from(s.proposals)
+    .where(and(eq(s.proposals.sessionId, sessionId), inArray(s.proposals.id, ids))).all()
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   const results: { id: string; ok: boolean; error?: string; skipped?: string[] }[] = [];
   for (const original of rows) {
-    if (original.status !== 'accepted' || original.undoneAt) { results.push({ id: original.id, ok: false, error: original.undoneAt ? '이미 되돌렸습니다' : '수락된 제안이 아닙니다' }); continue; }
-    if (!original.undo || 'none' in original.undo) { results.push({ id: original.id, ok: false, error: original.undo && 'none' in original.undo ? original.undo.none : '되돌리기 정보를 찾을 수 없습니다' }); continue; }
+    if (original.status !== 'accepted' || original.undoneAt) {
+      const error = original.undoneAt ? '이미 되돌렸습니다' : '수락된 제안이 아닙니다';
+      results.push({ id: original.id, ok: false, error });
+      continue;
+    }
+    if (!original.undo || 'none' in original.undo) {
+      results.push({ id: original.id, ok: false,
+        error: original.undo && 'none' in original.undo ? original.undo.none : '되돌리기 정보를 찾을 수 없습니다' });
+      continue;
+    }
+    const skipped: string[] = [];
+    let failedTool: string | null = null;
+    let completedCalls = 0;
     try {
-      const skipped: string[] = [];
-      for (const call of original.undo.calls) {
-        const inverse = propose(db, { projectId: original.projectId, sessionId, source: original.source, tool: call.tool, input: call.input, review: `되돌리기 (proposal ${original.id})` });
+      for (const inverseCall of original.undo.calls) {
+        failedTool = inverseCall.tool;
+        const inverse = propose(db, {
+          projectId: original.projectId, sessionId, source: original.source,
+          tool: inverseCall.tool, input: inverseCall.input,
+          review: `되돌리기 (proposal ${original.id})`,
+        });
         const applied = await decideProposal(db, inverse.id, true, 'person');
         db.update(s.proposals).set({ reportedAt: new Date() }).where(eq(s.proposals.id, inverse.id)).run();
-        if (applied.status !== 'accepted') throw new Error(`되돌리기 제안 실패: ${call.tool}`);
-        skipped.push(...(((applied.result as any)?.skipped ?? []).map((item: any) => item.key ?? item.id)));
+        if (applied.status !== 'accepted') {
+          const value = isRecord(applied.result) && typeof applied.result.error === 'string'
+            ? applied.result.error : '도구 실행에 실패했습니다';
+          throw new Error(value);
+        }
+        if (isRecord(applied.result) && Array.isArray(applied.result.skipped)) {
+          for (const item of applied.result.skipped) {
+            if (isRecord(item) && typeof item.key === 'string') skipped.push(item.key);
+            else if (isRecord(item) && typeof item.id === 'string') skipped.push(item.id);
+          }
+        }
+        completedCalls++;
       }
-      db.update(s.proposals).set({ undoneAt: new Date(), reportedAt: null }).where(eq(s.proposals.id, original.id)).run();
+      db.update(s.proposals).set({ undoneAt: new Date(), reportedAt: null })
+        .where(eq(s.proposals.id, original.id)).run();
       events.changed(original.projectId, 'proposals');
       results.push({ id: original.id, ok: true, ...(skipped.length && { skipped }) });
-    } catch (error) { results.push({ id: original.id, ok: false, error: error instanceof Error ? error.message : String(error) }); }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      const partial = completedCalls ? '일부만 되돌렸습니다: ' : '';
+      results.push({ id: original.id, ok: false,
+        error: `${partial}${failedTool ?? '되돌리기'} 실패 — ${detail}` });
+    }
   }
-  for (const id of ids) if (!rows.some((row) => row.id === id)) results.push({ id, ok: false, error: '제안을 찾을 수 없습니다' });
+  for (const id of ids) {
+    if (!rows.some((row) => row.id === id)) results.push({ id, ok: false, error: '제안을 찾을 수 없습니다' });
+  }
   return results;
 }

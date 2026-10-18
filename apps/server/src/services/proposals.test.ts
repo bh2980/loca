@@ -15,7 +15,7 @@ describe('proposal list', () => {
     expect(listed.input.changes).toHaveLength(50);
     expect(listed.input.counts).toEqual({ lines: 60, translations: 60, statuses: 30, tagged: 0 });
     const small = proposal(many.slice(0, 3));
-    expect(listedProposal(small as never)).toBe(small);
+    expect(listedProposal(small as never)).toEqual({ ...small, undo: null });
   });
 });
 
