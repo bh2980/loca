@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { useMemo } from 'react';
 import { CircleAlert, CircleCheck } from 'lucide-react';
 import { checkFormat, listenerLabel, mentions, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatRules, type KnowledgeStatus, type SpeechLevel } from '@tw/shared';
-import { DetailPane, FieldRow, PaneSection, Badge, Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Toggle, AiMark, StatusIcon, TagChip } from '@loca/ui';
+import { InspectorSection, PropertyRow, PropertyGrid, InspectorHeader, Inspector, InspectorTabs, Badge, Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Toggle, AiMark, StatusIcon, TagChip } from '@loca/ui';
 import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
 import { AiButton } from '@/components/ai-button';
 import { AiContextPanel } from '@/components/ai-context';
@@ -88,9 +88,7 @@ export function LineDetail({
   const lastRun = line?.history[0];
 
   return (
-    <DetailPane
-      kicker={line ? <span className="font-mono">{line.key}</span> : '대사'}
-      title={
+    <Inspector header={<InspectorHeader kind={line ? <span className="font-mono">{line.key}</span> : '대사'} name={
         !line ? '…' : showScene ? (
           <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.group.id, line: line.id }} className="hover:underline">
             {line.group.title}
@@ -98,82 +96,24 @@ export function LineDetail({
         ) : (
           line.group.title
         )
-      }
-      onClose={onClose}
+      } onClose={onClose} />}
       loading={!line}
-      summary={
-        line && (
-          <>
-            <div>
-              <p className="mb-1 text-xs text-muted-foreground">원문{line.speaker ? ` · ${line.speaker}` : ''}</p>
-              <p className="text-sm whitespace-pre-wrap">{line.source}</p>
-            </div>
-            <div className="space-y-1">
-              {line.kind === 'dialogue' && (
-                <FieldRow label="청자">
-                  <ListenerPicker line={line} cast={(people.data?.characters ?? []).filter((c) => c.status === 'confirmed').map((c) => ({ name: c.name, player: c.player }))} onPick={(listener) => patch.mutate({ listener })} />
-                </FieldRow>
-              )}
-              <FieldRow label="상태">
-                <Select value={line.statusId} onValueChange={(statusId) => saveLine.mutate({ unitId, statusId }, { onError: (error) => toast.error(error.message) })}>
-                  <SelectTrigger size="sm" className="w-40" aria-label="상태">
-                    <SelectValue>{status && <><StatusIcon status={status} /> {status.name}</>}</SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {statuses.data?.statuses.map((item) => (
-                      <SelectItem key={item.id} value={item.id}>
-                        <StatusIcon status={item} /> {item.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {line.statusBy === 'ai' && (
-                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <AiMark by="ai" /> 실행이 정함
-                    <Button variant="ghost" size="inline" disabled={check.isPending} title="상태는 그대로 두고 사람이 확인한 것으로 표시합니다" onClick={() => check.mutate()}>
-                      확인함
-                    </Button>
-                  </span>
-                )}
-              </FieldRow>
-              {tags.length > 0 && (
-                <FieldRow label="태그">
-                  {tags.map((tag) => {
-                    const on = line.tagIds.includes(tag.id);
-                    return (
-                      <Toggle
-                        key={tag.id}
-                        size="sm"
-                        pressed={on}
-                        onPressedChange={(pressed) => patch.mutate({ tagIds: pressed ? [...line.tagIds, tag.id] : line.tagIds.filter((id) => id !== tag.id) })}
-                        className={cn('h-6 min-w-0 px-0 data-[state=on]:bg-transparent', !on && 'opacity-40 hover:opacity-80')}
-                        aria-label={`#${tag.name}`}
-                      >
-                        <TagChip tag={tag} />
-                      </Toggle>
-                    );
-                  })}
-                </FieldRow>
-              )}
-            </div>
-            {editor && <TranslationEditor projectId={line.projectId} unit={line} statuses={statuses.data?.statuses ?? []} />}
-          </>
-        )
+      tabs={
+        <InspectorTabs
+          value={tab}
+          onChange={onTab}
+          items={[
+            { value: 'checks', label: '검사' },
+            { value: 'candidates', label: `후보·이력${line ? ` ${line.candidates.length}` : ''}` },
+            { value: 'context', label: 'AI 문맥' },
+          ]}
+        />
       }
-      tabs={{
-        value: tab,
-        onChange: onTab,
-        items: [
-          { value: 'checks', label: '검사' },
-          { value: 'candidates', label: `후보·이력${line ? ` ${line.candidates.length}` : ''}` },
-          { value: 'context', label: 'AI 문맥' },
-        ],
-      }}
     >
       {line && tab === 'checks' && (
         <>
           {!!lastRun?.data.issues?.length && (
-            <PaneSection
+            <InspectorSection
               title={
                 <>
                   최근 실행의 지적 ·{' '}
@@ -190,14 +130,14 @@ export function LineDetail({
                   </li>
                 ))}
               </ul>
-            </PaneSection>
+            </InspectorSection>
           )}
           <LineChecks projectId={projectId} source={line.source} text={draft} terms={terms.data ?? []} rules={project.data?.formatRules} targetLanguage={project.data?.targetLanguage} speech={line.speech} />
         </>
       )}
       {line && tab === 'candidates' && (
         <>
-          <PaneSection
+          <InspectorSection
             title={`후보 ${line.candidates.length}개`}
             actions={
               <>
@@ -237,8 +177,8 @@ export function LineDetail({
               })}
               {!line.candidates.length && <li className="text-sm text-muted-foreground">아직 후보가 없습니다.</li>}
             </ul>
-          </PaneSection>
-          <PaneSection title="실행 이력">
+          </InspectorSection>
+          <InspectorSection title="실행 이력">
             {line.history.length ? (
               <ul className="space-y-1.5 text-sm">
                 {line.history.map((item) => (
@@ -255,11 +195,11 @@ export function LineDetail({
             ) : (
               <p className="text-sm text-muted-foreground">이 대사가 들어간 실행이 없습니다.</p>
             )}
-          </PaneSection>
+          </InspectorSection>
         </>
       )}
       {line && tab === 'context' && <AiContextPanel projectId={projectId} unitKey={line.key} aiNode={aiNode} onAiNode={onAiNode} />}
-    </DetailPane>
+    </Inspector>
   );
 }
 
@@ -276,7 +216,7 @@ function LineChecks({ projectId, source, text, terms, rules, targetLanguage, spe
   return (
     <>
       {speech && (
-        <PaneSection title={`말투 규칙 → ${listenerLabel(speech.listener)}${speech.others ? ' (그 밖의 사람 규칙)' : ''}${speech.routeDependent ? ' (루트에 따라 달라 대본 순서 기준)' : speech.byOrder ? ' (그래프 밖이라 대본 순서 기준)' : ''}`}>
+        <InspectorSection title={`말투 규칙 → ${listenerLabel(speech.listener)}${speech.others ? ' (그 밖의 사람 규칙)' : ''}${speech.routeDependent ? ' (루트에 따라 달라 대본 순서 기준)' : speech.byOrder ? ' (그래프 밖이라 대본 순서 기준)' : ''}`}>
           <div className="flex items-center gap-2 text-sm">
             <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', item: speech.ruleId }} className="min-w-0 truncate hover:underline">
               {speech.rule}
@@ -285,9 +225,9 @@ function LineChecks({ projectId, source, text, terms, rules, targetLanguage, spe
               {!guessed || speech.level === 'other' ? '' : guessed === speech.level ? '맞음 (어미 추정)' : `번역은 ${SPEECH_LEVEL_LABELS[guessed]} (어미 추정)`}
             </span>
           </div>
-        </PaneSection>
+        </InspectorSection>
       )}
-      <PaneSection title="형식 (편집 중인 번역 기준)">
+      <InspectorSection title="형식 (편집 중인 번역 기준)">
         {!text.trim() ? (
           <p className="text-sm text-muted-foreground">번역이 없습니다.</p>
         ) : formatIssues.length ? (
@@ -303,8 +243,8 @@ function LineChecks({ projectId, source, text, terms, rules, targetLanguage, spe
             <CircleCheck className="size-3.5" /> 자리표시자·태그·줄바꿈이 원문과 맞습니다.
           </p>
         )}
-      </PaneSection>
-      <PaneSection title={`용어 ${used.length}개`}>
+      </InspectorSection>
+      <InspectorSection title={`용어 ${used.length}개`}>
         {used.length ? (
           <ul className="space-y-1 text-sm">
             {used.map((term) => {
@@ -325,7 +265,7 @@ function LineChecks({ projectId, source, text, terms, rules, targetLanguage, spe
         ) : (
           <p className="text-sm text-muted-foreground">원문에 나오는 용어가 없습니다.</p>
         )}
-      </PaneSection>
+      </InspectorSection>
     </>
   );
 }

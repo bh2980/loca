@@ -4,7 +4,7 @@ import { ChevronRight, Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import { useQuery } from '@tanstack/react-query';
 import { Page } from '@/components/page';
-import { SplitPane, EmptyState, DataTable, type ColumnDef, DetailPane, JobStatusBadge, Button, Progress, Spinner, Collapsible, CollapsibleContent, CollapsibleTrigger, Skeleton, HelpTip } from '@loca/ui';
+import { InspectorHeader, Inspector, SplitPane, EmptyState, DataTable, type ColumnDef, JobStatusBadge, Button, Progress, Spinner, Collapsible, CollapsibleContent, CollapsibleTrigger, Skeleton, HelpTip } from '@loca/ui';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { AnalysisSteps } from '@/components/job-progress';
@@ -172,13 +172,7 @@ function JobCalls({ projectId, job, onClose }: { projectId: string; job: { id: s
   const analyses = useQuery({ ...q.analysisJobs(projectId), enabled: job.kind === 'analysis' });
   const analysis = analyses.data?.find((item) => item.id === job.id && item.status === 'running');
   return (
-    <DetailPane
-      kicker={JOB_KIND[job.kind]}
-      title={job.title}
-      subtitle={<span className="tabular-nums">AI 호출 · 입력/출력 {tokens(job.stats)}</span>}
-      loading={!calls.data}
-      bodyClassName="space-y-0 p-0"
-      actions={
+    <Inspector header={<InspectorHeader kind={JOB_KIND[job.kind]} name={job.title} status={<span className="tabular-nums">AI 호출 · 입력/출력 {tokens(job.stats)}</span>} actions={
         <>
           {job.kind === 'run' && (
             <Button asChild variant="ghost">
@@ -202,9 +196,7 @@ function JobCalls({ projectId, job, onClose }: { projectId: string; job: { id: s
             </Button>
           )}
         </>
-      }
-      onClose={onClose}
-    >
+      } onClose={onClose} />} loading={!calls.data} bodyClassName="space-y-0 p-0">
       {analysis && (
         <div className="border-b p-4">
           <AnalysisSteps job={analysis} />
@@ -239,7 +231,7 @@ function JobCalls({ projectId, job, onClose }: { projectId: string; job: { id: s
         </ul>
       )}
       {calls.data && calls.data.calls.length >= 200 && <p className="px-4 py-2 text-xs text-muted-foreground">최근 200건만 보여 줍니다.</p>}
-    </DetailPane>
+    </Inspector>
   );
 }
 

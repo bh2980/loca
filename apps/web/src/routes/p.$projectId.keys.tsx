@@ -3,7 +3,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { EmptyState, DataTable, type ColumnDef, DetailPane, SplitPane, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Badge, Button, Field, FieldDescription, FieldGroup, FieldLabel, Input, HelpTip } from '@loca/ui';
+import { InspectorHeader, Inspector, EmptyState, DataTable, type ColumnDef, SplitPane, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Badge, Button, Field, FieldDescription, FieldGroup, FieldLabel, Input, HelpTip } from '@loca/ui';
 import { HeaderActions, Page } from '@/components/page';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
@@ -91,11 +91,7 @@ function KeyPane({ row, onClose, onCreated }: { row?: KeyRow; onClose: () => voi
   const dirty = !row || name !== row.name || header !== (row.headerTemplate ?? '') || Boolean(secret.trim());
 
   return (
-    <DetailPane
-      kicker="API 키"
-      title={row ? row.name : 'API 키 추가'}
-      onClose={onClose}
-      footer={
+    <Inspector header={<InspectorHeader kind="API 키" name={row ? row.name : 'API 키 추가'} onClose={onClose} />} footer={
         <>
           <Button disabled={!name.trim() || !dirty || create.isPending || save.isPending} onClick={() => (row ? save.mutate() : create.mutate())}>
             {row ? '저장' : '추가'}
@@ -120,8 +116,7 @@ function KeyPane({ row, onClose, onCreated }: { row?: KeyRow; onClose: () => voi
             </AlertDialog>
           )}
         </>
-      }
-    >
+      }>
       <FieldGroup className="gap-4">
         <Field>
           <FieldLabel htmlFor="key-name">이름</FieldLabel>
@@ -140,6 +135,6 @@ function KeyPane({ row, onClose, onCreated }: { row?: KeyRow; onClose: () => voi
           <FieldDescription>OS 키체인에 저장되며 DB·워크플로·내보내기에 들어가지 않습니다.</FieldDescription>
         </Field>
       </FieldGroup>
-    </DetailPane>
+    </Inspector>
   );
 }

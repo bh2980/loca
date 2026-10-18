@@ -1,7 +1,7 @@
 /** Edits one workflow node's config; the node kinds live beside this file. */
 import { Trash2 } from 'lucide-react';
 import { AI_OUTPUTS, CONNECTION_KIND_INFO, FUNCTIONS, NODE_TYPES, nodeName, type FunctionName, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
-import { PaneHeader, Button, Checkbox, Input, ScrollArea, StatusIcon } from '@loca/ui';
+import { Inspector, InspectorHeader, DangerZone, Button, Checkbox, Input, ScrollArea, StatusIcon } from '@loca/ui';
 import { nodeIcon } from '../node-view';
 import { AiConfig } from '@/components/workflow/node-config/ai';
 import { ConditionEditor } from '@/components/workflow/node-config/condition';
@@ -24,8 +24,19 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
   const description = node.type === 'function' ? (FUNCTIONS[node.config.fn as FunctionName]?.description ?? '') : node.type === 'ai' ? AI_OUTPUTS[node.config.output].description : NODE_TYPES[node.type].description;
 
   return (
-    <div className="flex h-full min-w-0 flex-col">
-      <PaneHeader icon={<Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />} title={nodeName(node)} subtitle={description} onClose={onClose} />
+    <Inspector
+      className="min-w-0 border-l-0"
+      bodyClassName="space-y-0 p-0"
+      header={
+        <InspectorHeader
+          icon={<Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />}
+          kind={NODE_TYPES[node.type].label}
+          name={nodeName(node)}
+          status={description}
+          onClose={onClose}
+        />
+      }
+    >
       <ScrollArea className="min-h-0 min-w-0 flex-1 overflow-x-hidden">
         {/* A fieldset is as wide as its widest content by default (min-width: min-content): min-w-0 keeps it to the panel. */}
         <fieldset disabled={readOnly} className="min-w-0 space-y-5 p-4">
@@ -63,12 +74,12 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
         </fieldset>
       </ScrollArea>
       {!readOnly && node.type !== 'entry' && (
-        <div className="p-3">
+        <DangerZone title="노드 삭제">
           <Button variant="ghost" className="text-destructive" onClick={onDelete}>
             <Trash2 /> 노드 삭제
           </Button>
-        </div>
+        </DangerZone>
       )}
-    </div>
+    </Inspector>
   );
 }

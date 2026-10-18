@@ -280,7 +280,7 @@ UI 규칙(표·우측 패널·AlertDialog)은 `AGENTS.md`를 따른다. 공통 U
 | `FilterChips` | 걸려 있는 필터를 지울 수 있는 칩으로 보인다(표시·태그는 `MarkChip`/`TagChip`). 대사 목록도 같은 것을 쓴다 |
 | `BulkDecide` | 사람이 아직 정하지 않은 항목에 대한 일괄 동작: 확정/확인함(outline)과 버리기(항상 AlertDialog를 거친다). 자료와 용어집이 같이 쓴다 |
 | `EmptyState` | 빈 목록의 문구: 거른 결과면 '조건에 맞는 …가 없습니다', 아니면 '아직 …가 없습니다' + 힌트·동작. `DataTable`의 빈 상태와 모든 손으로 쓴 빈 화면이 이것을 쓴다 |
-| `DetailPane` | 우측 패널: 머리(종류 · 이름 · 사실 한 줄 · 닫기) → 탭(필요할 때만) → 본문 섹션 → 아래 고정 동작 |
+| `Inspector` | 우측 패널: `InspectorHeader`(종류·이름·상태·⋯·닫기) → `InspectorTabs`(필요 시) → `InspectorSection` + `PropertyGrid` → `DirtyBar` / `DangerZone` |
 | 버튼 | 화면(또는 패널)마다 주 버튼(검정) 하나. 보조는 outline, 표·툴바 안은 ghost. 크기는 `sm` 기본(아이콘 버튼은 툴팁 필수). AI 요청은 ✦ `AiButton` 하나의 모양. 파괴 동작은 AlertDialog 안에서만 |
 | 글자 | 제목 `text-base`, 본문 `text-sm`, 메타 `text-xs` 세 단계 (`@loca/ui` Typography scale). 임의 px 크기 금지 |
 | 색 | 상태 색(사용자 정의)과 의미 색(위험·경고·성공)만. 진행 막대는 상태 색을 쌓고 범례를 둔다 |

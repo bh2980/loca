@@ -1,6 +1,6 @@
 /** Right-hand pane for a built-in automatic tag: only its color is the project's to change. */
 import { AUTO_MARKS, type AutoMark } from '@tw/shared';
-import { DetailPane, PaneSection, Button, Field, FieldDescription, FieldGroup, FieldLabel, chipStyle } from '@loca/ui';
+import { InspectorSection, InspectorHeader, Inspector, Button, Field, FieldDescription, FieldGroup, FieldLabel, chipStyle } from '@loca/ui';
 import { scopeLabel } from '@/components/settings/status-types';
 import { Swatches } from '@/components/settings/swatches';
 import { useFormFrom } from '@/lib/use-form-from';
@@ -10,12 +10,7 @@ export function MarkPane({ mark, color, pending, onClose, onSave }: { mark: Auto
   const { draft, setDraft } = useFormFrom(color);
   const info = AUTO_MARKS[mark];
   return (
-    <DetailPane
-      kicker="기본 태그"
-      title={`#${info.name}`}
-      subtitle={`붙는 곳: ${scopeLabel(info.on)}`}
-      onClose={onClose}
-      footer={
+    <Inspector header={<InspectorHeader kind="기본 태그" name={`#${info.name}`} status={`붙는 곳: ${scopeLabel(info.on)}`} onClose={onClose} />} footer={
         <>
           <Button disabled={draft === color || pending} onClick={() => onSave(draft)}>
             저장
@@ -24,9 +19,8 @@ export function MarkPane({ mark, color, pending, onClose, onSave }: { mark: Auto
             기본 색으로
           </Button>
         </>
-      }
-    >
-      <PaneSection title="설정">
+      }>
+      <InspectorSection title="설정">
         <FieldGroup className="gap-4">
           <Field>
             <FieldLabel>뜻</FieldLabel>
@@ -45,7 +39,7 @@ export function MarkPane({ mark, color, pending, onClose, onSave }: { mark: Auto
             </span>
           </Field>
         </FieldGroup>
-      </PaneSection>
-    </DetailPane>
+      </InspectorSection>
+    </Inspector>
   );
 }

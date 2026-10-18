@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
-import { DetailPane, PaneSection, Button, DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@loca/ui';
+import { InspectorSection, InspectorHeader, Inspector, Button, DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@loca/ui';
 import type { PathNodeText, PathSlice } from '@/components/graph/path-graph';
 import type { OverviewNode } from '@/components/graph/path-window';
 
@@ -52,7 +52,7 @@ export function PathNodeExtras({ choices, loops, onPick, onAuto }: { choices?: F
   return (
     <>
       {choices && (
-        <PaneSection title="다른 선택">
+        <InspectorSection title="다른 선택">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" className="max-w-full justify-between" data-testid="fork-menu">
@@ -81,10 +81,10 @@ export function PathNodeExtras({ choices, loops, onPick, onAuto }: { choices?: F
             </DropdownMenuContent>
           </DropdownMenu>
           <p className="mt-2 text-xs text-muted-foreground">다른 갈래를 고르면 이 길이 그 갈래로 바뀝니다.</p>
-        </PaneSection>
+        </InspectorSection>
       )}
       {loops.length > 0 && (
-        <PaneSection title="되돌아가는 곳">
+        <InspectorSection title="되돌아가는 곳">
           <ul className="space-y-1 text-sm" data-testid="loop-list">
             {loops.map((to, index) => (
               <li key={index} className="truncate" title={`‹${to}›로 되돌아감`}>
@@ -92,7 +92,7 @@ export function PathNodeExtras({ choices, loops, onPick, onAuto }: { choices?: F
               </li>
             ))}
           </ul>
-        </PaneSection>
+        </InspectorSection>
       )}
     </>
   );
@@ -104,8 +104,8 @@ export function PathNodeExtras({ choices, loops, onPick, onAuto }: { choices?: F
  */
 export function PathNodePane({ title, subtitle, extras, onClose }: { title: string; subtitle?: string; extras: ReactNode; onClose: () => void }) {
   return (
-    <DetailPane kicker="길 조각" title={title} subtitle={subtitle} onClose={onClose}>
+    <Inspector header={<InspectorHeader kind="길 조각" name={title} status={subtitle} onClose={onClose} />}>
       {extras ?? <p className="text-sm text-muted-foreground">이 노드의 줄은 가운데 목록에서 번역합니다. 다른 선택도 되돌아가는 곳도 없는 노드입니다.</p>}
-    </DetailPane>
+    </Inspector>
   );
 }

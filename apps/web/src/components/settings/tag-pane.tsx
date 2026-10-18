@@ -1,7 +1,7 @@
 /** Right-hand pane to add, edit or delete a project tag. */
 import { Trash2 } from 'lucide-react';
 import { DEFAULT_TAG_COLOR, TAG_SCOPES, TAG_SCOPE_LABELS } from '@tw/shared';
-import { DetailPane, PaneSection, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Field, FieldDescription, FieldGroup, FieldLabel, Checkbox, Input, Label } from '@loca/ui';
+import { InspectorSection, InspectorHeader, Inspector, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Field, FieldDescription, FieldGroup, FieldLabel, Checkbox, Input, Label } from '@loca/ui';
 import { scopeLabel, type TagForm, type TagRowData } from '@/components/settings/status-types';
 import { Swatches } from '@/components/settings/swatches';
 import { changedFields, useFormFrom } from '@/lib/use-form-from';
@@ -15,12 +15,7 @@ export function TagPane({ tag, pending, onClose, onSave, onDelete }: { tag?: Tag
   const { draft: form, setDraft: setForm, dirty: changed, conflicts, keepMine, takeSaved } = useFormFrom(saved, tag && `tag.${tag.id}`);
   const dirty = !tag || changed;
   return (
-    <DetailPane
-      kicker="태그"
-      title={tag ? `#${tag.name}` : '태그 추가'}
-      subtitle={tag ? `대사 ${tag.units.toLocaleString()}개` : undefined}
-      onClose={onClose}
-      footer={
+    <Inspector header={<InspectorHeader kind="태그" name={tag ? `#${tag.name}` : '태그 추가'} status={tag ? `대사 ${tag.units.toLocaleString()}개` : undefined} onClose={onClose} />} footer={
         <>
           <Button disabled={!form.name.trim() || !dirty || pending} onClick={() => onSave(form, changedFields(form, saved))}>
             {tag ? '저장' : '추가'}
@@ -45,10 +40,9 @@ export function TagPane({ tag, pending, onClose, onSave, onDelete }: { tag?: Tag
             </AlertDialog>
           )}
         </>
-      }
-    >
+      }>
       {conflicts.length > 0 && <ChangedElsewhere fields={conflicts.map((field) => TAG_FIELD_LABEL[field as keyof TagForm])} onTakeSaved={takeSaved} onKeepMine={keepMine} />}
-      <PaneSection title="설정">
+      <InspectorSection title="설정">
         <FieldGroup className="gap-4">
           <Field>
             <FieldLabel htmlFor="tag-name">이름</FieldLabel>
@@ -81,7 +75,7 @@ export function TagPane({ tag, pending, onClose, onSave, onDelete }: { tag?: Tag
             <FieldDescription>{tag?.role ? '앱이 쓰는 태그라 붙는 곳을 바꿀 수 없습니다.' : '이 태그를 붙일 수 있고 메뉴·필터에 나오는 곳입니다. 이미 붙은 곳은 태그를 먼저 떼야 뺄 수 있습니다.'}</FieldDescription>
           </Field>
         </FieldGroup>
-      </PaneSection>
-    </DetailPane>
+      </InspectorSection>
+    </Inspector>
   );
 }

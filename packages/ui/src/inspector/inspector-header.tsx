@@ -5,6 +5,7 @@ import { cn } from "../lib/utils"
 
 export interface InspectorHeaderProps {
   kind?: ReactNode
+  icon?: ReactNode
   name: ReactNode
   status?: ReactNode
   actions?: ReactNode
@@ -15,6 +16,7 @@ export interface InspectorHeaderProps {
 /** Header for an inspected item. Put secondary and destructive actions in the actions menu. */
 export function InspectorHeader({
   kind,
+  icon,
   name,
   status,
   actions,
@@ -23,6 +25,7 @@ export function InspectorHeader({
 }: InspectorHeaderProps) {
   return (
     <div className={cn("flex shrink-0 items-start gap-2 border-b border-border bg-background px-3.5 py-2.5", className)}>
+      {icon && <div className="mt-0.5 shrink-0 text-muted-foreground">{icon}</div>}
       <div className="min-w-0 flex-1">
         {kind && <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{kind}</div>}
         <div className="flex min-w-0 items-center gap-2">
