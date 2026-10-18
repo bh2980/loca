@@ -150,8 +150,9 @@ interface Props {
   /** More selected nodes (box or modifier-click selection), drawn like the selected one. */
   selectedIds?: Set<string>;
   /**
-   * Turns left-drag into box selection (pan moves to the middle button or Space+drag). Called with
-   * the nodes in the box, or the one node of a Shift/Ctrl/⌘-click; `additive` asks to add/toggle them.
+   * Turns on box selection: Shift+drag draws the box (left-drag still pans). Called with the nodes
+   * in the box, or the one node of a Shift/Ctrl/⌘-click; `additive` asks to add/toggle them
+   * (a box drawn with ⌘/Ctrl held as well adds to the selection).
    */
   onSelectMany?: (ids: string[], additive: boolean) => void;
   /** Nodes to emphasise (e.g. the scene being inspected); others are dimmed when non-empty. */
@@ -214,8 +215,6 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
   const props = useRef({ selectedId, selectedIds, onSelectMany, highlight, endpointMarkers, emphasised, onViewportChange, onSelect, onOpen, hubs, anchorId: anchor?.id, onContextMenu });
   props.current = { selectedId, selectedIds, onSelectMany, highlight, endpointMarkers, emphasised, onViewportChange, onSelect, onOpen, hubs, anchorId: anchor?.id, onContextMenu };
   const boxSelect = Boolean(onSelectMany);
-  /** Space held: left-drag pans even where it would draw a selection box. */
-  const spaceDown = useRef(false);
   /** The selection box being dragged, in canvas pixels; `moved` once it passed the click distance. */
   const drag = useRef<{ x0: number; y0: number; x1: number; y1: number; moved: boolean; additive: boolean } | null>(null);
   const [box, setBox] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
@@ -581,13 +580,13 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
     const zoom = d3zoom<HTMLCanvasElement, unknown>()
       .scaleExtent([MIN_K, MAX_K])
       .clickDistance(4)
-      // Wheel and touch always zoom/pan. The middle button always pans; the left button pans unless
-      // left-drag selects (then only with Space held). Ctrl+drag is left to the browser, as in d3's default.
+      // Wheel and touch always zoom/pan; the left and middle buttons pan. Shift+left-drag draws a
+      // selection box instead (where box selection is on). Ctrl+drag is left to the browser, as in d3's default.
       .filter((event: MouseEvent | WheelEvent | TouchEvent) => {
         if (event.type === 'wheel' || event.type.startsWith('touch')) return true;
         const mouse = event as MouseEvent;
         if (mouse.button === 1) return true;
-        return mouse.button === 0 && !mouse.ctrlKey && (!props.current.onSelectMany || spaceDown.current);
+        return mouse.button === 0 && !mouse.ctrlKey && !(props.current.onSelectMany && mouse.shiftKey);
       })
       .on('zoom', (event: { transform: ZoomTransform }) => {
         transform.current = event.transform;
@@ -654,27 +653,6 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
   useEffect(() => {
     schedule();
   }, [selectedId, selectedIds, highlight, endpointMarkers, emphasised, info, hubs]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (!boxSelect) return;
-    const typing = (target: EventTarget | null) => target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
-    const down = (event: KeyboardEvent) => {
-      if (event.code !== 'Space' || typing(event.target)) return;
-      spaceDown.current = true;
-      if (canvas.current) canvas.current.style.cursor = 'grab';
-    };
-    const up = (event: KeyboardEvent) => {
-      if (event.code !== 'Space') return;
-      spaceDown.current = false;
-      if (canvas.current) canvas.current.style.cursor = '';
-    };
-    window.addEventListener('keydown', down);
-    window.addEventListener('keyup', up);
-    return () => {
-      window.removeEventListener('keydown', down);
-      window.removeEventListener('keyup', up);
-    };
-  }, [boxSelect]);
 
   const finishBox = () => {
     const d = drag.current;
@@ -759,17 +737,17 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
       <canvas
         ref={canvas}
         style={{ width, height }}
-        className={`block touch-none outline-none focus-visible:ring-2 focus-visible:ring-ring ${boxSelect ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'}`}
+        className="block cursor-grab touch-none outline-none active:cursor-grabbing focus-visible:ring-2 focus-visible:ring-ring"
         tabIndex={0}
         onMouseDown={(event) => {
           // The middle button pans; without this the browser starts its own autoscroll.
           if (event.button === 1) event.preventDefault();
         }}
         onPointerDown={(event) => {
-          if (!boxSelect || event.button !== 0 || spaceDown.current || event.ctrlKey) return;
+          if (!boxSelect || event.button !== 0 || !event.shiftKey) return;
           const rect = event.currentTarget.getBoundingClientRect();
           const x = event.clientX - rect.left, y = event.clientY - rect.top;
-          drag.current = { x0: x, y0: y, x1: x, y1: y, moved: false, additive: event.shiftKey || event.metaKey };
+          drag.current = { x0: x, y0: y, x1: x, y1: y, moved: false, additive: event.metaKey || event.ctrlKey };
           event.currentTarget.setPointerCapture(event.pointerId);
         }}
         onPointerMove={(event) => {

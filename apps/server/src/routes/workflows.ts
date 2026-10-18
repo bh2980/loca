@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { isAnalysisWorkflow, CONNECTION_KIND_INFO, draftTranslationTemplate, lineMarksSchema, MODEL_TEMPLATES, scriptParams, translationTemplate, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels } from '@tw/shared';
+import { isAnalysisWorkflow, CONNECTION_KIND_INFO, lineMarksSchema, scriptParams, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -11,7 +11,7 @@ import { lineView, validateScriptData } from '../engine/functions/index.ts';
 import { runScript } from '../engine/functions/sandbox.ts';
 import { ANALYSIS_BUSY, createRunInSteps, FILLING, refuseSecondAnalysis, selectRunUnits } from '../engine/run-create.ts';
 import { listBatches, preflight } from '../services/preflight.ts';
-import { choiceLabel, defaultModelChoice, snapshotWorkflowModels } from '../services/routes.ts';
+import { choiceLabel, snapshotWorkflowModels } from '../services/routes.ts';
 import { continuePreflight, switchedRun } from '../services/run-continue.ts';
 import { deleteWorkflow, saveWorkflow, WorkflowMutationError } from '../services/workflow-mutations.ts';
 
@@ -45,33 +45,13 @@ function blankWorkflow(db: Db, projectId: string): WorkflowDefinition {
   });
 }
 
-/** Templates that only need a model (defaults.ts MODEL_TEMPLATES); the others need the project's statuses. */
-const MODEL_TEMPLATE_IDS = Object.keys(MODEL_TEMPLATES) as [keyof typeof MODEL_TEMPLATES, ...(keyof typeof MODEL_TEMPLATES)[]];
+const NEW_WORKFLOW_NAME = '새 워크플로';
 
-function draftWorkflow(db: Db, projectId: string): WorkflowDefinition {
-  const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).orderBy(asc(s.statuses.sort)).all();
-  const initial = statuses.find((status) => status.kind === 'initial') ?? statuses[0];
-  const final = statuses.find((status) => status.kind === 'final') ?? statuses.at(-1)!;
-  const middle = statuses.filter((status) => status.kind === 'normal');
-  return draftTranslationTemplate({
-    model: defaultModelChoice(db),
-    untranslated: initial.id,
-    draft: middle[0]?.id ?? final.id,
-  });
-}
-
-function templateWorkflow(db: Db, projectId: string): WorkflowDefinition {
-  const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).orderBy(asc(s.statuses.sort)).all();
-  const initial = statuses.find((status) => status.kind === 'initial') ?? statuses[0];
-  const final = statuses.find((status) => status.kind === 'final') ?? statuses.at(-1)!;
-  const middle = statuses.filter((status) => status.kind === 'normal');
-  return translationTemplate({
-    model: defaultModelChoice(db),
-    untranslated: initial.id,
-    draft: middle[0]?.id ?? initial.id,
-    needsReview: statuses.find((status) => status.inReview)?.id ?? middle[1]?.id ?? middle[0]?.id ?? initial.id,
-    confirmed: final.id,
-  });
+/** "새 워크플로", then "새 워크플로 2", "3"… for the first name the project has not used. */
+function freeWorkflowName(db: Db, projectId: string): string {
+  const taken = new Set(db.select({ name: s.workflows.name }).from(s.workflows).where(eq(s.workflows.projectId, projectId)).all().map((row) => row.name));
+  if (!taken.has(NEW_WORKFLOW_NAME)) return NEW_WORKFLOW_NAME;
+  for (let n = 2; ; n++) if (!taken.has(`${NEW_WORKFLOW_NAME} ${n}`)) return `${NEW_WORKFLOW_NAME} ${n}`;
 }
 
 export const workflowRoutes = new Hono<Env>()
@@ -90,13 +70,12 @@ export const workflowRoutes = new Hono<Env>()
   })
   .post(
     '/projects/:projectId/workflows',
-    validate('json', z.object({ name: z.string().trim().min(1), from: z.enum(['template', 'draft', 'blank', ...MODEL_TEMPLATE_IDS]).default('draft') })),
+    validate('json', z.object({ name: z.string().trim().min(1).optional() })),
     (c) => {
       const { db } = c.var.deps;
       const projectId = c.req.param('projectId');
-      const { name, from } = c.req.valid('json');
-      const definition =
-        from === 'draft' ? draftWorkflow(db, projectId) : from === 'template' ? templateWorkflow(db, projectId) : from === 'blank' ? blankWorkflow(db, projectId) : MODEL_TEMPLATES[from]({ model: defaultModelChoice(db) });
+      const name = c.req.valid('json').name ?? freeWorkflowName(db, projectId);
+      const definition = blankWorkflow(db, projectId);
       const row = saveWorkflow(db, projectId, { name, description: '', definition });
       return c.json(row, 201);
     },

@@ -758,10 +758,11 @@ function WorkflowEditor() {
             }}
             onInit={(instance) => { const held = readViewport(workflowId, direction); if (held) void instance.setViewport(held); else focusWorkflowNode(instance, search.node ?? definitions[0]?.id, direction, canvasRef.current); }}
             onMoveEnd={(_event, viewport) => sessionStorage.setItem(viewportKey(workflowId, direction), JSON.stringify(viewport))}
-            selectionOnDrag
+            // Same as the dialogue graph: left or middle drag pans, Shift+drag draws a selection box, ⌘/Ctrl+click adds a node.
+            panOnDrag={[0, 1]}
+            selectionKeyCode="Shift"
+            multiSelectionKeyCode={['Meta', 'Control']}
             selectionMode={SelectionMode.Partial}
-            panOnDrag={[1]}
-            panActivationKeyCode="Space"
             minZoom={0.05}
             deleteKeyCode={['Backspace', 'Delete']}
             proOptions={{ hideAttribution: true }}

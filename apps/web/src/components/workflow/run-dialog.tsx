@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { initialRunScope, type RunScopeMode } from '@/lib/run-scope';
 import { keepPreviousData, useMutation, useQuery, type UseQueryResult } from '@tanstack/react-query';
 import type { InferResponseType } from 'hono/client';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { Play } from 'lucide-react';
-import { SearchInput, Button, Checkbox, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Skeleton, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner, StatusIcon } from '@loca/ui';
+import { SearchInput, Button, Checkbox, Label, RadioGroup, RadioGroupItem, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Skeleton, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner, StatusIcon } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { LINE_MARK_IDS, type LineMark, UNREVIEWED_MARKS } from '@tw/shared';
 import { MarkChip } from '@/components/status';
@@ -55,18 +55,14 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   // Dialogue is nearly the whole project, so like the whole project it is never preselected.
   const preselectKind = viewKind && viewKind !== 'scene' ? viewKind : undefined;
 
-  const [scopeTarget, setScopeTarget] = useState<'units' | 'here' | 'project'>(() =>
-    unitIds?.length ? 'units' : groupIds?.length ? 'here' : 'project',
-  );
-  const [pickedKinds, setPickedKinds] = useState<Set<GroupKind>>(() =>
-    preselectKind ? new Set([preselectKind]) : new Set(),
+  // Which groups the run starts from: the lines or groups it was opened with, the whole project, or groups picked here.
+  const [scopeTarget, setScopeTarget] = useState<ScopeTarget>(() =>
+    unitIds?.length ? 'units' : groupIds?.length ? 'here' : preselectKind ? 'pick' : 'project',
   );
   const [pickedScenes, setPickedScenes] = useState<Set<string>>(new Set());
-  const [showScenePicker, setShowScenePicker] = useState(false);
   const [sceneFilter, setSceneFilter] = useState('');
   const [pickedTags, setPickedTags] = useState<Set<string>>(new Set());
   const [pickedMarks, setPickedMarks] = useState<Set<string>>(new Set());
-  const [showTagPicker, setShowTagPicker] = useState(false);
   const [pickedStatuses, setPickedStatuses] = useState<Set<string>>(new Set());
 
   const statuses = useQuery({ ...q.statuses(projectId), enabled: open });
@@ -95,33 +91,19 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
     }
   }, [open, workflowId, isNonTranslation, initialStatus?.id]);
 
-  // Each kind the project has, with its groups and lines (only offered when there is more than one).
-  const kinds = KIND_ORDER.map((kind) => {
-    const list = (groups.data ?? []).filter((group) => group.kind === kind);
-    return { kind, ids: list.map((group) => group.id), lines: list.reduce((sum, group) => sum + group.total, 0) };
-  }).filter((entry) => entry.ids.length);
-
-  const groupKindMap = useMemo(() => new Map((groups.data ?? []).map((g) => [g.id, g.kind])), [groups.data]);
+  // Opened from the UI strings or documents view: every group of that kind starts picked.
+  const preselected = useRef(false);
+  useEffect(() => {
+    if (preselected.current || !preselectKind || !groups.data) return;
+    preselected.current = true;
+    setPickedScenes(new Set(groups.data.filter((group) => group.kind === preselectKind).map((group) => group.id)));
+  }, [groups.data, preselectKind]);
 
   let computedUnitIds: string[] | undefined;
   let computedGroupIds: string[] | undefined;
-
-  if (scopeTarget === 'units') {
-    computedUnitIds = unitIds;
-  } else if (scopeTarget === 'here') {
-    computedGroupIds = groupIds;
-  } else {
-    // Project scope
-    if (pickedScenes.size > 0) {
-      const intersected = [...pickedScenes].filter((id) => pickedKinds.size === 0 || pickedKinds.has(groupKindMap.get(id)!));
-      computedGroupIds = intersected.length > 0 ? intersected : ['__none__'];
-    } else if (pickedKinds.size > 0 && pickedKinds.size < kinds.length) {
-      const kindGroupIds = (groups.data ?? []).filter((g) => pickedKinds.has(g.kind)).map((g) => g.id);
-      computedGroupIds = kindGroupIds.length > 0 ? kindGroupIds : ['__none__'];
-    } else {
-      computedGroupIds = undefined;
-    }
-  }
+  if (scopeTarget === 'units') computedUnitIds = unitIds;
+  else if (scopeTarget === 'here') computedGroupIds = groupIds;
+  else if (scopeTarget === 'pick') computedGroupIds = pickedScenes.size ? [...pickedScenes] : ['__none__'];
 
   const statusScope =
     pickedStatuses.size > 0
@@ -139,6 +121,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   const ready =
     (scopeTarget === 'units' && Boolean(unitIds?.length)) ||
     (scopeTarget === 'here' && Boolean(groupIds?.length)) ||
+    (scopeTarget === 'pick' && pickedScenes.size > 0) ||
     scopeTarget === 'project';
   // Only finished picks go out; one still missing its model stays in the picker meanwhile.
   const chosenModels = Object.fromEntries(Object.entries(runModels).filter(([, value]) => value.connectionId && value.model));
@@ -174,18 +157,8 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
       void navigate({ to: '/p/$projectId/runs/$runId', params: { projectId, runId: run.runId } });
     },
   });
-  const visibleGroups = useMemo(
-    () =>
-      (groups.data ?? []).filter((group) => {
-        if (pickedKinds.size > 0 && !pickedKinds.has(group.kind)) return false;
-        if (sceneFilter && !`${group.title} ${group.key}`.toLowerCase().includes(sceneFilter.toLowerCase())) return false;
-        return true;
-      }),
-    [groups.data, pickedKinds, sceneFilter],
-  );
   const total = data?.lines.total;
   const projectLines = (groups.data ?? []).reduce((sum, group) => sum + group.total, 0);
-  const tagMarkCount = pickedTags.size + pickedMarks.size;
 
   return (
     <Dialog
@@ -194,12 +167,9 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
         setOpen(next);
         if (next) {
           setOpened({ unitIds: givenUnitIds, groupIds: givenGroupIds });
-          setScopeTarget(givenUnitIds?.length ? 'units' : givenGroupIds?.length ? 'here' : 'project');
-          setPickedKinds(preselectKind ? new Set([preselectKind]) : new Set());
-          setPickedScenes(new Set());
-          setShowScenePicker(false);
+          setScopeTarget(givenUnitIds?.length ? 'units' : givenGroupIds?.length ? 'here' : preselectKind ? 'pick' : 'project');
+          setPickedScenes(new Set(preselectKind ? (groups.data ?? []).filter((group) => group.kind === preselectKind).map((group) => group.id) : []));
           setSceneFilter('');
-          setShowTagPicker(false);
           setPickedTags(new Set());
           setPickedMarks(new Set());
           setRunModels({});
@@ -244,134 +214,65 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
           )}
 
           <section className="space-y-4">
-            <div className="space-y-2">
-              <h3 className="text-xs text-muted-foreground">대상 범위</h3>
-              <div className="flex flex-wrap gap-2">
+            <fieldset className="space-y-2">
+              <legend className="mb-2 text-xs text-muted-foreground">대상</legend>
+              <RadioGroup value={scopeTarget} onValueChange={(value) => setScopeTarget(value as ScopeTarget)} className="gap-2">
                 {unitIds?.length ? (
-                  <Button
-                    variant={scopeTarget === 'units' ? 'secondary' : 'outline'}
-                    className={cn(scopeTarget === 'units' && 'ring-1 ring-ring ring-inset')}
-                    onClick={() => setScopeTarget('units')}
-                  >
+                  <Label className="text-sm font-normal">
+                    <RadioGroupItem value="units" />
                     {unitsLabel ?? '고른 대사'} {unitIds.length.toLocaleString()}줄
-                  </Button>
+                  </Label>
                 ) : null}
                 {groupIds?.length ? (
-                  <Button
-                    variant={scopeTarget === 'here' ? 'secondary' : 'outline'}
-                    className={cn(scopeTarget === 'here' && 'ring-1 ring-ring ring-inset')}
-                    onClick={() => setScopeTarget('here')}
-                  >
-                    {here?.length === 1 ? `이 장면 · ${here[0].title}` : `이 장면들 ${groupIds.length}개`}
-                  </Button>
+                  <Label className="text-sm font-normal">
+                    <RadioGroupItem value="here" />
+                    {here?.length === 1 ? `이 장면 (${here[0].title})` : `장면 ${groupIds.length}개`}
+                  </Label>
                 ) : null}
-                <Button
-                  variant={scopeTarget === 'project' && pickedKinds.size === 0 && pickedScenes.size === 0 ? 'secondary' : 'outline'}
-                  className={cn(scopeTarget === 'project' && pickedKinds.size === 0 && pickedScenes.size === 0 && 'ring-1 ring-ring ring-inset')}
-                  onClick={() => {
-                    setScopeTarget('project');
-                    setPickedKinds(new Set());
-                    setPickedScenes(new Set());
-                  }}
-                >
-                  {kinds.length > 1 ? '전체 종류' : '전체'}{projectLines ? ` ${projectLines.toLocaleString()}줄` : ''}
-                </Button>
-                {kinds.length > 1 &&
-                  kinds.map((entry) => {
-                    const active = scopeTarget === 'project' && pickedKinds.has(entry.kind);
-                    return (
-                      <Button
-                        key={entry.kind}
-                        variant={active ? 'secondary' : 'outline'}
-                        className={cn(active && 'ring-1 ring-ring ring-inset')}
-                        onClick={() => {
-                          setScopeTarget('project');
-                          setPickedKinds((prev) => {
-                            const next = new Set(prev);
-                            if (next.has(entry.kind)) next.delete(entry.kind);
-                            else next.add(entry.kind);
-                            return next;
-                          });
-                        }}
-                      >
-                        {SCRIPT_VIEW[entry.kind]} {entry.lines.toLocaleString()}줄
-                      </Button>
-                    );
-                  })}
-                <Button
-                  variant={showScenePicker || pickedScenes.size > 0 ? 'secondary' : 'outline'}
-                  className={cn((showScenePicker || pickedScenes.size > 0) && 'ring-1 ring-ring ring-inset')}
-                  onClick={() => {
-                    if (scopeTarget !== 'project') setScopeTarget('project');
-                    setShowScenePicker((prev) => !prev);
-                  }}
-                >
-                  {pickedScenes.size > 0 ? `장면 ${pickedScenes.size}개 선택됨` : '장면·묶음 골라내기'}
-                </Button>
-                <Button
-                  variant={showTagPicker || tagMarkCount > 0 ? 'secondary' : 'outline'}
-                  className={cn((showTagPicker || tagMarkCount > 0) && 'ring-1 ring-ring ring-inset')}
-                  onClick={() => setShowTagPicker((prev) => !prev)}
-                >
-                  태그·표시 필터{tagMarkCount > 0 ? ` (${tagMarkCount})` : ''}
-                </Button>
+                <Label className="text-sm font-normal">
+                  <RadioGroupItem value="project" />
+                  프로젝트 전체{projectLines ? ` ${projectLines.toLocaleString()}줄` : ''}
+                </Label>
+                <Label className="text-sm font-normal">
+                  <RadioGroupItem value="pick" />
+                  장면·묶음 고르기
+                </Label>
+              </RadioGroup>
+              {scopeTarget === 'pick' && (
+                <div className="ml-6">
+                  <GroupPicker groups={groups.data ?? []} picked={pickedScenes} setPicked={setPickedScenes} filter={sceneFilter} setFilter={setSceneFilter} />
+                </div>
+              )}
+            </fieldset>
+
+            <fieldset className="space-y-2">
+              <legend className="mb-2 text-xs text-muted-foreground">필터</legend>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                <span className="w-16 text-xs text-muted-foreground">상태</span>
+                {(statuses.data?.statuses ?? []).map((status) => (
+                  <Label key={status.id} className="text-sm font-normal">
+                    <Checkbox checked={pickedStatuses.has(status.id)} onCheckedChange={(checked) => toggled(setPickedStatuses, status.id, checked === true)} />
+                    <StatusIcon status={status} />
+                    {status.name}
+                  </Label>
+                ))}
               </div>
-            </div>
-
-            {showScenePicker && (
-              <ScenePicker
-                visible={visibleGroups}
-                picked={pickedScenes}
-                setPicked={setPickedScenes}
-                filter={sceneFilter}
-                setFilter={setSceneFilter}
-              />
-            )}
-
-            {showTagPicker && (
-              <TagPicker
-                tags={tags}
-                picked={pickedTags}
-                setPicked={setPickedTags}
-                marks={pickedMarks}
-                setMarks={setPickedMarks}
-              />
-            )}
-
-            <div className="space-y-2">
-              <h3 className="text-xs text-muted-foreground">대상 상태</h3>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  variant={pickedStatuses.size === 0 ? 'secondary' : 'outline'}
-                  className={cn(pickedStatuses.size === 0 && 'ring-1 ring-ring ring-inset')}
-                  onClick={() => setPickedStatuses(new Set())}
-                >
-                  전체 상태
-                </Button>
-                {(statuses.data?.statuses ?? []).map((status) => {
-                  const active = pickedStatuses.has(status.id);
-                  return (
-                    <Button
-                      key={status.id}
-                      variant={active ? 'secondary' : 'outline'}
-                      className={cn(active && 'ring-1 ring-ring ring-inset')}
-                      onClick={() => {
-                        setPickedStatuses((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(status.id)) next.delete(status.id);
-                          else next.add(status.id);
-                          return next;
-                        });
-                      }}
-                    >
-                      <StatusIcon status={status} />
-                      <span>{status.name}</span>
-                      <span className="text-xs text-muted-foreground tabular-nums">{status.units.toLocaleString()}</span>
-                    </Button>
-                  );
-                })}
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                <span className="w-16 text-xs text-muted-foreground">표시·태그</span>
+                {LINE_MARK_IDS.map((mark) => (
+                  <Label key={mark} className="text-sm font-normal">
+                    <Checkbox checked={pickedMarks.has(mark)} onCheckedChange={(checked) => toggled(setPickedMarks, mark, checked === true)} />
+                    <MarkChip mark={mark} />
+                  </Label>
+                ))}
+                {tags.map((tag) => (
+                  <Label key={tag.id} className="text-sm font-normal">
+                    <Checkbox checked={pickedTags.has(tag.id)} onCheckedChange={(checked) => toggled(setPickedTags, tag.id, checked === true)} />
+                    #{tag.name}
+                  </Label>
+                ))}
               </div>
-            </div>
+            </fieldset>
 
             <p className="text-sm">
               {!ready ? null : total === undefined && plan.isError ? (
@@ -402,7 +303,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
                 </>
               )}
             </p>
-            {scopeTarget === 'project' && pickedKinds.size === 0 && pickedScenes.size === 0 && Boolean(total) && (
+            {scopeTarget === 'project' && Boolean(total) && (
               <p className="text-xs text-warning">프로젝트 전체입니다. 처음이면 장면 하나로 먼저 시험해 보세요.</p>
             )}
           </section>
@@ -412,7 +313,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
               projectId={projectId}
               readiness={data.readiness}
               oneScene={scopeTarget === 'here' && here?.length === 1 ? here[0].id : undefined}
-              scoped={scopeTarget !== 'project' || pickedKinds.size > 0 || pickedScenes.size > 0 || pickedStatuses.size > 0 || pickedTags.size > 0 || pickedMarks.size > 0}
+              scoped={scopeTarget !== 'project' || pickedStatuses.size > 0 || pickedTags.size > 0 || pickedMarks.size > 0}
               onLeave={() => setOpen(false)}
             />
           ) : null}
@@ -448,30 +349,48 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
 type Plan = UseQueryResult<InferResponseType<(typeof client.workflows)[':id']['preflight']['$post'], 200>>;
 type PlanData = NonNullable<Plan['data']>;
 
-function ScenePicker({ visible, picked, setPicked, filter, setFilter }: { visible: { id: string; title: string; total: number }[]; picked: Set<string>; setPicked: (update: (previous: Set<string>) => Set<string>) => void; filter: string; setFilter: (value: string) => void }) {
+type ScopeTarget = 'units' | 'here' | 'project' | 'pick';
+
+/** Scenes, UI groups and documents in one list, by kind; a kind's header picks or clears all of its groups. */
+function GroupPicker({ groups, picked, setPicked, filter, setFilter }: { groups: { id: string; key: string; kind: GroupKind; title: string; total: number }[]; picked: Set<string>; setPicked: SetPicked; filter: string; setFilter: (value: string) => void }) {
+  const needle = filter.trim().toLowerCase();
+  const sections = KIND_ORDER.map((kind) => ({ kind, all: groups.filter((group) => group.kind === kind) }))
+    .filter((section) => section.all.length)
+    .map((section) => ({ ...section, shown: needle ? section.all.filter((group) => `${group.title} ${group.key}`.toLowerCase().includes(needle)) : section.all }));
+  const pickedLines = groups.reduce((sum, group) => sum + (picked.has(group.id) ? group.total : 0), 0);
+  const setMany = (ids: string[], on: boolean) =>
+    setPicked((previous) => {
+      const next = new Set(previous);
+      for (const id of ids) on ? next.add(id) : next.delete(id);
+      return next;
+    });
   return (
     <div className="min-w-0 space-y-2">
-      <SearchInput value={filter} onChange={(value) => setFilter(value ?? '')} placeholder="장면 찾기" className="w-full" end={`${picked.size}개 선택`} />
-      <ul className="max-h-52 overflow-auto rounded-md border p-1">
-        {visible.map((group) => (
-          <li key={group.id}>
-            <label className="flex min-w-0 items-center gap-2 rounded px-2 py-1 text-sm hover:bg-muted">
-              <Checkbox
-                checked={picked.has(group.id)}
-                onCheckedChange={(checked) =>
-                  setPicked((previous) => {
-                    const next = new Set(previous);
-                    if (checked) next.add(group.id);
-                    else next.delete(group.id);
-                    return next;
-                  })
-                }
-              />
-              <span className="min-w-0 flex-1 truncate">{group.title}</span>
-              <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{group.total}</span>
-            </label>
-          </li>
-        ))}
+      <SearchInput value={filter} onChange={(value) => setFilter(value ?? '')} placeholder="장면·묶음 찾기" className="w-full" end={`${picked.size}개 · ${pickedLines.toLocaleString()}줄`} />
+      <ul className="max-h-60 overflow-auto rounded-md border p-1">
+        {sections.map(({ kind, all, shown }) => {
+          const count = all.filter((group) => picked.has(group.id)).length;
+          return (
+            <li key={kind}>
+              <label className="flex min-w-0 items-center gap-2 rounded px-2 py-1 text-sm font-medium hover:bg-muted">
+                <Checkbox checked={count === all.length ? true : count > 0 ? 'indeterminate' : false} onCheckedChange={(checked) => setMany(all.map((group) => group.id), checked === true)} />
+                <span className="min-w-0 flex-1 truncate">{SCRIPT_VIEW[kind]} 전체</span>
+                <span className="shrink-0 text-xs font-normal text-muted-foreground tabular-nums">{all.length.toLocaleString()}개</span>
+              </label>
+              <ul className="ml-5">
+                {shown.map((group) => (
+                  <li key={group.id}>
+                    <label className="flex min-w-0 items-center gap-2 rounded px-2 py-1 text-sm hover:bg-muted">
+                      <Checkbox checked={picked.has(group.id)} onCheckedChange={(checked) => toggled(setPicked, group.id, checked === true)} />
+                      <span className="min-w-0 flex-1 truncate">{group.title}</span>
+                      <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{group.total}</span>
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            </li>
+          );
+        })}
       </ul>
     </div>
   );
@@ -487,37 +406,6 @@ const toggled = (setPicked: SetPicked, id: string, checked: boolean) =>
     else next.delete(id);
     return next;
   });
-
-/** Automatic marks above the tags; a line must have every one picked, as in the line list's filter. */
-function TagPicker({ tags, picked, setPicked, marks, setMarks }: { tags: { id: string; name: string; units: number }[]; picked: Set<string>; setPicked: SetPicked; marks: Set<string>; setMarks: SetPicked }) {
-  return (
-    <div className="space-y-2 rounded-md border p-2">
-      <div className="space-y-1">
-        <p className="px-2 text-xs text-muted-foreground">고른 표시와 태그</p>
-        <div className="flex flex-wrap gap-2">
-          {LINE_MARK_IDS.map((mark) => (
-            <label key={mark} className="flex items-center gap-1.5 rounded px-2 py-1 text-sm hover:bg-muted">
-              <Checkbox checked={marks.has(mark)} onCheckedChange={(checked) => toggled(setMarks, mark, checked === true)} />
-              <MarkChip mark={mark} />
-            </label>
-          ))}
-        </div>
-      </div>
-      {tags.length > 0 && (
-        <div className="space-y-1">
-          <p className="px-2 text-xs text-muted-foreground">태그</p>
-          <div className="flex flex-wrap gap-2">
-            {tags.map((tag) => (
-              <label key={tag.id} className="flex items-center gap-1.5 rounded px-2 py-1 text-sm hover:bg-muted">
-                <Checkbox checked={picked.has(tag.id)} onCheckedChange={(checked) => toggled(setPicked, tag.id, checked === true)} />#{tag.name} <span className="text-xs text-muted-foreground tabular-nums">{tag.units}</span>
-              </label>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
 
 /** What in these lines would make the translation worse, each with where to fix it. */
 function Readiness({ projectId, readiness, oneScene, scoped, onLeave }: { projectId: string; readiness: PlanData['readiness']; oneScene?: string; /** The run covers part of the project, not all of it. */ scoped: boolean; /** A link was followed: the dialog closes. */ onLeave: () => void }) {

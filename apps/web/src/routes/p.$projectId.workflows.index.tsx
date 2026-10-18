@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Play, Plus, Trash2 } from 'lucide-react';
+import { Copy, Play, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AiButton } from '@/components/ai-button';
-import { EmptyState, DataTable, type ColumnDef, JobStatusBadge, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Badge, Button, Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Input, Label, RadioGroup, RadioGroupItem, Skeleton, ContextMenuItem, ContextMenuSeparator } from '@loca/ui';
+import { EmptyState, DataTable, type ColumnDef, JobStatusBadge, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Badge, Button, Skeleton, ContextMenuItem, ContextMenuSeparator } from '@loca/ui';
 import { HeaderActions, Page } from '@/components/page';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { client, unwrap } from '@/lib/api';
@@ -29,13 +29,21 @@ function Workflows() {
   });
   const [deleteTarget, setDeleteTarget] = useState<Workflow | null>(null);
   type Workflow = NonNullable<typeof workflows.data>[number];
+  const create = useMutation({
+    mutationFn: () => unwrap(client.projects[':projectId'].workflows.$post({ param: { projectId }, json: {} })),
+    onSuccess: (workflow) => {
+      queryClient.invalidateQueries({ queryKey: q.workflows(projectId).queryKey });
+      void navigate({ to: '/p/$projectId/workflows/$workflowId', params: { projectId, workflowId: workflow.id } });
+    },
+    onError: (error) => toast.error(error.message),
+  });
   const duplicate = useMutation({
     mutationFn: async (workflow: Workflow) => {
       const detail = await unwrap(client.workflows[':id'].$get({ param: { id: workflow.id } }));
       const created = await unwrap(
         client.projects[':projectId'].workflows.$post({
           param: { projectId },
-          json: { name: `${workflow.name} (복사본)`, from: 'blank' },
+          json: { name: `${workflow.name} (복사본)` },
         })
       );
       await unwrap(
@@ -118,6 +126,16 @@ function Workflows() {
       ),
     },
     {
+      id: 'duplicate',
+      header: () => <span className="sr-only">복제</span>,
+      meta: { width: 48, className: 'py-1.5', label: '복제', hideable: false },
+      cell: ({ row }) => (
+        <Button variant="ghost" size="icon" className="text-muted-foreground opacity-0 group-hover/row:opacity-100 hover:text-foreground focus-visible:opacity-100" aria-label={`${row.original.name} 복제`} disabled={duplicate.isPending} onClick={(event) => { event.stopPropagation(); duplicate.mutate(row.original); }}>
+          <Copy />
+        </Button>
+      ),
+    },
+    {
       id: 'delete',
       header: () => <span className="sr-only">삭제</span>,
       meta: { width: 48, className: 'py-1.5', label: '삭제', hideable: false },
@@ -152,7 +170,9 @@ function Workflows() {
           <AiButton send={false} prompt="이런 워크플로를 만들어줘: ">
             AI로 만들기
           </AiButton>
-          <NewWorkflow projectId={projectId} />
+          <Button disabled={create.isPending} onClick={() => create.mutate()}>
+            <Plus /> 새 워크플로
+          </Button>
         </HeaderActions>
         <DataTable id="workflows"
           columns={columns}
@@ -190,70 +210,5 @@ function Workflows() {
         </AlertDialogContent>
       </AlertDialog>
     </Page>
-  );
-}
-
-type From = 'draft' | 'template' | 'terms' | 'listener' | 'people' | 'events' | 'speechFix' | 'analysis' | 'blank';
-
-/** The templates "새 워크플로" offers (defaults.ts); each is drawn as real nodes, prompts and saves included. */
-const TEMPLATE_OPTIONS: { value: Exclude<From, 'blank'>; name: string; label: string }[] = [
-  { value: 'draft', name: '초벌 번역', label: '초벌 번역 · 초벌 상태로' },
-  { value: 'template', name: '번역·검수', label: '번역 + AI 검수 · 확정까지' },
-  { value: 'terms', name: '용어 추출', label: '용어 추출' },
-  { value: 'people', name: '인물·관계 추출', label: '인물·관계 추출' },
-  { value: 'events', name: '사건 추출', label: '사건 추출' },
-  { value: 'listener', name: '청자 추정', label: '청자 추정' },
-  { value: 'analysis', name: '작품 분석', label: '작품 분석' },
-  { value: 'speechFix', name: '말투만 고치기', label: '말투만 고치기' },
-];
-
-function NewWorkflow({ projectId }: { projectId: string }) {
-  const navigate = Route.useNavigate();
-  const [open, setOpen] = useState(false);
-  const [name, setName] = useState('');
-  const [from, setFrom] = useState<From>('draft');
-  const create = useMutation({
-    mutationFn: () => unwrap(client.projects[':projectId'].workflows.$post({ param: { projectId }, json: { name: name.trim() || (TEMPLATE_OPTIONS.find((option) => option.value === from)?.name ?? '새 워크플로'), from } })),
-    onSuccess: (workflow) => {
-      setOpen(false);
-      void navigate({ to: '/p/$projectId/workflows/$workflowId', params: { projectId, workflowId: workflow.id } });
-    },
-  });
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button>
-          <Plus /> 새 워크플로
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>새 워크플로</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="wf-name">이름</Label>
-            <Input id="wf-name" value={name} placeholder={TEMPLATE_OPTIONS.find((option) => option.value === from)?.name} onChange={(event) => setName(event.target.value)} autoFocus />
-          </div>
-          <RadioGroup value={from} onValueChange={(value) => setFrom(value as From)}>
-            {TEMPLATE_OPTIONS.map((option) => (
-              <label key={option.value} className="flex items-start gap-2 text-sm">
-                <RadioGroupItem value={option.value} className="mt-0.5" />
-                <span>{option.label}</span>
-              </label>
-            ))}
-            <label className="flex items-start gap-2 text-sm">
-              <RadioGroupItem value="blank" className="mt-0.5" />
-              <span>빈 워크플로</span>
-            </label>
-          </RadioGroup>
-        </div>
-        <DialogFooter>
-          <Button disabled={(!name.trim() && from === 'blank') || create.isPending} onClick={() => create.mutate()}>
-            만들기
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }
