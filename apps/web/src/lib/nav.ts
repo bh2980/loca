@@ -1,5 +1,5 @@
 import { useRouterState } from '@tanstack/react-router';
-import { BookOpenText, Bot, FileText, GitBranch, Home, KeyRound, Languages, Settings2, Sparkles, Tags, UsersRound, Workflow, History, BookMarked, type LucideIcon } from 'lucide-react';
+import { BookMarked, Bot, FileText, GitBranch, History, Home, KeyRound, Languages, Milestone, Settings2, Sparkles, Tags, UsersRound, WandSparkles, Workflow, type LucideIcon } from 'lucide-react';
 
 export interface NavItem {
   id: string;
@@ -30,7 +30,7 @@ export const NAV_GROUPS: NavGroup[] = [
   { id: 'knowledge', label: '자료', items: [
     item('people', '인물·관계', '/knowledge', UsersRound, 'knowledge', '자료', { search: { tab: 'people' } }),
     item('documents', '문서', '/knowledge', FileText, 'knowledge', '자료', { search: { tab: 'documents' } }),
-    item('events', '사건', '/knowledge', GitBranch, 'knowledge', '자료', { search: { tab: 'events' } }),
+    item('events', '사건', '/knowledge', Milestone, 'knowledge', '자료', { search: { tab: 'events' } }),
   ] },
   { id: 'automation', label: '자동화', items: [
     item('workflows', '워크플로', '/workflows', Workflow, 'automation', '자동화'),
@@ -40,7 +40,7 @@ export const NAV_GROUPS: NavGroup[] = [
     item('project-settings', '프로젝트', '/settings/project', Settings2, 'settings', '설정'),
     item('statuses', '상태·태그', '/settings/statuses', Tags, 'settings', '설정'),
     item('connections', 'AI 연결', '/ai/connections', Sparkles, 'settings', '설정'),
-    item('editor-ai', '편집기 AI', '/ai/usage', Sparkles, 'settings', '설정'),
+    item('editor-ai', '편집기 AI', '/ai/usage', WandSparkles, 'settings', '설정'),
     item('agent', '에이전트', '/agent', Bot, 'settings', '설정'),
     item('keys', 'API 키', '/keys', KeyRound, 'settings', '설정'),
   ] },

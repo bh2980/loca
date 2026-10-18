@@ -77,9 +77,9 @@ function ProjectLayout() {
               <h1 className="min-w-0 truncate text-sm font-semibold text-foreground">
                 {current.group.label ? <><span className="font-normal text-muted-foreground">{current.group.label} › </span>{current.item.label}</> : current.item.label}
               </h1>
-              <div id={HEADER_ACTIONS_ID} className="flex min-w-0 items-center gap-1.5 empty:hidden" />
-              <Separator orientation="vertical" className="h-3.5" />
-              <div className="ml-auto flex shrink-0 items-center gap-1">
+              <div id={HEADER_ACTIONS_ID} className="ml-auto flex min-w-0 items-center gap-1.5 empty:hidden peer" />
+              <Separator orientation="vertical" className="h-3.5 peer-empty:hidden" />
+              <div className="ml-auto flex shrink-0 items-center gap-1 peer-[:not(:empty)]:ml-0">
                 <CommandSearch projectId={projectId} />
                 <ShortcutHelp />
                 <Tooltip>
