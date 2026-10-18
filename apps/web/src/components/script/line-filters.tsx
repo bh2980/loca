@@ -4,9 +4,8 @@ import { Link } from '@tanstack/react-router';
 import { ListFilter } from 'lucide-react';
 import { AUTO_MARKS, type AutoMark, LINE_MARK_IDS, type LineMark, parseMarks } from '@tw/shared';
 import { LINE_TABS, type LineTab } from '@/components/line-detail';
-import { StatusDot } from '@/components/status';
 import { markTagGroups } from '@/components/header-filter';
-import { Button, Input, DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from '@loca/ui';
+import { Button, Input, DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger, StatusIcon } from '@loca/ui';
 import { q } from '@/lib/queries';
 
 export interface LinesSearch {
@@ -128,7 +127,7 @@ export function LineFilters({ projectId, statuses, tags, speakers, search, onSea
           <DropdownMenuSubContent className="max-h-80 overflow-y-auto">
             {statuses.map((status) => (
               <DropdownMenuCheckboxItem key={status.id} checked={search.status === status.id} onCheckedChange={(on) => onSearch({ status: on ? status.id : undefined })}>
-                <StatusDot color={status.color} /> {status.name}
+                <StatusIcon status={status} /> {status.name}
               </DropdownMenuCheckboxItem>
             ))}
           </DropdownMenuSubContent>

@@ -8,9 +8,9 @@ import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { AUTO_MARK_IDS, AUTO_MARKS, markColor, REVIEW_TAG, type AutoMark, type MarkColors } from '@tw/shared';
-import { EmptyState, DataTable, type ColumnDef, SplitPane, Toolbar, AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@loca/ui';
+import { EmptyState, DataTable, type ColumnDef, SplitPane, Toolbar, AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, StatusIcon, TagChip } from '@loca/ui';
 import { Page } from '@/components/page';
-import { MarkChip, StatusDot, TagChip } from '@/components/status';
+import { MarkChip } from '@/components/status';
 import { client, unwrap } from '@/lib/api';
 import { STATUS_KIND } from '@/lib/labels';
 import { q } from '@/lib/queries';
@@ -143,7 +143,7 @@ function StatusSettings() {
       meta: { hideable: false },
       cell: ({ row }) => (
         <span className="inline-flex items-center gap-2 font-medium">
-          <StatusDot color={row.original.color} className="size-2.5" />
+          <StatusIcon status={row.original} className="size-2.5" />
           {row.original.name}
         </span>
       ),
@@ -290,7 +290,7 @@ function StatusSettings() {
                 .filter((status) => status.id !== removing?.id)
                 .map((status) => (
                   <SelectItem key={status.id} value={status.id}>
-                    <StatusDot color={status.color} /> {status.name}
+                    <StatusIcon status={status} /> {status.name}
                   </SelectItem>
                 ))}
             </SelectContent>

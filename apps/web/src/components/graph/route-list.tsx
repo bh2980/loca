@@ -7,9 +7,8 @@ import { SeamStateChip } from '@/components/graph/seam-check-pane';
 import { buildItems, indexOfLine, nodeStarts, routeSequence, translatedIds, untranslatedFrom, type RouteItem } from '@/components/graph/route-list-model';
 import { LineSourceText, TokenText } from '@/components/editor/source-text';
 import { LineHints } from '@/components/script/line-row';
-import { AiMark, StatusDot } from '@/components/status';
 import { TranslationEditor } from '@/components/translation-editor';
-import { Button, Skeleton } from '@loca/ui';
+import { Button, Skeleton, AiMark, StatusIcon } from '@loca/ui';
 import { client, unwrap, type InferResponseType } from '@/lib/api';
 import { tokenPatternOf } from '@/lib/line-context';
 import { keyLabel } from '@/lib/keys';
@@ -77,7 +76,7 @@ function RouteLineRow({ projectId, unitId, row, selected, status, statusList, to
       <p className="mb-1 flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
         <span className="truncate">{row.speaker ?? '지문·문구'}</span>
         <span className="ml-auto flex shrink-0 items-center gap-1">
-          <StatusDot color={status?.color ?? '#a1a1aa'} />
+          <StatusIcon status={status} />
           {status?.name}
           <AiMark by={row.statusBy} />
         </span>

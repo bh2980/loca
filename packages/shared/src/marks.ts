@@ -14,15 +14,15 @@ export const TAG_SCOPE_LABELS: Record<TagScope, string> = { lines: '대사', kno
  * `on` says where each one applies.
  */
 export const AUTO_MARKS = {
-  remaining: { name: '남은 줄', on: ['lines'], color: '#3b82f6', description: '최종 상태가 아닌 대사' },
-  ai: { name: 'AI가 정함', on: ['lines', 'knowledge', 'terms'], color: '#8b5cf6', description: 'AI가 정하고 아직 사람이 확인하지 않음 (✦)' },
-  unknownListener: { name: '청자 미상', on: ['lines'], color: '#f59e0b', description: '화자가 있는 대사 중 청자를 모르거나 AI의 추정이 불확실한 대사(지문·서식만 있는 줄 제외)' },
-  diverged: { name: '같은 원문 다른 번역', on: ['lines'], color: '#ef4444', description: '같은 원문이 다른 곳에서 다르게 번역됨' },
-  noted: { name: '메모', on: ['lines'], color: '#14b8a6', description: '줄 메모가 있음' },
-  candidate: { name: '후보', on: ['knowledge', 'terms'], color: '#ec4899', description: '아직 번역 문맥에 쓰이지 않음' },
-  noEvidence: { name: '근거 없음', on: ['knowledge'], color: '#f59e0b', description: '근거 대사가 없음' },
-  emptyTarget: { name: '번역어 없음', on: ['terms'], color: '#ef4444', description: '한국어 번역어가 비어 있음' },
-  unused: { name: '대본에 안 나옴', on: ['terms'], color: '#a1a1aa', description: '원문이나 화자에 나오는 대사가 없음' },
+  remaining: { name: '남은 줄', on: ['lines'], color: '#0486d3', description: '최종 상태가 아닌 대사' },
+  ai: { name: 'AI가 정함', on: ['lines', 'knowledge', 'terms'], color: '#8f68cb', description: 'AI가 정하고 아직 사람이 확인하지 않음 (✦)' },
+  unknownListener: { name: '청자 미상', on: ['lines'], color: '#c46016', description: '화자가 있는 대사 중 청자를 모르거나 AI의 추정이 불확실한 대사(지문·서식만 있는 줄 제외)' },
+  diverged: { name: '같은 원문 다른 번역', on: ['lines'], color: '#d24c49', description: '같은 원문이 다른 곳에서 다르게 번역됨' },
+  noted: { name: '메모', on: ['lines'], color: '#009589', description: '줄 메모가 있음' },
+  candidate: { name: '후보', on: ['knowledge', 'terms'], color: '#bc5694', description: '아직 번역 문맥에 쓰이지 않음' },
+  noEvidence: { name: '근거 없음', on: ['knowledge'], color: '#c46016', description: '근거 대사가 없음' },
+  emptyTarget: { name: '번역어 없음', on: ['terms'], color: '#d24c49', description: '한국어 번역어가 비어 있음' },
+  unused: { name: '대본에 안 나옴', on: ['terms'], color: '#79818c', description: '원문이나 화자에 나오는 대사가 없음' },
 } as const satisfies Record<string, { name: string; on: readonly TagScope[]; color: string; description: string }>;
 export type AutoMark = keyof typeof AUTO_MARKS;
 export const AUTO_MARK_IDS = Object.keys(AUTO_MARKS) as AutoMark[];

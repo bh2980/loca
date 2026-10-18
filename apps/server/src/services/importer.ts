@@ -3,7 +3,7 @@ import type { Db } from '../db/index.ts';
 import { attachUnitTags } from './tag-scope.ts';
 
 /** Colors for tags that came with the file, in turn. */
-const TAG_COLORS = ['#0ea5e9', '#14b8a6', '#84cc16', '#a855f7', '#f43f5e', '#f59e0b'];
+const TAG_COLORS = ['#0091ad', '#009589', '#6d8e1c', '#8f68cb', '#bc5694', '#6076de'];
 import * as s from '../db/schema.ts';
 
 const CHUNK = 400;

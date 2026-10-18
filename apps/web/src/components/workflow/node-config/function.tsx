@@ -3,9 +3,8 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Play } from 'lucide-react';
 import { FUNCTIONS, nodeName, type FunctionName, type WorkflowNode } from '@tw/shared';
-import { StatusDot, TagChip } from '@/components/status';
 import { AiConfirmNote } from '@/components/settings/ai-confirm';
-import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea } from '@loca/ui';
+import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, StatusIcon, TagChip } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
 import { client, unwrap } from '@/lib/api';
 import { Field, ToggleRow, type FunctionNode, type NodeRefs } from '@/components/workflow/node-config/shared';
@@ -145,7 +144,7 @@ function SetStatusConfig({ params, refs, set, setMany }: { params: Record<string
             <SelectItem value="keep">바꾸지 않음</SelectItem>
             {refs.statuses.map((status) => (
               <SelectItem key={status.id} value={status.id}>
-                <StatusDot color={status.color} /> {status.name}
+                <StatusIcon status={status} /> {status.name}
               </SelectItem>
             ))}
           </SelectContent>

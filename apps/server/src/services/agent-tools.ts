@@ -1,7 +1,7 @@
 import { tool } from 'ai';
 import { and, asc, count, desc, eq, inArray, like, ne, or } from 'drizzle-orm';
 import { z } from 'zod';
-import { AI_OUTPUTS, AI_PRESETS, aiNodeConfigSchema, KNOWLEDGE_TAG_KINDS, patchOf, TAG_SCOPES, withRunModels, AUTO_MARKS, batchChangeSchema, CONDITION_MARK_IDS, CONNECTION_KIND_INFO, FUNCTIONS, LINE_MARK_IDS, lineFilterSchema, lineMarksSchema, NODE_TYPES, sourceOf, workflowDefinitionSchema } from '@tw/shared';
+import { AI_OUTPUTS, DEFAULT_TAG_COLOR, AI_PRESETS, aiNodeConfigSchema, KNOWLEDGE_TAG_KINDS, patchOf, TAG_SCOPES, withRunModels, AUTO_MARKS, batchChangeSchema, CONDITION_MARK_IDS, CONNECTION_KIND_INFO, FUNCTIONS, LINE_MARK_IDS, lineFilterSchema, lineMarksSchema, NODE_TYPES, sourceOf, workflowDefinitionSchema } from '@tw/shared';
 import { z as zod } from 'zod';
 import type { Db } from '../db/index.ts';
 import { byPerson } from './status-by.ts';
@@ -553,7 +553,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
     save_status: tool({
       description:
         'Create a translation status (initial / normal / final) or a tag. A tag\'s scope says where it can be put: lines (대사), knowledge (자료: characters, relationships, speech rules, events, documents), terms (용어집); default all three. Ask or infer from the request (a glossary-only tag is ["terms"]).',
-      inputSchema: z.object({ type: z.enum(['status', 'tag']), name: z.string().min(1), color: z.string().default('#8b5cf6'), kind: z.enum(['initial', 'normal', 'final']).default('normal'), scope: z.array(z.enum(TAG_SCOPES)).min(1).optional() }),
+      inputSchema: z.object({ type: z.enum(['status', 'tag']), name: z.string().min(1), color: z.string().default(DEFAULT_TAG_COLOR), kind: z.enum(['initial', 'normal', 'final']).default('normal'), scope: z.array(z.enum(TAG_SCOPES)).min(1).optional() }),
       needsApproval: true,
       execute: ({ type, name, color, kind, scope }) => {
         if (type === 'tag') {

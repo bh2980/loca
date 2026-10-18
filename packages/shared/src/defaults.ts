@@ -5,18 +5,52 @@ import { contextConfigSchema, type WorkflowDefinition } from './workflow.ts';
 
 export type StatusKind = 'initial' | 'normal' | 'final';
 
+/**
+ * The colour palette for statuses, tags and automatic marks: twelve hues, one meaning each, all at the
+ * same lightness (≥ 3:1 on the light work area). The stored value is the light-theme hex; the app shows
+ * each through its theme variable (`--hue-1` … `--hue-12`, packages/ui tokens/theme.css), so the dark
+ * theme gets its own tuned value. Any other hex still works and is shown as is.
+ */
+export const PALETTE = [
+  { name: '회색', hex: '#79818c' },
+  { name: '빨강', hex: '#d24c49' },
+  { name: '주황', hex: '#c46016' },
+  { name: '호박', hex: '#b26f00' },
+  { name: '연두', hex: '#6d8e1c' },
+  { name: '초록', hex: '#2a9754' },
+  { name: '청록', hex: '#009589' },
+  { name: '하늘', hex: '#0091ad' },
+  { name: '파랑', hex: '#0486d3' },
+  { name: '남색', hex: '#6076de' },
+  { name: '보라', hex: '#8f68cb' },
+  { name: '분홍', hex: '#bc5694' },
+] as const;
+export const STATUS_COLORS: string[] = PALETTE.map((color) => color.hex);
+/**
+ * The 20 Tailwind colours offered before the palette had twelve, each to the nearest palette hue.
+ * Projects keep their stored hex; the app shows it as that palette slot (see paletteIndex).
+ */
+const LEGACY_COLORS: Record<string, number> = {
+  '#a1a1aa': 0, '#64748b': 0, '#ef4444': 1, '#f43f5e': 1, '#f97316': 2, '#f59e0b': 3, '#eab308': 3, '#a16207': 3,
+  '#84cc16': 4, '#22c55e': 5, '#10b981': 5, '#14b8a6': 6, '#06b6d4': 7, '#0ea5e9': 8, '#3b82f6': 8,
+  '#6366f1': 9, '#8b5cf6': 10, '#a855f7': 10, '#d946ef': 11, '#ec4899': 11,
+};
+/** The palette slot (0–11) a stored colour is shown as, or -1 for a custom hex. */
+export function paletteIndex(hex: string): number {
+  const key = hex.toLowerCase();
+  const index = STATUS_COLORS.indexOf(key);
+  return index >= 0 ? index : (LEGACY_COLORS[key] ?? -1);
+}
+export const DEFAULT_STATUS_COLOR = PALETTE[8].hex;
+export const DEFAULT_TAG_COLOR = PALETTE[6].hex;
 /** `inReview`: lines in this status are listed in the review inbox, however they got there. */
 export const DEFAULT_STATUSES: { key: string; name: string; color: string; kind: StatusKind; inReview: boolean }[] = [
-  { key: 'untranslated', name: '미번역', color: '#a1a1aa', kind: 'initial', inReview: false },
-  { key: 'draft', name: '초벌', color: '#3b82f6', kind: 'normal', inReview: false },
-  { key: 'needs-review', name: '사람 확인 필요', color: '#f59e0b', kind: 'normal', inReview: true },
-  { key: 'confirmed', name: '확정', color: '#22c55e', kind: 'final', inReview: false },
+  { key: 'untranslated', name: '미번역', color: PALETTE[0].hex, kind: 'initial', inReview: false },
+  { key: 'draft', name: '초벌', color: PALETTE[8].hex, kind: 'normal', inReview: false },
+  { key: 'needs-review', name: '사람 확인 필요', color: PALETTE[3].hex, kind: 'normal', inReview: true },
+  { key: 'confirmed', name: '확정', color: PALETTE[5].hex, kind: 'final', inReview: false },
 ];
 
-/** Colors offered for statuses, tags and automatic marks (Tailwind 500s and two grays), by hue; any hex works too. */
-export const STATUS_COLORS = ['#a1a1aa', '#64748b', '#ef4444', '#f43f5e', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e', '#10b981', '#14b8a6', '#06b6d4', '#0ea5e9', '#3b82f6', '#6366f1', '#8b5cf6', '#a855f7', '#d946ef', '#ec4899', '#a16207'];
-export const DEFAULT_STATUS_COLOR = '#3b82f6';
-export const DEFAULT_TAG_COLOR = '#8b5cf6';
 export const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
 /**

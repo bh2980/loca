@@ -8,12 +8,13 @@ export const JOB_STATUS_LABEL = {
   cancelled: "취소됨",
 } as const
 
+/** Shape + colour per run state, like StatusIcon: running = accent ring, paused = review, failed = destructive, ended = quiet. */
 export const JOB_STATUS_DOT = {
   running: "bg-primary",
-  paused: "bg-warning",
-  completed: "bg-muted-foreground/50",
+  paused: "bg-review",
+  completed: "bg-success",
   failed: "bg-destructive",
-  cancelled: "bg-muted-foreground/50",
+  cancelled: "bg-subtle-foreground",
 } as const
 
 export interface JobStatusBadgeProps {
@@ -23,15 +24,15 @@ export interface JobStatusBadgeProps {
 
 export function JobStatusBadge({ status, className }: JobStatusBadgeProps) {
   return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-xs border border-border/70 bg-background px-1.5 py-0.5 text-xs font-medium whitespace-nowrap shadow-2xs",
-        className
-      )}
-    >
+    <span className={cn("inline-flex items-center gap-1.5 text-xs font-medium whitespace-nowrap", className)}>
       <span
         aria-hidden
-        className={cn("inline-block size-1.5 shrink-0 rounded-full", JOB_STATUS_DOT[status])}
+        className={cn(
+          "inline-block size-2 shrink-0",
+          status === "failed" ? "rotate-45 rounded-[1px]" : "rounded-full",
+          status === "running" && "animate-pulse",
+          JOB_STATUS_DOT[status]
+        )}
       />
       <span>{JOB_STATUS_LABEL[status]}</span>
     </span>

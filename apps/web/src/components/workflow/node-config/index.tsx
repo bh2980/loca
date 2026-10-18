@@ -1,8 +1,7 @@
 /** Edits one workflow node's config; the node kinds live beside this file. */
 import { Trash2 } from 'lucide-react';
 import { AI_OUTPUTS, CONNECTION_KIND_INFO, FUNCTIONS, NODE_TYPES, nodeName, type FunctionName, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
-import { StatusDot } from '@/components/status';
-import { PaneHeader, Button, Checkbox, Input, ScrollArea } from '@loca/ui';
+import { PaneHeader, Button, Checkbox, Input, ScrollArea, StatusIcon } from '@loca/ui';
 import { nodeIcon } from '../node-view';
 import { AiConfig } from '@/components/workflow/node-config/ai';
 import { ConditionEditor } from '@/components/workflow/node-config/condition';
@@ -52,7 +51,7 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
                       checked={node.config.statusIds.includes(status.id)}
                       onCheckedChange={(checked) => onChange({ ...node, config: { statusIds: checked ? [...node.config.statusIds, status.id] : node.config.statusIds.filter((id) => id !== status.id) } })}
                     />
-                    <StatusDot color={status.color} /> {status.name}
+                    <StatusIcon status={status} /> {status.name}
                   </label>
                 ))}
               </div>

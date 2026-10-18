@@ -4,11 +4,10 @@ import { toast } from 'sonner';
 import { useMemo } from 'react';
 import { CircleAlert, CircleCheck } from 'lucide-react';
 import { checkFormat, listenerLabel, mentions, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatRules, type KnowledgeStatus, type SpeechLevel } from '@tw/shared';
-import { DetailPane, FieldRow, PaneSection, Badge, Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Toggle } from '@loca/ui';
+import { DetailPane, FieldRow, PaneSection, Badge, Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Toggle, AiMark, StatusIcon, TagChip } from '@loca/ui';
 import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
 import { AiButton } from '@/components/ai-button';
 import { AiContextPanel } from '@/components/ai-context';
-import { AiMark, StatusDot, TagChip } from '@/components/status';
 import { TranslationEditor } from '@/components/translation-editor';
 import { client, unwrap } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
@@ -118,12 +117,12 @@ export function LineDetail({
               <FieldRow label="상태">
                 <Select value={line.statusId} onValueChange={(statusId) => saveLine.mutate({ unitId, statusId }, { onError: (error) => toast.error(error.message) })}>
                   <SelectTrigger size="sm" className="w-40" aria-label="상태">
-                    <SelectValue>{status && <><StatusDot color={status.color} /> {status.name}</>}</SelectValue>
+                    <SelectValue>{status && <><StatusIcon status={status} /> {status.name}</>}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {statuses.data?.statuses.map((item) => (
                       <SelectItem key={item.id} value={item.id}>
-                        <StatusDot color={item.color} /> {item.name}
+                        <StatusIcon status={item} /> {item.name}
                       </SelectItem>
                     ))}
                   </SelectContent>

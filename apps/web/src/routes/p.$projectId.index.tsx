@@ -3,10 +3,9 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { BookMarked, ChevronRight, CircleAlert, Inbox, MessageSquareQuote, Sparkles, UserRoundSearch, Workflow } from 'lucide-react';
 import { GettingStarted } from '@/components/getting-started';
-import { JobStatusBadge, Button, Skeleton } from '@loca/ui';
+import { JobStatusBadge, Button, Skeleton, StatusBar, StatusIcon } from '@loca/ui';
 import { Elapsed, JobProgress } from '@/components/job-progress';
 import { Page } from '@/components/page';
-import { StatusBar, StatusDot } from '@/components/status';
 import { AUTO_MARKS, termMarksOf } from '@tw/shared';
 import { q, useReviewTagId } from '@/lib/queries';
 import { cn } from '@/lib/utils';
@@ -182,7 +181,7 @@ function Home() {
           {statusList.map((status) => (
             <li key={status.id}>
               <Link to="/p/$projectId/script" params={{ projectId }} search={{ status: status.id }} className="flex items-center gap-1.5 rounded-xs px-2 py-1 text-xs hover:bg-muted/60 transition-colors">
-                <StatusDot color={status.color} />
+                <StatusIcon status={status} />
                 {status.name}
                 <span className="text-muted-foreground tabular-nums">{(counts[status.id] ?? 0).toLocaleString()}</span>
               </Link>

@@ -5,12 +5,12 @@ import { toast } from 'sonner';
 import { Link } from '@tanstack/react-router';
 import { Check, CircleAlert, Network, PanelRightOpen, StickyNote } from 'lucide-react';
 import { AUTO_MARKS, compileFormatRules, isUnknownListener, listenerLabel, needsListener, type FormatRules, type LineMark, type ListenerOrigin, mentions, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
-import { AiMark, MarkChip, StatusDot, TagChip } from '@/components/status';
+import { MarkChip } from '@/components/status';
 import { TranslationEditor } from '@/components/translation-editor';
 import { LineSourceText, TokenText } from '@/components/editor/source-text';
 import { LineNote } from '@/components/script/line-note';
 import { withoutTokens } from '@/lib/line-context';
-import { Button, Checkbox, Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
+import { Button, Checkbox, Tooltip, TooltipContent, TooltipTrigger, AiMark, StatusIcon, TagChip, type StatusLike } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
 import { ListenerPicker } from '@/components/script/listener-picker';
@@ -170,7 +170,7 @@ function PickedListener({ projectId, line }: { projectId: string; line: Line }) 
   return <ListenerPicker inline line={{ ...line, sceneNames: unit.data?.sceneNames }} cast={cast} onPick={(listener) => patch.mutate(listener)} />;
 }
 
-type LineTag = ComponentProps<typeof TagChip>['tag'] & { role?: string | null };
+type LineTag = StatusLike & { role?: string | null };
 type Line = InferResponseType<(typeof client.projects)[':projectId']['units']['$get']> extends { rows: (infer Row)[] } ? Row : never;
 
 /** One line of the list: a compact row, or the open editor when picked. */
@@ -267,7 +267,7 @@ export function LineRow({ projectId, line, newScene, selected, marked, findLabel
             <span className="min-w-0 flex-1">{line.translation && <TokenText text={line.translation} source={line.source} pattern={tokenPattern} />}</span>
             {tagRow}
             <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-              <StatusDot color={status?.color ?? '#a1a1aa'} />
+              <StatusIcon status={status} />
               {status?.name}
               <AiMark by={line.statusBy} />
             </span>
@@ -318,7 +318,7 @@ export function LineRow({ projectId, line, newScene, selected, marked, findLabel
                   </p>
                   {/* The translation's status (✦ when a run set it), and the picked line's links. */}
                   <p className="flex min-w-0 items-center gap-1 border-l px-3 pt-3.5 pb-1.5 text-xs text-muted-foreground">
-                    <StatusDot color={status?.color ?? '#a1a1aa'} />
+                    <StatusIcon status={status} />
                     <span className="truncate">{status?.name}</span>
                     <AiMark by={line.statusBy} />
                     {selected && <LineLinks projectId={projectId} unitId={line.id} hasNote={!!line.note} onNote={() => onNoting(true)} onDetail={onDetail} />}

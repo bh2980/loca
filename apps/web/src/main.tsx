@@ -7,6 +7,7 @@ import { Toaster, TooltipProvider } from '@loca/ui';
 import { setChangeListener } from '@/lib/api';
 import { refetchKeys } from '@/lib/live';
 import { routeTree } from './routeTree.gen';
+import '@loca/ui/fonts.css';
 import './index.css';
 
 const queryClient = new QueryClient({

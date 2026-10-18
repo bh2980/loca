@@ -6,8 +6,7 @@ import { toast } from 'sonner';
 import { checkFormat, listenerLabel, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatIssue, type FormatRules } from '@tw/shared';
 import { TokenChip, TokenText } from '@/components/editor/source-text';
 import { focusEndOfLine, insertUnitIntoLine, proposeInLine, replaceLineText, TranslationInput } from '@/components/editor/translation-input';
-import { AiMark, StatusDot } from '@/components/status';
-import { Button } from '@loca/ui';
+import { Button, AiMark, StatusIcon } from '@loca/ui';
 import { apiFetch } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
 import { wordDiff } from '@/lib/diff';
@@ -274,7 +273,7 @@ export function TranslationEditor({
               onClick={() => run(true)}
               title={`${dirty ? '저장하고 ' : ''}‘${next.name}’(으)로 옮기고 다음 줄 (${keyLabel('Mod+Enter')})`}
             >
-              <StatusDot color={next.color} className="size-1.5" />
+              <StatusIcon status={next} className="size-1.5" />
               <span>{next.name}</span>
             </Button>
           )}
