@@ -107,11 +107,18 @@ export const workflowEdgeSchema = z.object({
   source: z.string().min(1),
   sourceHandle: z.string().min(1),
   target: z.string().min(1),
+  /** Last ELK route, used for the rendered edge until nodes are dragged or layout is rerun. */
+  layout: z.object({
+    points: z.array(position).min(2),
+    labelPosition: position.optional(),
+  }).optional(),
 });
 
 export const workflowDefinitionSchema = z.object({
   nodes: z.array(workflowNodeSchema),
   edges: z.array(workflowEdgeSchema),
+  /** Last explicitly arranged graph direction; older saved definitions default to vertical. */
+  direction: z.enum(['vertical', 'horizontal']).optional(),
   settings: z
     .object({
       maxVisitsPerNode: z.number().int().min(1).max(50).default(5),
@@ -297,9 +304,8 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
       // An unconnected error port marks the line failed and an unconnected "out" ends it there (after
       // a side job such as adding terms); exits that choose between ways (pass/fail, true/false…)
       // must lead somewhere, so a forgotten one does not quietly end lines.
-      if (port.id === 'error' || usedPorts.has(`${node.id}:${port.id}`)) continue;
-      if (port.id === 'out' && node.type !== 'entry') warn(`'${port.label}' 출구가 연결되지 않아 대사가 여기서 끝납니다.`, { nodeId: node.id });
-      else error(`'${port.label}' 출구가 연결되지 않았습니다.`, { nodeId: node.id });
+      if (port.id === 'error' || (port.id === 'out' && node.type !== 'entry') || usedPorts.has(`${node.id}:${port.id}`)) continue;
+      error(`'${port.label}' 출구가 연결되지 않았습니다.`, { nodeId: node.id });
     }
     if (node.type === 'ai') {
       const { model, extraModels } = node.config;
@@ -406,3 +412,69 @@ export const filtersByStatus = (definition: WorkflowDefinition, scope: { ignoreS
   const entry = definition.nodes.find((node) => node.type === 'entry');
   return entry?.type === 'entry' && entry.config.statusIds.length > 0 && !scope.ignoreStatus;
 };
+
+/**
+ * Keeps the entry node and its connections to the root work node(s) in sync:
+ * - Removes any end nodes and their incident edges.
+ * - Ensures an entry node exists.
+ * - Connects entry to root work node(s) (nodes with 0 incoming edges from other work nodes,
+ *   or the first work node if all are in a cycle) when none of the existing entry edges point to a valid root.
+ * - Removes redundant entry -> node edges when a work node receives an incoming edge from another work node (unless no other root exists).
+ */
+export function syncEntryEdges(definition: WorkflowDefinition): WorkflowDefinition {
+  let nodes = definition.nodes.filter((node) => node.type !== 'end');
+
+  let entry = nodes.find((node) => node.type === 'entry');
+  if (!entry) {
+    entry = { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: { statusIds: [] } };
+    nodes = [entry, ...nodes];
+  }
+
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  let edges = definition.edges.filter((edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target));
+
+  const workNodes = nodes.filter((node) => node.type !== 'entry');
+  const workNodeIds = new Set(workNodes.map((node) => node.id));
+
+  if (workNodes.length === 0) {
+    edges = edges.filter((edge) => edge.source !== entry.id);
+    return { ...definition, nodes, edges };
+  }
+
+  const hasIncomingFromWork = new Set<string>();
+  for (const edge of edges) {
+    if (workNodeIds.has(edge.source) && workNodeIds.has(edge.target)) {
+      hasIncomingFromWork.add(edge.target);
+    }
+  }
+
+  const rootNodes = workNodes.filter((node) => !hasIncomingFromWork.has(node.id));
+  const roots = rootNodes.length > 0 ? rootNodes : [workNodes[0]];
+  const rootIdSet = new Set(roots.map((node) => node.id));
+
+  if (rootNodes.length > 0) {
+    edges = edges.filter((edge) => !(edge.source === entry.id && hasIncomingFromWork.has(edge.target)));
+  }
+
+  const currentEntryTargets = new Set(
+    edges.filter((edge) => edge.source === entry.id && edge.sourceHandle === 'out').map((edge) => edge.target),
+  );
+
+  const hasValidRootConnection = [...currentEntryTargets].some((targetId) => rootIdSet.has(targetId));
+
+  if (!hasValidRootConnection) {
+    for (const root of roots) {
+      if (!currentEntryTargets.has(root.id)) {
+        edges.push({
+          id: `e-entry-${root.id}`,
+          source: entry.id,
+          sourceHandle: 'out',
+          target: root.id,
+        });
+      }
+    }
+  }
+
+  return { ...definition, nodes, edges };
+}
+

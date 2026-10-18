@@ -3,7 +3,8 @@ import { chatTitle } from './agent.ts';
 import { checkFormat } from './format-check.ts';
 import { importFileSchema, importWarnings } from './import-format.ts';
 import { politenessOf, speechLevelOf, styleInstruction, styleNames } from './knowledge.ts';
-import { analysisTemplate, listenerTemplate, termExtractionTemplate, translationTemplate } from './defaults.ts';
+import { ANALYSIS_WORKFLOW, analysisTemplate, analysisWorkflowTemplate, listenerTemplate, termExtractionTemplate, translationTemplate } from './defaults.ts';
+import { AI_PRESETS, ANALYSIS_WORKFLOW_PRESETS, ANALYSIS_WORKFLOW_PRESET_IDS } from './presets.ts';
 import { nodePorts, readinessUses, validateWorkflow, workflowDefinitionSchema, workflowNodeSchema, type WorkflowDefinition } from './workflow.ts';
 
 const model = { connectionId: 'c', model: 'm' };
@@ -27,24 +28,15 @@ describe('workflow validation', () => {
   it('lets an exit send lines down several branches that end apart, with one changing the line', () => {
     const template = workflowDefinitionSchema.parse(translationTemplate(ids));
     const node = (id: string, config: Record<string, unknown>, type = 'function') => workflowNodeSchema.parse({ id, type, position: { x: 0, y: 0 }, config });
-    const side = [node('terms', { output: 'terms', model }, 'ai'), node('add', { fn: 'addTerms', params: { fromNodeId: 'terms' } }), node('end-terms', {}, 'end')];
+    const side = [node('terms', { output: 'terms', model }, 'ai'), node('add', { fn: 'addTerms', params: { fromNodeId: 'terms' } })];
     const sideEdges = [
       { id: 's1', source: 'review', sourceHandle: 'pass', target: 'terms' },
       { id: 's2', source: 'terms', sourceHandle: 'out', target: 'add' },
-      { id: 's3', source: 'add', sourceHandle: 'out', target: 'end-terms' },
     ];
     const ok: WorkflowDefinition = { ...template, nodes: [...template.nodes, ...side], edges: [...template.edges, ...sideEdges] };
     expect(validateWorkflow(ok, refs).filter((issue) => issue.level === 'error')).toEqual([]);
-    // Sharing the main branch's end node is fine: each copy just ends there.
-    const sharedEnd: WorkflowDefinition = { ...ok, edges: ok.edges.map((edge) => (edge.id === 's3' ? { ...edge, target: 'end' } : edge)) };
-    expect(validateWorkflow(sharedEnd, refs).filter((issue) => issue.level === 'error')).toEqual([]);
-    // Or no end at all: an unconnected "다음" just ends the copy there.
-    const open: WorkflowDefinition = { ...ok, edges: ok.edges.filter((edge) => edge.id !== 's3') };
-    const issues = validateWorkflow(open, refs);
-    expect(issues.filter((issue) => issue.level === 'error')).toEqual([]);
-    expect(issues).toContainEqual(expect.objectContaining({ level: 'warning', nodeId: 'add', message: expect.stringContaining('여기서 끝납니다') }));
     // Meeting at a node that does work: the line would be handled twice.
-    const rejoined: WorkflowDefinition = { ...ok, edges: ok.edges.map((edge) => (edge.id === 's3' ? { ...edge, target: 'confirm' } : edge)) };
+    const rejoined: WorkflowDefinition = { ...ok, edges: [...ok.edges, { id: 's3', source: 'add', sourceHandle: 'out', target: 'confirm' }] };
     expect(validateWorkflow(rejoined, refs)).toContainEqual(expect.objectContaining({ level: 'error', nodeId: 'review', message: expect.stringContaining('다시 만납니다') }));
     // Both branches setting the status.
     const twice: WorkflowDefinition = { ...ok, nodes: ok.nodes.map((n) => (n.id === 'add' ? node('add', { fn: 'setStatus', params: { statusId: 's1' } }) : n)) };
@@ -196,7 +188,7 @@ describe('templates', () => {
   it('term extraction template is valid and only adds candidates', () => {
     const definition = workflowDefinitionSchema.parse(termExtractionTemplate({ model }));
     expect(validateWorkflow(definition, refs).filter((issue) => issue.level === 'error')).toEqual([]);
-    expect(definition.nodes.map((node) => (node.type === 'function' ? node.config.fn : node.type))).toEqual(['entry', 'ai', 'addTerms', 'end']);
+    expect(definition.nodes.map((node) => (node.type === 'function' ? node.config.fn : node.type))).toEqual(['entry', 'ai', 'addTerms']);
   });
 });
 
@@ -261,6 +253,35 @@ describe('run readiness', () => {
     expect(readinessUses(analysisTemplate({ model }))).toEqual({ speech: false, glossary: false });
     expect(readinessUses(listenerTemplate({ model }))).toEqual({ speech: false, glossary: false });
     expect(readinessUses(termExtractionTemplate({ model }))).toEqual({ speech: false, glossary: false });
+  });
+});
+
+describe('analysis workflow presets', () => {
+  it('keeps the legacy default analysis workflow name', () => {
+    expect(ANALYSIS_WORKFLOW).toBe(ANALYSIS_WORKFLOW_PRESETS.all.name);
+    expect(ANALYSIS_WORKFLOW).toBe('작품 분석');
+  });
+
+  it('builds each shared starting point with the matching analysis scope', () => {
+    for (const presetId of ANALYSIS_WORKFLOW_PRESET_IDS) {
+      const preset = ANALYSIS_WORKFLOW_PRESETS[presetId];
+      const workflow = workflowDefinitionSchema.parse(analysisWorkflowTemplate({ model, presetId }));
+      const analyze = workflow.nodes.find((node) => node.id === 'analyze');
+      expect(preset.sections.length).toBeGreaterThan(0);
+      expect(analyze?.type === 'ai' && analyze.config.output).toBe('analysis');
+      expect(analyze?.type === 'ai' && analyze.config.sections).toEqual([...preset.sections]);
+    }
+  });
+
+  it('exposes a whole-script analysis node preset for the workflow canvas', () => {
+    const node = workflowNodeSchema.parse({
+      id: 'analysis',
+      type: 'ai',
+      position: { x: 0, y: 0 },
+      config: { model, output: AI_PRESETS.analysis.output, instructions: AI_PRESETS.analysis.instructions, include: AI_PRESETS.analysis.include, sections: AI_PRESETS.analysis.sections, batch: AI_PRESETS.analysis.batch },
+    });
+    expect(node.type === 'ai' && node.config.output).toBe('analysis');
+    expect(node.type === 'ai' && node.config.batch).toEqual({ mode: 'whole', size: 200, maxTokens: 300_000 });
   });
 });
 
