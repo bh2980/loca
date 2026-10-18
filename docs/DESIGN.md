@@ -594,7 +594,7 @@ ACP 도입 자체는 목표가 아니다. CLI를 고른 사용자도 대량 번�
 | graph_layouts | scope(dialogue/scene), status, 좌표·간선 경로 |
 | terms | source, target, note, aliases, status(candidate/confirmed), origin |
 | documents | kind(story/world/style/note), title, body, always_include |
-| characters / relationships | name, aliases, profile, speech(말투 특징), player / from, to, kind, description, mutual, changes(지점·변화·계기) |
+| characters / relationships | name, aliases, profile, speech(말투 특징), player, role(주연·조연·단역·모름: 이야기에서의 중심성) / from, to, kind, description, mutual, changes(지점·변화·계기) |
 | events | title, summary, cause, outcome, participants |
 | speech_rules | from_name, to_name, level(hasipsio/hao/hage/haera/haeyo/hae/other), address, note, start_key(구간 시작, 없으면 처음부터) |
 | (지식 공통) | documents·characters·relationships·events·speech_rules 모두 status(candidate/confirmed/rejected), status_by(ai/human), origin(human/ai/import), evidence(대사 키 목록), job_id. terms도 status·status_by·origin(+script)·run_id·job_id. 출처 = 내용을 만든 쪽(작품 분석 / 워크플로·채팅 / 대본에서 찾음 / 가져오기 / 사람), 상태 = 확정(문맥에 씀) / 후보(안 씀), 정한 쪽 = 지금 상태를 정한 쪽(3.5). 셋은 따로 거른다 |
