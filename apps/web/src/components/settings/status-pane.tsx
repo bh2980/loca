@@ -89,14 +89,18 @@ export function StatusPane({
       </InspectorSection>
       {status && onMove && (
         <InspectorSection title="순서">
-          <PropertyRow label={`${index + 1} / ${count}`}>
-            <Button variant="outline" size="icon" disabled={index === 0 || reordering} onClick={() => onMove(-1)} aria-label={`${status.name} 위로`}>
-              <ArrowUp />
-            </Button>
-            <Button variant="outline" size="icon" disabled={index === count - 1 || reordering} onClick={() => onMove(1)} aria-label={`${status.name} 아래로`}>
-              <ArrowDown />
-            </Button>
-          </PropertyRow>
+          <PropertyGrid>
+            <PropertyRow label={`${index + 1} / ${count}`}>
+              <div className="flex items-center gap-1">
+                <Button variant="outline" size="icon" disabled={index === 0 || reordering} onClick={() => onMove(-1)} aria-label={`${status.name} 위로`}>
+                  <ArrowUp />
+                </Button>
+                <Button variant="outline" size="icon" disabled={index === count - 1 || reordering} onClick={() => onMove(1)} aria-label={`${status.name} 아래로`}>
+                  <ArrowDown />
+                </Button>
+              </div>
+            </PropertyRow>
+          </PropertyGrid>
         </InspectorSection>
       )}
     </Inspector>

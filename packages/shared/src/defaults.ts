@@ -1,4 +1,4 @@
-import { AI_PRESETS } from './presets.ts';
+import { AI_PRESETS, analysisWorkflowPreset, type AnalysisWorkflowPresetId } from './presets.ts';
 import type { DraftModelChoice } from './model-choice.ts';
 import type { AnalysisSection } from './knowledge.ts';
 import { contextConfigSchema, type WorkflowDefinition } from './workflow.ts';
@@ -47,7 +47,6 @@ export const DEFAULT_TAG_COLOR = PALETTE[6].hex;
 export const DEFAULT_STATUSES: { key: string; name: string; color: string; kind: StatusKind; inReview: boolean }[] = [
   { key: 'untranslated', name: '미번역', color: PALETTE[0].hex, kind: 'initial', inReview: false },
   { key: 'draft', name: '초벌', color: PALETTE[8].hex, kind: 'normal', inReview: false },
-  { key: 'needs-review', name: '사람 확인 필요', color: PALETTE[3].hex, kind: 'normal', inReview: true },
   { key: 'confirmed', name: '확정', color: PALETTE[5].hex, kind: 'final', inReview: false },
 ];
 
@@ -89,7 +88,6 @@ export function translationTemplate(ids: {
       { id: 'check', type: 'function', position: at(3, 1), label: '형식 검사', config: { fn: 'formatCheck', params: { placeholders: true, tags: true, newlines: true, emptyText: true } } },
       { id: 'review', type: 'ai', position: at(4, 1), label: 'AI 검수', config: ai('review') },
       { id: 'confirm', type: 'function', position: at(5, 1), label: '확정으로', config: status(ids.confirmed) },
-      { id: 'end', type: 'end', position: at(6, 1), config: {} },
       {
         id: 'retry',
         type: 'condition',
@@ -99,7 +97,6 @@ export function translationTemplate(ids: {
       },
       { id: 'revise', type: 'ai', position: at(3, 3), label: 'AI 수정', config: ai('revise') },
       { id: 'escalate', type: 'function', position: at(5, 3), label: '사람 확인 필요로', config: status(ids.needsReview) },
-      { id: 'end-review', type: 'end', position: at(6, 3), label: '검토함으로', config: {} },
     ],
     edges: [
       { id: 'e1', source: 'entry', sourceHandle: 'out', target: 'translate' },
@@ -109,11 +106,46 @@ export function translationTemplate(ids: {
       { id: 'e5', source: 'check', sourceHandle: 'fail', target: 'retry' },
       { id: 'e6', source: 'review', sourceHandle: 'pass', target: 'confirm' },
       { id: 'e7', source: 'review', sourceHandle: 'fail', target: 'retry' },
-      { id: 'e8', source: 'confirm', sourceHandle: 'out', target: 'end' },
       { id: 'e9', source: 'retry', sourceHandle: 'true', target: 'revise' },
       { id: 'e10', source: 'retry', sourceHandle: 'false', target: 'escalate' },
       { id: 'e11', source: 'revise', sourceHandle: 'out', target: 'check' },
-      { id: 'e12', source: 'escalate', sourceHandle: 'out', target: 'end-review' },
+    ],
+  };
+}
+
+/**
+ * A simple draft translation workflow:
+ * untranslated → AI translate → format check → draft.
+ */
+export function draftTranslationTemplate(ids: {
+  model: DraftModelChoice;
+  untranslated: string;
+  draft: string;
+}): WorkflowDefinition {
+  const ai = (preset: keyof typeof AI_PRESETS) => ({
+    model: ids.model,
+    extraModels: [],
+    instructions: AI_PRESETS[preset].instructions,
+    output: AI_PRESETS[preset].output,
+    fields: [],
+    include: AI_PRESETS[preset].include,
+    context: contextConfigSchema.parse({}),
+    batch: { mode: 'group' as const, size: 60, maxTokens: 6_000 },
+  });
+  const status = (statusId: string) => ({ fn: 'setStatus', params: { statusId, addTagIds: [], removeTagIds: [] } });
+  const at = (column: number, row: number) => ({ x: (row - 1) * 280, y: column * 120 });
+  return {
+    settings: { maxVisitsPerNode: 5, concurrency: 2, maxConsecutiveFailures: 3 },
+    nodes: [
+      { id: 'entry', type: 'entry', position: at(0, 1), config: { statusIds: [ids.untranslated] } },
+      { id: 'translate', type: 'ai', position: at(1, 1), label: 'AI 번역', config: ai('translate') },
+      { id: 'check', type: 'function', position: at(2, 1), label: '형식 검사', config: { fn: 'formatCheck', params: { placeholders: true, tags: true, newlines: true, emptyText: true } } },
+      { id: 'draft', type: 'function', position: at(3, 1), label: '초벌로', config: status(ids.draft) },
+    ],
+    edges: [
+      { id: 'e1', source: 'entry', sourceHandle: 'out', target: 'translate' },
+      { id: 'e2', source: 'translate', sourceHandle: 'out', target: 'check' },
+      { id: 'e3', source: 'check', sourceHandle: 'pass', target: 'draft' },
     ],
   };
 }
@@ -145,13 +177,9 @@ export function termExtractionTemplate(ids: { model: DraftModelChoice }): Workfl
           batch: { mode: 'group', size: 60, maxTokens: 6_000 },
         },
       },
-      { id: 'add', type: 'function', position: { x: 0, y: 240 }, label: '용어 후보 추가', config: { fn: 'addTerms', params: { fromNodeId: 'terms' } } },
-      { id: 'end', type: 'end', position: { x: 0, y: 360 }, config: {} },
     ],
     edges: [
       { id: 'e1', source: 'entry', sourceHandle: 'out', target: 'terms' },
-      { id: 'e2', source: 'terms', sourceHandle: 'out', target: 'add' },
-      { id: 'e3', source: 'add', sourceHandle: 'out', target: 'end' },
     ],
   };
 }
@@ -191,15 +219,10 @@ export function listenerTemplate(ids: { model: DraftModelChoice }): WorkflowDefi
           batch: { mode: 'group', size: 80, maxTokens: 6_000 },
         },
       },
-      { id: 'record', type: 'function', position: { x: 0, y: 360 }, label: '청자 기록', config: { fn: 'setListener', params: { fromNodeId: 'listener' } } },
-      { id: 'end', type: 'end', position: { x: 0, y: 480 }, config: {} },
     ],
     edges: [
       { id: 'e1', source: 'entry', sourceHandle: 'out', target: 'needs' },
-      { id: 'e2', source: 'needs', sourceHandle: 'true', target: 'end' },
       { id: 'e3', source: 'needs', sourceHandle: 'false', target: 'listener' },
-      { id: 'e4', source: 'listener', sourceHandle: 'out', target: 'record' },
-      { id: 'e5', source: 'record', sourceHandle: 'out', target: 'end' },
     ],
   };
 }
@@ -230,11 +253,9 @@ export function speechFixTemplate(ids: { model: DraftModelChoice }): WorkflowDef
           batch: { mode: 'group', size: 40, maxTokens: 6_000 },
         },
       },
-      { id: 'end', type: 'end', position: { x: 0, y: 360 }, config: {} },
     ],
     edges: [
       { id: 'e1', source: 'entry', sourceHandle: 'out', target: 'fit' },
-      { id: 'e2', source: 'fit', sourceHandle: 'out', target: 'end' },
     ],
   };
 }
@@ -268,26 +289,22 @@ export function knowledgeTemplate(ids: { model: DraftModelChoice }): WorkflowDef
           batch: { mode: 'group', size: 120, maxTokens: 6_000 },
         },
       },
-      { id: 'apply', type: 'function', position: { x: 0, y: 240 }, label: '자료 반영', config: { fn: 'applyKnowledge', params: { fromNodeId: 'find' } } },
-      { id: 'end', type: 'end', position: { x: 0, y: 360 }, config: {} },
     ],
     edges: [
       { id: 'e1', source: 'entry', sourceHandle: 'out', target: 'find' },
-      { id: 'e2', source: 'find', sourceHandle: 'out', target: 'apply' },
-      { id: 'e3', source: 'apply', sourceHandle: 'out', target: 'end' },
     ],
   };
 }
 
 /** The workflow behind the 작품 분석 button (created on first use when a project has none). */
-export const ANALYSIS_WORKFLOW = '작품 분석';
-export const ANALYSIS_WORKFLOW_DESCRIPTION = 'AI가 대본 전체를 한 번에 읽고 개요·인물·관계·사건·말투 규칙·장면별 청자 초안과 용어 후보를 근거와 함께 만듭니다. 번역과 상태는 바꾸지 않습니다. 읽을 항목은 AI 노드에서 고릅니다.';
+export const ANALYSIS_WORKFLOW = analysisWorkflowPreset('all').name;
+export const ANALYSIS_WORKFLOW_DESCRIPTION = analysisWorkflowPreset('all').description;
 
 /**
  * Work analysis (#47): a long-context model reads the whole script (one request up to 300k tokens,
- * split at scene boundaries beyond that) and drafts the chosen sections, which `saveAnalysis` stores
+ * split at scene boundaries beyond that) and drafts the chosen sections, storing them
  * with their evidence lines. Reading everything at once was found as accurate as reading in parts and
- * five times cheaper. Translations and statuses are untouched; how drafts land is AI › 사용 방식.
+ * five times cheaper. Translations and statuses are untouched; how drafts land is AI 결과 반영.
  */
 export function analysisTemplate(ids: { model: DraftModelChoice; sections?: AnalysisSection[] }): WorkflowDefinition {
   return {
@@ -312,13 +329,14 @@ export function analysisTemplate(ids: { model: DraftModelChoice; sections?: Anal
           batch: { mode: 'whole', size: 200, maxTokens: 300_000 },
         },
       },
-      { id: 'save', type: 'function', position: { x: 0, y: 240 }, label: '분석 반영', config: { fn: 'saveAnalysis', params: { fromNodeId: 'analyze' } } },
-      { id: 'end', type: 'end', position: { x: 0, y: 360 }, config: {} },
     ],
     edges: [
       { id: 'e1', source: 'entry', sourceHandle: 'out', target: 'analyze' },
-      { id: 'e2', source: 'analyze', sourceHandle: 'out', target: 'save' },
-      { id: 'e3', source: 'save', sourceHandle: 'out', target: 'end' },
     ],
   };
+}
+
+/** Create a named single-purpose or full analysis workflow from the shared preset registry. */
+export function analysisWorkflowTemplate(ids: { model: DraftModelChoice; presetId: AnalysisWorkflowPresetId }): WorkflowDefinition {
+  return analysisTemplate({ model: ids.model, sections: [...analysisWorkflowPreset(ids.presetId).sections] });
 }

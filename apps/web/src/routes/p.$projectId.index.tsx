@@ -1,6 +1,6 @@
 import { cloneElement, type ReactElement, type ReactNode } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
+import { useQueries, useQuery } from '@tanstack/react-query';
 import { BookMarked, ChevronRight, CircleAlert, Inbox, MessageSquareQuote, Sparkles, UserRoundSearch, Workflow } from 'lucide-react';
 import { GettingStarted } from '@/components/getting-started';
 import { JobStatusBadge, Button, Skeleton, StatusBar, StatusIcon } from '@loca/ui';
@@ -11,10 +11,13 @@ import { q, useReviewTagId } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { dateTime } from '@/lib/datetime';
 import { useProgress } from '@/lib/use-progress';
+import { SCRIPT_VIEW } from '@/lib/labels';
 
 export const Route = createFileRoute('/p/$projectId/')({ component: Home });
 
 const JOB_KIND = { run: '워크플로', analysis: '작품 분석', terms: '용어집' } as const;
+const SCRIPT_KINDS = ['scene', 'ui', 'document'] as const;
+const LINE_KIND_LABEL = { scene: '대사', ui: 'UI 문자열', document: '문서' } as const;
 
 interface Todo {
   key: string;
@@ -37,6 +40,7 @@ function Home() {
   const project = useQuery(q.project(projectId));
   const progress = useProgress(projectId);
   const groups = useQuery(q.groups(projectId));
+  const aiLineCounts = useQueries({ queries: SCRIPT_KINDS.map((kind) => q.units(projectId, { kind, marks: 'ai', limit: 1 })) });
   const rules = useQuery(q.speechRules(projectId));
   const reviewTag = useReviewTagId(projectId);
   const terms = useQuery(q.terms(projectId));
@@ -47,6 +51,12 @@ function Home() {
 
   const { counts, total, done, statuses: statusList } = progress;
   const initial = statusList.find((status) => status.kind === 'initial');
+  const kindProgress = SCRIPT_KINDS.map((kind) => {
+    const kindGroups = (groups.data ?? []).filter((group) => group.kind === kind);
+    const statusCounts = Object.fromEntries(statusList.map((status) => [status.id, kindGroups.reduce((sum, group) => sum + (group.statuses[status.id] ?? 0), 0)]));
+    return { kind, groups: kindGroups.length, lines: kindGroups.reduce((sum, group) => sum + group.total, 0), statusCounts };
+  }).filter((row) => row.groups > 0);
+  const aiLinesByKind = SCRIPT_KINDS.map((kind, index) => ({ kind, count: aiLineCounts[index]?.data?.total ?? 0 }));
   const aiDecided = project.data?.aiDecided;
   const stopped = runs.data?.filter((run) => run.status === 'paused') ?? [];
   const recent = [
@@ -91,15 +101,15 @@ function Home() {
       count: rules.data?.filter((rule) => rule.tags.some((tag) => tag.id === reviewTag)).length ?? 0,
       link: <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', ...(reviewTag && { tags: [reviewTag] }) }} />,
     },
-    // What AI decided and nobody has looked at (✦, docs/DESIGN.md 3.5): each count is the #AI가 정함 mark of what its link opens.
-    {
-      key: 'ai-lines',
+    // The script opens one kind at a time, so these marks use the same per-kind rows as status progress.
+    ...aiLinesByKind.map(({ kind, count }) => ({
+      key: `ai-lines-${kind}`,
       icon: <Sparkles />,
-      title: `${AUTO_MARKS.ai.name} 대사`,
+      title: `${AUTO_MARKS.ai.name} ${LINE_KIND_LABEL[kind]}`,
       description: '워크플로가 상태를 정하고 아직 사람이 확인하지 않은 줄.',
-      count: aiDecided?.lines ?? 0,
-      link: <Link to="/p/$projectId/script" params={{ projectId }} search={{ marks: ['ai'] }} />,
-    },
+      count,
+      link: <Link to="/p/$projectId/script" params={{ projectId }} search={{ kind, marks: ['ai'] }} />,
+    })),
     ...(
       [
         ['documents', '문서', { tab: 'documents' }],
@@ -131,16 +141,16 @@ function Home() {
       count: terms.data?.filter((term) => termMarksOf(term).includes('candidate')).length ?? 0,
       link: <Link to="/p/$projectId/glossary" params={{ projectId }} search={{ marks: ['candidate'] }} />,
     },
-    {
-      key: 'untranslated',
+    ...kindProgress.map(({ kind, statusCounts }) => ({
+      key: `untranslated-${kind}`,
       icon: <Workflow />,
-      title: `${initial?.name ?? '미번역'} 대사`,
-      description: '워크플로로 번역을 시작하세요. 대사 화면에서 묶음이나 대사를 골라 실행합니다.',
-      count: initial ? (counts[initial.id] ?? 0) : 0,
-      link: <Link to="/p/$projectId/script" params={{ projectId }} search={{ status: initial?.id }} />,
-    },
+      title: `${initial?.name ?? '미번역'} ${LINE_KIND_LABEL[kind]}`,
+      description: `${SCRIPT_VIEW[kind]}에서 번역할 줄을 찾아갑니다.`,
+      count: initial ? statusCounts[initial.id] ?? 0 : 0,
+      link: <Link to="/p/$projectId/script" params={{ projectId }} search={{ kind, status: initial?.id, mode: 'find' }} />,
+    })),
   ];
-  const loading = !project.data || !runs.data || !groups.data || !rules.data || !terms.data;
+  const loading = !project.data || !runs.data || !groups.data || !rules.data || !terms.data || aiLineCounts.some((query) => !query.data);
   const open = todos.filter((todo) => todo.count > 0);
 
   return (
@@ -174,14 +184,21 @@ function Home() {
           </span>
         </div>
         <StatusBar statuses={statusList} counts={counts} className="h-1.5" />
-        <ul className="mt-3 flex flex-wrap gap-x-1 gap-y-1">
-          {statusList.map((status) => (
-            <li key={status.id}>
-              <Link to="/p/$projectId/script" params={{ projectId }} search={{ status: status.id }} className="flex items-center gap-1.5 rounded-xs px-2 py-1 text-xs hover:bg-muted transition-colors">
-                <StatusIcon status={status} />
-                {status.name}
-                <span className="text-muted-foreground tabular-nums">{(counts[status.id] ?? 0).toLocaleString()}</span>
-              </Link>
+        <ul className="mt-3 space-y-2">
+          {kindProgress.map(({ kind, statusCounts, lines }) => (
+            <li key={kind} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="min-w-16 text-xs text-muted-foreground">{SCRIPT_VIEW[kind]} · {lines.toLocaleString()}줄</span>
+              <ul className="flex flex-wrap gap-x-1 gap-y-1">
+                {statusList.map((status) => (
+                  <li key={status.id}>
+                    <Link to="/p/$projectId/script" params={{ projectId }} search={{ kind, status: status.id, mode: 'find' }} className="flex items-center gap-1.5 rounded-xs px-2 py-1 text-xs hover:bg-muted transition-colors">
+                      <StatusIcon status={status} />
+                      {status.name}
+                      <span className="text-muted-foreground tabular-nums">{(statusCounts[status.id] ?? 0).toLocaleString()}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
             </li>
           ))}
         </ul>

@@ -1,17 +1,17 @@
 /** Detail panes for a glossary term: edit one, or add a new one. */
 import { useState } from 'react';
 import { Link } from '@tanstack/react-router';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Play, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { Inspector, InspectorHeader, InspectorSection, DirtyBar, DangerZone, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Label, Textarea } from '@loca/ui';
+import { Inspector, InspectorHeader, InspectorSection, PropertyGrid, PropertyRow, TagListEditor, DirtyBar, DangerZone, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Label, Textarea } from '@loca/ui';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { confirmLabel, SourceBadge, StateCell, type ItemTag } from '@/components/knowledge/table';
-import { isSettled, type KnowledgeOrigin, type KnowledgeStatus, type StatusBy } from '@tw/shared';
+import { isSettled, PALETTE, TAG_SCOPES, type KnowledgeOrigin, type KnowledgeStatus, type StatusBy } from '@tw/shared';
 import { client, unwrap } from '@/lib/api';
 import { changedFields, useFormFrom } from '@/lib/use-form-from';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
-import { q } from '@/lib/queries';
+import { q, tagsIn } from '@/lib/queries';
 
 export interface Term {
   id: string;
@@ -63,9 +63,9 @@ export function NewTermPane({ projectId, onClose, onCreated }: { projectId: stri
   });
   return (
     <Inspector header={<InspectorHeader kind="용어" name="새 용어" onClose={onClose} />} footer={
-        <div className="flex justify-end border-t p-3"><Button disabled={!form.source.trim() || create.isPending} onClick={() => create.mutate()}>
+        <Button disabled={!form.source.trim() || create.isPending} onClick={() => create.mutate()}>
           <Plus /> 추가
-        </Button></div>
+        </Button>
       }>
       <InspectorSection title="용어"><TermFields form={form} onChange={setForm} /></InspectorSection>
     </Inspector>
@@ -95,6 +95,40 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
   });
 
   const usage = useQuery(q.termUsage(projectId, term.id));
+  const queryClient = useQueryClient();
+  const statuses = useQuery(q.statuses(projectId));
+  const termTags = tagsIn(statuses.data?.tags, 'terms');
+  const attachedTags = (term.tags ?? [])
+    .map((item) => statuses.data?.tags?.find((t) => t.id === item.id))
+    .filter(Boolean) as (Parameters<typeof TagListEditor>[0]['tags'][number])[];
+
+  const tagMutation = useMutation({
+    mutationFn: async ({ tagId, add }: { tagId: string; add: boolean }) => {
+      await unwrap(client.projects[':projectId']['knowledge-tags'].$post({
+        param: { projectId },
+        json: { kind: 'terms', ids: [term.id], tagId, add },
+      }));
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: q.terms(projectId).queryKey });
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  const handleCreateTag = async (name: string) => {
+    try {
+      const color = (PALETTE[termTags.length % PALETTE.length] as any).light ?? PALETTE[termTags.length % PALETTE.length].hex;
+      const created = await unwrap(client.projects[':projectId'].tags.$post({
+        param: { projectId },
+        json: { name, color, scope: [...TAG_SCOPES] },
+      }));
+      await tagMutation.mutateAsync({ tagId: created.id, add: true });
+      queryClient.invalidateQueries({ queryKey: ['statuses', projectId] });
+      toast.success(`'${name}' 태그를 만들고 용어에 붙였습니다.`);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : '태그를 만들지 못했습니다.');
+    }
+  };
 
   return (
     <Inspector
@@ -105,10 +139,25 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
           {term.status === 'candidate' ? <span>후보 · 아직 문맥에 쓰이지 않음</span> : <StateCell row={{ ...term, evidence: [] }} />}
         </span>
       } onClose={onClose} />}
-      footer={dirty ? <DirtyBar dirtyCount={Object.keys(changedFields(form, saved)).length} onRevert={takeSaved} onSave={() => save.mutate()} saving={save.isPending} disabled={!form.source.trim()} /> : (candidate ? <div className="flex justify-end border-t p-3"><Button variant="outline" disabled={deciding || !term.target.trim()} onClick={() => onDecide(true)}><Check /> {confirmLabel([{ ...term, evidence: [] }])}</Button></div> : null)}
+      footer={dirty ? <DirtyBar dirtyCount={Object.keys(changedFields(form, saved)).length} onRevert={takeSaved} onSave={() => save.mutate()} saving={save.isPending} disabled={!form.source.trim()} /> : (candidate ? <Button variant="outline" disabled={deciding || !term.target.trim()} onClick={() => onDecide(true)}><Check /> {confirmLabel([{ ...term, evidence: [] }])}</Button> : null)}
     >
       {conflicts.length > 0 && <ChangedElsewhere fields={conflicts.map((field) => TERM_FIELD_LABEL[field as keyof typeof TERM_FIELD_LABEL])} onTakeSaved={takeSaved} onKeepMine={keepMine} />}
-      <InspectorSection title="용어"><TermFields form={form} onChange={setForm} /></InspectorSection>
+      <InspectorSection title="용어 정보">
+        <TermFields form={form} onChange={setForm} />
+      </InspectorSection>
+      <InspectorSection title="태그">
+        <PropertyGrid>
+          <PropertyRow label="태그">
+            <TagListEditor
+              tags={attachedTags}
+              allTags={termTags}
+              onToggle={(tagId, add) => tagMutation.mutate({ tagId, add })}
+              onCreate={handleCreateTag}
+              heading="용어 태그"
+            />
+          </PropertyRow>
+        </PropertyGrid>
+      </InspectorSection>
       {candidate && <div className="flex justify-end"><Button variant="outline" disabled={deciding || dirty || !term.target.trim()} title={term.target.trim() ? (dirty ? '먼저 저장하세요.' : undefined) : '번역을 채운 뒤 확정할 수 있습니다.'} onClick={() => onDecide(true)}><Check /> {confirmLabel([{ ...term, evidence: [] }])}</Button></div>}
       <InspectorSection
         title={`이 용어가 나오는 대사 ${usage.data?.count ?? '…'}개`}

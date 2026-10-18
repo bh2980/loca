@@ -9,7 +9,7 @@ const tokens = (value: number) => `약 ${value.toLocaleString()}`;
 
 /** What went into an AI call besides the lines: grouped in fill order, dropped items struck through. */
 export function ContextItemList({ items, budget }: { items: ContextItem[]; budget?: { limit: number; used: number } }) {
-  if (!items.length) return <p className="text-xs text-muted-foreground">대사 말고 넣은 문맥이 없습니다.</p>;
+  if (!items.length) return <p className="text-xs text-muted-foreground">현재 줄 외에 따로 넣은 문맥이 없습니다.</p>;
   const dropped = items.filter((item) => !item.included);
   return (
     <div className="space-y-3">
@@ -75,7 +75,7 @@ function Lines({ lines }: { lines: PrecedingLine[] }) {
  * The line panel's "AI 문맥" tab: what the chosen AI node would send for this line, built the way
  * a run builds it, without calling a model.
  */
-export function AiContextPanel({ projectId, unitKey, aiNode, onAiNode }: { projectId: string; unitKey: string; aiNode?: string; onAiNode: (value: string) => void }) {
+export function AiContextPanel({ projectId, unitKey, unitKind = 'dialogue', aiNode, onAiNode }: { projectId: string; unitKey: string; unitKind?: 'dialogue' | 'document' | 'ui'; aiNode?: string; onAiNode: (value: string) => void }) {
   const [workflowId, nodeId] = aiNode?.split(':') ?? [];
   const preview = useQuery({
     // Context is read from lines, knowledge, glossary and workflows; it refetches with line changes and on open.
@@ -93,6 +93,8 @@ export function AiContextPanel({ projectId, unitKey, aiNode, onAiNode }: { proje
   if (!data.picked) return <p className="text-sm text-muted-foreground">AI 노드가 있는 워크플로가 없습니다.</p>;
   const value = `${data.picked.workflowId}:${data.picked.nodeId}`;
   const inBatch = data.batch.keys.length;
+  const currentUnitName = unitKind === 'ui' ? '이 문자열' : unitKind === 'document' ? '이 문서 원문' : '이 대사';
+  const batchName = unitKind === 'dialogue' ? '장면' : '묶음';
   return (
     <div className="space-y-4">
       <div className="space-y-1.5">
@@ -109,13 +111,13 @@ export function AiContextPanel({ projectId, unitKey, aiNode, onAiNode }: { proje
           </SelectContent>
         </Select>
         <p className="text-xs text-muted-foreground">
-          모델을 부르지 않고, 실행할 때와 같은 방식으로 만든 문맥입니다. 이 대사가 속한 장면에서 {inBatch}줄을 한 번에 보낸다고 보고 계산했습니다
+          모델을 부르지 않고, 실행할 때와 같은 방식으로 만든 문맥입니다. {currentUnitName}이 속한 {batchName}에서 {inBatch}줄을 한 번에 보낸다고 보고 계산했습니다
           {data.batch.mode === 'count' ? '(‘개수’ 묶음은 실제로는 장면을 넘을 수 있음)' : ''}. 실행 범위와 진입 상태에 따라 묶음이 더 작을 수 있습니다. 프롬프트 전체 {tokens(data.promptTokens)} 토큰(추정).
         </p>
       </div>
 
       <section>
-        <h3 className="mb-1.5 text-xs font-medium text-muted-foreground">이 대사의 앞 대사</h3>
+        <h3 className="mb-1.5 text-xs font-medium text-muted-foreground">이 줄보다 앞서 포함된 대사</h3>
         {!data.preceding ? (
           <p className="text-xs text-muted-foreground">
             {data.precedingLines === 0 ? '이 노드는 앞 대사를 넣지 않도록 설정되어 있습니다.' : '따로 넣지 않습니다. 앞 대사가 같은 묶음 안에 있거나, 묶음의 더 앞 대사에 이미 붙었습니다.'}

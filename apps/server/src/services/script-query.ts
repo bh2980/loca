@@ -14,7 +14,7 @@ import { describeRule, knowledgeOf, knownListener, speechMismatch, speechRuleInd
 /**
  * Reading and batch-changing the script, shared by the CLI routes and the chat's tools so both
  * see the same lines, the same checks and the same conflict rules. A line's `rev` is its
- * updatedAt in ms: every write through drizzle bumps it.
+ * updatedAt in ms, monotonically increased for every write through drizzle.
  */
 
 type Unit = typeof s.units.$inferSelect;

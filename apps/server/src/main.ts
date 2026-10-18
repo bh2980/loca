@@ -2,7 +2,7 @@ import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
-import { eq } from 'drizzle-orm';
+import { and, eq, notLike } from 'drizzle-orm';
 import { agentShellApp, createApp } from './app.ts';
 import { setAgentShellUrl } from './services/cli-chat.ts';
 import { config } from './config.ts';
@@ -16,7 +16,7 @@ import { closeInterruptedProposals } from './services/proposals.ts';
 import { computeLayouts, projectsMissingSections, projectsWithOldLayouts, projectsWithoutLayouts } from './services/layout.ts';
 import { keyringStore, memoryStore } from './services/secrets.ts';
 import { fillDefaultModels } from './services/routes.ts';
-import { migrateApplyCandidate } from './services/workflow-migrations.ts';
+import { migrateApplyCandidate, migrateDefaultWorkflows } from './services/workflow-migrations.ts';
 
 // A stray rejected promise (a client that vanished, a failed background job) must not take the server down.
 process.on('unhandledRejection', (reason) => console.error('unhandled rejection', reason));
@@ -38,17 +38,20 @@ db.update(s.analysisJobs).set({ status: 'failed', error: '서버가 다시 시�
 fillDefaultModels(db);
 // Workflows saved before #42 drop the status node's "apply candidate"; translations now write on the spot.
 migrateApplyCandidate(db);
+migrateDefaultWorkflows(db);
 // Terms counted as used nowhere are counted again (speaker names were once missed); fillTermUsage counts lines that are null.
 db.update(s.terms).set({ lines: null }).where(eq(s.terms.lines, 0)).run();
 const runner = new Runner(db, secrets);
 runner.start();
 
-// Layouts interrupted by a restart are recomputed.
-for (const layout of db.select().from(s.graphLayouts).where(eq(s.graphLayouts.status, 'pending')).all()) void computeLayouts(db, layout.projectId);
+// Layouts interrupted by a restart are recomputed in their stored direction.
+const pendingDirections = Map.groupBy(db.select().from(s.graphLayouts).where(and(eq(s.graphLayouts.status, 'pending'), notLike(s.graphLayouts.section, 'view:%'))).all(), (layout) => layout.projectId);
+for (const [projectId, layouts] of pendingDirections) for (const direction of new Set(layouts.map((layout) => layout.direction))) void computeLayouts(db, projectId, { direction });
 // Section layouts came later: projects laid out before get them once, without redoing the rest.
 // Layouts made the old way are made again (whole and per section).
-const outdated = new Set(projectsWithOldLayouts(db));
-for (const projectId of outdated) void computeLayouts(db, projectId);
+const oldLayouts = projectsWithOldLayouts(db);
+const outdated = new Set(oldLayouts.map((layout) => layout.projectId));
+for (const layout of oldLayouts) void computeLayouts(db, layout.projectId, { direction: layout.direction });
 // Projects that never got a layout (imported outside the import route) get one now.
 for (const projectId of projectsWithoutLayouts(db)) if (!outdated.has(projectId)) void computeLayouts(db, projectId);
 for (const projectId of projectsMissingSections(db)) if (!outdated.has(projectId)) void computeLayouts(db, projectId, { sectionsOnly: true });

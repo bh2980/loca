@@ -31,6 +31,8 @@ export type Topic =
  * - calls → runs: the jobs list (keyed 'runs') shows call counts read from ai_calls.
  */
 const IMPLIES: Partial<Record<Topic, Topic[]>> = {
+  // Reading routes read source connections and unit text, under the units query family.
+  graph: ['units'],
   knowledge: ['units'],
   terms: ['units'],
   workflows: ['units'],

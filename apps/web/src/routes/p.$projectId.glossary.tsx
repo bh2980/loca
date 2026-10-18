@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, CircleStop, ScanSearch, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
-import { DataTable, type ColumnDef, EmptyState, TagMenu, SplitPane, FilterChips, SearchInput, FilterBar, ActionBar, type FilterChip, Button, TagChip, StatusBarItem, useRevealDock, ContextMenuItem, ContextMenuSeparator, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@loca/ui';
+import { DataTable, type ColumnDef, EmptyState, TagMenu, SplitPane, FilterChips, SearchInput, FilterBar, ActionBar, type FilterChip, Button, TagChip, StatusBarItem, useRevealDock, ContextMenuItem, ContextMenuSeparator, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Spinner } from '@loca/ui';
 import { HeaderFilter, MarkFilter, markTagGroups } from '@/components/header-filter';
 import { MarkChip } from '@/components/status';
 import { FillDialog } from '@/components/glossary/fill-dialog';
@@ -136,7 +136,7 @@ function Glossary() {
   });
 
   // Picked undecided terms: a candidate without a Korean form cannot be confirmed (it would put an empty target in every prompt).
-  const pickedTerms = rows.filter((term) => picked.has(term.id));
+  const pickedTerms = useMemo(() => rows.filter((term) => picked.has(term.id)), [rows, picked]);
   const promotable = pickedTerms.filter((term) => !isSettled(term) && term.target.trim());
   const discardable = pickedTerms.filter((term) => !isSettled(term));
   const afterBulk = { onSuccess: clearPicked };
@@ -204,9 +204,31 @@ function Glossary() {
         <HeaderActions>
           <Button onClick={() => select(NEW_TERM)}><Plus /> 용어</Button>
           <ActionBar aria-label="용어집 동작" items={[
-            { id: 'discover', label: '대본에서 찾기', icon: <ScanSearch />, disabled: discover.isPending, onSelect: () => discover.mutate() },
-            ...(fill?.running ? [{ id: 'cancel-fill', label: '채우기 중단', icon: <CircleStop />, disabled: cancelFill.isPending, onSelect: () => cancelFill.mutate() }] : []),
-            ...(!fill?.running && suggest.data?.pending ? [{ id: 'fill', label: '빈 번역 AI로 채우기', icon: <Sparkles />, onSelect: () => setFillOpen(true) }] : []),
+            {
+              id: 'discover',
+              label: '대본에서 찾기',
+              icon: discover.isPending ? <Spinner className="size-3.5" /> : <ScanSearch />,
+              disabled: discover.isPending,
+              priority: 10,
+              overflow: 'never',
+              onSelect: () => discover.mutate(),
+            },
+            ...(fill?.running ? [{
+              id: 'cancel-fill',
+              label: '채우기 중단',
+              icon: cancelFill.isPending ? <Spinner className="size-3.5" /> : <CircleStop />,
+              disabled: cancelFill.isPending,
+              priority: 8,
+              overflow: 'never' as const,
+              onSelect: () => cancelFill.mutate(),
+            }] : []),
+            ...(!fill?.running && suggest.data?.pending ? [{
+              id: 'fill',
+              label: `빈 번역 AI로 채우기 (${suggest.data.pending}개)`,
+              icon: <Sparkles />,
+              priority: 5,
+              onSelect: () => setFillOpen(true),
+            }] : []),
           ]} />
         </HeaderActions>
         {!!suggest.data?.pending && !fill?.running && <FillDialog projectId={projectId} pending={suggest.data.pending} calls={suggest.data.calls} batch={suggest.data.batch} hideTrigger open={fillOpen} onOpenChange={setFillOpen} />}

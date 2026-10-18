@@ -1,14 +1,13 @@
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, notInArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { agentSettingsSchema, aiConfirmSchema, editorAiSchema, formatRulesSchema, importFileSchema, importWarnings, markColorsSchema, patchOf, TAG_SCOPES, TAG_SCOPE_LABELS, summarizeImport } from '@tw/shared';
+import { agentSettingsSchema, aiConfirmSchema, detectFormatRules, editorAiSchema, formatRulesSchema, importFileSchema, importWarnings, markColorsSchema, patchOf, summarizeImport } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { forgetProjectContext } from '../services/context.ts';
 import { markConditions } from '../services/line-marks.ts';
-import { projectTags, tagUseIn } from '../services/tag-scope.ts';
-import { deleteItems } from '../services/item-delete.ts';
+import { createStatus, createTag, deleteStatus, deleteTag, projectTags, TaxonomyMutationError, updateStatus, updateTag } from '../services/project-taxonomy.ts';
 import { projectSettingsInput, updateProjectSettings } from '../services/project-settings.ts';
 import { importProject } from '../services/importer.ts';
 import type { DecidedTable } from '../services/status-by.ts';
@@ -81,6 +80,20 @@ export const projectRoutes = new Hono<Env>()
     };
     return c.json({ ...project, aiConfirm: aiConfirmSchema.parse(project.aiConfirm), editorAi: editorAiSchema.parse(project.editorAi), editorCallsToday: editorCallsToday(db, projectId), byStatus, groupCount, reviewCount, aiDecided });
   })
+  .get('/:projectId/detect-format-rules', (c) => {
+    const { db } = c.var.deps;
+    const projectId = c.req.param('projectId');
+    found(db.select({ id: s.projects.id }).from(s.projects).where(eq(s.projects.id, projectId)).get(), '프로젝트');
+    const rows = db.select({ source: s.units.source }).from(s.units).where(eq(s.units.projectId, projectId)).all();
+    return c.json(detectFormatRules(rows.map((r) => r.source)));
+  })
+  .get('/projects/:projectId/detect-format-rules', (c) => {
+    const { db } = c.var.deps;
+    const projectId = c.req.param('projectId');
+    found(db.select({ id: s.projects.id }).from(s.projects).where(eq(s.projects.id, projectId)).get(), '프로젝트');
+    const rows = db.select({ source: s.units.source }).from(s.units).where(eq(s.units.projectId, projectId)).all();
+    return c.json(detectFormatRules(rows.map((r) => r.source)));
+  })
   .patch('/:projectId', validate('json', projectSettingsInput.extend({ agentSettings: agentSettingsSchema.optional() })), (c) => {
     found(updateProjectSettings(c.var.deps.db, c.req.param('projectId'), c.req.valid('json')) ?? undefined, '프로젝트');
     return c.json({ ok: true });
@@ -134,18 +147,18 @@ export const projectRoutes = new Hono<Env>()
     return c.json({ statuses, tags: projectTags(db, projectId) });
   })
   .post('/:projectId/statuses', validate('json', statusInput), (c) => {
-    const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
-    const sort = db.select({ max: sql<number>`coalesce(max(${s.statuses.sort}), -1)` }).from(s.statuses).where(eq(s.statuses.projectId, projectId)).get()!.max + 1;
-    const row = db.insert(s.statuses).values({ ...c.req.valid('json'), projectId, sort }).returning().get();
-    events.changed(projectId, 'statuses');
+    const row = createStatus(c.var.deps.db, projectId, c.req.valid('json'));
     return c.json(row, 201);
   })
   .patch('/:projectId/statuses/:id', validate('json', patchOf(statusInput)), (c) => {
-    const { db } = c.var.deps;
-    const projectId = c.req.param('projectId');
-    found(db.update(s.statuses).set(c.req.valid('json')).where(and(eq(s.statuses.id, c.req.param('id')), eq(s.statuses.projectId, projectId))).returning().get(), '상태');
-    events.changed(projectId, 'statuses', 'units');
+    try {
+      updateStatus(c.var.deps.db, c.req.param('projectId'), c.req.param('id'), c.req.valid('json'));
+    } catch (error) {
+      if (error instanceof TaxonomyMutationError && error.status === 404) found(undefined, '상태');
+      if (error instanceof TaxonomyMutationError) badRequest(error.message);
+      throw error;
+    }
     return c.json({ ok: true });
   })
   .put('/:projectId/statuses/order', validate('json', z.object({ ids: z.array(z.string()) })), (c) => {
@@ -159,48 +172,37 @@ export const projectRoutes = new Hono<Env>()
   })
   /** Lines in a deleted status move to `moveTo`; workflows that still reference it fail validation. */
   .delete('/:projectId/statuses/:id', validate('json', z.object({ moveTo: z.string() })), (c) => {
-    const { db } = c.var.deps;
-    const projectId = c.req.param('projectId');
-    const id = c.req.param('id');
-    const { moveTo } = c.req.valid('json');
-    if (moveTo === id) badRequest('삭제할 상태로는 옮길 수 없습니다.');
-    found(db.select().from(s.statuses).where(and(eq(s.statuses.id, moveTo), eq(s.statuses.projectId, projectId))).get(), '옮길 상태');
-    db.transaction((tx) => {
-      tx.update(s.units).set({ statusId: moveTo }).where(and(eq(s.units.projectId, projectId), eq(s.units.statusId, id))).run();
-      tx.delete(s.statuses).where(and(eq(s.statuses.id, id), eq(s.statuses.projectId, projectId))).run();
-    });
-    events.changed(projectId, 'statuses', 'units', 'workflows');
+    try {
+      deleteStatus(c.var.deps.db, c.req.param('projectId'), c.req.param('id'), c.req.valid('json').moveTo);
+    } catch (error) {
+      if (error instanceof TaxonomyMutationError && error.status === 404) found(undefined, error.message.includes('옮길') ? '옮길 상태' : '상태');
+      if (error instanceof TaxonomyMutationError) badRequest(error.message);
+      throw error;
+    }
     return c.json({ ok: true });
   })
   .post('/:projectId/tags', validate('json', tagInput), (c) => {
-    const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
-    const row = db.insert(s.tags).values({ ...c.req.valid('json'), projectId }).returning().get();
-    events.changed(projectId, 'statuses');
+    const row = createTag(c.var.deps.db, projectId, c.req.valid('json'));
     return c.json(row, 201);
   })
   .patch('/:projectId/tags/:id', validate('json', patchOf(tagInput)), (c) => {
-    const { db } = c.var.deps;
-    const projectId = c.req.param('projectId');
-    const tag = found(db.select({ role: s.tags.role }).from(s.tags).where(and(eq(s.tags.id, c.req.param('id')), eq(s.tags.projectId, projectId))).get(), '태그');
-    const body = c.req.valid('json');
-    // The app's own tags (problem types, 확인 권장) keep their names and places: only the color changes.
-    if (tag.role && body.name !== undefined) badRequest('앱이 쓰는 태그는 이름을 바꿀 수 없습니다. 색만 바꿀 수 있습니다.');
-    if (tag.role && body.scope !== undefined) badRequest('앱이 쓰는 태그는 붙는 곳을 바꿀 수 없습니다.');
-    // A place can't be taken away while the tag is still on something there.
-    for (const place of body.scope ? TAG_SCOPES.filter((place) => !body.scope!.includes(place)) : []) {
-      const used = tagUseIn(db, c.req.param('id'), place);
-      if (used) badRequest(`‘${TAG_SCOPE_LABELS[place]}’에서 빼려면 먼저 이 태그가 붙은 ${TAG_SCOPE_LABELS[place]} ${used.toLocaleString('ko-KR')}개에서 떼어 주세요.`);
+    try {
+      updateTag(c.var.deps.db, c.req.param('projectId'), c.req.param('id'), c.req.valid('json'));
+    } catch (error) {
+      if (error instanceof TaxonomyMutationError && error.status === 404) found(undefined, '태그');
+      if (error instanceof TaxonomyMutationError) badRequest(error.message);
+      throw error;
     }
-    found(db.update(s.tags).set(c.req.valid('json')).where(and(eq(s.tags.id, c.req.param('id')), eq(s.tags.projectId, projectId))).returning().get(), '태그');
-    events.changed(projectId, 'statuses', 'units');
     return c.json({ ok: true });
   })
   .delete('/:projectId/tags/:id', (c) => {
-    const { db } = c.var.deps;
-    const projectId = c.req.param('projectId');
-    const tag = found(db.select({ role: s.tags.role }).from(s.tags).where(and(eq(s.tags.id, c.req.param('id')), eq(s.tags.projectId, projectId))).get(), '태그');
-    if (tag.role) badRequest('앱이 쓰는 태그는 지울 수 없습니다.');
-    deleteItems(db, projectId, 'tags', [c.req.param('id')]);
+    try {
+      deleteTag(c.var.deps.db, c.req.param('projectId'), c.req.param('id'));
+    } catch (error) {
+      if (error instanceof TaxonomyMutationError && error.status === 404) found(undefined, '태그');
+      if (error instanceof TaxonomyMutationError) badRequest(error.message);
+      throw error;
+    }
     return c.json({ ok: true });
   });
