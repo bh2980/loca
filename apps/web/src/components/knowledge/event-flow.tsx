@@ -151,7 +151,7 @@ export function EventFlow({ projectId, events, selected, onOpen, badge, filtered
     [events, sectionOf],
   );
 
-  if (!events.length) return <EmptyState noun="사건" filtered={filtered} hint="“작품 분석”으로 초안을 받거나 표에서 추가하세요." />;
+  if (!events.length) return <EmptyState noun="사건" filtered={filtered} />;
   if (!layout) return <div className="flex h-full items-center justify-center text-sm text-muted-foreground">배치 계산 중…</div>;
   return (
     <div ref={frame} className="h-full">

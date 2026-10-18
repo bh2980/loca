@@ -56,7 +56,7 @@ function ApiKeys() {
           rows={connections.data ? keys : undefined}
           rowId={(row) => row.id}
           selected={search.key}
-          empty={<EmptyState noun="API 키" hint="‘API 키 추가’로 시작하세요." />}
+          empty={<EmptyState noun="API 키" />}
           onRowClick={(row) => open(row.id === search.key ? undefined : row.id)}
         />
         <p className="max-w-2xl px-4 py-3 text-xs text-muted-foreground">워크플로의 ‘HTTP 호출’ 노드가 키가 필요한 API를 부를 때 고릅니다. 주소는 노드에 적고, 키는 여기(OS 키체인)에만 둡니다. 공개 API는 키가 필요 없습니다.</p>

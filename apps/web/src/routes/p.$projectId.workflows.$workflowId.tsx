@@ -26,7 +26,7 @@ import { autoLayout } from '@/components/workflow/auto-layout';
 import { NodeConfig } from '@/components/workflow/node-config';
 import { nodeIcon, WorkflowNodeView, type FlowNode } from '@/components/workflow/node-view';
 import { RunDialog } from '@/components/workflow/run-dialog';
-import { SplitPane, Badge, Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, Input, Skeleton } from '@loca/ui';
+import { SplitPane, Badge, Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, Input, Skeleton, HelpTip } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { lineTags, q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
@@ -428,8 +428,8 @@ function WorkflowEditor() {
               <DropdownMenuSeparator />
               <DropdownMenuLabel className="text-xs text-muted-foreground">흐름</DropdownMenuLabel>
               <PaletteItem icon={nodeIcon({ type: 'condition' } as WorkflowNode)} title="조건" description="방문 횟수·앞 노드 출력으로 분기합니다." onSelect={() => addNode({ type: 'condition', config: { expression: true, description: '' } }, 'condition')} />
-              <PaletteItem icon={nodeIcon({ type: 'end' } as WorkflowNode)} title="종료" description="대사의 흐름을 마칩니다." onSelect={() => addNode({ type: 'end', config: {} }, 'end')} />
-              {!hasEntry && <PaletteItem icon={nodeIcon({ type: 'entry' } as WorkflowNode)} title="진입" description="대사가 흐름에 들어오는 곳" onSelect={() => addNode({ type: 'entry', config: {} }, 'entry')} />}
+              <PaletteItem icon={nodeIcon({ type: 'end' } as WorkflowNode)} title="종료" onSelect={() => addNode({ type: 'end', config: {} }, 'end')} />
+              {!hasEntry && <PaletteItem icon={nodeIcon({ type: 'entry' } as WorkflowNode)} title="진입" onSelect={() => addNode({ type: 'entry', config: {} }, 'entry')} />}
             </DropdownMenuContent>
           </DropdownMenu>
           {edgeId && current?.definition.edges.some((edge) => edge.id === edgeId) && (
@@ -540,14 +540,14 @@ function fitReadable<N extends Node>(flow: ReactFlowInstance<N, Edge>, duration 
   });
 }
 
-function PaletteItem({ icon: Icon, title, description, onSelect }: { icon: typeof Plus; title: string; description: string; onSelect: () => void }) {
+function PaletteItem({ icon: Icon, title, description, onSelect }: { icon: typeof Plus; title: string; description?: string; onSelect: () => void }) {
   return (
     <DropdownMenuItem onSelect={onSelect} className="items-start">
       <Icon className="mt-0.5" />
       <div>
         <p className="text-sm">{title}</p>
-        <p className="text-xs text-muted-foreground">{description}</p>
       </div>
+      {description && <HelpTip>{description}</HelpTip>}
     </DropdownMenuItem>
   );
 }

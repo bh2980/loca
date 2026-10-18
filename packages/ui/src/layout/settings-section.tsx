@@ -1,5 +1,6 @@
 import type { ReactNode } from "react"
 import { cn } from "../lib/utils"
+import { HelpTip } from "../primitives/help-tip"
 
 /**
  * One titled block of a settings page (#48). Blocks stack in a column, separated by a rule, so every
@@ -12,6 +13,7 @@ import { cn } from "../lib/utils"
 export function SettingsSection({
   title,
   description,
+  help,
   actions,
   tone = "default",
   children,
@@ -19,6 +21,7 @@ export function SettingsSection({
 }: {
   title: ReactNode
   description?: ReactNode
+  help?: ReactNode
   /** The block's save / revert buttons, under its fields. */
   actions?: ReactNode
   tone?: "default" | "danger"
@@ -36,7 +39,7 @@ export function SettingsSection({
       )}
     >
       <div className="space-y-1">
-        <h2 className={cn("text-base font-semibold", danger && "text-destructive")}>{title}</h2>
+        <h2 className={cn("flex items-center gap-1 text-base font-semibold", danger && "text-destructive")}>{title}{help && <HelpTip>{help}</HelpTip>}</h2>
         {description && <p className="text-xs text-muted-foreground">{description}</p>}
       </div>
       {children}

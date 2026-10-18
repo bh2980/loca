@@ -184,7 +184,6 @@ export function TranslationEditor({
         continuing={ai.loading}
         onDismissContinuation={() => (pending.current?.abort(), setAi((state) => ({ ...state, loading: false, dismissed: true })))}
         focusKey={focusKey}
-        placeholder="번역을 입력하세요. 저장하면 번역 칸에 바로 들어갑니다."
       />
       {marks}
       {/* What 다듬기 changed in the box and why, while the box still holds its answer. */}

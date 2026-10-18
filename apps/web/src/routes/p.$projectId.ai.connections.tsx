@@ -76,7 +76,7 @@ function ConnectionSettings() {
             rows={rows}
             rowId={(row) => row.id}
             selected={selected?.id}
-            empty={<EmptyState noun="연결" hint="“연결 추가”로 시작하세요." />}
+            empty={<EmptyState noun="연결" />}
             onRowClick={(row) => open(row.id)}
           />
         </div>

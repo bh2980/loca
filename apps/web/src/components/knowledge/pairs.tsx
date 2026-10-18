@@ -114,7 +114,7 @@ export function PairTable({ pairs, loading, selected, picked, onPick, onOpen, bu
       picked={picked}
       onPick={onPick}
       bulk={bulk}
-      empty={<EmptyState noun="관계나 말투 규칙이 있는 쌍" filtered={Boolean(filters.source || filters.marks?.length || filters.tags?.length)} hint="“작품 분석”으로 초안을 받거나 인물을 추가하세요." />}
+      empty={<EmptyState noun="관계나 말투 규칙이 있는 쌍" filtered={Boolean(filters.source || filters.marks?.length || filters.tags?.length)} />}
     />
   );
 }

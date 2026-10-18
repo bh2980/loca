@@ -122,7 +122,7 @@ function Workflows() {
           rows={workflows.data}
           rowId={(workflow) => workflow.id}
           loading={workflows.isLoading}
-          empty={<EmptyState noun="워크플로" hint="‘새 워크플로’나 ‘AI로 만들기’로 시작하세요." />}
+          empty={<EmptyState noun="워크플로" />}
           onRowClick={(workflow) => void navigate({ to: '/p/$projectId/workflows/$workflowId', params: { projectId, workflowId: workflow.id } })}
         />
       </div>
