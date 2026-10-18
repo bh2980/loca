@@ -34,7 +34,7 @@ export function SettingsSection({
       className={cn(
         danger
           ? "space-y-3 rounded-lg border border-destructive/30 p-4"
-          : "space-y-4 pt-8",
+          : "space-y-4",
         className
       )}
     >
