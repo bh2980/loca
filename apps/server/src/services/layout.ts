@@ -221,10 +221,10 @@ export function viewEdges(chosen: Set<string>, edges: { id: string; from: string
   return { edges: [...edges.filter((edge) => chosen.has(edge.from) && chosen.has(edge.to)), ...derived], via };
 }
 
-/** "생략 · 대사 12줄 · 조건 3 · MIRA, JONAS 외 2": counted facts only, never a summary of what happens. */
+/** "생략(최단 경로) · 대사 12줄 · 조건·제어 3 · MIRA, JONAS 외 2": counted facts only, never a summary of what happens. */
 export function omittedLabel(facts: OmittedFacts) {
   const speakers = facts.speakers.length ? `${facts.speakers.join(', ')}${facts.moreSpeakers ? ` 외 ${facts.moreSpeakers}` : ''}` : '';
-  return ['생략', facts.lines ? `대사 ${facts.lines}줄` : '', facts.controls ? `조건·제어 ${facts.controls}` : '', speakers].filter(Boolean).join(' · ');
+  return ['생략(최단 경로)', facts.lines ? `대사 ${facts.lines}줄` : '', facts.controls ? `조건·제어 ${facts.controls}` : '', speakers].filter(Boolean).join(' · ');
 }
 
 /** What each derived edge leaves out, counted from the source graph: lines, line-less nodes and who speaks there. */

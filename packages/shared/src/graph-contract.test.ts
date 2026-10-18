@@ -18,6 +18,10 @@ describe('contractEdges', () => {
     expect(contractEdges([e('a', 'x'), e('x', 'b'), e('a', 'b')], new Set(['x']))).toEqual([]);
     expect(contractEdges([e('a', 'b'), e('b', 'x'), e('x', 'c')], new Set(['x']))).toEqual([{ ...e('b', 'c'), via: ['x'] }]);
   });
+  it('names only the hidden nodes on the shortest paths, not every detour', () => {
+    const edges = [e('a', 'x'), e('x', 'b'), e('a', 'h'), e('h', 'h2'), e('h2', 'h3'), e('h3', 'b')];
+    expect(contractEdges(edges, new Set(['x', 'h', 'h2', 'h3']))).toEqual([{ ...e('a', 'b'), via: ['x'] }]);
+  });
   it('joins nodes far apart and survives cycles', () => {
     const chain = Array.from({ length: 40 }, (_, i) => e(i ? `h${i - 1}` : 'a', `h${i}`));
     expect(contractEdges([...chain, e('h39', 'b')], new Set(chain.map((edge) => edge.to))).map(({ from, to }) => [from, to])).toEqual([['a', 'b']]);

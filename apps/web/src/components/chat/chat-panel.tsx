@@ -94,16 +94,23 @@ export function ChatPanel({ projectId }: { projectId: string }) {
   const current = sessions.data?.find((session) => session.id === sessionId);
   // An AI button was pressed with no conversation yet: start one, the request waits for it.
   const pendingRequest = usePendingAgentRequest();
+  // A page prefilled a request (chatDock.prefill) with no conversation open: start one too; its box takes the text.
+  const [prefillWaiting, setPrefillWaiting] = useState(false);
+  useEffect(() => chatDock.onPrefill((target) => target === projectId && setPrefillWaiting(true)), [projectId]);
+  useEffect(() => {
+    if (sessionId) setPrefillWaiting(false);
+  }, [sessionId]);
+  const waiting = Boolean(pendingRequest) || prefillWaiting;
   // One conversation per wait: never a second while the first is being made or was just made.
   const starting = useRef(false);
   useEffect(() => {
-    if (!pendingRequest) starting.current = false;
+    if (!waiting) starting.current = false;
     // With conversations listed but none picked yet (a fresh browser), the effect above picks the
     // latest in this same render: starting another here would leave an empty extra one each time.
-    if (!pendingRequest || !sessions.data || sessions.data.length > 0 || sessionId || create.isPending || starting.current) return;
+    if (!waiting || !sessions.data || sessions.data.length > 0 || sessionId || create.isPending || starting.current) return;
     starting.current = true;
     create.mutate();
-  }, [pendingRequest, sessions.data, sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [waiting, sessions.data, sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <aside className="flex h-full flex-col bg-sidebar" aria-label="프로젝트 에이전트">

@@ -49,7 +49,8 @@ export interface LayoutEdge {
  */
 function labelBox(edge: LayoutEdge): [number, number, number, number] | null {
   if (!edge.label) return null;
-  if (edge.labelAt) return edge.labelAt;
+  // A derived edge's label sits on its own line: it describes that line, wherever the layout put its room.
+  if (edge.labelAt && !edge.derived) return edge.labelAt;
   const width = Math.min(240, 30 + Math.ceil(edge.label.length * 8));
   const [x, y] = midpoint(edge);
   return [x - width / 2, y - 11, width, 22];
@@ -241,6 +242,12 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
       edgeIndex!.add(minX, minY, maxX, maxY);
     }
     edgeIndex?.finish();
+    // Clickable labels (a choice, a derived edge's left-out stretch) by their own boxes: a label can lie away from its line.
+    const labelled = edges.flatMap((edge, i) => (edge.via || edge.derived ? [[i, labelBox(edge)] as const] : [])).filter((entry): entry is readonly [number, [number, number, number, number]] => entry[1] !== null);
+    const labelIndex = labelled.length ? new Flatbush(labelled.length) : null;
+    for (const [, [bx, by, bw, bh]] of labelled) labelIndex!.add(bx, by, bx + bw, by + bh);
+    labelIndex?.finish();
+    const labelEdge = labelled.map(([i]) => i);
     const bounds = nodes.reduce(
       (box, node) => ({ minX: Math.min(box.minX, node.x), minY: Math.min(box.minY, node.y), maxX: Math.max(box.maxX, node.x + node.width), maxY: Math.max(box.maxY, node.y + node.height) }),
       { minX: 0, minY: 0, maxX: 1, maxY: 1 },
@@ -271,7 +278,7 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
         else looseByNode.set(end, [at]);
       }
     }
-    return { byId, nodeIndex, edgeIndex, bounds, adjacent, segments, looseByNode };
+    return { byId, nodeIndex, edgeIndex, labelIndex: labelIndex ? { search: (x: number, y: number, x2: number, y2: number) => labelIndex.search(x, y, x2, y2).map((at) => labelEdge[at]) } : null, bounds, adjacent, segments, looseByNode };
   }, [nodes, edges, looseEdges, direction]);
 
   // How many nodes each region holds, for the zoomed-out overview.
@@ -739,10 +746,9 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
     // A choice's label stands for its node: clicking it opens the choice. A derived edge's label
     // stands for the nodes it leaves out: `omitted:<edge id>`.
     if (t.k >= DETAIL_K)
-      for (const i of index.edgeIndex?.search(x - 100, y - 20, x + 100, y + 20) ?? []) {
+      for (const i of index.labelIndex?.search(x, y, x, y) ?? []) {
         const target = edges[i].via ?? (edges[i].derived && edges[i].omitted ? `omitted:${edges[i].id}` : undefined);
-        const box = target ? labelBox(edges[i]) : null;
-        if (box && x >= box[0] && x <= box[0] + box[2] && y >= box[1] && y <= box[1] + box[3]) return target;
+        if (target) return target;
       }
     const found = (index.nodeIndex?.search(x, y, x, y) ?? []);
     return found.length ? nodes[found[found.length - 1]].id : undefined;
