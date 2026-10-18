@@ -1,18 +1,22 @@
 import { Hono } from 'hono';
+import { readingRouteQuery } from '../services/reading-route-query.ts';
+import { projectReadingRoute } from '../services/reading-route.ts';
 import { and, asc, count, desc, eq, gt, inArray, like, lt, ne, notLike, or, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
-import { isSpecialListener, type NodeType } from '@tw/shared';
+import { createGroupSchema, updateGroupSchema, createUnitSchema, updateUnitSchema, isSpecialListener, type NodeType } from '@tw/shared';
+import { createGroup, updateGroup, deleteGroup, createUnit, updateUnit, deleteUnits } from '../services/source-mutations.ts';
 import { attachUnitTags } from '../services/tag-scope.ts';
 import { assertProjectRefs } from '../services/project-refs.ts';
 import { LineConflict, saveLine, saveSameText, saveStatuses } from '../services/line-save.ts';
 import { refusesListener, setHumanListener } from '../services/listeners.ts';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
-import { eachChunk, inList } from '../db/chunk.ts';
+import { eachChunk, inChunks, inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
-import { computeLayouts } from '../services/layout.ts';
-import { readView, sectionWithMost } from '../services/graph-views.ts';
+import { computeLayouts, LAYOUT_VERSION } from '../services/layout.ts';
+import type { LayoutDirection } from '../services/layout-types.ts';
+import { readView, sectionWithMost, viewSection } from '../services/graph-views.ts';
 import { graphKey } from '../services/route-slice.ts';
 import { projectSlice } from '../services/project-slice.ts';
 import { defaultPicks, effectivePicks, previewNext, projectRouteInputs, routeLines, routeProgress } from '../services/next-route.ts';
@@ -28,6 +32,7 @@ import { describeRule, knownListener as knownListenerOf, speechRuleIndex } from 
 
 const listQuery = z.object({
   groupId: z.string().optional(),
+  section: z.string().optional(),
   /** Kind of the containing group (scene / document / ui). */
   kind: z.enum(['scene', 'document', 'ui']).optional(),
   statusId: z.string().optional(),
@@ -52,6 +57,7 @@ function unitConditions(projectId: string, query: Omit<z.infer<typeof listQuery>
   const conditions: SQL[] = [eq(s.units.projectId, projectId)];
   if (query.groupId) conditions.push(eq(s.units.groupId, query.groupId));
   if (query.kind) conditions.push(eq(s.groups.kind, query.kind));
+  if (query.section) conditions.push(eq(s.groups.section, query.section));
   if (query.statusId) conditions.push(eq(s.units.statusId, query.statusId));
   for (const tagId of query.tagIds?.split(',').filter(Boolean) ?? []) conditions.push(sql`${s.units.id} in (select unit_id from ${s.unitTags} where tag_id = ${tagId})`);
   if (query.q) conditions.push(lineTextFilter(query.q));
@@ -133,11 +139,11 @@ function unitRows(db: Db, where: SQL, page?: { limit: number; offset: number }) 
 }
 
 /** Sections laid out on their own (see layout.ts), in script order, with the scenes in each for jumping from the scene graph. */
-function graphSections(db: Db, projectId: string) {
+function graphSections(db: Db, projectId: string, direction: LayoutDirection) {
   const stored = db
     .select({ name: s.graphLayouts.section, nodes: sql<number>`json_array_length(${s.graphLayouts.data}, '$.nodes')` })
     .from(s.graphLayouts)
-    .where(and(eq(s.graphLayouts.projectId, projectId), eq(s.graphLayouts.scope, 'dialogue'), ne(s.graphLayouts.section, ''), notLike(s.graphLayouts.section, 'view:%'), eq(s.graphLayouts.status, 'ready')))
+    .where(and(eq(s.graphLayouts.projectId, projectId), eq(s.graphLayouts.scope, 'dialogue'), eq(s.graphLayouts.direction, direction), ne(s.graphLayouts.section, ''), notLike(s.graphLayouts.section, 'view:%'), eq(s.graphLayouts.status, 'ready')))
     .all();
   const scenesBySection = Map.groupBy(
     db.select({ id: s.groups.id, section: s.groups.section }).from(s.groups).where(eq(s.groups.projectId, projectId)).orderBy(asc(s.groups.sort)).all(),
@@ -151,6 +157,30 @@ function graphSections(db: Db, projectId: string) {
 }
 
 export const sourceRoutes = new Hono<Env>()
+  .post('/projects/:projectId/groups', validate('json', createGroupSchema), (c) => c.json(createGroup(c.var.deps.db, c.req.param('projectId'), c.req.valid('json')), 201))
+  .patch('/projects/:projectId/groups/:groupId', validate('json', updateGroupSchema), (c) => c.json(updateGroup(c.var.deps.db, c.req.param('projectId'), c.req.param('groupId'), c.req.valid('json'))))
+  .delete('/projects/:projectId/groups/:groupId', (c) => c.json(deleteGroup(c.var.deps.db, c.req.param('projectId'), c.req.param('groupId'))))
+  .post('/projects/:projectId/units', validate('json', createUnitSchema), (c) => c.json(createUnit(c.var.deps.db, c.req.param('projectId'), c.req.valid('json')), 201))
+  .patch('/projects/:projectId/units/:unitId/source', validate('json', updateUnitSchema), (c) => c.json(updateUnit(c.var.deps.db, c.req.param('projectId'), c.req.param('unitId'), c.req.valid('json'))))
+  .delete('/projects/:projectId/units/:unitId', (c) => c.json(deleteUnits(c.var.deps.db, c.req.param('projectId'), [c.req.param('unitId')])))
+  .get('/projects/:projectId/listeners', (c) => {
+    const { db } = c.var.deps;
+    const projectId = c.req.param('projectId');
+    const listeners = db
+      .select({ listener: s.units.listener, lines: count() })
+      .from(s.units)
+      .where(and(eq(s.units.projectId, projectId), knownListenerSql, ne(s.units.listener, '')))
+      .groupBy(s.units.listener)
+      .orderBy(desc(count()), asc(s.units.listener))
+      .all()
+      .flatMap((row) => row.listener ? [{ name: row.listener, lines: row.lines }] : []);
+    const unknownCount = db
+      .select({ count: count() })
+      .from(s.units)
+      .where(and(eq(s.units.projectId, projectId), ...markConditions(projectId, ['unknownListener'])))
+      .get()!.count;
+    return c.json({ listeners, unknownCount });
+  })
   .get('/projects/:projectId/groups', validate('query', z.object({ kind: z.enum(['scene', 'document', 'ui']).optional(), q: z.string().trim().optional() })), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
@@ -193,9 +223,13 @@ export const sourceRoutes = new Hono<Env>()
    */
   .get('/projects/:projectId/units/matches', validate('query', listQuery.omit({ offset: true, limit: true, focus: true })), (c) => {
     const query = c.req.valid('query');
-    const base = c.var.deps.db.select({ id: s.units.id, groupId: s.units.groupId }).from(s.units);
-    const rows = (query.kind ? base.innerJoin(s.groups, eq(s.groups.id, s.units.groupId)) : base).where(unitConditions(c.req.param('projectId'), query)).orderBy(asc(s.units.seq)).all();
-    return c.json({ rows });
+    const { db } = c.var.deps;
+    const base = db.select({ id: s.units.id, groupId: s.units.groupId, statusBy: s.units.statusBy }).from(s.units);
+    const rows = ((query.kind || query.section) ? base.innerJoin(s.groups, eq(s.groups.id, s.units.groupId)) : base).where(unitConditions(c.req.param('projectId'), query)).orderBy(asc(s.units.seq)).all();
+    const tagRows = inChunks(rows.map((row) => row.id), (ids) => db.select({ unitId: s.unitTags.unitId, tagId: s.unitTags.tagId }).from(s.unitTags).where(inArray(s.unitTags.unitId, ids)).all());
+    const tagsByUnit = new Map<string, string[]>();
+    for (const tag of tagRows) tagsByUnit.set(tag.unitId, [...(tagsByUnit.get(tag.unitId) ?? []), tag.tagId]);
+    return c.json({ rows: rows.map((row) => ({ ...row, tagIds: tagsByUnit.get(row.id) ?? [] })) });
   })
   .get('/projects/:projectId/units', validate('query', listQuery), (c) => {
     const { db } = c.var.deps;
@@ -204,13 +238,13 @@ export const sourceRoutes = new Hono<Env>()
     const where = unitConditions(projectId, query);
     // The groups table is only needed for the kind filter; without it the count is one index range.
     const counted = db.select({ count: count() }).from(s.units);
-    const total = (query.kind ? counted.innerJoin(s.groups, eq(s.groups.id, s.units.groupId)) : counted).where(where).get()!.count;
+    const total = ((query.kind || query.section) ? counted.innerJoin(s.groups, eq(s.groups.id, s.units.groupId)) : counted).where(where).get()!.count;
     // Opened at a given line (a link from elsewhere): start at the page that holds it.
     let offset = query.offset;
     if (query.focus) {
       const target = db.select({ seq: s.units.seq }).from(s.units).where(and(eq(s.units.id, query.focus), eq(s.units.projectId, projectId))).get();
       if (target) {
-        const before = (query.kind ? db.select({ count: count() }).from(s.units).innerJoin(s.groups, eq(s.groups.id, s.units.groupId)) : db.select({ count: count() }).from(s.units)).where(and(where, sql`${s.units.seq} < ${target.seq}`)).get()!.count;
+        const before = ((query.kind || query.section) ? db.select({ count: count() }).from(s.units).innerJoin(s.groups, eq(s.groups.id, s.units.groupId)) : db.select({ count: count() }).from(s.units)).where(and(where, sql`${s.units.seq} < ${target.seq}`)).get()!.count;
         offset = Math.floor(before / query.limit) * query.limit;
       }
     }
@@ -230,13 +264,15 @@ export const sourceRoutes = new Hono<Env>()
         .all(),
     );
   })
-  /** Lines by id, in the order asked: the visible rows of the path view's translation list (the same row as the list's, without tags). */
+  /** Lines by id, in the order asked: the visible rows of the path view's translation list. */
   .post('/projects/:projectId/units/by-ids', validate('json', z.object({ ids: z.array(z.string()).max(200) })), (c) => {
     const { db } = c.var.deps;
     const ids = c.req.valid('json').ids;
     if (!ids.length) return c.json({ rows: [] });
     const byId = new Map(db.select({ ...unitColumns, groupTitle: s.groups.title }).from(s.units).innerJoin(s.groups, eq(s.groups.id, s.units.groupId)).where(and(eq(s.units.projectId, c.req.param('projectId')), inArray(s.units.id, ids))).all().map((row) => [row.id, row] as const));
-    return c.json({ rows: ids.flatMap((id) => (byId.has(id) ? [{ ...byId.get(id)!, lastRun: null }] : [])) });
+    const tagRows = db.select().from(s.unitTags).where(inArray(s.unitTags.unitId, ids)).all();
+    const tags = Map.groupBy(tagRows, (row) => row.unitId);
+    return c.json({ rows: ids.flatMap((id) => (byId.has(id) ? [{ ...byId.get(id)!, tagIds: (tags.get(id) ?? []).map((tag) => tag.tagId), lastRun: null }] : [])) });
   })
   .patch(
     '/projects/:projectId/units',
@@ -403,6 +439,7 @@ export const sourceRoutes = new Hono<Env>()
   })
 
   // ── graphs ─────────────────────────────────────────────────────────
+  .get('/projects/:projectId/reading-route', validate('query', readingRouteQuery), (c) => c.json(projectReadingRoute(c.var.deps.db, c.req.param('projectId'), c.req.valid('query'))))
   /** The main route (본 줄기) for highlighting on the graph. */
   /** The slice of the dialogue graph for the stored choices (길 따라 보기, services/route-slice.ts), with the picks. */
   .get('/projects/:projectId/route', (c) => {
@@ -558,14 +595,35 @@ export const sourceRoutes = new Hono<Env>()
     return c.json({ ok: true });
   })
   /** The dialogue graph's sections alone: the graph page needs them before it knows which layout to load. */
-  .get('/projects/:projectId/graph/sections', (c) => c.json(graphSections(c.var.deps.db, c.req.param('projectId'))))
-  .get('/projects/:projectId/graph/:scope{dialogue|scene}', validate('query', z.object({ section: z.string().optional() })), (c) => {
+  .get('/projects/:projectId/graph/sections', validate('query', z.object({ direction: z.enum(['vertical', 'horizontal']).default('vertical') })), (c) => {
+    const { db } = c.var.deps;
+    const projectId = c.req.param('projectId');
+    const { direction } = c.req.valid('query');
+    const exists = db.select({ status: s.graphLayouts.status }).from(s.graphLayouts).where(and(eq(s.graphLayouts.projectId, projectId), eq(s.graphLayouts.scope, 'dialogue'), eq(s.graphLayouts.direction, direction), eq(s.graphLayouts.section, ''))).get();
+    if (direction === 'horizontal' && !exists) void computeLayouts(db, projectId, { direction });
+    return c.json(graphSections(db, projectId, direction));
+  })
+  .get('/projects/:projectId/graph/:scope{dialogue|scene}', validate('query', z.object({ section: z.string().optional(), direction: z.enum(['vertical', 'horizontal']).default('vertical') })), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     const scope = c.req.param('scope') as 'dialogue' | 'scene';
+    const { direction } = c.req.valid('query');
     const section = scope === 'dialogue' ? (c.req.valid('query').section ?? '') : '';
-    const where = and(eq(s.graphLayouts.projectId, projectId), eq(s.graphLayouts.scope, scope), eq(s.graphLayouts.section, section));
-    const layout = db.select({ status: s.graphLayouts.status, error: s.graphLayouts.error }).from(s.graphLayouts).where(where).get();
+    const where = and(eq(s.graphLayouts.projectId, projectId), eq(s.graphLayouts.scope, scope), eq(s.graphLayouts.section, section), eq(s.graphLayouts.direction, direction));
+    let layout = db.select({ status: s.graphLayouts.status, error: s.graphLayouts.error, version: sql<number>`coalesce(json_extract(${s.graphLayouts.data}, '$.version'), 0)` }).from(s.graphLayouts).where(where).get();
+    const viewId = scope === 'dialogue' && section.startsWith('view:') ? section.slice('view:'.length) : undefined;
+    let base = direction === 'horizontal' && scope === 'dialogue'
+      ? db.select({ status: s.graphLayouts.status }).from(s.graphLayouts).where(and(eq(s.graphLayouts.projectId, projectId), eq(s.graphLayouts.scope, scope), eq(s.graphLayouts.direction, direction), eq(s.graphLayouts.section, ''))).get()
+      : undefined;
+    if (viewId && readView(db, projectId, viewId) && (!layout || (layout.status === 'ready' && layout.version < LAYOUT_VERSION))) {
+      void viewSection(db, projectId, viewId, direction);
+      layout = db.select({ status: s.graphLayouts.status, error: s.graphLayouts.error, version: sql<number>`coalesce(json_extract(${s.graphLayouts.data}, '$.version'), 0)` }).from(s.graphLayouts).where(where).get();
+    } else if (direction === 'horizontal' && !layout) {
+      if (!base) void computeLayouts(db, projectId, { direction });
+      layout = db.select({ status: s.graphLayouts.status, error: s.graphLayouts.error, version: sql<number>`coalesce(json_extract(${s.graphLayouts.data}, '$.version'), 0)` }).from(s.graphLayouts).where(where).get();
+      if (!base && scope === 'dialogue') base = db.select({ status: s.graphLayouts.status }).from(s.graphLayouts).where(and(eq(s.graphLayouts.projectId, projectId), eq(s.graphLayouts.scope, scope), eq(s.graphLayouts.direction, direction), eq(s.graphLayouts.section, ''))).get();
+    }
+    const layoutStatus = layout?.status ?? (base?.status === 'pending' ? 'pending' : 'missing');
     if (scope === 'scene') {
       const nodes = db
         .select({ id: s.groups.id, label: s.groups.title, key: s.groups.key, total: sql<number>`(select count(*) from units u where u.group_id = "groups"."id")` })
@@ -573,7 +631,7 @@ export const sourceRoutes = new Hono<Env>()
         .where(and(eq(s.groups.projectId, projectId), eq(s.groups.kind, 'scene')))
         .all();
       return c.json({
-        status: layout?.status ?? 'missing',
+        status: layoutStatus,
         error: layout?.error ?? null,
         layout: db.select({ data: s.graphLayouts.data }).from(s.graphLayouts).where(where).get()?.data ?? null,
         nodes: nodes.map((node) => ({ ...node, type: null as string | null, kind: 'scene', groupId: node.id, preview: `${node.total}개 대사`, speaker: null as string | null, text: null as string | null })),
@@ -581,7 +639,7 @@ export const sourceRoutes = new Hono<Env>()
         sections: [] as { name: string; nodes: number; groupIds: string[] }[],
       });
     }
-    const sections = graphSections(db, projectId);
+    const sections = graphSections(db, projectId, direction);
     // The stored layout goes out as the JSON text it is stored as: parsing and re-serializing a
     // 50k-node layout (15 MB) held the server for a quarter of a second. A section's layout is
     // small, so its node ids are read from it to send only that section's nodes.
@@ -608,7 +666,7 @@ export const sourceRoutes = new Hono<Env>()
       .where(and(eq(s.graphNodes.projectId, projectId), only ? inList(s.graphNodes.id, only) : undefined))
       .all();
     const nodeTypes = db.select({ nodeTypes: s.projects.nodeTypes }).from(s.projects).where(eq(s.projects.id, projectId)).get()?.nodeTypes ?? {};
-    const head = JSON.stringify({ status: layout?.status ?? 'missing', error: layout?.error ?? null, nodes, nodeTypes, sections });
+    const head = JSON.stringify({ status: layoutStatus, error: layout?.error ?? null, nodes, nodeTypes, sections });
     return c.body(`${head.slice(0, -1)},"layout":${raw}}`, 200, { 'content-type': 'application/json; charset=UTF-8' }) as unknown as ReturnType<
       typeof c.json<{ status: string; error: string | null; layout: s.LayoutData | null; nodes: typeof nodes; nodeTypes: typeof nodeTypes; sections: typeof sections }>
     >;
@@ -622,12 +680,20 @@ export const sourceRoutes = new Hono<Env>()
   })
   /** Recompute stored layouts, e.g. after the layout options changed. The source graph itself is untouched. */
   .post('/projects/:projectId/graph/relayout', (c) => {
-    void computeLayouts(c.var.deps.db, c.req.param('projectId'));
+    const { db } = c.var.deps;
+    const projectId = c.req.param('projectId');
+    const directions = new Set(db.selectDistinct({ direction: s.graphLayouts.direction }).from(s.graphLayouts).where(and(eq(s.graphLayouts.projectId, projectId), eq(s.graphLayouts.section, ''))).all().map((row) => row.direction));
+    directions.add('vertical');
+    for (const direction of directions) void computeLayouts(db, projectId, { direction });
     return c.json({ ok: true }, 202);
   })
-  .get('/graph-nodes/:nodeId', (c) => {
+  .get('/graph-nodes/:nodeId', validate('query', z.object({ projectId: z.string().min(1).optional() })), (c) => {
     const { db } = c.var.deps;
-    const node = found(db.select().from(s.graphNodes).where(eq(s.graphNodes.id, c.req.param('nodeId'))).get(), '노드');
+    const { projectId } = c.req.valid('query');
+    const nodeWhere = projectId
+      ? and(eq(s.graphNodes.id, c.req.param('nodeId')), eq(s.graphNodes.projectId, projectId))
+      : eq(s.graphNodes.id, c.req.param('nodeId'));
+    const node = found(db.select().from(s.graphNodes).where(nodeWhere).get(), '노드');
     const lines = node.unitIds.length ? db.select(unitColumns).from(s.units).where(inArray(s.units.id, node.unitIds)).all() : [];
     const order = new Map(node.unitIds.map((id, index) => [id, index]));
     const neighbour = (direction: 'in' | 'out') =>
