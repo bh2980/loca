@@ -110,7 +110,7 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
         </div>
       )}
       {proposal.sessionId && proposal.status === 'accepted' && proposal.undo && 'calls' in proposal.undo && proposal.undo.calls > 0 && !proposal.undoneAt && (
-        <div className="flex justify-end border-t px-3 py-2"><Button size="sm" variant="outline" disabled={undo.isPending} onClick={() => undo.mutate([proposal.id])}>{undo.isPending ? <Spinner /> : null} 되돌리기</Button></div>
+        <div className="flex justify-end border-t px-3 py-2"><Button variant="outline" disabled={undo.isPending} onClick={() => undo.mutate([proposal.id])}>{undo.isPending ? <Spinner /> : null} 되돌리기</Button></div>
       )}
     </div>
   );

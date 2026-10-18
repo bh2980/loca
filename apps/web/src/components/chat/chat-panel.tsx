@@ -396,7 +396,7 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
                   if (part.type.startsWith('tool-')) return <ToolPart key={index} part={part as never} proposal={proposalById.get(((part as { output?: { proposalId?: string } }).output ?? {}).proposalId ?? '')} stale={message.id !== messages.at(-1)?.id} onDecide={(id, approved) => addToolApprovalResponse({ id, approved })} onOutput={(toolCallId, output) => void addToolOutput({ tool: part.type.slice(5) as never, toolCallId, output: output as never })} />;
                   return null;
                 })}
-                {undoable.length > 0 && <Button size="sm" variant="outline" onClick={() => { setReplyUndoIds(undoable); setUndoingReply(true); }}>이 답의 변경 되돌리기 ({undoable.length})</Button>}
+                {undoable.length > 0 && <Button variant="outline" onClick={() => { setReplyUndoIds(undoable); setUndoingReply(true); }}>이 답의 변경 되돌리기 ({undoable.length})</Button>}
               </div>
             );
             if (!stopped && !interrupted) return view;
