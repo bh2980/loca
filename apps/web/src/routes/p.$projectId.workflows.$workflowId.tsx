@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -22,16 +22,16 @@ import {
   applyNodeChanges,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { ChevronRight, Copy, Pencil, Trash2 } from 'lucide-react';
+import { ArrowLeftRight, ArrowUpDown, ChevronRight, Copy, Focus, LayoutGrid, Maximize, Pencil, Plus, Trash2, Unlink } from 'lucide-react';
 import { toast } from 'sonner';
-import { AI_OUTPUTS, AI_PRESETS, FUNCTIONS, FUNCTION_NAMES, nodeModels, nodeName, nodePorts, workflowNodeSchema, type FunctionName, type WorkflowDefinition, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
+import { AI_OUTPUTS, AI_PRESETS, FUNCTIONS, FUNCTION_NAMES, NODE_TYPES, PALETTE_AI_PRESET_IDS, PALETTE_FUNCTION_NAMES, nodeModels, nodeName, nodePorts, syncEntryEdges, workflowNodeSchema, type FunctionName, type WorkflowDefinition, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
 import { Page, StatusBarItem } from '@/components/page';
 import { autoLayout } from '@/components/workflow/auto-layout';
 import { NodeConfig } from '@/components/workflow/node-config';
 import { WorkflowNodeView, type FlowNode } from '@/components/workflow/node-view';
 import { WorkflowEdgeView, type FlowEdge } from '@/components/workflow/workflow-edge';
 import { RunDialog } from '@/components/workflow/run-dialog';
-import { SplitPane, PageHeading, HeaderActions, NodeLibrary, CanvasToolbar, CanvasLegend, CanvasSurface, SelectionToolbox, type CanvasDirection, type NodeLibraryGroup, Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Input, Skeleton } from '@loca/ui';
+import { SplitPane, PageHeading, HeaderActions, NodeLibrary, CanvasToolbar, CanvasLegend, CanvasSurface, SelectionToolbox, type CanvasDirection, type NodeLibraryGroup, Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent, DropdownMenuLabel, Input, Skeleton } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { lineTags, q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
@@ -171,6 +171,12 @@ function WorkflowEditor() {
   // definition, so their selection is kept here.
   const [edgeId, setEdgeId] = useState<string>();
   const [hoveredEdgeId, setHoveredEdgeId] = useState<string>();
+  const [contextMenu, setContextMenu] = useState<
+    | { kind: 'node'; node: WorkflowNode; x: number; y: number }
+    | { kind: 'edge'; edgeId: string; x: number; y: number }
+    | { kind: 'pane'; x: number; y: number }
+    | null
+  >(null);
   useEffect(() => {
     if (!current) return;
     if (!draft) return setIssues(workflow.data?.issues ?? []);
@@ -231,7 +237,16 @@ function WorkflowEditor() {
         if (node.config.fn === 'script') return `출구: ${((params.ports as string[]) ?? ['out']).join(', ')}`;
         if (node.config.fn === 'saveAnalysis') return 'AI 분석 결과 저장';
         if (node.config.fn === 'formatCheck') {
-          const checks = [params.placeholders !== false && '자리표시자', params.tags !== false && '서식 태그', params.newlines !== false && '줄바꿈', params.emptyText !== false && '빈 번역'].filter(Boolean);
+          const checks = [
+            params.placeholders !== false && '자리표시자',
+            params.tags !== false && '서식 태그',
+            params.newlines !== false && '줄바꿈',
+            params.emptyText !== false && '빈 번역',
+            params.numbers && '숫자',
+            params.spaces && '공백',
+            params.particles && '조사',
+            Array.isArray(params.customRules) && params.customRules.length > 0 && `규칙 ${params.customRules.length}개`,
+          ].filter(Boolean);
           return checks.length ? `검사: ${checks.join('·')}` : '켠 검사 항목 없음 (항상 통과)';
         }
         return FUNCTIONS[node.config.fn as FunctionName]?.label ?? node.config.fn;
@@ -259,9 +274,12 @@ function WorkflowEditor() {
   const [measured, setMeasured] = useState<Record<string, { width: number; height: number }>>({});
   // Another workflow reuses node ids ("entry", "translate") with other sizes.
   useEffect(() => setMeasured({}), [workflowId]);
+  const definitions = useMemo(
+    () => (current?.definition.nodes ?? []).filter((node) => node.type !== 'entry' && node.type !== 'end'),
+    [current?.definition.nodes],
+  );
   const nodes: FlowNode[] = useMemo(
     () => {
-      const definitions = current?.definition.nodes ?? [];
       return definitions.map((node) => ({
         id: node.id,
         type: 'workflow',
@@ -284,11 +302,18 @@ function WorkflowEditor() {
         },
       }));
     },
-    [current?.definition, search.node, direction, issues, liveCounts, statuses.data, connections.data, measured], // eslint-disable-line react-hooks/exhaustive-deps
+    [definitions, search.node, direction, issues, liveCounts, statuses.data, connections.data, measured], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const edges: FlowEdge[] = useMemo(
     () => {
-      const all = current?.definition.edges ?? [];
+      const hiddenNodeIds = new Set(
+        (current?.definition.nodes ?? [])
+          .filter((node) => node.type === 'entry' || node.type === 'end')
+          .map((node) => node.id),
+      );
+      const all = (current?.definition.edges ?? []).filter(
+        (edge) => !hiddenNodeIds.has(edge.source) && !hiddenNodeIds.has(edge.target),
+      );
       return all.map((edge) => {
         const branches = all.filter((other) => other.source === edge.source && other.sourceHandle === edge.sourceHandle).length;
         const source = current?.definition.nodes.find((node) => node.id === edge.source);
@@ -360,18 +385,24 @@ function WorkflowEditor() {
     const next = applyNodeChanges(moved, nodes);
     setDraft((draftValue) => ({
       ...draftValue,
-      definition: {
+      definition: syncEntryEdges({
         ...draftValue.definition,
         nodes: draftValue.definition.nodes.filter((node) => !removed.includes(node.id)).map((node) => ({ ...node, position: next.find((item) => item.id === node.id)?.position ?? node.position })),
         // Every route is global ELK geometry. Any manual node move can stale feedback loops or
         // labels elsewhere, so clear the route snapshot and let React Flow route until re-layout.
         edges: draftValue.definition.edges.filter((edge) => !removed.includes(edge.source) && !removed.includes(edge.target)).map((edge) => ({ ...edge, layout: undefined })),
-      },
+      }),
     }));
     if (removed.includes(search.node ?? '')) select(undefined);
   };
   const removeEdges = (ids: string[]) => {
-    setDraft((value) => ({ ...value, definition: { ...value.definition, edges: value.definition.edges.filter((edge) => !ids.includes(edge.id)) } }));
+    setDraft((value) => ({
+      ...value,
+      definition: syncEntryEdges({
+        ...value.definition,
+        edges: value.definition.edges.filter((edge) => !ids.includes(edge.id)),
+      }),
+    }));
     setEdgeId(undefined);
   };
   const onEdgesChange = (changes: EdgeChange[]) => {
@@ -386,7 +417,13 @@ function WorkflowEditor() {
       if (value.definition.edges.some((edge) => edge.source === connection.source && edge.sourceHandle === connection.sourceHandle && edge.target === connection.target)) return value;
       const kept = value.definition.edges;
       const added = addEdge({ ...connection, id: `e-${crypto.randomUUID().slice(0, 8)}` }, kept.map((edge) => ({ ...edge }))) as typeof kept;
-      return { ...value, definition: { ...value.definition, edges: added.map(({ id, source, sourceHandle, target }) => ({ id, source, sourceHandle: sourceHandle!, target })) } };
+      return {
+        ...value,
+        definition: syncEntryEdges({
+          ...value.definition,
+          edges: added.map(({ id, source, sourceHandle, target }) => ({ id, source, sourceHandle: sourceHandle!, target })),
+        }),
+      };
     });
   };
 
@@ -397,7 +434,13 @@ function WorkflowEditor() {
     let id = prefix;
     for (let n = 2; taken.has(id); n++) id = `${prefix}${n}`;
     const node = workflowNodeSchema.parse({ id, position, config: {}, ...seed });
-    setDraft((value) => ({ ...value, definition: { ...value.definition, nodes: [...value.definition.nodes, node] } }));
+    setDraft((value) => ({
+      ...value,
+      definition: syncEntryEdges({
+        ...value.definition,
+        nodes: [...value.definition.nodes, node],
+      }),
+    }));
     select(id);
   };
 
@@ -408,7 +451,7 @@ function WorkflowEditor() {
       const next = await autoLayout(current.definition, sizes, layoutDirection);
       const positions = new Map(next.nodes.map((node) => [node.id, node.position]));
       setDraft((value) => ({ ...value, definition: { ...value.definition, direction: layoutDirection, nodes: value.definition.nodes.map((node) => ({ ...node, position: positions.get(node.id) ?? node.position })), edges: next.edges } }));
-      const focusId = search.node ?? current.definition.nodes.find((node) => node.type === 'entry')?.id;
+      const focusId = search.node ?? definitions[0]?.id;
       const focusNode = next.nodes.find((node) => node.id === focusId);
       const focusSize = focusId ? sizes.get(focusId) : undefined;
       requestAnimationFrame(() => keepReadable
@@ -456,7 +499,7 @@ function WorkflowEditor() {
     if (adoptedDirection.current === direction) {
       adoptedDirection.current = undefined;
       shouldArrange = false;
-      const focusId = search.node ?? current.definition.nodes.find((node) => node.type === 'entry')?.id;
+      const focusId = search.node ?? definitions[0]?.id;
       const focusNode = current.definition.nodes.find((node) => node.id === focusId);
       const focusSize = focusId ? measured[focusId] : undefined;
       requestAnimationFrame(() => focusWorkflowNode(flow, focusId, direction, canvasRef.current, focusNode?.position, focusSize));
@@ -483,19 +526,39 @@ function WorkflowEditor() {
     );
 
   const errorCount = issues.filter((issue) => issue.level === 'error').length;
-  const hasEntry = current.definition.nodes.some((node) => node.type === 'entry');
-
   const palette: NodeLibraryGroup[] = [
-    { id: 'ai', label: 'AI', items: Object.entries(AI_PRESETS).map(([id, preset]) => ({ id, label: preset.label, kind: 'ai', icon: null, description: AI_OUTPUTS[preset.output].description })) },
-    { id: 'checks', label: '검사', items: FUNCTION_NAMES.filter((fn) => fn.endsWith('Check')).map((fn) => ({ id: fn, label: FUNCTIONS[fn].label, kind: 'function', icon: null })) },
-    { id: 'flow', label: '흐름', items: [
-      { id: 'condition', label: '조건 분기', kind: 'condition', icon: null },
-      ...FUNCTION_NAMES.filter((fn) => !fn.endsWith('Check') && fn !== 'http').map((fn) => ({ id: fn, label: FUNCTIONS[fn].label, kind: (fn === 'setStatus' ? 'status' : 'function') as 'status' | 'function', icon: null })),
-      { id: 'end', label: '종료', kind: 'end', icon: null },
-      ...(!hasEntry ? [{ id: 'entry', label: '진입', kind: 'entry' as const, icon: null }] : []),
-      { id: 'ai', label: 'AI 자유 형식', kind: 'ai', icon: null },
-    ] },
-    { id: 'connect', label: '연결', items: [{ id: 'http', label: 'HTTP 호출', kind: 'function', icon: null }] },
+    {
+      id: 'ai',
+      label: 'AI 동작',
+      items: [
+        ...PALETTE_AI_PRESET_IDS.map((id) => ({
+          id,
+          label: AI_PRESETS[id]!.label,
+          kind: 'ai' as const,
+          icon: null,
+          description: AI_OUTPUTS[AI_PRESETS[id]!.output].description,
+        })),
+        { id: 'ai', label: 'AI 자유 형식', kind: 'ai' as const, icon: null, description: AI_OUTPUTS.json.description },
+      ],
+    },
+    {
+      id: 'function',
+      label: '함수 동작',
+      items: PALETTE_FUNCTION_NAMES.map((fn) => ({
+        id: fn,
+        label: FUNCTIONS[fn].label,
+        kind: (fn === 'setStatus' ? 'status' : 'function') as 'status' | 'function',
+        icon: null,
+        description: FUNCTIONS[fn].description,
+      })),
+    },
+    {
+      id: 'condition',
+      label: '조건 분기',
+      items: [
+        { id: 'condition', label: '조건 분기', kind: 'condition' as const, icon: null, description: NODE_TYPES.condition.description },
+      ],
+    },
   ];
   const addFromLibrary = (id: string, position?: { x: number; y: number }) => {
     const preset = AI_PRESETS[id as keyof typeof AI_PRESETS];
@@ -503,13 +566,23 @@ function WorkflowEditor() {
     else if (FUNCTION_NAMES.includes(id as FunctionName)) addNode({ type: 'function', config: { fn: id, params: {} } }, id, position);
     else if (id === 'ai') addNode({ type: 'ai', config: { model: newNodeModel(), output: 'json', fields: [{ name: 'note', type: 'string', description: '' }] } }, id, position);
     else if (id === 'condition') addNode({ type: 'condition', config: { expression: true, description: '' } }, id, position);
-    else if (id === 'entry' || id === 'end') addNode({ type: id, config: {} }, id, position);
+  };
+  const deleteNode = (nodeId: string) => {
+    setDraft((value) => ({
+      ...value,
+      definition: syncEntryEdges({
+        ...value.definition,
+        nodes: value.definition.nodes.filter((node) => node.id !== nodeId),
+        edges: value.definition.edges.filter((edge) => edge.source !== nodeId && edge.target !== nodeId),
+      }),
+    }));
+    if (search.node === nodeId) select(undefined);
   };
   const deleteSelected = () => {
     if (!selected || selected.type === 'entry') return;
-    setDraft((value) => ({ ...value, definition: { ...value.definition, nodes: value.definition.nodes.filter((node) => node.id !== selected.id), edges: value.definition.edges.filter((edge) => edge.source !== selected.id && edge.target !== selected.id) } }));
-    select(undefined);
+    deleteNode(selected.id);
   };
+
   return (
     <Page title={current.name || '워크플로'} flush>
       <PageHeading>
@@ -576,12 +649,45 @@ function WorkflowEditor() {
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
-            onNodeClick={(_event, node) => (select(node.id), setEdgeId(undefined))}
-            onEdgeClick={(_event, edge) => setEdgeId(edge.id)}
+            onNodeClick={(_event, node) => (select(node.id), setEdgeId(undefined), setContextMenu(null))}
+            onEdgeClick={(_event, edge) => (setEdgeId(edge.id), setContextMenu(null))}
             onEdgeMouseEnter={(_event, edge) => setHoveredEdgeId(edge.id)}
             onEdgeMouseLeave={() => setHoveredEdgeId(undefined)}
-            onPaneClick={() => (select(undefined), setEdgeId(undefined))}
-            onInit={(instance) => { const held = readViewport(workflowId, direction); if (held) void instance.setViewport(held); else focusWorkflowNode(instance, search.node ?? current.definition.nodes.find((node) => node.type === 'entry')?.id, direction, canvasRef.current); }}
+            onPaneClick={() => (select(undefined), setEdgeId(undefined), setContextMenu(null))}
+            onNodeContextMenu={(event, flowNode) => {
+              event.preventDefault();
+              select(flowNode.id);
+              setEdgeId(undefined);
+              const node = current.definition.nodes.find((n) => n.id === flowNode.id);
+              if (node) {
+                setContextMenu({
+                  kind: 'node',
+                  node,
+                  x: event.clientX,
+                  y: event.clientY,
+                });
+              }
+            }}
+            onEdgeContextMenu={(event, edge) => {
+              event.preventDefault();
+              select(undefined);
+              setEdgeId(edge.id);
+              setContextMenu({
+                kind: 'edge',
+                edgeId: edge.id,
+                x: event.clientX,
+                y: event.clientY,
+              });
+            }}
+            onPaneContextMenu={(event) => {
+              event.preventDefault();
+              setContextMenu({
+                kind: 'pane',
+                x: event.clientX,
+                y: event.clientY,
+              });
+            }}
+            onInit={(instance) => { const held = readViewport(workflowId, direction); if (held) void instance.setViewport(held); else focusWorkflowNode(instance, search.node ?? definitions[0]?.id, direction, canvasRef.current); }}
             onMoveEnd={(_event, viewport) => sessionStorage.setItem(viewportKey(workflowId, direction), JSON.stringify(viewport))}
             minZoom={0.05}
             deleteKeyCode={['Backspace', 'Delete']}
@@ -597,11 +703,130 @@ function WorkflowEditor() {
             ]} /></NodeToolbar>}
             {edgeId && <Panel position="top-center"><SelectionToolbox actions={[{ id: 'delete-edge', label: '연결 삭제', icon: <Trash2 />, destructive: true, onSelect: () => removeEdges([edgeId]) }]} /></Panel>}
           </ReactFlow>
+          {contextMenu && (
+            <DropdownMenu open={Boolean(contextMenu)} onOpenChange={(open) => !open && setContextMenu(null)} modal={false}>
+              <DropdownMenuTrigger asChild>
+                <span
+                  aria-hidden
+                  style={{
+                    position: 'fixed',
+                    left: contextMenu.x,
+                    top: contextMenu.y,
+                    width: 1,
+                    height: 1,
+                    pointerEvents: 'none',
+                  }}
+                />
+              </DropdownMenuTrigger>
+              {contextMenu.kind === 'node' && (
+                <DropdownMenuContent align="start" side="bottom" sideOffset={2} className="w-48">
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      addNode(
+                        { type: contextMenu.node.type, label: contextMenu.node.label, config: structuredClone(contextMenu.node.config) },
+                        `${contextMenu.node.id}-copy`,
+                        { x: contextMenu.node.position.x + 240, y: contextMenu.node.position.y },
+                      );
+                    }}
+                  >
+                    <Copy className="size-3.5" />
+                    <span>노드 복제</span>
+                  </DropdownMenuItem>
+                  {(() => {
+                    const incidentEdges = current.definition.edges.filter(
+                      (e) => e.source === contextMenu.node.id || e.target === contextMenu.node.id,
+                    );
+                    return (
+                      <DropdownMenuItem
+                        disabled={incidentEdges.length === 0}
+                        onSelect={() => {
+                          removeEdges(incidentEdges.map((e) => e.id));
+                        }}
+                      >
+                        <Unlink className="size-3.5" />
+                        <span>연결된 선 끊기</span>
+                      </DropdownMenuItem>
+                    );
+                  })()}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onSelect={() => {
+                      deleteNode(contextMenu.node.id);
+                    }}
+                  >
+                    <Trash2 className="size-3.5" />
+                    <span>노드 삭제</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              )}
+              {contextMenu.kind === 'edge' && (
+                <DropdownMenuContent align="start" side="bottom" sideOffset={2} className="w-40">
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onSelect={() => {
+                      removeEdges([contextMenu.edgeId]);
+                    }}
+                  >
+                    <Trash2 className="size-3.5" />
+                    <span>연결 삭제</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              )}
+              {contextMenu.kind === 'pane' && (
+                <DropdownMenuContent align="start" side="bottom" sideOffset={2} className="w-48">
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                      <Plus className="size-3.5" />
+                      <span>노드 추가</span>
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent className="w-44">
+                      {palette.map((group, groupIndex) => (
+                        <Fragment key={group.id}>
+                          {groupIndex > 0 && <DropdownMenuSeparator />}
+                          <DropdownMenuLabel>{group.label}</DropdownMenuLabel>
+                          {group.items.map((item) => (
+                            <DropdownMenuItem
+                              key={item.id}
+                              onSelect={() => {
+                                const flowPos = flow.screenToFlowPosition({ x: contextMenu.x, y: contextMenu.y });
+                                addFromLibrary(item.id, flowPos);
+                              }}
+                            >
+                              <span>{item.label}</span>
+                            </DropdownMenuItem>
+                          ))}
+                        </Fragment>
+                      ))}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => void arrange(direction, true)}>
+                    <LayoutGrid className="size-3.5" />
+                    <span>자동 정렬</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => fitWholeWorkflow(flow, 200)}>
+                    <Maximize className="size-3.5" />
+                    <span>화면에 맞춤</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => void flow.zoomTo(1, { duration: 180 })}>
+                    <Focus className="size-3.5" />
+                    <span>100% 배율</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => changeDirection(direction === 'vertical' ? 'horizontal' : 'vertical')}>
+                    {direction === 'vertical' ? <ArrowLeftRight className="size-3.5" /> : <ArrowUpDown className="size-3.5" />}
+                    <span>{direction === 'vertical' ? '가로 배치로 전환' : '세로 배치로 전환'}</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              )}
+            </DropdownMenu>
+          )}
         </CanvasSurface>
         </div>
       </SplitPane>
       <StatusBarItem>
-        <span className="mr-3 whitespace-nowrap tabular-nums">워크플로 노드 {current.definition.nodes.length}</span>
+        <span className="mr-3 whitespace-nowrap tabular-nums">워크플로 노드 {definitions.length}</span>
         {issues.length > 0 && <span className={errorCount ? 'text-destructive' : 'text-warning'}>{errorCount ? `오류 ${errorCount}` : `경고 ${issues.length}`} · {issues[0]?.message}</span>}
       </StatusBarItem>
     </Page>

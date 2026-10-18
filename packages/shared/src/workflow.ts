@@ -81,6 +81,10 @@ export const aiNodeConfigSchema = z.object({
   fields: z.array(jsonFieldSchema).default([]),
   /** What an "analysis" node reads the script for; empty = every section. */
   sections: z.array(z.enum(ANALYSIS_SECTIONS)).optional(),
+  /** Whether extracted terms/listener/knowledge/analysis should be saved automatically without requiring a separate save function node. */
+  autoApply: z.boolean().optional(),
+  /** When true, extracted terms/knowledge/analysis items are saved as 'candidate' instead of 'confirmed' (✦). */
+  asCandidate: z.boolean().optional(),
   /** Also show the model the line's current candidate / the latest failing issues. */
   include: z
     .object({ candidate: z.boolean().default(true), issues: z.boolean().default(true) })
@@ -172,9 +176,9 @@ export interface NodeTypeInfo {
 
 export const NODE_TYPES: Record<WorkflowNodeType, NodeTypeInfo> = {
   entry: { label: '진입', description: '선택한 상태의 대사가 흐름에 들어옵니다.', hasInput: false },
-  ai: { label: 'AI', description: '고른 모델·지시문·문맥으로 AI를 호출해 후보·판정·용어·데이터를 받습니다.', hasInput: true },
-  function: { label: '함수', description: '형식 검사·상태 변경·HTTP 호출·스크립트 등 정해진 동작을 실행합니다.', hasInput: true },
-  condition: { label: '조건', description: '방문 횟수·앞 노드의 출력 등으로 분기합니다.', hasInput: true },
+  ai: { label: 'AI 동작', description: '고른 모델·지시문·문맥으로 AI를 호출해 후보·판정·용어·데이터를 받습니다.', hasInput: true },
+  function: { label: '함수 동작', description: '형식 검사·상태 변경·HTTP 호출·스크립트 등 정해진 동작을 실행합니다.', hasInput: true },
+  condition: { label: '조건 분기', description: '방문 횟수·앞 노드의 출력·대사 속성 등으로 분기합니다.', hasInput: true },
   end: { label: '종료', description: '대사의 흐름을 마칩니다.', hasInput: true },
 };
 
@@ -301,10 +305,13 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
 
   for (const node of definition.nodes) {
     for (const port of nodePorts(node)) {
-      // An unconnected error port marks the line failed and an unconnected "out" ends it there (after
-      // a side job such as adding terms); exits that choose between ways (pass/fail, true/false…)
-      // must lead somewhere, so a forgotten one does not quietly end lines.
-      if (port.id === 'error' || (port.id === 'out' && node.type !== 'entry') || usedPorts.has(`${node.id}:${port.id}`)) continue;
+      if (
+        port.id === 'error' ||
+        (port.id === 'out' && node.type !== 'entry') ||
+        usedPorts.has(`${node.id}:${port.id}`) ||
+        (port.id === 'fail' && usedPorts.has(`${node.id}:pass`)) ||
+        ((port.id === 'true' || port.id === 'false') && (usedPorts.has(`${node.id}:true`) || usedPorts.has(`${node.id}:false`)))
+      ) continue;
       error(`'${port.label}' 출구가 연결되지 않았습니다.`, { nodeId: node.id });
     }
     if (node.type === 'ai') {
@@ -408,9 +415,10 @@ export function readinessUses(definition: WorkflowDefinition) {
 }
 
 /** Whether a run picks its lines by status (its entry names statuses and the scope does not ignore them): such a run never overwrites a translation a person saved (#51). */
-export const filtersByStatus = (definition: WorkflowDefinition, scope: { ignoreStatus?: boolean }) => {
+export const filtersByStatus = (definition: WorkflowDefinition, scope: { statusIds?: string[]; ignoreStatus?: boolean }) => {
   const entry = definition.nodes.find((node) => node.type === 'entry');
-  return entry?.type === 'entry' && entry.config.statusIds.length > 0 && !scope.ignoreStatus;
+  const statusIds = scope.statusIds ?? (entry?.type === 'entry' ? entry.config.statusIds : []);
+  return statusIds.length > 0 && !scope.ignoreStatus;
 };
 
 /**

@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { ANALYSIS_SECTIONS, isAnalysisWorkflow, analysisTemplate, CONNECTION_KIND_INFO, knowledgeTemplate, lineMarksSchema, listenerTemplate, speechFixTemplate, termExtractionTemplate, translationTemplate, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels } from '@tw/shared';
+import { ANALYSIS_SECTIONS, ANALYSIS_WORKFLOW_PRESET_IDS, isAnalysisWorkflow, analysisTemplate, analysisWorkflowTemplate, CONNECTION_KIND_INFO, draftTranslationTemplate, knowledgeTemplate, lineMarksSchema, listenerTemplate, speechFixTemplate, termExtractionTemplate, translationTemplate, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -13,8 +13,9 @@ import { ANALYSIS_BUSY, createRunInSteps, FILLING, refuseSecondAnalysis, selectR
 import { listBatches, preflight } from '../services/preflight.ts';
 import { choiceLabel, defaultModelChoice, snapshotWorkflowModels } from '../services/routes.ts';
 import { continuePreflight, switchedRun } from '../services/run-continue.ts';
+import { deleteWorkflow, saveWorkflow, WorkflowMutationError } from '../services/workflow-mutations.ts';
 
-const scopeSchema = z.object({ groupIds: z.array(z.string()).optional(), unitIds: z.array(z.string()).optional(), tagIds: z.array(z.string()).optional(), marks: lineMarksSchema.optional(), ignoreStatus: z.boolean().optional() });
+const scopeSchema = z.object({ groupIds: z.array(z.string()).optional(), unitIds: z.array(z.string()).optional(), tagIds: z.array(z.string()).optional(), marks: lineMarksSchema.optional(), statusIds: z.array(z.string()).optional(), ignoreStatus: z.boolean().optional() });
 /** A run's scope and, optionally, the models it uses instead of its nodes' own (by AI node id). */
 const runSchema = scopeSchema.extend({ models: runModelsSchema.optional() });
 const continueSchema = z.object({ models: runModelsSchema.optional(), retryFailed: z.boolean().default(false) });
@@ -39,14 +40,25 @@ function blankWorkflow(db: Db, projectId: string): WorkflowDefinition {
   return workflowDefinitionSchema.parse({
     nodes: [
       { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: { statusIds: initial ? [initial.id] : [] } },
-      { id: 'end', type: 'end', position: { x: 0, y: 120 }, config: {} },
     ],
-    edges: [{ id: 'e1', source: 'entry', sourceHandle: 'out', target: 'end' }],
+    edges: [],
   });
 }
 
 /** Single-purpose templates that only need a model. */
 const TEMPLATES = { terms: termExtractionTemplate, listener: listenerTemplate, knowledge: knowledgeTemplate, speechFix: speechFixTemplate };
+
+function draftWorkflow(db: Db, projectId: string): WorkflowDefinition {
+  const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).orderBy(asc(s.statuses.sort)).all();
+  const initial = statuses.find((status) => status.kind === 'initial') ?? statuses[0];
+  const final = statuses.find((status) => status.kind === 'final') ?? statuses.at(-1)!;
+  const middle = statuses.filter((status) => status.kind === 'normal');
+  return draftTranslationTemplate({
+    model: defaultModelChoice(db),
+    untranslated: initial.id,
+    draft: middle[0]?.id ?? final.id,
+  });
+}
 
 function templateWorkflow(db: Db, projectId: string): WorkflowDefinition {
   const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).orderBy(asc(s.statuses.sort)).all();
@@ -70,6 +82,7 @@ export const workflowRoutes = new Hono<Env>()
     return c.json(
       rows.map(({ definition, ...row }) => ({
         ...row,
+        isAnalysis: isAnalysisWorkflow(definition),
         nodeCount: definition.nodes.length,
         errorCount: workflowIssues(db, projectId, definition).filter((issue) => issue.level === 'error').length,
       })),
@@ -77,15 +90,17 @@ export const workflowRoutes = new Hono<Env>()
   })
   .post(
     '/projects/:projectId/workflows',
-    validate('json', z.object({ name: z.string().trim().min(1), from: z.enum(['template', 'blank', 'terms', 'listener', 'knowledge', 'speechFix', 'analysis']).default('template'), /** What an analysis template reads for; empty = everything. */ sections: z.array(z.enum(ANALYSIS_SECTIONS)).optional() })),
+    validate('json', z.object({ name: z.string().trim().min(1), from: z.enum(['template', 'draft', 'blank', 'terms', 'listener', 'knowledge', 'speechFix', 'analysis']).default('draft'), /** What an analysis template reads for; empty = everything. */ sections: z.array(z.enum(ANALYSIS_SECTIONS)).optional(), presetId: z.enum(ANALYSIS_WORKFLOW_PRESET_IDS).optional() }).superRefine((input, context) => {
+      if (input.presetId && input.from !== 'analysis') context.addIssue({ code: 'custom', path: ['presetId'], message: '분석 템플릿에서만 프리셋을 고를 수 있습니다.' });
+      if (input.presetId && input.sections) context.addIssue({ code: 'custom', path: ['sections'], message: '분석 프리셋과 직접 고른 항목은 함께 보낼 수 없습니다.' });
+    })),
     (c) => {
       const { db } = c.var.deps;
       const projectId = c.req.param('projectId');
-      const { name, from, sections } = c.req.valid('json');
+      const { name, from, sections, presetId } = c.req.valid('json');
       const definition =
-        from === 'template' ? templateWorkflow(db, projectId) : from === 'blank' ? blankWorkflow(db, projectId) : from === 'analysis' ? analysisTemplate({ model: defaultModelChoice(db), sections }) : TEMPLATES[from]({ model: defaultModelChoice(db) });
-      const row = db.insert(s.workflows).values({ projectId, name, definition }).returning().get();
-      events.changed(projectId, 'workflows');
+        from === 'draft' ? draftWorkflow(db, projectId) : from === 'template' ? templateWorkflow(db, projectId) : from === 'blank' ? blankWorkflow(db, projectId) : from === 'analysis' ? presetId ? analysisWorkflowTemplate({ model: defaultModelChoice(db), presetId }) : analysisTemplate({ model: defaultModelChoice(db), sections }) : TEMPLATES[from]({ model: defaultModelChoice(db) });
+      const row = saveWorkflow(db, projectId, { name, description: '', definition });
       return c.json(row, 201);
     },
   )
@@ -98,15 +113,16 @@ export const workflowRoutes = new Hono<Env>()
     const { db } = c.var.deps;
     const body = c.req.valid('json');
     const current = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
-    if (current.version !== body.version) badRequest('다른 곳에서 먼저 저장했습니다. 새로고침 후 다시 저장하세요.');
-    const row = db
-      .update(s.workflows)
-      .set({ name: body.name, description: body.description, definition: body.definition, version: current.version + 1 })
-      .where(eq(s.workflows.id, current.id))
-      .returning()
-      .get();
-    events.changed(current.projectId, 'workflows');
-    return c.json({ ...row, issues: workflowIssues(db, current.projectId, row.definition) });
+    try {
+      const row = saveWorkflow(db, current.projectId, { id: current.id, ...body });
+      return c.json({ ...row, issues: workflowIssues(db, current.projectId, row.definition) });
+    } catch (error) {
+      if (error instanceof WorkflowMutationError) {
+        if (error.status === 404) found(undefined, '워크플로');
+        badRequest(error.message);
+      }
+      throw error;
+    }
   })
   .post('/workflows/:id/validate', validate('json', z.object({ definition: workflowDefinitionSchema })), (c) => {
     const { db } = c.var.deps;
@@ -116,8 +132,12 @@ export const workflowRoutes = new Hono<Env>()
   .delete('/workflows/:id', (c) => {
     const { db } = c.var.deps;
     const workflow = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
-    db.delete(s.workflows).where(eq(s.workflows.id, workflow.id)).run();
-    events.changed(workflow.projectId, 'workflows');
+    try {
+      deleteWorkflow(db, workflow.projectId, workflow.id);
+    } catch (error) {
+      if (error instanceof WorkflowMutationError) badRequest(error.message);
+      throw error;
+    }
     return c.json({ ok: true });
   })
   .post('/workflows/:id/preview', validate('json', scopeSchema), (c) => {

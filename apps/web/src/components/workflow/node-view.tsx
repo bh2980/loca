@@ -1,8 +1,8 @@
-import { memo } from 'react';
-import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
+import { memo, useEffect } from 'react';
+import { Handle, Position, useUpdateNodeInternals, type Node, type NodeProps } from '@xyflow/react';
 import { BookPlus, Braces, CircleDot, Code, Flag, GitFork, Globe, ListChecks, MessageCircleQuestion, NotebookPen, ScanSearch, Sparkles, SpellCheck, Tag, UserCheck } from 'lucide-react';
 import { nodeName, nodePorts, type WorkflowNode } from '@tw/shared';
-import { NodeCard, paletteColor } from '@loca/ui';
+import { NodeCard, type CanvasDirection } from '@loca/ui';
 
 type Icon = typeof Sparkles;
 
@@ -28,8 +28,19 @@ export function nodeIcon(node: WorkflowNode): Icon {
   }
 }
 
-const NEGATIVE = new Set(['error', 'fail', 'false', 'rejected']);
-const handleClass = (port: string) => `!size-2.5 !border-2 !border-card ${NEGATIVE.has(port) ? '!bg-destructive' : '!bg-muted-foreground'}`;
+export const workflowPortTone = (port: string): 'neutral' | 'warning' | 'destructive' => port === 'error'
+  ? 'destructive'
+  : ['fail', 'false', 'rejected'].includes(port) ? 'warning' : 'neutral';
+const handleClass = (port: string) => {
+  const tone = workflowPortTone(port);
+  return `!size-2.5 !border-2 !border-card ${tone === 'destructive' ? '!bg-destructive' : tone === 'warning' ? '!bg-warning' : '!bg-muted-foreground'}`;
+};
+const portHelp: Record<string, string> = {
+  error: '오류: 모델이나 함수 실행 중 문제가 생겼을 때',
+  fail: '실패: 검수 기준을 통과하지 못했을 때',
+  false: '거짓: 조건식이 거짓일 때',
+  rejected: '거절: 검토 결과 거절되었을 때',
+};
 
 export type FlowNode = Node<{
   node: WorkflowNode;
@@ -39,28 +50,40 @@ export type FlowNode = Node<{
   /** Target status of a status-change node, shown in that status's colour. */
   status?: { name: string; color: string };
   live?: { queued: number; running: number; failed: number };
+  direction: CanvasDirection;
 }, 'workflow'>;
 
-/** Compact common node card; all graph ports now enter at top and exit at bottom. */
-export const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected }: NodeProps<FlowNode>) {
-  const { node, summary, errors, warnings, status, live } = data;
+/** Workflow ports move with the shared graph orientation and keep their accessible names. */
+export const WorkflowNodeView = memo(function WorkflowNodeView({ id, data, selected }: NodeProps<FlowNode>) {
+  const { node, summary, errors, warnings, status, live, direction } = data;
+  const updateNodeInternals = useUpdateNodeInternals();
+  useEffect(() => updateNodeInternals(id), [direction, id, updateNodeInternals]);
   const Icon = nodeIcon(node);
   const ports = nodePorts(node);
   const isEntry = node.type === 'entry';
-  const inputHandle = !isEntry && <Handle type="target" position={Position.Top} id="in" className="!size-2.5 !border-2 !border-card !bg-muted-foreground" />;
+  const isVertical = direction === 'vertical';
+  const inputHandle = !isEntry && <Handle type="target" position={isVertical ? Position.Top : Position.Left} id="in" title="입력" aria-label="입력" className="!size-2.5 !border-2 !border-card !bg-muted-foreground" />;
   const outputs = ports.map((port, index) => ({
     id: port.id,
-    label: port.label,
-    negative: NEGATIVE.has(port.id),
-    handle: <Handle type="source" position={Position.Bottom} id={port.id} className={handleClass(port.id)} style={{ left: `${((index + 1) / (ports.length + 1)) * 100}%` }} />,
+    label: port.id === 'error' ? '오류' : port.label,
+    tone: workflowPortTone(port.id),
+    handle: <Handle
+      type="source"
+      position={isVertical ? Position.Bottom : Position.Right}
+      id={port.id}
+      title={portHelp[port.id] ?? port.label}
+      aria-label={portHelp[port.id] ?? port.label}
+      className={handleClass(port.id)}
+      style={isVertical
+        ? { left: `${((index + 0.5) / (ports.length || 1)) * 100}%` }
+        : { top: `${((index + 0.5) / (ports.length || 1)) * 100}%` }}
+    />,
   }));
   const kind = node.type === 'function' && node.config.fn === 'setStatus' ? 'status' : node.type;
   const detail = node.type === 'function' && node.config.fn === 'setStatus'
     ? `→ ${status?.name ?? '상태 그대로'}`
     : summary;
-  const cardIcon = node.type === 'function' && node.config.fn === 'setStatus' && status
-    ? <span style={{ color: paletteColor(status.color) }}><Icon /></span>
-    : <Icon />;
+  const cardIcon = <Icon />;
 
   return <NodeCard
     kind={kind}
@@ -69,10 +92,11 @@ export const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected 
     summary={detail}
     inputHandle={inputHandle}
     outputs={outputs}
+    direction={direction}
     errors={errors.length}
     warnings={warnings.length}
     live={live}
     selected={selected}
-    className={isEntry ? 'w-48' : undefined}
+    className={isEntry ? 'w-48' : isVertical ? 'w-56' : 'w-72'}
   />;
 });

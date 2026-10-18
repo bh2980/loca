@@ -4,7 +4,7 @@ import { keepPreviousData, useMutation, useQuery, type UseQueryResult } from '@t
 import type { InferResponseType } from 'hono/client';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { Play } from 'lucide-react';
-import { SearchInput, Button, Checkbox, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Skeleton, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner } from '@loca/ui';
+import { SearchInput, Button, Checkbox, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Skeleton, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner, StatusIcon } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { LINE_MARK_IDS, type LineMark, UNREVIEWED_MARKS } from '@tw/shared';
 import { MarkChip } from '@/components/status';
@@ -14,7 +14,6 @@ import { lineTags, q } from '@/lib/queries';
 import { SCRIPT_VIEW } from '@/lib/labels';
 import { cn } from '@/lib/utils';
 
-type Mode = RunScopeMode;
 type GroupKind = 'scene' | 'ui' | 'document';
 const KIND_ORDER: GroupKind[] = ['scene', 'ui', 'document'];
 
@@ -23,10 +22,7 @@ const KIND_ORDER: GroupKind[] = ['scene', 'ui', 'document'];
  * start — which lines (the scene in view, picked scenes, tagged lines, picked lines, every line of
  * one kind — 대사 · UI · 문서, preselected only from the UI or documents view — or the whole
  * project, never preselected), what in those lines would spoil the translation and where to fix it,
- * how long and how much in plain words, and which models. Nothing more: the batches are the run
- * page's 번역 계획, and the run is capped at the suggested limits (1.3× the estimate; it pauses
- * there, the run page shows them). The count is exactly what will run: scope ∩ entry statuses
- * (unless ignored).
+ * how long and how much in plain words, and which models.
  */
 export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: givenGroupIds, unitIds: givenUnitIds, unitsLabel, viewKind, dirty, disabled, trigger, defaultIgnoreStatus = false, preferWorkflow, open: controlledOpen, onOpenChange, hideTrigger = false }: {
   projectId: string;
@@ -58,15 +54,23 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   const groupIds = open ? opened.groupIds : givenGroupIds;
   // Dialogue is nearly the whole project, so like the whole project it is never preselected.
   const preselectKind = viewKind && viewKind !== 'scene' ? viewKind : undefined;
-  const [mode, setMode] = useState<Mode | undefined>(() => initialRunScope({ unitIds, groupIds, kind: preselectKind }));
-  const [pickedKind, setPickedKind] = useState<GroupKind | undefined>(preselectKind);
-  const [picked, setPicked] = useState<Set<string>>(new Set());
+
+  const [scopeTarget, setScopeTarget] = useState<'units' | 'here' | 'project'>(() =>
+    unitIds?.length ? 'units' : groupIds?.length ? 'here' : 'project',
+  );
+  const [pickedKinds, setPickedKinds] = useState<Set<GroupKind>>(() =>
+    preselectKind ? new Set([preselectKind]) : new Set(),
+  );
+  const [pickedScenes, setPickedScenes] = useState<Set<string>>(new Set());
+  const [showScenePicker, setShowScenePicker] = useState(false);
+  const [sceneFilter, setSceneFilter] = useState('');
   const [pickedTags, setPickedTags] = useState<Set<string>>(new Set());
   const [pickedMarks, setPickedMarks] = useState<Set<string>>(new Set());
+  const [showTagPicker, setShowTagPicker] = useState(false);
+  const [pickedStatuses, setPickedStatuses] = useState<Set<string>>(new Set());
+
   const statuses = useQuery({ ...q.statuses(projectId), enabled: open });
   const tags = lineTags(statuses.data?.tags);
-  const [filter, setFilter] = useState('');
-  const [ignoreStatus, setIgnoreStatus] = useState(defaultIgnoreStatus);
   // This run's models by AI node, where the person picked another than the node's own (the workflow is not changed).
   const [runModels, setRunModels] = useState<Record<string, ModelValue>>({});
   const workflows = useQuery({ ...q.workflows(projectId), enabled: open });
@@ -76,15 +80,66 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   const groups = useQuery({ ...q.groups(projectId), enabled: open });
   const here = groupIds?.length ? groups.data?.filter((group) => groupIds.includes(group.id)) : undefined;
 
+  const initialStatus = statuses.data?.statuses.find((s) => s.kind === 'initial');
+  const isNonTranslation =
+    defaultIgnoreStatus ||
+    workflow?.isAnalysis ||
+    ['청자 추정', '용어 추출', '인물·관계 추출', '사건 추출', '작품 분석'].includes(workflow?.name ?? '');
+
+  useEffect(() => {
+    if (!open) return;
+    if (!isNonTranslation && initialStatus) {
+      setPickedStatuses(new Set([initialStatus.id]));
+    } else {
+      setPickedStatuses(new Set());
+    }
+  }, [open, workflowId, isNonTranslation, initialStatus?.id]);
+
   // Each kind the project has, with its groups and lines (only offered when there is more than one).
   const kinds = KIND_ORDER.map((kind) => {
     const list = (groups.data ?? []).filter((group) => group.kind === kind);
     return { kind, ids: list.map((group) => group.id), lines: list.reduce((sum, group) => sum + group.total, 0) };
   }).filter((entry) => entry.ids.length);
-  const kindIds = kinds.find((entry) => entry.kind === pickedKind)?.ids ?? [];
-  const scope =
-    mode === 'kind' ? { groupIds: kindIds, ignoreStatus } : mode === 'units' ? { unitIds, ignoreStatus } : mode === 'here' ? { groupIds, ignoreStatus } : mode === 'groups' ? { groupIds: [...picked], ignoreStatus } : mode === 'tags' ? { tagIds: [...pickedTags], marks: [...pickedMarks] as LineMark[], ignoreStatus } : { ignoreStatus };
-  const ready = (mode === 'kind' && kindIds.length > 0) || mode === 'all' || (mode === 'units' && Boolean(unitIds?.length)) || (mode === 'here' && Boolean(groupIds?.length)) || (mode === 'groups' && picked.size > 0) || (mode === 'tags' && (pickedTags.size > 0 || pickedMarks.size > 0));
+
+  const groupKindMap = useMemo(() => new Map((groups.data ?? []).map((g) => [g.id, g.kind])), [groups.data]);
+
+  let computedUnitIds: string[] | undefined;
+  let computedGroupIds: string[] | undefined;
+
+  if (scopeTarget === 'units') {
+    computedUnitIds = unitIds;
+  } else if (scopeTarget === 'here') {
+    computedGroupIds = groupIds;
+  } else {
+    // Project scope
+    if (pickedScenes.size > 0) {
+      const intersected = [...pickedScenes].filter((id) => pickedKinds.size === 0 || pickedKinds.has(groupKindMap.get(id)!));
+      computedGroupIds = intersected.length > 0 ? intersected : ['__none__'];
+    } else if (pickedKinds.size > 0 && pickedKinds.size < kinds.length) {
+      const kindGroupIds = (groups.data ?? []).filter((g) => pickedKinds.has(g.kind)).map((g) => g.id);
+      computedGroupIds = kindGroupIds.length > 0 ? kindGroupIds : ['__none__'];
+    } else {
+      computedGroupIds = undefined;
+    }
+  }
+
+  const statusScope =
+    pickedStatuses.size > 0
+      ? { statusIds: [...pickedStatuses], ignoreStatus: false }
+      : { statusIds: [], ignoreStatus: true };
+
+  const scope = {
+    ...(computedUnitIds ? { unitIds: computedUnitIds } : {}),
+    ...(computedGroupIds ? { groupIds: computedGroupIds } : {}),
+    ...statusScope,
+    ...(pickedTags.size ? { tagIds: [...pickedTags] } : {}),
+    ...(pickedMarks.size ? { marks: [...pickedMarks] as LineMark[] } : {}),
+  };
+
+  const ready =
+    (scopeTarget === 'units' && Boolean(unitIds?.length)) ||
+    (scopeTarget === 'here' && Boolean(groupIds?.length)) ||
+    scopeTarget === 'project';
   // Only finished picks go out; one still missing its model stays in the picker meanwhile.
   const chosenModels = Object.fromEntries(Object.entries(runModels).filter(([, value]) => value.connectionId && value.model));
   const request = { ...scope, ...(Object.keys(chosenModels).length ? { models: chosenModels } : {}) };
@@ -119,14 +174,18 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
       void navigate({ to: '/p/$projectId/runs/$runId', params: { projectId, runId: run.runId } });
     },
   });
-  const visible = useMemo(() => (groups.data ?? []).filter((group) => `${group.title} ${group.key}`.toLowerCase().includes(filter.toLowerCase())), [groups.data, filter]);
+  const visibleGroups = useMemo(
+    () =>
+      (groups.data ?? []).filter((group) => {
+        if (pickedKinds.size > 0 && !pickedKinds.has(group.kind)) return false;
+        if (sceneFilter && !`${group.title} ${group.key}`.toLowerCase().includes(sceneFilter.toLowerCase())) return false;
+        return true;
+      }),
+    [groups.data, pickedKinds, sceneFilter],
+  );
   const total = data?.lines.total;
   const projectLines = (groups.data ?? []).reduce((sum, group) => sum + group.total, 0);
-  const scopeButton = (value: Mode, label: ReactNode) => (
-    <Button key={value} variant={mode === value ? 'secondary' : 'outline'} className={cn(mode === value && 'ring-1 ring-ring ring-inset')} onClick={() => setMode(value)}>
-      {label}
-    </Button>
-  );
+  const tagMarkCount = pickedTags.size + pickedMarks.size;
 
   return (
     <Dialog
@@ -135,9 +194,14 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
         setOpen(next);
         if (next) {
           setOpened({ unitIds: givenUnitIds, groupIds: givenGroupIds });
-          setMode(initialRunScope({ unitIds: givenUnitIds, groupIds: givenGroupIds, kind: preselectKind }));
-          setPickedKind(preselectKind);
-          setPicked(new Set());
+          setScopeTarget(givenUnitIds?.length ? 'units' : givenGroupIds?.length ? 'here' : 'project');
+          setPickedKinds(preselectKind ? new Set([preselectKind]) : new Set());
+          setPickedScenes(new Set());
+          setShowScenePicker(false);
+          setSceneFilter('');
+          setShowTagPicker(false);
+          setPickedTags(new Set());
+          setPickedMarks(new Set());
           setRunModels({});
         }
       }}
@@ -179,27 +243,138 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
             </div>
           )}
 
-          <section className="space-y-2">
-            <h3 className="text-xs text-muted-foreground">무엇을</h3>
-            <div className="flex flex-wrap gap-2">
-              {unitIds?.length ? scopeButton('units', `${unitsLabel ?? '고른 대사'} ${unitIds.length.toLocaleString()}줄`) : null}
-              {groupIds?.length ? scopeButton('here', here?.length === 1 ? `이 장면 · ${here[0].title}` : `이 장면들 ${groupIds.length}개`) : null}
-              {scopeButton('groups', mode === 'groups' && picked.size ? `장면 ${picked.size}개` : '장면 고르기')}
-              {scopeButton('tags', '태그로')}
-              {kinds.length > 1 &&
-                kinds.map((entry) => (
-                  <Button key={entry.kind} variant={mode === 'kind' && pickedKind === entry.kind ? 'secondary' : 'outline'} className={cn(mode === 'kind' && pickedKind === entry.kind && 'ring-1 ring-ring ring-inset')} onClick={() => (setMode('kind'), setPickedKind(entry.kind))}>
-                    {SCRIPT_VIEW[entry.kind]} {entry.lines.toLocaleString()}줄
+          <section className="space-y-4">
+            <div className="space-y-2">
+              <h3 className="text-xs text-muted-foreground">대상 범위</h3>
+              <div className="flex flex-wrap gap-2">
+                {unitIds?.length ? (
+                  <Button
+                    variant={scopeTarget === 'units' ? 'secondary' : 'outline'}
+                    className={cn(scopeTarget === 'units' && 'ring-1 ring-ring ring-inset')}
+                    onClick={() => setScopeTarget('units')}
+                  >
+                    {unitsLabel ?? '고른 대사'} {unitIds.length.toLocaleString()}줄
                   </Button>
-                ))}
-              {scopeButton('all', `전체${projectLines ? ` ${projectLines.toLocaleString()}줄` : ''}`)}
+                ) : null}
+                {groupIds?.length ? (
+                  <Button
+                    variant={scopeTarget === 'here' ? 'secondary' : 'outline'}
+                    className={cn(scopeTarget === 'here' && 'ring-1 ring-ring ring-inset')}
+                    onClick={() => setScopeTarget('here')}
+                  >
+                    {here?.length === 1 ? `이 장면 · ${here[0].title}` : `이 장면들 ${groupIds.length}개`}
+                  </Button>
+                ) : null}
+                <Button
+                  variant={scopeTarget === 'project' && pickedKinds.size === 0 && pickedScenes.size === 0 ? 'secondary' : 'outline'}
+                  className={cn(scopeTarget === 'project' && pickedKinds.size === 0 && pickedScenes.size === 0 && 'ring-1 ring-ring ring-inset')}
+                  onClick={() => {
+                    setScopeTarget('project');
+                    setPickedKinds(new Set());
+                    setPickedScenes(new Set());
+                  }}
+                >
+                  {kinds.length > 1 ? '전체 종류' : '전체'}{projectLines ? ` ${projectLines.toLocaleString()}줄` : ''}
+                </Button>
+                {kinds.length > 1 &&
+                  kinds.map((entry) => {
+                    const active = scopeTarget === 'project' && pickedKinds.has(entry.kind);
+                    return (
+                      <Button
+                        key={entry.kind}
+                        variant={active ? 'secondary' : 'outline'}
+                        className={cn(active && 'ring-1 ring-ring ring-inset')}
+                        onClick={() => {
+                          setScopeTarget('project');
+                          setPickedKinds((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(entry.kind)) next.delete(entry.kind);
+                            else next.add(entry.kind);
+                            return next;
+                          });
+                        }}
+                      >
+                        {SCRIPT_VIEW[entry.kind]} {entry.lines.toLocaleString()}줄
+                      </Button>
+                    );
+                  })}
+                <Button
+                  variant={showScenePicker || pickedScenes.size > 0 ? 'secondary' : 'outline'}
+                  className={cn((showScenePicker || pickedScenes.size > 0) && 'ring-1 ring-ring ring-inset')}
+                  onClick={() => {
+                    if (scopeTarget !== 'project') setScopeTarget('project');
+                    setShowScenePicker((prev) => !prev);
+                  }}
+                >
+                  {pickedScenes.size > 0 ? `장면 ${pickedScenes.size}개 선택됨` : '장면·묶음 골라내기'}
+                </Button>
+                <Button
+                  variant={showTagPicker || tagMarkCount > 0 ? 'secondary' : 'outline'}
+                  className={cn((showTagPicker || tagMarkCount > 0) && 'ring-1 ring-ring ring-inset')}
+                  onClick={() => setShowTagPicker((prev) => !prev)}
+                >
+                  태그·표시 필터{tagMarkCount > 0 ? ` (${tagMarkCount})` : ''}
+                </Button>
+              </div>
             </div>
-            {mode === 'groups' && <ScenePicker visible={visible} picked={picked} setPicked={setPicked} filter={filter} setFilter={setFilter} />}
-            {mode === 'tags' && <TagPicker tags={tags} picked={pickedTags} setPicked={setPickedTags} marks={pickedMarks} setMarks={setPickedMarks} />}
+
+            {showScenePicker && (
+              <ScenePicker
+                visible={visibleGroups}
+                picked={pickedScenes}
+                setPicked={setPickedScenes}
+                filter={sceneFilter}
+                setFilter={setSceneFilter}
+              />
+            )}
+
+            {showTagPicker && (
+              <TagPicker
+                tags={tags}
+                picked={pickedTags}
+                setPicked={setPickedTags}
+                marks={pickedMarks}
+                setMarks={setPickedMarks}
+              />
+            )}
+
+            <div className="space-y-2">
+              <h3 className="text-xs text-muted-foreground">대상 상태</h3>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant={pickedStatuses.size === 0 ? 'secondary' : 'outline'}
+                  className={cn(pickedStatuses.size === 0 && 'ring-1 ring-ring ring-inset')}
+                  onClick={() => setPickedStatuses(new Set())}
+                >
+                  전체 상태
+                </Button>
+                {(statuses.data?.statuses ?? []).map((status) => {
+                  const active = pickedStatuses.has(status.id);
+                  return (
+                    <Button
+                      key={status.id}
+                      variant={active ? 'secondary' : 'outline'}
+                      className={cn(active && 'ring-1 ring-ring ring-inset')}
+                      onClick={() => {
+                        setPickedStatuses((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(status.id)) next.delete(status.id);
+                          else next.add(status.id);
+                          return next;
+                        });
+                      }}
+                    >
+                      <StatusIcon status={status} />
+                      <span>{status.name}</span>
+                      <span className="text-xs text-muted-foreground tabular-nums">{status.units.toLocaleString()}</span>
+                    </Button>
+                  );
+                })}
+              </div>
+            </div>
+
             <p className="text-sm">
-              {!mode ? (
-                null
-              ) : total === undefined && plan.isError ? (
+              {!ready ? null : total === undefined && plan.isError ? (
                 <span className="text-destructive">
                   줄 수를 세지 못했습니다: {plan.error.message}{' '}
                   <Button variant="ghost" size="inline" onClick={() => void plan.refetch()}>
@@ -219,7 +394,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
                   )}
                 </span>
               ) : total === 0 ? (
-                <span className="text-muted-foreground">이 범위에는 실행할 대사가 없습니다.{!ignoreStatus && ' 이미 진행된 줄이면 아래 "이미 진행된 줄도"를 켜세요.'}</span>
+                <span className="text-muted-foreground">이 범위에는 실행할 대사가 없습니다.</span>
               ) : (
                 <>
                   <b className="font-medium tabular-nums">{total.toLocaleString()}줄</b>을 실행합니다
@@ -227,14 +402,20 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
                 </>
               )}
             </p>
-            {mode === 'all' && Boolean(total) && <p className="text-xs text-warning">프로젝트 전체입니다. 처음이면 장면 하나로 먼저 시험해 보세요.</p>}
-            <label className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Checkbox checked={ignoreStatus} onCheckedChange={(checked) => setIgnoreStatus(Boolean(checked))} />
-              이미 진행된 줄도 다시
-            </label>
+            {scopeTarget === 'project' && pickedKinds.size === 0 && pickedScenes.size === 0 && Boolean(total) && (
+              <p className="text-xs text-warning">프로젝트 전체입니다. 처음이면 장면 하나로 먼저 시험해 보세요.</p>
+            )}
           </section>
 
-          {data && total ? <Readiness projectId={projectId} readiness={data.readiness} oneScene={mode === 'here' && here?.length === 1 ? here[0].id : undefined} scoped={mode !== 'all'} onLeave={() => setOpen(false)} /> : null}
+          {data && total ? (
+            <Readiness
+              projectId={projectId}
+              readiness={data.readiness}
+              oneScene={scopeTarget === 'here' && here?.length === 1 ? here[0].id : undefined}
+              scoped={scopeTarget !== 'project' || pickedKinds.size > 0 || pickedScenes.size > 0 || pickedStatuses.size > 0 || pickedTags.size > 0 || pickedMarks.size > 0}
+              onLeave={() => setOpen(false)}
+            />
+          ) : null}
           {data && total ? <Pace data={data} /> : null}
           {data && total ? (
             <RunModels

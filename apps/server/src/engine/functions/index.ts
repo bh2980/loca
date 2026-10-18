@@ -144,7 +144,7 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
   },
 
   addTerms(tx, raw, input) {
-    const params = addTermsParams.parse(raw);
+    const params = (raw ?? {}) as { fromNodeId?: string; asCandidate?: boolean };
     const outputs = Object.entries(input.item.data.outputs ?? {});
     const source = params.fromNodeId ? input.item.data.outputs?.[params.fromNodeId] : outputs.reverse().find(([, output]) => Array.isArray(output.terms))?.[1];
     // Skip redundant database writes for non-leader lines in the same batch (H7).
@@ -153,7 +153,9 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     }
     const found = (Array.isArray(source?.terms) ? source.terms : []) as { source?: string; target?: string; note?: string }[];
     // New terms land as AI › 사용 방식 says (one without a Korean form stays a candidate).
-    const policy = aiConfirmOf(tx as unknown as Db, input.projectId);
+    const policy = params.asCandidate === true
+      ? { terms: 'candidate' as const, documents: 'candidate' as const, characters: 'candidate' as const, relationships: 'candidate' as const, events: 'candidate' as const, speechRules: 'candidate' as const }
+      : aiConfirmOf(tx as unknown as Db, input.projectId);
     let added = 0;
     let filled = 0;
     for (const term of found) {
@@ -166,7 +168,7 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
   },
 
   applyKnowledge(tx, raw, input) {
-    const params = applyKnowledgeParams.parse(raw);
+    const params = (raw ?? {}) as { fromNodeId?: string; asCandidate?: boolean };
     const outputs = Object.entries(input.item.data.outputs ?? {});
     const source = params.fromNodeId ? input.item.data.outputs?.[params.fromNodeId] : outputs.reverse().find(([, output]) => 'knowledge' in output)?.[1];
     // Skip redundant database writes for non-leader lines in the same batch (H7).
@@ -177,7 +179,9 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     if (!found) return { port: 'out', output: { added: 0, proposed: 0, reason: '자료 변경 출력이 없습니다.' } };
     const projectId = input.projectId;
     // Each kind lands as AI › 사용 방식 says; AI set the status either way.
-    const policy = aiConfirmOf(tx as unknown as Db, projectId);
+    const policy = params.asCandidate === true
+      ? { terms: 'candidate' as const, documents: 'candidate' as const, characters: 'candidate' as const, relationships: 'candidate' as const, events: 'candidate' as const, speechRules: 'candidate' as const }
+      : aiConfirmOf(tx as unknown as Db, projectId);
     const ai = (kind: AiConfirmKind) => ({ origin: 'ai' as const, statusBy: 'ai' as const, status: aiStatus(policy, kind) });
     const lower = (value: string) => value.trim().toLowerCase();
     let added = 0;
@@ -250,7 +254,7 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
   },
 
   saveAnalysis(tx, raw, input) {
-    const params = saveAnalysisParams.parse(raw);
+    const params = (raw ?? {}) as { fromNodeId?: string; asCandidate?: boolean };
     const outputs = Object.entries(input.item.data.outputs ?? {});
     const source = params.fromNodeId ? input.item.data.outputs?.[params.fromNodeId] : outputs.reverse().find(([, output]) => 'analysis' in output)?.[1];
     // One answer per request, carried by its first line (H7): the others have nothing to store.
@@ -263,7 +267,10 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     // The answer already names lines by key (the runner mapped the prompt's ids).
     const keyOf = new Map(tx.select({ key: s.units.key }).from(s.units).where(eq(s.units.projectId, input.projectId)).all().map((unit) => [unit.key, unit.key]));
     const sections = Array.isArray(source?.sections) ? (source.sections as AnalysisSection[]) : undefined;
-    const counts = saveDrafts(tx as unknown as Db, input.projectId, input.runId, found, keyOf, aiConfirmOf(tx as unknown as Db, input.projectId), { sections, replace });
+    const policy = params.asCandidate === true
+      ? { terms: 'candidate' as const, documents: 'candidate' as const, characters: 'candidate' as const, relationships: 'candidate' as const, events: 'candidate' as const, speechRules: 'candidate' as const }
+      : aiConfirmOf(tx as unknown as Db, input.projectId);
+    const counts = saveDrafts(tx as unknown as Db, input.projectId, input.runId, found, keyOf, policy, { sections, replace });
     return { port: 'out', output: { saved: true, replaced: replace, counts } };
   },
 

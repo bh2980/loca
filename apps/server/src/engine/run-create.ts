@@ -20,7 +20,7 @@ type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 /** Selects the lines a run starts with: scope ∩ entry status filter. */
 export function selectRunUnits(db: Db, projectId: string, definition: WorkflowDefinition, scope: s.RunScope): string[] {
   const entry = definition.nodes.find((node) => node.type === 'entry');
-  const statusIds = entry?.type === 'entry' ? entry.config.statusIds : [];
+  const statusIds = scope.statusIds !== undefined ? scope.statusIds : (entry?.type === 'entry' ? entry.config.statusIds : []);
   const conditions = [eq(s.units.projectId, projectId)];
   if (statusIds.length && !scope.ignoreStatus) {
     conditions.push(inArray(s.units.statusId, statusIds));

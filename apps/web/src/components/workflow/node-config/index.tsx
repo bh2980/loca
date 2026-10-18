@@ -70,7 +70,7 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
           ) : node.type === 'function' || node.type === 'condition' ? (
             <InspectorSection title="설정">
               {node.type === 'function' && <FunctionConfig node={node} refs={refs} readOnly={readOnly} onChange={onChange} />}
-              {node.type === 'condition' && <ConditionEditor node={node} nodes={refs.nodes} readOnly={readOnly} onChange={onChange} />}
+              {node.type === 'condition' && <ConditionEditor node={node} nodes={refs.nodes} refs={refs} readOnly={readOnly} onChange={onChange} />}
             </InspectorSection>
           ) : null}
           {!readOnly && node.type !== 'entry' && (
@@ -92,7 +92,13 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
                 {incoming.map((edge) => {
                   const source = refs.nodes.find((item) => item.id === edge.source);
                   const port = source && nodePorts(source).find((item) => item.id === edge.sourceHandle);
-                  return <PropertyRow key={edge.id} label={port?.label ?? edge.sourceHandle}>{source ? nodeName(source) : `삭제된 노드 (${edge.source})`}</PropertyRow>;
+                  return (
+                    <PropertyRow key={edge.id} label={port?.label ?? edge.sourceHandle}>
+                      <span className="block truncate" title={source ? nodeName(source) : edge.source}>
+                        {source ? nodeName(source) : `삭제된 노드 (${edge.source})`}
+                      </span>
+                    </PropertyRow>
+                  );
                 })}
               </PropertyGrid>
             ) : <p className="text-sm text-muted-foreground">연결된 입력이 없습니다.</p> : <p className="text-sm text-muted-foreground">연결 정보를 불러올 수 없습니다.</p>}
@@ -101,7 +107,19 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
             <PropertyGrid>
               {outgoingPorts.length ? outgoingPorts.map((port) => {
                 const targets = outgoing.filter((edge) => edge.sourceHandle === port.id).map((edge) => refs.nodes.find((item) => item.id === edge.target));
-                return <PropertyRow key={port.id} label={port.label}>{targets.length ? targets.map((target, index) => <span key={`${target?.id ?? index}`} className="block">{target ? nodeName(target) : '삭제된 노드'}</span>) : <span className="text-muted-foreground">연결 없음</span>}</PropertyRow>;
+                return (
+                  <PropertyRow key={port.id} label={port.label}>
+                    {targets.length ? (
+                      targets.map((target, index) => (
+                        <span key={`${target?.id ?? index}`} className="block truncate" title={target ? nodeName(target) : '삭제된 노드'}>
+                          {target ? nodeName(target) : '삭제된 노드'}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-muted-foreground">연결 없음</span>
+                    )}
+                  </PropertyRow>
+                );
               }) : <PropertyRow label="출구">이 노드는 대사 흐름을 마칩니다.</PropertyRow>}
             </PropertyGrid>
             {node.type === 'function' && <PropertyGrid><PropertyRow label="동작">{FUNCTIONS[node.config.fn as FunctionName]?.description ?? node.config.fn}</PropertyRow></PropertyGrid>}

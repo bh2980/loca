@@ -34,6 +34,7 @@ type Waiting = { id: string; unitId: string; nodeId: string; groupId: string; se
 
 /** Functions that write beyond the line itself, and the change topic they touch. */
 const FUNCTION_TOPICS: Record<string, Topic[]> = { addTerms: ['terms'], applyKnowledge: ['knowledge'], saveAnalysis: ['knowledge', 'terms', 'analysis'] };
+const AUTO_APPLY_FUNCTIONS: Partial<Record<string, FunctionName>> = { terms: 'addTerms', listener: 'setListener', knowledge: 'applyKnowledge', analysis: 'saveAnalysis' };
 /** A partial batch waits this long for more lines from upstream before it is sent anyway. */
 const GATHER_MS = 5_000;
 /** Lines passed through instant nodes per tick; the rest wait for the next tick, so a tick never blocks for long. */
@@ -240,6 +241,19 @@ export class Runner {
 
   private node(run: Run, nodeId: string): WorkflowNode | undefined {
     return run.definition.nodes.find((node) => node.id === nodeId);
+  }
+
+  private shouldAutoApply(definition: WorkflowDefinition, node: AiNode): boolean {
+    if (node.config.autoApply === false) return false;
+    const legacyFn = AUTO_APPLY_FUNCTIONS[node.config.output];
+    if (!legacyFn) return false;
+    const hasLegacy = definition.nodes.some((other) => {
+      if (other.type !== 'function' || other.config.fn !== legacyFn) return false;
+      const params = other.config.params as { fromNodeId?: string } | undefined;
+      return params?.fromNodeId === node.id || !params?.fromNodeId;
+    });
+    if (hasLegacy) return false;
+    return true;
   }
 
   /** Store what a node produced for a line, then move the line out through the chosen exit. */
@@ -733,17 +747,24 @@ export class Runner {
       const raw = result.result.object;
       const outcomes = readAiOutput(node, raw, lines, result.route.model, analysis?.keyOf);
       const answered = outcomes.filter(Boolean).length;
+      const autoFn = this.shouldAutoApply(run.definition, node) ? AUTO_APPLY_FUNCTIONS[node.config.output] : undefined;
       this.db.transaction((tx) => {
         items.forEach((item, index) => {
           const outcome = outcomes[index];
-          if (outcome) this.record(tx, run, item, outcome);
-          else this.retryLater(tx, run, item, `모델 응답에 이 대사의 ${MISSING_WHAT[node.config.output]}이(가) 없습니다.`);
+          if (outcome) {
+            if (autoFn && outcome.output && syncFunctions[autoFn]) {
+              const itemWithOutput: Item = { ...item, data: { ...item.data, outputs: { ...item.data.outputs, [node.id]: outcome.output } } };
+              const applied = syncFunctions[autoFn]!(tx, { fromNodeId: node.id, asCandidate: node.config.asCandidate }, { unit: rows[index]!, item: itemWithOutput, tagIds: [], projectId: run.projectId, runId: run.id });
+              outcome.output = { ...outcome.output, ...(applied.output ?? {}) };
+            }
+            this.record(tx, run, item, outcome);
+          } else this.retryLater(tx, run, item, `모델 응답에 이 대사의 ${MISSING_WHAT[node.config.output]}이(가) 없습니다.`);
         });
         tx.insert(s.runSteps)
           .values({ ...step, ok: true, connectionId: result.route.connectionId ?? step.connectionId, model: result.route.model, output: raw, attempts: result.attempts, returnedLines: perLine ? answered : null, ...usageColumns(stepUsage(result.attempts, result.result.usage)), finishedAt: new Date() })
           .run();
       });
-      this.notify(run.id);
+      this.notify(run.id, ...(autoFn ? (FUNCTION_TOPICS[autoFn] ?? []) : []));
       this.guard(run.id);
     } catch (error) {
       if (signal.aborted) return;

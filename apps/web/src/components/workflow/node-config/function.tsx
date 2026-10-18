@@ -1,8 +1,9 @@
 /** Config of a function node: the function picked and its parameters (set status, HTTP call, script). */
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { Play } from 'lucide-react';
-import { FUNCTIONS, nodeName, type FunctionName, type WorkflowNode } from '@tw/shared';
+import { Link } from '@tanstack/react-router';
+import { Play, Plus, Trash2 } from 'lucide-react';
+import { DEFAULT_PARTICLE_PATTERN, formatPatternError, FUNCTIONS, nodeName, PALETTE_FUNCTION_NAMES, type CustomFormatRule, type FunctionName, type WorkflowNode } from '@tw/shared';
 import { AiConfirmNote } from '@/components/settings/ai-confirm';
 import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, StatusIcon, TagChip } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
@@ -20,21 +21,17 @@ export function FunctionConfig({ node, refs, readOnly, onChange }: { node: Funct
   const params = (parsed.success ? parsed.data : info.params.parse({})) as Record<string, unknown>;
   const setMany = (patch: Record<string, unknown>) => onChange({ ...node, config: { ...node.config, params: { ...params, ...patch } } });
   const set = (key: string, value: unknown) => setMany({ [key]: value });
+  const availableFns = PALETTE_FUNCTION_NAMES.includes(fn) ? PALETTE_FUNCTION_NAMES : [fn, ...PALETTE_FUNCTION_NAMES];
 
-  switch (fn) {
-    case 'formatCheck':
-      return (
-        <div className="space-y-2.5">
-          <ToggleRow label="자리표시자 보존 (프로젝트 설정 › 형식 규칙)" checked={params.placeholders as boolean} onChange={(value) => set('placeholders', value)} />
-          <ToggleRow label="서식 태그 보존 (프로젝트 설정 › 형식 규칙)" checked={params.tags as boolean} onChange={(value) => set('tags', value)} />
-          <ToggleRow label="줄바꿈 수 일치" checked={params.newlines as boolean} onChange={(value) => set('newlines', value)} />
-          <ToggleRow label="빈 번역 금지" checked={params.emptyText as boolean} onChange={(value) => set('emptyText', value)} />
-        </div>
-      );
-    case 'glossaryCheck':
-      return <p className="text-sm text-muted-foreground">별도의 설정 항목이 없습니다. 실패 사유는 다음 AI 노드의 지적 사항으로 전달됩니다.</p>;
-    case 'setStatus':
-      return <SetStatusConfig params={params} refs={refs} set={set} setMany={setMany} />;
+  const renderBody = () => {
+    switch (fn) {
+      case 'formatCheck':
+        return <FormatCheckConfig params={params} refs={refs} set={set} />;
+      case 'glossaryCheck':
+      case 'speechCheck':
+        return <p className="text-sm text-muted-foreground">별도의 설정 항목이 없습니다. 실패 사유는 다음 AI 노드의 지적 사항으로 전달됩니다.</p>;
+      case 'setStatus':
+        return <SetStatusConfig params={params} refs={refs} set={set} setMany={setMany} />;
     case 'addTerms': {
       const sources = refs.nodes.filter((other) => other.type === 'ai' && other.config.output === 'terms');
       return (
@@ -124,11 +121,144 @@ export function FunctionConfig({ node, refs, readOnly, onChange }: { node: Funct
         </Field>
       );
     }
-    case 'http':
-      return <HttpConfig params={params} refs={refs} set={set} />;
-    case 'script':
-      return <ScriptConfig params={params} projectId={refs.projectId} readOnly={readOnly} set={set} />;
-  }
+      case 'http':
+        return <HttpConfig params={params} refs={refs} set={set} />;
+      case 'script':
+        return <ScriptConfig params={params} projectId={refs.projectId} readOnly={readOnly} set={set} />;
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <Field label="함수 동작 종류">
+        <Select
+          value={fn}
+          onValueChange={(nextFn) => {
+            const keepLabel = node.label && node.label !== FUNCTIONS[fn]?.label ? node.label : undefined;
+            onChange({ ...node, label: keepLabel, config: { fn: nextFn, params: {} } });
+          }}
+        >
+          <SelectTrigger className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {availableFns.map((name) => (
+              <SelectItem key={name} value={name}>
+                {FUNCTIONS[name]?.label ?? name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </Field>
+      {renderBody()}
+    </div>
+  );
+}
+
+const CUSTOM_RULE_KIND_LABELS: Record<CustomFormatRule['kind'], string> = {
+  forbidden: '번역문 금지 패턴',
+  preserve: '원문→번역 보존',
+  targetRequired: '번역문 필수 패턴',
+};
+
+function FormatCheckConfig({ params, refs, set }: { params: Record<string, unknown>; refs: NodeRefs; set: (key: string, value: unknown) => void }) {
+  const customRules = (params.customRules as CustomFormatRule[] | undefined) ?? [];
+  const updateRule = (index: number, patch: Partial<CustomFormatRule>) => {
+    set('customRules', customRules.map((rule, i) => (i === index ? { ...rule, ...patch } : rule)));
+  };
+  const removeRule = (index: number) => {
+    set('customRules', customRules.filter((_, i) => i !== index));
+  };
+  const addRule = () => {
+    set('customRules', [...customRules, { label: '', kind: 'forbidden' as const, pattern: '[A-Za-z]{4,}' }]);
+  };
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-muted-foreground">
+        무엇을 치환자·태그로 인식할지는{' '}
+        <Link to="/p/$projectId/settings/editor" params={{ projectId: refs.projectId }} className="text-primary underline">
+          프로젝트 설정 › 치환자·태그 문법
+        </Link>
+        에서 관리합니다.
+      </p>
+
+      <div className="space-y-2.5">
+        <ToggleRow label="치환자 보존 ({name}, %s 등)" checked={params.placeholders as boolean} onChange={(value) => set('placeholders', value)} />
+        <ToggleRow label="서식 태그 보존 (<b> 등)" checked={params.tags as boolean} onChange={(value) => set('tags', value)} />
+        <ToggleRow label="줄바꿈 수 일치" checked={params.newlines as boolean} onChange={(value) => set('newlines', value)} />
+        <ToggleRow label="빈 번역 금지" checked={params.emptyText as boolean} onChange={(value) => set('emptyText', value)} />
+        <ToggleRow label="원문 숫자 누락 검사 (2038, 08:29 등)" checked={Boolean(params.numbers)} onChange={(value) => set('numbers', value)} />
+        <ToggleRow label="공백 오류 검사 (이중·앞뒤 공백 불일치)" checked={Boolean(params.spaces)} onChange={(value) => set('spaces', value)} />
+        <ToggleRow label="한국어 변수 뒤 조사 검사 ({name}을 등)" checked={Boolean(params.particles)} onChange={(value) => set('particles', value)} />
+      </div>
+
+      {Boolean(params.particles) && (
+        <Field label="조사 판별 정규식" hint="비워 두면 기본 한국어 조사 패턴(을/를/이/가/은/는/와/과 등)을 사용합니다.">
+          <Input
+            className="font-mono text-xs"
+            placeholder={DEFAULT_PARTICLE_PATTERN}
+            value={(params.particlesPattern as string) ?? ''}
+            spellCheck={false}
+            onChange={(event) => set('particlesPattern', event.target.value)}
+          />
+        </Field>
+      )}
+
+      <div className="space-y-2 border-t border-border pt-3">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-medium">사용자 정의 검사 규칙 (정규식)</p>
+          <Button type="button" variant="outline" onClick={addRule}>
+            <Plus className="size-3.5" /> 규칙 추가
+          </Button>
+        </div>
+        {customRules.length === 0 ? (
+          <p className="text-xs text-muted-foreground">추가된 사용자 정의 정규식 규칙이 없습니다.</p>
+        ) : (
+          <div className="space-y-2.5">
+            {customRules.map((rule, index) => {
+              const err = rule.pattern.trim() ? formatPatternError(rule.pattern) : '패턴을 입력하세요.';
+              return (
+                <div key={index} className="space-y-1.5 rounded-md border border-border p-2">
+                  <div className="flex items-center gap-1.5">
+                    <Input
+                      className="h-7 flex-1 text-xs"
+                      placeholder="규칙 이름 (예: 영어 잔존 금지)"
+                      value={rule.label}
+                      onChange={(event) => updateRule(index, { label: event.target.value })}
+                    />
+                    <Select value={rule.kind} onValueChange={(value) => updateRule(index, { kind: value as CustomFormatRule['kind'] })}>
+                      <SelectTrigger size="sm" className="w-36 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(Object.keys(CUSTOM_RULE_KIND_LABELS) as CustomFormatRule['kind'][]).map((kind) => (
+                          <SelectItem key={kind} value={kind}>
+                            {CUSTOM_RULE_KIND_LABELS[kind]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button type="button" size="icon-xs" variant="ghost" className="text-destructive" aria-label="규칙 삭제" onClick={() => removeRule(index)}>
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  </div>
+                  <Input
+                    className="h-7 font-mono text-xs"
+                    placeholder="정규식 패턴 (예: [A-Za-z]{4,})"
+                    value={rule.pattern}
+                    spellCheck={false}
+                    onChange={(event) => updateRule(index, { pattern: event.target.value })}
+                  />
+                  {err && <p className="text-xs text-destructive">{err}</p>}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function SetStatusConfig({ params, refs, set, setMany }: { params: Record<string, unknown>; refs: NodeRefs; set: (key: string, value: unknown) => void; setMany: (patch: Record<string, unknown>) => void }) {

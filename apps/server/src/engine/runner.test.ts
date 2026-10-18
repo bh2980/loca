@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { AI_PRESETS, importFileSchema, knowledgeTemplate, listenerTemplate, workflowDefinitionSchema } from '@tw/shared';
+import { AI_PRESETS, importFileSchema, knowledgeTemplate, listenerTemplate, translationTemplate, workflowDefinitionSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
@@ -22,7 +22,30 @@ function setup(lines = 30) {
     units: Array.from({ length: lines }, (_, index) => ({ key: `u${index}`, group: 'g1', source: index === 0 ? 'Hi {name}' : `Line ${index}` })),
   });
   const { projectId } = importProject(db, file, choice);
-  const workflow = db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).get()!;
+  const needsReview = db.insert(s.statuses).values({
+    projectId,
+    name: '사람 확인 필요',
+    color: '#b26f00',
+    kind: 'normal',
+    inReview: true,
+    sort: 10,
+  }).returning().get();
+  const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).all();
+  const untranslated = statuses.find((s) => s.kind === 'initial')!;
+  const draft = statuses.find((s) => s.kind === 'normal' && s.id !== needsReview.id)!;
+  const confirmed = statuses.find((s) => s.kind === 'final')!;
+  const workflow = db.insert(s.workflows).values({
+    projectId,
+    name: '검수 포함 번역',
+    description: '',
+    definition: translationTemplate({
+      model: choice,
+      untranslated: untranslated.id,
+      draft: draft.id,
+      needsReview: needsReview.id,
+      confirmed: confirmed.id,
+    }),
+  }).returning().get();
   return { db, projectId, workflow, choice };
 }
 
@@ -79,7 +102,7 @@ describe('workflow runner', () => {
     const units = new Map(db.select().from(s.units).all().map((unit) => [unit.id, unit]));
     const byState = Map.groupBy(items, (item) => item.state);
     expect(byState.get('done')?.length).toBe(30);
-    const escalated = items.filter((item) => item.nodeId === 'end-review');
+    const escalated = items.filter((item) => item.nodeId === 'escalate');
     expect(escalated).toHaveLength(3);
 
     for (const item of escalated) {
@@ -108,7 +131,7 @@ describe('workflow runner', () => {
 
     const units = new Map(db.select().from(s.units).all().map((unit) => [unit.id, unit]));
     const statuses = new Map(db.select().from(s.statuses).all().map((status) => [status.id, status.name]));
-    const escalated = db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all().filter((item) => item.nodeId === 'end-review');
+    const escalated = db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all().filter((item) => item.nodeId === 'escalate');
     expect(escalated).toHaveLength(3);
     for (const item of escalated) {
       const line = units.get(item.unitId)!;

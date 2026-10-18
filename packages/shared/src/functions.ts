@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { customFormatRuleSchema, formatPatternError } from './format-check.ts';
 
 /**
  * Function nodes run one function from this registry. Each entry declares its parameters and exits;
@@ -28,6 +29,17 @@ export const formatCheckParams = z.object({
   tags: z.boolean().default(true),
   newlines: z.boolean().default(true),
   emptyText: z.boolean().default(true),
+  numbers: z.boolean().default(false),
+  spaces: z.boolean().default(false),
+  particles: z.boolean().default(false),
+  particlesPattern: z.string().default(''),
+  customRules: z
+    .array(
+      customFormatRuleSchema.extend({
+        pattern: z.string().min(1).refine((pattern) => !formatPatternError(pattern), { message: '쓸 수 없는 정규식입니다.' }),
+      }),
+    )
+    .default([]),
 });
 
 export const setStatusParams = z.object({
@@ -93,7 +105,7 @@ export const scriptParams = z.object({
 export const FUNCTIONS = {
   formatCheck: {
     label: '형식 검사',
-    description: '켠 항목(자리표시자·서식 태그·줄바꿈·빈 번역)이 원문과 맞는지 검사합니다. 무엇을 자리표시자·태그로 볼지는 프로젝트 설정의 형식 규칙을 따릅니다.',
+    description: '켠 항목(치환자·서식 태그·줄바꿈·빈 번역·숫자·공백·한국어 조사)과 사용자 정의 정규식 규칙을 검사합니다. 치환자·태그 문법은 프로젝트 설정의 치환자·태그 문법을 따릅니다.',
     params: formatCheckParams,
     ports: () => pass,
     async: false,
@@ -121,21 +133,21 @@ export const FUNCTIONS = {
   },
   addTerms: {
     label: '용어 후보 추가',
-    description: 'AI 노드가 뽑은 용어를 용어집에 추가합니다. 확정할지 후보로 둘지는 AI › 사용 방식의 ‘용어’를 따릅니다. 이미 있는 용어(대소문자 무시)는 그대로 두고 빈 번역·메모만 채웁니다. 거절한 용어는 건드리지 않습니다.',
+    description: 'AI 노드가 뽑은 용어를 용어집에 추가합니다. 확정할지 후보로 둘지는 AI 결과 반영의 ‘용어’를 따릅니다. 이미 있는 용어(대소문자 무시)는 그대로 두고 빈 번역·메모만 채웁니다. 거절한 용어는 건드리지 않습니다.',
     params: addTermsParams,
     ports: () => out,
     async: false,
   },
   applyKnowledge: {
     label: '자료 반영',
-    description: 'AI 노드가 찾은 새 인물·관계 변화·사건·말투 구간을 자료에 넣습니다(출처: AI). 확정할지 후보로 둘지는 AI › 사용 방식을 따릅니다. 사람이 정한 자료는 바꾸지 않고, 다르게 보는 내용은 AI 후보로 옆에 남깁니다.',
+    description: 'AI 노드가 찾은 새 인물·관계 변화·사건·말투 구간을 자료에 넣습니다(출처: AI). 확정할지 후보로 둘지는 AI 결과 반영을 따릅니다. 사람이 정한 자료는 바꾸지 않고, 다르게 보는 내용은 AI 후보로 옆에 남깁니다.',
     params: applyKnowledgeParams,
     ports: () => out,
     async: false,
   },
   saveAnalysis: {
-    label: '작품 분석 반영',
-    description: 'AI 노드의 작품 분석(개요·인물·관계·사건·말투 규칙·장면별 청자·용어 중 고른 것)을 자료·용어집·대사 청자에 넣습니다(출처: 작품 분석). 확정할지 후보로 둘지는 AI › 사용 방식을 따릅니다. 대본 전체를 읽은 실행이면 지난 분석의 손대지 않은 AI 항목을 새 결과로 바꾸고, 사람이 만들거나 고치거나 확정·버린 항목은 그대로 둡니다.',
+    label: 'AI 결과 반영',
+    description: 'AI 노드의 작품 분석(개요·인물·관계·사건·말투 규칙·장면별 청자·용어 중 고른 것)을 자료·용어집·대사 청자에 넣습니다(출처: 작품 분석). 확정할지 후보로 둘지는 AI 결과 반영을 따릅니다. 대본 전체를 읽은 실행이면 지난 분석의 손대지 않은 AI 항목을 새 결과로 바꾸고, 사람이 만들거나 고치거나 확정·버린 항목은 그대로 둡니다.',
     params: saveAnalysisParams,
     ports: () => out,
     async: false,
@@ -166,6 +178,15 @@ export const FUNCTIONS = {
 
 export type FunctionName = keyof typeof FUNCTIONS;
 export const FUNCTION_NAMES = Object.keys(FUNCTIONS) as FunctionName[];
+/** Standalone deterministic functions exposed in the workflow node library under '함수 동작'. */
+export const PALETTE_FUNCTION_NAMES: FunctionName[] = [
+  'setStatus',
+  'formatCheck',
+  'glossaryCheck',
+  'speechCheck',
+  'script',
+  'http',
+];
 
 export function functionPorts(fn: string, params: unknown): Port[] {
   const info = FUNCTIONS[fn as FunctionName] as unknown as FunctionInfo | undefined;

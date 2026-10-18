@@ -3,7 +3,7 @@ import { chatTitle } from './agent.ts';
 import { checkFormat } from './format-check.ts';
 import { importFileSchema, importWarnings } from './import-format.ts';
 import { politenessOf, speechLevelOf, styleInstruction, styleNames } from './knowledge.ts';
-import { ANALYSIS_WORKFLOW, analysisTemplate, analysisWorkflowTemplate, listenerTemplate, termExtractionTemplate, translationTemplate } from './defaults.ts';
+import { ANALYSIS_WORKFLOW, analysisTemplate, analysisWorkflowTemplate, draftTranslationTemplate, listenerTemplate, termExtractionTemplate, translationTemplate } from './defaults.ts';
 import { AI_PRESETS, ANALYSIS_WORKFLOW_PRESETS, ANALYSIS_WORKFLOW_PRESET_IDS } from './presets.ts';
 import { nodePorts, readinessUses, validateWorkflow, workflowDefinitionSchema, workflowNodeSchema, type WorkflowDefinition } from './workflow.ts';
 
@@ -12,6 +12,11 @@ const ids = { model, untranslated: 's0', draft: 's1', needsReview: 's2', confirm
 const refs = { connections: new Map([['c', 'openai']]), statusIds: new Set(['s0', 's1', 's2', 's3']), tagIds: new Set<string>(), toolConnectionIds: new Set<string>() };
 
 describe('workflow validation', () => {
+  it('accepts the draft translation template', () => {
+    const template = workflowDefinitionSchema.parse(draftTranslationTemplate({ model, untranslated: ids.untranslated, draft: ids.draft }));
+    expect(validateWorkflow(template, refs).filter((issue) => issue.level === 'error')).toEqual([]);
+  });
+
   it('accepts the default template', () => {
     const template = workflowDefinitionSchema.parse(translationTemplate(ids));
     expect(validateWorkflow(template, refs).filter((issue) => issue.level === 'error')).toEqual([]);
@@ -188,7 +193,28 @@ describe('templates', () => {
   it('term extraction template is valid and only adds candidates', () => {
     const definition = workflowDefinitionSchema.parse(termExtractionTemplate({ model }));
     expect(validateWorkflow(definition, refs).filter((issue) => issue.level === 'error')).toEqual([]);
-    expect(definition.nodes.map((node) => (node.type === 'function' ? node.config.fn : node.type))).toEqual(['entry', 'ai', 'addTerms']);
+    expect(definition.nodes.map((node) => (node.type === 'function' ? node.config.fn : node.type))).toEqual(['entry', 'ai']);
+  });
+
+  it('checkFormat supports customRules and particlesPattern', () => {
+    const issues = checkFormat(
+      'Welcome to {city} [RANK_1]!',
+      '환영합니다 {city}을!',
+      {
+        placeholders: true,
+        tags: true,
+        newlines: true,
+        emptyText: true,
+        particles: true,
+        customRules: [
+          { label: '영어 잔존 금지', kind: 'forbidden', pattern: '[A-Za-z]{4,}' },
+          { label: '랭크 보존', kind: 'preserve', pattern: '\\[RANK_\\d+\\]' },
+          { label: '마침표 필수', kind: 'targetRequired', pattern: '[.!]$' },
+        ],
+      },
+    );
+    expect(issues.map((i) => i.code)).toContain('particle');
+    expect(issues.some((i) => i.code === 'custom' && i.message.includes('랭크 보존'))).toBe(true);
   });
 });
 

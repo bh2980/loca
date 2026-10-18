@@ -1,7 +1,94 @@
 import type { AiOutput } from './workflow.ts';
+import { ANALYSIS_SECTIONS, type AnalysisSection } from './knowledge.ts';
+
+export const ANALYSIS_WORKFLOW_PRESET_IDS = ['all', 'overview', 'peopleRelations', 'characters', 'relationships', 'events', 'speechRules', 'sceneListeners', 'terms'] as const;
+export type AnalysisWorkflowPresetId = (typeof ANALYSIS_WORKFLOW_PRESET_IDS)[number];
+
+/** Shared starting points for analysis workflows and their AI canvas node. */
+export const ANALYSIS_WORKFLOW_PRESETS: Record<AnalysisWorkflowPresetId, {
+  name: string;
+  label: string;
+  description: string;
+  nodeLabel: string;
+  sections: readonly AnalysisSection[];
+}> = {
+  all: {
+    name: '작품 분석',
+    label: '전체',
+    description: '대본 전체를 읽고 개요·인물·관계·사건·말투 규칙·장면별 청자 초안과 용어 후보를 근거와 함께 만듭니다. 번역과 상태는 바꾸지 않습니다.',
+    nodeLabel: 'AI 작품 분석',
+    sections: ANALYSIS_SECTIONS,
+  },
+  overview: {
+    name: '작품 개요 분석',
+    label: '작품 개요',
+    description: '배경·주요 갈등·줄거리를 읽어 작품 개요 문서를 만듭니다.',
+    nodeLabel: 'AI 작품 개요 분석',
+    sections: ['overview'],
+  },
+  peopleRelations: {
+    name: '인물·관계 추출',
+    label: '인물·관계',
+    description: '등장인물 프로필, 인물 사이의 관계와 변화, 화자·청자 말투 규칙을 함께 추출합니다.',
+    nodeLabel: 'AI 인물·관계 분석',
+    sections: ['characters', 'relationships', 'speechRules'],
+  },
+  characters: {
+    name: '인물 분석',
+    label: '인물',
+    description: '인물 프로필과 말투, 역할을 분석합니다.',
+    nodeLabel: 'AI 인물 분석',
+    sections: ['characters'],
+  },
+  relationships: {
+    name: '관계 분석',
+    label: '관계',
+    description: '인물 사이의 관계와 변화 지점을 분석합니다.',
+    nodeLabel: 'AI 관계 분석',
+    sections: ['relationships'],
+  },
+  events: {
+    name: '사건 추출',
+    label: '사건',
+    description: '사건의 원인·결과와 관련 인물을 분석합니다.',
+    nodeLabel: 'AI 사건 분석',
+    sections: ['events'],
+  },
+  speechRules: {
+    name: '말투 규칙 분석',
+    label: '말투 규칙',
+    description: '화자와 청자 사이의 한국어 말투 규칙을 분석합니다.',
+    nodeLabel: 'AI 말투 규칙 분석',
+    sections: ['speechRules'],
+  },
+  sceneListeners: {
+    name: '장면별 청자 분석',
+    label: '장면별 청자',
+    description: '장면마다 화자가 주로 말하는 상대와 예외를 분석합니다.',
+    nodeLabel: 'AI 장면별 청자 분석',
+    sections: ['sceneListeners'],
+  },
+  terms: {
+    name: '용어 분석',
+    label: '용어',
+    description: '번역에서 일관되게 써야 할 용어와 번역 제안을 찾습니다.',
+    nodeLabel: 'AI 용어 분석',
+    sections: ['terms'],
+  },
+};
+
+export const analysisWorkflowPreset = (id: AnalysisWorkflowPresetId) => ANALYSIS_WORKFLOW_PRESETS[id];
 
 /** Ready-made AI node configurations. They are ordinary AI nodes; every field stays editable. */
-export const AI_PRESETS: Record<string, { label: string; output: AiOutput; instructions: string; include: { candidate: boolean; issues: boolean } }> = {
+export const AI_PRESETS: Record<string, { label: string; output: AiOutput; instructions: string; include: { candidate: boolean; issues: boolean }; sections?: AnalysisSection[]; batch?: { mode: 'unit' | 'group' | 'count' | 'whole'; size: number; maxTokens: number } }> = {
+  analysis: {
+    label: ANALYSIS_WORKFLOW_PRESETS.all.nodeLabel,
+    output: 'analysis',
+    include: { candidate: false, issues: false },
+    instructions: '',
+    sections: [...ANALYSIS_WORKFLOW_PRESETS.all.sections],
+    batch: { mode: 'whole', size: 200, maxTokens: 300_000 },
+  },
   translate: {
     label: 'AI 번역',
     output: 'candidate',
@@ -69,3 +156,8 @@ export const AI_PRESETS: Record<string, { label: string; output: AiOutput; instr
       'Give the source term, a suggested target-language translation, and a short note on what it refers to. Return an empty list when there are none.',
   },
 };
+
+/** Core AI presets exposed in the workflow node library palette (excludes redundant speechFix/knowledge). */
+export const PALETTE_AI_PRESET_IDS = ['translate', 'review', 'revise', 'listener', 'terms', 'analysis'] as const;
+export type PaletteAiPresetId = (typeof PALETTE_AI_PRESET_IDS)[number];
+

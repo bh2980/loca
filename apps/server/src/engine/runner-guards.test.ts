@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import * as ai from '@tw/ai';
-import { importFileSchema } from '@tw/shared';
+import { importFileSchema, translationTemplate } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
@@ -20,7 +20,30 @@ function setup(scenes: number, size: (scene: number) => number) {
   const groups = Array.from({ length: scenes }, (_, index) => ({ key: `g${String(scenes - index).padStart(6, '0')}`, title: `Scene ${index}` }));
   const units = groups.flatMap((group, scene) => Array.from({ length: size(scene) }, (_, index) => ({ key: `${group.key}-${index}`, group: group.key, source: `S${scene} L${index}` })));
   const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Test' }, groups, units }), choice);
-  const workflow = db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).get()!;
+  const needsReview = db.insert(s.statuses).values({
+    projectId,
+    name: '사람 확인 필요',
+    color: '#b26f00',
+    kind: 'normal',
+    inReview: true,
+    sort: 10,
+  }).returning().get();
+  const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).all();
+  const untranslated = statuses.find((s) => s.kind === 'initial')!;
+  const draft = statuses.find((s) => s.kind === 'normal' && s.id !== needsReview.id)!;
+  const confirmed = statuses.find((s) => s.kind === 'final')!;
+  const workflow = db.insert(s.workflows).values({
+    projectId,
+    name: '검수 포함 번역',
+    description: '',
+    definition: translationTemplate({
+      model: choice,
+      untranslated: untranslated.id,
+      draft: draft.id,
+      needsReview: needsReview.id,
+      confirmed: confirmed.id,
+    }),
+  }).returning().get();
   const start = (limits?: s.RunLimits) =>
     createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: { ignoreStatus: true }, limits }).runId;
   return { db, workflow, start };

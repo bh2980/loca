@@ -1,11 +1,28 @@
-import { eq } from 'drizzle-orm';
-import type { WorkflowDefinition, WorkflowEdge, WorkflowNode } from '@tw/shared';
+import { and, count, eq, isNull, notInArray, or } from 'drizzle-orm';
+import {
+  ANALYSIS_WORKFLOW,
+  ANALYSIS_WORKFLOW_DESCRIPTION,
+  ANALYSIS_WORKFLOW_PRESETS,
+  analysisTemplate,
+  analysisWorkflowTemplate,
+  draftTranslationTemplate,
+  listenerTemplate,
+  syncEntryEdges,
+  termExtractionTemplate,
+  type WorkflowDefinition,
+  type WorkflowEdge,
+  type WorkflowNode,
+} from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
+import { defaultModelChoice } from './routes.ts';
+import { discoverAndSave } from './terms.ts';
 
 type FunctionNode = Extract<WorkflowNode, { type: 'function' }>;
 
 const idOf = () => `e-${crypto.randomUUID().slice(0, 8)}`;
+
+const AUTO_SAVE_FNS = new Set(['addTerms', 'setListener', 'applyKnowledge', 'saveAnalysis']);
 
 /**
  * #42: translations are written when a node produces them, so the status-change node no longer
@@ -79,3 +96,129 @@ export function migrateApplyCandidate(db: Db): number {
   }
   return changed;
 }
+
+/** Upgrades legacy default extraction workflows and seeds missing default workflows on existing projects. */
+export function migrateDefaultWorkflows(db: Db): number {
+  let changed = 0;
+  for (const row of db.select().from(s.workflows).all()) {
+    const hasEndOrSave = row.definition.nodes.some(
+      (n) => n.type === 'end' || (n.type === 'function' && AUTO_SAVE_FNS.has(n.config.fn)),
+    );
+    if (!hasEndOrSave) continue;
+    const nodes = row.definition.nodes.filter(
+      (n) => n.type !== 'end' && !(n.type === 'function' && AUTO_SAVE_FNS.has(n.config.fn)),
+    );
+    const keepIds = new Set(nodes.map((n) => n.id));
+    const edges = row.definition.edges.filter((e) => keepIds.has(e.source) && keepIds.has(e.target));
+    const next = syncEntryEdges({ ...row.definition, nodes, edges });
+    db.update(s.workflows).set({ definition: next, version: row.version + 1 }).where(eq(s.workflows.id, row.id)).run();
+    changed++;
+  }
+  const model = defaultModelChoice(db);
+  for (const project of db.select({ id: s.projects.id }).from(s.projects).all()) {
+    const existingNames = new Set(
+      db.select({ name: s.workflows.name }).from(s.workflows).where(eq(s.workflows.projectId, project.id)).all().map((w) => w.name),
+    );
+    const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, project.id)).all();
+    const initial = statuses.find((st) => st.kind === 'initial') ?? statuses[0];
+    const draft = statuses.find((st) => st.name === '초벌') ?? statuses.find((st) => st.kind === 'normal') ?? statuses.find((st) => st.kind === 'final') ?? initial;
+    if (initial && draft && !existingNames.has('초벌 번역')) {
+      db.insert(s.workflows)
+        .values({
+          projectId: project.id,
+          name: '초벌 번역',
+          description: '미번역 대사를 AI로 번역하고 형식을 검사해 초벌 상태로 바꿉니다.',
+          definition: draftTranslationTemplate({ model, untranslated: initial.id, draft: draft.id }),
+        })
+        .run();
+      changed++;
+    }
+    if (!existingNames.has('청자 추정')) {
+      db.insert(s.workflows)
+        .values({
+          projectId: project.id,
+          name: '청자 추정',
+          description: '청자가 아직 없는 대사만 장면별로 누구에게 하는 말인지 추정해 적습니다. 번역·상태는 바꾸지 않습니다.',
+          definition: listenerTemplate({ model }),
+        })
+        .run();
+      changed++;
+    }
+    if (!existingNames.has('용어 추출')) {
+      db.insert(s.workflows)
+        .values({
+          projectId: project.id,
+          name: '용어 추출',
+          description: '장면별로 고유명사·반복 용어를 뽑아 용어집 후보로 추가합니다.',
+          definition: termExtractionTemplate({ model }),
+        })
+        .run();
+      changed++;
+    }
+    if (!existingNames.has('인물·관계 추출')) {
+      db.insert(s.workflows)
+        .values({
+          projectId: project.id,
+          name: '인물·관계 추출',
+          description: ANALYSIS_WORKFLOW_PRESETS.peopleRelations.description,
+          definition: analysisWorkflowTemplate({ model, presetId: 'peopleRelations' }),
+        })
+        .run();
+      changed++;
+    }
+    if (!existingNames.has('사건 추출')) {
+      db.insert(s.workflows)
+        .values({
+          projectId: project.id,
+          name: '사건 추출',
+          description: ANALYSIS_WORKFLOW_PRESETS.events.description,
+          definition: analysisWorkflowTemplate({ model, presetId: 'events' }),
+        })
+        .run();
+      changed++;
+    }
+    if (!existingNames.has(ANALYSIS_WORKFLOW)) {
+      db.insert(s.workflows)
+        .values({
+          projectId: project.id,
+          name: ANALYSIS_WORKFLOW,
+          description: ANALYSIS_WORKFLOW_DESCRIPTION,
+          definition: analysisTemplate({ model }),
+        })
+        .run();
+      changed++;
+    }
+
+    const candidateScriptTermCount = db
+      .select({ count: count() })
+      .from(s.terms)
+      .where(
+        and(
+          eq(s.terms.projectId, project.id),
+          eq(s.terms.origin, 'script'),
+          eq(s.terms.status, 'candidate'),
+        ),
+      )
+      .get()?.count ?? 0;
+
+    if (candidateScriptTermCount > 500) {
+      db.delete(s.terms)
+        .where(
+          and(
+            eq(s.terms.projectId, project.id),
+            eq(s.terms.origin, 'script'),
+            eq(s.terms.status, 'candidate'),
+            or(eq(s.terms.target, ''), isNull(s.terms.target)),
+            notInArray(
+              s.terms.id,
+              db.select({ itemId: s.knowledgeTags.itemId }).from(s.knowledgeTags).where(eq(s.knowledgeTags.kind, 'terms')),
+            ),
+          ),
+        )
+        .run();
+      discoverAndSave(db, project.id);
+    }
+  }
+  return changed;
+}
+
