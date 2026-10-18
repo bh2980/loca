@@ -43,6 +43,15 @@ describe('change gate (#45)', () => {
     expect(db.select().from(s.candidates).where(eq(s.candidates.text, 'Hi there')).get()?.model).toBeNull();
   });
 
+  it('a batch takes the proposal\'s model over one named in its payload (#93 review)', async () => {
+    const { db, projectId, chat } = setup('ask');
+    const changes = [{ key: 'a', translation: '안녕' }];
+    const proposed = await proposeChange(db, { projectId, sessionId: chat.id, source: 'api', model: 'gpt-test', tool: 'propose_changes', input: { model: 'forged', changes } });
+    if (!proposed.ok) throw new Error(proposed.error);
+    await decideProposal(db, proposed.proposalId, true);
+    expect(db.select().from(s.candidates).where(eq(s.candidates.text, '안녕')).get()?.model).toBe('gpt-test');
+  });
+
   it('bypass: applies at once, records who decided, and does not tell the agent twice', async () => {
     const { db, projectId, chat } = setup('bypass');
     const gate = await proposeChange(db, { projectId, sessionId: chat.id, source: 'pi', tool: 'save_character', input: { name: 'Bob' } });
@@ -74,6 +83,18 @@ describe('change gate (#45)', () => {
     expect(next).toMatchObject({ ok: true, applied: false, status: 'pending', review: expect.stringContaining('변경 1개 (한도 1개)') });
     expect(next.ok && next.text).toContain('우회 한도로 사용자에게 넘겼습니다');
     expect(characterNamed(db, 'Cara')).toBeUndefined();
+  });
+
+  it('bypass: a batch counts its items, a batch past the cap asks, and running changes count (#99 review)', async () => {
+    const { db, projectId, chat } = setup('bypass');
+    setBypassLimits(db, projectId, { changes: 3, costUsd: null });
+    const two = await proposeChange(db, { projectId, sessionId: chat.id, source: 'api', tool: 'save_knowledge', input: { characters: [{ name: 'A1' }, { name: 'A2' }] } });
+    expect(two).toMatchObject({ ok: true, applied: true });
+    const big = await proposeChange(db, { projectId, sessionId: chat.id, source: 'api', tool: 'save_knowledge', input: { characters: [{ name: 'B1' }, { name: 'B2' }] } });
+    expect(big).toMatchObject({ ok: true, applied: false, review: expect.stringContaining('변경 2개 + 이번 2개 (한도 3개)') });
+    // Two calls of one step in flight: the first claims its row (running) before the second checks.
+    const [x, y] = await Promise.all(['C1', 'C2'].map((name) => proposeChange(db, { projectId, sessionId: chat.id, source: 'api', tool: 'save_character', input: { name } })));
+    expect([x, y].filter((gate) => gate.ok && gate.applied)).toHaveLength(1);
   });
 
   it('bypass: counts reported chat-call costs by session refId', async () => {
