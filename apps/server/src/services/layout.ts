@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { and, asc, eq, ne, notLike, sql } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
 import { graphEdges, graphLayouts, graphNodes, groups, projects, type LayoutData } from '../db/schema.ts';
+import { contractEdges, isControlNode } from '@tw/shared';
 import { events } from '../events.ts';
 import { foldChoices } from './choices.ts';
 import type { LayoutDirection, LayoutJob, SceneSource, SectionLayouts, WorkerJob } from './layout-worker.ts';
@@ -163,8 +164,8 @@ async function computeNodeSetLayout(db: Db, projectId: string, key: string, node
   events.changed(projectId, 'graph');
   const chosen = new Set(nodeIds);
   const titleOf = new Map(db.select({ id: groups.id, title: groups.title }).from(groups).where(eq(groups.projectId, projectId)).all().map((group) => [group.id, group.title]));
-  const nodes = db.select({ id: graphNodes.id, kind: graphNodes.kind, groupId: graphNodes.groupId }).from(graphNodes).where(eq(graphNodes.projectId, projectId)).all();
-  const edges = db.select({ id: graphEdges.id, from: graphEdges.fromId, to: graphEdges.toId }).from(graphEdges).where(eq(graphEdges.projectId, projectId)).all();
+  const nodes = db.select({ id: graphNodes.id, kind: graphNodes.kind, groupId: graphNodes.groupId, unitIds: graphNodes.unitIds }).from(graphNodes).where(eq(graphNodes.projectId, projectId)).all();
+  const edges = viewEdges(chosen, nodes, db.select({ id: graphEdges.id, from: graphEdges.fromId, to: graphEdges.toId }).from(graphEdges).where(eq(graphEdges.projectId, projectId)).all());
   let data: LayoutData;
   try {
     data = await runWorker(
@@ -185,6 +186,7 @@ async function computeNodeSetLayout(db: Db, projectId: string, key: string, node
     events.changed(projectId, 'graph');
     return;
   }
+  data.edges = data.edges.map((edge) => (edge.id.startsWith(BYPASS) ? { ...edge, derived: true as const } : edge));
   // Portals name the scene the lines continue in, and keep its id to open it.
   data.portals = data.portals?.map((portal) => {
     const groupId = portal.section.startsWith('scene:') ? portal.section.slice('scene:'.length) : undefined;
@@ -192,6 +194,30 @@ async function computeNodeSetLayout(db: Db, projectId: string, key: string, node
   });
   save(db, projectId, 'dialogue', { status: 'ready', data: { ...data, view: { label, nodes: chosen.size } }, error: null }, key, direction);
   events.changed(projectId, 'graph');
+}
+
+const BYPASS = 'bypass:';
+
+/**
+ * A view that leaves out line-less nodes (show_graph simplify) still reads as one flow: chosen nodes
+ * joined through left-out condition/wait/state nodes get a derived edge (drawn dashed, never stored).
+ * A left-out node whose neighbours are all chosen or line-less is dropped from the drawing; one that
+ * also leads elsewhere keeps its edges, so the view still shows where the lines continue.
+ */
+export function viewEdges(chosen: Set<string>, nodes: { id: string; kind: string; unitIds: string[] }[], edges: { id: string; from: string; to: string }[]) {
+  const control = new Set(nodes.filter((node) => !chosen.has(node.id) && isControlNode(node)).map((node) => node.id));
+  const bypass = contractEdges(edges, control).filter((edge) => chosen.has(edge.from) && chosen.has(edge.to));
+  if (!bypass.length) return edges;
+  const leadsElsewhere = new Set<string>();
+  for (const edge of edges) {
+    if (control.has(edge.from) && !chosen.has(edge.to) && !control.has(edge.to)) leadsElsewhere.add(edge.from);
+    if (control.has(edge.to) && !chosen.has(edge.from) && !control.has(edge.from)) leadsElsewhere.add(edge.to);
+  }
+  const dropped = (id: string) => control.has(id) && !leadsElsewhere.has(id);
+  return [
+    ...edges.filter((edge) => !dropped(edge.from) && !dropped(edge.to)),
+    ...bypass.map((edge) => ({ id: `${BYPASS}${edge.from}:${edge.to}`, ...edge })),
+  ];
 }
 
 /** Projects laid out before section layouts existed: their scenes span several sections but no section layout is stored. */

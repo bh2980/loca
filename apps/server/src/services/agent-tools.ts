@@ -242,12 +242,15 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
     }),
     show_graph: tool({
       description:
-        'Show the user part of the dialogue graph (the whole graph is too large to read): pick nodes by scenes (ids, keys or titles), speakers (lines they speak), lines (line keys) and/or q (text in lines); they add up. around adds the nodes that many steps before and after. mode "mark" highlights them in the graph (shown in the section holding most of them); mode "only" lays them out on their own, with labels where lines continue elsewhere. Use list_scenes, scenes_with or find_lines first when unsure. Returns a link the user clicks; tell them what you picked and why.',
+        'Show the user part of the dialogue graph (the whole graph is too large to read): pick nodes by scenes (ids, keys or titles), speakers (lines they speak), lines (line keys), q (text in lines) and/or between (every node on any path from start to end — all branches of an event, unlike find_reading_route which finds one route; start/end are exact line keys/ids or node keys/ids, verify them with find_lines or line_context first); they add up. around adds the nodes that many steps before and after; exclude leaves lines/nodes out. simplify leaves out nodes without lines (conditions, waits, state changes); with mode "only" the view joins the flow across them with dashed derived edges. mode "mark" highlights them in the graph (shown in the section holding most of them); mode "only" lays them out on their own, with labels where lines continue elsewhere. Use list_scenes, scenes_with or find_lines first when unsure. Returns a link the user clicks; tell them what you picked and why.',
       inputSchema: z.object({
         scenes: z.array(z.string().min(1)).max(500).default([]),
         speakers: z.array(z.string().min(1)).default([]),
         lines: z.array(z.string().min(1)).max(5000).default([]),
         q: z.string().optional(),
+        between: z.object({ start: z.string().min(1), end: z.string().min(1) }).optional(),
+        exclude: z.array(z.string().min(1)).max(5000).default([]),
+        simplify: z.boolean().default(false),
         around: z.number().int().min(0).max(5).default(0),
         mode: z.enum(['mark', 'only']).default('mark'),
         label: z.string().max(80).describe('A few words for the user on what this view shows, e.g. "Mira ↔ Jonas 대화".'),

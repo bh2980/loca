@@ -210,7 +210,8 @@ export interface LayoutData {
   nodes: { id: string; x: number; y: number; width: number; height: number }[];
   /** `label`: a choice or condition written on the edge; `via`: the choice node it stands for. */
   /** `curved`: points are a start and (control, control, end) triples, drawn as Bézier curves. */
-  edges: { id: string; from: string; to: string; points: number[]; label?: string; via?: string; labelAt?: [x: number, y: number, width: number, height: number]; curved?: true }[];
+  /** `derived`: a view's edge across left-out line-less nodes (see viewEdges in services/layout.ts), not a stored edge. */
+  edges: { id: string; from: string; to: string; points: number[]; label?: string; via?: string; labelAt?: [x: number, y: number, width: number, height: number]; curved?: true; derived?: true }[];
   /** Labelled areas drawn behind nodes, e.g. the block of unconnected lines. */
   regions?: { label: string; x: number; y: number; width: number; height: number }[];
   /** Scene links left out of the drawing because another path already connects them (see reduceSceneEdges). */

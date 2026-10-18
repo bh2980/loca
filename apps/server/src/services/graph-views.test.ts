@@ -27,6 +27,25 @@ describe('graph views', () => {
     expect(pickNodes(db, projectId, { scenes: ['no such scene'] })).toMatchObject({ nodeIds: [], unknown: ['no such scene'] });
   });
 
+  it('picks every node between two lines, then leaves out excluded and line-less ones', () => {
+    const { db, projectId } = setup();
+    const nodes = db.select().from(s.graphNodes).where(eq(s.graphNodes.projectId, projectId)).all();
+    const edges = db.select().from(s.graphEdges).where(eq(s.graphEdges.projectId, projectId)).all();
+    const byId = new Map(nodes.map((node) => [node.id, node]));
+    // A line node → line-less node → line node run in the sample.
+    const hop = edges.flatMap((a) => {
+      const mid = byId.get(a.toId)!;
+      if (!byId.get(a.fromId)!.unitIds.length || mid.unitIds.length || mid.kind === 'choice') return [];
+      return edges.filter((b) => b.fromId === mid.id && byId.get(b.toId)!.unitIds.length).map((b) => ({ start: a.fromId, mid: mid.id, end: b.toId }));
+    })[0]!;
+    const keyOf = (nodeId: string) => db.select({ key: s.units.key }).from(s.units).where(eq(s.units.id, byId.get(nodeId)!.unitIds[0]!)).get()!.key;
+    const between = pickNodes(db, projectId, { between: { start: keyOf(hop.start), end: keyOf(hop.end) } });
+    expect(between.nodeIds).toEqual(expect.arrayContaining([hop.start, hop.mid, hop.end]));
+    expect(pickNodes(db, projectId, { between: { start: keyOf(hop.start), end: keyOf(hop.end) }, simplify: true }).nodeIds).not.toContain(hop.mid);
+    expect(pickNodes(db, projectId, { between: { start: keyOf(hop.start), end: keyOf(hop.end) }, exclude: [keyOf(hop.end)] }).nodeIds).not.toContain(hop.end);
+    expect(pickNodes(db, projectId, { between: { start: 'nope', end: keyOf(hop.end) } })).toMatchObject({ nodeIds: [], unknown: ['nope'] });
+  });
+
   it('stores the same set of nodes under the same id', () => {
     const { db, projectId } = setup();
     const id = saveView(db, projectId, ['b', 'a'], 'first');

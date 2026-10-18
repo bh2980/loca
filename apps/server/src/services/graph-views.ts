@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { and, eq, sql } from 'drizzle-orm';
-import { lineFilterSchema } from '@tw/shared';
+import { isControlNode, lineFilterSchema, nodesBetween } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { nodeSetLayout } from './layout.ts';
@@ -20,6 +20,17 @@ export interface NodePick {
   q?: string;
   /** Also the nodes this many steps before and after the picked ones (0–5). */
   around?: number;
+  /** Every node on any path from `start` to `end` (line keys or ids, node keys or ids): all branches between them. */
+  between?: { start: string; end: string };
+  /** Line keys or ids, node keys or ids to leave out. */
+  exclude?: string[];
+  /** Leave out nodes without lines (conditions, waits, state changes); the view joins the flow across them. */
+  simplify?: boolean;
+}
+
+function lazy<T>(make: () => T) {
+  let value: T | undefined;
+  return () => (value ??= make());
 }
 
 /** Most nodes one view holds; past this the agent is asked to narrow it. */
@@ -54,9 +65,29 @@ export function pickNodes(db: Db, projectId: string, pick: NodePick) {
         where n.project_id = ${projectId} and j.value in (select value from json_each(${JSON.stringify(unitIds)}))`))
         nodes.add(row.id);
   }
+  const graph = lazy(() => ({
+    nodes: db.select({ id: s.graphNodes.id, key: s.graphNodes.key, kind: s.graphNodes.kind, unitIds: s.graphNodes.unitIds }).from(s.graphNodes).where(eq(s.graphNodes.projectId, projectId)).all(),
+    edges: db.select({ from: s.graphEdges.fromId, to: s.graphEdges.toId }).from(s.graphEdges).where(eq(s.graphEdges.projectId, projectId)).all(),
+  }));
+  // Exact references only: a line key or id names the nodes holding that line, a node key or id the node.
+  const resolve = (refs: string[]) => {
+    const { nodes: all } = graph();
+    const ids = new Set<string>();
+    const units = refs.length ? db.select({ id: s.units.id, key: s.units.key }).from(s.units).where(eq(s.units.projectId, projectId)).all().filter((unit) => refs.includes(unit.id) || refs.includes(unit.key)) : [];
+    const unitIds = new Set(units.map((unit) => unit.id));
+    for (const node of all) if (refs.includes(node.id) || refs.includes(node.key) || node.unitIds.some((id) => unitIds.has(id))) ids.add(node.id);
+    const known = new Set([...units.flatMap((unit) => [unit.id, unit.key]), ...all.filter((node) => ids.has(node.id)).flatMap((node) => [node.id, node.key])]);
+    unknown.push(...refs.filter((ref) => !known.has(ref)));
+    return ids;
+  };
+  if (pick.between) {
+    const start = resolve([pick.between.start]);
+    const end = resolve([pick.between.end]);
+    if (start.size && end.size) for (const id of nodesBetween(graph().edges, start, end)) nodes.add(id);
+  }
   const around = Math.min(5, Math.max(0, pick.around ?? 0));
   if (around && nodes.size) {
-    const edges = db.select({ from: s.graphEdges.fromId, to: s.graphEdges.toId }).from(s.graphEdges).where(eq(s.graphEdges.projectId, projectId)).all();
+    const { edges } = graph();
     const near = new Map<string, string[]>();
     for (const edge of edges) {
       (near.get(edge.from) ?? near.set(edge.from, []).get(edge.from)!).push(edge.to);
@@ -69,6 +100,8 @@ export function pickNodes(db: Db, projectId: string, pick: NodePick) {
       frontier = next;
     }
   }
+  if (pick.exclude?.length) for (const id of resolve(pick.exclude)) nodes.delete(id);
+  if (pick.simplify) for (const node of graph().nodes) if (nodes.has(node.id) && isControlNode(node)) nodes.delete(node.id);
   return { nodeIds: [...nodes], unknown, scenes: groups.filter((group) => sceneIds.has(group.id)).map((group) => group.title) };
 }
 
