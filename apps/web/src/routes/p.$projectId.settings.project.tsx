@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { type FormatRules } from '@tw/shared';
 import { FormatRulesSection } from '@/components/format-rules';
 import { Page } from '@/components/page';
-import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Field, FieldDescription, FieldGroup, FieldLabel, Skeleton, Textarea, SettingsSection } from '@loca/ui';
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Field, FieldDescription, FieldGroup, FieldLabel, Skeleton, Textarea, SettingsSection, SettingsContent } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { changedFields, useFormFrom } from '@/lib/use-form-from';
@@ -22,10 +22,12 @@ function ProjectSettings() {
   if (!project.data)
     return (
       <Page title="프로젝트" flush>
-        <div className="max-w-3xl space-y-4 px-6 py-6">
-          <Skeleton className="h-8 w-1/2" />
-          <Skeleton className="h-20" />
-        </div>
+        <SettingsContent>
+          <div className="space-y-4">
+            <Skeleton className="h-8 w-1/2" />
+            <Skeleton className="h-20" />
+          </div>
+        </SettingsContent>
       </Page>
     );
   return <ProjectForm key={project.data.id} projectId={projectId} project={project.data} />;
@@ -55,8 +57,8 @@ function ProjectForm({ projectId, project }: { projectId: string; project: { nam
 
   return (
     <Page title="프로젝트" flush>
-      <div className="h-full overflow-auto">
-        <div className="max-w-3xl space-y-8 px-6 py-6">
+      <SettingsContent>
+        <div className="space-y-8">
           <SettingsSection
             title="기본 정보"
             actions={
@@ -75,7 +77,7 @@ function ProjectForm({ projectId, project }: { projectId: string; project: { nam
             {conflicts.length > 0 && <ChangedElsewhere fields={conflicts.map((field) => (field === 'name' ? '이름' : '설명'))} onTakeSaved={takeSaved} onKeepMine={keepMine} />}
             <FieldGroup className="gap-4">
               <Field>
-                <FieldLabel htmlFor="project-name" help="내보내기 파일 이름에도 쓰입니다.">이름</FieldLabel>
+                <FieldLabel htmlFor="project-name">이름</FieldLabel>
                 <Input id="project-name" value={name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
               </Field>
               <Field>
@@ -124,7 +126,7 @@ function ProjectForm({ projectId, project }: { projectId: string; project: { nam
             </AlertDialog>
           </SettingsSection>
         </div>
-      </div>
+      </SettingsContent>
     </Page>
   );
 }

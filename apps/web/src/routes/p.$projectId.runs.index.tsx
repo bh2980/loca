@@ -4,7 +4,7 @@ import { ChevronRight, Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import { useQuery } from '@tanstack/react-query';
 import { Page } from '@/components/page';
-import { InspectorHeader, Inspector, SplitPane, EmptyState, DataTable, type ColumnDef, JobStatusBadge, Button, Progress, Spinner, Collapsible, CollapsibleContent, CollapsibleTrigger, Skeleton, HelpTip } from '@loca/ui';
+import { InspectorHeader, Inspector, SplitPane, EmptyState, DataTable, type ColumnDef, JobStatusBadge, Button, Progress, Spinner, Collapsible, CollapsibleContent, CollapsibleTrigger, Skeleton, ContextMenuItem } from '@loca/ui';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { AnalysisSteps } from '@/components/job-progress';
@@ -43,6 +43,7 @@ type Row = {
   progress: { done: number; total: number; unit: string } | null;
   stats: Stats | null;
   at: Date;
+  workflowId?: string | null;
 };
 
 const columns: ColumnDef<Row, unknown>[] = [
@@ -127,6 +128,7 @@ function Runs() {
             progress: { done: (run.states.done ?? 0) + (run.states.failed ?? 0) + (run.states.cancelled ?? 0), total: run.total, unit: '줄' },
             stats: jobs.data.runCalls[run.id] ?? null,
             at: new Date(run.createdAt),
+            workflowId: run.workflowId,
           })),
           ...jobs.data.jobs.map((job) => ({
             id: job.id,
@@ -147,7 +149,7 @@ function Runs() {
   return (
     <Page title="실행 기록" flush>
       <SplitPane
-        id="runs"
+        id="runs" selectionKey={selected?.id}
         defaultWidth="440px"
         className="h-full"
         pane={selected && <JobCalls key={selected.id} projectId={projectId} job={selected} onClose={() => select(undefined)} />}
@@ -159,7 +161,40 @@ function Runs() {
           loading={!rows}
           selected={search.job}
           onRowClick={(row) => (row.kind === 'run' ? void navigate({ to: '/p/$projectId/runs/$runId', params: { projectId, runId: row.id } }) : select(row.id === search.job ? undefined : row.id))}
-          empty={<EmptyState noun="실행" hint={<HelpTip>워크플로 실행, 작품 분석, 용어 AI 채우기가 모델을 부르면 여기에 쌓입니다.</HelpTip>} />}
+          rowContextMenu={(row) => (
+            <>
+              <ContextMenuItem
+                onClick={() =>
+                  row.kind === 'run'
+                    ? void navigate({ to: '/p/$projectId/runs/$runId', params: { projectId, runId: row.id } })
+                    : select(row.id)
+                }
+              >
+                실행 상세 보기
+              </ContextMenuItem>
+              {row.workflowId && (
+                <ContextMenuItem
+                  onClick={() =>
+                    void navigate({
+                      to: '/p/$projectId/workflows/$workflowId',
+                      params: { projectId, workflowId: row.workflowId! },
+                    })
+                  }
+                >
+                  워크플로 열기
+                </ContextMenuItem>
+              )}
+              <ContextMenuItem
+                onClick={() => {
+                  void navigator.clipboard.writeText(row.id);
+                  toast.success('ID를 복사했습니다.');
+                }}
+              >
+                ID 복사
+              </ContextMenuItem>
+            </>
+          )}
+          empty={<EmptyState noun="실행" />}
         />
       </SplitPane>
     </Page>

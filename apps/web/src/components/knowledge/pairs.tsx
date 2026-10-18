@@ -1,15 +1,16 @@
 import { useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronRight, Plus } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { InferRequestType } from 'hono/client';
-import { type AutoMark, isSpecialListener, knowledgeMarksOf, listenerLabel, matchesMarks, OTHERS_LISTENER, SPEECH_LEVEL_LABELS } from '@tw/shared';
-import { EmptyState, DataTable, type ColumnDef, Inspector, InspectorHeader, InspectorSection, Badge, Button, Collapsible, CollapsibleContent, CollapsibleTrigger, HelpTip } from '@loca/ui';
+import { toast } from 'sonner';
+import { type AutoMark, isSpecialListener, knowledgeMarksOf, listenerLabel, matchesMarks, OTHERS_LISTENER, PALETTE, SPEECH_LEVEL_LABELS } from '@tw/shared';
+import { EmptyState, DataTable, type ColumnDef, Inspector, InspectorHeader, InspectorSection, PropertyGrid, PropertyRow, TagListEditor, Badge, Button, Collapsible, CollapsibleContent, CollapsibleTrigger } from '@loca/ui';
 import { DraftEditor } from '@/components/knowledge/editor';
 import { candidateRow, fail, matches, metaColumns, SourceBadge, type Draft, type KnowledgeFilterState, type KindSpec, type RelationshipRow, type SourceFilter, type SpeechRuleRow } from '@/components/knowledge/table';
 import { splitList } from '@/components/chip-input';
-import type { client } from '@/lib/api';
-import { q, useReviewTagId } from '@/lib/queries';
+import { client, unwrap } from '@/lib/api';
+import { q, tagsIn, useReviewTagId } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
 /**
@@ -164,8 +165,63 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
     const line = startOf.get(rule.startKey);
     return line ? `“${line.source.length > 28 ? `${line.source.slice(0, 27)}…` : line.source}”부터` : `${rule.startKey}부터`;
   };
+
+  const queryClient = useQueryClient();
+  const statuses = useQuery(q.statuses(projectId));
+  const knowledgeTags = tagsIn(statuses.data?.tags, 'knowledge');
+  const summaryTags = pairSummary(pair).tags ?? [];
+  const attachedPairTags = summaryTags
+    .map((item) => statuses.data?.tags?.find((t) => t.id === item.id))
+    .filter(Boolean) as (Parameters<typeof TagListEditor>[0]['tags'][number])[];
+
+  const pairItemsList = pairItems(pair);
+  const pairTagMutation = useMutation({
+    mutationFn: async ({ tagId, add }: { tagId: string; add: boolean }) => {
+      for (const [kind, list] of Map.groupBy(pairItemsList, (item) => item.kind)) {
+        await unwrap(client.projects[':projectId']['knowledge-tags'].$post({
+          param: { projectId },
+          json: { kind, ids: list.map((item) => item.row.id), tagId, add },
+        }));
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['knowledge'] });
+    },
+    onError: fail,
+  });
+
+  const handleCreatePairTag = async (name: string) => {
+    try {
+      const color = (PALETTE[knowledgeTags.length % PALETTE.length] as any).light ?? PALETTE[knowledgeTags.length % PALETTE.length].hex;
+      const created = await unwrap(client.projects[':projectId'].tags.$post({
+        param: { projectId },
+        json: { name, color, scope: ['lines', 'terms', 'knowledge'] },
+      }));
+      await pairTagMutation.mutateAsync({ tagId: created.id, add: true });
+      queryClient.invalidateQueries({ queryKey: ['statuses', projectId] });
+      toast.success(`'${name}' 태그를 만들고 항목에 붙였습니다.`);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : '태그를 만들지 못했습니다.');
+    }
+  };
+
   return (
     <Inspector header={<InspectorHeader kind="관계·말투" name={`${pair.from} → ${listenerLabel(pair.to)}`} onClose={onClose} />}>
+      {pairItemsList.length > 0 && (
+        <InspectorSection title="기본 정보">
+          <PropertyGrid>
+            <PropertyRow label="태그">
+              <TagListEditor
+                tags={attachedPairTags}
+                allTags={knowledgeTags}
+                onToggle={(tagId, add) => pairTagMutation.mutate({ tagId, add })}
+                onCreate={handleCreatePairTag}
+                heading="인물·관계 태그"
+              />
+            </PropertyRow>
+          </PropertyGrid>
+        </InspectorSection>
+      )}
       <InspectorSection
         title="말투"
         actions={
@@ -184,7 +240,7 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
                 : '이 쌍의 말투 규칙이 없습니다. 규칙이 없으면 번역에는 청자만 들어갑니다.'}
           </p>
         )}
-        {pair.to === OTHERS_LISTENER && <p className="flex items-center gap-1 text-xs text-muted-foreground">그 밖의 사람 <HelpTip>{pair.from}가 자기 규칙이 없는 상대(엑스트라, 처음 보는 사람 등)에게 쓰는 말투입니다.</HelpTip></p>}
+        {pair.to === OTHERS_LISTENER && <p className="text-xs text-muted-foreground">{pair.from}가 별도 규칙이 없는 상대에게 쓰는 기본 말투입니다.</p>}
         <ul className="space-y-2">
           {rules.map((rule) => {
             const open = openRule === rule.id;

@@ -1,7 +1,7 @@
 /** Pieces shared by the node-kind configs: shared field primitives and the node/ref types. */
 import { useId } from 'react';
 import { Field as UiField, FieldContent, FieldDescription, FieldLabel } from '@loca/ui';
-import { Input, Switch, ControlIdContext, HelpTip } from '@loca/ui';
+import { Input, Switch, ControlIdContext } from '@loca/ui';
 import { CONNECTION_KIND_INFO, type WorkflowEdge, type WorkflowNode } from '@tw/shared';
 
 export type AiNode = Extract<WorkflowNode, { type: 'ai' }>;

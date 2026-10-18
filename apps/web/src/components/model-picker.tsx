@@ -3,7 +3,7 @@ import { Link, useParams } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Check, ChevronsUpDown } from 'lucide-react';
 import { CONNECTION_KIND_INFO, isFreeModel, type Capability, type ConnectionKind } from '@tw/shared';
-import { Badge, Button, Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, Field, FieldLabel, Popover, PopoverContent, PopoverTrigger, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, HelpTip } from '@loca/ui';
+import { Badge, Button, Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, Field, FieldLabel, Popover, PopoverContent, PopoverTrigger, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
@@ -181,7 +181,7 @@ export function ModelPicker({
                 {value?.model && !list.includes(value.model) && <p className="text-xs text-muted-foreground">지금: {value.model}</p>}
               </Field>
             )}
-            {connection?.kind === 'antigravity' && <p className="flex items-center gap-1 text-xs text-muted-foreground">추론 수준 <HelpTip>추론 수준은 모델 이름에 들어 있습니다(…-high / -medium / -low).</HelpTip></p>}
+            {connection?.kind === 'antigravity' && <p className="text-xs text-muted-foreground">추론 수준은 모델 이름에 포함됩니다(…-high / -medium / -low).</p>}
             {connection && efforts.length > 0 && (
               <Field>
                 <FieldLabel>추론 수준</FieldLabel>

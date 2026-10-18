@@ -7,8 +7,9 @@ import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { z } from 'zod';
 import { CONNECTION_CALL_DEFAULTS, CONNECTION_KIND_INFO, CONNECTION_KINDS, connectionInputSchema, isFreeModel, type Capability, type ConnectionKind } from '@tw/shared';
-import { EmptyState, DataTable, type ColumnDef, Inspector, InspectorHeader, InspectorSection, DirtyBar, DangerZone, SplitPane, Badge, Button, Field, FieldDescription, FieldError, FieldGroup, FieldLabel, Input, Textarea, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner, HelpTip } from '@loca/ui';
-import { HeaderActions, Page } from '@/components/page';
+import { EmptyState, DataTable, type ColumnDef, Inspector, InspectorHeader, InspectorSection, DirtyBar, DangerZone, SplitPane, SettingsContent, Badge, Button, Field, FieldDescription, FieldError, FieldGroup, FieldLabel, Input, Textarea, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner, ContextMenuItem } from '@loca/ui';
+import { HeaderActions } from '@/components/page';
+import { AiSettingsPage } from '@/components/settings/ai-settings-page';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
 import { DeleteButton } from '@/components/settings/delete-button';
 import { PiOptionsPanel } from '@/components/settings/pi-options';
@@ -37,6 +38,7 @@ type ConnectionRow = InferResponseType<typeof client.connections.$get>[number];
  * right edits the selected connection ("conn" in the URL).
  */
 function ConnectionSettings() {
+  const { projectId } = Route.useParams();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const connections = useQuery(q.connections());
@@ -62,26 +64,31 @@ function ConnectionSettings() {
     search.conn === 'new' ? <NewConnection onClose={close} /> : selected ? <ConnectionPane key={selected.id} connection={selected} onClose={close} /> : null;
 
   return (
-    <Page title="연결" flush>
-      <SplitPane id="settings-ai" defaultWidth="448px" className="h-full" pane={pane}>
-        <div className="min-h-0 flex-1 overflow-auto">
-          <HeaderActions>
-            <Button onClick={() => open('new')}>
-              <Plus /> 연결 추가
-            </Button>
-          </HeaderActions>
-          <DataTable id="connections"
-            className="flex-none"
-            columns={columns}
-            rows={rows}
-            rowId={(row) => row.id}
-            selected={selected?.id}
-            empty={<EmptyState noun="연결" />}
-            onRowClick={(row) => open(row.id)}
-          />
-        </div>
-      </SplitPane>
-    </Page>
+    <AiSettingsPage projectId={projectId} tab="connections">
+      <SettingsContent width="wide" fill framed>
+        <SplitPane id="settings-ai" selectionKey={search.conn} defaultWidth="448px" className="h-full" pane={pane}>
+          <div className="min-h-0 flex-1 overflow-auto">
+            <HeaderActions>
+              <Button onClick={() => open('new')}>
+                <Plus /> 연결 추가
+              </Button>
+            </HeaderActions>
+            <DataTable id="connections"
+              className="flex-none"
+              columns={columns}
+              rows={rows}
+              rowId={(row) => row.id}
+              selected={selected?.id}
+              empty={<EmptyState noun="연결" />}
+              onRowClick={(row) => open(row.id)}
+              rowContextMenu={(row) => (
+                <ContextMenuItem onClick={() => open(row.id)}>연결 설정 편집</ContextMenuItem>
+              )}
+            />
+          </div>
+        </SplitPane>
+      </SettingsContent>
+    </AiSettingsPage>
   );
 }
 
@@ -89,7 +96,7 @@ function ConnectionSettings() {
 function PiNote() {
   return (
     <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
-      pi는 작업실 서버 안에서 돌고, 로그인은 pi가 관리합니다. 터미널에서 <code>pi</code>를 실행해 <code>/login</code>으로 구독(OAuth)이나 API 키를 연결하면, 여기서 그 모델들을 고를 수 있습니다. <HelpTip>모델 이름은 “공급자/모델” 형식입니다.</HelpTip>
+      pi는 작업실 서버 안에서 돌고, 로그인은 pi가 관리합니다. 터미널에서 <code>pi</code>를 실행해 <code>/login</code>으로 구독(OAuth)이나 API 키를 연결하면, 여기서 그 모델들을 고를 수 있습니다.
     </p>
   );
 }
@@ -143,10 +150,10 @@ function NewConnection({ onClose }: { onClose: () => void }) {
 
   return (
     <Inspector header={<InspectorHeader kind="연결" name="연결 추가" onClose={onClose} />} footer={
-        <div className="flex justify-end border-t p-3"><Button type="submit" form="new-connection-form" disabled={create.isPending}>
+        <Button type="submit" form="new-connection-form" disabled={create.isPending}>
           {create.isPending && <Spinner />}
           추가
-        </Button></div>
+        </Button>
       }>
       <form id="new-connection-form" onSubmit={form.handleSubmit((values) => create.mutate(values))}>
         <FieldGroup className="gap-5">
@@ -272,7 +279,7 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
       ),
     onSuccess: () => {
       // What was saved is the new baseline: 저장 stays off until something changes again.
-      form.reset(form.getValues());
+      form.reset(form.getValues(), { keepDirtyValues: false });
       toast.success('저장했습니다.');
     },
     onError: (error) => toast.error(errorMessage(error)),
@@ -322,9 +329,10 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
   });
 
   const LOGIN_LABEL: Record<string, string> = { 'signed-in': '로그인됨', 'signed-out': '로그인 안 됨', unknown: '확인할 수 없음' };
+  const dirtyCount = Object.keys(dirtyFields).length;
 
   return (
-    <Inspector header={<InspectorHeader kind="연결" name={connection.name} status={isTool ? 'HTTP 호출' : info.label} onClose={onClose} />} footer={<DirtyBar dirtyCount={Object.keys(dirtyFields).length} onRevert={() => form.reset()} onSave={() => form.handleSubmit((values) => save.mutate(values))()} saving={save.isPending} disabled={!form.formState.isDirty} />}>
+    <Inspector header={<InspectorHeader kind="연결" name={connection.name} status={isTool ? 'HTTP 호출' : info.label} onClose={onClose} />} footer={dirtyCount > 0 ? <DirtyBar dirtyCount={dirtyCount} onRevert={() => form.reset(saved, { keepDirtyValues: false })} onSave={() => form.handleSubmit((values) => save.mutate(values))()} saving={save.isPending} disabled={!form.formState.isDirty} /> : undefined}>
       <InspectorSection title="설정">
         <form id="edit-connection-form" onSubmit={form.handleSubmit((values) => save.mutate(values))}>
           <FieldGroup className="gap-4">
@@ -403,7 +411,7 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
                 <FieldError errors={[errors.maxOutputTokens]} />
               </Field>
             </div>
-            <div className="flex items-center gap-1 text-xs text-muted-foreground">호출 조건 기본값 <HelpTip>이 연결로 가는 모든 요청(워크플로·작품 분석·용어 채우기·채팅)에 적용됩니다. 기본값: {CONNECTION_CALL_DEFAULTS.timeoutSeconds}초, {CONNECTION_CALL_DEFAULTS.maxAttempts}번, {CONNECTION_CALL_DEFAULTS.maxOutputTokens.toLocaleString()} 토큰.</HelpTip></div>
+            <div className="text-xs text-muted-foreground">이 연결로 가는 모든 요청(워크플로·작품 분석·용어 채우기·채팅)에 적용됩니다.</div>
           </InspectorSection>
 
           <InspectorSection

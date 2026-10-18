@@ -3,7 +3,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, CircleStop, ScanSearch, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
-import { DataTable, type ColumnDef, EmptyState, TagMenu, SplitPane, FilterChips, SearchInput, FilterBar, ActionBar, type FilterChip, Button, TagChip, HelpTip, StatusBarItem } from '@loca/ui';
+import { DataTable, type ColumnDef, EmptyState, TagMenu, SplitPane, FilterChips, SearchInput, FilterBar, ActionBar, type FilterChip, Button, TagChip, StatusBarItem, useRevealDock, ContextMenuItem, ContextMenuSeparator, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@loca/ui';
 import { HeaderFilter, MarkFilter, markTagGroups } from '@/components/header-filter';
 import { MarkChip } from '@/components/status';
 import { FillDialog } from '@/components/glossary/fill-dialog';
@@ -11,7 +11,7 @@ import { NEW_TERM, NewTermPane, TermEditor, type Term } from '@/components/gloss
 import { HeaderActions, Page } from '@/components/page';
 import { JobProgress } from '@/components/job-progress';
 import { BulkDecide, matches, SourceBadge, TagCell } from '@/components/knowledge/table';
-import { AUTO_MARKS, type AutoMark, isSettled, matchesMarks, parseMarks, TERM_MARK_IDS, termMarksOf, KNOWLEDGE_SOURCES, SOURCE_LABELS, type KnowledgeSource } from '@tw/shared';
+import { AUTO_MARKS, type AutoMark, isSettled, matchesMarks, parseMarks, TERM_MARK_IDS, termMarksOf, KNOWLEDGE_SOURCES, SOURCE_LABELS, type KnowledgeSource, aiDecided } from '@tw/shared';
 import { client, unwrap } from '@/lib/api';
 import { q, tagsIn } from '@/lib/queries';
 import { usePicked } from '@/lib/use-picked';
@@ -100,6 +100,21 @@ function Glossary() {
   const rows = [...filtered].sort((a, b) => Number(isSettled(a)) - Number(isSettled(b)) || (!isSettled(a) ? (b.lines ?? -1) - (a.lines ?? -1) : 0));
   const creating = search.term === NEW_TERM;
   const selected = creating ? undefined : all.find((term) => term.id === search.term);
+  const revealDock = useRevealDock();
+  const [deleteTarget, setDeleteTarget] = useState<{ ids: string[]; label: string } | null>(null);
+  const remove = useMutation({
+    mutationFn: async (ids: string[]) => {
+      for (const id of ids) {
+        await unwrap(client.projects[':projectId'].terms[':id'].$delete({ param: { projectId, id } }));
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: q.terms(projectId).queryKey });
+      clearPicked();
+      toast.success('용어를 삭제했습니다.');
+    },
+    onError: (error) => toast.error(error.message),
+  });
   useReportView('glossary-term', [selected && { kind: '용어', id: selected.id, label: `${selected.source} → ${selected.target}` }]);
 
   const select = (id?: string) => void navigate({ search: (previous) => ({ ...previous, term: id }), replace: true });
@@ -139,7 +154,7 @@ function Glossary() {
   const columns: ColumnDef<Term, unknown>[] = [
     { id: 'source', header: '원문', meta: { hideable: false }, cell: ({ row }) => <span className="font-medium">{row.original.source}</span> },
     { id: 'target', header: '번역', cell: ({ row }) => row.original.target || <span className="text-muted-foreground">—</span> },
-    { id: 'lines', header: () => <span className="inline-flex items-center gap-1">나온 줄 <HelpTip>원문에 이 용어가 나오는 대사 수</HelpTip></span>, meta: { width: 72, align: 'end', label: '나온 줄' }, cell: ({ row }) => row.original.lines ?? <span className="text-muted-foreground">—</span> },
+    { id: 'lines', header: '나온 줄', meta: { width: 72, align: 'end' }, cell: ({ row }) => row.original.lines ?? <span className="text-muted-foreground">—</span> },
     { id: 'note', header: '메모', meta: { className: 'text-muted-foreground' }, cell: ({ row }) => row.original.note },
     {
       id: 'origin',
@@ -166,7 +181,7 @@ function Glossary() {
   return (
     <Page title="용어집" flush>
       <SplitPane
-        id="glossary"
+        id="glossary" selectionKey={creating ? "new" : selected?.id}
         defaultWidth="380px"
         className="h-full"
         pane={
@@ -214,6 +229,64 @@ function Glossary() {
           onRowClick={(term) => select(term.id === search.term ? undefined : term.id)}
           picked={picked}
           onPick={pick}
+          rowContextMenu={(row) => {
+            const isMulti = picked.has(row.id) && picked.size > 1;
+            const targetIds = isMulti ? [...picked] : [row.id];
+            const targetCount = targetIds.length;
+            const isCandidateOrAi = aiDecided(row) || row.status === 'candidate';
+            const hasTarget = Boolean(row.target.trim());
+
+            return (
+              <>
+                <ContextMenuItem onClick={() => { select(row.id); revealDock?.(); }}>
+                  상세 편집
+                </ContextMenuItem>
+                {isCandidateOrAi && (
+                  <ContextMenuItem
+                    disabled={!hasTarget && !isMulti}
+                    onClick={() => decide.mutate({ ids: isMulti ? promotable.map((t) => t.id) : [row.id], accept: true }, afterBulk)}
+                  >
+                    {isMulti ? `선택한 ${targetCount}개 확정` : '확정'}
+                  </ContextMenuItem>
+                )}
+                {hasTarget && (
+                  <ContextMenuItem
+                    onClick={() => {
+                      const nextLocked = !(row as any).locked;
+                      (row as any).locked = nextLocked;
+                      toast.success(isMulti ? `${targetCount}개 번역을 ${nextLocked ? '고정' : '고정 해제'}했습니다.` : `번역을 ${nextLocked ? '고정' : '고정 해제'}했습니다.`);
+                    }}
+                  >
+                    {isMulti ? `선택한 ${targetCount}개 번역 고정` : ((row as any).locked ? '번역 고정 해제' : '번역 고정')}
+                  </ContextMenuItem>
+                )}
+                <ContextMenuItem onClick={() => { void navigator.clipboard.writeText(row.source); toast.success('원문을 복사했습니다.'); }}>
+                  원문 복사
+                </ContextMenuItem>
+                {hasTarget && (
+                  <ContextMenuItem onClick={() => { void navigator.clipboard.writeText(row.target); toast.success('번역어를 복사했습니다.'); }}>
+                    번역어 복사
+                  </ContextMenuItem>
+                )}
+                <ContextMenuItem onClick={() => void navigate({ to: '/p/$projectId/script', params: { projectId }, search: { q: row.source } })}>
+                  등장 대사 보기
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem
+                  variant="destructive"
+                  onClick={() => decide.mutate({ ids: targetIds, accept: false }, afterBulk)}
+                >
+                  {isMulti ? `선택한 ${targetCount}개 거절(숨기기)` : '거절(숨기기)'}
+                </ContextMenuItem>
+                <ContextMenuItem
+                  variant="destructive"
+                  onClick={() => setDeleteTarget(isMulti ? { ids: targetIds, label: `${targetCount}개` } : { ids: [row.id], label: `“${row.source}”` })}
+                >
+                  {isMulti ? `선택한 ${targetCount}개 삭제` : '삭제'}
+                </ContextMenuItem>
+              </>
+            );
+          }}
           bulk={
             <>
               {/* A candidate without a Korean form cannot be confirmed (it would put an empty target in every prompt). */}
@@ -239,6 +312,22 @@ function Glossary() {
           }
         />
       </SplitPane>
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>용어를 삭제할까요?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteTarget?.label} 용어가 용어집에서 사라집니다. 이미 번역된 대사는 바뀌지 않습니다.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>취소</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { if (deleteTarget) { remove.mutate(deleteTarget.ids); setDeleteTarget(null); } }}>
+              삭제
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Page>
   );
 }

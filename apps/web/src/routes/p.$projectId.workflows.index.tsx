@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Play, Plus, Trash2 } from 'lucide-react';
-import { ANALYSIS_SECTION_LABELS, ANALYSIS_SECTIONS, type AnalysisSection } from '@tw/shared';
+import { toast } from 'sonner';
+import { ANALYSIS_SECTION_LABELS, ANALYSIS_SECTIONS, ANALYSIS_WORKFLOW_PRESETS, ANALYSIS_WORKFLOW_PRESET_IDS, type AnalysisSection, type AnalysisWorkflowPresetId } from '@tw/shared';
 import { AiButton } from '@/components/ai-button';
-import { EmptyState, DataTable, type ColumnDef, JobStatusBadge, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Badge, Checkbox, Button, Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Input, Label, RadioGroup, RadioGroupItem, Skeleton, HelpTip } from '@loca/ui';
+import { EmptyState, DataTable, type ColumnDef, JobStatusBadge, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Badge, Checkbox, Button, Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Input, Label, RadioGroup, RadioGroupItem, Skeleton, ContextMenuItem, ContextMenuSeparator } from '@loca/ui';
 import { HeaderActions, Page } from '@/components/page';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { client, unwrap } from '@/lib/api';
@@ -16,10 +17,47 @@ export const Route = createFileRoute('/p/$projectId/workflows/')({ component: Wo
 function Workflows() {
   const { projectId } = Route.useParams();
   const navigate = Route.useNavigate();
+  const queryClient = useQueryClient();
   const workflows = useQuery(q.workflows(projectId));
   const runs = useQuery(q.runs(projectId));
-  const remove = useMutation({ mutationFn: (id: string) => unwrap(client.workflows[':id'].$delete({ param: { id } })) });
+  const remove = useMutation({
+    mutationFn: (id: string) => unwrap(client.workflows[':id'].$delete({ param: { id } })),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: q.workflows(projectId).queryKey });
+      toast.success('워크플로를 삭제했습니다.');
+    },
+    onError: (error) => toast.error(error.message),
+  });
+  const [deleteTarget, setDeleteTarget] = useState<Workflow | null>(null);
   type Workflow = NonNullable<typeof workflows.data>[number];
+  const duplicate = useMutation({
+    mutationFn: async (workflow: Workflow) => {
+      const detail = await unwrap(client.workflows[':id'].$get({ param: { id: workflow.id } }));
+      const created = await unwrap(
+        client.projects[':projectId'].workflows.$post({
+          param: { projectId },
+          json: { name: `${workflow.name} (복사본)`, from: 'blank' },
+        })
+      );
+      await unwrap(
+        client.workflows[':id'].$put({
+          param: { id: created.id },
+          json: {
+            name: created.name,
+            description: detail.description,
+            definition: detail.definition,
+            version: created.version,
+          },
+        })
+      );
+      return created;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: q.workflows(projectId).queryKey });
+      toast.success('워크플로를 복제했습니다.');
+    },
+    onError: (error) => toast.error(error.message),
+  });
 
   const columns: ColumnDef<Workflow, unknown>[] = [
     {
@@ -124,23 +162,54 @@ function Workflows() {
           loading={workflows.isLoading}
           empty={<EmptyState noun="워크플로" />}
           onRowClick={(workflow) => void navigate({ to: '/p/$projectId/workflows/$workflowId', params: { projectId, workflowId: workflow.id } })}
+          rowContextMenu={(workflow) => (
+            <>
+              <ContextMenuItem onClick={() => void navigate({ to: '/p/$projectId/workflows/$workflowId', params: { projectId, workflowId: workflow.id } })}>
+                워크플로 편집
+              </ContextMenuItem>
+              <ContextMenuItem onClick={() => duplicate.mutate(workflow)}>
+                복제
+              </ContextMenuItem>
+              <ContextMenuSeparator />
+              <ContextMenuItem variant="destructive" onClick={() => setDeleteTarget(workflow)}>
+                삭제
+              </ContextMenuItem>
+            </>
+          )}
         />
       </div>
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>‘{deleteTarget?.name}’을 삭제할까요?</AlertDialogTitle>
+            <AlertDialogDescription>지난 실행 기록은 그대로 남습니다(실행 당시 정의를 따로 보관합니다).</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>취소</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { if (deleteTarget) { remove.mutate(deleteTarget.id); setDeleteTarget(null); } }}>삭제</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Page>
   );
 }
 
-type From = 'template' | 'terms' | 'listener' | 'knowledge' | 'speechFix' | 'analysis' | 'blank';
+type From = 'draft' | 'template' | 'terms' | 'listener' | 'knowledge' | 'speechFix' | 'analysis' | 'blank';
 
 function NewWorkflow({ projectId }: { projectId: string }) {
   const navigate = Route.useNavigate();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
-  const [from, setFrom] = useState<From>('template');
-  // An analysis template reads only the picked sections (all of them when every box is ticked).
+  const [from, setFrom] = useState<From>('draft');
+  const [analysisPresetId, setAnalysisPresetId] = useState<AnalysisWorkflowPresetId | 'custom'>('all');
+  // A custom analysis reads only the picked sections (all of them when every box is ticked).
   const [sections, setSections] = useState<AnalysisSection[]>([...ANALYSIS_SECTIONS]);
   const create = useMutation({
-    mutationFn: () => unwrap(client.projects[':projectId'].workflows.$post({ param: { projectId }, json: { name: name.trim(), from, ...(from === 'analysis' && sections.length < ANALYSIS_SECTIONS.length ? { sections } : {}) } })),
+    mutationFn: () => unwrap(client.projects[':projectId'].workflows.$post({ param: { projectId }, json: {
+      name: name.trim() || (from === 'analysis' && analysisPresetId !== 'custom' ? ANALYSIS_WORKFLOW_PRESETS[analysisPresetId].name : ''),
+      from,
+      ...(from === 'analysis' && analysisPresetId !== 'custom' ? { presetId: analysisPresetId } : from === 'analysis' && sections.length < ANALYSIS_SECTIONS.length ? { sections } : {}),
+    } })),
     onSuccess: (workflow) => {
       setOpen(false);
       void navigate({ to: '/p/$projectId/workflows/$workflowId', params: { projectId, workflowId: workflow.id } });
@@ -160,14 +229,21 @@ function NewWorkflow({ projectId }: { projectId: string }) {
         <div className="space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="wf-name">이름</Label>
-            <Input id="wf-name" value={name} onChange={(event) => setName(event.target.value)} autoFocus />
+            <Input id="wf-name" value={name || (from === 'analysis' && analysisPresetId !== 'custom' ? ANALYSIS_WORKFLOW_PRESETS[analysisPresetId].name : '')} onChange={(event) => setName(event.target.value)} autoFocus />
           </div>
           <RadioGroup value={from} onValueChange={(value) => setFrom(value as From)}>
             <label className="flex items-start gap-2 text-sm">
+              <RadioGroupItem value="draft" className="mt-0.5" />
+              <span>
+                초벌 번역 템플릿
+                <span className="block text-xs text-muted-foreground">AI 번역 → 형식 검사 → 초벌 상태로 변경</span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2 text-sm">
               <RadioGroupItem value="template" className="mt-0.5" />
               <span>
-                기본 번역 템플릿
-                <span className="ml-1 inline-flex align-middle"><HelpTip>번역 → 형식 검사 → 검수 → 확정, 실패는 3회 수정 후 ‘사람 확인 필요’(검토함)로</HelpTip></span>
+                검수 포함 번역 템플릿
+                <span className="block text-xs text-muted-foreground">번역 → 형식 검사 → AI 검수 ↔ 수정 → 확정</span>
               </span>
             </label>
             <label className="flex items-start gap-2 text-sm">
@@ -194,22 +270,41 @@ function NewWorkflow({ projectId }: { projectId: string }) {
             <label className="flex items-start gap-2 text-sm">
               <RadioGroupItem value="analysis" className="mt-0.5" />
               <span>
-                작품 분석 템플릿
-                <span className="block text-xs text-muted-foreground">대본 전체를 한 번에 읽고 고른 항목만 자료 초안·용어 후보로 넣습니다. 장면을 골라 실행하면 그 장면의 항목을 더하기만 합니다.</span>
+                분석 워크플로 템플릿
+                <span className="block text-xs text-muted-foreground">필요한 항목만 읽는 분석 workflow를 만든 뒤 편집·실행합니다.</span>
               </span>
             </label>
             {from === 'analysis' && (
-              <div className="ml-6 grid grid-cols-2 gap-1.5" role="group" aria-label="읽을 항목">
-                {ANALYSIS_SECTIONS.map((section) => (
-                  <label key={section} className="flex items-center gap-2 text-sm">
-                    <Checkbox
-                      checked={sections.includes(section)}
-                      disabled={sections.length === 1 && sections.includes(section)}
-                      onCheckedChange={(checked) => setSections((current) => (checked ? ANALYSIS_SECTIONS.filter((one) => one === section || current.includes(one)) : current.filter((one) => one !== section)))}
-                    />
-                    {ANALYSIS_SECTION_LABELS[section]}
-                  </label>
-                ))}
+              <div className="ml-6 space-y-2">
+                <RadioGroup value={analysisPresetId} onValueChange={(value) => setAnalysisPresetId(value as AnalysisWorkflowPresetId | 'custom')} aria-label="분석 템플릿">
+                  <div className="max-h-48 space-y-1 overflow-y-auto rounded-md border p-2">
+                    {ANALYSIS_WORKFLOW_PRESET_IDS.map((presetId) => {
+                      const preset = ANALYSIS_WORKFLOW_PRESETS[presetId];
+                      return <label key={presetId} className="flex items-start gap-2 rounded px-1 py-1 text-sm hover:bg-muted">
+                        <RadioGroupItem value={presetId} className="mt-0.5" />
+                        <span className="min-w-0"><span className="block">{preset.label} 분석</span><span className="block text-xs text-muted-foreground">{preset.description}</span></span>
+                      </label>;
+                    })}
+                    <label className="flex items-start gap-2 rounded px-1 py-1 text-sm hover:bg-muted">
+                      <RadioGroupItem value="custom" className="mt-0.5" />
+                      <span><span className="block">직접 선택</span><span className="block text-xs text-muted-foreground">여러 항목을 조합하는 workflow</span></span>
+                    </label>
+                  </div>
+                </RadioGroup>
+                {analysisPresetId === 'custom' && (
+                  <div className="grid grid-cols-2 gap-1.5" role="group" aria-label="읽을 항목">
+                    {ANALYSIS_SECTIONS.map((section) => (
+                      <label key={section} className="flex items-center gap-2 text-sm">
+                        <Checkbox
+                          checked={sections.includes(section)}
+                          disabled={sections.length === 1 && sections.includes(section)}
+                          onCheckedChange={(checked) => setSections((current) => (checked ? ANALYSIS_SECTIONS.filter((one) => one === section || current.includes(one)) : current.filter((one) => one !== section)))}
+                        />
+                        {ANALYSIS_SECTION_LABELS[section]}
+                      </label>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
             <label className="flex items-start gap-2 text-sm">
@@ -228,7 +323,7 @@ function NewWorkflow({ projectId }: { projectId: string }) {
           </RadioGroup>
         </div>
         <DialogFooter>
-          <Button disabled={!name.trim() || create.isPending} onClick={() => create.mutate()}>
+          <Button disabled={(!name.trim() && (from !== 'analysis' || analysisPresetId === 'custom')) || create.isPending} onClick={() => create.mutate()}>
             만들기
           </Button>
         </DialogFooter>

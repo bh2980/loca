@@ -21,7 +21,7 @@ export const AUTO_MARKS = {
   noted: { name: '메모', on: ['lines'], color: '#009589', description: '줄 메모가 있음' },
   candidate: { name: '후보', on: ['knowledge', 'terms'], color: '#bc5694', description: '아직 번역 문맥에 쓰이지 않음' },
   noEvidence: { name: '근거 부재', on: ['knowledge'], color: '#c46016', description: '근거 대사가 없음' },
-  emptyTarget: { name: '번역어 누락', on: ['terms'], color: '#d24c49', description: '한국어 번역어가 비어 있음' },
+  emptyTarget: { name: '번역 누락', on: ['terms'], color: '#d24c49', description: '한국어 번역어가 비어 있음' },
   unused: { name: '대본 미등장', on: ['terms'], color: '#79818c', description: '원문이나 화자에 나오는 대사가 없음' },
 } as const satisfies Record<string, { name: string; on: readonly TagScope[]; color: string; description: string }>;
 export type AutoMark = keyof typeof AUTO_MARKS;

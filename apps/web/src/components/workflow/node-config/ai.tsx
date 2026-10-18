@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { Plus, Trash2, X } from 'lucide-react';
 import { AI_OUTPUTS, ANALYSIS_SECTION_LABELS, ANALYSIS_SECTIONS, analysisSectionsOf, CONNECTION_KIND_INFO, contextConfigSchema, nodeName, type AiOutput, type BatchConfig, type Capability, type JsonField, type WorkflowNode } from '@tw/shared';
-import { AdvancedDisclosure, Button, Checkbox, Dialog, DialogContent, DialogHeader, DialogTitle, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, ControlIdContext, HelpTip, InspectorSection } from '@loca/ui';
+import { AdvancedDisclosure, Button, Checkbox, Dialog, DialogContent, DialogHeader, DialogTitle, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, ControlIdContext, InspectorSection } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
 import { Link } from '@tanstack/react-router';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';

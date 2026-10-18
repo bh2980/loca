@@ -2,7 +2,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { FileText } from 'lucide-react';
 import { toast } from 'sonner';
-import { InspectorHeader, Inspector, Badge, Button, HelpTip } from '@loca/ui';
+import { InspectorHeader, Inspector, Badge, Button } from '@loca/ui';
 import { TokenText } from '@/components/editor/source-text';
 import { client, unwrap } from '@/lib/api';
 import { tokenPatternOf } from '@/lib/line-context';
@@ -60,8 +60,8 @@ export function SeamCheckPane({ projectId, nodeId, onClose }: { projectId: strin
   const heading = (text: string) => <p className="bg-muted px-3 py-1 text-xs text-muted-foreground">{text}</p>;
 
   return (
-    <Inspector header={<InspectorHeader kind="이음새 점검" name={<span className="inline-flex items-center gap-1">이번 길이 앞선 길로 이어지는 곳 <HelpTip>이번 길의 새 줄에서 이미 번역한 길의 줄로 이어집니다. 이어 읽어도 번역이 자연스러운지 확인하세요.</HelpTip></span>} status={data && <SeamStateChip state={state} />} onClose={onClose} />} footer={
-        data && (
+    <Inspector header={<InspectorHeader kind="이음새 점검" name="이번 길이 앞선 길로 이어지는 곳" status={data && <SeamStateChip state={state} />} onClose={onClose} />} footer={
+        data ? (
           <>
             <Button disabled={mark.isPending || unmark.isPending} onClick={() => (state === 'checked' ? unmark.mutate() : mark.mutate(data.sig))}>
               {state === 'checked' ? '점검 취소' : '점검함'}
@@ -73,7 +73,7 @@ export function SeamCheckPane({ projectId, nodeId, onClose }: { projectId: strin
             )}
             {state === 'stale' && <span className="text-xs text-muted-foreground">점검한 뒤 이 줄들의 번역이 바뀌었습니다.</span>}
           </>
-        )
+        ) : undefined
       } loading={detail.isPending} bodyClassName="space-y-4 p-4">
       {detail.isError && <p className="text-sm text-destructive">이음새 정보를 불러오지 못했습니다: {detail.error.message}</p>}
       {data && (

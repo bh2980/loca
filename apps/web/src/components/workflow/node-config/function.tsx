@@ -4,7 +4,7 @@ import { useMutation } from '@tanstack/react-query';
 import { Play } from 'lucide-react';
 import { FUNCTIONS, nodeName, type FunctionName, type WorkflowNode } from '@tw/shared';
 import { AiConfirmNote } from '@/components/settings/ai-confirm';
-import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, StatusIcon, TagChip, HelpTip } from '@loca/ui';
+import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, StatusIcon, TagChip } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
 import { client, unwrap } from '@/lib/api';
 import { Field, ToggleRow, type FunctionNode, type NodeRefs } from '@/components/workflow/node-config/shared';
@@ -32,7 +32,7 @@ export function FunctionConfig({ node, refs, readOnly, onChange }: { node: Funct
         </div>
       );
     case 'glossaryCheck':
-      return <p className="text-sm text-muted-foreground"><HelpTip label="함수 안내">설정할 것이 없습니다. 실패 이유는 다음 AI 노드의 "지적 사항"으로 전달됩니다.</HelpTip></p>;
+      return <p className="text-sm text-muted-foreground">별도의 설정 항목이 없습니다. 실패 사유는 다음 AI 노드의 지적 사항으로 전달됩니다.</p>;
     case 'setStatus':
       return <SetStatusConfig params={params} refs={refs} set={set} setMany={setMany} />;
     case 'addTerms': {

@@ -4,7 +4,7 @@ import { keepPreviousData, useMutation, useQuery, type UseQueryResult } from '@t
 import type { InferResponseType } from 'hono/client';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { Play } from 'lucide-react';
-import { SearchInput, Button, Checkbox, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Skeleton, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner, HelpTip } from '@loca/ui';
+import { SearchInput, Button, Checkbox, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Skeleton, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { LINE_MARK_IDS, type LineMark, UNREVIEWED_MARKS } from '@tw/shared';
 import { MarkChip } from '@/components/status';
@@ -159,6 +159,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
         {/* Side padding so focus rings and the picked scope are not cut by the scroll box. */}
         <div className="-mx-1 max-h-[70svh] space-y-5 overflow-auto px-1 py-0.5">
           {!fixedWorkflowId && (
+            <div className="space-y-2">
             <Select value={workflowId} onValueChange={setChosen}>
               <SelectTrigger className="w-full" aria-label="워크플로">
                 <SelectValue placeholder="워크플로 선택" />
@@ -171,6 +172,11 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
                 ))}
               </SelectContent>
             </Select>
+            <p className="text-xs text-muted-foreground">
+              {workflows.data?.length ? '워크플로를 만들거나 수정하려면 ' : '저장된 워크플로가 없습니다. '}
+              <Link to="/p/$projectId/workflows" params={{ projectId }} className="underline underline-offset-2">워크플로 관리</Link>
+            </p>
+            </div>
           )}
 
           <section className="space-y-2">
@@ -306,7 +312,7 @@ function TagPicker({ tags, picked, setPicked, marks, setMarks }: { tags: { id: s
   return (
     <div className="space-y-2 rounded-md border p-2">
       <div className="space-y-1">
-        <p className="flex items-center gap-1 px-2 text-xs text-muted-foreground">고른 표시와 태그 <HelpTip>선택한 표시와 태그를 모두 가진 줄만 포함합니다. 자동 표시는 시스템이 붙입니다.</HelpTip></p>
+        <p className="px-2 text-xs text-muted-foreground">고른 표시와 태그</p>
         <div className="flex flex-wrap gap-2">
           {LINE_MARK_IDS.map((mark) => (
             <label key={mark} className="flex items-center gap-1.5 rounded px-2 py-1 text-sm hover:bg-muted">

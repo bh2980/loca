@@ -3,7 +3,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { InspectorHeader, Inspector, EmptyState, DataTable, type ColumnDef, SplitPane, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Badge, Button, Field, FieldDescription, FieldGroup, FieldLabel, Input, HelpTip } from '@loca/ui';
+import { InspectorHeader, Inspector, EmptyState, DataTable, type ColumnDef, SplitPane, SettingsContent, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Badge, Button, Field, FieldDescription, FieldGroup, FieldLabel, Input } from '@loca/ui';
 import { HeaderActions, Page } from '@/components/page';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
@@ -40,26 +40,28 @@ function ApiKeys() {
 
   return (
     <Page title="API 키" flush>
-      <SplitPane
-        id="settings-keys"
-        defaultWidth="384px"
-        className="h-full"
-        pane={(search.key === 'new' || selected) && <KeyPane key={selected?.id ?? 'new'} row={selected} onClose={() => open(undefined)} onCreated={(id) => open(id)} />}
-      >
-        <HeaderActions>
-          <div className="flex items-center gap-1"><Button onClick={() => open('new')}>
-            <Plus /> API 키 추가
-          </Button><HelpTip>워크플로의 ‘HTTP 호출’ 노드가 키가 필요한 API를 부를 때 고릅니다. 주소는 노드에 적고, 키는 여기(OS 키체인)에만 둡니다. 공개 API는 키가 필요 없습니다.</HelpTip></div>
-        </HeaderActions>
-        <DataTable id="keys"
-          columns={columns}
-          rows={connections.data ? keys : undefined}
-          rowId={(row) => row.id}
-          selected={search.key}
-          empty={<EmptyState noun="API 키" />}
-          onRowClick={(row) => open(row.id === search.key ? undefined : row.id)}
-        />
-      </SplitPane>
+      <SettingsContent width="compact" fill framed>
+        <SplitPane
+          id="settings-keys" selectionKey={search.key}
+          defaultWidth="384px"
+          className="h-full"
+          pane={(search.key === 'new' || selected) && <KeyPane key={selected?.id ?? 'new'} row={selected} onClose={() => open(undefined)} onCreated={(id) => open(id)} />}
+        >
+          <HeaderActions>
+            <Button onClick={() => open('new')}>
+              <Plus /> API 키 추가
+            </Button>
+          </HeaderActions>
+          <DataTable id="keys"
+            columns={columns}
+            rows={connections.data ? keys : undefined}
+            rowId={(row) => row.id}
+            selected={search.key}
+            empty={<EmptyState noun="API 키" />}
+            onRowClick={(row) => open(row.id === search.key ? undefined : row.id)}
+          />
+        </SplitPane>
+      </SettingsContent>
     </Page>
   );
 }

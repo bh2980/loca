@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation } from '@tanstack/react-router';
 import { ArrowUp, Check, ChevronRight, History, Plus, Square, Trash2, X } from 'lucide-react';
 import { Markdown } from './markdown';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, Spinner, Textarea, HelpTip } from '@loca/ui';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, Spinner, Textarea } from '@loca/ui';
 import { Elapsed } from '@/components/job-progress';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
 import { client, unwrap } from '@/lib/api';
@@ -26,7 +26,7 @@ const compactTokens = (n: number) => new Intl.NumberFormat('en', { notation: 'co
 const SESSION_KEY = (projectId: string) => `tw.chat.session.${projectId}`;
 const readSession = (projectId: string) => {
   try {
-    return localStorage.getItem(SESSION_KEY(projectId));
+    return sessionStorage.getItem(SESSION_KEY(projectId)) ?? localStorage.getItem(SESSION_KEY(projectId));
   } catch {
     return null;
   }
@@ -38,11 +38,21 @@ export function ChatPanel({ projectId }: { projectId: string }) {
   const sessions = useQuery(q.chatSessions(projectId));
   const [sessionId, setSessionId] = useState<string | null>(() => readSession(projectId));
 
-  // Fetch the conversation as soon as its id is known (from localStorage), not only after the
+  // Fetch the conversation as soon as its id is known (from storage), not only after the
   // sessions list resolves: waiting for the list made the panel flash its spinner on every open.
   useEffect(() => {
     if (sessionId) void queryClient.prefetchQuery(q.chatSession(sessionId));
   }, [queryClient, sessionId]);
+
+  useEffect(() => {
+    return chatDock.onOpenSession((targetProjectId, targetSessionId) => {
+      if (targetProjectId === projectId) {
+        setSessionId(targetSessionId);
+        void queryClient.prefetchQuery(q.chatSession(targetSessionId));
+        void queryClient.invalidateQueries({ queryKey: q.chatSessions(projectId).queryKey });
+      }
+    });
+  }, [projectId, queryClient]);
 
   useEffect(() => {
     if (sessions.data && sessionId && !sessions.data.some((session) => session.id === sessionId)) setSessionId(null);
@@ -50,7 +60,10 @@ export function ChatPanel({ projectId }: { projectId: string }) {
   }, [sessions.data, sessionId]);
   useEffect(() => {
     try {
-      if (sessionId) localStorage.setItem(SESSION_KEY(projectId), sessionId);
+      if (sessionId) {
+        sessionStorage.setItem(SESSION_KEY(projectId), sessionId);
+        localStorage.setItem(SESSION_KEY(projectId), sessionId);
+      }
     } catch {
       /* ignore */
     }
@@ -161,9 +174,9 @@ export function ChatPanel({ projectId }: { projectId: string }) {
         <Conversation key={current.id} projectId={projectId} sessionId={current.id} mode={current.permissionMode} model={current.connectionId ? { connectionId: current.connectionId, model: current.model ?? '', ...(current.effort && { effort: current.effort }) } : null} />
       ) : (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center text-sm text-muted-foreground">
-          <div className="flex items-center gap-1"><Button onClick={() => create.mutate()} disabled={create.isPending}>
+          <Button onClick={() => create.mutate()} disabled={create.isPending}>
             <Plus /> 새 대화 시작
-          </Button><HelpTip>프로젝트의 원문·자료·워크플로를 읽고 인물 프로필이나 참조 문서, 워크플로를 제안하는 에이전트입니다.</HelpTip></div>
+          </Button>
         </div>
       )}
     </aside>

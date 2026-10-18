@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { AUTO_MARKS, type AutoMark, CONDITION_MARK_IDS } from '@tw/shared';
 import { nodeName, type WorkflowNode } from '@tw/shared';
 import { MarkChip } from '@/components/status';
-import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, HelpTip } from '@loca/ui';
+import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
 import { Field, type ConditionNode } from '@/components/workflow/node-config/shared';
 
@@ -75,7 +75,7 @@ export function ConditionEditor({ node, nodes, readOnly, onChange }: { node: Con
               적용
             </Button>
           </div>
-          <p className="flex items-center gap-1 text-xs text-muted-foreground">자주 쓰는 조건 <HelpTip>예: 'AI 검수' 방문 3회 미만 → 거짓 출구를 사람 확인에 연결하면 "검수 3번 불통이면 사람 검토".</HelpTip></p>
+          <p className="text-xs text-muted-foreground">자주 쓰는 조건</p>
           {verdicts.length > 0 && (
             <div className="flex flex-wrap items-center gap-1.5 text-sm">
               <Select value={passNode} onValueChange={setPassNode}>

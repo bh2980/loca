@@ -2,9 +2,9 @@ import { useState, type ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Check, CircleStop, Play, X } from 'lucide-react';
-import { hasAnalysis, StartAnalysis } from '@/components/knowledge/analysis-controls';
+import { hasAnalysis } from '@/components/knowledge/analysis-controls';
 import { RunDialog } from '@/components/workflow/run-dialog';
-import { Button, HelpTip } from '@loca/ui';
+import { Button } from '@loca/ui';
 import { HeaderActions } from '@/components/page';
 import { AnalysisSteps } from '@/components/job-progress';
 import { client, unwrap } from '@/lib/api';
@@ -84,9 +84,9 @@ export function GettingStarted({ projectId }: { projectId: string }) {
     {
       key: 'analysis',
       title: '작품 분석',
-      why: 'AI가 대본 전체를 읽고 인물·관계·사건·말투 규칙·장면별 청자 초안과 용어 후보(번역 제안 포함)를 만듭니다. 번역할 때 AI가 받는 문맥의 바탕입니다.',
+      why: '워크플로에서 필요한 자료와 읽을 원문 범위를 정합니다. 인물·사건·작품 개요 등 필요한 분석 노드와 템플릿을 선택할 수 있습니다.',
       done: analysed,
-      action: (primary) => <StartAnalysis projectId={projectId} variant={primary ? 'default' : 'outline'} />,
+      action: (primary) => <RunDialog projectId={projectId} trigger={<Button variant={primary ? 'default' : 'outline'}>워크플로 실행</Button>} />,
       progress: reading && (
         <div className="mt-3">
           <AnalysisSteps
@@ -148,12 +148,12 @@ export function GettingStarted({ projectId }: { projectId: string }) {
     {
       key: 'run',
       title: '번역 실행',
-      why: '워크플로(기본: 번역 → 형식 검사 → 검수 → 확정)를 범위를 골라 실행합니다. 시작 전에 호출 수와 토큰 예상치를 보여 줍니다.',
+      why: '워크플로(초벌 번역: AI 번역 → 형식 검사 → 초벌)를 범위를 골라 실행합니다. 시작 전에 호출 수와 토큰 예상치를 보여 줍니다.',
       done: ran,
       action: (primary) => (
         <RunDialog
           projectId={projectId}
-          preferWorkflow="기본 번역"
+          preferWorkflow="초벌 번역"
           trigger={
             <Button variant={primary ? 'default' : 'outline'}>
               <Play /> 실행 범위 고르기
@@ -199,7 +199,7 @@ export function GettingStarted({ projectId }: { projectId: string }) {
                   {step.title}
                   {step.optional && <span className="ml-2 text-xs font-normal text-muted-foreground">선택</span>}
                 </p>
-                {!step.done && <HelpTip label={`${step.title} 도움말`}>{step.why}</HelpTip>}
+                {!step.done && <p className="mt-0.5 text-xs text-muted-foreground">{step.why}</p>}
                 {step.progress}
               </div>
               {!step.done && !step.progress && (current || step.optional) && <div className="shrink-0">{step.action(current)}</div>}
