@@ -6,7 +6,8 @@ import { toast } from 'sonner';
 import { AUTO_MARKS, compileFormatRules, isUnknownListener, listenerLabel, needsListener, PALETTE, SPECIAL_LISTENERS, TAG_SCOPES, type FormatRules, type LineMark, type ListenerOrigin, mentions, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
 import { MarkChip } from '@/components/status';
 import { TranslationEditor } from '@/components/translation-editor';
-import { LineSourceText, TokenText } from '@/components/editor/source-text';
+import { LineSourceText, MarkedSourceText, TokenText } from '@/components/editor/source-text';
+import { insertIntoLine } from '@/components/editor/translation-input';
 import { LineNote } from '@/components/script/line-note';
 import { withoutTokens } from '@/lib/line-context';
 import {
@@ -79,9 +80,28 @@ export function LineHints({ projectId, line, part }: { projectId: string; line: 
       {label}
     </span>
   );
-  const context = [
-    ...used.map((term) => hint(term.id, text ? text.toLowerCase().includes(term.target.toLowerCase()) : null, `${term.source} → ${term.target}`)),
-  ];
+  // A term chip puts its translation at the cursor of the line's editor; it turns to a warning when the draft lacks it.
+  const termChip = (term: { id: string; source: string; target: string }) => {
+    const ok = text ? text.toLowerCase().includes(term.target.toLowerCase()) : null;
+    return (
+      <Button
+        key={term.id}
+        type="button"
+        variant="ghost"
+        size="inline"
+        title={ok === false ? `번역에 없음 · 눌러서 ‘${term.target}’ 넣기` : `눌러서 ‘${term.target}’ 넣기`}
+        onClick={() => { if (!insertIntoLine(line.id, term.target)) toast.info('번역 칸이 열려 있지 않습니다.'); }}
+        className={cn('h-auto gap-1 rounded-md border border-border bg-card px-1.5 py-0.5 text-xs font-normal shadow-2xs hover:bg-accent', ok === false && 'border-warning/40 text-warning')}
+      >
+        {ok === true && <Check className="size-3 text-success" />}
+        {ok === false && <CircleAlert className="size-3" />}
+        <span>{term.source}</span>
+        <span className="text-subtle-foreground">→</span>
+        <span className="font-medium">{term.target}</span>
+      </Button>
+    );
+  };
+  const context = used.map(termChip);
   // Format checks of the draft sit with the editor (TranslationEditor); here only what the last run said.
   const result = line.lastRun?.issues.slice(0, 1).map((issue) => hint('run', false, issue)) ?? [];
   const items = [...(part !== 'result' ? context : []), ...(part !== 'context' ? result : [])];
@@ -108,7 +128,7 @@ export function LineHints({ projectId, line, part }: { projectId: string; line: 
   const relation = listener && people.data?.relationships.find((item) => (item.fromId === speaker!.id && item.toId === listener.id) || (item.mutual && item.fromId === listener.id && item.toId === speaker!.id));
   const about = [
     speaker?.speech && { key: 'habit', label: `${speaker.name} 말버릇`, text: speaker.speech },
-    relation && { key: 'relation', label: '관계', text: [relation.kind, relation.description].filter(Boolean).join(' — ') },
+    relation && { key: 'relation', label: `관계 ${speaker!.name} → ${listener!.name}`, text: [relation.kind, relation.description].filter(Boolean).join(' — ') },
   ].filter((item): item is { key: string; label: string; text: string } => !!item);
   if (!rule && !about.length && !items.some(Boolean)) return null;
   return (
@@ -306,12 +326,19 @@ export function LineRow({
       <AiMark by="ai" />
     </Button>
   ) : null;
+  // The details pane opens only from here or the row's menu; picking a line never opens it.
+  const detailButton = selected && onOpenDetail ? (
+    <Button variant="ghost" size="inline" className="text-muted-foreground" title="이 줄의 상세 정보를 오른쪽 패널에 엽니다" onClick={(event) => (event.stopPropagation(), onOpenDetail())}>
+      상세
+    </Button>
+  ) : null;
   const source = selected ? (
     <>
       <LineSourceText projectId={projectId} unitId={line.id} source={line.source} translation={line.translation} className={cn('text-base leading-6', sourceClass)} />
+      <LineHints projectId={projectId} line={{ id: line.id, source: line.source, translation: line.translation, speaker: line.speaker, listener: line.listener, lastRun: null }} part="context" />
       <LineNote key={`note-${line.id}`} unitId={line.id} note={line.note} editing={noting} onEditing={onNoting} />
     </>
-  ) : <TokenText text={line.source} source={line.source} pattern={tokenPattern} className={cn(sourceClass)} />;
+  ) : <MarkedSourceText projectId={projectId} text={line.source} pattern={tokenPattern} className={cn(sourceClass)} />;
   const translation = selected ? (
     <>
       <TranslationEditor key={`editor-${line.id}`} projectId={projectId} unit={line} statuses={statusList} focusKey={focusTick} marks={editorMarks} onEscape={onEscape} onDone={onDone} />
@@ -330,7 +357,7 @@ export function LineRow({
       checkbox={checkbox}
       speaker={identity}
       status={statusContent}
-      meta={aiMeta}
+      meta={aiMeta || detailButton ? <>{aiMeta}{detailButton}</> : null}
       source={source}
       translation={translation}
       selected={selected}
@@ -363,7 +390,7 @@ export function LineRow({
             </ContextMenuItem>
             {onOpenDetail && (
               <ContextMenuItem onClick={onOpenDetail}>
-                상세 속성 열기
+                상세 열기
               </ContextMenuItem>
             )}
             <ContextMenuSeparator />

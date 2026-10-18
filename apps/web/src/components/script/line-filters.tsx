@@ -3,7 +3,6 @@ import { Fragment, useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { ChevronDown } from 'lucide-react';
 import { AUTO_MARKS, type AutoMark, LINE_MARK_IDS, type LineMark, parseMarks } from '@tw/shared';
-import { LINE_TABS, type LineTab } from '@/components/line-detail';
 import { markTagGroups } from '@/components/header-filter';
 import { knownListenerFilter, toggleLineMarkFilter, unknownListenerFilter } from '@/lib/line-filter-state';
 import { Button, Input, DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger, StatusIcon } from '@loca/ui';
@@ -28,8 +27,7 @@ export interface LinesSearch {
   line?: string;
   /** The line's details pane is open (closed by default: the row itself is the editor). */
   detail?: true;
-  /** The line pane's tab and the AI node whose context it shows ("workflowId:nodeId"). */
-  lineTab?: Exclude<LineTab, 'context'>;
+  /** The AI node whose prompt context the line pane previews ("workflowId:nodeId"). */
   aiNode?: string;
 }
 
@@ -44,7 +42,6 @@ export const linesSearchSchema = (raw: Record<string, unknown>): LinesSearch => 
   page: typeof raw.page === 'number' && raw.page > 0 ? raw.page : undefined,
   line: typeof raw.line === 'string' ? raw.line : undefined,
   detail: raw.detail === true || raw.detail === 'true' ? true : undefined,
-  lineTab: typeof raw.lineTab === 'string' && LINE_TABS.includes(raw.lineTab as LineTab) && raw.lineTab !== 'context' ? (raw.lineTab as LinesSearch['lineTab']) : undefined,
   aiNode: typeof raw.aiNode === 'string' && raw.aiNode.includes(':') ? raw.aiNode : undefined,
 });
 

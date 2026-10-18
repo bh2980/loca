@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { checkFormat, listenerLabel, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatIssue, type FormatRules } from '@tw/shared';
 import { TokenChip, TokenText } from '@/components/editor/source-text';
 import { focusEndOfLine, insertUnitIntoLine, proposeInLine, replaceLineText, TranslationInput } from '@/components/editor/translation-input';
-import { AdvancedDisclosure, Button, AiMark, EditorAction, InlineEditorActions, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@loca/ui';
+import { AdvancedDisclosure, Badge, Button, AiMark, EditorAction, InlineEditorActions, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@loca/ui';
 import { apiFetch } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
 import { wordDiff } from '@/lib/diff';
@@ -40,7 +40,7 @@ export function nextStatus(statuses: Status[], currentId: string) {
  * sessionStorage until saved, shared with the line pane's checks. Format tokens are chips (⌃⌥1…9
  * insert the source's), glossary translations are offered while typing, ⌘⇧S copies the source,
  * and suggestions (other candidates, the same or a similar source translated elsewhere) sit
- * under the box, ⌥1…⌥3 to take one.
+ * under the box (the first three always shown), ⌥⇧1…⌥⇧3 to take one.
  */
 export function TranslationEditor({
   projectId,
@@ -280,47 +280,70 @@ export function TranslationEditor({
       </div>}
       {!dirty && <PreviousDiff unitId={unit.id} openAtFirst={unit.statusBy === 'ai'} />}
       {suggestions.length > 0 && (
-        <AdvancedDisclosure label={`유사 번역 및 후보 · ${suggestions.length}`} className="mt-1">
-          <div className="overflow-hidden rounded-md border border-border bg-panel">
-          <ol>
-            {suggestions.map((suggestion, index) => (
-              <li key={suggestion.key}>
-                <Button
-                  variant="ghost"
-                  size="row"
-                  className="group flex h-auto w-full items-start gap-3 rounded-none px-3 py-2 text-left hover:bg-accent"
-                  title={`번역 칸에 넣기 (${keyLabel(`Alt+Shift+${index + 1}`)})`}
-                  onClick={() => replaceLineText(unit.id, suggestion.text) || setDraft(suggestion.text)}
-                >
-                  <kbd className="mt-0.5 inline-flex shrink-0 items-center justify-center rounded border border-border bg-card px-1.5 py-0.5 font-mono text-xs font-semibold text-muted-foreground group-hover:border-primary/40 group-hover:text-foreground select-none">
-                    {keyLabel(`Alt+Shift+${index + 1}`)}
-                  </kbd>
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <TokenText text={suggestion.text} source={unit.source} pattern={line.tokenPattern} className="block text-sm font-medium leading-relaxed text-foreground" />
-                    <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                      <span className="font-medium text-foreground/80">{suggestion.label}</span>
-                      {suggestion.detail && <span>· {suggestion.detail}</span>}
-                      {suggestion.reasons?.map((reason) => (
-                        <span key={reason}>· {reason}</span>
-                      ))}
-                    </div>
-                    {suggestion.diff && (
-                      <div className="text-xs text-muted-foreground">
-                        {suggestion.diff.map((word, at) => (
-                          <span key={at} className={cn(word.changed && 'rounded-xs bg-warning/15 px-0.5 text-warning font-medium')}>
-                            {at > 0 && ' '}
-                            {word.text}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </Button>
-              </li>
-            ))}
-          </ol>
-          </div>
-        </AdvancedDisclosure>
+        <SuggestionList
+          suggestions={suggestions}
+          source={unit.source}
+          tokenPattern={line.tokenPattern}
+          onPick={(text) => replaceLineText(unit.id, text) || setDraft(text)}
+        />
+      )}
+    </div>
+  );
+}
+
+const VISIBLE_SUGGESTIONS = 3;
+
+/**
+ * Candidates and translations of the same or similar sources, always under the box: the first three
+ * with their ⌥⇧1…3 keys, the rest one click away. A similar source shows the words that differ.
+ */
+function SuggestionList({ suggestions, source, tokenPattern, onPick }: { suggestions: Suggestion[]; source: string; tokenPattern: RegExp | null; onPick: (text: string) => void }) {
+  const [all, setAll] = useState(false);
+  const shown = all ? suggestions : suggestions.slice(0, VISIBLE_SUGGESTIONS);
+  const more = suggestions.length - VISIBLE_SUGGESTIONS;
+  return (
+    <div className="overflow-hidden rounded-md border border-border bg-panel" aria-label="번역 후보와 유사 번역">
+      <ol className="divide-y divide-border-subtle">
+        {shown.map((suggestion, index) => (
+          <li key={suggestion.key}>
+            <Button
+              variant="ghost"
+              size="row"
+              className="group flex h-auto w-full items-start gap-2 rounded-none px-2 py-1.5 text-left hover:bg-accent"
+              title={index < VISIBLE_SUGGESTIONS ? `번역 칸에 넣기 (${keyLabel(`Alt+Shift+${index + 1}`)})` : '번역 칸에 넣기'}
+              onClick={() => onPick(suggestion.text)}
+            >
+              <kbd className={cn('mt-0.5 inline-flex min-w-8 shrink-0 select-none items-center justify-center rounded border border-border bg-card px-1 py-0.5 font-mono text-2xs font-semibold text-muted-foreground group-hover:border-primary/40 group-hover:text-foreground', index >= VISIBLE_SUGGESTIONS && 'invisible')}>
+                {keyLabel(`Alt+Shift+${index + 1}`)}
+              </kbd>
+              <div className="min-w-0 flex-1 space-y-0.5">
+                <div className="flex min-w-0 items-start gap-1.5">
+                  <Badge variant="outline" className="mt-0.5 shrink-0">{suggestion.label}</Badge>
+                  <TokenText text={suggestion.text} source={source} pattern={tokenPattern} className="block min-w-0 flex-1 text-sm leading-5 text-foreground" />
+                </div>
+                {(suggestion.detail || suggestion.reasons?.length) && (
+                  <p className="truncate text-xs text-muted-foreground">{[suggestion.detail, ...(suggestion.reasons ?? [])].filter(Boolean).join(' · ')}</p>
+                )}
+                {suggestion.diff && (
+                  <p className="text-xs text-muted-foreground">
+                    <span className="mr-1 text-subtle-foreground">원문 차이</span>
+                    {suggestion.diff.map((word, at) => (
+                      <span key={at} className={cn(word.changed && 'rounded-xs bg-warning/15 px-0.5 font-medium text-warning')}>
+                        {at > 0 && ' '}
+                        {word.text}
+                      </span>
+                    ))}
+                  </p>
+                )}
+              </div>
+            </Button>
+          </li>
+        ))}
+      </ol>
+      {more > 0 && (
+        <Button variant="ghost" size="inline" className="h-auto w-full justify-center rounded-none border-t border-border-subtle py-1 text-xs text-muted-foreground" onClick={() => setAll((open) => !open)}>
+          {all ? '접기' : `+${more}개 더보기`}
+        </Button>
       )}
     </div>
   );
@@ -364,7 +387,7 @@ function useSuggestions(unitId: string, shown: string[]): Suggestion[] {
     })),
   ];
   const seen = new Set(shown.map((text) => text.trim()).filter(Boolean));
-  return all.filter((suggestion) => !seen.has(suggestion.text.trim()) && (seen.add(suggestion.text.trim()), true)).slice(0, 3);
+  return all.filter((suggestion) => !seen.has(suggestion.text.trim()) && (seen.add(suggestion.text.trim()), true)).slice(0, 9);
 }
 
 /**

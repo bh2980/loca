@@ -13,10 +13,6 @@ import { LineHeadRow, useLineBulk } from '@/components/script/line-bulk';
 import { LineRow } from '@/components/script/line-row';
 import { sceneSelectionState } from '@/components/script/scene-selection';
 
-const LineRowItem = LineRow as React.ComponentType<
-  React.ComponentProps<typeof LineRow> & { onOpenDetail?: () => void }
->;
-
 export { filterChips, isFinding, linesSearchSchema, type LinesSearch } from '@/components/script/line-filters';
 
 const PAGE_SIZE = 100;
@@ -162,8 +158,6 @@ export function LineList({
     setEditing(edit);
     onSearch({ line: id }, { replace: true });
   };
-  const patch = (next: Omit<Partial<LinesSearch>, 'detail'> & { detail?: true | '1' | boolean }, replace = true) =>
-    onSearch({ ...next, detail: next.detail ? true : undefined }, { replace });
   const move = (step: 1 | -1, edit = false) => {
     if (!rows?.length) return;
     const index = rows.findIndex((row) => row.id === search.line);
@@ -232,27 +226,27 @@ export function LineList({
   // Set filters show as removable chips; while finding, the find bar shows them instead.
   const chips = find ? [] : filterChips(search, statusList, statuses.data?.tags ?? []);
 
+  // The details pane opens only on request (the 상세 button, the row's menu): picking or moving between
+  // lines never reveals it, and closing it keeps the picked line.
+  const showDetail = Boolean(search.line && search.detail);
   return (
     <SplitPane
       id="lines"
-      autoActivate={Boolean(search.detail)}
-      selectionKey={dockSelectionKey ?? search.line}
+      autoActivate={Boolean(dockEditor || showDetail)}
+      selectionKey={dockSelectionKey}
       defaultWidth="380px"
       className="h-full min-h-0"
       pane={dockEditor ?? (
-        search.line &&
-        (
+        showDetail && search.line ? (
           <LineDetail
             projectId={projectId}
             unitId={search.line}
-            onClose={() => onSearch({ line: undefined, detail: undefined, lineTab: undefined }, { replace: true })}
+            onClose={() => onSearch({ detail: undefined }, { replace: true })}
             showScene={showScene}
-            tab={search.lineTab ?? 'context'}
-            onTab={(tab) => onSearch({ lineTab: tab === 'context' ? undefined : tab }, { replace: true })}
             aiNode={search.aiNode}
             onAiNode={(aiNode) => onSearch({ aiNode }, { replace: true })}
           />
-        )
+        ) : undefined
       )}
     >
       <HeaderActions>
@@ -309,7 +303,7 @@ export function LineList({
             {rows.map((line, index) => {
               const selected = line.id === search.line;
               return (
-                <LineRowItem
+                <LineRow
                   key={line.id}
                   projectId={projectId}
                   line={line}
@@ -335,7 +329,7 @@ export function LineList({
                   focusTick={focusTick}
                   onPick={(on) => pick([line.id], on)}
                   onSelect={() => select(line.id, true)}
-                  onOpenDetail={() => { revealDock?.(); patch({ line: line.id, detail: '1' }, true); }}
+                  onOpenDetail={() => { revealDock?.(); onSearch({ line: line.id, detail: true }, { replace: true }); }}
                   onOpenScene={onOpenScene}
                   onArrivedEnd={() => setArrived(undefined)}
                   onNoting={setNoting}

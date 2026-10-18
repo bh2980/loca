@@ -158,7 +158,7 @@ function Script() {
   const onSearch = useCallback((next: Partial<ScriptSearch>, options?: { replace?: boolean }) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace: options?.replace }), [navigate]);
   // Scene navigation changes location, not the user's active filters.
   const openGroup = (id: string | undefined, line?: string) =>
-    void navigate({ search: (previous) => ({ ...previous, sourceAction: undefined, sourceKind: undefined, group: id, section: undefined, review: undefined, kind: id ? undefined : previous.kind, line, page: undefined, detail: undefined, lineTab: undefined }) });
+    void navigate({ search: (previous) => ({ ...previous, sourceAction: undefined, sourceKind: undefined, group: id, section: undefined, review: undefined, kind: id ? undefined : previous.kind, line, page: undefined, detail: undefined }) });
   const openSourceEditor = (mode: SourceEditorMode, kind: Kind = view) =>
     void navigate({ search: (previous) => ({ ...previous, sourceAction: mode, sourceKind: kind }) });
   const closeSourceEditor = () => void navigate({ search: (previous) => ({ ...previous, sourceAction: undefined, sourceKind: undefined }), replace: true });
@@ -174,7 +174,7 @@ function Script() {
       review: undefined,
       line: result.entity === 'unit' ? result.id : undefined,
       q: undefined, status: undefined, tags: undefined, speaker: undefined, listener: undefined, marks: undefined, mode: undefined,
-      page: undefined, detail: undefined, lineTab: undefined,
+      page: undefined, detail: undefined,
     }) });
   };
 
@@ -313,7 +313,6 @@ function Script() {
                 ...(search.sourceAction === 'edit-group' ? { group: undefined, kind: search.sourceKind ?? view, section: undefined, review: undefined, page: undefined } : {}),
                 line: undefined,
                 detail: undefined,
-                lineTab: undefined,
               }), replace: true })}
             /> : undefined}
           />

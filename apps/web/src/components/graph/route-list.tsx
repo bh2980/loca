@@ -5,7 +5,8 @@ import { ChevronDown, ChevronUp, GitFork } from 'lucide-react';
 import { toast } from 'sonner';
 import { isUnknownListener, listenerLabel, needsListener, PALETTE, SPECIAL_LISTENERS, TAG_SCOPES, type ReadingRouteFork } from '@tw/shared';
 import { TranslationEditor } from '@/components/translation-editor';
-import { TokenText } from '@/components/editor/source-text';
+import { LineSourceText, MarkedSourceText, TokenText } from '@/components/editor/source-text';
+import { LineHints } from '@/components/script/line-row';
 import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger, ScriptReadingRow, Skeleton, TagChip, TagListEditor, type StatusLike } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { tokenPatternOf } from '@/lib/line-context';
@@ -134,7 +135,14 @@ function RouteLineRow({ projectId, row, selected, status, statusList, rules, tag
   const said = needsListener(row, rules) || (Boolean(row.listener) && (row.listenerOrigin === 'human' || row.listenerOrigin === 'import'));
   const listener = said ? (unknownListener ? null : listenerLabel(row.listener!)) : undefined;
   const listenerIsPerson = !row.listener || (!Object.hasOwn(SPECIAL_LISTENERS, row.listener) && !unknownListener);
-  const source = <TokenText text={row.source} source={row.source} pattern={tokenPattern} className={cn('whitespace-pre-wrap', narration && 'text-muted-foreground', row.kind === 'document' && 'leading-relaxed')} />;
+  const sourceClass = cn('whitespace-pre-wrap', narration && 'text-muted-foreground', row.kind === 'document' && 'leading-relaxed');
+  // Same as the script list: glossary words are underlined in every line; the picked one gets their chips and the speech/relationship summary.
+  const source = selected ? (
+    <>
+      <LineSourceText projectId={projectId} unitId={row.id} source={row.source} translation={row.translation} className={sourceClass} />
+      <LineHints projectId={projectId} line={{ id: row.id, source: row.source, translation: row.translation, speaker: row.speaker, listener: row.listener, lastRun: null }} part="context" />
+    </>
+  ) : <MarkedSourceText projectId={projectId} text={row.source} pattern={tokenPattern} className={sourceClass} />;
   const translation = selected ? (
     <TranslationEditor key={`editor-${row.id}`} projectId={projectId} unit={row} statuses={statusList} focusKey={focusTick} marks={marks} onEscape={onEscape} onDone={onDone} />
   ) : (
