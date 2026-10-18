@@ -1,4 +1,4 @@
-import { AGENT_TOOLS, type AgeBand, type AutoMark, type Gender, personLabel } from '@tw/shared';
+import { AGENT_TOOLS, type AgeBand, type AutoMark, type Gender, personLabel, CHARACTER_ROLE_LABELS, type CharacterRole } from '@tw/shared';
 import { MarkChip } from '@/components/status';
 import { Markdown } from './markdown';
 
@@ -28,6 +28,7 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
           {field('이름', input.name)}
           {field('별칭', input.aliases)}
           {input.gender || input.ageBand ? field('성별·나이', personLabel(input as { gender?: Gender; ageBand?: AgeBand }) || '모름') : null}
+          {input.role ? field('역할', CHARACTER_ROLE_LABELS[input.role as CharacterRole]) : null}
           {markdown(input.profile)}
         </dl>
       );

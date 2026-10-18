@@ -1,0 +1,1 @@
+ALTER TABLE `characters` ADD `role` text DEFAULT 'unknown' NOT NULL;

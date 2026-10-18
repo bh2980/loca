@@ -3,7 +3,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { ArrowLeftRight, GanttChart, Network, Plus, Table2, Users } from 'lucide-react';
 import { toast } from 'sonner';
-import { OTHERS_LISTENER, parseMarks, type AutoMark, styleNames, isSettled, KNOWLEDGE_SOURCES, listenerLabel, REVIEW_TAG, SPEECH_LEVEL_LABELS, type KnowledgeSource, personLabel } from '@tw/shared';
+import { CHARACTER_ROLE_LABELS, OTHERS_LISTENER, parseMarks, type AutoMark, styleNames, isSettled, KNOWLEDGE_SOURCES, listenerLabel, REVIEW_TAG, SPEECH_LEVEL_LABELS, type KnowledgeSource, personLabel } from '@tw/shared';
 import { EmptyState, TagMenu, SplitPane, FilterChips, Toolbar, Badge, Button, Skeleton, ToggleGroup, ToggleGroupItem, Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
 import { Page } from '@/components/page';
 import { RelationshipGraph } from '@/components/relationship-graph';
@@ -114,6 +114,7 @@ function Knowledge() {
         { head: '이름', cell: (row) => <span className="font-medium">{row.name}{row.player ? <Badge variant="outline" className="ml-2">플레이어</Badge> : null}</span>, width: 220 },
         { head: '별칭', cell: (row) => row.aliases.join(', '), width: 180 },
         { head: '성별·나이', cell: (row) => <span className="text-muted-foreground">{personLabel(row)}</span>, width: 120 },
+        { head: '역할', cell: (row) => row.role === 'unknown' ? null : CHARACTER_ROLE_LABELS[row.role], width: 90 },
         { head: '프로필', cell: (row) => <span className="line-clamp-1 text-muted-foreground">{row.profile}</span> },
         { head: '문체', cell: (row) => <span className="text-muted-foreground">{styleNames(row.style).join(' · ')}</span>, width: 180 },
       ],
@@ -123,6 +124,7 @@ function Knowledge() {
         { name: 'player', label: '플레이어 캐릭터', type: 'bool' },
         { name: 'gender', label: '성별 (그 외: 안드로이드·무성 등, 자세한 건 프로필에)', type: 'gender' },
         { name: 'ageBand', label: '나이대', type: 'ageBand' },
+        { name: 'role', label: '역할', type: 'role' },
         { name: 'profile', label: '프로필', type: 'long' },
         { name: 'speech', label: '말투 특징 (원문 관찰)', type: 'long' },
         { name: 'style', label: '문체 (이 인물 대사의 번역에 지시로 들어감)', type: 'style' },

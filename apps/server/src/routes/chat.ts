@@ -10,6 +10,7 @@ import { attachTurn, steerable, turnStartedAt } from '../services/chat-turns.ts'
 import { enqueueSteer, stopWithQueued } from '../services/chat-interject.ts';
 import { closePiChat } from '../services/pi-chat.ts';
 import { runChatTurn } from '../services/chat-run.ts';
+import { defaultModelChoice } from '../services/routes.ts';
 
 /**
  * What the user is looking at when they send a message. The web app reports it from every page,
@@ -64,7 +65,8 @@ export const chatRoutes = new Hono<Env>()
     const projectId = c.req.param('projectId');
     // A new conversation talks to the AI the latest one picked, unless told otherwise.
     const latest = db.select({ connectionId: s.chatSessions.connectionId, model: s.chatSessions.model, effort: s.chatSessions.effort }).from(s.chatSessions).where(and(eq(s.chatSessions.projectId, projectId), sql`${s.chatSessions.model} is not null`)).orderBy(desc(s.chatSessions.updatedAt)).get();
-    const choice = c.req.valid('json').model ?? latest;
+    const fallback = defaultModelChoice(db, 'chat');
+    const choice = c.req.valid('json').model ?? latest ?? (fallback.connectionId && fallback.model ? fallback : undefined);
     // …and starts in the project's default permission mode (#45).
     const permissionMode = db.select({ settings: s.projects.agentSettings }).from(s.projects).where(eq(s.projects.id, projectId)).get()?.settings.defaultPermissionMode ?? 'ask';
     const row = db.insert(s.chatSessions).values({ projectId, title: '새 대화', ...choiceColumns(choice), permissionMode }).returning().get();

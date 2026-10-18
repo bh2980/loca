@@ -38,8 +38,8 @@ function setup() {
 const draft = (level: Analysis['speechRules'][number]['level']): Analysis => ({
   overview: { setting: '항구', mainConflict: '', plot: '앨리스가 늦은 밥을 꾸짖는다.', evidence: ['L1'] },
   characters: [
-    { name: 'Alice', aliases: [], profile: '선장', speech: '짧고 단호함', player: false, gender: 'female', ageBand: 'middle', evidence: ['L1'] },
-    { name: 'Bob', aliases: [], profile: '선원', speech: '', player: true, gender: 'male', ageBand: 'unknown', evidence: ['L2'] },
+    { name: 'Alice', aliases: [], profile: '선장', speech: '짧고 단호함', player: false, gender: 'female', ageBand: 'middle', role: 'unknown', evidence: ['L1'] },
+    { name: 'Bob', aliases: [], profile: '선원', speech: '', player: true, gender: 'male', ageBand: 'unknown', role: 'unknown', evidence: ['L2'] },
   ],
   relationships: [{ from: 'Bob', to: 'Alice', kind: '부하', description: '', changes: [], evidence: ['L2'] }],
   events: [{ title: '지각', summary: '', cause: '', outcome: '', participants: ['Bob'], evidence: ['L1', 'L99'] }],
