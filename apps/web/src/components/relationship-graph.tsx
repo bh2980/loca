@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { BaseEdge, Background, Controls, EdgeLabelRenderer, Handle, MarkerType, Panel, Position, ReactFlow, useInternalNode, type Edge, type EdgeProps, type InternalNode, type Node, type NodeChange, type NodeProps } from '@xyflow/react';
-import { Button } from '@loca/ui';
+import { Button, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '@loca/ui';
 import ELK from 'elkjs/lib/elk.bundled.js';
 import '@xyflow/react/dist/style.css';
 import type { CharacterRole } from '@tw/shared';
@@ -136,7 +136,7 @@ const edgeTypes = { relation: FloatingEdge };
  * narrative, so ELK's stress layout is used instead of a layered (directional) one. People can be
  * dragged; where a person was put is remembered in this browser (`storageKey`) over the layout.
  */
-export function RelationshipGraph({ storageKey, characters, relationships, selectedCharacterId, selectedRelationshipId, onSelectCharacter, onSelectRelationship, onClear }: {
+export function RelationshipGraph({ storageKey, characters, relationships, selectedCharacterId, selectedRelationshipId, onSelectCharacter, onSelectRelationship, onClear, onDeleteCharacter }: {
   storageKey: string;
   characters: GraphCharacter[];
   relationships: GraphRelationship[];
@@ -145,8 +145,24 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
   onSelectCharacter: (id: string) => void;
   onSelectRelationship: (id: string) => void;
   onClear: () => void;
+  /** Delete a character (the page confirms): the node's right-click menu and the Delete key on the picked node. */
+  onDeleteCharacter?: (id: string) => void;
 }) {
   const dark = useIsDark();
+  // The character the right-click menu is for (a node right-clicked); the pane and edges open no menu.
+  const [menuFor, setMenuFor] = useState<string | null>(null);
+  useEffect(() => {
+    if (!onDeleteCharacter || !selectedCharacterId) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Delete' && event.key !== 'Backspace') return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"], [role="menu"]')) return;
+      event.preventDefault();
+      onDeleteCharacter(selectedCharacterId);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onDeleteCharacter, selectedCharacterId]);
   const known = useMemo(() => new Set(characters.map((character) => character.id)), [characters]);
   const drawable = useMemo(() => relationships.filter((relationship) => known.has(relationship.fromId) && known.has(relationship.toId)), [relationships, known]);
   const layoutKey = useMemo(() => JSON.stringify([characters.map((c) => c.id), drawable.map((r) => [r.fromId, r.toId])]), [characters, drawable]);
@@ -267,7 +283,11 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
   }, [drawable, selectedRelationshipId, emphasis, onSelectRelationship]);
 
   if (!positions) return <div className="flex h-full items-center justify-center text-sm text-muted-foreground">배치 계산 중…</div>;
+  const menuCharacter = menuFor ? characters.find((character) => character.id === menuFor) : undefined;
   return (
+    <ContextMenu onOpenChange={(open) => !open && setMenuFor(null)}>
+    <ContextMenuTrigger asChild>
+    <div className="h-full w-full">
     <ReactFlow colorMode={dark ? 'dark' : 'light'}
       key={positions.key}
       nodes={flowNodes}
@@ -292,6 +312,11 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
       nodesDraggable
       nodesConnectable={false}
       elementsSelectable
+      // Deleting goes through the page's confirmation (Delete key above, the node's menu), not React Flow's own.
+      deleteKeyCode={null}
+      onNodeContextMenu={(_event, node) => setMenuFor(node.id)}
+      onEdgeContextMenu={(event) => event.preventDefault()}
+      onPaneContextMenu={(event) => event.preventDefault()}
       onNodeClick={(_event, node) => onSelectCharacter(node.id)}
       onEdgeClick={(_event, edge) => onSelectRelationship(edge.id.split('+')[0])}
       // A click on a relationship label also reaches the pane; it picks that relationship, not nothing.
@@ -308,5 +333,19 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
         </Panel>
       )}
     </ReactFlow>
+    </div>
+    </ContextMenuTrigger>
+    {menuCharacter && (
+      <ContextMenuContent>
+        <ContextMenuItem onClick={() => onSelectCharacter(menuCharacter.id)}>상세 열기</ContextMenuItem>
+        {onDeleteCharacter && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem variant="destructive" onClick={() => onDeleteCharacter(menuCharacter.id)}>삭제</ContextMenuItem>
+          </>
+        )}
+      </ContextMenuContent>
+    )}
+    </ContextMenu>
   );
 }
