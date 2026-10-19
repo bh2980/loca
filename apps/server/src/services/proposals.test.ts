@@ -67,7 +67,7 @@ describe('deciding a proposal', () => {
   it('tells the agent why the person rejected a change', async () => {
     const { db, proposal } = setup();
     const session = db.insert(s.chatSessions).values({ projectId: proposal.projectId, title: '대화' }).returning().get();
-    const asked = propose(db, { projectId: proposal.projectId, sessionId: session.id, source: 'pi', tool: 'save_document', input: { title: '메모', body: '…' } });
+    const asked = propose(db, { projectId: proposal.projectId, sessionId: session.id, source: 'cli', tool: 'save_document', input: { title: '메모', body: '…' } });
     const row = await decideProposal(db, asked.id, false, 'person', '제목을 더 구체적으로');
     expect(row.reason).toBe('제목을 더 구체적으로');
     expect(takeDecisions(db, session.id)).toContain('사용자가 거절함 — 이유: 제목을 더 구체적으로');

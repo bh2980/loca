@@ -140,7 +140,7 @@ export const q = {
   /** The batches a run was planned in. */
   runPlan: (id: string) => queryOptions({ queryKey: ['runs', 'plan', id], queryFn: () => unwrap(client.runs[':id'].plan.$get({ param: { id } })), staleTime: Infinity }),
   runSteps: (id: string) => queryOptions({ queryKey: ['runs', 'steps', id], queryFn: () => unwrap(client.runs[':id'].steps.$get({ param: { id } })) }),
-  /** Proposals of one pi chat, or (no session) those sent from the CLI. */
+  /** Proposals of one CLI chat, or (no session) those sent from the loca CLI. */
   proposals: (projectId: string, session?: string) =>
     queryOptions({
       queryKey: ['proposals', projectId, session ?? 'external'],

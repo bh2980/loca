@@ -1,6 +1,6 @@
 # loca skills
 
-에이전트(Claude Code, Codex, pi 등)가 `loca` CLI로 번역 작업을 할 때 읽는 절차서입니다. 아래 **공통 규칙**은 모든 스킬에 적용되고, 각 스킬은 자기 일의 순서만 적습니다.
+에이전트(Claude Code, Codex 등)가 `loca` CLI로 번역 작업을 할 때 읽는 절차서입니다. 아래 **공통 규칙**은 모든 스킬에 적용되고, 각 스킬은 자기 일의 순서만 적습니다.
 
 | 스킬 | 언제 |
 |---|---|
@@ -46,7 +46,6 @@ loca 앱이 켜져 있어야 합니다(기본 `http://127.0.0.1:4317`, 다르면
 ## 설치
 각 폴더를 에이전트의 스킬 폴더에 복사하거나 링크합니다.
 - Claude Code: `~/.claude/skills/` (또는 프로젝트의 `.claude/skills/`)
-- pi: `~/.pi/agent/skills/`
 - Codex: `~/.codex/skills/`
 
 `loca` 명령은 저장소 루트에서 `pnpm loca …`로 쓰거나, `apps/cli`에서 `npm link`로 어디서나 `loca`를 쓰게 할 수 있습니다. 스킬은 README의 공통 규칙을 전제로 하니 README도 함께 둡니다.

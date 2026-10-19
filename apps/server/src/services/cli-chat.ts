@@ -15,7 +15,7 @@ import { catchUp, CONTEXT_BUDGET, handover, textOf, type AnsweredBy } from './ch
 /**
  * Project chat through an agent CLI (Claude Code, Codex, Grok, agy, opencode). The CLI keeps the
  * conversation in its own session, resumed every turn (see packages/ai cli-chat.ts). The CLIs'
- * own tools stay off; workbench tools are the same catalog pi and the CLI use, called through
+ * own tools stay off; workbench tools are the same catalog the loca CLI uses, called through
  * the answer: the agent ends a reply with a `loca-tools` block, the server runs the tools (reads
  * at once, changes as proposals for this chat) and resumes the session with the results.
  * The browser receives the AI SDK UI message stream like any other chat.

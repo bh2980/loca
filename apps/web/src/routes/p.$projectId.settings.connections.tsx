@@ -43,7 +43,6 @@ import {
 import { Page } from '@/components/page';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
 import { DeleteButton } from '@/components/settings/delete-button';
-import { PiOptionsPanel } from '@/components/settings/pi-options';
 import { KeyPane, type KeyRow } from '@/components/settings/key-pane';
 import { ExecutableField } from '@/components/settings/executable-field';
 import { client, unwrap, type InferResponseType } from '@/lib/api';
@@ -170,15 +169,6 @@ function ConnectionsSettingsPage() {
   );
 }
 
-/** The note shown for pi connections, in the add form and the edit pane alike. */
-function PiNote() {
-  return (
-    <p className="text-sm text-muted-foreground">
-      pi가 관리합니다. 터미널에서 <code className="font-mono">pi</code>를 실행해 <code className="font-mono">/login</code>으로 연결하세요.
-    </p>
-  );
-}
-
 function CapabilityBadges({ kind }: { kind: ConnectionKind }) {
   return (
     <div className="flex flex-wrap gap-1">
@@ -273,10 +263,6 @@ function NewConnection({ onClose, onCreated }: { onClose: () => void; onCreated?
                   <Input type="password" autoComplete="off" {...form.register('apiKey')} />
                 </InspectorField>
               </>
-            ) : info.transport === 'sdk' ? (
-              <InspectorField label="로그인">
-                <PiNote />
-              </InspectorField>
             ) : (
               <Controller control={form.control} name="executable" render={({ field }) => <ExecutableField key={kind} kind={kind} value={field.value ?? ''} onChange={field.onChange} />} />
             )}
@@ -435,11 +421,6 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
           {info.transport === 'cli' && (
             <Controller control={form.control} name="executable" render={({ field }) => <ExecutableField kind={connection.kind} value={field.value ?? ''} onChange={field.onChange} />} />
           )}
-          {connection.kind === 'pi' && (
-            <InspectorField label="로그인">
-              <PiNote />
-            </InspectorField>
-          )}
           {!isTool && (
             <Controller
               control={form.control}
@@ -526,11 +507,6 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
         </InspectorSection>
       )}
 
-      {connection.kind === 'pi' && (
-        <InspectorSection title="pi 옵션" defaultOpen={false}>
-          <PiOptionsPanel connectionId={connection.id} options={connection.options} />
-        </InspectorSection>
-      )}
 
       <InspectorSection title="확인">
         <div>

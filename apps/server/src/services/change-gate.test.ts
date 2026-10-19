@@ -51,7 +51,7 @@ describe('change gate (#45)', () => {
 
   it('bypass: applies at once, records who decided, and does not tell the agent twice', async () => {
     const { db, projectId, chat } = setup('bypass');
-    const gate = await proposeChange(db, { projectId, sessionId: chat.id, source: 'pi', tool: 'save_character', input: { name: 'Bob' } });
+    const gate = await proposeChange(db, { projectId, sessionId: chat.id, source: 'cli', tool: 'save_character', input: { name: 'Bob' } });
     expect(gate).toMatchObject({ ok: true, applied: true, status: 'accepted' });
     expect(gate.ok && gate.text).toContain('바로 반영했습니다');
     expect(characterNamed(db, 'Bob')).toBeDefined();

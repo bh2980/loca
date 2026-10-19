@@ -4,7 +4,6 @@ import { CONNECTION_KIND_INFO } from '@tw/shared';
 import { cliGenerate, cliModels, cliVersion, describeCli } from './cli.ts';
 import { ModelError, toModelError } from './errors.ts';
 import { openaiChatModel, openaiComplete, openaiGenerate, openaiModelList, openaiModels } from './openai.ts';
-import { piGenerate, piModelLimits, piModelsWith, piProbe } from './pi.ts';
 import { systemOneAsk, systemOneJudge, systemOneModels } from './systemone.ts';
 import type { AskRequest, AskResult, CompleteRequest, CompleteResult, GenerateRequest, GenerateResult, JudgeRequest, JudgeResult, ModelLimitsInfo, ResolvedRoute, Usage } from './types.ts';
 
@@ -13,17 +12,15 @@ export { ModelError, type ModelErrorCode } from './errors.ts';
 export { cliLoginStatus, cliVersion, openLoginTerminal, LOGIN_COMMANDS } from './cli.ts';
 export { CHAT_CLI_KINDS, cliChat, readCliChat, type ChatCliKind, type CliChatResult, type CliChatTurn } from './cli-chat.ts';
 export { limitsOf, openaiProviderOptions } from './openai.ts';
-export { createPiChatSession, piModel, piModelsWith, piResources, piRuntime, resetPiRuntime, type PiHistoryMessage, type PiSession, type PiToolSpec } from './pi.ts';
 
 export function generate<T>(route: ResolvedRoute, request: GenerateRequest<T>): Promise<GenerateResult<T>> {
   if (route.kind === 'openai') return openaiGenerate(route, request);
   if (route.kind === 'systemone') throw new ModelError('config', 'System One은 판정(검수)에만 사용할 수 있습니다.', false);
   if (route.kind === 'http') throw new ModelError('config', 'HTTP 도구 연결은 AI 노드에 쓸 수 없습니다.', false);
-  if (route.kind === 'pi') return piGenerate(route, request);
   return cliGenerate(route, request);
 }
 
-/** Plain text for the editor (API connections only: CLI and pi take seconds per call). */
+/** Plain text for the editor (API connections only: a CLI takes seconds per call). */
 export function complete(route: ResolvedRoute, request: CompleteRequest): Promise<CompleteResult> {
   if (route.kind !== 'openai') throw new ModelError('config', '편집기 자동완성은 API 연결(OpenAI 호환)만 쓸 수 있습니다.', false);
   return openaiComplete(route, request);
@@ -43,7 +40,6 @@ export function ask(route: ResolvedRoute, request: AskRequest): Promise<AskResul
 export function chatModel(route: ResolvedRoute): LanguageModel {
   if (!CONNECTION_KIND_INFO[route.kind].capabilities.includes('chat'))
     throw new ModelError('config', '이 연결은 채팅(도구 호출)을 지원하지 않습니다.', false);
-  if (route.kind === 'pi') throw new ModelError('config', 'pi 채팅은 서버의 pi 세션으로 처리합니다.', false);
   return openaiChatModel(route);
 }
 
@@ -52,15 +48,13 @@ export async function listModels(route: Omit<ResolvedRoute, 'model'>): Promise<s
   if (route.kind === 'http') return null;
   if (route.kind === 'openai') return openaiModels(route);
   if (route.kind === 'systemone') return systemOneModels(route);
-  if (route.kind === 'pi') return piModelsWith(route.piOptions);
   if (route.kind === 'grok' || route.kind === 'antigravity' || route.kind === 'opencode' || route.kind === 'codex' || route.kind === 'claude') return cliModels(route.kind, route.executable);
   return null;
 }
 
-/** What the model list says about each model's limits (API and pi connections; CLIs say nothing). */
+/** What the model list says about each model's limits (API connections; CLIs say nothing). */
 export async function listModelLimits(route: Omit<ResolvedRoute, 'model'>): Promise<Record<string, ModelLimitsInfo>> {
   if (route.kind === 'openai') return (await openaiModelList(route)).limits;
-  if (route.kind === 'pi' && !route.piOptions?.extensions) return piModelLimits();
   return {};
 }
 
@@ -72,7 +66,6 @@ export async function probe(route: Omit<ResolvedRoute, 'model'>): Promise<string
     });
     return `서버가 응답했습니다 (HTTP ${response.status}).`;
   }
-  if (route.kind === 'pi') return piProbe();
   if (route.kind === 'openai' || route.kind === 'systemone') {
     const models = await listModels(route);
     return `모델 ${models?.length ?? 0}개를 확인했습니다.`;

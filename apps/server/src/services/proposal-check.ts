@@ -63,7 +63,7 @@ for (const [tool, field, what, exists] of [
   BY_ID[tool] = { field, what, exists };
 
 /**
- * The one check every proposal goes through when it is made (CLI import and tool calls, pi and
+ * The one check every proposal goes through when it is made (CLI import and tool calls, and
  * CLI chats), so the user decides on something that can be applied:
  * - a change to a row that does not exist is refused at once, and the agent hears why;
  * - a batch of line changes keeps the lines that can change, fills in missing revs (so a line

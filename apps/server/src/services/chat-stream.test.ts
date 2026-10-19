@@ -14,10 +14,10 @@ function setup() {
   return { db, chat, tool };
 }
 
-describe('chat stream pieces the three backends share (#49)', () => {
+describe('chat stream pieces the chat backends share (#49)', () => {
   it('runs a read at once and fits its result for the agent', async () => {
     const { db, chat, tool } = setup();
-    const result = await runCatalogTool(db, chat, 'pi', tool('find_lines'), { speakers: ['Alice'] }, 50);
+    const result = await runCatalogTool(db, chat, 'cli', tool('find_lines'), { speakers: ['Alice'] }, 50);
     expect(result.ok).toBe(true);
     expect(result.ok && result.text.length).toBeLessThanOrEqual(400);
     expect(result.ok && JSON.stringify(result.output)).toContain('Hi');

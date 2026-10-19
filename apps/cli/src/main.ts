@@ -7,7 +7,7 @@ import type { AppType } from '@tw/server/app';
 import { acceptedLabel, AUTO_MARKS, CHECK_KINDS, EXCLUSION_REASON_LABELS, CONTEXT_ITEM_KINDS, importFileJsonSchema, importFileSchema, importWarnings, KNOWLEDGE_MARK_IDS, KNOWLEDGE_STATUS_LABELS, LINE_MARK_IDS, lineChangeSchema, summarizeImport, TERM_MARK_IDS, type AutoMark, type KnowledgeStatus, type LineFilterInput, type LineMark, personLabel } from '@tw/shared';
 
 /**
- * loca — the workbench from a terminal, for people and for agents with a shell (codex, claude, pi).
+ * loca — the workbench from a terminal, for people and for agents with a shell (codex, claude…).
  * It talks to the running app's local API, so the screen updates live and nothing touches the
  * database directly. Reading prints results; anything that changes the project becomes a proposal
  * the user accepts in the app. With --json / --jsonl only data goes to stdout; messages go to stderr.

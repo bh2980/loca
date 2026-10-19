@@ -8,7 +8,6 @@ import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { attachTurn, steerable, turnStartedAt } from '../services/chat-turns.ts';
 import { enqueueSteer, stopWithQueued } from '../services/chat-interject.ts';
-import { closePiChat } from '../services/pi-chat.ts';
 import { runChatTurn } from '../services/chat-run.ts';
 import { defaultModelChoice } from '../services/routes.ts';
 
@@ -215,15 +214,12 @@ export const chatRoutes = new Hono<Env>()
     const { title, model, permissionMode } = c.req.valid('json');
     // A mode switch applies from the agent's next change, even mid-turn (change-gate reads it then).
     const row = found(db.update(s.chatSessions).set({ title, permissionMode, ...(model && choiceColumns(model)) }).where(eq(s.chatSessions.id, c.req.param('sessionId'))).returning().get(), '대화');
-    // A pi session is bound to its model: the next turn opens a new one.
-    if (model) closePiChat(row.id);
     events.changed(row.projectId, 'chat');
     return c.json({ ok: true });
   })
   .delete('/chat/:sessionId', (c) => {
     const { db } = c.var.deps;
     const row = db.delete(s.chatSessions).where(eq(s.chatSessions.id, c.req.param('sessionId'))).returning().get();
-    closePiChat(c.req.param('sessionId'));
     if (row) events.changed(row.projectId, 'chat');
     return c.json({ ok: true });
   })

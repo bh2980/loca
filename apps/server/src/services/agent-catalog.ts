@@ -3,7 +3,7 @@ import type { Db } from '../db/index.ts';
 import { agentTools } from './agent-tools.ts';
 
 /**
- * The chat agent's tools in a framework-neutral form, so pi sessions and the CLI get exactly
+ * The chat agent's tools in a framework-neutral form, so CLI chats and the loca CLI get exactly
  * what the in-app AI SDK agent gets. Tools without a server-side execute (edit_workflow_node,
  * which the open editor applies) are left out.
  */
@@ -40,5 +40,5 @@ export function agentCatalog(db: Db, projectId: string, author?: { model: string
   });
 }
 
-/** JSON Schema for an input schema, as pi expects it. */
+/** JSON Schema for an input schema, as a CLI agent reads it. */
 export const jsonSchemaOf = (schema: z.ZodType) => z.toJSONSchema(schema, { target: 'draft-7', io: 'input' }) as Record<string, unknown>;

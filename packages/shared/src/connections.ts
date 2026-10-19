@@ -1,9 +1,8 @@
 import { z } from 'zod';
-import { piOptionsSchema } from './agent.ts';
 import { modelChoiceSchema } from './model-choice.ts';
 import { modelLimitsSchema } from './budgets.ts';
 
-export const CONNECTION_KINDS = ['openai', 'pi', 'systemone', 'codex', 'claude', 'grok', 'antigravity', 'opencode', 'http'] as const;
+export const CONNECTION_KINDS = ['openai', 'systemone', 'codex', 'claude', 'grok', 'antigravity', 'opencode', 'http'] as const;
 export type ConnectionKind = (typeof CONNECTION_KINDS)[number];
 
 /**
@@ -17,8 +16,7 @@ export type Capability = 'generate' | 'judge' | 'chat' | 'tool';
 
 export interface ConnectionKindInfo {
   label: string;
-  /** sdk: runs in the server process with its own credentials (pi). */
-  transport: 'http' | 'cli' | 'sdk';
+  transport: 'http' | 'cli';
   capabilities: Capability[];
   defaultBaseUrl?: string;
   needsKey: boolean;
@@ -33,13 +31,6 @@ export const CONNECTION_KIND_INFO: Record<ConnectionKind, ConnectionKindInfo> = 
     defaultBaseUrl: 'https://api.openai.com/v1',
     needsKey: true,
     efforts: ['minimal', 'low', 'medium', 'high'],
-  },
-  pi: {
-    label: 'pi',
-    transport: 'sdk',
-    capabilities: ['generate', 'chat'],
-    needsKey: false,
-    efforts: ['minimal', 'low', 'medium', 'high', 'xhigh'],
   },
   systemone: {
     label: 'System One (TypeSafe)',
@@ -80,8 +71,6 @@ export const connectionInputSchema = z.object({
   executable: z.string().trim().optional(),
   /** HTTP tools: how the stored key is sent, e.g. "Authorization: Bearer {key}" or "X-API-Key: {key}". */
   headerTemplate: z.string().trim().optional(),
-  /** pi connections only. */
-  options: piOptionsSchema.optional(),
   /** Model calls this account takes at once, shared by every run. */
   concurrency: z.number().int().min(1).max(32).optional(),
   /** Filled in when this connection is picked somewhere (and for templates and imported workflows). */
