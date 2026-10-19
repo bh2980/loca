@@ -22,7 +22,7 @@ describe('model choices', () => {
   it('follow each connection\'s fallback in turn, stopping at a loop, with the picked connection\'s call settings', () => {
     const db = openDatabase(':memory:');
     db.insert(s.connections).values([
-      { id: 'a', kind: 'openai', name: 'A', timeoutSeconds: 60, maxAttempts: 3, maxOutputTokens: 4000, fallback: { connectionId: 'b', model: 'mb', effort: 'high' } },
+      { id: 'a', kind: 'openai', name: 'A', timeoutSeconds: 60, maxAttempts: 3, outputTokens: 4000, fallback: { connectionId: 'b', model: 'mb', effort: 'high' } },
       { id: 'b', kind: 'codex', name: 'B', timeoutSeconds: 900, fallback: { connectionId: 'a', model: 'ma' } },
     ]).run();
     const snapshot = snapshotChoice(db, { connectionId: 'a', model: 'ma' })!;

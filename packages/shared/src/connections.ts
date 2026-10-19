@@ -90,8 +90,9 @@ export const connectionInputSchema = z.object({
   /** How every call through this connection is made, wherever it is picked. */
   timeoutSeconds: z.number().int().min(10).max(3600).optional(),
   maxAttempts: z.number().int().min(1).max(5).optional(),
-  /** A cap on each call's output; null = the model's own limit (nothing is sent). */
-  maxOutputTokens: z.number().int().min(256).max(1_000_000).nullable().optional(),
+  /** Tokens a call may take in (the window) and give out; null = the model's own. Output is also each call's cap. */
+  inputTokens: z.number().int().min(1_000).max(10_000_000).nullable().optional(),
+  outputTokens: z.number().int().min(256).max(1_000_000).nullable().optional(),
   /** What each model of this connection takes and gives in one call (model id → limits): from its model list, or a person's numbers. */
   modelLimits: z.record(z.string(), modelLimitsSchema).optional(),
   /** Where calls go when this connection keeps failing transiently (rate limit, network, timeout); that connection's own fallback is followed in turn. */

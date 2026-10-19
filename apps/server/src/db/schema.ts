@@ -471,8 +471,9 @@ export const connections = sqliteTable('connections', {
   /** How every call through this connection is made, wherever it is picked. */
   timeoutSeconds: integer('timeout_seconds').notNull().default(300),
   maxAttempts: integer('max_attempts').notNull().default(2),
-  /** A cap on each call's output; null = the model's own limit. */
-  maxOutputTokens: integer('max_output_tokens'),
+  /** Tokens a call may take in (the window) and give out; null = the model's own (from its model list, modelLimits). Output is also sent as each call's cap. */
+  inputTokens: integer('input_tokens'),
+  outputTokens: integer('output_tokens'),
   /** Model id → its context window and output limit (from the model list, or a person's numbers); what "auto" budgets read. */
   modelLimits: json<Record<string, ModelLimits>>('model_limits').notNull().default(sql`'{}'`),
   /** Where calls go when this connection keeps failing transiently; that connection's own fallback is followed in turn. */
@@ -522,6 +523,7 @@ export interface AiSnapshot {
   /** "connection · model · effort", as people read it. */
   label: string;
   /** Unset: the model's own limit. */
+  /** The connection's 출력 토큰, sent as each call's cap; unset = the model's own limit. */
   maxOutputTokens?: number;
   timeoutSeconds: number;
   maxAttempts: number;

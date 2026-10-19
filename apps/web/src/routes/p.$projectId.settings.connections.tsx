@@ -53,48 +53,6 @@ import { cn } from '@/lib/utils';
 import { keyStoreLabel } from '@/lib/keys';
 import { dateTime } from '@/lib/datetime';
 
-type LimitsRecord = Record<string, { contextWindow?: number; maxOutput?: number; by?: 'api' | 'human' }>;
-
-/**
- * Each model's window and output limit for "auto" budgets: the first-pick model, the fallback on this
- * connection and any model given numbers by hand, plus one more by name. The provider's numbers show
- * as placeholders; typing makes them the person's. Empty both = back to what the provider says.
- */
-function ModelLimitsEditor({ value, models, onChange }: { value: LimitsRecord; models: string[]; onChange: (value: LimitsRecord) => void }) {
-  const [adding, setAdding] = useState('');
-  const rows = [...new Set([...models, ...Object.entries(value).filter(([, limits]) => limits.by === 'human').map(([model]) => model)])];
-  const set = (model: string, field: 'contextWindow' | 'maxOutput', text: string) => {
-    const current = value[model]?.by === 'human' ? value[model] : {};
-    const next = { ...current, [field]: text === '' ? undefined : Number(text), by: 'human' as const };
-    const copy = { ...value };
-    if (next.contextWindow === undefined && next.maxOutput === undefined) delete copy[model];
-    else copy[model] = next;
-    onChange(copy);
-  };
-  return (
-    <div className="space-y-2">
-      {rows.length === 0 && <p className="text-xs text-muted-foreground">먼저 고를 모델을 정하거나 아래에 모델 이름을 넣으세요.</p>}
-      {rows.map((model) => {
-        const limits = value[model];
-        const mine = limits?.by === 'human';
-        return (
-          <div key={model} className="space-y-1">
-            <p className="truncate font-mono text-xs text-muted-foreground" title={model}>{model}</p>
-            <div className="flex gap-2">
-              <Input type="number" min={1} aria-label={`${model} 입력 창`} placeholder={!mine && limits?.contextWindow ? `입력 창 ${limits.contextWindow.toLocaleString()} (API)` : '입력 창 (토큰)'} value={mine ? (limits.contextWindow ?? '') : ''} onChange={(event) => set(model, 'contextWindow', event.target.value)} />
-              <Input type="number" min={1} aria-label={`${model} 최대 출력`} placeholder={!mine && limits?.maxOutput ? `최대 출력 ${limits.maxOutput.toLocaleString()} (API)` : '최대 출력 (토큰)'} value={mine ? (limits.maxOutput ?? '') : ''} onChange={(event) => set(model, 'maxOutput', event.target.value)} />
-            </div>
-          </div>
-        );
-      })}
-      <div className="flex gap-2">
-        <Input className="font-mono" placeholder="다른 모델 이름" value={adding} onChange={(event) => setAdding(event.target.value)} />
-        <Button variant="outline" disabled={!adding.trim() || rows.includes(adding.trim())} onClick={() => { onChange({ ...value, [adding.trim()]: { ...value[adding.trim()], by: 'human' } }); setAdding(''); }}>추가</Button>
-      </div>
-    </div>
-  );
-}
-
 export const Route = createFileRoute('/p/$projectId/settings/connections')({
   validateSearch: (raw: Record<string, unknown>): { conn?: string; key?: string } => ({
     conn: typeof raw.conn === 'string' && raw.conn ? raw.conn : undefined,
@@ -136,7 +94,7 @@ function ConnectionsSettingsPage() {
   const aiColumns: ColumnDef<ConnectionRow, unknown>[] = [
     { id: 'name', header: '이름', meta: { hideable: false }, cell: ({ row }) => <span className="font-medium">{row.original.name}</span> },
     { id: 'kind', header: '종류', meta: { width: 200, className: 'text-muted-foreground' }, cell: ({ row }) => CONNECTION_KIND_INFO[row.original.kind].label },
-    { id: 'model', header: '먼저 고를 모델', meta: { width: 240, className: 'font-mono text-xs text-muted-foreground' }, cell: ({ row }) => [row.original.defaultModel, row.original.defaultEffort].filter(Boolean).join(' · ') },
+    { id: 'model', header: '모델', meta: { width: 240, className: 'font-mono text-xs text-muted-foreground' }, cell: ({ row }) => [row.original.defaultModel, row.original.defaultEffort].filter(Boolean).join(' · ') },
     {
       id: 'state',
       header: '상태',
@@ -349,8 +307,8 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
     defaultEffort: connection.defaultEffort,
     timeoutSeconds: connection.timeoutSeconds,
     maxAttempts: connection.maxAttempts,
-    maxOutputTokens: connection.maxOutputTokens,
-    modelLimits: connection.modelLimits ?? {},
+    inputTokens: connection.inputTokens,
+    outputTokens: connection.outputTokens,
     fallback: connection.fallback,
   };
   const form = useForm<z.input<typeof editSchema>, unknown, z.output<typeof editSchema>>({
@@ -361,6 +319,13 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
   const dirtyFields: Record<string, unknown> = form.formState.dirtyFields;
   const onlyDirty = <T extends object>(json: T) => Object.fromEntries(Object.entries(json).filter(([key]) => dirtyFields[key])) as T;
   const number = { setValueAs: (value: string) => (value === '' ? undefined : Number(value)) };
+  // Empty token fields mean the model's own limit: null, so clearing a number is saved too.
+  const optionalNumber = { setValueAs: (value: string) => (value === '' ? null : Number(value)) };
+  // What the model list said about this connection's model, shown while a token field is empty.
+  const modelDefault = (field: 'contextWindow' | 'maxOutput') => {
+    const known = connection.modelLimits?.[form.watch('defaultModel') ?? '']?.[field];
+    return known ? `모델 기본값 (${known.toLocaleString()})` : '모델 기본값';
+  };
   const errors = form.formState.errors;
   const need: Capability[] = info.capabilities.includes('judge') ? ['judge'] : ['generate'];
 
@@ -380,8 +345,8 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
               defaultEffort: values.defaultEffort ?? null,
               timeoutSeconds: values.timeoutSeconds,
               maxAttempts: values.maxAttempts,
-              maxOutputTokens: values.maxOutputTokens,
-              modelLimits: values.modelLimits,
+              inputTokens: values.inputTokens,
+              outputTokens: values.outputTokens,
               fallback: values.fallback ?? null,
             }),
           }),
@@ -482,8 +447,8 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
               render={({ field }) => (
                 // Not what the connection always calls: the model filled in when this connection is picked (node, chat, run).
                 <InspectorField
-                  label="먼저 고를 모델"
-                  description="이 연결을 고르면 처음 채워지는 모델. 비워 두면 매번 고릅니다."
+                  label="모델"
+                  description="이 연결로 부를 때 쓰는 모델. 비워 두면 쓰는 곳마다 고릅니다."
                   action={field.value && (
                     <Button variant="ghost" size="inline" onClick={() => { field.onChange(null); form.setValue('defaultEffort', null, { shouldDirty: true }); }}>
                       지우기
@@ -499,26 +464,6 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
                       form.setValue('defaultEffort', next.effort ?? null, { shouldDirty: true });
                     }}
                   />
-                </InspectorField>
-              )}
-            />
-          )}
-          {!isTool && (
-            <Controller
-              control={form.control}
-              name="fallback"
-              render={({ field }) => (
-                <InspectorField
-                  label="대체 모델"
-                  description="이 연결이 막히면 넘길 모델. 같은 연결의 다른 모델도 됩니다. 채팅에는 쓰지 않습니다."
-                  error={(errors.fallback?.model ?? errors.fallback)?.message}
-                  action={field.value && (
-                    <Button variant="ghost" size="inline" onClick={() => field.onChange(null)}>
-                      지우기
-                    </Button>
-                  )}
-                >
-                  <ModelPicker value={field.value} onChange={(next: ModelValue) => field.onChange(next.model ? next : { ...next, model: '' })} />
                 </InspectorField>
               )}
             />
@@ -540,8 +485,34 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
       </InspectorSection>
 
       {!isTool && (
-        <InspectorSection title="호출 조건" defaultOpen={false}>
+        <InspectorSection title="고급" defaultOpen={false}>
           <InspectorFields>
+            <InspectorField label="입력 토큰" description="한 번 부를 때 넣을 수 있는 양. 비우면 모델 기본값을 쓰고, AI 노드가 한 번에 보내는 양이 여기에 맞춰집니다." error={errors.inputTokens?.message}>
+              <Input type="number" min={1000} placeholder={modelDefault('contextWindow')} {...form.register('inputTokens', optionalNumber)} aria-invalid={!!errors.inputTokens} />
+            </InspectorField>
+            <InspectorField label="출력 토큰" description="한 번에 받을 수 있는 양. 비우면 모델 기본값을 씁니다." error={errors.outputTokens?.message}>
+              <Input type="number" min={256} placeholder={modelDefault('maxOutput')} {...form.register('outputTokens', optionalNumber)} aria-invalid={!!errors.outputTokens} />
+            </InspectorField>
+            {!isTool && (
+            <Controller
+              control={form.control}
+              name="fallback"
+              render={({ field }) => (
+                <InspectorField
+                  label="대체 모델"
+                  description="이 연결이 막히면 넘길 모델. 같은 연결의 다른 모델도 됩니다. 채팅에는 쓰지 않습니다."
+                  error={(errors.fallback?.model ?? errors.fallback)?.message}
+                  action={field.value && (
+                    <Button variant="ghost" size="inline" onClick={() => field.onChange(null)}>
+                      지우기
+                    </Button>
+                  )}
+                >
+                  <ModelPicker value={field.value} onChange={(next: ModelValue) => field.onChange(next.model ? next : { ...next, model: '' })} />
+                </InspectorField>
+              )}
+            />
+            )}
             <InspectorField label="동시 실행 수" error={errors.concurrency?.message}>
               <Input type="number" min={1} max={32} step={1} {...form.register('concurrency', number)} aria-invalid={!!errors.concurrency} />
             </InspectorField>
@@ -550,16 +521,6 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
             </InspectorField>
             <InspectorField label="최대 시도 횟수" error={errors.maxAttempts?.message}>
               <Input type="number" {...form.register('maxAttempts', number)} aria-invalid={!!errors.maxAttempts} />
-            </InspectorField>
-            <InspectorField label="모델 한도" description="AI 노드의 요청 크기(자동)를 정하는 값. 모델 목록을 불러오면 API가 알려 준 값이 채워지고, 직접 넣은 값이 우선합니다.">
-              <ModelLimitsEditor
-                value={form.watch('modelLimits') ?? {}}
-                models={[form.watch('defaultModel'), form.watch('fallback')?.connectionId === connection.id ? form.watch('fallback')?.model : undefined].filter((model): model is string => Boolean(model))}
-                onChange={(modelLimits) => form.setValue('modelLimits', modelLimits, { shouldDirty: true })}
-              />
-            </InspectorField>
-            <InspectorField label="최대 출력 토큰" description="비우면 모델 최대까지 씁니다. 넣으면 호출마다 이 이상 쓰지 않습니다." error={errors.maxOutputTokens?.message}>
-              <Input type="number" min={256} placeholder="모델 최대" {...form.register('maxOutputTokens', { setValueAs: (value: string) => (value === '' ? null : Number(value)) })} aria-invalid={!!errors.maxOutputTokens} />
             </InspectorField>
           </InspectorFields>
         </InspectorSection>

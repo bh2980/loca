@@ -13,7 +13,7 @@ import { createRun } from './run-create.ts';
 
 function setup() {
   const db = openDatabase(':memory:');
-  const conn = (name: string, port: number) => db.insert(s.connections).values({ kind: 'openai', name, baseUrl: `http://localhost:${port}/v1`, maxOutputTokens: 1000, timeoutSeconds: 30, maxAttempts: 1 }).returning().get();
+  const conn = (name: string, port: number) => db.insert(s.connections).values({ kind: 'openai', name, baseUrl: `http://localhost:${port}/v1`, outputTokens: 1000, timeoutSeconds: 30, maxAttempts: 1 }).returning().get();
   const a = conn('A', 1);
   const b = conn('B', 2);
   const groups = [{ key: 'g', title: 'G' }];
