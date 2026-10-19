@@ -76,6 +76,16 @@ export async function probe(route: Omit<ResolvedRoute, 'model'>): Promise<string
   return resolved ? `CLI ${version} · ${resolved}` : `CLI ${version}`;
 }
 
+/**
+ * Where a CLI connection's executable is: the command it runs (the field, or the kind's default), the
+ * file that resolves to on PATH and the usual install dirs (null when none), and its --version line.
+ */
+export async function locateCli(kind: Parameters<typeof cliVersion>[0], executable?: string): Promise<{ command: string; resolved: string | null; version: string | null }> {
+  const { command, resolved } = describeCli(kind, executable);
+  const version = resolved ? await cliVersion(kind, executable).catch(() => null) : null;
+  return { command, resolved, version };
+}
+
 export interface Attempt {
   route: number;
   model: string;

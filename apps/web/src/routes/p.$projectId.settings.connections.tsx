@@ -22,15 +22,13 @@ import {
   DataTable,
   DirtyBar,
   EmptyState,
-  Field,
-  FieldDescription,
-  FieldError,
-  FieldGroup,
-  FieldLabel,
   Input,
   Inspector,
   InspectorHeader,
-  InspectorBlock,
+  InspectorActionRow,
+  InspectorField,
+  InspectorFields,
+  InspectorResult,
   InspectorSection,
   Select,
   SelectContent,
@@ -48,6 +46,7 @@ import { ModelPicker, type ModelValue } from '@/components/model-picker';
 import { DeleteButton } from '@/components/settings/delete-button';
 import { PiOptionsPanel } from '@/components/settings/pi-options';
 import { KeyPane, type KeyRow } from '@/components/settings/key-pane';
+import { ExecutableField } from '@/components/settings/executable-field';
 import { client, unwrap, type InferResponseType } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
@@ -175,8 +174,8 @@ function ConnectionsSettingsPage() {
 /** The note shown for pi connections, in the add form and the edit pane alike. */
 function PiNote() {
   return (
-    <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
-      로그인은 pi가 관리합니다. 터미널에서 <code>pi</code>를 실행해 <code>/login</code>으로 연결하세요.
+    <p className="text-sm text-muted-foreground">
+      pi가 관리합니다. 터미널에서 <code className="font-mono">pi</code>를 실행해 <code className="font-mono">/login</code>으로 연결하세요.
     </p>
   );
 }
@@ -232,68 +231,59 @@ function NewConnection({ onClose, onCreated }: { onClose: () => void; onCreated?
           추가
         </Button>
       }>
-      <InspectorBlock>
       <form id="new-connection-form" onSubmit={form.handleSubmit((values) => create.mutate(values))}>
-        <FieldGroup className="gap-5">
-          <Field>
-            <FieldLabel>종류</FieldLabel>
-            <Controller
-              control={form.control}
-              name="kind"
-              render={({ field }) => (
-                <Select
-                  value={field.value}
-                  onValueChange={(value) => {
-                    const next = value as ConnectionKind;
-                    field.onChange(next);
-                    form.setValue('baseUrl', CONNECTION_KIND_INFO[next].defaultBaseUrl);
-                    form.clearErrors();
-                  }}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {CONNECTION_KINDS.filter((value) => value !== 'http').map((value) => (
-                      <SelectItem key={value} value={value}>
-                        {CONNECTION_KIND_INFO[value].label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            />
-            <CapabilityBadges kind={kind} />
-          </Field>
-          <Field data-invalid={!!form.formState.errors.name}>
-            <FieldLabel htmlFor="conn-name">이름</FieldLabel>
-            <Input id="conn-name" {...form.register('name')} aria-invalid={!!form.formState.errors.name} placeholder="예: 회사 OpenAI" />
-            <FieldError errors={[form.formState.errors.name]} />
-          </Field>
-          {info.transport === 'http' ? (
-            <>
-              <Field data-invalid={!!form.formState.errors.baseUrl}>
-                <FieldLabel htmlFor="conn-url">주소</FieldLabel>
-                <Input id="conn-url" {...form.register('baseUrl', { setValueAs: (value: string) => (value ? value : undefined) })} aria-invalid={!!form.formState.errors.baseUrl} />
-                <FieldError errors={[form.formState.errors.baseUrl]} />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="conn-key">API 키</FieldLabel>
-                <Input id="conn-key" type="password" autoComplete="off" {...form.register('apiKey')} />
-                <FieldDescription>API 키는 {keyStoreLabel}에 저장되며 DB·내보내기에 포함되지 않습니다.</FieldDescription>
-              </Field>
-            </>
-          ) : info.transport === 'sdk' ? (
-            <PiNote />
-          ) : (
-            <Field>
-              <FieldLabel htmlFor="conn-exe">실행 파일</FieldLabel>
-              <Input id="conn-exe" {...form.register('executable')} placeholder="PATH에서 찾기" />
-            </Field>
-          )}
-        </FieldGroup>
+        <InspectorSection title="설정">
+          <InspectorFields>
+            <InspectorField label="종류" description={<CapabilityBadges kind={kind} />}>
+              <Controller
+                control={form.control}
+                name="kind"
+                render={({ field }) => (
+                  <Select
+                    value={field.value}
+                    onValueChange={(value) => {
+                      const next = value as ConnectionKind;
+                      field.onChange(next);
+                      form.setValue('baseUrl', CONNECTION_KIND_INFO[next].defaultBaseUrl);
+                      form.clearErrors();
+                    }}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CONNECTION_KINDS.filter((value) => value !== 'http').map((value) => (
+                        <SelectItem key={value} value={value}>
+                          {CONNECTION_KIND_INFO[value].label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+            </InspectorField>
+            <InspectorField label="이름" error={form.formState.errors.name?.message}>
+              <Input {...form.register('name')} aria-invalid={!!form.formState.errors.name} placeholder="예: 회사 OpenAI" />
+            </InspectorField>
+            {info.transport === 'http' ? (
+              <>
+                <InspectorField label="주소" error={form.formState.errors.baseUrl?.message}>
+                  <Input {...form.register('baseUrl', { setValueAs: (value: string) => (value ? value : undefined) })} aria-invalid={!!form.formState.errors.baseUrl} />
+                </InspectorField>
+                <InspectorField label="API 키" description={`${keyStoreLabel}에 저장되며 DB·내보내기에 들어가지 않습니다.`}>
+                  <Input type="password" autoComplete="off" {...form.register('apiKey')} />
+                </InspectorField>
+              </>
+            ) : info.transport === 'sdk' ? (
+              <InspectorField label="로그인">
+                <PiNote />
+              </InspectorField>
+            ) : (
+              <Controller control={form.control} name="executable" render={({ field }) => <ExecutableField key={kind} kind={kind} value={field.value ?? ''} onChange={field.onChange} />} />
+            )}
+          </InspectorFields>
+        </InspectorSection>
       </form>
-      </InspectorBlock>
     </Inspector>
   );
 }
@@ -401,47 +391,44 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
     onError: (error) => toast.error(errorMessage(error)),
   });
 
-  const dirtyCount = Object.keys(dirtyFields).length;
+  // A new API key is part of the draft: saved with the rest by 저장, not by a button of its own.
+  const dirtyCount = Object.keys(dirtyFields).length + (apiKey.trim() ? 1 : 0);
+  const saveAll = () => {
+    if (Object.keys(dirtyFields).length) void form.handleSubmit((values) => save.mutate(values))();
+    if (apiKey.trim()) saveKey.mutate();
+  };
 
   return (
     <Inspector
-      header={<InspectorHeader kind={isTool ? '도구' : 'AI 연결'} name={connection.name} onClose={onClose} />}
+      header={<InspectorHeader kind={isTool ? '도구' : 'AI 연결'} name={connection.name} status={info.label} onClose={onClose} />}
       footer={
         dirtyCount > 0 ? (
-          <DirtyBar dirtyCount={dirtyCount} onRevert={() => form.reset(saved)} onSave={form.handleSubmit((values) => save.mutate(values))} saving={save.isPending} />
+          <DirtyBar dirtyCount={dirtyCount} onRevert={() => { form.reset(saved); setApiKey(''); }} onSave={saveAll} saving={save.isPending || saveKey.isPending} />
         ) : (
           <Button disabled>저장</Button>
         )
       }
     >
-      <div>
-        <InspectorSection title="기본 정보">
-          <FieldGroup className="gap-4">
-            <Field data-invalid={!!errors.name}>
-              <FieldLabel htmlFor="edit-name">이름</FieldLabel>
-              <Input id="edit-name" {...form.register('name')} aria-invalid={!!errors.name} />
-              <FieldError errors={[errors.name]} />
-            </Field>
-            {isHttp && (
-              <Field data-invalid={!!errors.baseUrl}>
-                <FieldLabel htmlFor="edit-url">주소</FieldLabel>
-                <Input id="edit-url" {...form.register('baseUrl')} aria-invalid={!!errors.baseUrl} />
-                <FieldError errors={[errors.baseUrl]} />
-              </Field>
-            )}
-            {!isHttp && connection.kind !== 'pi' && (
-              <Field>
-                <FieldLabel htmlFor="edit-exe">실행 파일</FieldLabel>
-                <Input id="edit-exe" {...form.register('executable')} placeholder="PATH에서 찾기" />
-              </Field>
-            )}
-            {connection.kind === 'pi' && <PiNote />}
-          </FieldGroup>
-        </InspectorSection>
-
-        {!isTool && (
-          <>
-            <InspectorSection title="기본 모델">
+      <InspectorSection title="설정">
+        <InspectorFields>
+          <InspectorField label="이름" error={errors.name?.message}>
+            <Input {...form.register('name')} aria-invalid={!!errors.name} />
+          </InspectorField>
+          {isHttp && (
+            <InspectorField label="주소" error={errors.baseUrl?.message}>
+              <Input {...form.register('baseUrl')} aria-invalid={!!errors.baseUrl} />
+            </InspectorField>
+          )}
+          {info.transport === 'cli' && (
+            <Controller control={form.control} name="executable" render={({ field }) => <ExecutableField kind={connection.kind} value={field.value ?? ''} onChange={field.onChange} />} />
+          )}
+          {connection.kind === 'pi' && (
+            <InspectorField label="로그인">
+              <PiNote />
+            </InspectorField>
+          )}
+          {!isTool && (
+            <InspectorField label="기본 모델">
               <Controller
                 control={form.control}
                 name="defaultModel"
@@ -457,124 +444,119 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
                   />
                 )}
               />
-            </InspectorSection>
-
-            <InspectorSection title="호출 조건">
-              <div className="grid grid-cols-2 gap-4">
-                <Field data-invalid={!!errors.concurrency}>
-                  <FieldLabel htmlFor="edit-concurrency">동시 실행 수</FieldLabel>
-                  <Input id="edit-concurrency" type="number" min={1} max={32} step={1} {...form.register('concurrency', number)} aria-invalid={!!errors.concurrency} />
-                  <FieldError errors={[errors.concurrency]} />
-                </Field>
-                <Field data-invalid={!!errors.timeoutSeconds}>
-                  <FieldLabel htmlFor="edit-timeout">제한 시간 (초)</FieldLabel>
-                  <Input id="edit-timeout" type="number" min={5} max={600} {...form.register('timeoutSeconds', number)} aria-invalid={!!errors.timeoutSeconds} />
-                  <FieldError errors={[errors.timeoutSeconds]} />
-                </Field>
-                <Field data-invalid={!!errors.maxAttempts}>
-                  <FieldLabel htmlFor="edit-attempts">최대 시도 횟수</FieldLabel>
-                  <Input id="edit-attempts" type="number" {...form.register('maxAttempts', number)} aria-invalid={!!errors.maxAttempts} />
-                  <FieldError errors={[errors.maxAttempts]} />
-                </Field>
-                <Field data-invalid={!!errors.maxOutputTokens}>
-                  <FieldLabel htmlFor="edit-output">최대 출력 토큰</FieldLabel>
-                  <Input id="edit-output" type="number" {...form.register('maxOutputTokens', number)} aria-invalid={!!errors.maxOutputTokens} />
-                  <FieldError errors={[errors.maxOutputTokens]} />
-                </Field>
-              </div>
-            </InspectorSection>
-
-            <InspectorSection title="대체 모델">
-              <p className="mb-2 text-xs text-muted-foreground">채팅에는 쓰지 않습니다.</p>
+            </InspectorField>
+          )}
+          {!isTool && (
+            <InspectorField label="대체 모델" description="이 연결이 막히면 넘길 모델. 채팅에는 쓰지 않습니다." error={(errors.fallback?.model ?? errors.fallback)?.message}>
               <Controller
                 control={form.control}
                 name="fallback"
                 render={({ field }) => <ModelPicker exclude={connection.id} value={field.value} onChange={(next: ModelValue) => field.onChange(next.model ? next : { ...next, model: '' })} />}
               />
-              <FieldError errors={[errors.fallback?.model ?? errors.fallback]} />
-            </InspectorSection>
-          </>
-        )}
-
-        {isHttp && (
-          <InspectorSection title="API 키">
-            <Field>
-              <FieldLabel htmlFor="edit-key">{connection.hasKey ? '저장됨' : '저장된 키 없음'}</FieldLabel>
-              <div className="flex gap-2">
-                <Input id="edit-key" type="password" autoComplete="off" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="새 키 입력" />
-                <Button variant="outline" disabled={!apiKey.trim() || saveKey.isPending} onClick={() => saveKey.mutate()}>키 저장</Button>
-                <Button variant="outline" disabled={!connection.hasKey || deleteKey.isPending} onClick={() => deleteKey.mutate()}>키 삭제</Button>
-              </div>
-              <FieldDescription>API 키는 {keyStoreLabel}에 저장되며 DB·내보내기에 포함되지 않습니다.</FieldDescription>
-            </Field>
-          </InspectorSection>
-        )}
-
-        {connection.kind === 'pi' && (
-          <InspectorSection title="pi 옵션">
-            <PiOptionsPanel connectionId={connection.id} options={connection.options} />
-          </InspectorSection>
-        )}
-
-        {!isTool && <ModelTest connectionId={connection.id} need={need} defaultModel={connection.defaultModel} defaultEffort={connection.defaultEffort} />}
-
-        <InspectorSection title="연결 시험">
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" disabled={probe.isPending} onClick={() => probe.mutate()}>
-              {probe.isPending && <Spinner />}
-              연결 확인
-            </Button>
-            {!isTool && (
-              <Button variant="outline" disabled={loadModels.isPending} onClick={() => loadModels.mutate()}>
-                {loadModels.isPending && <Spinner />}
-                모델 목록
-              </Button>
-            )}
-            {info.transport === 'cli' && (
-              <>
-                <Button variant="outline" disabled={loginStatus.isPending} onClick={() => loginStatus.mutate()}>로그인 상태</Button>
-                <Button variant="outline" disabled={openLogin.isPending} onClick={() => openLogin.mutate()}>로그인 창 열기</Button>
-              </>
-            )}
-          </div>
-          {probeResult && (
-            <p className={cn('mt-3 rounded-md border p-2 text-sm break-words', probeResult.ok ? 'text-foreground' : 'border-destructive/40 text-destructive')}>
-              <Badge variant={probeResult.ok ? 'default' : 'destructive'} className="mr-2">
-                {probeResult.ok ? '성공' : '실패'}
-              </Badge>
-              {probeResult.detail}
-            </p>
+            </InspectorField>
           )}
-          {login && <p className="mt-3 text-sm">로그인 상태: {LOGIN_LABEL[login] ?? login}</p>}
-          {!isTool && models && (
-            <div className="mt-3 text-sm">
-              {models.list ? (
-                <ul className="max-h-48 overflow-auto rounded-md border p-2 font-mono text-xs">
-                  {models.list.map((model) => (
-                    <li key={model} className="flex items-center gap-2">
-                      <span className="truncate">{model}</span>
-                      {isFreeModel(connection.kind, model) && <Badge variant="secondary" className="shrink-0 text-xs">무료</Badge>}
-                    </li>
-                  ))}
-                </ul>
-              ) : models.detail ? (
-                <p className="text-destructive">{models.detail}</p>
-              ) : (
-                <p className="text-muted-foreground">이 연결은 모델 목록을 제공하지 않습니다.</p>
+          {isHttp && (
+            <InspectorField
+              label={connection.hasKey ? 'API 키 · 저장됨' : 'API 키 · 없음'}
+              description={`${keyStoreLabel}에 저장되며 DB·내보내기에 들어가지 않습니다.`}
+              action={connection.hasKey && (
+                <Button variant="ghost" size="inline" className="text-destructive" disabled={deleteKey.isPending} onClick={() => deleteKey.mutate()}>
+                  키 삭제
+                </Button>
               )}
-            </div>
+            >
+              <Input type="password" autoComplete="off" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={connection.hasKey ? '바꿀 때만 입력' : '키 입력'} />
+            </InspectorField>
           )}
-        </InspectorSection>
+        </InspectorFields>
+      </InspectorSection>
 
-        <DangerZone title="연결 삭제">
-          <DeleteButton
-            label={`연결 '${connection.name}'`}
-            description="워크플로 노드·대화·다른 연결의 ‘막히면’이 이 연결을 쓰고 있으면 삭제되지 않습니다. 저장된 API 키도 함께 삭제됩니다."
-            pending={remove.isPending}
-            onConfirm={() => remove.mutate()}
+      {!isTool && (
+        <InspectorSection title="호출 조건" defaultOpen={false}>
+          <InspectorFields>
+            <InspectorField label="동시 실행 수" error={errors.concurrency?.message}>
+              <Input type="number" min={1} max={32} step={1} {...form.register('concurrency', number)} aria-invalid={!!errors.concurrency} />
+            </InspectorField>
+            <InspectorField label="제한 시간 (초)" error={errors.timeoutSeconds?.message}>
+              <Input type="number" min={5} max={600} {...form.register('timeoutSeconds', number)} aria-invalid={!!errors.timeoutSeconds} />
+            </InspectorField>
+            <InspectorField label="최대 시도 횟수" error={errors.maxAttempts?.message}>
+              <Input type="number" {...form.register('maxAttempts', number)} aria-invalid={!!errors.maxAttempts} />
+            </InspectorField>
+            <InspectorField label="최대 출력 토큰" error={errors.maxOutputTokens?.message}>
+              <Input type="number" {...form.register('maxOutputTokens', number)} aria-invalid={!!errors.maxOutputTokens} />
+            </InspectorField>
+          </InspectorFields>
+        </InspectorSection>
+      )}
+
+      {connection.kind === 'pi' && (
+        <InspectorSection title="pi 옵션" defaultOpen={false}>
+          <PiOptionsPanel connectionId={connection.id} options={connection.options} />
+        </InspectorSection>
+      )}
+
+      <InspectorSection title="확인">
+        <div>
+          <InspectorActionRow
+            label="연결 확인"
+            action={<Button variant="outline" disabled={probe.isPending} onClick={() => probe.mutate()}>{probe.isPending && <Spinner />}확인</Button>}
+            result={probeResult && <InspectorResult tone={probeResult.ok ? 'ok' : 'error'}>{probeResult.detail}</InspectorResult>}
           />
-        </DangerZone>
-      </div>
+          {info.transport === 'cli' && (
+            <InspectorActionRow
+              label="로그인"
+              action={
+                <>
+                  <Button variant="ghost" disabled={openLogin.isPending} onClick={() => openLogin.mutate()}>창 열기</Button>
+                  <Button variant="outline" disabled={loginStatus.isPending} onClick={() => loginStatus.mutate()}>{loginStatus.isPending && <Spinner />}상태 보기</Button>
+                </>
+              }
+              result={login && <InspectorResult tone={login === 'logged_in' ? 'ok' : login === 'logged_out' ? 'error' : 'info'}>{LOGIN_LABEL[login] ?? login}</InspectorResult>}
+            />
+          )}
+          {!isTool && (
+            <InspectorActionRow
+              label="모델 목록"
+              action={<Button variant="outline" disabled={loadModels.isPending} onClick={() => loadModels.mutate()}>{loadModels.isPending && <Spinner />}불러오기</Button>}
+              result={
+                models &&
+                (models.list ? (
+                  <InspectorResult
+                    tone="ok"
+                    detail={
+                      <ul className="max-h-40 space-y-0.5 overflow-auto font-mono">
+                        {models.list.map((model) => (
+                          <li key={model} className="flex items-center gap-2">
+                            <span className="truncate">{model}</span>
+                            {isFreeModel(connection.kind, model) && <span className="shrink-0 font-sans text-success">무료</span>}
+                          </li>
+                        ))}
+                      </ul>
+                    }
+                  >
+                    모델 {models.list.length}개
+                  </InspectorResult>
+                ) : models.detail ? (
+                  <InspectorResult tone="error">{models.detail}</InspectorResult>
+                ) : (
+                  <InspectorResult tone="info">이 연결은 모델 목록을 제공하지 않습니다</InspectorResult>
+                ))
+              }
+            />
+          )}
+          {!isTool && <ModelTest connectionId={connection.id} need={need} defaultModel={connection.defaultModel} defaultEffort={connection.defaultEffort} />}
+        </div>
+      </InspectorSection>
+
+      <DangerZone title="연결 삭제">
+        <DeleteButton
+          label={`연결 '${connection.name}'`}
+          description="워크플로 노드·대화·다른 연결의 대체 모델이 이 연결을 쓰고 있으면 삭제되지 않습니다. 저장된 API 키도 함께 삭제됩니다."
+          pending={remove.isPending}
+          onConfirm={() => remove.mutate()}
+        />
+      </DangerZone>
     </Inspector>
   );
 }
@@ -590,44 +572,40 @@ function ModelTest({ connectionId, need, defaultModel, defaultEffort }: { connec
   const tests = useQuery(q.connectionTests(connectionId));
   const result = test.data;
   return (
-    <InspectorSection title="모델 시험">
-      <div className="flex flex-col gap-2">
-        <p className="text-sm text-muted-foreground">실제 모델을 호출합니다.</p>
-        <ModelPicker lockConnection need={need} value={choice} onChange={setChoice} />
-        <Textarea rows={3} value={source} onChange={(event) => setSource(event.target.value)} placeholder="번역해 볼 원문 문장" />
-        <Button type="button" variant="outline" className="self-start" disabled={!source.trim() || !choice.model || test.isPending} onClick={() => test.mutate()}>
+    <InspectorActionRow
+      label="모델 시험"
+      description="실제 모델을 부릅니다"
+      action={
+        <Button variant="outline" disabled={!source.trim() || !choice.model || test.isPending} onClick={() => test.mutate()}>
           {test.isPending && <Spinner />}
-          시험 실행
+          시험
         </Button>
-        {result &&
-          (result.ok ? (
-            <div className="rounded-md border p-3 text-sm">
-              <p className="whitespace-pre-wrap">{result.text}</p>
-              <p className="mt-2 font-mono text-xs text-muted-foreground">
-                {result.model}
-                {result.fellBack && ' (막혀서 넘김)'} · {result.ms.toLocaleString()}ms · {result.attempts.length}회 시도
-              </p>
-            </div>
-          ) : (
-            <p className="rounded-md border border-destructive/40 p-3 text-sm break-words text-destructive">
-              {result.detail} <span className="font-mono text-xs">({result.ms.toLocaleString()}ms)</span>
-            </p>
+      }
+      result={
+        result &&
+        (result.ok ? (
+          <InspectorResult tone="ok" detail={<span className="font-mono">{result.model}{result.fellBack && ' (대체 모델)'} · {result.ms.toLocaleString()}ms · {result.attempts.length}회 시도</span>}>
+            <span className="whitespace-pre-wrap text-foreground">{result.text}</span>
+          </InspectorResult>
+        ) : (
+          <InspectorResult tone="error" detail={<span className="font-mono">{result.ms.toLocaleString()}ms</span>}>{result.detail}</InspectorResult>
+        ))
+      }
+    >
+      <ModelPicker lockConnection need={need} value={choice} onChange={setChoice} />
+      <Textarea rows={2} value={source} onChange={(event) => setSource(event.target.value)} placeholder="번역해 볼 원문" />
+      {!!tests.data?.length && (
+        <ul className="space-y-0.5 text-xs text-muted-foreground">
+          {tests.data.slice(0, 3).map((call) => (
+            <li key={call.id} className="flex items-baseline justify-between gap-3">
+              <span className="tabular-nums">{dateTime(call.startedAt)} · {call.model}</span>
+              <span className={cn('min-w-0 truncate', call.status === 'failed' && 'text-destructive')}>
+                {call.status === 'running' ? '진행 중' : call.status === 'failed' ? `실패${call.error ? `: ${call.error}` : ''}` : `${((new Date(call.finishedAt!).getTime() - new Date(call.startedAt).getTime()) / 1000).toFixed(1)}초`}
+              </span>
+            </li>
           ))}
-        {!!tests.data?.length && (
-          <ul className="mt-1 flex flex-col gap-1 text-sm">
-            {tests.data.map((call) => (
-              <li key={call.id} className="flex items-baseline justify-between gap-3">
-                <span className="text-xs text-muted-foreground tabular-nums">
-                  {dateTime(call.startedAt)} · {call.model}
-                </span>
-                <span className={cn('min-w-0 truncate text-xs', call.status === 'failed' ? 'text-destructive' : 'text-muted-foreground')}>
-                  {call.status === 'running' ? '진행 중' : call.status === 'failed' ? `실패${call.error ? `: ${call.error}` : ''}` : `${((new Date(call.finishedAt!).getTime() - new Date(call.startedAt).getTime()) / 1000).toFixed(1)}초`}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </InspectorSection>
+        </ul>
+      )}
+    </InspectorActionRow>
   );
 }
