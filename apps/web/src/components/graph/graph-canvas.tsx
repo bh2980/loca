@@ -218,6 +218,8 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
   /** The selection box being dragged, in canvas pixels; `moved` once it passed the click distance. */
   const drag = useRef<{ x0: number; y0: number; x1: number; y1: number; moved: boolean; additive: boolean } | null>(null);
   const [box, setBox] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
+  /** Nodes inside the box being dragged, ringed as it moves (as React Flow does in the other graphs). */
+  const boxed = useRef<{ ids: Set<string>; additive: boolean } | null>(null);
   /** Swallows the click that ends a box drag. */
   const suppressClick = useRef(false);
 
@@ -482,7 +484,9 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
     for (const i of visible) {
       const node = nodes[i];
       const meta = info.get(node.id);
-      const isSelected = node.id === selected || Boolean(props.current.selectedIds?.has(node.id));
+      // While a box is dragged it shows what it will pick: only its nodes, or added to the selection with ⌘/Ctrl.
+      const inBox = boxed.current?.ids.has(node.id) ?? false;
+      const isSelected = boxed.current && !boxed.current.additive ? inBox : inBox || node.id === selected || Boolean(props.current.selectedIds?.has(node.id));
       const faded = dimmed && !focus!.has(node.id) && !isSelected;
       context.globalAlpha = faded || overviewMode ? 0.25 : 1;
       const hub = props.current.hubs?.get(node.id);
@@ -654,17 +658,23 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
     schedule();
   }, [selectedId, selectedIds, highlight, endpointMarkers, emphasised, info, hubs]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const finishBox = () => {
-    const d = drag.current;
-    drag.current = null;
-    setBox(null);
-    if (!d?.moved) return;
-    suppressClick.current = true;
+  /** The nodes a box covers, from its corners in canvas pixels. */
+  const boxHits = (d: { x0: number; y0: number; x1: number; y1: number }) => {
     const t = transform.current;
     const [x0, x1] = [Math.min(d.x0, d.x1), Math.max(d.x0, d.x1)].map((x) => (x - t.x) / t.k);
     const [y0, y1] = [Math.min(d.y0, d.y1), Math.max(d.y0, d.y1)].map((y) => (y - t.y) / t.k);
-    const ids = (index.nodeIndex?.search(x0, y0, x1, y1) ?? []).map((i) => nodes[i].id);
-    props.current.onSelectMany?.(ids, d.additive);
+    return (index.nodeIndex?.search(x0, y0, x1, y1) ?? []).map((i) => nodes[i].id);
+  };
+
+  const finishBox = () => {
+    const d = drag.current;
+    drag.current = null;
+    boxed.current = null;
+    schedule();
+    setBox(null);
+    if (!d?.moved) return;
+    suppressClick.current = true;
+    props.current.onSelectMany?.(boxHits(d), d.additive);
   };
 
   // The card is placed again when it opens on another node or its content changes height. Until
@@ -759,10 +769,14 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
           if (!d.moved && Math.hypot(d.x1 - d.x0, d.y1 - d.y0) < 4) return;
           d.moved = true;
           setBox({ left: Math.min(d.x0, d.x1), top: Math.min(d.y0, d.y1), width: Math.abs(d.x1 - d.x0), height: Math.abs(d.y1 - d.y0) });
+          boxed.current = { ids: new Set(boxHits(d)), additive: d.additive };
+          schedule();
         }}
         onPointerUp={finishBox}
         onPointerCancel={() => {
           drag.current = null;
+          boxed.current = null;
+          schedule();
           setBox(null);
         }}
         role="img"
