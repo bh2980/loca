@@ -283,6 +283,10 @@ function Table<T>({
     menuWidth +
     visibleColumns.reduce((sum, column) => sum + (widthOf(column) ?? FLEX_MIN), 0)
 
+  // One ContextMenu for the whole table: its pointer anchor span must not
+  // live inside <tbody>, so rows only render a trigger around the <tr>.
+  const [rowMenu, setRowMenu] = useState<ReactNode>(null)
+
   const renderRow = (row: Row<T>) => {
     const isSelected = row.id === selected
     const menu = rowContextMenu?.(row.original)
@@ -291,6 +295,7 @@ function Table<T>({
         key={row.id}
         ref={isSelected ? selectedRow : undefined}
         data-state={isSelected ? "selected" : undefined}
+        onContextMenu={menu ? () => setRowMenu(menu) : undefined}
         onClick={
           onRowClick
             ? () => {
@@ -341,16 +346,16 @@ function Table<T>({
     )
     if (menu) {
       return (
-        <ContextMenu key={row.id}>
-          <ContextMenuTrigger asChild>{tr}</ContextMenuTrigger>
-          <ContextMenuContent>{menu}</ContextMenuContent>
-        </ContextMenu>
+        <ContextMenuTrigger key={row.id} asChild>
+          {tr}
+        </ContextMenuTrigger>
       )
     }
     return tr
   }
 
   return (
+    <ContextMenu onOpenChange={(open) => !open && setRowMenu(null)}>
     <div className={cn("flex min-h-0 flex-1 flex-col bg-background", className)}>
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
         <table
@@ -497,5 +502,7 @@ function Table<T>({
       </div>
       {footer}
     </div>
+    {rowMenu && <ContextMenuContent>{rowMenu}</ContextMenuContent>}
+    </ContextMenu>
   )
 }
