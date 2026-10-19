@@ -28,11 +28,10 @@ export const aiDecided = (item: { status?: string; statusBy: StatusBy }) => item
  * (a workflow node, the chat), the script finder, an import, or a person. Separate from who set the
  * status: a person can confirm an analysis item without rewriting it.
  */
-export const KNOWLEDGE_SOURCES = ['analysis', 'workflow', 'script', 'import', 'human'] as const;
+export const KNOWLEDGE_SOURCES = ['workflow', 'script', 'import', 'human'] as const;
 export type KnowledgeSource = (typeof KNOWLEDGE_SOURCES)[number];
-export const SOURCE_LABELS: Record<KnowledgeSource, string> = { analysis: '작품 분석', workflow: '워크플로·채팅', script: '대본에서 찾음', import: '가져오기', human: '사람' };
-export const sourceOf = (item: { origin: KnowledgeOrigin; jobId?: string | null }): KnowledgeSource =>
-  item.origin === 'ai' ? (item.jobId ? 'analysis' : 'workflow') : item.origin;
+export const SOURCE_LABELS: Record<KnowledgeSource, string> = { workflow: '워크플로·채팅', script: '대본에서 찾음', import: '가져오기', human: '사람' };
+export const sourceOf = (item: { origin: KnowledgeOrigin }): KnowledgeSource => (item.origin === 'ai' ? 'workflow' : item.origin);
 /** Nothing left to decide: confirmed by a person. Everything else can be confirmed or discarded. */
 export const isSettled = (item: { status: KnowledgeStatus; statusBy: StatusBy }) => item.status === 'confirmed' && item.statusBy === 'human';
 

@@ -21,7 +21,6 @@ export interface Term {
   status: KnowledgeStatus;
   origin: KnowledgeOrigin;
   statusBy: StatusBy;
-  jobId?: string | null;
   evidence?: string[];
   lines: number | null;
   examples: string[];

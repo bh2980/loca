@@ -11,4 +11,4 @@ export function outputCutOff(error: unknown) {
 }
 
 /** A whole-script read takes minutes; the connection's per-call timeout is for single scenes. */
-export const MIN_ANALYSIS_TIMEOUT_MS = 30 * 60_000;
+export const MIN_WHOLE_SCRIPT_TIMEOUT_MS = 30 * 60_000;

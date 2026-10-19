@@ -3,7 +3,7 @@ import { useState, type ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronRight, Play } from 'lucide-react';
-import { SPEECH_FIX_WORKFLOW, SPEECH_LEVEL_LABELS, type SpeechLevel } from '@tw/shared';
+import { SPEECH_LEVEL_LABELS, type SpeechLevel } from '@tw/shared';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { InspectorSection, Button, Collapsible, CollapsibleContent, CollapsibleTrigger } from '@loca/ui';
 import { q } from '@/lib/queries';
@@ -64,7 +64,7 @@ export function RuleLines({ projectId, ruleId, candidate }: { projectId: string;
             projectId={projectId}
             unitIds={lines.data.translatedIds}
             defaultIgnoreStatus
-            preferWorkflow={SPEECH_FIX_WORKFLOW}
+            remember="speech-fix"
             trigger={
               <Button variant="ghost">
                 <Play /> 말투 맞추기 · {lines.data.translatedIds.length.toLocaleString()}줄

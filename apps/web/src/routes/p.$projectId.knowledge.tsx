@@ -37,7 +37,6 @@ import { HeaderActions, Page, StatusBarItem } from '@/components/page';
 import { RelationshipGraph } from '@/components/relationship-graph';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { Play } from 'lucide-react';
-import { JobStatus } from '@/components/knowledge/analysis-controls';
 import { DraftEditor } from '@/components/knowledge/editor';
 import { RelationshipChanges, RuleLines } from '@/components/knowledge/evidence';
 import { BulkDecide, fail, KINDS, KnowledgeFilters, knowledgeFilterChips, KNOWLEDGE_MARK_IDS, matches, type KnowledgeFilterState, SourceBadge, type Kind, type KindSpec, type Row, type SourceFilter, defineKind, metaColumns, candidateRow } from '@/components/knowledge/table';
@@ -336,7 +335,6 @@ function Knowledge() {
     [visiblePairs],
   );
 
-  const jobs = useQuery(q.analysisJobs(projectId));
   const pending = tab === 'documents' ? documents.isPending : tab === 'events' ? storyEvents.isPending : people.isPending || rules.isPending;
   const tabScope: TagScope = tab === 'documents' ? 'documents' : tab === 'events' ? 'events' : 'people';
   const knowledgeTags = tagsIn(statuses.data?.tags, tabScope);
@@ -548,7 +546,6 @@ function Knowledge() {
           {(graph || timeline) && <KnowledgeFilters {...filters} />}
           <FilterChips chips={chips} />
         </FilterBar>
-        <StatusBarItem><div className="min-w-0 truncate"><JobStatus projectId={projectId} /></div></StatusBarItem>
         {graph ? (
           <div className="min-h-0 flex-1">
             {/* Pairs come from speech rules too: laying out before they arrive would lay out twice. */}

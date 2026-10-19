@@ -44,7 +44,7 @@ export function saveTerm(tx: Tx, projectId: string, term: TermSave, options: { i
   if (!mine) {
     // Revive a rejected term of the same source instead of adding a second.
     if (same) {
-      const row = tx.update(s.terms).set({ ...values, status: term.status ?? 'confirmed', lines: null, origin: 'human', statusBy: 'human', runId: null, jobId: null }).where(eq(s.terms.id, same.id)).returning().get();
+      const row = tx.update(s.terms).set({ ...values, status: term.status ?? 'confirmed', lines: null, origin: 'human', statusBy: 'human', runId: null }).where(eq(s.terms.id, same.id)).returning().get();
       return { ok: true as const, row };
     }
     return { ok: true as const, row: tx.insert(s.terms).values({ ...values, source: source ?? '', projectId }).returning().get() };
@@ -64,7 +64,7 @@ export function upsertAiTerm(
   tx: Tx,
   projectId: string,
   term: { source: string; target?: string; note?: string; examples?: string[] },
-  options: { policy: AiConfirm; runId?: string; jobId?: string },
+  options: { policy: AiConfirm; runId?: string },
 ): 'added' | 'filled' | 'unchanged' {
   const source = term.source.trim();
   const target = term.target?.trim() ?? '';
@@ -78,7 +78,7 @@ export function upsertAiTerm(
     tx.update(s.terms).set(fill).where(eq(s.terms.id, known.id)).run();
     return 'filled';
   }
-  tx.insert(s.terms).values({ projectId, source, target, note, examples, status: target ? aiStatus(options.policy, 'terms') : 'candidate', statusBy: 'ai', origin: 'ai', runId: options.runId ?? null, jobId: options.jobId ?? null }).run();
+  tx.insert(s.terms).values({ projectId, source, target, note, examples, status: target ? aiStatus(options.policy, 'terms') : 'candidate', statusBy: 'ai', origin: 'ai', runId: options.runId ?? null }).run();
   return 'added';
 }
 

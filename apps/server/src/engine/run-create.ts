@@ -1,6 +1,6 @@
 import { and, eq, inArray, ne, notInArray, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
-import { batchConfigSchema, isAnalysisWorkflow, type AiNode, type WorkflowDefinition } from '@tw/shared';
+import { batchConfigSchema, isWholeScriptWorkflow, type AiNode, type WorkflowDefinition } from '@tw/shared';
 import { inChunks, inList } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -143,20 +143,18 @@ export function createRun(db: Db, input: RunInput) {
   return { runId: run.id, total: run.total };
 }
 
-export const ANALYSIS_BUSY = '이미 진행 중인 작품 분석이 있습니다.';
+export const WHOLE_SCRIPT_BUSY = '대본 전체를 읽는 실행이 이미 진행 중입니다.';
 
-/**
- * One work analysis at a time per project (#47), whoever starts it: the 작품 분석 button, the run
- * dialog or the agent's start_run. A run still filling its lines counts as running; so does a job
- * of the old analysis service that is still marked running.
- */
+/** A run still filling its lines counts as running. */
 export const runActive = (run: { status: string; notice: string | null }) => run.status === 'running' || (run.status === 'paused' && run.notice === FILLING);
 
-/** `exceptRunId`: the analysis being continued or resumed, which may go on itself. */
-export function refuseSecondAnalysis(db: Db, projectId: string, exceptRunId?: string) {
+/**
+ * One whole-script run at a time per project, whoever starts it (run dialog, chat). `exceptRunId`:
+ * the run being continued or resumed, which may go on itself.
+ */
+export function refuseSecondWholeScript(db: Db, projectId: string, exceptRunId?: string) {
   const runs = db.select({ id: s.runs.id, status: s.runs.status, notice: s.runs.notice, definition: s.runs.definition }).from(s.runs).where(and(eq(s.runs.projectId, projectId), inArray(s.runs.status, ['running', 'paused']))).all();
-  const busy = runs.some((run) => run.id !== exceptRunId && runActive(run) && isAnalysisWorkflow(run.definition));
-  if (busy || db.select({ id: s.analysisJobs.id }).from(s.analysisJobs).where(and(eq(s.analysisJobs.projectId, projectId), eq(s.analysisJobs.status, 'running'))).get()) throw new Error(ANALYSIS_BUSY);
+  if (runs.some((run) => run.id !== exceptRunId && runActive(run) && isWholeScriptWorkflow(run.definition))) throw new Error(WHOLE_SCRIPT_BUSY);
 }
 
 /** Lines stored per step when a run is created from the app or a chat. */
@@ -170,7 +168,7 @@ export const FILLING = '대사를 넣는 중입니다.';
  */
 export async function createRunInSteps(db: Db, input: RunInput) {
   // Checked and inserted with no await in between, so two starts at once cannot both pass.
-  if (isAnalysisWorkflow(input.workflow.definition)) refuseSecondAnalysis(db, input.projectId);
+  if (isWholeScriptWorkflow(input.workflow.definition)) refuseSecondWholeScript(db, input.projectId);
   const { run, items } = runRows(db, input);
   db.insert(s.runs).values({ ...run, status: 'paused', notice: FILLING }).run();
   events.changed(input.projectId, 'runs');

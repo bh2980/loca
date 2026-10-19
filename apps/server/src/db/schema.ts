@@ -11,13 +11,12 @@ const json = <T>(name: string) => text(name, { mode: 'json' }).$type<T>();
 const projectId = () => text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' });
 /**
  * Shared by every knowledge table. AI drafts land as candidates and are not used as context until
- * a person confirms them; evidence is the line keys a draft cites; jobId is the analysis that wrote it.
+ * a person confirms them; evidence is the line keys a draft cites.
  */
 const knowledge = () => ({
   status: text('status', { enum: KNOWLEDGE_STATUSES }).notNull().default('confirmed'),
   origin: text('origin', { enum: KNOWLEDGE_ORIGINS }).notNull().default('human'),
   evidence: json<string[]>('evidence').notNull().default(sql`'[]'`),
-  jobId: text('job_id'),
   /** Who put it in its current status. An AI item a person never touched stays "ai"; a new analysis may replace it. */
   statusBy: text('status_by', { enum: STATUS_BY }).notNull().default('human'),
 });
@@ -286,8 +285,8 @@ export const graphViews = sqliteTable('graph_views', {
   updatedAt: updatedAt(),
 });
 
-/** Where a model request came from: a workflow run, work analysis, glossary fill, a model test or a chat turn. */
-export const AI_CALL_KINDS = ['run', 'analysis', 'terms', 'test', 'chat', 'editor'] as const;
+/** Where a model request came from: a workflow run (whole: one reading the whole script), a glossary fill, a model test, a chat turn or the editor. */
+export const AI_CALL_KINDS = ['run', 'whole', 'terms', 'test', 'chat', 'editor'] as const;
 
 /**
  * Every request sent to a model, one row per attempt (a fallback is its own row), written when it
@@ -300,7 +299,7 @@ export const aiCalls = sqliteTable(
     /** Null for calls outside a project (a model test). */
     projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
     kind: text('kind', { enum: AI_CALL_KINDS }).notNull(),
-    /** The run, analysis job or chat it belongs to; the connection for a model test. */
+    /** The run, job or chat it belongs to; the connection for a model test. */
     refId: text('ref_id'),
     /** What it was for, as people read it ("AI 번역 · 60줄", "작품 분석 1/3"). */
     label: text('label').notNull(),
@@ -314,7 +313,7 @@ export const aiCalls = sqliteTable(
     cachedInputTokens: integer('cached_input_tokens'),
     outputTokens: integer('output_tokens'),
     costUsd: real('cost_usd'),
-    /** What was sent (system prompt and prompt), for work analysis and glossary fills; runs keep theirs in run steps. */
+    /** What was sent (system prompt and prompt), for glossary fills; runs keep theirs in run steps. */
     request: text('request'),
     /** What the call printed before it failed, for failed calls (the CLI's output or the partial text). */
     response: text('response'),
@@ -341,8 +340,6 @@ export const terms = sqliteTable(
     examples: json<string[]>('examples').notNull().default(sql`'[]'`),
     /** The workflow run that added it, for AI terms. */
     runId: text('run_id'),
-    /** The work analysis that proposed it, for AI terms. */
-    jobId: text('job_id'),
     /** Who put it in its current status (see knowledge()). */
     statusBy: text('status_by', { enum: STATUS_BY }).notNull().default('human'),
     updatedAt: updatedAt(),
@@ -429,33 +426,6 @@ export const speechRules = sqliteTable(
     updatedAt: updatedAt(),
   },
   (t) => [index('speech_rules_pair').on(t.projectId, t.fromName, t.toName)],
-);
-
-export type AnalysisStatus = 'running' | 'completed' | 'failed' | 'cancelled';
-/** A whole-script analysis (work analysis): one per run, its drafts carry its id. */
-export const analysisJobs = sqliteTable(
-  'analysis_jobs',
-  {
-    id: id(),
-    projectId: projectId(),
-    connectionId: text('connection_id'),
-    model: text('model'),
-    effort: text('effort'),
-    status: text('status', { enum: ['running', 'completed', 'failed', 'cancelled'] }).notNull(),
-    partsDone: integer('parts_done').notNull().default(0),
-    partsTotal: integer('parts_total').notNull().default(1),
-    usage: json<{ inputTokens?: number; cachedInputTokens?: number; outputTokens?: number; reasoningTokens?: number; costUsd?: number }>('usage'),
-    /** Counts of drafts written, by kind. */
-    result: json<Record<string, number>>('result'),
-    /** Per part: a hash of its script text and the model's answer, so a failed job can be resumed. */
-    parts: json<{ hash: string; answer: unknown }[]>('parts'),
-    /** What the analysis reads: lines, scenes and an estimate of the tokens sent (UTF-8 bytes / 4). */
-    input: json<{ lines: number; scenes: number; tokens: number }>('input'),
-    error: text('error'),
-    createdAt: createdAt(),
-    finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),
-  },
-  (t) => [index('analysis_jobs_project').on(t.projectId, t.createdAt)],
 );
 
 /** "빈 번역 AI로 채우기" jobs on the glossary: kept so 실행 기록 lists them beside runs and analyses. */

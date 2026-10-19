@@ -79,7 +79,7 @@ describe('a node reading the script whole', () => {
     expect(request.system).toContain('Answer as one JSON object');
     expect(request.system).not.toMatch(/prior knowledge|KNOWN CHARACTERS|under about 15,000/);
     expect(request.timeoutMs).toBeGreaterThanOrEqual(30 * 60_000);
-    expect(db.select({ kind: s.aiCalls.kind }).from(s.aiCalls).where(eq(s.aiCalls.refId, runId)).all().map((call) => call.kind)).toEqual(['analysis']);
+    expect(db.select({ kind: s.aiCalls.kind }).from(s.aiCalls).where(eq(s.aiCalls.refId, runId)).all().map((call) => call.kind)).toEqual(['whole']);
 
     const items = db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all();
     const units = new Map(db.select().from(s.units).where(eq(s.units.projectId, projectId)).all().map((unit) => [unit.id, unit]));

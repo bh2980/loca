@@ -45,8 +45,8 @@ describe('who set it', () => {
 
   it('a person confirming an AI item keeps its source; rewriting it makes the content theirs', async () => {
     const { db, projectId, send } = setup();
-    const term = db.insert(s.terms).values({ projectId, source: 'Ghost', target: '유령', origin: 'ai', statusBy: 'ai', jobId: 'job' }).returning().get();
-    const other = db.insert(s.terms).values({ projectId, source: 'Vera', target: '베라', origin: 'ai', statusBy: 'ai', jobId: 'job' }).returning().get();
+    const term = db.insert(s.terms).values({ projectId, source: 'Ghost', target: '유령', origin: 'ai', statusBy: 'ai' }).returning().get();
+    const other = db.insert(s.terms).values({ projectId, source: 'Vera', target: '베라', origin: 'ai', statusBy: 'ai' }).returning().get();
     await send('POST', `/projects/${projectId}/drafts`, { kind: 'terms', ids: [term.id], action: 'confirm' });
     await send('PATCH', `/projects/${projectId}/terms/${other.id}`, { target: '베라 씨' });
     const rows = db.select().from(s.terms).where(eq(s.terms.projectId, projectId)).orderBy(s.terms.source).all();

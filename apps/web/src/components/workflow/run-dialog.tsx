@@ -24,7 +24,7 @@ const KIND_ORDER: GroupKind[] = ['scene', 'ui', 'document'];
  * project, never preselected), what in those lines would spoil the translation and where to fix it,
  * how long and how much in plain words, and which models.
  */
-export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: givenGroupIds, unitIds: givenUnitIds, unitsLabel, viewKind, dirty, disabled, trigger, defaultIgnoreStatus = false, preferWorkflow, open: controlledOpen, onOpenChange, hideTrigger = false }: {
+export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: givenGroupIds, unitIds: givenUnitIds, unitsLabel, viewKind, dirty, disabled, trigger, defaultIgnoreStatus = false, remember, open: controlledOpen, onOpenChange, hideTrigger = false }: {
   projectId: string;
   /** Omit to let the user pick a workflow (when starting from a scene or a line selection). */
   workflowId?: string;
@@ -40,7 +40,8 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   /** Start with the entry-status check off (re-running lines that are already done). */
   defaultIgnoreStatus?: boolean;
   /** Preselect the workflow with this name when it exists (e.g. "말투만 고치기"). */
-  preferWorkflow?: string;
+  /** A button's own key: the dialog opens on the workflow last run from it, and with none picked the first time. */
+  remember?: string;
   open?: boolean; onOpenChange?: (open: boolean) => void; hideTrigger?: boolean;
 }) {
   const navigate = useNavigate();
@@ -68,26 +69,38 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   // This run's models by AI node, where the person picked another than the node's own (the workflow is not changed).
   const [runModels, setRunModels] = useState<Record<string, ModelValue>>({});
   const workflows = useQuery({ ...q.workflows(projectId), enabled: open });
-  const [chosen, setChosen] = useState<string>();
-  const workflowId = fixedWorkflowId ?? chosen ?? (preferWorkflow && workflows.data?.find((workflow) => workflow.name === preferWorkflow && !workflow.errorCount)?.id) ?? workflows.data?.find((workflow) => !workflow.errorCount)?.id;
+  const rememberKey = remember && `run-dialog:${projectId}:${remember}`;
+  const [chosen, setChosen] = useState<string | undefined>(() => {
+    if (!rememberKey) return undefined;
+    try {
+      return localStorage.getItem(rememberKey) ?? undefined;
+    } catch {
+      return undefined;
+    }
+  });
+  const choose = (id: string) => {
+    setChosen(id);
+    if (rememberKey) {
+      try {
+        localStorage.setItem(rememberKey, id);
+      } catch {
+        // A blocked storage only loses the memory.
+      }
+    }
+  };
+  const valid = (id: string | undefined) => (id && workflows.data?.some((workflow) => workflow.id === id && !workflow.errorCount) ? id : undefined);
+  // A remembered button never falls back to some other workflow: the person picks one.
+  const workflowId = fixedWorkflowId ?? (rememberKey ? valid(chosen) : (chosen ?? workflows.data?.find((workflow) => !workflow.errorCount)?.id));
   const workflow = workflows.data?.find((item) => item.id === workflowId);
   const groups = useQuery({ ...q.groups(projectId), enabled: open });
   const here = groupIds?.length ? groups.data?.filter((group) => groupIds.includes(group.id)) : undefined;
 
-  const initialStatus = statuses.data?.statuses.find((s) => s.kind === 'initial');
-  const isNonTranslation =
-    defaultIgnoreStatus ||
-    workflow?.isAnalysis ||
-    ['청자 추정', '용어 추출', '인물·관계 추출', '사건 추출', '작품 분석'].includes(workflow?.name ?? '');
-
+  // The workflow's own start (대상 상태) picks the statuses; opened for named lines, none are.
+  const entryStatuses = defaultIgnoreStatus ? '' : (workflow?.entryStatusIds ?? []).join(',');
   useEffect(() => {
     if (!open) return;
-    if (!isNonTranslation && initialStatus) {
-      setPickedStatuses(new Set([initialStatus.id]));
-    } else {
-      setPickedStatuses(new Set());
-    }
-  }, [open, workflowId, isNonTranslation, initialStatus?.id]);
+    setPickedStatuses(new Set(entryStatuses ? entryStatuses.split(',') : []));
+  }, [open, workflowId, entryStatuses]);
 
   // Opened from the UI strings or documents view: every group of that kind starts picked.
   // The table starts with everything ticked (the whole project), or only the kind of the view it was opened from.
@@ -194,7 +207,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
         <div className="-mx-1 max-h-[70svh] space-y-5 overflow-auto px-1 py-0.5">
           {!fixedWorkflowId && (
             <div className="space-y-2">
-            <Select value={workflowId} onValueChange={setChosen}>
+            <Select value={workflowId ?? ''} onValueChange={choose}>
               <SelectTrigger className="w-full" aria-label="워크플로">
                 <SelectValue placeholder="워크플로 선택" />
               </SelectTrigger>

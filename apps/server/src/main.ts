@@ -32,8 +32,6 @@ const secrets = process.env.WORKBENCH_SECRETS === 'memory' ? memoryStore() : key
 closeStaleCalls(db);
 // Proposals a stopped server was still applying are closed as failed, not run again (see closeInterruptedProposals).
 closeInterruptedProposals(db);
-// Jobs of the old analysis service (before #47 analyses are workflow runs) that a stop cut off.
-db.update(s.analysisJobs).set({ status: 'failed', error: '서버가 다시 시작되어 중단되었습니다.', finishedAt: new Date() }).where(eq(s.analysisJobs.status, 'running')).run();
 // AI nodes saved before their connection had a default model get it now (also done when a connection is saved).
 fillDefaultModels(db);
 // Built-in workflows saved before the general AI outputs and 반영 nodes are replaced by the current ones (once).

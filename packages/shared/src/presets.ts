@@ -180,7 +180,8 @@ export const AI_PRESETS = {
       { ...field('confidence', 'number', 'How sure you are.'), min: 0, max: 1 },
       field('reason', 'string', 'One short line on why.'),
     ],
-    context: { glossary: false, cast: true, characters: true, relationships: true, documents: true, precedingLines: 8, previousScenes: 1 },
+    // Not the lines' own listeners and speech rules: those are what this node decides.
+    context: { glossary: false, speech: false, cast: true, characters: true, relationships: true, documents: true, precedingLines: 8, previousScenes: 1 },
     batch: { mode: 'group', size: 80, maxTokens: 6_000 },
     instructions:
       'For each line, decide who the speaker is addressing, so a Korean translator can pick the right speech level. ' +
@@ -195,7 +196,7 @@ export const AI_PRESETS = {
     output: 'json',
     scope: 'batch',
     include: { candidate: false, issues: false },
-    context: { characters: true, documents: true, precedingLines: 0, previousScenes: 0 },
+    context: { characters: true, documents: true, speech: false, precedingLines: 0, previousScenes: 0 },
     batch: { mode: 'group', size: 60, maxTokens: 6_000 },
     fields: [listField('terms', 'Terms found across all lines of the request; empty when there are none.', termFields)],
     instructions: [

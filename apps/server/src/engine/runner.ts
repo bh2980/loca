@@ -19,7 +19,7 @@ import { wholeScriptRequest } from './whole-script.ts';
 import { resolveChoiceOptions } from '../services/choice-options.ts';
 import { applyIssueTags } from '../services/issue-tags.ts';
 import { logged } from '../services/ai-calls.ts';
-import { MIN_ANALYSIS_TIMEOUT_MS, outputCutOff } from '../services/analysis.ts';
+import { MIN_WHOLE_SCRIPT_TIMEOUT_MS, outputCutOff } from '../services/whole-script-limits.ts';
 import { overheadOf } from '../services/preflight.ts';
 import type { ModelPort } from './model-port.ts';
 export type { ModelPort } from './model-port.ts';
@@ -69,7 +69,7 @@ const TRANSIENT = new Set(['rate-limit', 'network', 'timeout']);
 /** How many times a malformed answer for several lines is retried as halves. */
 const MAX_SPLITS = 2;
 /** A script read in halves at scene boundaries: up to 2⁶ parts of the request the model refused. */
-const MAX_ANALYSIS_SPLITS = 6;
+const MAX_WHOLE_SCRIPT_SPLITS = 6;
 
 /** Where to cut a request between scenes, nearest its middle (the middle itself when it is one scene). */
 export function sceneHalf(groupIds: string[]) {
@@ -698,7 +698,7 @@ export class Runner {
     const { system, prompt } = built;
     const perLine = !isBatchScope(node);
     // A whole-script read takes minutes; the connection's per-call timeout is for single scenes.
-    const timeoutMs = whole ? Math.max(model.timeoutSeconds * 1000, MIN_ANALYSIS_TIMEOUT_MS) : model.timeoutSeconds * 1000;
+    const timeoutMs = whole ? Math.max(model.timeoutSeconds * 1000, MIN_WHOLE_SCRIPT_TIMEOUT_MS) : model.timeoutSeconds * 1000;
     const request = { system, prompt, schema: outputSchema(node, perLine && !whole ? lines.map((line) => line.id) : undefined, choiceOptions), maxOutputTokens: model.maxOutputTokens, temperature: node.config.temperature, timeoutMs, signal };
     step.prompt = `${system}\n\n${prompt}`;
     // The input cap is checked before sending, counting calls still in flight, so a run stops short
@@ -723,8 +723,8 @@ export class Runner {
     };
 
     try {
-      // Analysis reads are logged as such: their pace (minutes per script) would skew the run estimates.
-      const call = { projectId: run.projectId, kind: whole ? ('analysis' as const) : ('run' as const), refId: run.id, label: `${nodeName(node)} · ${items.length.toLocaleString()}줄` };
+      // Whole-script reads are logged as such: their pace (minutes per script) would skew the run estimates.
+      const call = { projectId: run.projectId, kind: whole ? ('whole' as const) : ('run' as const), refId: run.id, label: `${nodeName(node)} · ${items.length.toLocaleString()}줄` };
       const result = await ai.withFallback(routes, model.maxAttempts, (route) => logged(this.db, call, route, () => this.model.generate(route, request)), signal).finally(release);
       const raw = result.result.object;
       const outcomes = readAiOutput(node, raw, lines, result.route.model, choiceOptions);
@@ -746,10 +746,10 @@ export class Runner {
       if (signal.aborted) return;
       // A malformed answer or a request longer than the model's window: smaller requests may pass.
       const code = (error as { code?: string }).code;
-      // A work analysis whose answer was cut off at the model's output limit (a whole game's listeners
+      // A whole-script read whose answer was cut off at the model's output limit (a whole game's listeners
       // and terms can be as long as the script) is read again in halves too, cut between scenes.
       const splittable = code === 'invalid-output' || code === 'too-long' || (whole !== null && outputCutOff(error));
-      if (!(splittable && items.length > 1 && depth < (whole ? MAX_ANALYSIS_SPLITS : MAX_SPLITS))) return this.failBatch(run, items, { ...step, attempts: attemptsOf(error) }, error);
+      if (!(splittable && items.length > 1 && depth < (whole ? MAX_WHOLE_SCRIPT_SPLITS : MAX_SPLITS))) return this.failBatch(run, items, { ...step, attempts: attemptsOf(error) }, error);
       // Record the failed request, then try each half on its own.
       const message = error instanceof Error ? error.message : String(error);
       this.db.insert(s.runSteps).values({ ...step, ok: false, error: `${message} (반으로 나눠 다시 보냄)`, attempts: attemptsOf(error), ...usageColumns(stepUsage(attemptsOf(error), (error as { usage?: ai.Usage }).usage)), finishedAt: new Date() }).run();

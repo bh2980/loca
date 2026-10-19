@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { isAnalysisWorkflow, CONNECTION_KIND_INFO, lineMarksSchema, scriptParams, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels } from '@tw/shared';
+import { isWholeScriptWorkflow, CONNECTION_KIND_INFO, lineMarksSchema, scriptParams, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -9,7 +9,7 @@ import { workflowIssues } from '../services/workflow-issues.ts';
 import { events } from '../events.ts';
 import { lineView, validateScriptData } from '../engine/functions/index.ts';
 import { runScript } from '../engine/functions/sandbox.ts';
-import { ANALYSIS_BUSY, createRunInSteps, FILLING, refuseSecondAnalysis, selectRunUnits } from '../engine/run-create.ts';
+import { WHOLE_SCRIPT_BUSY, createRunInSteps, FILLING, refuseSecondWholeScript, selectRunUnits } from '../engine/run-create.ts';
 import { listBatches, preflight } from '../services/preflight.ts';
 import { choiceLabel, snapshotWorkflowModels } from '../services/routes.ts';
 import { continuePreflight, switchedRun } from '../services/run-continue.ts';
@@ -25,13 +25,13 @@ const connectionNames = (db: Db) => new Map(db.select({ id: s.connections.id, na
 const connectionName = (names: Map<string, string>, id: string | null, kind: string | null) =>
   (id && names.get(id)) ?? (kind ? (CONNECTION_KIND_INFO[kind as keyof typeof CONNECTION_KIND_INFO]?.label ?? kind) : null);
 
-/** A work analysis continued or resumed while another one runs would write the same drafts twice: refused like a second start. */
-function refuseWhileAnotherAnalysis(db: Db, run: typeof s.runs.$inferSelect) {
-  if (!isAnalysisWorkflow(run.definition)) return;
+/** A whole-script run continued or resumed while another one runs: refused like a second start. */
+function refuseWhileAnotherWholeScript(db: Db, run: typeof s.runs.$inferSelect) {
+  if (!isWholeScriptWorkflow(run.definition)) return;
   try {
-    refuseSecondAnalysis(db, run.projectId, run.id);
+    refuseSecondWholeScript(db, run.projectId, run.id);
   } catch {
-    badRequest(`${ANALYSIS_BUSY} 그 분석이 끝나거나 멈춘 뒤에 이어서 하세요.`);
+    badRequest(`${WHOLE_SCRIPT_BUSY} 그 실행이 끝나거나 멈춘 뒤에 이어서 하세요.`);
   }
 }
 
@@ -62,7 +62,8 @@ export const workflowRoutes = new Hono<Env>()
     return c.json(
       rows.map(({ definition, ...row }) => ({
         ...row,
-        isAnalysis: isAnalysisWorkflow(definition),
+        // The start's 대상 상태: the run dialog's default status filter.
+        entryStatusIds: (() => { const entry = definition.nodes.find((node) => node.type === 'entry'); return entry?.type === 'entry' ? entry.config.statusIds : []; })(),
         nodeCount: definition.nodes.length,
         errorCount: workflowIssues(db, projectId, definition).filter((issue) => issue.level === 'error').length,
       })),
@@ -211,16 +212,15 @@ export const workflowRoutes = new Hono<Env>()
     return c.json({ samples: rates.length, secondsPer1k: rates.length ? rates[Math.floor(rates.length / 2)] : null });
   })
   /**
-   * AI jobs that are not workflow runs (work analysis, glossary fill), for 실행 기록 to list beside
-   * the runs, each with its model requests from the AI log.
+   * AI jobs that are not workflow runs (glossary fill), for 실행 기록 to list beside the runs, each
+   * with its model requests from the AI log.
    */
   .get('/projects/:projectId/jobs', (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
-    const analyses = db.select().from(s.analysisJobs).where(eq(s.analysisJobs.projectId, projectId)).orderBy(desc(s.analysisJobs.createdAt)).limit(100).all();
     const fills = db.select().from(s.termJobs).where(eq(s.termJobs.projectId, projectId)).orderBy(desc(s.termJobs.createdAt)).limit(100).all();
     const runIds = db.select({ id: s.runs.id }).from(s.runs).where(eq(s.runs.projectId, projectId)).orderBy(desc(s.runs.createdAt)).limit(200).all().map((run) => run.id);
-    const ids = [...analyses, ...fills].map((job) => job.id).concat(runIds);
+    const ids = fills.map((job) => job.id).concat(runIds);
     const stats = new Map(
       (ids.length
         ? db
@@ -244,7 +244,6 @@ export const workflowRoutes = new Hono<Env>()
       /** Model requests per workflow run, from the AI log (runs started before it have none). */
       runCalls: Object.fromEntries(runIds.flatMap((id) => (stats.has(id) ? [[id, stats.get(id)!] as const] : []))),
       jobs: [
-      ...analyses.map((job) => ({ kind: 'analysis' as const, id: job.id, title: '작품 분석', model: used(job), status: job.status, error: job.error, done: job.partsDone, total: job.partsTotal, createdAt: job.createdAt, finishedAt: job.finishedAt, ...usage(job.id, job.usage) })),
       ...fills.map((job) => ({ kind: 'terms' as const, id: job.id, title: '용어 AI 채우기', model: used(job), status: job.status, error: job.error, done: job.done, total: job.total, createdAt: job.createdAt, finishedAt: job.finishedAt, ...usage(job.id, job.usage) })),
       ],
     });
@@ -358,7 +357,7 @@ export const workflowRoutes = new Hono<Env>()
     const { db, runner } = c.var.deps;
     const run = found(db.select().from(s.runs).where(eq(s.runs.id, c.req.param('id'))).get(), '실행');
     const { models, retryFailed } = c.req.valid('json');
-    refuseWhileAnotherAnalysis(db, run);
+    refuseWhileAnotherWholeScript(db, run);
     const switched = switchedRun(db, run, models);
     if (!switched.ok) badRequest(switched.error);
     const result = runner.continue(run.id, { definition: switched.definition, models: switched.models, changes: switched.changes, retryFailed });
@@ -371,7 +370,7 @@ export const workflowRoutes = new Hono<Env>()
     const action = c.req.param('action') as 'pause' | 'resume' | 'cancel';
     if (action === 'resume') {
       const run = found(c.var.deps.db.select().from(s.runs).where(eq(s.runs.id, id)).get(), '실행');
-      refuseWhileAnotherAnalysis(c.var.deps.db, run);
+      refuseWhileAnotherWholeScript(c.var.deps.db, run);
     }
     runner[action](id);
     return c.json({ ok: true });

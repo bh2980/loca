@@ -1,13 +1,10 @@
 import { useState, type ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
-import { useMutation, useQuery } from '@tanstack/react-query';
-import { Check, CircleStop, Play, X } from 'lucide-react';
-import { hasAnalysis } from '@/components/knowledge/analysis-controls';
+import { useQuery } from '@tanstack/react-query';
+import { Check, Play, X } from 'lucide-react';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { Button, SectionHeading } from '@loca/ui';
 import { HeaderActions } from '@/components/page';
-import { AnalysisSteps } from '@/components/job-progress';
-import { client, unwrap } from '@/lib/api';
 import { q, useReviewTagId } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { termMarksOf } from '@tw/shared';
@@ -20,8 +17,6 @@ interface Step {
   done: boolean;
   /** Worth doing but not needed to translate; never "the next step". */
   optional?: boolean;
-  /** Shown under the step while it is being done (an analysis reading the script). */
-  progress?: ReactNode;
   /** What to press for this step; the next step's is the page's primary button. */
   action: (primary: boolean) => ReactNode;
 }
@@ -29,12 +24,12 @@ interface Step {
 /**
  * The order of work for a new project, on its home page: each step checks itself off from the
  * project's own data, and only the next required step carries the primary button. It disappears
- * once a translation run has happened and the analysis exists (the work is under way), or when the
+ * once a run has happened and there is story knowledge (the work is under way), or when the
  * person closes it (kept per project in this browser; '시작하기' in the header brings it back).
  */
 export function GettingStarted({ projectId }: { projectId: string }) {
   const connections = useQuery(q.connections());
-  const jobs = useQuery(q.analysisJobs(projectId));
+  const characters = useQuery(q.characters(projectId));
   const rules = useQuery(q.speechRules(projectId));
   const reviewTag = useReviewTagId(projectId);
   const terms = useQuery(q.terms(projectId));
@@ -45,14 +40,13 @@ export function GettingStarted({ projectId }: { projectId: string }) {
     setHidden(value);
     writeHidden(projectId, value);
   };
-  const cancel = useMutation({ mutationFn: (jobId: string) => unwrap(client.projects[':projectId'].analysis[':jobId'].cancel.$post({ param: { projectId, jobId } })) });
-  if (!connections.data || !jobs.data || !rules.data || !terms.data || !runs.data || !project.data) return null;
+  if (!connections.data || !characters.data || !rules.data || !terms.data || !runs.data || !project.data) return null;
 
   const aiConnections = connections.data.filter((connection) => connection.kind !== 'http');
-  const analysed = hasAnalysis(jobs.data);
-  const reading = jobs.data.find((job) => job.status === 'running');
+  // Story knowledge exists (whichever workflow, chat or person made it): AI nodes have context to read.
+  const known = characters.data.characters.length > 0 || rules.data.length > 0;
   const ran = runs.data.length > 0;
-  if (analysed && ran) return null;
+  if (known && ran) return null;
   if (hidden)
     return (
       <HeaderActions>
@@ -81,39 +75,16 @@ export function GettingStarted({ projectId }: { projectId: string }) {
       ),
     },
     {
-      key: 'analysis',
-      title: '작품 분석',
-      done: analysed,
-      action: (primary) => <RunDialog projectId={projectId} trigger={<Button variant={primary ? 'default' : 'outline'}>워크플로 실행</Button>} />,
-      progress: reading && (
-        <div className="mt-3">
-          <AnalysisSteps
-            job={reading}
-            actions={
-              <>
-                {reading.runId ? (
-                  <Link to="/p/$projectId/runs/$runId" params={{ projectId, runId: reading.runId }} className="text-muted-foreground underline underline-offset-2 hover:text-foreground">
-                    실행 기록에서 보기
-                  </Link>
-                ) : (
-                  <Link to="/p/$projectId/runs" params={{ projectId }} search={{ job: reading.id }} className="text-muted-foreground underline underline-offset-2 hover:text-foreground">
-                    실행 기록에서 보기
-                  </Link>
-                )}
-                <Button variant="ghost" size="inline" onClick={() => cancel.mutate(reading.id)} disabled={cancel.isPending}>
-                  <CircleStop /> 중단
-                </Button>
-              </>
-            }
-          />
-        </div>
-      ),
+      key: 'knowledge',
+      title: '자료 만들기',
+      done: known,
+      action: (primary) => <RunDialog projectId={projectId} remember="getting-started-knowledge" trigger={<Button variant={primary ? 'default' : 'outline'}>워크플로 실행</Button>} />,
     },
     {
       key: 'check',
       title: '말투 규칙 훑어보기',
       why: toCheck ? `확인 권장 ${toCheck}개` : undefined,
-      done: analysed && toCheck === 0,
+      done: known && toCheck === 0,
       optional: true,
       action: () => (
         <Button asChild variant="ghost">
@@ -144,7 +115,7 @@ export function GettingStarted({ projectId }: { projectId: string }) {
       action: (primary) => (
         <RunDialog
           projectId={projectId}
-          preferWorkflow="초벌 번역"
+          remember="getting-started"
           trigger={
             <Button variant={primary ? 'default' : 'outline'}>
               <Play /> 실행 범위 고르기
@@ -190,9 +161,8 @@ export function GettingStarted({ projectId }: { projectId: string }) {
                   {step.optional && <span className="ml-2 text-xs font-normal text-muted-foreground">선택</span>}
                 </p>
                 {!step.done && step.why && <p className="mt-0.5 text-xs text-muted-foreground">{step.why}</p>}
-                {step.progress}
               </div>
-              {!step.done && !step.progress && (current || step.optional) && <div className="shrink-0">{step.action(current)}</div>}
+              {!step.done && (current || step.optional) && <div className="shrink-0">{step.action(current)}</div>}
             </li>
           );
         })}

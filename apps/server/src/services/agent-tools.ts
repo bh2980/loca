@@ -287,14 +287,14 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
     }),
     list_characters: tool({
       description:
-        'Stored characters (profile, how they speak, gender, age band, role and whether they are the player character) and their relationships (with changes). Each item says its status (confirmed = used as AI context, candidate = not yet), statusBy (ai = AI set that status and no person has looked yet, human = a person decided), source (who wrote the content: analysis, workflow, script, import, human), marks (candidate, ai, noEvidence) and tags. Filter with marks / unreviewed (candidate or AI-decided, i.e. not yet seen by a person) / tags.',
+        'Stored characters (profile, how they speak, gender, age band, role and whether they are the player character) and their relationships (with changes). Each item says its status (confirmed = used as AI context, candidate = not yet), statusBy (ai = AI set that status and no person has looked yet, human = a person decided), source (who wrote the content: workflow, script, import, human), marks (candidate, ai, noEvidence) and tags. Filter with marks / unreviewed (candidate or AI-decided, i.e. not yet seen by a person) / tags.',
       inputSchema: z.object(knowledgeFilterInput),
       execute: (filter) => {
         const characters = db.select().from(s.characters).where(and(eq(s.characters.projectId, projectId), ne(s.characters.status, 'rejected'))).all();
         const names = new Map(db.select({ id: s.characters.id, name: s.characters.name }).from(s.characters).where(eq(s.characters.projectId, projectId)).all().map((character) => [character.id, character.name]));
         const relationships = db.select().from(s.relationships).where(and(eq(s.relationships.projectId, projectId), ne(s.relationships.status, 'rejected'))).all();
         return {
-          characters: annotateKnowledge(db, projectId, 'characters', characters, filter).map(({ id, name, aliases, profile, speech, player, gender, ageBand, role, status, origin, jobId, statusBy, marks, tags }) => ({ id, name, aliases, profile, speech, player, gender, ageBand, role, status, statusBy, source: sourceOf({ origin, jobId }), marks, tags })),
+          characters: annotateKnowledge(db, projectId, 'characters', characters, filter).map(({ id, name, aliases, profile, speech, player, gender, ageBand, role, status, origin, statusBy, marks, tags }) => ({ id, name, aliases, profile, speech, player, gender, ageBand, role, status, statusBy, source: sourceOf({ origin }), marks, tags })),
           relationships: annotateKnowledge(db, projectId, 'relationships', relationships, filter).map((rel) => ({ id: rel.id, from: names.get(rel.fromId), to: names.get(rel.toId), kind: rel.kind, description: rel.description, mutual: rel.mutual, changes: rel.changes, status: rel.status, statusBy: rel.statusBy, source: sourceOf(rel), marks: rel.marks, tags: rel.tags })),
         };
       },
@@ -316,14 +316,14 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       execute: ({ speaker, listener, ...filter }) =>
         annotateKnowledge(db, projectId, 'speechRules', db.select().from(s.speechRules).where(and(eq(s.speechRules.projectId, projectId), ne(s.speechRules.status, 'rejected'))).all(), filter)
           .filter((rule) => (!speaker || rule.fromName.toLowerCase() === speaker.toLowerCase()) && (!listener || rule.toName.toLowerCase() === listener.toLowerCase()))
-          .map(({ id, fromName, toName, level, address, note, startKey, status, origin, jobId, statusBy, evidence, marks, tags }) => ({ id, from: fromName, to: toName, level, address, note, startKey, status, statusBy, source: sourceOf({ origin, jobId }), evidence, marks, tags })),
+          .map(({ id, fromName, toName, level, address, note, startKey, status, origin, statusBy, evidence, marks, tags }) => ({ id, from: fromName, to: toName, level, address, note, startKey, status, statusBy, source: sourceOf({ origin }), evidence, marks, tags })),
     }),
     list_events: tool({
       description: 'Stored story events: summary, cause, outcome, participants and the lines that show them, with status, statusBy, source, marks (candidate, ai, noEvidence) and tags. Filter with marks / unreviewed / tags.',
       inputSchema: z.object(knowledgeFilterInput),
       execute: (filter) =>
         annotateKnowledge(db, projectId, 'events', db.select().from(s.storyEvents).where(and(eq(s.storyEvents.projectId, projectId), ne(s.storyEvents.status, 'rejected'))).all(), filter).map(
-          ({ id, title, summary, cause, outcome, participants, evidence, status, origin, jobId, statusBy, marks, tags }) => ({ id, title, summary, cause, outcome, participants, evidence, status, statusBy, source: sourceOf({ origin, jobId }), marks, tags }),
+          ({ id, title, summary, cause, outcome, participants, evidence, status, origin, statusBy, marks, tags }) => ({ id, title, summary, cause, outcome, participants, evidence, status, statusBy, source: sourceOf({ origin }), marks, tags }),
         ),
     }),
     read_documents: tool({
@@ -383,7 +383,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
           },
           scriptContract: 'export default function run(input) where input = {unit, candidate, issues, outputs, visits}; return {port?, candidate?, data?, issues?}. Runs in a sandbox without network.',
         },
-        conditionData: `JSON Logic over {visits: {[nodeId]: count}, outputs: {[nodeId]: output}, candidate, issues, unit: {kind, speaker, statusId, tagIds, marks}} (marks: any of ${CONDITION_MARK_IDS.join(', ')}; test with {"in": ["ai", {"var": "unit.marks"}]}). Example: {"<": [{"var": "visits.review"}, 3]} or {"==": [{"var": "outputs.review.passed"}, true]}`,
+        conditionData: `JSON Logic over {visits: {[nodeId]: count}, outputs: {[nodeId]: output}, candidate, issues, unit: {kind, speaker, listener, statusId, tagIds, marks}} (marks: any of ${CONDITION_MARK_IDS.join(', ')}; test with {"in": ["ai", {"var": "unit.marks"}]}). Example: {"<": [{"var": "visits.review"}, 3]} or {"==": [{"var": "outputs.review.passed"}, true]}`,
         rules: [
           'Exactly one entry node.',
           'Every exit except "error" must be connected; an unconnected "out" only warns (the line stops there).',
@@ -583,7 +583,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
           const run = await createRunInSteps(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope });
           return { ok: true, ...run, workflow: workflow.name };
         } catch (error) {
-          // e.g. a work analysis is already running (the same guard as the 작품 분석 button).
+          // e.g. a whole-script run is already running (the same guard as the run dialog).
           return { ok: false, error: error instanceof Error ? error.message : String(error) };
         }
       },

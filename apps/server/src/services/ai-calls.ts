@@ -9,7 +9,7 @@ export interface CallMeta {
   kind: (typeof s.AI_CALL_KINDS)[number];
   refId?: string | null;
   label: string;
-  /** What was sent, kept so the record can show it (work analysis, glossary fills). */
+  /** What was sent, kept so the record can show it (glossary fills). */
   request?: string;
 }
 

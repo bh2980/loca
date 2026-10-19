@@ -315,11 +315,12 @@ describe('isIdentifierLabel', () => {
 });
 
 describe('run readiness', () => {
-  it('applies only to workflows that write or judge translations with that context', () => {
+  it('follows the context the AI nodes send, whatever they output', () => {
     expect(readinessUses(translationTemplate(ids))).toEqual({ speech: true, glossary: true });
     expect(readinessUses(analysisTemplate({ model }))).toEqual({ speech: false, glossary: false });
     expect(readinessUses(listenerTemplate({ model }))).toEqual({ speech: false, glossary: false });
-    expect(readinessUses(termExtractionTemplate({ model }))).toEqual({ speech: false, glossary: false });
+    // Term extraction is sent the glossary (to skip known terms), so unreviewed terms matter to it.
+    expect(readinessUses(termExtractionTemplate({ model }))).toEqual({ speech: false, glossary: true });
   });
 });
 

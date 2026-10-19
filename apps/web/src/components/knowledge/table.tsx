@@ -20,8 +20,6 @@ export interface Draft {
   /** Who set the status. */
   statusBy: StatusBy;
   evidence: string[];
-  /** The work analysis that put it in, if any. */
-  jobId?: string | null;
   /** Project tags on it; `note` says why the app put one there (확인 권장). */
   tags?: ItemTag[];
 }

@@ -15,7 +15,7 @@ export interface ChatView {
  * the server saved, and keeps its messages, status and stream until the session is deleted.
  */
 /** Every topic: an approved chat tool can write almost anywhere (statuses, runs, graph views…), so a finished turn refetches them all rather than keep a list in step with the tools. */
-const CHAT_TOPICS = ['projects', 'units', 'graph', 'statuses', 'terms', 'knowledge', 'workflows', 'runs', 'chat', 'proposals', 'analysis', 'calls'];
+const CHAT_TOPICS = ['projects', 'units', 'graph', 'statuses', 'terms', 'knowledge', 'workflows', 'runs', 'chat', 'proposals', 'calls'];
 
 const chats = new Map<string, { chat: Chat<UIMessage>; view: { current: ChatView | null } }>();
 

@@ -132,7 +132,7 @@ export function packGroups<T extends { tokens: number; kind?: string }>(planned:
 }
 
 /**
- * "whole" (work analysis): the script in as few requests as `maxTokens` allows, whatever the line
+ * "whole": the script in as few requests as `maxTokens` allows, whatever the line
  * count or kind. Groups (scenes, or plan batches) are never cut unless one alone is larger than a
  * request; a model that refuses a request as too long gets it again in halves (the runner).
  */

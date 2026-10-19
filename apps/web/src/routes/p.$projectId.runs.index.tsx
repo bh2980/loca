@@ -7,7 +7,6 @@ import { Page } from '@/components/page';
 import { InspectorHeader, Inspector, SplitPane, EmptyState, DataTable, type ColumnDef, JobStatusBadge, Button, Progress, Spinner, Collapsible, CollapsibleContent, CollapsibleTrigger, Skeleton, ContextMenuItem } from '@loca/ui';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
-import { AnalysisSteps } from '@/components/job-progress';
 import { cn } from '@/lib/utils';
 import { dateTime, clock } from '@/lib/datetime';
 
@@ -21,7 +20,7 @@ export const Route = createFileRoute('/p/$projectId/runs/')({
   component: Runs,
 });
 
-const JOB_KIND = { run: '워크플로', analysis: '자료', terms: '용어집' } as const;
+const JOB_KIND = { run: '워크플로', terms: '용어집' } as const;
 type Stats = { calls: number | null; inputTokens: number; outputTokens: number };
 
 const seconds = (from: Date | string, to: Date | string | null) => {
@@ -137,7 +136,7 @@ function Runs() {
             sub: job.model ?? '',
             status: job.status,
             error: job.error,
-            progress: job.total != null && job.done != null ? { done: job.done, total: job.total, unit: job.kind === 'analysis' ? '부분' : '개' } : null,
+            progress: job.total != null && job.done != null ? { done: job.done, total: job.total, unit: '개' } : null,
             stats: job,
             at: new Date(job.createdAt),
           })),
@@ -204,8 +203,6 @@ function Runs() {
 /** The model requests of one job, newest first. */
 function JobCalls({ projectId, job, onClose }: { projectId: string; job: { id: string; kind: keyof typeof JOB_KIND; title: string; stats: Stats | null }; onClose: () => void }) {
   const calls = useQuery(q.aiCalls(projectId, undefined, job.id));
-  const analyses = useQuery({ ...q.analysisJobs(projectId), enabled: job.kind === 'analysis' });
-  const analysis = analyses.data?.find((item) => item.id === job.id && item.status === 'running');
   return (
     <Inspector header={<InspectorHeader kind={JOB_KIND[job.kind]} name={job.title} status={<span className="tabular-nums">AI 호출 · 입력/출력 {tokens(job.stats)}</span>} actions={
         <>
@@ -213,13 +210,6 @@ function JobCalls({ projectId, job, onClose }: { projectId: string; job: { id: s
             <Button asChild variant="ghost">
               <Link to="/p/$projectId/runs/$runId" params={{ projectId, runId: job.id }}>
                 실행 상세
-              </Link>
-            </Button>
-          )}
-          {job.kind === 'analysis' && (
-            <Button asChild variant="ghost">
-              <Link to="/p/$projectId/knowledge" params={{ projectId }}>
-                자료 보기
               </Link>
             </Button>
           )}
@@ -232,11 +222,6 @@ function JobCalls({ projectId, job, onClose }: { projectId: string; job: { id: s
           )}
         </>
       } onClose={onClose} />} loading={!calls.data} bodyClassName="space-y-0 p-0">
-      {analysis && (
-        <div className="border-b p-4">
-          <AnalysisSteps job={analysis} />
-        </div>
-      )}
       {calls.data?.calls.length === 0 ? (
         <p className="px-4 py-6 text-sm text-muted-foreground">이 작업의 AI 호출 기록이 없습니다.</p>
       ) : (

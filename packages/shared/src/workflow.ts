@@ -405,23 +405,22 @@ export function applyIssues(definition: WorkflowDefinition, fn: ApplyFunctionNam
   return issues;
 }
 
-/** AI nodes that read the whole script in one request (batch mode "whole"), like the work analysis (#47). */
-export const analysisNodes = (definition: WorkflowDefinition) => definition.nodes.filter((node): node is AiNode => node.type === 'ai' && node.config.batch.mode === 'whole');
-/** A workflow that reads the whole script at once: only one such run at a time per project. */
-export const isAnalysisWorkflow = (definition: WorkflowDefinition) => analysisNodes(definition).length > 0;
+/** AI nodes that read the whole script in one request (batch mode "whole"). */
+export const wholeScriptNodes = (definition: WorkflowDefinition) => definition.nodes.filter((node): node is AiNode => node.type === 'ai' && node.config.batch.mode === 'whole');
+/** A workflow that reads the whole script at once: only one such run at a time per project (two would send the same script twice). */
+export const isWholeScriptWorkflow = (definition: WorkflowDefinition) => wholeScriptNodes(definition).length > 0;
 
 /**
- * Which run-dialog readiness checks matter for a workflow: only nodes that write or judge
- * translations (번역 후보, 판정) are made worse by unknown listeners, unreviewed speech rules or
- * terms, and only when they get that context — or a speech / glossary check function runs. A work
- * analysis, listener guess or term extraction reads the script for itself and gets no warnings.
+ * Which run-dialog readiness checks matter for a workflow: those whose information some AI node
+ * actually sends — listeners and speech rules (context "청자·말투"; a whole-script request never
+ * sends them), the glossary (context "용어집", or a glossary check function). Unknown or unreviewed
+ * entries there would reach the model as if they were settled.
  */
 export function readinessUses(definition: WorkflowDefinition) {
-  const translating = definition.nodes.filter((node): node is AiNode => node.type === 'ai' && (node.config.output === 'text' || node.config.output === 'verdict'));
-  const fn = (name: string) => definition.nodes.some((node) => node.type === 'function' && node.config.fn === name);
+  const contexts = definition.nodes.filter((node): node is AiNode => node.type === 'ai').map((node) => ({ context: contextConfigSchema.parse(node.config.context ?? {}), whole: node.config.batch?.mode === 'whole' }));
   return {
-    speech: translating.some((node) => node.config.context?.speech !== false),
-    glossary: translating.some((node) => node.config.context?.glossary !== false) || fn('glossaryCheck'),
+    speech: contexts.some(({ context, whole }) => context.speech && !whole),
+    glossary: contexts.some(({ context }) => context.glossary) || definition.nodes.some((node) => node.type === 'function' && node.config.fn === 'glossaryCheck'),
   };
 }
 

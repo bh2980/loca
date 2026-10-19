@@ -63,8 +63,6 @@ export const pairSummary = (pair: Pair): Draft => {
     id: pair.key,
     status: rows.some((row) => row.status === 'candidate') ? 'candidate' : 'confirmed',
     origin: rows.some((row) => row.origin === 'ai') ? 'ai' : 'human',
-    // Carries the analysis job when an AI item came from one, so 출처 says 작품 분석, not 워크플로·채팅.
-    jobId: rows.find((row) => row.origin === 'ai' && row.jobId)?.jobId ?? null,
     statusBy: rows.some((row) => row.statusBy === 'ai') ? 'ai' : 'human',
     evidence: [],
     // Every tag of its items once; reasons of the same tag joined (확인 권장 on two stretches).
