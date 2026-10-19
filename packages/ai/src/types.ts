@@ -16,6 +16,12 @@ export interface ResolvedRoute {
 }
 
 /** What a call used, as the connection reported it. Absent fields were not reported. */
+/** What a model takes (input and output together) and gives in one call, as a provider's model list says. */
+export interface ModelLimitsInfo {
+  contextWindow?: number;
+  maxOutput?: number;
+}
+
 export interface Usage {
   /** All input the model read, the cached part included. */
   inputTokens?: number;

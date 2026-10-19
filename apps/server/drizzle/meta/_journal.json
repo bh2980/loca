@@ -477,6 +477,13 @@
       "when": 1792418568526,
       "tag": "0067_output_tokens_model_default",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "6",
+      "when": 1792419170994,
+      "tag": "0068_model_limits",
+      "breakpoints": true
     }
   ]
 }

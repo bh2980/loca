@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { packGroups, planBatches, type BatchLine } from './batches.ts';
 
-const config = { mode: 'group' as const, size: 10, maxTokens: 10_000 };
+// Each test line costs lineCost = 10 + 20 tokens, so 300 tokens hold 10 lines (and "count" packs 10 by size).
+const config = { mode: 'group' as const, size: 10, maxTokens: 300 };
 let seq = 0;
 const scene = (groupId: string, count: number, extra: Partial<BatchLine> = {}) =>
   Array.from({ length: count }, () => ({ groupId, seq: seq++, tokens: 10, kind: 'dialogue', speaker: 'A', ...extra }));

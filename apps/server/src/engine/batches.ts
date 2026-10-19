@@ -1,4 +1,4 @@
-import type { BatchConfig } from '@tw/shared';
+import { batchTokens, lineCost, type BatchConfig } from '@tw/shared';
 
 /** A line to batch, in script position. `tokens` is the estimated size of its text. */
 export interface BatchLine {
@@ -28,7 +28,8 @@ function byKind<T extends { kind?: string }>(lines: T[]): T[][] {
  *
  * - "unit": one line per request.
  * - "count": `size` lines per request, ignoring scene boundaries.
- * - "group": consecutive scenes share a request up to `size` lines and `maxTokens` of line text.
+ * - "group": consecutive scenes share a request up to `maxTokens`, each line counted by `lineCost`
+ *   (its text plus what a line costs the request), so many short lines are bounded too.
  *   A scene starts a new request instead of being split, unless it is larger than a whole request
  *   on its own; then it is cut into full requests and its tail keeps filling. With `kind` and
  *   `speaker` known (the run plan), a scene also starts a new request when its kind differs
@@ -39,7 +40,7 @@ function byKind<T extends { kind?: string }>(lines: T[]): T[][] {
 export function planBatches<T extends BatchLine>(lines: T[], config: BatchConfig, linked?: (a: string, b: string) => boolean): T[][] {
   const ordered = [...lines].sort((a, b) => a.seq - b.seq);
   if (config.mode === 'unit') return ordered.map((line) => [line]);
-  if (config.mode === 'whole') return wholeScript([...Map.groupBy(ordered, (line) => line.groupId).values()], config.maxTokens);
+  if (config.mode === 'whole') return wholeScript([...Map.groupBy(ordered, (line) => line.groupId).values()], batchTokens(config));
   if (config.mode === 'count') return byKind(ordered).flatMap((run) => Array.from({ length: Math.ceil(run.length / config.size) }, (_, index) => run.slice(index * config.size, (index + 1) * config.size)));
 
   const batches: T[][] = [];
@@ -50,8 +51,8 @@ export function planBatches<T extends BatchLine>(lines: T[], config: BatchConfig
     current = [];
     tokens = 0;
   };
-  const fits = (count: number, more: number) => current.length + count <= config.size && (current.length === 0 || tokens + more <= config.maxTokens);
-  const halfFull = () => current.length * 2 >= config.size || tokens * 2 >= config.maxTokens;
+  const fits = (more: number) => current.length === 0 || tokens + more <= batchTokens(config);
+  const halfFull = () => tokens * 2 >= batchTokens(config);
   const unrelated = (scene: T[]) => {
     if (!current.length) return false;
     if (scene[0].kind !== undefined && scene[0].kind !== current[0].kind) return true;
@@ -63,14 +64,14 @@ export function planBatches<T extends BatchLine>(lines: T[], config: BatchConfig
   };
   const scenes = [...Map.groupBy(ordered, (line) => line.groupId).values()];
   for (const scene of scenes) {
-    const sceneTokens = scene.reduce((sum, line) => sum + line.tokens, 0);
+    const sceneTokens = scene.reduce((sum, line) => sum + lineCost(line), 0);
     if (unrelated(scene)) flush();
-    if (fits(scene.length, sceneTokens)) {
+    if (fits(sceneTokens)) {
       current.push(...scene);
       tokens += sceneTokens;
       continue;
     }
-    const wholeFits = scene.length <= config.size && sceneTokens <= config.maxTokens;
+    const wholeFits = sceneTokens <= batchTokens(config);
     flush();
     if (wholeFits) {
       current.push(...scene);
@@ -79,9 +80,9 @@ export function planBatches<T extends BatchLine>(lines: T[], config: BatchConfig
     }
     // Larger than one request: cut it, line by line, at the limits.
     for (const line of scene) {
-      if (!fits(1, line.tokens)) flush();
+      if (!fits(lineCost(line))) flush();
       current.push(line);
-      tokens += line.tokens;
+      tokens += lineCost(line);
     }
   }
   flush();
@@ -96,13 +97,15 @@ export function planBatches<T extends BatchLine>(lines: T[], config: BatchConfig
  */
 export function packGroups<T extends { tokens: number; kind?: string }>(planned: T[][], config: BatchConfig): T[][] {
   if (config.mode === 'unit') return planned.flat().map((line) => [line]);
-  if (config.mode === 'whole') return wholeScript(planned, config.maxTokens);
+  if (config.mode === 'whole') return wholeScript(planned, batchTokens(config));
   // A group that holds several kinds (a mixed imported group, an older plan) is cut where the kind changes.
   const groups = planned.flatMap(byKind);
   const requests: T[][] = [];
   let current: T[] = [];
   let tokens = 0;
-  const limitTokens = config.mode === 'group' ? config.maxTokens : Infinity;
+  // "count" packs by its line count; "group" by tokens only (lineCost per line).
+  const limitTokens = config.mode === 'group' ? batchTokens(config) : Infinity;
+  const limitLines = config.mode === 'count' ? config.size : Infinity;
   const flush = () => {
     if (current.length) requests.push(current);
     current = [];
@@ -110,21 +113,21 @@ export function packGroups<T extends { tokens: number; kind?: string }>(planned:
   };
   // A small remnant (lines an answer left out, a review's few failures) may ride with a neighbour
   // a little past the limits rather than cost a request of its own.
-  const small = (count: number) => count * 4 <= config.size;
+  const small = (count: number, cost: number) => (config.mode === 'count' ? count * 4 <= limitLines : cost * 4 <= limitTokens);
   for (const group of groups) {
-    const groupTokens = group.reduce((sum, line) => sum + line.tokens, 0);
-    const slack = small(group.length) || small(current.length) ? 1.25 : 1;
+    const groupTokens = group.reduce((sum, line) => sum + lineCost(line), 0);
+    const slack = small(group.length, groupTokens) || small(current.length, tokens) ? 1.25 : 1;
     if (current.length && group[0]?.kind !== undefined && group[0].kind !== current[0]!.kind) flush();
-    if (current.length && (current.length + group.length > config.size * slack || tokens + groupTokens > limitTokens * slack)) flush();
-    if (group.length <= config.size && groupTokens <= limitTokens) {
+    if (current.length && (current.length + group.length > limitLines * slack || tokens + groupTokens > limitTokens * slack)) flush();
+    if (group.length <= limitLines && groupTokens <= limitTokens) {
       current.push(...group);
       tokens += groupTokens;
       continue;
     }
     for (const line of group) {
-      if (current.length && (current.length + 1 > config.size || tokens + line.tokens > limitTokens)) flush();
+      if (current.length && (current.length + 1 > limitLines || tokens + lineCost(line) > limitTokens)) flush();
       current.push(line);
-      tokens += line.tokens;
+      tokens += lineCost(line);
     }
   }
   flush();
@@ -141,7 +144,7 @@ function wholeScript<T extends { tokens: number }>(groups: T[][], maxTokens: num
   let current: T[] = [];
   let tokens = 0;
   for (const group of groups) {
-    const groupTokens = group.reduce((sum, line) => sum + line.tokens, 0);
+    const groupTokens = group.reduce((sum, line) => sum + lineCost(line), 0);
     if (current.length && tokens + groupTokens > maxTokens) {
       requests.push(current);
       current = [];
@@ -153,13 +156,13 @@ function wholeScript<T extends { tokens: number }>(groups: T[][], maxTokens: num
       continue;
     }
     for (const line of group) {
-      if (current.length && tokens + line.tokens > maxTokens) {
+      if (current.length && tokens + lineCost(line) > maxTokens) {
         requests.push(current);
         current = [];
         tokens = 0;
       }
       current.push(line);
-      tokens += line.tokens;
+      tokens += lineCost(line);
     }
   }
   if (current.length) requests.push(current);

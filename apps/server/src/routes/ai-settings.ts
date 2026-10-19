@@ -123,9 +123,22 @@ export const connectionRoutes = new Hono<Env>()
   })
   .get('/:id/models', async (c) => {
     const { db, secrets } = c.var.deps;
-    const route = found(connectionRoute(db, c.req.param('id'), secrets), '연결');
+    const id = c.req.param('id');
+    const route = found(connectionRoute(db, id, secrets), '연결');
     try {
-      return c.json({ ok: true as const, models: await ai.listModels(route) });
+      const models = await ai.listModels(route);
+      // What the list says about each model's limits is kept for "auto" budgets; a person's numbers stay.
+      const listed = await ai.listModelLimits(route).catch(() => ({}));
+      if (Object.keys(listed).length) {
+        const current = db.select({ limits: s.connections.modelLimits }).from(s.connections).where(eq(s.connections.id, id)).get()?.limits ?? {};
+        const next = { ...current };
+        for (const [model, limits] of Object.entries(listed)) if (current[model]?.by !== 'human') next[model] = { ...limits, by: 'api' as const };
+        if (JSON.stringify(next) !== JSON.stringify(current)) {
+          db.update(s.connections).set({ modelLimits: next }).where(eq(s.connections.id, id)).run();
+          events.changed(undefined, 'connections');
+        }
+      }
+      return c.json({ ok: true as const, models });
     } catch (error) {
       return c.json({ ok: false as const, models: null, detail: message(error) });
     }

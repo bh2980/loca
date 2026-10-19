@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray, lt } from 'drizzle-orm';
-import { CONTEXT_PRIORITY, contextConfigSchema, estimateTokens, listenerLabel, mentions, personNote, styleInstruction, termMatcher, type AgeBand, type ContextConfig, type ContextItem, type ContextItemKind, type Gender, type RelationshipChange } from '@tw/shared';
+import { CONTEXT_PRIORITY, contextConfigSchema, contextTokens, estimateTokens, listenerLabel, mentions, personNote, styleInstruction, termMatcher, type AgeBand, type ContextConfig, type ContextItem, type ContextItemKind, type Gender, type RelationshipChange } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import { documents as documentsTable, graphEdges, graphNodes, groups, units } from '../db/schema.ts';
 import { cachedKnowledge, describeRule, graphOrder, knowledgeOf, knownListener, scriptOrder, speechRuleIndex } from './speech.ts';
@@ -216,7 +216,7 @@ export function buildContext(
   const text = batch.map((unit) => `${unit.speaker ?? ''}\n${unit.source}`).join('\n');
   const groupIds = [...new Set(batch.map((unit) => unit.groupId))];
   const sceneRows = db.select().from(groups).where(inArray(groups.id, groupIds)).all();
-  const result: BatchContext = { scenes: Object.fromEntries(sceneRows.map((row) => [row.id, { title: row.title }])), previousScenes: [], documents: [], characters: [], cast: [], relationships: [], aiNotes: { characters: [], relationships: [], documents: [] }, terms: [], speech: {}, voices: {}, people: {}, preceding: {}, items: [], budget: { limit: config.maxTokens, used: 0 } };
+  const result: BatchContext = { scenes: Object.fromEntries(sceneRows.map((row) => [row.id, { title: row.title }])), previousScenes: [], documents: [], characters: [], cast: [], relationships: [], aiNotes: { characters: [], relationships: [], documents: [] }, terms: [], speech: {}, voices: {}, people: {}, preceding: {}, items: [], budget: { limit: contextTokens(config), used: 0 } };
   const candidates: Record<ContextItemKind, Candidate[]> = { term: [], speech: [], cast: [], preceding: [], character: [], relationship: [], scene: [], previousScene: [], document: [] };
 
   // '사람이 확정한 것만': AI-confirmed terms and knowledge stay out of this node's prompt.

@@ -7,6 +7,7 @@ import * as s from '../db/schema.ts';
 import type { ItemData } from '../db/schema.ts';
 import { events } from '../events.ts';
 import { excludedSql, markConditions, translatableSql } from '../services/line-marks.ts';
+import { resolveBudgets } from '../services/budgets.ts';
 import { planBatches } from './batches.ts';
 
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
@@ -119,19 +120,21 @@ type RunInput = { projectId: string; workflow: typeof s.workflows.$inferSelect; 
 
 /** The run's lines and their plan batches, and the run row to store. */
 function runRows(db: Db, input: RunInput) {
-  const entry = input.workflow.definition.nodes.find((node) => node.type === 'entry');
+  // "Auto" budgets are fixed here for the models this run calls: the plan and the runner use the same numbers.
+  const definition = resolveBudgets(db, input.workflow.definition);
+  const entry = definition.nodes.find((node) => node.type === 'entry');
   if (!entry) throw new Error('진입 노드가 없습니다.');
-  const unitIds = selectRunUnits(db, input.projectId, input.workflow.definition, input.scope);
+  const unitIds = selectRunUnits(db, input.projectId, definition, input.scope);
   if (!unitIds.length) throw new Error('조건에 맞는 대사가 없습니다.');
   const runId = crypto.randomUUID();
-  const plan = planRun(db, input.workflow.definition, unitIds);
+  const plan = planRun(db, definition, unitIds);
   const run = {
     id: runId,
     projectId: input.projectId,
     workflowId: input.workflow.id,
     workflowName: input.workflow.name,
     workflowVersion: input.workflow.version,
-    definition: input.workflow.definition,
+    definition,
     models: input.models,
     scope: input.scope,
     status: 'running' as s.RunStatus,

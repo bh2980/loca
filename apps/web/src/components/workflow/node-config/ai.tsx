@@ -2,12 +2,13 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Plus, X } from 'lucide-react';
-import { AI_OUTPUTS, AI_PRESETS, AI_SCOPES, CHOICE_SOURCES, CONNECTION_KIND_INFO, contextConfigSchema, nodeName, type AiOutput, type AiScope, type BatchConfig, type Capability, type ChoiceSource, type WorkflowNode } from '@tw/shared';
+import { AI_OUTPUTS, AI_PRESETS, AI_SCOPES, autoBudgets, CHOICE_SOURCES, CONNECTION_KIND_INFO, contextConfigSchema, nodeName, type AiOutput, type AiScope, type BatchConfig, type Capability, type ChoiceSource, type WorkflowNode } from '@tw/shared';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Button, Dialog, DialogContent, DialogHeader, DialogTitle, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, InspectorActionRow, InspectorResult, InspectorSection } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
 import { AiContextPanel } from '@/components/ai-context';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
 import { client, unwrap } from '@/lib/api';
+import { q } from '@/lib/queries';
 import { JsonFieldsEditor } from '@/components/workflow/node-config/json-fields-editor';
 import { Field, CountRow, ToggleRow, type AiNode, type NodeRefs } from '@/components/workflow/node-config/shared';
 
@@ -34,6 +35,21 @@ function ChoiceValues({ values, onChange }: { values: string[]; onChange: (value
   );
 }
 
+/** A token budget: empty = auto (the number the node's model allows, shown as the placeholder). */
+function BudgetInput({ value, auto, onChange, label }: { value: number | null | undefined; auto: number; onChange: (value: number | null) => void; label: string }) {
+  return (
+    <Input
+      type="number"
+      min={500}
+      step={500}
+      aria-label={label}
+      placeholder={`자동 · 약 ${auto.toLocaleString()}`}
+      value={value ?? ''}
+      onChange={(event) => onChange(event.target.value === '' ? null : Number(event.target.value))}
+    />
+  );
+}
+
 /** The saved node's whole prompt (the read-only format part included) for a sample line. */
 function PromptPreview({ projectId, workflowId, nodeId }: { projectId: string; workflowId?: string; nodeId: string }) {
   const [aiNode, setAiNode] = useState(workflowId ? `${workflowId}:${nodeId}` : undefined);
@@ -55,6 +71,13 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
   const config = node.config;
   // Saved workflows may predate a context setting; show its default.
   const context = contextConfigSchema.parse(config.context ?? {});
+  // "Auto" budgets: what this node's model allows (its connection's stored limits), shown as the empty fields' placeholder.
+  const connections = useQuery(q.connections());
+  const limits = connections.data?.find((connection) => connection.id === config.model.connectionId)?.modelLimits?.[config.model.model];
+  const auto = autoBudgets(limits, config.output, config.batch.mode);
+  const limitsHint = limits?.contextWindow || limits?.maxOutput
+    ? `이 모델: ${[limits.contextWindow && `입력 창 ${limits.contextWindow.toLocaleString()}`, limits.maxOutput && `최대 출력 ${limits.maxOutput.toLocaleString()}`].filter(Boolean).join(' · ')}${limits.by === 'human' ? ' (직접 넣음)' : ''}. 비우면 여기서 계산합니다.`
+    : '이 모델의 한도를 몰라 기본값을 씁니다. 연결 설정의 모델 한도에 넣으면 자동이 맞춰집니다.';
   const set = (patch: Partial<AiNode['config']>) => onChange({ ...node, config: { ...config, ...patch } });
   const need: Capability[] = config.output === 'verdict' ? ['generate', 'judge'] : ['generate'];
   const extras = config.extraModels;
@@ -195,8 +218,8 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
           <ToggleRow label="인물 관계" checked={context.relationships} onChange={(value) => set({ context: { ...context, relationships: value } })} />
           <ToggleRow label="문서" checked={context.documents} onChange={(value) => set({ context: { ...context, documents: value } })} />
         </div>
-        <Field label="문맥 상한">
-          <Input type="number" min={500} max={200000} step={500} value={context.maxTokens} onChange={(event) => set({ context: { ...context, maxTokens: Number(event.target.value) } })} />
+        <Field label="문맥 상한" hint={limitsHint}>
+          <BudgetInput value={context.maxTokens} auto={auto.context} onChange={(maxTokens) => set({ context: { ...context, maxTokens } })} label="문맥 상한" />
         </Field>
       </InspectorSection>
 
@@ -250,10 +273,8 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
                     batch: {
                       ...config.batch,
                       mode: value as BatchConfig['mode'],
-                      maxTokens:
-                        value === 'whole'
-                          ? Math.max(config.batch.maxTokens, 300_000)
-                          : Math.min(config.batch.maxTokens, 6_000),
+                      // A new way of packing starts on auto: the whole script and scenes need very different budgets.
+                      maxTokens: null,
                     },
                   })
                 }
@@ -269,26 +290,17 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
                 </SelectContent>
               </Select>
             </Field>
-            {config.batch.mode === 'whole' && (
-              <Field label="요청당 최대 토큰">
-                <Input
-                  type="number"
-                  min={500}
-                  max={1_000_000}
-                  step={10_000}
-                  value={config.batch.maxTokens}
-                  onChange={(event) =>
-                    set({ batch: { ...config.batch, maxTokens: Number(event.target.value) } })
-                  }
-                />
+            {(config.batch.mode === 'whole' || config.batch.mode === 'group') && (
+              <Field label="요청당 최대 토큰" hint={`한 요청에 넣는 대사의 양(줄마다 번호·형식 몫 포함). 줄 수 제한은 따로 없습니다. ${limitsHint}`}>
+                <BudgetInput value={config.batch.maxTokens} auto={auto.lines} onChange={(maxTokens) => set({ batch: { ...config.batch, maxTokens } })} label="요청당 최대 토큰" />
               </Field>
             )}
-            {config.batch.mode !== 'unit' && config.batch.mode !== 'whole' && (
-              <Field label="최대 크기">
+            {config.batch.mode === 'count' && (
+              <Field label="요청당 줄 수">
                 <Input
                   type="number"
                   min={1}
-                  max={200}
+                  max={1000}
                   value={config.batch.size}
                   onChange={(event) =>
                     set({ batch: { ...config.batch, size: Number(event.target.value) } })

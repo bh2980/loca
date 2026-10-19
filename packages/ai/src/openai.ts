@@ -1,7 +1,7 @@
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { generateText, Output, type LanguageModel } from 'ai';
 import { ModelError, readAiSdkUsage, toModelError } from './errors.ts';
-import type { CompleteRequest, CompleteResult, GenerateRequest, GenerateResult, ResolvedRoute } from './types.ts';
+import type { CompleteRequest, CompleteResult, GenerateRequest, GenerateResult, ModelLimitsInfo, ResolvedRoute } from './types.ts';
 
 const PROVIDER = 'workbench';
 
@@ -63,6 +63,26 @@ export async function openaiComplete(route: ResolvedRoute, request: CompleteRequ
 }
 
 export async function openaiModels(route: Omit<ResolvedRoute, 'model'>): Promise<string[]> {
+  return (await openaiModelList(route)).ids;
+}
+
+/** A positive whole number from a field providers name differently, or undefined. */
+const tokens = (...values: unknown[]) => values.map((value) => (typeof value === 'string' ? Number(value) : value)).find((value): value is number => typeof value === 'number' && Number.isInteger(value) && value > 0);
+
+/**
+ * The limits a model list says, under the names providers use: OpenRouter (context_length,
+ * top_provider.max_completion_tokens), Groq (context_window, max_completion_tokens), vLLM
+ * (max_model_len) and others (max_context_length, max_input_tokens, max_output_tokens).
+ */
+export function limitsOf(item: Record<string, unknown>): ModelLimitsInfo | undefined {
+  const top = (item.top_provider ?? {}) as Record<string, unknown>;
+  const contextWindow = tokens(item.context_length, item.context_window, item.max_context_length, item.max_model_len, top.context_length, item.max_input_tokens);
+  const maxOutput = tokens(top.max_completion_tokens, item.max_completion_tokens, item.max_output_tokens, item.max_tokens);
+  return contextWindow || maxOutput ? { ...(contextWindow && { contextWindow }), ...(maxOutput && { maxOutput }) } : undefined;
+}
+
+/** The model list with what it says about each model's limits. */
+export async function openaiModelList(route: Omit<ResolvedRoute, 'model'>): Promise<{ ids: string[]; limits: Record<string, ModelLimitsInfo> }> {
   if (!route.baseUrl) throw new ModelError('config', 'API 주소가 없습니다.', false);
   const response = await fetch(`${route.baseUrl.replace(/\/+$/, '')}/models`, {
     headers: route.apiKey ? { Authorization: `Bearer ${route.apiKey}` } : {},
@@ -77,7 +97,7 @@ export async function openaiModels(route: Omit<ResolvedRoute, 'model'>): Promise
   if (!response.ok) throw new ModelError('network', `모델 목록 요청이 실패했습니다 (HTTP ${response.status}).`);
   // A web page instead of JSON almost always means the address is the site, not its API.
   const text = await response.text();
-  let body: { data?: { id?: unknown }[] };
+  let body: { data?: Record<string, unknown>[] };
   try {
     body = JSON.parse(text) as typeof body;
   } catch {
@@ -90,5 +110,10 @@ export async function openaiModels(route: Omit<ResolvedRoute, 'model'>): Promise
       false,
     );
   }
-  return (body.data ?? []).map((item) => item.id).filter((id): id is string => typeof id === 'string').sort();
+  const items = (body.data ?? []).filter((item): item is Record<string, unknown> & { id: string } => typeof item?.id === 'string');
+  const limits = Object.fromEntries(items.flatMap((item) => {
+    const found = limitsOf(item);
+    return found ? [[item.id, found]] : [];
+  }));
+  return { ids: items.map((item) => item.id).sort(), limits };
 }
