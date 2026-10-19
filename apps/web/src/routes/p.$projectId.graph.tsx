@@ -746,11 +746,9 @@ function GraphPage() {
                   if (additive && ids.length === 1 && next.has(id)) next.delete(id);
                   else next.add(id);
                 }
+                // A box or ⌘/Ctrl+click picks (ringed), even a single node; only a plain click opens its pane.
                 setPicked(next);
-                // One node picked is the ordinary selection, with its pane.
-                if (next.size === 1) select([...next][0]);
-                else if (search.node) select(undefined);
-                if (next.size === 1) setPicked(new Set());
+                if (search.node) select(undefined);
               }}
               highlight={highlight}
               endpointMarkers={endpointMarkers}

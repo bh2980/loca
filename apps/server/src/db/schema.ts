@@ -706,9 +706,10 @@ export const chatSessions = sqliteTable('chat_sessions', {
   effort: text('effort'),
   messages: json<unknown[]>('messages').notNull().default(sql`'[]'`),
   /** An agent CLI's own session for this chat (resumed each turn), and when it last took a turn. */
-  /** `totals`: the CLI's running usage for the conversation, when it reports one (see cliChat). */
   /** The CLI's own session for this chat: a cache. `seen` = how many messages of the record it has been given (#46). */
-  agentSession: json<{ kind: string; model: string; id: string; lastTurnAt: number; totals?: Usage; seen?: number }>('agent_session'),
+  agentSession: json<{ kind: string; model: string; id: string; lastTurnAt: number; seen?: number }>('agent_session'),
+  /** The conversation's start, summarized once the record outgrew the model's window: messages before `upTo` are in `summary` (chat-compaction.ts). */
+  compaction: json<{ upTo: number; summary: string; at: number }>('compaction'),
   /** How the agent's changes are decided (#45): ask = a card each, auto = checked ones apply at once, bypass = all apply. */
   permissionMode: text('permission_mode', { enum: PERMISSION_MODES }).notNull().default('ask'),
   /** Messages sent while a turn was running that no turn has taken yet (#44); kept here so a restart does not lose them. */

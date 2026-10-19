@@ -5,7 +5,6 @@ import { batchChangeSchema, lineFilterSchema } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { proposeChange } from '../services/change-gate.ts';
-import { chatOfToken } from '../services/chat-turns.ts';
 import { agentCatalog, jsonSchemaOf } from '../services/agent-catalog.ts';
 import { previewContext } from '../services/context-preview.ts';
 import { checkBatch, refusalText, reportText } from '../services/proposal-check.ts';
@@ -84,18 +83,13 @@ export const scriptRoutes = new Hono<Env>()
   .post('/projects/:projectId/tools/:name', validate('json', z.record(z.string(), z.unknown())), async (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
-    const chatToken = c.req.header('x-loca-chat');
-    const hasChatToken = chatToken !== undefined;
-    const chat = hasChatToken ? chatOfToken(chatToken) : null;
-    if (hasChatToken && (!chat || chat.projectId !== projectId)) badRequest('이 대화 차례가 끝나 도구를 부를 수 없습니다. 다음 메시지에서 다시 부르세요.');
     const tool = agentCatalog(db, projectId).find((candidate) => candidate.name === c.req.param('name'));
     if (!tool) badRequest(`없거나 꺼진 도구입니다: ${c.req.param('name')}`);
     const input = c.req.valid('json');
     const parsed = tool.schema.safeParse(input);
     if (!parsed.success) badRequest(`입력이 맞지 않습니다: ${parsed.error.issues.map((issue) => `${issue.path.join('.')} ${issue.message}`).join('; ')}`);
     if (tool.changes) {
-      const model = chat ? db.select({ model: s.chatSessions.model }).from(s.chatSessions).where(and(eq(s.chatSessions.id, chat.sessionId), eq(s.chatSessions.projectId, projectId))).get()?.model : null;
-      const gate = await proposeChange(db, { projectId, sessionId: chat?.sessionId ?? null, model: model ?? undefined, source: 'cli', tool: tool.name, input: parsed.data as Record<string, unknown> });
+      const gate = await proposeChange(db, { projectId, sessionId: null, source: 'cli', tool: tool.name, input: parsed.data as Record<string, unknown> });
       if (!gate.ok) badRequest(refusalText(gate));
       return c.json({ proposed: true, proposalId: gate.proposalId, message: gate.text, report: gate.report });
     }

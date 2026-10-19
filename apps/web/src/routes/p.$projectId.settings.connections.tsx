@@ -402,7 +402,8 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
       header={<InspectorHeader kind={isTool ? '도구' : 'AI 연결'} name={connection.name} status={info.label} onClose={onClose} />}
       footer={
         dirtyCount > 0 ? (
-          <DirtyBar dirtyCount={dirtyCount} onRevert={() => { form.reset(saved); setApiKey(''); }} onSave={saveAll} saving={save.isPending || saveKey.isPending} />
+          // reset() applies the form's resetOptions too: without keepDirtyValues false the edited fields would stay.
+          <DirtyBar dirtyCount={dirtyCount} onRevert={() => { form.reset(saved, { keepDirtyValues: false }); setApiKey(''); }} onSave={saveAll} saving={save.isPending || saveKey.isPending} />
         ) : (
           <Button disabled>저장</Button>
         )

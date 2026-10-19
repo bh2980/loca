@@ -19,6 +19,9 @@
    - 페이지 상태(필터, 선택 항목, 탭, 단순화 토글 등)는 **URL Search Params**가 단일 진실 공급원(Source of Truth)입니다.
    - 뷰포트(Pan/Zoom 좌표), 미저장 초안(Draft), 임시 숨김 노드 집합(`hiddenIds`)은 `sessionStorage`에 보관하며, 패닝이나 폴링으로 브라우저 히스토리를 푸시하지 않습니다.
    - 서버 변경 사항은 SSE 토픽(`apps/server/src/events.ts`)으로 전파되며, 폴링(polling)을 추가하지 않습니다.
+3. **CLI 연결을 부르는 방법** (연결은 하나, 쓰임에 따라 다름):
+   - 프로젝트 채팅은 **ACP**(`packages/ai/src/acp.ts`): CLI마다 상주 프로세스 하나가 대화 세션을 이어 가고, 작업실 도구는 MCP 서버(`mcp-host.ts`)로 넘긴다. 변경 도구는 지금처럼 제안이 된다. Claude·Codex는 공식 어댑터, Grok `grok agent stdio`, OpenCode `opencode acp`, Antigravity는 Google ACP 서버의 래퍼(Zed로 이름을 대어 CLI와 같은 모델 목록)를 쓴다.
+   - 워크플로·분석 요청은 **one-shot 실행**(`cli.ts`): 도구를 끄고 JSON 스키마로 한 번에 받는다. 2026-10-20 실측(2줄 번역 1회)에서 ACP는 Claude는 비슷, Grok은 입력 2배, Antigravity는 모델 호출 3번에 사용량 보고도 없어 대량 작업에 쓰지 않는다.
 
 ---
 

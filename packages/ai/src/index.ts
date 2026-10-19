@@ -10,7 +10,8 @@ import type { AskRequest, AskResult, CompleteRequest, CompleteResult, GenerateRe
 export * from './types.ts';
 export { ModelError, type ModelErrorCode } from './errors.ts';
 export { cliLoginStatus, cliVersion, openLoginTerminal, LOGIN_COMMANDS } from './cli.ts';
-export { CHAT_CLI_KINDS, cliChat, readCliChat, type ChatCliKind, type CliChatResult, type CliChatTurn } from './cli-chat.ts';
+export { ACP_KINDS, AcpAgent, acpError, agentFor, agentWith, closeSession, isAcpKind, setAgentStarter, stopIdleAgents, type AcpKind, type SessionListener } from './acp.ts';
+export { hostTools, type HostedServer, type HostedTool } from './mcp-host.ts';
 export { limitsOf, openaiProviderOptions } from './openai.ts';
 
 export function generate<T>(route: ResolvedRoute, request: GenerateRequest<T>): Promise<GenerateResult<T>> {

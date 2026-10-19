@@ -8,7 +8,6 @@ import { events } from '../events.ts';
  * AI log records that as the call's failure.
  */
 interface Turn {
-  token: string;
   projectId: string;
   sessionId: string;
   controller: AbortController;
@@ -30,11 +29,10 @@ export function startTurn(projectId: string, sessionId: string) {
   // Callers wait for a running turn first (turnEnded); one still going after that is cut off here.
   turns.get(sessionId)?.controller.abort(SUPERSEDED);
   const controller = new AbortController();
-  const turn: Turn = { token: crypto.randomUUID(), projectId, sessionId, controller, startedAt: Date.now(), closing: false, chunks: [], listeners: new Set(), after: [] };
+  const turn: Turn = { projectId, sessionId, controller, startedAt: Date.now(), closing: false, chunks: [], listeners: new Set(), after: [] };
   turns.set(sessionId, turn);
   events.changed(projectId, 'chat');
   return {
-    token: turn.token,
     signal: controller.signal,
     /**
      * Called by a backend right after its last look at the queue found it empty: from here on a
@@ -58,12 +56,6 @@ export function startTurn(projectId: string, sessionId: string) {
       for (const run of turn.after) run();
     },
   };
-}
-
-/** Resolves a per-turn credential only while its turn is still current. */
-export function chatOfToken(token: string): { projectId: string; sessionId: string } | null {
-  for (const turn of turns.values()) if (turn.token === token && !turn.controller.signal.aborted) return { projectId: turn.projectId, sessionId: turn.sessionId };
-  return null;
 }
 
 export type ChatTurn = ReturnType<typeof startTurn>;

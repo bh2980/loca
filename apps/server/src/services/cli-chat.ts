@@ -1,149 +1,108 @@
-import type { UIMessage } from 'ai';
+import { mkdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { ChatTurn } from './chat-turns.ts';
-import { takeInterjections, writeInterjections } from './chat-interject.ts';
+import type { UIMessage, UIMessageStreamWriter } from 'ai';
 import { eq } from 'drizzle-orm';
 import * as ai from '@tw/ai';
-import { logged } from './ai-calls.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { config } from '../config.ts';
+import { logged } from './ai-calls.ts';
 import { agentCatalog, jsonSchemaOf, type CatalogTool } from './agent-catalog.ts';
-import { chatStream, runCatalogTool, turnPrompt, writeText } from './chat-stream.ts';
-import { catchUp, CONTEXT_BUDGET, handover, textOf, type AnsweredBy } from './chat-context.ts';
+import { catchUp, handover, textOf, type AnsweredBy } from './chat-context.ts';
+import { fitRecord } from './chat-compaction.ts';
+import { estimateTokens } from '@tw/shared';
+import { takeInterjections, writeInterjections } from './chat-interject.ts';
+import { chatStream, runCatalogTool, turnPrompt } from './chat-stream.ts';
+import type { ChatTurn } from './chat-turns.ts';
 
 /**
- * Project chat through an agent CLI (Claude Code, Codex, Grok, agy, opencode). The CLI keeps the
- * conversation in its own session, resumed every turn (see packages/ai cli-chat.ts). The CLIs'
- * own tools stay off; workbench tools are the same catalog the loca CLI uses, called through
- * the answer: the agent ends a reply with a `loca-tools` block, the server runs the tools (reads
- * at once, changes as proposals for this chat) and resumes the session with the results.
- * The browser receives the AI SDK UI message stream like any other chat.
+ * Project chat through an agent CLI over ACP (packages/ai acp.ts). The CLI keeps the conversation
+ * in its own session, reused while the connection kind and model stay the same; the server's
+ * record stays the source of truth (a new session gets it as a handover). Workbench tools are the
+ * same catalog the loca CLI uses, served to the session as an MCP server: reads run at once,
+ * changes become proposals for this chat. The browser receives the AI SDK UI message stream like
+ * any other chat, text as it streams.
  */
-/** Tool rounds in one turn before stopping to report, the same allowance the API chat gets (stepCountIs(30)): a guard against a looping model, not a budget. */
-const MAX_ROUNDS = 30;
 const RESULT_LIMIT = 20_000;
-const TOOL_BLOCK = /```loca-tools[ \t]*\r?\n([\s\S]*?)```/g;
-const CODEX_TOOL_PROMPT = `## 작업실 도구 사용법
-프로젝트를 읽거나 바꾸는 작업실 도구는 셸 명령 \`loca call\`로 부릅니다. 다른 셸 명령·파일·웹은 쓰지 않습니다.
-- 형식: \`loca call <도구 이름> '<입력 JSON>'\` (예: \`loca call find_lines '{"speakers":["Alice"],"limit":20}'\`). 결과는 JSON으로 출력됩니다.
-- 입력이 길면 표준 입력으로: \`loca call <도구 이름> - <<'JSON'\` … \`JSON\`.
-- 변경 도구는 이 대화의 권한 모드에 따라 바로 반영되거나 제안으로 올라가며, 출력에 어느 쪽인지 나옵니다.
-- 오류가 나면 메시지를 읽고 입력을 고쳐 다시 부릅니다. 도구 결과를 본 뒤 사용자에게 답을 씁니다.`;
+/** What a CLI adds to every request on its own (its system prompt and tools; Grok's is about 21k tokens). */
+const CLI_OVERHEAD = 25_000;
+/** A turn with tool calls can run long; it is stopped when the CLI goes quiet for the call timeout, or after this. */
+const TURN_LIMIT_MS = 60 * 60_000;
 
-const toolList = (tools: CatalogTool[]) => tools.map((tool) => `### ${tool.name}${tool.changes ? ' (변경: 제안으로 올라감)' : ''}\n${tool.description}\n입력 스키마: ${JSON.stringify(jsonSchemaOf(tool.schema))}`).join('\n\n');
-
-/** Instructions that teach the protocol, with every tool's input schema. */
-export function toolProtocol(tools: CatalogTool[]) {
-  return [
-    '## 작업실 도구 사용법',
-    '이 대화에서는 당신의 셸·파일·웹 도구를 쓰지 않습니다. 프로젝트를 읽거나 바꾸려면 아래 작업실 도구를 씁니다.',
-    '도구가 필요하면 답의 맨 끝에 다음 블록 하나를 쓰고 멈추세요. 블록 안은 JSON 배열이며 한 번에 여러 도구를 부를 수 있습니다:',
-    '```loca-tools\n[{"tool": "find_lines", "input": {"speakers": ["Alice"], "limit": 20}}]\n```',
-    '그러면 다음 메시지로 "작업실 도구 결과"가 옵니다. 결과를 보고 이어서 답하거나 다시 도구를 부르세요. 도구가 필요 없으면 블록 없이 답만 씁니다.',
-    '',
-    toolList(tools),
-  ].join('\n');
+/** The running turn of each chat: what its MCP tools write into and run as. */
+interface LiveTurn {
+  writer: UIMessageStreamWriter;
+  tools: Map<string, CatalogTool>;
+  model: string;
+  /** Ends the reply's open text part before a tool call shows. */
+  breakText: () => void;
+  /**
+   * A tool ran in the current step. What follows starts a new step: the panel sends a reply whose
+   * last step ends in finished tool calls back on its own (API chat), so text must not share it.
+   */
+  toolRan: boolean;
 }
+const live = new Map<string, LiveTurn>();
 
-export function codexToolProtocol(tools: CatalogTool[]) {
-  return `${CODEX_TOOL_PROMPT}\n\n${toolList(tools)}`;
-}
+/** Each chat's MCP server, for this server run (its token lives in the CLI's session; a reopened session gets the current one). */
+const servers = new Map<string, Promise<ai.HostedServer>>();
 
-/** Extract one `loca call` tool and its JSON input from a completed shell command. */
-/**
- * Codex reports a command as its shell ran it, `/bin/bash -lc "<command>"` (or single-quoted, with
- * `'\''` for a quote); the command itself is that one shell word, unquoted.
- */
-function unwrapShell(command: string) {
-  const word = /^\s*\S*\b(?:ba|z)?sh\s+-l?c\s+([\s\S]*?)\s*$/.exec(command)?.[1];
-  if (!word) return command;
-  if (word.startsWith('"') && word.endsWith('"')) return word.slice(1, -1).replace(/\\(["\\$`])/g, '$1');
-  if (word.startsWith("'") && word.endsWith("'")) return word.slice(1, -1).replaceAll(`'\\''`, "'");
-  return command;
-}
-
-export function readLocaCall(command: string): { tool: string; input: Record<string, unknown> } | { command: string } {
-  command = unwrapShell(command);
-  const match = /^\s*loca\s+call\s+(\S+)(?:\s+([\s\S]*?))?\s*$/.exec(command);
-  if (!match) return { command };
-  const tool = match[1]!;
-  const argument = match[2];
-  if (argument === undefined) return { tool, input: {} };
-  let input: unknown = {};
-  if (argument?.startsWith("'") && argument.endsWith("'")) {
-    try { input = JSON.parse(argument.slice(1, -1)); } catch { return { tool, input: { command } }; }
-  } else if (argument.startsWith('-')) {
-    const body = /^-\s+<<'JSON'\r?\n([\s\S]*?)\r?\nJSON$/.exec(argument)?.[1];
-    try { input = JSON.parse(body ?? ''); } catch { return { tool, input: { command } }; }
-    if (body === undefined) return { tool, input: { command } };
-  } else return { tool, input: { command } };
-  return input && typeof input === 'object' && !Array.isArray(input) ? { tool, input: input as Record<string, unknown> } : { tool, input: { command } };
-}
-
-/**
- * `loca call` prints its result as JSON on stdout; a change also says on stderr whether it applied,
- * and Codex reports both streams as one text, in either order. The JSON is the block from the first
- * line that opens it to the last line that closes it; the rest is kept as `message` (the panel finds
- * the proposal's card by proposalId).
- */
-export function parsedOutput(output: string): unknown {
-  const lines = output.split('\n');
-  const start = lines.findIndex((line) => /^[[{]/.test(line));
-  const end = lines.findLastIndex((line) => /^[\]}]/.test(line));
-  if (start < 0) return output;
-  for (const last of end > start ? [end, start] : [start]) {
-    try {
-      const value: unknown = JSON.parse(lines.slice(start, last + 1).join('\n'));
-      const message = [...lines.slice(0, start), ...lines.slice(last + 1)].join('\n').trim();
-      return message && value && typeof value === 'object' && !Array.isArray(value) ? { ...value, message } : value;
-    } catch {
-      // not this block
-    }
+function chatServer(db: Db, chat: { id: string; projectId: string }): Promise<ai.HostedServer> {
+  let server = servers.get(chat.id);
+  if (!server) {
+    server = ai
+      .hostTools('loca', () => {
+        const turn = live.get(chat.id);
+        const tools = turn ? [...turn.tools.values()] : agentCatalog(db, chat.projectId);
+        return tools.map((tool) => ({ name: tool.name, description: tool.changes ? `${tool.description}\n(변경: 이 대화의 제안으로 올라감)` : tool.description, inputSchema: jsonSchemaOf(tool.schema), run: (input) => runTool(db, chat, tool.name, input) }));
+      })
+      .then((hosted) => hosted.server);
+    servers.set(chat.id, server);
   }
-  return output;
+  return server;
 }
 
-let agentShellUrl: string | null = null;
-/** Where the agent-tools-only listener (agentShellApp) answers; set once it listens. */
-export function setAgentShellUrl(url: string | null) {
-  agentShellUrl = url;
-}
-
-/**
- * Codex's shell for `loca call` (Option A): it may read the repo but not the data, reach only the
- * agent tools (not the rest of the API, #100 review), and its changes belong to this turn's
- * conversation through a token that dies with the turn.
- */
-function codexShell(projectId: string, token: string): ai.CliChatTurn['shell'] {
-  if (!agentShellUrl) throw new ai.ModelError('config', 'Codex가 도구를 부를 통로(::1)를 열지 못해 Codex 채팅을 쓸 수 없습니다. 서버 로그를 확인하세요.', false);
-  return {
-    env: { LOCA_URL: agentShellUrl, LOCA_PROJECT: projectId, LOCA_CHAT: token },
-    readPaths: [config.root],
-    deny: [...new Set([path.join(config.root, '.workbench'), config.dataDir])],
-    loca: path.join(config.root, 'apps/cli/bin/loca.mjs'),
-  };
-}
-
-/** Tool calls in an answer, and the answer without the blocks. Malformed blocks are reported, not dropped silently. */
-export function readToolCalls(text: string): { visible: string; calls: { tool: string; input: Record<string, unknown> }[]; error?: string } {
-  const calls: { tool: string; input: Record<string, unknown> }[] = [];
-  let error: string | undefined;
-  for (const match of text.matchAll(TOOL_BLOCK)) {
-    try {
-      const parsed = JSON.parse(match[1]) as unknown;
-      for (const entry of Array.isArray(parsed) ? parsed : [parsed]) {
-        const call = entry as { tool?: unknown; input?: unknown };
-        if (typeof call?.tool === 'string') calls.push({ tool: call.tool, input: call.input && typeof call.input === 'object' ? (call.input as Record<string, unknown>) : {} });
-      }
-    } catch (cause) {
-      error = `loca-tools 블록의 JSON을 읽지 못했습니다: ${cause instanceof Error ? cause.message : String(cause)}`;
+async function runTool(db: Db, chat: { id: string; projectId: string }, name: string, input: Record<string, unknown>) {
+  const turn = live.get(chat.id);
+  if (!turn) return { isError: true, text: '이 대화의 차례가 끝나 도구를 부를 수 없습니다.' };
+  const tool = turn.tools.get(name);
+  const toolCallId = crypto.randomUUID();
+  turn.breakText();
+  turn.toolRan = true;
+  turn.writer.write({ type: 'tool-input-available', toolCallId, toolName: name, input });
+  let text: string;
+  let isError = false;
+  try {
+    if (!tool) throw new Error(`알 수 없는 도구입니다: ${name}`);
+    // A change's input is checked here, so a malformed one fails like a read would.
+    const result = await runCatalogTool(db, { ...chat, model: turn.model }, 'cli', tool, tool.changes ? (tool.schema.parse(input) as Record<string, unknown>) : input, RESULT_LIMIT);
+    if (result.ok) {
+      turn.writer.write({ type: 'tool-output-available', toolCallId, output: result.output });
+      text = result.text;
+    } else {
+      // The panel shows the plain reason; the agent also gets the ids to fix it with.
+      turn.writer.write({ type: 'tool-output-error', toolCallId, errorText: result.error });
+      text = `제안을 만들지 않았습니다 — ${result.reason}`;
+      isError = true;
     }
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    turn.writer.write({ type: 'tool-output-error', toolCallId, errorText: message });
+    text = `실패 — ${message}`;
+    isError = true;
   }
-  return { visible: text.replace(TOOL_BLOCK, '').trim(), calls, error };
+  // A message sent while the agent works reaches it with the next tool result (#44).
+  const items = takeInterjections(db, chat.id);
+  if (items.length) text = `${text}\n\n${writeInterjections(turn.writer, items)}`;
+  return { text, isError };
 }
 
-export type CliTurn = (route: ai.ResolvedRoute, turn: ai.CliChatTurn) => Promise<ai.CliChatResult>;
+/** Where chat sessions run: an empty folder, the same for every chat (CLIs file sessions by folder). */
+function chatFolder() {
+  const dir = path.join(tmpdir(), 'loca-chat');
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
 
 export async function cliChatResponse(input: {
   db: Db;
@@ -156,27 +115,17 @@ export async function cliChatResponse(input: {
   answeredBy: AnsweredBy;
   timeoutMs: number;
   /** The conversation's running turn (chat-turns startTurn): its signal, end and closing mark. */
-  turn: Pick<ChatTurn, 'signal' | 'end' | 'record' | 'markClosing' | 'token'>;
-  /** The CLI call; tests pass a fake. */
-  cli?: CliTurn;
+  turn: Pick<ChatTurn, 'signal' | 'end' | 'record' | 'markClosing'>;
 }): Promise<Response> {
   const { db, chat, route, messages } = input;
-  const run = input.cli ?? ai.cliChat;
-  const tools = agentCatalog(db, chat.projectId, { model: route.model });
-  const byName = new Map(tools.map((tool) => [tool.name, tool]));
-  const system = [input.system, route.kind === 'codex' ? codexToolProtocol(tools) : toolProtocol(tools)].join('\n\n');
-  // The CLI's own session is a cache of the record, reused while the connection kind and model stay
-  // the same. It is told what it missed (another model answered in between); a new one gets the record.
+  const kind = route.kind as ai.AcpKind;
+  const tools = new Map(agentCatalog(db, chat.projectId, { model: route.model }).map((tool) => [tool.name, tool]));
   const saved = chat.agentSession && chat.agentSession.kind === route.kind && chat.agentSession.model === route.model ? chat.agentSession : null;
   const earlier = messages.slice(0, -1);
   const last = messages.at(-1);
-  const context = saved ? catchUp(earlier, saved.seen ?? earlier.length, CONTEXT_BUDGET.cli) : handover(earlier, CONTEXT_BUDGET.cli);
-  // Messages a previous turn could not take come after the new one.
   // Messages and decisions that came in since the last turn come after the new message.
   const leftover = takeInterjections(db, chat.id);
-  let prompt = turnPrompt({ context, view: input.view, text: last ? textOf(last) : '', leftover });
-  let sessionId = saved?.id;
-  let totalsBefore = saved?.totals;
+  let sessionId: string | undefined;
 
   return chatStream({
     db,
@@ -186,70 +135,80 @@ export async function cliChatResponse(input: {
     execute: async (writer) => {
       writer.write({ type: 'message-metadata', messageMetadata: { answeredBy: input.answeredBy } });
       writeInterjections(writer, leftover);
-      for (let round = 0; round < MAX_ROUNDS; round++) {
-        writer.write({ type: 'start-step' });
-        const shell = route.kind === 'codex' ? codexShell(chat.projectId, input.turn.token) : undefined;
-        const answer = await logged(db, { projectId: chat.projectId, kind: 'chat', refId: chat.id, label: `채팅 (CLI${round ? ` · 도구 결과 후 ${round}` : ''})` }, route, () => run(route, { sessionId, system, prompt, timeoutMs: input.timeoutMs, signal: input.turn.signal, totalsBefore, shell }));
-        sessionId = answer.sessionId;
-        totalsBefore = answer.totals;
-        db.update(s.chatSessions).set({ agentSession: { kind: route.kind, model: route.model, id: sessionId, lastTurnAt: Date.now(), totals: totalsBefore } }).where(eq(s.chatSessions.id, chat.id)).run();
-        if (route.kind === 'codex') {
-          for (const command of answer.commands ?? []) {
-            const parsed = readLocaCall(command.command);
-            const toolName = 'tool' in parsed ? parsed.tool : 'shell';
-            const toolCallId = crypto.randomUUID();
-            writer.write({ type: 'tool-input-available', toolCallId, toolName, input: 'tool' in parsed ? parsed.input : { command: parsed.command } });
-            if (command.exitCode === 0) writer.write({ type: 'tool-output-available', toolCallId, output: parsedOutput(command.output) });
-            else writer.write({ type: 'tool-output-error', toolCallId, errorText: command.output.slice(-300) });
-          }
-          if (answer.text) writeText(writer, answer.text);
-          writer.write({ type: 'finish-step' });
-          const items = takeInterjections(db, chat.id);
-          if (!items.length) { input.turn.markClosing(); return; }
-          prompt = writeInterjections(writer, items);
-          continue;
+      const cwd = chatFolder();
+      const server = await chatServer(db, chat);
+      // The session: still open in a running process, reopened from the CLI's store, or new.
+      let agent = saved ? await ai.agentWith(kind, route.executable, saved.id) : null;
+      let lead: string | null = null;
+      if (agent) sessionId = saved!.id;
+      else {
+        agent = await ai.agentFor(kind, route.executable);
+        const reopened = saved ? await agent.reopen({ sessionId: saved.id, cwd, mcpServers: [server], system: input.system }) : null;
+        if (reopened && saved) sessionId = saved.id;
+        else {
+          const created = await agent.newSession({ cwd, mcpServers: [server], system: input.system });
+          sessionId = created.sessionId;
+          if (created.inMessage) lead = input.system;
         }
-        const { visible, calls, error } = readToolCalls(answer.text);
-        if (visible) writeText(writer, visible);
-        if (!calls.length && !error) {
+      }
+      await agent.use(sessionId, route.model, route.effort);
+      // The CLI's session is told what it missed (another model answered in between); a new one gets the record.
+      const known = sessionId === saved?.id;
+      // A new session gets the whole record, its start summarized only when it would not fit the model.
+      const context = known
+        ? catchUp(earlier, saved?.seen ?? earlier.length)
+        : handover((await fitRecord({ db, chat, route, record: messages, overhead: estimateTokens(input.system) + estimateTokens([...tools.values()].map((tool) => ({ name: tool.name, description: tool.description, input: jsonSchemaOf(tool.schema) }))) + CLI_OVERHEAD, signal: input.turn.signal })).slice(0, -1));
+      let prompt = [lead, turnPrompt({ context, view: input.view, text: last ? textOf(last) : '', leftover })].filter(Boolean).join('\n\n---\n\n');
+      db.update(s.chatSessions).set({ agentSession: { kind: route.kind, model: route.model, id: sessionId, lastTurnAt: Date.now(), seen: known ? saved?.seen : 0 } }).where(eq(s.chatSessions.id, chat.id)).run();
+
+      let textId: string | null = null;
+      const breakText = () => {
+        if (textId) writer.write({ type: 'text-end', id: textId });
+        textId = null;
+      };
+      const current: LiveTurn = { writer, tools, model: route.model, breakText, toolRan: false };
+      const newStep = () => {
+        writer.write({ type: 'finish-step' });
+        writer.write({ type: 'start-step' });
+        current.toolRan = false;
+      };
+      live.set(chat.id, current);
+      try {
+        for (let pass = 0; ; pass++) {
+          writer.write({ type: 'start-step' });
+          await logged(db, { projectId: chat.projectId, kind: 'chat', refId: chat.id, label: `채팅 (CLI${pass ? ' · 끼어든 메시지 후' : ''})` }, route, () =>
+            agent.prompt(
+              sessionId!,
+              prompt,
+              {
+                update: (update) => {
+                  if (update.sessionUpdate !== 'agent_message_chunk' || update.content.type !== 'text') return;
+                  if (!textId) {
+                    if (current.toolRan) newStep();
+                    textId = crypto.randomUUID();
+                    writer.write({ type: 'text-start', id: textId });
+                  }
+                  writer.write({ type: 'text-delta', id: textId, delta: update.content.text });
+                },
+              },
+              { signal: input.turn.signal, timeoutMs: TURN_LIMIT_MS, idleMs: input.timeoutMs },
+            ),
+          );
+          breakText();
+          if (current.toolRan) newStep();
           writer.write({ type: 'finish-step' });
-          // A message sent while it was answering: carry on with it instead of ending the turn (#44).
+          // A message sent after its last tool call: carry on with it instead of ending the turn (#44).
           const items = takeInterjections(db, chat.id);
           if (!items.length) {
             input.turn.markClosing();
             return;
           }
           prompt = writeInterjections(writer, items);
-          continue;
         }
-        const results: string[] = error ? [error] : [];
-        for (const call of calls) {
-          const toolCallId = crypto.randomUUID();
-          const tool = byName.get(call.tool);
-          writer.write({ type: 'tool-input-available', toolCallId, toolName: call.tool, input: call.input });
-          try {
-            if (!tool) throw new Error(`알 수 없는 도구입니다: ${call.tool}`);
-            // A change's input is checked here, so a malformed one fails like a read would.
-            const result = await runCatalogTool(db, { ...chat, model: route.model }, 'cli', tool, tool.changes ? (tool.schema.parse(call.input) as Record<string, unknown>) : call.input, RESULT_LIMIT);
-            if (!result.ok) {
-              // The panel shows the plain reason; the agent also gets the ids to fix it with.
-              writer.write({ type: 'tool-output-error', toolCallId, errorText: result.error });
-              results.push(`${call.tool}: 제안을 만들지 않았습니다 — ${result.reason}`);
-              continue;
-            }
-            results.push(`${call.tool}: ${result.text}`);
-            writer.write({ type: 'tool-output-available', toolCallId, output: result.output });
-          } catch (cause) {
-            const message = cause instanceof Error ? cause.message : String(cause);
-            writer.write({ type: 'tool-output-error', toolCallId, errorText: message });
-            results.push(`${call.tool}: 실패 — ${message}`);
-          }
-        }
-        writer.write({ type: 'finish-step' });
-        prompt = [`작업실 도구 결과:\n${results.join('\n\n')}`, writeInterjections(writer, takeInterjections(db, chat.id))].filter(Boolean).join('\n\n');
+      } finally {
+        breakText();
+        live.delete(chat.id);
       }
-      input.turn.markClosing();
-      writeText(writer, `(도구를 ${MAX_ROUNDS}번 연달아 불러 여기서 멈췄습니다. 이어서 하려면 메시지를 보내세요.)`);
     },
     alsoSave: (final) => {
       // The CLI session has now seen the whole record, its own reply included.
