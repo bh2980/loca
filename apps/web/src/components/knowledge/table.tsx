@@ -3,7 +3,7 @@ import { type ReactNode } from 'react';
 import { Check, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { InferResponseType } from 'hono/client';
-import { AUTO_MARKS, type AgeBand, type CharacterRole, type CharacterStyle, type Gender, type DOCUMENT_KINDS, type SpeechLevel, type AutoMark, KNOWLEDGE_MARK_IDS, knowledgeMarksOf, matchesMarks, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, sourceOf, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type StatusBy } from '@tw/shared';
+import { AUTO_MARKS, markColor, type MarkColors, type AgeBand, type CharacterRole, type CharacterStyle, type Gender, type DOCUMENT_KINDS, type SpeechLevel, type AutoMark, KNOWLEDGE_MARK_IDS, knowledgeMarksOf, matchesMarks, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, sourceOf, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type StatusBy } from '@tw/shared';
 import { DataTable, type ColumnDef, type FilterChip, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, AiMark, TagChip } from '@loca/ui';
 import { MarkChip } from '@/components/status';
 import { HeaderFilter, MarkFilter, markTagGroups, type FilterOption } from '@/components/header-filter';
@@ -221,19 +221,14 @@ export function metaColumns<T>(draftOf: (row: T) => Draft, filters: KnowledgeFil
   ];
 }
 
-const tagLabel = (known: TagInfo[], id: string) => {
-  const tag = known.find((item) => item.id === id);
-  return tag ? <TagChip tag={tag} /> : `#${id}`;
-};
-
 /** The knowledge filters that are set, as removable chips for the toolbar. */
-export function knowledgeFilterChips(filters: KnowledgeFilterState): FilterChip[] {
+export function knowledgeFilterChips(filters: KnowledgeFilterState, markColors?: MarkColors): FilterChip[] {
   return [
     ...(filters.source ? [{ key: 'source', label: SOURCE_LABELS[filters.source], clear: () => filters.onChange({ source: undefined }) }] : []),
     ...(filters.marks ?? []).map((mark) => ({
       key: `mark:${mark}`,
-      label: <MarkChip mark={mark} />,
-      name: AUTO_MARKS[mark].name,
+      label: `#${AUTO_MARKS[mark].name}`,
+      color: markColor(mark, markColors),
       clear: () => {
         const next = (filters.marks ?? []).filter((other) => other !== mark);
         filters.onChange({ marks: next.length ? next : undefined });
@@ -241,8 +236,8 @@ export function knowledgeFilterChips(filters: KnowledgeFilterState): FilterChip[
     })),
     ...(filters.tags ?? []).map((id) => ({
       key: `tag:${id}`,
-      label: tagLabel(filters.known, id),
-      name: `#${filters.known.find((tag) => tag.id === id)?.name ?? id}`,
+      label: `#${filters.known.find((tag) => tag.id === id)?.name ?? id}`,
+      color: filters.known.find((tag) => tag.id === id)?.color,
       clear: () => {
         const next = (filters.tags ?? []).filter((other) => other !== id);
         filters.onChange({ tags: next.length ? next : undefined });

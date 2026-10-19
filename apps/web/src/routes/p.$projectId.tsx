@@ -1,4 +1,5 @@
 import { DockProvider, DockInspector, DockHeader, WorkspaceShell, PageHeader, Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle, Button, SidebarInset, SidebarProvider, SidebarTrigger, AppStatusBar, StatusBar, STATUS_BAR_SLOT_ID, Popover, PopoverContent, PopoverTrigger, SectionHeading, GroupHeading, StatusIcon, Badge, Spinner, Progress } from '@loca/ui';
+import { cn } from '@/lib/utils';
 import { useCallback, useEffect, useState } from 'react';
 import { createFileRoute, Link, Outlet } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
@@ -252,9 +253,9 @@ function ProjectLayout() {
                   >
                     <Bell className="size-3" />
                     {hasNotification && (
-                      <Badge variant={failedRuns.length > 0 ? 'destructive' : 'default'} className="h-3.5 min-w-3.5 px-1 text-xs font-medium leading-none">
+                      <span className={cn('font-medium tabular-nums', failedRuns.length > 0 ? 'text-destructive' : 'text-primary')}>
                         {waiting > 0 ? waiting : '!'}
-                      </Badge>
+                      </span>
                     )}
                   </Button>
                 </PopoverTrigger>

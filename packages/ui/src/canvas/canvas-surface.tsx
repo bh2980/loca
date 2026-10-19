@@ -7,7 +7,7 @@ export function CanvasSurface({ className, grow = true, ...props }: ComponentPro
     <div
       {...props}
       className={cn(
-        "relative min-h-0 min-w-0 overflow-hidden bg-graph-canvas bg-[radial-gradient(var(--graph-grid)_1px,transparent_1px)] [background-size:20px_20px]",
+        "@container/canvas relative min-h-0 min-w-0 overflow-hidden bg-graph-canvas bg-[radial-gradient(var(--graph-grid)_1px,transparent_1px)] [background-size:20px_20px]",
         grow ? "flex-1" : "flex-none",
         className,
       )}

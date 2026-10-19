@@ -471,7 +471,7 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
                 <span key={`${item.kind}:${item.id}`} className="inline-flex max-w-full items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-xs">
                   <span className="text-muted-foreground">{item.kind}</span>
                   <span className="truncate">{label}</span>
-                  <Button variant="ghost" size="icon-xs" aria-label={`${label} 첨부 빼기`} className="text-muted-foreground" onClick={() => setExcluded((set) => new Set(set).add(`${item.kind}:${item.id}`))}>
+                  <Button variant="ghost" size="inline" aria-label={`${label} 첨부 빼기`} className="-mr-0.5 p-0 text-muted-foreground hover:bg-transparent hover:text-foreground" onClick={() => setExcluded((set) => new Set(set).add(`${item.kind}:${item.id}`))}>
                     <X />
                   </Button>
                 </span>

@@ -46,7 +46,7 @@ import { EventFlow } from '@/components/knowledge/event-flow';
 import { splitList } from '@/components/chip-input';
 import { client, unwrap } from '@/lib/api';
 import { DOCUMENT_KIND } from '@/lib/labels';
-import { q, tagsIn, useReviewTagId } from '@/lib/queries';
+import { q, tagsIn, useMarkColors, useReviewTagId } from '@/lib/queries';
 import { usePicked } from '@/lib/use-picked';
 import { cn } from '@/lib/utils';
 import { useReportView } from '@/lib/view-context';
@@ -338,6 +338,7 @@ function Knowledge() {
   const pending = tab === 'documents' ? documents.isPending : tab === 'events' ? storyEvents.isPending : people.isPending || rules.isPending;
   const tabScope: TagScope = tab === 'documents' ? 'documents' : tab === 'events' ? 'events' : 'people';
   const knowledgeTags = tagsIn(statuses.data?.tags, tabScope);
+  const markColors = useMarkColors(projectId);
   const filters: KnowledgeFilterState = {
     source: search.source,
     marks: search.marks,
@@ -346,7 +347,7 @@ function Knowledge() {
     onChange: (next) => set({ ...('source' in next && { source: next.source }), ...('marks' in next && { marks: next.marks }), ...('tags' in next && { tags: next.tags }), item: undefined }),
   };
   const filtered = Boolean(search.source || search.marks?.length || search.tags?.length || search.ids);
-  const chips = [...knowledgeFilterChips(filters), ...(search.ids ? [{ key: 'ids', label: `실행 범위 ${search.ids.length}`, clear: () => set({ ids: undefined, item: undefined }) }] : [])];
+  const chips = [...knowledgeFilterChips(filters, markColors), ...(search.ids ? [{ key: 'ids', label: `실행 범위 ${search.ids.length}`, clear: () => set({ ids: undefined, item: undefined }) }] : [])];
   const bulk = (
     <>
       <BulkDecide picked={checked.size} actionable={checkedRows} pending={decide.isPending} onConfirm={() => decide.mutate({ items: checkedItems(), action: 'confirm' })} onDiscard={() => decide.mutate({ items: checkedItems(), action: 'discard' })} />
