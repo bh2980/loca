@@ -1,7 +1,5 @@
 /** Pieces shared by the node-kind configs: shared field primitives and the node/ref types. */
-import { useId } from 'react';
-import { Field as UiField, FieldContent, FieldDescription, FieldLabel } from '@loca/ui';
-import { Input, Switch, ControlIdContext } from '@loca/ui';
+import { Input, InspectorField, InspectorToggle, Switch } from '@loca/ui';
 import { CONNECTION_KIND_INFO, type WorkflowEdge, type WorkflowNode } from '@tw/shared';
 
 export type AiNode = Extract<WorkflowNode, { type: 'ai' }>;
@@ -19,22 +17,12 @@ export interface NodeRefs {
   edges?: WorkflowEdge[];
 }
 
-/** Labels and hints are composed from the shared UI field primitives. */
+/** A node setting: the panes' one field shape (InspectorField), `hint` as its description. */
 export function Field({ label, hint, action, children }: { label: string; hint?: React.ReactNode; action?: React.ReactNode; children: React.ReactNode }) {
-  const id = useId();
   return (
-    <UiField className="min-w-0 gap-1.5">
-      <div className="flex min-h-7 min-w-0 items-center justify-between gap-2">
-        <FieldLabel htmlFor={id} className="min-w-0 text-xs">
-          {label}
-        </FieldLabel>
-        {action}
-      </div>
-      <FieldContent className="min-w-0">
-        <ControlIdContext.Provider value={id}>{children}</ControlIdContext.Provider>
-      </FieldContent>
-      {hint && <FieldDescription className="text-xs">{hint}</FieldDescription>}
-    </UiField>
+    <InspectorField label={label} description={hint} action={action}>
+      {children}
+    </InspectorField>
   );
 }
 
@@ -57,10 +45,5 @@ export function CountRow({ label, unit, value, fallback, max, onChange }: { labe
 }
 
 export function ToggleRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
-  return (
-    <label className="flex min-w-0 items-center justify-between gap-3 text-sm">
-      <span className="min-w-0">{label}</span>
-      <Switch checked={checked} onCheckedChange={onChange} />
-    </label>
-  );
+  return <InspectorToggle label={label} checked={checked} onChange={onChange} />;
 }

@@ -2,6 +2,7 @@ import { useId, type ReactNode } from "react"
 import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react"
 import { cn } from "../lib/utils"
 import { ControlIdContext } from "../primitives/control-id"
+import { Switch } from "../primitives/switch"
 
 /**
  * One input in a pane, always the same shape in a ~360px column: a small label over the control,
@@ -64,4 +65,22 @@ export function InspectorActionRow({ label, description, action, result, childre
       {result}
     </div>
   )
+}
+
+/** A yes/no setting: its label (and a one-line description) left, the switch right. */
+export function InspectorToggle({ label, description, checked, disabled, onChange, className }: { label: ReactNode; description?: ReactNode; checked: boolean; disabled?: boolean; onChange: (value: boolean) => void; className?: string }) {
+  return (
+    <label className={cn("flex min-w-0 items-center justify-between gap-3", className)}>
+      <span className="min-w-0">
+        <span className="block text-sm text-foreground">{label}</span>
+        {description && <span className="block text-xs text-muted-foreground">{description}</span>}
+      </span>
+      <Switch checked={checked} disabled={disabled} onCheckedChange={onChange} />
+    </label>
+  )
+}
+
+/** Rows of a list inside a section (lines, calls, rules): divided by hairlines, never boxed. */
+export function InspectorList({ children, className }: { children: ReactNode; className?: string }) {
+  return <ul className={cn("min-w-0 divide-y divide-border-subtle", className)}>{children}</ul>
 }
