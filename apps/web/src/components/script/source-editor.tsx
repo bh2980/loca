@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Trash2 } from 'lucide-react';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, DangerZone, DirtyBar, Inspector, InspectorField, InspectorFields, InspectorHeader, InspectorResult, InspectorSection, Input, PropertyGrid, PropertyRow, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea } from '@loca/ui';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, DirtyBar, Inspector, InspectorBlock, InspectorField, InspectorFields, InspectorHeader, InspectorResult, InspectorSection, Input, PropertyGrid, PropertyRow, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea } from '@loca/ui';
 import { client, unwrap, type InferResponseType } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
 import { q } from '@/lib/queries';
@@ -100,7 +100,19 @@ export function SourceEditor({ projectId, kind, groupId, unitId, mode, onClose, 
   const whyDisabled = isGroup ? '이름을 입력하면 추가할 수 있습니다.' : !form.groupId ? `${SOURCE_GROUP_LABEL[form.kind]}을(를) 고르고 원문을 입력하면 추가할 수 있습니다.` : '원문을 입력하면 추가할 수 있습니다.';
 
   return (
-    <Inspector
+    <Inspector footerStart={(editingGroup || editingUnit) ? (<><AlertDialog>
+            <AlertDialogTrigger asChild><Button type="button" variant="ghost" className="text-destructive"><Trash2 /> {editingGroup ? '묶음 삭제' : '원문 삭제'}</Button></AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>{editingGroup ? '묶음과 원문을 삭제할까요?' : '원문을 삭제할까요?'}</AlertDialogTitle>
+                <AlertDialogDescription>{editingGroup ? groupDeleteCopy : '이 원문과 대표 번역, 번역 후보 및 실행 기록의 해당 항목이 영구 삭제됩니다. 이 작업은 되돌릴 수 없습니다.'}</AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>취소</AlertDialogCancel>
+                <AlertDialogAction disabled={remove.isPending || (editingGroup && (groupUnits.isPending || groupUnits.isError))} onClick={() => remove.mutate()}>{remove.isPending ? '삭제 중…' : '삭제'}</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog></>) : undefined}
       header={<InspectorHeader kind={isGroup ? SOURCE_GROUP_LABEL[form.kind] : SOURCE_UNIT_LABEL[form.kind]} name={heading} onClose={onClose} />}
       loading={loading}
       footer={creating
@@ -162,23 +174,8 @@ export function SourceEditor({ projectId, kind, groupId, unitId, mode, onClose, 
           )}
         </InspectorSection>
       )}
-      {(editingGroup || editingUnit) && (
-        <DangerZone title="삭제">
-          {editingGroup && groupUnits.isError && <div className="space-y-2"><InspectorResult tone="error">원문 수를 확인하지 못해 삭제를 막았습니다.</InspectorResult><Button type="button" variant="outline" onClick={() => void groupUnits.refetch()}>다시 시도</Button></div>}
-          <AlertDialog>
-            <AlertDialogTrigger asChild><Button type="button" variant="outline" className="text-destructive"><Trash2 /> {editingGroup ? '묶음 삭제' : '원문 삭제'}</Button></AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>{editingGroup ? '묶음과 원문을 삭제할까요?' : '원문을 삭제할까요?'}</AlertDialogTitle>
-                <AlertDialogDescription>{editingGroup ? groupDeleteCopy : '이 원문과 대표 번역, 번역 후보 및 실행 기록의 해당 항목이 영구 삭제됩니다. 이 작업은 되돌릴 수 없습니다.'}</AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>취소</AlertDialogCancel>
-                <AlertDialogAction disabled={remove.isPending || (editingGroup && (groupUnits.isPending || groupUnits.isError))} onClick={() => remove.mutate()}>{remove.isPending ? '삭제 중…' : '삭제'}</AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        </DangerZone>
+      {editingGroup && groupUnits.isError && (
+        <InspectorBlock><div className="space-y-2"><InspectorResult tone="error">원문 수를 확인하지 못해 삭제를 막았습니다.</InspectorResult><Button type="button" variant="outline" onClick={() => void groupUnits.refetch()}>다시 시도</Button></div></InspectorBlock>
       )}
     </Inspector>
   );

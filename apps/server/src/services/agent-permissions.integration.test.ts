@@ -213,12 +213,22 @@ describe('agent resource permissions', () => {
       expect(agentToolPermissionOptions(name).length, name).toBeGreaterThan(0);
       expect(agentToolAvailable({}, name), name).toBe(true);
     }
+    // Deleting is off until a person switches it on: a tool that can only delete is unavailable by default.
     for (const entry of catalog) {
-      expect(agentToolPermissionOptions(entry.name).length, entry.name).toBeGreaterThan(0);
-      expect(agentToolAvailable({}, entry.name), entry.name).toBe(true);
+      const options = agentToolPermissionOptions(entry.name);
+      expect(options.length, entry.name).toBeGreaterThan(0);
+      const onlyDeletes = options.every((option) => option.some((permission) => permission.action === 'delete'));
+      expect(agentToolAvailable({}, entry.name), entry.name).toBe(!onlyDeletes);
     }
-    for (const name of ['create_unit', 'update_unit', 'delete_units', 'create_group', 'update_group', 'delete_group', 'update_status', 'delete_status', 'update_tag', 'delete_tag', 'delete_workflow']) {
+    expect(agentToolAvailable({}, 'delete_units')).toBe(false);
+    const withDelete = Object.fromEntries(agentToolPermissionOptions('delete_units').flat().map(({ resource }) => [resource, { delete: true }]));
+    expect(agentToolAvailable({ permissions: withDelete }, 'delete_units')).toBe(true);
+    for (const name of ['create_unit', 'update_unit', 'create_group', 'update_group', 'update_status', 'update_tag']) {
       expect(catalog.some((entry) => entry.name === name && entry.changes), name).toBe(true);
+    }
+    // Delete tools are listed only once deleting is switched on.
+    for (const name of ['delete_units', 'delete_group', 'delete_status', 'delete_tag', 'delete_workflow']) {
+      expect(catalog.some((entry) => entry.name === name), name).toBe(false);
     }
   });
 });

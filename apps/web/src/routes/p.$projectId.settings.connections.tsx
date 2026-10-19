@@ -18,7 +18,6 @@ import {
   Badge,
   Button,
   type ColumnDef,
-  DangerZone,
   DataTable,
   DirtyBar,
   EmptyState,
@@ -95,7 +94,7 @@ function ConnectionsSettingsPage() {
   const aiColumns: ColumnDef<ConnectionRow, unknown>[] = [
     { id: 'name', header: '이름', meta: { hideable: false }, cell: ({ row }) => <span className="font-medium">{row.original.name}</span> },
     { id: 'kind', header: '종류', meta: { width: 200, className: 'text-muted-foreground' }, cell: ({ row }) => CONNECTION_KIND_INFO[row.original.kind].label },
-    { id: 'model', header: '기본 모델', meta: { width: 240, className: 'font-mono text-xs text-muted-foreground' }, cell: ({ row }) => [row.original.defaultModel, row.original.defaultEffort].filter(Boolean).join(' · ') },
+    { id: 'model', header: '먼저 고를 모델', meta: { width: 240, className: 'font-mono text-xs text-muted-foreground' }, cell: ({ row }) => [row.original.defaultModel, row.original.defaultEffort].filter(Boolean).join(' · ') },
     {
       id: 'state',
       header: '상태',
@@ -399,7 +398,12 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
   };
 
   return (
-    <Inspector
+    <Inspector footerStart={<><DeleteButton
+          label={`연결 '${connection.name}'`}
+          description="워크플로 노드·대화·다른 연결의 대체 모델이 이 연결을 쓰고 있으면 삭제되지 않습니다. 저장된 API 키도 함께 삭제됩니다."
+          pending={remove.isPending}
+          onConfirm={() => remove.mutate()}
+        /></>}
       header={<InspectorHeader kind={isTool ? '도구' : 'AI 연결'} name={connection.name} status={info.label} onClose={onClose} />}
       footer={
         dirtyCount > 0 ? (
@@ -428,11 +432,20 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
             </InspectorField>
           )}
           {!isTool && (
-            <InspectorField label="기본 모델">
-              <Controller
-                control={form.control}
-                name="defaultModel"
-                render={({ field }) => (
+            <Controller
+              control={form.control}
+              name="defaultModel"
+              render={({ field }) => (
+                // Not what the connection always calls: the model filled in when this connection is picked (node, chat, run).
+                <InspectorField
+                  label="먼저 고를 모델"
+                  description="이 연결을 고르면 처음 채워지는 모델. 비워 두면 매번 고릅니다."
+                  action={field.value && (
+                    <Button variant="ghost" size="inline" onClick={() => { field.onChange(null); form.setValue('defaultEffort', null, { shouldDirty: true }); }}>
+                      지우기
+                    </Button>
+                  )}
+                >
                   <ModelPicker
                     lockConnection
                     need={need}
@@ -442,18 +455,29 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
                       form.setValue('defaultEffort', next.effort ?? null, { shouldDirty: true });
                     }}
                   />
-                )}
-              />
-            </InspectorField>
+                </InspectorField>
+              )}
+            />
           )}
           {!isTool && (
-            <InspectorField label="대체 모델" description="이 연결이 막히면 넘길 모델. 채팅에는 쓰지 않습니다." error={(errors.fallback?.model ?? errors.fallback)?.message}>
-              <Controller
-                control={form.control}
-                name="fallback"
-                render={({ field }) => <ModelPicker exclude={connection.id} value={field.value} onChange={(next: ModelValue) => field.onChange(next.model ? next : { ...next, model: '' })} />}
-              />
-            </InspectorField>
+            <Controller
+              control={form.control}
+              name="fallback"
+              render={({ field }) => (
+                <InspectorField
+                  label="대체 모델"
+                  description="이 연결이 막히면 넘길 모델. 같은 연결의 다른 모델도 됩니다. 채팅에는 쓰지 않습니다."
+                  error={(errors.fallback?.model ?? errors.fallback)?.message}
+                  action={field.value && (
+                    <Button variant="ghost" size="inline" onClick={() => field.onChange(null)}>
+                      지우기
+                    </Button>
+                  )}
+                >
+                  <ModelPicker value={field.value} onChange={(next: ModelValue) => field.onChange(next.model ? next : { ...next, model: '' })} />
+                </InspectorField>
+              )}
+            />
           )}
           {isHttp && (
             <InspectorField
@@ -549,14 +573,6 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
         </div>
       </InspectorSection>
 
-      <DangerZone title="연결 삭제">
-        <DeleteButton
-          label={`연결 '${connection.name}'`}
-          description="워크플로 노드·대화·다른 연결의 대체 모델이 이 연결을 쓰고 있으면 삭제되지 않습니다. 저장된 API 키도 함께 삭제됩니다."
-          pending={remove.isPending}
-          onConfirm={() => remove.mutate()}
-        />
-      </DangerZone>
     </Inspector>
   );
 }

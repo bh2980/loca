@@ -1,3 +1,4 @@
+import { AGENT_RESOURCES } from '@tw/shared';
 import { describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { importFileSchema } from '@tw/shared';
@@ -26,6 +27,8 @@ function setup() {
   const undo = (...ids: string[]) => undoProposals(db, session.id, ids);
   const character = (name: string) => db.select().from(s.characters).where(and(eq(s.characters.projectId, projectId), eq(s.characters.name, name))).get();
   const relationship = () => db.select().from(s.relationships).where(eq(s.relationships.id, rel.id)).get();
+  // These tests delete through the tools: switch deleting on, as a person would (it is off by default).
+  db.update(s.projects).set({ agentSettings: { permissions: Object.fromEntries(Object.entries(AGENT_RESOURCES).map(([resource, info]) => [resource, Object.fromEntries(info.actions.map((action) => [action, true]))])) } as never }).where(eq(s.projects.id, projectId)).run();
   return { db, projectId, a, b, rel, apply, undo, character, relationship };
 }
 

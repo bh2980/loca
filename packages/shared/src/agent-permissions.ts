@@ -88,7 +88,8 @@ export function agentToolPermissionOptions(name: string): AgentPermission[][] {
 
 export function effectiveAgentPermissions(settings: Policy): AgentPermissions {
   const result: AgentPermissions = {};
-  for (const resource of resources) result[resource] = Object.fromEntries(AGENT_RESOURCES[resource].actions.map((action) => [action, true]));
+  // Everything is allowed until a person says otherwise, except deleting: that is switched on by hand.
+  for (const resource of resources) result[resource] = Object.fromEntries(AGENT_RESOURCES[resource].actions.map((action) => [action, action !== 'delete']));
   for (const tool of settings.disabledTools ?? []) for (const permission of agentToolPermissionOptions(tool).flat()) result[permission.resource]![permission.action] = false;
   for (const resource of resources) Object.assign(result[resource]!, settings.permissions?.[resource]);
   return result;

@@ -37,6 +37,6 @@ describe('agent resource permissions', () => {
 
   it('treats old candidate-only tool switches as script update restrictions', () => {
     const permissions = effectiveAgentPermissions({ disabledTools: ['propose_translation'] });
-    expect(permissions.script).toMatchObject({ create: true, read: true, update: false, delete: true });
+    expect(permissions.script).toMatchObject({ create: true, read: true, update: false, delete: false });
   });
 });

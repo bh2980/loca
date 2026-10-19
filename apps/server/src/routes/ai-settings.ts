@@ -14,10 +14,14 @@ type CliKind = 'codex' | 'claude' | 'grok' | 'antigravity' | 'opencode';
 const isCli = (kind: string): kind is CliKind => CONNECTION_KIND_INFO[kind as keyof typeof CONNECTION_KIND_INFO]?.transport === 'cli';
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-/** A fallback must lead somewhere else: itself would only repeat the same failing calls. */
-function checkFallback(db: Db, id: string | null, fallback: ModelChoice | null | undefined) {
+/**
+ * A fallback names a model to go on with: another connection, or another model of the same one (an
+ * OpenRouter-style API serves many). Its own default model would only repeat the failing calls, and
+ * a chain that comes back to a model it already tried stops there (snapshotChoice).
+ */
+function checkFallback(db: Db, id: string | null, fallback: ModelChoice | null | undefined, defaultModel?: string | null) {
   if (!fallback) return;
-  if (fallback.connectionId === id) badRequest('막히면 넘길 곳으로 같은 연결을 고를 수 없습니다.');
+  if (fallback.connectionId === id && fallback.model === defaultModel) badRequest('대체 모델로 이 연결의 먼저 고를 모델을 고를 수 없습니다. 다른 모델을 고르세요.');
   const target = found(db.select().from(s.connections).where(eq(s.connections.id, fallback.connectionId)).get(), '막히면 넘길 연결');
   if (target.kind === 'http') badRequest('API 키 연결로는 넘길 수 없습니다.');
 }
@@ -32,7 +36,8 @@ function usesOf(db: Db, id: string) {
     .filter((row) => row.definition.nodes.some((node) => node.type === 'ai' && [node.config.model, ...node.config.extraModels].some((choice) => choice.connectionId === id)))
     .map((row) => `워크플로 '${row.name}'(${row.project})`);
   const chats = db.select({ id: s.chatSessions.id }).from(s.chatSessions).where(eq(s.chatSessions.connectionId, id)).all().length;
-  const fallbacks = db.select({ name: s.connections.name, fallback: s.connections.fallback }).from(s.connections).all().filter((row) => row.fallback?.connectionId === id).map((row) => `연결 '${row.name}'의 막히면`);
+  // Its own fallback (another of its models) goes with it.
+  const fallbacks = db.select({ id: s.connections.id, name: s.connections.name, fallback: s.connections.fallback }).from(s.connections).all().filter((row) => row.id !== id && row.fallback?.connectionId === id).map((row) => `연결 '${row.name}'의 대체 모델`);
   return [...workflows, ...(chats ? [`대화 ${chats}개`] : []), ...fallbacks];
 }
 
@@ -67,7 +72,8 @@ export const connectionRoutes = new Hono<Env>()
   .patch('/:id', validate('json', patchOf(connectionInputSchema.omit({ kind: true }))), (c) => {
     const { db } = c.var.deps;
     const input = c.req.valid('json');
-    checkFallback(db, c.req.param('id'), input.fallback);
+    const current = db.select({ defaultModel: s.connections.defaultModel }).from(s.connections).where(eq(s.connections.id, c.req.param('id'))).get();
+    checkFallback(db, c.req.param('id'), input.fallback, input.defaultModel !== undefined ? input.defaultModel : current?.defaultModel);
     found(db.update(s.connections).set({ ...input, executable: input.executable === '' ? null : input.executable, defaultModel: input.defaultModel || (input.defaultModel === undefined ? undefined : null), defaultEffort: input.defaultEffort || (input.defaultEffort === undefined ? undefined : null) }).where(eq(s.connections.id, c.req.param('id'))).returning().get(), '연결');
     if (input.defaultModel) fillDefaultModels(db);
     events.changed(undefined, 'connections', 'workflows');

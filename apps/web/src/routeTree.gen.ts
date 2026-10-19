@@ -12,7 +12,6 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as PProjectIdRouteImport } from './routes/p.$projectId'
 import { Route as PProjectIdIndexRouteImport } from './routes/p.$projectId.index'
-import { Route as PProjectIdAgentRouteImport } from './routes/p.$projectId.agent'
 import { Route as PProjectIdGlossaryRouteImport } from './routes/p.$projectId.glossary'
 import { Route as PProjectIdGraphRouteImport } from './routes/p.$projectId.graph'
 import { Route as PProjectIdKeysRouteImport } from './routes/p.$projectId.keys'
@@ -22,8 +21,7 @@ import { Route as PProjectIdAiConnectionsRouteImport } from './routes/p.$project
 import { Route as PProjectIdAiUsageRouteImport } from './routes/p.$projectId.ai.usage'
 import { Route as PProjectIdRunsIndexRouteImport } from './routes/p.$projectId.runs.index'
 import { Route as PProjectIdRunsRunIdRouteImport } from './routes/p.$projectId.runs.$runId'
-import { Route as PProjectIdSettingsAgentRouteImport } from './routes/p.$projectId.settings.agent'
-import { Route as PProjectIdSettingsAiResultsRouteImport } from './routes/p.$projectId.settings.ai-results'
+import { Route as PProjectIdSettingsChatRouteImport } from './routes/p.$projectId.settings.chat'
 import { Route as PProjectIdSettingsConnectionsRouteImport } from './routes/p.$projectId.settings.connections'
 import { Route as PProjectIdSettingsEditorRouteImport } from './routes/p.$projectId.settings.editor'
 import { Route as PProjectIdSettingsProjectRouteImport } from './routes/p.$projectId.settings.project'
@@ -44,11 +42,6 @@ const PProjectIdRoute = PProjectIdRouteImport.update({
 const PProjectIdIndexRoute = PProjectIdIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => PProjectIdRoute,
-} as any)
-const PProjectIdAgentRoute = PProjectIdAgentRouteImport.update({
-  id: '/agent',
-  path: '/agent',
   getParentRoute: () => PProjectIdRoute,
 } as any)
 const PProjectIdGlossaryRoute = PProjectIdGlossaryRouteImport.update({
@@ -96,17 +89,11 @@ const PProjectIdRunsRunIdRoute = PProjectIdRunsRunIdRouteImport.update({
   path: '/runs/$runId',
   getParentRoute: () => PProjectIdRoute,
 } as any)
-const PProjectIdSettingsAgentRoute = PProjectIdSettingsAgentRouteImport.update({
-  id: '/settings/agent',
-  path: '/settings/agent',
+const PProjectIdSettingsChatRoute = PProjectIdSettingsChatRouteImport.update({
+  id: '/settings/chat',
+  path: '/settings/chat',
   getParentRoute: () => PProjectIdRoute,
 } as any)
-const PProjectIdSettingsAiResultsRoute =
-  PProjectIdSettingsAiResultsRouteImport.update({
-    id: '/settings/ai-results',
-    path: '/settings/ai-results',
-    getParentRoute: () => PProjectIdRoute,
-  } as any)
 const PProjectIdSettingsConnectionsRoute =
   PProjectIdSettingsConnectionsRouteImport.update({
     id: '/settings/connections',
@@ -147,7 +134,6 @@ const PProjectIdWorkflowsWorkflowIdRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/p/$projectId': typeof PProjectIdRouteWithChildren
-  '/p/$projectId/agent': typeof PProjectIdAgentRoute
   '/p/$projectId/glossary': typeof PProjectIdGlossaryRoute
   '/p/$projectId/graph': typeof PProjectIdGraphRoute
   '/p/$projectId/keys': typeof PProjectIdKeysRoute
@@ -157,8 +143,7 @@ export interface FileRoutesByFullPath {
   '/p/$projectId/ai/connections': typeof PProjectIdAiConnectionsRoute
   '/p/$projectId/ai/usage': typeof PProjectIdAiUsageRoute
   '/p/$projectId/runs/$runId': typeof PProjectIdRunsRunIdRoute
-  '/p/$projectId/settings/agent': typeof PProjectIdSettingsAgentRoute
-  '/p/$projectId/settings/ai-results': typeof PProjectIdSettingsAiResultsRoute
+  '/p/$projectId/settings/chat': typeof PProjectIdSettingsChatRoute
   '/p/$projectId/settings/connections': typeof PProjectIdSettingsConnectionsRoute
   '/p/$projectId/settings/editor': typeof PProjectIdSettingsEditorRoute
   '/p/$projectId/settings/project': typeof PProjectIdSettingsProjectRoute
@@ -169,7 +154,6 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/p/$projectId/agent': typeof PProjectIdAgentRoute
   '/p/$projectId/glossary': typeof PProjectIdGlossaryRoute
   '/p/$projectId/graph': typeof PProjectIdGraphRoute
   '/p/$projectId/keys': typeof PProjectIdKeysRoute
@@ -179,8 +163,7 @@ export interface FileRoutesByTo {
   '/p/$projectId/ai/connections': typeof PProjectIdAiConnectionsRoute
   '/p/$projectId/ai/usage': typeof PProjectIdAiUsageRoute
   '/p/$projectId/runs/$runId': typeof PProjectIdRunsRunIdRoute
-  '/p/$projectId/settings/agent': typeof PProjectIdSettingsAgentRoute
-  '/p/$projectId/settings/ai-results': typeof PProjectIdSettingsAiResultsRoute
+  '/p/$projectId/settings/chat': typeof PProjectIdSettingsChatRoute
   '/p/$projectId/settings/connections': typeof PProjectIdSettingsConnectionsRoute
   '/p/$projectId/settings/editor': typeof PProjectIdSettingsEditorRoute
   '/p/$projectId/settings/project': typeof PProjectIdSettingsProjectRoute
@@ -193,7 +176,6 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/p/$projectId': typeof PProjectIdRouteWithChildren
-  '/p/$projectId/agent': typeof PProjectIdAgentRoute
   '/p/$projectId/glossary': typeof PProjectIdGlossaryRoute
   '/p/$projectId/graph': typeof PProjectIdGraphRoute
   '/p/$projectId/keys': typeof PProjectIdKeysRoute
@@ -203,8 +185,7 @@ export interface FileRoutesById {
   '/p/$projectId/ai/connections': typeof PProjectIdAiConnectionsRoute
   '/p/$projectId/ai/usage': typeof PProjectIdAiUsageRoute
   '/p/$projectId/runs/$runId': typeof PProjectIdRunsRunIdRoute
-  '/p/$projectId/settings/agent': typeof PProjectIdSettingsAgentRoute
-  '/p/$projectId/settings/ai-results': typeof PProjectIdSettingsAiResultsRoute
+  '/p/$projectId/settings/chat': typeof PProjectIdSettingsChatRoute
   '/p/$projectId/settings/connections': typeof PProjectIdSettingsConnectionsRoute
   '/p/$projectId/settings/editor': typeof PProjectIdSettingsEditorRoute
   '/p/$projectId/settings/project': typeof PProjectIdSettingsProjectRoute
@@ -218,7 +199,6 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/p/$projectId'
-    | '/p/$projectId/agent'
     | '/p/$projectId/glossary'
     | '/p/$projectId/graph'
     | '/p/$projectId/keys'
@@ -228,8 +208,7 @@ export interface FileRouteTypes {
     | '/p/$projectId/ai/connections'
     | '/p/$projectId/ai/usage'
     | '/p/$projectId/runs/$runId'
-    | '/p/$projectId/settings/agent'
-    | '/p/$projectId/settings/ai-results'
+    | '/p/$projectId/settings/chat'
     | '/p/$projectId/settings/connections'
     | '/p/$projectId/settings/editor'
     | '/p/$projectId/settings/project'
@@ -240,7 +219,6 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/p/$projectId/agent'
     | '/p/$projectId/glossary'
     | '/p/$projectId/graph'
     | '/p/$projectId/keys'
@@ -250,8 +228,7 @@ export interface FileRouteTypes {
     | '/p/$projectId/ai/connections'
     | '/p/$projectId/ai/usage'
     | '/p/$projectId/runs/$runId'
-    | '/p/$projectId/settings/agent'
-    | '/p/$projectId/settings/ai-results'
+    | '/p/$projectId/settings/chat'
     | '/p/$projectId/settings/connections'
     | '/p/$projectId/settings/editor'
     | '/p/$projectId/settings/project'
@@ -263,7 +240,6 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/p/$projectId'
-    | '/p/$projectId/agent'
     | '/p/$projectId/glossary'
     | '/p/$projectId/graph'
     | '/p/$projectId/keys'
@@ -273,8 +249,7 @@ export interface FileRouteTypes {
     | '/p/$projectId/ai/connections'
     | '/p/$projectId/ai/usage'
     | '/p/$projectId/runs/$runId'
-    | '/p/$projectId/settings/agent'
-    | '/p/$projectId/settings/ai-results'
+    | '/p/$projectId/settings/chat'
     | '/p/$projectId/settings/connections'
     | '/p/$projectId/settings/editor'
     | '/p/$projectId/settings/project'
@@ -310,13 +285,6 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/p/$projectId/'
       preLoaderRoute: typeof PProjectIdIndexRouteImport
-      parentRoute: typeof PProjectIdRoute
-    }
-    '/p/$projectId/agent': {
-      id: '/p/$projectId/agent'
-      path: '/agent'
-      fullPath: '/p/$projectId/agent'
-      preLoaderRoute: typeof PProjectIdAgentRouteImport
       parentRoute: typeof PProjectIdRoute
     }
     '/p/$projectId/glossary': {
@@ -382,18 +350,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PProjectIdRunsRunIdRouteImport
       parentRoute: typeof PProjectIdRoute
     }
-    '/p/$projectId/settings/agent': {
-      id: '/p/$projectId/settings/agent'
-      path: '/settings/agent'
-      fullPath: '/p/$projectId/settings/agent'
-      preLoaderRoute: typeof PProjectIdSettingsAgentRouteImport
-      parentRoute: typeof PProjectIdRoute
-    }
-    '/p/$projectId/settings/ai-results': {
-      id: '/p/$projectId/settings/ai-results'
-      path: '/settings/ai-results'
-      fullPath: '/p/$projectId/settings/ai-results'
-      preLoaderRoute: typeof PProjectIdSettingsAiResultsRouteImport
+    '/p/$projectId/settings/chat': {
+      id: '/p/$projectId/settings/chat'
+      path: '/settings/chat'
+      fullPath: '/p/$projectId/settings/chat'
+      preLoaderRoute: typeof PProjectIdSettingsChatRouteImport
       parentRoute: typeof PProjectIdRoute
     }
     '/p/$projectId/settings/connections': {
@@ -442,7 +403,6 @@ declare module '@tanstack/react-router' {
 }
 
 interface PProjectIdRouteChildren {
-  PProjectIdAgentRoute: typeof PProjectIdAgentRoute
   PProjectIdGlossaryRoute: typeof PProjectIdGlossaryRoute
   PProjectIdGraphRoute: typeof PProjectIdGraphRoute
   PProjectIdKeysRoute: typeof PProjectIdKeysRoute
@@ -452,8 +412,7 @@ interface PProjectIdRouteChildren {
   PProjectIdAiConnectionsRoute: typeof PProjectIdAiConnectionsRoute
   PProjectIdAiUsageRoute: typeof PProjectIdAiUsageRoute
   PProjectIdRunsRunIdRoute: typeof PProjectIdRunsRunIdRoute
-  PProjectIdSettingsAgentRoute: typeof PProjectIdSettingsAgentRoute
-  PProjectIdSettingsAiResultsRoute: typeof PProjectIdSettingsAiResultsRoute
+  PProjectIdSettingsChatRoute: typeof PProjectIdSettingsChatRoute
   PProjectIdSettingsConnectionsRoute: typeof PProjectIdSettingsConnectionsRoute
   PProjectIdSettingsEditorRoute: typeof PProjectIdSettingsEditorRoute
   PProjectIdSettingsProjectRoute: typeof PProjectIdSettingsProjectRoute
@@ -464,7 +423,6 @@ interface PProjectIdRouteChildren {
 }
 
 const PProjectIdRouteChildren: PProjectIdRouteChildren = {
-  PProjectIdAgentRoute: PProjectIdAgentRoute,
   PProjectIdGlossaryRoute: PProjectIdGlossaryRoute,
   PProjectIdGraphRoute: PProjectIdGraphRoute,
   PProjectIdKeysRoute: PProjectIdKeysRoute,
@@ -474,8 +432,7 @@ const PProjectIdRouteChildren: PProjectIdRouteChildren = {
   PProjectIdAiConnectionsRoute: PProjectIdAiConnectionsRoute,
   PProjectIdAiUsageRoute: PProjectIdAiUsageRoute,
   PProjectIdRunsRunIdRoute: PProjectIdRunsRunIdRoute,
-  PProjectIdSettingsAgentRoute: PProjectIdSettingsAgentRoute,
-  PProjectIdSettingsAiResultsRoute: PProjectIdSettingsAiResultsRoute,
+  PProjectIdSettingsChatRoute: PProjectIdSettingsChatRoute,
   PProjectIdSettingsConnectionsRoute: PProjectIdSettingsConnectionsRoute,
   PProjectIdSettingsEditorRoute: PProjectIdSettingsEditorRoute,
   PProjectIdSettingsProjectRoute: PProjectIdSettingsProjectRoute,

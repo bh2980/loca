@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { agentPermissionsSchema } from './agent-permissions.ts';
+import { modelChoiceSchema } from './model-choice.ts';
 
 /** Tool display labels and proposal risk classes. Resource/action authorization lives in
  * agent-permissions.ts; these labels are not permission switches. */
@@ -104,7 +105,7 @@ export type PermissionMode = (typeof PERMISSION_MODES)[number];
 export const PERMISSION_MODE_INFO: Record<PermissionMode, { label: string; description: string }> = {
   ask: { label: '수락/거절', description: '변경마다 카드에서 수락하거나 거절합니다.' },
   auto: { label: '자동 검토', description: '검사를 통과한 작은 변경은 바로 반영하고, 큰 일괄 변경·삭제·실행(비용)·경고가 있는 변경만 묻습니다.' },
-  bypass: { label: '바로 반영', description: '허용한 작업을 확인 없이 반영합니다. 대화별 한도에 닿으면 다시 확인하며, 변경 기록은 남습니다.' },
+  bypass: { label: '바로 반영', description: '허용한 작업을 확인 없이 반영합니다. 변경 기록은 남고 되돌릴 수 있습니다.' },
 };
 
 export const agentSettingsSchema = z.object({
@@ -112,10 +113,10 @@ export const agentSettingsSchema = z.object({
   disabledTools: z.array(z.string()).default([]),
   /** Per-resource operations; old tool switches are conservatively interpreted until saved. */
   permissions: agentPermissionsSchema.optional(),
+  /** The model a new conversation talks to; unset, it takes the one the latest conversation picked. */
+  chatModel: modelChoiceSchema.nullable().default(null),
   /** The permission mode a new conversation starts in. */
   defaultPermissionMode: z.enum(PERMISSION_MODES).default('ask'),
-  /** Bypass applies changes without asking, so these limits bound a runaway conversation. */
-  bypassLimits: z.object({ changes: z.number().int().min(1).max(10_000), costUsd: z.number().min(0).nullable() }).default({ changes: 100, costUsd: 1 }),
 });
 export type AgentSettings = z.infer<typeof agentSettingsSchema>;
 

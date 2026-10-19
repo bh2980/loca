@@ -24,8 +24,8 @@ export function AiConfirmNote({ projectId, kinds }: { projectId: string; kinds: 
   return (
     <p className="text-xs text-muted-foreground">
       결과: {summary} ·{' '}
-      <Link to="/p/$projectId/settings/agent" params={{ projectId }} className="underline underline-offset-2 hover:text-foreground">
-        에이전트 설정
+      <Link to="/p/$projectId/settings/chat" params={{ projectId }} className="underline underline-offset-2 hover:text-foreground">
+        채팅 설정
       </Link>
     </p>
   );
