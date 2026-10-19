@@ -52,7 +52,7 @@ describe('model profiles → model choices (0035/0036)', () => {
 
     const db = openDatabase(file, drizzleFolder);
     const connections = new Map(db.select().from(s.connections).all().map((row) => [row.id, row]));
-    expect(connections.get('c1')).toMatchObject({ defaultModel: 'gpt-x', defaultEffort: 'low', timeoutSeconds: 120, maxAttempts: 3, maxOutputTokens: 12000, fallback: { connectionId: 'c2', model: 'gpt-5', effort: 'high' } });
+    expect(connections.get('c1')).toMatchObject({ defaultModel: 'gpt-x', defaultEffort: 'low', timeoutSeconds: 120, maxAttempts: 3, outputTokens: 12000, fallback: { connectionId: 'c2', model: 'gpt-5', effort: 'high' } });
     expect(connections.get('c2')).toMatchObject({ defaultModel: 'gpt-5', defaultEffort: null, timeoutSeconds: 600, maxAttempts: 1, fallback: null });
 
     const workflow = db.select().from(s.workflows).get()!;

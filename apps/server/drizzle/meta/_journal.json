@@ -484,6 +484,20 @@
       "when": 1792419170994,
       "tag": "0068_model_limits",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "6",
+      "when": 1792421910802,
+      "tag": "0069_connection_tokens",
+      "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "6",
+      "when": 1792421911108,
+      "tag": "0070_drop_output_cap",
+      "breakpoints": true
     }
   ]
 }

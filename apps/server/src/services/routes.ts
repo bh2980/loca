@@ -46,7 +46,7 @@ export function snapshotChoice(db: Db, choice: ModelChoice, byId = new Map<strin
     routes.push(route(connection, next.model, next.effort));
     next = connection.fallback;
   }
-  return { label: choiceLabel(primary.name, choice), maxOutputTokens: primary.maxOutputTokens ?? undefined, timeoutSeconds: primary.timeoutSeconds, maxAttempts: primary.maxAttempts, routes };
+  return { label: choiceLabel(primary.name, choice), maxOutputTokens: primary.outputTokens ?? undefined, timeoutSeconds: primary.timeoutSeconds, maxAttempts: primary.maxAttempts, routes };
 }
 
 /** Snapshots of several choices, keyed by choiceKey (a run's AI nodes). Choices whose connection is gone are left out. */

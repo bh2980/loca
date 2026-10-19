@@ -21,7 +21,7 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
  */
 function checkFallback(db: Db, id: string | null, fallback: ModelChoice | null | undefined, defaultModel?: string | null) {
   if (!fallback) return;
-  if (fallback.connectionId === id && fallback.model === defaultModel) badRequest('대체 모델로 이 연결의 먼저 고를 모델을 고를 수 없습니다. 다른 모델을 고르세요.');
+  if (fallback.connectionId === id && fallback.model === defaultModel) badRequest('대체 모델로 이 연결의 모델을 고를 수 없습니다. 다른 모델을 고르세요.');
   const target = found(db.select().from(s.connections).where(eq(s.connections.id, fallback.connectionId)).get(), '막히면 넘길 연결');
   if (target.kind === 'http') badRequest('API 키 연결로는 넘길 수 없습니다.');
 }

@@ -5,7 +5,7 @@ import { limitsOf } from '@tw/ai';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from './importer.ts';
-import { resolveBudgets } from './budgets.ts';
+import { limitsFor, resolveBudgets } from './budgets.ts';
 import { autoBudgetDefaults } from './workflow-migrations.ts';
 
 describe('auto budgets', () => {
@@ -37,6 +37,13 @@ describe('resolving and migrating budgets', () => {
     return { db, projectId, connection };
   };
   const definitionWith = (config: AiNode['config']) => workflowDefinitionSchema.parse({ nodes: [{ id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: {} }, { id: 'ai', type: 'ai', position: { x: 0, y: 0 }, config }], edges: [{ id: '1', source: 'entry', sourceHandle: 'out', target: 'ai' }] });
+
+  it('take the connection\'s 입력·출력 토큰 over what the model list said, and the list when they are empty', () => {
+    const listed = { m: { contextWindow: 200_000, maxOutput: 8_000, by: 'api' as const } };
+    expect(limitsFor({ inputTokens: null, outputTokens: null, modelLimits: listed }, 'm')).toMatchObject({ contextWindow: 200_000, maxOutput: 8_000 });
+    expect(limitsFor({ inputTokens: 1_000_000, outputTokens: null, modelLimits: listed }, 'm')).toMatchObject({ contextWindow: 1_000_000, maxOutput: 8_000 });
+    expect(limitsFor({ inputTokens: null, outputTokens: null, modelLimits: {} }, 'cli-model')).toBeUndefined();
+  });
 
   it('fills auto from the node model and keeps a person\'s numbers', () => {
     const { db, connection } = setup();

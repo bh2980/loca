@@ -1,0 +1,1 @@
+ALTER TABLE `connections` DROP COLUMN `max_output_tokens`;
