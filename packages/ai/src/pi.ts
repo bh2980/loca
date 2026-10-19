@@ -32,6 +32,12 @@ export async function piModels(): Promise<string[]> {
   return models.map((model) => `${model.provider}/${model.id}`).sort();
 }
 
+/** pi knows each model's window and output limit. */
+export async function piModelLimits(): Promise<Record<string, { contextWindow?: number; maxOutput?: number }>> {
+  const models = await (await piRuntime()).getAvailable();
+  return Object.fromEntries(models.map((model) => [`${model.provider}/${model.id}`, { ...(model.contextWindow > 0 && { contextWindow: model.contextWindow }), ...(model.maxTokens > 0 && { maxOutput: model.maxTokens }) }]));
+}
+
 export async function piModel(id: string) {
   const slash = id.indexOf('/');
   if (slash < 1) throw new ModelError('config', `pi 모델은 "공급자/모델" 형식이어야 합니다: ${id}`, false);

@@ -12,6 +12,7 @@ import { CompleteRefused } from './editor-complete.ts';
 import { liveChoice } from './routes.ts';
 import type { SecretStore } from './secrets.ts';
 import { addCandidate } from './candidates.ts';
+import { modelLimitsOf, resolveNodeBudgets } from './budgets.ts';
 
 export type AssistMode = 'translate' | 'refine';
 
@@ -66,7 +67,8 @@ export async function assistLine(db: Db, secrets: SecretStore, unitId: string, r
       include: { candidate: refine, issues: false },
     }),
   } as AiNode;
-  const context = buildContext(db, unit.projectId, [unit], node.config.context);
+  // The context cap follows the assist model's window (auto), like an AI node's.
+  const context = buildContext(db, unit.projectId, [unit], resolveNodeBudgets(node, modelLimitsOf(db, settings.assistModel)).config.context);
   const line = { id: '1', unitId: unit.id, groupId: unit.groupId, key: unit.key, kind: unit.kind, speaker: unit.speaker, source: unit.source, candidate: refine ? request.draft : undefined };
   const { system, prompt } = buildPrompt(node, { source: project.sourceLanguage, target: project.targetLanguage }, context, [line]);
   const label = `편집기 ${refine ? '다듬기' : 'AI 번역'}`;

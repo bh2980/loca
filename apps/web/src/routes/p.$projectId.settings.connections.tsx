@@ -53,6 +53,48 @@ import { cn } from '@/lib/utils';
 import { keyStoreLabel } from '@/lib/keys';
 import { dateTime } from '@/lib/datetime';
 
+type LimitsRecord = Record<string, { contextWindow?: number; maxOutput?: number; by?: 'api' | 'human' }>;
+
+/**
+ * Each model's window and output limit for "auto" budgets: the first-pick model, the fallback on this
+ * connection and any model given numbers by hand, plus one more by name. The provider's numbers show
+ * as placeholders; typing makes them the person's. Empty both = back to what the provider says.
+ */
+function ModelLimitsEditor({ value, models, onChange }: { value: LimitsRecord; models: string[]; onChange: (value: LimitsRecord) => void }) {
+  const [adding, setAdding] = useState('');
+  const rows = [...new Set([...models, ...Object.entries(value).filter(([, limits]) => limits.by === 'human').map(([model]) => model)])];
+  const set = (model: string, field: 'contextWindow' | 'maxOutput', text: string) => {
+    const current = value[model]?.by === 'human' ? value[model] : {};
+    const next = { ...current, [field]: text === '' ? undefined : Number(text), by: 'human' as const };
+    const copy = { ...value };
+    if (next.contextWindow === undefined && next.maxOutput === undefined) delete copy[model];
+    else copy[model] = next;
+    onChange(copy);
+  };
+  return (
+    <div className="space-y-2">
+      {rows.length === 0 && <p className="text-xs text-muted-foreground">먼저 고를 모델을 정하거나 아래에 모델 이름을 넣으세요.</p>}
+      {rows.map((model) => {
+        const limits = value[model];
+        const mine = limits?.by === 'human';
+        return (
+          <div key={model} className="space-y-1">
+            <p className="truncate font-mono text-xs text-muted-foreground" title={model}>{model}</p>
+            <div className="flex gap-2">
+              <Input type="number" min={1} aria-label={`${model} 입력 창`} placeholder={!mine && limits?.contextWindow ? `입력 창 ${limits.contextWindow.toLocaleString()} (API)` : '입력 창 (토큰)'} value={mine ? (limits.contextWindow ?? '') : ''} onChange={(event) => set(model, 'contextWindow', event.target.value)} />
+              <Input type="number" min={1} aria-label={`${model} 최대 출력`} placeholder={!mine && limits?.maxOutput ? `최대 출력 ${limits.maxOutput.toLocaleString()} (API)` : '최대 출력 (토큰)'} value={mine ? (limits.maxOutput ?? '') : ''} onChange={(event) => set(model, 'maxOutput', event.target.value)} />
+            </div>
+          </div>
+        );
+      })}
+      <div className="flex gap-2">
+        <Input className="font-mono" placeholder="다른 모델 이름" value={adding} onChange={(event) => setAdding(event.target.value)} />
+        <Button variant="outline" disabled={!adding.trim() || rows.includes(adding.trim())} onClick={() => { onChange({ ...value, [adding.trim()]: { ...value[adding.trim()], by: 'human' } }); setAdding(''); }}>추가</Button>
+      </div>
+    </div>
+  );
+}
+
 export const Route = createFileRoute('/p/$projectId/settings/connections')({
   validateSearch: (raw: Record<string, unknown>): { conn?: string; key?: string } => ({
     conn: typeof raw.conn === 'string' && raw.conn ? raw.conn : undefined,
@@ -308,6 +350,7 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
     timeoutSeconds: connection.timeoutSeconds,
     maxAttempts: connection.maxAttempts,
     maxOutputTokens: connection.maxOutputTokens,
+    modelLimits: connection.modelLimits ?? {},
     fallback: connection.fallback,
   };
   const form = useForm<z.input<typeof editSchema>, unknown, z.output<typeof editSchema>>({
@@ -338,6 +381,7 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
               timeoutSeconds: values.timeoutSeconds,
               maxAttempts: values.maxAttempts,
               maxOutputTokens: values.maxOutputTokens,
+              modelLimits: values.modelLimits,
               fallback: values.fallback ?? null,
             }),
           }),
@@ -506,6 +550,13 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
             </InspectorField>
             <InspectorField label="최대 시도 횟수" error={errors.maxAttempts?.message}>
               <Input type="number" {...form.register('maxAttempts', number)} aria-invalid={!!errors.maxAttempts} />
+            </InspectorField>
+            <InspectorField label="모델 한도" description="AI 노드의 요청 크기(자동)를 정하는 값. 모델 목록을 불러오면 API가 알려 준 값이 채워지고, 직접 넣은 값이 우선합니다.">
+              <ModelLimitsEditor
+                value={form.watch('modelLimits') ?? {}}
+                models={[form.watch('defaultModel'), form.watch('fallback')?.connectionId === connection.id ? form.watch('fallback')?.model : undefined].filter((model): model is string => Boolean(model))}
+                onChange={(modelLimits) => form.setValue('modelLimits', modelLimits, { shouldDirty: true })}
+              />
             </InspectorField>
             <InspectorField label="최대 출력 토큰" description="비우면 모델 최대까지 씁니다. 넣으면 호출마다 이 이상 쓰지 않습니다." error={errors.maxOutputTokens?.message}>
               <Input type="number" min={256} placeholder="모델 최대" {...form.register('maxOutputTokens', { setValueAs: (value: string) => (value === '' ? null : Number(value)) })} aria-invalid={!!errors.maxOutputTokens} />

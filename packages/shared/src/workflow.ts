@@ -31,8 +31,8 @@ export const contextConfigSchema = z.object({
    * get preceding lines at all, and in experiment E9 it reached 6 of 407 lines with no measurable effect.
    */
   precedingTranslations: z.boolean().default(false),
-  /** Estimated token cap for everything besides the lines themselves; what does not fit is dropped and recorded. */
-  maxTokens: z.number().int().min(500).max(200_000).default(12_000),
+  /** Estimated token cap for everything besides the lines themselves; what does not fit is dropped and recorded. Null = auto, from the model's limits (autoBudgets). */
+  maxTokens: z.number().int().min(500).max(1_000_000).nullable().default(null),
 });
 
 /** How lines become model requests; see planBatches (apps/server/src/engine/batches.ts). */
@@ -44,8 +44,8 @@ export const batchConfigSchema = z.object({
   mode: z.enum(['unit', 'group', 'count', 'whole']).default('group'),
   /** Most lines in one request. */
   size: z.number().int().min(1).max(200).default(60),
-  /** Most estimated tokens of line text in one request ("group", "whole"); context is capped separately. */
-  maxTokens: z.number().int().min(500).max(1_000_000).default(6_000),
+  /** Most estimated tokens of line text in one request ("group", "whole"); context is capped separately. Null = auto, from the model's limits (autoBudgets). */
+  maxTokens: z.number().int().min(500).max(10_000_000).nullable().default(null),
 });
 
 const position = z.object({ x: z.number(), y: z.number() });

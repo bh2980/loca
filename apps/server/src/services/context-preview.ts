@@ -7,6 +7,7 @@ import { buildPrompt } from '../engine/prompts.ts';
 import { wholeScriptRequest } from '../engine/whole-script.ts';
 import { resolveChoiceOptions } from './choice-options.ts';
 import { buildContext } from './context.ts';
+import { modelLimitsOf, resolveNodeBudgets } from './budgets.ts';
 
 /**
  * What an AI node would send for a line, built exactly as a run builds it but without calling a
@@ -25,7 +26,8 @@ export function previewContext(db: Db, projectId: string, unitKey: string, pick:
   const picked = choices.find((choice) => (!pick.workflowId || choice.workflowId === pick.workflowId) && choice.nodeId === pick.nodeId) ?? choices.find((choice) => choice.output === 'text') ?? choices[0];
   const list = choices.map(({ node: _node, ...choice }) => choice);
   if (!picked) return { unitKey, choices: list, picked: null };
-  const node = picked.node;
+  // Its "auto" budgets as a run with its own model would fix them.
+  const node = resolveNodeBudgets(picked.node, modelLimitsOf(db, picked.node.config.model));
 
   // The batch the runner would form when the whole script is in scope (same planning rule).
   const config = batchConfigSchema.parse(node.config.batch ?? {});

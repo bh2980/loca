@@ -3,16 +3,16 @@ import type { LanguageModel } from 'ai';
 import { CONNECTION_KIND_INFO } from '@tw/shared';
 import { cliGenerate, cliModels, cliVersion, describeCli } from './cli.ts';
 import { ModelError, toModelError } from './errors.ts';
-import { openaiChatModel, openaiComplete, openaiGenerate, openaiModels } from './openai.ts';
-import { piGenerate, piModelsWith, piProbe } from './pi.ts';
+import { openaiChatModel, openaiComplete, openaiGenerate, openaiModelList, openaiModels } from './openai.ts';
+import { piGenerate, piModelLimits, piModelsWith, piProbe } from './pi.ts';
 import { systemOneAsk, systemOneJudge, systemOneModels } from './systemone.ts';
-import type { AskRequest, AskResult, CompleteRequest, CompleteResult, GenerateRequest, GenerateResult, JudgeRequest, JudgeResult, ResolvedRoute, Usage } from './types.ts';
+import type { AskRequest, AskResult, CompleteRequest, CompleteResult, GenerateRequest, GenerateResult, JudgeRequest, JudgeResult, ModelLimitsInfo, ResolvedRoute, Usage } from './types.ts';
 
 export * from './types.ts';
 export { ModelError, type ModelErrorCode } from './errors.ts';
 export { cliLoginStatus, cliVersion, openLoginTerminal, LOGIN_COMMANDS } from './cli.ts';
 export { CHAT_CLI_KINDS, cliChat, readCliChat, type ChatCliKind, type CliChatResult, type CliChatTurn } from './cli-chat.ts';
-export { openaiProviderOptions } from './openai.ts';
+export { limitsOf, openaiProviderOptions } from './openai.ts';
 export { createPiChatSession, piModel, piModelsWith, piResources, piRuntime, resetPiRuntime, type PiHistoryMessage, type PiSession, type PiToolSpec } from './pi.ts';
 
 export function generate<T>(route: ResolvedRoute, request: GenerateRequest<T>): Promise<GenerateResult<T>> {
@@ -55,6 +55,13 @@ export async function listModels(route: Omit<ResolvedRoute, 'model'>): Promise<s
   if (route.kind === 'pi') return piModelsWith(route.piOptions);
   if (route.kind === 'grok' || route.kind === 'antigravity' || route.kind === 'opencode' || route.kind === 'codex' || route.kind === 'claude') return cliModels(route.kind, route.executable);
   return null;
+}
+
+/** What the model list says about each model's limits (API and pi connections; CLIs say nothing). */
+export async function listModelLimits(route: Omit<ResolvedRoute, 'model'>): Promise<Record<string, ModelLimitsInfo>> {
+  if (route.kind === 'openai') return (await openaiModelList(route)).limits;
+  if (route.kind === 'pi' && !route.piOptions?.extensions) return piModelLimits();
+  return {};
 }
 
 /** Cheap reachability check: API → model list, CLI → `--version`. */

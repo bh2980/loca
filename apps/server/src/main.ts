@@ -16,7 +16,7 @@ import { closeInterruptedProposals } from './services/proposals.ts';
 import { computeLayouts, projectsMissingSections, projectsWithOldLayouts, projectsWithoutLayouts } from './services/layout.ts';
 import { keyringStore, memoryStore } from './services/secrets.ts';
 import { fillDefaultModels } from './services/routes.ts';
-import { replaceLegacyBuiltins, trimScriptTermCandidates } from './services/workflow-migrations.ts';
+import { autoBudgetDefaults, replaceLegacyBuiltins, trimScriptTermCandidates } from './services/workflow-migrations.ts';
 
 // A stray rejected promise (a client that vanished, a failed background job) must not take the server down.
 process.on('unhandledRejection', (reason) => console.error('unhandled rejection', reason));
@@ -37,6 +37,7 @@ fillDefaultModels(db);
 // Built-in workflows saved before the general AI outputs and 반영 nodes are replaced by the current ones (once).
 replaceLegacyBuiltins(db);
 trimScriptTermCandidates(db);
+autoBudgetDefaults(db);
 // Terms counted as used nowhere are counted again (speaker names were once missed); fillTermUsage counts lines that are null.
 db.update(s.terms).set({ lines: null }).where(eq(s.terms.lines, 0)).run();
 const runner = new Runner(db, secrets);

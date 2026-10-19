@@ -8,6 +8,7 @@ import { buildPrompt } from '../engine/prompts.ts';
 import { wholeScriptRequest } from '../engine/whole-script.ts';
 import { resolveChoiceOptions } from './choice-options.ts';
 import { excludedInScope, planRun, sceneLinks, selectRunUnits } from '../engine/run-create.ts';
+import { resolveBudgets } from './budgets.ts';
 import { buildContext } from './context.ts';
 import { choiceLabel } from './routes.ts';
 import { speechRuleIndex } from './speech.ts';
@@ -47,7 +48,7 @@ export interface NodeEstimate {
  * The plan is the same one createRun stores (planRun), so the numbers describe the real run.
  */
 export async function preflight(db: Db, workflow: Pick<typeof s.workflows.$inferSelect, 'projectId' | 'definition'> & { id: string | null }, scope: s.RunScope) {
-  const definition: WorkflowDefinition = workflow.definition;
+  const definition: WorkflowDefinition = resolveBudgets(db, workflow.definition);
   const projectId = workflow.projectId;
   const unitIds = selectRunUnits(db, projectId, definition, scope);
   const columns = { id: s.units.id, key: s.units.key, groupId: s.units.groupId, seq: s.units.seq, kind: s.units.kind, speaker: s.units.speaker, source: s.units.source, translation: s.units.translation, listener: s.units.listener, listenerOrigin: s.units.listenerOrigin, listenerConfidence: s.units.listenerConfidence, tokens: sql<number>`(length(cast(${s.units.source} as blob)) + 3) / 4` };

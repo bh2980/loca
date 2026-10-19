@@ -95,3 +95,28 @@ export function trimScriptTermCandidates(db: Db): void {
     discoverAndSave(db, project.id);
   }
 }
+
+/**
+ * AI nodes saved with the old fixed budgets (6,000 tokens of lines, 300,000 for the whole script,
+ * 12,000 of context) take "auto" instead, sized from their model's limits. Numbers a person changed stay.
+ */
+export function autoBudgetDefaults(db: Db): number {
+  let changed = 0;
+  for (const workflow of db.select({ id: s.workflows.id, definition: s.workflows.definition }).from(s.workflows).all()) {
+    let touched = false;
+    const nodes = workflow.definition.nodes.map((node) => {
+      if (node.type !== 'ai') return node;
+      const batch = node.config.batch as { mode?: string; maxTokens?: number | null } | undefined;
+      const context = node.config.context as { maxTokens?: number | null } | undefined;
+      const oldBatch = batch?.maxTokens === (batch?.mode === 'whole' ? 300_000 : 6_000);
+      const oldContext = context?.maxTokens === 12_000;
+      if (!oldBatch && !oldContext) return node;
+      touched = true;
+      return { ...node, config: { ...node.config, ...(oldBatch && { batch: { ...node.config.batch, maxTokens: null } }), ...(oldContext && { context: { ...node.config.context, maxTokens: null } }) } };
+    });
+    if (!touched) continue;
+    db.update(s.workflows).set({ definition: { ...workflow.definition, nodes } as WorkflowDefinition }).where(eq(s.workflows.id, workflow.id)).run();
+    changed++;
+  }
+  return changed;
+}

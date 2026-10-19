@@ -1,0 +1,1 @@
+ALTER TABLE `connections` ADD `model_limits` text DEFAULT '{}' NOT NULL;

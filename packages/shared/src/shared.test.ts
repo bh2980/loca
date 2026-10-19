@@ -339,7 +339,7 @@ describe('analysis workflow and presets', () => {
 
   it('fills an analysis AI node from its preset: json, whole script, every rule in the visible instructions', () => {
     const config = presetConfig('analysis', model);
-    expect(config).toMatchObject({ output: 'json', scope: 'batch', preset: 'analysis', batch: { mode: 'whole', size: 200, maxTokens: 300_000 }, context: { cast: true } });
+    expect(config).toMatchObject({ output: 'json', scope: 'batch', preset: 'analysis', batch: { mode: 'whole', size: 200, maxTokens: null }, context: { cast: true } });
     expect(config.fields.map((field) => field.name)).toEqual(['overviewTitle', 'overview', 'characters', 'relationships', 'events', 'speechRules', 'sceneListeners', 'terms']);
     for (const word of ['Do NOT use prior knowledge', 'player character', 'hasoseo', 'exceptions', 'loanword']) expect(config.instructions).toContain(word);
     expect(workflowNodeSchema.parse({ id: 'a', type: 'ai', position: { x: 0, y: 0 }, config }).type).toBe('ai');

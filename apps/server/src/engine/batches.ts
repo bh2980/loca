@@ -1,4 +1,4 @@
-import type { BatchConfig } from '@tw/shared';
+import { batchTokens, type BatchConfig } from '@tw/shared';
 
 /** A line to batch, in script position. `tokens` is the estimated size of its text. */
 export interface BatchLine {
@@ -39,7 +39,7 @@ function byKind<T extends { kind?: string }>(lines: T[]): T[][] {
 export function planBatches<T extends BatchLine>(lines: T[], config: BatchConfig, linked?: (a: string, b: string) => boolean): T[][] {
   const ordered = [...lines].sort((a, b) => a.seq - b.seq);
   if (config.mode === 'unit') return ordered.map((line) => [line]);
-  if (config.mode === 'whole') return wholeScript([...Map.groupBy(ordered, (line) => line.groupId).values()], config.maxTokens);
+  if (config.mode === 'whole') return wholeScript([...Map.groupBy(ordered, (line) => line.groupId).values()], batchTokens(config));
   if (config.mode === 'count') return byKind(ordered).flatMap((run) => Array.from({ length: Math.ceil(run.length / config.size) }, (_, index) => run.slice(index * config.size, (index + 1) * config.size)));
 
   const batches: T[][] = [];
@@ -50,8 +50,8 @@ export function planBatches<T extends BatchLine>(lines: T[], config: BatchConfig
     current = [];
     tokens = 0;
   };
-  const fits = (count: number, more: number) => current.length + count <= config.size && (current.length === 0 || tokens + more <= config.maxTokens);
-  const halfFull = () => current.length * 2 >= config.size || tokens * 2 >= config.maxTokens;
+  const fits = (count: number, more: number) => current.length + count <= config.size && (current.length === 0 || tokens + more <= batchTokens(config));
+  const halfFull = () => current.length * 2 >= config.size || tokens * 2 >= batchTokens(config);
   const unrelated = (scene: T[]) => {
     if (!current.length) return false;
     if (scene[0].kind !== undefined && scene[0].kind !== current[0].kind) return true;
@@ -70,7 +70,7 @@ export function planBatches<T extends BatchLine>(lines: T[], config: BatchConfig
       tokens += sceneTokens;
       continue;
     }
-    const wholeFits = scene.length <= config.size && sceneTokens <= config.maxTokens;
+    const wholeFits = scene.length <= config.size && sceneTokens <= batchTokens(config);
     flush();
     if (wholeFits) {
       current.push(...scene);
@@ -96,13 +96,13 @@ export function planBatches<T extends BatchLine>(lines: T[], config: BatchConfig
  */
 export function packGroups<T extends { tokens: number; kind?: string }>(planned: T[][], config: BatchConfig): T[][] {
   if (config.mode === 'unit') return planned.flat().map((line) => [line]);
-  if (config.mode === 'whole') return wholeScript(planned, config.maxTokens);
+  if (config.mode === 'whole') return wholeScript(planned, batchTokens(config));
   // A group that holds several kinds (a mixed imported group, an older plan) is cut where the kind changes.
   const groups = planned.flatMap(byKind);
   const requests: T[][] = [];
   let current: T[] = [];
   let tokens = 0;
-  const limitTokens = config.mode === 'group' ? config.maxTokens : Infinity;
+  const limitTokens = config.mode === 'group' ? batchTokens(config) : Infinity;
   const flush = () => {
     if (current.length) requests.push(current);
     current = [];

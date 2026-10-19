@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { piOptionsSchema } from './agent.ts';
 import { modelChoiceSchema } from './model-choice.ts';
+import { modelLimitsSchema } from './budgets.ts';
 
 export const CONNECTION_KINDS = ['openai', 'pi', 'systemone', 'codex', 'claude', 'grok', 'antigravity', 'opencode', 'http'] as const;
 export type ConnectionKind = (typeof CONNECTION_KINDS)[number];
@@ -91,6 +92,8 @@ export const connectionInputSchema = z.object({
   maxAttempts: z.number().int().min(1).max(5).optional(),
   /** A cap on each call's output; null = the model's own limit (nothing is sent). */
   maxOutputTokens: z.number().int().min(256).max(1_000_000).nullable().optional(),
+  /** What each model of this connection takes and gives in one call (model id → limits): from its model list, or a person's numbers. */
+  modelLimits: z.record(z.string(), modelLimitsSchema).optional(),
   /** Where calls go when this connection keeps failing transiently (rate limit, network, timeout); that connection's own fallback is followed in turn. */
   fallback: modelChoiceSchema.nullable().optional(),
 });
