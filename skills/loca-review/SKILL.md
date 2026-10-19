@@ -6,6 +6,7 @@ description: Review translations in a loca project for glossary violations, inco
 # loca로 번역 점검하기
 
 ## 한 번에 찾기
+찾은 게 있으면 종료 코드 1, 없으면 0입니다. 그래서 스크립트나 번역 끝 단계의 게이트로 쓸 수 있습니다(예: `loca check format -g s1 && loca import …`).
 ```
 loca check terms            # 확정 용어를 안 쓴 번역
 loca check consistency      # 같은 원문인데 번역이 다른 곳
@@ -17,13 +18,13 @@ loca check speech           # 화자→청자의 확정 말투 규칙과 번역 
 
 ## 실행 전 준비 상태
 ```
-loca plan "기본 번역" -g "<장면>"            # 읽기만. 범위: -g 장면, --key 대사, --mark 표시, --tag 태그 (모두 만족)
-loca plan "청자 추정" --model "mock B:mock"   # 이번 실행만 다른 모델로 계산 ("노드=연결:모델"로 한 단계만). 실행 제안 start_run에도 models로 같은 선택
+loca runs plan "기본 번역" -g "<장면>"      # 읽기만. 범위: -g 장면, --key 대사, --mark 표시, --tag 태그 (모두 만족)
+loca runs plan "청자 추정" --model "mock B:mock"   # 이번 실행만 다른 모델로 계산 ("노드=연결:모델"로 한 단계만). loca runs start에도 같은 --model
 ```
-앱 실행 창과 같은 계산입니다: 대사 수, 묶음·AI 요청 수 추정, **준비 상태**(청자 미상 대사 수, 확인 안 한 말투 규칙·용어 이름, 5줄 이상 말하는데 규칙 없는 화자 쌍). 걸린 항목은 고치기 전에 사용자에게 알립니다: `loca lines --mark unknownListener`, `loca terms --unreviewed`, `loca knowledge speech-rules --unreviewed`. 시작은 `start_run` 제안으로만 합니다.
+앱 실행 창과 같은 계산입니다: 대사 수, 묶음·AI 요청 수 추정, **준비 상태**(청자 미상 대사 수, 확인 안 한 말투 규칙·용어 이름, 5줄 이상 말하는데 규칙 없는 화자 쌍). 걸린 항목은 고치기 전에 사용자에게 알립니다: `loca lines --mark unknownListener`, `loca terms --unreviewed`, `loca knowledge speech-rules --unreviewed`. 시작은 `loca runs start <워크플로> …` 제안으로만 하며(범위·`--model`은 plan과 같음), 사용자가 앱의 채팅 패널 ‘CLI 제안’에서 수락해야 시작합니다.
 
 ## 줄의 표시
-`loca lines`·`line`·`export`(와 `find_lines`)는 줄마다 `marks`를 보입니다: `remaining` 남은 줄 · `ai` AI가 정함 · `unknownListener` 청자 미상 · `noted` 메모 · `diverged` 같은 원문 다른 번역. `--mark`로 같은 조건을 걸 수 있습니다(예: `loca lines --mark diverged ai`는 둘 다 가진 줄).
+`loca lines`·`line`·`export`(와 `find_lines`)는 줄마다 `marks`를 보입니다: `remaining` #남은 줄 · `ai` #AI 초안 · `unknownListener` #청자 미상 · `noted` #메모 · `diverged` #번역 불일치. `--mark`로 같은 조건을 걸 수 있습니다(예: `loca lines --mark diverged ai`는 둘 다 가진 줄).
 
 ## 번역이 문맥 탓인지 볼 때
 `loca context <키>`는 워크플로의 AI 노드가 그 대사를 번역할 때 보내는 문맥을 보여 줍니다(앞 대사·갈래, 넣은 항목과 이유, 상한 때문에 뺀 것). `-n <노드 id>`로 다른 노드, `--prompt`로 프롬프트 전문. 모델은 부르지 않습니다.
@@ -37,5 +38,7 @@ loca plan "청자 추정" --model "mock B:mock"   # 이번 실행만 다른 모�
 ## 진행 상황
 ```
 loca stats sections        # 구역별 미번역
-loca stats runs --since 24 # 최근 실행: 토큰·실패 호출·실패가 잦은 노드
+loca runs list --since 24  # 최근 실행: 토큰·실패 호출·실패가 잦은 노드
+loca runs show <id>        # 한 실행의 노드별 진행(상태별 대사 수)과 최근 실패
+loca proposals list --status pending   # 수락을 기다리는 제안
 ```

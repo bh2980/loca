@@ -6,8 +6,8 @@ description: Build and maintain the glossary of a loca project — find where te
 # loca 용어집 다루기
 
 - 용어 목록: `loca terms` (`-q Guild`, `--mark …`, `--tag …`, `--limit`, `--jsonl`). 줄마다 원문 → 번역어, 상태(후보/확정), **나온 줄**(대본에서 그 용어가 쓰인 대사 수), 표시(#), 태그, id. 앱 용어집 화면의 필터와 같은 규칙이다.
-  - 표시: `candidate`(후보, 아직 번역 문맥에 안 쓰임) · `ai`(AI가 정했고 사람이 안 봄) · `emptyTarget`(번역어 없음) · `unused`(대본에 안 나옴). `--mark candidate ai`는 **둘 중 하나**, 다른 표시끼리는 모두 만족.
-  - **확인 안 한 용어**: `loca terms --unreviewed` (= 후보 또는 AI가 정함). 번역하기 전에 사람이 볼 목록이다.
+  - 표시: `candidate`(후보, 아직 번역 문맥에 안 쓰임) · `ai`(#AI 초안: AI가 정했고 사람이 안 봄) · `emptyTarget`(번역어 없음) · `unused`(대본에 안 나옴). `--mark candidate ai`는 **둘 중 하나**, 다른 표시끼리는 모두 만족.
+  - **확인 안 한 용어**: `loca terms --unreviewed` (= 후보 또는 AI 초안). 번역하기 전에 사람이 볼 목록이다.
 - 용어가 쓰인 대사: `loca terms usage <원문|id> [--limit n] [--jsonl]` (앱 용어 창의 사용처와 같은 낱말 단위 매칭). 임의 글자 검색은 `loca lines --q "Guild" --all --jsonl`
 - 확정 용어를 어긴 번역: `loca check terms`
 - 읽기 도구로 직접: `loca call list_terms '{"marks":["unused"],"limit":50}'`. 결과가 길면 `truncated`가 붙으니 `offset`·`limit`으로 넘긴다

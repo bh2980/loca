@@ -11,8 +11,10 @@ description: Read everything a character says or is said about in a loca project
 loca speakers                                   # 화자 키와 저장된 인물 이름
 loca lines --speaker "Alice" --all --jsonl > "$W/alice.jsonl"         # 본인이 한 말 (이름·별칭·화자 키 모두 됨)
 loca lines --mentions Alice --all --jsonl > "$W/about-alice.jsonl"    # 남이 Alice를 언급한 말 (별칭 자리표시자 포함)
-loca scenes --with Alice Bob                    # 둘이 함께 나오는 장면
-loca first Bob                                  # 처음 등장하는 장면
+loca scenes with Alice Bob                      # 둘이 함께 나오는 장면 (대화 그래프에서 파생)
+loca scenes list                                # 장면·묶음 목록
+loca scenes show "<장면>"                       # 한 장면의 대사를 대본 순서로
+loca speakers first Bob                         # 처음 등장하는 장면
 loca line <키> --around 6                        # 특정 대사 앞뒤와 분기
 loca lines --speaker Alice --listener Bob --all --jsonl > "$W/alice-bob.jsonl"  # Alice가 Bob에게 한 말
 loca lines --listener - --group "<장면>"          # 청자를 아직 모르는 대사 (앱의 #청자 미상 표시와 같음: --mark unknownListener; 화자 없는 지문·서식만 있는 줄은 청자가 없어 빠짐)
@@ -21,11 +23,11 @@ loca knowledge relationships
 loca knowledge speech-rules                      # 화자→청자 말투 규칙과 구간
 loca knowledge events
 loca knowledge documents
-loca knowledge speech-rules --unreviewed         # 사람이 아직 안 본 것(후보 또는 AI가 정함). --mark candidate ai noEvidence, --tag <태그>로도 거름
+loca knowledge speech-rules --unreviewed         # 사람이 아직 안 본 것(후보 또는 AI 초안). --mark candidate ai noEvidence, --tag <태그>로도 거름
 loca call list_speech_rules '{"speaker":"Alice"}'  # 같은 도구를 직접: 화자·청자로 좁히기
 loca tags                                        # 태그가 붙는 곳(대사·자료·용어집). 자료에는 자료 태그만, 대사에는 대사 태그만 붙는다
 ```
-표시(#)는 앱과 같은 규칙입니다: `candidate` 후보 · `ai` AI가 정함 · `noEvidence` 근거 대사 없음. `--mark candidate ai`는 둘 중 하나입니다.
+표시(#)는 앱과 같은 규칙입니다: `candidate` 후보 · `ai` AI 초안 · `noEvidence` 근거 대사 없음. `--mark candidate ai`는 둘 중 하나입니다.
 각 항목에는 `status`(confirmed = 번역 문맥에 쓰임, candidate = 아직 안 쓰임), `statusBy`(ai = AI가 그 상태로 정했고 아직 사람이 보지 않음, human = 사람이 정함), `source`(내용을 만든 쪽: workflow 워크플로·채팅 / script 대본에서 찾음 / import 가져오기 / human 사람)가 있습니다. AI가 확정한 항목도 이미 번역에 쓰이고 있으니, 틀린 것을 발견하면 고쳐서 제안합니다(사람이 수락하면 정한 쪽이 사람이 되고, 내용을 고쳤으면 출처도 사람이 됩니다).
 파일로 받아 읽고, 인물마다 핵심만 추립니다.
 
@@ -40,7 +42,7 @@ loca call save_relationship @"$W/rel.json"       # {"from":"Alice","to":"Bob","k
 loca call save_speech_rule @"$W/rule.json"       # {"fromName":"Alice","toName":"Bob","level":"haeyo","address":"밥 씨","note":"직장 선배","startKey":null}
 loca call save_event @"$W/event.json"            # {"title":"…","summary":"…","outcome":"…","participants":["Alice"],"evidence":["<키>"]}
 ```
-- 대사의 청자를 고칠 때는 import 파일 줄에 `"listener":"Bob"`(모르면 `null`)을 넣습니다: `{"key":"<키>","rev":<rev>,"listener":"Bob"}`.
+- 대사의 청자를 고치는 길은 둘입니다. 사람의 확정 수정이면 import 파일 줄에 `"listener":"Bob"`(모르면 `null`)을 넣습니다: `{"key":"<키>","rev":<rev>,"listener":"Bob"}`. 근거로 추정한 AI의 추측이면 확신도를 붙여 `loca call set_listeners`로 제안합니다(입력 형식은 `loca tools set_listeners`로 확인). 이런 줄은 #AI 초안으로 남아 사람이 확인합니다.
 - 말투 규칙을 고친 뒤에는 그 쌍의 대사를 앱의 "말투만 고치기" 워크플로로 다시 돌리면 어미·호칭만 새 규칙에 맞춰집니다(`loca check speech --speaker Alice --listener Bob`으로 먼저 확인).
 - import 줄의 `addTags`는 대사에 붙일 수 있는 태그만 됩니다. 붙는 곳이 아닌 태그(예: 자료용 ‘확인 권장’)는 `오류  <키>: ‘…’ 태그는 대사에 붙일 수 없습니다(붙는 곳: …)`로 거절되니 `loca tags`로 먼저 확인하세요.
 모든 저장은 제안으로 올라가고, 사용자가 loca 앱에서 수락해야 반영됩니다. 오류·충돌로 빠진 줄은 제안을 올릴 때 이유와 함께 출력됩니다.
