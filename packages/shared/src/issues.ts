@@ -1,4 +1,4 @@
-import type { TagScope } from './marks.ts';
+import { normalizeTagScopes, type TagScope } from './marks.ts';
 /**
  * Problem-type tags: what kind of problem a check found in a line's current translation. A check
  * that fails puts its kind on the line, the same check passing takes it off, and a new translation
@@ -25,6 +25,14 @@ export const ISSUE_CATEGORY_GUIDE = 'speech (speech level, honorifics, form of a
 export const KNOWLEDGE_TAG_KINDS = ['terms', 'documents', 'characters', 'relationships', 'events', 'speechRules'] as const;
 export type KnowledgeTagKind = (typeof KNOWLEDGE_TAG_KINDS)[number];
 
+/** Maps a knowledge table kind to its TagScope ('terms' | 'documents' | 'events' | 'people'). */
+export function knowledgeKindScope(kind: KnowledgeTagKind): TagScope {
+  if (kind === 'terms') return 'terms';
+  if (kind === 'documents') return 'documents';
+  if (kind === 'events') return 'events';
+  return 'people';
+}
+
 /**
  * 확인 권장: an AI item a person should look at before trusting it (a main pair, evidence spoken by
  * someone else, a clash with a person's rule). Analysis puts it on with the reason (shown on hover);
@@ -39,7 +47,7 @@ export type TagRole = IssueKind | typeof REVIEW_TAG.role;
  * Where a tag can be put: the app's tags have a fixed place (problem types on lines, 확인 권장 on
  * knowledge); a person's own tag has the places they chose.
  */
-export function tagScope(tag: { role: TagRole | null; scope: readonly TagScope[] }): TagScope[] {
-  if (!tag.role) return [...tag.scope];
-  return tag.role === REVIEW_TAG.role ? ['knowledge'] : ['lines'];
+export function tagScope(tag: { role: TagRole | null; scope: readonly string[] }): TagScope[] {
+  if (!tag.role) return normalizeTagScopes(tag.scope);
+  return tag.role === REVIEW_TAG.role ? ['people', 'documents', 'events'] : ['lines'];
 }

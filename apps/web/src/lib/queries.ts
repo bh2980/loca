@@ -1,5 +1,5 @@
 import { keepPreviousData, queryOptions, useQuery } from '@tanstack/react-query';
-import { REVIEW_TAG, type MarkColors, type TagScope } from '@tw/shared';
+import { REVIEW_TAG, normalizeTagScopes, type DetectedCustomFormatRule, type DetectedFormatPreset, type FormatPreset, type MarkColors, type TagScope } from '@tw/shared';
 import { client, unwrap } from './api';
 
 /**
@@ -7,6 +7,20 @@ import { client, unwrap } from './api';
  * "units changed" event refetches exactly the queries that show units.
  */
 export const q = {
+  detectFormatRules: (projectId: string) =>
+    queryOptions({
+      queryKey: ['units', 'detect-format-rules', projectId],
+      queryFn: () =>
+        unwrap((client.projects[':projectId'] as any)['detect-format-rules'].$get({ param: { projectId } })) as Promise<{
+          presets: DetectedFormatPreset[];
+          customCandidates: DetectedCustomFormatRule[];
+          recommendedPresets: FormatPreset[];
+        }>,
+    }),
+  readingRoute: (projectId: string, query: { start?: string; end?: string; via?: string }) => queryOptions({
+    queryKey: ['units', 'reading-route-between', projectId, query],
+    queryFn: () => unwrap(client.projects[':projectId']['reading-route'].$get({ param: { projectId }, query })),
+  }),
   projects: () => queryOptions({ queryKey: ['projects'], queryFn: () => unwrap(client.projects.$get()) }),
   project: (projectId: string) =>
     queryOptions({ queryKey: ['units', 'project', projectId], queryFn: () => unwrap(client.projects[':projectId'].$get({ param: { projectId } })) }),
@@ -16,10 +30,11 @@ export const q = {
     queryOptions({ queryKey: ['units', 'groups', projectId, query], queryFn: () => unwrap(client.projects[':projectId'].groups.$get({ param: { projectId }, query })) }),
   group: (groupId: string) => queryOptions({ queryKey: ['units', 'group', groupId], queryFn: () => unwrap(client.groups[':groupId'].$get({ param: { groupId } })) }),
   speakers: (projectId: string) => queryOptions({ queryKey: ['units', 'speakers', projectId], queryFn: () => unwrap(client.projects[':projectId'].speakers.$get({ param: { projectId } })) }),
+  listeners: (projectId: string) => queryOptions({ queryKey: ['units', 'listeners', projectId], queryFn: () => unwrap(client.projects[':projectId'].listeners.$get({ param: { projectId } })) }),
   /** Every line a filter matches (id and scene, script order), for walking them inside their scenes. */
-  unitMatches: (projectId: string, query: { kind?: 'scene' | 'document' | 'ui'; statusId?: string; tagIds?: string; q?: string; speaker?: string; listener?: string; marks?: string }) =>
+  unitMatches: (projectId: string, query: { groupId?: string; kind?: 'scene' | 'document' | 'ui'; section?: string; statusId?: string; tagIds?: string; q?: string; speaker?: string; listener?: string; review?: '1'; marks?: string }) =>
     queryOptions({ queryKey: ['units', 'matches', projectId, query], queryFn: () => unwrap(client.projects[':projectId'].units.matches.$get({ param: { projectId }, query })) }),
-  units: (projectId: string, query: { groupId?: string; kind?: 'scene' | 'document' | 'ui'; statusId?: string; tagIds?: string; q?: string; speaker?: string; listener?: string; review?: '1'; marks?: string; focus?: string; offset?: number; limit?: number }) =>
+  units: (projectId: string, query: { groupId?: string; section?: string; kind?: 'scene' | 'document' | 'ui'; statusId?: string; tagIds?: string; q?: string; speaker?: string; listener?: string; review?: '1'; marks?: string; focus?: string; offset?: number; limit?: number }) =>
     queryOptions({
       queryKey: ['units', 'list', projectId, query],
       queryFn: () =>
@@ -36,16 +51,19 @@ export const q = {
   sameSource: (unitId: string) => queryOptions({ queryKey: ['units', 'same-source', unitId], queryFn: () => unwrap(client.units[':unitId'].same.$get({ param: { unitId } })) }),
   /** Translated lines with the same or a similar source (the editor's suggestions). */
   lineMatches: (unitId: string) => queryOptions({ queryKey: ['units', 'line-matches', unitId], queryFn: () => unwrap(client.units[':unitId'].matches.$get({ param: { unitId } })) }),
-  graphSections: (projectId: string) =>
-    queryOptions({ queryKey: ['graph', projectId, 'sections'], queryFn: () => unwrap(client.projects[':projectId'].graph.sections.$get({ param: { projectId } })), staleTime: Infinity }),
+  graphSections: (projectId: string, direction: 'vertical' | 'horizontal' = 'vertical') =>
+    queryOptions({ queryKey: ['graph', projectId, 'sections', direction], queryFn: () => unwrap(client.projects[':projectId'].graph.sections.$get({ param: { projectId }, query: { direction } })), staleTime: Infinity }),
+  /** The project's stored views of the dialogue graph (graph topic: the SSE refreshes it). */
+  graphViews: (projectId: string) =>
+    queryOptions({ queryKey: ['graph', projectId, 'views'], queryFn: () => unwrap(client.projects[':projectId'].graph.views.$get({ param: { projectId } })) }),
   /** A view of graph nodes made in the chat (show_graph). */
   graphView: (projectId: string, id: string) =>
     queryOptions({ queryKey: ['graph', projectId, 'views', id], queryFn: () => unwrap(client.projects[':projectId'].graph.views[':id'].$get({ param: { projectId, id } })), staleTime: Infinity }),
   /** `section`: one section's own dialogue layout (dialogue scope only). */
-  graph: (projectId: string, scope: 'scene' | 'dialogue', section?: string) =>
+  graph: (projectId: string, scope: 'scene' | 'dialogue', section?: string, direction: 'vertical' | 'horizontal' = 'vertical') =>
     queryOptions({
-      queryKey: ['graph', projectId, scope, section ?? ''],
-      queryFn: () => unwrap(client.projects[':projectId'].graph[':scope{dialogue|scene}'].$get({ param: { projectId, scope }, query: section ? { section } : {} })),
+      queryKey: ['graph', projectId, scope, direction, section ?? ''],
+      queryFn: () => unwrap(client.projects[':projectId'].graph[':scope{dialogue|scene}'].$get({ param: { projectId, scope }, query: { ...(section && { section }), direction } })),
       staleTime: Infinity,
     }),
   /** The slice of the dialogue graph for the stored choices (길 따라 보기): blocks, edges, forks, stubs, seams, the picks and the translation counts (units topic: translations decide them). */
@@ -53,7 +71,7 @@ export const q = {
   /** The visible rows of the path view's translation list: a chunk of the route's lines by id, in that order (units topic: a translation changes them). */
   routeRows: (projectId: string, ids: string[]) =>
     queryOptions({
-      queryKey: ['units', 'route-rows', projectId, `${ids[0]}:${ids.at(-1)}:${ids.length}`],
+      queryKey: ['units', 'route-rows', projectId, ids],
       queryFn: () => unwrap(client.projects[':projectId'].units['by-ids'].$post({ param: { projectId }, json: { ids } })),
       enabled: ids.length > 0,
       placeholderData: keepPreviousData,
@@ -67,7 +85,13 @@ export const q = {
   /** One seam: the current route's last lines before it and the earlier route's lines after it. */
   seamDetail: (projectId: string, nodeId: string) =>
     queryOptions({ queryKey: ['units', 'seam', projectId, nodeId], queryFn: () => unwrap(client.projects[':projectId'].route.seams[':nodeId'].$get({ param: { projectId, nodeId } })) }),
-  graphNode: (nodeId: string) => queryOptions({ queryKey: ['units', 'graph-node', nodeId], queryFn: () => unwrap(client['graph-nodes'][':nodeId'].$get({ param: { nodeId } })) }),
+  graphNode: (nodeId: string, projectId?: string) => queryOptions({
+    queryKey: ['units', 'graph-node', projectId ?? null, nodeId],
+    queryFn: () => unwrap(client['graph-nodes'][':nodeId'].$get({
+      param: { nodeId },
+      query: { projectId },
+    })),
+  }),
   terms: (projectId: string) => queryOptions({ queryKey: ['terms', projectId], queryFn: () => unwrap(client.projects[':projectId'].terms.$get({ param: { projectId } })) }),
   termSuggest: (projectId: string) =>
     queryOptions({ queryKey: ['terms', 'suggest', projectId], queryFn: () => unwrap(client.projects[':projectId'].terms.suggest.$get({ param: { projectId } })) }),
@@ -81,7 +105,6 @@ export const q = {
     queryOptions({ queryKey: ['knowledge', 'speech-rules', projectId], queryFn: () => unwrap(client.projects[':projectId']['speech-rules'].$get({ param: { projectId } })) }),
   ruleLines: (projectId: string, id: string) =>
     queryOptions({ queryKey: ['units', 'rule-lines', id], queryFn: () => unwrap(client.projects[':projectId']['speech-rules'][':id'].lines.$get({ param: { projectId, id } })) }),
-  analysisJobs: (projectId: string) => queryOptions({ queryKey: ['analysis', projectId], queryFn: () => unwrap(client.projects[':projectId'].analysis.$get({ param: { projectId } })) }),
   /** Lines cited as evidence, by key. */
   linesByKeys: (projectId: string, keys: string[]) =>
     queryOptions({
@@ -96,13 +119,13 @@ export const q = {
     queryOptions({ queryKey: ['workflows', projectId], queryFn: () => unwrap(client.projects[':projectId'].workflows.$get({ param: { projectId } })) }),
   workflow: (id: string) => queryOptions({ queryKey: ['workflows', 'detail', id], queryFn: () => unwrap(client.workflows[':id'].$get({ param: { id } })) }),
   /** The project's AI log (every model request); `kind` narrows it to one source. */
-  aiCalls: (projectId: string, kind?: 'run' | 'analysis' | 'terms' | 'test' | 'chat', ref?: string) =>
+  aiCalls: (projectId: string, kind?: 'run' | 'whole' | 'terms' | 'test' | 'chat', ref?: string) =>
     queryOptions({ queryKey: ['calls', projectId, kind ?? '', ref ?? ''], queryFn: () => unwrap(client.projects[':projectId']['ai-calls'].$get({ param: { projectId }, query: { ...(kind && { kind }), ...(ref && { ref }) } })) }),
-  /** What one model request sent (kept for work analysis and glossary fills). */
+  /** What one model request sent (kept for whole-script reads and glossary fills). */
   aiCallRequest: (projectId: string, id: string) =>
     queryOptions({ queryKey: ['calls', 'request', id], queryFn: () => unwrap(client.projects[':projectId']['ai-calls'][':id'].request.$get({ param: { projectId, id } })), staleTime: Infinity }),
   /** How fast this model has answered this kind of request before (seconds per 1,000 input tokens). */
-  aiPace: (model: string, kind: 'analysis' | 'terms' | 'run' | 'chat' | 'test') =>
+  aiPace: (model: string, kind: 'whole' | 'terms' | 'run' | 'chat' | 'test') =>
     queryOptions({ queryKey: ['calls', 'pace', model, kind], queryFn: () => unwrap(client['ai-calls'].pace.$get({ query: { model, kind } })) }),
   /** Work analyses and glossary fills, for 실행 기록 beside the runs. */
   jobs: (projectId: string) => queryOptions({ queryKey: ['runs', projectId, 'jobs'], queryFn: () => unwrap(client.projects[':projectId'].jobs.$get({ param: { projectId } })) }),
@@ -126,6 +149,11 @@ export const q = {
   chatSessions: (projectId: string) => queryOptions({ queryKey: ['chat', projectId], queryFn: () => unwrap(client.projects[':projectId'].chat.$get({ param: { projectId } })) }),
   chatSession: (sessionId: string) =>
     queryOptions({ queryKey: ['chat', 'session', sessionId], queryFn: () => unwrap(client.chat[':sessionId'].$get({ param: { sessionId } })), staleTime: Infinity }),
+  chatSearch: (projectId: string, query: string) =>
+    queryOptions({
+      queryKey: ['chat', 'search', projectId, query],
+      queryFn: () => unwrap(client.projects[':projectId'].chat.search.$get({ param: { projectId }, query: { q: query } })),
+    }),
 };
 
 /** The id of the project's 확인 권장 tag (knowledge items an app check marked for a look), once it exists. */
@@ -141,6 +169,7 @@ export function useMarkColors(projectId: string | undefined): MarkColors | undef
 }
 
 /** The tags that can be put in a place (the server sends each tag's effective scope). */
-export const tagsIn = <T extends { scope: readonly TagScope[] }>(tags: T[] | undefined, scope: TagScope) => (tags ?? []).filter((tag) => tag.scope.includes(scope));
+export const tagsIn = <T extends { scope: readonly string[] }>(tags: T[] | undefined, scope: TagScope) =>
+  (tags ?? []).filter((tag) => normalizeTagScopes(tag.scope).includes(scope));
 /** The tags that can be on lines. */
-export const lineTags = <T extends { scope: readonly TagScope[] }>(tags: T[] | undefined) => tagsIn(tags, 'lines');
+export const lineTags = <T extends { scope: readonly string[] }>(tags: T[] | undefined) => tagsIn(tags, 'lines');

@@ -35,15 +35,15 @@ export function PaneHeader({
       {icon && <div className="mt-0.5 shrink-0 text-muted-foreground">{icon}</div>}
       <div className="min-w-0 flex-1">
         {kicker && (
-          <div className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">
+          <div className="text-xs text-muted-foreground">
             {kicker}
           </div>
         )}
-        <h2 className="truncate text-xs font-semibold text-foreground tracking-tight">
+        <h2 className="truncate text-base font-semibold text-foreground">
           {title}
         </h2>
         {subtitle && (
-          <div className="mt-0.5 truncate text-2xs text-muted-foreground">
+          <div className="mt-0.5 truncate text-xs text-muted-foreground">
             {subtitle}
           </div>
         )}

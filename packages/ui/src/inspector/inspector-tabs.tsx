@@ -13,9 +13,9 @@ export interface InspectorTabsProps<T extends string = string> {
 export function InspectorTabs<T extends string = string>({ value, onChange, items, className }: InspectorTabsProps<T>) {
   if (items.length <= 1) return null
   return (
-    <Tabs value={value} onValueChange={(next) => onChange(next as T)} className={cn("shrink-0 px-3 py-1.5", className)}>
-      <TabsList variant="line" className="w-full justify-start">
-        {items.map((item) => <TabsTrigger key={item.value} value={item.value}>{item.label}</TabsTrigger>)}
+    <Tabs value={value} onValueChange={(next) => onChange(next as T)} className={cn("shrink-0", className)}>
+      <TabsList variant="line" className="h-9 w-full justify-start gap-1 border-b border-border-subtle bg-panel px-4">
+        {items.map((item) => <TabsTrigger key={item.value} value={item.value} className="h-full flex-none px-2.5">{item.label}</TabsTrigger>)}
       </TabsList>
     </Tabs>
   )

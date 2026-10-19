@@ -1,15 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AlertCircle, Check, LoaderCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { DEFAULT_EDITOR_AI, type EditorAi } from '@tw/shared';
 import { ModelPicker } from '@/components/model-picker';
-import { Field, FieldDescription, FieldGroup, FieldLabel, Input, Switch, SettingsSection, HelpTip } from '@loca/ui';
+import { Button, Field, FieldDescription, FieldGroup, FieldLabel, Input, Switch, SettingsSection } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
-import { keyLabel } from '@/lib/keys';
 import { q } from '@/lib/queries';
 import { useFormFrom } from '@/lib/use-form-from';
 
 /**
- * The editor's AI (docs/DESIGN.md J3b): the model for 'AI 번역·다듬기' (any connection, a CLI too:
+ * The editor's AI: the model for 'AI 번역·다듬기' (any connection, a CLI too:
  * the translator waits for it), the continuation (자동완성: on or off, an API model only, a CLI takes
  * seconds, too slow to follow typing), and how many calls a day both make at most, with today's count.
  */
@@ -38,22 +38,18 @@ export function EditorAiSection({ projectId }: { projectId: string }) {
   const change = (patch: Partial<EditorAi>) => save.mutate({ ...settings, ...patch });
 
   return (
-    <SettingsSection
-      title="편집기 AI"
-      description="번역 편집기의 AI 번역·다듬기와 자동완성. 받고 저장한 번역은 사람이 정한 번역입니다."
-    >
+    <SettingsSection title="편집기 AI">
       <FieldGroup className="gap-4">
         <Field>
-          <FieldLabel help="편집기의 [AI 번역]·[다듬기]가 씁니다. CLI 연결도 됩니다. 실행과 같은 문맥(말투 규칙·용어·앞 대사·문체)을 보내고, 결과는 그 줄의 AI 후보가 됩니다.">AI 번역·다듬기 모델</FieldLabel>
+          <FieldLabel>번역 모델</FieldLabel>
           <ModelPicker value={settings.assistModel} onChange={(assistModel) => change({ assistModel })} />
         </Field>
         <Field orientation="horizontal">
           <Switch id="editor-ai-on" checked={settings.enabled} onCheckedChange={(enabled) => change({ enabled })} />
-          <FieldLabel htmlFor="editor-ai-on">자동완성 켜기</FieldLabel>
+          <FieldLabel htmlFor="editor-ai-on">자동완성</FieldLabel>
         </Field>
-        <FieldDescription><span className="inline-flex items-center gap-1">자동완성 <HelpTip>AI가 이어질 번역을 흐린 글씨로 보이고 Tab으로 받습니다. 줄을 빈 칸으로 열 때 한 번, {keyLabel('Alt+/')}로 다시 부를 때만 요청합니다.</HelpTip></span></FieldDescription>
         <Field>
-          <FieldLabel help="API 연결만 됩니다. 모델은 하나로 고정하세요.">자동완성 모델</FieldLabel>
+          <FieldLabel>자동완성 모델</FieldLabel>
           <ModelPicker value={settings.model} onChange={(model) => change({ model })} kinds={['openai']} />
         </Field>
         <Field>
@@ -71,8 +67,13 @@ export function EditorAiSection({ projectId }: { projectId: string }) {
               if (value !== settings.dailyCap) change({ dailyCap: value });
             }}
           />
-          <FieldDescription>오늘 {project.data?.editorCallsToday ?? 0}회 사용. 자동완성과 AI 번역·다듬기를 합산하며, 한도에 닿으면 자동완성은 자정까지 멈추고 AI 번역·다듬기는 알립니다.</FieldDescription>
+          <FieldDescription>오늘 {project.data?.editorCallsToday ?? 0}회 사용</FieldDescription>
         </Field>
+        <div role={save.isError ? 'alert' : 'status'} aria-live={save.isError ? 'assertive' : 'polite'} className="flex min-h-5 items-center gap-1.5 text-xs text-muted-foreground">
+          {save.isPending && <><LoaderCircle aria-hidden="true" className="size-3.5 animate-spin" /> 저장 중</>}
+          {save.isSuccess && <><Check aria-hidden="true" className="size-3.5 text-success" /> 저장했습니다</>}
+          {save.isError && <><AlertCircle aria-hidden="true" className="size-3.5 text-destructive" /> 저장하지 못했습니다 {save.variables && <Button variant="ghost" onClick={() => save.mutate(save.variables)}>다시 시도</Button>}</>}
+        </div>
       </FieldGroup>
     </SettingsSection>
   );

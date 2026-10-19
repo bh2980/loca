@@ -12,7 +12,7 @@ describe('run scope by marks', () => {
     const db = openDatabase(':memory:');
     const connection = db.insert(s.connections).values({ kind: 'openai', name: 'mock', baseUrl: 'http://mock/v1' }).returning().get();
     const { projectId } = importProject(db, importFileSchema.parse(realistic(300).file), { connectionId: connection.id, model: 'm' });
-    const workflow = db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).all().find((row) => row.name === '기본 번역')!;
+    const workflow = db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).all().find((row) => row.name === '초벌 번역')!;
     const units = db.select().from(s.units).where(eq(s.units.projectId, projectId)).all();
     const [noted, notedByAi, plain] = units;
     db.update(s.units).set({ note: '확인 필요' }).where(eq(s.units.id, noted.id)).run();
@@ -35,7 +35,7 @@ describe('run scope by marks', () => {
     const db = openDatabase(':memory:');
     const connection = db.insert(s.connections).values({ kind: 'openai', name: 'mock', baseUrl: 'http://mock/v1' }).returning().get();
     const { projectId } = importProject(db, importFileSchema.parse(realistic(200).file), { connectionId: connection.id, model: 'm' });
-    const workflow = db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).all().find((row) => row.name === '기본 번역')!;
+    const workflow = db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).all().find((row) => row.name === '초벌 번역')!;
     const initial = db.select().from(s.statuses).where(and(eq(s.statuses.projectId, projectId), eq(s.statuses.kind, 'initial'))).get()!;
     const [written, blank] = db.select().from(s.units).where(and(eq(s.units.projectId, projectId), eq(s.units.statusId, initial.id))).all();
     db.update(s.units).set({ translation: '사람 번역', statusBy: 'human' }).where(eq(s.units.id, written.id)).run();
@@ -54,12 +54,29 @@ describe('run scope by marks', () => {
     const connection = db.insert(s.connections).values({ kind: 'openai', name: 'mock', baseUrl: 'http://mock/v1' }).returning().get();
     const first = importProject(db, importFileSchema.parse(realistic(1200).file), { connectionId: connection.id, model: 'm' });
     const other = importProject(db, importFileSchema.parse(realistic(50).file), { connectionId: connection.id, model: 'm' });
-    const workflow = db.select().from(s.workflows).where(eq(s.workflows.projectId, first.projectId)).all().find((row) => row.name === '기본 번역')!;
+    const workflow = db.select().from(s.workflows).where(eq(s.workflows.projectId, first.projectId)).all().find((row) => row.name === '초벌 번역')!;
     const units = db.select().from(s.units).where(eq(s.units.projectId, first.projectId)).all();
     const foreign = db.select().from(s.units).where(eq(s.units.projectId, other.projectId)).all()[0];
     // A route's untranslated lines: more than the 500 ids an IN list binds one by one.
     const route = units.slice(100, 900).map((unit) => unit.id);
     const picked = selectRunUnits(db, first.projectId, workflow.definition, { unitIds: [...route, foreign.id], ignoreStatus: true });
     expect(picked.sort()).toEqual([...route].sort());
+  });
+
+  it('filters by statusIds specified in scope', () => {
+    const db = openDatabase(':memory:');
+    const connection = db.insert(s.connections).values({ kind: 'openai', name: 'mock', baseUrl: 'http://mock/v1' }).returning().get();
+    const { projectId } = importProject(db, importFileSchema.parse(realistic(100).file), { connectionId: connection.id, model: 'm' });
+    const workflow = db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).all().find((row) => row.name === '초벌 번역')!;
+    const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).all();
+    const untranslated = statuses.find((s) => s.kind === 'initial')!;
+    const draft = statuses.find((s) => s.kind === 'normal')!;
+
+    const untranslatedUnits = selectRunUnits(db, projectId, workflow.definition, { statusIds: [untranslated.id] });
+    const draftUnits = selectRunUnits(db, projectId, workflow.definition, { statusIds: [draft.id] });
+    const bothUnits = selectRunUnits(db, projectId, workflow.definition, { statusIds: [untranslated.id, draft.id] });
+    expect(untranslatedUnits.length).toBeGreaterThan(0);
+    expect(draftUnits.length).toBeGreaterThan(0);
+    expect(bothUnits.length).toBe(untranslatedUnits.length + draftUnits.length);
   });
 });

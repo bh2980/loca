@@ -1,5 +1,5 @@
 /*
- * loca design tokens (docs/DESIGN.md 4.0). One set of semantic names, two themes:
+ * loca design tokens. One set of semantic names, two themes:
  *   light = "A Slate"   cool slate neutrals (hue 258), one cobalt accent, lines only between regions.
  *   .dark = "C Night"   graphite (hue 265), one signal-teal accent, regions by tone steps.
  * Components use the semantic names only (bg-chrome, text-subtle-foreground, bg-primary …), never raw
@@ -20,12 +20,21 @@
   --font-code: "Geist Mono Variable", "Geist Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
 
   /* Two radii: controls / panels and nodes. */
+  --radius-detail: 2px;
   --radius-control: 6px;
   --radius-panel: 8px;
   --icon-stroke: 1.75px;
+  --floating-toolbar: oklch(0.24 0.02 262);
+  --floating-toolbar-foreground: oklch(0.97 0.002 262);
+  --node-header-neutral: var(--muted);
+  --node-header-ai: var(--ai-soft);
+  --node-header-check: var(--primary-soft);
+  --node-header-flow: color-mix(in oklab, var(--review) 18%, var(--card));
+  --node-header-status: color-mix(in oklab, var(--success) 14%, var(--card));
 
   --chrome: oklch(0.968 0.006 258);
   --panel: oklch(0.984 0.004 258);
+  --navigation: oklch(0.984 0.004 258);
   --background: oklch(0.995 0.002 258);
   --card: oklch(1 0 0);
   --popover: oklch(1 0 0);
@@ -41,7 +50,7 @@
   --primary-foreground: oklch(1 0 0);
   --primary-soft: oklch(0.95 0.03 262);
   --primary-ink: oklch(0.45 0.17 262);
-  --selection: oklch(0.94 0.02 262);
+  --selection: oklch(0.91 0.04 262);
 
   /* Quiet fills: hover, segmented controls, chips, kbd. */
   --secondary: oklch(0.95 0.006 258);
@@ -49,6 +58,7 @@
   --muted: oklch(0.955 0.006 258);
   --accent: oklch(0.945 0.008 258);
   --accent-foreground: var(--foreground);
+  --meter-track: color-mix(in oklch, var(--foreground) 8%, transparent);
 
   /* Meaning. Each hue says one thing: red = destructive/error, orange = warning, amber = needs review,
      green = done, violet = AI. Text-sized ink variants are ≥ 4.5:1 on the work area. */
@@ -76,18 +86,18 @@
 
   --sidebar: var(--chrome);
   --sidebar-foreground: var(--foreground);
-  --sidebar-primary: var(--primary);
+  --sidebar-primary: var(--foreground);
   --sidebar-primary-foreground: var(--primary-foreground);
   --sidebar-accent: oklch(0.925 0.012 258);
   --sidebar-accent-foreground: var(--foreground);
   --sidebar-border: var(--border);
   --sidebar-ring: var(--ring);
 
-  --graph-canvas: oklch(0.975 0.004 258);
-  --graph-grid: oklch(0.86 0.008 258);
-  --graph-edge: oklch(0.72 0.02 258);
+  --graph-canvas: oklch(0.94 0.006 258);
+  --graph-grid: oklch(0.83 0.008 258);
+  --graph-edge: oklch(0.58 0.02 258);
   --graph-node: oklch(1 0 0);
-  --graph-node-line: oklch(0.88 0.01 258);
+  --graph-node-line: oklch(0.76 0.012 258);
   --graph-select: var(--primary);
   --graph-kind-choice: var(--primary-soft);
   --graph-kind-condition: color-mix(in oklch, var(--review) 18%, var(--card));
@@ -115,9 +125,17 @@
   color-scheme: dark;
   --radius-panel: 10px;
   --icon-stroke: 1.9px;
+  --sidebar-primary: var(--primary);
+  --floating-toolbar: oklch(0.32 0.012 265);
+  --node-header-neutral: var(--muted);
+  --node-header-ai: oklch(0.38 0.055 278);
+  --node-header-check: oklch(0.37 0.05 256);
+  --node-header-flow: color-mix(in oklab, var(--review) 18%, var(--card));
+  --node-header-status: color-mix(in oklab, var(--success) 14%, var(--card));
 
   --chrome: oklch(0.17 0.011 265);
   --panel: oklch(0.235 0.013 265);
+  --navigation: oklch(0.185 0.012 265);
   --background: oklch(0.205 0.012 265);
   --card: oklch(0.255 0.014 265);
   --popover: oklch(0.27 0.014 265);
@@ -130,11 +148,12 @@
   --primary-foreground: oklch(0.2 0.03 220);
   --primary-soft: oklch(0.32 0.05 192);
   --primary-ink: oklch(0.85 0.1 192);
-  --selection: oklch(0.29 0.03 200);
+  --selection: oklch(0.34 0.07 192);
 
   --secondary: oklch(0.29 0.014 265);
   --muted: oklch(0.255 0.013 265);
   --accent: oklch(0.29 0.016 265);
+  --meter-track: color-mix(in oklch, var(--foreground) 10%, transparent);
 
   --destructive: oklch(0.7 0.17 25);
   --warning: oklch(0.78 0.14 60);
@@ -144,7 +163,7 @@
   --ai: oklch(0.84 0.08 300);
   --ai-soft: oklch(0.32 0.06 300);
 
-  --token-1: oklch(0.82 0.1 200);
+  --token-1: oklch(0.82 0.1 310);
   --token-2: oklch(0.82 0.1 165);
   --token-3: oklch(0.82 0.11 350);
   --token-4: oklch(0.8 0.1 235);
@@ -161,9 +180,9 @@
 
   --graph-canvas: oklch(0.175 0.011 265);
   --graph-grid: oklch(0.29 0.012 265);
-  --graph-edge: oklch(0.52 0.02 265);
-  --graph-node: oklch(0.26 0.014 265);
-  --graph-node-line: oklch(0.33 0.014 265);
+  --graph-edge: oklch(0.68 0.02 265);
+  --graph-node: oklch(0.31 0.016 265);
+  --graph-node-line: oklch(0.44 0.016 265);
 
   --shadow-color: oklch(0 0 0 / 0.35);
 

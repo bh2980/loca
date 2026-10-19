@@ -17,11 +17,9 @@ export interface Draft {
   id: string;
   status: KnowledgeStatus;
   origin: KnowledgeOrigin;
-  /** Who set the status (docs/DESIGN.md 3.5). */
+  /** Who set the status. */
   statusBy: StatusBy;
   evidence: string[];
-  /** The work analysis that put it in, if any. */
-  jobId?: string | null;
   /** Project tags on it; `note` says why the app put one there (확인 권장). */
   tags?: ItemTag[];
 }
@@ -73,6 +71,7 @@ export interface Field {
   name: string;
   label: string;
   type: FieldType;
+  description?: string;
   /** Values offered while typing a 'list' or 'chips' field. */
   suggestions?: string[];
 }

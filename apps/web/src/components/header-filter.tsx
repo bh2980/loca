@@ -110,7 +110,7 @@ export function markTagGroups({ marks, picked, onToggle, tags, pickedTags, onTog
   const tagOptions = (list: typeof tags): MarkOption[] => list.map((tag) => ({ key: tag.id, label: <TagChip tag={tag} />, checked: Boolean(pickedTags?.includes(tag.id)), onChange: (on) => onToggleTag(tag.id, on) }));
   // Groups with nothing to pick are left out (a project without problem-type tags shows no such heading).
   const groups: MarkGroup[] = [
-    { heading: '자동 표시', options: marks.map((mark) => ({ key: mark, label: <MarkChip mark={mark} projectId={projectId} />, checked: Boolean(picked?.includes(mark)), onChange: (on) => onToggle(mark, on) })) },
+    { heading: "자동 태그", options: marks.map((mark) => ({ key: mark, label: <MarkChip mark={mark} projectId={projectId} />, checked: Boolean(picked?.includes(mark)), onChange: (on) => onToggle(mark, on) })) },
     ...(issueHeading ? [{ heading: issueHeading, options: tagOptions(tags.filter((tag) => tag.role)) }] : []),
     { heading: tagHeading, options: tagOptions(issueHeading ? tags.filter((tag) => !tag.role) : tags) },
   ];

@@ -1,65 +1,26 @@
 import { and, asc, eq } from 'drizzle-orm';
 import { get } from 'es-toolkit/compat';
-import {
-  addTermsParams,
-  aiStatus,
-  applyKnowledgeParams,
-  type AiConfirmKind,
-  checkFormat,
-  formatCheckParams,
-  httpParams,
-  scriptParams,
-  saveAnalysisParams,
-  setListenerParams,
-  setStatusParams,
-  type AnalysisSection,
-  needsListener,
-  type FunctionName,
-  type WorkflowDefinition,
-  filtersByStatus,
-} from '@tw/shared';
+import { checkFormat, formatCheckParams, httpParams, scriptParams, setStatusParams, type FunctionName, type JsonField, filtersByStatus } from '@tw/shared';
 import type { Db } from '../../db/index.ts';
 import * as s from '../../db/schema.ts';
 import type { SecretStore } from '../../services/secrets.ts';
 import { attachUnitTags } from '../../services/tag-scope.ts';
-import { cleanListener, clampConfidence, setAiListener } from '../../services/listeners.ts';
-import { upsertAiTerm } from '../../services/terms.ts';
 import { runScript } from './sandbox.ts';
-import { aiConfirmOf } from '../../services/status-by.ts';
-import { knowledgeOf, speechMismatch, speechRuleIndex } from '../../services/speech.ts';
+import { knowledgeOf } from '../../services/speech.ts';
 import type { IssueTagChange } from '../../services/issue-tags.ts';
-import type { KnowledgeOutput } from '../prompts.ts';
-import { saveDrafts, type Analysis } from '../../services/analysis.ts';
-import { personOwns } from '../apply-candidate.ts';
+import { HUMAN_OWNED_NOTE, personOwns } from '../apply-candidate.ts';
+import { applyFunctions } from './apply.ts';
+import type { FunctionInput, FunctionResult } from './types.ts';
+
+export type { FunctionInput, FunctionResult };
+
+export { HUMAN_OWNED_NOTE };
 
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 type Unit = typeof s.units.$inferSelect;
 type Item = typeof s.runItems.$inferSelect;
 
-/** What a function hands back to the runner, which records it and routes the line. */
-export interface FunctionResult {
-  port: string;
-  /** A new candidate text for the line (stored as a "tool" candidate). */
-  candidate?: string;
-  /** Stored as outputs[<node id>] for later nodes and conditions. */
-  output?: Record<string, unknown>;
-  /** Problems to hand to a later revise step. */
-  issues?: string[];
-  /** Problem-type tags this check puts on the line or takes off (services/issue-tags.ts). */
-  issueTags?: IssueTagChange;
-}
-
-export interface FunctionInput {
-  unit: Unit;
-  item: Item;
-  tagIds: string[];
-  projectId: string;
-  runId: string;
-}
-
 const NEEDS_CANDIDATE = '검사할 번역 후보가 없습니다.';
-/** A person's saved translation a status-filtered run does not replace (#51); the same text the runner notes. */
-export const HUMAN_OWNED_NOTE = '사람이 저장한 번역이 있어 바꾸지 않았습니다. AI 번역은 후보로 남겨 두었습니다.';
 const candidateOf = (input: FunctionInput) => input.item.data.candidateText ?? input.unit.translation ?? null;
 
 /** What a script or HTTP template can see about a line. */
@@ -96,21 +57,11 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     return { port: issues.length ? 'fail' : 'pass', issues, output: { passed: !issues.length, issues }, issueTags: issues.length ? { add: ['term'] } : { clear: ['term'] } };
   },
 
-  speechCheck(tx, _raw, input) {
-    const text = candidateOf(input);
-    if (text === null) return { port: 'fail', issues: [NEEDS_CANDIDATE], output: { passed: false, issues: [NEEDS_CANDIDATE] } };
-    const found = speechRuleIndex(tx as unknown as Db, input.projectId).resolve([input.unit]).get(input.unit.key);
-    const issue = found ? speechMismatch(found.rule, text) : null;
-    const issues = issue ? [issue] : [];
-    // Only a line with a speech rule is checked for it; without one, nothing is said either way.
-    return { port: issues.length ? 'fail' : 'pass', issues, output: { passed: !issues.length, issues }, ...(found && { issueTags: issues.length ? { add: ['speech'] } : { clear: ['speech'] } }) };
-  },
-
   setStatus(tx, raw, input) {
     const params = setStatusParams.parse(raw);
     // Translations now go into the line when a node produces them (engine/apply-candidate.ts, #42);
-    // this node only sets the status and tags. A run sets the line's status, so AI set it
-    // (docs/DESIGN.md 3.5); a person's change later makes it theirs. A run that picks lines by status
+    // this node only sets the status and tags. A run sets the line's status, so AI set it;
+    // a person's change later makes it theirs. A run that picks lines by status
     // never replaces a translation a person wrote (#51): its entry skips such lines, and one a person
     // saved while the run was on it keeps its status here. A run on lines named regardless of status
     // (말투만 고치기, '상태 무시') is asked to rewrite them, so its status change goes through.
@@ -130,8 +81,8 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
           const inbox = tx.select({ id: s.statuses.id }).from(s.statuses).where(and(eq(s.statuses.projectId, input.projectId), eq(s.statuses.inReview, true), eq(s.statuses.humanOnly, false))).orderBy(asc(s.statuses.sort)).get();
           if (inbox) {
             patch.statusId = inbox.id;
-            issues.push(`‘${target.name}’은(는) 사람만 지정할 수 있어 검토함으로 보냈습니다.`);
-          } else issues.push(`‘${target.name}’은(는) 사람만 지정할 수 있어 상태를 바꾸지 않았습니다(검토함에 표시하는 상태가 없음).`);
+            issues.push(`‘${target.name}’은(는) 워크플로가 지정하지 않는 상태라 검토함으로 보냈습니다.`);
+          } else issues.push(`‘${target.name}’은(는) 워크플로가 지정하지 않는 상태라 바꾸지 않았습니다(검토함 상태가 없음).`);
         } else patch.statusId = params.statusId;
         if (patch.statusId) Object.assign(patch, { statusBy: 'ai', statusRunId: input.runId });
       }
@@ -143,147 +94,35 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     return issues.length ? { port: 'out', issues } : { port: 'out' };
   },
 
-  addTerms(tx, raw, input) {
-    const params = addTermsParams.parse(raw);
-    const outputs = Object.entries(input.item.data.outputs ?? {});
-    const source = params.fromNodeId ? input.item.data.outputs?.[params.fromNodeId] : outputs.reverse().find(([, output]) => Array.isArray(output.terms))?.[1];
-    // Skip redundant database writes for non-leader lines in the same batch (H7).
-    if (source && typeof source === 'object' && (source as { batchLeader?: boolean }).batchLeader === false) {
-      return { port: 'out', output: { added: 0, filled: 0, batchSkipped: true } };
-    }
-    const found = (Array.isArray(source?.terms) ? source.terms : []) as { source?: string; target?: string; note?: string }[];
-    // New terms land as AI › 사용 방식 says (one without a Korean form stays a candidate).
-    const policy = aiConfirmOf(tx as unknown as Db, input.projectId);
-    let added = 0;
-    let filled = 0;
-    for (const term of found) {
-      if (!term.source?.trim()) continue;
-      const result = upsertAiTerm(tx, input.projectId, { source: term.source, target: term.target, note: term.note }, { policy, runId: input.runId });
-      if (result === 'added') added++;
-      else if (result === 'filled') filled++;
-    }
-    return { port: 'out', output: { added, filled } };
-  },
-
-  applyKnowledge(tx, raw, input) {
-    const params = applyKnowledgeParams.parse(raw);
-    const outputs = Object.entries(input.item.data.outputs ?? {});
-    const source = params.fromNodeId ? input.item.data.outputs?.[params.fromNodeId] : outputs.reverse().find(([, output]) => 'knowledge' in output)?.[1];
-    // Skip redundant database writes for non-leader lines in the same batch (H7).
-    if (source && typeof source === 'object' && (source as { batchLeader?: boolean }).batchLeader === false) {
-      return { port: 'out', output: { added: 0, proposed: 0, batchSkipped: true } };
-    }
-    const found = (source?.knowledge ?? null) as KnowledgeOutput | null;
-    if (!found) return { port: 'out', output: { added: 0, proposed: 0, reason: '자료 변경 출력이 없습니다.' } };
-    const projectId = input.projectId;
-    // Each kind lands as AI › 사용 방식 says; AI set the status either way.
-    const policy = aiConfirmOf(tx as unknown as Db, projectId);
-    const ai = (kind: AiConfirmKind) => ({ origin: 'ai' as const, statusBy: 'ai' as const, status: aiStatus(policy, kind) });
-    const lower = (value: string) => value.trim().toLowerCase();
-    let added = 0;
-    let proposed = 0;
-
-    // The batch's lines all carry the same change set; only the batch leader writes to the database (H7).
-    const know = knowledgeOf(tx as unknown as Db, projectId);
-    const people = know.allCharacters();
-    const idOf = new Map(people.flatMap((c) => [c.name, ...c.aliases].map((name) => [lower(name), c.id] as const)));
-    for (const person of found.characters) {
-      if ([person.name, ...person.aliases].some((name) => idOf.has(lower(name)))) continue;
-      const evidence = (person as { evidence?: string[] }).evidence?.length ? (person as { evidence?: string[] }).evidence! : [input.unit.key];
-      const row = tx.insert(s.characters).values({ projectId, name: person.name, aliases: person.aliases, profile: person.profile, evidence, ...ai('characters') }).returning({ id: s.characters.id }).get();
-      for (const name of [person.name, ...person.aliases]) idOf.set(lower(name), row.id);
-      added++;
-    }
-
-    const rels = know.allRelationships().map((rel) => ({ ...rel }));
-    for (const rel of found.relationships) {
-      const fromId = idOf.get(lower(rel.from));
-      const toId = idOf.get(lower(rel.to));
-      if (!fromId || !toId) continue;
-      const change = rel.change && rel.at ? { at: rel.at, change: rel.change, cause: '' } : null;
-      const same = rels.filter((existing) => existing.fromId === fromId && existing.toId === toId);
-      const relEvidence = change?.at ? [change.at] : ((rel as { evidence?: string[] }).evidence?.length ? (rel as { evidence?: string[] }).evidence! : [input.unit.key]);
-      if (!same.length) {
-        rels.push(tx.insert(s.relationships).values({ projectId, fromId, toId, kind: rel.kind, description: rel.description, changes: change ? [change] : [], evidence: relEvidence, ...ai('relationships') }).returning().get());
-        added++;
-        continue;
-      }
-      if (!change || same.some((existing) => existing.changes.some((known) => known.at === change.at))) continue;
-      const open = same.find((existing) => existing.origin === 'ai' && existing.statusBy === 'ai');
-      if (open) {
-        // An unchecked AI relationship just gains the change.
-        tx.update(s.relationships).set({ changes: [...open.changes, change], evidence: [...open.evidence, change.at] }).where(eq(s.relationships.id, open.id)).run();
-        open.changes = [...open.changes, change];
-        added++;
-      } else {
-        // Official knowledge is never edited by AI: the change waits as a candidate beside it.
-        rels.push(tx.insert(s.relationships).values({ projectId, fromId, toId, kind: rel.kind, description: `변경 제안: ${rel.change}`, changes: [change], evidence: [change.at], origin: 'ai', statusBy: 'ai', status: 'candidate' }).returning().get());
-        proposed++;
-      }
-    }
-
-    const titles = new Set(know.eventTitles().map(lower));
-    for (const event of found.events) {
-      if (titles.has(lower(event.title))) continue;
-      titles.add(lower(event.title));
-      tx.insert(s.storyEvents).values({ projectId, title: event.title, summary: event.summary, outcome: event.outcome, participants: event.participants, evidence: event.evidence, ...ai('events') }).run();
-      added++;
-    }
-
-    const rules = [...know.allSpeechRules()];
-    for (const rule of found.speechRules) {
-      const pair = rules.filter((existing) => lower(existing.fromName) === lower(rule.from) && lower(existing.toName) === lower(rule.to));
-      if (pair.some((existing) => existing.startKey === rule.start && existing.level === rule.level)) continue;
-      // A different level for a stretch a person already decided is a proposal, not a new rule.
-      const disagrees = pair.some((existing) => existing.startKey === rule.start && existing.statusBy === 'human');
-      const ruleEvidence = (rule as { evidence?: string[] }).evidence?.length ? (rule as { evidence?: string[] }).evidence! : rule.start ? [rule.start] : [input.unit.key];
-      rules.push(
-        tx.insert(s.speechRules)
-          .values({ projectId, fromName: rule.from, toName: rule.to, level: rule.level, address: rule.address, note: rule.note, startKey: rule.start, evidence: ruleEvidence, ...ai('speechRules'), ...(disagrees && { status: 'candidate' as const }) })
-          .returning()
-          .get(),
-      );
-      if (disagrees) proposed++;
-      else added++;
-    }
-    return { port: 'out', output: { added, proposed } };
-  },
-
-  saveAnalysis(tx, raw, input) {
-    const params = saveAnalysisParams.parse(raw);
-    const outputs = Object.entries(input.item.data.outputs ?? {});
-    const source = params.fromNodeId ? input.item.data.outputs?.[params.fromNodeId] : outputs.reverse().find(([, output]) => 'analysis' in output)?.[1];
-    // One answer per request, carried by its first line (H7): the others have nothing to store.
-    if (source && (source as { batchLeader?: boolean }).batchLeader === false) return { port: 'out', output: { batchSkipped: true } };
-    const found = (source?.analysis ?? null) as Partial<Analysis> | null;
-    if (!found) return { port: 'out', output: { saved: false, reason: '작품 분석 출력이 없습니다.' } };
-    // Only a read of the whole script replaces what earlier analyses drafted; a few scenes only add and fill.
-    const run = tx.select({ scope: s.runs.scope, definition: s.runs.definition }).from(s.runs).where(eq(s.runs.id, input.runId)).get();
-    const replace = !run || (!filtersByStatus(run.definition, run.scope) && !run.scope.groupIds?.length && !run.scope.unitIds?.length && !run.scope.tagIds?.length && !run.scope.marks?.length);
-    // The answer already names lines by key (the runner mapped the prompt's ids).
-    const keyOf = new Map(tx.select({ key: s.units.key }).from(s.units).where(eq(s.units.projectId, input.projectId)).all().map((unit) => [unit.key, unit.key]));
-    const sections = Array.isArray(source?.sections) ? (source.sections as AnalysisSection[]) : undefined;
-    const counts = saveDrafts(tx as unknown as Db, input.projectId, input.runId, found, keyOf, aiConfirmOf(tx as unknown as Db, input.projectId), { sections, replace });
-    return { port: 'out', output: { saved: true, replaced: replace, counts } };
-  },
-
-  setListener(tx, raw, input) {
-    const params = setListenerParams.parse(raw);
-    const outputs = Object.entries(input.item.data.outputs ?? {});
-    const source = params.fromNodeId ? input.item.data.outputs?.[params.fromNodeId] : outputs.reverse().find(([, output]) => 'confidence' in output && 'listener' in output)?.[1];
-    if (!source || !('listener' in source)) return { port: 'out', output: { recorded: false, reason: '청자 출력이 없습니다.' } };
-    // Only lines said to someone have a listener (needsListener: not narration, not format tokens
-    // only), so none is made up for the rest; what the import or a person set is never overwritten by the AI.
-    const rules = tx.select({ formatRules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, input.projectId)).get()?.formatRules;
-    if (!needsListener(input.unit, rules)) return { port: 'out', output: { recorded: false, reason: input.unit.kind !== 'dialogue' ? '대사가 아니라 청자가 필요 없습니다.' : !input.unit.speaker?.trim() ? '화자가 없는 지문이라 청자가 필요 없습니다.' : '서식만 있는 줄이라 청자가 필요 없습니다.' } };
-    if (input.unit.listenerOrigin === 'human') return { port: 'out', output: { recorded: false, reason: '사람이 정한 청자가 있습니다.' } };
-    if (input.unit.listenerOrigin === 'import' && input.unit.listener) return { port: 'out', output: { recorded: false, reason: '가져온 청자가 있습니다.' } };
-    const listener = cleanListener(typeof source.listener === 'string' ? source.listener : null);
-    const confidence = clampConfidence(source.confidence);
-    setAiListener(tx, input.unit, listener, confidence, 'ai', rules);
-    return { port: 'out', output: { recorded: true, listener, confidence } };
-  },
+  ...applyFunctions,
 };
+
+/**
+ * A script's `data` held to the fields its node declares: a missing field gets its type's empty
+ * value, numbers and booleans are coerced, and a value that cannot be a number is an error naming the field.
+ */
+export function validateScriptData(raw: Record<string, unknown> | undefined, fields: readonly JsonField[]): Record<string, unknown> {
+  const data: Record<string, unknown> = { ...(raw ?? {}) };
+  for (const field of fields) {
+    const value = data[field.name];
+    if (field.type === 'strings' || field.type === 'lines') {
+      data[field.name] = Array.isArray(value) ? value.filter((entry) => entry !== null && entry !== undefined).map(String) : typeof value === 'string' && value ? [value] : [];
+    } else if (field.type === 'list') {
+      data[field.name] = (Array.isArray(value) ? value : []).filter((entry): entry is Record<string, unknown> => !!entry && typeof entry === 'object' && !Array.isArray(entry)).map((entry) => validateScriptData(entry, field.fields ?? []));
+    } else if (value === undefined || value === null) {
+      data[field.name] = field.type === 'number' ? 0 : field.type === 'boolean' ? false : '';
+    } else if (field.type === 'number' && typeof value !== 'number') {
+      const number = typeof value === 'string' && !value.trim() ? Number.NaN : Number(value);
+      if (!Number.isFinite(number)) throw new Error(`스크립트 출력 필드 '${field.name}'의 값이 숫자가 아닙니다: ${String(value)}`);
+      data[field.name] = number;
+    } else if (field.type === 'boolean' && typeof value !== 'boolean') {
+      data[field.name] = value === 'false' || value === '0' ? false : Boolean(value);
+    } else if (field.type === 'string' && typeof value !== 'string') {
+      data[field.name] = typeof value === 'object' ? JSON.stringify(value) : String(value);
+    }
+  }
+  return data;
+}
 
 // ── slow functions (dispatched like AI calls) ────────────────────────
 
@@ -307,7 +146,7 @@ export async function runAsyncFunction(
     const result = await runScript(params.code, lineView(input));
     const port = result.port ?? params.ports[0];
     if (!params.ports.includes(port)) throw new Error(`스크립트가 선언하지 않은 출구를 반환했습니다: ${port}`);
-    return { port, candidate: result.candidate, output: result.data ?? {}, issues: result.issues };
+    return { port, candidate: result.candidate, output: validateScriptData(result.data, params.fields), issues: result.issues };
   }
 
   if (fn === 'http') {

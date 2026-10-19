@@ -28,15 +28,14 @@ export const aiDecided = (item: { status?: string; statusBy: StatusBy }) => item
  * (a workflow node, the chat), the script finder, an import, or a person. Separate from who set the
  * status: a person can confirm an analysis item without rewriting it.
  */
-export const KNOWLEDGE_SOURCES = ['analysis', 'workflow', 'script', 'import', 'human'] as const;
+export const KNOWLEDGE_SOURCES = ['workflow', 'script', 'import', 'human'] as const;
 export type KnowledgeSource = (typeof KNOWLEDGE_SOURCES)[number];
-export const SOURCE_LABELS: Record<KnowledgeSource, string> = { analysis: '작품 분석', workflow: '워크플로·채팅', script: '대본에서 찾음', import: '가져오기', human: '사람' };
-export const sourceOf = (item: { origin: KnowledgeOrigin; jobId?: string | null }): KnowledgeSource =>
-  item.origin === 'ai' ? (item.jobId ? 'analysis' : 'workflow') : item.origin;
+export const SOURCE_LABELS: Record<KnowledgeSource, string> = { workflow: '워크플로·채팅', script: '대본에서 찾음', import: '가져오기', human: '사람' };
+export const sourceOf = (item: { origin: KnowledgeOrigin }): KnowledgeSource => (item.origin === 'ai' ? 'workflow' : item.origin);
 /** Nothing left to decide: confirmed by a person. Everything else can be confirmed or discarded. */
 export const isSettled = (item: { status: KnowledgeStatus; statusBy: StatusBy }) => item.status === 'confirmed' && item.statusBy === 'human';
 
-/** What becomes of AI results per knowledge kind (AI › 사용 방식): used right away, or a candidate. */
+/** What becomes of AI results per knowledge kind (AI 결과 반영): used right away, or a candidate. */
 export const AI_CONFIRM_KINDS = { terms: '용어', documents: '문서', characters: '인물', relationships: '관계', events: '사건', speechRules: '말투 규칙' } as const;
 export type AiConfirmKind = keyof typeof AI_CONFIRM_KINDS;
 export const aiConfirmSchema = z.object({
@@ -80,6 +79,8 @@ export const isSpecialListener = (name: string | null | undefined): name is Spec
  * their own (extras such as SWAT, a passer-by). Only rules use it; a line's listener is never "others".
  */
 export const OTHERS_LISTENER = 'others';
+/** What an AI answers when it cannot tell who a line is addressed to: the line stays 청자 미상 and nothing is written. */
+export const UNKNOWN_LISTENER = 'unknown';
 /** A listener as people read it: a name, or the Korean word for a special listener. */
 export const listenerLabel = (name: string) => (isSpecialListener(name) ? SPECIAL_LISTENERS[name] : name === OTHERS_LISTENER ? '그 밖의 사람' : name);
 
@@ -242,10 +243,3 @@ export const politenessOf = (text: string): Politeness | null => politenessOfLev
 export const TERM_KINDS = ['person', 'place', 'organization', 'item', 'concept', 'title', 'ui', 'other'] as const;
 export type TermKind = (typeof TERM_KINDS)[number];
 export const TERM_KIND_LABELS: Record<TermKind, string> = { person: '인물', place: '장소', organization: '조직', item: '물건·기술', concept: '개념·은어', title: '호칭·직함', ui: 'UI', other: '' };
-
-/** What a work analysis can read the script for (an "analysis" AI node's sections). */
-export const ANALYSIS_SECTIONS = ['overview', 'characters', 'relationships', 'events', 'speechRules', 'sceneListeners', 'terms'] as const;
-export type AnalysisSection = (typeof ANALYSIS_SECTIONS)[number];
-export const ANALYSIS_SECTION_LABELS: Record<AnalysisSection, string> = { overview: '작품 개요', characters: '인물', relationships: '관계', events: '사건', speechRules: '말투 규칙', sceneListeners: '장면별 청자', terms: '용어' };
-/** The sections a node reads: its own, or every one when it names none. */
-export const analysisSectionsOf = (sections: readonly AnalysisSection[] | undefined): AnalysisSection[] => (sections?.length ? ANALYSIS_SECTIONS.filter((section) => sections.includes(section)) : [...ANALYSIS_SECTIONS]);

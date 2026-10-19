@@ -1,3 +1,5 @@
+import { useRevealDock } from "../layout/right-dock"
+import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "../primitives/context-menu"
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import {
   flexRender,
@@ -6,9 +8,11 @@ import {
   type ColumnDef,
   type ColumnOrderState,
   type ColumnSizingState,
+  type Row,
   type RowData,
   type VisibilityState,
 } from "@tanstack/react-table"
+import { useVirtualizer } from "@tanstack/react-virtual"
 import { SelectionBar } from "./picked-bar"
 import { EmptyState } from "./empty-state"
 import { ColumnMenu } from "./column-menu"
@@ -121,6 +125,7 @@ export interface DataTableProps<T> {
   rowClassName?: (row: T) => string | undefined
   footer?: ReactNode
   className?: string
+  rowContextMenu?: (row: T) => ReactNode
 }
 
 export function DataTable<T>(props: DataTableProps<T>) {
@@ -142,7 +147,9 @@ function Table<T>({
   rowClassName,
   footer,
   className,
+  rowContextMenu,
 }: DataTableProps<T>) {
+  const revealDock = useRevealDock()
   const [sizing, setSizing] = useState<ColumnSizingState>(() => loadWidths(id))
   const [saved, setSaved] = useState<SavedColumns>(() => loadColumns(id))
   const defaultOrder = columns.map((column, index) => column.id ?? `col-${index}`)
@@ -233,18 +240,41 @@ function Table<T>({
     })
 
   const [resizing, setResizing] = useState<string>()
+  const scrollRef = useRef<HTMLDivElement>(null)
   const selectedRow = useRef<HTMLTableRowElement>(null)
-  useEffect(() => {
-    selectedRow.current?.scrollIntoView({ block: "nearest" })
-  }, [selected, rows])
 
-  const ids = rows?.map(rowId) ?? []
-  const pickedCount = picked ? ids.filter((id) => picked.has(id)).length : 0
+  const ids = useMemo(() => rows?.map(rowId) ?? [], [rows, rowId])
+  const pickedInView = useMemo(
+    () => (picked ? ids.filter((id) => picked.has(id)).length : 0),
+    [picked, ids]
+  )
+  const pickedCount = pickedInView
   const pickable = Boolean(onPick && picked)
   const bulking = Boolean(bulk && picked && picked.size > 0)
   const visibleColumns = table.getVisibleLeafColumns()
   const menuWidth = id ? 32 : 0
   const span = visibleColumns.length + (pickable ? 1 : 0) + (id ? 1 : 0)
+
+  const tableRows = table.getRowModel().rows
+  const virtualize = tableRows.length > 80
+  const rowVirtualizer = useVirtualizer({
+    count: virtualize ? tableRows.length : 0,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 40,
+    overscan: 15,
+  })
+
+  useEffect(() => {
+    if (!selected) return
+    if (virtualize) {
+      const idx = tableRows.findIndex((r) => r.id === selected)
+      if (idx !== -1) {
+        rowVirtualizer.scrollToIndex(idx, { align: "auto" })
+      }
+    } else {
+      selectedRow.current?.scrollIntoView({ block: "nearest" })
+    }
+  }, [selected, virtualize, tableRows, rowVirtualizer])
 
   const widthOf = (column: { id: string; columnDef: ColumnDef<T, unknown> }) =>
     sizing[column.id] ?? column.columnDef.meta?.width
@@ -253,11 +283,83 @@ function Table<T>({
     menuWidth +
     visibleColumns.reduce((sum, column) => sum + (widthOf(column) ?? FLEX_MIN), 0)
 
+  // One ContextMenu for the whole table: its pointer anchor span must not
+  // live inside <tbody>, so rows only render a trigger around the <tr>.
+  const [rowMenu, setRowMenu] = useState<ReactNode>(null)
+
+  const renderRow = (row: Row<T>) => {
+    const isSelected = row.id === selected
+    const menu = rowContextMenu?.(row.original)
+    const tr = (
+      <tr
+        key={row.id}
+        ref={isSelected ? selectedRow : undefined}
+        data-state={isSelected ? "selected" : undefined}
+        onContextMenu={menu ? () => setRowMenu(menu) : undefined}
+        onClick={
+          onRowClick
+            ? () => {
+                revealDock?.()
+                onRowClick(row.original)
+              }
+            : undefined
+        }
+        className={cn(
+          "group/row transition-colors",
+          onRowClick && "cursor-pointer hover:bg-accent",
+          isSelected && "bg-selection hover:bg-selection",
+          rowClassName?.(row.original)
+        )}
+      >
+        {pickable && (
+          <td
+            className={cn("pl-3.5 align-middle py-2.5", isSelected && "")}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <Checkbox
+              aria-label="선택"
+              checked={picked!.has(row.id)}
+              onCheckedChange={(checked) => onPick!([row.id], Boolean(checked))}
+            />
+          </td>
+        )}
+        {row.getVisibleCells().map((cell, index) => {
+          const meta = cell.column.columnDef.meta
+          return (
+            <td
+              key={cell.id}
+              className={cn(
+                "px-3 py-2.5 align-middle text-sm text-foreground",
+                index === 0 && !pickable && "pl-4",
+                index === 0 && !pickable && isSelected && "",
+                meta?.wrap ? "break-words whitespace-pre-wrap" : "truncate",
+                meta?.align === "end" && "text-right tabular-nums",
+                meta?.className
+              )}
+            >
+              {flexRender(cell.column.columnDef.cell, cell.getContext())}
+            </td>
+          )
+        })}
+        {id && <td />}
+      </tr>
+    )
+    if (menu) {
+      return (
+        <ContextMenuTrigger key={row.id} asChild>
+          {tr}
+        </ContextMenuTrigger>
+      )
+    }
+    return tr
+  }
+
   return (
+    <ContextMenu onOpenChange={(open) => !open && setRowMenu(null)}>
     <div className={cn("flex min-h-0 flex-1 flex-col bg-background", className)}>
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
         <table
-          className="w-full table-fixed border-separate border-spacing-0 text-xs"
+          className="w-full table-fixed border-separate border-spacing-0 text-sm"
           style={{ minWidth }}
         >
           <colgroup>
@@ -305,7 +407,7 @@ function Table<T>({
                     <th
                       key={header.id}
                       className={cn(
-                        "group/th relative h-8  px-3 text-left align-middle text-xs font-medium tracking-tight text-muted-foreground whitespace-nowrap",
+                        "group/th relative h-8  px-3 text-left align-middle text-xs font-normal text-muted-foreground whitespace-nowrap",
                         index === 0 && !pickable && "pl-4",
                         header.column.columnDef.meta?.align === "end" && "text-right"
                       )}
@@ -360,79 +462,47 @@ function Table<T>({
             ))}
           </thead>
           <tbody className="bg-background">
-            {loading || !rows
-              ? Array.from({ length: 8 }, (_, i) => (
-                  <tr key={i}>
-                    <td colSpan={span} className="px-3.5 py-2">
-                      <Skeleton
-                        className="h-3.5"
-                        style={{ width: `${55 + ((i * 17) % 35)}%` }}
-                      />
-                    </td>
+            {loading || !rows ? (
+              Array.from({ length: 8 }, (_, i) => (
+                <tr key={i}>
+                  <td colSpan={span} className="px-3.5 py-2">
+                    <Skeleton
+                      className="h-3.5"
+                      style={{ width: `${55 + ((i * 17) % 35)}%` }}
+                    />
+                  </td>
+                </tr>
+              ))
+            ) : !virtualize ? (
+              tableRows.map(renderRow)
+            ) : (() => {
+              const virtualItems = rowVirtualizer.getVirtualItems()
+              if (virtualItems.length === 0) {
+                return tableRows.slice(0, 60).map(renderRow)
+              }
+              const paddingTop = virtualItems[0]?.start ?? 0
+              const paddingBottom =
+                rowVirtualizer.getTotalSize() -
+                (virtualItems[virtualItems.length - 1]?.end ?? 0)
+              return (
+                <>
+                  <tr aria-hidden="true">
+                    <td colSpan={span} style={{ height: paddingTop, padding: 0, border: 0 }} />
                   </tr>
-                ))
-              : table.getRowModel().rows.map((row) => {
-                  const isSelected = row.id === selected
-                  return (
-                    <tr
-                      key={row.id}
-                      ref={isSelected ? selectedRow : undefined}
-                      data-state={isSelected ? "selected" : undefined}
-                      onClick={onRowClick ? () => onRowClick(row.original) : undefined}
-                      className={cn(
-                        "group/row transition-colors",
-                        onRowClick && "cursor-pointer hover:bg-accent",
-                        isSelected && "bg-selection hover:bg-selection",
-                        rowClassName?.(row.original)
-                      )}
-                    >
-                      {pickable && (
-                        <td
-                          className={cn(
-                            "pl-3.5 align-middle py-2.5",
-                            isSelected && ""
-                          )}
-                          onClick={(event) => event.stopPropagation()}
-                        >
-                          <Checkbox
-                            aria-label="선택"
-                            checked={picked!.has(row.id)}
-                            onCheckedChange={(checked) =>
-                              onPick!([row.id], Boolean(checked))
-                            }
-                          />
-                        </td>
-                      )}
-                      {row.getVisibleCells().map((cell, index) => {
-                        const meta = cell.column.columnDef.meta
-                        return (
-                          <td
-                            key={cell.id}
-                            className={cn(
-                              "px-3 py-2.5 align-middle text-xs text-foreground",
-                              index === 0 && !pickable && "pl-4",
-                              index === 0 &&
-                                !pickable &&
-                                isSelected &&
-                                "",
-                              meta?.wrap ? "break-words whitespace-pre-wrap" : "truncate",
-                              meta?.align === "end" && "text-right tabular-nums",
-                              meta?.className
-                            )}
-                          >
-                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                          </td>
-                        )
-                      })}
-                      {id && <td />}
-                    </tr>
-                  )
-                })}
+                  {virtualItems.map((v) => renderRow(tableRows[v.index]!))}
+                  <tr aria-hidden="true">
+                    <td colSpan={span} style={{ height: paddingBottom, padding: 0, border: 0 }} />
+                  </tr>
+                </>
+              )
+            })()}
           </tbody>
         </table>
         {!loading && rows && rows.length === 0 && (empty ?? <EmptyState noun="항목" />)}
       </div>
       {footer}
     </div>
+    {rowMenu && <ContextMenuContent>{rowMenu}</ContextMenuContent>}
+    </ContextMenu>
   )
 }

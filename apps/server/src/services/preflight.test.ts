@@ -32,7 +32,7 @@ function model(): ModelPort {
           },
           usage: { inputTokens: 25_000, outputTokens: 10 },
         } as never;
-      return { object: { translations: lines.map((line) => ({ id: line.id, text: `[ko] ${line.source}` })) }, usage: { inputTokens: 25_000, outputTokens: 10 } } as never;
+      return { object: { results: lines.map((line) => ({ id: line.id, text: `[ko] ${line.source}` })) }, usage: { inputTokens: 25_000, outputTokens: 10 } } as never;
     },
   };
 }
@@ -44,7 +44,7 @@ describe('preflight', () => {
     db.update(s.connections).set({ maxOutputTokens: 4000, timeoutSeconds: 30, maxAttempts: 1 }).where(eq(s.connections.id, connection.id)).run();
   const choice = { connectionId: connection.id, model: 'm' };
     const { projectId } = importProject(db, importFileSchema.parse(realistic(3000).file), choice);
-    const workflow = db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).all().find((row) => row.name === '기본 번역')!;
+    const workflow = db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).all().find((row) => row.name === '초벌 번역')!;
     const scope = { ignoreStatus: true };
 
     // First run: no history yet, so only nodes every line passes have an expectation.
@@ -58,7 +58,7 @@ describe('preflight', () => {
     expect(listed.flatMap((batch) => batch.scenes.slice(1)).every((scene) => scene.joined !== null)).toBe(true);
     const translate = first.nodes.find((node) => node.everyLine)!;
     expect(translate.requests.min).toBe(translate.requests.max);
-    expect(first.totals.calls.expected).toBeNull();
+    expect(first.totals.calls.expected).toBe(translate.requests.expected);
 
     const runId = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope }).runId;
     await new Runner(db, memoryStore(), model()).drain();

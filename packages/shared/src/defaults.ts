@@ -1,7 +1,7 @@
-import { AI_PRESETS } from './presets.ts';
+import { APPLY_TARGETS, type ApplyFunctionName, type JsonField } from './functions.ts';
+import { AI_PRESETS, presetConfig, type AiPresetId } from './presets.ts';
 import type { DraftModelChoice } from './model-choice.ts';
-import type { AnalysisSection } from './knowledge.ts';
-import { contextConfigSchema, type WorkflowDefinition } from './workflow.ts';
+import type { WorkflowDefinition, WorkflowEdge, WorkflowNode } from './workflow.ts';
 
 export type StatusKind = 'initial' | 'normal' | 'final';
 
@@ -47,18 +47,90 @@ export const DEFAULT_TAG_COLOR = PALETTE[6].hex;
 export const DEFAULT_STATUSES: { key: string; name: string; color: string; kind: StatusKind; inReview: boolean }[] = [
   { key: 'untranslated', name: '미번역', color: PALETTE[0].hex, kind: 'initial', inReview: false },
   { key: 'draft', name: '초벌', color: PALETTE[8].hex, kind: 'normal', inReview: false },
-  { key: 'needs-review', name: '사람 확인 필요', color: PALETTE[3].hex, kind: 'normal', inReview: true },
   { key: 'confirmed', name: '확정', color: PALETTE[5].hex, kind: 'final', inReview: false },
 ];
 
 export const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
+// ---------------------------------------------------------------------------------------------
+// Default workflows and templates (3.2 of the improvement plan). Every step is a real node: the AI
+// node carries its whole prompt (the preset's instructions, visible and editable) and each save is
+// an apply node (반영). Nothing is hidden inside an AI node.
+// ---------------------------------------------------------------------------------------------
+
+const SETTINGS = { maxVisitsPerNode: 5, concurrency: 2, maxConsecutiveFailures: 3 } as const;
+/** Vertical layout, top to bottom, like the editor's auto layout. */
+const ROW = 140;
+const at = (row: number, column = 0) => ({ x: column * 320, y: row * ROW });
+
+type Model = { model: DraftModelChoice };
+
+const entryNode = (statusIds: string[] = []): WorkflowNode => ({ id: 'entry', type: 'entry', position: at(0), config: { statusIds } });
+
+const aiNode = (id: string, preset: AiPresetId, model: DraftModelChoice, row: number, column = 0, label: string = AI_PRESETS[preset].label): WorkflowNode => ({
+  id,
+  type: 'ai',
+  position: at(row, column),
+  label,
+  config: presetConfig(preset, model),
+});
+
+/** Item fields of a list in a preset (what an apply node can map from). */
+const itemFields = (preset: AiPresetId, list: string): JsonField[] => AI_PRESETS[preset].fields.find((field) => field.name === list)?.fields ?? [];
+
+/** Target field → source field of the same name, for every field of the target the list's items have. */
+function mapByName(fn: ApplyFunctionName, source: JsonField[]): Record<string, string> {
+  const have = new Set(source.map((field) => field.name));
+  const targets: readonly { name: string }[] = APPLY_TARGETS[fn].fields;
+  return Object.fromEntries(targets.filter((target) => have.has(target.name)).map((target) => [target.name, target.name]));
+}
+
+interface ApplyOptions {
+  list?: string;
+  map: Record<string, string>;
+  /** Default on: a proposal a person accepts in the app. */
+  propose?: boolean;
+  asCandidate?: boolean;
+}
+const applyNode = (id: string, fn: ApplyFunctionName, fromNodeId: string, row: number, options: ApplyOptions, column = 0): WorkflowNode => ({
+  id,
+  type: 'function',
+  position: at(row, column),
+  label: APPLY_TARGETS[fn].label,
+  config: { fn, params: { fromNodeId, list: options.list ?? '', map: options.map, propose: options.propose ?? true, asCandidate: options.asCandidate ?? false } },
+});
+/** An apply node for one list of a preset's JSON output, mapped by field name. */
+const saveList = (id: string, fn: ApplyFunctionName, fromNodeId: string, preset: AiPresetId, list: string, row: number): WorkflowNode =>
+  applyNode(id, fn, fromNodeId, row, { list, map: mapByName(fn, itemFields(preset, list)) });
+
+const edge = (source: string, sourceHandle: string, target: string): WorkflowEdge => ({ id: `${source}-${sourceHandle}-${target}`, source, sourceHandle, target });
+/** Edges along a chain of nodes, each from its `out` exit. */
+const chain = (...ids: string[]) => ids.slice(1).map((id, index) => edge(ids[index]!, 'out', id));
+
+const statusNode = (id: string, label: string, statusId: string, row: number, column = 0): WorkflowNode => ({
+  id,
+  type: 'function',
+  position: at(row, column),
+  label,
+  config: { fn: 'setStatus', params: { statusId, addTagIds: [], removeTagIds: [] } },
+});
+const formatCheckNode = (row: number, column = 0): WorkflowNode => ({
+  id: 'check',
+  type: 'function',
+  position: at(row, column),
+  label: '형식 검사',
+  config: { fn: 'formatCheck', params: { placeholders: true, tags: true, newlines: true, emptyText: true } },
+});
+/** Writes the translation now (no proposal, confirmed as a draft): what the default flows always did. */
+const writeTranslation = (id: string, fromNodeId: string, row: number, column = 0, label = '번역 후보 기록') => ({ ...applyNode(id, 'saveCandidate', fromNodeId, row, { map: { text: 'text' }, propose: false, asCandidate: false }, column), label });
+
 /**
  * The default translation flow, expressed as an ordinary user workflow:
- * untranslated → translate (written to the line) → 초벌로 → format check → review → 확정으로;
- * a failing line is revised (each revision also written to the line) while review has run fewer than
- * 3 times, then is set to "needs review", a status shown in the review inbox. People take it from there;
- * the run itself ends. Start/end only govern the run; progress is the status-change nodes (#42).
+ * untranslated → AI 번역 → 번역 후보 기록 → 초벌로 → 형식 검사 → AI 검수 → 확정으로;
+ * a failing line is revised (each revision written as the translation again) while review has run fewer
+ * than 3 times, then is set to "needs review", a status shown in the review inbox. People take it from
+ * there; the run itself ends. Translations are written, not proposed, because a translation flow
+ * proposing every line would leave nothing to review.
  */
 export function translationTemplate(ids: {
   /** The AI the template's nodes use; empty until the user has a connection with a default model. */
@@ -68,257 +140,195 @@ export function translationTemplate(ids: {
   needsReview: string;
   confirmed: string;
 }): WorkflowDefinition {
-  const ai = (preset: keyof typeof AI_PRESETS) => ({
-    model: ids.model,
-    extraModels: [],
-    instructions: AI_PRESETS[preset].instructions,
-    output: AI_PRESETS[preset].output,
-    fields: [],
-    include: AI_PRESETS[preset].include,
-    context: contextConfigSchema.parse({}),
-    batch: { mode: 'group' as const, size: 60, maxTokens: 6_000 },
-  });
-  const status = (statusId: string) => ({ fn: 'setStatus', params: { statusId, addTagIds: [], removeTagIds: [] } });
-  const at = (column: number, row: number) => ({ x: column * 300, y: row * 180 });
   return {
-    settings: { maxVisitsPerNode: 5, concurrency: 2, maxConsecutiveFailures: 3 },
+    settings: { ...SETTINGS },
     nodes: [
-      { id: 'entry', type: 'entry', position: at(0, 1), config: { statusIds: [ids.untranslated] } },
-      { id: 'translate', type: 'ai', position: at(1, 1), label: 'AI 번역', config: ai('translate') },
-      { id: 'draft', type: 'function', position: at(2, 1), label: '초벌로', config: status(ids.draft) },
-      { id: 'check', type: 'function', position: at(3, 1), label: '형식 검사', config: { fn: 'formatCheck', params: { placeholders: true, tags: true, newlines: true, emptyText: true } } },
-      { id: 'review', type: 'ai', position: at(4, 1), label: 'AI 검수', config: ai('review') },
-      { id: 'confirm', type: 'function', position: at(5, 1), label: '확정으로', config: status(ids.confirmed) },
-      { id: 'end', type: 'end', position: at(6, 1), config: {} },
+      entryNode([ids.untranslated]),
+      aiNode('translate', 'translate', ids.model, 1),
+      writeTranslation('save', 'translate', 2),
+      statusNode('draft', '초벌로', ids.draft, 3),
+      formatCheckNode(4),
+      aiNode('review', 'review', ids.model, 5),
+      statusNode('confirm', '확정으로', ids.confirmed, 6),
       {
         id: 'retry',
         type: 'condition',
-        position: at(4, 2),
+        position: at(5, 1),
         label: '검수 3회 미만?',
         config: { expression: { '<': [{ var: 'visits.review' }, 3] }, description: "'AI 검수' 방문이 3회 미만이면 다시 수정합니다." },
       },
-      { id: 'revise', type: 'ai', position: at(3, 3), label: 'AI 수정', config: ai('revise') },
-      { id: 'escalate', type: 'function', position: at(5, 3), label: '사람 확인 필요로', config: status(ids.needsReview) },
-      { id: 'end-review', type: 'end', position: at(6, 3), label: '검토함으로', config: {} },
+      aiNode('revise', 'revise', ids.model, 4, 2),
+      writeTranslation('save-revision', 'revise', 5, 2, '수정 번역 기록'),
+      statusNode('escalate', '사람 확인 필요로', ids.needsReview, 6, 1),
     ],
     edges: [
-      { id: 'e1', source: 'entry', sourceHandle: 'out', target: 'translate' },
-      { id: 'e2', source: 'translate', sourceHandle: 'out', target: 'draft' },
-      { id: 'e3', source: 'draft', sourceHandle: 'out', target: 'check' },
-      { id: 'e4', source: 'check', sourceHandle: 'pass', target: 'review' },
-      { id: 'e5', source: 'check', sourceHandle: 'fail', target: 'retry' },
-      { id: 'e6', source: 'review', sourceHandle: 'pass', target: 'confirm' },
-      { id: 'e7', source: 'review', sourceHandle: 'fail', target: 'retry' },
-      { id: 'e8', source: 'confirm', sourceHandle: 'out', target: 'end' },
-      { id: 'e9', source: 'retry', sourceHandle: 'true', target: 'revise' },
-      { id: 'e10', source: 'retry', sourceHandle: 'false', target: 'escalate' },
-      { id: 'e11', source: 'revise', sourceHandle: 'out', target: 'check' },
-      { id: 'e12', source: 'escalate', sourceHandle: 'out', target: 'end-review' },
+      ...chain('entry', 'translate', 'save', 'draft', 'check'),
+      edge('check', 'pass', 'review'),
+      edge('check', 'fail', 'retry'),
+      edge('review', 'pass', 'confirm'),
+      edge('review', 'fail', 'retry'),
+      edge('retry', 'true', 'revise'),
+      edge('retry', 'false', 'escalate'),
+      edge('revise', 'out', 'save-revision'),
+      edge('save-revision', 'out', 'check'),
     ],
   };
 }
 
-/**
- * Glossary preparation: extract recurring names and terms scene by scene and add them as glossary
- * candidates. Statuses are not touched; candidates reach AI context only after a person accepts them,
- * which is why extraction runs before translation instead of inside it.
- */
-export function termExtractionTemplate(ids: { model: DraftModelChoice }): WorkflowDefinition {
+/** 초벌 번역: untranslated → AI 번역 → 번역 후보 기록 → 형식 검사 → 초벌로. */
+export function draftTranslationTemplate(ids: { model: DraftModelChoice; untranslated: string; draft: string }): WorkflowDefinition {
   return {
-    settings: { maxVisitsPerNode: 5, concurrency: 2, maxConsecutiveFailures: 3 },
-    nodes: [
-      { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: { statusIds: [] } },
-      {
-        id: 'terms',
-        type: 'ai',
-        position: { x: 300, y: 0 },
-        label: AI_PRESETS.terms.label,
-        config: {
-          model: ids.model,
-          extraModels: [],
-          instructions: AI_PRESETS.terms.instructions,
-          output: 'terms',
-          fields: [],
-          include: { candidate: false, issues: false },
-          // The current glossary is in context so the model skips terms that already exist.
-          context: { ...contextConfigSchema.parse({}), characters: true, documents: true, relationships: false, precedingLines: 0, previousScenes: 0 },
-          batch: { mode: 'group', size: 60, maxTokens: 6_000 },
-        },
-      },
-      { id: 'add', type: 'function', position: { x: 600, y: 0 }, label: '용어 후보 추가', config: { fn: 'addTerms', params: { fromNodeId: 'terms' } } },
-      { id: 'end', type: 'end', position: { x: 900, y: 0 }, config: {} },
-    ],
-    edges: [
-      { id: 'e1', source: 'entry', sourceHandle: 'out', target: 'terms' },
-      { id: 'e2', source: 'terms', sourceHandle: 'out', target: 'add' },
-      { id: 'e3', source: 'add', sourceHandle: 'out', target: 'end' },
-    ],
+    settings: { ...SETTINGS },
+    nodes: [entryNode([ids.untranslated]), aiNode('translate', 'translate', ids.model, 1), writeTranslation('save', 'translate', 2), formatCheckNode(3), statusNode('draft', '초벌로', ids.draft, 4)],
+    edges: [...chain('entry', 'translate', 'save', 'check'), edge('check', 'pass', 'draft')],
   };
 }
 
+/**
+ * 용어 추출: scene groups are read for names and recurring terms that the glossary lacks, and they are
+ * saved to the glossary (as a proposal). Statuses and translations are not touched; terms reach AI
+ * context only after a person accepts them, which is why extraction runs before translation.
+ */
+export function termExtractionTemplate(ids: Model): WorkflowDefinition {
+  return {
+    settings: { ...SETTINGS },
+    nodes: [entryNode(), aiNode('terms', 'terms', ids.model, 1), saveList('save-terms', 'saveTerms', 'terms', 'terms', 'terms', 2)],
+    edges: chain('entry', 'terms', 'save-terms'),
+  };
+}
+
+/** 인물·관계 추출: scene groups are read against what is known; new people, relationships and speech rules are saved. */
+export function peopleRelationsTemplate(ids: Model): WorkflowDefinition {
+  return {
+    settings: { ...SETTINGS },
+    nodes: [
+      entryNode(),
+      aiNode('people', 'knowledge', ids.model, 1),
+      saveList('save-characters', 'saveCharacters', 'people', 'knowledge', 'characters', 2),
+      saveList('save-relationships', 'saveRelationships', 'people', 'knowledge', 'relationships', 3),
+      saveList('save-speech-rules', 'saveSpeechRules', 'people', 'knowledge', 'speechRules', 4),
+    ],
+    edges: chain('entry', 'people', 'save-characters', 'save-relationships', 'save-speech-rules'),
+  };
+}
+
+/** 사건 추출: scene groups are read for events (cause, outcome, people) and they are saved. */
+export function eventExtractionTemplate(ids: Model): WorkflowDefinition {
+  return {
+    settings: { ...SETTINGS },
+    nodes: [entryNode(), aiNode('events', 'events', ids.model, 1), saveList('save-events', 'saveEvents', 'events', 'events', 'events', 2)],
+    edges: chain('entry', 'events', 'save-events'),
+  };
+}
+
+/** Lines whose listener the AI guesses at or above this confidence get it written (proposed). */
+export const LISTENER_CONFIDENCE = 0.7;
 
 /**
- * Listener estimation: the work analysis (or the import) already gave most lines a listener, so lines
- * whose listener is known (import, person, confident AI guess) and lines that are not dialogue go
- * straight to the end. Only the rest are read scene by scene with the whole cast and get a listener
- * with a confidence. Translations and statuses are untouched, so it can run on any lines, any number of times.
+ * 청자 추정: the work analysis (or the import) already gave most lines a listener, so lines whose listener
+ * is known (import, person, confident AI guess) and lines that are not dialogue stop at the first
+ * condition. The rest are read scene by scene with the whole cast; an answer with a confidence of
+ * {@link LISTENER_CONFIDENCE} or more is set as the line's listener (a proposal). Translations and statuses are untouched.
  */
-export function listenerTemplate(ids: { model: DraftModelChoice }): WorkflowDefinition {
+export function listenerTemplate(ids: Model): WorkflowDefinition {
   return {
-    settings: { maxVisitsPerNode: 5, concurrency: 2, maxConsecutiveFailures: 3 },
+    settings: { ...SETTINGS },
     nodes: [
-      { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: { statusIds: [] } },
+      entryNode(),
       {
         id: 'needs',
         type: 'condition',
-        position: { x: 300, y: 0 },
-        label: '청자가 이미 있나?',
-        config: { expression: { var: 'listenerKnown' }, description: '가져오기·사람·확신 높은 AI 청자가 있거나 대사가 아니면 건너뜁니다.' },
+        position: at(1),
+        label: '청자 미상?',
+        config: { expression: { in: ['unknownListener', { var: 'unit.marks' }] }, description: '청자 미상 자동 태그가 붙은 줄만 추정합니다.' },
       },
+      aiNode('listener', 'listener', ids.model, 2),
       {
-        id: 'listener',
-        type: 'ai',
-        position: { x: 600, y: 0 },
-        label: AI_PRESETS.listener.label,
+        id: 'sure',
+        type: 'condition',
+        position: at(3),
+        label: `확신도 ${LISTENER_CONFIDENCE} 이상?`,
         config: {
-          model: ids.model,
-          extraModels: [],
-          instructions: AI_PRESETS.listener.instructions,
-          output: 'listener',
-          fields: [],
-          include: AI_PRESETS.listener.include,
-          context: { ...contextConfigSchema.parse({}), glossary: false, cast: true, characters: true, relationships: true, documents: true, precedingLines: 8, previousScenes: 1 },
-          batch: { mode: 'group', size: 80, maxTokens: 6_000 },
+          expression: { '>=': [{ var: 'outputs.listener.confidence' }, LISTENER_CONFIDENCE] },
+          description: `확신도가 ${LISTENER_CONFIDENCE} 이상일 때만 적습니다.`,
         },
       },
-      { id: 'record', type: 'function', position: { x: 900, y: 0 }, label: '청자 기록', config: { fn: 'setListener', params: { fromNodeId: 'listener' } } },
-      { id: 'end', type: 'end', position: { x: 1200, y: 0 }, config: {} },
+      applyNode('set-listener', 'setListener', 'listener', 4, { map: { listener: 'value', confidence: 'confidence' } }),
     ],
-    edges: [
-      { id: 'e1', source: 'entry', sourceHandle: 'out', target: 'needs' },
-      { id: 'e2', source: 'needs', sourceHandle: 'true', target: 'end' },
-      { id: 'e3', source: 'needs', sourceHandle: 'false', target: 'listener' },
-      { id: 'e4', source: 'listener', sourceHandle: 'out', target: 'record' },
-      { id: 'e5', source: 'record', sourceHandle: 'out', target: 'end' },
-    ],
+    edges: [edge('entry', 'out', 'needs'), edge('needs', 'true', 'listener'), edge('listener', 'out', 'sure'), edge('sure', 'true', 'set-listener')],
   };
 }
 
 /**
  * After a speech rule or a listener is corrected: re-fit only the speech level and forms of address
  * of the current translations, so the rest of the wording does not drift as a full re-translation would.
- * The fitted text is written to the line as the node produces it (#42); the status stays as it was.
+ * The fitted text is written as the translation (not proposed); the status stays as it was.
  */
-export function speechFixTemplate(ids: { model: DraftModelChoice }): WorkflowDefinition {
+export function speechFixTemplate(ids: Model): WorkflowDefinition {
   return {
-    settings: { maxVisitsPerNode: 5, concurrency: 2, maxConsecutiveFailures: 3 },
-    nodes: [
-      { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: { statusIds: [] } },
-      {
-        id: 'fit',
-        type: 'ai',
-        position: { x: 300, y: 0 },
-        label: AI_PRESETS.speechFix.label,
-        config: {
-          model: ids.model,
-          extraModels: [],
-          instructions: AI_PRESETS.speechFix.instructions,
-          output: 'candidate',
-          fields: [],
-          include: AI_PRESETS.speechFix.include,
-          context: { ...contextConfigSchema.parse({}), speech: true, documents: false, characters: false, relationships: false, glossary: false, precedingLines: 4, previousScenes: 0 },
-          batch: { mode: 'group', size: 40, maxTokens: 6_000 },
-        },
-      },
-      { id: 'end', type: 'end', position: { x: 900, y: 0 }, config: {} },
-    ],
-    edges: [
-      { id: 'e1', source: 'entry', sourceHandle: 'out', target: 'fit' },
-      { id: 'e2', source: 'fit', sourceHandle: 'out', target: 'end' },
-    ],
+    settings: { ...SETTINGS },
+    nodes: [entryNode(), aiNode('fit', 'speechFix', ids.model, 1), writeTranslation('save', 'fit', 2, 0, '말투 맞춘 번역 기록')],
+    edges: chain('entry', 'fit', 'save'),
   };
 }
 
 /** The workflow that a speech rule's "re-run affected lines" picks first. */
 export const SPEECH_FIX_WORKFLOW = '말투만 고치기';
 
+/** The workflow behind the 작품 분석 button of 자료. */
+export const ANALYSIS_WORKFLOW = '작품 분석';
+export const ANALYSIS_WORKFLOW_DESCRIPTION = '대본 전체를 읽고 개요·인물·관계·사건·말투 규칙·장면별 청자 초안과 용어 후보를 근거와 함께 만듭니다. 번역과 상태는 바꾸지 않습니다.';
+
 /**
- * Keeps 자료 growing with the script: each scene is read against what is already known and new
- * people, relationship changes, events and speech-level changes are added as AI items. Official
- * knowledge is never changed; disagreements become AI candidates. Translations are untouched.
+ * 작품 분석: a long-context model reads the whole script in one request (split at scene boundaries only
+ * beyond the model's window; reading everything at once was found as accurate as reading in parts and five
+ * times cheaper) and every list it returns is saved by its own apply node. Remove a field from the AI node
+ * and its save node to analyse less. The saves run one after another, not side by side: characters come
+ * before the relationships, speech rules and scene listeners that name them, and the order is the same on
+ * every run.
  */
-export function knowledgeTemplate(ids: { model: DraftModelChoice }): WorkflowDefinition {
+export function analysisTemplate(ids: Model): WorkflowDefinition {
+  const analysis = 'analysis';
   return {
-    settings: { maxVisitsPerNode: 5, concurrency: 2, maxConsecutiveFailures: 3 },
+    settings: { ...SETTINGS },
     nodes: [
-      { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: { statusIds: [] } },
-      {
-        id: 'find',
-        type: 'ai',
-        position: { x: 300, y: 0 },
-        label: AI_PRESETS.knowledge.label,
-        config: {
-          model: ids.model,
-          extraModels: [],
-          instructions: AI_PRESETS.knowledge.instructions,
-          output: 'knowledge',
-          fields: [],
-          include: AI_PRESETS.knowledge.include,
-          context: { ...contextConfigSchema.parse({}), glossary: false, cast: true, characters: true, relationships: true, documents: true, speech: true, precedingLines: 8, previousScenes: 1 },
-          batch: { mode: 'group', size: 120, maxTokens: 6_000 },
-        },
-      },
-      { id: 'apply', type: 'function', position: { x: 600, y: 0 }, label: '자료 반영', config: { fn: 'applyKnowledge', params: { fromNodeId: 'find' } } },
-      { id: 'end', type: 'end', position: { x: 900, y: 0 }, config: {} },
+      entryNode(),
+      aiNode(analysis, 'analysis', ids.model, 1, 0, '작품 분석'),
+      applyNode('save-overview', 'saveDocument', analysis, 2, { map: { title: 'overviewTitle', body: 'overview' } }),
+      saveList('save-characters', 'saveCharacters', analysis, 'analysis', 'characters', 3),
+      saveList('save-relationships', 'saveRelationships', analysis, 'analysis', 'relationships', 4),
+      saveList('save-speech-rules', 'saveSpeechRules', analysis, 'analysis', 'speechRules', 5),
+      saveList('save-events', 'saveEvents', analysis, 'analysis', 'events', 6),
+      saveList('save-terms', 'saveTerms', analysis, 'analysis', 'terms', 7),
+      saveList('save-scene-listeners', 'saveSceneListeners', analysis, 'analysis', 'sceneListeners', 8),
     ],
-    edges: [
-      { id: 'e1', source: 'entry', sourceHandle: 'out', target: 'find' },
-      { id: 'e2', source: 'find', sourceHandle: 'out', target: 'apply' },
-      { id: 'e3', source: 'apply', sourceHandle: 'out', target: 'end' },
-    ],
+    edges: chain('entry', analysis, 'save-overview', 'save-characters', 'save-relationships', 'save-speech-rules', 'save-events', 'save-terms', 'save-scene-listeners'),
   };
 }
 
-/** The workflow behind the 작품 분석 button (created on first use when a project has none). */
-export const ANALYSIS_WORKFLOW = '작품 분석';
-export const ANALYSIS_WORKFLOW_DESCRIPTION = 'AI가 대본 전체를 한 번에 읽고 개요·인물·관계·사건·말투 규칙·장면별 청자 초안과 용어 후보를 근거와 함께 만듭니다. 번역과 상태는 바꾸지 않습니다. 읽을 항목은 AI 노드에서 고릅니다.';
+/** Single-purpose templates that only need a model (the `from` of creating a workflow). */
+export const MODEL_TEMPLATES = {
+  terms: termExtractionTemplate,
+  listener: listenerTemplate,
+  people: peopleRelationsTemplate,
+  events: eventExtractionTemplate,
+  speechFix: speechFixTemplate,
+  analysis: analysisTemplate,
+} as const;
 
 /**
- * Work analysis (#47): a long-context model reads the whole script (one request up to 300k tokens,
- * split at scene boundaries beyond that) and drafts the chosen sections, which `saveAnalysis` stores
- * with their evidence lines. Reading everything at once was found as accurate as reading in parts and
- * five times cheaper. Translations and statuses are untouched; how drafts land is AI › 사용 방식.
+ * The workflows every project starts with (new and imported projects). A workflow a person deletes
+ * stays deleted; only projects that never had them get them.
  */
-export function analysisTemplate(ids: { model: DraftModelChoice; sections?: AnalysisSection[] }): WorkflowDefinition {
-  return {
-    settings: { maxVisitsPerNode: 5, concurrency: 2, maxConsecutiveFailures: 3 },
-    nodes: [
-      { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: { statusIds: [] } },
-      {
-        id: 'analyze',
-        type: 'ai',
-        position: { x: 300, y: 0 },
-        label: '대본 읽기',
-        config: {
-          model: ids.model,
-          extraModels: [],
-          instructions: '',
-          output: 'analysis',
-          fields: [],
-          sections: ids.sections ?? [],
-          include: { candidate: false, issues: false },
-          // The script itself is the context; stored knowledge would only bias the reading.
-          context: { ...contextConfigSchema.parse({}), glossary: false, speech: false, precedingLines: 0, previousScenes: 0 },
-          batch: { mode: 'whole', size: 200, maxTokens: 300_000 },
-        },
-      },
-      { id: 'save', type: 'function', position: { x: 600, y: 0 }, label: '분석 반영', config: { fn: 'saveAnalysis', params: { fromNodeId: 'analyze' } } },
-      { id: 'end', type: 'end', position: { x: 900, y: 0 }, config: {} },
-    ],
-    edges: [
-      { id: 'e1', source: 'entry', sourceHandle: 'out', target: 'analyze' },
-      { id: 'e2', source: 'analyze', sourceHandle: 'out', target: 'save' },
-      { id: 'e3', source: 'save', sourceHandle: 'out', target: 'end' },
-    ],
-  };
+export function defaultWorkflows(ids: { model: DraftModelChoice; untranslated?: string; draft?: string }): { name: string; description: string; definition: WorkflowDefinition }[] {
+  return [
+    ...(ids.untranslated && ids.draft
+      ? [{ name: '초벌 번역', description: '미번역 대사를 AI로 번역하고 형식을 검사해 초벌 상태로 바꿉니다.', definition: draftTranslationTemplate({ model: ids.model, untranslated: ids.untranslated, draft: ids.draft }) }]
+      : []),
+    { name: '청자 추정', description: '청자가 아직 없는 대사만 장면별로 누구에게 하는 말인지 추정해 적습니다. 번역·상태는 바꾸지 않습니다.', definition: listenerTemplate({ model: ids.model }) },
+    { name: '용어 추출', description: '장면별로 고유명사·반복 용어를 뽑아 용어집에 넣습니다.', definition: termExtractionTemplate({ model: ids.model }) },
+    { name: '인물·관계 추출', description: '등장인물, 인물 사이의 관계와 변화, 화자·청자 말투 규칙을 장면별로 뽑아 자료에 넣습니다.', definition: peopleRelationsTemplate({ model: ids.model }) },
+    { name: '사건 추출', description: '사건의 원인·결과와 관련 인물을 장면별로 뽑아 자료에 넣습니다.', definition: eventExtractionTemplate({ model: ids.model }) },
+    { name: ANALYSIS_WORKFLOW, description: ANALYSIS_WORKFLOW_DESCRIPTION, definition: analysisTemplate({ model: ids.model }) },
+  ];
 }

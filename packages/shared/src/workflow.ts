@@ -1,13 +1,12 @@
 import { z } from 'zod';
 import Graph from 'graphology';
-import { FUNCTIONS, functionPorts, type FunctionName, type Port } from './functions.ts';
+import { APPLY_TARGETS, FUNCTIONS, functionPorts, jsonFieldSchema, type ApplyFunctionName, type ApplyParams, type FunctionName, type JsonField, type Port } from './functions.ts';
 import { stronglyConnectedComponents } from 'graphology-components';
-import { ANALYSIS_SECTIONS } from './knowledge.ts';
 import { choiceKey, draftModelChoiceSchema, EMPTY_MODEL_CHOICE, modelChoiceSchema, type ModelChoice } from './model-choice.ts';
 
 /**
  * What an AI node pulls into its prompt. Every field maps to stored project data.
- * Defaults follow the experiments (docs/DESIGN.md 2.4): a known listener with a confirmed speech rule,
+ * Defaults follow the experiments: a known listener with a confirmed speech rule,
  * glossary, preceding lines and the scene description help; character profiles, relationship bundles
  * and documents did nothing or hurt, so they are opt-in per node.
  */
@@ -52,23 +51,39 @@ export const batchConfigSchema = z.object({
 const position = z.object({ x: z.number(), y: z.number() });
 const base = { id: z.string().min(1), position, label: z.string().optional() };
 
-/** What an AI node returns for each line; the choice also decides its exits. */
+/**
+ * What an AI node returns: a form, not a purpose. Where a result goes in the project is up to the
+ * apply nodes after it (APPLY_TARGETS); terms, characters or a work analysis are `json` outputs made
+ * from a preset, not kinds of their own.
+ */
 export const AI_OUTPUTS = {
-  candidate: { label: '번역 후보', description: '대사마다 새 번역 후보를 만듭니다.' },
-  verdict: { label: '판정', description: '통과/실패와 의견을 냅니다.' },
-  terms: { label: '용어 후보', description: '원문에서 용어(원문·번역·메모)를 뽑습니다.' },
-  listener: { label: '청자', description: '대사마다 누구에게 하는 말인지와 확신도를 냅니다.' },
-  knowledge: { label: '자료 변경', description: '이 대사들에서 새로 드러난 인물·관계 변화·사건·말투 변화를 냅니다.' },
-  analysis: { label: '작품 분석', description: '읽은 대본 전체에서 고른 항목(개요·인물·관계·사건·말투 규칙·장면별 청자·용어)을 근거 줄과 함께 냅니다.' },
-  json: { label: '자유 형식', description: '직접 정한 필드를 대사마다 채웁니다.' },
+  text: { label: '문장', description: '대사마다 텍스트 하나(번역문·수정문 등). 흐름의 현재 번역문이 됩니다.' },
+  verdict: { label: '판정', description: '대사마다 통과/실패와 이유. 통과·실패 두 출구로 나뉩니다.' },
+  choice: { label: '선택', description: '대사마다 정한 선택지 중 하나(또는 없음)와 확신도(0~1).' },
+  json: { label: 'JSON', description: '직접 정한 필드를 채웁니다. 대사마다 또는 묶음 전체에 하나.' },
 } as const;
 export type AiOutput = keyof typeof AI_OUTPUTS;
+export const AI_OUTPUT_IDS = Object.keys(AI_OUTPUTS) as AiOutput[];
 
-export const jsonFieldSchema = z.object({
-  name: z.string().trim().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, '영문·숫자·_ 로 된 이름'),
-  type: z.enum(['string', 'number', 'boolean']).default('string'),
-  description: z.string().default(''),
+/** `line`: one answer per line. `batch`: one answer per request (lists that belong to no single line). Only `json` can be `batch`. */
+export const AI_SCOPES = { line: '대사마다', batch: '묶음 전체' } as const;
+export type AiScope = keyof typeof AI_SCOPES;
+
+/**
+ * Where a `choice` node's options come from: typed by hand, or a project list read when the run
+ * sends the request (cast names plus group/public/self, line tag names, status names).
+ */
+export const CHOICE_SOURCES = { custom: '직접 입력', characters: '인물', lineTags: '태그', statuses: '상태' } as const;
+export type ChoiceSource = keyof typeof CHOICE_SOURCES;
+export const choiceConfigSchema = z.object({
+  source: z.enum(Object.keys(CHOICE_SOURCES) as [ChoiceSource, ...ChoiceSource[]]).default('custom'),
+  values: z.array(z.string().trim().min(1)).default([]),
+  /** The model may answer "none of these" (null). */
+  allowNone: z.boolean().default(true),
 });
+export type ChoiceConfig = z.infer<typeof choiceConfigSchema>;
+
+export { jsonFieldSchema, type JsonField };
 
 export const aiNodeConfigSchema = z.object({
   model: draftModelChoiceSchema.default({ ...EMPTY_MODEL_CHOICE }),
@@ -76,11 +91,14 @@ export const aiNodeConfigSchema = z.object({
   extraModels: z.array(draftModelChoiceSchema).default([]),
   /** Empty = the model's default. Only some API models take it. */
   temperature: z.number().min(0).max(2).optional(),
+  /** The prompt. Everything the model is told is here or in the read-only format part shown in the preview. */
   instructions: z.string().default(''),
-  output: z.enum(['candidate', 'verdict', 'terms', 'listener', 'knowledge', 'analysis', 'json']).default('candidate'),
+  output: z.enum(AI_OUTPUT_IDS as [AiOutput, ...AiOutput[]]).default('text'),
+  scope: z.enum(['line', 'batch']).default('line'),
   fields: z.array(jsonFieldSchema).default([]),
-  /** What an "analysis" node reads the script for; empty = every section. */
-  sections: z.array(z.enum(ANALYSIS_SECTIONS)).optional(),
+  choice: choiceConfigSchema.default(choiceConfigSchema.parse({})),
+  /** The preset this node was filled from (shown as a hint; the node is an ordinary AI node). */
+  preset: z.string().optional(),
   /** Also show the model the line's current candidate / the latest failing issues. */
   include: z
     .object({ candidate: z.boolean().default(true), issues: z.boolean().default(true) })
@@ -107,11 +125,18 @@ export const workflowEdgeSchema = z.object({
   source: z.string().min(1),
   sourceHandle: z.string().min(1),
   target: z.string().min(1),
+  /** Last ELK route, used for the rendered edge until nodes are dragged or layout is rerun. */
+  layout: z.object({
+    points: z.array(position).min(2),
+    labelPosition: position.optional(),
+  }).optional(),
 });
 
 export const workflowDefinitionSchema = z.object({
   nodes: z.array(workflowNodeSchema),
   edges: z.array(workflowEdgeSchema),
+  /** Last explicitly arranged graph direction; older saved definitions default to vertical. */
+  direction: z.enum(['vertical', 'horizontal']).optional(),
   settings: z
     .object({
       maxVisitsPerNode: z.number().int().min(1).max(50).default(5),
@@ -124,7 +149,6 @@ export const workflowDefinitionSchema = z.object({
 
 export type ContextConfig = z.infer<typeof contextConfigSchema>;
 export type BatchConfig = z.infer<typeof batchConfigSchema>;
-export type JsonField = z.infer<typeof jsonFieldSchema>;
 export type WorkflowNode = z.infer<typeof workflowNodeSchema>;
 export type WorkflowNodeType = WorkflowNode['type'];
 export type WorkflowEdge = z.infer<typeof workflowEdgeSchema>;
@@ -167,7 +191,7 @@ export const NODE_TYPES: Record<WorkflowNodeType, NodeTypeInfo> = {
   entry: { label: '진입', description: '선택한 상태의 대사가 흐름에 들어옵니다.', hasInput: false },
   ai: { label: 'AI', description: '고른 모델·지시문·문맥으로 AI를 호출해 후보·판정·용어·데이터를 받습니다.', hasInput: true },
   function: { label: '함수', description: '형식 검사·상태 변경·HTTP 호출·스크립트 등 정해진 동작을 실행합니다.', hasInput: true },
-  condition: { label: '조건', description: '방문 횟수·앞 노드의 출력 등으로 분기합니다.', hasInput: true },
+  condition: { label: '조건', description: '방문 횟수·앞 노드의 출력·대사 속성 등으로 분기합니다.', hasInput: true },
   end: { label: '종료', description: '대사의 흐름을 마칩니다.', hasInput: true },
 };
 
@@ -206,12 +230,7 @@ export interface ConditionData {
   candidate: string | null;
   issues: string[];
   /** marks: the line's automatic marks right now (lineMarksOf in marks.ts; diverged is only known to the list filter). */
-  unit: { kind: string; speaker: string | null; statusId: string; tagIds: string[]; marks: string[] };
-  /**
-   * The line needs no listener estimate: its listener came from the import or a person, or is an AI guess
-   * at or above the confidence threshold, or the line is not dialogue.
-   */
-  listenerKnown: boolean;
+  unit: { kind: string; speaker: string | null; listener: string | null; statusId: string; tagIds: string[]; marks: string[] };
 }
 
 export interface WorkflowIssue {
@@ -294,21 +313,25 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
 
   for (const node of definition.nodes) {
     for (const port of nodePorts(node)) {
-      // An unconnected error port marks the line failed and an unconnected "out" ends it there (after
-      // a side job such as adding terms); exits that choose between ways (pass/fail, true/false…)
-      // must lead somewhere, so a forgotten one does not quietly end lines.
-      if (port.id === 'error' || usedPorts.has(`${node.id}:${port.id}`)) continue;
-      if (port.id === 'out' && node.type !== 'entry') warn(`'${port.label}' 출구가 연결되지 않아 대사가 여기서 끝납니다.`, { nodeId: node.id });
-      else error(`'${port.label}' 출구가 연결되지 않았습니다.`, { nodeId: node.id });
+      if (
+        port.id === 'error' ||
+        (port.id === 'out' && node.type !== 'entry') ||
+        usedPorts.has(`${node.id}:${port.id}`) ||
+        (port.id === 'fail' && usedPorts.has(`${node.id}:pass`)) ||
+        ((port.id === 'true' || port.id === 'false') && (usedPorts.has(`${node.id}:true`) || usedPorts.has(`${node.id}:false`)))
+      ) continue;
+      error(`'${port.label}' 출구가 연결되지 않았습니다.`, { nodeId: node.id });
     }
     if (node.type === 'ai') {
       const { model, extraModels } = node.config;
       if (!model.connectionId || !model.model) error('AI 연결과 모델을 고르세요.', { nodeId: node.id });
       else if (!refs.connections.has(model.connectionId)) error('고른 AI 연결이 삭제되었습니다. 다시 고르세요.', { nodeId: node.id });
-      if (extraModels.some((choice) => !choice.connectionId || !choice.model)) error('함께 나눌 모델을 고르거나 그 칸을 지우세요.', { nodeId: node.id });
-      else if (extraModels.some((choice) => !refs.connections.has(choice.connectionId))) error('함께 나눌 모델 중 연결이 삭제된 것이 있습니다.', { nodeId: node.id });
-      if (node.config.output === 'json' && !node.config.fields.length) error('자유 형식 출력에는 필드가 하나 이상 필요합니다.', { nodeId: node.id });
-      if (node.config.output === 'analysis' && node.config.batch.mode !== 'whole') warn("작품 분석은 '대본 전체' 묶음에서 가장 정확하고 쌉니다. 장면 묶음으로 나누면 부분마다 같은 인물을 다시 읽습니다.", { nodeId: node.id });
+      if (extraModels.some((choice) => !choice.connectionId || !choice.model)) error('추가한 모델을 고르거나 그 칸을 지우세요.', { nodeId: node.id });
+      else if (extraModels.some((choice) => !refs.connections.has(choice.connectionId))) error('추가한 모델 중 연결이 삭제된 것이 있습니다.', { nodeId: node.id });
+      if (node.config.output === 'json' && !node.config.fields.length) error('JSON 출력에는 필드가 하나 이상 필요합니다.', { nodeId: node.id });
+      if (node.config.output === 'json' && node.config.fields.some((field) => field.type === 'list' && !field.fields?.length)) error('목록 필드에는 항목 필드가 하나 이상 필요합니다.', { nodeId: node.id });
+      if (node.config.output === 'choice' && node.config.choice.source === 'custom' && !node.config.choice.values.length) error('선택지를 하나 이상 적으세요.', { nodeId: node.id });
+      if (node.config.scope === 'batch' && node.config.output !== 'json') error("'묶음 전체' 출력은 JSON에서만 쓸 수 있습니다.", { nodeId: node.id });
     }
     if (node.type === 'entry')
       for (const id of node.config.statusIds) if (!refs.statusIds.has(id)) error('삭제된 상태가 있습니다.', { nodeId: node.id });
@@ -333,22 +356,7 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
         if (!/^https?:\/\//.test(String(params.url).trim())) error('HTTP 호출할 주소(https://…)를 입력하세요.', { nodeId: node.id });
         if (params.connectionId && !refs.toolConnectionIds.has(params.connectionId as string)) error('삭제된 API 키입니다.', { nodeId: node.id });
       }
-      if (node.config.fn === 'addTerms' && params.fromNodeId) {
-        const from = definition.nodes.find((other) => other.id === params.fromNodeId);
-        if (from?.type !== 'ai' || from.config.output !== 'terms') error('용어 후보를 내는 AI 노드를 선택하세요.', { nodeId: node.id });
-      }
-      if (node.config.fn === 'applyKnowledge' && params.fromNodeId) {
-        const from = definition.nodes.find((other) => other.id === params.fromNodeId);
-        if (from?.type !== 'ai' || from.config.output !== 'knowledge') error('자료 변경을 내는 AI 노드를 선택하세요.', { nodeId: node.id });
-      }
-      if (node.config.fn === 'saveAnalysis' && params.fromNodeId) {
-        const from = definition.nodes.find((other) => other.id === params.fromNodeId);
-        if (from?.type !== 'ai' || from.config.output !== 'analysis') error('작품 분석을 내는 AI 노드를 선택하세요.', { nodeId: node.id });
-      }
-      if (node.config.fn === 'setListener' && params.fromNodeId) {
-        const from = definition.nodes.find((other) => other.id === params.fromNodeId);
-        if (from?.type !== 'ai' || from.config.output !== 'listener') error('청자를 내는 AI 노드를 선택하세요.', { nodeId: node.id });
-      }
+      if (node.config.fn in APPLY_TARGETS) for (const message of applyIssues(definition, node.config.fn as ApplyFunctionName, params as ApplyParams)) error(message, { nodeId: node.id });
     }
     if (node.type === 'condition' && (node.config.expression === undefined || node.config.expression === null))
       error('조건식을 입력하세요.', { nodeId: node.id });
@@ -381,28 +389,110 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
   return issues;
 }
 
-/** The work-analysis nodes of a workflow (AI nodes with the "analysis" output, #47). */
-export const analysisNodes = (definition: WorkflowDefinition) => definition.nodes.filter((node): node is AiNode => node.type === 'ai' && node.config.output === 'analysis');
-/** A workflow that runs a work analysis: only one such run at a time per project. */
-export const isAnalysisWorkflow = (definition: WorkflowDefinition) => analysisNodes(definition).length > 0;
+/**
+ * What is wrong with an apply node's source and mapping: the source must be an AI or script node
+ * before it, a `list` target needs the list field, and every required field must be mapped.
+ */
+export function applyIssues(definition: WorkflowDefinition, fn: ApplyFunctionName, params: ApplyParams): string[] {
+  const target = APPLY_TARGETS[fn];
+  const from = definition.nodes.find((other) => other.id === params.fromNodeId);
+  if (!params.fromNodeId) return ['결과를 가져올 노드를 고르세요.'];
+  if (!from || !(from.type === 'ai' || (from.type === 'function' && from.config.fn === 'script'))) return ['결과를 가져올 AI·스크립트 노드를 고르세요.'];
+  const issues: string[] = [];
+  if (target.shape === 'list' && !params.list) issues.push('항목을 가져올 목록 필드를 고르세요.');
+  const missing = target.fields.filter((field) => 'required' in field && field.required && !params.map[field.name]);
+  if (missing.length) issues.push(`필드를 연결하세요: ${missing.map((field) => field.label).join(', ')}`);
+  return issues;
+}
+
+/** AI nodes that read the whole script in one request (batch mode "whole"). */
+export const wholeScriptNodes = (definition: WorkflowDefinition) => definition.nodes.filter((node): node is AiNode => node.type === 'ai' && node.config.batch.mode === 'whole');
+/** A workflow that reads the whole script at once: only one such run at a time per project (two would send the same script twice). */
+export const isWholeScriptWorkflow = (definition: WorkflowDefinition) => wholeScriptNodes(definition).length > 0;
 
 /**
- * Which run-dialog readiness checks matter for a workflow: only nodes that write or judge
- * translations (번역 후보, 판정) are made worse by unknown listeners, unreviewed speech rules or
- * terms, and only when they get that context — or a speech / glossary check function runs. A work
- * analysis, listener guess or term extraction reads the script for itself and gets no warnings.
+ * Which run-dialog readiness checks matter for a workflow: those whose information some AI node
+ * actually sends — listeners and speech rules (context "청자·말투"; a whole-script request never
+ * sends them), the glossary (context "용어집", or a glossary check function). Unknown or unreviewed
+ * entries there would reach the model as if they were settled.
  */
 export function readinessUses(definition: WorkflowDefinition) {
-  const translating = definition.nodes.filter((node): node is AiNode => node.type === 'ai' && (node.config.output === 'candidate' || node.config.output === 'verdict'));
-  const fn = (name: string) => definition.nodes.some((node) => node.type === 'function' && node.config.fn === name);
+  const contexts = definition.nodes.filter((node): node is AiNode => node.type === 'ai').map((node) => ({ context: contextConfigSchema.parse(node.config.context ?? {}), whole: node.config.batch?.mode === 'whole' }));
   return {
-    speech: translating.some((node) => node.config.context?.speech !== false) || fn('speechCheck'),
-    glossary: translating.some((node) => node.config.context?.glossary !== false) || fn('glossaryCheck'),
+    speech: contexts.some(({ context, whole }) => context.speech && !whole),
+    glossary: contexts.some(({ context }) => context.glossary) || definition.nodes.some((node) => node.type === 'function' && node.config.fn === 'glossaryCheck'),
   };
 }
 
 /** Whether a run picks its lines by status (its entry names statuses and the scope does not ignore them): such a run never overwrites a translation a person saved (#51). */
-export const filtersByStatus = (definition: WorkflowDefinition, scope: { ignoreStatus?: boolean }) => {
+export const filtersByStatus = (definition: WorkflowDefinition, scope: { statusIds?: string[]; ignoreStatus?: boolean }) => {
   const entry = definition.nodes.find((node) => node.type === 'entry');
-  return entry?.type === 'entry' && entry.config.statusIds.length > 0 && !scope.ignoreStatus;
+  const statusIds = scope.statusIds ?? (entry?.type === 'entry' ? entry.config.statusIds : []);
+  return statusIds.length > 0 && !scope.ignoreStatus;
 };
+
+/**
+ * Keeps the entry node and its connections to the root work node(s) in sync:
+ * - Removes any end nodes and their incident edges.
+ * - Ensures an entry node exists.
+ * - Connects entry to root work node(s) (nodes with 0 incoming edges from other work nodes,
+ *   or the first work node if all are in a cycle) when none of the existing entry edges point to a valid root.
+ * - Removes redundant entry -> node edges when a work node receives an incoming edge from another work node (unless no other root exists).
+ */
+export function syncEntryEdges(definition: WorkflowDefinition): WorkflowDefinition {
+  let nodes = definition.nodes.filter((node) => node.type !== 'end');
+
+  let entry = nodes.find((node) => node.type === 'entry');
+  if (!entry) {
+    entry = { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: { statusIds: [] } };
+    nodes = [entry, ...nodes];
+  }
+
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  let edges = definition.edges.filter((edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target));
+
+  const workNodes = nodes.filter((node) => node.type !== 'entry');
+  const workNodeIds = new Set(workNodes.map((node) => node.id));
+
+  if (workNodes.length === 0) {
+    edges = edges.filter((edge) => edge.source !== entry.id);
+    return { ...definition, nodes, edges };
+  }
+
+  const hasIncomingFromWork = new Set<string>();
+  for (const edge of edges) {
+    if (workNodeIds.has(edge.source) && workNodeIds.has(edge.target)) {
+      hasIncomingFromWork.add(edge.target);
+    }
+  }
+
+  const rootNodes = workNodes.filter((node) => !hasIncomingFromWork.has(node.id));
+  const roots = rootNodes.length > 0 ? rootNodes : [workNodes[0]];
+  const rootIdSet = new Set(roots.map((node) => node.id));
+
+  if (rootNodes.length > 0) {
+    edges = edges.filter((edge) => !(edge.source === entry.id && hasIncomingFromWork.has(edge.target)));
+  }
+
+  const currentEntryTargets = new Set(
+    edges.filter((edge) => edge.source === entry.id && edge.sourceHandle === 'out').map((edge) => edge.target),
+  );
+
+  const hasValidRootConnection = [...currentEntryTargets].some((targetId) => rootIdSet.has(targetId));
+
+  if (!hasValidRootConnection) {
+    for (const root of roots) {
+      if (!currentEntryTargets.has(root.id)) {
+        edges.push({
+          id: `e-entry-${root.id}`,
+          source: entry.id,
+          sourceHandle: 'out',
+          target: root.id,
+        });
+      }
+    }
+  }
+
+  return { ...definition, nodes, edges };
+}
+

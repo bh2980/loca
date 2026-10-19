@@ -11,7 +11,7 @@ import { ChangePreview, LABEL } from './change-preview';
 export type Proposal = Awaited<ReturnType<NonNullable<ReturnType<typeof q.proposals>['queryFn']>>>[number];
 
 const STATUS = { running: '적용 중', rejected: '거절함', failed: '실패' } as const;
-const DECIDED_BY = { auto: '자동 검토로', bypass: '우회 모드로' } as const;
+const DECIDED_BY = { auto: '자동 검토로', bypass: '바로 반영 모드로' } as const;
 
 /** One undo request and its shared outcome message for cards and whole replies. */
 export function useUndo(projectId: string, sessionId: string) {
@@ -61,23 +61,23 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
   const skipped = proposal.status === 'accepted' ? ((proposal.result as { skipped?: unknown[] } | null)?.skipped?.length ?? 0) : 0;
   return (
     <div className="overflow-hidden rounded-lg border bg-background text-sm">
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 border-b bg-muted px-3 py-1.5 text-xs font-medium">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 border-b bg-muted px-3 py-1.5 text-sm font-semibold">
         <CardTitle>{LABEL[proposal.tool] ?? proposal.tool}</CardTitle>
         {proposal.source === 'cli' && <span className="font-normal text-muted-foreground">· CLI</span>}
-        <span className="ml-auto text-right">
+        <span className="ml-auto text-right text-xs font-normal">
           {proposal.undoneAt ? <span className="ml-auto text-muted-foreground">되돌림</span> : proposal.status !== 'pending' && (
             <span className={proposal.status === 'accepted' ? 'text-success' : proposal.status === 'failed' ? 'text-destructive' : 'text-muted-foreground'}>
               {proposal.decidedBy && proposal.decidedBy !== 'person' && `${DECIDED_BY[proposal.decidedBy]} `}
               {proposal.status === 'accepted' ? acceptedLabel(proposal.tool).short : proposal.status === 'failed' && proposal.decidedBy && proposal.decidedBy !== 'person' ? '적용하려 했지만 실패' : STATUS[proposal.status]}
               {failure && ` · ${failure}`}
               {proposal.status === 'rejected' && proposal.reason && ` · ${proposal.reason}`}
-              {skipped > 0 && ` · ${skipped.toLocaleString()}개는 건너뜀(그사이 바뀌었거나 바꿀 수 없음)`}
+              {skipped > 0 && ` · ${skipped.toLocaleString()}개는 건너뜀`}
             </span>
           )}
           {decide.isPending && <Spinner className="size-3" />}
         </span>
       </div>
-      <div className="px-3 py-2 text-xs">
+      <div className="px-3 py-2 text-sm">
         <ChangePreview name={proposal.tool} input={proposal.input} pending={proposal.status === 'pending'} />
         {proposal.report && <ProposalReport report={proposal.report} />}
         {proposal.status === 'pending' && proposal.review && <p className="mt-2 border-t pt-2 text-muted-foreground">자동 검토가 넘김: {proposal.review}</p>}
@@ -90,7 +90,7 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
             decide.mutate('reject');
           }}
         >
-          <Input autoFocus value={reason} onChange={(event) => setReason(event.target.value)} placeholder="거절 이유(선택) — 에이전트에게 전달됩니다" aria-label="거절 이유" />
+          <Input autoFocus value={reason} onChange={(event) => setReason(event.target.value)} placeholder="거절 이유(선택)" aria-label="거절 이유" />
           <Button type="button" variant="ghost" disabled={decide.isPending} onClick={() => setRejecting(false)}>
             취소
           </Button>

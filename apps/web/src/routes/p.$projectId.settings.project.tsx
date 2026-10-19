@@ -3,14 +3,13 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Download, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { type FormatRules } from '@tw/shared';
-import { FormatRulesSection } from '@/components/format-rules';
 import { Page } from '@/components/page';
-import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Field, FieldDescription, FieldGroup, FieldLabel, Skeleton, Textarea, SettingsSection } from '@loca/ui';
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Field, FieldDescription, FieldGroup, FieldLabel, Skeleton, Textarea, SettingsSection, SettingsContent } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { changedFields, useFormFrom } from '@/lib/use-form-from';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
+import type { FormatRules } from '@tw/shared';
 
 export const Route = createFileRoute('/p/$projectId/settings/project')({
   component: ProjectSettings,
@@ -22,10 +21,12 @@ function ProjectSettings() {
   if (!project.data)
     return (
       <Page title="프로젝트" flush>
-        <div className="max-w-3xl space-y-4 px-6 py-6">
-          <Skeleton className="h-8 w-1/2" />
-          <Skeleton className="h-20" />
-        </div>
+        <SettingsContent>
+          <div className="space-y-4">
+            <Skeleton className="h-8 w-1/2" />
+            <Skeleton className="h-20" />
+          </div>
+        </SettingsContent>
       </Page>
     );
   return <ProjectForm key={project.data.id} projectId={projectId} project={project.data} />;
@@ -55,8 +56,8 @@ function ProjectForm({ projectId, project }: { projectId: string; project: { nam
 
   return (
     <Page title="프로젝트" flush>
-      <div className="h-full overflow-auto">
-        <div className="max-w-3xl space-y-8 px-6 py-6">
+      <SettingsContent>
+        <div className="space-y-8">
           <SettingsSection
             title="기본 정보"
             actions={
@@ -75,7 +76,7 @@ function ProjectForm({ projectId, project }: { projectId: string; project: { nam
             {conflicts.length > 0 && <ChangedElsewhere fields={conflicts.map((field) => (field === 'name' ? '이름' : '설명'))} onTakeSaved={takeSaved} onKeepMine={keepMine} />}
             <FieldGroup className="gap-4">
               <Field>
-                <FieldLabel htmlFor="project-name" help="내보내기 파일 이름에도 쓰입니다.">이름</FieldLabel>
+                <FieldLabel htmlFor="project-name">이름</FieldLabel>
                 <Input id="project-name" value={name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
               </Field>
               <Field>
@@ -91,17 +92,15 @@ function ProjectForm({ projectId, project }: { projectId: string; project: { nam
             </FieldGroup>
           </SettingsSection>
 
-          <FormatRulesSection projectId={projectId} rules={project.formatRules} />
-
-          <SettingsSection title="번역 결과 내보내기" description="모든 대사의 키, 원문, 번역, 상태를 JSON 파일로 내려받습니다. 원본 게임 파일은 바뀌지 않습니다.">
+          <SettingsSection title="번역 결과">
             <Button variant="outline" asChild>
               <a href={`/api/projects/${projectId}/export`} download>
-                <Download /> 번역 결과 내보내기
+                <Download /> 내보내기
               </a>
             </Button>
           </SettingsSection>
 
-          <SettingsSection tone="danger" title="위험 구역 · 프로젝트 삭제" description="프로젝트의 장면, 대사, 번역, 워크플로, 실행 기록이 모두 삭제되며 되돌릴 수 없습니다. 실행 중인 작업은 취소됩니다.">
+          <SettingsSection tone="danger" title="위험 구역 · 프로젝트 삭제" description="프로젝트의 모든 데이터가 삭제되며 되돌릴 수 없습니다.">
             <AlertDialog onOpenChange={() => setConfirmName('')}>
               <AlertDialogTrigger asChild>
                 <Button variant="destructive">
@@ -124,7 +123,7 @@ function ProjectForm({ projectId, project }: { projectId: string; project: { nam
             </AlertDialog>
           </SettingsSection>
         </div>
-      </div>
+      </SettingsContent>
     </Page>
   );
 }

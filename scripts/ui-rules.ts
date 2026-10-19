@@ -1,5 +1,5 @@
 /**
- * UI consistency check (docs/DESIGN.md 4.1): screens are built from the shared parts, so these
+ * UI consistency check: screens are built from the shared parts, so these
  * patterns must not appear outside components/ui. Run with `pnpm ui-rules`; part of `pnpm verify`.
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
@@ -15,6 +15,7 @@ const LEGACY_RULES: { name: string; pattern: RegExp }[] = [
   { name: 'arbitrary text size (use the type roles: text-2xs … text-xl)', pattern: /text-\[\d+(\.\d+)?(px|rem)\]/ },
   { name: 'Button size="sm"/"xs" (sm is the default; one size)', pattern: /<(Button|AiButton)\b[^>]*\bsize="(sm|xs)"/ },
   { name: 'Button height/size override in className', pattern: /<(Button|AiButton)\b[^>]*className="[^"]*\b(h-\d+|size-\d+)\b/ },
+  { name: 'styled heading (use SectionHeading / GroupHeading, or FieldRow labels)', pattern: /<(h[1-6]|legend)\b[^>]*className=/ },
 
 ];
 const TOKEN_RULES: { name: string; pattern: RegExp }[] = [

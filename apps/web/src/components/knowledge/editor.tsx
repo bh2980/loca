@@ -1,15 +1,20 @@
 /** The detail editor for one knowledge item: fields, unsaved edits that survive navigation, decide/discard. */
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { DOCUMENT_KINDS, STYLE_AXES, type StyleAxis, type CharacterRole, type Gender, type AgeBand, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled, AGE_BAND_LABELS, CHARACTER_ROLE_LABELS, GENDER_LABELS } from '@tw/shared';
-import { Inspector, InspectorHeader, InspectorSection, PropertyGrid, PropertyRow, DirtyBar, DangerZone, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Switch, Textarea, AiMark } from '@loca/ui';
+import { DOCUMENT_KINDS, STYLE_AXES, type StyleAxis, type CharacterRole, type Gender, type AgeBand, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled, AGE_BAND_LABELS, CHARACTER_ROLE_LABELS, GENDER_LABELS, PALETTE, knowledgeKindScope, type TagScope, type KnowledgeTagKind } from '@tw/shared';
+import { Inspector, InspectorHeader, InspectorSection, PropertyGrid, PropertyRow, TagListEditor, DirtyBar, DangerZone, Group, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Switch, Textarea, AiMark } from '@loca/ui';
 import { ChipInput, joinList, splitList } from '@/components/chip-input';
 import { useDraft } from '@/lib/drafts';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
 import { DOCUMENT_KIND } from '@/lib/labels';
 import { Evidence } from '@/components/knowledge/evidence';
 import { confirmLabel, fail, KINDS, SourceBadge, text, type Kind, type KindSpec, type Row, type Field } from '@/components/knowledge/table';
+import { client, unwrap } from '@/lib/api';
+import { q, tagsIn } from '@/lib/queries';
+
+const PRIMARY_FIELD_NAMES = new Set(['title', 'name', 'kind', 'role', 'gender', 'age', 'fromId', 'toId', 'fromName', 'toName', 'level', 'mutual']);
+const CONTENT_FIELD_NAMES = new Set(['body', 'profile', 'summary', 'cause', 'outcome', 'description', 'style']);
 
 /** A field's value in the draft (the form is kept as JSON in sessionStorage). */
 type Value = string | boolean | string[] | Record<string, string> | null;
@@ -58,18 +63,96 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
   const remove = useMutation({ mutationFn: () => spec.remove(row.id), onSuccess: onClose, onError: fail });
   const official = isSettled(row);
 
+  const queryClient = useQueryClient();
+  const statuses = useQuery(q.statuses(projectId));
+  const tagKind = kind as KnowledgeTagKind;
+  const scope: TagScope = tagKind ? knowledgeKindScope(tagKind) : 'documents';
+  const knowledgeTags = tagsIn(statuses.data?.tags, scope);
+  const attachedTags = (row.tags ?? [])
+    .map((item) => statuses.data?.tags?.find((t) => t.id === item.id))
+    .filter(Boolean) as (Parameters<typeof TagListEditor>[0]['tags'][number])[];
+
+  const tagMutation = useMutation({
+    mutationFn: async ({ tagId, add }: { tagId: string; add: boolean }) => {
+      await unwrap(client.projects[':projectId']['knowledge-tags'].$post({
+        param: { projectId },
+        json: { kind, ids: [row.id], tagId, add },
+      }));
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['knowledge'] });
+    },
+    onError: fail,
+  });
+
+  const handleCreateTag = async (name: string) => {
+    try {
+      const color = (PALETTE[knowledgeTags.length % PALETTE.length] as any).light ?? PALETTE[knowledgeTags.length % PALETTE.length].hex;
+      const created = await unwrap(client.projects[':projectId'].tags.$post({
+        param: { projectId },
+        json: { name, color, scope: [scope] },
+      }));
+      await tagMutation.mutateAsync({ tagId: created.id, add: true });
+      queryClient.invalidateQueries({ queryKey: ['statuses', projectId] });
+      toast.success(`'${name}' 태그를 만들고 항목에 붙였습니다.`);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : '태그를 만들지 못했습니다.');
+    }
+  };
+
+  const primaryFields = spec.fields.filter((field) => PRIMARY_FIELD_NAMES.has(field.name));
+  const contentFields = spec.fields.filter((field) => CONTENT_FIELD_NAMES.has(field.name));
+  const secondaryFields = spec.fields.filter((field) => !PRIMARY_FIELD_NAMES.has(field.name) && !CONTENT_FIELD_NAMES.has(field.name));
+
   const body = (
     <>
       {changedElsewhere && <ChangedElsewhere onTakeSaved={clear} onKeepMine={() => setBase(saved)} />}
-      {spec.fields.filter((field) => field.type !== 'long').length > 0 && <InspectorSection title="기본 정보"><PropertyGrid>
-        {spec.fields.filter((field) => field.type !== 'long').map((field) => <PropertyRow key={field.name} label={field.label}><FieldInput field={field} value={form[field.name]} characters={characters} onChange={(value) => update(field.name, value)} hideLabel /></PropertyRow>)}
-      </PropertyGrid></InspectorSection>}
-      {spec.fields.filter((field) => field.type === 'long').map((field) => <InspectorSection key={field.name} title={field.label}><FieldInput field={field} value={form[field.name]} characters={characters} onChange={(value) => update(field.name, value)} /></InspectorSection>)}
-      {/* The folded lists (a rule's lines, the evidence) read as one block. */}
-      <div className="space-y-1">
-        {spec.extra?.(row)}
-        <Evidence projectId={projectId} keys={row.evidence} />
-      </div>
+      <InspectorSection title="기본 정보">
+        <PropertyGrid>
+          {primaryFields.map((field) => (
+            <PropertyRow key={field.name} label={field.label} description={field.description}>
+              <FieldInput field={field} value={form[field.name]} characters={characters} onChange={(value) => update(field.name, value)} hideLabel />
+            </PropertyRow>
+          ))}
+          {row.id && (
+            <PropertyRow label="태그">
+              <TagListEditor
+                tags={attachedTags}
+                allTags={knowledgeTags}
+                onToggle={(tagId, add) => tagMutation.mutate({ tagId, add })}
+                onCreate={handleCreateTag}
+                heading="태그"
+              />
+            </PropertyRow>
+          )}
+        </PropertyGrid>
+      </InspectorSection>
+      {contentFields.length > 0 && (
+        <InspectorSection title="내용">
+          <div className="space-y-4">
+            {contentFields.map((field) => (
+              <Group key={field.name} title={field.type === 'style' ? field.label : <Label htmlFor={`field-${field.name}`} className="font-semibold">{field.label}</Label>}>
+                {field.description && <p className="text-xs text-muted-foreground">{field.description}</p>}
+                <FieldInput field={field} value={form[field.name]} characters={characters} onChange={(value) => update(field.name, value)} hideLabel />
+              </Group>
+            ))}
+          </div>
+        </InspectorSection>
+      )}
+      {secondaryFields.length > 0 && (
+        <InspectorSection title="근거">
+          <div className="space-y-4">
+            {secondaryFields.map((field) => (
+              <Group key={field.name} title={<Label htmlFor={`field-${field.name}`} className="font-semibold">{field.label}</Label>}>
+                {field.description && <p className="text-xs text-muted-foreground">{field.description}</p>}
+                <FieldInput field={field} value={form[field.name]} characters={characters} onChange={(value) => update(field.name, value)} hideLabel />
+              </Group>
+            ))}
+          </div>
+        </InspectorSection>
+      )}
+      {spec.extra?.(row)}
+      <Evidence projectId={projectId} keys={row.evidence} />
     </>
   );
   const actions = !official ? (
@@ -88,7 +171,7 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
       <Button variant="outline" className={dirty ? undefined : 'ml-auto'} disabled={!dirty || save.isPending} onClick={() => save.mutate(draft)}>
         저장
       </Button>
-      <Button disabled={dirty} title={dirty ? '먼저 저장하세요' : row.status === 'candidate' ? '이대로 확정해 문맥에 씁니다' : '상태는 그대로 두고 사람이 확인한 것으로 표시합니다'} onClick={() => onDecide('confirm')}>
+      <Button disabled={dirty} title={dirty ? '먼저 저장하세요' : undefined} onClick={() => onDecide('confirm')}>
         <Check /> {confirmLabel([row])}
       </Button>
     </>
@@ -140,7 +223,7 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
           {row.status === 'candidate' ? <span>후보</span> : <span className="inline-flex items-center gap-1">확정 <AiMark by={row.statusBy} /></span>}
         </span>
       } onClose={onClose} />}
-      footer={dirty ? <DirtyBar dirtyCount={1} onRevert={clear} onSave={() => save.mutate(draft)} saving={save.isPending} /> : (!official ? <div className="flex justify-end border-t p-3"><Button disabled={save.isPending} onClick={() => onDecide('confirm')}><Check /> {confirmLabel([row])}</Button></div> : null)}
+      footer={dirty ? <DirtyBar dirtyCount={1} onRevert={clear} onSave={() => save.mutate(draft)} saving={save.isPending} /> : (!official ? <Button disabled={save.isPending} onClick={() => onDecide('confirm')}><Check /> {confirmLabel([row])}</Button> : null)}
     >
       {body}
       {!official && <DangerZone title="후보 처리"><Button variant="ghost" className="text-destructive" onClick={() => onDecide('discard')}>버리기</Button></DangerZone>}
@@ -158,7 +241,7 @@ function FieldInput({ field, value, characters, onChange, hideLabel = false }: {
       <Switch id={id} checked={Boolean(value)} onCheckedChange={onChange} aria-label={field.label} />
     ) : (
       <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-panel p-3">
-        <Label htmlFor={id} className="cursor-pointer text-xs font-medium leading-snug text-foreground">{field.label}</Label>
+        <Label htmlFor={id} className="cursor-pointer text-sm font-medium leading-snug text-foreground">{field.label}</Label>
         <Switch id={id} checked={Boolean(value)} onCheckedChange={onChange} />
       </div>
     );
@@ -166,7 +249,7 @@ function FieldInput({ field, value, characters, onChange, hideLabel = false }: {
       <div className={hideLabel ? undefined : 'space-y-1.5'}>
         {!hideLabel && <Label htmlFor={id} className="text-xs font-medium text-muted-foreground">{field.label}</Label>}
       {field.type === 'long' ? (
-        <Textarea id={id} rows={field.name === 'body' ? 6 : 3} className={field.name === 'body' ? 'font-mono text-xs leading-relaxed' : 'text-xs leading-relaxed'} value={text(value)} onChange={(event) => onChange(event.target.value)} />
+        <Textarea id={id} aria-label={hideLabel ? field.label : undefined} rows={field.name === 'body' ? 6 : 3} className={field.name === 'body' ? 'font-mono text-sm leading-relaxed' : 'text-sm leading-relaxed'} value={text(value)} onChange={(event) => onChange(event.target.value)} />
       ) : field.type === 'docKind' || field.type === 'character' ? (
         <Select value={text(value)} onValueChange={onChange}>
           <SelectTrigger id={id} className="w-full">
@@ -186,12 +269,12 @@ function FieldInput({ field, value, characters, onChange, hideLabel = false }: {
         <ChipInput id={id} value={splitList(value)} onChange={(chips) => onChange(joinList(chips))} suggestions={field.suggestions} placeholder="쉼표나 Enter로 추가" />
       ) : field.type === 'style' ? (
         // One pick per axis; 보통 leaves the axis out of the prompt.
-        <div className="grid grid-cols-3 gap-2">
+        <div className="space-y-2">
           {(Object.keys(STYLE_AXES) as StyleAxis[]).map((axis) => {
             const current = (value as Record<string, string> | null)?.[axis] ?? NORMAL;
             return (
-              <div key={axis} className="space-y-1">
-                <span className="text-xs text-muted-foreground">{STYLE_AXES[axis].label}</span>
+              <div key={axis} className="flex min-w-0 items-center gap-3">
+                <span className="min-w-0 flex-1 text-xs text-muted-foreground">{STYLE_AXES[axis].label}</span>
                 <Select
                   value={current}
                   onValueChange={(next) => {
@@ -199,7 +282,7 @@ function FieldInput({ field, value, characters, onChange, hideLabel = false }: {
                     onChange(next === NORMAL ? rest : { ...rest, [axis]: next });
                   }}
                 >
-                  <SelectTrigger id={axis === 'length' ? id : undefined} className="w-full" aria-label={STYLE_AXES[axis].label}>
+                  <SelectTrigger id={axis === 'length' ? id : undefined} className="w-32 shrink-0" aria-label={STYLE_AXES[axis].label}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -242,7 +325,7 @@ function FieldInput({ field, value, characters, onChange, hideLabel = false }: {
           </SelectContent>
         </Select>
       ) : (
-        <Input id={id} className={field.type === 'key' ? 'font-mono text-xs' : undefined} value={text(value)} onChange={(event) => onChange(field.type === 'key' ? event.target.value.trim() || null : event.target.value)} />
+        <Input id={id} className={field.type === 'key' ? 'font-mono text-sm' : undefined} value={text(value)} onChange={(event) => onChange(field.type === 'key' ? event.target.value.trim() || null : event.target.value)} />
       )}
     </div>
   );

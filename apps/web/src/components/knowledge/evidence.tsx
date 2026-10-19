@@ -3,7 +3,7 @@ import { useState, type ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronRight, Play } from 'lucide-react';
-import { SPEECH_FIX_WORKFLOW, SPEECH_LEVEL_LABELS, type SpeechLevel } from '@tw/shared';
+import { SPEECH_LEVEL_LABELS, type SpeechLevel } from '@tw/shared';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { InspectorSection, Button, Collapsible, CollapsibleContent, CollapsibleTrigger } from '@loca/ui';
 import { q } from '@/lib/queries';
@@ -32,25 +32,23 @@ export function Evidence({ projectId, keys }: { projectId: string; keys: string[
   const lines = useQuery(q.linesByKeys(projectId, keys.slice(0, 50)));
   if (!keys.length)
     return (
-      <div className="rounded-md border border-border bg-panel px-3 py-2 text-xs text-muted-foreground">
-        연결된 근거 대사가 없습니다.
-      </div>
+      <InspectorSection title="근거 대사">
+        <p className="text-sm text-muted-foreground">연결된 근거 대사가 없습니다.</p>
+      </InspectorSection>
     );
-  return (
-    <Fold label={`근거 대사 ${keys.length}개`}>
-      <ul className="space-y-1">
-        {lines.data?.map((line) => (
-          <li key={line.id}>
-            <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.groupId, line: line.id }} className="block rounded px-2 py-1 text-xs hover:bg-muted">
-              <span className="text-muted-foreground">{line.groupTitle} · </span>
-              {line.speaker && <span className="font-medium">{line.speaker}: </span>}
-              {line.source}
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </Fold>
-  );
+  return <InspectorSection title={`근거 대사 ${keys.length}`} defaultOpen={false}>
+    <ul className="space-y-1">
+      {lines.data?.map((line) => (
+        <li key={line.id}>
+          <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.groupId, line: line.id }} className="block rounded px-2 py-1 text-sm hover:bg-muted">
+            <span className="text-xs text-muted-foreground">{line.groupTitle} · </span>
+            {line.speaker && <span className="font-medium">{line.speaker}: </span>}
+            {line.source}
+          </Link>
+        </li>
+      ))}
+    </ul>
+  </InspectorSection>;
 }
 
 /** Lines the rule governs and what their translations end in; after fixing the rule, re-run just these. */
@@ -66,10 +64,10 @@ export function RuleLines({ projectId, ruleId, candidate }: { projectId: string;
             projectId={projectId}
             unitIds={lines.data.translatedIds}
             defaultIgnoreStatus
-            preferWorkflow={SPEECH_FIX_WORKFLOW}
+            remember="speech-fix"
             trigger={
-              <Button variant="ghost" title={`“${SPEECH_FIX_WORKFLOW}” 워크플로로 번역된 줄의 어미·호칭만 이 규칙에 맞춥니다`}>
-                <Play /> 번역된 {lines.data.translatedIds.length.toLocaleString()}줄 말투 맞추기
+              <Button variant="ghost">
+                <Play /> 말투 맞추기 · {lines.data.translatedIds.length.toLocaleString()}줄
               </Button>
             }
           />
@@ -77,19 +75,14 @@ export function RuleLines({ projectId, ruleId, candidate }: { projectId: string;
       }
     >
       <div className="space-y-2">
-      <p className="text-xs text-muted-foreground">
-        {lines.data && !lines.data.translatedIds.length
-          ? '아직 번역된 줄이 없습니다. 이 줄들을 번역할 때 이 규칙이 들어갑니다.'
-          : `규칙을 고쳤다면 “말투 맞추기”로 이미 번역된 줄의 어미·호칭만 다시 맞춥니다. 뜻과 표현은 그대로 둡니다.`}
-      </p>
       {!!lines.data?.routeDependent && (
-        <p className="text-xs text-warning">
-          이 중 {lines.data.routeDependent.toLocaleString()}개는 구간 시작을 거쳤는지가 루트에 따라 달라, 대본 순서로 이 규칙을 골랐습니다. 번역은 한 줄에 하나라 루트 하나에만 맞을 수 있으니 확인하세요.
+        <p className="text-sm text-warning">
+          이 중 {lines.data.routeDependent.toLocaleString()}개는 루트에 따라 규칙이 달라질 수 있어 대본 순서로 골랐습니다. 확인하세요.
         </p>
       )}
       {levels.length > 0 && (
-        <p className="text-xs">
-          지금 번역의 말투(어미 추정):{' '}
+        <p className="text-sm">
+          번역 말투 · 추정:{' '}
           {levels.map(([level, count]) => `${level === 'unknown' ? '판단 불가·번역 없음' : SPEECH_LEVEL_LABELS[level as SpeechLevel]} ${count}`).join(' · ')}
         </p>
       )}
@@ -97,8 +90,8 @@ export function RuleLines({ projectId, ruleId, candidate }: { projectId: string;
       <ul className="max-h-60 space-y-1 overflow-auto">
         {lines.data?.rows.map((line) => (
           <li key={line.id}>
-            <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.groupId, line: line.id }} className="block rounded px-2 py-1 text-xs hover:bg-muted">
-              <span className="text-muted-foreground">{line.groupTitle} · </span>
+            <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.groupId, line: line.id }} className="block rounded px-2 py-1 text-sm hover:bg-muted">
+              <span className="text-xs text-muted-foreground">{line.groupTitle} · </span>
               {line.source}
               {line.translation && <span className="block text-muted-foreground">{line.translation}</span>}
             </Link>
@@ -121,7 +114,7 @@ export function RelationshipChanges({ projectId, changes }: { projectId: string;
         {changes.map((change) => {
           const line = byKey.get(change.at);
           return (
-            <li key={`${change.at}-${change.change}`} className="rounded border p-2 text-xs">
+            <li key={`${change.at}-${change.change}`} className="rounded border p-2 text-sm">
               <p>{change.change}</p>
               {line && (
                 <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.groupId, line: line.id }} className="mt-1 block text-muted-foreground hover:underline">

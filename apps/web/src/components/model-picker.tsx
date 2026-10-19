@@ -3,7 +3,7 @@ import { Link, useParams } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Check, ChevronsUpDown } from 'lucide-react';
 import { CONNECTION_KIND_INFO, isFreeModel, type Capability, type ConnectionKind } from '@tw/shared';
-import { Badge, Button, Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, Field, FieldLabel, Popover, PopoverContent, PopoverTrigger, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, HelpTip } from '@loca/ui';
+import { Badge, Button, Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, Field, FieldLabel, Popover, PopoverContent, PopoverTrigger, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
@@ -50,7 +50,7 @@ export function useInitialModel(need: Capability[], last?: { connectionId: strin
 }
 
 /**
- * The one way to choose AI wherever it is used (docs/DESIGN.md 4.1): a connection, one of its models
+ * The one way to choose AI wherever it is used: a connection, one of its models
  * and a reasoning effort, in one popover. Connections that cannot do what the place needs are left
  * out; picking a connection fills in its default model. `compact` is the chat composer's ghost button.
  */
@@ -121,11 +121,11 @@ export function ModelPicker({
           variant={compact ? 'ghost' : 'outline'}
           role="combobox"
           aria-expanded={open}
-          aria-label="AI 연결·모델"
+          aria-label="모델"
           className={cn(compact ? 'max-w-full justify-start px-2 text-xs font-normal text-muted-foreground' : 'w-full justify-between font-normal', className)}
         >
           <span className="flex min-w-0 items-center gap-1.5">
-            <span className={cn('truncate', !label && 'text-muted-foreground')}>{label ?? (lockConnection ? '모델 고르기' : usable.length || !connections.data ? 'AI 연결·모델 고르기' : '쓸 수 있는 AI 연결 없음')}</span>
+            <span className={cn('truncate', !label && 'text-muted-foreground')}>{label ?? (lockConnection ? '모델 고르기' : usable.length || !connections.data ? '모델 고르기' : '쓸 수 있는 AI 연결 없음')}</span>
             {free && <Badge variant="secondary" className="shrink-0 text-xs">무료</Badge>}
           </span>
           <ChevronsUpDown className="shrink-0 opacity-50" />
@@ -177,11 +177,11 @@ export function ModelPicker({
                     )}
                   </CommandList>
                 </Command>
-                {models.data && !models.data.ok && <p className="text-xs text-muted-foreground">모델 목록을 못 불러왔습니다. 모델 이름을 직접 입력하세요.</p>}
+                {models.data && !models.data.ok && <p className="text-xs text-muted-foreground">모델 목록을 못 불러왔습니다.</p>}
                 {value?.model && !list.includes(value.model) && <p className="text-xs text-muted-foreground">지금: {value.model}</p>}
               </Field>
             )}
-            {connection?.kind === 'antigravity' && <p className="flex items-center gap-1 text-xs text-muted-foreground">추론 수준 <HelpTip>추론 수준은 모델 이름에 들어 있습니다(…-high / -medium / -low).</HelpTip></p>}
+            {connection?.kind === 'antigravity' && <p className="text-xs text-muted-foreground">추론 수준은 모델 이름에 포함됩니다(…-high / -medium / -low).</p>}
             {connection && efforts.length > 0 && (
               <Field>
                 <FieldLabel>추론 수준</FieldLabel>
@@ -212,7 +212,7 @@ export function ModelPicker({
           <p className="p-3 text-sm text-muted-foreground">
             {connections.isPending ? '연결을 불러오는 중…' : '여기에 쓸 수 있는 AI 연결이 없습니다. '}
             {!connections.isPending && params.projectId && (
-              <Link to="/p/$projectId/ai/connections" params={{ projectId: params.projectId }} className="underline" onClick={() => setOpen(false)}>
+              <Link to="/p/$projectId/settings/connections" params={{ projectId: params.projectId }} className="underline" onClick={() => setOpen(false)}>
                 AI 연결 추가
               </Link>
             )}

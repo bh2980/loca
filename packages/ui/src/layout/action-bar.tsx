@@ -13,7 +13,7 @@ export interface ActionBarItem {
   disabled?: boolean
   destructive?: boolean
   priority?: number
-  overflow?: "auto" | "always"
+  overflow?: "auto" | "always" | "never"
 }
 export interface ActionBarProps {
   items: ActionBarItem[]
@@ -32,14 +32,20 @@ export function ActionBar({ items, "aria-label": ariaLabel, className }: ActionB
     const gap = 4
     const width = (item: ActionBarItem) => widths[item.id] ?? 0
     const total = () => shown.reduce((sum, item) => sum + width(item), 0) + Math.max(0, shown.length - 1) * gap
-    const candidates = [...shown].sort(
-      (a, b) => (a.priority ?? 0) - (b.priority ?? 0) || items.indexOf(b) - items.indexOf(a),
-    )
+    const candidates = [...shown]
+      .filter((item) => item.overflow !== "never")
+      .sort(
+        (a, b) => (a.priority ?? 0) - (b.priority ?? 0) || items.indexOf(b) - items.indexOf(a),
+      )
     while (shown.length && total() + (menu.length ? MENU_WIDTH + gap : 0) > available) {
       const next = candidates.shift()
       if (!next) break
       shown.splice(shown.indexOf(next), 1)
       menu.push(next)
+    }
+    if (menu.length === 1 && menu[0].overflow !== "always" && !menu[0].destructive) {
+      const single = menu.pop()!
+      shown.push(single)
     }
     return {
       visible: items.filter((item) => shown.includes(item)),
@@ -53,7 +59,22 @@ export function ActionBar({ items, "aria-label": ariaLabel, className }: ActionB
     const measure = measureRef.current
     if (!root || !measure) return
     const update = () => {
-      setAvailable(root.getBoundingClientRect().width)
+      const container = root.closest("header, [role='region'], .flex-1") || root.parentElement
+      let maxAvailable = root.getBoundingClientRect().width
+      if (container) {
+        let current: HTMLElement | null = root
+        let intermediateSiblingsWidth = 0
+        while (current && current !== container) {
+          const parent: HTMLElement | null = current.parentElement
+          if (!parent) break
+          const siblings = Array.from(parent.children).filter((el) => el !== current) as HTMLElement[]
+          intermediateSiblingsWidth += siblings.reduce((sum, el) => sum + el.getBoundingClientRect().width, 0)
+          current = parent
+        }
+        const containerWidth = container.getBoundingClientRect().width
+        maxAvailable = Math.max(root.getBoundingClientRect().width, containerWidth - intermediateSiblingsWidth - 24)
+      }
+      setAvailable(maxAvailable)
       const next: Record<string, number> = {}
       measure.querySelectorAll<HTMLElement>("[data-action-id]").forEach((el) => {
         next[el.dataset.actionId!] = el.getBoundingClientRect().width
@@ -64,6 +85,9 @@ export function ActionBar({ items, "aria-label": ariaLabel, className }: ActionB
     const observer = new ResizeObserver(update)
     observer.observe(root)
     observer.observe(measure)
+    if (root.parentElement) observer.observe(root.parentElement)
+    const container = root.closest("header, [role='region'], .flex-1")
+    if (container) observer.observe(container)
     return () => observer.disconnect()
   }, [items, rootRef])
 

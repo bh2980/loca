@@ -52,7 +52,7 @@ describe('tag scope (붙는 곳)', () => {
     const send = (method: string, url: string, body?: unknown) => app.request(url, { method, headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
 
     const created = (await (await send('POST', `/projects/${projectId}/tags`, { name: '내 태그' })).json()) as { id: string; scope: string[] };
-    expect(created.scope).toEqual(['lines', 'knowledge', 'terms']);
+    expect(created.scope).toEqual(['lines', 'terms', 'people', 'documents', 'events']);
     expect((await send('POST', `/projects/${projectId}/tags`, { name: '빈 곳', scope: [] })).status).toBe(400);
 
     // Attached on a line: 대사 can't be taken away, 자료 can.
@@ -74,6 +74,6 @@ describe('tag scope (붙는 곳)', () => {
     const review = db.insert(s.tags).values({ projectId, name: REVIEW_TAG.name, color: REVIEW_TAG.color, role: REVIEW_TAG.role }).returning().get();
     expect((await send('PATCH', `/projects/${projectId}/tags/${review.id}`, { scope: ['lines'] })).status).toBe(400);
     const listed = (await (await send('GET', `/projects/${projectId}/statuses`)).json()) as { tags: { id: string; scope: string[] }[] };
-    expect(listed.tags.find((tag) => tag.id === review.id)?.scope).toEqual(['knowledge']);
+    expect(listed.tags.find((tag) => tag.id === review.id)?.scope).toEqual(['people', 'documents', 'events']);
   });
 });

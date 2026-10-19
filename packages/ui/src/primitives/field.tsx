@@ -5,7 +5,6 @@ import { cn } from "../lib/utils"
 
 import { Label } from "./label"
 import { Separator } from "./separator"
-import { HelpTip } from "./help-tip"
 
 function FieldSet({ className, ...props }: React.ComponentProps<"fieldset">) {
   return (
@@ -31,9 +30,9 @@ function FieldLegend({
       data-slot="field-legend"
       data-variant={variant}
       className={cn(
-        "mb-3 font-medium",
-        "data-[variant=legend]:text-base",
-        "data-[variant=label]:text-sm",
+        "mb-3",
+        "data-[variant=legend]:text-sm data-[variant=legend]:font-semibold data-[variant=legend]:text-foreground",
+        "data-[variant=label]:text-xs data-[variant=label]:text-muted-foreground",
         className
       )}
       {...props}
@@ -109,37 +108,36 @@ function FieldContent({ className, ...props }: React.ComponentProps<"div">) {
 
 function FieldLabel({
   className,
-  help,
   children,
   ...props
-}: React.ComponentProps<typeof Label> & { help?: React.ReactNode }) {
+}: React.ComponentProps<typeof Label>) {
   return (
     <Label
       data-slot="field-label"
       className={cn(
-        "group/field-label peer/field-label flex w-fit gap-2 leading-snug group-data-[disabled=true]/field:opacity-50",
+        "group/field-label peer/field-label flex w-fit gap-2 text-xs font-normal leading-snug text-muted-foreground group-data-[orientation=horizontal]/field:text-sm group-data-[orientation=horizontal]/field:text-foreground group-data-[disabled=true]/field:opacity-50",
         "has-[>[data-slot=field]]:w-full has-[>[data-slot=field]]:flex-col has-[>[data-slot=field]]:rounded-md has-[>[data-slot=field]]:border [&>*]:data-[slot=field]:p-4",
         "has-data-[state=checked]:border-primary has-data-[state=checked]:bg-primary/5 dark:has-data-[state=checked]:bg-primary/10",
         className
       )}
       {...props}
     >
-      {children}{help && <HelpTip>{help}</HelpTip>}
+      {children}
     </Label>
   )
 }
 
-function FieldTitle({ className, help, children, ...props }: React.ComponentProps<"div"> & { help?: React.ReactNode }) {
+function FieldTitle({ className, children, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="field-label"
       className={cn(
-        "flex w-fit items-center gap-2 text-sm leading-snug font-medium group-data-[disabled=true]/field:opacity-50",
+        "flex w-fit items-center gap-2 text-xs leading-snug font-normal text-muted-foreground group-data-[disabled=true]/field:opacity-50",
         className
       )}
       {...props}
     >
-      {children}{help && <HelpTip>{help}</HelpTip>}
+      {children}
     </div>
   )
 }

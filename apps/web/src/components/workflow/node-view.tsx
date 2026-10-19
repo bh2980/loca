@@ -1,9 +1,8 @@
-import { memo } from 'react';
-import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
+import { memo, useEffect } from 'react';
+import { Handle, Position, useUpdateNodeInternals, type Node, type NodeProps } from '@xyflow/react';
 import { BookPlus, Braces, CircleDot, Code, Flag, GitFork, Globe, ListChecks, MessageCircleQuestion, NotebookPen, ScanSearch, Sparkles, SpellCheck, Tag, UserCheck } from 'lucide-react';
 import { nodeName, nodePorts, type WorkflowNode } from '@tw/shared';
-import { cn } from '@/lib/utils';
-import { paletteColor } from '@loca/ui';
+import { NodeCard, type CanvasDirection } from '@loca/ui';
 
 type Icon = typeof Sparkles;
 
@@ -17,156 +16,92 @@ const FUNCTION_ICON: Record<string, Icon> = {
   http: Globe,
   script: Code,
 };
-const AI_ICON: Record<string, Icon> = { candidate: Sparkles, verdict: ScanSearch, terms: BookPlus, listener: MessageCircleQuestion, knowledge: NotebookPen, json: Braces };
+const AI_ICON: Record<string, Icon> = { text: Sparkles, verdict: ScanSearch, choice: MessageCircleQuestion, json: Braces };
 
 export function nodeIcon(node: WorkflowNode): Icon {
   switch (node.type) {
-    case 'entry':
-      return CircleDot;
-    case 'ai':
-      return AI_ICON[node.config.output] ?? Sparkles;
-    case 'function':
-      return FUNCTION_ICON[node.config.fn] ?? Code;
-    case 'condition':
-      return GitFork;
-    case 'end':
-      return Flag;
+    case 'entry': return CircleDot;
+    case 'ai': return AI_ICON[node.config.output] ?? Sparkles;
+    case 'function': return FUNCTION_ICON[node.config.fn] ?? Code;
+    case 'condition': return GitFork;
+    case 'end': return Flag;
   }
 }
 
-const NEGATIVE = new Set(['error', 'fail', 'false', 'rejected']);
-const handleClass = (port: string) => cn('!size-2.5 !border-2 !border-background', NEGATIVE.has(port) ? '!bg-destructive' : '!bg-muted-foreground');
-const inputHandle = <Handle type="target" position={Position.Left} id="in" className="!size-2.5 !border-2 !border-background !bg-subtle-foreground" />;
+export const workflowPortTone = (port: string): 'neutral' | 'warning' | 'destructive' => port === 'error'
+  ? 'destructive'
+  : ['fail', 'false', 'rejected'].includes(port) ? 'warning' : 'neutral';
+const handleClass = (port: string) => {
+  const tone = workflowPortTone(port);
+  return `!size-2.5 !border-2 !border-card ${tone === 'destructive' ? '!bg-destructive' : tone === 'warning' ? '!bg-warning' : '!bg-muted-foreground'}`;
+};
+const portHelp: Record<string, string> = {
+  error: '오류: 모델이나 함수 실행 중 문제가 생겼을 때',
+  fail: '실패: 검수 기준을 통과하지 못했을 때',
+  false: '거짓: 조건식이 거짓일 때',
+  rejected: '거절: 검토 결과 거절되었을 때',
+};
 
-export type FlowNode = Node<
-  {
-    node: WorkflowNode;
-    summary: string;
-    errors: string[];
-    warnings: string[];
-    /** Target status of a status-change node, shown in that status's colour. */
-    status?: { name: string; color: string };
-    live?: { queued: number; running: number; failed: number };
-  },
-  'workflow'
->;
+export type FlowNode = Node<{
+  node: WorkflowNode;
+  summary: string;
+  errors: string[];
+  warnings: string[];
+  /** Target status of a status-change node, shown in that status's colour. */
+  status?: { name: string; color: string };
+  live?: { queued: number; running: number; failed: number };
+  direction: CanvasDirection;
+  /** Lines enter here (the hidden entry node points at it): its 시작 mark, which opens the start settings. */
+  start?: { label: string; onOpen: () => void };
+  /** Exits with no line leaving them: drawn with an end mark. */
+  open: string[];
+}, 'workflow'>;
 
-function Badges({ errors, warnings }: { errors: string[]; warnings: string[] }) {
-  if (errors.length) return <span className="shrink-0 rounded bg-destructive/10 px-1.5 text-xs font-medium text-destructive">오류 {errors.length}</span>;
-  if (warnings.length) return <span className="shrink-0 rounded bg-warning/15 px-1.5 text-xs font-medium text-warning">주의</span>;
-  return null;
-}
-
-function Live({ live }: { live?: FlowNode['data']['live'] }) {
-  if (!live || live.queued + live.running + live.failed === 0) return null;
-  return (
-    <div className="flex gap-2 border-t px-3 py-1 text-xs tabular-nums">
-      {live.running > 0 && <span className="font-medium text-foreground">처리 {live.running}</span>}
-      {live.queued > 0 && <span className="text-muted-foreground">대기 {live.queued}</span>}
-      {live.failed > 0 && <span className="text-destructive">실패 {live.failed}</span>}
-    </div>
-  );
-}
-
-/** Exits listed down the right edge; the handle sits on the border, outside any clipping. */
-function Exits({ ports }: { ports: { id: string; label: string }[] }) {
-  if (!ports.length) return null;
-  return (
-    <div className="border-t py-1">
-      {ports.map((port) => (
-        <div key={port.id} className="relative flex h-6 items-center justify-end pr-3 text-xs text-muted-foreground">
-          {port.label}
-          <Handle type="source" position={Position.Right} id={port.id} className={handleClass(port.id)} />
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/**
- * Flowchart shapes so node families differ by silhouette, not only colour:
- * terminals are pills, AI calls rounded cards, functions square boxes, status changes tags,
- * conditions diamonds (true → right, false → down).
- */
-export const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected }: NodeProps<FlowNode>) {
-  const { node, summary, errors, warnings, status, live } = data;
+/** Workflow ports move with the shared graph orientation and keep their accessible names. */
+export const WorkflowNodeView = memo(function WorkflowNodeView({ id, data, selected }: NodeProps<FlowNode>) {
+  const { node, summary, errors, warnings, status, live, direction, start, open } = data;
+  const updateNodeInternals = useUpdateNodeInternals();
+  useEffect(() => updateNodeInternals(id), [direction, id, updateNodeInternals]);
   const Icon = nodeIcon(node);
   const ports = nodePorts(node);
-  const ring = cn(selected && 'ring-2 ring-[color:var(--graph-select)] ring-offset-2', errors.length > 0 && '!border-destructive');
+  const isEntry = node.type === 'entry';
+  const isVertical = direction === 'vertical';
+  const inputHandle = !isEntry && <Handle type="target" position={isVertical ? Position.Top : Position.Left} id="in" aria-label="입력" className="!size-2.5 !border-2 !border-card !bg-muted-foreground" />;
+  const outputs = ports.map((port, index) => ({
+    id: port.id,
+    label: port.id === 'error' ? '오류' : port.label,
+    tone: workflowPortTone(port.id),
+    open: open.includes(port.id),
+    handle: <Handle
+      type="source"
+      position={isVertical ? Position.Bottom : Position.Right}
+      id={port.id}
+      aria-label={portHelp[port.id] ?? port.label}
+      className={handleClass(port.id)}
+      style={isVertical
+        ? { left: `${((index + 0.5) / (ports.length || 1)) * 100}%` }
+        : { top: `${((index + 0.5) / (ports.length || 1)) * 100}%` }}
+    />,
+  }));
+  const kind = node.type === 'function' && node.config.fn === 'setStatus' ? 'status' : node.type;
+  const detail = node.type === 'function' && node.config.fn === 'setStatus'
+    ? `→ ${status?.name ?? '상태 그대로'}`
+    : summary;
+  const cardIcon = <Icon />;
 
-  if (node.type === 'entry' || node.type === 'end') {
-    const entry = node.type === 'entry';
-    return (
-      <div className={cn('flex min-w-36 items-center gap-2 rounded-full border px-3 py-2 text-sm shadow-xs', entry ? 'border-border bg-card text-foreground' : 'bg-muted text-muted-foreground', ring)}>
-        {!entry && inputHandle}
-        <Icon className="size-4 shrink-0" />
-        <span className="truncate font-medium">{nodeName(node)}</span>
-        {entry && <span className="max-w-40 truncate text-xs text-subtle-foreground">{summary}</span>}
-        <Badges errors={errors} warnings={[]} />
-        {entry && <Handle type="source" position={Position.Right} id="out" className={handleClass('out')} />}
-      </div>
-    );
-  }
-
-  if (node.type === 'condition') {
-    return (
-      <div className="relative flex w-56 flex-col items-center">
-        <div className="relative flex size-28 items-center justify-center">
-          <div className={cn('absolute inset-3 rotate-45 rounded-md border-2 border-review bg-review/10 shadow-xs', ring)} />
-          {inputHandle}
-          <Icon className="relative size-5 text-review-ink" />
-          <Handle type="source" position={Position.Right} id="true" className={handleClass('true')} />
-          <span className="absolute top-[38%] right-0 translate-x-full pl-2 text-xs text-muted-foreground">참</span>
-          <Handle type="source" position={Position.Bottom} id="false" className={handleClass('false')} />
-          <span className="absolute bottom-0 left-1/2 translate-y-full pl-2 text-xs text-muted-foreground">거짓</span>
-        </div>
-        <div className="mt-5 flex max-w-full items-center gap-1 px-1 text-center">
-          <span className="truncate text-sm font-medium">{nodeName(node)}</span>
-          <Badges errors={errors} warnings={warnings} />
-        </div>
-        {node.config.description && node.config.description !== nodeName(node) && <p className="line-clamp-2 px-2 text-center text-xs text-muted-foreground">{summary}</p>}
-      </div>
-    );
-  }
-
-  if (node.type === 'function' && node.config.fn === 'setStatus') {
-    const color = paletteColor(status?.color);
-    return (
-      <div className={cn('flex min-w-44 items-center gap-2 rounded-full border-2 bg-background py-1.5 pr-4 pl-2 shadow-xs', ring)} style={{ borderColor: color }}>
-        {inputHandle}
-        <span className="flex size-6 items-center justify-center rounded-full" style={{ backgroundColor: `color-mix(in oklch, ${color} 14%, transparent)` }}>
-          <Icon className="size-3.5" style={{ color }} />
-        </span>
-        <div className="min-w-0">
-          <p className="truncate text-xs text-muted-foreground">{nodeName(node)}</p>
-          <p className="truncate text-sm font-medium">{status ? `→ ${status.name}` : '상태 그대로'}</p>
-        </div>
-        <Badges errors={errors} warnings={warnings} />
-        <Handle type="source" position={Position.Right} id="out" className={handleClass('out')} />
-      </div>
-    );
-  }
-
-  const ai = node.type === 'ai';
-  return (
-    <div
-      className={cn(
-        'w-56 bg-background text-left shadow-xs',
-        ai && 'rounded-lg border border-ai/30',
-        node.type === 'function' && 'rounded-md border border-primary/30',
-        ring,
-      )}
-    >
-      {inputHandle}
-      <div className={cn('flex items-center gap-2 border-b px-3 py-2', ai && 'rounded-t-lg border-ai/20 bg-ai-soft', node.type === 'function' && 'rounded-t-md border-primary/20 bg-primary-soft')}>
-        <Icon className={cn('size-4 shrink-0', ai ? 'text-ai' : 'text-primary')} />
-        <span className={cn('truncate text-sm font-medium')}>{nodeName(node)}</span>
-        <span className="ml-auto" />
-        <Badges errors={errors} warnings={warnings} />
-      </div>
-      <p className="line-clamp-2 min-h-8 px-3 py-1.5 text-xs text-muted-foreground">{summary}</p>
-      <Live live={live} />
-      <Exits ports={ports} />
-    </div>
-  );
+  return <NodeCard
+    kind={kind}
+    icon={cardIcon}
+    title={nodeName(node)}
+    summary={detail}
+    inputHandle={inputHandle}
+    outputs={outputs}
+    direction={direction}
+    errors={errors.length}
+    warnings={warnings.length}
+    live={live}
+    selected={selected}
+    start={start}
+    className={isEntry ? 'w-48' : isVertical ? 'w-56' : 'w-72'}
+  />;
 });

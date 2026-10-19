@@ -33,7 +33,7 @@ export function editorCallsToday(db: Db, projectId: string) {
 }
 
 /**
- * The editor's continuation of one line (docs/DESIGN.md J3b A): the whole line's translation
+ * The editor's continuation of one line: the whole line's translation
  * from a small context (the line, who says it to whom and how, the three lines before, the
  * glossary terms it uses, its format tokens), starting with what the translator has typed.
  * One call per request; the editor asks once per line and follows typing itself.

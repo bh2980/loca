@@ -41,7 +41,7 @@ describe('model profiles → model choices (0035/0036)', () => {
       insert into chat_sessions (id, project_id, title, profile_id, messages, created_at, updated_at) values ('chat', 'p', 'c', 'slow', '[]', 0, 0);
       insert into ai_calls (id, project_id, kind, ref_id, label, profile_id, connection_kind, model, status, started_at) values ('call', null, 'test', 'fast', 't', 'fast', 'openai', 'gpt-x', 'ok', 0);
     `);
-    const node = (id: string, config: Record<string, unknown>) => ({ id, type: 'ai', position: { x: 0, y: 0 }, config: { instructions: 'Translate.', output: 'candidate', ...config } });
+    const node = (id: string, config: Record<string, unknown>) => ({ id, type: 'ai', position: { x: 0, y: 0 }, config: { instructions: 'Translate.', output: 'text', ...config } });
     const definition = { nodes: [{ id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: { statusIds: [] } }, node('a', { profileId: 'fast', extraProfileIds: ['slow'] }), node('b', { profileId: 'gone' })], edges: [] };
     raw.prepare("insert into workflows (id, project_id, name, definition, updated_at) values ('w', 'p', 'W', ?, 0)").run(JSON.stringify(definition));
     const snapshot = { fast: { id: 'fast', name: 'A fast', instructions: 'Keep it short.', temperature: 0.3, maxOutputTokens: 12000, timeoutSeconds: 120, maxAttempts: 3, routes: [{ connectionId: 'c1', kind: 'openai', baseUrl: null, executable: null, model: 'gpt-x', effort: 'low' }] } };

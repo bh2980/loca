@@ -4,8 +4,6 @@
 AI 번역·검수·수정·사람 확인을 자동화하는 Windows 로컬 작업실입니다.
 스토리·세계관 문서, 인물 프로필·관계, 대사/장면 그래프를 저장해 AI 프롬프트의 문맥으로 씁니다.
 
-설계와 사용자 여정: [docs/DESIGN.md](docs/DESIGN.md)
-
 ## 실행
 
 Node.js 22.12+ 와 pnpm 10이 필요합니다(`corepack enable`).

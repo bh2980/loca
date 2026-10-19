@@ -1,24 +1,44 @@
 /** One row of the line list, with the hints and links that open under the picked line. */
 import { useMemo, type ComponentProps, type ReactNode, type RefObject } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Check, CircleAlert } from 'lucide-react';
 import { toast } from 'sonner';
-import { Link } from '@tanstack/react-router';
-import { Check, CircleAlert, Network, PanelRightOpen, StickyNote } from 'lucide-react';
-import { AUTO_MARKS, compileFormatRules, isUnknownListener, listenerLabel, needsListener, type FormatRules, type LineMark, type ListenerOrigin, mentions, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
+import { AUTO_MARKS, compileFormatRules, isUnknownListener, listenerLabel, needsListener, PALETTE, SPECIAL_LISTENERS, TAG_SCOPES, type FormatRules, type LineMark, type ListenerOrigin, mentions, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
 import { MarkChip } from '@/components/status';
 import { TranslationEditor } from '@/components/translation-editor';
-import { LineSourceText, TokenText } from '@/components/editor/source-text';
+import { LineSourceText, MarkedSourceText, TokenText } from '@/components/editor/source-text';
+import { insertIntoLine } from '@/components/editor/translation-input';
 import { LineNote } from '@/components/script/line-note';
 import { withoutTokens } from '@/lib/line-context';
-import { Button, Checkbox, Tooltip, TooltipContent, TooltipTrigger, AiMark, StatusIcon, TagChip, type StatusLike } from '@loca/ui';
+import {
+  Button,
+  Checkbox,
+  AiMark,
+  StatusIcon,
+  TagChip,
+  TagListEditor,
+  SpeakerIdentity,
+  TranslationRow,
+  SceneSectionHeader,
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuCheckboxItem,
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubTrigger,
+  ContextMenuSubContent,
+  type StatusLike,
+} from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
-import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
-import { ListenerPicker } from '@/components/script/listener-picker';
-import { useDraft } from '@/lib/drafts';
 import { q } from '@/lib/queries';
-import { GROUP_KIND } from '@/lib/labels';
+import { SOURCE_GROUP_LABEL } from '@/lib/labels';
 import { cn } from '@/lib/utils';
 import { SpeakerCard } from '@/components/script/speaker-card';
+import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
+import { useDraft } from '@/lib/drafts';
+import { useSaveLine } from '@/lib/line-save';
 import type { InferResponseType } from '@/lib/api';
 
 /** Who the line is addressed to. Unsure AI guesses count as unknown. */
@@ -35,9 +55,7 @@ function listenerText(line: { kind: string; speaker: string | null; source: stri
  * "자세히" opens everything else in the pane.
  */
 /**
- * What to keep in mind while typing a line. `context` is about the source (its speech level, the
- * confirmed terms it uses) and sits under it; `result` is about the draft (format problems, the last
- * run's issue) and sits under the editor; without `part`, both. Links to elsewhere are LineLinks, by the status.
+ * Context and last-run guidance for the selected line's inspector.
  */
 export function LineHints({ projectId, line, part }: { projectId: string; line: { id: string; source: string; translation: string | null; speaker?: string | null; listener?: string | null; lastRun: { issues: string[] } | null }; part?: 'context' | 'result' }) {
   const unit = useQuery(q.unit(line.id));
@@ -62,9 +80,28 @@ export function LineHints({ projectId, line, part }: { projectId: string; line: 
       {label}
     </span>
   );
-  const context = [
-    ...used.map((term) => hint(term.id, text ? text.toLowerCase().includes(term.target.toLowerCase()) : null, `${term.source} → ${term.target}`)),
-  ];
+  // A term chip puts its translation at the cursor of the line's editor; it turns to a warning when the draft lacks it.
+  const termChip = (term: { id: string; source: string; target: string }) => {
+    const ok = text ? text.toLowerCase().includes(term.target.toLowerCase()) : null;
+    return (
+      <Button
+        key={term.id}
+        type="button"
+        variant="ghost"
+        size="inline"
+        title={ok === false ? '번역에 없음' : undefined}
+        onClick={() => { if (!insertIntoLine(line.id, term.target)) toast.info('번역 칸이 열려 있지 않습니다.'); }}
+        className={cn('h-auto gap-1 rounded-md border border-border bg-card px-1.5 py-0.5 text-xs font-normal shadow-2xs hover:bg-accent', ok === false && 'border-warning/40 text-warning')}
+      >
+        {ok === true && <Check className="size-3 text-success" />}
+        {ok === false && <CircleAlert className="size-3" />}
+        <span>{term.source}</span>
+        <span className="text-subtle-foreground">→</span>
+        <span className="font-medium">{term.target}</span>
+      </Button>
+    );
+  };
+  const context = used.map(termChip);
   // Format checks of the draft sit with the editor (TranslationEditor); here only what the last run said.
   const result = line.lastRun?.issues.slice(0, 1).map((issue) => hint('run', false, issue)) ?? [];
   const items = [...(part !== 'result' ? context : []), ...(part !== 'context' ? result : [])];
@@ -91,7 +128,7 @@ export function LineHints({ projectId, line, part }: { projectId: string; line: 
   const relation = listener && people.data?.relationships.find((item) => (item.fromId === speaker!.id && item.toId === listener.id) || (item.mutual && item.fromId === listener.id && item.toId === speaker!.id));
   const about = [
     speaker?.speech && { key: 'habit', label: `${speaker.name} 말버릇`, text: speaker.speech },
-    relation && { key: 'relation', label: '관계', text: [relation.kind, relation.description].filter(Boolean).join(' — ') },
+    relation && { key: 'relation', label: `관계 ${speaker!.name} → ${listener!.name}`, text: [relation.kind, relation.description].filter(Boolean).join(' — ') },
   ].filter((item): item is { key: string; label: string; text: string } => !!item);
   if (!rule && !about.length && !items.some(Boolean)) return null;
   return (
@@ -113,72 +150,47 @@ export function LineHints({ projectId, line, part }: { projectId: string; line: 
   );
 }
 
-/** Where else the picked line can be seen: its place in the dialogue graph, and the line pane (checks, candidates, history). */
-function LineLinks({ projectId, unitId, hasNote, onNote, onDetail }: { projectId: string; unitId: string; hasNote: boolean; onNote: () => void; onDetail: () => void }) {
-  const unit = useQuery(q.unit(unitId));
-  const node = unit.data?.graphNodes[0];
-  const tip = (label: string, button: ReactNode) => (
-    <Tooltip>
-      <TooltipTrigger asChild>{button}</TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
-    </Tooltip>
-  );
-  return (
-    // Full-size icon buttons on the small speaker line; the negative margin keeps the line's height.
-    <span className="-my-2 ml-auto flex shrink-0 items-center" onClick={(event) => event.stopPropagation()}>
-      {node &&
-        tip(
-          '그래프에서 보기',
-          // The other way round from the graph's "번역 화면에서 열기": this line where it sits in the flow.
-          <Button variant="ghost" size="icon-sm" className="text-muted-foreground" aria-label="그래프에서 보기" asChild>
-            <Link to="/p/$projectId/graph" params={{ projectId }} search={{ scope: 'dialogue', scene: unit.data!.groupId, node: node.id, jump: true }}>
-              <Network />
-            </Link>
-          </Button>,
-        )}
-      {!hasNote &&
-        tip(
-          '메모 남기기',
-          <Button variant="ghost" size="icon-sm" className="text-muted-foreground" aria-label="메모 남기기" onClick={onNote}>
-            <StickyNote />
-          </Button>,
-        )}
-      {tip(
-        '자세히 · 검사·후보·이력',
-        <Button variant="ghost" size="icon-sm" className="text-muted-foreground" aria-label="자세히" onClick={onDetail}>
-          <PanelRightOpen />
-        </Button>,
-      )}
-    </span>
-  );
-}
-
-/** The picked line's listener, changed right in its speaker row (the same picker as the line pane). */
-function PickedListener({ projectId, line }: { projectId: string; line: Line }) {
-  const unit = useQuery(q.unit(line.id));
-  const people = useQuery(q.characters(projectId));
-  const queryClient = useQueryClient();
-  const patch = useMutation({
-    mutationFn: (listener: string | null) => unwrap(client.units[':unitId'].$patch({ param: { unitId: line.id }, json: { listener } })),
-    onMutate: async (listener) => ({ undo: await optimistic(queryClient, unitChanges([line.id], patchedLine({ listener }))) }),
-    onError: (error, _listener, context) => {
-      context?.undo();
-      toast.error(error.message);
-    },
-  });
-  const cast = (people.data?.characters ?? []).filter((person) => person.status === 'confirmed').map((person) => ({ name: person.name, player: person.player }));
-  return <ListenerPicker inline line={{ ...line, sceneNames: unit.data?.sceneNames }} cast={cast} onPick={(listener) => patch.mutate(listener)} />;
-}
-
 type LineTag = StatusLike & { role?: string | null };
 type Line = InferResponseType<(typeof client.projects)[':projectId']['units']['$get']> extends { rows: (infer Row)[] } ? Row : never;
 
 /** One line of the list: a compact row, or the open editor when picked. */
-export function LineRow({ projectId, line, newScene, selected, marked, findLabel, status, statusList, tags, tokenPattern, review, isPicked, arrived, rowRef, noting, focusTick, onPick, onSelect, onOpenScene, onArrivedEnd, onNoting, onDetail, onEscape, onDone, onFilterTag, onFilterMark }: {
+export function LineRow({
+  projectId,
+  line,
+  newScene,
+  sceneSelection,
+  selected,
+  marked,
+  findLabel,
+  status,
+  statusList,
+  tags,
+  tokenPattern,
+  review,
+  isPicked,
+  arrived,
+  rowRef,
+  noting,
+  focusTick,
+  onPick,
+  onSelect,
+  onOpenDetail,
+  onShowInGraph,
+  onInsertAfter,
+  onDelete,
+  onOpenScene,
+  onArrivedEnd,
+  onNoting,
+  onEscape,
+  onDone,
+  onFilterTag,
+  onFilterMark,
+}: {
   projectId: string;
   line: Line;
   /** The line starts a new scene (shown with its title above). */
   newScene: boolean;
+  sceneSelection?: { checked: boolean | 'indeterminate'; disabled: boolean; count?: string; onChange: (selected: boolean) => void };
   selected: boolean;
   marked: boolean | undefined;
   findLabel?: string;
@@ -195,10 +207,13 @@ export function LineRow({ projectId, line, newScene, selected, marked, findLabel
   focusTick: number;
   onPick: (on: boolean) => void;
   onSelect: () => void;
+  onOpenDetail?: () => void;
+  onShowInGraph?: () => void;
+  onInsertAfter?: () => void;
+  onDelete?: () => void;
   onOpenScene?: (groupId: string, lineId: string) => void;
   onArrivedEnd: () => void;
   onNoting: (noting: boolean) => void;
-  onDetail: () => void;
   onEscape: () => void;
   onDone: (advanced: boolean) => void;
   onFilterTag: (tagId: string) => void;
@@ -209,10 +224,61 @@ export function LineRow({ projectId, line, newScene, selected, marked, findLabel
   const said = needsListener(line, rules) || (Boolean(line.listener) && (line.listenerOrigin === 'human' || line.listenerOrigin === 'import'));
   const who = listenerText(line, rules);
   const marks: LineMark[] = [];
-  if (line.statusBy === 'ai') marks.push('ai');
   if (line.note.trim()) marks.push('noted');
   const attachedTags = tags.filter((tag) => line.tagIds.includes(tag.id));
   const orderedTags = [...attachedTags.filter((tag) => tag.role), ...attachedTags.filter((tag) => !tag.role)];
+
+  const queryClient = useQueryClient();
+  const patch = useMutation({
+    mutationFn: (json: { tagIds?: string[] }) => unwrap(client.units[':unitId'].$patch({ param: { unitId: line.id }, json })),
+    onMutate: async (json) => ({ undo: await optimistic(queryClient, unitChanges([line.id], patchedLine(json))) }),
+    onError: (error, _json, context) => {
+      context?.undo();
+      toast.error(error.message);
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['statuses', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['units', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['unit', line.id] });
+    },
+  });
+
+  const handleToggleTag = (tagId: string, add: boolean) => {
+    const nextTagIds = add ? [...line.tagIds, tagId] : line.tagIds.filter((id) => id !== tagId);
+    patch.mutate({ tagIds: nextTagIds });
+  };
+
+  const handleCreateTag = async (name: string) => {
+    try {
+      const color = (PALETTE[tags.length % PALETTE.length] as any).light ?? PALETTE[tags.length % PALETTE.length].hex;
+      const res = await unwrap(client.projects[':projectId'].tags.$post({
+        param: { projectId },
+        json: { name, color, scope: [...TAG_SCOPES] },
+      }));
+      await patch.mutateAsync({ tagIds: [...line.tagIds, res.id] });
+      toast.success(`'${name}' 태그를 만들고 줄에 붙였습니다.`);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : '태그를 만들지 못했습니다.');
+    }
+  };
+
+  const editorMarks = (
+    <div className="mt-1 flex flex-wrap items-center gap-1" role="group" aria-label="이 줄의 태그" onClick={(event) => event.stopPropagation()}>
+      {marks.map((mark) => (
+        <Button key={mark} variant="ghost" size="inline" className="h-auto p-0 hover:bg-transparent" title={`#${AUTO_MARKS[mark].name} 줄만 보기`} onClick={() => onFilterMark(mark)}>
+          <MarkChip mark={mark} projectId={projectId} />
+        </Button>
+      ))}
+      <TagListEditor
+        tags={orderedTags}
+        allTags={tags}
+        onToggle={handleToggleTag}
+        onCreate={handleCreateTag}
+        heading="태그"
+      />
+    </div>
+  );
+
   const tagRow = marks.length || orderedTags.length ? (
     <div className="mt-1 flex flex-wrap gap-1" role="group" aria-label="이 줄의 태그" onClick={(event) => event.stopPropagation()}>
       {marks.map((mark) => (
@@ -232,137 +298,190 @@ export function LineRow({ projectId, line, newScene, selected, marked, findLabel
   const narration = line.kind === 'dialogue' && !line.speaker?.trim();
   const sourceClass = narration ? 'text-muted-foreground' : line.kind === 'document' ? 'leading-relaxed' : undefined;
   const header = newScene && (
-    <li className="sticky top-0 z-10 flex items-center gap-2 border-t border-border-subtle bg-chrome px-3 py-1 text-xs text-muted-foreground backdrop-blur-xs select-none">
-      <span className="truncate font-semibold tracking-tight text-foreground">{line.groupTitle}</span>
-      {onOpenScene && (
-        <Button variant="ghost" size="inline" className="ml-auto text-xs" onClick={() => onOpenScene(line.groupId, line.id)}>
-          {GROUP_KIND[line.groupKind]} 열기
-        </Button>
-      )}
+    <li className="group/scene mx-3 my-3 select-none">
+      <SceneSectionHeader
+        title={line.groupTitle}
+        count={sceneSelection?.count}
+        checkbox={sceneSelection && <Checkbox aria-label={`${line.groupTitle} 현재 검색 조건에 맞는 모든 줄 선택${sceneSelection.count ? `, ${sceneSelection.count}` : ''}`} checked={sceneSelection.checked} disabled={sceneSelection.disabled} onCheckedChange={(checked) => sceneSelection.onChange(checked === true)} />}
+        trailing={onOpenScene && <Button variant="ghost" size="inline" onClick={() => onOpenScene(line.groupId, line.id)}>{SOURCE_GROUP_LABEL[line.groupKind]} 열기</Button>}
+        className="rounded-md bg-muted/50 py-2.5 text-sm ring-1 ring-inset ring-border"
+      />
     </li>
   );
   const checkbox = <Checkbox aria-label={`${line.key} 선택`} checked={isPicked} onClick={(event) => event.stopPropagation()} onCheckedChange={(checked) => onPick(Boolean(checked))} />;
-  // A UI string not being edited: key, source and translation on one line, like a string table
-  // (not in the review inbox, whose rows show why each line waits there).
-  if (line.kind === 'ui' && !selected && !review)
-    return (
-      <>
-        {header}
-        <li
-          ref={rowRef}
-          onClick={onSelect}
-          className={cn('grid cursor-pointer grid-cols-[2.5rem_minmax(0,1fr)_minmax(0,1fr)] transition-colors hover:bg-accent', marked && 'bg-warning/5')}
-          style={arrived ? { animation: 'line-arrived 2s ease-out' } : undefined}
-          onAnimationEnd={onArrivedEnd}
-        >
-          <span className="flex justify-center pt-2.5">{checkbox}</span>
-          <div className="flex min-w-0 items-baseline gap-3 px-3 py-2">
-            <span className="w-32 shrink-0 truncate font-mono text-xs text-muted-foreground" title={line.key}>
-              {line.key}
-            </span>
-            <TokenText text={line.source} source={line.source} pattern={tokenPattern} className="min-w-0 text-sm" />
-          </div>
-          <div className="flex min-w-0 items-baseline gap-2 px-3 py-2 text-sm">
-            {/* Empty when untranslated: the status beside it already says so. */}
-            <span className="min-w-0 flex-1">{line.translation && <TokenText text={line.translation} source={line.source} pattern={tokenPattern} />}</span>
-            {tagRow}
-            <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-              <StatusIcon status={status} />
-              {status?.name}
-              <AiMark by={line.statusBy} />
-            </span>
-          </div>
-        </li>
-      </>
-    );
+  const speaker = line.kind === 'ui' ? (
+    <span className="truncate font-mono text-xs text-muted-foreground" title={line.key}>{line.key}</span>
+  ) : line.speaker ? (
+    <SpeakerCard projectId={projectId} name={line.speaker}><SpeakerIdentity speaker={line.speaker} listener={said ? (who.unknown ? null : who.text) : undefined} listenerIsPerson={!line.listener || !Object.hasOwn(SPECIAL_LISTENERS, line.listener) && !who.unknown} /></SpeakerCard>
+  ) : line.kind === 'dialogue' ? <SpeakerIdentity speaker={null} /> : null;
+  const identity = (
+    <div className="flex min-w-0 items-center gap-1.5">
+      {speaker}
+      {marked && <span className="shrink-0 text-warning">● {findLabel}</span>}
+    </div>
+  );
+  const statusContent = <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground"><StatusIcon status={status} /><span className="truncate">{status?.name}</span></span>;
+  const aiMeta = line.statusBy === 'ai' ? (
+    <Button variant="ghost" size="inline" className="h-auto p-0 hover:bg-transparent" title={`#${AUTO_MARKS.ai.name} 줄만 보기`} onClick={(event) => (event.stopPropagation(), onFilterMark('ai'))}>
+      <AiMark by="ai" />
+    </Button>
+  ) : null;
+  // The details pane opens only from here or the row's menu; picking a line never opens it.
+  const detailButton = selected && onOpenDetail ? (
+    <Button variant="ghost" size="inline" className="text-muted-foreground" onClick={(event) => (event.stopPropagation(), onOpenDetail())}>
+      상세
+    </Button>
+  ) : null;
+  const source = selected ? (
+    <>
+      <LineSourceText projectId={projectId} unitId={line.id} source={line.source} translation={line.translation} className={cn('text-base leading-6', sourceClass)} />
+      <LineHints projectId={projectId} line={{ id: line.id, source: line.source, translation: line.translation, speaker: line.speaker, listener: line.listener, lastRun: null }} part="context" />
+      <LineNote key={`note-${line.id}`} unitId={line.id} note={line.note} editing={noting} onEditing={onNoting} />
+    </>
+  ) : <MarkedSourceText projectId={projectId} text={line.source} pattern={tokenPattern} className={cn(sourceClass)} />;
+  const translation = selected ? (
+    <>
+      <TranslationEditor key={`editor-${line.id}`} projectId={projectId} unit={line} statuses={statusList} focusKey={focusTick} marks={editorMarks} onEscape={onEscape} onDone={onDone} />
+      {review && !!line.lastRun?.issues.length && <ReviewIssue issue={line.lastRun.issues[0]} />}
+    </>
+  ) : (
+    <>
+      {line.translation ? <TokenText text={line.translation} source={line.source} pattern={tokenPattern} /> : <span className="text-subtle-foreground select-none">미번역</span>}
+      {review && !!line.lastRun?.issues.length && <ReviewIssue issue={line.lastRun.issues[0]} />}
+      {tagRow}
+    </>
+  );
+  const compact = line.kind === 'ui' && !selected && !review;
+  const row = (
+    <TranslationRow
+      checkbox={checkbox}
+      speaker={identity}
+      status={statusContent}
+      meta={aiMeta || detailButton ? <>{aiMeta}{detailButton}</> : null}
+      source={source}
+      translation={translation}
+      selected={selected}
+      compact={compact}
+      layout="grid"
+      className={cn(selected ? 'bg-selection' : 'cursor-pointer hover:bg-accent', marked && !selected && 'bg-warning/5')}
+    />
+  );
+  const saveLine = useSaveLine();
+
   return (
     <>
       {header}
-      {/*
-        Checkbox · source · translation over three rows. Row 1 is metadata in words: who says
-        it to whom over the source, the translation's status over the translation. Row 2 is the
-        text, both columns starting at the same height. Row 3 is the line's tags (every #chip,
-        in one place) under the translation, where they stay while editing (under the input).
-        The source column holds context only: under the picked source, its speech rule, terms, note.
-      */}
       <li
         ref={rowRef}
-        onClick={() => !selected && onSelect()}
-        className={cn('grid grid-cols-[2.5rem_minmax(0,1fr)_minmax(0,1fr)] transition-colors', selected ? 'bg-selection' : 'cursor-pointer hover:bg-accent', marked && !selected && 'bg-warning/5')}
+        onClick={onSelect}
+        className={cn('transition-colors', selected ? 'bg-selection' : 'cursor-pointer', marked && !selected && 'bg-warning/5')}
         style={arrived ? { animation: 'line-arrived 2s ease-out' } : undefined}
         onAnimationEnd={onArrivedEnd}
       >
-                  {/* Who says it (a UI string: its key). An unknown listener is said here, by the speaker, and filters like the #청자 미상 tag would. */}
-                  <p className="col-start-2 flex min-w-0 items-center gap-1 px-3 pt-3.5 pb-1.5 text-xs text-muted-foreground">
-                    {line.speaker ? (
-                      <SpeakerCard projectId={projectId} name={line.speaker}>
-                        <span className="truncate font-medium text-foreground/80">{line.speaker}</span>
-                      </SpeakerCard>
-                    ) : (
-                      // A UI string is named by its key; narration and documents need no name.
-                      line.kind === 'ui' && <span className="truncate font-mono">{line.key}</span>
-                    )}
-                    {said &&
-                      (selected ? (
-                        <PickedListener projectId={projectId} line={line} />
-                      ) : who.unknown ? (
-                        <Button variant="ghost" size="inline" className="h-auto shrink-0 p-0 text-xs font-normal text-subtle-foreground hover:bg-transparent hover:text-warning" title={`#${AUTO_MARKS.unknownListener.name} 줄만 보기`} onClick={(event) => (event.stopPropagation(), onFilterMark('unknownListener'))}>
-                          → {who.text}
-                        </Button>
-                      ) : (
-                        <SpeakerCard projectId={projectId} name={line.listener}>
-                          <span className="truncate">→ {who.text}</span>
-                        </SpeakerCard>
-                      ))}
-                    {marked && <span className="shrink-0 text-warning">● {findLabel}</span>}
-                  </p>
-                  {/* The translation's status (✦ when a run set it), and the picked line's links. */}
-                  <p className="flex min-w-0 items-center gap-1 px-3 pt-3.5 pb-1.5 text-xs text-muted-foreground">
-                    <StatusIcon status={status} />
-                    <span className="truncate">{status?.name}</span>
-                    <AiMark by={line.statusBy} />
-                    {selected && <LineLinks projectId={projectId} unitId={line.id} hasNote={!!line.note} onNote={() => onNoting(true)} onDetail={onDetail} />}
-                  </p>
-                  <span className={cn('col-start-1 row-start-2 flex justify-center pt-1', selected || !tagRow ? 'pb-3.5' : '')}>
-                    {checkbox}
-                  </span>
-                  <div className={cn('row-start-2 min-w-0 px-3', selected || !tagRow ? 'pb-3.5' : '')}>
-                    {/* The same size picked or not, so picking a line never rewraps its source. */}
-                    {selected ? (
-                      <>
-                        <LineSourceText projectId={projectId} unitId={line.id} source={line.source} translation={line.translation} className={cn('text-base', sourceClass)} />
-                        <LineHints projectId={projectId} line={line} part="context" />
-                        <LineNote key={`note-${line.id}`} unitId={line.id} note={line.note} editing={noting} onEditing={onNoting} />
-                      </>
-                    ) : (
-                      <TokenText text={line.source} source={line.source} pattern={tokenPattern} className={cn('text-base', sourceClass)} />
-                    )}
-                  </div>
-                  <div className={cn('row-start-2 min-w-0 px-3', selected || !tagRow ? 'pb-3.5' : '')}>
-                    {selected ? (
-                      <>
-                        <TranslationEditor key={`editor-${line.id}`} projectId={projectId} unit={line} statuses={statusList} focusKey={focusTick} marks={tagRow} onEscape={onEscape} onDone={onDone} />
-                        <LineHints projectId={projectId} line={line} part="result" />
-                      </>
-                    ) : (
-                      <div className="text-base">
-                        {line.translation ? (
-                          <TokenText text={line.translation} source={line.source} pattern={tokenPattern} />
-                        ) : (
-                          // The status above already says 미번역: an empty cell, named only for screen readers.
-                          <span className="inline-block h-px w-4 bg-muted-foreground/30 align-middle" role="img" aria-label="번역 없음" />
-                        )}
-                        {review && !!line.lastRun?.issues.length && (
-                          <p className="mt-1 flex items-start gap-1 text-xs text-warning">
-                            <CircleAlert className="mt-0.5 size-3 shrink-0" />
-                            <span className="line-clamp-2">{line.lastRun.issues[0]}</span>
-                          </p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                  {!selected && tagRow && <div className="col-start-3 row-start-3 min-w-0 px-3 pt-1 pb-3.5">{tagRow}</div>}
-                </li>
-                </>
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            <div className="w-full">
+              {row}
+            </div>
+          </ContextMenuTrigger>
+          <ContextMenuContent className="w-52">
+            <ContextMenuItem onClick={onSelect}>
+              번역 편집
+            </ContextMenuItem>
+            {onOpenDetail && (
+              <ContextMenuItem onClick={onOpenDetail}>
+                상세 열기
+              </ContextMenuItem>
+            )}
+            <ContextMenuSeparator />
+            <ContextMenuSub>
+              <ContextMenuSubTrigger>상태 변경</ContextMenuSubTrigger>
+              <ContextMenuSubContent className="w-44">
+                {statusList.map((s) => (
+                  <ContextMenuCheckboxItem
+                    key={s.id}
+                    checked={line.statusId === s.id}
+                    onCheckedChange={() => {
+                      if (line.statusId !== s.id) {
+                        saveLine.mutate({ unitId: line.id, text: line.translation ?? '', statusId: s.id });
+                      }
+                    }}
+                  >
+                    <StatusIcon status={s} />
+                    <span className="truncate">{s.name}</span>
+                  </ContextMenuCheckboxItem>
+                ))}
+              </ContextMenuSubContent>
+            </ContextMenuSub>
+            <ContextMenuSub>
+              <ContextMenuSubTrigger>태그</ContextMenuSubTrigger>
+              <ContextMenuSubContent className="w-48">
+                {tags.length === 0 ? (
+                  <div className="px-2 py-1.5 text-xs text-muted-foreground">태그 없음</div>
+                ) : (
+                  tags.map((tag) => (
+                    <ContextMenuCheckboxItem
+                      key={tag.id}
+                      checked={line.tagIds.includes(tag.id)}
+                      onCheckedChange={(checked) => handleToggleTag(tag.id, Boolean(checked))}
+                    >
+                      <span className="size-2 rounded-full shrink-0" style={{ backgroundColor: tag.color }} />
+                      <span className="truncate">{tag.name}</span>
+                    </ContextMenuCheckboxItem>
+                  ))
+                )}
+              </ContextMenuSubContent>
+            </ContextMenuSub>
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              onClick={() => {
+                void navigator.clipboard.writeText(line.source);
+                toast.success('원문을 복사했습니다.');
+              }}
+            >
+              원문 복사
+            </ContextMenuItem>
+            {line.translation && (
+              <ContextMenuItem
+                onClick={() => {
+                  void navigator.clipboard.writeText(line.translation!);
+                  toast.success('번역을 복사했습니다.');
+                }}
+              >
+                번역 복사
+              </ContextMenuItem>
+            )}
+            <ContextMenuItem
+              onClick={() => {
+                void navigator.clipboard.writeText(line.key);
+                toast.success('대사 키를 복사했습니다.');
+              }}
+            >
+              키 복사
+            </ContextMenuItem>
+            {onShowInGraph && (
+              <ContextMenuItem onClick={onShowInGraph}>
+                그래프에서 보기
+              </ContextMenuItem>
+            )}
+            {(onInsertAfter || onDelete) && <ContextMenuSeparator />}
+            {onInsertAfter && (
+              <ContextMenuItem onClick={onInsertAfter}>
+                아래에 대사 추가
+              </ContextMenuItem>
+            )}
+            {onDelete && (
+              <ContextMenuItem variant="destructive" onClick={onDelete}>
+                대사 삭제
+              </ContextMenuItem>
+            )}
+          </ContextMenuContent>
+        </ContextMenu>
+      </li>
+    </>
   );
+}
+
+function ReviewIssue({ issue }: { issue: string }) {
+  return <p className="mt-1 flex items-start gap-1 text-xs text-warning"><CircleAlert className="mt-0.5 size-3 shrink-0" /><span className="line-clamp-2">{issue}</span></p>;
 }

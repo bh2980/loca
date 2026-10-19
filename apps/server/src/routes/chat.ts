@@ -73,6 +73,134 @@ export const chatRoutes = new Hono<Env>()
     events.changed(projectId, 'chat');
     return c.json(row, 201);
   })
+  .get('/projects/:projectId/chat/search', validate('query', z.object({ q: z.string().optional() })), (c) => {
+    const { db } = c.var.deps;
+    const projectId = c.req.param('projectId');
+    const q = c.req.valid('query').q ?? '';
+    const needle = q.trim().toLowerCase();
+    type Hit = {
+      id: string;
+      sessionId: string;
+      title: string;
+      role: 'user' | 'assistant' | 'title';
+      snippet: string;
+      updatedAt: number;
+    };
+    if (!needle) return c.json<Hit[]>([]);
+
+    const sessions = db
+      .select({
+        id: s.chatSessions.id,
+        title: s.chatSessions.title,
+        messages: s.chatSessions.messages,
+        updatedAt: s.chatSessions.updatedAt,
+      })
+      .from(s.chatSessions)
+      .where(eq(s.chatSessions.projectId, projectId))
+      .orderBy(desc(s.chatSessions.updatedAt))
+      .all();
+
+    const hits: Hit[] = [];
+
+    const extractMessageText = (msg: Record<string, unknown>): string => {
+      const parts: string[] = [];
+      if (Array.isArray(msg.parts)) {
+        for (const part of msg.parts) {
+          if (part && typeof part === 'object') {
+            const p = part as Record<string, unknown>;
+            if (p.type === 'text' && typeof p.text === 'string') {
+              parts.push(p.text);
+            }
+          }
+        }
+      }
+      if (typeof msg.content === 'string') {
+        parts.push(msg.content);
+      } else if (Array.isArray(msg.content)) {
+        for (const part of msg.content) {
+          if (typeof part === 'string') {
+            parts.push(part);
+          } else if (part && typeof part === 'object') {
+            const p = part as Record<string, unknown>;
+            if (p.type === 'text' && typeof p.text === 'string') {
+              parts.push(p.text);
+            }
+          }
+        }
+      }
+      return parts.join('\n');
+    };
+
+    const makeSnippet = (text: string, queryNeedle: string, maxLength = 80): string => {
+      const normalized = text.replace(/\s+/g, ' ').trim();
+      const lower = normalized.toLowerCase();
+      const idx = lower.indexOf(queryNeedle);
+      if (idx === -1) {
+        return normalized.length > maxLength ? `${normalized.slice(0, maxLength)}…` : normalized;
+      }
+      const beforeLen = 25;
+      const start = Math.max(0, idx - beforeLen);
+      const end = Math.min(normalized.length, idx + queryNeedle.length + (maxLength - beforeLen - queryNeedle.length));
+      let snippet = normalized.slice(start, end).trim();
+      if (start > 0) snippet = `…${snippet}`;
+      if (end < normalized.length) snippet = `${snippet}…`;
+      return snippet;
+    };
+
+    for (const session of sessions) {
+      if (hits.length >= 30) break;
+      const sessionUpdatedAt = session.updatedAt instanceof Date ? session.updatedAt.getTime() : Number(session.updatedAt);
+      let rawMessages: unknown[] = [];
+      if (Array.isArray(session.messages)) {
+        rawMessages = session.messages;
+      } else if (typeof session.messages === 'string') {
+        try {
+          rawMessages = JSON.parse(session.messages);
+        } catch {
+          rawMessages = [];
+        }
+      }
+
+      let sessionMatched = false;
+      for (let i = 0; i < rawMessages.length; i++) {
+        if (hits.length >= 30) break;
+        const msg = rawMessages[i];
+        if (!msg || typeof msg !== 'object') continue;
+        const msgObj = msg as Record<string, unknown>;
+        const text = extractMessageText(msgObj);
+        if (!text) continue;
+
+        if (text.toLowerCase().includes(needle)) {
+          sessionMatched = true;
+          const role: 'user' | 'assistant' = msgObj.role === 'user' ? 'user' : 'assistant';
+          const msgId = typeof msgObj.id === 'string' && msgObj.id ? msgObj.id : `${session.id}-msg-${i}`;
+          hits.push({
+            id: msgId,
+            sessionId: session.id,
+            title: session.title,
+            role,
+            snippet: makeSnippet(text, needle),
+            updatedAt: sessionUpdatedAt,
+          });
+        }
+      }
+
+      if (!sessionMatched && (session.title ?? '').toLowerCase().includes(needle)) {
+        if (hits.length < 30) {
+          hits.push({
+            id: `${session.id}-title`,
+            sessionId: session.id,
+            title: session.title,
+            role: 'title',
+            snippet: session.title,
+            updatedAt: sessionUpdatedAt,
+          });
+        }
+      }
+    }
+
+    return c.json(hits);
+  })
   .get('/chat/:sessionId', (c) => {
     const { db } = c.var.deps;
     const sessionId = c.req.param('sessionId');

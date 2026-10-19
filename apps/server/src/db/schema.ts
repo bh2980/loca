@@ -11,14 +11,13 @@ const json = <T>(name: string) => text(name, { mode: 'json' }).$type<T>();
 const projectId = () => text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' });
 /**
  * Shared by every knowledge table. AI drafts land as candidates and are not used as context until
- * a person confirms them; evidence is the line keys a draft cites; jobId is the analysis that wrote it.
+ * a person confirms them; evidence is the line keys a draft cites.
  */
 const knowledge = () => ({
   status: text('status', { enum: KNOWLEDGE_STATUSES }).notNull().default('confirmed'),
   origin: text('origin', { enum: KNOWLEDGE_ORIGINS }).notNull().default('human'),
   evidence: json<string[]>('evidence').notNull().default(sql`'[]'`),
-  jobId: text('job_id'),
-  /** Who put it in its current status (docs/DESIGN.md 3.5). An AI item a person never touched stays "ai"; a new analysis may replace it. */
+  /** Who put it in its current status. An AI item a person never touched stays "ai"; a new analysis may replace it. */
   statusBy: text('status_by', { enum: STATUS_BY }).notNull().default('human'),
 });
 
@@ -71,7 +70,7 @@ export const tags = sqliteTable('tags', {
   /** A tag the app keeps: a problem type on lines (ISSUE_KINDS) or 확인 권장 on knowledge (REVIEW_TAG); null for a person's own tag. */
   role: text('role', { enum: TAG_ROLES as unknown as [TagRole, ...TagRole[]] }),
   /** Where a person's own tag can be put (the app's tags derive theirs from the role: tagScope). */
-  scope: json<TagScope[]>('scope').notNull().default(sql`'["lines","knowledge","terms"]'`),
+  scope: json<TagScope[]>('scope').notNull().default(sql`'["lines","terms","people","documents","events"]'`),
 });
 
 export const groups = sqliteTable(
@@ -119,7 +118,10 @@ export const units = sqliteTable(
     /** A person's note on the line (a doubt, a question for the developer); empty = none. */
     note: text('note').notNull().default(''),
     meta: json<Record<string, unknown>>('meta'),
-    updatedAt: updatedAt(),
+    // This is also the optimistic-concurrency revision. Multiple writes in one millisecond
+    // (or a clock correction) must not make a later human edit invisible to undo/conflict checks.
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date())
+      .$onUpdateFn(() => sql`max(updated_at + 1, ${Date.now()})`),
   },
   (t) => [
     uniqueIndex('units_key').on(t.projectId, t.key),
@@ -201,13 +203,26 @@ export const graphEdges = sqliteTable(
   (t) => [index('graph_edges_from').on(t.fromId), index('graph_edges_to').on(t.toId)],
 );
 
+/** What a view's derived edge leaves out: the source nodes on its paths, their lines, line-less nodes and speakers. */
+export interface OmittedFacts {
+  nodeIds: string[];
+  lines: number;
+  controls: number;
+  speakers: string[];
+  moreSpeakers: number;
+}
+
 export interface LayoutData {
   width: number;
   height: number;
   nodes: { id: string; x: number; y: number; width: number; height: number }[];
   /** `label`: a choice or condition written on the edge; `via`: the choice node it stands for. */
   /** `curved`: points are a start and (control, control, end) triples, drawn as Bézier curves. */
-  edges: { id: string; from: string; to: string; points: number[]; label?: string; via?: string; labelAt?: [x: number, y: number, width: number, height: number]; curved?: true }[];
+  /**
+   * `derived`: a view's edge across nodes the view leaves out (see viewEdges in services/layout.ts),
+   * not a stored edge; `omitted` counts what it stands for, from the source graph.
+   */
+  edges: { id: string; from: string; to: string; points: number[]; label?: string; via?: string; labelAt?: [x: number, y: number, width: number, height: number]; curved?: true; derived?: true; omitted?: OmittedFacts }[];
   /** Labelled areas drawn behind nodes, e.g. the block of unconnected lines. */
   regions?: { label: string; x: number; y: number; width: number; height: number }[];
   /** Scene links left out of the drawing because another path already connects them (see reduceSceneEdges). */
@@ -236,12 +251,13 @@ export const graphLayouts = sqliteTable(
     scope: text('scope', { enum: ['dialogue', 'scene'] }).notNull(),
     /** '' for the whole graph; a section name for that section's own dialogue layout. */
     section: text('section').notNull().default(''),
+    direction: text('direction', { enum: ['vertical', 'horizontal'] }).notNull().default('vertical'),
     status: text('status', { enum: ['pending', 'ready', 'failed'] }).notNull(),
     data: json<LayoutData>('data'),
     error: text('error'),
     updatedAt: updatedAt(),
   },
-  (t) => [primaryKey({ columns: [t.projectId, t.scope, t.section] })],
+  (t) => [primaryKey({ columns: [t.projectId, t.scope, t.section, t.direction] })],
 );
 
 /**
@@ -249,16 +265,28 @@ export const graphLayouts = sqliteTable(
  * Jonas"): highlighted in the graph (`mark=<id>`) or laid out on their own (section "view:<id>").
  * The id is a hash of the node ids, so asking for the same set again reuses it.
  */
+/**
+ * A stored view of the dialogue graph (like a database view): only which nodes to keep. Edges
+ * between them and the layout are computed from the source graph each time (services/layout.ts
+ * viewEdges), so a view follows the graph and never stores an edge of its own.
+ */
 export const graphViews = sqliteTable('graph_views', {
   id: text('id').primaryKey(),
   projectId: projectId(),
   label: text('label').notNull(),
   nodeIds: json<string[]>('node_ids').notNull(),
+  /** ai: picked by the chat from a request; manual: picked by a person from a selection. */
+  origin: text('origin', { enum: ['ai', 'manual'] }).notNull().default('ai'),
+  /** What the person asked the chat for (ai views). */
+  request: text('request'),
+  /** Why the chat kept each node, by node id (ai views). */
+  reasons: json<Record<string, string>>('reasons').notNull().default({}),
   createdAt: createdAt(),
+  updatedAt: updatedAt(),
 });
 
-/** Where a model request came from: a workflow run, work analysis, glossary fill, a model test or a chat turn. */
-export const AI_CALL_KINDS = ['run', 'analysis', 'terms', 'test', 'chat', 'editor'] as const;
+/** Where a model request came from: a workflow run (whole: one reading the whole script), a glossary fill, a model test, a chat turn or the editor. */
+export const AI_CALL_KINDS = ['run', 'whole', 'terms', 'test', 'chat', 'editor'] as const;
 
 /**
  * Every request sent to a model, one row per attempt (a fallback is its own row), written when it
@@ -271,7 +299,7 @@ export const aiCalls = sqliteTable(
     /** Null for calls outside a project (a model test). */
     projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
     kind: text('kind', { enum: AI_CALL_KINDS }).notNull(),
-    /** The run, analysis job or chat it belongs to; the connection for a model test. */
+    /** The run, job or chat it belongs to; the connection for a model test. */
     refId: text('ref_id'),
     /** What it was for, as people read it ("AI 번역 · 60줄", "작품 분석 1/3"). */
     label: text('label').notNull(),
@@ -285,7 +313,7 @@ export const aiCalls = sqliteTable(
     cachedInputTokens: integer('cached_input_tokens'),
     outputTokens: integer('output_tokens'),
     costUsd: real('cost_usd'),
-    /** What was sent (system prompt and prompt), for work analysis and glossary fills; runs keep theirs in run steps. */
+    /** What was sent (system prompt and prompt), for glossary fills; runs keep theirs in run steps. */
     request: text('request'),
     /** What the call printed before it failed, for failed calls (the CLI's output or the partial text). */
     response: text('response'),
@@ -312,8 +340,6 @@ export const terms = sqliteTable(
     examples: json<string[]>('examples').notNull().default(sql`'[]'`),
     /** The workflow run that added it, for AI terms. */
     runId: text('run_id'),
-    /** The work analysis that proposed it, for AI terms. */
-    jobId: text('job_id'),
     /** Who put it in its current status (see knowledge()). */
     statusBy: text('status_by', { enum: STATUS_BY }).notNull().default('human'),
     updatedAt: updatedAt(),
@@ -402,33 +428,6 @@ export const speechRules = sqliteTable(
   (t) => [index('speech_rules_pair').on(t.projectId, t.fromName, t.toName)],
 );
 
-export type AnalysisStatus = 'running' | 'completed' | 'failed' | 'cancelled';
-/** A whole-script analysis (work analysis): one per run, its drafts carry its id. */
-export const analysisJobs = sqliteTable(
-  'analysis_jobs',
-  {
-    id: id(),
-    projectId: projectId(),
-    connectionId: text('connection_id'),
-    model: text('model'),
-    effort: text('effort'),
-    status: text('status', { enum: ['running', 'completed', 'failed', 'cancelled'] }).notNull(),
-    partsDone: integer('parts_done').notNull().default(0),
-    partsTotal: integer('parts_total').notNull().default(1),
-    usage: json<{ inputTokens?: number; cachedInputTokens?: number; outputTokens?: number; reasoningTokens?: number; costUsd?: number }>('usage'),
-    /** Counts of drafts written, by kind. */
-    result: json<Record<string, number>>('result'),
-    /** Per part: a hash of its script text and the model's answer, so a failed job can be resumed. */
-    parts: json<{ hash: string; answer: unknown }[]>('parts'),
-    /** What the analysis reads: lines, scenes and an estimate of the tokens sent (UTF-8 bytes / 4). */
-    input: json<{ lines: number; scenes: number; tokens: number }>('input'),
-    error: text('error'),
-    createdAt: createdAt(),
-    finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),
-  },
-  (t) => [index('analysis_jobs_project').on(t.projectId, t.createdAt)],
-);
-
 /** "빈 번역 AI로 채우기" jobs on the glossary: kept so 실행 기록 lists them beside runs and analyses. */
 export const termJobs = sqliteTable(
   'term_jobs',
@@ -491,6 +490,8 @@ export interface RunScope {
   tagIds?: string[];
   /** Automatic marks (services/line-marks.ts): lines must have every one of them. */
   marks?: LineMark[];
+  /** Specific status IDs to run on (overriding or supplementing entry node statusIds). */
+  statusIds?: string[];
   /** Run the picked lines even if their status is not one the entry node accepts. */
   ignoreStatus?: boolean;
 }
@@ -659,7 +660,10 @@ export const proposals = sqliteTable(
     sessionId: text('session_id'),
     /** Model that proposed the change; null for person-originated proposals. */
     model: text('model'),
-    source: text('source', { enum: ['pi', 'cli', 'api'] }).notNull(),
+    source: text('source', { enum: ['pi', 'cli', 'api', 'run'] }).notNull(),
+    /** A workflow run's apply node filed it (source 'run'): the run and the node, so the list can group by run. */
+    runId: text('run_id').references(() => runs.id, { onDelete: 'set null' }),
+    nodeId: text('node_id'),
     tool: text('tool').notNull(),
     input: json<Record<string, unknown>>('input').notNull(),
     /** Inverse agent-tool calls, or why this change cannot be undone. */

@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { Shapes } from 'lucide-react';
 import { isContentKind, type NodeType } from '@tw/shared';
-import { Button, Popover, PopoverContent, PopoverTrigger } from '@loca/ui';
+import { Button, GroupHeading, Popover, PopoverContent, PopoverTrigger } from '@loca/ui';
 import { cn } from '@/lib/utils';
 import { KIND_LABEL } from './shapes';
 
@@ -36,8 +36,8 @@ export function TypeLegend({ nodes, nodeTypes, active, onPick }: {
     }
     const sorted = [...rows.values()].sort((a, b) => b.count - a.count);
     return [
-      { title: '콘텐츠 노드', hint: '번역할 대사·장면', rows: sorted.filter((row) => isContentKind(row.kind)) },
-      { title: '이벤트·제어 노드', hint: '조건 분기·대기·이벤트·상태 변경. 번역량에 포함하지 않습니다.', rows: sorted.filter((row) => !isContentKind(row.kind)) },
+      { title: '콘텐츠', rows: sorted.filter((row) => isContentKind(row.kind)) },
+      { title: '이벤트·제어', rows: sorted.filter((row) => !isContentKind(row.kind)) },
     ].filter((group) => group.rows.length);
   }, [nodes, nodeTypes]);
 
@@ -52,8 +52,7 @@ export function TypeLegend({ nodes, nodeTypes, active, onPick }: {
         <div className="max-h-[60vh] overflow-auto py-1">
           {groups.map((group) => (
             <section key={group.title} className="px-1 py-1">
-              <h3 className="px-2 pt-1 text-xs font-medium">{group.title}</h3>
-              <p className="px-2 pb-1 text-xs text-muted-foreground">{group.hint}</p>
+              <GroupHeading className="block px-2 pt-1">{group.title}</GroupHeading>
               <ul>
                 {group.rows.map((row) => (
                   <li key={row.key}>
@@ -62,7 +61,6 @@ export function TypeLegend({ nodes, nodeTypes, active, onPick }: {
                       size="row"
                       className={cn('items-start', active === row.key && 'bg-muted')}
                       onClick={() => onPick(active === row.key ? undefined : row.key)}
-                      title={row.description || undefined}
                     >
                       <span className="mt-0.5 w-16 shrink-0 text-xs text-muted-foreground">{KIND_LABEL[row.kind] ?? row.kind}</span>
                       <span className="min-w-0 flex-1">

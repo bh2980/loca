@@ -5,7 +5,7 @@ import { importFileSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from './importer.ts';
-import { pickNodes, readView, saveView } from './graph-views.ts';
+import { deleteView, listViews, missingNodes, pickNodes, readView, saveView, updateView } from './graph-views.ts';
 
 function setup() {
   const db = openDatabase(':memory:');
@@ -27,10 +27,32 @@ describe('graph views', () => {
     expect(pickNodes(db, projectId, { scenes: ['no such scene'] })).toMatchObject({ nodeIds: [], unknown: ['no such scene'] });
   });
 
-  it('stores the same set of nodes under the same id', () => {
+  it('picks every node between two lines, then leaves out excluded ones', () => {
     const { db, projectId } = setup();
-    const id = saveView(db, projectId, ['b', 'a'], 'first');
-    expect(saveView(db, projectId, ['a', 'b', 'a'], 'second')).toBe(id);
-    expect(readView(db, projectId, id)).toMatchObject({ label: 'second', nodeIds: ['a', 'b'] });
+    const nodes = db.select().from(s.graphNodes).where(eq(s.graphNodes.projectId, projectId)).all();
+    const edges = db.select().from(s.graphEdges).where(eq(s.graphEdges.projectId, projectId)).all();
+    const byId = new Map(nodes.map((node) => [node.id, node]));
+    // A line node → line-less node → line node run in the sample.
+    const hop = edges.flatMap((a) => {
+      const mid = byId.get(a.toId)!;
+      if (!byId.get(a.fromId)!.unitIds.length || mid.unitIds.length || mid.kind === 'choice') return [];
+      return edges.filter((b) => b.fromId === mid.id && byId.get(b.toId)!.unitIds.length).map((b) => ({ start: a.fromId, mid: mid.id, end: b.toId }));
+    })[0]!;
+    const keyOf = (nodeId: string) => db.select({ key: s.units.key }).from(s.units).where(eq(s.units.id, byId.get(nodeId)!.unitIds[0]!)).get()!.key;
+    const between = pickNodes(db, projectId, { between: { start: keyOf(hop.start), end: keyOf(hop.end) } });
+    expect(between.nodeIds).toEqual(expect.arrayContaining([hop.start, hop.mid, hop.end]));
+    expect(pickNodes(db, projectId, { between: { start: keyOf(hop.start), end: keyOf(hop.end) }, exclude: [keyOf(hop.end)] }).nodeIds).not.toContain(hop.end);
+    expect(pickNodes(db, projectId, { between: { start: 'nope', end: keyOf(hop.end) } })).toMatchObject({ nodeIds: [], unknown: ['nope'] });
+  });
+
+  it('keeps a view as a definition: rename, add and leave out nodes, list, delete', () => {
+    const { db, projectId } = setup();
+    const id = saveView(db, projectId, ['b', 'a', 'a'], '첫 보기', { origin: 'ai', request: '분기만', reasons: { a: '시작', zzz: '없는 노드' } });
+    expect(readView(db, projectId, id)).toMatchObject({ label: '첫 보기', nodeIds: ['a', 'b'], origin: 'ai', request: '분기만', reasons: { a: '시작' } });
+    expect(updateView(db, projectId, id, { label: '바꾼 이름', add: ['c'], remove: ['a'] })).toMatchObject({ label: '바꾼 이름', nodeIds: ['b', 'c'], reasons: {} });
+    expect(listViews(db, projectId)).toMatchObject([{ id, label: '바꾼 이름', nodes: 2, origin: 'ai' }]);
+    expect(missingNodes(db, projectId, ['b', 'c'])).toEqual(['b', 'c']);
+    deleteView(db, projectId, id);
+    expect(readView(db, projectId, id)).toBeUndefined();
   });
 });

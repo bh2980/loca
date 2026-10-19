@@ -21,8 +21,12 @@ export function scopeRefusal(db: Pick<Db, 'select'>, projectId: string, tagIds: 
 /** How many items carry the tag in `scope`: lines, glossary terms, or the other knowledge kinds. */
 export function tagUseIn(db: Pick<Db, 'select'>, tagId: string, scope: TagScope) {
   if (scope === 'lines') return db.select({ n: count() }).from(s.unitTags).where(eq(s.unitTags.tagId, tagId)).get()!.n;
-  const kind = scope === 'terms' ? eq(s.knowledgeTags.kind, 'terms') : ne(s.knowledgeTags.kind, 'terms');
-  return db.select({ n: count() }).from(s.knowledgeTags).where(and(eq(s.knowledgeTags.tagId, tagId), kind)).get()!.n;
+  if (scope === 'terms') return db.select({ n: count() }).from(s.knowledgeTags).where(and(eq(s.knowledgeTags.tagId, tagId), eq(s.knowledgeTags.kind, 'terms'))).get()!.n;
+  if (scope === 'documents') return db.select({ n: count() }).from(s.knowledgeTags).where(and(eq(s.knowledgeTags.tagId, tagId), eq(s.knowledgeTags.kind, 'documents'))).get()!.n;
+  if (scope === 'events') return db.select({ n: count() }).from(s.knowledgeTags).where(and(eq(s.knowledgeTags.tagId, tagId), eq(s.knowledgeTags.kind, 'events'))).get()!.n;
+  if (scope === 'people') return db.select({ n: count() }).from(s.knowledgeTags).where(and(eq(s.knowledgeTags.tagId, tagId), inArray(s.knowledgeTags.kind, ['characters', 'relationships', 'speechRules']))).get()!.n;
+  if ((scope as string) === 'knowledge') return db.select({ n: count() }).from(s.knowledgeTags).where(and(eq(s.knowledgeTags.tagId, tagId), inArray(s.knowledgeTags.kind, ['characters', 'relationships', 'speechRules', 'documents', 'events']))).get()!.n;
+  return 0;
 }
 
 /**

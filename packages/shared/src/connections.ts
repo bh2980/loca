@@ -34,7 +34,7 @@ export const CONNECTION_KIND_INFO: Record<ConnectionKind, ConnectionKindInfo> = 
     efforts: ['minimal', 'low', 'medium', 'high'],
   },
   pi: {
-    label: 'pi (구독·API 로그인)',
+    label: 'pi',
     transport: 'sdk',
     capabilities: ['generate', 'chat'],
     needsKey: false,

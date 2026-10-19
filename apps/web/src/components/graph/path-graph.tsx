@@ -5,7 +5,7 @@ import ELK from 'elkjs/lib/elk-api.js';
 import ElkWorker from 'elkjs/lib/elk-worker.min.js?worker';
 import '@xyflow/react/dist/style.css';
 import { useSize } from '@/hooks/use-size';
-import { Button, Badge, Tooltip, TooltipContent, TooltipTrigger, HelpTip } from '@loca/ui';
+import { Button, Badge, Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
 import { SeamStateChip } from '@/components/graph/seam-check-pane';
 import { q } from '@/lib/queries';
 import { useQuery } from '@tanstack/react-query';
@@ -106,17 +106,16 @@ function ArmChip({ arm, className }: { arm: Arm; className?: string }) {
           {arm.index}/{arm.count}
         </Badge>
       </TooltipTrigger>
-      <TooltipContent>{`같은 자리에서 함께 열리는 선택지 ${arm.index}/${arm.count}, 이야기 연결이 아님`}</TooltipContent>
+      <TooltipContent>{'함께 열리는 선택지 · 이야기 연결 아님'}</TooltipContent>
     </Tooltip>
   );
 }
 
 /** '동시에 열림 n' counts the arms the column numbers; targets that only loop back are said apart ('↺ n'). */
-function HubChips({ arms, loops, behind }: { arms: number; loops: number; behind: number }) {
-  const notes = [loops ? `직접 연결 ${loops}개는 이 노드로 되돌아오는 길이라 갈래로 세지 않았습니다(↺).` : '', behind ? `직접 연결 ${behind}개는 다른 갈래 뒤에서 이어져 갈래로 세지 않았습니다.` : ''].filter(Boolean);
+function HubChips({ arms, loops }: { arms: number; loops: number }) {
   if (!arms && !loops) return null;
   return (
-    <Badge variant="secondary" className="min-w-0 truncate tabular-nums" title={notes.join(' ') || undefined}>
+    <Badge variant="secondary" className="min-w-0 truncate tabular-nums">
       {arms > 0 ? `동시에 열림 ${arms.toLocaleString()}` : '되돌아감'}
       {loops > 0 ? ` · ↺${loops.toLocaleString()}` : ''}
     </Badge>
@@ -153,7 +152,7 @@ function PathNodeView({ data, selected }: NodeProps<PathNode>) {
   if (data.shape === 'folded')
     return (
       <div style={size} className="flex items-center">
-        <Button variant="outline" className="nodrag h-full w-full border-dashed bg-muted font-normal text-muted-foreground" title={`번역을 마친 ${data.parts?.toLocaleString()}개 구간을 접었습니다. 누르면 펼칩니다.`} onClick={data.onExpand}>
+        <Button variant="outline" className="nodrag h-full w-full border-dashed bg-muted font-normal text-muted-foreground" onClick={data.onExpand}>
           번역함 · {data.lines.toLocaleString()}줄
           {data.arm && <ArmChip arm={data.arm} className="ml-2" />}
         </Button>
@@ -179,9 +178,9 @@ function PathNodeView({ data, selected }: NodeProps<PathNode>) {
         </span>
         {data.shape !== 'section' && data.lines > 1 && <Badge variant="secondary" className="shrink-0">{data.lines.toLocaleString()}줄</Badge>}
         {!!data.translated && data.translated < data.lines && (
-          <span className="inline-flex items-center gap-1"><Badge variant="outline" className="shrink-0 tabular-nums">{data.translated.toLocaleString()}/{data.lines.toLocaleString()}</Badge><HelpTip>번역한 줄 / 이 노드의 줄</HelpTip></span>
+          <Badge variant="outline" className="shrink-0 tabular-nums">{data.translated.toLocaleString()}/{data.lines.toLocaleString()}</Badge>
         )}
-        {!!data.lanes && <HubChips arms={data.hub ? data.hub.arms : data.lanes} loops={data.hub?.loops ?? 0} behind={data.hub?.behind ?? 0} />}
+        {!!data.lanes && <HubChips arms={data.hub ? data.hub.arms : data.lanes} loops={data.hub?.loops ?? 0} />}
         {data.seamMark && <SeamMark state={data.seamMark.state} />}
         {data.arm && <ArmChip arm={data.arm} />}
       </div>

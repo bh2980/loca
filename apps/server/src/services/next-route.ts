@@ -5,7 +5,7 @@ import { routeGraph, walkRoute, type RouteGraph } from './route-slice.ts';
 import { routeCoverage, throughPicks } from './route-coverage.ts';
 
 /**
- * 다음 길 (docs/DESIGN.md J2c): translate a branching dialogue graph route by route. After a route
+ * 다음 길: translate a branching dialogue graph route by route. After a route
  * is translated, the next one is the route that passes through the most lines still untranslated, so
  * it overlaps the earlier routes as little as possible. No AI is involved: only graph edges and which
  * lines already have a translation are read.

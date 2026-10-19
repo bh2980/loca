@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { CornerDownRight, FileText, Network, PencilLine } from 'lucide-react';
-import { Inspector, InspectorHeader, Button, Skeleton, HelpTip } from '@loca/ui';
+import { Inspector, InspectorHeader, Button, Skeleton } from '@loca/ui';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { KIND_LABEL } from './shapes';
@@ -17,7 +17,7 @@ export function SceneNodeDetail({ projectId, groupId, onClose }: { projectId: st
   if (!group.data) return <Skeleton className="m-4 h-24" />;
   return (
     <div className="flex h-full flex-col">
-      <InspectorHeader kind="장면" name={group.data.title} status={<span className="font-mono">{group.data.key}</span>} onClose={onClose} />
+      <InspectorHeader kind="장면" name={group.data.title} status={<span className="font-mono text-xs break-all" title={group.data.key}>{group.data.key}</span>} onClose={onClose} />
       <div className="space-y-3 p-4">
         {group.data.description && <p className="text-sm">{group.data.description}</p>}
         <div className="flex flex-col gap-2">
@@ -32,7 +32,6 @@ export function SceneNodeDetail({ projectId, groupId, onClose }: { projectId: st
             </Link>
           </Button>
         </div>
-        <p className="text-xs text-muted-foreground">장면 사이 연결은 대사 그래프에서 파생한 것입니다. 원본에 장면 순서가 기록된 것은 아닙니다.</p>
       </div>
     </div>
   );
@@ -112,7 +111,6 @@ export function FlowPane({ projectId, nodeIds, title, way, extra, marked, editin
       key={key}
       data-marked={options.scrollTo || undefined}
       data-editing={(options.unitId && options.unitId === editing) || undefined}
-      title={options.unitId ? '눌러서 번역 (노드 옆 카드)' : undefined}
       className={cn('group relative grid gap-3 px-3 py-2', options.unitId && 'cursor-pointer hover:bg-muted', options.unitId && options.unitId === editing && 'bg-primary/5 shadow-[inset_2px_0_0_var(--primary)]', options.className)}
       style={{ gridTemplateColumns: `${width}px minmax(0,1fr)` }}
       onClick={options.unitId ? () => onEdit(options.unitId!) : undefined}
@@ -181,7 +179,7 @@ export function FlowPane({ projectId, nodeIds, title, way, extra, marked, editin
             <span key={index} className={cn('rounded-full border px-1.5', label.choice ? 'border-choice/30 bg-choice/10 text-choice' : 'bg-background')}>
               {label.choice ? `▶ ${label.text}` : label.text}
             </span>
-          ))}<HelpTip>이 대사로 들어오는 길</HelpTip>
+          ))}
         </p>
       )}
       <div ref={list} className="relative">

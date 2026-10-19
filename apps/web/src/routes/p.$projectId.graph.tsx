@@ -2,29 +2,41 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Maximize, Minus, Plus } from 'lucide-react';
-import { GraphCanvas, type GraphCanvasHandle, type NodeInfo, type Viewport } from '@/components/graph/graph-canvas';
+import { ArrowLeftRight, FilePlus2, FolderPlus, MinusCircle, ArrowUpDown, Copy, ExternalLink, Flag, Focus, Maximize, Minus, Network, Play, Plus, Route as RouteIcon, SlidersHorizontal, Sparkles } from 'lucide-react';
+import { RunDialog } from '@/components/workflow/run-dialog';
+import { GraphCanvas, type GraphCanvasHandle, type LayoutEdge, type NodeInfo, type Viewport } from '@/components/graph/graph-canvas';
 import { LINE_CARD_WIDTH, LineCard } from '@/components/graph/line-card';
 import { FlowPane, SceneNodeDetail } from '@/components/graph/node-detail';
 import { KIND_LABEL } from '@/components/graph/shapes';
 import { TypeLegend } from '@/components/graph/type-legend';
 import { HeaderActions, Page } from '@/components/page';
-import { SearchInput, SplitPane, PaneHeader, Button, Empty, EmptyDescription, EmptyHeader, EmptyTitle, ScrollArea, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner, Switch, ViewSwitch } from '@loca/ui';
+import { SearchInput, SplitPane, PaneHeader, Button, CanvasDirectionControl, CanvasOverlay, CanvasSurface, Empty, EmptyDescription, EmptyHeader, EmptyTitle, ScrollArea, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue, Input, Popover, PopoverContent, PopoverTrigger, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, Spinner, Switch, ViewSwitch, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, useRevealDock, GraphEndpointBar } from '@loca/ui';
 import { useSize } from '@/hooks/use-size';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
+import { chatDock } from '@/lib/chat-dock';
+import { OmittedPane, ViewInspector, ViewReason, briefViewPrompt, useViewActions } from '@/components/graph/view-inspector';
 import { PathMode } from '@/components/graph/path-mode';
 import { cn } from '@/lib/utils';
 
 type Scope = 'scene' | 'dialogue';
+type GraphDirection = 'vertical' | 'horizontal';
 interface GraphSearch {
   scope: Scope;
-  /** 길 따라 보기: the slice of the dialogue graph for the stored choices (docs/DESIGN.md J2c). */
+  direction?: GraphDirection;
+  /** 길 따라 보기: the slice of the dialogue graph for the stored choices. */
   view?: 'path';
-  /** 길 따라 보기: the overview node the window is around (default: the first). */
-  at?: string;
-  /** 길 따라 보기: draw the whole overview instead of the window. */
-  all?: 1;
+  /** Reading route endpoints belong to this URL, independent of persisted legacy graph slices. */
+  routeStart?: string;
+  routeEnd?: string;
+  /** Draft endpoint selection; applied endpoints remain routeStart/routeEnd until path creation. */
+  pickStart?: string;
+  pickEnd?: string;
+  pickStep?: 'start' | 'end';
+  pickSection?: string;
+  pickQ?: string;
+  pickChain?: string;
+  pickFocus?: string;
   node?: string;
   scene?: string;
   /** Dialogue graph section (chapter, act, day…); "all" draws the whole graph on one sheet. Absent = the first section. */
@@ -39,6 +51,10 @@ interface GraphSearch {
   mark?: string;
   /** The line open in the translation card beside its node (dialogue graph). */
   edit?: string;
+  /** The right pane shows the open view's own details (name, request, counts). */
+  viewInfo?: true;
+  /** The right pane lists what a derived edge leaves out (the edge's id in the open layout). */
+  omitted?: string;
   /** Node finder text (matches are listed under the box). */
   q?: string;
 }
@@ -46,9 +62,17 @@ interface GraphSearch {
 export const Route = createFileRoute('/p/$projectId/graph')({
   validateSearch: (raw: Record<string, unknown>): GraphSearch => ({
     scope: raw.scope === 'dialogue' || raw.view === 'path' ? 'dialogue' : 'scene',
+    direction: raw.direction === 'horizontal' ? 'horizontal' : raw.direction === 'vertical' ? 'vertical' : undefined,
     view: raw.view === 'path' ? 'path' : undefined,
-    at: raw.view === 'path' && typeof raw.at === 'string' && raw.at ? raw.at : undefined,
-    all: raw.view === 'path' && (raw.all === 1 || raw.all === '1' || raw.all === true) ? 1 : undefined,
+    routeStart: typeof raw.routeStart === 'string' && raw.routeStart ? raw.routeStart : undefined,
+    routeEnd: typeof raw.routeEnd === 'string' && raw.routeEnd ? raw.routeEnd : undefined,
+    pickStart: typeof raw.pickStart === 'string' && raw.pickStart ? raw.pickStart : undefined,
+    pickEnd: typeof raw.pickEnd === 'string' && raw.pickEnd ? raw.pickEnd : undefined,
+    pickStep: raw.pickStep === 'start' || raw.pickStep === 'end' ? raw.pickStep : undefined,
+    pickSection: typeof raw.pickSection === 'string' && raw.pickSection ? raw.pickSection : undefined,
+    pickQ: typeof raw.pickQ === 'string' && raw.pickQ ? raw.pickQ : undefined,
+    pickChain: typeof raw.pickChain === 'string' && raw.pickChain ? raw.pickChain : undefined,
+    pickFocus: typeof raw.pickFocus === 'string' && raw.pickFocus ? raw.pickFocus : undefined,
     node: typeof raw.node === 'string' ? raw.node : undefined,
     scene: typeof raw.scene === 'string' ? raw.scene : undefined,
     section: typeof raw.section === 'string' && raw.section ? raw.section : undefined,
@@ -57,13 +81,15 @@ export const Route = createFileRoute('/p/$projectId/graph')({
     mark: typeof raw.mark === 'string' && raw.mark ? raw.mark : undefined,
     jump: raw.jump === true || raw.jump === 'true' ? true : undefined,
     edit: typeof raw.edit === 'string' && raw.edit ? raw.edit : undefined,
+    viewInfo: raw.viewInfo === true || raw.viewInfo === 'true' || raw.viewInfo === '1' || raw.viewInfo === 1 ? true : undefined,
+    omitted: typeof raw.omitted === 'string' && raw.omitted ? raw.omitted : undefined,
     q: typeof raw.q === 'string' && raw.q ? raw.q : undefined,
   }),
   component: GraphRoute,
 });
 
 /** Viewport is a per-tab preference: kept in sessionStorage, never in history, so panning adds no entries. */
-const viewportKey = (projectId: string, scope: Scope, scene?: string, section?: string) => `tw.graph.view.${projectId}.${scope}.${section ?? ''}.${scene ?? ''}`;
+const viewportKey = (projectId: string, scope: Scope, scene?: string, section?: string, direction: GraphDirection = 'vertical') => `tw.graph.view.${projectId}.${scope}.${direction}.${section ?? ''}.${scene ?? ''}`;
 const readViewport = (key: string): Viewport | undefined => {
   try {
     return JSON.parse(sessionStorage.getItem(key) ?? 'null') ?? undefined;
@@ -72,34 +98,96 @@ const readViewport = (key: string): Viewport | undefined => {
   }
 };
 
-
-const GRAPH_MODES = ['scene', 'dialogue', 'path'] as const;
-/** The graph's three modes in one sleek segment control */
+const GRAPH_MODES = ['scene', 'dialogue'] as const;
+/** The graph's modes in one sleek segment control: scene vs dialogue */
 function ModeToggle({ value, onChange }: { value: (typeof GRAPH_MODES)[number]; onChange: (value: (typeof GRAPH_MODES)[number]) => void }) {
   return <ViewSwitch label="그래프 보기" value={value} onChange={(next) => onChange(next as (typeof GRAPH_MODES)[number])} items={[
-    { value: 'scene', label: '장면' }, { value: 'dialogue', label: '대사' }, { value: 'path', label: '경로' },
+    { value: 'scene', label: '장면' }, { value: 'dialogue', label: '대사' },
   ]} />;
+}
+
+function resolveChainEndpoint(
+  id: string,
+  role: 'start' | 'end',
+  chains?: { id: string; nodeIds: string[] }[],
+  nodes?: { id: string; total?: number }[],
+): string {
+  if (!id.startsWith('chain:') || !chains) return id;
+  const chain = chains.find((c) => c.id === id);
+  if (!chain || !chain.nodeIds.length) return id;
+  const totals = new Map((nodes ?? []).map((n) => [n.id, n.total ?? 0] as const));
+  if (role === 'start') {
+    const candidate = chain.nodeIds.find((nodeId) => (totals.get(nodeId) ?? 0) > 0);
+    return candidate ?? chain.nodeIds[0]!;
+  } else {
+    for (let i = chain.nodeIds.length - 1; i >= 0; i--) {
+      const nodeId = chain.nodeIds[i]!;
+      if ((totals.get(nodeId) ?? 0) > 0) return nodeId;
+    }
+    return chain.nodeIds[chain.nodeIds.length - 1]!;
+  }
 }
 
 function GraphRoute() {
   const { projectId } = Route.useParams();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
-  if (search.view !== 'path') return <GraphPage />;
-  return (
-    <PathMode
-      projectId={projectId}
-      toggle={<ModeToggle value="path" onChange={(mode) => void navigate({ search: mode === 'path' ? { scope: 'dialogue', view: 'path' } : { scope: mode } })} />}
-      node={search.node}
-      edit={search.edit}
-      at={search.at}
-      all={search.all === 1}
-      onSelect={(node, focus) => void navigate({ search: (previous) => ({ ...previous, node, ...(node && focus && { at: node }) }), replace: true })}
-      onEdit={(edit) => void navigate({ search: (previous) => ({ ...previous, edit }), replace: true })}
-      onMove={(at) => void navigate({ search: (previous) => ({ ...previous, at }), replace: true })}
-      onAll={(all) => void navigate({ search: (previous) => ({ ...previous, all: all ? 1 : undefined }) })}
-    />
-  );
+  const direction = search.direction ?? 'vertical';
+  const isRouteView = search.scope === 'dialogue' && Boolean(search.routeStart && search.routeEnd && !search.pickStep);
+
+  if (isRouteView) {
+    return (
+      <PathMode
+        projectId={projectId}
+        direction={direction}
+        onDirectionChange={(next) => void navigate({ search: (previous) => ({ ...previous, direction: next }) })}
+        toggle={
+          <ModeToggle
+            value="dialogue"
+            onChange={(mode) => void navigate({
+              search: (previous) => ({
+                ...previous,
+                scope: mode,
+                routeStart: undefined,
+                routeEnd: undefined,
+                pickStart: undefined,
+                pickEnd: undefined,
+                pickStep: undefined,
+              }),
+            })}
+          />
+        }
+        start={search.routeStart}
+        end={search.routeEnd}
+        edit={search.edit}
+        onEdit={(edit) => void navigate({ search: (previous) => ({ ...previous, edit }), replace: true })}
+        onBeginPicking={(pickStep) => void navigate({
+          search: (previous) => ({
+            ...previous,
+            pickStart: previous.routeStart,
+            pickEnd: previous.routeEnd,
+            pickStep: pickStep ?? 'start',
+            node: undefined,
+            edit: undefined,
+          }),
+        })}
+        onClear={() => void navigate({
+          search: (previous) => ({
+            ...previous,
+            routeStart: undefined,
+            routeEnd: undefined,
+            pickStart: undefined,
+            pickEnd: undefined,
+            pickStep: undefined,
+            node: undefined,
+            edit: undefined,
+          }),
+        })}
+      />
+    );
+  }
+
+  return <GraphPage />;
 }
 
 function GraphPage() {
@@ -107,21 +195,36 @@ function GraphPage() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const dialogue = search.scope === 'dialogue';
+  const direction = search.direction ?? 'vertical';
   // The section list is small and separate: the default section (the first, or the one holding
   // `scene`) is known before any layout is loaded.
-  const sectionList = useQuery({ ...q.graphSections(projectId), enabled: dialogue });
+  const sectionList = useQuery({ ...q.graphSections(projectId, direction), enabled: dialogue });
   const sections = dialogue ? (sectionList.data ?? []) : [];
   const chosen = !dialogue || search.section === 'all' ? undefined : search.section ?? (sections.length > 1 ? (sections.find((section) => section.groupIds.includes(search.scene ?? ''))?.name ?? sections[0].name) : undefined);
-  const graph = useQuery({ ...q.graph(projectId, search.scope, chosen), enabled: !dialogue || !!search.section || sectionList.isSuccess });
+  const graph = useQuery({ ...q.graph(projectId, search.scope, chosen, direction), enabled: !dialogue || !!search.section || sectionList.isSuccess });
   // A view laid out on its own (the chat's show_graph, mode "only").
   const viewId = chosen?.startsWith('view:') ? chosen.slice('view:'.length) : undefined;
-  const viewInfo = useQuery({ ...q.graphView(projectId, viewId ?? ''), enabled: !!viewId });
-  const view = viewId && graph.data?.layout?.view ? { ...graph.data.layout.view, label: viewInfo.data?.label ?? graph.data.layout.view.label } : undefined;
+  const viewDetail = useQuery({ ...q.graphView(projectId, viewId ?? ''), enabled: !!viewId });
+  const view = viewId && graph.data?.layout?.view ? { ...graph.data.layout.view, label: viewDetail.data?.label ?? graph.data.layout.view.label } : undefined;
+  const savedViews = useQuery({ ...q.graphViews(projectId), enabled: dialogue }).data ?? [];
+  const viewActions = useViewActions(projectId);
+  /** Naming a view made from the picked nodes: the small popover stands where the menu was. */
+  const [naming, setNaming] = useState<{ nodeIds: string[]; x: number; y: number } | null>(null);
+  const [newName, setNewName] = useState('');
   // Nodes the chat asked to highlight (show_graph, mode "mark"); the canvas waits for them so it opens on them.
   const mark = useQuery({ ...q.graphView(projectId, search.mark ?? ''), enabled: dialogue && !!search.mark });
   const marking = dialogue && !!search.mark && mark.isPending;
   const [container, size] = useSize<HTMLDivElement>();
   const canvas = useRef<GraphCanvasHandle>(null);
+  const revealDock = useRevealDock();
+  const [contextMenu, setContextMenu] = useState<{
+    nodeId?: string;
+    x: number;
+    y: number;
+  } | null>(null);
+  /** Box or modifier-click selection; a single selection stays in the URL (`node`). */
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [runUnits, setRunUnits] = useState<string[]>();
   const find = search.q ?? '';
   const setFind = (q: string | undefined) => void navigate({ search: (previous) => ({ ...previous, q }), replace: true });
 
@@ -178,19 +281,19 @@ function GraphPage() {
     return graph.data.nodes.filter((node) => [node.key, node.label, node.preview].some((value) => value?.toLowerCase().includes(text))).slice(0, 50);
   }, [find, graph.data]);
 
-  const key = viewportKey(projectId, search.scope, search.scene ?? (dialogue && search.mark ? `mark:${search.mark}` : undefined), dialogue ? (chosen ?? 'all') : undefined);
+  const key = viewportKey(projectId, search.scope, search.scene ?? (dialogue && search.mark ? `mark:${search.mark}` : undefined), dialogue ? (chosen ?? 'all') : undefined, direction);
   const select = (id: string | undefined) => {
     const target = id ? portals.get(id) : undefined;
     // A portal is navigation to the section it stands for (or, in a view of chosen scenes, to the
     // scene the lines continue in, shown in its own section), not a node to inspect.
     if (target?.groupId) void navigate({ search: { scope: 'dialogue', scene: target.groupId } });
-    else if (target) void navigate({ search: (previous) => ({ ...previous, section: target.section, node: undefined, scene: undefined }) });
+    else if (target) void navigate({ search: (previous) => ({ ...previous, section: target.section, node: undefined, scene: undefined, omitted: undefined, viewInfo: undefined }) });
     else {
       // While the translation card is open, picking another node keeps translating there (its first
       // line without a translation); clicking empty canvas or Esc ends it.
       if (id && search.edit && search.node && shown(id) === anchorOf(search.node)) return;
       if (id && search.edit && dialogue) setFollow({ node: id, direction: 0 });
-      void navigate({ search: (previous) => ({ ...previous, node: id, edit: undefined }), replace: true });
+      void navigate({ search: (previous) => ({ ...previous, node: id, edit: undefined, omitted: id ? undefined : previous.omitted }), replace: true });
     }
   };
   const layout = graph.data?.layout;
@@ -245,7 +348,14 @@ function GraphPage() {
   const anchorId = editAt >= 0 ? anchorOf(flowLines[editAt].nodeId) : undefined;
   // The line open in the translation card (the selected node reports itself from its pane).
   const editUnit = useQuery({ ...q.unit(search.edit ?? ''), enabled: !!search.edit });
-  useReportView('graph-line', [editUnit.data && { kind: '대사', id: editUnit.data.id, label: `${editUnit.data.key} · ${editUnit.data.source.slice(0, 40)}` }]);
+  useReportView('graph-line', [
+    editUnit.data && {
+      kind: '대사',
+      id: editUnit.data.id,
+      label: `${editUnit.data.speaker?.trim() ? `${editUnit.data.speaker.trim()}: ` : ''}${editUnit.data.source.slice(0, 40)}`,
+      detail: JSON.stringify({ key: editUnit.data.key }),
+    },
+  ]);
   const edit = (unitId: string | undefined) => void navigate({ search: (previous) => ({ ...previous, edit: unitId }), replace: true });
   // After stepping past the selection's end, the next selection opens on its first (or last) line
   // once its lines have arrived.
@@ -314,69 +424,295 @@ function GraphPage() {
   const looseEdges = layout?.looseEdges;
   const hidden = search.scope === 'scene' ? (layout?.hiddenEdges ?? []) : [];
   // Hidden links are drawn as straight lines between the laid-out boxes (bottom centre → top centre).
-  const edges = useMemo(() => {
+  const edges = useMemo<LayoutEdge[]>(() => {
     if (!layout || search.links !== 'all' || !hidden.length) return layout?.edges ?? [];
     const box = new Map(layout.nodes.map((node) => [node.id, node]));
     const extra = hidden.flatMap((edge, i) => {
       const a = box.get(edge.from);
       const b = box.get(edge.to);
-      return a && b ? [{ id: `h${i}`, from: edge.from, to: edge.to, points: [a.x + a.width / 2, a.y + a.height, b.x + b.width / 2, b.y] }] : [];
+      return a && b ? [{ id: `h${i}`, from: edge.from, to: edge.to, points: direction === 'horizontal'
+        ? [a.x + a.width, a.y + a.height / 2, b.x, b.y + b.height / 2]
+        : [a.x + a.width / 2, a.y + a.height, b.x + b.width / 2, b.y] }] : [];
     });
     return [...layout.edges, ...extra];
   }, [layout, hidden, search.links]);
 
+  /** The lines of the picked nodes (a folded run's nodes; portals hold none), for a workflow run. */
+  const runPicked = async (ids: Iterable<string>) => {
+    const nodeIds = [...ids].flatMap((id) => (portals.has(id) ? [] : (layout?.chains?.find((chain) => chain.id === id)?.nodeIds ?? [id])));
+    const details = await Promise.all(nodeIds.map((id) => queryClient.fetchQuery(q.graphNode(id))));
+    const unitIds = [...new Set(details.flatMap((detail) => detail.units.map((unit) => unit.id)))];
+    if (unitIds.length) setRunUnits(unitIds);
+    else toast('고른 노드에 대사가 없습니다.');
+  };
+
+  /** The real node ids behind picked ids: a folded run's nodes; portals stand for none. */
+  const realNodes = (ids: Iterable<string>) => [...new Set([...ids].flatMap((id) => (portals.has(id) ? [] : (layout?.chains?.find((chain) => chain.id === id)?.nodeIds ?? [id]))))];
+  const makeView = () => {
+    if (!naming || !newName.trim()) return;
+    viewActions.create.mutate({ label: newName.trim(), nodeIds: naming.nodeIds }, {
+      onSuccess: ({ id }) => {
+        setNaming(null);
+        setNewName('');
+        setPicked(new Set());
+        void navigate({ search: (previous) => ({ ...previous, section: `view:${id}`, node: undefined, edit: undefined, omitted: undefined, viewInfo: undefined }) });
+      },
+    });
+  };
+  const addToView = (id: string, label: string, ids: Iterable<string>) => {
+    const nodeIds = realNodes(ids);
+    viewActions.change.mutate({ id, add: nodeIds }, { onSuccess: () => toast.success(`보기 "${label}"에 노드 ${nodeIds.length.toLocaleString()}개를 더했습니다.`) });
+  };
+  const leaveView = (ids: Iterable<string>) => {
+    if (!viewId) return;
+    const nodeIds = realNodes(ids);
+    viewActions.change.mutate({ id: viewId, remove: nodeIds }, {
+      onSuccess: () => {
+        setPicked(new Set());
+        if (search.node) select(undefined);
+      },
+    });
+  };
+  /** The views a node set can be added to (the open one already holds its nodes). */
+  const otherViews = savedViews.filter((saved) => saved.id !== viewId);
+  const where = view ? `보기 "${view.label}"` : chosen ? `구역 "${chosen}"` : '전체';
+  const derivedEdges = edges.filter((edge) => edge.derived).length;
+  const reasonOf = (nodeId: string) => {
+    const reasons = viewDetail.data?.reasons;
+    if (!reasons) return undefined;
+    const ids = nodeId.startsWith('chain:') ? (layout?.chains?.find((chain) => chain.id === nodeId)?.nodeIds ?? []) : [nodeId];
+    const texts = [...new Set(ids.flatMap((id) => (reasons[id] ? [reasons[id]] : [])))];
+    return texts.length ? texts.join('\n') : undefined;
+  };
+  const omittedEdge = search.omitted ? edges.find((edge) => edge.id === search.omitted && edge.omitted) : undefined;
+  const infoOpen = Boolean(search.viewInfo && viewId);
+
+  const endpointIds = useMemo(() => [
+    ...new Set([search.pickStart ?? search.routeStart, search.pickEnd ?? search.routeEnd].filter((id): id is string => Boolean(id)))
+  ], [search.pickStart, search.routeStart, search.pickEnd, search.routeEnd]);
+  const endpointDetails = useQueries({ queries: endpointIds.map((id) => q.graphNode(id, projectId)) });
+  const endpointDetailById = useMemo(() => new Map(endpointIds.map((id, index) => {
+    const detail = endpointDetails[index]?.data;
+    return [id, detail?.projectId === projectId ? detail : undefined] as const;
+  })), [endpointIds, endpointDetails, projectId]);
+
+  const getEndpointValue = (id?: string, role: 'start' | 'end' = 'start') => {
+    if (!id) return undefined;
+    const detail = endpointDetailById.get(id);
+    if (!detail) return undefined;
+    if (detail.units.length === 0) {
+      const label = detail.label ?? detail.key;
+      return { id, label };
+    }
+    const unit = role === 'start' ? detail.units[0] : detail.units[detail.units.length - 1];
+    const source = unit?.source ?? detail.label ?? detail.key;
+    const text = source.replace(/\s+/g, ' ').trim();
+    const label = `${unit?.speaker?.trim() ? `${unit.speaker.trim()}: ` : ''}${text}${detail.key ? ` · ${detail.key}` : ''}${detail.units.length > 1 ? ` · ${detail.units.length}줄` : ''}`;
+    return { id, label };
+  };
+
+  const startValue = getEndpointValue(search.pickStart ?? search.routeStart, 'start');
+  const endValue = getEndpointValue(search.pickEnd ?? search.routeEnd, 'end');
+  const isPicking = Boolean(dialogue && (search.pickStep || search.pickStart || search.pickEnd));
+  const currentStep: 'start' | 'end' = search.pickStep ?? (search.pickStart && !search.pickEnd ? 'end' : 'start');
+
+  const endpointMarkers = useMemo(() => {
+    if (!dialogue) return undefined;
+    const markers = new Map<string, Array<'start' | 'end'>>();
+    const sId = search.pickStart ?? search.routeStart;
+    const eId = search.pickEnd ?? search.routeEnd;
+    if (sId) {
+      const visibleStart = shown(sId);
+      markers.set(visibleStart, [...(markers.get(visibleStart) ?? []), 'start']);
+    }
+    if (eId) {
+      const visibleEnd = shown(eId);
+      markers.set(visibleEnd, [...(markers.get(visibleEnd) ?? []), 'end']);
+    }
+    return markers.size > 0 ? markers : undefined;
+  }, [dialogue, search.pickStart, search.routeStart, search.pickEnd, search.routeEnd, chainOf]);
+
   return (
     <Page title="그래프" flush>
       <HeaderActions>
-        <ModeToggle value={search.scope} onChange={(mode) => void navigate({ search: mode === 'path' ? { scope: 'dialogue', view: 'path' } : { scope: mode } })} />
-          {dialogue && (sections.length > 1 || view) && (
-            <Select
-              value={chosen ?? 'all'}
-              onValueChange={(value) => void navigate({ search: (previous) => ({ ...previous, section: value, node: undefined }), replace: true })}
-            >
-              <SelectTrigger size="sm" className="w-52" aria-label="구역">
-                <span className="text-muted-foreground">구역</span>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">전체 (한 장)</SelectItem>
-                {view && chosen && <SelectItem value={chosen}>보기: {view.label || `노드 ${view.nodes.toLocaleString()}개`}</SelectItem>}
-                {sections.map((section) => (
-                  <SelectItem key={section.name} value={section.name}>
-                    {section.name} <span className="text-muted-foreground">· {section.nodes.toLocaleString()}</span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
+        <ModeToggle
+          value={search.scope}
+          onChange={(mode) => void navigate({
+            search: (previous) => ({
+              ...previous,
+              scope: mode,
+              routeStart: undefined,
+              routeEnd: undefined,
+              pickStart: undefined,
+              pickEnd: undefined,
+              pickStep: undefined,
+            }),
+          })}
+        />
+        <CanvasDirectionControl direction={direction} onDirectionChange={(next) => void navigate({ search: (previous) => ({ ...previous, direction: next }) })} />
+        {dialogue && (
+          <Button
+            variant={isPicking ? 'secondary' : 'outline'}
+            size="sm"
+            onClick={() => void navigate({
+              search: (prev) => isPicking
+                ? {
+                    ...prev,
+                    routeStart: undefined,
+                    routeEnd: undefined,
+                    pickStart: undefined,
+                    pickEnd: undefined,
+                    pickStep: undefined,
+                  }
+                : {
+                    ...prev,
+                    pickStep: 'start',
+                    node: undefined,
+                    edit: undefined,
+                  },
+            })}
+          >
+            <RouteIcon className="size-3.5 mr-1" />
+            {isPicking ? '취소' : '경로 따라 번역'}
+          </Button>
+        )}
+        {dialogue && (
+          <Button variant="outline" onClick={() => chatDock.prefill(projectId, briefViewPrompt(where))}>
+            <Sparkles /> AI 간략 보기
+          </Button>
+        )}
+        {dialogue && (sections.length > 1 || savedViews.length > 0 || view) && (
+          <Select
+            value={chosen ?? 'all'}
+            // Opening another view or section is navigation (a history entry); the pane's selection does not carry over.
+            onValueChange={(value) => void navigate({ search: (previous) => ({ ...previous, section: value, node: undefined, omitted: undefined, viewInfo: undefined }) })}
+          >
+            <SelectTrigger size="sm" className="w-56" aria-label="보기">
+              <span className="text-muted-foreground">보기</span>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">전체</SelectItem>
+              {sections.map((section) => (
+                <SelectItem key={section.name} value={section.name}>
+                  {section.name} <span className="text-muted-foreground">· {section.nodes.toLocaleString()}</span>
+                </SelectItem>
+              ))}
+              {(savedViews.length > 0 || view) && (
+                <>
+                  <SelectSeparator />
+                  <SelectGroup>
+                    <SelectLabel>저장된 보기</SelectLabel>
+                    {savedViews.map((saved) => (
+                      <SelectItem key={saved.id} value={`view:${saved.id}`}>
+                        {saved.origin === 'ai' && <span className="text-muted-foreground">✦ </span>}
+                        {saved.label} <span className="text-muted-foreground">· {saved.nodes.toLocaleString()}개</span>
+                      </SelectItem>
+                    ))}
+                    {view && chosen && !savedViews.some((saved) => `view:${saved.id}` === chosen) && <SelectItem value={chosen}>{view.label}</SelectItem>}
+                  </SelectGroup>
+                </>
+              )}
+            </SelectContent>
+          </Select>
+        )}
       </HeaderActions>
-      <SplitPane
-        id="graph"
-        defaultWidth="380px"
-        className="absolute inset-0"
+      <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+        {isPicking && (
+          <GraphEndpointBar
+            start={startValue}
+            end={endValue}
+            step={currentStep}
+            picking={true}
+            canFind={Boolean(startValue && endValue)}
+            onStepChange={(step) => void navigate({ search: (prev) => ({ ...prev, pickStep: step }) })}
+            onFind={() => {
+              const finalStart = search.pickStart ?? search.routeStart;
+              const finalEnd = search.pickEnd ?? search.routeEnd;
+              if (finalStart && finalEnd) {
+                void navigate({
+                  search: (prev) => ({
+                    ...prev,
+                    routeStart: finalStart,
+                    routeEnd: finalEnd,
+                    pickStart: undefined,
+                    pickEnd: undefined,
+                    pickStep: undefined,
+                    node: undefined,
+                    edit: undefined,
+                  }),
+                });
+              }
+            }}
+            onClear={() => {
+              void navigate({
+                search: (prev) => ({
+                  ...prev,
+                  routeStart: undefined,
+                  routeEnd: undefined,
+                  pickStart: undefined,
+                  pickEnd: undefined,
+                  pickStep: undefined,
+                  node: undefined,
+                  edit: undefined,
+                }),
+              });
+            }}
+          />
+        )}
+        <div className="relative min-h-0 flex-1 overflow-hidden">
+          <SplitPane
+            id="graph"
+            selectionKey={isPicking ? undefined : search.node ?? (omittedEdge ? `omitted:${omittedEdge.id}` : infoOpen ? 'view-info' : undefined)}
+            defaultWidth="380px"
+            className="absolute inset-0"
         pane={
-          search.node && (
+          (search.node || omittedEdge || infoOpen) && (
             <div className="h-full bg-background">
-              {search.scope === 'scene' && hubs.has(search.node) ? (
+              {!search.node && omittedEdge ? (
+                <OmittedPane
+                  key={omittedEdge.id}
+                  projectId={projectId}
+                  edge={omittedEdge}
+                  sections={sections}
+                  onClose={() => void navigate({ search: (previous) => ({ ...previous, omitted: undefined }), replace: true })}
+                  // Opening the source is navigation: the section holding the stretch, centred on its first node.
+                  onOpenSource={(section, nodeId) => void navigate({ search: (previous) => ({ ...previous, section: section ?? 'all', scene: undefined, node: nodeId, jump: true, omitted: undefined, viewInfo: undefined, edit: undefined }) })}
+                />
+              ) : !search.node && viewId ? (
+                <ViewInspector
+                  projectId={projectId}
+                  viewId={viewId}
+                  shownNodes={layout ? layout.nodes.length - portals.size : 0}
+                  derivedEdges={derivedEdges}
+                  onClose={() => void navigate({ search: (previous) => ({ ...previous, viewInfo: undefined }), replace: true })}
+                  onDeleted={() => void navigate({ search: (previous) => ({ ...previous, section: undefined, viewInfo: undefined, node: undefined }) })}
+                />
+              ) : !search.node ? null : search.scope === 'scene' && hubs.has(search.node) ? (
                 <aside className="flex h-full flex-col text-sm">
                   <PaneHeader kicker="장면 그래프" title="연결점" onClose={() => select(undefined)} />
                   <p className="px-4 py-3 text-muted-foreground">
-                    장면에 속하지 않는 노드 {hubs.get(search.node)!.nodes.toLocaleString()}개가 장면 {hubs.get(search.node)!.scenes.toLocaleString()}개를 잇습니다. 대사 그래프에서 파생한 연결입니다.
+                    장면에 속하지 않는 노드 {hubs.get(search.node)!.nodes.toLocaleString()}개가 장면 {hubs.get(search.node)!.scenes.toLocaleString()}개를 잇습니다
                   </p>
                 </aside>
               ) : search.scope === 'dialogue' ? (
                 // One pane for a node and a folded run alike: their lines, read in order.
-                <FlowPane
-                  key={search.node}
-                  projectId={projectId}
-                  nodeIds={flowOf(search.node)}
-                  way={wayInto(search.node)}
-                  marked={chainOf.has(search.node) ? search.node : undefined}
-                  editing={search.edit}
-                  onEdit={edit}
-                  title={info.get(chainOf.get(search.node) ?? search.node)?.title ?? info.get(chainOf.get(search.node) ?? search.node)?.label ?? ''}
-                  onClose={() => select(undefined)}
-                />
+                <div className="flex h-full min-h-0 flex-col">
+                  {viewId && reasonOf(search.node) && <ViewReason reason={reasonOf(search.node)!} />}
+                  <div className="min-h-0 flex-1">
+                    <FlowPane
+                      key={search.node}
+                      projectId={projectId}
+                      nodeIds={flowOf(search.node)}
+                      way={wayInto(search.node)}
+                      marked={chainOf.has(search.node) ? search.node : undefined}
+                      editing={search.edit}
+                      onEdit={edit}
+                      title={info.get(chainOf.get(search.node) ?? search.node)?.title ?? info.get(chainOf.get(search.node) ?? search.node)?.label ?? ''}
+                      onClose={() => select(undefined)}
+                    />
+                  </div>
+                </div>
               ) : search.scope === 'scene' ? (
                 <SceneNodeDetail projectId={projectId} groupId={search.node} onClose={() => select(undefined)} />
               ) : null}
@@ -384,25 +720,90 @@ function GraphPage() {
           )
         }
       >
-        <div ref={container} className="relative min-w-0 flex-1 bg-[radial-gradient(var(--graph-grid)_1px,transparent_1px)] [background-size:20px_20px]">
+        <CanvasSurface ref={container}>
           {canvasShown && layout && (
             <GraphCanvas
-              key={`${search.scope}:${chosen ?? 'all'}:${search.scene ?? ''}:${search.mark ?? ''}`}
+              key={`${search.scope}:${direction}:${chosen ?? 'all'}:${search.scene ?? ''}:${search.mark ?? ''}`}
               handle={canvas}
               nodes={layout.nodes}
               regions={layout.regions}
               edges={edges}
               looseEdges={looseEdges}
+              direction={direction}
               hubs={hubs}
               info={info}
               width={size.width}
               height={size.height}
-              selectedId={search.node ? shown(search.node) : undefined}
+              selectedId={isPicking ? undefined : search.node ? shown(search.node) : undefined}
+              // The node a menu is open on is marked like a selected one while the menu is up.
+              selectedIds={!picked.size && contextMenu?.nodeId ? new Set([contextMenu.nodeId]) : picked}
+              onSelectMany={isPicking ? undefined : (ids, additive) => {
+                setContextMenu(null);
+                const next = new Set(additive ? picked : []);
+                if (additive && search.node && !next.size) next.add(shown(search.node));
+                for (const id of ids) {
+                  if (portals.has(id) || id.startsWith('omitted:')) continue;
+                  if (additive && ids.length === 1 && next.has(id)) next.delete(id);
+                  else next.add(id);
+                }
+                setPicked(next);
+                // One node picked is the ordinary selection, with its pane.
+                if (next.size === 1) select([...next][0]);
+                else if (search.node) select(undefined);
+                if (next.size === 1) setPicked(new Set());
+              }}
               highlight={highlight}
+              endpointMarkers={endpointMarkers}
               initialViewport={search.jump ? undefined : readViewport(key)}
               initialFocus={search.jump && search.node ? shown(layout.edges.find((edge) => edge.via === search.node)?.to ?? search.node) : undefined}
               onViewportChange={(viewport) => sessionStorage.setItem(key, JSON.stringify(viewport))}
-              onSelect={select}
+              onSelect={(id) => {
+                setContextMenu(null);
+                setPicked(new Set());
+                if (!id) {
+                  select(undefined);
+                  return;
+                }
+                // A derived edge's label: the stretch it leaves out opens in the pane.
+                if (id.startsWith('omitted:')) {
+                  if (!isPicking) void navigate({ search: (previous) => ({ ...previous, omitted: id.slice('omitted:'.length), node: undefined, edit: undefined }), replace: true });
+                  return;
+                }
+                if (dialogue && isPicking) {
+                  const targetId = resolveChainEndpoint(id, currentStep, layout?.chains, graph.data?.nodes);
+                  if (currentStep === 'start') {
+                    void navigate({
+                      search: (prev) => ({
+                        ...prev,
+                        pickStart: targetId,
+                        pickStep: 'end',
+                        node: undefined,
+                        edit: undefined,
+                      }),
+                      replace: true,
+                    });
+                  } else {
+                    void navigate({
+                      search: (prev) => ({
+                        ...prev,
+                        pickEnd: targetId,
+                        pickStep: 'end',
+                        node: undefined,
+                        edit: undefined,
+                      }),
+                      replace: true,
+                    });
+                  }
+                  return;
+                }
+                select(id);
+              }}
+              // The menu acts on the node under the pointer; the selection (and the detail pane) stays as it was.
+              onContextMenu={(rawId, pos) => {
+                const nodeId = rawId?.startsWith('omitted:') ? undefined : rawId;
+                if (nodeId && !picked.has(nodeId)) setPicked(new Set());
+                setContextMenu({ nodeId, x: pos.clientX, y: pos.clientY });
+              }}
               onOpen={dialogue ? startLine : undefined}
               anchor={
                 anchorId && search.edit
@@ -414,6 +815,274 @@ function GraphPage() {
               }
             />
           )}
+          {contextMenu && (
+            <DropdownMenu open={Boolean(contextMenu)} onOpenChange={(open) => !open && setContextMenu(null)} modal={false}>
+              <DropdownMenuTrigger asChild>
+                <span
+                  aria-hidden
+                  style={{
+                    position: 'fixed',
+                    left: contextMenu.x,
+                    top: contextMenu.y,
+                    width: 1,
+                    height: 1,
+                    pointerEvents: 'none',
+                  }}
+                />
+              </DropdownMenuTrigger>
+              {search.scope === 'dialogue' && contextMenu.nodeId && picked.size > 1 && picked.has(contextMenu.nodeId) && (
+                <DropdownMenuContent align="start" side="bottom" sideOffset={2} className="w-60">
+                  <DropdownMenuItem onSelect={() => void runPicked(picked)}>
+                    <Play className="size-3.5" />
+                    <span>워크플로 실행…</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      setNewName('');
+                      setNaming({ nodeIds: realNodes(picked), x: contextMenu.x, y: contextMenu.y });
+                    }}
+                  >
+                    <FilePlus2 className="size-3.5" />
+                    <span>보기 만들기…</span>
+                  </DropdownMenuItem>
+                  {otherViews.length > 0 && (
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>
+                        <FolderPlus className="size-3.5" />
+                        <span>보기에 추가</span>
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent className="max-h-72 w-56 overflow-auto">
+                        {otherViews.map((saved) => (
+                          <DropdownMenuItem key={saved.id} onSelect={() => addToView(saved.id, saved.label, picked)}>
+                            <span className="truncate">{saved.origin === 'ai' ? '✦ ' : ''}{saved.label}</span>
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                  )}
+                  {viewId && (
+                    <DropdownMenuItem onSelect={() => leaveView(picked)}>
+                      <MinusCircle className="size-3.5" />
+                      <span>보기에서 빼기 ({realNodes(picked).length.toLocaleString()})</span>
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              )}
+              {search.scope === 'dialogue' && contextMenu.nodeId && !(picked.size > 1 && picked.has(contextMenu.nodeId)) && (
+                <DropdownMenuContent align="start" side="bottom" sideOffset={2} className="w-56">
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      const id = contextMenu.nodeId!;
+                      select(id);
+                      setFollow({ node: id, direction: 0 });
+                      const untranslated = flowNodes.flatMap((result) => result.data?.units ?? []).find((unit) => !unit.translation);
+                      const unitId = untranslated?.id ?? flowLines[0]?.unitId;
+                      if (search.node === id && unitId) {
+                        edit(unitId);
+                      }
+                    }}
+                  >
+                    <Sparkles className="size-3.5" />
+                    <span>이 자리에서 번역</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      select(contextMenu.nodeId);
+                      revealDock?.();
+                    }}
+                  >
+                    <SlidersHorizontal className="size-3.5" />
+                    <span>상세 열기</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      const id = contextMenu.nodeId!;
+                      const targetNodeId = id.startsWith('chain:')
+                        ? (layout?.chains?.find((c) => c.id === id)?.nodeIds[0] ?? id)
+                        : id;
+                      const rawNode = graph.data?.nodes.find((n) => n.id === targetNodeId);
+                      const groupId = rawNode?.groupId;
+                      const lineId = flowLines.find((l) => l.nodeId === targetNodeId)?.unitId ?? (search.node === id ? flowLines[0]?.unitId : undefined);
+                      void navigate({
+                        to: '/p/$projectId/script',
+                        params: { projectId },
+                        search: {
+                          ...(groupId ? { group: groupId } : {}),
+                          ...(lineId ? { line: lineId } : {}),
+                        },
+                      });
+                    }}
+                  >
+                    <ExternalLink className="size-3.5" />
+                    <span>번역 화면에서 열기</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      const id = contextMenu.nodeId!;
+                      const startId = resolveChainEndpoint(id, 'start', layout?.chains, graph.data?.nodes);
+                      void navigate({
+                        search: (prev) => ({
+                          ...prev,
+                          scope: 'dialogue',
+                          pickStart: startId,
+                          pickStep: 'end',
+                          node: undefined,
+                          edit: undefined,
+                        }),
+                      });
+                    }}
+                  >
+                    <RouteIcon className="size-3.5" />
+                    <span>경로 시작으로</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      const id = contextMenu.nodeId!;
+                      const endId = resolveChainEndpoint(id, 'end', layout?.chains, graph.data?.nodes);
+                      const existingStart = search.pickStart ?? search.routeStart;
+                      if (existingStart) {
+                        void navigate({
+                          search: (prev) => ({
+                            ...prev,
+                            scope: 'dialogue',
+                            routeStart: existingStart,
+                            routeEnd: endId,
+                            pickStart: undefined,
+                            pickEnd: undefined,
+                            pickStep: undefined,
+                            node: undefined,
+                            edit: undefined,
+                          }),
+                        });
+                      } else {
+                        void navigate({
+                          search: (prev) => ({
+                            ...prev,
+                            scope: 'dialogue',
+                            pickEnd: endId,
+                            pickStep: 'start',
+                            node: undefined,
+                            edit: undefined,
+                          }),
+                        });
+                      }
+                    }}
+                  >
+                    <Flag className="size-3.5" />
+                    <span>경로 끝으로</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      const id = contextMenu.nodeId!;
+                      const nodeKey = info.get(id)?.key ?? id;
+                      void navigator.clipboard.writeText(nodeKey);
+                      toast.success('노드 키를 복사했습니다.');
+                    }}
+                  >
+                    <Copy className="size-3.5" />
+                    <span>키 복사</span>
+                  </DropdownMenuItem>
+                  {viewId && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onSelect={() => leaveView([contextMenu.nodeId!])}>
+                        <MinusCircle className="size-3.5" />
+                        <span>보기에서 빼기</span>
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                </DropdownMenuContent>
+              )}
+              {search.scope === 'scene' && contextMenu.nodeId && (
+                <DropdownMenuContent align="start" side="bottom" sideOffset={2} className="w-48">
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      const id = contextMenu.nodeId!;
+                      void navigate({
+                        to: '/p/$projectId/script',
+                        params: { projectId },
+                        search: { group: id },
+                      });
+                    }}
+                  >
+                    <ExternalLink className="size-3.5" />
+                    <span>장면 열기</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      const id = contextMenu.nodeId!;
+                      void navigate({
+                        search: (prev) => ({
+                          ...prev,
+                          scope: 'dialogue',
+                          scene: id,
+                        }),
+                      });
+                    }}
+                  >
+                    <Network className="size-3.5" />
+                    <span>대사 그래프에서 보기</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      select(contextMenu.nodeId);
+                      revealDock?.();
+                    }}
+                  >
+                    <SlidersHorizontal className="size-3.5" />
+                    <span>상세 열기</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              )}
+              {!contextMenu.nodeId && (
+                <DropdownMenuContent align="start" side="bottom" sideOffset={2} className="w-48">
+                  <DropdownMenuItem onSelect={() => canvas.current?.fit()}>
+                    <Maximize className="size-3.5" />
+                    <span>화면에 맞춤</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => canvas.current?.zoomTo(1)}>
+                    <Focus className="size-3.5" />
+                    <span>100% 배율</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      void navigate({
+                        search: (prev) => ({
+                          ...prev,
+                          direction: direction === 'vertical' ? 'horizontal' : 'vertical',
+                        }),
+                      });
+                    }}
+                  >
+                    {direction === 'vertical' ? <ArrowLeftRight className="size-3.5" /> : <ArrowUpDown className="size-3.5" />}
+                    <span>{direction === 'vertical' ? '가로 배치' : '세로 배치'}</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              )}
+            </DropdownMenu>
+          )}
+          {naming && (
+            <Popover open onOpenChange={(open) => !open && setNaming(null)}>
+              <PopoverTrigger asChild>
+                <span aria-hidden style={{ position: 'fixed', left: naming.x, top: naming.y, width: 1, height: 1, pointerEvents: 'none' }} />
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-72 space-y-2">
+                <Input autoFocus value={newName} maxLength={80} aria-label="보기 이름" placeholder="예: 올렉 사망 분기" onChange={(event) => setNewName(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && makeView()} />
+                <div className="flex justify-end gap-2">
+                  <Button variant="ghost" onClick={() => setNaming(null)}>취소</Button>
+                  <Button disabled={!newName.trim() || viewActions.create.isPending} onClick={makeView}>보기 만들기</Button>
+                </div>
+              </PopoverContent>
+            </Popover>
+          )}
+          {runUnits && (
+            <RunDialog projectId={projectId} unitIds={runUnits} unitsLabel="고른 노드" open onOpenChange={(open) => !open && setRunUnits(undefined)} hideTrigger />
+          )}
           {(graph.isPending || graph.data?.status === 'pending') && (
             <div className="absolute inset-0 flex items-center justify-center gap-2 text-sm text-muted-foreground">
               <Spinner /> 그래프 배치를 계산하는 중…
@@ -424,46 +1093,128 @@ function GraphPage() {
             <Empty className="absolute inset-0">
               <EmptyHeader>
                 <EmptyTitle>그래프가 없습니다</EmptyTitle>
-                <EmptyDescription>가져온 표준 파일에 그래프 정보가 없거나 장면 사이 연결이 없습니다.</EmptyDescription>
+                <EmptyDescription>가져온 파일에 그래프 정보가 없습니다.</EmptyDescription>
               </EmptyHeader>
             </Empty>
           ) : null}
 
           {layout && (
             <>
-              <div className="absolute top-3 left-3 flex w-[26rem] items-center gap-1.5 select-none">
-                <div className="min-w-0 flex-1">
-                  <SearchInput value={search.q} onChange={setFind} placeholder="노드 찾기 (키·라벨·첫 대사)" className="w-full h-7 bg-card border-border shadow-2xs text-xs rounded-md" />
-                  {matches.length > 0 && (
-                    <ul className="mt-1 max-h-72 overflow-auto rounded-lg border border-border bg-popover/95 p-1 text-xs shadow-md backdrop-blur-md">
-                      {matches.map((node) => (
-                        <li key={node.id}>
-                          <Button
-                            variant="ghost"
-                            size="row"
-                            className="block truncate rounded-md text-xs py-1"
-                            onClick={() => {
-                              select(node.id);
-                              canvas.current?.focus(shown(node.id));
-                              setFind(undefined);
-                            }}
-                          >
-                            <span className="text-xs text-muted-foreground">{KIND_LABEL[node.kind] ?? node.kind}</span> {node.preview ?? node.label ?? node.key}
+              <CanvasOverlay
+                tools={
+                  <>
+                    <div className="relative w-[26rem] max-w-full min-w-0 shrink select-none">
+                      <SearchInput value={search.q} onChange={setFind} placeholder="노드 찾기 (키·라벨·첫 대사)" className="w-full h-7 bg-card border-border shadow-2xs text-xs rounded-md" />
+                      {matches.length > 0 && (
+                        <ul className="absolute left-0 top-full z-50 mt-1 max-h-72 w-full overflow-auto rounded-lg border border-border bg-popover/95 p-1 text-sm shadow-md backdrop-blur-md">
+                          {matches.map((node) => (
+                            <li key={node.id}>
+                              <Button
+                                variant="ghost"
+                                size="row"
+                                className="flex w-full items-start gap-2 rounded-md py-1 text-left"
+                                onClick={() => {
+                                  if (dialogue && isPicking) {
+                                    const targetId = resolveChainEndpoint(node.id, currentStep, layout?.chains, graph.data?.nodes);
+                                    if (currentStep === 'start') {
+                                      void navigate({
+                                        search: (prev) => ({
+                                          ...prev,
+                                          pickStart: targetId,
+                                          pickStep: 'end',
+                                          node: undefined,
+                                          edit: undefined,
+                                        }),
+                                        replace: true,
+                                      });
+                                    } else {
+                                      void navigate({
+                                        search: (prev) => ({
+                                          ...prev,
+                                          pickEnd: targetId,
+                                          pickStep: 'end',
+                                          node: undefined,
+                                          edit: undefined,
+                                        }),
+                                        replace: true,
+                                      });
+                                    }
+                                    canvas.current?.focus(shown(node.id));
+                                    setFind(undefined);
+                                    return;
+                                  }
+                                  select(node.id);
+                                  canvas.current?.focus(shown(node.id));
+                                  setFind(undefined);
+                                }}
+                              >
+                                <span className="w-14 shrink-0 pt-0.5 text-xs text-muted-foreground">{KIND_LABEL[node.kind] ?? node.kind}</span>
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate text-sm text-foreground">{node.label ?? node.key}</span>
+                                  {node.preview && <span className="block truncate text-xs text-muted-foreground">{node.preview}</span>}
+                                </span>
+                              </Button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                    {search.scope === 'dialogue' && (
+                      <TypeLegend
+                        nodes={graph.data!.nodes}
+                        nodeTypes={graph.data!.nodeTypes}
+                        active={search.type}
+                        onPick={(type) => void navigate({ search: (previous) => ({ ...previous, type }), replace: true })}
+                      />
+                    )}
+                  </>
+                }
+                details={
+                  <>
+                    {picked.size > 1 && (
+                      <p className="max-w-3xl rounded-md border border-border bg-card px-2.5 py-1 text-sm text-muted-foreground shadow-2xs select-none">
+                        노드 {picked.size.toLocaleString()}개 선택
+                      </p>
+                    )}
+                    {view && viewDetail.data && (
+                      <div className="flex max-w-full flex-wrap items-center gap-2 rounded-md border border-border bg-card py-1 pr-1.5 pl-2.5 text-sm shadow-2xs backdrop-blur-xs select-none">
+                        <span>
+                          보기 "{view.label}" · 남김 {view.nodes.toLocaleString()} · 생략 구간 {derivedEdges.toLocaleString()} · {viewDetail.data.origin === 'ai' ? 'AI' : '직접'}
+                          {viewDetail.data.missing.length > 0 && <span className="text-destructive"> · 원본에 없음 {viewDetail.data.missing.length.toLocaleString()}</span>}
+                        </span>
+                        <Button variant="ghost" onClick={() => void navigate({ search: (previous) => ({ ...previous, viewInfo: true, node: undefined, omitted: undefined, edit: undefined }), replace: true })}>
+                          보기
+                        </Button>
+                      </div>
+                    )}
+                    {search.mark && mark.data && layout && (
+                      <div className="flex max-w-full flex-wrap items-center gap-2 rounded-md border border-border bg-card py-1 pr-1.5 pl-2.5 text-sm shadow-2xs backdrop-blur-xs select-none">
+                        <span className="size-1.5 rounded-full bg-primary" />
+                        <span>
+                          강조{mark.data.label ? ` "${mark.data.label}"` : ''} · 이 화면 {layout.nodes.filter((node) => highlight?.has(node.id)).length.toLocaleString()} / {mark.data.nodeIds.length.toLocaleString()}개
+                        </span>
+                        {mark.data.section && mark.data.section !== chosen && (
+                          <Button variant="ghost" onClick={() => void navigate({ search: (previous) => ({ ...previous, section: mark.data.section!, node: undefined }) })}>
+                            가장 많은 구역으로
                           </Button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-                {search.scope === 'dialogue' && (
-                  <TypeLegend
-                    nodes={graph.data!.nodes}
-                    nodeTypes={graph.data!.nodeTypes}
-                    active={search.type}
-                    onPick={(type) => void navigate({ search: (previous) => ({ ...previous, type }), replace: true })}
-                  />
-                )}
-              </div>
+                        )}
+                        <Button variant="ghost" onClick={() => void navigate({ search: (previous) => ({ ...previous, mark: undefined }), replace: true })}>
+                          강조 해제
+                        </Button>
+                      </div>
+                    )}
+                    {hidden.length > 0 && (
+                      <label className="flex max-w-full flex-wrap items-center gap-2 rounded-md border border-border bg-card px-2.5 py-1 text-sm text-muted-foreground shadow-2xs backdrop-blur-xs select-none">
+                        <Switch
+                          checked={search.links === 'all'}
+                          onCheckedChange={(on) => void navigate({ search: (previous) => ({ ...previous, links: on ? 'all' : undefined }), replace: true })}
+                        />
+                        장면 경유 연결 {hidden.length.toLocaleString()}
+                      </label>
+                    )}
+                  </>
+                }
+              />
 
               {/* Minimal floating zoom bar (Figma / Miro style) */}
               <div className="absolute right-3 bottom-3 flex items-center rounded-lg border border-border bg-card shadow-xs backdrop-blur-md overflow-hidden select-none">
@@ -496,52 +1247,13 @@ function GraphPage() {
                 </Button>
               </div>
 
-              {/* Status pill & legend */}
-              <p className="absolute top-3 right-3 rounded-md border border-border bg-card px-2.5 py-1 text-xs font-mono text-muted-foreground tabular-nums shadow-2xs backdrop-blur-xs select-none">
-                {search.scope === 'scene'
-                  ? `장면 ${(layout.nodes.length - hubs.size).toLocaleString()}${hubs.size ? ` · 연결점 ${hubs.size.toLocaleString()}` : ''} · 연결 ${(edges.length + (looseEdges?.length ?? 0)).toLocaleString()}${looseEdges?.length ? ` (연결점 직선 ${looseEdges.length.toLocaleString()})` : ''}`
-                  : `${view ? `보기${view.label ? ` "${view.label}"` : ''} · ` : chosen ? `구역 ${chosen} · ` : sections.length > 1 ? '전체 · ' : ''}노드 ${(layout.nodes.length - portals.size - (layout.chains?.length ?? 0) + (layout.chains ?? []).reduce((sum, chain) => sum + chain.nodeIds.length, 0)).toLocaleString()}개${layout.chains?.length ? ` (한 길로 이어진 ${(layout.chains ?? []).reduce((sum, chain) => sum + chain.nodeIds.length, 0).toLocaleString()}개는 덩어리 ${layout.chains.length.toLocaleString()}개로 접음)` : ''}${portals.size ? ` · 다른 구역으로 이어지는 이름표 ${portals.size.toLocaleString()}` : ''} · 연결 ${(edges.length + (looseEdges?.length ?? 0)).toLocaleString()}`}
-                {highlight && !mark.data && ` · 강조 ${highlight.size.toLocaleString()}`}
-              </p>
-              {search.mark && mark.data && layout && (
-                <div className="absolute top-10 right-3 flex items-center gap-2 rounded-md border border-border bg-card py-1 pr-1.5 pl-2.5 text-xs shadow-2xs backdrop-blur-xs select-none">
-                  <span className="size-1.5 rounded-full bg-primary" />
-                  <span className="text-xs">
-                    강조{mark.data.label ? ` "${mark.data.label}"` : ''} · 이 화면 {layout.nodes.filter((node) => highlight?.has(node.id)).length.toLocaleString()} / {mark.data.nodeIds.length.toLocaleString()}개
-                  </span>
-                  {mark.data.section && mark.data.section !== chosen && (
-                    <Button variant="ghost" onClick={() => void navigate({ search: (previous) => ({ ...previous, section: mark.data.section!, node: undefined }) })}>
-                      가장 많은 구역으로
-                    </Button>
-                  )}
-                  <Button variant="ghost" onClick={() => void navigate({ search: (previous) => ({ ...previous, mark: undefined }), replace: true })}>
-                    강조 해제
-                  </Button>
-                </div>
-              )}
-              {search.scope === 'dialogue' && !!looseEdges?.length && (
-                <p className="absolute top-10 right-3 rounded-md border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground shadow-2xs backdrop-blur-xs select-none">
-                  허브 연결 {looseEdges.length.toLocaleString()}개는 숨김 · 허브를 누르면 그 선만 보입니다
-                </p>
-              )}
-              {search.scope === 'scene' && hubs.size > 0 && (
-                <p className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-md border border-border bg-card px-3 py-1 text-xs text-muted-foreground shadow-2xs backdrop-blur-xs select-none">
-                  연결점: 장면에 속하지 않으면서 여러 장면을 잇는 노드 묶음 (대사 그래프에서 파생)
-                </p>
-              )}
-              {hidden.length > 0 && (
-                <label className="absolute top-10 right-3 flex items-center gap-2 rounded-md border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground shadow-2xs backdrop-blur-xs select-none">
-                  <Switch
-                    checked={search.links === 'all'}
-                    onCheckedChange={(on) => void navigate({ search: (previous) => ({ ...previous, links: on ? 'all' : undefined }), replace: true })}
-                  />
-                  다른 장면을 거쳐도 이어지는 연결 {hidden.length.toLocaleString()}개 {search.links === 'all' ? '표시 중' : '숨김'}
-                </label>
-              )}
+
             </>
           )}
-        </div>
+        </CanvasSurface>
       </SplitPane>
-    </Page>
+    </div>
+  </div>
+</Page>
   );
 }

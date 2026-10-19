@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation } from '@tanstack/react-router';
 import { ArrowUp, Check, ChevronRight, History, Plus, Square, Trash2, X } from 'lucide-react';
 import { Markdown } from './markdown';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, Spinner, Textarea, HelpTip } from '@loca/ui';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, SectionHeading, Spinner, Textarea } from '@loca/ui';
 import { Elapsed } from '@/components/job-progress';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
 import { client, unwrap } from '@/lib/api';
@@ -15,7 +15,8 @@ import { chatFor, dropChat } from '@/lib/chat-store';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { useViewState, type ViewItem } from '@/lib/view-context';
-import { ProposalCard, useUndo } from './proposal-card';
+import { useUndo } from './proposal-card';
+import { ProposalGroups } from './proposal-groups';
 import { PermissionModePicker } from './permission-mode';
 import type { PermissionMode } from '@tw/shared';
 import { ToolPart } from './tool-part';
@@ -26,7 +27,7 @@ const compactTokens = (n: number) => new Intl.NumberFormat('en', { notation: 'co
 const SESSION_KEY = (projectId: string) => `tw.chat.session.${projectId}`;
 const readSession = (projectId: string) => {
   try {
-    return localStorage.getItem(SESSION_KEY(projectId));
+    return sessionStorage.getItem(SESSION_KEY(projectId)) ?? localStorage.getItem(SESSION_KEY(projectId));
   } catch {
     return null;
   }
@@ -38,11 +39,21 @@ export function ChatPanel({ projectId }: { projectId: string }) {
   const sessions = useQuery(q.chatSessions(projectId));
   const [sessionId, setSessionId] = useState<string | null>(() => readSession(projectId));
 
-  // Fetch the conversation as soon as its id is known (from localStorage), not only after the
+  // Fetch the conversation as soon as its id is known (from storage), not only after the
   // sessions list resolves: waiting for the list made the panel flash its spinner on every open.
   useEffect(() => {
     if (sessionId) void queryClient.prefetchQuery(q.chatSession(sessionId));
   }, [queryClient, sessionId]);
+
+  useEffect(() => {
+    return chatDock.onOpenSession((targetProjectId, targetSessionId) => {
+      if (targetProjectId === projectId) {
+        setSessionId(targetSessionId);
+        void queryClient.prefetchQuery(q.chatSession(targetSessionId));
+        void queryClient.invalidateQueries({ queryKey: q.chatSessions(projectId).queryKey });
+      }
+    });
+  }, [projectId, queryClient]);
 
   useEffect(() => {
     if (sessions.data && sessionId && !sessions.data.some((session) => session.id === sessionId)) setSessionId(null);
@@ -50,7 +61,10 @@ export function ChatPanel({ projectId }: { projectId: string }) {
   }, [sessions.data, sessionId]);
   useEffect(() => {
     try {
-      if (sessionId) localStorage.setItem(SESSION_KEY(projectId), sessionId);
+      if (sessionId) {
+        sessionStorage.setItem(SESSION_KEY(projectId), sessionId);
+        localStorage.setItem(SESSION_KEY(projectId), sessionId);
+      }
     } catch {
       /* ignore */
     }
@@ -80,16 +94,23 @@ export function ChatPanel({ projectId }: { projectId: string }) {
   const current = sessions.data?.find((session) => session.id === sessionId);
   // An AI button was pressed with no conversation yet: start one, the request waits for it.
   const pendingRequest = usePendingAgentRequest();
+  // A page prefilled a request (chatDock.prefill) with no conversation open: start one too; its box takes the text.
+  const [prefillWaiting, setPrefillWaiting] = useState(false);
+  useEffect(() => chatDock.onPrefill((target) => target === projectId && setPrefillWaiting(true)), [projectId]);
+  useEffect(() => {
+    if (sessionId) setPrefillWaiting(false);
+  }, [sessionId]);
+  const waiting = Boolean(pendingRequest) || prefillWaiting;
   // One conversation per wait: never a second while the first is being made or was just made.
   const starting = useRef(false);
   useEffect(() => {
-    if (!pendingRequest) starting.current = false;
+    if (!waiting) starting.current = false;
     // With conversations listed but none picked yet (a fresh browser), the effect above picks the
     // latest in this same render: starting another here would leave an empty extra one each time.
-    if (!pendingRequest || !sessions.data || sessions.data.length > 0 || sessionId || create.isPending || starting.current) return;
+    if (!waiting || !sessions.data || sessions.data.length > 0 || sessionId || create.isPending || starting.current) return;
     starting.current = true;
     create.mutate();
-  }, [pendingRequest, sessions.data, sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [waiting, sessions.data, sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <aside className="flex h-full flex-col bg-sidebar" aria-label="프로젝트 에이전트">
@@ -102,12 +123,12 @@ export function ChatPanel({ projectId }: { projectId: string }) {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-72">
-            <DropdownMenuLabel className="text-xs text-muted-foreground">이 프로젝트의 대화</DropdownMenuLabel>
+            <DropdownMenuLabel className="text-xs font-semibold text-foreground">대화</DropdownMenuLabel>
             {sessions.data?.map((session) => (
               <DropdownMenuItem key={session.id} onSelect={() => setSessionId(session.id)} className={cn('group/session pr-1', session.id === sessionId && 'font-medium')}>
                 <span className="min-w-0 flex-1 truncate">{session.title}</span>
                 {session.calls > 0 && (
-                  <span className="shrink-0 text-xs text-muted-foreground tabular-nums" title={`모델 요청 ${session.calls}건 · 토큰 ${session.tokens.toLocaleString()}`}>
+                  <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
                     {session.calls}건 · {compactTokens(session.tokens)}
                   </span>
                 )}
@@ -161,9 +182,9 @@ export function ChatPanel({ projectId }: { projectId: string }) {
         <Conversation key={current.id} projectId={projectId} sessionId={current.id} mode={current.permissionMode} model={current.connectionId ? { connectionId: current.connectionId, model: current.model ?? '', ...(current.effort && { effort: current.effort }) } : null} />
       ) : (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center text-sm text-muted-foreground">
-          <div className="flex items-center gap-1"><Button onClick={() => create.mutate()} disabled={create.isPending}>
-            <Plus /> 새 대화 시작
-          </Button><HelpTip>프로젝트의 원문·자료·워크플로를 읽고 인물 프로필이나 참조 문서, 워크플로를 제안하는 에이전트입니다.</HelpTip></div>
+          <Button onClick={() => create.mutate()} disabled={create.isPending}>
+            <Plus /> 새 대화
+          </Button>
         </div>
       )}
     </aside>
@@ -265,7 +286,17 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
     void stored.chat.resumeStream();
   }, [turn?.startedAt, status]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const [input, setInput] = useState(() => sessionStorage.getItem(`tw.chat.draft.${sessionId}`) ?? '');
+  const [input, setInput] = useState(() => chatDock.takePrefill(projectId) ?? sessionStorage.getItem(`tw.chat.draft.${sessionId}`) ?? '');
+  // A page asked to start a request here (e.g. the graph's AI 간략 보기): it fills the box, the person finishes and sends it.
+  useEffect(
+    () =>
+      chatDock.onPrefill((target, text) => {
+        if (target !== projectId) return;
+        chatDock.takePrefill(projectId);
+        setInput(text);
+      }),
+    [projectId],
+  );
   const [showModelHint, setShowModelHint] = useState(false);
   // Sent while the reply was running (#44): waiting for the turn to take them at its next step.
   // Those still on the server (sent before a reload, or a turn a restart cut off) go with the next one.
@@ -356,12 +387,7 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
       >
         {!messages.length && (
           <div className="space-y-2 pt-6 text-sm text-muted-foreground">
-            <p className="font-medium text-foreground">무엇을 도와드릴까요?</p>
-            {['대본을 끝까지 읽고 주요 인물 프로필을 만들어줘', '지금 진행 상황을 요약해줘', '검수를 더 엄격하게 하는 워크플로를 제안해줘'].map((example) => (
-              <Button key={example} variant="outline" size="row" className="px-3 py-2" onClick={() => setInput(example)}>
-                {example}
-              </Button>
-            ))}
+            <SectionHeading>무엇을 도와드릴까요?</SectionHeading>
           </div>
         )}
         <div className="space-y-5">
@@ -395,7 +421,7 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
                   if (part.type.startsWith('tool-')) return <ToolPart key={index} part={part as never} proposal={proposalById.get(((part as { output?: { proposalId?: string } }).output ?? {}).proposalId ?? '')} stale={message.id !== messages.at(-1)?.id} onDecide={(id, approved) => addToolApprovalResponse({ id, approved })} onOutput={(toolCallId, output) => void addToolOutput({ tool: part.type.slice(5) as never, toolCallId, output: output as never })} />;
                   return null;
                 })}
-                {undoable.length > 0 && <Button variant="outline" onClick={() => { setReplyUndoIds(undoable); setUndoingReply(true); }}>이 답의 변경 되돌리기 ({undoable.length})</Button>}
+                {undoable.length > 0 && <Button variant="outline" onClick={() => { setReplyUndoIds(undoable); setUndoingReply(true); }}>변경 되돌리기 ({undoable.length})</Button>}
               </div>
             );
             if (!stopped && !interrupted) return view;
@@ -413,7 +439,7 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
           ))}
           {busy && (
             <p className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Spinner /> {status === 'submitted' ? '생각하는 중…' : '작업 중… (도구로 자료를 읽거나 답을 쓰고 있습니다)'}
+              <Spinner /> {status === 'submitted' ? '생각하는 중…' : '작업 중…'}
             </p>
           )}
           {!busy && !error && lastMessage?.role === 'user' && <TurnState turn={turn} onStop={halt} onRetry={() => void regenerate()} canRetry={ready} />}
@@ -431,7 +457,7 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
 
       <AlertDialog open={undoingReply} onOpenChange={setUndoingReply}>
         <AlertDialogContent>
-          <AlertDialogHeader><AlertDialogTitle>이 답의 변경을 되돌릴까요?</AlertDialogTitle><AlertDialogDescription>이 답에서 반영된 변경 {replyUndoIds.length}개를 되돌리는 제안을 적용합니다. 그사이 바뀐 대사는 건너뜁니다.</AlertDialogDescription></AlertDialogHeader>
+          <AlertDialogHeader><AlertDialogTitle>변경을 되돌릴까요?</AlertDialogTitle><AlertDialogDescription>이 답에서 반영된 변경 {replyUndoIds.length}개를 되돌리는 제안을 적용합니다. 그사이 바뀐 대사는 건너뜁니다.</AlertDialogDescription></AlertDialogHeader>
           <AlertDialogFooter><AlertDialogCancel>취소</AlertDialogCancel><AlertDialogAction disabled={undoReply.isPending} onClick={() => { undoReply.mutate(replyUndoIds); setUndoingReply(false); }}>되돌리기</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -439,15 +465,18 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
       <div className="shrink-0 border-t bg-background p-2">
         {attached.length > 0 && (
           <div className="mb-1.5 flex flex-wrap gap-1" aria-label="첨부된 화면 정보">
-            {attached.map((item) => (
-              <span key={`${item.kind}:${item.id}`} className="inline-flex max-w-full items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-xs">
-                <span className="text-muted-foreground">{item.kind}</span>
-                <span className="truncate">{item.label}</span>
-                <Button variant="ghost" size="icon-xs" aria-label={`${item.label} 첨부 빼기`} className="text-muted-foreground" onClick={() => setExcluded((set) => new Set(set).add(`${item.kind}:${item.id}`))}>
-                  <X />
-                </Button>
-              </span>
-            ))}
+            {attached.map((item) => {
+              const label = item.label.replace(/^asset-[a-f0-9-]+\s*·\s*/i, '');
+              return (
+                <span key={`${item.kind}:${item.id}`} className="inline-flex max-w-full items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-xs">
+                  <span className="text-muted-foreground">{item.kind}</span>
+                  <span className="truncate">{label}</span>
+                  <Button variant="ghost" size="icon-xs" aria-label={`${label} 첨부 빼기`} className="text-muted-foreground" onClick={() => setExcluded((set) => new Set(set).add(`${item.kind}:${item.id}`))}>
+                    <X />
+                  </Button>
+                </span>
+              );
+            })}
           </div>
         )}
         <Textarea
@@ -463,14 +492,13 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
               send();
             }
           }}
-          placeholder={ready ? (busy || elsewhere ? '답하는 중에도 보낼 수 있습니다 (다음 단계에 전달)' : '메시지 (Enter 전송, Shift+Enter 줄바꿈)') : '먼저 아래에서 채팅할 AI 연결과 모델을 고르세요'}
+          placeholder={ready ? '메시지' : '모델을 먼저 고르세요'}
           className="max-h-48 min-h-16 resize-none border-0 bg-transparent px-1 shadow-none focus-visible:ring-0"
         />
         {!ready && (input.trim() || showModelHint) && (
           <p className="px-1 text-xs text-muted-foreground">
-            보내려면 아래에서 채팅할 AI 연결과 모델을 고르세요. 연결이 없으면{' '}
-            <Link to="/p/$projectId/ai/connections" params={{ projectId }} className="underline">AI 연결 화면</Link>
-            에서 추가합니다.
+            아래에서 AI 연결과 모델을 고르세요.{' '}
+            <Link to="/p/$projectId/settings/connections" params={{ projectId }} className="underline">AI 연결 추가</Link>
           </p>
         )}
         <div className="flex items-center gap-2">
@@ -485,7 +513,7 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
               </Button>
             )}
             {/* While the reply runs, a message goes in at its next step instead of waiting for it to end. */}
-            <Button size="icon" aria-label={busy || elsewhere ? '진행 중인 답에 끼워 보내기' : '보내기'} title={busy || elsewhere ? '지금 답에 끼워 보내기 (다음 단계에 전달)' : undefined} disabled={!input.trim() || !ready} onClick={send}>
+            <Button size="icon" aria-label={busy || elsewhere ? '진행 중인 답에 끼워 보내기' : '보내기'} disabled={!input.trim() || !ready} onClick={send}>
               <ArrowUp />
             </Button>
           </div>
@@ -499,7 +527,7 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
 function SteerBubble({ text, waiting = false }: { text: string; waiting?: boolean }) {
   return (
     <div className={cn('ml-8 rounded-lg bg-background px-3 py-2 text-sm whitespace-pre-wrap shadow-xs ring-1 ring-border', waiting && 'text-muted-foreground')}>
-      <span className="mb-0.5 block text-xs text-muted-foreground">{waiting ? '전달 대기 중 · 답의 다음 단계에 들어갑니다' : '진행 중에 보냄'}</span>
+      <span className="mb-0.5 block text-xs text-muted-foreground">{waiting ? '전달 대기 중' : '진행 중에 보냄'}</span>
       {text}
     </div>
   );
@@ -525,15 +553,13 @@ function ExternalProposals({ projectId }: { projectId: string }) {
   if (!pending.length) return null;
   return (
     <div className="max-h-[45%] shrink-0 overflow-y-auto border-b bg-background">
-      <Button variant="ghost" size="row" className="rounded-none px-3 py-2 font-medium" onClick={() => setOpen(!open)} aria-expanded={open}>
+      <Button variant="ghost" size="row" className="rounded-none px-3 py-2 font-semibold" onClick={() => setOpen(!open)} aria-expanded={open}>
         <ChevronRight className={cn('text-muted-foreground transition-transform', open && 'rotate-90')} />
-        CLI에서 온 제안 {pending.length}개
+        제안 {pending.length.toLocaleString()}개 대기 중
       </Button>
       {open && (
-        <div className="space-y-2 px-3 pb-3">
-          {pending.map((proposal) => (
-            <ProposalCard key={proposal.id} proposal={proposal} />
-          ))}
+        <div className="px-3 pb-3">
+          <ProposalGroups projectId={projectId} proposals={pending} title="CLI 제안" />
         </div>
       )}
     </div>
@@ -556,7 +582,6 @@ function TurnState({ turn, onStop, onRetry, canRetry }: { turn: Turn | null; onS
         <Spinner className="size-3.5" />
         <span className="min-w-0 flex-1">
           {step} · <Elapsed since={new Date(turn.startedAt)} />
-          <span className="block text-xs">새로고침 전에 보낸 질문입니다. 답이 끝나면 여기에 나타납니다.</span>
         </span>
         <Button variant="outline" onClick={onStop}>
           중단

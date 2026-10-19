@@ -1,20 +1,21 @@
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { ANALYSIS_SECTIONS, isAnalysisWorkflow, analysisTemplate, CONNECTION_KIND_INFO, knowledgeTemplate, lineMarksSchema, listenerTemplate, speechFixTemplate, termExtractionTemplate, translationTemplate, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels } from '@tw/shared';
+import { isWholeScriptWorkflow, CONNECTION_KIND_INFO, lineMarksSchema, scriptParams, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { workflowIssues } from '../services/workflow-issues.ts';
 import { events } from '../events.ts';
-import { lineView } from '../engine/functions/index.ts';
+import { lineView, validateScriptData } from '../engine/functions/index.ts';
 import { runScript } from '../engine/functions/sandbox.ts';
-import { ANALYSIS_BUSY, createRunInSteps, FILLING, refuseSecondAnalysis, selectRunUnits } from '../engine/run-create.ts';
+import { WHOLE_SCRIPT_BUSY, createRunInSteps, FILLING, refuseSecondWholeScript, selectRunUnits } from '../engine/run-create.ts';
 import { listBatches, preflight } from '../services/preflight.ts';
-import { choiceLabel, defaultModelChoice, snapshotWorkflowModels } from '../services/routes.ts';
+import { choiceLabel, snapshotWorkflowModels } from '../services/routes.ts';
 import { continuePreflight, switchedRun } from '../services/run-continue.ts';
+import { deleteWorkflow, saveWorkflow, WorkflowMutationError } from '../services/workflow-mutations.ts';
 
-const scopeSchema = z.object({ groupIds: z.array(z.string()).optional(), unitIds: z.array(z.string()).optional(), tagIds: z.array(z.string()).optional(), marks: lineMarksSchema.optional(), ignoreStatus: z.boolean().optional() });
+const scopeSchema = z.object({ groupIds: z.array(z.string()).optional(), unitIds: z.array(z.string()).optional(), tagIds: z.array(z.string()).optional(), marks: lineMarksSchema.optional(), statusIds: z.array(z.string()).optional(), ignoreStatus: z.boolean().optional() });
 /** A run's scope and, optionally, the models it uses instead of its nodes' own (by AI node id). */
 const runSchema = scopeSchema.extend({ models: runModelsSchema.optional() });
 const continueSchema = z.object({ models: runModelsSchema.optional(), retryFailed: z.boolean().default(false) });
@@ -24,13 +25,13 @@ const connectionNames = (db: Db) => new Map(db.select({ id: s.connections.id, na
 const connectionName = (names: Map<string, string>, id: string | null, kind: string | null) =>
   (id && names.get(id)) ?? (kind ? (CONNECTION_KIND_INFO[kind as keyof typeof CONNECTION_KIND_INFO]?.label ?? kind) : null);
 
-/** A work analysis continued or resumed while another one runs would write the same drafts twice: refused like a second start. */
-function refuseWhileAnotherAnalysis(db: Db, run: typeof s.runs.$inferSelect) {
-  if (!isAnalysisWorkflow(run.definition)) return;
+/** A whole-script run continued or resumed while another one runs: refused like a second start. */
+function refuseWhileAnotherWholeScript(db: Db, run: typeof s.runs.$inferSelect) {
+  if (!isWholeScriptWorkflow(run.definition)) return;
   try {
-    refuseSecondAnalysis(db, run.projectId, run.id);
+    refuseSecondWholeScript(db, run.projectId, run.id);
   } catch {
-    badRequest(`${ANALYSIS_BUSY} 그 분석이 끝나거나 멈춘 뒤에 이어서 하세요.`);
+    badRequest(`${WHOLE_SCRIPT_BUSY} 그 실행이 끝나거나 멈춘 뒤에 이어서 하세요.`);
   }
 }
 
@@ -39,27 +40,18 @@ function blankWorkflow(db: Db, projectId: string): WorkflowDefinition {
   return workflowDefinitionSchema.parse({
     nodes: [
       { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: { statusIds: initial ? [initial.id] : [] } },
-      { id: 'end', type: 'end', position: { x: 320, y: 0 }, config: {} },
     ],
-    edges: [{ id: 'e1', source: 'entry', sourceHandle: 'out', target: 'end' }],
+    edges: [],
   });
 }
 
-/** Single-purpose templates that only need a model. */
-const TEMPLATES = { terms: termExtractionTemplate, listener: listenerTemplate, knowledge: knowledgeTemplate, speechFix: speechFixTemplate };
+const NEW_WORKFLOW_NAME = '새 워크플로';
 
-function templateWorkflow(db: Db, projectId: string): WorkflowDefinition {
-  const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).orderBy(asc(s.statuses.sort)).all();
-  const initial = statuses.find((status) => status.kind === 'initial') ?? statuses[0];
-  const final = statuses.find((status) => status.kind === 'final') ?? statuses.at(-1)!;
-  const middle = statuses.filter((status) => status.kind === 'normal');
-  return translationTemplate({
-    model: defaultModelChoice(db),
-    untranslated: initial.id,
-    draft: middle[0]?.id ?? initial.id,
-    needsReview: statuses.find((status) => status.inReview)?.id ?? middle[1]?.id ?? middle[0]?.id ?? initial.id,
-    confirmed: final.id,
-  });
+/** "새 워크플로", then "새 워크플로 2", "3"… for the first name the project has not used. */
+function freeWorkflowName(db: Db, projectId: string): string {
+  const taken = new Set(db.select({ name: s.workflows.name }).from(s.workflows).where(eq(s.workflows.projectId, projectId)).all().map((row) => row.name));
+  if (!taken.has(NEW_WORKFLOW_NAME)) return NEW_WORKFLOW_NAME;
+  for (let n = 2; ; n++) if (!taken.has(`${NEW_WORKFLOW_NAME} ${n}`)) return `${NEW_WORKFLOW_NAME} ${n}`;
 }
 
 export const workflowRoutes = new Hono<Env>()
@@ -70,6 +62,8 @@ export const workflowRoutes = new Hono<Env>()
     return c.json(
       rows.map(({ definition, ...row }) => ({
         ...row,
+        // The start's 대상 상태: the run dialog's default status filter.
+        entryStatusIds: (() => { const entry = definition.nodes.find((node) => node.type === 'entry'); return entry?.type === 'entry' ? entry.config.statusIds : []; })(),
         nodeCount: definition.nodes.length,
         errorCount: workflowIssues(db, projectId, definition).filter((issue) => issue.level === 'error').length,
       })),
@@ -77,15 +71,13 @@ export const workflowRoutes = new Hono<Env>()
   })
   .post(
     '/projects/:projectId/workflows',
-    validate('json', z.object({ name: z.string().trim().min(1), from: z.enum(['template', 'blank', 'terms', 'listener', 'knowledge', 'speechFix', 'analysis']).default('template'), /** What an analysis template reads for; empty = everything. */ sections: z.array(z.enum(ANALYSIS_SECTIONS)).optional() })),
+    validate('json', z.object({ name: z.string().trim().min(1).optional() })),
     (c) => {
       const { db } = c.var.deps;
       const projectId = c.req.param('projectId');
-      const { name, from, sections } = c.req.valid('json');
-      const definition =
-        from === 'template' ? templateWorkflow(db, projectId) : from === 'blank' ? blankWorkflow(db, projectId) : from === 'analysis' ? analysisTemplate({ model: defaultModelChoice(db), sections }) : TEMPLATES[from]({ model: defaultModelChoice(db) });
-      const row = db.insert(s.workflows).values({ projectId, name, definition }).returning().get();
-      events.changed(projectId, 'workflows');
+      const name = c.req.valid('json').name ?? freeWorkflowName(db, projectId);
+      const definition = blankWorkflow(db, projectId);
+      const row = saveWorkflow(db, projectId, { name, description: '', definition });
       return c.json(row, 201);
     },
   )
@@ -98,15 +90,16 @@ export const workflowRoutes = new Hono<Env>()
     const { db } = c.var.deps;
     const body = c.req.valid('json');
     const current = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
-    if (current.version !== body.version) badRequest('다른 곳에서 먼저 저장했습니다. 새로고침 후 다시 저장하세요.');
-    const row = db
-      .update(s.workflows)
-      .set({ name: body.name, description: body.description, definition: body.definition, version: current.version + 1 })
-      .where(eq(s.workflows.id, current.id))
-      .returning()
-      .get();
-    events.changed(current.projectId, 'workflows');
-    return c.json({ ...row, issues: workflowIssues(db, current.projectId, row.definition) });
+    try {
+      const row = saveWorkflow(db, current.projectId, { id: current.id, ...body });
+      return c.json({ ...row, issues: workflowIssues(db, current.projectId, row.definition) });
+    } catch (error) {
+      if (error instanceof WorkflowMutationError) {
+        if (error.status === 404) found(undefined, '워크플로');
+        badRequest(error.message);
+      }
+      throw error;
+    }
   })
   .post('/workflows/:id/validate', validate('json', z.object({ definition: workflowDefinitionSchema })), (c) => {
     const { db } = c.var.deps;
@@ -116,8 +109,12 @@ export const workflowRoutes = new Hono<Env>()
   .delete('/workflows/:id', (c) => {
     const { db } = c.var.deps;
     const workflow = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
-    db.delete(s.workflows).where(eq(s.workflows.id, workflow.id)).run();
-    events.changed(workflow.projectId, 'workflows');
+    try {
+      deleteWorkflow(db, workflow.projectId, workflow.id);
+    } catch (error) {
+      if (error instanceof WorkflowMutationError) badRequest(error.message);
+      throw error;
+    }
     return c.json({ ok: true });
   })
   .post('/workflows/:id/preview', validate('json', scopeSchema), (c) => {
@@ -148,9 +145,9 @@ export const workflowRoutes = new Hono<Env>()
   })
 
   /** Try a script node on one real line. Read-only: nothing is stored. */
-  .post('/projects/:projectId/script-test', validate('json', z.object({ code: z.string(), ports: z.array(z.string()).min(1), unitId: z.string().optional() })), async (c) => {
+  .post('/projects/:projectId/script-test', validate('json', z.object({ code: z.string(), ports: z.array(z.string()).min(1), fields: scriptParams.shape.fields, unitId: z.string().optional() })), async (c) => {
     const { db } = c.var.deps;
-    const { code, ports, unitId } = c.req.valid('json');
+    const { code, ports, fields, unitId } = c.req.valid('json');
     const unit = unitId
       ? db.select().from(s.units).where(and(eq(s.units.id, unitId), eq(s.units.projectId, c.req.param('projectId')))).get()
       : db.select().from(s.units).where(eq(s.units.projectId, c.req.param('projectId'))).orderBy(asc(s.units.seq)).limit(1).get();
@@ -160,7 +157,8 @@ export const workflowRoutes = new Hono<Env>()
     try {
       const result = await runScript(code, input);
       const port = result.port ?? ports[0];
-      return c.json({ ok: true as const, input, result, port, validPort: ports.includes(port), ms: Date.now() - started });
+      // The data as the run would store it: held to the declared fields (a bad value is reported as the error).
+      return c.json({ ok: true as const, input, result: { ...result, data: validateScriptData(result.data, fields) }, port, validPort: ports.includes(port), ms: Date.now() - started });
     } catch (error) {
       return c.json({ ok: false as const, input, error: error instanceof Error ? error.message : String(error), ms: Date.now() - started });
     }
@@ -214,16 +212,15 @@ export const workflowRoutes = new Hono<Env>()
     return c.json({ samples: rates.length, secondsPer1k: rates.length ? rates[Math.floor(rates.length / 2)] : null });
   })
   /**
-   * AI jobs that are not workflow runs (work analysis, glossary fill), for 실행 기록 to list beside
-   * the runs, each with its model requests from the AI log.
+   * AI jobs that are not workflow runs (glossary fill), for 실행 기록 to list beside the runs, each
+   * with its model requests from the AI log.
    */
   .get('/projects/:projectId/jobs', (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
-    const analyses = db.select().from(s.analysisJobs).where(eq(s.analysisJobs.projectId, projectId)).orderBy(desc(s.analysisJobs.createdAt)).limit(100).all();
     const fills = db.select().from(s.termJobs).where(eq(s.termJobs.projectId, projectId)).orderBy(desc(s.termJobs.createdAt)).limit(100).all();
     const runIds = db.select({ id: s.runs.id }).from(s.runs).where(eq(s.runs.projectId, projectId)).orderBy(desc(s.runs.createdAt)).limit(200).all().map((run) => run.id);
-    const ids = [...analyses, ...fills].map((job) => job.id).concat(runIds);
+    const ids = fills.map((job) => job.id).concat(runIds);
     const stats = new Map(
       (ids.length
         ? db
@@ -247,7 +244,6 @@ export const workflowRoutes = new Hono<Env>()
       /** Model requests per workflow run, from the AI log (runs started before it have none). */
       runCalls: Object.fromEntries(runIds.flatMap((id) => (stats.has(id) ? [[id, stats.get(id)!] as const] : []))),
       jobs: [
-      ...analyses.map((job) => ({ kind: 'analysis' as const, id: job.id, title: '작품 분석', model: used(job), status: job.status, error: job.error, done: job.partsDone, total: job.partsTotal, createdAt: job.createdAt, finishedAt: job.finishedAt, ...usage(job.id, job.usage) })),
       ...fills.map((job) => ({ kind: 'terms' as const, id: job.id, title: '용어 AI 채우기', model: used(job), status: job.status, error: job.error, done: job.done, total: job.total, createdAt: job.createdAt, finishedAt: job.finishedAt, ...usage(job.id, job.usage) })),
       ],
     });
@@ -361,7 +357,7 @@ export const workflowRoutes = new Hono<Env>()
     const { db, runner } = c.var.deps;
     const run = found(db.select().from(s.runs).where(eq(s.runs.id, c.req.param('id'))).get(), '실행');
     const { models, retryFailed } = c.req.valid('json');
-    refuseWhileAnotherAnalysis(db, run);
+    refuseWhileAnotherWholeScript(db, run);
     const switched = switchedRun(db, run, models);
     if (!switched.ok) badRequest(switched.error);
     const result = runner.continue(run.id, { definition: switched.definition, models: switched.models, changes: switched.changes, retryFailed });
@@ -374,7 +370,7 @@ export const workflowRoutes = new Hono<Env>()
     const action = c.req.param('action') as 'pause' | 'resume' | 'cancel';
     if (action === 'resume') {
       const run = found(c.var.deps.db.select().from(s.runs).where(eq(s.runs.id, id)).get(), '실행');
-      refuseWhileAnotherAnalysis(c.var.deps.db, run);
+      refuseWhileAnotherWholeScript(c.var.deps.db, run);
     }
     runner[action](id);
     return c.json({ ok: true });

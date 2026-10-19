@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { initialRunScope, type RunScopeMode } from '@/lib/run-scope';
 import { keepPreviousData, useMutation, useQuery, type UseQueryResult } from '@tanstack/react-query';
 import type { InferResponseType } from 'hono/client';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { Play } from 'lucide-react';
-import { SearchInput, Button, Checkbox, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Skeleton, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner, HelpTip } from '@loca/ui';
+import { ChevronRight, Play } from 'lucide-react';
+import { SearchInput, Button, Checkbox, Label, RadioGroup, RadioGroupItem, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Skeleton, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner, StatusIcon, SectionHeading, FieldRows, FieldRow } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { LINE_MARK_IDS, type LineMark, UNREVIEWED_MARKS } from '@tw/shared';
 import { MarkChip } from '@/components/status';
@@ -14,21 +14,17 @@ import { lineTags, q } from '@/lib/queries';
 import { SCRIPT_VIEW } from '@/lib/labels';
 import { cn } from '@/lib/utils';
 
-type Mode = RunScopeMode;
 type GroupKind = 'scene' | 'ui' | 'document';
 const KIND_ORDER: GroupKind[] = ['scene', 'ui', 'document'];
 
 /**
- * Start a workflow (docs/DESIGN.md J6): one screen with what a person decides on before pressing
+ * Start a workflow: one screen with what a person decides on before pressing
  * start — which lines (the scene in view, picked scenes, tagged lines, picked lines, every line of
  * one kind — 대사 · UI · 문서, preselected only from the UI or documents view — or the whole
  * project, never preselected), what in those lines would spoil the translation and where to fix it,
- * how long and how much in plain words, and which models. Nothing more: the batches are the run
- * page's 번역 계획, and the run is capped at the suggested limits (1.3× the estimate; it pauses
- * there, the run page shows them). The count is exactly what will run: scope ∩ entry statuses
- * (unless ignored).
+ * how long and how much in plain words, and which models.
  */
-export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: givenGroupIds, unitIds: givenUnitIds, unitsLabel, viewKind, dirty, disabled, trigger, defaultIgnoreStatus = false, preferWorkflow, open: controlledOpen, onOpenChange, hideTrigger = false }: {
+export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: givenGroupIds, unitIds: givenUnitIds, unitsLabel, viewKind, dirty, disabled, trigger, defaultIgnoreStatus = false, remember, open: controlledOpen, onOpenChange, hideTrigger = false }: {
   projectId: string;
   /** Omit to let the user pick a workflow (when starting from a scene or a line selection). */
   workflowId?: string;
@@ -44,7 +40,8 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   /** Start with the entry-status check off (re-running lines that are already done). */
   defaultIgnoreStatus?: boolean;
   /** Preselect the workflow with this name when it exists (e.g. "말투만 고치기"). */
-  preferWorkflow?: string;
+  /** A button's own key: the dialog opens on the workflow last run from it, and with none picked the first time. */
+  remember?: string;
   open?: boolean; onOpenChange?: (open: boolean) => void; hideTrigger?: boolean;
 }) {
   const navigate = useNavigate();
@@ -58,33 +55,88 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   const groupIds = open ? opened.groupIds : givenGroupIds;
   // Dialogue is nearly the whole project, so like the whole project it is never preselected.
   const preselectKind = viewKind && viewKind !== 'scene' ? viewKind : undefined;
-  const [mode, setMode] = useState<Mode | undefined>(() => initialRunScope({ unitIds, groupIds, kind: preselectKind }));
-  const [pickedKind, setPickedKind] = useState<GroupKind | undefined>(preselectKind);
-  const [picked, setPicked] = useState<Set<string>>(new Set());
+
+  // Which groups the run starts from: the lines or groups it was opened with, the whole project, or groups picked here.
+  const [scopeTarget, setScopeTarget] = useState<ScopeTarget>(() => (unitIds?.length ? 'units' : groupIds?.length ? 'here' : 'groups'));
+  const [pickedScenes, setPickedScenes] = useState<Set<string>>(new Set());
+  const [sceneFilter, setSceneFilter] = useState('');
   const [pickedTags, setPickedTags] = useState<Set<string>>(new Set());
   const [pickedMarks, setPickedMarks] = useState<Set<string>>(new Set());
+  const [pickedStatuses, setPickedStatuses] = useState<Set<string>>(new Set());
+
   const statuses = useQuery({ ...q.statuses(projectId), enabled: open });
   const tags = lineTags(statuses.data?.tags);
-  const [filter, setFilter] = useState('');
-  const [ignoreStatus, setIgnoreStatus] = useState(defaultIgnoreStatus);
   // This run's models by AI node, where the person picked another than the node's own (the workflow is not changed).
   const [runModels, setRunModels] = useState<Record<string, ModelValue>>({});
   const workflows = useQuery({ ...q.workflows(projectId), enabled: open });
-  const [chosen, setChosen] = useState<string>();
-  const workflowId = fixedWorkflowId ?? chosen ?? (preferWorkflow && workflows.data?.find((workflow) => workflow.name === preferWorkflow && !workflow.errorCount)?.id) ?? workflows.data?.find((workflow) => !workflow.errorCount)?.id;
+  const rememberKey = remember && `run-dialog:${projectId}:${remember}`;
+  const [chosen, setChosen] = useState<string | undefined>(() => {
+    if (!rememberKey) return undefined;
+    try {
+      return localStorage.getItem(rememberKey) ?? undefined;
+    } catch {
+      return undefined;
+    }
+  });
+  const choose = (id: string) => {
+    setChosen(id);
+    if (rememberKey) {
+      try {
+        localStorage.setItem(rememberKey, id);
+      } catch {
+        // A blocked storage only loses the memory.
+      }
+    }
+  };
+  const valid = (id: string | undefined) => (id && workflows.data?.some((workflow) => workflow.id === id && !workflow.errorCount) ? id : undefined);
+  // A remembered button never falls back to some other workflow: the person picks one.
+  const workflowId = fixedWorkflowId ?? (rememberKey ? valid(chosen) : (chosen ?? workflows.data?.find((workflow) => !workflow.errorCount)?.id));
   const workflow = workflows.data?.find((item) => item.id === workflowId);
   const groups = useQuery({ ...q.groups(projectId), enabled: open });
   const here = groupIds?.length ? groups.data?.filter((group) => groupIds.includes(group.id)) : undefined;
 
-  // Each kind the project has, with its groups and lines (only offered when there is more than one).
-  const kinds = KIND_ORDER.map((kind) => {
-    const list = (groups.data ?? []).filter((group) => group.kind === kind);
-    return { kind, ids: list.map((group) => group.id), lines: list.reduce((sum, group) => sum + group.total, 0) };
-  }).filter((entry) => entry.ids.length);
-  const kindIds = kinds.find((entry) => entry.kind === pickedKind)?.ids ?? [];
-  const scope =
-    mode === 'kind' ? { groupIds: kindIds, ignoreStatus } : mode === 'units' ? { unitIds, ignoreStatus } : mode === 'here' ? { groupIds, ignoreStatus } : mode === 'groups' ? { groupIds: [...picked], ignoreStatus } : mode === 'tags' ? { tagIds: [...pickedTags], marks: [...pickedMarks] as LineMark[], ignoreStatus } : { ignoreStatus };
-  const ready = (mode === 'kind' && kindIds.length > 0) || mode === 'all' || (mode === 'units' && Boolean(unitIds?.length)) || (mode === 'here' && Boolean(groupIds?.length)) || (mode === 'groups' && picked.size > 0) || (mode === 'tags' && (pickedTags.size > 0 || pickedMarks.size > 0));
+  // The workflow's own start (대상 상태) picks the statuses; opened for named lines, none are.
+  const entryStatuses = defaultIgnoreStatus ? '' : (workflow?.entryStatusIds ?? []).join(',');
+  useEffect(() => {
+    if (!open) return;
+    setPickedStatuses(new Set(entryStatuses ? entryStatuses.split(',') : []));
+  }, [open, workflowId, entryStatuses]);
+
+  // Opened from the UI strings or documents view: every group of that kind starts picked.
+  // The table starts with everything ticked (the whole project), or only the kind of the view it was opened from.
+  const startPicks = () => new Set((groups.data ?? []).filter((group) => !preselectKind || group.kind === preselectKind).map((group) => group.id));
+  const preselected = useRef(false);
+  useEffect(() => {
+    if (preselected.current || !groups.data) return;
+    preselected.current = true;
+    setPickedScenes(startPicks());
+  }, [groups.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  const allGroups = (groups.data ?? []).length;
+  const wholeProject = scopeTarget === 'groups' && allGroups > 0 && pickedScenes.size === allGroups;
+
+  let computedUnitIds: string[] | undefined;
+  let computedGroupIds: string[] | undefined;
+  if (scopeTarget === 'units') computedUnitIds = unitIds;
+  else if (scopeTarget === 'here') computedGroupIds = groupIds;
+  else if (!wholeProject) computedGroupIds = pickedScenes.size ? [...pickedScenes] : ['__none__'];
+
+  const statusScope =
+    pickedStatuses.size > 0
+      ? { statusIds: [...pickedStatuses], ignoreStatus: false }
+      : { statusIds: [], ignoreStatus: true };
+
+  const scope = {
+    ...(computedUnitIds ? { unitIds: computedUnitIds } : {}),
+    ...(computedGroupIds ? { groupIds: computedGroupIds } : {}),
+    ...statusScope,
+    ...(pickedTags.size ? { tagIds: [...pickedTags] } : {}),
+    ...(pickedMarks.size ? { marks: [...pickedMarks] as LineMark[] } : {}),
+  };
+
+  const ready =
+    (scopeTarget === 'units' && Boolean(unitIds?.length)) ||
+    (scopeTarget === 'here' && Boolean(groupIds?.length)) ||
+    (scopeTarget === 'groups' && pickedScenes.size > 0);
   // Only finished picks go out; one still missing its model stays in the picker meanwhile.
   const chosenModels = Object.fromEntries(Object.entries(runModels).filter(([, value]) => value.connectionId && value.model));
   const request = { ...scope, ...(Object.keys(chosenModels).length ? { models: chosenModels } : {}) };
@@ -119,14 +171,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
       void navigate({ to: '/p/$projectId/runs/$runId', params: { projectId, runId: run.runId } });
     },
   });
-  const visible = useMemo(() => (groups.data ?? []).filter((group) => `${group.title} ${group.key}`.toLowerCase().includes(filter.toLowerCase())), [groups.data, filter]);
   const total = data?.lines.total;
-  const projectLines = (groups.data ?? []).reduce((sum, group) => sum + group.total, 0);
-  const scopeButton = (value: Mode, label: ReactNode) => (
-    <Button key={value} variant={mode === value ? 'secondary' : 'outline'} className={cn(mode === value && 'ring-1 ring-ring ring-inset')} onClick={() => setMode(value)}>
-      {label}
-    </Button>
-  );
 
   return (
     <Dialog
@@ -135,9 +180,11 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
         setOpen(next);
         if (next) {
           setOpened({ unitIds: givenUnitIds, groupIds: givenGroupIds });
-          setMode(initialRunScope({ unitIds: givenUnitIds, groupIds: givenGroupIds, kind: preselectKind }));
-          setPickedKind(preselectKind);
-          setPicked(new Set());
+          setScopeTarget(givenUnitIds?.length ? 'units' : givenGroupIds?.length ? 'here' : 'groups');
+          setPickedScenes(startPicks());
+          setSceneFilter('');
+          setPickedTags(new Set());
+          setPickedMarks(new Set());
           setRunModels({});
         }
       }}
@@ -159,7 +206,8 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
         {/* Side padding so focus rings and the picked scope are not cut by the scroll box. */}
         <div className="-mx-1 max-h-[70svh] space-y-5 overflow-auto px-1 py-0.5">
           {!fixedWorkflowId && (
-            <Select value={workflowId} onValueChange={setChosen}>
+            <div className="space-y-2">
+            <Select value={workflowId ?? ''} onValueChange={choose}>
               <SelectTrigger className="w-full" aria-label="워크플로">
                 <SelectValue placeholder="워크플로 선택" />
               </SelectTrigger>
@@ -171,29 +219,79 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
                 ))}
               </SelectContent>
             </Select>
+            <p className="text-xs text-muted-foreground">
+              {!workflows.data?.length && '저장된 워크플로가 없습니다. '}
+              <Link to="/p/$projectId/workflows" params={{ projectId }} className="underline underline-offset-2">워크플로 관리</Link>
+            </p>
+            </div>
           )}
 
-          <section className="space-y-2">
-            <h3 className="text-xs text-muted-foreground">무엇을</h3>
-            <div className="flex flex-wrap gap-2">
-              {unitIds?.length ? scopeButton('units', `${unitsLabel ?? '고른 대사'} ${unitIds.length.toLocaleString()}줄`) : null}
-              {groupIds?.length ? scopeButton('here', here?.length === 1 ? `이 장면 · ${here[0].title}` : `이 장면들 ${groupIds.length}개`) : null}
-              {scopeButton('groups', mode === 'groups' && picked.size ? `장면 ${picked.size}개` : '장면 고르기')}
-              {scopeButton('tags', '태그로')}
-              {kinds.length > 1 &&
-                kinds.map((entry) => (
-                  <Button key={entry.kind} variant={mode === 'kind' && pickedKind === entry.kind ? 'secondary' : 'outline'} className={cn(mode === 'kind' && pickedKind === entry.kind && 'ring-1 ring-ring ring-inset')} onClick={() => (setMode('kind'), setPickedKind(entry.kind))}>
-                    {SCRIPT_VIEW[entry.kind]} {entry.lines.toLocaleString()}줄
-                  </Button>
-                ))}
-              {scopeButton('all', `전체${projectLines ? ` ${projectLines.toLocaleString()}줄` : ''}`)}
-            </div>
-            {mode === 'groups' && <ScenePicker visible={visible} picked={picked} setPicked={setPicked} filter={filter} setFilter={setFilter} />}
-            {mode === 'tags' && <TagPicker tags={tags} picked={pickedTags} setPicked={setPickedTags} marks={pickedMarks} setMarks={setPickedMarks} />}
+          <section className="space-y-4">
+            <fieldset className="space-y-2">
+              <SectionHeading as="legend" className="mb-2">대상</SectionHeading>
+              {/* A choice only when the dialog came with lines or groups picked; otherwise the table is the whole choice. */}
+              {unitIds?.length || groupIds?.length ? (
+                <RadioGroup value={scopeTarget} onValueChange={(value) => setScopeTarget(value as ScopeTarget)} className="gap-2">
+                  {unitIds?.length ? (
+                    <Label className="text-sm font-normal">
+                      <RadioGroupItem value="units" />
+                      {unitsLabel ?? '고른 대사'} {unitIds.length.toLocaleString()}줄
+                    </Label>
+                  ) : null}
+                  {groupIds?.length ? (
+                    <Label className="text-sm font-normal">
+                      <RadioGroupItem value="here" />
+                      {here?.length === 1 ? `지금 연 묶음 (${here[0].title})` : `지금 연 묶음 ${groupIds.length}개`}
+                    </Label>
+                  ) : null}
+                  <Label className="text-sm font-normal">
+                    <RadioGroupItem value="groups" />
+                    직접 고르기
+                  </Label>
+                </RadioGroup>
+              ) : null}
+              {scopeTarget === 'groups' && (
+                <div className={cn((unitIds?.length || groupIds?.length) && 'ml-6')}>
+                  <GroupPicker groups={groups.data ?? []} picked={pickedScenes} setPicked={setPickedScenes} filter={sceneFilter} setFilter={setSceneFilter} />
+                </div>
+              )}
+            </fieldset>
+
+            <fieldset className="space-y-2">
+              <SectionHeading as="legend" className="mb-2">필터</SectionHeading>
+              <FieldRows>
+                <FieldRow label="상태">
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                    {(statuses.data?.statuses ?? []).map((status) => (
+                      <Label key={status.id} className="text-sm font-normal">
+                        <Checkbox checked={pickedStatuses.has(status.id)} onCheckedChange={(checked) => toggled(setPickedStatuses, status.id, checked === true)} />
+                        <StatusIcon status={status} />
+                        {status.name}
+                      </Label>
+                    ))}
+                  </div>
+                </FieldRow>
+                <FieldRow label="태그">
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                    {LINE_MARK_IDS.map((mark) => (
+                      <Label key={mark} className="text-sm font-normal">
+                        <Checkbox checked={pickedMarks.has(mark)} onCheckedChange={(checked) => toggled(setPickedMarks, mark, checked === true)} />
+                        <MarkChip mark={mark} />
+                      </Label>
+                    ))}
+                    {tags.map((tag) => (
+                      <Label key={tag.id} className="text-sm font-normal">
+                        <Checkbox checked={pickedTags.has(tag.id)} onCheckedChange={(checked) => toggled(setPickedTags, tag.id, checked === true)} />
+                        #{tag.name}
+                      </Label>
+                    ))}
+                  </div>
+                </FieldRow>
+              </FieldRows>
+            </fieldset>
+
             <p className="text-sm">
-              {!mode ? (
-                null
-              ) : total === undefined && plan.isError ? (
+              {!ready ? null : total === undefined && plan.isError ? (
                 <span className="text-destructive">
                   줄 수를 세지 못했습니다: {plan.error.message}{' '}
                   <Button variant="ghost" size="inline" onClick={() => void plan.refetch()}>
@@ -213,7 +311,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
                   )}
                 </span>
               ) : total === 0 ? (
-                <span className="text-muted-foreground">이 범위에는 실행할 대사가 없습니다.{!ignoreStatus && ' 이미 진행된 줄이면 아래 "이미 진행된 줄도"를 켜세요.'}</span>
+                <span className="text-muted-foreground">이 범위에는 실행할 대사가 없습니다.</span>
               ) : (
                 <>
                   <b className="font-medium tabular-nums">{total.toLocaleString()}줄</b>을 실행합니다
@@ -221,14 +319,19 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
                 </>
               )}
             </p>
-            {mode === 'all' && Boolean(total) && <p className="text-xs text-warning">프로젝트 전체입니다. 처음이면 장면 하나로 먼저 시험해 보세요.</p>}
-            <label className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Checkbox checked={ignoreStatus} onCheckedChange={(checked) => setIgnoreStatus(Boolean(checked))} />
-              이미 진행된 줄도 다시
-            </label>
+            {wholeProject && Boolean(total) && (
+              <p className="text-xs text-warning">프로젝트 전체입니다. 처음이면 장면 하나로 먼저 시험해 보세요.</p>
+            )}
           </section>
 
-          {data && total ? <Readiness projectId={projectId} readiness={data.readiness} oneScene={mode === 'here' && here?.length === 1 ? here[0].id : undefined} scoped={mode !== 'all'} onLeave={() => setOpen(false)} /> : null}
+          {data && total ? (
+            <Readiness
+              projectId={projectId}
+              readiness={data.readiness}
+              oneScene={scopeTarget === 'here' && here?.length === 1 ? here[0].id : undefined}
+              onLeave={() => setOpen(false)}
+            />
+          ) : null}
           {data && total ? <Pace data={data} /> : null}
           {data && total ? (
             <RunModels
@@ -250,7 +353,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
           </Button>
           {/* A model picked without its model yet would quietly run on the node's own: finish or undo it first. */}
           <Button disabled={!total || !workflowId || stale || start.isPending || Object.keys(chosenModels).length !== Object.keys(runModels).length} onClick={() => start.mutate()}>
-            {start.isPending ? <Spinner /> : <Play />} {total ? `${total.toLocaleString()}줄 실행 시작` : '실행 시작'}
+            {start.isPending ? <Spinner /> : <Play />} {total ? `${total.toLocaleString()}줄 실행` : '실행 시작'}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -261,31 +364,81 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
 type Plan = UseQueryResult<InferResponseType<(typeof client.workflows)[':id']['preflight']['$post'], 200>>;
 type PlanData = NonNullable<Plan['data']>;
 
-function ScenePicker({ visible, picked, setPicked, filter, setFilter }: { visible: { id: string; title: string; total: number }[]; picked: Set<string>; setPicked: (update: (previous: Set<string>) => Set<string>) => void; filter: string; setFilter: (value: string) => void }) {
+type ScopeTarget = 'units' | 'here' | 'groups';
+
+/**
+ * Every group of the project as one table: 전체, then each kind (대사 · UI · 문서) with its own
+ * checkbox and fold, then its groups. Kinds start folded; a search opens them.
+ */
+function GroupPicker({ groups, picked, setPicked, filter, setFilter }: { groups: { id: string; key: string; kind: GroupKind; title: string; total: number }[]; picked: Set<string>; setPicked: SetPicked; filter: string; setFilter: (value: string) => void }) {
+  const [open, setOpen] = useState<Set<GroupKind>>(new Set());
+  const needle = filter.trim().toLowerCase();
+  const sections = KIND_ORDER.map((kind) => ({ kind, all: groups.filter((group) => group.kind === kind) }))
+    .filter((section) => section.all.length)
+    .map((section) => ({ ...section, shown: needle ? section.all.filter((group) => `${group.title} ${group.key}`.toLowerCase().includes(needle)) : section.all }));
+  const lines = (list: typeof groups) => list.reduce((sum, group) => sum + group.total, 0);
+  const pickedLines = lines(groups.filter((group) => picked.has(group.id)));
+  const state = (list: typeof groups) => {
+    const count = list.filter((group) => picked.has(group.id)).length;
+    return count === list.length ? true : count > 0 ? ('indeterminate' as const) : false;
+  };
+  const setMany = (list: typeof groups, on: boolean) =>
+    setPicked((previous) => {
+      const next = new Set(previous);
+      for (const group of list) on ? next.add(group.id) : next.delete(group.id);
+      return next;
+    });
+  const row = 'flex min-w-0 items-center gap-2 rounded px-2 py-1 text-sm hover:bg-muted';
   return (
-    <div className="min-w-0 space-y-2">
-      <SearchInput value={filter} onChange={(value) => setFilter(value ?? '')} placeholder="장면 찾기" className="w-full" end={`${picked.size}개 선택`} />
-      <ul className="max-h-52 overflow-auto rounded-md border p-1">
-        {visible.map((group) => (
-          <li key={group.id}>
-            <label className="flex min-w-0 items-center gap-2 rounded px-2 py-1 text-sm hover:bg-muted">
-              <Checkbox
-                checked={picked.has(group.id)}
-                onCheckedChange={(checked) =>
-                  setPicked((previous) => {
-                    const next = new Set(previous);
-                    if (checked) next.add(group.id);
-                    else next.delete(group.id);
-                    return next;
-                  })
-                }
-              />
-              <span className="min-w-0 flex-1 truncate">{group.title}</span>
-              <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{group.total}</span>
-            </label>
-          </li>
-        ))}
-      </ul>
+    <div className="min-w-0 overflow-hidden rounded-md border">
+      <div className="border-b p-1">
+        <SearchInput value={filter} onChange={(value) => setFilter(value ?? '')} placeholder="찾기" className="w-full" end={`${pickedLines.toLocaleString()}줄`} />
+      </div>
+      <div className="max-h-64 overflow-auto p-1">
+        <label className={cn(row, 'font-medium')}>
+          <Checkbox checked={state(groups)} onCheckedChange={(checked) => setMany(groups, checked === true)} />
+          <span className="min-w-0 flex-1">전체</span>
+          <span className="shrink-0 text-xs font-normal text-muted-foreground tabular-nums">{lines(groups).toLocaleString()}줄</span>
+        </label>
+        {sections.map(({ kind, all, shown }) => {
+          const expanded = Boolean(needle) || open.has(kind);
+          return (
+            <div key={kind}>
+              {/* Each level steps in by 16px: 전체 → kind → its groups. The fold arrow sits in that step. */}
+              <div className="flex min-w-0 items-center pl-2">
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className="w-4"
+                  aria-label={`${SCRIPT_VIEW[kind]} ${expanded ? '접기' : '펼치기'}`}
+                  aria-expanded={expanded}
+                  onClick={() => toggled(setOpen as SetPicked, kind, !open.has(kind))}
+                >
+                  <ChevronRight className={cn('transition-transform', expanded && 'rotate-90')} />
+                </Button>
+                <label className={cn(row, 'min-w-0 flex-1 pl-0')}>
+                  <Checkbox checked={state(all)} onCheckedChange={(checked) => setMany(all, checked === true)} />
+                  <span className="min-w-0 flex-1 truncate">{SCRIPT_VIEW[kind]}</span>
+                  <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{all.length.toLocaleString()}개 · {lines(all).toLocaleString()}줄</span>
+                </label>
+              </div>
+              {expanded && (
+                <ul className="ml-8">
+                  {shown.map((group) => (
+                    <li key={group.id}>
+                      <label className={row}>
+                        <Checkbox checked={picked.has(group.id)} onCheckedChange={(checked) => toggled(setPicked, group.id, checked === true)} />
+                        <span className="min-w-0 flex-1 truncate">{group.title}</span>
+                        <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{group.total}줄</span>
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -301,47 +454,16 @@ const toggled = (setPicked: SetPicked, id: string, checked: boolean) =>
     return next;
   });
 
-/** Automatic marks above the tags; a line must have every one picked, as in the line list's filter. */
-function TagPicker({ tags, picked, setPicked, marks, setMarks }: { tags: { id: string; name: string; units: number }[]; picked: Set<string>; setPicked: SetPicked; marks: Set<string>; setMarks: SetPicked }) {
-  return (
-    <div className="space-y-2 rounded-md border p-2">
-      <div className="space-y-1">
-        <p className="flex items-center gap-1 px-2 text-xs text-muted-foreground">고른 표시와 태그 <HelpTip>선택한 표시와 태그를 모두 가진 줄만 포함합니다. 자동 표시는 시스템이 붙입니다.</HelpTip></p>
-        <div className="flex flex-wrap gap-2">
-          {LINE_MARK_IDS.map((mark) => (
-            <label key={mark} className="flex items-center gap-1.5 rounded px-2 py-1 text-sm hover:bg-muted">
-              <Checkbox checked={marks.has(mark)} onCheckedChange={(checked) => toggled(setMarks, mark, checked === true)} />
-              <MarkChip mark={mark} />
-            </label>
-          ))}
-        </div>
-      </div>
-      {tags.length > 0 && (
-        <div className="space-y-1">
-          <p className="px-2 text-xs text-muted-foreground">태그</p>
-          <div className="flex flex-wrap gap-2">
-            {tags.map((tag) => (
-              <label key={tag.id} className="flex items-center gap-1.5 rounded px-2 py-1 text-sm hover:bg-muted">
-                <Checkbox checked={picked.has(tag.id)} onCheckedChange={(checked) => toggled(setPicked, tag.id, checked === true)} />#{tag.name} <span className="text-xs text-muted-foreground tabular-nums">{tag.units}</span>
-              </label>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 /** What in these lines would make the translation worse, each with where to fix it. */
-function Readiness({ projectId, readiness, oneScene, scoped, onLeave }: { projectId: string; readiness: PlanData['readiness']; oneScene?: string; /** The run covers part of the project, not all of it. */ scoped: boolean; /** A link was followed: the dialog closes. */ onLeave: () => void }) {
+function Readiness({ projectId, readiness, oneScene, onLeave }: { projectId: string; readiness: PlanData['readiness']; oneScene?: string; /** A link was followed: the dialog closes. */ onLeave: () => void }) {
   const checks: { ok: boolean; text: ReactNode; link?: ReactNode; uses: 'speech' | 'glossary' }[] = [
     {
       uses: 'speech',
       ok: readiness.unknownListenerLines === 0,
-      text: readiness.unknownListenerLines ? `청자를 모르는 대사 ${readiness.unknownListenerLines.toLocaleString()}줄 (말투 규칙이 안 걸림)` : '대사마다 청자가 정해짐',
+      text: readiness.unknownListenerLines ? `청자 미상 ${readiness.unknownListenerLines.toLocaleString()}줄` : '청자 모두 정해짐',
       link: readiness.unknownListenerLines > 0 && (
         <Link to="/p/$projectId/script" params={{ projectId }} search={{ marks: ['unknownListener'], ...(oneScene && { group: oneScene }) }} onClick={onLeave}>
-          청자 정하기{scoped && !oneScene ? ' (프로젝트 전체 목록)' : ''}
+          청자 정하기
         </Link>
       ),
     },
@@ -351,14 +473,14 @@ function Readiness({ projectId, readiness, oneScene, scoped, onLeave }: { projec
       text: readiness.unreviewedRules.count ? `확인 안 한 말투 규칙 ${readiness.unreviewedRules.count}개 (${readiness.unreviewedRules.examples.join(', ')}${readiness.unreviewedRules.count > readiness.unreviewedRules.examples.length ? ' 등' : ''})` : '쓰이는 말투 규칙은 모두 확인됨',
       link: readiness.unreviewedRules.count > 0 && (
         <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', marks: [...UNREVIEWED_MARKS], ...(!readiness.unreviewedRules.more && { ids: readiness.unreviewedRules.ids }) }} onClick={onLeave}>
-          확인하기{readiness.unreviewedRules.more ? ' (전체 목록에서 보기)' : ''}
+          확인하기
         </Link>
       ),
     },
     {
       uses: 'speech',
       ok: readiness.pairsWithoutRule.count === 0,
-      text: readiness.pairsWithoutRule.count ? `말투 규칙 없는 화자→청자 ${readiness.pairsWithoutRule.count}쌍 (${readiness.pairsWithoutRule.examples.join(', ')}${readiness.pairsWithoutRule.count > readiness.pairsWithoutRule.examples.length ? ' 등' : ''})` : '자주 말하는 쌍마다 말투 규칙 있음',
+      text: readiness.pairsWithoutRule.count ? `말투 규칙 없는 쌍 ${readiness.pairsWithoutRule.count} (${readiness.pairsWithoutRule.examples.join(', ')}${readiness.pairsWithoutRule.count > readiness.pairsWithoutRule.examples.length ? ' 등' : ''})` : '자주 말하는 쌍마다 말투 규칙 있음',
       link: readiness.pairsWithoutRule.count > 0 && (
         <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people' }} onClick={onLeave}>
           규칙 정하기
@@ -371,7 +493,7 @@ function Readiness({ projectId, readiness, oneScene, scoped, onLeave }: { projec
       text: readiness.unreviewedTerms.count ? `확인 안 한 용어 ${readiness.unreviewedTerms.count}개 (${readiness.unreviewedTerms.examples.join(', ')}${readiness.unreviewedTerms.count > readiness.unreviewedTerms.examples.length ? ' 등' : ''})` : '나오는 용어는 모두 확인됨',
       link: readiness.unreviewedTerms.count > 0 && (
         <Link to="/p/$projectId/glossary" params={{ projectId }} search={{ marks: [...UNREVIEWED_MARKS], ...(!readiness.unreviewedTerms.more && { ids: readiness.unreviewedTerms.ids }) }} onClick={onLeave}>
-          확인하기{readiness.unreviewedTerms.more ? ' (전체 목록에서 보기)' : ''}
+          확인하기
         </Link>
       ),
     },
@@ -381,7 +503,7 @@ function Readiness({ projectId, readiness, oneScene, scoped, onLeave }: { projec
   if (!rows.length) return null;
   return (
     <section className="space-y-2">
-      <h3 className="text-xs text-muted-foreground">준비 상태 · 이 줄들 기준</h3>
+      <SectionHeading>준비 상태</SectionHeading>
       <ul className="rounded-md border text-sm">
         {rows.map((row, index) => (
           <li key={index} className="flex items-center gap-2 px-3 py-1.5">

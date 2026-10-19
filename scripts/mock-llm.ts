@@ -9,9 +9,10 @@
  * `x-mock-<name>` header, e.g. `x-mock-drop-rate: 0.1`, so one process serves several tests):
  *   MOCK_FIXED_TOKENS   added to prompt_tokens per request (agent CLIs add 13k-29k of their own)
  *   MOCK_CACHED_TOKENS  reported as prompt_tokens_details.cached_tokens (inside prompt_tokens)
- *   MOCK_LATENCY_MS     base latency + up to 25% jitter (default 400ms, 1500ms for work analysis)
+ *   MOCK_LATENCY_MS     base latency + up to 25% jitter (default 400ms, 1500ms for a whole-script request)
  * Chat: the model "mock-slow" waits 3 s per step. Keywords call tools: 인물 → save_character, 용어 → save_terms
- *   (2 terms; "용어 많이" 25, over auto review's limit), "번역 바꿔" → find_lines then propose_changes on 3 lines.
+ *   (2 terms; "용어 많이" 25, over auto review's limit), "번역 바꿔" → find_lines then propose_changes on 3 lines,
+ *   "간략" → find_lines then show_graph saving a view of 3 of those lines.
  *   MOCK_DROP_RATE      fraction of per-line entries left out of the answer
  *   MOCK_DUP_RATE       fraction of entries that repeat the previous entry's id
  *   MOCK_EMPTY_RATE     fraction of translations with empty text
@@ -29,6 +30,7 @@ import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { detectKind, envGetter, hashString, headerGetter, makeRand, resolveOptions, respond, usageFor, type Usage } from './mock-llm-core.ts';
+import { readingRouteCall } from './mock-llm-chat.ts';
 
 const port = Number(process.env.MOCK_LLM_PORT ?? 4398);
 const app = new Hono();
@@ -136,6 +138,8 @@ app.post('/v1/chat/completions', async (c) => {
         : /스크립트/.test(user)
           ? { name: 'edit_workflow_node', args: { workflowId, nodeId, field: 'code', value: 'export default function run(input) {\n  return { port: input.candidate ? "ok" : "fail" };\n}' } }
           : { name: 'edit_workflow_node', args: { workflowId, nodeId, field: 'instructions', value: '[모의 지시문] 원문의 말투와 장면 분위기를 유지해 자연스러운 한국어로 옮기세요.' } };
+    else if (/간략/.test(user) && tools.has('find_lines') && tools.has('show_graph')) call = { name: 'find_lines', args: { limit: 6 } };
+    else if (tools.has('find_reading_route') && /경로|흐름/.test(user)) call = readingRouteCall(user, system, tools);
     else if (/번역\s*(바꿔|고쳐|수정)/.test(user) && tools.has('find_lines') && tools.has('propose_changes')) call = { name: 'find_lines', args: { limit: 3 } };
     else if (/용어\s*많이/.test(user) && tools.has('save_terms'))
       // Over auto review's 20 items: held for the person even in 자동 검토.
@@ -150,6 +154,12 @@ app.post('/v1/chat/completions', async (c) => {
   if (!call && last?.role === 'tool' && /번역\s*(바꿔|고쳐|수정)/.test(user) && asked?.tool_calls?.[0]?.function.name === 'find_lines' && tools.has('propose_changes')) {
     const found = [...text(last).matchAll(/"key":"([^"]+)"[^{}]*?"rev":(\d+)/g)].slice(0, 3);
     if (found.length) call = { name: 'propose_changes', args: { changes: found.map(([, key, rev]) => ({ key, rev: Number(rev), translation: `[모의 수정] ${key}` })) } };
+  }
+  // An "간략 보기" request: once find_lines answered, keep a few of those lines as a view; what lies between them is left out.
+  if (!call && last?.role === 'tool' && /간략/.test(user) && asked?.tool_calls?.[0]?.function.name === 'find_lines' && tools.has('show_graph')) {
+    const keys = [...text(last).matchAll(/"key":"([^"]+)"/g)].map(([, key]) => key);
+    const kept = [keys[0], keys[3], keys[5]].filter((key): key is string => Boolean(key));
+    if (kept.length) call = { name: 'show_graph', args: { mode: 'view', keep: kept.map((ref, index) => ({ ref, reason: `[모의 이유] ${index + 1}번째로 남긴 대사` })), label: '모의 간략 보기', request: user.slice(0, 200) } };
   }
   const table = '## 모의 현황\n\n| 항목 | 내용 |\n|---|---|\n| 프로젝트 | 모의 프로젝트 |\n| 대사 | 8,157개 |\n\n- [x] 표 렌더링\n- [ ] ~~취소선~~';
   const reply = /표/.test(user) ? table : last?.role === 'tool' ? '도구 결과를 확인했습니다. (모의 응답)' : `"${user.slice(0, 40)}"에 대한 모의 응답입니다.`;

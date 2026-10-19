@@ -24,14 +24,12 @@ export function InspectorHeader({
   className,
 }: InspectorHeaderProps) {
   return (
-    <div className={cn("flex shrink-0 items-start gap-2 border-b border-border bg-background px-3.5 py-2.5", className)}>
+    <div className={cn("flex shrink-0 items-start gap-2 border-b border-border-subtle bg-panel px-4 py-3", className)}>
       {icon && <div className="mt-0.5 shrink-0 text-muted-foreground">{icon}</div>}
       <div className="min-w-0 flex-1">
-        {kind && <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{kind}</div>}
-        <div className="flex min-w-0 items-center gap-2">
-          <h2 className="min-w-0 flex-1 truncate text-base font-semibold tracking-tight text-foreground">{name}</h2>
-          {status}
-        </div>
+        {kind && <div className="text-xs text-muted-foreground">{kind}</div>}
+        <h2 className="truncate text-base font-semibold leading-snug text-foreground">{name}</h2>
+        {status != null && <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs">{status}</div>}
       </div>
       {actions && <div className="flex shrink-0 items-center gap-1">{actions}</div>}
       {onClose && (

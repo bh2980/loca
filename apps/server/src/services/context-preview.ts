@@ -4,6 +4,8 @@ import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { planBatches } from '../engine/batches.ts';
 import { buildPrompt } from '../engine/prompts.ts';
+import { wholeScriptRequest } from '../engine/whole-script.ts';
+import { resolveChoiceOptions } from './choice-options.ts';
 import { buildContext } from './context.ts';
 
 /**
@@ -17,10 +19,10 @@ export function previewContext(db: Db, projectId: string, unitKey: string, pick:
   const workflows = db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).orderBy(asc(s.workflows.name)).all();
   const choices = workflows.flatMap((workflow) =>
     workflow.definition.nodes
-      .filter((node): node is AiNode => node.type === 'ai' && node.config.output !== 'analysis') // an analysis reads the script, not this context
+      .filter((node): node is AiNode => node.type === 'ai')
       .map((node) => ({ workflowId: workflow.id, workflowName: workflow.name, nodeId: node.id, nodeName: nodeName(node), output: node.config.output, node })),
   );
-  const picked = choices.find((choice) => (!pick.workflowId || choice.workflowId === pick.workflowId) && choice.nodeId === pick.nodeId) ?? choices.find((choice) => choice.output === 'candidate') ?? choices[0];
+  const picked = choices.find((choice) => (!pick.workflowId || choice.workflowId === pick.workflowId) && choice.nodeId === pick.nodeId) ?? choices.find((choice) => choice.output === 'text') ?? choices[0];
   const list = choices.map(({ node: _node, ...choice }) => choice);
   if (!picked) return { unitKey, choices: list, picked: null };
   const node = picked.node;
@@ -36,9 +38,13 @@ export function previewContext(db: Db, projectId: string, unitKey: string, pick:
   const rows = new Map(db.select().from(s.units).where(inArray(s.units.id, ids)).all().map((row) => [row.id, row]));
   const batch = ids.map((id) => rows.get(id)!);
   const project = db.select().from(s.projects).where(eq(s.projects.id, projectId)).get()!;
-  const context = buildContext(db, projectId, batch, node.config.context);
+  const languages = { source: project.sourceLanguage, target: project.targetLanguage };
+  const choiceOptions = node.config.output === 'choice' ? resolveChoiceOptions(db, projectId, node.config.choice) : undefined;
+  // A node reading the script whole sends the script text with the project-wide context only.
+  const whole = config.mode === 'whole' ? wholeScriptRequest(db, projectId, node, languages, batch, choiceOptions) : null;
+  const context = whole?.context ?? buildContext(db, projectId, batch, node.config.context);
   const lines = batch.map((row, index) => ({ id: String(index + 1), unitId: row.id, groupId: row.groupId, key: row.key, kind: row.kind, speaker: row.speaker, source: row.source, candidate: row.translation ?? undefined }));
-  const { system, prompt } = buildPrompt(node, { source: project.sourceLanguage, target: project.targetLanguage }, context, lines);
+  const { system, prompt } = whole ?? buildPrompt(node, languages, context, lines, choiceOptions);
   return {
     unitKey,
     choices: list,

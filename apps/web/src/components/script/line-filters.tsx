@@ -1,10 +1,10 @@
 /** The line filters: the screen's URL search params, the filter menu and the chips that show what is set. */
 import { Fragment, useState } from 'react';
 import { Link } from '@tanstack/react-router';
-import { ListFilter } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 import { AUTO_MARKS, type AutoMark, LINE_MARK_IDS, type LineMark, parseMarks } from '@tw/shared';
-import { LINE_TABS, type LineTab } from '@/components/line-detail';
 import { markTagGroups } from '@/components/header-filter';
+import { knownListenerFilter, toggleLineMarkFilter, unknownListenerFilter } from '@/lib/line-filter-state';
 import { Button, Input, DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger, StatusIcon } from '@loca/ui';
 import { q } from '@/lib/queries';
 
@@ -27,8 +27,7 @@ export interface LinesSearch {
   line?: string;
   /** The line's details pane is open (closed by default: the row itself is the editor). */
   detail?: true;
-  /** The line pane's tab and the AI node whose context it shows ("workflowId:nodeId"). */
-  lineTab?: Exclude<LineTab, 'checks'>;
+  /** The AI node whose prompt context the line pane previews ("workflowId:nodeId"). */
   aiNode?: string;
 }
 
@@ -43,7 +42,6 @@ export const linesSearchSchema = (raw: Record<string, unknown>): LinesSearch => 
   page: typeof raw.page === 'number' && raw.page > 0 ? raw.page : undefined,
   line: typeof raw.line === 'string' ? raw.line : undefined,
   detail: raw.detail === true || raw.detail === 'true' ? true : undefined,
-  lineTab: typeof raw.lineTab === 'string' && LINE_TABS.includes(raw.lineTab as LineTab) && raw.lineTab !== 'checks' ? (raw.lineTab as LinesSearch['lineTab']) : undefined,
   aiNode: typeof raw.aiNode === 'string' && raw.aiNode.includes(':') ? raw.aiNode : undefined,
 });
 
@@ -73,90 +71,114 @@ export function filterChips(search: LinesSearch, statuses: { id: string; name: s
  * Filters the list by status, tag, speaker or listener. Each choice goes into the URL and shows as
  * a removable chip next to the search, like filters that arrive from a link.
  */
-export function LineFilters({ projectId, statuses, tags, speakers, search, onSearch }: {
+export function LineFilters({ projectId, statuses, tags, speakers, listeners, unknownListenerCount, listenersPending, listenersError, onRetryListeners, withSpeakers = true, search, onSearch }: {
   projectId: string;
   statuses: { id: string; name: string; color: string }[];
   tags: { id: string; name: string; color: string; role?: string | null }[];
   speakers: { name: string; lines: number }[];
+  listeners: { name: string; lines: number }[];
+  unknownListenerCount: number;
+  listenersPending: boolean;
+  listenersError: boolean;
+  onRetryListeners: () => void;
+  /** Speaker and listener filters apply only to dialogue source. */
+  withSpeakers?: boolean;
   search: LinesSearch;
   onSearch: (next: Partial<LinesSearch>) => void;
 }) {
-  const [needle, setNeedle] = useState('');
-  const shown = speakers.filter((speaker) => !needle || speaker.name.toLowerCase().includes(needle.toLowerCase())).slice(0, 40);
+  const [speakerNeedle, setSpeakerNeedle] = useState('');
+  const [listenerNeedle, setListenerNeedle] = useState('');
+  const shownSpeakers = speakers.filter((speaker) => !speakerNeedle || speaker.name.toLowerCase().includes(speakerNeedle.toLowerCase())).slice(0, 40);
+  const shownListeners = listeners.filter((listener) => !listenerNeedle || listener.name.toLowerCase().includes(listenerNeedle.toLowerCase())).slice(0, 40);
   const toggleTag = (id: string, on: boolean) => {
     const next = on ? [...(search.tags ?? []), id] : (search.tags ?? []).filter((other) => other !== id);
     onSearch({ tags: next.length ? next : undefined });
   };
   const toggleMark = (mark: LineMark, on: boolean) => {
-    const next = on ? [...(search.marks ?? []), mark] : (search.marks ?? []).filter((other) => other !== mark);
-    onSearch({ marks: next.length ? next : undefined });
+    onSearch(toggleLineMarkFilter(search, mark, on));
   };
   const groups = markTagGroups({ marks: LINE_MARK_IDS, picked: search.marks, onToggle: (mark, on) => toggleMark(mark as LineMark, on), tags, pickedTags: search.tags, onToggleTag: toggleTag, projectId, tagHeading: '내 태그', issueHeading: '문제 유형' });
   return (
-    <DropdownMenu onOpenChange={(open) => !open && setNeedle('')}>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline">
-          <ListFilter /> 필터
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="max-h-[70svh] w-56 overflow-y-auto">
-        {/* Marks and tags in one list: each check narrows the lines further (all must hold). */}
-        {groups.map((group) => (
-          <Fragment key={group.heading}>
-            <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">{group.heading}</DropdownMenuLabel>
-            {group.options.map((option) => (
-              <DropdownMenuCheckboxItem key={option.key} checked={option.checked} onSelect={(event) => event.preventDefault()} onCheckedChange={option.onChange}>
-                {option.label}
+    <div className="flex min-w-0 items-center gap-0.5">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" className="text-muted-foreground">상태 <ChevronDown /></Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="max-h-[70svh] w-56 overflow-y-auto">
+          {statuses.map((status) => (
+            <DropdownMenuCheckboxItem key={status.id} checked={search.status === status.id} onSelect={(event) => event.preventDefault()} onCheckedChange={(on) => onSearch({ status: on ? status.id : undefined })}>
+              <StatusIcon status={status} /> {status.name}
+            </DropdownMenuCheckboxItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {withSpeakers && <DropdownMenu onOpenChange={(open) => !open && (setSpeakerNeedle(''), setListenerNeedle(''))}>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" className="text-muted-foreground">화자 <ChevronDown /></Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="max-h-[70svh] w-56 overflow-y-auto">
+          <Input value={speakerNeedle} onChange={(event) => setSpeakerNeedle(event.target.value)} onKeyDown={(event) => event.stopPropagation()} placeholder="이름 찾기" className="mb-1" aria-label="화자 찾기" />
+          {shownSpeakers.map((speaker) => (
+            <DropdownMenuCheckboxItem key={speaker.name} checked={search.speaker === speaker.name} onSelect={(event) => event.preventDefault()} onCheckedChange={(on) => onSearch({ speaker: on ? speaker.name : undefined })}>
+              <span className="min-w-0 flex-1 truncate">{speaker.name}</span>
+              <span className="text-xs text-muted-foreground tabular-nums">{speaker.lines.toLocaleString()}</span>
+            </DropdownMenuCheckboxItem>
+          ))}
+          {shownSpeakers.length === 0 && <p className="px-2 py-1 text-xs text-muted-foreground">일치하는 화자가 없습니다.</p>}
+          <DropdownMenuSeparator />
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger inset>청자</DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="max-h-[70svh] w-56 overflow-y-auto">
+              <Input value={listenerNeedle} onChange={(event) => setListenerNeedle(event.target.value)} onKeyDown={(event) => event.stopPropagation()} placeholder="이름 찾기" className="mb-1" aria-label="청자 찾기" />
+              <DropdownMenuCheckboxItem checked={Boolean(search.marks?.includes('unknownListener'))} onSelect={(event) => event.preventDefault()} onCheckedChange={(on) => onSearch(unknownListenerFilter(search, on))}>
+                <span className="min-w-0 flex-1 truncate">청자 미상</span>
+                {!listenersPending && !listenersError && <span className="text-xs text-muted-foreground tabular-nums">{unknownListenerCount.toLocaleString()}</span>}
               </DropdownMenuCheckboxItem>
-            ))}
-          </Fragment>
-        ))}
-        {!tags.some((tag) => !tag.role) && (
-          <>
-            <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">내 태그</DropdownMenuLabel>
-            <DropdownMenuItem asChild inset>
-              <Link to="/p/$projectId/settings/statuses" params={{ projectId }}>
-                태그 만들기
-              </Link>
-            </DropdownMenuItem>
-          </>
-        )}
-        <DropdownMenuSeparator />
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger inset>상태</DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="max-h-80 overflow-y-auto">
-            {statuses.map((status) => (
-              <DropdownMenuCheckboxItem key={status.id} checked={search.status === status.id} onCheckedChange={(on) => onSearch({ status: on ? status.id : undefined })}>
-                <StatusIcon status={status} /> {status.name}
-              </DropdownMenuCheckboxItem>
-            ))}
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger inset>화자</DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="w-56">
-            <Input value={needle} onChange={(event) => setNeedle(event.target.value)} onKeyDown={(event) => event.stopPropagation()} placeholder="이름 찾기" className="mb-1" aria-label="화자 찾기" />
-            <div className="max-h-72 overflow-y-auto">
-              {shown.map((speaker) => (
-                <DropdownMenuCheckboxItem key={speaker.name} checked={search.speaker === speaker.name} onCheckedChange={(on) => onSearch({ speaker: on ? speaker.name : undefined })}>
-                  <span className="min-w-0 flex-1 truncate">{speaker.name}</span>
-                  <span className="text-xs text-muted-foreground tabular-nums">{speaker.lines.toLocaleString()}</span>
+              <DropdownMenuSeparator />
+              {listenersPending && <p role="status" className="px-2 py-1 text-xs text-muted-foreground">청자 목록을 불러오는 중…</p>}
+              {listenersError && (
+                <>
+                  <p role="alert" className="px-2 py-1 text-xs text-muted-foreground">청자 목록을 불러오지 못했습니다. 연결을 확인하고 다시 시도해 주세요.</p>
+                  <DropdownMenuItem onSelect={(event) => { event.preventDefault(); onRetryListeners(); }}>다시 시도</DropdownMenuItem>
+                </>
+              )}
+              {!listenersPending && !listenersError && shownListeners.map((listener) => (
+                <DropdownMenuCheckboxItem key={listener.name} checked={search.listener === listener.name} onSelect={(event) => event.preventDefault()} onCheckedChange={(on) => onSearch(knownListenerFilter(search, listener.name, on))}>
+                  <span className="min-w-0 flex-1 truncate">{listener.name}</span>
+                  <span className="text-xs text-muted-foreground tabular-nums">{listener.lines.toLocaleString()}</span>
                 </DropdownMenuCheckboxItem>
               ))}
-            </div>
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger inset>청자</DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="max-h-80 w-56 overflow-y-auto">
-            {speakers.slice(0, 40).map((speaker) => (
-              <DropdownMenuCheckboxItem key={speaker.name} checked={search.listener === speaker.name} onCheckedChange={(on) => onSearch({ listener: on ? speaker.name : undefined })}>
-                {speaker.name}
-              </DropdownMenuCheckboxItem>
-            ))}
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
-      </DropdownMenuContent>
-    </DropdownMenu>
+              {!listenersPending && !listenersError && shownListeners.length === 0 && <p className="px-2 py-1 text-xs text-muted-foreground">{listeners.length === 0 && !listenerNeedle ? '정해진 청자가 없습니다.' : '일치하는 청자가 없습니다.'}</p>}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        </DropdownMenuContent>
+      </DropdownMenu>}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" className="text-muted-foreground">태그 <ChevronDown /></Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="max-h-[70svh] w-56 overflow-y-auto">
+          {/* Automatic marks, user tags and issue types all narrow the list together. */}
+          {groups.map((group) => (
+            <Fragment key={group.heading}>
+              <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">{group.heading}</DropdownMenuLabel>
+              {group.options.map((option) => (
+                <DropdownMenuCheckboxItem key={option.key} checked={option.checked} onSelect={(event) => event.preventDefault()} onCheckedChange={option.onChange}>
+                  {option.label}
+                </DropdownMenuCheckboxItem>
+              ))}
+            </Fragment>
+          ))}
+          {!tags.some((tag) => !tag.role) && (
+            <>
+              <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">내 태그</DropdownMenuLabel>
+              <DropdownMenuItem asChild inset>
+                <Link to="/p/$projectId/settings/statuses" params={{ projectId }}>태그 만들기</Link>
+              </DropdownMenuItem>
+            </>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   );
 }

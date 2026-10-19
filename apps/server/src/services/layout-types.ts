@@ -1,5 +1,8 @@
 /** One layout request for the ELK worker (layout-worker.ts); its own module so the graph helpers can share it without importing the worker. */
+export type LayoutDirection = 'vertical' | 'horizontal';
+
 export interface LayoutJob {
+  direction?: LayoutDirection;
   /** `group`: the node's scene, for dialogue layouts (straight runs are folded within one scene). */
   nodes: { id: string; width: number; height: number; group?: string | null; keep?: boolean }[];
   /** `label`: what the edge says (a choice's text); `via`: the choice node folded into it. */

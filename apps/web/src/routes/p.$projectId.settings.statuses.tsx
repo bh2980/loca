@@ -8,7 +8,7 @@ import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { AUTO_MARK_IDS, AUTO_MARKS, markColor, REVIEW_TAG, type AutoMark, type MarkColors } from '@tw/shared';
-import { EmptyState, DataTable, type ColumnDef, SplitPane, FilterBar, AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, StatusIcon, TagChip, HelpTip } from '@loca/ui';
+import { EmptyState, DataTable, type ColumnDef, SplitPane, AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, StatusIcon, TagChip, SettingsContent, SettingsSection, ContextMenuItem, ContextMenuSeparator } from '@loca/ui';
 import { Page } from '@/components/page';
 import { MarkChip } from '@/components/status';
 import { client, unwrap } from '@/lib/api';
@@ -149,8 +149,8 @@ function StatusSettings() {
       ),
     },
     { id: 'kind', header: '종류', meta: { width: 112, className: 'text-muted-foreground' }, cell: ({ row }) => STATUS_KIND[row.original.kind] },
-    { id: 'review', header: '검토함에 표시', meta: { width: 120 }, cell: ({ row }) => (row.original.inReview ? '표시' : <span className="text-muted-foreground">–</span>) },
-    { id: 'human', header: '사람만 지정', meta: { width: 104 }, cell: ({ row }) => (row.original.humanOnly ? '사람만' : <span className="text-muted-foreground">–</span>) },
+    { id: 'review', header: '검토함', meta: { width: 120 }, cell: ({ row }) => (row.original.inReview ? '표시' : <span className="text-muted-foreground">–</span>) },
+    { id: 'human', header: '워크플로 지정 안 함', meta: { width: 132 }, cell: ({ row }) => (row.original.humanOnly ? '지정 안 함' : <span className="text-muted-foreground">–</span>) },
     { id: 'units', header: '대사 수', meta: { width: 96, align: 'end' }, cell: ({ row }) => row.original.units.toLocaleString() },
   ];
   // One table: the built-in tags first (marks the app reads off, then tags the app puts on), then the person's own.
@@ -223,39 +223,98 @@ function StatusSettings() {
 
   return (
     <Page title="상태·태그" flush>
-      <SplitPane id="settings-statuses" defaultWidth="384px" className="h-full" pane={pane}>
-        <div className="min-h-0 flex-1 overflow-auto">
-          <FilterBar end={<>
-            {statuses && <span className="text-2xs font-medium text-subtle-foreground tabular-nums">{statuses.length}개</span>}
-            <Button variant="outline" onClick={() => open({ status: 'new' })}><Plus /> 추가</Button>
-          </>}>
-            <h2 className="flex items-center gap-1 text-sm font-semibold">상태 <HelpTip label="‘검토함에 표시’ 상태 도움말">이 상태의 대사는 사람이 바꾸든 워크플로가 바꾸든 검토함에 모입니다. 검토함에서는 다른 상태 중 하나를 골라 옮기는 것으로 결정합니다.</HelpTip></h2>
-          </FilterBar>
-          <DataTable id="statuses"
-            className="flex-none"
-            columns={statusColumns}
-            rows={statuses}
-            rowId={(row) => row.id}
-            selected={search.status}
-            empty={<EmptyState noun="상태" />}
-            onRowClick={(row) => open({ status: row.id })}
-          />
-          <FilterBar className="mt-8" end={<>
-            {allTags && <span className="text-2xs font-medium text-subtle-foreground tabular-nums">{allTags.length}개</span>}
-            <Button variant="outline" onClick={() => open({ tag: 'new' })}><Plus /> 추가</Button>
-          </>}>
-            <h2 className="flex items-center gap-1 text-sm font-semibold">태그 <HelpTip label="태그 도움말">상태와 별개로 여러 개 붙는 표시입니다. 필터·실행 범위·워크플로 조건에서 고릅니다. ‘기본’은 앱이 붙이거나 읽어 내는 태그로, 지우거나 이름을 바꿀 수 없고 색만 바꿉니다. 내 태그(예: #재검토)는 대사를 골라 붙이거나 상태 변경 노드로 붙입니다.</HelpTip></h2>
-          </FilterBar>
-          <DataTable
-            id="tags"
-            className="flex-none"
-            columns={tagColumns}
-            rows={allTags}
-            rowId={(row) => row.id}
-            selected={search.mark ? `mark:${search.mark}` : search.tag}
-            onRowClick={(row) => open(row.mark ? { mark: row.mark } : { tag: row.id })}
-          />
-        </div>
+      <SplitPane id="settings-statuses" selectionKey={search.status ?? search.tag ?? search.mark} defaultWidth="384px" className="h-full" pane={pane}>
+        <SettingsContent width="wide">
+          <div className="space-y-8">
+            <SettingsSection
+              title="상태"
+              headerActions={
+                <>
+                  {statuses && <span className="text-xs text-muted-foreground tabular-nums">{statuses.length}개</span>}
+                  <Button variant="outline" onClick={() => open({ status: 'new' })}><Plus /> 추가</Button>
+                </>
+              }
+            >
+              <div className="overflow-hidden rounded-md border border-border bg-card">
+                <DataTable
+                  id="statuses"
+                  className="flex-none"
+                  columns={statusColumns}
+                  rows={statuses}
+                  rowId={(row) => row.id}
+                  selected={search.status}
+                  empty={<EmptyState noun="상태" />}
+                  onRowClick={(row) => open({ status: row.id })}
+                  rowContextMenu={(row) => {
+                    const index = statuses?.indexOf(row) ?? -1;
+                    const count = statuses?.length ?? 0;
+                    return (
+                      <>
+                        <ContextMenuItem onClick={() => open({ status: row.id })}>상태 편집</ContextMenuItem>
+                        {index > 0 && <ContextMenuItem onClick={() => move(row, -1)}>위로 이동</ContextMenuItem>}
+                        {index >= 0 && index < count - 1 && <ContextMenuItem onClick={() => move(row, 1)}>아래로 이동</ContextMenuItem>}
+                        {count >= 2 && (
+                          <>
+                            <ContextMenuSeparator />
+                            <ContextMenuItem
+                              variant="destructive"
+                              onClick={() => {
+                                setRemoving(row);
+                                setMoveTo('');
+                              }}
+                            >
+                              삭제
+                            </ContextMenuItem>
+                          </>
+                        )}
+                      </>
+                    );
+                  }}
+                />
+              </div>
+            </SettingsSection>
+
+            <SettingsSection
+              title="태그"
+              headerActions={
+                <>
+                  {allTags && <span className="text-xs text-muted-foreground tabular-nums">{allTags.length}개</span>}
+                  <Button variant="outline" onClick={() => open({ tag: 'new' })}><Plus /> 추가</Button>
+                </>
+              }
+            >
+              <div className="overflow-hidden rounded-md border border-border bg-card">
+                <DataTable
+                  id="tags"
+                  className="flex-none"
+                  columns={tagColumns}
+                  rows={allTags}
+                  rowId={(row) => row.id}
+                  selected={search.mark ? `mark:${search.mark}` : search.tag}
+                  onRowClick={(row) => open(row.mark ? { mark: row.mark } : { tag: row.id })}
+                  rowContextMenu={(row) => (
+                    <>
+                      <ContextMenuItem onClick={() => open(row.mark ? { mark: row.mark } : { tag: row.id })}>
+                        {row.mark ? '색상 편집' : '태그 편집'}
+                      </ContextMenuItem>
+                      {row.tag && !row.tag.role && (
+                        <>
+                          <ContextMenuSeparator />
+                          <ContextMenuItem
+                            variant="destructive"
+                            onClick={() => removeTag.mutate(row.tag!.id)}
+                          >
+                            삭제
+                          </ContextMenuItem>
+                        </>
+                      )}
+                    </>
+                  )}
+                />
+              </div>
+            </SettingsSection>
+          </div>
+        </SettingsContent>
       </SplitPane>
 
       <AlertDialog open={!!removing} onOpenChange={(next) => !next && setRemoving(null)}>

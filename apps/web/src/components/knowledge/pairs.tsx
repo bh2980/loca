@@ -1,15 +1,16 @@
 import { useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronRight, Plus } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { InferRequestType } from 'hono/client';
-import { type AutoMark, isSpecialListener, knowledgeMarksOf, listenerLabel, matchesMarks, OTHERS_LISTENER, SPEECH_LEVEL_LABELS } from '@tw/shared';
-import { EmptyState, DataTable, type ColumnDef, Inspector, InspectorHeader, InspectorSection, Badge, Button, Collapsible, CollapsibleContent, CollapsibleTrigger, HelpTip } from '@loca/ui';
+import { toast } from 'sonner';
+import { type AutoMark, isSpecialListener, knowledgeMarksOf, listenerLabel, matchesMarks, OTHERS_LISTENER, PALETTE, SPEECH_LEVEL_LABELS } from '@tw/shared';
+import { EmptyState, DataTable, type ColumnDef, Inspector, GroupHeading, InspectorHeader, InspectorSection, PropertyGrid, PropertyRow, TagListEditor, Badge, Button, Collapsible, CollapsibleContent, CollapsibleTrigger } from '@loca/ui';
 import { DraftEditor } from '@/components/knowledge/editor';
 import { candidateRow, fail, matches, metaColumns, SourceBadge, type Draft, type KnowledgeFilterState, type KindSpec, type RelationshipRow, type SourceFilter, type SpeechRuleRow } from '@/components/knowledge/table';
 import { splitList } from '@/components/chip-input';
-import type { client } from '@/lib/api';
-import { q, useReviewTagId } from '@/lib/queries';
+import { client, unwrap } from '@/lib/api';
+import { q, tagsIn, useReviewTagId } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
 /**
@@ -62,8 +63,6 @@ export const pairSummary = (pair: Pair): Draft => {
     id: pair.key,
     status: rows.some((row) => row.status === 'candidate') ? 'candidate' : 'confirmed',
     origin: rows.some((row) => row.origin === 'ai') ? 'ai' : 'human',
-    // Carries the analysis job when an AI item came from one, so 출처 says 작품 분석, not 워크플로·채팅.
-    jobId: rows.find((row) => row.origin === 'ai' && row.jobId)?.jobId ?? null,
     statusBy: rows.some((row) => row.statusBy === 'ai') ? 'ai' : 'human',
     evidence: [],
     // Every tag of its items once; reasons of the same tag joined (확인 권장 on two stretches).
@@ -164,27 +163,79 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
     const line = startOf.get(rule.startKey);
     return line ? `“${line.source.length > 28 ? `${line.source.slice(0, 27)}…` : line.source}”부터` : `${rule.startKey}부터`;
   };
+
+  const queryClient = useQueryClient();
+  const statuses = useQuery(q.statuses(projectId));
+  const knowledgeTags = tagsIn(statuses.data?.tags, 'people');
+  const summaryTags = pairSummary(pair).tags ?? [];
+  const attachedPairTags = summaryTags
+    .map((item) => statuses.data?.tags?.find((t) => t.id === item.id))
+    .filter(Boolean) as (Parameters<typeof TagListEditor>[0]['tags'][number])[];
+
+  const pairItemsList = pairItems(pair);
+  const pairTagMutation = useMutation({
+    mutationFn: async ({ tagId, add }: { tagId: string; add: boolean }) => {
+      for (const [kind, list] of Map.groupBy(pairItemsList, (item) => item.kind)) {
+        await unwrap(client.projects[':projectId']['knowledge-tags'].$post({
+          param: { projectId },
+          json: { kind, ids: list.map((item) => item.row.id), tagId, add },
+        }));
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['knowledge'] });
+    },
+    onError: fail,
+  });
+
+  const handleCreatePairTag = async (name: string) => {
+    try {
+      const color = (PALETTE[knowledgeTags.length % PALETTE.length] as any).light ?? PALETTE[knowledgeTags.length % PALETTE.length].hex;
+      const created = await unwrap(client.projects[':projectId'].tags.$post({
+        param: { projectId },
+        json: { name, color, scope: ['people'] },
+      }));
+      await pairTagMutation.mutateAsync({ tagId: created.id, add: true });
+      queryClient.invalidateQueries({ queryKey: ['statuses', projectId] });
+      toast.success(`'${name}' 태그를 만들고 항목에 붙였습니다.`);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : '태그를 만들지 못했습니다.');
+    }
+  };
+
   return (
     <Inspector header={<InspectorHeader kind="관계·말투" name={`${pair.from} → ${listenerLabel(pair.to)}`} onClose={onClose} />}>
+      {pairItemsList.length > 0 && (
+        <InspectorSection title="기본 정보">
+          <PropertyGrid>
+            <PropertyRow label="태그">
+              <TagListEditor
+                tags={attachedPairTags}
+                allTags={knowledgeTags}
+                onToggle={(tagId, add) => pairTagMutation.mutate({ tagId, add })}
+                onCreate={handleCreatePairTag}
+                heading="태그"
+              />
+            </PropertyRow>
+          </PropertyGrid>
+        </InspectorSection>
+      )}
       <InspectorSection
         title="말투"
         actions={
           <Button variant="ghost" onClick={() => setPicking((value) => !value)} aria-pressed={picking}>
-            <Plus /> 말투가 바뀌는 지점 추가
+            <Plus /> 변화 지점 추가
           </Button>
         }
       >
         {picking && <StretchPicker projectId={projectId} from={pair.from} to={pair.to} taken={new Set(pair.rules.map((rule) => rule.startKey ?? ''))} onPick={(key) => addStretch.mutate(key)} onCancel={() => setPicking(false)} />}
         {rules.length === 0 && (
-          <p className="text-xs text-muted-foreground">
-            {pair.to === OTHERS_LISTENER
-              ? `${pair.from}의 그 밖의 사람 규칙이 없습니다.`
-              : others?.rules.length
-                ? `이 쌍의 규칙이 없어 ${pair.from}의 ‘그 밖의 사람’ 규칙(${SPEECH_LEVEL_LABELS[others.rules[0].level]})이 쓰입니다.`
-                : '이 쌍의 말투 규칙이 없습니다. 규칙이 없으면 번역에는 청자만 들어갑니다.'}
+          <p className="text-sm text-muted-foreground">
+            {pair.to !== OTHERS_LISTENER && others?.rules.length
+              ? `규칙이 없어 ${pair.from}의 ‘그 밖의 사람’ 규칙(${SPEECH_LEVEL_LABELS[others.rules[0].level]})이 쓰입니다.`
+              : '말투 규칙이 없습니다.'}
           </p>
         )}
-        {pair.to === OTHERS_LISTENER && <p className="flex items-center gap-1 text-xs text-muted-foreground">그 밖의 사람 <HelpTip>{pair.from}가 자기 규칙이 없는 상대(엑스트라, 처음 보는 사람 등)에게 쓰는 말투입니다.</HelpTip></p>}
         <ul className="space-y-2">
           {rules.map((rule) => {
             const open = openRule === rule.id;
@@ -208,7 +259,7 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
                   </CollapsibleTrigger>
                   <CollapsibleContent>
                     <div className="space-y-3 border-t p-3">
-                      {review && <p className="text-xs text-warning">확인 권장: {review}</p>}
+                      {review && <p className="text-sm text-warning">확인 권장: {review}</p>}
                       <DraftEditor embedded projectId={projectId} kind="speechRules" spec={ruleSpec} row={rule} characters={characters} onDecide={(action) => onDecide('speechRules', [rule.id], action)} />
                     </div>
                   </CollapsibleContent>
@@ -224,13 +275,13 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
             className="mt-2 text-muted-foreground"
             onClick={() => (others ? onOpenPair(others.key) : addRule({ fromName: pair.from, toName: OTHERS_LISTENER, level: 'haeyo', address: '' }).then(() => onOpenPair(pairKey(pair.from, OTHERS_LISTENER))))}
           >
-            {others?.rules.length ? `${pair.from} → 그 밖의 사람: ${SPEECH_LEVEL_LABELS[others.rules[0].level]}` : `${pair.from} → 그 밖의 사람 말투 정하기`}
+            {others?.rules.length ? `${pair.from} → 그 밖의 사람: ${SPEECH_LEVEL_LABELS[others.rules[0].level]}` : `${pair.from} → 그 밖의 사람 말투`}
           </Button>
         )}
       </InspectorSection>
       <Collapsible>
         <CollapsibleTrigger asChild>
-          <Button variant="ghost" size="row" className="group/rel -mx-2 w-[calc(100%+1rem)] text-xs font-medium text-muted-foreground">
+          <Button variant="ghost" size="row" className="group/rel -mx-2 w-[calc(100%+1rem)] text-sm font-semibold text-foreground">
             <ChevronRight className="transition-transform group-data-[state=open]/rel:rotate-90" />
             관계{pair.relationship ? ` · ${pair.relationship.kind}` : ' 없음'}
             {pair.relationship && <span className="ml-auto"><SourceBadge row={pair.relationship} /></span>}
@@ -265,22 +316,22 @@ function StretchPicker({ projectId, from, to, taken, onPick, onCancel }: { proje
   return (
     <div className="mb-3 rounded-md border bg-muted p-2">
       <div className="mb-1 flex items-center gap-2 px-1">
-        <p className="text-xs font-medium">말투가 바뀌기 시작하는 대사를 고르세요</p>
+        <GroupHeading>시작 대사 선택</GroupHeading>
         <Button variant="ghost" size="inline" className="ml-auto text-muted-foreground" onClick={onCancel}>
           취소
         </Button>
       </div>
       {!lines.data ? (
-        <p className="px-1 py-2 text-xs text-muted-foreground">불러오는 중…</p>
+        <p className="px-1 py-2 text-sm text-muted-foreground">불러오는 중…</p>
       ) : lines.data.rows.length === 0 ? (
-        <p className="px-1 py-2 text-xs text-muted-foreground">청자가 {listenerLabel(to)}로 정해진 {from}의 대사가 없습니다.</p>
+        <p className="px-1 py-2 text-sm text-muted-foreground">청자가 {listenerLabel(to)}로 정해진 {from}의 대사가 없습니다.</p>
       ) : (
         <ul className="max-h-64 overflow-auto">
           {lines.data.rows.map((line) => (
             <li key={line.id}>
-              <Button variant="ghost" size="row" className="text-xs" disabled={taken.has(line.key)} onClick={() => onPick(line.key)}>
+              <Button variant="ghost" size="row" className="text-sm" disabled={taken.has(line.key)} onClick={() => onPick(line.key)}>
                 <span className="min-w-0">
-                  <span className="text-muted-foreground">{line.groupTitle} · </span>
+                  <span className="text-xs text-muted-foreground">{line.groupTitle} · </span>
                   {line.source}
                 </span>
               </Button>

@@ -1,7 +1,6 @@
-import { analysisSectionsOf, type AiNode, type IssueKind } from '@tw/shared';
-import { analysisToKeys, type Analysis } from '../services/analysis.ts';
+import type { AiNode, IssueKind, JsonField } from '@tw/shared';
 import type { FunctionResult } from './functions/index.ts';
-import type { KnowledgeOutput, PromptLine } from './prompts.ts';
+import { answerSchema, type PromptLine } from './prompts.ts';
 
 /** A node's result for one line: the exit to take plus what it produced. */
 export interface Outcome extends FunctionResult {
@@ -12,24 +11,39 @@ export interface Outcome extends FunctionResult {
 }
 
 /**
- * An AI node's answer read line by line (#49: out of runner.ts, no state of its own). Per-line
- * outputs (candidate, verdict, listener, json) give each line its own outcome or null when the
- * answer left the line out (the runner retries or fails those). Batch outputs (terms, knowledge,
- * analysis) describe the whole request: only the first line carries the payload (batchLeader).
+ * Evidence ids ("lines" fields, at any depth) turned from the prompt's line ids into line keys, so
+ * the answer outlives the prompt. Ids that are not lines of the request are dropped.
  */
-export function readAiOutput(node: AiNode, raw: unknown, lines: PromptLine[], model: string, analysisKeys?: Map<string, string>): (Outcome | null)[] {
-  const missing = (_what: string) => null;
-  const value = raw as { translations?: { id: string; text: string }[]; results?: ({ id: string } & Record<string, unknown>)[]; terms?: unknown[]; listeners?: { id: string; listener: unknown; confidence: unknown }[] };
+function withLineKeys(value: Record<string, unknown>, fields: JsonField[], keyOf: Map<string, string>): Record<string, unknown> {
+  const result: Record<string, unknown> = { ...value };
+  for (const field of fields) {
+    const entry = result[field.name];
+    if (field.type === 'lines' && Array.isArray(entry)) result[field.name] = entry.flatMap((id) => (typeof id === 'string' && keyOf.has(id.trim()) ? [keyOf.get(id.trim())!] : []));
+    else if (field.type === 'list' && Array.isArray(entry) && field.fields) result[field.name] = entry.map((item) => (item && typeof item === 'object' ? withLineKeys(item as Record<string, unknown>, field.fields!, keyOf) : item));
+  }
+  return result;
+}
+
+/**
+ * An AI node's answer read line by line (#49: out of runner.ts, no state of its own). Line-scope
+ * outputs give each line its own outcome, or null when the answer left the line out (the runner
+ * retries or fails those). A batch-scope json answer describes the whole request: only the first
+ * line carries it (batchLeader). `choiceOptions` are the options the choice was asked with.
+ */
+export function readAiOutput(node: AiNode, raw: unknown, lines: PromptLine[], model: string, choiceOptions: string[] = node.config.choice.values): (Outcome | null)[] {
+  const keyOf = new Map(lines.map((line) => [line.id, line.key]));
+  const value = raw as { results?: ({ id: string } & Record<string, unknown>)[] };
+  const entryOf = (line: PromptLine) => value.results?.find((entry) => entry.id === line.id);
   switch (node.config.output) {
-    case 'candidate':
+    case 'text':
       return lines.map((line) => {
-        const text = value.translations?.find((entry) => entry.id === line.id)?.text;
-        return text === undefined || !text.trim() ? missing('번역') : { port: 'out', candidate: text, origin: 'ai', model, output: { text } };
+        const text = entryOf(line)?.text;
+        return typeof text !== 'string' || !text.trim() ? null : { port: 'out', candidate: text, origin: 'ai', model, output: { text } };
       });
     case 'verdict':
       return lines.map((line) => {
-        const result = value.results?.find((entry) => entry.id === line.id) as { passed: boolean; issues: string[]; categories?: IssueKind[] } | undefined;
-        if (!result) return missing('판정');
+        const result = entryOf(line) as ({ passed: boolean; issues: string[]; categories?: IssueKind[] } & { id: string }) | undefined;
+        if (!result) return null;
         // A review covers every kind: passing clears them, failing names what it found (기타 when it did not say).
         const kinds = result.categories?.length ? [...new Set(result.categories)] : (['other'] as IssueKind[]);
         return {
@@ -39,53 +53,34 @@ export function readAiOutput(node: AiNode, raw: unknown, lines: PromptLine[], mo
           issueTags: result.passed ? { clear: 'all' } : { add: kinds },
         };
       });
-    case 'terms': {
-      const terms = (value.terms ?? []) as unknown[];
-      return lines.map((_, index) => ({ port: 'out', output: { terms, batchLeader: index === 0 } }));
-    }
-    case 'knowledge': {
-      // Like terms, the change set describes the whole batch; line ids become line keys so it outlives the prompt.
-      const keyOf = new Map(lines.map((line) => [line.id, line.key]));
-      const known = (id: string | null | undefined) => (id ? (keyOf.get(id) ?? null) : null);
-      const found = raw as KnowledgeOutput;
-      const knowledge = {
-        characters: (found.characters ?? []).map((c) => ({
-          ...c,
-          evidence: ((c as { evidence?: string[] }).evidence ?? []).flatMap((id) => (keyOf.get(id) ? [keyOf.get(id)!] : [])),
-        })),
-        relationships: (found.relationships ?? []).map((rel) => ({ ...rel, at: known(rel.at), evidence: (rel.at && keyOf.get(rel.at) ? [keyOf.get(rel.at)!] : []) })),
-        events: (found.events ?? []).map((event) => ({ ...event, evidence: event.evidence.flatMap((id) => (keyOf.get(id) ? [keyOf.get(id)!] : [])) })),
-        speechRules: (found.speechRules ?? []).map((rule) => ({ ...rule, start: known(rule.start), evidence: (rule.start && keyOf.get(rule.start) ? [keyOf.get(rule.start)!] : []) })),
-      };
-      return lines.map((_, index) => ({
-        port: 'out',
-        // To save space in run_items.data (H7), only the first line carries the full payload;
-        // subsequent lines carry an empty payload with batchLeader: false so downstream nodes skip redundant writes.
-        output: index === 0
-          ? { knowledge, batchLeader: true }
-          : { knowledge: { characters: [], relationships: [], events: [], speechRules: [] }, batchLeader: false },
-      }));
-    }
-    case 'analysis': {
-      // One answer for the whole request, its line ids turned into line keys; only the first line
-      // carries it (H7) and `saveAnalysis` stores it once.
-      const analysis = analysisToKeys(raw as Partial<Analysis>, analysisKeys ?? new Map());
-      const sections = analysisSectionsOf(node.config.sections);
-      return lines.map((_, index) => ({ port: 'out', output: index === 0 ? { analysis, sections, batchLeader: true } : { analysis: null, batchLeader: false } }));
-    }
-    case 'listener':
+    case 'choice':
       return lines.map((line) => {
-        const entry = value.listeners?.find((candidate) => candidate.id === line.id);
-        if (!entry) return missing('청자');
-        const listener = typeof entry.listener === 'string' && entry.listener.trim() ? entry.listener.trim() : null;
-        return { port: 'out', output: { listener, confidence: Math.min(1, Math.max(0, Number(entry.confidence) || 0)) } };
+        const entry = entryOf(line);
+        if (!entry) return null;
+        const answer = typeof entry.value === 'string' ? entry.value.trim() : '';
+        // An answer outside the options counts as no answer.
+        const chosen = answer && (!choiceOptions.length || choiceOptions.includes(answer)) ? answer : null;
+        const reason = typeof entry.reason === 'string' && entry.reason.trim() ? entry.reason.trim() : undefined;
+        return { port: 'out', output: { value: chosen, confidence: Math.min(1, Math.max(0, Number(entry.confidence) || 0)), ...(reason && { reason }) } };
       });
-    case 'json':
+    case 'json': {
+      const fields = node.config.fields;
+      const strict = answerSchema(fields);
+      if (node.config.scope === 'batch') {
+        // An answer that breaks a field's limits counts as none: every line is asked again.
+        if (!strict.safeParse(raw ?? {}).success) return lines.map(() => null);
+        // One answer for the whole request; to save space in run_items.data (H7) only the first line carries it.
+        const found = withLineKeys((raw ?? {}) as Record<string, unknown>, fields, keyOf);
+        return lines.map((_, index) => ({ port: 'out', output: index === 0 ? { ...found, batchLeader: true } : { batchLeader: false } }));
+      }
       return lines.map((line) => {
-        const result = value.results?.find((entry) => entry.id === line.id);
-        if (!result) return missing('결과');
-        const { id: _id, ...fields } = result;
-        return { port: 'out', output: fields };
+        const entry = entryOf(line);
+        if (!entry) return null;
+        const { id: _id, ...answer } = entry;
+        // A line whose answer breaks a field's limits (empty required, number out of bounds) is asked again.
+        if (!strict.safeParse(answer).success) return null;
+        return { port: 'out', output: withLineKeys(answer, fields, keyOf) };
       });
+    }
   }
 }

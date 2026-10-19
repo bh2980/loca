@@ -32,17 +32,47 @@ const KATAKANA_PATTERN = /[\u30A0-\u30FF][\u30A0-\u30FFー・]{1,30}/g;
 const ACRONYM_PATTERN = /^\p{Lu}{2,8}$/u;
 
 /** Capitalized words in Latin scripts (Unicode aware for accented letters like É, Ö, etc.). */
-const LATIN_CAP_WORD = /^\p{Lu}[\p{Ll}'’-]*$/u;
-const LATIN_CONNECTORS = new Set(['of', 'de', 'von', 'van', 'la', 'le', 'du', 'del', 'da', 'the', 'and', 'for', 'in', 'on', 'at', 'to']);
+const LATIN_CAP_WORD = /^\p{Lu}[\p{Ll}'’-]+$/u;
+const LATIN_WORD = /^[\p{Script=Latin}'’-]+$/u;
+const LATIN_LOWER_WORD = /^[\p{Ll}'’-]+$/u;
+const LATIN_CONNECTORS = new Set(['of', 'de', 'von', 'van', 'la', 'le', 'du', 'del', 'da']);
 
 /** Very common words that should not be solitary term candidates. */
 const GLOBAL_STOPWORDS = new Set([
-  // English common words
-  'the', 'this', 'that', 'these', 'those', 'what', 'which', 'who', 'whom', 'whose',
-  'there', 'their', 'they', 'them', 'here', 'where', 'when', 'how', 'why',
-  'yes', 'no', 'not', 'okay', 'well', 'sure', 'fine', 'yeah', 'yep', 'nope',
-  'please', 'thank', 'thanks', 'hello', 'goodbye', 'sorry',
-  'mr', 'mrs', 'ms', 'miss', 'dr', 'sir', 'madam',
+  // English articles, pronouns, prepositions, conjunctions, auxiliaries & common conversational words
+  'a', 'an', 'the', 'this', 'that', 'these', 'those', 'what', 'which', 'who', 'whom', 'whose',
+  'i', 'me', 'my', 'mine', 'myself', 'you', 'your', 'yours', 'yourself', 'yourselves',
+  'he', 'him', 'his', 'himself', 'she', 'her', 'hers', 'herself', 'it', 'its', 'itself',
+  'we', 'us', 'our', 'ours', 'ourselves', 'they', 'them', 'their', 'theirs', 'themselves',
+  'there', 'here', 'where', 'when', 'how', 'why', 'whether', 'while', 'whilst',
+  'for', 'to', 'with', 'from', 'in', 'on', 'at', 'by', 'of', 'as', 'into', 'onto', 'upon',
+  'about', 'above', 'across', 'after', 'against', 'along', 'among', 'around', 'before',
+  'behind', 'below', 'beneath', 'beside', 'between', 'beyond', 'during', 'except', 'inside',
+  'near', 'off', 'out', 'outside', 'over', 'past', 'since', 'through', 'throughout', 'till',
+  'toward', 'towards', 'under', 'underneath', 'until', 'up', 'down', 'without', 'within',
+  'and', 'or', 'but', 'nor', 'so', 'yet', 'if', 'because', 'although', 'though', 'unless', 'once', 'than',
+  'be', 'am', 'is', 'are', 'was', 'were', 'been', 'being',
+  'have', 'has', 'had', 'having', 'do', 'does', 'did', 'doing', 'done',
+  'will', 'would', 'shall', 'should', 'can', 'could', 'may', 'might', 'must', 'ought', 'need',
+  'get', 'got', 'getting', 'make', 'made', 'go', 'going', 'went', 'gone', 'come', 'came',
+  'take', 'took', 'know', 'knew', 'think', 'thought', 'see', 'saw', 'want', 'give', 'use',
+  'find', 'tell', 'ask', 'work', 'seem', 'feel', 'try', 'leave', 'call', 'keep', 'let', 'put', 'say', 'said', 'look', 'like',
+  'some', 'any', 'all', 'both', 'each', 'every', 'other', 'another', 'such', 'own', 'same',
+  'many', 'much', 'more', 'most', 'few', 'less', 'least', 'several', 'enough',
+  'one', 'two', 'three', 'four', 'five', 'first', 'second', 'third', 'last', 'next',
+  'just', 'only', 'also', 'very', 'too', 'even', 'still', 'already', 'always', 'never',
+  'often', 'sometimes', 'again', 'back', 'now', 'then', 'today', 'tomorrow', 'yesterday',
+  'soon', 'later', 'away', 'maybe', 'perhaps', 'really', 'actually', 'probably', 'almost', 'quite', 'rather', 'else', 'ever',
+  'nothing', 'something', 'anything', 'everything', 'someone', 'anyone', 'everyone', 'nobody', 'somebody', 'anybody', 'everybody',
+  'new', 'old', 'good', 'bad', 'great', 'little', 'big', 'long', 'right', 'left', 'high', 'low',
+  'yes', 'no', 'not', 'okay', 'ok', 'well', 'sure', 'fine', 'yeah', 'yep', 'nope', 'oh', 'ah', 'uh', 'um', 'hey', 'hi',
+  'please', 'thank', 'thanks', 'hello', 'goodbye', 'sorry', 'welcome', 'wait', 'listen', 'stop',
+  'mr', 'mrs', 'ms', 'miss', 'dr', 'sir', 'madam', 'tv', 'am', 'pm',
+  "don't", "doesn't", "didn't", "won't", "wouldn't", "can't", 'cannot', "couldn't", "shouldn't",
+  "isn't", "aren't", "wasn't", "weren't", "haven't", "hasn't", "hadn't", "let's",
+  "i'm", "i've", "i'll", "i'd", "you're", "you've", "you'll", "you'd",
+  "he's", "she's", "it's", "we're", "we've", "we'll", "they're", "they've", "they'll",
+  "that's", "there's", "what's", "who's", "where's", "how's",
   // Japanese common function words / pronouns
   'これ', 'それ', 'あれ', 'どれ', 'ここ', 'そこ', 'あそこ', 'どこ',
   'わたし', 'わたくし', 'ぼく', 'おれ', 'あなた', 'あんた', 'かれ', 'かのじょ',
@@ -78,9 +108,14 @@ export function discoverTerms(
   }
 
   // Term source (normalized lower or exact) -> occurrences
-  const occurrences = new Map<string, { display: string; lines: Set<number>; kind: DiscoveredTerm['kind'] }>();
+  const occurrences = new Map<
+    string,
+    { display: string; lines: Set<number>; kind: DiscoveredTerm['kind']; midSentenceCap: boolean }
+  >();
+  // Track words seen in all-lowercase so common words capitalized at sentence start aren't mistaken for proper nouns
+  const lowercaseSeen = new Set<string>();
 
-  const record = (raw: string, lineIndex: number, kind: DiscoveredTerm['kind']) => {
+  const record = (raw: string, lineIndex: number, kind: DiscoveredTerm['kind'], midSentenceCap = true) => {
     const term = raw.trim();
     if (!term || term.length < 2) return;
     if (/^\d+$/.test(term)) return; // purely numeric
@@ -89,15 +124,18 @@ export function discoverTerms(
 
     let existing = occurrences.get(lower);
     if (!existing) {
-      existing = { display: term, lines: new Set(), kind };
+      existing = { display: term, lines: new Set(), kind, midSentenceCap };
       occurrences.set(lower, existing);
     } else {
-      // Prefer capitalized/original casing with higher frequency or title case
-      if (term !== existing.display && LATIN_CAP_WORD.test(term)) {
+      // Only adopt capitalized display if the candidate itself is not a lowercase frequent hit
+      if (kind !== 'frequent' && term !== existing.display && LATIN_CAP_WORD.test(term)) {
         existing.display = term;
       }
       if (existing.kind === 'frequent' && kind !== 'frequent') {
         existing.kind = kind; // upgrade to more specific kind
+      }
+      if (midSentenceCap) {
+        existing.midSentenceCap = true;
       }
     }
     existing.lines.add(lineIndex);
@@ -139,49 +177,89 @@ export function discoverTerms(
       }
     }
 
-    // 2.3 Segmenter-based word & N-gram scanning
-    const segments = [...segmenter.segment(raw)].filter((s) => s.isWordLike).map((s) => s.segment.trim()).filter(Boolean);
+    // 2.3 Segmenter-based word & N-gram scanning with sentence-boundary awareness
+    const rawSegments = [...segmenter.segment(raw)];
+    const segments: { word: string; isSentenceStart: boolean }[] = [];
+    let atSentenceStart = true;
+    for (const seg of rawSegments) {
+      if (seg.isWordLike) {
+        const w = seg.segment.trim();
+        if (w) {
+          segments.push({ word: w, isSentenceStart: atSentenceStart });
+          atSentenceStart = false;
+        }
+      } else if (/[.!?…:;|"—–\n\r]/.test(seg.segment)) {
+        atSentenceStart = true;
+      }
+    }
 
     // Track latin capital phrase runs (e.g. "Harbor Gate", "High Council of Elders")
-    let capRun: string[] = [];
+    let capRun: { word: string; isSentenceStart: boolean }[] = [];
     const flushCapRun = () => {
-      while (capRun.length && LATIN_CONNECTORS.has(capRun.at(-1)!.toLowerCase())) {
+      while (capRun.length && LATIN_CONNECTORS.has(capRun.at(-1)!.word.toLowerCase())) {
         capRun.pop();
       }
-      if (capRun.length > 1 && capRun[0] === 'The') {
-        capRun = capRun.slice(1);
+      // Strip leading sentence-initial stopword (e.g. "The Westmere Harbor" -> "Westmere Harbor")
+      while (capRun.length > 1 && capRun[0].isSentenceStart && GLOBAL_STOPWORDS.has(capRun[0].word.toLowerCase())) {
+        capRun.shift();
+      }
+      while (capRun.length && LATIN_CONNECTORS.has(capRun[0]!.word.toLowerCase())) {
+        capRun.shift();
       }
       if (capRun.length >= 2) {
-        record(capRun.join(' '), lineIndex, 'name');
-      } else if (capRun.length === 1 && (ACRONYM_PATTERN.test(capRun[0]) || capRun[0].length >= 3)) {
-        record(capRun[0], lineIndex, 'name');
+        record(capRun.map((c) => c.word).join(' '), lineIndex, 'name', true);
+      } else if (capRun.length === 1) {
+        const only = capRun[0]!;
+        if (ACRONYM_PATTERN.test(only.word)) {
+          record(only.word, lineIndex, 'name', true);
+        } else if (only.word.length >= 3 && !GLOBAL_STOPWORDS.has(only.word.toLowerCase())) {
+          record(only.word, lineIndex, 'name', !only.isSentenceStart);
+        }
       }
       capRun = [];
     };
 
-    segments.forEach((word, idx) => {
+    segments.forEach(({ word, isSentenceStart }, idx) => {
+      const lower = word.toLowerCase();
+      if (LATIN_LOWER_WORD.test(word)) {
+        lowercaseSeen.add(lower);
+      }
+
+      // If this word is a registered character/alias, always record it regardless of casing rules
+      if (charNames.has(lower) || charAliasMap.has(lower)) {
+        record(word, lineIndex, 'character', true);
+      }
+
       // Latin Capital check
       if (LATIN_CAP_WORD.test(word) || ACRONYM_PATTERN.test(word)) {
-        if (/^I(['’]\w+)?$/.test(word)) {
+        if (/^I(['’]\w+)?$/u.test(word)) {
           flushCapRun();
+        } else if (isSentenceStart && capRun.length > 0) {
+          flushCapRun();
+          capRun.push({ word, isSentenceStart });
         } else {
-          capRun.push(word);
+          capRun.push({ word, isSentenceStart });
         }
-      } else if (capRun.length > 0 && LATIN_CONNECTORS.has(word.toLowerCase()) && idx + 1 < segments.length) {
-        capRun.push(word.toLowerCase());
+      } else if (
+        capRun.length > 0 &&
+        LATIN_CONNECTORS.has(lower) &&
+        !(capRun.length === 1 && capRun[0].isSentenceStart && GLOBAL_STOPWORDS.has(capRun[0].word.toLowerCase())) &&
+        idx + 1 < segments.length
+      ) {
+        capRun.push({ word: lower, isSentenceStart: false });
       } else {
         flushCapRun();
       }
 
-      // Check single words (if length >= 2 and not stopword)
-      if (word.length >= 2 && !GLOBAL_STOPWORDS.has(word.toLowerCase())) {
+      // Non-Latin frequent word & 2-gram check (in Latin scripts, lowercase words are regular vocabulary, not terms)
+      const isLatin = LATIN_WORD.test(word);
+      if (!isLatin && word.length >= 2 && !GLOBAL_STOPWORDS.has(lower)) {
         record(word, lineIndex, 'frequent');
       }
 
-      // 2-gram check
-      if (idx + 1 < segments.length) {
-        const nextWord = segments[idx + 1];
-        if (!GLOBAL_STOPWORDS.has(word.toLowerCase()) && !GLOBAL_STOPWORDS.has(nextWord.toLowerCase())) {
+      if (!isLatin && idx + 1 < segments.length) {
+        const nextWord = segments[idx + 1]!.word;
+        if (!LATIN_WORD.test(nextWord) && !GLOBAL_STOPWORDS.has(lower) && !GLOBAL_STOPWORDS.has(nextWord.toLowerCase())) {
           const bigram = `${word} ${nextWord}`;
           if (bigram.length >= 4) {
             record(bigram, lineIndex, 'frequent');
@@ -230,6 +308,12 @@ export function discoverTerms(
 
     // Name phrases / Acronyms
     if (entry.kind === 'name') {
+      const isSingleWord = !entry.display.includes(' ');
+      const isAcronym = ACRONYM_PATTERN.test(entry.display);
+      // Single-word Latin names must have appeared capitalized mid-sentence at least once and never in lowercase
+      if (isSingleWord && !isAcronym && (!entry.midSentenceCap || lowercaseSeen.has(lower))) {
+        continue;
+      }
       if (lineCount >= minLines) {
         const sortedLines = [...entry.lines].sort((a, b) => a - b);
         results.push({

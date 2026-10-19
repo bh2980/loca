@@ -11,5 +11,9 @@ export function useProgress(projectId: string) {
   const finalIds = new Set((statuses.data?.statuses ?? []).filter((status) => status.kind === 'final').map((status) => status.id));
   const done = Object.entries(counts).reduce((sum, [id, value]) => sum + (finalIds.has(id) ? value : 0), 0);
   const runningRuns = runs.data?.filter((run) => run.status === 'running').length ?? 0;
-  return { counts, total, done, statuses: statuses.data?.statuses ?? [], runningRuns };
+  const allRuns = runs.data ?? [];
+  const activeRuns = allRuns.filter((run) => run.status === 'running' || run.status === 'paused');
+  const recentRuns = allRuns.slice(0, 5);
+  const reviewCount = project.data?.reviewCount ?? 0;
+  return { counts, total, done, statuses: statuses.data?.statuses ?? [], runningRuns, activeRuns, recentRuns, reviewCount };
 }

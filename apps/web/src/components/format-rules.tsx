@@ -1,14 +1,16 @@
 import { useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
-import { Plus, Trash2 } from 'lucide-react';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { Plus, Sparkles, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { compileFormatRules, FORMAT_PRESET_IDS, FORMAT_PRESETS, formatPatternError, matchTokens, type FormatRules } from '@tw/shared';
-import { Button, Checkbox, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, SettingsSection } from '@loca/ui';
+import { Badge, Button, Checkbox, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, SettingsSection, GroupHeading } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
+import { q } from '@/lib/queries';
 import { useFormFrom } from '@/lib/use-form-from';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
+import { AiRegexInput } from '@/components/ai-regex-input';
 
-const KIND = { placeholder: '자리표시자', tag: '서식 태그' } as const;
+const KIND = { placeholder: '치환자', tag: '서식 태그' } as const;
 
 /**
  * Which tokens the format check treats as placeholders and tags for this game. Common families
@@ -21,38 +23,165 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
   const compiled = compileFormatRules({ ...draft, custom: draft.custom.filter((rule) => rule.pattern.trim()) });
   const found = { placeholder: matchTokens(sample, compiled.placeholder), tag: matchTokens(sample, compiled.tag) };
 
+  const detectQuery = useQuery(q.detectFormatRules(projectId));
+  const detected = detectQuery.data;
+
   const save = useMutation({
     mutationFn: () => unwrap(client.projects[':projectId'].$patch({ param: { projectId }, json: { formatRules: draft } })),
-    onSuccess: () => toast.success('형식 규칙을 저장했습니다.'),
+    onSuccess: () => toast.success('치환자·태그 문법을 저장했습니다.'),
     onError: (error) => toast.error(error.message),
   });
+
   const togglePreset = (id: (typeof FORMAT_PRESET_IDS)[number], on: boolean) =>
     setDraft((current) => ({ ...current, presets: on ? [...new Set([...current.presets, id])] : current.presets.filter((preset) => preset !== id) }));
-  const setRule = (index: number, patch: Partial<FormatRules['custom'][number]>) => setDraft((current) => ({ ...current, custom: current.custom.map((rule, i) => (i === index ? { ...rule, ...patch } : rule)) }));
+  const setRule = (index: number, patch: Partial<FormatRules['custom'][number]>) =>
+    setDraft((current) => ({ ...current, custom: current.custom.map((rule, i) => (i === index ? { ...rule, ...patch } : rule)) }));
+
+  const applyAutoDetect = () => {
+    if (!detected) return;
+    setDraft((current) => {
+      const existingPatterns = new Set(current.custom.map((c) => c.pattern));
+      const newCustom = (detected.customCandidates ?? [])
+        .filter((candidate) => !existingPatterns.has(candidate.pattern))
+        .map((c) => ({ label: c.label, kind: c.kind, pattern: c.pattern }));
+      return {
+        ...current,
+        presets: [...new Set([...current.presets, ...detected.recommendedPresets])],
+        custom: [...current.custom, ...newCustom],
+      };
+    });
+    toast.success('대본에서 발견된 치환자·태그 문법을 적용했습니다.');
+  };
+
+  const placeholderPresets = FORMAT_PRESET_IDS.filter((id) => FORMAT_PRESETS[id].kind === 'placeholder');
+  const tagPresets = FORMAT_PRESET_IDS.filter((id) => FORMAT_PRESETS[id].kind === 'tag');
+
+  const renderPresetCard = (id: (typeof FORMAT_PRESET_IDS)[number]) => {
+    const preset = FORMAT_PRESETS[id];
+    const match = detected?.presets?.find((p) => p.id === id);
+    const count = match?.count ?? 0;
+    const examples = match?.examples ?? [];
+    return (
+      <label key={id} className="flex flex-col gap-1.5 rounded-md border border-border bg-card p-3 text-sm transition-colors hover:bg-muted/50 cursor-pointer">
+        <div className="flex items-center gap-2">
+          <Checkbox
+            checked={draft.presets.includes(id)}
+            onCheckedChange={(checked) => togglePreset(id, Boolean(checked))}
+          />
+          <span className="font-medium text-foreground">{preset.label}</span>
+          {detected ? (
+            count > 0 ? (
+              <Badge variant="secondary" className="ml-auto text-xs">
+                대본 {count.toLocaleString()}줄
+              </Badge>
+            ) : (
+              <span className="ml-auto text-xs text-subtle-foreground">미등장</span>
+            )
+          ) : null}
+        </div>
+        <div className="pl-6 font-mono text-xs text-muted-foreground truncate">
+          {examples.length > 0 ? examples.join('   ') : preset.example}
+        </div>
+      </label>
+    );
+  };
 
   return (
     <SettingsSection
-      title="형식 규칙"
-      description="형식 검사(워크플로의 형식 검사 함수, 대사 패널)가 원문과 번역에서 같은 개수만큼 있어야 하는 토큰을 무엇으로 볼지 정합니다. 이 게임 문자열에 쓰이는 형식만 켜세요. 대괄호 변수와 BBCode는 비슷하게 생겼으니 둘 중 하나만 켜는 것이 좋습니다."
+      title="서식 규칙"
+      headerActions={
+        <Button variant="outline" onClick={applyAutoDetect} disabled={!detected || detectQuery.isPending}>
+          <Sparkles className="size-3.5" /> 자동 감지
+        </Button>
+      }
+      actions={
+        <div className="flex gap-2">
+          <Button disabled={!dirty || invalid || save.isPending} onClick={() => save.mutate()}>
+            저장
+          </Button>
+          {dirty && (
+            <Button variant="ghost" onClick={reset}>
+              되돌리기
+            </Button>
+          )}
+        </div>
+      }
     >
       {conflicts.length > 0 && <ChangedElsewhere onTakeSaved={takeSaved} onKeepMine={keepMine} />}
-      <div className="grid gap-2 sm:grid-cols-2">
-        {FORMAT_PRESET_IDS.map((id) => {
-          const preset = FORMAT_PRESETS[id];
-          return (
-            <label key={id} className="flex items-start gap-2 rounded-md border px-3 py-2 text-sm">
-              <Checkbox className="mt-0.5" checked={draft.presets.includes(id)} onCheckedChange={(checked) => togglePreset(id, Boolean(checked))} />
-              <span className="min-w-0">
-                {preset.label} <span className="text-xs text-muted-foreground">· {KIND[preset.kind]}</span>
-                <span className="block truncate font-mono text-xs text-muted-foreground">{preset.example}</span>
-              </span>
-            </label>
-          );
-        })}
+
+      <div className="space-y-4">
+        <div className="space-y-2">
+          <GroupHeading>치환자</GroupHeading>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {placeholderPresets.map(renderPresetCard)}
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <GroupHeading>서식 태그</GroupHeading>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {tagPresets.map(renderPresetCard)}
+          </div>
+        </div>
       </div>
 
-      <div className="space-y-2">
-        <p className="text-xs font-medium">직접 추가 (정규식)</p>
+      <div className="space-y-3">
+        <GroupHeading>정규식</GroupHeading>
+
+        <AiRegexInput
+          projectId={projectId}
+          target="token"
+          onRule={(rule) => {
+            if (rule.kind !== 'placeholder' && rule.kind !== 'tag') return;
+            setDraft((current) => ({ ...current, custom: [...current.custom, { label: rule.label, kind: rule.kind, pattern: rule.pattern }] }));
+            toast.success(`'${rule.label}' 규칙을 추가했습니다. 저장해야 적용됩니다.`);
+          }}
+        />
+
+        {detected?.customCandidates && detected.customCandidates.length > 0 && (
+          <div className="rounded-md border border-border bg-muted/40 p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <GroupHeading>추천 규칙</GroupHeading>
+            </div>
+            <div className="space-y-1.5">
+              {detected.customCandidates.map((cand) => {
+                const alreadyAdded = draft.custom.some((c) => c.pattern === cand.pattern);
+                return (
+                  <div key={cand.pattern} className="flex items-center justify-between gap-2 text-sm rounded border border-border-subtle bg-background/50 px-2.5 py-1.5">
+                    <div className="flex min-w-0 items-center gap-2 truncate">
+                      <span className="font-medium text-foreground">{cand.label}</span>
+                      <code className="font-mono text-xs text-muted-foreground">({cand.pattern})</code>
+                      <Badge variant="secondary" className="text-xs">
+                        대본 {cand.count.toLocaleString()}줄
+                      </Badge>
+                      {cand.examples.length > 0 && (
+                        <span className="truncate text-xs text-muted-foreground">
+                          예: {cand.examples.slice(0, 3).join('  ')}
+                        </span>
+                      )}
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-6 text-xs px-2"
+                      disabled={alreadyAdded}
+                      onClick={() => {
+                        setDraft((current) => ({
+                          ...current,
+                          custom: [...current.custom, { label: cand.label, kind: cand.kind, pattern: cand.pattern }],
+                        }));
+                        toast.success(`'${cand.label}' 규칙을 추가했습니다.`);
+                      }}
+                    >
+                      {alreadyAdded ? '추가됨' : '+ 추가'}
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {draft.custom.map((rule, index) => {
           const error = rule.pattern.trim() ? formatPatternError(rule.pattern) : '패턴을 입력하세요.';
           return (
@@ -64,11 +193,11 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="placeholder">자리표시자</SelectItem>
+                    <SelectItem value="placeholder">치환자</SelectItem>
                     <SelectItem value="tag">서식 태그</SelectItem>
                   </SelectContent>
                 </Select>
-                <Input className="flex-1 font-mono text-xs" placeholder="예: @[a-z]+@" value={rule.pattern} spellCheck={false} onChange={(event) => setRule(index, { pattern: event.target.value })} />
+                <Input className="flex-1 font-mono text-sm" placeholder="예: @[a-z]+@" value={rule.pattern} spellCheck={false} onChange={(event) => setRule(index, { pattern: event.target.value })} />
                 <Button size="icon" variant="ghost" className="text-destructive" aria-label="규칙 삭제" onClick={() => setDraft((current) => ({ ...current, custom: current.custom.filter((_, i) => i !== index) }))}>
                   <Trash2 />
                 </Button>
@@ -83,25 +212,14 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
       </div>
 
       <div className="space-y-1.5 rounded-md bg-muted p-3">
-        <p className="text-xs font-medium">시험해 보기</p>
-        <Textarea className="min-h-16 bg-background font-mono text-xs" value={sample} onChange={(event) => setSample(event.target.value)} />
+        <GroupHeading>시험</GroupHeading>
+        <Textarea className="min-h-16 bg-background font-mono text-sm" value={sample} onChange={(event) => setSample(event.target.value)} />
         {(['placeholder', 'tag'] as const).map((kind) => (
-          <p key={kind} className="text-xs">
+          <p key={kind} className="text-sm">
             <span className="text-muted-foreground">{KIND[kind]}: </span>
             {found[kind].length ? found[kind].map((token, i) => <code key={i} className="mr-1 rounded bg-background px-1 py-0.5 ring-1 ring-border">{token}</code>) : <span className="text-muted-foreground">없음</span>}
           </p>
         ))}
-      </div>
-
-      <div className="flex gap-2">
-        <Button disabled={!dirty || invalid || save.isPending} onClick={() => save.mutate()}>
-          저장
-        </Button>
-        {dirty && (
-          <Button variant="ghost" onClick={reset}>
-            되돌리기
-          </Button>
-        )}
       </div>
     </SettingsSection>
   );

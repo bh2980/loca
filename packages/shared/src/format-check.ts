@@ -1,5 +1,18 @@
 import { z } from 'zod';
 
+export const customFormatRuleSchema = z.object({
+  label: z.string().default(''),
+  kind: z.enum(['forbidden', 'preserve', 'targetRequired']).default('forbidden'),
+  pattern: z.string().min(1),
+});
+export type CustomFormatRule = z.infer<typeof customFormatRuleSchema>;
+
+/**
+ * Default Korean particle regex whose form depends on the final consonant of what precedes it,
+ * standing alone (not followed by more Hangul or "(" as in 을(를)).
+ */
+export const DEFAULT_PARTICLE_PATTERN = String.raw`(?:을|를|이|가|은|는|와|과|으로|로|이랑|랑|이나|나|이라고|라고|아|야)(?![\p{Script=Hangul}(])`;
+
 export interface FormatCheckOptions {
   placeholders: boolean;
   tags: boolean;
@@ -14,10 +27,26 @@ export interface FormatCheckOptions {
    * wrong for others (을/를 follows a final consonant or not). Combined forms (을(를)) pass.
    */
   particles?: boolean;
+  /** Optional custom regex source overriding DEFAULT_PARTICLE_PATTERN when `particles` is true. */
+  particlesPattern?: string;
+  /** Most characters (code points) in the translation; 0 or unset = off. */
+  maxChars?: number;
+  /** Most UTF-8 bytes in the translation; 0 or unset = off. */
+  maxBytes?: number;
+  /** Most characters on one line of the translation (split on newlines); 0 or unset = off. */
+  maxLineChars?: number;
+  /** Most lines in the translation; 0 or unset = off. */
+  maxLines?: number;
+  /** Most translation length as a multiple of the source length (1.5 = at most 1.5×); 0 or unset = off. */
+  maxLengthRatio?: number;
+  /** Words the translation must not contain, comma-separated (plain text, not regex). */
+  forbiddenWords?: string;
+  /** User-defined regex validation rules on this formatCheck node. */
+  customRules?: CustomFormatRule[];
 }
 
 export interface FormatIssue {
-  code: 'empty' | 'placeholder' | 'tag' | 'newline' | 'number' | 'space' | 'particle';
+  code: 'empty' | 'placeholder' | 'tag' | 'newline' | 'number' | 'space' | 'particle' | 'length' | 'forbiddenWord' | 'custom';
   message: string;
 }
 
@@ -113,6 +142,31 @@ const newlines = (text: string) => (text.match(/\r?\n/g) ?? []).length;
 const describe = (onlySource: string[], onlyTarget: string[]) =>
   [onlySource.length && `번역에 없음: ${onlySource.join(' ')}`, onlyTarget.length && `원문에 없음: ${onlyTarget.join(' ')}`].filter(Boolean).join(' · ');
 
+const chars = (text: string) => [...text].length;
+function lengthIssues(source: string, target: string, options: FormatCheckOptions): FormatIssue[] {
+  if (!target) return [];
+  const issues: FormatIssue[] = [];
+  const add = (message: string) => issues.push({ code: 'length', message });
+  const length = chars(target);
+  if (options.maxChars && length > options.maxChars) add(`글자 수 초과 (${length}/${options.maxChars}자).`);
+  if (options.maxBytes) {
+    const bytes = new TextEncoder().encode(target).length;
+    if (bytes > options.maxBytes) add(`바이트 수 초과 (${bytes}/${options.maxBytes}바이트).`);
+  }
+  const lines = target.split(/\r?\n/);
+  if (options.maxLines && lines.length > options.maxLines) add(`줄 수 초과 (${lines.length}/${options.maxLines}줄).`);
+  if (options.maxLineChars) {
+    const longest = Math.max(...lines.map(chars));
+    if (longest > options.maxLineChars) add(`한 줄 글자 수 초과 (${longest}/${options.maxLineChars}자).`);
+  }
+  const sourceLength = chars(source.trim());
+  if (options.maxLengthRatio && sourceLength) {
+    const ratio = length / sourceLength;
+    if (ratio > options.maxLengthRatio) add(`원문 대비 길이 초과 (${ratio.toFixed(2)}배 > ${options.maxLengthRatio}배).`);
+  }
+  return issues;
+}
+
 /** Mechanical checks only. Word order may differ between languages, so tokens are compared as multisets. */
 export function checkFormat(source: string, target: string, options: FormatCheckOptions, rules: FormatRules = DEFAULT_FORMAT_RULES): FormatIssue[] {
   const issues: FormatIssue[] = [];
@@ -145,17 +199,52 @@ export function checkFormat(source: string, target: string, options: FormatCheck
     if (problems.length) issues.push({ code: 'space', message: `공백이 원문과 다릅니다 (${problems.join(' · ')}).` });
   }
   if (options.particles && patterns.placeholder) {
-    const found = [...target.matchAll(new RegExp(`(${patterns.placeholder.source})${PARTICLE.source}`, 'gu'))].map((match) => match[0]);
-    if (found.length) issues.push({ code: 'particle', message: `변수 뒤 조사는 값의 받침에 따라 틀릴 수 있습니다 (${[...new Set(found)].join(' ')}). 을(를)처럼 함께 쓰거나 엔진의 조사 문법을 쓰세요.` });
+    const particleSource = options.particlesPattern?.trim() ? options.particlesPattern.trim() : DEFAULT_PARTICLE_PATTERN;
+    try {
+      const particleRe = new RegExp(`(${patterns.placeholder.source})(?:${particleSource})`, 'gu');
+      const found = [...target.matchAll(particleRe)].map((match) => match[0]);
+      if (found.length) issues.push({ code: 'particle', message: `변수 뒤 조사는 값의 받침에 따라 틀릴 수 있습니다 (${[...new Set(found)].join(' ')}). 을(를)처럼 함께 쓰거나 엔진의 조사 문법을 쓰세요.` });
+    } catch {
+      // Ignore invalid custom particle regex at runtime
+    }
+  }
+  issues.push(...lengthIssues(source, target, options));
+  const forbidden = (options.forbiddenWords ?? '').split(',').map((word) => word.trim()).filter(Boolean);
+  const hit = forbidden.filter((word) => target.includes(word));
+  if (hit.length) issues.push({ code: 'forbiddenWord', message: `금칙어가 있습니다 (${[...new Set(hit)].join(', ')}).` });
+  if (options.customRules?.length) {
+    for (const rule of options.customRules) {
+      const pat = rule.pattern.trim();
+      if (!pat || formatPatternError(pat)) continue;
+      let re: RegExp;
+      try {
+        re = new RegExp(pat, 'gu');
+      } catch {
+        continue;
+      }
+      const name = rule.label.trim() || pat;
+      if (rule.kind === 'forbidden') {
+        const hits = matchTokens(target, re);
+        if (hits.length) {
+          issues.push({ code: 'custom', message: `금지 규칙 위반 (${name}): ${[...new Set(hits)].join(' ')}` });
+        }
+      } else if (rule.kind === 'preserve') {
+        const a = matchTokens(source, re);
+        const b = matchTokens(target, re);
+        const onlySource = missing(a, b);
+        const onlyTarget = missing(b, a);
+        if (onlySource.length || onlyTarget.length) {
+          issues.push({ code: 'custom', message: `${name} 보존 불일치 (${describe(onlySource, onlyTarget)}).` });
+        }
+      } else if (rule.kind === 'targetRequired') {
+        if (source.trim() && target.trim() && matchTokens(target, re).length === 0) {
+          issues.push({ code: 'custom', message: `필수 규칙 미충족 (${name}).` });
+        }
+      }
+    }
   }
   return issues;
 }
-
-/**
- * A particle whose form depends on the final consonant of what precedes it, standing alone (not
- * followed by more Hangul, as in {n}이다… which is left alone, nor by "(", the combined form 을(를)).
- */
-const PARTICLE = /(?:을|를|이|가|은|는|와|과|으로|로|이랑|랑|이나|나|이라고|라고|아|야)(?![\p{Script=Hangul}(])/u;
 
 const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const wordRegExp = (name: string) => new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(name)}(?![\\p{L}\\p{N}])`, 'iu');
@@ -211,3 +300,92 @@ export function termMatcher<T>(items: readonly T[], namesOf: (item: T) => string
     },
   };
 }
+
+export interface DetectedFormatPreset {
+  id: FormatPreset;
+  count: number;
+  examples: string[];
+}
+
+export interface DetectedCustomFormatRule {
+  label: string;
+  kind: 'placeholder' | 'tag';
+  pattern: string;
+  count: number;
+  examples: string[];
+}
+
+const EXTRA_TOKEN_FAMILIES: { label: string; kind: 'placeholder' | 'tag'; pattern: string }[] = [
+  { label: '@변수@', kind: 'placeholder', pattern: String.raw`@[A-Za-z_][\w.]*@` },
+  { label: '%변수%', kind: 'placeholder', pattern: String.raw`%[A-Za-z_][\w.]*%` },
+  { label: '#변수#', kind: 'placeholder', pattern: String.raw`#[A-Za-z_][\w.]*#` },
+  { label: '전각 괄호 태그', kind: 'tag', pattern: String.raw`【[^】\r\n]{1,24}】` },
+];
+
+/**
+ * Scans script source lines without AI to detect which token presets and custom patterns appear in
+ * the project, how many lines use each, and sample tokens from the script.
+ */
+export function detectFormatRules(texts: Iterable<string>): {
+  presets: DetectedFormatPreset[];
+  customCandidates: DetectedCustomFormatRule[];
+  recommendedPresets: FormatPreset[];
+} {
+  const presetRegexes = FORMAT_PRESET_IDS.map((id) => ({
+    id,
+    re: new RegExp(FORMAT_PRESETS[id].pattern, 'gu'),
+    count: 0,
+    examples: new Set<string>(),
+  }));
+  const bbcodeRe = new RegExp(`^(?:${FORMAT_PRESETS.bbcode.pattern})$`, 'u');
+  const doubleBraceInnerRe = new RegExp(FORMAT_PRESETS.doubleBrace.pattern, 'gu');
+  const extraRegexes = EXTRA_TOKEN_FAMILIES.map((item) => ({
+    ...item,
+    re: new RegExp(item.pattern, 'gu'),
+    count: 0,
+    examples: new Set<string>(),
+  }));
+
+  for (const text of texts) {
+    if (!text) continue;
+    for (const entry of presetRegexes) {
+      // Avoid counting {{name}} twice as single {name}, or [b] BBCode as [square] placeholder.
+      const source = entry.id === 'brace' ? text.replace(doubleBraceInnerRe, ' ') : text;
+      const matches = source.match(entry.re);
+      if (!matches?.length) continue;
+      const valid = entry.id === 'square' ? matches.filter((m) => !bbcodeRe.test(m)) : matches;
+      if (!valid.length) continue;
+      entry.count += 1;
+      for (const token of valid) {
+        if (entry.examples.size < 4) entry.examples.add(token);
+      }
+    }
+    for (const extra of extraRegexes) {
+      const matches = text.match(extra.re);
+      if (!matches?.length) continue;
+      extra.count += 1;
+      for (const token of matches) {
+        if (extra.examples.size < 4) extra.examples.add(token);
+      }
+    }
+  }
+
+  const presets: DetectedFormatPreset[] = presetRegexes.map((entry) => ({
+    id: entry.id,
+    count: entry.count,
+    examples: [...entry.examples],
+  }));
+  const recommendedPresets = presets.filter((p) => p.count > 0).map((p) => p.id);
+  const customCandidates: DetectedCustomFormatRule[] = extraRegexes
+    .filter((entry) => entry.count > 0)
+    .map((entry) => ({
+      label: entry.label,
+      kind: entry.kind,
+      pattern: entry.pattern,
+      count: entry.count,
+      examples: [...entry.examples],
+    }));
+
+  return { presets, customCandidates, recommendedPresets };
+}
+

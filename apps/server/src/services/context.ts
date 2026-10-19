@@ -48,7 +48,7 @@ export interface BatchContext {
   cast: { name: string; aliases: string[]; player?: true; gender?: string; age?: string }[];
   relationships: { from: string; to: string; kind: string; description: string; mutual: boolean; changes?: RelationshipChange[] }[];
   /**
-   * Items AI confirmed that no person has looked at (✦, docs/DESIGN.md 3.5), kept apart from the facts above
+   * Items AI confirmed that no person has looked at (✦), kept apart from the facts above
    * so the model does not take a guess for a settled fact.
    */
   aiNotes: {

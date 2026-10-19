@@ -1,7 +1,9 @@
 import { useNavigate, useParams } from '@tanstack/react-router';
+import { useState } from 'react';
 import { Check, ChevronRight, CircleAlert, Network, Wrench, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { acceptedLabel, AGENT_TOOLS } from '@tw/shared';
+import { acceptedLabel, AGENT_TOOLS, agentPermissionError, findReadingRouteOutputSchema } from '@tw/shared';
+import { client, unwrap } from '@/lib/api';
 import { workflowEdits, type WorkflowNodeEdit } from '@/lib/workflow-edits';
 import { ChangePreview, LABEL } from './change-preview';
 import { ProposalCard, type Proposal } from './proposal-card';
@@ -30,39 +32,65 @@ export function ToolPart({ part, stale, onDecide, onOutput, proposal }: {
   onOutput: (toolCallId: string, output: unknown) => void;
 }) {
   const name = part.type.slice('tool-'.length);
+  const { projectId } = useParams({ strict: false }) as { projectId?: string };
+  const [checkingWorkflowPermission, setCheckingWorkflowPermission] = useState(false);
   const label = LABEL[name] ?? name;
   const isChange = Boolean(AGENT_TOOLS[name] && AGENT_TOOLS[name].action !== 'read');
   if (proposal) return <ProposalCard proposal={proposal} />;
 
   if (name === 'edit_workflow_node' && part.input && (part.state === 'input-available' || part.state === 'output-available')) {
-    const output = part.output as { applied?: boolean } | undefined;
+    const output = part.output as { applied?: boolean; reason?: string } | undefined;
     return (
       <div className="overflow-hidden rounded-lg border bg-background text-sm">
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 border-b bg-muted px-3 py-1.5 text-xs font-medium">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 border-b bg-muted px-3 py-1.5 text-sm font-semibold">
           <CardTitle>{label}</CardTitle>
-          <span className="ml-auto text-right">
-            {output?.applied === true && <span className="text-success">편집기에 적용됨 · 저장 필요</span>}
-            {output?.applied === false && <span className="text-muted-foreground">거절함</span>}
+          <span className="ml-auto text-right text-xs font-normal">
+            {output?.applied === true && <span className="text-success">편집기에 적용됨 · 자동 저장 예정</span>}
+            {output?.applied === false && <span className="text-muted-foreground">{output.reason === '사용자가 거절했습니다.' ? '거절함' : '적용하지 않음'}</span>}
             {!output && stale && <span className="text-muted-foreground">응답하지 않음</span>}
           </span>
         </div>
-        <div className="px-3 py-2 text-xs">
+        <div className="px-3 py-2 text-sm">
           <ChangePreview name={name} input={part.input} />
         </div>
         {part.state === 'input-available' && !stale && (
           <div className="flex justify-end gap-2 border-t px-3 py-2">
-            <Button variant="outline" onClick={() => onOutput(part.toolCallId, { applied: false, reason: '사용자가 거절했습니다.' })}>
+            <Button variant="outline" disabled={checkingWorkflowPermission} onClick={() => onOutput(part.toolCallId, { applied: false, reason: '사용자가 거절했습니다.' })}>
               <X /> 거절
             </Button>
             <Button
-             
-              onClick={() => {
-                const error = workflowEdits.apply(part.input as unknown as WorkflowNodeEdit);
-                if (error) toast.error(error);
-                else onOutput(part.toolCallId, { applied: true, note: '편집기 초안에 들어갔습니다. 사용자가 저장해야 반영됩니다.' });
+              disabled={checkingWorkflowPermission}
+              onClick={async () => {
+                if (checkingWorkflowPermission) return;
+                setCheckingWorkflowPermission(true);
+                try {
+                  if (!projectId) throw new Error('프로젝트 권한을 확인할 수 없습니다. 프로젝트 화면에서 다시 시도하세요.');
+                  // This browser-carried tool does not execute on the server, so recheck the
+                  // project's current policy immediately before applying its edit to the draft.
+                  const project = await unwrap(client.projects[':projectId'].$get({ param: { projectId } }));
+                  const permissionError = agentPermissionError(project.agentSettings ?? {}, name, part.input!);
+                  if (permissionError) {
+                    toast.error(permissionError);
+                    onOutput(part.toolCallId, { applied: false, reason: permissionError });
+                    return;
+                  }
+                  const error = workflowEdits.apply(part.input as unknown as WorkflowNodeEdit);
+                  if (error) {
+                    toast.error(error);
+                    onOutput(part.toolCallId, { applied: false, reason: error });
+                  } else {
+                    onOutput(part.toolCallId, { applied: true, note: '편집기 초안에 적용했습니다. 자동 저장됩니다.' });
+                  }
+                } catch (error) {
+                  const message = error instanceof Error ? error.message : '현재 권한을 확인하지 못해 적용하지 않았습니다.';
+                  toast.error(message);
+                  onOutput(part.toolCallId, { applied: false, reason: message });
+                } finally {
+                  setCheckingWorkflowPermission(false);
+                }
               }}
             >
-              <Check /> 편집기에 적용
+              <Check /> {checkingWorkflowPermission ? '권한 확인 중…' : '편집기에 적용'}
             </Button>
           </div>
         )}
@@ -80,9 +108,9 @@ export function ToolPart({ part, stale, onDecide, onOutput, proposal }: {
     const refused = part.state === 'output-available' && output?.ok === false && !output?.status;
     return (
       <div className="overflow-hidden rounded-lg border bg-background text-sm">
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 border-b bg-muted px-3 py-1.5 text-xs font-medium">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 border-b bg-muted px-3 py-1.5 text-sm font-semibold">
           <CardTitle>{label}</CardTitle>
-          <span className="ml-auto text-right">
+          <span className="ml-auto text-right text-xs font-normal">
             {part.state === 'output-denied' && <span className="text-muted-foreground">거절함</span>}
             {part.state === 'output-available' && !failed && !waiting && <span className="text-success">{acceptedLabel(name).short}</span>}
             {waiting && <span className="text-muted-foreground">결정 기다리는 중</span>}
@@ -90,7 +118,7 @@ export function ToolPart({ part, stale, onDecide, onOutput, proposal }: {
             {part.state === 'approval-responded' && <Spinner className="size-3" />}
           </span>
         </div>
-        <div className="px-3 py-2 text-xs">
+        <div className="px-3 py-2 text-sm">
           {part.input &&
             (refused ? (
               // Nothing was proposed (the check refused it): what the agent asked for, folded, not as items to add.
@@ -119,6 +147,10 @@ export function ToolPart({ part, stale, onDecide, onOutput, proposal }: {
   }
 
   if (name === 'show_graph' && part.state === 'output-available' && (part.output as GraphViewOutput)?.ok) return <GraphViewLink output={part.output as GraphViewOutput} />;
+  if (name === 'find_reading_route' && (part.state === 'output-available' || part.state === 'output-error')) {
+    const parsed = findReadingRouteOutputSchema.safeParse(part.output);
+    return <ReadingRouteToolCard output={parsed.success ? parsed.data : { ok: false as const, error: part.errorText ?? '경로 대본을 만들지 못했습니다.' }} />;
+  }
 
   return (
     <Collapsible>
@@ -160,6 +192,45 @@ function GraphViewLink({ output }: { output: GraphViewOutput }) {
       </Button>
     </div>
   );
+}
+
+/** Compact, evidence-bearing route result; the full path is loaded only when opened in the graph. */
+function ReadingRouteToolCard({ output }: { output: ReturnType<typeof findReadingRouteOutputSchema.parse> }) {
+  const navigate = useNavigate();
+  const { projectId } = useParams({ strict: false }) as { projectId?: string };
+  if (!output.ok) return <div className="rounded-lg border border-destructive/40 bg-background px-3 py-2 text-xs" role="status">
+    <div className="flex items-center gap-2 font-medium text-destructive"><CircleAlert className="size-3.5" />경로 대본</div>
+    <p className="mt-1 text-foreground">{output.error}</p>
+  </div>;
+  return <div className="overflow-hidden rounded-lg border bg-background text-sm">
+    <div className="flex items-center gap-2 border-b bg-muted px-3 py-1.5 text-sm font-semibold">
+      <Network className="size-3.5 text-muted-foreground" />
+      <span>경로 대본</span>
+      <span className="ml-auto font-normal text-muted-foreground">대사 {output.lineCount.toLocaleString()}줄</span>
+    </div>
+    <div className="grid gap-2 px-3 py-2 text-sm">
+      <RouteEndpoint label="시작" endpoint={output.start} />
+      <RouteEndpoint label="끝" endpoint={output.end} />
+    </div>
+    <div className="flex justify-end border-t px-3 py-2">
+      <Button variant="outline" disabled={!projectId} onClick={() => void navigate({ to: '/p/$projectId/graph', params: { projectId: projectId! }, search: { scope: 'dialogue', routeStart: output.open.search.routeStart, routeEnd: output.open.search.routeEnd } as never })}>
+        경로 따라 번역 열기
+      </Button>
+    </div>
+  </div>;
+}
+
+function RouteEndpoint({ label, endpoint }: { label: string; endpoint: { key: string; source: string; speaker?: string } }) {
+  return <Collapsible className="min-w-0 rounded-md bg-muted/50 px-2 py-1.5">
+    <CollapsibleTrigger className="group flex w-full min-w-0 flex-col items-start text-left">
+      <span className="text-subtle-foreground">{label} · {endpoint.key}{endpoint.speaker ? ` · ${endpoint.speaker}` : ''}</span>
+      <span className="mt-0.5 line-clamp-2 break-words text-foreground" title={endpoint.source}>{endpoint.source}</span>
+      <span className="mt-1 text-subtle-foreground">원문 펼쳐 보기 <ChevronRight className="inline size-3 transition-transform group-data-[state=open]:rotate-90" /></span>
+    </CollapsibleTrigger>
+    <CollapsibleContent>
+      <p className="mt-2 whitespace-pre-wrap break-words border-t border-border-subtle pt-2 text-foreground">{endpoint.source}</p>
+    </CollapsibleContent>
+  </Collapsible>;
 }
 
 /** A card's title on one line (narrow panel: the status wraps below instead of breaking the title). */

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { FileUp } from 'lucide-react';
-import { Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Spinner } from '@loca/ui';
+import { Button, Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, FieldRow, FieldRows, Spinner } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -52,16 +52,13 @@ export function ImportProjectDialog({ trigger }: { trigger?: React.ReactNode }) 
           </Button>
         )}
       </DialogTrigger>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-lg" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>새 프로젝트 가져오기</DialogTitle>
-          <DialogDescription>
-            게임 추출기가 만든 <code className="text-xs">loca/v1</code> 형식의 JSON 파일을 선택하세요.
-          </DialogDescription>
         </DialogHeader>
         {/* Click to pick, or drop the file here. */}
         <label
-          className={cn('flex cursor-pointer flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border px-4 py-8 text-xs text-muted-foreground hover:bg-muted transition-colors', dragging && 'border-primary bg-muted text-foreground')}
+          className={cn('flex cursor-pointer flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border px-4 py-8 text-sm text-muted-foreground hover:bg-muted transition-colors', dragging && 'border-primary bg-muted text-foreground')}
           onDragOver={(event) => {
             event.preventDefault();
             event.dataTransfer.dropEffect = 'copy';
@@ -85,8 +82,8 @@ export function ImportProjectDialog({ trigger }: { trigger?: React.ReactNode }) 
         )}
         {result && 'parseError' in result && <p className="text-sm text-destructive">JSON을 읽지 못했습니다: {result.parseError}</p>}
         {result && 'issues' in result && !result.ok && (
-          <div className="max-h-56 overflow-auto rounded-md border bg-muted p-3 text-xs">
-            <p className="mb-2 font-medium text-destructive">형식 오류 {result.issues.length}개 — 아무것도 저장하지 않았습니다.</p>
+          <div className="max-h-56 overflow-auto rounded-md border bg-muted p-3 text-sm">
+            <p className="mb-2 font-semibold text-destructive">형식 오류 {result.issues.length}개 — 아무것도 저장하지 않았습니다.</p>
             <ul className="space-y-1 font-mono">
               {result.issues.map((issue, index) => (
                 <li key={index}>
@@ -97,9 +94,8 @@ export function ImportProjectDialog({ trigger }: { trigger?: React.ReactNode }) 
           </div>
         )}
         {result && 'summary' in result && result.ok && (
-          <dl className="grid grid-cols-2 gap-x-6 gap-y-1.5 rounded-md border p-3 text-sm">
-            <dt className="text-muted-foreground">프로젝트</dt>
-            <dd className="font-medium">{result.summary.name}</dd>
+          <FieldRows className="rounded-md border p-3">
+            <FieldRow label="프로젝트">{result.summary.name}</FieldRow>
             {(
               [
                 ['장면·그룹', result.summary.groups],
@@ -111,19 +107,18 @@ export function ImportProjectDialog({ trigger }: { trigger?: React.ReactNode }) 
                 ['용어', result.summary.terms],
               ] as const
             ).map(([label, value]) => (
-              <div key={label} className="contents">
-                <dt className="text-muted-foreground">{label}</dt>
-                <dd className="tabular-nums">{value.toLocaleString()}</dd>
-              </div>
+              <FieldRow key={label} label={label}>
+                <span className="tabular-nums">{value.toLocaleString()}</span>
+              </FieldRow>
             ))}
-          </dl>
+          </FieldRows>
         )}
         {result && 'warnings' in result && result.ok && result.warnings.length > 0 && (
-          <ul className="max-h-40 space-y-1 overflow-auto rounded-md border p-3 text-xs">
+          <ul className="max-h-40 space-y-1 overflow-auto rounded-md border p-3 text-sm">
             {result.warnings.map((warning) => (
               <li key={warning.message}>
                 <span className="text-warning">{warning.message}</span>
-                {warning.examples.length > 0 && <span className="block truncate font-mono text-muted-foreground">예: {warning.examples.join(', ')}</span>}
+                {warning.examples.length > 0 && <span className="block truncate font-mono text-xs text-muted-foreground">예: {warning.examples.join(', ')}</span>}
               </li>
             ))}
           </ul>

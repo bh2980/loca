@@ -13,6 +13,7 @@ const ANCHOR_GAP = 12;
 import { drawShape } from './shapes';
 import { getCanvasColors } from './canvas-colors';
 import { useTheme } from '@/lib/theme';
+import { wrapTextLines } from './canvas-text-wrap';
 
 /** Below this zoom node labels are unreadable, so they are not drawn. */
 const DETAIL_K = 0.22;
@@ -36,21 +37,10 @@ export interface LayoutEdge {
   labelAt?: [number, number, number, number];
   /** Points are a start and (control, control, end) triples: drawn as Bézier curves. */
   curved?: true;
-}
-
-/**
- * A labelled edge redrawn to pass through its label: start → label centre → end as two smooth
- * curves leaving and arriving vertically (the layout kept the label's spot clear, but its own
- * curves do not go through it).
- */
-function throughLabel(edge: LayoutEdge): LayoutEdge {
-  if (!edge.label || !edge.labelAt || edge.points.length < 4) return edge;
-  const [lx, ly, lw, lh] = edge.labelAt;
-  const p = edge.points;
-  const [x0, y0, x3, y3] = [p[0], p[1], p[p.length - 2], p[p.length - 1]];
-  const [mx, my] = [lx + lw / 2, ly + lh / 2];
-  const a = (y0 + my) / 2, b = (my + y3) / 2;
-  return { ...edge, curved: true, points: [x0, y0, x0, a, mx, a, mx, my, mx, b, x3, b, x3, y3] };
+  /** Stands for a path through nodes left out of the view; drawn dashed. */
+  derived?: true;
+  /** A derived edge's facts from the source graph: the nodes it leaves out and what they hold. */
+  omitted?: { nodeIds: string[]; lines: number; controls: number; speakers: string[]; moreSpeakers: number };
 }
 
 /**
@@ -59,7 +49,8 @@ function throughLabel(edge: LayoutEdge): LayoutEdge {
  */
 function labelBox(edge: LayoutEdge): [number, number, number, number] | null {
   if (!edge.label) return null;
-  if (edge.labelAt) return edge.labelAt;
+  // A derived edge's label sits on its own line: it describes that line, wherever the layout put its room.
+  if (edge.labelAt && !edge.derived) return edge.labelAt;
   const width = Math.min(240, 30 + Math.ceil(edge.label.length * 8));
   const [x, y] = midpoint(edge);
   return [x - width / 2, y - 11, width, 22];
@@ -113,6 +104,7 @@ export interface Viewport {
 export interface GraphCanvasHandle {
   fit(): void;
   zoomBy(factor: number): void;
+  zoomTo(k: number): void;
   focus(id: string): void;
   /** Pans (zooming in to a readable size if needed) so the node and `room` px beside it are on screen. */
   reveal(id: string, room: number): void;
@@ -121,6 +113,7 @@ export interface GraphCanvasHandle {
 const MIN_K = 0.01;
 const MAX_K = 2.5;
 const PAD = 48;
+const DEFAULT_START_K = 1;
 
 export interface LooseEdge {
   id: string;
@@ -147,21 +140,35 @@ interface Props {
   edges: LayoutEdge[];
   /** Real edges left out of the layout (they touch a hub); drawn as faint straight lines. */
   looseEdges?: LooseEdge[];
+  direction?: 'vertical' | 'horizontal';
   /** Hub nodes by id; drawn as quiet pills instead of the usual node shapes. */
   hubs?: Map<string, HubInfo>;
   info: Map<string, NodeInfo>;
   width: number;
   height: number;
   selectedId?: string;
+  /** More selected nodes (box or modifier-click selection), drawn like the selected one. */
+  selectedIds?: Set<string>;
+  /**
+   * Turns on box selection: Shift+drag draws the box (left-drag still pans). Called with the nodes
+   * in the box, or the one node of a Shift/Ctrl/⌘-click; `additive` asks to add/toggle them
+   * (a box drawn with ⌘/Ctrl held as well adds to the selection).
+   */
+  onSelectMany?: (ids: string[], additive: boolean) => void;
   /** Nodes to emphasise (e.g. the scene being inspected); others are dimmed when non-empty. */
   highlight?: Set<string>;
+  /** Path endpoints to mark on this graph; folded nodes should be keyed by their visible chain id. */
+  endpointMarkers?: Map<string, Array<'start' | 'end'>>;
   /** Edges to emphasise on top of `highlight` (`${from}|${to}` of the edges in `edges`); the other edges stay dimmed. */
   highlightEdges?: Set<string>;
   initialViewport?: Viewport;
   /** Open centred on this node instead (zoomed to a readable size), e.g. arriving from a line. */
   initialFocus?: string;
+  /** Reading flows begin at the top; an explicitly selected node is centred. */
+  initialFocusAlign?: 'center' | 'top' | 'left';
   onViewportChange?: (viewport: Viewport) => void;
   onSelect: (id: string | undefined) => void;
+  onContextMenu?: (nodeId: string | undefined, event: { clientX: number; clientY: number }) => void;
   /** Enter on the canvas with a node selected. */
   onOpen?: () => void;
   /** A card that floats beside a node (right of it, or left when there is no room) and follows it as the view moves. */
@@ -173,13 +180,15 @@ interface Props {
  * Draws a precomputed ELK layout. d3-zoom owns pan/zoom, Flatbush owns spatial queries,
  * so each frame only touches what is on screen. One <canvas>, no per-node DOM.
  */
-export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, hubs, info, width, height, selectedId, highlight, highlightEdges, initialViewport, initialFocus, onViewportChange, onSelect, onOpen, anchor, handle }: Props) {
+export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, direction = 'vertical', hubs, info, width, height, selectedId, selectedIds, onSelectMany, highlight, endpointMarkers, highlightEdges, initialViewport, initialFocus, initialFocusAlign = 'center', onViewportChange, onSelect, onContextMenu, onOpen, anchor, handle }: Props) {
   const theme = useTheme();
   const canvas = useRef<HTMLCanvasElement>(null);
   const minimap = useRef<HTMLCanvasElement>(null);
   const transform = useRef<ZoomTransform>(zoomIdentity);
   const behavior = useRef<ZoomBehavior<HTMLCanvasElement, unknown>>(null);
   const frame = useRef(0);
+  const drawRef = useRef<() => void>(() => {});
+  const previousSize = useRef<{ width: number; height: number } | null>(null);
   const anchorBox = useRef<HTMLDivElement>(null);
   const [minimapOpen, setMinimapOpen] = useState(() => {
     try {
@@ -199,12 +208,18 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
   useEffect(() => {
     if (minimapOpen) schedule();
   }, [minimapOpen]); // eslint-disable-line react-hooks/exhaustive-deps
-  // A labelled edge (a choice) is drawn through the room the layout kept for its label.
-  const edges = useMemo(() => laidOut.map(throughLabel), [laidOut]);
+  // Keep the obstacle-avoiding ELK route; its label already has reserved space.
+  const edges = laidOut;
   // Which of the drawn edges are emphasised, by position.
   const emphasised = useMemo(() => new Set(highlightEdges?.size ? edges.flatMap((edge, i) => (highlightEdges.has(`${edge.from}|${edge.to}`) ? [i] : [])) : []), [edges, highlightEdges]);
-  const props = useRef({ selectedId, highlight, emphasised, onViewportChange, onSelect, onOpen, hubs, anchorId: anchor?.id });
-  props.current = { selectedId, highlight, emphasised, onViewportChange, onSelect, onOpen, hubs, anchorId: anchor?.id };
+  const props = useRef({ selectedId, selectedIds, onSelectMany, highlight, endpointMarkers, emphasised, onViewportChange, onSelect, onOpen, hubs, anchorId: anchor?.id, onContextMenu });
+  props.current = { selectedId, selectedIds, onSelectMany, highlight, endpointMarkers, emphasised, onViewportChange, onSelect, onOpen, hubs, anchorId: anchor?.id, onContextMenu };
+  const boxSelect = Boolean(onSelectMany);
+  /** The selection box being dragged, in canvas pixels; `moved` once it passed the click distance. */
+  const drag = useRef<{ x0: number; y0: number; x1: number; y1: number; moved: boolean; additive: boolean } | null>(null);
+  const [box, setBox] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
+  /** Swallows the click that ends a box drag. */
+  const suppressClick = useRef(false);
 
   const index = useMemo(() => {
     const byId = new Map(nodes.map((node) => [node.id, node]));
@@ -226,6 +241,12 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
       edgeIndex!.add(minX, minY, maxX, maxY);
     }
     edgeIndex?.finish();
+    // Clickable labels (a choice, a derived edge's left-out stretch) by their own boxes: a label can lie away from its line.
+    const labelled = edges.flatMap((edge, i) => (edge.via || edge.derived ? [[i, labelBox(edge)] as const] : [])).filter((entry): entry is readonly [number, [number, number, number, number]] => entry[1] !== null);
+    const labelIndex = labelled.length ? new Flatbush(labelled.length) : null;
+    for (const [, [bx, by, bw, bh]] of labelled) labelIndex!.add(bx, by, bx + bw, by + bh);
+    labelIndex?.finish();
+    const labelEdge = labelled.map(([i]) => i);
     const bounds = nodes.reduce(
       (box, node) => ({ minX: Math.min(box.minX, node.x), minY: Math.min(box.minY, node.y), maxX: Math.max(box.maxX, node.x + node.width), maxY: Math.max(box.maxY, node.y + node.height) }),
       { minX: 0, minY: 0, maxX: 1, maxY: 1 },
@@ -247,15 +268,17 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
       const a = byId.get(edge.from), b = byId.get(edge.to);
       if (!a || !b) continue;
       const at = segments.length / 4;
-      segments.push(a.x + a.width / 2, a.y + a.height, b.x + b.width / 2, b.y);
+      segments.push(...(direction === 'horizontal'
+        ? [a.x + a.width, a.y + a.height / 2, b.x, b.y + b.height / 2]
+        : [a.x + a.width / 2, a.y + a.height, b.x + b.width / 2, b.y]));
       for (const end of [edge.from, edge.to]) {
         const list = looseByNode.get(end);
         if (list) list.push(at);
         else looseByNode.set(end, [at]);
       }
     }
-    return { byId, nodeIndex, edgeIndex, bounds, adjacent, segments, looseByNode };
-  }, [nodes, edges, looseEdges]);
+    return { byId, nodeIndex, edgeIndex, labelIndex: labelIndex ? { search: (x: number, y: number, x2: number, y2: number) => labelIndex.search(x, y, x2, y2).map((at) => labelEdge[at]) } : null, bounds, adjacent, segments, looseByNode };
+  }, [nodes, edges, looseEdges, direction]);
 
   // How many nodes each region holds, for the zoomed-out overview.
   const regionCounts = useMemo(
@@ -273,6 +296,15 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
     const y = h * scale > height ? PAD - box.minY * scale : (height - h * scale) / 2 - box.minY * scale;
     return zoomIdentity.translate(x, y).scale(scale);
   };
+
+  // First open should show readable source nodes from the beginning. Full-graph fit remains an
+  // explicit action; a saved viewport or a requested focus still takes precedence.
+  const firstNode = useMemo(() => nodes.reduce<LayoutNode | undefined>((first, node) =>
+    !first || node.y < first.y || (node.y === first.y && node.x < first.x) ? node : first,
+  undefined), [nodes]);
+  const startTransform = () => zoomIdentity
+    .translate(firstNode ? width / 2 - (firstNode.x + firstNode.width / 2) * DEFAULT_START_K : width / 2, PAD - (firstNode?.y ?? index.bounds.minY) * DEFAULT_START_K)
+    .scale(DEFAULT_START_K);
 
   const centredOn = (node: LayoutNode, k: number) => zoomIdentity.translate(width / 2 - (node.x + node.width / 2) * k, height / 2 - (node.y + node.height / 2) * k).scale(k);
 
@@ -366,19 +398,24 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
     }
 
     // Edges first, so nodes sit on top of their lines.
-    context.lineWidth = Math.max(1, 1.2 / t.k) ;
+    context.lineWidth = Math.max(1.4, 1.6 / t.k);
     context.lineJoin = 'round';
     const visibleEdges = (index.edgeIndex?.search(view.minX, view.minY, view.maxX, view.maxY) ?? []);
     context.strokeStyle = edgeColor;
     context.globalAlpha = dimmed ? 0.35 : 1;
     context.beginPath();
     for (const i of visibleEdges) {
-      if (selectedEdges?.has(String(i)) || route.has(i)) continue;
+      if (selectedEdges?.has(String(i)) || route.has(i) || edges[i].derived) continue;
       traceEdge(context, edges[i]);
     }
     context.stroke();
+    context.setLineDash([6 / t.k, 5 / t.k]);
+    context.beginPath();
+    for (const i of visibleEdges) if (edges[i].derived && !selectedEdges?.has(String(i)) && !route.has(i)) traceEdge(context, edges[i]);
+    context.stroke();
+    context.setLineDash([]);
     context.globalAlpha = 1;
-    if (t.k > 0.08) for (const i of visibleEdges) if (!selectedEdges?.has(String(i)) && !route.has(i)) arrowHead(context, edges[i].points, 7, edgeColor, dimmed ? 0.35 : 1);
+    if (t.k > 0.08) for (const i of visibleEdges) if (!selectedEdges?.has(String(i)) && !route.has(i)) arrowHead(context, edges[i].points, 8, edgeColor, dimmed ? 0.35 : 1);
     // The emphasised edges (the main route) at full strength, thicker, in the text colour: not the selection's colour.
     if (route.size) {
       const strong = colors.foreground;
@@ -415,11 +452,27 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
         context.fill();
         context.lineWidth = 1;
         context.strokeStyle = edge.via ? colors.primary : colors.border;
+        // A derived edge's label is a summary, not source text: dashed like its line, muted.
+        if (edge.derived) context.setLineDash([3, 2]);
         context.stroke();
+        context.setLineDash([]);
         context.fillStyle = edge.via ? colors.primary : colors.mutedForeground;
         let text = `${edge.via ? '▶ ' : ''}${edge.label}`;
         while (text.length > 2 && context.measureText(text).width > w - 14) text = `${text.slice(0, -2)}…`;
         context.fillText(text, x + 7, y + h / 2 + 0.5);
+        const markers = edge.via ? props.current.endpointMarkers?.get(edge.via) : undefined;
+        if (markers?.length) {
+          const labels = markers.map((marker) => marker === 'start' ? '시작' : '끝');
+          const label = labels.join('·');
+          context.font = '600 10px Pretendard, system-ui, sans-serif';
+          const markerWidth = context.measureText(label).width + 12;
+          context.fillStyle = colors.primary;
+          context.beginPath();
+          context.roundRect(x + w - markerWidth - 2, y - 18, markerWidth, 16, 4);
+          context.fill();
+          context.fillStyle = colors.primaryInk;
+          context.fillText(label, x + w - markerWidth + 4, y - 10);
+        }
       }
       context.globalAlpha = 1;
       context.textBaseline = 'alphabetic';
@@ -429,7 +482,7 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
     for (const i of visible) {
       const node = nodes[i];
       const meta = info.get(node.id);
-      const isSelected = node.id === selected;
+      const isSelected = node.id === selected || Boolean(props.current.selectedIds?.has(node.id));
       const faded = dimmed && !focus!.has(node.id) && !isSelected;
       context.globalAlpha = faded || overviewMode ? 0.25 : 1;
       const hub = props.current.hubs?.get(node.id);
@@ -439,6 +492,21 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
       }
       drawShape(context, meta?.kind ?? 'unknown', node, { selected: isSelected, selectColor, detailed, k: t.k, colors });
       if (detailed && meta) drawLabel(context, meta, node, colors);
+      const markers = props.current.endpointMarkers?.get(node.id);
+      if (markers?.length) {
+        const label = markers.map((marker) => marker === 'start' ? '시작' : '끝').join('·');
+        context.font = '600 11px Pretendard, system-ui, sans-serif';
+        context.textBaseline = 'middle';
+        const markerWidth = context.measureText(label).width + 14;
+        const markerHeight = 18;
+        context.fillStyle = colors.primary;
+        context.beginPath();
+        context.roundRect(node.x + node.width - markerWidth, node.y - markerHeight - 3, markerWidth, markerHeight, 5);
+        context.fill();
+        context.fillStyle = colors.primaryInk;
+        context.fillText(label, node.x + node.width - markerWidth + 7, node.y - markerHeight / 2 - 3);
+        context.textBaseline = 'alphabetic';
+      }
     }
     context.globalAlpha = 1;
     if (overviewMode)
@@ -453,18 +521,24 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
         context.fillText(label, cx, cy);
         context.fillStyle = colors.mutedForeground;
         context.font = `${12 / t.k}px Pretendard, system-ui, sans-serif`;
-        context.fillText(`노드 ${regionCounts[i].toLocaleString()}개 · 눌러서 확대`, cx, cy + size * 1.4);
+        context.fillText(`노드 ${regionCounts[i].toLocaleString()}개`, cx, cy + size * 1.4);
         context.textAlign = 'start';
       });
     drawMinimap();
   };
+  drawRef.current = draw;
 
   const schedule = () => {
-    if (!frame.current) frame.current = requestAnimationFrame(draw);
+    if (!frame.current) frame.current = requestAnimationFrame(() => drawRef.current());
   };
 
-  // Minimap: the screen's shape, with the whole graph fitted and centered in it (as the graph first
-  // opens) and the current viewport drawn on top. Rendered once per size; the box follows the screen.
+  useEffect(() => () => {
+    if (frame.current) cancelAnimationFrame(frame.current);
+    frame.current = 0;
+  }, []);
+
+  // Minimap: the whole graph fitted and centered, with the current viewport drawn on top. Rendered
+  // once per size; the box follows the screen.
   const overview = useMemo(() => {
     const long = 176;
     const aspect = width > 0 && height > 0 ? width / height : 1;
@@ -506,6 +580,14 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
     const zoom = d3zoom<HTMLCanvasElement, unknown>()
       .scaleExtent([MIN_K, MAX_K])
       .clickDistance(4)
+      // Wheel and touch always zoom/pan; the left and middle buttons pan. Shift+left-drag draws a
+      // selection box instead (where box selection is on). Ctrl+drag is left to the browser, as in d3's default.
+      .filter((event: MouseEvent | WheelEvent | TouchEvent) => {
+        if (event.type === 'wheel' || event.type.startsWith('touch')) return true;
+        const mouse = event as MouseEvent;
+        if (mouse.button === 1) return true;
+        return mouse.button === 0 && !mouse.ctrlKey && !(props.current.onSelectMany && mouse.shiftKey);
+      })
       .on('zoom', (event: { transform: ZoomTransform }) => {
         transform.current = event.transform;
         schedule();
@@ -528,11 +610,18 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
       return Number.isFinite(box.minX) ? box : undefined;
     };
     const target = initialFocus ? index.byId.get(initialFocus) : undefined;
+    const focusedBox = focusBox();
     const start = target
-      ? centredOn(target, Math.max(fitTransform().k, 0.6))
+      ? initialFocusAlign === 'top'
+        ? zoomIdentity.translate(width / 2 - (target.x + target.width / 2) * DEFAULT_START_K, PAD - target.y * DEFAULT_START_K).scale(DEFAULT_START_K)
+        : initialFocusAlign === 'left'
+          ? zoomIdentity.translate(PAD - target.x * DEFAULT_START_K, height / 2 - (target.y + target.height / 2) * DEFAULT_START_K).scale(DEFAULT_START_K)
+          : centredOn(target, DEFAULT_START_K)
       : initialViewport
         ? zoomIdentity.translate(initialViewport.x, initialViewport.y).scale(initialViewport.k)
-        : fitTransform(focusBox());
+        : focusedBox
+          ? fitTransform(focusedBox)
+          : startTransform();
     selection.call(zoom.transform, start);
     return () => void selection.on('.zoom', null);
     // The layout identity decides the starting view; size changes are handled below.
@@ -544,6 +633,17 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
 
   useEffect(() => {
     const element = canvas.current!;
+    const previous = previousSize.current;
+    previousSize.current = { width, height };
+    if (previous && behavior.current) {
+      const dx = (width - previous.width) / 2;
+      const dy = (height - previous.height) / 2;
+      if (dx || dy) {
+        const current = transform.current;
+        const centered = zoomIdentity.translate(current.x + dx, current.y + dy).scale(current.k);
+        select(element).call(behavior.current.transform, centered);
+      }
+    }
     const dpr = window.devicePixelRatio || 1;
     element.width = Math.round(width * dpr);
     element.height = Math.round(height * dpr);
@@ -552,7 +652,20 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
 
   useEffect(() => {
     schedule();
-  }, [selectedId, highlight, emphasised, info, hubs]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedId, selectedIds, highlight, endpointMarkers, emphasised, info, hubs]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const finishBox = () => {
+    const d = drag.current;
+    drag.current = null;
+    setBox(null);
+    if (!d?.moved) return;
+    suppressClick.current = true;
+    const t = transform.current;
+    const [x0, x1] = [Math.min(d.x0, d.x1), Math.max(d.x0, d.x1)].map((x) => (x - t.x) / t.k);
+    const [y0, y1] = [Math.min(d.y0, d.y1), Math.max(d.y0, d.y1)].map((y) => (y - t.y) / t.k);
+    const ids = (index.nodeIndex?.search(x0, y0, x1, y1) ?? []).map((i) => nodes[i].id);
+    props.current.onSelectMany?.(ids, d.additive);
+  };
 
   // The card is placed again when it opens on another node or its content changes height. Until
   // then it is transparent, not hidden: a hidden card would drop the editor's focus.
@@ -573,15 +686,19 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
   useImperativeHandle(handle, () => ({
     fit: () => animateTo(fitTransform()),
     zoomBy: (factor) => behavior.current && canvas.current && select(canvas.current).transition().duration(200).call(behavior.current.scaleBy, factor),
+    zoomTo: (k) => behavior.current && canvas.current && select(canvas.current).transition().duration(200).call(behavior.current.scaleTo, k),
     focus: (id) => {
       const node = index.byId.get(id);
-      if (node) animateTo(centredOn(node, Math.max(transform.current.k, 0.6)));
+      if (node) {
+        animateTo(centredOn(node, Math.max(transform.current.k, DEFAULT_START_K)));
+        canvas.current?.focus({ preventScroll: true });
+      }
     },
     reveal: (id, room) => {
       const node = index.byId.get(id);
       if (!node) return;
       const t = transform.current;
-      const k = Math.max(t.k, 0.6);
+      const k = Math.max(t.k, DEFAULT_START_K);
       const x = node.x * k + t.x, y = node.y * k + t.y, w = node.width * k, h = node.height * k;
       const block = w + ANCHOR_GAP + room;
       const fits = k === t.k && x >= ANCHOR_GAP && x + block <= width - ANCHOR_GAP && y >= ANCHOR_GAP && y + Math.min(h, height / 2) <= height - ANCHOR_GAP;
@@ -604,11 +721,12 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
     const rect = canvas.current!.getBoundingClientRect();
     const t = transform.current;
     const x = (clientX - rect.left - t.x) / t.k, y = (clientY - rect.top - t.y) / t.k;
-    // A choice's label stands for its node: clicking it opens the choice.
+    // A choice's label stands for its node: clicking it opens the choice. A derived edge's label
+    // stands for the nodes it leaves out: `omitted:<edge id>`.
     if (t.k >= DETAIL_K)
-      for (const i of index.edgeIndex?.search(x - 100, y - 20, x + 100, y + 20) ?? []) {
-        const box = edges[i].via ? labelBox(edges[i]) : null;
-        if (box && x >= box[0] && x <= box[0] + box[2] && y >= box[1] && y <= box[1] + box[3]) return edges[i].via;
+      for (const i of index.labelIndex?.search(x, y, x, y) ?? []) {
+        const target = edges[i].via ?? (edges[i].derived && edges[i].omitted ? `omitted:${edges[i].id}` : undefined);
+        if (target) return target;
       }
     const found = (index.nodeIndex?.search(x, y, x, y) ?? []);
     return found.length ? nodes[found[found.length - 1]].id : undefined;
@@ -621,12 +739,53 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
         style={{ width, height }}
         className="block cursor-grab touch-none outline-none active:cursor-grabbing focus-visible:ring-2 focus-visible:ring-ring"
         tabIndex={0}
+        onMouseDown={(event) => {
+          // The middle button pans; without this the browser starts its own autoscroll.
+          if (event.button === 1) event.preventDefault();
+        }}
+        onPointerDown={(event) => {
+          if (!boxSelect || event.button !== 0 || !event.shiftKey) return;
+          const rect = event.currentTarget.getBoundingClientRect();
+          const x = event.clientX - rect.left, y = event.clientY - rect.top;
+          drag.current = { x0: x, y0: y, x1: x, y1: y, moved: false, additive: event.metaKey || event.ctrlKey };
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }}
+        onPointerMove={(event) => {
+          const d = drag.current;
+          if (!d) return;
+          const rect = event.currentTarget.getBoundingClientRect();
+          d.x1 = event.clientX - rect.left;
+          d.y1 = event.clientY - rect.top;
+          if (!d.moved && Math.hypot(d.x1 - d.x0, d.y1 - d.y0) < 4) return;
+          d.moved = true;
+          setBox({ left: Math.min(d.x0, d.x1), top: Math.min(d.y0, d.y1), width: Math.abs(d.x1 - d.x0), height: Math.abs(d.y1 - d.y0) });
+        }}
+        onPointerUp={finishBox}
+        onPointerCancel={() => {
+          drag.current = null;
+          setBox(null);
+        }}
         role="img"
-        aria-label={`그래프: 노드 ${nodes.length.toLocaleString()}개, 연결 ${edges.length.toLocaleString()}개`}
+        aria-label={`그래프: 노드 ${nodes.length.toLocaleString()}개, 연결 ${(edges.length + (looseEdges?.length ?? 0)).toLocaleString()}개`}
         onClick={(event) => {
+          if (suppressClick.current) {
+            suppressClick.current = false;
+            return;
+          }
+          if (boxSelect && (event.shiftKey || event.metaKey || event.ctrlKey)) {
+            const id = hit(event.clientX, event.clientY);
+            if (id) props.current.onSelectMany?.([id], true);
+            return;
+          }
           const region = transform.current.k < DETAIL_K && regions.length > 1 ? regionAt(event.clientX, event.clientY) : undefined;
           if (region) animateTo(fitTransform({ minX: region.x - 24, minY: region.y - 24, maxX: region.x + region.width + 24, maxY: region.y + region.height + 24 }));
           else props.current.onSelect(hit(event.clientX, event.clientY));
+        }}
+        onContextMenu={(event) => {
+          if (!props.current.onContextMenu) return;
+          event.preventDefault();
+          const nodeId = hit(event.clientX, event.clientY);
+          props.current.onContextMenu(nodeId, { clientX: event.clientX, clientY: event.clientY });
         }}
         onKeyDown={(event) => {
           const step = 80;
@@ -641,6 +800,7 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, h
           else if (event.key === 'Escape') props.current.onSelect(undefined);
         }}
       />
+      {box && <div aria-hidden className="pointer-events-none absolute rounded-sm border border-primary bg-primary/10" style={box} />}
       {anchor && (
         <div ref={anchorBox} className="absolute top-0 left-0 z-20 opacity-0">
           {anchor.content}
@@ -746,11 +906,11 @@ function drawLabel(context: CanvasRenderingContext2D, meta: NodeInfo, node: Layo
     context.beginPath();
     context.rect(node.x + 10, node.y + 6, node.width - 20, node.height - 12);
     context.clip();
-    context.font = '600 12px Pretendard, system-ui, sans-serif';
-    context.fillText(meta.title ?? (meta.kind === 'scene' || meta.kind === 'chain' ? (meta.label ?? meta.key) : meta.key), node.x + 12, node.y + 22);
-    context.font = '12px Pretendard, system-ui, sans-serif';
+    context.font = '600 14px Pretendard, system-ui, sans-serif';
+    context.fillText(meta.title ?? (meta.kind === 'scene' || meta.kind === 'chain' ? (meta.label ?? meta.key) : meta.key), node.x + 12, node.y + 23);
+    context.font = '14px Pretendard, system-ui, sans-serif';
     context.fillStyle = colors.mutedForeground;
-    wrapText(context, meta.body ?? meta.preview ?? meta.label ?? '', node.x + 12, node.y + 42, node.width - 24, 16, 2);
+    wrapText(context, meta.body ?? meta.preview ?? meta.label ?? '', node.x + 12, node.y + 44, node.width - 24, 18, 2);
   } else if (meta.kind === 'portal') {
     // Section stand-in: the name sits inside the box.
     context.font = '11px Pretendard, system-ui, sans-serif';
@@ -768,20 +928,6 @@ function drawLabel(context: CanvasRenderingContext2D, meta: NodeInfo, node: Layo
 }
 
 function wrapText(context: CanvasRenderingContext2D, text: string, x: number, y: number, maxWidth: number, lineHeight: number, maxLines: number) {
-  let line = '';
-  let lines = 0;
-  for (const char of text) {
-    const next = line + char;
-    if (context.measureText(next).width > maxWidth) {
-      lines++;
-      if (lines === maxLines) {
-        context.fillText(`${line.slice(0, -1)}…`, x, y);
-        return;
-      }
-      context.fillText(line, x, y);
-      y += lineHeight;
-      line = char;
-    } else line = next;
-  }
-  context.fillText(line, x, y);
+  const lines = wrapTextLines(text, maxWidth, maxLines, (line) => context.measureText(line).width);
+  lines.forEach((line, index) => context.fillText(line, x, y + index * lineHeight));
 }

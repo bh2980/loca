@@ -2,14 +2,18 @@ import type { CSSProperties, ReactNode } from "react"
 import { useDefaultLayout } from "react-resizable-panels"
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "../primitives/resizable"
 import { cn } from "../lib/utils"
+import { DockContent, DockLevel, useHasDock } from './right-dock'
 
 export interface SplitPaneProps {
   id: string
   pane: ReactNode
+  /** Stable selected entity identity; changing it reveals the shared inspector. */
+  selectionKey?: string
   children: ReactNode
   defaultWidth?: string
   className?: string
   style?: CSSProperties
+  autoActivate?: boolean
 }
 
 /**
@@ -18,11 +22,22 @@ export interface SplitPaneProps {
 export function SplitPane({
   id,
   pane,
+  selectionKey,
   children,
   defaultWidth = "420px",
   className,
   style,
+  autoActivate,
 }: SplitPaneProps) {
+  const dock = useHasDock()
+  if (dock) return <div className={cn('flex min-h-0 min-w-0 flex-1 flex-col', className)} style={style}>
+    <DockContent selectionKey={selectionKey} autoActivate={autoActivate}>{pane}</DockContent>
+    <DockLevel>{children}</DockLevel>
+  </div>
+  return <LocalSplitPane id={id} pane={pane} defaultWidth={defaultWidth} className={className} style={style}>{children}</LocalSplitPane>
+}
+
+function LocalSplitPane({ id, pane, children, defaultWidth, className, style }: SplitPaneProps) {
   const open = Boolean(pane)
   const layout = useDefaultLayout({
     id: `loca-pane-${id}`,

@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { listenerLabel, personLabel, SPEECH_LEVEL_LABELS, styleNames } from '@tw/shared';
+import { listenerLabel, personLabel, SPEECH_LEVEL_LABELS, SPECIAL_LISTENERS, styleNames } from '@tw/shared';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@loca/ui';
 import { q } from '@/lib/queries';
 
@@ -31,13 +31,13 @@ function SpeakerInfo({ projectId, name }: { projectId: string; name: string }) {
   const pending = (status: string) => status !== 'confirmed' && <span className="text-xs text-muted-foreground"> · 확인 전</span>;
   return (
     <>
-      <p className="font-medium">
-        {character?.name ?? name}
+      <p className="flex min-w-0 items-center gap-2 font-semibold">
+        <span className="truncate">{character?.name ?? name}</span>
         {character && personLabel(character) && <span className="text-xs font-normal text-muted-foreground"> · {personLabel(character)}</span>}
         {character && pending(character.status)}
       </p>
       {character?.profile ? (
-        <p className="line-clamp-4 text-muted-foreground">{character.profile}</p>
+        <p className="line-clamp-4">{character.profile}</p>
       ) : null}
       {character?.speech && (
         <p className="line-clamp-2">
@@ -55,7 +55,9 @@ function SpeakerInfo({ projectId, name }: { projectId: string; name: string }) {
         <ul className="space-y-0.5 border-t pt-2">
           {own.map((rule) => (
             <li key={rule.id} className="flex gap-2">
-              <span className="min-w-0 truncate text-muted-foreground">→ {listenerLabel(rule.toName)}</span>
+              <span className="flex min-w-0 items-center gap-1.5 truncate text-muted-foreground">
+                → {listenerLabel(rule.toName)}
+              </span>
               <span className="ml-auto shrink-0">
                 {SPEECH_LEVEL_LABELS[rule.level]}
                 {rule.address && ` · “${rule.address}”`}
@@ -65,8 +67,8 @@ function SpeakerInfo({ projectId, name }: { projectId: string; name: string }) {
           ))}
         </ul>
       )}
-      <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', ...(character && { item: character.id }) }} className="block text-xs text-muted-foreground underline-offset-2 hover:underline">
-        인물·관계에서 보기
+      <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'characters', ...(character && { item: character.id }) }} className="block text-xs text-muted-foreground underline-offset-2 hover:underline">
+        인물 보기
       </Link>
     </>
   );

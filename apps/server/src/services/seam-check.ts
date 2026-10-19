@@ -6,7 +6,7 @@ import { projectSlice } from './project-slice.ts';
 import type { RouteSlice } from './route-slice.ts';
 
 /**
- * 이음새 점검 (docs/DESIGN.md J2c): from the second route on, the translator only has to check the
+ * 이음새 점검: from the second route on, the translator only has to check the
  * places where the route's new lines hand back into lines of an earlier route. For one seam this
  * gathers the current route's last lines before it (the new side) and the first lines after it (the
  * earlier side). Only graph edges are followed; nothing is guessed.

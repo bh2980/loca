@@ -4,7 +4,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "../primitives/tooltip"
 import { cn } from "../lib/utils"
 
 /**
- * Statuses, tags and marks (docs/DESIGN.md 4.0). The one place their colours and shapes are drawn:
+ * Statuses, tags and marks. The one place their colours and shapes are drawn:
  * screens use these parts, never a coloured span of their own.
  */
 export interface StatusLike {
@@ -111,20 +111,27 @@ export function StatusBar({ statuses, counts, className }: { statuses: StatusLik
   const total = Object.values(counts).reduce((sum, value) => sum + value, 0)
   return (
     <div
-      className={cn("flex h-1 w-full gap-px overflow-hidden rounded-full bg-muted", className)}
+      className={cn("flex h-1 w-full gap-px overflow-hidden rounded-full bg-meter-track", className)}
       role="img"
       aria-label={statuses.map((status) => `${status.name} ${counts[status.id] ?? 0}`).join(", ")}
     >
       {total > 0 &&
-        statuses.map((status) =>
-          counts[status.id] ? <div key={status.id} style={{ width: `${(counts[status.id] / total) * 100}%`, backgroundColor: paletteColor(status.color) }} /> : null
-        )}
+        statuses.map((status) => {
+          const isInitial = status.kind === "initial" || status.name === "미번역"
+          if (isInitial || !counts[status.id]) return null
+          return (
+            <div
+              key={status.id}
+              style={{ width: `${(counts[status.id] / total) * 100}%`, backgroundColor: paletteColor(status.color) }}
+            />
+          )
+        })}
     </div>
   )
 }
 
 /**
- * ✦ beside a status or 확정 that AI set and no person has looked at since (docs/DESIGN.md 3.5).
+ * ✦ beside a status or 확정 that AI set and no person has looked at since.
  * The same mark everywhere: lines, knowledge, terms. Renders nothing when a person set it.
  */
 export function AiMark({ by, className }: { by: "ai" | "human" | null | undefined; className?: string }) {
@@ -132,11 +139,11 @@ export function AiMark({ by, className }: { by: "ai" | "human" | null | undefine
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span role="img" aria-label="AI가 정함" className={cn("inline-flex shrink-0 text-ai", className)}>
+        <span role="img" aria-label="AI 초안" className={cn("inline-flex shrink-0 text-ai", className)}>
           <Sparkles className="size-3" />
         </span>
       </TooltipTrigger>
-      <TooltipContent>AI가 정함 · 아직 사람이 확인하지 않음</TooltipContent>
+      <TooltipContent>AI 초안 · 아직 사람이 확인하지 않음</TooltipContent>
     </Tooltip>
   )
 }

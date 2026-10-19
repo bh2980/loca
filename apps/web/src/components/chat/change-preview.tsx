@@ -1,5 +1,6 @@
 import { AGENT_TOOLS, type AgeBand, type AutoMark, type Gender, personLabel, CHARACTER_ROLE_LABELS, type CharacterRole } from '@tw/shared';
 import { MarkChip } from '@/components/status';
+import { GroupHeading } from '@loca/ui';
 import { Markdown } from './markdown';
 
 export const LABEL: Record<string, string> = Object.fromEntries(Object.entries(AGENT_TOOLS).map(([name, info]) => [name, info.label]));
@@ -9,7 +10,7 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
   const field = (label: string, value: unknown) =>
     value === undefined || value === '' ? null : (
       <div className="grid grid-cols-[5rem_1fr] gap-2">
-        <dt className="text-muted-foreground">{label}</dt>
+        <dt className="text-xs text-muted-foreground">{label}</dt>
         <dd className="min-w-0 break-words">{Array.isArray(value) ? value.join(', ') : String(value)}</dd>
       </div>
     );
@@ -33,9 +34,9 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
         </dl>
       );
     case 'save_relationship':
-      return <dl className="space-y-1">{field('작업', action)}{field('관계', `${input.from} → ${input.to} (${input.kind})`)}{field('양방향', input.mutual ? '예' : '아니오')}{field('설명', input.description)}</dl>;
+      return <dl className="space-y-1">{field('작업', action)}{field('관계', `${input.from} → ${input.to} (${input.kind})`)}{field('쌍방', input.mutual ? '예' : '아니오')}{field('설명', input.description)}</dl>;
     case 'save_document':
-      return <dl className="space-y-1">{field('작업', action)}{field('제목', input.title)}{field('종류', input.kind)}{field('번역 문맥에 넣기', input.alwaysInclude ? '예' : '아니오')}{markdown(input.body)}</dl>;
+      return <dl className="space-y-1">{field('작업', action)}{field('제목', input.title)}{field('종류', input.kind)}{field('문맥에 넣기', input.alwaysInclude ? '예' : '아니오')}{markdown(input.body)}</dl>;
     case 'tag_items': {
       const kinds: Record<string, string> = { terms: '용어', characters: '인물', relationships: '관계', speechRules: '말투 규칙', events: '사건', documents: '문서' };
       const names = (value: unknown) => ((value as string[] | undefined) ?? []).map((name) => `#${name.replace(/^#/, '')}`);
@@ -44,7 +45,6 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
           {field('대상', `${kinds[input.kind as string] ?? String(input.kind)} ${((input.ids as unknown[] | undefined) ?? []).length}개`)}
           {field('붙이기', names(input.add))}
           {field('떼기', names(input.remove))}
-          <p className="text-muted-foreground">다른 태그와 항목 내용은 그대로입니다.</p>
         </dl>
       );
     }
@@ -62,9 +62,9 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
             const items = (input[key] as Record<string, unknown>[] | undefined) ?? [];
             return items.length ? (
               <div key={key}>
-                <p className="font-medium">
+                <GroupHeading>
                   {label} {items.length}개
-                </p>
+                </GroupHeading>
                 <ul className="space-y-0.5">
                   {items.map((item, index) => (
                     <li key={index}>
@@ -75,7 +75,6 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
               </div>
             ) : null;
           })}
-          <p className="text-muted-foreground">모두 함께 저장됩니다. 한 항목이라도 실패하면 아무것도 저장하지 않으니, 실패한 항목을 고쳐 다시 보내게 됩니다.</p>
         </div>
       );
     }
@@ -97,7 +96,7 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
         <dl className="space-y-1">
           {Object.entries(input).map(([key, value]) => (
             <div key={key} className="grid grid-cols-[5rem_1fr] gap-2">
-              <dt className="text-muted-foreground">{labels[key] ?? key}</dt>
+              <dt className="text-xs text-muted-foreground">{labels[key] ?? key}</dt>
               <dd className="min-w-0 break-words">{typeof value === 'string' ? value : <pre className="max-h-32 overflow-auto text-xs whitespace-pre-wrap">{JSON.stringify(value, null, 2)}</pre>}</dd>
             </div>
           ))}
@@ -112,6 +111,30 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
           {input.type === 'tag' && field('붙는 곳', ((input.scope as string[] | undefined) ?? ['lines', 'knowledge', 'terms']).map((place) => places[place] ?? place))}
         </dl>
       );
+    }
+    case 'update_status':
+      return <dl className="space-y-1">{field('상태', input.id)}{field('이름', input.name)}{field('종류', input.kind)}{field('색', input.color)}{field('검토', input.inReview === undefined ? undefined : input.inReview ? '검토 필요' : '검토 불필요')}</dl>;
+    case 'delete_status':
+      return <dl className="space-y-1">{field('삭제할 상태', input.id)}{field('대사를 옮길 상태', input.moveTo)}{pending && <p className="text-destructive">대사의 상태가 바뀌고 상태를 삭제합니다.</p>}</dl>;
+    case 'update_tag':
+      return <dl className="space-y-1">{field('태그', input.id)}{field('이름', input.name)}{field('색', input.color)}{field('붙는 곳', input.scope)}</dl>;
+    case 'delete_tag':
+      return <dl className="space-y-1">{field('삭제할 태그', input.id)}{pending && <p className="text-destructive">항목에 붙은 이 태그도 함께 제거됩니다.</p>}</dl>;
+    case 'delete_workflow':
+      return <dl className="space-y-1">{field('삭제할 워크플로', input.id)}{pending && <p className="text-destructive">워크플로와 실행 계획을 삭제합니다.</p>}</dl>;
+    case 'create_group':
+      return <dl className="space-y-1">{field('종류', { scene: '장면', document: '문서 묶음', ui: 'UI 묶음' }[input.kind as string])}{field('제목', input.title)}{field('키', input.key)}{field('설명', input.description)}<p className="text-muted-foreground">묶음만 추가합니다. 원문이나 그래프 연결은 만들지 않습니다.</p></dl>;
+    case 'update_group':
+      return <dl className="space-y-1">{field('묶음', input.groupId)}{field('제목', input.title)}{field('키', input.key)}{field('설명', input.description)}{field('구역', input.section)}</dl>;
+    case 'delete_group':
+      return <dl className="space-y-1">{field('삭제할 묶음', input.groupId)}{pending && <p className="text-destructive">묶음과 안의 원문을 모두 삭제합니다.</p>}</dl>;
+    case 'create_unit':
+      return <dl className="space-y-1">{field('묶음', input.groupId)}{field('키', input.key)}{field('화자', input.speaker)}{field('청자', input.listener)}{field('원문', input.source)}<p className="text-muted-foreground">새 원문 항목이며 번역 후보가 아닙니다.</p></dl>;
+    case 'update_unit':
+      return <dl className="space-y-1">{field('원문 항목', input.unitId)}{field('묶음', input.groupId)}{field('키', input.key)}{field('화자', input.speaker)}{field('청자', input.listener)}{field('원문', input.source)}</dl>;
+    case 'delete_units': {
+      const ids = (input.ids as unknown[] | undefined) ?? [];
+      return <dl className="space-y-1">{field('삭제', `원문 대사 ${ids.length}개`)}{field('id', ids.slice(0, 10).join(', ') + (ids.length > 10 ? ` 외 ${ids.length - 10}개` : ''))}{pending && <p className="text-destructive">원문 대사와 번역, 후보가 삭제됩니다. 되돌릴 수 없습니다.</p>}</dl>;
     }
     case 'save_terms': {
       const terms = (input.terms as { source: string; target: string; id?: string }[]) ?? [];
@@ -163,7 +186,7 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
             ))}
           </ul>
           {changes.length > 50 && <p className="text-muted-foreground">외 {changes.length - 50}개</p>}
-          {pending && <p className="text-muted-foreground">수락하면 한 번에 반영됩니다. 그사이 다른 곳에서 바뀐 대사는 덮어쓰지 않고 건너뜁니다.</p>}
+          {pending && <p className="text-muted-foreground">그사이 바뀐 대사는 덮어쓰지 않고 건너뜁니다.</p>}
         </div>
       );
     }
@@ -175,7 +198,7 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
         <dl className="space-y-1">
           {field('워크플로', input.workflowId)}
           <div className="grid grid-cols-[5rem_1fr] gap-2">
-            <dt className="text-muted-foreground">범위</dt>
+            <dt className="text-xs text-muted-foreground">범위</dt>
             <dd className="flex min-w-0 flex-wrap items-center gap-1 break-words">
               {scope || marks.length === 0 ? scope || '진입 조건에 맞는 모든 대사' : null}
               {marks.map((mark) => (
@@ -191,7 +214,7 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
     case 'propose_translation':
       return <dl className="space-y-1">{field('번역', input.text)}{field('메모', input.note)}</dl>;
     case 'save_group_summary':
-      return <dl className="space-y-1">{field('요약', input.description)}<p className="text-muted-foreground">AI 번역 노드가 이 장면의 문맥으로 받습니다.</p></dl>;
+      return <dl className="space-y-1">{field('요약', input.description)}</dl>;
     case 'edit_workflow_node': {
       const value = input.field === 'expression' ? JSON.stringify(input.value, null, 2) : String(input.value ?? '');
       return (

@@ -6,7 +6,7 @@ import { nodeName as nameOf, type WorkflowNode } from '@tw/shared';
 import { ContextItemList } from '@/components/ai-context';
 import { LineDetail } from '@/components/line-detail';
 import { HeaderActions, Page } from '@/components/page';
-import { EmptyState, DataTable, type ColumnDef, Pager, FilterBar, ActionBar, Separator, SplitPane, JobStatusBadge, StatusBarItem, Alert, AlertDescription, AlertTitle, Badge, Button, Collapsible, CollapsibleContent, CollapsibleTrigger, Progress, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Tabs, TabsList, TabsTrigger, Skeleton, HelpTip } from '@loca/ui';
+import { EmptyState, SectionHeading, DataTable, type ColumnDef, Pager, FilterBar, ActionBar, Separator, SplitPane, JobStatusBadge, StatusBarItem, Alert, AlertDescription, AlertTitle, Badge, Button, Collapsible, CollapsibleContent, CollapsibleTrigger, Progress, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Tabs, TabsList, TabsTrigger, Skeleton } from '@loca/ui';
 import { HeaderFilter } from '@/components/header-filter';
 import { client, unwrap } from '@/lib/api';
 import { ITEM_STATE } from '@/lib/labels';
@@ -24,7 +24,6 @@ interface RunSearch {
   page?: number;
   line?: string;
   tab?: 'steps' | 'plan';
-  lineTab?: 'candidates' | 'context';
   aiNode?: string;
 }
 
@@ -35,7 +34,6 @@ export const Route = createFileRoute('/p/$projectId/runs/$runId')({
     page: typeof raw.page === 'number' && raw.page > 0 ? raw.page : undefined,
     line: typeof raw.line === 'string' ? raw.line : undefined,
     tab: raw.tab === 'steps' || raw.tab === 'plan' ? raw.tab : undefined,
-    lineTab: raw.lineTab === 'context' || raw.lineTab === 'candidates' ? raw.lineTab : undefined,
     aiNode: typeof raw.aiNode === 'string' && raw.aiNode.includes(':') ? raw.aiNode : undefined,
   }),
   component: RunDetail,
@@ -122,7 +120,7 @@ function RunDetail() {
     },
     {
       id: 'verdict',
-      header: '판정·지적·오류',
+      header: '결과',
       meta: { width: 220, wrap: true, className: 'text-xs' },
       cell: ({ row }) => {
         const item = row.original;
@@ -138,6 +136,13 @@ function RunDetail() {
                   {nodeName(nodeId)} {output.passed ? '통과' : '실패'}
                 </p>
               ))}
+            {Object.entries(item.data.outputs ?? {})
+              .filter(([, output]) => 'confidence' in output && 'value' in output)
+              .map(([nodeId, output]) => (
+                <p key={`choice:${nodeId}`} className="text-muted-foreground">
+                  {nodeName(nodeId)}: {output.value == null ? '해당 없음' : String(output.value)} (확신도 {Number(output.confidence).toFixed(2)})
+                </p>
+              ))}
           </>
         );
       },
@@ -149,7 +154,7 @@ function RunDetail() {
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>실행을 취소할까요?</AlertDialogTitle>
-          <AlertDialogDescription>아직 처리하지 않은 대사는 이 실행에서 빠집니다. 이미 반영된 번역·상태는 그대로이고, 다시 실행하면 남은 대사를 처리할 수 있습니다.</AlertDialogDescription>
+          <AlertDialogDescription>아직 처리하지 않은 대사는 이 실행에서 빠집니다. 이미 반영된 번역·상태는 그대로입니다.</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>계속 실행</AlertDialogCancel>
@@ -162,7 +167,7 @@ function RunDetail() {
   return (
     <Page title={data.workflowName} flush back={<Button variant="ghost" asChild><Link to="/p/$projectId/runs" params={{ projectId }}><ChevronLeft /> 실행 기록</Link></Button>}>
       <SplitPane
-        id="run-lines"
+        id="run-lines" selectionKey={search.line}
         defaultWidth="400px"
         className="h-full min-h-0"
         pane={
@@ -173,8 +178,6 @@ function RunDetail() {
               onClose={() => setSearch({ line: undefined }, true)}
               showScene
               editor
-              tab={search.lineTab ?? 'checks'}
-              onTab={(tab) => setSearch({ lineTab: tab === 'checks' ? undefined : tab }, true)}
               aiNode={search.aiNode}
               onAiNode={(aiNode) => setSearch({ aiNode }, true)}
             />
@@ -214,7 +217,7 @@ function RunDetail() {
             <Alert variant="destructive">
               <OctagonAlert />
               <AlertTitle>실행이 멈췄습니다</AlertTitle>
-              <AlertDescription>{data.notice} 원인을 확인한 뒤 위의 재개 버튼으로 이어서 실행할 수 있습니다.</AlertDescription>
+              <AlertDescription>{data.notice}</AlertDescription>
             </Alert>
           )}
           <p className="truncate text-xs text-muted-foreground">
@@ -267,7 +270,7 @@ function RunDetail() {
             {plan.data ? (
               plan.data.total ? (
                 <>
-                  <p className="mb-3 flex items-center gap-1 text-sm text-muted-foreground">번역 계획 <HelpTip>실행을 시작할 때 짠 묶음입니다. 모든 AI 단계(번역·검수·수정)가 이 묶음 단위로 움직입니다.</HelpTip></p>
+                  <SectionHeading className="mb-3">번역 계획</SectionHeading>
                   <BatchList list={plan.data} defaultOpen />
                 </>
               ) : (
@@ -319,7 +322,7 @@ function RunDetail() {
                               <Button variant="ghost" className="group font-normal text-muted-foreground">
                                 <ChevronRight className="transition-transform group-data-[state=open]:rotate-90" />
                                 넣은 문맥 {step.context.filter((item) => item.included).length}개
-                                {step.context.some((item) => !item.included) && ` · 상한 초과로 뺀 것 ${step.context.filter((item) => !item.included).length}개`}
+                                {step.context.some((item) => !item.included) && ` · 상한 초과 ${step.context.filter((item) => !item.included).length}`}
                               </Button>
                             </CollapsibleTrigger>
                             <CollapsibleContent>
@@ -334,7 +337,7 @@ function RunDetail() {
                             <CollapsibleTrigger asChild>
                               <Button variant="ghost" className="group font-normal text-muted-foreground">
                                 <ChevronRight className="transition-transform group-data-[state=open]:rotate-90" />
-                                보낸 프롬프트(문맥 포함)
+                                보낸 프롬프트
                               </Button>
                             </CollapsibleTrigger>
                             <CollapsibleContent>

@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, gte, inArray, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
 import jsonLogic from 'json-logic-js';
 import * as ai from '@tw/ai';
-import { estimateTokens, batchConfigSchema, FUNCTIONS, choiceKey, isUnknownListener, lineMarksOf, nodeModels, nodeName, type AiNode, type ConditionData, type FunctionName, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import { estimateTokens, batchConfigSchema, FUNCTIONS, choiceKey, lineMarksOf, nodeModels, nodeName, type AiNode, type ConditionData, type FunctionName, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -10,19 +10,20 @@ import { events, type Topic } from '../events.ts';
 import { buildContext } from '../services/context.ts';
 import { resolveRoutes } from '../services/routes.ts';
 import type { SecretStore } from '../services/secrets.ts';
-import { runAsyncFunction, syncFunctions, HUMAN_OWNED_NOTE, type FunctionInput } from './functions/index.ts';
-import { applyRunCandidate } from './apply-candidate.ts';
+import { runAsyncFunction, syncFunctions, type FunctionInput } from './functions/index.ts';
+import { APPLY_TOPICS } from './functions/apply.ts';
 import { packGroups, planBatches } from './batches.ts';
 import { readAiOutput, type Outcome } from './ai-output.ts';
-import { buildPrompt, outputSchema, PER_LINE_OUTPUTS, type PromptLine } from './prompts.ts';
+import { buildPrompt, isBatchScope, outputSchema, type PromptLine } from './prompts.ts';
+import { wholeScriptRequest } from './whole-script.ts';
+import { resolveChoiceOptions } from '../services/choice-options.ts';
 import { applyIssueTags } from '../services/issue-tags.ts';
 import { logged } from '../services/ai-calls.ts';
-import { analysisRequest, MIN_ANALYSIS_TIMEOUT_MS, outputCutOff } from '../services/analysis.ts';
+import { MIN_WHOLE_SCRIPT_TIMEOUT_MS, outputCutOff } from '../services/whole-script-limits.ts';
 import { overheadOf } from '../services/preflight.ts';
 import type { ModelPort } from './model-port.ts';
 export type { ModelPort } from './model-port.ts';
 import { FILLING } from './run-create.ts';
-import { addCandidate } from '../services/candidates.ts';
 
 type Run = typeof s.runs.$inferSelect;
 type Item = typeof s.runItems.$inferSelect;
@@ -33,7 +34,7 @@ type StepRecord = Omit<typeof s.runSteps.$inferInsert, 'ok' | 'finishedAt'>;
 type Waiting = { id: string; unitId: string; nodeId: string; groupId: string; seq: number; kind: string; tokens: number; since: Date; plan: number | null };
 
 /** Functions that write beyond the line itself, and the change topic they touch. */
-const FUNCTION_TOPICS: Record<string, Topic[]> = { addTerms: ['terms'], applyKnowledge: ['knowledge'], saveAnalysis: ['knowledge', 'terms', 'analysis'] };
+const FUNCTION_TOPICS: Record<string, Topic[]> = APPLY_TOPICS;
 /** A partial batch waits this long for more lines from upstream before it is sent anyway. */
 const GATHER_MS = 5_000;
 /** Lines passed through instant nodes per tick; the rest wait for the next tick, so a tick never blocks for long. */
@@ -68,7 +69,7 @@ const TRANSIENT = new Set(['rate-limit', 'network', 'timeout']);
 /** How many times a malformed answer for several lines is retried as halves. */
 const MAX_SPLITS = 2;
 /** A script read in halves at scene boundaries: up to 2⁶ parts of the request the model refused. */
-const MAX_ANALYSIS_SPLITS = 6;
+const MAX_WHOLE_SCRIPT_SPLITS = 6;
 
 /** Where to cut a request between scenes, nearest its middle (the middle itself when it is one scene). */
 export function sceneHalf(groupIds: string[]) {
@@ -78,7 +79,7 @@ export function sceneHalf(groupIds: string[]) {
     if (groupIds[index] !== groupIds[index - 1] && (best < 0 || Math.abs(index - middle) < Math.abs(best - middle))) best = index;
   return best > 0 ? best : middle;
 }
-const MISSING_WHAT: Record<AiNode['config']['output'], string> = { candidate: '번역', verdict: '판정', listener: '청자', json: '결과', terms: '용어', knowledge: '자료', analysis: '분석' };
+const MISSING_WHAT: Record<AiNode['config']['output'], string> = { text: '번역', verdict: '판정', choice: '선택', json: '결과' };
 const attemptsOf = (error: unknown): ai.Attempt[] => ((error as { attempts?: ai.Attempt[] }).attempts ?? []);
 
 
@@ -243,20 +244,13 @@ export class Runner {
   }
 
   /** Store what a node produced for a line, then move the line out through the chosen exit. */
-  private record(tx: Tx, run: Run, item: Item, outcome: Outcome, origin: 'ai' | 'tool' | 'human' = outcome.origin ?? 'tool') {
+  private record(tx: Tx, run: Run, item: Item, outcome: Outcome) {
     const data: ItemData = { ...item.data, outputs: { ...item.data.outputs } };
     if (outcome.output) data.outputs![item.nodeId] = outcome.output;
     if (outcome.candidate !== undefined) {
-      const candidateId = addCandidate(tx, { unitId: item.unitId, text: outcome.candidate, origin, model: outcome.model, runId: run.id, nodeId: item.nodeId });
-      data.candidateId = candidateId;
+      // The run's working text only; the line itself changes in an apply node ("번역 후보 기록").
       data.candidateText = outcome.candidate;
-      data.issues = []; // a new candidate answers the previous issues
-      // The produced text goes straight into the line (docs/DESIGN.md 3.5, #42). A person's saved
-      // translation in a status-filtered run is kept and the run's text stays a candidate with a note.
-      if (!applyRunCandidate(tx, run, item.unitId, candidateId, outcome.candidate).applied) {
-        const notes = data.notes ?? [];
-        if (!notes.includes(HUMAN_OWNED_NOTE)) data.notes = [...notes, HUMAN_OWNED_NOTE];
-      }
+      data.issues = []; // a new text answers the previous issues
     }
     if (outcome.issues?.length) data.issues = outcome.issues;
     if (outcome.issueTags) applyIssueTags(tx, run.projectId, item.unitId, outcome.issueTags);
@@ -538,17 +532,14 @@ export class Runner {
         return tx.update(s.runItems).set({ state: 'done' }).where(eq(s.runItems.id, item.id)).run();
       case 'condition': {
         const finalStatus = tx.select({ kind: s.statuses.kind }).from(s.statuses).where(eq(s.statuses.id, unit.statusId)).get()?.kind === 'final';
-        // Lines that need no listener (narration, format tokens only) count as known: nothing to guess.
         const rules = tx.select({ rules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, run.projectId)).get()?.rules;
-        const listenerKnown = !isUnknownListener(unit, rules);
         const marks = lineMarksOf(unit, finalStatus, rules);
         const data: ConditionData = {
           visits: item.visits,
           outputs: item.data.outputs ?? {},
           candidate: item.data.candidateText ?? unit.translation,
           issues: item.data.issues ?? [],
-          unit: { kind: unit.kind, speaker: unit.speaker, statusId: unit.statusId, tagIds, marks },
-          listenerKnown,
+          unit: { kind: unit.kind, speaker: unit.speaker, listener: unit.listener, statusId: unit.statusId, tagIds, marks },
         };
         try {
           return this.route(tx, run, item, jsonLogic.apply(node.config.expression as jsonLogic.RulesLogic, data) ? 'true' : 'false');
@@ -689,21 +680,26 @@ export class Runner {
     const { rows, lines } = this.promptLines(items);
     const round = Math.max(0, ...items.map((item) => item.data.retries?.[node.id] ?? 0));
     const step: StepRecord = { runId: run.id, nodeId: node.id, connectionId: routes[0]?.connectionId ?? null, model: routes[0]?.model ?? null, unitIds: items.map((item) => item.unitId), startedAt: new Date(), round };
-    // A work analysis reads its lines as compact script text with its own rules (services/analysis.ts);
-    // the script is its context. Every other node gets the batch prompt with the context it asks for.
-    const analysis = node.config.output === 'analysis' ? analysisRequest(this.db, run.projectId, items.map((item) => item.unitId), node.config.sections, node.config.instructions) : null;
+    const languages = { source: project.sourceLanguage, target: project.targetLanguage };
+    const choiceOptions = node.config.output === 'choice' ? resolveChoiceOptions(this.db, run.projectId, node.config.choice) : undefined;
+    // A node reading the script whole sends it as compact script text (engine/whole-script.ts), its
+    // lines numbered L1…; every other node gets the batch prompt with the context it asks for.
+    const whole = node.config.batch.mode === 'whole' ? wholeScriptRequest(this.db, run.projectId, node, languages, rows, choiceOptions) : null;
     let built: { system: string; prompt: string };
-    if (analysis) built = analysis;
-    else {
+    if (whole) {
+      for (const line of lines) line.id = whole.idOf.get(line.key) ?? line.id;
+      step.context = whole.context.items;
+      built = whole;
+    } else {
       const context = buildContext(this.db, run.projectId, rows, node.config.context);
       step.context = context.items;
-      built = buildPrompt(node, { source: project.sourceLanguage, target: project.targetLanguage }, context, lines);
+      built = buildPrompt(node, languages, context, lines, choiceOptions);
     }
     const { system, prompt } = built;
-    const perLine = PER_LINE_OUTPUTS.has(node.config.output);
+    const perLine = !isBatchScope(node);
     // A whole-script read takes minutes; the connection's per-call timeout is for single scenes.
-    const timeoutMs = analysis ? Math.max(model.timeoutSeconds * 1000, MIN_ANALYSIS_TIMEOUT_MS) : model.timeoutSeconds * 1000;
-    const request = { system, prompt, schema: analysis?.schema ?? outputSchema(node, perLine ? lines.map((line) => line.id) : undefined), maxOutputTokens: model.maxOutputTokens, temperature: node.config.temperature, timeoutMs, signal };
+    const timeoutMs = whole ? Math.max(model.timeoutSeconds * 1000, MIN_WHOLE_SCRIPT_TIMEOUT_MS) : model.timeoutSeconds * 1000;
+    const request = { system, prompt, schema: outputSchema(node, perLine && !whole ? lines.map((line) => line.id) : undefined, choiceOptions), maxOutputTokens: model.maxOutputTokens, temperature: node.config.temperature, timeoutMs, signal };
     step.prompt = `${system}\n\n${prompt}`;
     // The input cap is checked before sending, counting calls still in flight, so a run stops short
     // of it instead of finding out afterwards (several calls at once could overshoot by a lot).
@@ -727,17 +723,18 @@ export class Runner {
     };
 
     try {
-      // Analysis reads are logged as such: their pace (minutes per script) would skew the run estimates.
-      const call = { projectId: run.projectId, kind: analysis ? ('analysis' as const) : ('run' as const), refId: run.id, label: `${nodeName(node)} · ${items.length.toLocaleString()}줄` };
+      // Whole-script reads are logged as such: their pace (minutes per script) would skew the run estimates.
+      const call = { projectId: run.projectId, kind: whole ? ('whole' as const) : ('run' as const), refId: run.id, label: `${nodeName(node)} · ${items.length.toLocaleString()}줄` };
       const result = await ai.withFallback(routes, model.maxAttempts, (route) => logged(this.db, call, route, () => this.model.generate(route, request)), signal).finally(release);
       const raw = result.result.object;
-      const outcomes = readAiOutput(node, raw, lines, result.route.model, analysis?.keyOf);
+      const outcomes = readAiOutput(node, raw, lines, result.route.model, choiceOptions);
       const answered = outcomes.filter(Boolean).length;
       this.db.transaction((tx) => {
         items.forEach((item, index) => {
           const outcome = outcomes[index];
-          if (outcome) this.record(tx, run, item, outcome);
-          else this.retryLater(tx, run, item, `모델 응답에 이 대사의 ${MISSING_WHAT[node.config.output]}이(가) 없습니다.`);
+          if (outcome) {
+            this.record(tx, run, item, outcome);
+          } else this.retryLater(tx, run, item, `모델 응답에 이 대사의 ${MISSING_WHAT[node.config.output]}이(가) 없습니다.`);
         });
         tx.insert(s.runSteps)
           .values({ ...step, ok: true, connectionId: result.route.connectionId ?? step.connectionId, model: result.route.model, output: raw, attempts: result.attempts, returnedLines: perLine ? answered : null, ...usageColumns(stepUsage(result.attempts, result.result.usage)), finishedAt: new Date() })
@@ -749,15 +746,15 @@ export class Runner {
       if (signal.aborted) return;
       // A malformed answer or a request longer than the model's window: smaller requests may pass.
       const code = (error as { code?: string }).code;
-      // A work analysis whose answer was cut off at the model's output limit (a whole game's listeners
+      // A whole-script read whose answer was cut off at the model's output limit (a whole game's listeners
       // and terms can be as long as the script) is read again in halves too, cut between scenes.
-      const splittable = code === 'invalid-output' || code === 'too-long' || (analysis !== null && outputCutOff(error));
-      if (!(splittable && items.length > 1 && depth < (analysis ? MAX_ANALYSIS_SPLITS : MAX_SPLITS))) return this.failBatch(run, items, { ...step, attempts: attemptsOf(error) }, error);
+      const splittable = code === 'invalid-output' || code === 'too-long' || (whole !== null && outputCutOff(error));
+      if (!(splittable && items.length > 1 && depth < (whole ? MAX_WHOLE_SCRIPT_SPLITS : MAX_SPLITS))) return this.failBatch(run, items, { ...step, attempts: attemptsOf(error) }, error);
       // Record the failed request, then try each half on its own.
       const message = error instanceof Error ? error.message : String(error);
       this.db.insert(s.runSteps).values({ ...step, ok: false, error: `${message} (반으로 나눠 다시 보냄)`, attempts: attemptsOf(error), ...usageColumns(stepUsage(attemptsOf(error), (error as { usage?: ai.Usage }).usage)), finishedAt: new Date() }).run();
       this.guard(run.id, { code, message });
-      const half = analysis ? sceneHalf(rows.map((row) => row.groupId)) : Math.ceil(items.length / 2);
+      const half = whole ? sceneHalf(rows.map((row) => row.groupId)) : Math.ceil(items.length / 2);
       for (const part of [items.slice(0, half), items.slice(half)]) {
         if (!this.stillRunning(run.id, part)) return;
         await this.callLines(run, node, model, routes, part, signal, depth + 1);

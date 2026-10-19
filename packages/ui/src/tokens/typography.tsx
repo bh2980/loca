@@ -2,13 +2,8 @@ import * as React from 'react';
 import { cn } from '../lib/utils.ts';
 
 /**
- * Type roles (#48; the sizes are in apps/web/src/index.css @theme, docs/UI-AUDIT-48.md):
- * - Page title: text-xl font-semibold (19px)
- * - Pane / section title: text-base font-semibold (15px), or text-sm font-medium for a field group
- * - Body: text-sm (14px): table rows, chat replies, form values, descriptions people read
- * - Meta: text-xs text-muted-foreground (13px): dates, counts, hints, column heads
- * - Badge / counter: text-2xs (11.5px), the floor; nothing smaller
- * Arbitrary text-[Npx] sizes are refused by `pnpm ui-rules`, here as in the app.
+ * Shared type roles. Sizes and weights are mapped in tokens/system.css so app consumers share them.
+ * Keep labels, body copy, and metadata distinct through role and weight rather than custom sizes.
  */
 
 export function PageTitle({ className, children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) {
@@ -21,7 +16,7 @@ export function PageTitle({ className, children, ...props }: React.HTMLAttribute
 
 export function SectionTitle({ className, children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) {
   return (
-    <h2 className={cn('text-sm font-medium text-foreground', className)} {...props}>
+    <h2 className={cn('text-sm font-semibold text-foreground', className)} {...props}>
       {children}
     </h2>
   );

@@ -19,8 +19,8 @@ export interface TagPlacement {
 const EDGE = /^[\s\p{P}]*$/u;
 
 /**
- * Puts the source's format units that the translation lacks where rules can tell, without AI
- * (docs/DESIGN.md J3b B). The text between tokens is never changed, only tokens are added:
+ * Puts the source's format units that the translation lacks where rules can tell, without AI.
+ * The text between tokens is never changed, only tokens are added:
  * ① a pair around the whole source (end punctuation aside) goes around the whole translation;
  * ② a token at the very start or end of the source goes to the start or end;
  * ③ a pair around a confirmed term goes around that term's translation when it occurs once;

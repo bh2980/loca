@@ -37,12 +37,12 @@ function SelectTrigger({
       data-slot="select-trigger"
       data-size={size}
       className={cn(
-        "flex w-fit items-center justify-between gap-1.5 rounded-xs border border-border bg-background px-2.5 py-1 text-xs whitespace-nowrap shadow-xs transition-colors",
+        "flex w-fit min-w-0 max-w-full items-center justify-between gap-1.5 rounded-md border border-border bg-background px-2.5 py-1 text-xs whitespace-nowrap shadow-xs transition-colors",
         "outline-none hover:bg-muted focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
         "data-[size=xs]:h-6 data-[size=xs]:px-2 data-[size=xs]:text-2xs",
         "data-[size=sm]:h-7 data-[size=sm]:px-2.5 data-[size=sm]:text-xs",
         "data-[size=default]:h-8 data-[size=default]:px-3 data-[size=default]:text-sm",
-        "*:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-1.5",
+        "*:data-[slot=select-value]:min-w-0 *:data-[slot=select-value]:flex-1 *:data-[slot=select-value]:overflow-hidden *:data-[slot=select-value]:text-ellipsis *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-1.5 [&_[data-slot=select-value]>span]:min-w-0 [&_[data-slot=select-value]>span]:truncate",
         "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5 [&_svg:not([class*='text-'])]:text-muted-foreground",
         className
       )}
@@ -70,7 +70,7 @@ function SelectContent({
         sideOffset={sideOffset}
         position={position}
         className={cn(
-          "relative z-50 max-h-[var(--radix-select-content-available-height)] min-w-[8rem] overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md backdrop-blur-xs",
+          "relative z-50 max-h-[var(--radix-select-content-available-height)] max-w-[var(--radix-popper-available-width)] min-w-[8rem] overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md backdrop-blur-xs",
           "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
           "data-[side=bottom]:slide-in-from-top-1 data-[side=left]:slide-in-from-right-1 data-[side=right]:slide-in-from-left-1 data-[side=top]:slide-in-from-bottom-1",
           className
@@ -80,7 +80,7 @@ function SelectContent({
         <SelectScrollUpButton />
         <SelectPrimitive.Viewport
           className={cn(
-            "p-1",
+            "p-1 [&_[data-radix-select-item-text]]:min-w-0 [&_[data-radix-select-item-text]]:break-words",
             position === "popper" &&
               "h-[var(--radix-select-trigger-height)] w-full min-w-[var(--radix-select-trigger-width)] scroll-my-1"
           )}
@@ -94,15 +94,20 @@ function SelectContent({
 }
 
 function SelectLabel({
+  description,
   className,
+  children,
   ...props
-}: React.ComponentProps<typeof SelectPrimitive.Label>) {
+}: React.ComponentProps<typeof SelectPrimitive.Label> & { description?: React.ReactNode }) {
   return (
     <SelectPrimitive.Label
       data-slot="select-label"
-      className={cn("px-2 py-1 text-xs font-semibold text-muted-foreground uppercase tracking-wider", className)}
+      className={cn("flex flex-col items-start gap-0.5 px-2 py-1.5 text-xs font-semibold text-foreground", className)}
       {...props}
-    />
+    >
+      <span>{children}</span>
+      {description != null && <span className="font-normal text-muted-foreground">{description}</span>}
+    </SelectPrimitive.Label>
   )
 }
 

@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from '@tanstack/react-router';
-import { Check, CircleAlert, Languages, Sparkles, WandSparkles } from 'lucide-react';
+import { useNavigate } from '@tanstack/react-router';
+import { ArrowDown, Check, CircleAlert, Languages, MoreHorizontal, Save, Sparkles, Undo2, WandSparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { checkFormat, listenerLabel, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatIssue, type FormatRules } from '@tw/shared';
 import { TokenChip, TokenText } from '@/components/editor/source-text';
 import { focusEndOfLine, insertUnitIntoLine, proposeInLine, replaceLineText, TranslationInput } from '@/components/editor/translation-input';
-import { Button, AiMark, StatusIcon, HelpTip } from '@loca/ui';
+import { AdvancedDisclosure, Badge, Button, GroupHeading, AiMark, EditorAction, InlineEditorActions, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@loca/ui';
 import { apiFetch } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
 import { wordDiff } from '@/lib/diff';
@@ -40,7 +40,7 @@ export function nextStatus(statuses: Status[], currentId: string) {
  * sessionStorage until saved, shared with the line pane's checks. Format tokens are chips (⌃⌥1…9
  * insert the source's), glossary translations are offered while typing, ⌘⇧S copies the source,
  * and suggestions (other candidates, the same or a similar source translated elsewhere) sit
- * under the box, ⌥1…⌥3 to take one.
+ * under the box (the first three always shown), ⌥⇧1…⌥⇧3 to take one.
  */
 export function TranslationEditor({
   projectId,
@@ -71,7 +71,7 @@ export function TranslationEditor({
   const detail = useQuery(q.unit(unit.id));
   const candidates = unit.candidates ?? detail.data?.candidates ?? [];
   const suggestions = useSuggestions(unit.id, [unit.translation ?? '', draft]);
-  // The AI continuation (docs/DESIGN.md J3b A): asked once when the line opens empty, or with ⌥/.
+  // The AI continuation: asked once when the line opens empty, or with ⌥/.
   const project = useQuery(q.project(projectId));
   const editorAi = project.data?.editorAi;
   const [ai, setAi] = useState<{ text?: string; loading?: boolean; message?: string; dismissed?: boolean }>(() => ({ text: continuations.get(unit.id) }));
@@ -102,7 +102,7 @@ export function TranslationEditor({
     if (editorAi?.enabled && editorAi.model && !draft.trim() && !continuations.has(unit.id)) ask('', false);
     return () => pending.current?.abort();
   }, [unit.id, editorAi?.enabled]); // eslint-disable-line react-hooks/exhaustive-deps
-  // AI 번역 / 다듬기 (docs/DESIGN.md J3b C): waited for, then a new AI candidate of the line (the text itself does not change).
+  // AI 번역 / 다듬기: waited for, then a new AI candidate of the line (the text itself does not change).
   const [assist, setAssist] = useState<{ loading?: 'translate' | 'refine'; done?: 'translate' | 'refine' | 'unchanged'; message?: string; from?: string; text?: string; reasons?: string[] }>({});
   const assistPending = useRef<AbortController>(null);
   const runAssist = (mode: 'translate' | 'refine') => {
@@ -133,16 +133,21 @@ export function TranslationEditor({
   // What is shown: the rest of the AI's line after what is typed (while it still matches), up to the end of the next sentence.
   const continuation = ai.text && !ai.dismissed && ai.text.startsWith(draft) ? nextSentence(ai.text.slice(draft.length)) : '';
 
-  // Missing format units the rules can place (docs/DESIGN.md J3b B).
+  // Missing format units the rules can place.
   const tags = useMemo(() => placeTags(unit.source, draft, line.tokenPattern, line.terms), [unit.source, draft, line.tokenPattern, line.terms]);
   const placeMissing = () => tags.inserts.length > 0 && proposeInLine(unit.id, tags.inserts);
 
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const save = useSaveLine();
   // Everything sent is what was typed when saving began: typing goes on while it is on its way.
   const run = (advance: boolean) => {
     if (save.isPending) return;
     const sent = draft;
+    if (advance && (next || (dirty && statuses.find((status) => status.id === unit.statusId)?.kind === 'final')) && !sent.trim()) {
+      toast.error('번역을 입력한 뒤 확정하세요.');
+      return;
+    }
     const changed = dirty;
     const statusId = advance && next ? next.id : undefined;
     if (!changed && !statusId) return onDone?.(advance);
@@ -163,10 +168,32 @@ export function TranslationEditor({
 
   const offerSame = (text: string) => offerSameSource(queryClient, unit.id, text);
 
+  const openAssistSettings = () => {
+    toast.info('편집기 AI 모델이 설정되지 않아 설정으로 이동합니다. 작성 중인 초안은 브라우저에 보관됩니다.');
+    void navigate({ to: '/p/$projectId/settings/editor', params: { projectId } });
+  };
+  const requestAssist = (mode: 'translate' | 'refine') => {
+    if (project.isPending) {
+      toast.info('편집기 AI 설정을 확인하고 있습니다.');
+      return;
+    }
+    if (!editorAi?.assistModel) {
+      openAssistSettings();
+      return;
+    }
+    if (mode === 'refine' && !draft.trim()) {
+      toast.info('다듬을 번역이 없습니다.');
+      return;
+    }
+    runAssist(mode);
+  };
+  const canShowOverflow = dirty;
+
   return (
     <div className={cn('space-y-2', className)} onClick={(event) => event.stopPropagation()}>
       <TranslationInput
         unitId={unit.id}
+        className="text-base leading-6 md:text-base"
         value={draft}
         onChange={setDraft}
         source={unit.source}
@@ -179,7 +206,7 @@ export function TranslationEditor({
         onPick={(index) => suggestions[index] && (replaceLineText(unit.id, suggestions[index].text) || setDraft(suggestions[index].text))}
         onPlaceTags={placeMissing}
         continuation={continuation}
-        onAssist={() => runAssist(draft.trim() ? 'refine' : 'translate')}
+        onAssist={() => requestAssist(draft.trim() ? 'refine' : 'translate')}
         onContinue={editorAi?.enabled ? () => ask(draft) : undefined}
         continuing={ai.loading}
         onDismissContinuation={() => (pending.current?.abort(), setAi((state) => ({ ...state, loading: false, dismissed: true })))}
@@ -188,7 +215,7 @@ export function TranslationEditor({
       {marks}
       {/* What 다듬기 changed in the box and why, while the box still holds its answer. */}
       {assist.done === 'refine' && assist.text === draft && assist.from !== undefined && (
-        <div className="space-y-0.5 rounded-md border bg-background px-2 py-1.5 text-xs">
+        <div className="space-y-0.5 rounded-md border bg-background px-2 py-1.5 text-sm">
           <p className="break-words whitespace-pre-wrap">
             {wordDiff(assist.from, assist.text).map((part, index) => (
               // Tokens stay chips inside the marked words.
@@ -196,134 +223,125 @@ export function TranslationEditor({
             ))}
           </p>
           {assist.reasons?.map((reason) => (
-            <p key={reason} className="text-muted-foreground">
+            <p key={reason} className="text-xs text-muted-foreground">
               {reason}
             </p>
           ))}
-          <Button variant="ghost" size="inline" className="text-muted-foreground" title={`다듬기 전 글로 (${keyLabel('Mod+Z')})`} onClick={() => replaceLineText(unit.id, assist.from!) || setDraft(assist.from!)}>
+          <Button variant="ghost" size="inline" className="text-muted-foreground" title={keyLabel('Mod+Z')} onClick={() => replaceLineText(unit.id, assist.from!) || setDraft(assist.from!)}>
             원래대로
           </Button>
         </div>
       )}
       <DraftChecks unitId={unit.id} source={unit.source} draft={draft} units={line.units} terms={line.terms} tags={tags} rules={project.data?.formatRules ?? undefined} targetLanguage={project.data?.targetLanguage} onPlace={placeMissing} />
       <div className="flex flex-wrap items-center gap-2 pt-1">
-        {dirty && <span className="text-xs font-medium text-warning">저장 안 됨</span>}
-        {editorAi?.enabled && editorAi.model && !ai.loading && (
-          <Button variant="ghost" size="inline" className="text-xs text-muted-foreground hover:text-foreground" title={`이어질 번역 보기 (${keyLabel('Alt+/')}, Tab으로 받기)`} onClick={() => ask(draft)}>
-            <Sparkles className="size-3.5 text-primary" /> AI 자동완성
-          </Button>
-        )}
-        {editorAi?.assistModel ? (
-          <div className="flex items-center gap-1.5">
-            <Button
-              variant="outline"
-              disabled={!!assist.loading}
-              onClick={() => runAssist('translate')}
-            >
-              <Languages className="size-3.5 text-primary" />
-              <span>AI 번역</span>
-            </Button>
-            <Button
-              variant="outline"
-              disabled={!!assist.loading || !draft.trim()}
-              title={draft.trim() ? `틀린 곳만 고치기 (${keyLabel('Alt+.')})` : '다듬을 번역이 없습니다'}
-              onClick={() => runAssist('refine')}
-            >
-              <WandSparkles className="size-3.5 text-primary" />
-              <span>다듬기</span>
-            </Button>
-          </div>
-        ) : (
-          <span className="inline-flex items-center gap-1">
-            <Button variant="ghost" size="inline" className="text-xs text-muted-foreground hover:text-foreground" asChild>
-              <Link to="/p/$projectId/ai/usage" params={{ projectId }}>
-                <Sparkles className="size-3.5 text-muted-foreground" /> AI 번역 모델 설정
-              </Link>
-            </Button>
-            <HelpTip>AI › 사용 방식에서 AI 번역·다듬기 모델을 고르면 쓸 수 있습니다.</HelpTip>
-          </span>
-        )}
-        {assist.loading && <Waiting label={assist.loading === 'refine' ? '다듬는 중…' : 'AI 번역 중…'} onCancel={() => (assistPending.current?.abort(), setAssist({}))} />}
-        {assist.done === 'unchanged' && <span className="text-xs text-muted-foreground">다듬을 곳이 없습니다</span>}
-        {assist.message && <span className="text-xs text-muted-foreground">{assist.message}</span>}
-        {ai.loading && <Waiting label="자동완성 받는 중…" onCancel={() => (pending.current?.abort(), setAi({ dismissed: true }))} />}
-        {ai.message && <span className="text-xs text-muted-foreground">{ai.message}</span>}
+        {dirty && <span className="order-last text-xs font-medium text-warning">초안 보관됨</span>}
+        {save.isPending && <span className="text-xs text-muted-foreground" aria-live="polite">저장 중…</span>}
         {marks === undefined && !dirty && unit.statusBy === 'ai' && (
           <span className="flex items-center gap-1 text-xs text-muted-foreground">
-            <AiMark by="ai" /> AI가 정함
+            <AiMark by="ai" /> AI 초안
           </span>
         )}
-        <div className="ml-auto flex items-center gap-2">
-          {dirty && (
-            <Button variant="ghost" onClick={() => clearDraft()}>
-              되돌리기
-            </Button>
-          )}
-          <Button
-            variant="outline"
-            disabled={!dirty || save.isPending}
-            onClick={() => run(false)}
-            title={`저장 (${keyLabel('Mod+S')})`}
-          >
+        <InlineEditorActions
+          className="shrink-0"
+          primary={next ? <EditorAction icon={Check} disabled={save.isPending || !draft.trim()} onClick={() => run(true)} title={keyLabel('Mod+Enter')}>
+            {next.name}{onDone ? '하고 다음' : '하기'}
+          </EditorAction> : onDone ? <EditorAction icon={ArrowDown} disabled={save.isPending || (dirty && !draft.trim() && statuses.find((status) => status.id === unit.statusId)?.kind === 'final')} onClick={() => run(true)} title={keyLabel('Mod+Enter')}>
+            {dirty ? '저장하고 다음 줄' : '다음 줄'}
+          </EditorAction> : dirty ? <EditorAction icon={Save} disabled={save.isPending} onClick={() => run(false)} title={keyLabel('Mod+S')}>
             저장
-          </Button>
-          {next && (
-            <Button
-              variant="default"
-              disabled={save.isPending}
-              onClick={() => run(true)}
-              title={`${dirty ? '저장하고 ' : ''}‘${next.name}’(으)로 옮기고 다음 줄 (${keyLabel('Mod+Enter')})`}
-            >
-              <StatusIcon status={next} className="size-1.5" />
-              <span>{next.name}</span>
-            </Button>
-          )}
-        </div>
+          </EditorAction> : null}
+          ai={<>
+            <EditorAction icon={Languages} variant="ghost" disabled={!!assist.loading || project.isPending} onClick={() => requestAssist('translate')} title={!project.isPending && !editorAi?.assistModel ? '모델 설정으로 이동합니다. 작성 중인 초안은 유지됩니다.' : undefined}>
+              {draft.trim() ? 'AI 다시' : 'AI 번역'}
+            </EditorAction>
+            <EditorAction icon={WandSparkles} variant="ghost" disabled={!!assist.loading || project.isPending || Boolean(editorAi?.assistModel && !draft.trim())} onClick={() => requestAssist('refine')} title={!project.isPending && !editorAi?.assistModel ? '모델 설정으로 이동합니다. 작성 중인 초안은 유지됩니다.' : keyLabel('Alt+.')}>
+              다듬기
+            </EditorAction>
+          </>}
+          overflow={canShowOverflow && <DropdownMenu>
+            <DropdownMenuTrigger asChild><Button variant="ghost" size="icon-sm" aria-label="번역 동작 더보기"><MoreHorizontal /></Button></DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-48">
+              {dirty && <>
+                <DropdownMenuItem disabled={save.isPending} onSelect={() => run(false)}><Save /> 저장만 <span className="ml-auto text-xs text-muted-foreground">{keyLabel('Mod+S')}</span></DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => clearDraft()}><Undo2 /> 되돌리기</DropdownMenuItem>
+              </>}
+              {dirty && editorAi?.enabled && editorAi.model && <DropdownMenuSeparator />}
+              {editorAi?.enabled && editorAi.model && <DropdownMenuItem disabled={!!ai.loading} onSelect={() => ask(draft)}><Sparkles /> AI 자동완성 <span className="ml-auto text-xs text-muted-foreground">{keyLabel('Alt+/')}</span></DropdownMenuItem>}
+            </DropdownMenuContent>
+          </DropdownMenu>}
+        />
       </div>
+      {(assist.loading || assist.done === 'unchanged' || assist.message || ai.loading || ai.message) && <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground" aria-live="polite">
+        {assist.loading && <Waiting label={assist.loading === 'refine' ? '다듬는 중…' : 'AI 번역 중…'} onCancel={() => (assistPending.current?.abort(), setAssist({}))} />}
+        {assist.done === 'unchanged' && <span>다듬을 곳이 없습니다</span>}
+        {assist.message && <span role="alert">{assist.message}</span>}
+        {ai.loading && <Waiting label="자동완성 받는 중…" onCancel={() => (pending.current?.abort(), setAi({ dismissed: true }))} />}
+        {ai.message && <span role="alert">{ai.message}</span>}
+      </div>}
       {!dirty && <PreviousDiff unitId={unit.id} openAtFirst={unit.statusBy === 'ai'} />}
       {suggestions.length > 0 && (
-        <div className="mt-2.5 overflow-hidden rounded-md border border-border bg-panel">
-          <div className="bg-panel px-3 py-1.5 text-xs font-medium text-muted-foreground select-none">
-            유사 번역 및 후보
-          </div>
-          <ol>
-            {suggestions.map((suggestion, index) => (
-              <li key={suggestion.key}>
-                <Button
-                  variant="ghost"
-                  size="row"
-                  className="group flex h-auto w-full items-start gap-3 rounded-none px-3 py-2 text-left hover:bg-accent"
-                  title={`번역 칸에 넣기 (${keyLabel(`Alt+Shift+${index + 1}`)})`}
-                  onClick={() => replaceLineText(unit.id, suggestion.text) || setDraft(suggestion.text)}
-                >
-                  <kbd className="mt-0.5 inline-flex shrink-0 items-center justify-center rounded border border-border bg-card px-1.5 py-0.5 font-mono text-xs font-semibold text-muted-foreground group-hover:border-primary/40 group-hover:text-foreground select-none">
-                    {keyLabel(`Alt+Shift+${index + 1}`)}
-                  </kbd>
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <TokenText text={suggestion.text} source={unit.source} pattern={line.tokenPattern} className="block text-sm font-medium leading-relaxed text-foreground" />
-                    <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                      <span className="font-medium text-foreground/80">{suggestion.label}</span>
-                      {suggestion.detail && <span>· {suggestion.detail}</span>}
-                      {suggestion.reasons?.map((reason) => (
-                        <span key={reason}>· {reason}</span>
-                      ))}
-                    </div>
-                    {suggestion.diff && (
-                      <div className="text-xs text-muted-foreground">
-                        {suggestion.diff.map((word, at) => (
-                          <span key={at} className={cn(word.changed && 'rounded-xs bg-warning/15 px-0.5 text-warning font-medium')}>
-                            {at > 0 && ' '}
-                            {word.text}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </Button>
-              </li>
-            ))}
-          </ol>
-        </div>
+        <SuggestionList
+          suggestions={suggestions}
+          source={unit.source}
+          tokenPattern={line.tokenPattern}
+          onPick={(text) => replaceLineText(unit.id, text) || setDraft(text)}
+        />
+      )}
+    </div>
+  );
+}
+
+const VISIBLE_SUGGESTIONS = 3;
+
+/**
+ * Candidates and translations of the same or similar sources, always under the box: the first three
+ * with their ⌥⇧1…3 keys, the rest one click away. A similar source shows the words that differ.
+ */
+function SuggestionList({ suggestions, source, tokenPattern, onPick }: { suggestions: Suggestion[]; source: string; tokenPattern: RegExp | null; onPick: (text: string) => void }) {
+  const [all, setAll] = useState(false);
+  const shown = all ? suggestions : suggestions.slice(0, VISIBLE_SUGGESTIONS);
+  const more = suggestions.length - VISIBLE_SUGGESTIONS;
+  return (
+    <div className="overflow-hidden rounded-md border border-border bg-panel" aria-label="번역 후보와 유사 번역">
+      <ol className="divide-y divide-border-subtle">
+        {shown.map((suggestion, index) => (
+          <li key={suggestion.key}>
+            <Button
+              variant="ghost"
+              size="row"
+              className="group flex h-auto w-full items-start gap-2 rounded-none px-2 py-1.5 text-left hover:bg-accent"
+              onClick={() => onPick(suggestion.text)}
+            >
+              <kbd className={cn('mt-0.5 inline-flex min-w-8 shrink-0 select-none items-center justify-center rounded border border-border bg-card px-1 py-0.5 font-mono text-2xs font-semibold text-muted-foreground group-hover:border-primary/40 group-hover:text-foreground', index >= VISIBLE_SUGGESTIONS && 'invisible')}>
+                {keyLabel(`Alt+Shift+${index + 1}`)}
+              </kbd>
+              <div className="min-w-0 flex-1 space-y-0.5">
+                {/* The label stays on its own line: beside the text it would squeeze a narrow column down to a letter per line. */}
+                <Badge variant="outline" className="max-w-full truncate">{suggestion.label}</Badge>
+                <TokenText text={suggestion.text} source={source} pattern={tokenPattern} className="block min-w-0 text-sm leading-5 text-foreground [overflow-wrap:anywhere]" />
+                {(suggestion.detail || suggestion.reasons?.length) && (
+                  <p className="truncate text-xs text-muted-foreground">{[suggestion.detail, ...(suggestion.reasons ?? [])].filter(Boolean).join(' · ')}</p>
+                )}
+                {suggestion.diff && (
+                  <p className="text-xs text-muted-foreground">
+                    <span className="mr-1 text-subtle-foreground">원문 차이</span>
+                    {suggestion.diff.map((word, at) => (
+                      <span key={at} className={cn(word.changed && 'rounded-xs bg-warning/15 px-0.5 font-medium text-warning')}>
+                        {at > 0 && ' '}
+                        {word.text}
+                      </span>
+                    ))}
+                  </p>
+                )}
+              </div>
+            </Button>
+          </li>
+        ))}
+      </ol>
+      {more > 0 && (
+        <Button variant="ghost" size="inline" className="h-auto w-full justify-center rounded-none border-t border-border-subtle py-1 text-xs text-muted-foreground" onClick={() => setAll((open) => !open)}>
+          {all ? '접기' : `+${more}개 더보기`}
+        </Button>
       )}
     </div>
   );
@@ -351,7 +369,7 @@ const refineReasons = (note: string) => (note.startsWith('다듬기') ? note.spl
 function useSuggestions(unitId: string, shown: string[]): Suggestion[] {
   const unit = useQuery(q.unit(unitId));
   const matches = useQuery(q.lineMatches(unitId));
-  const origin = { ai: 'AI 후보', human: '사람 후보', import: '가져온 후보', tool: '채팅 후보' } as const;
+  const origin = { ai: 'AI', human: '사람', import: '가져옴', tool: '채팅' } as const;
   const all: Suggestion[] = [
     ...(unit.data?.candidates ?? []).map((candidate) => {
       const reasons = candidate.origin === 'ai' ? refineReasons(candidate.note) : null;
@@ -367,7 +385,7 @@ function useSuggestions(unitId: string, shown: string[]): Suggestion[] {
     })),
   ];
   const seen = new Set(shown.map((text) => text.trim()).filter(Boolean));
-  return all.filter((suggestion) => !seen.has(suggestion.text.trim()) && (seen.add(suggestion.text.trim()), true)).slice(0, 3);
+  return all.filter((suggestion) => !seen.has(suggestion.text.trim()) && (seen.add(suggestion.text.trim()), true)).slice(0, 9);
 }
 
 /**
@@ -383,28 +401,23 @@ function PreviousDiff({ unitId, openAtFirst }: { unitId: string; openAtFirst: bo
   const current = candidates[at];
   const previous = at >= 0 ? candidates.slice(at + 1).find((candidate) => candidate.text.trim() !== current.text.trim()) : undefined;
   if (!current || !previous) return null;
-  const origin = { ai: 'AI', human: '사람', import: '가져온 번역', tool: '채팅' } as const;
+  const diff = wordDiff(previous.text, current.text).map((part, index) => (
+    <span key={index} className={cn(part.change === 'removed' && 'text-destructive line-through decoration-destructive/60', part.change === 'added' && 'rounded-sm bg-success/15 text-success')}>
+      {part.text}
+    </span>
+  ));
   if (!open)
     return (
-      <Button variant="ghost" size="inline" className="text-muted-foreground" onClick={() => setOpen(true)}>
-        이전 번역과 비교
-      </Button>
+      <AdvancedDisclosure label="이전 번역">
+        <div className="rounded-md border bg-background px-3 py-2 text-sm"><GroupHeading className="mb-1">바뀐 곳</GroupHeading><p className="break-words whitespace-pre-wrap">{diff}</p></div>
+      </AdvancedDisclosure>
     );
   return (
     <div className="rounded-md border bg-background px-3 py-2 text-sm">
-      <p className="mb-1 flex items-center gap-2 text-xs text-muted-foreground">
-        이전 번역({origin[previous.origin]})에서 바뀐 곳
-        <Button variant="ghost" size="inline" className="ml-auto" onClick={() => setOpen(false)}>
-          접기
-        </Button>
-      </p>
-      <p className="break-words whitespace-pre-wrap">
-        {wordDiff(previous.text, current.text).map((part, index) => (
-          <span key={index} className={cn(part.change === 'removed' && 'text-destructive line-through decoration-destructive/60', part.change === 'added' && 'rounded-sm bg-success/15 text-success')}>
-            {part.text}
-          </span>
-        ))}
-      </p>
+      <GroupHeading className="mb-1" actions={<Button variant="ghost" size="inline" onClick={() => setOpen(false)}>접기</Button>}>
+        바뀐 곳
+      </GroupHeading>
+      <p className="break-words whitespace-pre-wrap">{diff}</p>
     </div>
   );
 }
@@ -439,7 +452,7 @@ function Waiting({ label, onCancel }: { label: string; onCancel: () => void }) {
 const CHECK_LABELS: Partial<Record<FormatIssue['code'], string>> = { number: '숫자', space: '공백', newline: '줄바꿈', particle: '조사', placeholder: '서식', tag: '서식' };
 
 /**
- * The draft's format checks (docs/DESIGN.md J3), short: each missing token as its chip (click puts
+ * The draft's format checks, short: each missing token as its chip (click puts
  * it at the cursor; the same chips are ringed in the source), one icon and word per other problem
  * (the full sentence in its tooltip), or a quiet ✓ when all pass.
  */
@@ -467,11 +480,7 @@ function DraftChecks({ unitId, source, draft, units, terms, tags, rules, targetL
   // Missing tokens are shown as chips; the tag/placeholder sentence is only needed when nothing is missing (an extra or broken token).
   const issues = checkFormat(source, draft, editorChecks(targetLanguage), rules).filter((issue) => issue.code !== 'empty' && !(missing.length && (issue.code === 'tag' || issue.code === 'placeholder')));
   if (!missing.length && !issues.length && !unusedTerms.length && !speechOff)
-    return (
-      <p className="flex items-center gap-1 text-xs text-muted-foreground">
-        <Check className="size-3 text-success" /> 검사 통과 <HelpTip>용어 · 말투 · 서식 · 숫자 · 공백 · 줄바꿈 · 조사 검사 통과</HelpTip>
-      </p>
-    );
+    return null;
   return (
     <div className="flex flex-wrap items-center gap-1.5 text-xs text-warning" onClick={(event) => event.stopPropagation()}>
       {missing.length > 0 && <CircleAlert className="size-3" aria-label="빠진 서식" />}
@@ -480,12 +489,12 @@ function DraftChecks({ unitId, source, draft, units, terms, tags, rules, targetL
           key={unit.number}
           part={{ text: unit.close ? `${unit.open}…${unit.close}` : unit.open, token: { number: unit.number, kind: 'single' } }}
           missing
-          hint={`번역에 없음 · 눌러서 넣기 (${keyLabel(`Alt+${unit.number}`)})`}
+          hint={`번역에 없음 · ${keyLabel(`Alt+${unit.number}`)}`}
           onPick={() => insertUnitIntoLine(unitId, unit)}
         />
       ))}
       {tags.placed.length > 0 && (
-        <Button variant="ghost" size="inline" className="text-xs text-muted-foreground" title={`자리를 찾은 ${tags.placed.length}개 넣기 (${keyLabel('Alt+T')}, Tab으로 받기)`} onClick={onPlace}>
+        <Button variant="ghost" size="inline" className="text-xs text-muted-foreground" title={keyLabel('Alt+T')} onClick={onPlace}>
           제자리에 넣기
         </Button>
       )}

@@ -1,13 +1,12 @@
 import { z } from 'zod';
+import { agentPermissionsSchema } from './agent-permissions.ts';
 
-/**
- * The project agent's tools, as the settings page lists them: what each acts on (target) and how far
- * it goes (action). The same switches apply to the chat panel (API or pi) and to the terminal
- * (loca tools / loca call).
- */
+/** Tool display labels and proposal risk classes. Resource/action authorization lives in
+ * agent-permissions.ts; these labels are not permission switches. */
 export const AGENT_TOOL_TARGETS = {
-  script: '대본·번역',
-  knowledge: '자료(인물·관계·말투·사건·문서)',
+  script: '대사',
+  scenes: '장면',
+  knowledge: '자료',
   terms: '용어집',
   workflows: '워크플로',
   settings: '상태·태그',
@@ -19,7 +18,7 @@ export const AGENT_TOOL_TARGETS = {
 export type AgentToolTarget = keyof typeof AGENT_TOOL_TARGETS;
 export const AGENT_TOOL_ACTIONS = {
   read: { label: '읽기', description: '읽기만 합니다.' },
-  change: { label: '변경', description: '만들거나 고칩니다. 대화의 권한 모드에 따라 카드로 묻거나(수락/거절) 바로 반영합니다(자동 검토·우회).' },
+  change: { label: '변경', description: '만들거나 고칩니다. 대화의 권한 모드에 따라 카드로 묻거나(수락/거절) 바로 반영합니다(자동 검토·바로 반영).' },
   run: { label: '실행', description: '워크플로 실행을 제안합니다. 수락하면 시작되고 AI 비용이 듭니다.' },
   delete: { label: '삭제', description: '항목을 지우거나 합칩니다. 자동 검토 모드에서도 항상 묻습니다.' },
 } as const;
@@ -28,19 +27,27 @@ export type AgentToolAction = keyof typeof AGENT_TOOL_ACTIONS;
 const tool = (target: AgentToolTarget, action: AgentToolAction, label: string) => ({ target, action, label });
 export const AGENT_TOOLS: Record<string, { target: AgentToolTarget; action: AgentToolAction; label: string }> = {
   project_overview: tool('script', 'read', '프로젝트 개요 조회'),
-  list_scenes: tool('script', 'read', '장면 목록 조회'),
-  read_scene: tool('script', 'read', '장면 읽기'),
+  list_scenes: tool('scenes', 'read', '장면 목록 조회'),
+  read_scene: tool('scenes', 'read', '장면 읽기'),
   read_line: tool('script', 'read', '대사 읽기'),
   find_lines: tool('script', 'read', '대사 찾기'),
   scenes_with: tool('script', 'read', '같이 나오는 장면 찾기'),
   line_context: tool('script', 'read', '대사 앞뒤·분기 보기'),
+  find_reading_route: tool('script', 'read', '경로 대본 찾기'),
   show_graph: tool('script', 'read', '그래프에서 보여 주기'),
   check_script: tool('script', 'read', '번역 점검'),
   script_stats: tool('script', 'read', '진행·실행 통계'),
   list_speakers: tool('script', 'read', '화자 목록 조회'),
+  create_unit: tool('script', 'change', '대사 추가'),
+  update_unit: tool('script', 'change', '대사 수정'),
+  delete_units: tool('script', 'delete', '대사 삭제'),
+  create_group: tool('scenes', 'change', '장면 추가'),
+  update_group: tool('scenes', 'change', '장면 수정'),
+  delete_group: tool('scenes', 'delete', '장면 삭제'),
   propose_translation: tool('script', 'change', '번역 후보 추가'),
-  propose_changes: tool('script', 'change', '여러 대사 한꺼번에 변경'),
-  save_group_summary: tool('script', 'change', '장면 요약 저장'),
+  propose_changes: tool('script', 'change', '대사 일괄 변경'),
+  set_listeners: tool('script', 'change', '청자 설정'),
+  save_group_summary: tool('scenes', 'change', '장면 요약 저장'),
   list_characters: tool('knowledge', 'read', '인물 조회'),
   list_speech_rules: tool('knowledge', 'read', '말투 규칙 조회'),
   list_events: tool('knowledge', 'read', '사건 조회'),
@@ -50,18 +57,28 @@ export const AGENT_TOOLS: Record<string, { target: AgentToolTarget; action: Agen
   save_speech_rule: tool('knowledge', 'change', '말투 규칙 저장'),
   save_event: tool('knowledge', 'change', '사건 저장'),
   save_document: tool('knowledge', 'change', '참조 문서 저장'),
-  save_knowledge: tool('knowledge', 'change', '설정 자료 한꺼번에 저장'),
+  save_knowledge: tool('knowledge', 'change', '자료 일괄 저장'),
   delete_items: tool('items', 'delete', '항목 삭제'),
+  list_relationships: tool('knowledge', 'read', '관계 조회'),
+  list_statuses: tool('settings', 'read', '상태 목록 조회'),
+  list_tags: tool('settings', 'read', '태그 목록 조회'),
+  term_usage: tool('terms', 'read', '용어 사용 위치 조회'),
+  plan_run: tool('workflows', 'read', '워크플로 실행 계획 조회'),
   list_terms: tool('terms', 'read', '용어집 조회'),
   save_terms: tool('terms', 'change', '용어 저장'),
   harness_reference: tool('workflows', 'read', '워크플로 구조 확인'),
   read_workflow: tool('workflows', 'read', '워크플로 읽기'),
   read_run: tool('workflows', 'read', '실행 기록 읽기'),
   save_workflow: tool('workflows', 'change', '워크플로 저장'),
-  edit_workflow_node: tool('workflows', 'change', '열린 편집기의 노드 수정'),
+  delete_workflow: tool('workflows', 'delete', '워크플로 삭제'),
+  edit_workflow_node: tool('workflows', 'change', '편집기 노드 수정'),
   start_run: tool('workflows', 'run', '워크플로 실행'),
   save_status: tool('settings', 'change', '상태·태그 만들기'),
-  tag_items: tool('settings', 'change', '용어·자료에 태그 붙이기·떼기'),
+  update_status: tool('settings', 'change', '상태 수정'),
+  delete_status: tool('settings', 'delete', '상태 삭제'),
+  update_tag: tool('settings', 'change', '태그 수정'),
+  delete_tag: tool('settings', 'delete', '태그 삭제'),
+  tag_items: tool('settings', 'change', '태그 붙이기·떼기'),
   read_project_settings: tool('project', 'read', '프로젝트 설정 조회'),
   update_project_settings: tool('project', 'change', '프로젝트 설정 변경'),
   web_search: tool('web', 'read', '웹 검색'),
@@ -87,12 +104,14 @@ export type PermissionMode = (typeof PERMISSION_MODES)[number];
 export const PERMISSION_MODE_INFO: Record<PermissionMode, { label: string; description: string }> = {
   ask: { label: '수락/거절', description: '변경마다 카드에서 수락하거나 거절합니다.' },
   auto: { label: '자동 검토', description: '검사를 통과한 작은 변경은 바로 반영하고, 큰 일괄 변경·삭제·실행(비용)·경고가 있는 변경만 묻습니다.' },
-  bypass: { label: '우회', description: '묻지 않고 모두 바로 반영합니다. 변경 기록은 남습니다.' },
+  bypass: { label: '바로 반영', description: '허용한 작업을 확인 없이 반영합니다. 대화별 한도에 닿으면 다시 확인하며, 변경 기록은 남습니다.' },
 };
 
 export const agentSettingsSchema = z.object({
   /** Tool names switched off for this project's agent (chat and CLI). */
   disabledTools: z.array(z.string()).default([]),
+  /** Per-resource operations; old tool switches are conservatively interpreted until saved. */
+  permissions: agentPermissionsSchema.optional(),
   /** The permission mode a new conversation starts in. */
   defaultPermissionMode: z.enum(PERMISSION_MODES).default('ask'),
   /** Bypass applies changes without asking, so these limits bound a runaway conversation. */

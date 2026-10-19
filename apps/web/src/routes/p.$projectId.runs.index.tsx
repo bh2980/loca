@@ -4,10 +4,9 @@ import { ChevronRight, Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import { useQuery } from '@tanstack/react-query';
 import { Page } from '@/components/page';
-import { InspectorHeader, Inspector, SplitPane, EmptyState, DataTable, type ColumnDef, JobStatusBadge, Button, Progress, Spinner, Collapsible, CollapsibleContent, CollapsibleTrigger, Skeleton, HelpTip } from '@loca/ui';
+import { InspectorHeader, Inspector, SplitPane, EmptyState, DataTable, type ColumnDef, JobStatusBadge, Button, Progress, Spinner, Collapsible, CollapsibleContent, CollapsibleTrigger, Skeleton, ContextMenuItem } from '@loca/ui';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
-import { AnalysisSteps } from '@/components/job-progress';
 import { cn } from '@/lib/utils';
 import { dateTime, clock } from '@/lib/datetime';
 
@@ -21,7 +20,7 @@ export const Route = createFileRoute('/p/$projectId/runs/')({
   component: Runs,
 });
 
-const JOB_KIND = { run: '워크플로', analysis: '자료', terms: '용어집' } as const;
+const JOB_KIND = { run: '워크플로', terms: '용어집' } as const;
 type Stats = { calls: number | null; inputTokens: number; outputTokens: number };
 
 const seconds = (from: Date | string, to: Date | string | null) => {
@@ -43,6 +42,7 @@ type Row = {
   progress: { done: number; total: number; unit: string } | null;
   stats: Stats | null;
   at: Date;
+  workflowId?: string | null;
 };
 
 const columns: ColumnDef<Row, unknown>[] = [
@@ -121,12 +121,13 @@ function Runs() {
             id: run.id,
             kind: 'run' as const,
             title: run.workflowName,
-            sub: `v${run.workflowVersion}`,
+            sub: '',
             status: run.status,
             error: run.status === 'paused' ? run.notice : null,
             progress: { done: (run.states.done ?? 0) + (run.states.failed ?? 0) + (run.states.cancelled ?? 0), total: run.total, unit: '줄' },
             stats: jobs.data.runCalls[run.id] ?? null,
             at: new Date(run.createdAt),
+            workflowId: run.workflowId,
           })),
           ...jobs.data.jobs.map((job) => ({
             id: job.id,
@@ -135,7 +136,7 @@ function Runs() {
             sub: job.model ?? '',
             status: job.status,
             error: job.error,
-            progress: job.total != null && job.done != null ? { done: job.done, total: job.total, unit: job.kind === 'analysis' ? '부분' : '개' } : null,
+            progress: job.total != null && job.done != null ? { done: job.done, total: job.total, unit: '개' } : null,
             stats: job,
             at: new Date(job.createdAt),
           })),
@@ -147,7 +148,7 @@ function Runs() {
   return (
     <Page title="실행 기록" flush>
       <SplitPane
-        id="runs"
+        id="runs" selectionKey={selected?.id}
         defaultWidth="440px"
         className="h-full"
         pane={selected && <JobCalls key={selected.id} projectId={projectId} job={selected} onClose={() => select(undefined)} />}
@@ -159,7 +160,40 @@ function Runs() {
           loading={!rows}
           selected={search.job}
           onRowClick={(row) => (row.kind === 'run' ? void navigate({ to: '/p/$projectId/runs/$runId', params: { projectId, runId: row.id } }) : select(row.id === search.job ? undefined : row.id))}
-          empty={<EmptyState noun="실행" hint={<HelpTip>워크플로 실행, 작품 분석, 용어 AI 채우기가 모델을 부르면 여기에 쌓입니다.</HelpTip>} />}
+          rowContextMenu={(row) => (
+            <>
+              <ContextMenuItem
+                onClick={() =>
+                  row.kind === 'run'
+                    ? void navigate({ to: '/p/$projectId/runs/$runId', params: { projectId, runId: row.id } })
+                    : select(row.id)
+                }
+              >
+                상세
+              </ContextMenuItem>
+              {row.workflowId && (
+                <ContextMenuItem
+                  onClick={() =>
+                    void navigate({
+                      to: '/p/$projectId/workflows/$workflowId',
+                      params: { projectId, workflowId: row.workflowId! },
+                    })
+                  }
+                >
+                  워크플로 열기
+                </ContextMenuItem>
+              )}
+              <ContextMenuItem
+                onClick={() => {
+                  void navigator.clipboard.writeText(row.id);
+                  toast.success('ID를 복사했습니다.');
+                }}
+              >
+                ID 복사
+              </ContextMenuItem>
+            </>
+          )}
+          empty={<EmptyState noun="실행" />}
         />
       </SplitPane>
     </Page>
@@ -169,8 +203,6 @@ function Runs() {
 /** The model requests of one job, newest first. */
 function JobCalls({ projectId, job, onClose }: { projectId: string; job: { id: string; kind: keyof typeof JOB_KIND; title: string; stats: Stats | null }; onClose: () => void }) {
   const calls = useQuery(q.aiCalls(projectId, undefined, job.id));
-  const analyses = useQuery({ ...q.analysisJobs(projectId), enabled: job.kind === 'analysis' });
-  const analysis = analyses.data?.find((item) => item.id === job.id && item.status === 'running');
   return (
     <Inspector header={<InspectorHeader kind={JOB_KIND[job.kind]} name={job.title} status={<span className="tabular-nums">AI 호출 · 입력/출력 {tokens(job.stats)}</span>} actions={
         <>
@@ -178,13 +210,6 @@ function JobCalls({ projectId, job, onClose }: { projectId: string; job: { id: s
             <Button asChild variant="ghost">
               <Link to="/p/$projectId/runs/$runId" params={{ projectId, runId: job.id }}>
                 실행 상세
-              </Link>
-            </Button>
-          )}
-          {job.kind === 'analysis' && (
-            <Button asChild variant="ghost">
-              <Link to="/p/$projectId/knowledge" params={{ projectId }}>
-                자료 보기
               </Link>
             </Button>
           )}
@@ -197,13 +222,8 @@ function JobCalls({ projectId, job, onClose }: { projectId: string; job: { id: s
           )}
         </>
       } onClose={onClose} />} loading={!calls.data} bodyClassName="space-y-0 p-0">
-      {analysis && (
-        <div className="border-b p-4">
-          <AnalysisSteps job={analysis} />
-        </div>
-      )}
       {calls.data?.calls.length === 0 ? (
-        <p className="px-4 py-6 text-sm text-muted-foreground">이 작업의 AI 호출 기록이 없습니다. 호출 기록이 생기기 전에 돈 작업은 합계만 남아 있습니다.</p>
+        <p className="px-4 py-6 text-sm text-muted-foreground">이 작업의 AI 호출 기록이 없습니다.</p>
       ) : (
         <ul>
           {calls.data?.calls.map((call) => (
@@ -243,7 +263,7 @@ function SentRequest({ projectId, callId, hasRequest, hasResponse }: { projectId
     <Collapsible open={open} onOpenChange={setOpen} className="pt-1">
       <CollapsibleTrigger asChild>
         <Button variant="ghost" size="inline" className="-ml-1 text-muted-foreground">
-          <ChevronRight className={cn('transition-transform', open && 'rotate-90')} /> {hasRequest ? (hasResponse ? '보낸 내용 · 받은 출력' : '보낸 내용') : '받은 출력'}
+          <ChevronRight className={cn('transition-transform', open && 'rotate-90')} /> {hasRequest ? (hasResponse ? '입출력' : '보낸 내용') : '받은 출력'}
         </Button>
       </CollapsibleTrigger>
       <CollapsibleContent className="mt-1 space-y-2">
@@ -252,7 +272,7 @@ function SentRequest({ projectId, callId, hasRequest, hasResponse }: { projectId
         ) : (
           <>
             {request.data.request != null && <CallText label="보낸 내용" text={request.data.request} />}
-            {request.data.response != null && <CallText label="받은 출력 (실패 전까지)" text={request.data.response} />}
+            {request.data.response != null && <CallText label="받은 출력" text={request.data.response} />}
           </>
         )}
       </CollapsibleContent>

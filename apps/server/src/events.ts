@@ -14,7 +14,6 @@ export type Topic =
   | 'runs'
   | 'chat'
   | 'proposals'
-  | 'analysis'
   | 'calls';
 
 /**
@@ -31,6 +30,8 @@ export type Topic =
  * - calls → runs: the jobs list (keyed 'runs') shows call counts read from ai_calls.
  */
 const IMPLIES: Partial<Record<Topic, Topic[]>> = {
+  // Reading routes read source connections and unit text, under the units query family.
+  graph: ['units'],
   knowledge: ['units'],
   terms: ['units'],
   workflows: ['units'],
@@ -141,7 +142,7 @@ const requestScope = new AsyncLocalStorage<RequestScope>();
  * Runs a request and returns the topics it changed, so its response can carry them (header
  * x-changed) and the client refetch at once, without waiting on the event stream, which can be
  * silently gone (a restarted server behind a proxy). Changes made later by work the request
- * started (a run, an analysis) still go out as events.
+ * started (a run) still go out as events.
  */
 export async function trackChanges(run: () => Promise<void>, client?: string) {
   const scope: RequestScope = { topics: new Set(), client: client || undefined, open: true };

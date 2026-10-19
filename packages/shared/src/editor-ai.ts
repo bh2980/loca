@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { modelChoiceSchema } from './model-choice.ts';
 
 /**
- * The editor's AI, per project (docs/DESIGN.md J3b): the continuation (off by default; an API
+ * The editor's AI, per project: the continuation (off by default; an API
  * connection's model), the model for 'AI 번역' and '다듬기' (any connection, a CLI too), and how
  * many calls a day both make at most (free tiers cap requests per day).
  */

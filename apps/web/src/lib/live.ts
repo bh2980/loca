@@ -9,11 +9,8 @@ const SILENCE_MS = 45_000;
 /** Reconnect waits after a dropped stream: 1 s, doubling to 30 s, back to 1 s once it opens. */
 const RETRY_MIN_MS = 1_000;
 const RETRY_MAX_MS = 30_000;
-/**
- * Queries that also follow another topic: a work analysis is a run now (#47), so the analysis list
- * (자료's '마지막 분석', 시작하기, notices) is refetched when runs change, e.g. when one finishes.
- */
-const ALSO: Record<string, string[]> = { runs: ['analysis'] };
+/** Queries that also follow another topic (none now; the server's IMPLIES covers cross-topic reads). */
+const ALSO: Record<string, string[]> = {};
 
 /** The query keys to refetch for changed topics: the topics and the queries that follow them. Used for events and for a write's own x-changed. */
 export const refetchKeys = (topics: Iterable<string>) => new Set([...topics].flatMap((topic) => [topic, ...(ALSO[topic] ?? [])]));

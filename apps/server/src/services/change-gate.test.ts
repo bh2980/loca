@@ -81,7 +81,7 @@ describe('change gate (#45)', () => {
     expect(first).toMatchObject({ ok: true, applied: true });
     const next = await proposeChange(db, { projectId, sessionId: chat.id, source: 'api', tool: 'save_character', input: { name: 'Cara' } });
     expect(next).toMatchObject({ ok: true, applied: false, status: 'pending', review: expect.stringContaining('변경 1개 (한도 1개)') });
-    expect(next.ok && next.text).toContain('우회 한도로 사용자에게 넘겼습니다');
+    expect(next.ok && next.text).toContain('자동 반영 한도로 사용자에게 넘겼습니다');
     expect(characterNamed(db, 'Cara')).toBeUndefined();
   });
 
