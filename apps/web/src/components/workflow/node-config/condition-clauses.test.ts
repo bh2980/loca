@@ -33,7 +33,6 @@ describe('condition rows', () => {
       ],
     });
     expect(parseCondition({ '!!': { var: 'candidate' } })).toEqual({ join: 'and', clauses: [{ kind: 'candidate' }] });
-    expect(parseCondition({ '!=': [{ var: 'outputs.listener.value' }, null] })).toEqual({ join: 'and', clauses: [{ kind: 'field', nodeId: 'listener', field: 'value', op: 'filled', value: '' }] });
     expect(parseCondition({ in: ['unknownListener', { var: 'unit.marks' }] })).toEqual({ join: 'and', clauses: [{ kind: 'mark', mark: 'unknownListener' }] });
     expect(parseCondition({ '!': { in: ['t1', { var: 'unit.tagIds' }] } })).toEqual({ join: 'and', clauses: [{ kind: 'tag', tagId: 't1', not: true }] });
   });

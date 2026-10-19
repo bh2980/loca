@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { analysisTemplate, workflowDefinitionSchema, type WorkflowDefinition } from '@tw/shared';
+import { analysisTemplate, listenerTemplate, workflowDefinitionSchema, type WorkflowDefinition } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { isLegacyDefinition, replaceLegacyBuiltins } from './workflow-migrations.ts';
@@ -34,5 +34,19 @@ describe('replacing the old built-in workflows', () => {
     expect(isLegacyDefinition(rows.get('내 분석')!.definition)).toBe(true);
     expect(rows.get('용어 추출')!.definition).toEqual(current);
     expect(replaceLegacyBuiltins(db)).toBe(0);
+  });
+  it('replaces a 청자 추정 that reads listenerKnown or answers as a choice with the current template', () => {
+    const db = openDatabase(':memory:');
+    const projectId = crypto.randomUUID();
+    db.insert(s.projects).values({ id: projectId, name: 'P', sourceLanguage: 'en', targetLanguage: 'ko' }).run();
+    const current = listenerTemplate({ model });
+    const old = structuredClone(current);
+    const needs = old.nodes.find((node) => node.id === 'needs')!;
+    if (needs.type === 'condition') needs.config.expression = { var: 'listenerKnown' };
+    db.insert(s.workflows).values({ projectId, name: '청자 추정', definition: old }).run();
+    expect(isLegacyDefinition(old)).toBe(true);
+    expect(isLegacyDefinition(current)).toBe(false);
+    expect(replaceLegacyBuiltins(db)).toBe(1);
+    expect(db.select().from(s.workflows).get()!.definition).toEqual(current);
   });
 });

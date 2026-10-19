@@ -62,8 +62,6 @@ function parseClause(rule: unknown): Clause | null {
   if (name === '==' && target === 'unit.statusId' && typeof right === 'string') return { kind: 'status', statusId: right };
   if (name === '==' && target === 'unit.kind' && typeof right === 'string') return { kind: 'lineKind', value: right };
   const output = target.match(/^outputs\.([^.]+)\.(.+)$/);
-  // "!= null" is how older workflows said "has a value".
-  if (output && name === '!=' && right === null) return { kind: 'field', nodeId: output[1]!, field: output[2]!, op: 'filled', value: '' };
   if (output && (typeof right === 'string' || typeof right === 'number' || typeof right === 'boolean')) {
     return { kind: 'field', nodeId: output[1]!, field: output[2]!, op: name as FieldOperator, value: right };
   }

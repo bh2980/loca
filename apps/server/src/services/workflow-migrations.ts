@@ -21,12 +21,18 @@ import { discoverAndSave } from './terms.ts';
 const LEGACY_FUNCTIONS = new Set(['addTerms', 'applyKnowledge', 'saveAnalysis']);
 
 /**
- * A definition from before the general AI outputs and 반영 nodes: an AI node whose output is a purpose
- * (candidate, terms, knowledge, analysis, listener) or a node that saves in hiding. The stored JSON
- * is not validated on read, so this looks at it as it is.
+ * A definition of an old shape: an AI node whose output is a purpose (candidate, terms, knowledge,
+ * analysis, listener) or a node that saves in hiding (before the general outputs and 반영 nodes); a
+ * condition reading the removed `listenerKnown`; a 청자 추정 node still answering as a choice (before
+ * it answered JSON with "unknown"). The stored JSON is not validated on read, so this looks at it as it is.
  */
 export function isLegacyDefinition(definition: WorkflowDefinition): boolean {
-  return definition.nodes.some((node) => (node.type === 'ai' && !AI_OUTPUT_IDS.includes(node.config.output)) || (node.type === 'function' && LEGACY_FUNCTIONS.has(node.config.fn)));
+  return definition.nodes.some(
+    (node) =>
+      (node.type === 'ai' && (!AI_OUTPUT_IDS.includes(node.config.output) || (node.config.preset === 'listener' && node.config.output === 'choice'))) ||
+      (node.type === 'function' && LEGACY_FUNCTIONS.has(node.config.fn)) ||
+      (node.type === 'condition' && JSON.stringify(node.config.expression ?? null).includes('"listenerKnown"')),
+  );
 }
 
 /**
