@@ -1,12 +1,12 @@
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, notInArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { agentSettingsSchema, aiConfirmSchema, detectFormatRules, editorAiSchema, formatRulesSchema, importFileSchema, importWarnings, markColorsSchema, patchOf, summarizeImport } from '@tw/shared';
+import { agentSettingsSchema, aiConfirmSchema, detectFormatRules, editorAiSchema, exclusionRulesSchema, formatRulesSchema, importFileSchema, importWarnings, markColorsSchema, patchOf, summarizeImport } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { forgetProjectContext } from '../services/context.ts';
-import { markConditions } from '../services/line-marks.ts';
+import { excludedSql, markConditions, translatableSql } from '../services/line-marks.ts';
 import { createStatus, createTag, deleteStatuses, deleteTags, orderTags, projectTags, TaxonomyMutationError, updateStatus, updateTag } from '../services/project-taxonomy.ts';
 import { projectSettingsInput, updateProjectSettings } from '../services/project-settings.ts';
 import { importProject } from '../services/importer.ts';
@@ -52,10 +52,11 @@ export const projectRoutes = new Hono<Env>()
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     const project = found(db.select().from(s.projects).where(eq(s.projects.id, projectId)).get(), '프로젝트');
+    // Progress counts lines for translation; 번역 제외 lines are counted apart.
     const byStatus = db
       .select({ statusId: s.units.statusId, count: count() })
       .from(s.units)
-      .where(eq(s.units.projectId, projectId))
+      .where(and(eq(s.units.projectId, projectId), translatableSql(projectId)))
       .groupBy(s.units.statusId)
       .all();
     const groupCount = db.select({ count: count() }).from(s.groups).where(eq(s.groups.projectId, projectId)).get()!.count;
@@ -64,8 +65,9 @@ export const projectRoutes = new Hono<Env>()
       .select({ count: count() })
       .from(s.units)
       .innerJoin(s.statuses, eq(s.statuses.id, s.units.statusId))
-      .where(and(eq(s.units.projectId, projectId), eq(s.statuses.inReview, true)))
+      .where(and(eq(s.units.projectId, projectId), eq(s.statuses.inReview, true), translatableSql(projectId)))
       .get()!.count;
+    const excludedCount = db.select({ count: count() }).from(s.units).where(and(eq(s.units.projectId, projectId), excludedSql(projectId))).get()!.count;
     // What AI decided and no person has looked at (✦): the #AI가 정함 mark of lines, knowledge and terms (shared aiDecided / markConditions), so each count is what its link lists.
     const aiLines = db.select({ count: count() }).from(s.units).where(and(eq(s.units.projectId, projectId), ...markConditions(projectId, ['ai']))).get()!.count;
     const aiConfirmed = (...tables: DecidedTable[]) =>
@@ -79,7 +81,7 @@ export const projectRoutes = new Hono<Env>()
       terms: aiConfirmed(s.terms),
       knowledge: { documents: aiConfirmed(s.documents), characters: aiConfirmed(s.characters), pairs: aiConfirmed(s.relationships, s.speechRules), events: aiConfirmed(s.storyEvents) },
     };
-    return c.json({ ...project, aiConfirm: aiConfirmSchema.parse(project.aiConfirm), editorAi: editorAiSchema.parse(project.editorAi), editorCallsToday: editorCallsToday(db, projectId), byStatus, groupCount, reviewCount, aiDecided });
+    return c.json({ ...project, aiConfirm: aiConfirmSchema.parse(project.aiConfirm), exclusionRules: exclusionRulesSchema.parse(project.exclusionRules), editorAi: editorAiSchema.parse(project.editorAi), editorCallsToday: editorCallsToday(db, projectId), byStatus, excludedCount, groupCount, reviewCount, aiDecided });
   })
   .get('/:projectId/detect-format-rules', (c) => {
     const { db } = c.var.deps;

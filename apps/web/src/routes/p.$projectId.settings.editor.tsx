@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { SettingsContent, Skeleton } from '@loca/ui';
 import { Page } from '@/components/page';
 import { EditorAiSection } from '@/components/settings/editor-ai';
+import { ExclusionRulesSection } from '@/components/exclusion-rules';
 import { FormatRulesSection } from '@/components/format-rules';
 import { q } from '@/lib/queries';
 
@@ -20,7 +21,10 @@ function EditorSettings() {
         <div className="space-y-8">
           <EditorAiSection projectId={projectId} />
           {project.data ? (
-            <FormatRulesSection projectId={projectId} rules={project.data.formatRules} />
+            <>
+              <FormatRulesSection projectId={projectId} rules={project.data.formatRules} />
+              <ExclusionRulesSection projectId={projectId} rules={project.data.exclusionRules} formatRules={project.data.formatRules} sourceLanguage={project.data.sourceLanguage} excludedCount={project.data.excludedCount} />
+            </>
           ) : (
             <div className="space-y-4">
               <Skeleton className="h-8 w-1/3" />

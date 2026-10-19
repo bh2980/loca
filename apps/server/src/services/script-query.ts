@@ -1,5 +1,5 @@
 import { and, asc, count, desc, eq, gte, inArray, like, or, sql, type SQL } from 'drizzle-orm';
-import { checkFormat, lineMarksOf, mentions, type BatchChange, type CheckKind, type LineFilter, type LineMark } from '@tw/shared';
+import { checkFormat, exclusionRulesSchema, lineExclusion, lineMarksOf, mentions, type BatchChange, type CheckKind, type LineFilter, type LineMark } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import { inChunks, inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
@@ -7,7 +7,7 @@ import { events } from '../events.ts';
 import { attachUnitTags, scopeRefusal } from './tag-scope.ts';
 import { saveLine } from './line-save.ts';
 import { refusesListener, setHumanListener } from './listeners.ts';
-import { knownListenerSql, markConditions } from './line-marks.ts';
+import { knownListenerSql, markConditions, translatableSql } from './line-marks.ts';
 import { lineTextFilter } from './line-text.ts';
 import { describeRule, knowledgeOf, knownListener, speechMismatch, speechRuleIndex } from './speech.ts';
 
@@ -77,7 +77,8 @@ export function findLines(db: Db, projectId: string, filter: LineFilter, options
   // Several tags: lines carrying every one of them, as in the app's list.
   for (const tag of filter.tags ?? []) where.push(sql`${s.units.id} in (select unit_id from ${s.unitTags} where tag_id = ${tagId(tag) ?? tag})`);
   where.push(...markConditions(projectId, filter.marks));
-  if (filter.translated !== undefined) where.push(filter.translated ? sql`${s.units.translation} is not null and ${s.units.translation} != ''` : sql`(${s.units.translation} is null or ${s.units.translation} = '')`);
+  // Asking for translated or untranslated lines (exports, checks) asks for lines to translate: 번역 제외 lines stay out.
+  if (filter.translated !== undefined) where.push(filter.translated ? sql`${s.units.translation} is not null and ${s.units.translation} != ''` : sql`(${s.units.translation} is null or ${s.units.translation} = '')`, translatableSql(projectId));
   if (filter.keys?.length) where.push(inList(s.units.key, filter.keys));
   if (options.seq) where.push(sql`${s.units.seq} >= ${options.seq[0]} and ${s.units.seq} < ${options.seq[1]}`);
 
@@ -115,7 +116,9 @@ export function findLines(db: Db, projectId: string, filter: LineFilter, options
   for (const row of tagRows) tagsByUnit.set(row.unitId, [...(tagsByUnit.get(row.unitId) ?? []), tagName.get(row.tagId) ?? row.tagId]);
   const statusName = new Map(statuses.map((status) => [status.id, status.name]));
   const finalStatus = new Set(statuses.filter((status) => status.kind === 'final').map((status) => status.id));
-  const rules = db.select({ rules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, projectId)).get()?.rules;
+  const project = db.select({ rules: s.projects.formatRules, exclusion: s.projects.exclusionRules, language: s.projects.sourceLanguage }).from(s.projects).where(eq(s.projects.id, projectId)).get();
+  const rules = project?.rules;
+  const exclusion = exclusionRulesSchema.parse(project?.exclusion ?? {});
   // Same source, different translation compares across the project: one extra query, only when asked.
   const diverged = options.diverged && page.length ? new Set(db.select({ id: s.units.id }).from(s.units).where(and(eq(s.units.projectId, projectId), ...markConditions(projectId, ['diverged']))).all().map((row) => row.id)) : null;
   return {
@@ -132,7 +135,7 @@ export function findLines(db: Db, projectId: string, filter: LineFilter, options
       translation: unit.translation,
       status: statusName.get(unit.statusId) ?? unit.statusId,
       tags: tagsByUnit.get(unit.id) ?? [],
-      marks: [...lineMarksOf(unit, finalStatus.has(unit.statusId), rules), ...(diverged?.has(unit.id) ? (['diverged'] as const) : [])],
+      marks: [...lineMarksOf(unit, finalStatus.has(unit.statusId), rules, lineExclusion(unit, rules, exclusion, project?.language) !== null), ...(diverged?.has(unit.id) ? (['diverged'] as const) : [])],
     })),
   };
 }
@@ -276,7 +279,7 @@ export function sceneStats(db: Db, projectId: string, by: 'group' | 'section') {
     .select({ group: s.groups.title, section: s.groups.section, kind: s.groups.kind, statusId: s.units.statusId, translated: sql<number>`sum(case when ${s.units.translation} is not null and ${s.units.translation} != '' then 1 else 0 end)`, lines: count() })
     .from(s.units)
     .innerJoin(s.groups, eq(s.groups.id, s.units.groupId))
-    .where(eq(s.units.projectId, projectId))
+    .where(and(eq(s.units.projectId, projectId), translatableSql(projectId)))
     .groupBy(s.groups.id, s.units.statusId)
     .all();
   const name = new Map(statuses.map((status) => [status.id, status.name]));
@@ -388,7 +391,8 @@ export function normalizeBatch(db: Db, projectId: string, batch: BatchChange, op
     if (next.translation !== undefined && next.translation === (unit.translation ?? '')) delete next.translation;
     if (next.status && statusId(next.status) === unit.statusId) delete next.status;
     if (next.listener !== undefined && next.listener === unit.listener) delete next.listener;
-    if (next.translation === undefined && next.listener === undefined && !next.status && !next.addTags.length && !next.removeTags.length) {
+    if (next.translate !== undefined && next.translate === unit.translate) delete next.translate;
+    if (next.translation === undefined && next.listener === undefined && next.translate === undefined && !next.status && !next.addTags.length && !next.removeTags.length) {
       unchanged.push(change.key);
       return [];
     }
@@ -426,7 +430,7 @@ export function validateBatch(db: Db, projectId: string, batch: BatchChange): Ba
     else if (change.status && !statusId(change.status)) report.errors.push({ key: change.key, reason: `없는 상태입니다: ${change.status}` });
     else if ([...change.addTags, ...change.removeTags].some((tag) => !tagId(tag))) report.errors.push({ key: change.key, reason: `이 프로젝트에 없는 태그입니다: ${[...change.addTags, ...change.removeTags].filter((tag) => !tagId(tag)).join(', ')}` });
     else if ((tagRefusal = scopeRefusal(db, projectId, change.addTags.map((tag) => tagId(tag)!), 'lines'))) report.errors.push({ key: change.key, reason: tagRefusal });
-    else if (change.translation === undefined && change.listener === undefined && !change.status && !change.addTags.length && !change.removeTags.length) report.errors.push({ key: change.key, reason: '바꿀 내용이 없습니다.' });
+    else if (change.translation === undefined && change.listener === undefined && change.translate === undefined && !change.status && !change.addTags.length && !change.removeTags.length) report.errors.push({ key: change.key, reason: '바꿀 내용이 없습니다.' });
     else {
       report.changes++;
       if (change.translation !== undefined) {
@@ -470,6 +474,7 @@ export function applyBatch(db: Db, projectId: string, batch: BatchChange) {
       // Applied from the CLI or an accepted proposal: a person decided this translation or status (and the listener).
       saveLine(tx, unit, { text: change.translation, statusId: change.status ? statusId(change.status)! : undefined, origin: batch.origin, model: batch.model ?? null, note: change.note });
       if (change.listener !== undefined) setHumanListener(tx, [unit.id], change.listener);
+      if (change.translate !== undefined) tx.update(s.units).set({ translate: change.translate }).where(eq(s.units.id, unit.id)).run();
       // Checked in validateBatch; a tag whose place changed since is skipped here, never put where it doesn't belong.
       attachUnitTags(tx, projectId, [unit.id], { add: change.addTags.map((tag) => tagId(tag)).filter((id): id is string => !!id), remove: change.removeTags.map((tag) => tagId(tag)).filter((id): id is string => !!id) }, { onMisplaced: 'skip' });
       applied.push(change.key);

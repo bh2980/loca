@@ -28,11 +28,11 @@ loca 앱이 켜져 있어야 합니다(기본 `http://127.0.0.1:4317`, 다르면
 
 | 어디 | 표시 |
 |---|---|
-| 대사 | `remaining` #남은 줄 · `ai` #AI 초안 · `unknownListener` #청자 미상 · `diverged` #번역 불일치 · `noted` #메모 |
+| 대사 | `remaining` #남은 줄 · `ai` #AI 초안 · `unknownListener` #청자 미상 · `diverged` #번역 불일치 · `noted` #메모 · `excluded` #번역 제외 |
 | 자료 | `candidate` 후보 · `ai` #AI 초안 · `noEvidence` #근거 부재 |
 | 용어 | `candidate` 후보 · `ai` #AI 초안 · `emptyTarget` #번역 누락 · `unused` #대본 미등장 |
 
-`--mark`로 같은 조건을 겁니다. 여러 표시는 모두 만족이지만 `candidate`와 `ai`를 함께 주면 둘 중 하나입니다. `--unreviewed`는 사람이 아직 안 본 것(후보 또는 AI 초안)입니다. 자료·용어의 `status`는 confirmed(번역 문맥에 쓰임)·candidate(아직 안 쓰임), `statusBy`는 ai(AI가 정했고 사람이 안 봄)·human입니다. 대사 상태와 태그는 프로젝트마다 다르니 `loca statuses`, `loca tags`로 확인합니다. 태그는 붙는 곳(대사·자료·용어집)에만 붙습니다.
+#번역 제외는 번역 대상이 아닌 줄(빈 원문, 서식만, 글자 없음, 프로젝트의 제외 규칙, 사람이 직접 뺀 줄)입니다. 진행률·#남은 줄·실행·`export --untranslated`/`--translated`·`check`에서 빠지고 번역은 건드리지 않습니다. `--mark`로 같은 조건을 겁니다. 여러 표시는 모두 만족이지만 `candidate`와 `ai`를 함께 주면 둘 중 하나입니다. `--unreviewed`는 사람이 아직 안 본 것(후보 또는 AI 초안)입니다. 자료·용어의 `status`는 confirmed(번역 문맥에 쓰임)·candidate(아직 안 쓰임), `statusBy`는 ai(AI가 정했고 사람이 안 봄)·human입니다. 대사 상태와 태그는 프로젝트마다 다르니 `loca statuses`, `loca tags`로 확인합니다. 태그는 붙는 곳(대사·자료·용어집)에만 붙습니다.
 
 ### 출력과 파일
 - `--json`은 목록을 항상 `{ total, rows }`로 냅니다. 많으면 `--jsonl`이나 `--all`로 파일에 받아 읽습니다.

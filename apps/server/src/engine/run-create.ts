@@ -1,4 +1,4 @@
-import { and, eq, inArray, ne, notInArray, or, sql } from 'drizzle-orm';
+import { and, count, eq, inArray, ne, notInArray, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
 import { batchConfigSchema, isWholeScriptWorkflow, type AiNode, type WorkflowDefinition } from '@tw/shared';
 import { inChunks, inList } from '../db/chunk.ts';
@@ -6,7 +6,7 @@ import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import type { ItemData } from '../db/schema.ts';
 import { events } from '../events.ts';
-import { markConditions } from '../services/line-marks.ts';
+import { excludedSql, markConditions, translatableSql } from '../services/line-marks.ts';
 import { planBatches } from './batches.ts';
 
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
@@ -17,8 +17,8 @@ type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
  * run without importing the scheduler (and the scheduler can use preflight's overhead estimate).
  */
 
-/** Selects the lines a run starts with: scope ∩ entry status filter. */
-export function selectRunUnits(db: Db, projectId: string, definition: WorkflowDefinition, scope: s.RunScope): string[] {
+/** The scope ∩ entry status filter, before 번역 제외 is taken out. */
+function scopeConditions(db: Db, projectId: string, definition: WorkflowDefinition, scope: s.RunScope) {
   const entry = definition.nodes.find((node) => node.type === 'entry');
   const statusIds = scope.statusIds !== undefined ? scope.statusIds : (entry?.type === 'entry' ? entry.config.statusIds : []);
   const conditions = [eq(s.units.projectId, projectId)];
@@ -35,7 +35,17 @@ export function selectRunUnits(db: Db, projectId: string, definition: WorkflowDe
   // Tags and marks combine with AND, like the line list's filter: a line must carry every one picked.
   for (const tagId of scope.tagIds ?? []) conditions.push(inArray(s.units.id, db.select({ id: s.unitTags.unitId }).from(s.unitTags).where(eq(s.unitTags.tagId, tagId))));
   conditions.push(...markConditions(projectId, scope.marks));
-  return db.select({ id: s.units.id }).from(s.units).where(and(...conditions)).all().map((row) => row.id);
+  return conditions;
+}
+
+/** Selects the lines a run starts with: scope ∩ entry status filter. 번역 제외 lines never enter a run, whatever the scope names. */
+export function selectRunUnits(db: Db, projectId: string, definition: WorkflowDefinition, scope: s.RunScope): string[] {
+  return db.select({ id: s.units.id }).from(s.units).where(and(...scopeConditions(db, projectId, definition, scope), translatableSql(projectId))).all().map((row) => row.id);
+}
+
+/** Lines the scope names that 번역 제외 keeps out of the run (the run dialog says how many). */
+export function excludedInScope(db: Db, projectId: string, definition: WorkflowDefinition, scope: s.RunScope): number {
+  return db.select({ count: count() }).from(s.units).where(and(...scopeConditions(db, projectId, definition, scope), excludedSql(projectId))).get()!.count;
 }
 
 /**

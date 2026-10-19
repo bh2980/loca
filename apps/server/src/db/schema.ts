@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import { AGE_BANDS, CHARACTER_ROLES, GENDERS, KNOWLEDGE_TAG_KINDS, TAG_ROLES, type TagRole, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, PERMISSION_MODES, type AiConfirm, type CharacterStyle, type EditorAi, type LineMark, type MarkColors, type ModelChoice, type ContextItem, type FormatRules, type NodeType, type PiOptions, type RelationshipChange, type WorkflowDefinition } from '@tw/shared';
+import { AGE_BANDS, CHARACTER_ROLES, GENDERS, KNOWLEDGE_TAG_KINDS, TAG_ROLES, type TagRole, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, PERMISSION_MODES, type AiConfirm, type CharacterStyle, type EditorAi, type ExclusionRules, LINE_TRANSLATE, type LineMark, type MarkColors, type ModelChoice, type ContextItem, type FormatRules, type NodeType, type PiOptions, type RelationshipChange, type WorkflowDefinition } from '@tw/shared';
 import type { Usage } from '@tw/ai';
 
 const id = () => text('id').primaryKey().$defaultFn(() => crypto.randomUUID());
@@ -35,6 +35,8 @@ export const projects = sqliteTable('projects', {
   formatRules: json<FormatRules>('format_rules').notNull().default(sql`'{"presets":["brace","printf","angleTag"],"custom":[]}'`),
   /** What becomes of AI results per knowledge kind (AI › 사용 방식). Absent kinds: auto. */
   aiConfirm: json<Partial<AiConfirm>>('ai_confirm').notNull().default(sql`'{}'`),
+  /** 번역 제외: which sources are not for translation (exclusionRulesSchema; {} = the defaults). */
+  exclusionRules: json<Partial<ExclusionRules>>('exclusion_rules').notNull().default(sql`'{}'`),
   /** The editor's AI continuation (off by default; see editorAiSchema). */
   editorAi: json<Partial<EditorAi>>('editor_ai').notNull().default(sql`'{}'`),
   /** Colors the project picked for automatic marks (AUTO_MARKS); others keep their default. */
@@ -115,6 +117,8 @@ export const units = sqliteTable(
     /** Who set the current status: a run (statusRunId) or a person (an edit, a confirm, an accepted proposal, the import). */
     statusBy: text('status_by', { enum: STATUS_BY }).notNull().default('human'),
     statusRunId: text('status_run_id'),
+    /** A person's call on 번역 제외: include = translate whatever the rules say, exclude = leave it out; null = the rules decide. */
+    translate: text('translate', { enum: LINE_TRANSLATE }),
     /** A person's note on the line (a doubt, a question for the developer); empty = none. */
     note: text('note').notNull().default(''),
     meta: json<Record<string, unknown>>('meta'),

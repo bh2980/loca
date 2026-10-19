@@ -5,7 +5,12 @@ import { realistic } from '../../../../scripts/realistic-sample.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
+import { translatableSql } from '../services/line-marks.ts';
 import { selectRunUnits } from './run-create.ts';
+
+/** The project's lines for translation (not 번역 제외). */
+const translatable = (db: ReturnType<typeof openDatabase>, projectId: string) =>
+  db.select({ id: s.units.id }).from(s.units).where(and(eq(s.units.projectId, projectId), translatableSql(projectId))).all().map((row) => row.id);
 
 describe('run scope by marks', () => {
   it('keeps the lines that have every picked mark, and combines with tags and the entry status', () => {
@@ -27,8 +32,8 @@ describe('run scope by marks', () => {
     // A tag narrows a mark (tags themselves are "any of"); a tag alone ignores marks.
     expect(pick({ marks: ['noted'], tagIds: [tag.id] })).toEqual([noted.id]);
     expect(pick({ tagIds: [tag.id] })).toEqual([noted.id, plain.id].sort());
-    // No marks: the scope is unchanged.
-    expect(pick({ marks: [] })).toHaveLength(units.length);
+    // No marks: the scope is unchanged (every line for translation; 번역 제외 lines never run).
+    expect(pick({ marks: [] })).toEqual(translatable(db, projectId).sort());
   });
 
   it('skips a 미번역 line a person translated, unless the scope ignores the status filter', () => {
@@ -60,7 +65,8 @@ describe('run scope by marks', () => {
     // A route's untranslated lines: more than the 500 ids an IN list binds one by one.
     const route = units.slice(100, 900).map((unit) => unit.id);
     const picked = selectRunUnits(db, first.projectId, workflow.definition, { unitIds: [...route, foreign.id], ignoreStatus: true });
-    expect(picked.sort()).toEqual([...route].sort());
+    const forTranslation = new Set(translatable(db, first.projectId));
+    expect(picked.sort()).toEqual(route.filter((id) => forTranslation.has(id)).sort());
   });
 
   it('filters by statusIds specified in scope', () => {

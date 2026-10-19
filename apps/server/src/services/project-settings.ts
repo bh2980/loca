@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { aiConfirmSchema, editorAiSchema, formatRulesSchema, markColorsSchema, type AgentSettings } from '@tw/shared';
+import { aiConfirmSchema, editorAiSchema, exclusionRulesSchema, formatRulesSchema, markColorsSchema, type AgentSettings } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
@@ -15,6 +15,7 @@ export const projectSettingsInput = z.object({
   name: z.string().trim().min(1).optional(),
   description: z.string().optional(),
   formatRules: formatRulesSchema.optional(),
+  exclusionRules: exclusionRulesSchema.optional(),
   aiConfirm: aiConfirmSchema.optional(),
   editorAi: editorAiSchema.optional(),
   markColors: markColorsSchema.optional(),
@@ -28,6 +29,6 @@ export function updateProjectSettings(db: Db, projectId: string, patch: z.infer<
 }
 
 export function readProjectSettings(db: Db, projectId: string) {
-  const row = db.select({ name: s.projects.name, description: s.projects.description, formatRules: s.projects.formatRules, aiConfirm: s.projects.aiConfirm, editorAi: s.projects.editorAi, markColors: s.projects.markColors, agentSettings: s.projects.agentSettings }).from(s.projects).where(eq(s.projects.id, projectId)).get();
-  return row ? { ...row, aiConfirm: aiConfirmSchema.parse(row.aiConfirm), editorAi: editorAiSchema.parse(row.editorAi) } : null;
+  const row = db.select({ name: s.projects.name, description: s.projects.description, formatRules: s.projects.formatRules, exclusionRules: s.projects.exclusionRules, aiConfirm: s.projects.aiConfirm, editorAi: s.projects.editorAi, markColors: s.projects.markColors, agentSettings: s.projects.agentSettings }).from(s.projects).where(eq(s.projects.id, projectId)).get();
+  return row ? { ...row, exclusionRules: exclusionRulesSchema.parse(row.exclusionRules), aiConfirm: aiConfirmSchema.parse(row.aiConfirm), editorAi: editorAiSchema.parse(row.editorAi) } : null;
 }

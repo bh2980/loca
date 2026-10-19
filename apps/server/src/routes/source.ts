@@ -3,7 +3,7 @@ import { readingRouteQuery } from '../services/reading-route-query.ts';
 import { projectReadingRoute } from '../services/reading-route.ts';
 import { and, asc, count, desc, eq, gt, inArray, like, lt, ne, notLike, or, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
-import { createGroupSchema, updateGroupSchema, createUnitSchema, updateUnitSchema, isSpecialListener, type NodeType } from '@tw/shared';
+import { createGroupSchema, updateGroupSchema, createUnitSchema, updateUnitSchema, isSpecialListener, LINE_TRANSLATE, type NodeType } from '@tw/shared';
 import { createGroup, updateGroup, deleteGroup, createUnit, updateUnit, deleteUnits } from '../services/source-mutations.ts';
 import { attachUnitTags } from '../services/tag-scope.ts';
 import { assertProjectRefs } from '../services/project-refs.ts';
@@ -25,7 +25,7 @@ import { seamDetail, seamLines, seamNodes, seamStates } from '../services/seam-c
 import { lineMatches } from '../services/line-matches.ts';
 import { lineTextFilter } from '../services/line-text.ts';
 import { lineMarksSchema } from '@tw/shared';
-import { knownListenerSql, markConditions, sameSource } from '../services/line-marks.ts';
+import { excludedSql, knownListenerSql, markConditions, sameSource, translatableSql } from '../services/line-marks.ts';
 import { CompleteRefused, completeLine } from '../services/editor-complete.ts';
 import { assistLine } from '../services/editor-assist.ts';
 import { describeRule, knownListener as knownListenerOf, speechRuleIndex } from '../services/speech.ts';
@@ -87,6 +87,8 @@ const unitPatch = z.object({
   listener: z.string().trim().min(1).nullable().optional(),
   /** A person's note on the line; empty clears it. Who set the status is not touched. */
   note: z.string().max(2000).optional(),
+  /** 번역 제외, a person's call: include / exclude whatever the rules say; null hands it back to the rules. */
+  translate: z.enum(LINE_TRANSLATE).nullable().optional(),
 })
   // A text or status sent here would be dropped silently; refusing it keeps the one save path.
   .strict();
@@ -106,6 +108,7 @@ const unitColumns = {
   statusId: s.units.statusId,
   statusBy: s.units.statusBy,
   note: s.units.note,
+  translate: s.units.translate,
   statusRunId: s.units.statusRunId,
   updatedAt: s.units.updatedAt,
 };
@@ -189,13 +192,17 @@ export const sourceRoutes = new Hono<Env>()
     if (kind) conditions.push(eq(s.groups.kind, kind));
     if (q) conditions.push(or(like(s.groups.title, `%${q}%`), like(s.groups.key, `%${q}%`))!);
     const rows = db.select({ id: s.groups.id, key: s.groups.key, kind: s.groups.kind, title: s.groups.title, description: s.groups.description, section: s.groups.section, sort: s.groups.sort }).from(s.groups).where(and(...conditions)).orderBy(asc(s.groups.sort)).all();
+    // Progress counts lines for translation; 번역 제외 lines are counted apart.
     const counts = db
       .select({ groupId: s.units.groupId, statusId: s.units.statusId, count: count() })
       .from(s.units)
-      .where(eq(s.units.projectId, projectId))
+      .where(and(eq(s.units.projectId, projectId), translatableSql(projectId)))
       .groupBy(s.units.groupId, s.units.statusId)
       .all();
     const byGroup = Map.groupBy(counts, (row) => row.groupId);
+    const excluded = new Map(
+      db.select({ groupId: s.units.groupId, count: count() }).from(s.units).where(and(eq(s.units.projectId, projectId), excludedSql(projectId))).groupBy(s.units.groupId).all().map((row) => [row.groupId, row.count]),
+    );
     // Lines whose listener is still unknown (the #청자 미상 mark): where speech rules cannot apply yet.
     const unknown = new Map(
       db
@@ -209,7 +216,7 @@ export const sourceRoutes = new Hono<Env>()
     return c.json(
       rows.map((group) => {
         const statuses = Object.fromEntries((byGroup.get(group.id) ?? []).map((row) => [row.statusId, row.count]));
-        return { ...group, total: Object.values(statuses).reduce((sum, value) => sum + value, 0), statuses, unknownListeners: unknown.get(group.id) ?? 0 };
+        return { ...group, total: Object.values(statuses).reduce((sum, value) => sum + value, 0), statuses, excluded: excluded.get(group.id) ?? 0, unknownListeners: unknown.get(group.id) ?? 0 };
       }),
     );
   })
@@ -287,6 +294,8 @@ export const sourceRoutes = new Hono<Env>()
         removeTagIds: z.array(z.string()).default([]),
         /** A person's listener for the picked dialogue lines (null = unknown); narration keeps none. */
         listener: z.string().trim().min(1).nullable().optional(),
+        /** 번역 제외 for the picked lines (null = the rules decide). */
+        translate: z.enum(LINE_TRANSLATE).nullable().optional(),
       }),
     ),
     (c) => {
@@ -299,6 +308,7 @@ export const sourceRoutes = new Hono<Env>()
       saveStatuses(tx, projectId, body.unitIds, { statusId: body.statusId, checked: body.checked });
       attachUnitTags(tx, projectId, body.unitIds, { add: body.addTagIds, remove: body.removeTagIds }, { onMisplaced: 'refuse' });
       if (body.listener !== undefined) setHumanListener(tx, body.unitIds, body.listener);
+      if (body.translate !== undefined) eachChunk(body.unitIds, (ids) => tx.update(s.units).set({ translate: body.translate }).where(and(eq(s.units.projectId, projectId), inArray(s.units.id, ids))).run());
     });
     events.changed(projectId, 'units', 'statuses');
     return c.json({ ok: true });
@@ -428,6 +438,7 @@ export const sourceRoutes = new Hono<Env>()
     if (refusesListener(unit, body.listener)) badRequest('나레이션에는 청자가 없습니다.');
     db.transaction((tx) => {
       if (body.note !== undefined) tx.update(s.units).set({ note: body.note.trim() }).where(eq(s.units.id, unitId)).run();
+      if (body.translate !== undefined) tx.update(s.units).set({ translate: body.translate }).where(eq(s.units.id, unitId)).run();
       if (body.listener !== undefined) setHumanListener(tx, [unitId], body.listener);
       if (body.tagIds) {
         const current = tx.select({ tagId: s.unitTags.tagId }).from(s.unitTags).where(eq(s.unitTags.unitId, unitId)).all().map((row) => row.tagId);

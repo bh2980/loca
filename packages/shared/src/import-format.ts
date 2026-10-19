@@ -1,5 +1,6 @@
 import { AGE_BANDS, CHARACTER_ROLES, GENDERS } from './knowledge.ts';
 import { formatRulesSchema } from './format-check.ts';
+import { exclusionReason, type ExclusionReason } from './exclusion.ts';
 import { z } from 'zod';
 import { relationshipChangeSchema, SPEECH_LEVELS } from './knowledge.ts';
 
@@ -225,7 +226,15 @@ export const importFileJsonSchema = () => z.toJSONSchema(importFileSchema, { io:
 
 /** Counts for a validated file, shown before import (app and `loca format check`). */
 export function summarizeImport(file: ImportFile) {
+  // 번역 제외 under the default rules (the project's own rules start as the defaults).
+  const excludedBy: Partial<Record<ExclusionReason, number>> = {};
+  for (const unit of file.units) {
+    const reason = exclusionReason(unit.source, file.project.formatRules, undefined, file.project.sourceLanguage);
+    if (reason) excludedBy[reason] = (excludedBy[reason] ?? 0) + 1;
+  }
   return {
+    excluded: Object.values(excludedBy).reduce((sum, count) => sum + count, 0),
+    excludedBy,
     name: file.project.name,
     groups: file.groups.length,
     units: file.units.length,
@@ -256,8 +265,6 @@ export function importWarnings(file: ImportFile): { message: string; examples: s
     const unknown = [...new Set(file.units.flatMap((unit) => (unit.speaker && !names.has(unit.speaker) ? [unit.speaker] : [])))];
     if (unknown.length) warnings.push({ message: `인물 목록에 없는 화자 ${unknown.length}명: 프로필·관계가 문맥에 붙지 않습니다`, examples: unknown.slice(0, 5) });
   }
-  const empty = file.units.filter((unit) => !unit.source.trim());
-  if (empty.length) warnings.push({ message: `원문이 빈 대사 ${empty.length}개`, examples: empty.slice(0, 5).map((unit) => unit.key) });
   return warnings;
 }
 export type NodeType = z.infer<typeof nodeTypeSchema>;

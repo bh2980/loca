@@ -7,7 +7,7 @@ import { packGroups } from '../engine/batches.ts';
 import { buildPrompt } from '../engine/prompts.ts';
 import { wholeScriptRequest } from '../engine/whole-script.ts';
 import { resolveChoiceOptions } from './choice-options.ts';
-import { planRun, sceneLinks, selectRunUnits } from '../engine/run-create.ts';
+import { excludedInScope, planRun, sceneLinks, selectRunUnits } from '../engine/run-create.ts';
 import { buildContext } from './context.ts';
 import { choiceLabel } from './routes.ts';
 import { speechRuleIndex } from './speech.ts';
@@ -117,7 +117,7 @@ export async function preflight(db: Db, workflow: Pick<typeof s.workflows.$infer
   return {
     readiness,
     pace,
-    lines: { total: units.length, translated: units.filter((unit) => unit.translation).length, untranslated: units.filter((unit) => !unit.translation).length },
+    lines: { total: units.length, excluded: excludedInScope(db, projectId, definition, scope), translated: units.filter((unit) => unit.translation).length, untranslated: units.filter((unit) => !unit.translation).length },
     plan: {
       batches: sizes.length,
       linesPerBatch: sizes.length ? { min: sizes[0], median: sizes[Math.floor(sizes.length / 2)], max: sizes.at(-1)! } : null,
