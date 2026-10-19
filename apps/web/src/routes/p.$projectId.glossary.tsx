@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, CircleStop, ScanSearch, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { DataTable, type ColumnDef, EmptyState, TagMenu, SplitPane, FilterChips, SearchInput, FilterBar, ActionBar, type FilterChip, Button, StatusBarItem, useRevealDock, ContextMenuItem, ContextMenuSeparator, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Spinner } from '@loca/ui';
-import { HeaderFilter, MarkFilter, markTagGroups } from '@/components/header-filter';
+import { HeaderFilter, MarkFilter, markTagGroups, togglePick, type FilterPick } from '@/components/header-filter';
 import { FillDialog } from '@/components/glossary/fill-dialog';
 import { NEW_TERM, NewTermPane, TermEditor, type Term } from '@/components/glossary/term-pane';
 import { HeaderActions, Page } from '@/components/page';
@@ -24,6 +24,8 @@ export const Route = createFileRoute('/p/$projectId/glossary')({
     term: typeof raw.term === 'string' && raw.term ? raw.term : undefined,
     ids: Array.isArray(raw.ids) && raw.ids.length && raw.ids.every((id) => typeof id === 'string') ? (raw.ids as string[]) : undefined,
     tags: Array.isArray(raw.tags) && raw.tags.length && raw.tags.every((id) => typeof id === 'string') ? (raw.tags as string[]) : undefined,
+    hideMarks: parseMarks(raw.hideMarks, TERM_MARK_IDS),
+    hideTags: Array.isArray(raw.hideTags) && raw.hideTags.length && raw.hideTags.every((id) => typeof id === 'string') ? (raw.hideTags as string[]) : undefined,
   }),
   component: Glossary,
 });
@@ -36,6 +38,9 @@ interface GlossarySearch {
   marks?: AutoMark[];
   /** Tag ids: terms carrying all of them. */
   tags?: string[];
+  /** 숨기기: terms carrying any of these marks or tags are left out. */
+  hideMarks?: AutoMark[];
+  hideTags?: string[];
   /** Only these terms (a run's scope, from the run dialog's readiness list); a removable chip, combined with the other filters. */
   ids?: string[];
 }
@@ -73,7 +78,8 @@ function Glossary() {
 
   // Who wrote a term (출처) and who set its status (✦ when AI confirmed it and no person has looked yet).
   const asDraft = (term: Term) => ({ ...term, evidence: [] });
-  const all = (terms.data ?? []).filter((term) => matches(asDraft(term), search.source, undefined, search.tags) && matchesMarks(termMarksOf(term), search.marks));
+  const hidden = (term: Term) => termMarksOf(term).some((mark) => search.hideMarks?.includes(mark)) || Boolean(term.tags?.some((tag) => search.hideTags?.includes(tag.id)));
+  const all = (terms.data ?? []).filter((term) => matches(asDraft(term), search.source, undefined, search.tags) && matchesMarks(termMarksOf(term), search.marks) && !hidden(term));
   const queryClient = useQueryClient();
   const decide = useMutation({
     mutationFn: ({ ids, accept }: { ids: string[]; accept: boolean }) => unwrap(client.projects[':projectId'].drafts.$post({ param: { projectId }, json: { kind: 'terms', ids, action: accept ? 'confirm' : 'discard' } })),
@@ -122,13 +128,13 @@ function Glossary() {
   const statuses = useQuery(q.statuses(projectId));
   const knownTags = tagsIn(statuses.data?.tags, 'terms');
   const pickedTags = search.tags ?? [];
-  const toggleMark = (mark: AutoMark, on: boolean) => {
-    const next = on ? [...new Set([...(search.marks ?? []), mark])] : (search.marks ?? []).filter((other) => other !== mark);
-    setFilter({ marks: next.length ? next : undefined });
+  const pickMark = (mark: AutoMark, mode: FilterPick) => {
+    const next = togglePick(search.marks, search.hideMarks, mark, mode);
+    setFilter({ marks: next.show, hideMarks: next.hide });
   };
-  const toggleTag = (id: string, on: boolean) => {
-    const next = on ? [...pickedTags, id] : pickedTags.filter((other) => other !== id);
-    setFilter({ tags: next.length ? next : undefined });
+  const pickTag = (id: string, mode: FilterPick) => {
+    const next = togglePick(search.tags, search.hideTags, id, mode);
+    setFilter({ tags: next.show, hideTags: next.hide });
   };
   const tag = useMutation({
     mutationFn: ({ ids, tagId, add }: { ids: string[]; tagId: string; add: boolean }) => unwrap(client.projects[':projectId']['knowledge-tags'].$post({ param: { projectId }, json: { kind: 'terms', ids, tagId, add } })),
@@ -144,10 +150,15 @@ function Glossary() {
   const chips: FilterChip[] = [
     ...(search.ids ? [{ key: 'ids', label: `실행 범위 ${search.ids.length}`, clear: () => setFilter({ ids: undefined }) }] : []),
     ...(search.source ? [{ key: 'source', label: SOURCE_LABELS[search.source], clear: () => setFilter({ source: undefined }) }] : []),
-    ...(search.marks ?? []).map((mark) => ({ key: `mark:${mark}`, label: `#${AUTO_MARKS[mark].name}`, color: markColor(mark, markColors), clear: () => toggleMark(mark, false) })),
+    ...(search.marks ?? []).map((mark) => ({ key: `mark:${mark}`, label: `#${AUTO_MARKS[mark].name}`, color: markColor(mark, markColors), clear: () => pickMark(mark, 'show') })),
+    ...(search.hideMarks ?? []).map((mark) => ({ key: `hide-mark:${mark}`, label: `#${AUTO_MARKS[mark].name}`, color: markColor(mark, markColors), hidden: true, clear: () => pickMark(mark, 'hide') })),
     ...pickedTags.map((id) => {
       const known = knownTags.find((tag) => tag.id === id);
-      return { key: `tag:${id}`, label: `#${known?.name ?? id}`, color: known?.color, clear: () => toggleTag(id, false) };
+      return { key: `tag:${id}`, label: `#${known?.name ?? id}`, color: known?.color, clear: () => pickTag(id, 'show') };
+    }),
+    ...(search.hideTags ?? []).map((id) => {
+      const known = knownTags.find((tag) => tag.id === id);
+      return { key: `hide-tag:${id}`, label: `#${known?.name ?? id}`, color: known?.color, hidden: true, clear: () => pickTag(id, 'hide') };
     }),
   ];
 
@@ -169,8 +180,8 @@ function Glossary() {
       header: () => (
         <MarkFilter
           label="태그"
-          groups={markTagGroups({ marks: TERM_MARK_IDS, picked: search.marks, onToggle: toggleMark, tags: knownTags, pickedTags, onToggleTag: toggleTag })}
-          onClear={() => setFilter({ marks: undefined, tags: undefined })}
+          groups={markTagGroups({ marks: TERM_MARK_IDS, picked: search.marks, hidden: search.hideMarks, onMark: pickMark, tags: knownTags, pickedTags, hiddenTags: search.hideTags, onTag: pickTag })}
+          onClear={() => setFilter({ marks: undefined, tags: undefined, hideMarks: undefined, hideTags: undefined })}
         />
       ),
       meta: { width: 150, label: '태그' },

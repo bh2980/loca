@@ -7,7 +7,7 @@ import { events } from '../events.ts';
 import { attachUnitTags, scopeRefusal } from './tag-scope.ts';
 import { saveLine } from './line-save.ts';
 import { refusesListener, setHumanListener } from './listeners.ts';
-import { knownListenerSql, markConditions, translatableSql } from './line-marks.ts';
+import { hiddenMarkConditions, knownListenerSql, markConditions, translatableSql } from './line-marks.ts';
 import { lineTextFilter } from './line-text.ts';
 import { describeRule, knowledgeOf, knownListener, speechMismatch, speechRuleIndex } from './speech.ts';
 
@@ -77,6 +77,11 @@ export function findLines(db: Db, projectId: string, filter: LineFilter, options
   // Several tags: lines carrying every one of them, as in the app's list.
   for (const tag of filter.tags ?? []) where.push(sql`${s.units.id} in (select unit_id from ${s.unitTags} where tag_id = ${tagId(tag) ?? tag})`);
   where.push(...markConditions(projectId, filter.marks));
+  // 숨기기: any one of these leaves a line out.
+  if (filter.hideSpeakers?.length) where.push(sql`coalesce(${s.units.speaker}, '') not in (select value from json_each(${JSON.stringify(filter.hideSpeakers.flatMap(namesOf))}))`);
+  if (filter.hideStatuses?.length) where.push(sql`${s.units.statusId} not in (select value from json_each(${JSON.stringify(filter.hideStatuses.map((value) => statusId(value) ?? value))}))`);
+  for (const tag of filter.hideTags ?? []) where.push(sql`${s.units.id} not in (select unit_id from ${s.unitTags} where tag_id = ${tagId(tag) ?? tag})`);
+  where.push(...hiddenMarkConditions(projectId, filter.hideMarks));
   // Asking for translated or untranslated lines (exports, checks) asks for lines to translate: 번역 제외 lines stay out.
   if (filter.translated !== undefined) where.push(filter.translated ? sql`${s.units.translation} is not null and ${s.units.translation} != ''` : sql`(${s.units.translation} is null or ${s.units.translation} = '')`, translatableSql(projectId));
   if (filter.keys?.length) where.push(inList(s.units.key, filter.keys));

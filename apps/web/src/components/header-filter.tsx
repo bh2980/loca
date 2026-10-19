@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
-import { Check, ListFilter } from 'lucide-react';
+import { Check, EyeOff, ListFilter } from 'lucide-react';
 import type { AutoMark } from '@tw/shared';
-import { Button, Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, Popover, PopoverContent, PopoverTrigger, TagChip } from '@loca/ui';
+import { Button, Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, Popover, PopoverContent, PopoverTrigger, SegmentedControl, TagChip } from '@loca/ui';
 import { MarkChip } from '@/components/status';
 import { cn } from '@/lib/utils';
 
@@ -79,11 +79,51 @@ export function HeaderFilter({ label, value, options, onChange, groups }: {
   );
 }
 
+/**
+ * How a pick filters: 'show' keeps only the lines that have it, 'hide' leaves them out. A filter menu
+ * picks in one mode at a time (FilterModeSwitch at its top) and a picked row shows which (PickIcon).
+ */
+export type FilterPick = 'show' | 'hide';
+
+export function FilterModeSwitch({ mode, onMode }: { mode: FilterPick; onMode: (mode: FilterPick) => void }) {
+  return (
+    <SegmentedControl
+      ariaLabel="필터 방식"
+      className="flex w-full [&>*]:flex-1"
+      value={mode}
+      onChange={(value) => onMode(value as FilterPick)}
+      items={[
+        { value: 'show', label: <><ListFilter aria-hidden="true" />이것만 보기</> },
+        { value: 'hide', label: <><EyeOff aria-hidden="true" />숨기기</> },
+      ]}
+    />
+  );
+}
+
+/** A row's pick: ✓ shown only, an eye shut for hidden, nothing when not picked. */
+export function PickIcon({ state }: { state: FilterPick | undefined }) {
+  return state === 'hide' ? <EyeOff className="size-3.5 text-muted-foreground" aria-label="숨김" /> : <Check className={cn('size-3.5', state ? 'opacity-100' : 'opacity-0')} aria-label={state ? '이것만 보기' : undefined} />;
+}
+
+/**
+ * One value picked in a mode: the value moves to that mode's list (out of the other), or comes out
+ * of both when it already was there. Empty lists become undefined, as the URL keeps them.
+ */
+export function togglePick<T>(show: readonly T[] | undefined, hide: readonly T[] | undefined, value: T, mode: FilterPick) {
+  const was: FilterPick | undefined = show?.includes(value) ? 'show' : hide?.includes(value) ? 'hide' : undefined;
+  const nextShow = (show ?? []).filter((item) => item !== value);
+  const nextHide = (hide ?? []).filter((item) => item !== value);
+  if (was !== mode) (mode === 'show' ? nextShow : nextHide).push(value);
+  return { show: nextShow.length ? nextShow : undefined, hide: nextHide.length ? nextHide : undefined };
+}
+
+export const pickOf = <T,>(show: readonly T[] | undefined, hide: readonly T[] | undefined, value: T): FilterPick | undefined => (show?.includes(value) ? 'show' : hide?.includes(value) ? 'hide' : undefined);
+
 export interface MarkOption {
   key: string;
   label: ReactNode;
-  checked: boolean;
-  onChange: (on: boolean) => void;
+  state: FilterPick | undefined;
+  onPick: (mode: FilterPick) => void;
 }
 
 export interface MarkGroup {
@@ -96,21 +136,24 @@ export interface MarkGroup {
  * the automatic marks, then the tags, as chips. With `issueHeading`, tags that have a role
  * (problem types) get a group of their own and `tagHeading` keeps the rest.
  */
-export function markTagGroups({ marks, picked, onToggle, tags, pickedTags, onToggleTag, projectId, tagHeading = '태그', issueHeading }: {
+export function markTagGroups({ marks, picked, hidden, onMark, tags, pickedTags, hiddenTags, onTag, projectId, tagHeading = '태그', issueHeading }: {
   marks: readonly AutoMark[];
   picked: readonly AutoMark[] | undefined;
-  onToggle: (mark: AutoMark, on: boolean) => void;
+  hidden?: readonly AutoMark[] | undefined;
+  /** A mark picked in a mode (togglePick decides what that does). */
+  onMark: (mark: AutoMark, mode: FilterPick) => void;
   tags: { id: string; name: string; color: string; role?: string | null }[];
   pickedTags: readonly string[] | undefined;
-  onToggleTag: (tagId: string, on: boolean) => void;
+  hiddenTags?: readonly string[] | undefined;
+  onTag: (tagId: string, mode: FilterPick) => void;
   projectId?: string;
   tagHeading?: string;
   issueHeading?: string;
 }): MarkGroup[] {
-  const tagOptions = (list: typeof tags): MarkOption[] => list.map((tag) => ({ key: tag.id, label: <TagChip tag={tag} />, checked: Boolean(pickedTags?.includes(tag.id)), onChange: (on) => onToggleTag(tag.id, on) }));
+  const tagOptions = (list: typeof tags): MarkOption[] => list.map((tag) => ({ key: tag.id, label: <TagChip tag={tag} />, state: pickOf(pickedTags, hiddenTags, tag.id), onPick: (mode) => onTag(tag.id, mode) }));
   // Groups with nothing to pick are left out (a project without problem-type tags shows no such heading).
   const groups: MarkGroup[] = [
-    { heading: "자동 태그", options: marks.map((mark) => ({ key: mark, label: <MarkChip mark={mark} projectId={projectId} />, checked: Boolean(picked?.includes(mark)), onChange: (on) => onToggle(mark, on) })) },
+    { heading: "자동 태그", options: marks.map((mark) => ({ key: mark, label: <MarkChip mark={mark} projectId={projectId} />, state: pickOf(picked, hidden, mark), onPick: (mode) => onMark(mark, mode) })) },
     ...(issueHeading ? [{ heading: issueHeading, options: tagOptions(tags.filter((tag) => tag.role)) }] : []),
     { heading: tagHeading, options: tagOptions(issueHeading ? tags.filter((tag) => !tag.role) : tags) },
   ];
@@ -118,13 +161,15 @@ export function markTagGroups({ marks, picked, onToggle, tags, pickedTags, onTog
 }
 
 /**
- * A column header that filters by marks and tags, several at once: each check narrows the rows
- * further (all must hold). The popover stays open while ticking; '전체' clears every pick.
+ * A column header that filters by marks and tags, several at once: shown picks narrow the rows (all
+ * must hold), hidden ones leave rows out (any one does). The popover stays open while picking; '전체'
+ * clears every pick.
  */
 export function MarkFilter({ label, groups, onClear }: { label: string; groups: MarkGroup[]; onClear: () => void }) {
-  const active = groups.some((group) => group.options.some((option) => option.checked));
+  const active = groups.some((group) => group.options.some((option) => option.state));
+  const [mode, setMode] = useState<FilterPick>('show');
   return (
-    <Popover>
+    <Popover onOpenChange={(open) => open && setMode('show')}>
       <PopoverTrigger asChild>
         <Button variant="ghost" size="inline" className={cn('-mx-1 text-muted-foreground', active && 'text-primary')} aria-label={`${label} 필터`}>
           {label}
@@ -132,6 +177,9 @@ export function MarkFilter({ label, groups, onClear }: { label: string; groups: 
         </Button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-64 p-0">
+        <div className="p-1.5 pb-0">
+          <FilterModeSwitch mode={mode} onMode={setMode} />
+        </div>
         <Command>
           <CommandList>
             <CommandGroup>
@@ -144,8 +192,8 @@ export function MarkFilter({ label, groups, onClear }: { label: string; groups: 
               group.options.length ? (
                 <CommandGroup key={group.heading} heading={group.heading}>
                   {group.options.map((option) => (
-                    <CommandItem key={option.key} value={option.key} onSelect={() => option.onChange(!option.checked)}>
-                      <Check className={cn('size-3.5', option.checked ? 'opacity-100' : 'opacity-0')} />
+                    <CommandItem key={option.key} value={option.key} onSelect={() => option.onPick(mode)}>
+                      <PickIcon state={option.state} />
                       <span className="truncate">{option.label}</span>
                     </CommandItem>
                   ))}

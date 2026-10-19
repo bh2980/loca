@@ -8,7 +8,7 @@ import { tokenPatternOf } from '@/lib/line-context';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { lineTags, q, useMarkColors } from '@/lib/queries';
 import { markColor } from '@tw/shared';
-import { hasLineFilter, LineFilters, filterChips, type LinesSearch } from '@/components/script/line-filters';
+import { hasLineFilter, LineFilters, filterChips, lineQueryParams, type LinesSearch } from '@/components/script/line-filters';
 import { LineHeadRow, useLineBulk } from '@/components/script/line-bulk';
 import { LineRow } from '@/components/script/line-row';
 import { sceneSelectionState } from '@/components/script/scene-selection';
@@ -91,7 +91,7 @@ export function LineList({
       projectId,
       find
         ? { groupId, focus: focusing, offset: page * PAGE_SIZE, limit: PAGE_SIZE }
-        : { groupId, section, kind, review: review ? '1' : undefined, marks: search.marks?.join(','), q: search.q, statusId: search.status, tagIds: search.tags?.join(','), speaker: search.speaker, listener: search.listener, focus: focusing, offset: page * PAGE_SIZE, limit: PAGE_SIZE },
+        : { groupId, section, kind, review: review ? '1' : undefined, ...lineQueryParams(search), focus: focusing, offset: page * PAGE_SIZE, limit: PAGE_SIZE },
     ),
   );
   // Scene checkboxes operate on the entire filtered result, not just this page. Keep the
@@ -102,12 +102,7 @@ export function LineList({
     section,
     kind,
     review: review ? '1' : undefined,
-    marks: search.marks?.join(','),
-    q: search.q,
-    statusId: search.status,
-    tagIds: search.tags?.join(','),
-    speaker: search.speaker,
-    listener: search.listener,
+    ...lineQueryParams(search),
   });
   const matches = useQuery({ ...matchesQuery, enabled: showScene });
   useEffect(() => {
@@ -276,6 +271,7 @@ export function LineList({
             key: chip.key,
             label: chip.label,
             color: chip.mark ? markColor(chip.mark, markColors) : chip.tag?.color,
+            hidden: chip.hidden,
             clear: () => onSearch({ ...chip.clear, page: undefined }),
           }))}
         />

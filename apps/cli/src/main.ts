@@ -172,6 +172,10 @@ interface FilterOptions {
   status?: string[];
   tag?: string[];
   mark?: LineMark[];
+  hideSpeaker?: string[];
+  hideStatus?: string[];
+  hideTag?: string[];
+  hideMark?: LineMark[];
   translated?: boolean;
   untranslated?: boolean;
   key?: string[];
@@ -192,6 +196,10 @@ function withFilters(command: Command) {
     .option('--status <statuses...>', '상태 이름')
     .option('--tag <tags...>', '태그 이름 (모두 붙은 대사)')
     .addOption(new Option('--mark <marks...>', '자동 표시(앱의 #태그)가 모두 붙은 대사. 앱 목록의 필터와 같은 규칙').choices(LINE_MARK_IDS))
+    .option('--hide-speaker <names...>', '숨기기: 이 인물이 하는 대사는 뺌')
+    .option('--hide-status <statuses...>', '숨기기: 이 상태의 대사는 뺌')
+    .option('--hide-tag <tags...>', '숨기기: 이 태그 중 하나라도 붙은 대사는 뺌')
+    .addOption(new Option('--hide-mark <marks...>', '숨기기: 이 자동 표시 중 하나라도 붙은 대사는 뺌 (예: excluded = #번역 제외)').choices(LINE_MARK_IDS))
     .option('--translated', '번역이 있는 대사만')
     .option('--untranslated', '번역이 없는 대사만')
     .option('--key <keys...>', '대사 키')
@@ -212,6 +220,10 @@ function filterFrom(options: FilterOptions): LineFilterInput {
     statuses: options.status,
     tags: options.tag,
     marks: options.mark,
+    hideSpeakers: options.hideSpeaker,
+    hideStatuses: options.hideStatus,
+    hideTags: options.hideTag,
+    hideMarks: options.hideMark,
     translated: options.translated ? true : options.untranslated ? false : undefined,
     keys: options.key,
     limit: options.limit ? Number(options.limit) : undefined,

@@ -8,7 +8,7 @@ import { type AutoMark, isSpecialListener, knowledgeMarksOf, listenerLabel, matc
 import { EmptyState, DataTable, type ColumnDef, Inspector, InspectorHeader, InspectorSection, InspectorBlock, InspectorField, InspectorList, InspectorResult, TagListEditor, Badge, Button } from '@loca/ui';
 import { DraftEditor } from '@/components/knowledge/editor';
 import { StretchPicker } from '@/components/knowledge/evidence';
-import { candidateRow, fail, matches, metaColumns, SourceBadge, type Draft, type KnowledgeFilterState, type KindSpec, type RelationshipRow, type SourceFilter, type SpeechRuleRow } from '@/components/knowledge/table';
+import { candidateRow, fail, isHidden, matches, metaColumns, SourceBadge, type Draft, type KnowledgeFilterState, type KindSpec, type RelationshipRow, type SourceFilter, type SpeechRuleRow } from '@/components/knowledge/table';
 import { splitList } from '@/components/chip-input';
 import { client, unwrap } from '@/lib/api';
 import { q, tagsIn, useReviewTagId } from '@/lib/queries';
@@ -73,8 +73,9 @@ export const pairSummary = (pair: Pair): Draft => {
 /** The marks any item of a pair carries: what its row shows and the marks filter reads. */
 export const pairMarks = (pair: Pair): AutoMark[] => [...new Set([pair.relationship, ...pair.rules].flatMap((row) => (row ? knowledgeMarksOf(row) : [])))];
 /** Pairs matching the filters: by source and tags through any one item, by marks through the pair's marks. */
-export const pairMatches = (pair: Pair, source: SourceFilter, marks?: readonly AutoMark[], tags?: string[]) =>
-  matchesMarks(pairMarks(pair), marks) && [pair.relationship, ...pair.rules].some((row) => row && matches(row, source, undefined, tags));
+export const pairMatches = (pair: Pair, source: SourceFilter, marks?: readonly AutoMark[], tags?: string[], hidden: { hideMarks?: readonly AutoMark[]; hideTags?: readonly string[] } = {}) =>
+  matchesMarks(pairMarks(pair), marks) && [pair.relationship, ...pair.rules].some((row) => row && matches(row, source, undefined, tags)) && !isHidden(pairMarks(pair), pairTagIds(pair), hidden);
+const pairTagIds = (pair: Pair) => [pair.relationship, ...pair.rules].flatMap((row) => (row?.tags ?? []).map((tag) => tag.id));
 export const pairItems = (pair: Pair) => [...(pair.relationship ? [{ kind: 'relationships' as const, row: pair.relationship }] : []), ...pair.rules.map((row) => ({ kind: 'speechRules' as const, row }))];
 /** Why the app marked an item for a look (its tag's note), or null. */
 const reviewOf = (row: Draft, reviewTag?: string) => row.tags?.find((tag) => tag.id === reviewTag)?.note ?? null;

@@ -221,7 +221,7 @@ export function LineRow({
 }) {
   const project = useQuery(q.project(projectId)).data;
   const rules = project?.formatRules ?? undefined;
-  // 번역 제외: kept in the list (seen, muted, marked) but out of progress, runs and exports.
+  // 번역 제외: hidden from the list by default (the 숨기기 filter); shown on request, it carries its mark.
   const excluded = lineExclusion(line, rules, project?.exclusionRules, project?.sourceLanguage) !== null;
   // Narration and lines of format tokens only are said to nobody: no listener slot, unless a person or the import gave one.
   const said = needsListener(line, rules) || (Boolean(line.listener) && (line.listenerOrigin === 'human' || line.listenerOrigin === 'import'));
@@ -368,7 +368,7 @@ export function LineRow({
       selected={selected}
       compact={compact}
       layout="grid"
-      className={cn(selected ? 'bg-selection' : 'cursor-pointer hover:bg-accent', marked && !selected && 'bg-warning/5', excluded && !selected && 'opacity-60')}
+      className={cn(selected ? 'bg-selection' : 'cursor-pointer hover:bg-accent', marked && !selected && 'bg-warning/5')}
     />
   );
   const saveLine = useSaveLine();

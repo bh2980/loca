@@ -3,17 +3,25 @@ import { Fragment, useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { ChevronDown } from 'lucide-react';
 import { AUTO_MARKS, type AutoMark, LINE_MARK_IDS, type LineMark, parseMarks } from '@tw/shared';
-import { markTagGroups } from '@/components/header-filter';
+import { FilterModeSwitch, markTagGroups, pickOf, PickIcon, togglePick, type FilterPick } from '@/components/header-filter';
 import { knownListenerFilter, toggleLineMarkFilter, unknownListenerFilter } from '@/lib/line-filter-state';
-import { Button, Input, DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger, StatusIcon } from '@loca/ui';
+import { Button, Input, DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger, StatusIcon } from '@loca/ui';
 import { q } from '@/lib/queries';
 
 export interface LinesSearch {
   q?: string;
-  status?: string;
+  /** Status ids: lines in any of them. */
+  statuses?: string[];
   /** Tag ids: lines carrying all of them (with the automatic marks below, all combine). */
   tags?: string[];
-  speaker?: string;
+  /** Speaker names: lines by any of them. */
+  speakers?: string[];
+  /** 숨기기: lines in any of these statuses, by any of these speakers, or with any of these tags are left out. */
+  hideStatuses?: string[];
+  hideSpeakers?: string[];
+  hideTags?: string[];
+  /** Hidden marks; absent = the default (#번역 제외 hidden), an empty list = nothing hidden. */
+  hideMarks?: LineMark[];
   /** A character name (a known listener); unknown listeners are the unknownListener mark. */
   listener?: string;
   /** Automatic marks (LINE_MARK_IDS): lines carrying every one of them. */
@@ -31,11 +39,22 @@ export interface LinesSearch {
   aiNode?: string;
 }
 
+const strings = (value: unknown) => (Array.isArray(value) && value.length && value.every((item) => typeof item === 'string') ? (value as string[]) : undefined);
+
+/** The marks hidden when the URL says nothing: lines not for translation. */
+export const DEFAULT_HIDDEN_MARKS: LineMark[] = ['excluded'];
+export const hiddenMarksOf = (search: LinesSearch) => search.hideMarks ?? DEFAULT_HIDDEN_MARKS;
+
 export const linesSearchSchema = (raw: Record<string, unknown>): LinesSearch => ({
   q: typeof raw.q === 'string' && raw.q ? raw.q : undefined,
-  status: typeof raw.status === 'string' ? raw.status : undefined,
-  tags: Array.isArray(raw.tags) && raw.tags.length && raw.tags.every((id) => typeof id === 'string') ? (raw.tags as string[]) : undefined,
-  speaker: typeof raw.speaker === 'string' && raw.speaker ? raw.speaker : undefined,
+  statuses: strings(raw.statuses),
+  tags: strings(raw.tags),
+  speakers: strings(raw.speakers),
+  hideStatuses: strings(raw.hideStatuses),
+  hideSpeakers: strings(raw.hideSpeakers),
+  hideTags: strings(raw.hideTags),
+  // An empty list is kept: it says "hide nothing" over the default.
+  hideMarks: Array.isArray(raw.hideMarks) ? (parseMarks(raw.hideMarks, LINE_MARK_IDS) ?? []) : undefined,
   listener: typeof raw.listener === 'string' && raw.listener ? raw.listener : undefined,
   marks: parseMarks(raw.marks, LINE_MARK_IDS),
   mode: raw.mode === 'find' ? 'find' : undefined,
@@ -45,26 +64,60 @@ export const linesSearchSchema = (raw: Record<string, unknown>): LinesSearch => 
   aiNode: typeof raw.aiNode === 'string' && raw.aiNode.includes(':') ? raw.aiNode : undefined,
 });
 
+/** The list query's filter params (the server's listQuery): lists of ids comma-joined, names as JSON (a name may hold a comma). */
+export function lineQueryParams(search: LinesSearch) {
+  const names = (list: string[] | undefined) => (list?.length ? JSON.stringify(list) : undefined);
+  return {
+    q: search.q,
+    marks: search.marks?.join(','),
+    hideMarks: hiddenMarksOf(search).join(',') || undefined,
+    statusIds: search.statuses?.join(','),
+    hideStatusIds: search.hideStatuses?.join(','),
+    tagIds: search.tags?.join(','),
+    hideTagIds: search.hideTags?.join(','),
+    speakers: names(search.speakers),
+    hideSpeakers: names(search.hideSpeakers),
+    listener: search.listener,
+  };
+}
+
 /** Whether any line filter is set (search, status, tag, speaker, listener, automatic marks). */
-export const hasLineFilter = (search: LinesSearch) => Boolean(search.q || search.status || search.tags?.length || search.speaker || search.listener || search.marks?.length);
+export const hasLineFilter = (search: LinesSearch) => Boolean(search.q || search.statuses?.length || search.tags?.length || search.speakers?.length || search.listener || search.marks?.length || search.hideStatuses?.length || search.hideSpeakers?.length || search.hideTags?.length);
 /** Whether the filter is walked inside the scenes rather than listed apart. */
 export const isFinding = (search: LinesSearch) => hasLineFilter(search) && search.mode === 'find';
 
 /** The set filters as removable chips (also the find bar's label). */
-export function filterChips(search: LinesSearch, statuses: { id: string; name: string }[], tags: { id: string; name: string; color: string }[]) {
+export interface LineFilterChip {
+  key: string;
+  label: string;
+  /** A 숨기기 pick: shown with an eye shut. */
+  hidden?: boolean;
+  /** Set for automatic marks / tags: shown in their colour. */
+  mark?: AutoMark;
+  tag?: { id: string; name: string; color: string };
+  clear: Partial<LinesSearch>;
+}
+
+/** The set filters as removable chips (also the find bar's label). Removing a hidden mark keeps the list explicit, so the default does not come back. */
+export function filterChips(search: LinesSearch, statuses: { id: string; name: string }[], tags: { id: string; name: string; color: string }[]): LineFilterChip[] {
+  const without = <T,>(list: readonly T[] | undefined, value: T) => {
+    const rest = (list ?? []).filter((item) => item !== value);
+    return rest.length ? rest : undefined;
+  };
+  const statusName = (id: string) => statuses.find((status) => status.id === id)?.name ?? '?';
+  const tagOf = (id: string) => tags.find((tag) => tag.id === id);
+  const hiddenMarks = hiddenMarksOf(search);
   return [
-    search.status && { key: 'status', label: `상태: ${statuses.find((status) => status.id === search.status)?.name ?? '?'}`, clear: { status: undefined } },
-    ...(search.tags ?? []).map((id) => {
-      const rest = search.tags!.filter((other) => other !== id);
-      return { key: `tag-${id}`, label: `#${tags.find((tag) => tag.id === id)?.name ?? '?'}`, tag: tags.find((tag) => tag.id === id), clear: { tags: rest.length ? rest : undefined } };
-    }),
-    search.speaker && { key: 'speaker', label: `화자: ${search.speaker}`, clear: { speaker: undefined } },
-    search.listener && { key: 'listener', label: `청자: ${search.listener}`, clear: { listener: undefined } },
-    ...(search.marks ?? []).map((mark) => {
-      const rest = search.marks!.filter((other) => other !== mark);
-      return { key: `mark-${mark}`, label: `#${AUTO_MARKS[mark].name}`, mark, clear: { marks: rest.length ? rest : undefined } };
-    }),
-  ].filter(Boolean) as { key: string; label: string; /** Set for automatic marks / tags: shown as their chip. */ mark?: AutoMark; tag?: { id: string; name: string; color: string }; clear: Partial<LinesSearch> }[];
+    ...(search.statuses ?? []).map((id) => ({ key: `status-${id}`, label: `상태: ${statusName(id)}`, clear: { statuses: without(search.statuses, id) } })),
+    ...(search.hideStatuses ?? []).map((id) => ({ key: `hide-status-${id}`, label: `상태: ${statusName(id)}`, hidden: true, clear: { hideStatuses: without(search.hideStatuses, id) } })),
+    ...(search.tags ?? []).map((id) => ({ key: `tag-${id}`, label: `#${tagOf(id)?.name ?? '?'}`, tag: tagOf(id), clear: { tags: without(search.tags, id) } })),
+    ...(search.hideTags ?? []).map((id) => ({ key: `hide-tag-${id}`, label: `#${tagOf(id)?.name ?? '?'}`, tag: tagOf(id), hidden: true, clear: { hideTags: without(search.hideTags, id) } })),
+    ...(search.speakers ?? []).map((name) => ({ key: `speaker-${name}`, label: `화자: ${name}`, clear: { speakers: without(search.speakers, name) } })),
+    ...(search.hideSpeakers ?? []).map((name) => ({ key: `hide-speaker-${name}`, label: `화자: ${name}`, hidden: true, clear: { hideSpeakers: without(search.hideSpeakers, name) } })),
+    ...(search.listener ? [{ key: 'listener', label: `청자: ${search.listener}`, clear: { listener: undefined } }] : []),
+    ...(search.marks ?? []).map((mark) => ({ key: `mark-${mark}`, label: `#${AUTO_MARKS[mark].name}`, mark, clear: { marks: without(search.marks, mark) } })),
+    ...hiddenMarks.map((mark) => ({ key: `hide-mark-${mark}`, label: `#${AUTO_MARKS[mark].name}`, mark, hidden: true, clear: { hideMarks: hiddenMarks.filter((other) => other !== mark) } })),
+  ];
 }
 
 /**
@@ -90,39 +143,68 @@ export function LineFilters({ projectId, statuses, tags, speakers, listeners, un
   const [listenerNeedle, setListenerNeedle] = useState('');
   const shownSpeakers = speakers.filter((speaker) => !speakerNeedle || speaker.name.toLowerCase().includes(speakerNeedle.toLowerCase())).slice(0, 40);
   const shownListeners = listeners.filter((listener) => !listenerNeedle || listener.name.toLowerCase().includes(listenerNeedle.toLowerCase())).slice(0, 40);
-  const toggleTag = (id: string, on: boolean) => {
-    const next = on ? [...(search.tags ?? []), id] : (search.tags ?? []).filter((other) => other !== id);
-    onSearch({ tags: next.length ? next : undefined });
+  // Each menu picks in one mode at a time; it opens on 이것만 보기.
+  const [statusMode, setStatusMode] = useState<FilterPick>('show');
+  const [speakerMode, setSpeakerMode] = useState<FilterPick>('show');
+  const [tagMode, setTagMode] = useState<FilterPick>('show');
+  const pickTag = (id: string, mode: FilterPick) => {
+    const next = togglePick(search.tags, search.hideTags, id, mode);
+    onSearch({ tags: next.show, hideTags: next.hide });
   };
-  const toggleMark = (mark: LineMark, on: boolean) => {
-    onSearch(toggleLineMarkFilter(search, mark, on));
+  const pickMark = (mark: LineMark, mode: FilterPick) => {
+    const hidden = hiddenMarksOf(search);
+    if (mode === 'show' && !search.marks?.includes(mark)) return onSearch({ ...toggleLineMarkFilter(search, mark, true), hideMarks: hidden.filter((other) => other !== mark) });
+    if (mode === 'show') return onSearch(toggleLineMarkFilter(search, mark, false));
+    // Hidden: out of the shown marks; the list stays explicit (an empty one hides nothing).
+    const next = togglePick(search.marks, hidden, mark, 'hide');
+    onSearch({ marks: next.show, hideMarks: next.hide ?? [] });
   };
-  const groups = markTagGroups({ marks: LINE_MARK_IDS, picked: search.marks, onToggle: (mark, on) => toggleMark(mark as LineMark, on), tags, pickedTags: search.tags, onToggleTag: toggleTag, projectId, tagHeading: '내 태그', issueHeading: '문제 유형' });
+  const groups = markTagGroups({ marks: LINE_MARK_IDS, picked: search.marks, hidden: hiddenMarksOf(search), onMark: (mark, mode) => pickMark(mark as LineMark, mode), tags, pickedTags: search.tags, hiddenTags: search.hideTags, onTag: pickTag, projectId, tagHeading: '내 태그', issueHeading: '문제 유형' });
   return (
     <div className="flex min-w-0 items-center gap-0.5">
-      <DropdownMenu>
+      <DropdownMenu onOpenChange={(open) => open && setStatusMode('show')}>
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" className="text-muted-foreground">상태 <ChevronDown /></Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="max-h-[70svh] w-56 overflow-y-auto">
-          {statuses.map((status) => (
-            <DropdownMenuCheckboxItem key={status.id} checked={search.status === status.id} onSelect={(event) => event.preventDefault()} onCheckedChange={(on) => onSearch({ status: on ? status.id : undefined })}>
-              <StatusIcon status={status} /> {status.name}
-            </DropdownMenuCheckboxItem>
-          ))}
+        <DropdownMenuContent align="start" className="max-h-[70svh] w-60 overflow-y-auto">
+          <div className="p-1"><FilterModeSwitch mode={statusMode} onMode={setStatusMode} /></div>
+          <DropdownMenuGroup>
+            {statuses.map((status) => (
+              <DropdownMenuItem
+                key={status.id}
+                onSelect={(event) => {
+                  event.preventDefault();
+                  const next = togglePick(search.statuses, search.hideStatuses, status.id, statusMode);
+                  onSearch({ statuses: next.show, hideStatuses: next.hide });
+                }}
+              >
+                <PickIcon state={pickOf(search.statuses, search.hideStatuses, status.id)} />
+                <StatusIcon status={status} /> {status.name}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>
-      {withSpeakers && <DropdownMenu onOpenChange={(open) => !open && (setSpeakerNeedle(''), setListenerNeedle(''))}>
+      {withSpeakers && <DropdownMenu onOpenChange={(open) => (open ? setSpeakerMode('show') : (setSpeakerNeedle(''), setListenerNeedle('')))}>
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" className="text-muted-foreground">화자 <ChevronDown /></Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="max-h-[70svh] w-56 overflow-y-auto">
+          <div className="p-1"><FilterModeSwitch mode={speakerMode} onMode={setSpeakerMode} /></div>
           <Input value={speakerNeedle} onChange={(event) => setSpeakerNeedle(event.target.value)} onKeyDown={(event) => event.stopPropagation()} placeholder="이름 찾기" className="mb-1" aria-label="화자 찾기" />
           {shownSpeakers.map((speaker) => (
-            <DropdownMenuCheckboxItem key={speaker.name} checked={search.speaker === speaker.name} onSelect={(event) => event.preventDefault()} onCheckedChange={(on) => onSearch({ speaker: on ? speaker.name : undefined })}>
+            <DropdownMenuItem
+              key={speaker.name}
+              onSelect={(event) => {
+                event.preventDefault();
+                const next = togglePick(search.speakers, search.hideSpeakers, speaker.name, speakerMode);
+                onSearch({ speakers: next.show, hideSpeakers: next.hide });
+              }}
+            >
+              <PickIcon state={pickOf(search.speakers, search.hideSpeakers, speaker.name)} />
               <span className="min-w-0 flex-1 truncate">{speaker.name}</span>
               <span className="text-xs text-muted-foreground tabular-nums">{speaker.lines.toLocaleString()}</span>
-            </DropdownMenuCheckboxItem>
+            </DropdownMenuItem>
           ))}
           {shownSpeakers.length === 0 && <p className="px-2 py-1 text-xs text-muted-foreground">일치하는 화자가 없습니다.</p>}
           <DropdownMenuSeparator />
@@ -153,19 +235,21 @@ export function LineFilters({ projectId, statuses, tags, speakers, listeners, un
           </DropdownMenuSub>
         </DropdownMenuContent>
       </DropdownMenu>}
-      <DropdownMenu>
+      <DropdownMenu onOpenChange={(open) => open && setTagMode('show')}>
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" className="text-muted-foreground">태그 <ChevronDown /></Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="max-h-[70svh] w-56 overflow-y-auto">
-          {/* Automatic marks, user tags and issue types all narrow the list together. */}
+        <DropdownMenuContent align="start" className="max-h-[70svh] w-60 overflow-y-auto">
+          <div className="p-1"><FilterModeSwitch mode={tagMode} onMode={setTagMode} /></div>
+          {/* Automatic marks, user tags and issue types: shown ones narrow the list together, hidden ones leave lines out. */}
           {groups.map((group) => (
             <Fragment key={group.heading}>
               <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">{group.heading}</DropdownMenuLabel>
               {group.options.map((option) => (
-                <DropdownMenuCheckboxItem key={option.key} checked={option.checked} onSelect={(event) => event.preventDefault()} onCheckedChange={option.onChange}>
+                <DropdownMenuItem key={option.key} onSelect={(event) => { event.preventDefault(); option.onPick(tagMode); }}>
+                  <PickIcon state={option.state} />
                   {option.label}
-                </DropdownMenuCheckboxItem>
+                </DropdownMenuItem>
               ))}
             </Fragment>
           ))}

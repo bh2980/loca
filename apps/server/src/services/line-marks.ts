@@ -45,6 +45,11 @@ function markCondition(projectId: string, mark: LineMark): SQL {
   }
 }
 
+/** 숨기기: lines carrying any of these marks are left out (one condition). */
+export function hiddenMarkConditions(projectId: string, marks: readonly LineMark[] | undefined): SQL[] {
+  return [...new Set(marks ?? [])].map((mark) => sql`not (${markCondition(projectId, mark)})`);
+}
+
 /** One condition per mark, to be ANDed with the rest of a line query over `units`. */
 export function markConditions(projectId: string, marks: readonly LineMark[] | undefined): SQL[] {
   return [...new Set(marks ?? [])].map((mark) => markCondition(projectId, mark));
