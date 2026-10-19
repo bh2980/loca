@@ -82,7 +82,7 @@ const SortableRow = forwardRef<
       ref={setActivatorNodeRef}
       variant="ghost"
       size="icon-xs"
-      className="cursor-grab touch-none text-muted-foreground opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100 hover:text-foreground"
+      className="h-6 w-3.5 cursor-grab touch-none rounded-xs text-muted-foreground opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100 hover:text-foreground"
       aria-label={`${label} 순서 바꾸기 (스페이스를 누르고 ↑↓)`}
       onClick={(event) => event.stopPropagation()}
       {...attributes}
@@ -322,12 +322,15 @@ function Table<T>({
     [picked, pickableIds]
   )
   const pickedCount = pickedInView
-  const pickable = Boolean(onPick && picked)
+  // No checkbox column when no row can be picked (e.g. only built-in items).
+  const pickable = Boolean(onPick && picked) && (!canPick || pickableIds.length > 0)
   const bulking = Boolean(bulk && picked && picked.size > 0)
   const visibleColumns = table.getVisibleLeafColumns()
   const menuWidth = id ? 32 : 0
   const sortable = Boolean(onReorder)
-  const span = visibleColumns.length + (pickable ? 1 : 0) + (id ? 1 : 0) + (sortable ? 1 : 0)
+  // One leading cell holds the checkbox, with the drag grip in its left padding (no column of its own).
+  const lead = pickable || (sortable && (!reorderable || (rows ?? []).some(reorderable)))
+  const span = visibleColumns.length + (lead ? 1 : 0) + (id ? 1 : 0)
 
   const tableRows = table.getRowModel().rows
   const virtualize = !sortable && tableRows.length > 80
@@ -353,8 +356,7 @@ function Table<T>({
   const widthOf = (column: { id: string; columnDef: ColumnDef<T, unknown> }) =>
     sizing[column.id] ?? column.columnDef.meta?.width
   const minWidth =
-    (sortable ? 28 : 0) +
-    (pickable ? 36 : 0) +
+    (pickable ? 36 : sortable ? 20 : 0) +
     menuWidth +
     visibleColumns.reduce((sum, column) => sum + (widthOf(column) ?? FLEX_MIN), 0)
 
@@ -392,14 +394,15 @@ function Table<T>({
         rowClassName?.(row.original)
       ),
     }
-    const cells = (
+    const cells = (grip?: ReactNode) => (
       <>
-        {pickable && (
+        {lead && (
           <td
-            className="pl-3.5 align-middle py-2.5"
+            className={cn("relative align-middle py-2.5", pickable && "pl-3.5")}
             onClick={(event) => event.stopPropagation()}
           >
-            {(!canPick || canPick(row.original)) && (
+            {grip && <span className="absolute inset-y-0 left-0 flex items-center">{grip}</span>}
+            {pickable && (!canPick || canPick(row.original)) && (
               <Checkbox
                 aria-label="선택"
                 checked={picked!.has(row.id)}
@@ -415,7 +418,7 @@ function Table<T>({
               key={cell.id}
               className={cn(
                 "px-3 py-2.5 align-middle text-sm text-foreground",
-                index === 0 && !pickable && !sortable && "pl-4",
+                index === 0 && !lead && "pl-4",
                 meta?.wrap ? "break-words whitespace-pre-wrap" : "truncate",
                 meta?.align === "end" && "text-right tabular-nums",
                 meta?.className
@@ -437,16 +440,11 @@ function Table<T>({
         label={rowLabel?.(row.original) ?? "행"}
         {...rowProps}
       >
-        {(grip) => (
-          <>
-            <td className="pl-1 align-middle">{grip}</td>
-            {cells}
-          </>
-        )}
+        {(grip) => cells(grip)}
       </SortableRow>
     ) : (
       <tr key={row.id} ref={isSelected ? selectedRow : undefined} {...rowProps}>
-        {cells}
+        {cells()}
       </tr>
     )
     if (menu) {
@@ -468,8 +466,7 @@ function Table<T>({
           style={{ minWidth }}
         >
           <colgroup>
-            {sortable && <col className="w-7" />}
-            {pickable && <col className="w-9" />}
+            {lead && <col className={pickable ? "w-9" : "w-5"} />}
             {visibleColumns.map((column) => (
               <col
                 key={column.id}
@@ -481,7 +478,7 @@ function Table<T>({
           <thead className="sticky top-0 z-10 bg-chrome backdrop-blur-xs select-none">
             {table.getHeaderGroups().map((group) => (
               <tr key={group.id}>
-                {sortable && <th className="h-8" />}
+                {lead && !pickable && <th className="h-8" />}
                 {pickable && (
                   <th className="h-8 pl-3.5 text-left align-middle">
                     <Checkbox
@@ -516,7 +513,7 @@ function Table<T>({
                       key={header.id}
                       className={cn(
                         "group/th relative h-8  px-3 text-left align-middle text-xs font-normal text-muted-foreground whitespace-nowrap",
-                        index === 0 && !pickable && !sortable && "pl-4",
+                        index === 0 && !lead && "pl-4",
                         header.column.columnDef.meta?.align === "end" && "text-right"
                       )}
                     >
