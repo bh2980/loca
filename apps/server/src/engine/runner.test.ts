@@ -361,43 +361,6 @@ describe('function nodes', () => {
 });
 
 describe('who set the status', () => {
-  const confirmFlow = (statusId: string) =>
-    workflowDefinitionSchema.parse({
-      nodes: [
-        { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: {} },
-        { id: 'confirm', type: 'function', position: { x: 0, y: 0 }, config: { fn: 'setStatus', params: { statusId } } },
-        { id: 'end', type: 'end', position: { x: 0, y: 0 } },
-      ],
-      edges: [
-        { id: '1', source: 'entry', sourceHandle: 'out', target: 'confirm' },
-        { id: '2', source: 'confirm', sourceHandle: 'out', target: 'end' },
-      ],
-    });
-
-  it('sends a line to the review inbox instead of a status only a person may set, and says why', async () => {
-    const { db, projectId } = setup(2);
-    const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).all();
-    const final = statuses.find((status) => status.kind === 'final')!;
-    const inbox = statuses.find((status) => status.inReview)!;
-    db.update(s.statuses).set({ humanOnly: true }).where(eq(s.statuses.id, final.id)).run();
-    const workflow = db.insert(s.workflows).values({ projectId, name: '확정', definition: confirmFlow(final.id) }).returning().get();
-    const { runId } = createRun(db, { projectId, workflow, models: {}, scope: {} });
-    await new Runner(db, memoryStore(), noModel).drain();
-
-    const units = db.select().from(s.units).where(eq(s.units.projectId, projectId)).all();
-    expect(units.map((unit) => [unit.statusId, unit.statusBy, unit.statusRunId])).toEqual(units.map(() => [inbox.id, 'ai', runId]));
-    const items = db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all();
-    expect(items.every((item) => item.data.issues?.[0]?.includes('워크플로가 지정하지 않는 상태라 검토함으로 보냈습니다'))).toBe(true);
-
-    // Without a review-inbox status the line stays where it was, with the same reason.
-    db.update(s.statuses).set({ inReview: false }).where(eq(s.statuses.projectId, projectId)).run();
-    const before = units[0].statusId;
-    const again = createRun(db, { projectId, workflow, models: {}, scope: { unitIds: [units[0].id], ignoreStatus: true } });
-    await new Runner(db, memoryStore(), noModel).drain();
-    expect(db.select().from(s.units).where(eq(s.units.id, units[0].id)).get()!.statusId).toBe(before);
-    expect(db.select().from(s.runItems).where(eq(s.runItems.runId, again.runId)).get()!.data.issues?.[0]).toContain('상태라 바꾸지 않았습니다');
-  });
-
   it('keeps a person\'s translation and status in a status-filtered run, and only reports it', async () => {
     const { syncFunctions } = await import('./functions/index.ts');
     const { db, projectId } = setup(1);

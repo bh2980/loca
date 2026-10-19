@@ -10,7 +10,6 @@ export interface StatusRowData {
   kind: Kind;
   units: number;
   inReview: boolean;
-  humanOnly: boolean;
 }
 export interface TagRowData {
   id: string;
@@ -26,4 +25,4 @@ export interface TagRowData {
 /** All three places read as 어디든. */
 export const scopeLabel = (scope: readonly TagScope[]) => (TAG_SCOPES.every((place) => scope.includes(place)) ? '어디든' : TAG_SCOPES.filter((place) => scope.includes(place)).map((place) => TAG_SCOPE_LABELS[place]).join(' · '));
 export type TagForm = { name: string; color: string; scope: TagScope[] };
-export type StatusForm = { name: string; color: string; kind: Kind; inReview: boolean; humanOnly: boolean };
+export type StatusForm = { name: string; color: string; kind: Kind; inReview: boolean };

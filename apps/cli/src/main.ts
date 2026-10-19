@@ -605,11 +605,11 @@ program
   .command('statuses')
   .description('번역 상태: 종류(시작·중간·최종), 순서, 검토함 표시')
   .action(async () => {
-    type Status = { id: string; name: string; kind: string; sort: number; inReview: boolean; humanOnly: boolean; color: string };
+    type Status = { id: string; name: string; kind: string; sort: number; inReview: boolean; color: string };
     const rows = await readTool<Status[]>('list_statuses');
     if (globals().json) return printList(rows.length, rows);
     const kind: Record<string, string> = { initial: '시작', normal: '중간', final: '최종' };
-    for (const row of rows) console.log(`${row.name.padEnd(10)} ${kind[row.kind] ?? row.kind}${row.inReview ? ' · 검토함' : ''}${row.humanOnly ? ' · 워크플로 지정 안 함' : ''}  (${row.id})`);
+    for (const row of rows) console.log(`${row.name.padEnd(10)} ${kind[row.kind] ?? row.kind}${row.inReview ? ' · 검토함' : ''}  (${row.id})`);
   });
 
 const workflows = program.command('workflows').description('워크플로: 목록, 노드·연결·검증 보기, 파일로 고쳐 제안하기');

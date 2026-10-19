@@ -1,4 +1,4 @@
-import { and, count, eq, sql } from 'drizzle-orm';
+import { and, count, eq, inArray, sql } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
@@ -39,27 +39,39 @@ export function updateStatus(db: Db, projectId: string, id: string, input: unkno
   return row!;
 }
 
-export function deleteStatus(db: Db, projectId: string, id: string, moveTo: string) {
-  if (moveTo === id) throw new TaxonomyMutationError('삭제할 상태로는 옮길 수 없습니다.');
+/** Statuses deleted together: their lines move to `moveTo`, and each kind keeps at least one start and one final status. */
+export function deleteStatuses(db: Db, projectId: string, ids: string[], moveTo: string) {
+  if (ids.includes(moveTo)) throw new TaxonomyMutationError('삭제할 상태로는 옮길 수 없습니다.');
   const target = db.select().from(s.statuses).where(and(eq(s.statuses.id, moveTo), eq(s.statuses.projectId, projectId))).get();
   if (!target) throw new TaxonomyMutationError('옮길 상태를 찾을 수 없습니다.', 404);
-  const current = db.select({ id: s.statuses.id, kind: s.statuses.kind }).from(s.statuses).where(and(eq(s.statuses.id, id), eq(s.statuses.projectId, projectId))).get();
-  if (!current) throw new TaxonomyMutationError('상태를 찾을 수 없습니다.', 404);
-  if (current.kind === 'initial' || current.kind === 'final') {
-    const remaining = db.select({ count: count() }).from(s.statuses).where(and(eq(s.statuses.projectId, projectId), eq(s.statuses.kind, current.kind))).get()!.count;
-    if (remaining <= 1) throw new TaxonomyMutationError(current.kind === 'initial' ? '처음 상태는 하나 이상 있어야 합니다.' : '완료 상태는 하나 이상 있어야 합니다.');
+  const all = db.select({ id: s.statuses.id, kind: s.statuses.kind }).from(s.statuses).where(eq(s.statuses.projectId, projectId)).all();
+  const doomed = all.filter((status) => ids.includes(status.id));
+  if (doomed.length !== new Set(ids).size) throw new TaxonomyMutationError('상태를 찾을 수 없습니다.', 404);
+  for (const kind of ['initial', 'final'] as const) {
+    if (doomed.some((status) => status.kind === kind) && all.filter((status) => status.kind === kind && !ids.includes(status.id)).length === 0)
+      throw new TaxonomyMutationError(kind === 'initial' ? '처음 상태는 하나 이상 있어야 합니다.' : '완료 상태는 하나 이상 있어야 합니다.');
   }
-  if (target.kind === 'final') requireFilledTranslations(db, projectId, id);
+  if (target.kind === 'final') for (const id of ids) requireFilledTranslations(db, projectId, id);
   db.transaction((tx) => {
-    tx.update(s.units).set({ statusId: moveTo }).where(and(eq(s.units.projectId, projectId), eq(s.units.statusId, id))).run();
-    tx.delete(s.statuses).where(and(eq(s.statuses.id, id), eq(s.statuses.projectId, projectId))).run();
+    tx.update(s.units).set({ statusId: moveTo }).where(and(eq(s.units.projectId, projectId), inArray(s.units.statusId, ids))).run();
+    tx.delete(s.statuses).where(and(eq(s.statuses.projectId, projectId), inArray(s.statuses.id, ids))).run();
   });
   events.changed(projectId, 'statuses', 'units', 'workflows');
+  return { ok: true as const, deleted: doomed.length };
+}
+
+/** The person's own tags in this order; the app's tags keep their place first. */
+export function orderTags(db: Db, projectId: string, ids: string[]) {
+  db.transaction((tx) => {
+    ids.forEach((id, sort) => tx.update(s.tags).set({ sort }).where(and(eq(s.tags.id, id), eq(s.tags.projectId, projectId))).run());
+  });
+  events.changed(projectId, 'statuses');
   return { ok: true as const };
 }
 
 export function createTag(db: Db, projectId: string, input: unknown) {
-  const row = db.insert(s.tags).values({ ...tagInput.parse(input), projectId }).returning().get();
+  const sort = db.select({ max: sql<number>`coalesce(max(${s.tags.sort}), -1)` }).from(s.tags).where(eq(s.tags.projectId, projectId)).get()!.max + 1;
+  const row = db.insert(s.tags).values({ ...tagInput.parse(input), projectId, sort }).returning().get();
   events.changed(projectId, 'statuses');
   return row;
 }
@@ -79,11 +91,12 @@ export function updateTag(db: Db, projectId: string, id: string, input: unknown)
   return row!;
 }
 
-export function deleteTag(db: Db, projectId: string, id: string) {
-  const tag = db.select({ role: s.tags.role }).from(s.tags).where(and(eq(s.tags.id, id), eq(s.tags.projectId, projectId))).get();
-  if (!tag) throw new TaxonomyMutationError('태그를 찾을 수 없습니다.', 404);
-  if (tag.role) throw new TaxonomyMutationError('앱이 쓰는 태그는 지울 수 없습니다.');
-  const result = deleteItems(db, projectId, 'tags', [id]);
+/** The person's own tags; the app's tags cannot be deleted. */
+export function deleteTags(db: Db, projectId: string, ids: string[]) {
+  const rows = db.select({ id: s.tags.id, role: s.tags.role }).from(s.tags).where(and(eq(s.tags.projectId, projectId), inArray(s.tags.id, ids))).all();
+  if (rows.length !== new Set(ids).size) throw new TaxonomyMutationError('태그를 찾을 수 없습니다.', 404);
+  if (rows.some((tag) => tag.role)) throw new TaxonomyMutationError('앱이 쓰는 태그는 지울 수 없습니다.');
+  const result = deleteItems(db, projectId, 'tags', ids);
   return { ok: true as const, deleted: result.deleted };
 }
 

@@ -25,11 +25,12 @@ export class CompleteRefused extends Error {
   }
 }
 
-/** Calls made today (local midnight on) for the editor of a project, against its daily cap. */
+/** Autocomplete calls made today (local midnight on) in a project, against its daily cap: they go out as the person types, AI 번역·다듬기 only on a click. */
+const COMPLETE_LABEL = '편집기 자동완성';
 export function editorCallsToday(db: Db, projectId: string) {
   const midnight = new Date();
   midnight.setHours(0, 0, 0, 0);
-  return db.select({ n: sql<number>`count(*)` }).from(s.aiCalls).where(and(eq(s.aiCalls.projectId, projectId), eq(s.aiCalls.kind, 'editor'), gte(s.aiCalls.startedAt, midnight))).get()?.n ?? 0;
+  return db.select({ n: sql<number>`count(*)` }).from(s.aiCalls).where(and(eq(s.aiCalls.projectId, projectId), eq(s.aiCalls.kind, 'editor'), eq(s.aiCalls.label, COMPLETE_LABEL), gte(s.aiCalls.startedAt, midnight))).get()?.n ?? 0;
 }
 
 /**
@@ -86,7 +87,7 @@ export async function completeLine(db: Db, secrets: SecretStore, unitId: string,
   ].join('\n');
 
   const call = (target: ai.ResolvedRoute) =>
-    logged(db, { projectId: unit.projectId, kind: 'editor', refId: unitId, label: '편집기 자동완성', request: prompt }, target, () =>
+    logged(db, { projectId: unit.projectId, kind: 'editor', refId: unitId, label: COMPLETE_LABEL, request: prompt }, target, () =>
       ai.complete(target, { system: COMPLETE_SYSTEM, prompt, maxOutputTokens: 400, timeoutMs: COMPLETE_TIMEOUT_MS, signal }),
     );
   const result = await call(route).catch((error: unknown) => {

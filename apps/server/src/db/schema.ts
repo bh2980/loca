@@ -58,8 +58,6 @@ export const statuses = sqliteTable('statuses', {
   sort: integer('sort').notNull(),
   /** Lines in this status are listed in the review inbox, however they got there. */
   inReview: integer('in_review', { mode: 'boolean' }).notNull().default(false),
-  /** Only a person may put a line here: a run that tries sends it to the review inbox instead. */
-  humanOnly: integer('human_only', { mode: 'boolean' }).notNull().default(false),
 });
 
 export const tags = sqliteTable('tags', {
@@ -71,6 +69,8 @@ export const tags = sqliteTable('tags', {
   role: text('role', { enum: TAG_ROLES as unknown as [TagRole, ...TagRole[]] }),
   /** Where a person's own tag can be put (the app's tags derive theirs from the role: tagScope). */
   scope: json<TagScope[]>('scope').notNull().default(sql`'["lines","terms","people","documents","events"]'`),
+  /** Order among the person's own tags (the app's tags list first, by name). */
+  sort: integer('sort').notNull().default(0),
 });
 
 export const groups = sqliteTable(

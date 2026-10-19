@@ -309,7 +309,8 @@ export function LineRow({
     </li>
   );
   const checkbox = <Checkbox aria-label={`${line.key} 선택`} checked={isPicked} onClick={(event) => event.stopPropagation()} onCheckedChange={(checked) => onPick(Boolean(checked))} />;
-  const speaker = line.kind === 'ui' ? (
+  // Lines without a speaker (UI strings, documents) show their key in its place, level with the status opposite.
+  const speaker = line.kind === 'ui' || line.kind === 'document' ? (
     <span className="truncate font-mono text-xs text-muted-foreground" title={line.key}>{line.key}</span>
   ) : line.speaker ? (
     <SpeakerCard projectId={projectId} name={line.speaker}><SpeakerIdentity speaker={line.speaker} listener={said ? (who.unknown ? null : who.text) : undefined} listenerIsPerson={!line.listener || !Object.hasOwn(SPECIAL_LISTENERS, line.listener) && !who.unknown} /></SpeakerCard>

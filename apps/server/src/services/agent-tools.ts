@@ -15,7 +15,7 @@ import { characterInput, documentInput, eventInput, relationshipInput, speechRul
 import { describeRule, knownListener, speechRuleIndex } from './speech.ts';
 import { workflowIssues } from './workflow-issues.ts';
 import { statusInput, tagInput } from '../schemas/projects.ts';
-import { createStatus, createTag, deleteStatus, deleteTag, TaxonomyMutationError, updateStatus, updateTag } from './project-taxonomy.ts';
+import { createStatus, createTag, deleteStatuses, deleteTags, TaxonomyMutationError, updateStatus, updateTag } from './project-taxonomy.ts';
 import { deleteWorkflow, saveWorkflow, WorkflowMutationError } from './workflow-mutations.ts';
 import { createGroup, createUnit, deleteGroup, deleteUnits, updateGroup, updateUnit } from './source-mutations.ts';
 import { mentions } from './context.ts';
@@ -653,12 +653,12 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       },
     }),
     delete_status: tool({
-      description: 'Delete a translation status and move its lines to another status. Blank translations cannot be moved to a final status.',
-      inputSchema: z.object({ id: z.string().min(1), moveTo: z.string().min(1) }),
+      description: 'Delete translation statuses and move their lines to another status. Blank translations cannot be moved to a final status.',
+      inputSchema: z.object({ ids: z.array(z.string().min(1)).min(1), moveTo: z.string().min(1) }),
       needsApproval: true,
-      execute: ({ id, moveTo }) => {
+      execute: ({ ids, moveTo }) => {
         try {
-          return deleteStatus(db, projectId, id, moveTo);
+          return deleteStatuses(db, projectId, ids, moveTo);
         } catch (error) {
           if (error instanceof TaxonomyMutationError) return { ok: false, error: error.message };
           throw error;
@@ -680,12 +680,12 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       },
     }),
     delete_tag: tool({
-      description: 'Delete a custom tag. App-owned tags cannot be deleted.',
-      inputSchema: z.object({ id: z.string().min(1) }),
+      description: 'Delete custom tags. App-owned tags cannot be deleted.',
+      inputSchema: z.object({ ids: z.array(z.string().min(1)).min(1) }),
       needsApproval: true,
-      execute: ({ id }) => {
+      execute: ({ ids }) => {
         try {
-          return deleteTag(db, projectId, id);
+          return deleteTags(db, projectId, ids);
         } catch (error) {
           if (error instanceof TaxonomyMutationError) return { ok: false, error: error.message };
           throw error;

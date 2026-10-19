@@ -79,7 +79,7 @@ export function projectTags(db: Pick<Db, 'select'>, projectId: string) {
     })
     .from(s.tags)
     .where(eq(s.tags.projectId, projectId))
-    .orderBy(asc(s.tags.name))
+    .orderBy(asc(s.tags.sort), asc(s.tags.name))
     .all()
     .map((tag) => ({ ...tag, scope: tagScope(tag) }));
 }

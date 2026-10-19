@@ -5,9 +5,9 @@ import { TagPane } from '@/components/settings/tag-pane';
 import { scopeLabel, type StatusForm, type StatusRowData, type TagForm, type TagRowData } from '@/components/settings/status-types';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
-import { Plus } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { AUTO_MARK_IDS, AUTO_MARKS, markColor, REVIEW_TAG, type AutoMark, type MarkColors } from '@tw/shared';
+import { AUTO_MARK_IDS, AUTO_MARKS, markColor, normalizeTagScopes, REVIEW_TAG, TAG_SCOPE_LABELS, TAG_SCOPES, type AutoMark, type MarkColors } from '@tw/shared';
 import { EmptyState, DataTable, type ColumnDef, SplitPane, AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, StatusIcon, TagChip, SettingsContent, SettingsSection, ContextMenuItem, ContextMenuSeparator } from '@loca/ui';
 import { Page } from '@/components/page';
 import { MarkChip } from '@/components/status';
@@ -15,13 +15,18 @@ import { client, unwrap } from '@/lib/api';
 import { STATUS_KIND } from '@/lib/labels';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
+import { usePicked } from '@/lib/use-picked';
+import { HeaderFilter } from '@/components/header-filter';
 import { optimistic } from '@/lib/optimistic';
 
-type StatusSearch = { status?: string; tag?: string; mark?: AutoMark };
+type StatusSearch = { status?: string; tag?: string; mark?: AutoMark; on?: TagFilterPlace };
+/** 붙는 곳 filter of the tag table ('knowledge' is not a place of its own). */
+const TAG_FILTER_PLACES = TAG_SCOPES.filter((place) => place !== 'knowledge');
+type TagFilterPlace = (typeof TAG_FILTER_PLACES)[number];
 const param = (value: unknown) => (typeof value === 'string' && value ? value : undefined);
 
 export const Route = createFileRoute('/p/$projectId/settings/statuses')({
-  validateSearch: (raw: Record<string, unknown>): StatusSearch => ({ status: param(raw.status), tag: param(raw.tag), mark: AUTO_MARK_IDS.find((id) => id === raw.mark) }),
+  validateSearch: (raw: Record<string, unknown>): StatusSearch => ({ status: param(raw.status), tag: param(raw.tag), mark: AUTO_MARK_IDS.find((id) => id === raw.mark), on: TAG_FILTER_PLACES.find((place) => place === raw.on) }),
   component: StatusSettings,
 });
 
@@ -34,11 +39,13 @@ function StatusSettings() {
   const tags = data.data ? (data.data.tags as TagRowData[]) : undefined;
   const project = useQuery(q.project(projectId));
   const markColors = (project.data?.markColors ?? {}) as MarkColors;
-  const [removing, setRemoving] = useState<StatusRowData | null>(null);
+  const [removing, setRemoving] = useState<StatusRowData[] | null>(null);
+  const statusPicks = usePicked(`statuses.${projectId}`);
+  const tagPicks = usePicked(`tags.${projectId}`);
   const [moveTo, setMoveTo] = useState<string>('');
 
-  /** Only one of the two panes is open at a time; the selection lives in the URL. */
-  const open = (next: StatusSearch) => void navigate({ search: next, replace: true });
+  /** Only one of the two panes is open at a time; the selection lives in the URL (the tag filter stays). */
+  const open = (next: StatusSearch) => void navigate({ search: { ...next, on: search.on }, replace: true });
   const close = () => open({});
   const selectedStatus = search.status && search.status !== 'new' ? statuses?.find((status) => status.id === search.status) : undefined;
   const selectedMark = search.mark;
@@ -79,12 +86,13 @@ function StatusSettings() {
     onError: fail,
   });
   const remove = useMutation({
-    mutationFn: (variables: { id: string; moveTo: string }) =>
-      unwrap(client.projects[':projectId'].statuses[':id'].$delete({ param: { projectId, id: variables.id }, json: { moveTo: variables.moveTo } })),
-    onSuccess: () => {
+    mutationFn: (variables: { ids: string[]; moveTo: string }) =>
+      unwrap(client.projects[':projectId'].statuses.delete.$post({ param: { projectId }, json: variables })),
+    onSuccess: (_result, variables) => {
       setRemoving(null);
-      close();
-      toast.success('상태를 삭제하고 대사를 옮겼습니다.');
+      statusPicks.clear();
+      if (search.status && variables.ids.includes(search.status)) close();
+      toast.success(`상태 ${variables.ids.length}개를 삭제하고 대사를 옮겼습니다.`);
     },
     onError: fail,
   });
@@ -118,13 +126,26 @@ function StatusSettings() {
       fail(error);
     },
   });
-  const removeTag = useMutation({
-    mutationFn: (id: string) => unwrap(client.projects[':projectId'].tags[':id'].$delete({ param: { projectId, id } })),
-    onSuccess: () => {
-      close();
-      toast.success('태그를 삭제했습니다.');
+  const removeTags = useMutation({
+    mutationFn: (ids: string[]) => unwrap(client.projects[':projectId'].tags.delete.$post({ param: { projectId }, json: { ids } })),
+    onSuccess: (_result, ids) => {
+      tagPicks.clear();
+      if (search.tag && ids.includes(search.tag)) close();
+      toast.success(`태그 ${ids.length}개를 삭제했습니다.`);
     },
     onError: fail,
+  });
+  const reorderTags = useMutation({
+    mutationFn: (ids: string[]) => unwrap(client.projects[':projectId'].tags.order.$put({ param: { projectId }, json: { ids } })),
+    onMutate: async (ids) => ({
+      undo: await optimistic(queryClient, [
+        { key: q.statuses(projectId).queryKey, update: (data: { tags: { id: string }[] }) => ({ ...data, tags: [...data.tags].sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id)) }) },
+      ]),
+    }),
+    onError: (error, _ids, context) => {
+      context?.undo();
+      fail(error);
+    },
   });
 
   const move = (status: StatusRowData, delta: number) => {
@@ -150,16 +171,20 @@ function StatusSettings() {
     },
     { id: 'kind', header: '종류', meta: { width: 112, className: 'text-muted-foreground' }, cell: ({ row }) => STATUS_KIND[row.original.kind] },
     { id: 'review', header: '검토함', meta: { width: 120 }, cell: ({ row }) => (row.original.inReview ? '표시' : <span className="text-muted-foreground">–</span>) },
-    { id: 'human', header: '워크플로 지정 안 함', meta: { width: 132 }, cell: ({ row }) => (row.original.humanOnly ? '지정 안 함' : <span className="text-muted-foreground">–</span>) },
     { id: 'units', header: '대사 수', meta: { width: 96, align: 'end' }, cell: ({ row }) => row.original.units.toLocaleString() },
   ];
   // One table: the built-in tags first (marks the app reads off, then tags the app puts on), then the person's own.
   type AnyTag = { id: string; mark?: AutoMark; tag?: TagRowData };
+  const placesOf = (row: AnyTag) => normalizeTagScopes(row.mark ? AUTO_MARKS[row.mark].on : row.tag!.scope);
   const allTags: AnyTag[] | undefined = tags && [
     ...AUTO_MARK_IDS.map((mark) => ({ id: `mark:${mark}`, mark })),
     ...tags.filter((tag) => tag.role).map((tag) => ({ id: tag.id, tag })),
     ...tags.filter((tag) => !tag.role).map((tag) => ({ id: tag.id, tag })),
   ];
+  const shownTags = allTags && search.on ? allTags.filter((row) => placesOf(row).includes(search.on!)) : allTags;
+  const ownTag = (row: AnyTag) => Boolean(row.tag && !row.tag.role);
+  const pickedTagIds = (shownTags ?? []).filter((row) => ownTag(row) && tagPicks.picked.has(row.id)).map((row) => row.id);
+  const pickedStatuses = (statuses ?? []).filter((status) => statusPicks.picked.has(status.id));
   const tagColumns: ColumnDef<AnyTag, unknown>[] = [
     {
       id: 'name',
@@ -174,8 +199,15 @@ function StatusSettings() {
     },
     {
       id: 'on',
-      header: '붙는 곳',
-      meta: { width: 140, className: 'text-muted-foreground' },
+      header: () => (
+        <HeaderFilter
+          label="붙는 곳"
+          value={search.on}
+          options={TAG_FILTER_PLACES.map((place) => ({ value: place, label: TAG_SCOPE_LABELS[place] }))}
+          onChange={(on) => void navigate({ search: (previous) => ({ ...previous, on: on as TagFilterPlace | undefined }), replace: true })}
+        />
+      ),
+      meta: { width: 140, label: '붙는 곳', className: 'text-muted-foreground' },
       cell: ({ row }) => scopeLabel(row.original.mark ? AUTO_MARKS[row.original.mark].on : row.original.tag!.scope),
     },
     {
@@ -203,22 +235,19 @@ function StatusSettings() {
       <StatusPane
         key={selectedStatus.id}
         status={selectedStatus}
-        index={statuses!.indexOf(selectedStatus)}
         count={statuses!.length}
         pending={update.isPending}
-        reordering={reorder.isPending}
         onClose={close}
         onSave={(_form, changed) => update.mutate({ id: selectedStatus.id, json: changed })}
-        onMove={(delta) => move(selectedStatus, delta)}
         onDelete={() => {
-          setRemoving(selectedStatus);
+          setRemoving([selectedStatus]);
           setMoveTo('');
         }}
       />
     ) : search.tag === 'new' ? (
       <TagPane key="new" pending={createTag.isPending} onClose={close} onSave={(form) => createTag.mutate(form)} />
     ) : selectedTag ? (
-      <TagPane key={selectedTag.id} tag={selectedTag} pending={updateTag.isPending} onClose={close} onSave={(_form, changed) => updateTag.mutate({ id: selectedTag.id, json: selectedTag.role ? { color: changed.color } : changed })} onDelete={() => removeTag.mutate(selectedTag.id)} />
+      <TagPane key={selectedTag.id} tag={selectedTag} pending={updateTag.isPending} onClose={close} onSave={(_form, changed) => updateTag.mutate({ id: selectedTag.id, json: selectedTag.role ? { color: changed.color } : changed })} onDelete={() => removeTags.mutate([selectedTag.id])} />
     ) : null;
 
   return (
@@ -245,6 +274,15 @@ function StatusSettings() {
                   selected={search.status}
                   empty={<EmptyState noun="상태" />}
                   onRowClick={(row) => open({ status: row.id })}
+                  picked={statusPicks.picked}
+                  onPick={statusPicks.pick}
+                  bulk={
+                    <Button variant="outline" className="text-destructive" disabled={pickedStatuses.length >= (statuses?.length ?? 0)} title={pickedStatuses.length >= (statuses?.length ?? 0) ? '상태를 모두 지울 수는 없습니다' : undefined} onClick={() => { setRemoving(pickedStatuses); setMoveTo(''); }}>
+                      <Trash2 /> 삭제
+                    </Button>
+                  }
+                  onReorder={(ids) => reorder.mutate(ids)}
+                  rowLabel={(row) => row.name}
                   rowContextMenu={(row) => {
                     const index = statuses?.indexOf(row) ?? -1;
                     const count = statuses?.length ?? 0;
@@ -259,7 +297,7 @@ function StatusSettings() {
                             <ContextMenuItem
                               variant="destructive"
                               onClick={() => {
-                                setRemoving(row);
+                                setRemoving(statusPicks.picked.has(row.id) && pickedStatuses.length > 1 ? pickedStatuses : [row]);
                                 setMoveTo('');
                               }}
                             >
@@ -278,7 +316,7 @@ function StatusSettings() {
               title="태그"
               headerActions={
                 <>
-                  {allTags && <span className="text-xs text-muted-foreground tabular-nums">{allTags.length}개</span>}
+                  {shownTags && <span className="text-xs text-muted-foreground tabular-nums">{shownTags.length}개</span>}
                   <Button variant="outline" onClick={() => open({ tag: 'new' })}><Plus /> 추가</Button>
                 </>
               }
@@ -288,10 +326,23 @@ function StatusSettings() {
                   id="tags"
                   className="flex-none"
                   columns={tagColumns}
-                  rows={allTags}
+                  rows={shownTags}
                   rowId={(row) => row.id}
                   selected={search.mark ? `mark:${search.mark}` : search.tag}
+                  empty={<EmptyState noun="태그" filtered={Boolean(search.on)} />}
                   onRowClick={(row) => open(row.mark ? { mark: row.mark } : { tag: row.id })}
+                  picked={tagPicks.picked}
+                  onPick={tagPicks.pick}
+                  canPick={ownTag}
+                  bulk={
+                    <Button variant="outline" className="text-destructive" disabled={!pickedTagIds.length || removeTags.isPending} onClick={() => removeTags.mutate(pickedTagIds)}>
+                      <Trash2 /> 삭제
+                    </Button>
+                  }
+                  // Only the person's own tags move, and only in the whole list (a filtered list would hide where they land).
+                  onReorder={search.on ? undefined : (ids) => reorderTags.mutate(ids.filter((id) => tags?.some((tag) => tag.id === id && !tag.role)))}
+                  reorderable={ownTag}
+                  rowLabel={(row) => row.tag?.name ?? AUTO_MARKS[row.mark!].name}
                   rowContextMenu={(row) => (
                     <>
                       <ContextMenuItem onClick={() => open(row.mark ? { mark: row.mark } : { tag: row.id })}>
@@ -302,7 +353,7 @@ function StatusSettings() {
                           <ContextMenuSeparator />
                           <ContextMenuItem
                             variant="destructive"
-                            onClick={() => removeTag.mutate(row.tag!.id)}
+                            onClick={() => removeTags.mutate(tagPicks.picked.has(row.id) && pickedTagIds.length > 1 ? pickedTagIds : [row.tag!.id])}
                           >
                             삭제
                           </ContextMenuItem>
@@ -320,9 +371,9 @@ function StatusSettings() {
       <AlertDialog open={!!removing} onOpenChange={(next) => !next && setRemoving(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>“{removing?.name}” 상태를 삭제할까요?</AlertDialogTitle>
+            <AlertDialogTitle>{removing?.length === 1 ? `“${removing[0]!.name}” 상태를 삭제할까요?` : `상태 ${removing?.length ?? 0}개를 삭제할까요?`}</AlertDialogTitle>
             <AlertDialogDescription>
-              이 상태의 대사 {removing?.units.toLocaleString()}개를 다른 상태로 옮깁니다. 이 상태를 쓰는 워크플로 노드는 검증에 실패하므로 수정해야 합니다.
+              {removing && removing.length > 1 ? `${removing.map((status) => status.name).join(', ')}의 ` : '이 상태의 '}대사 {(removing ?? []).reduce((sum, status) => sum + status.units, 0).toLocaleString()}개를 다른 상태로 옮깁니다. 지운 상태를 쓰는 워크플로 노드는 검증에 실패하므로 수정해야 합니다.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <Select value={moveTo} onValueChange={setMoveTo}>
@@ -331,7 +382,7 @@ function StatusSettings() {
             </SelectTrigger>
             <SelectContent>
               {(statuses ?? [])
-                .filter((status) => status.id !== removing?.id)
+                .filter((status) => !removing?.some((gone) => gone.id === status.id))
                 .map((status) => (
                   <SelectItem key={status.id} value={status.id}>
                     <StatusIcon status={status} /> {status.name}
@@ -341,7 +392,7 @@ function StatusSettings() {
           </Select>
           <AlertDialogFooter>
             <AlertDialogCancel>취소</AlertDialogCancel>
-            <Button variant="destructive" disabled={!moveTo || remove.isPending} onClick={() => removing && remove.mutate({ id: removing.id, moveTo })}>
+            <Button variant="destructive" disabled={!moveTo || remove.isPending} onClick={() => removing && remove.mutate({ ids: removing.map((status) => status.id), moveTo })}>
               삭제
             </Button>
           </AlertDialogFooter>

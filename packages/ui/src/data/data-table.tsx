@@ -1,6 +1,25 @@
 import { useRevealDock } from "../layout/right-dock"
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "../primitives/context-menu"
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { forwardRef, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode, type Ref } from "react"
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type Modifier,
+} from "@dnd-kit/core"
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable"
+import { CSS } from "@dnd-kit/utilities"
+import { GripVertical } from "lucide-react"
 import {
   flexRender,
   getCoreRowModel,
@@ -19,6 +38,7 @@ import { ColumnMenu } from "./column-menu"
 import { Checkbox } from "../primitives/checkbox"
 import { Skeleton } from "../primitives/skeleton"
 import { cn } from "../lib/utils"
+import { Button } from "../primitives/button"
 
 declare module "@tanstack/react-table" {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -41,6 +61,46 @@ declare module "@tanstack/react-table" {
 }
 
 export type { ColumnDef }
+
+const verticalOnly: Modifier = ({ transform }) => ({ ...transform, x: 0 })
+
+const mergeRefs = <E,>(...refs: (Ref<E> | undefined)[]) => (node: E | null) => {
+  for (const ref of refs) {
+    if (typeof ref === "function") ref(node)
+    else if (ref) (ref as { current: E | null }).current = node
+  }
+}
+
+/** A row that can be dragged by its grip (the first cell); a context-menu trigger may wrap it. */
+const SortableRow = forwardRef<
+  HTMLTableRowElement,
+  Omit<ComponentProps<"tr">, "children"> & { sortId: string; locked: boolean; label: string; children: (grip: ReactNode) => ReactNode }
+>(function SortableRow({ sortId, locked, label, children, style, ...rest }, ref) {
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id: sortId, disabled: locked })
+  const grip = locked ? null : (
+    <Button
+      ref={setActivatorNodeRef}
+      variant="ghost"
+      size="icon-xs"
+      className="cursor-grab touch-none text-muted-foreground opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100 hover:text-foreground"
+      aria-label={`${label} 순서 바꾸기 (스페이스를 누르고 ↑↓)`}
+      onClick={(event) => event.stopPropagation()}
+      {...attributes}
+      {...listeners}
+    >
+      <GripVertical className="size-3.5" />
+    </Button>
+  )
+  return (
+    <tr
+      ref={mergeRefs(ref, setNodeRef)}
+      style={{ ...style, transform: CSS.Transform.toString(transform), transition, position: "relative", zIndex: isDragging ? 1 : undefined }}
+      {...rest}
+    >
+      {children(grip)}
+    </tr>
+  )
+})
 
 const MIN_WIDTH = 48
 const FLEX_MIN = 140
@@ -126,6 +186,14 @@ export interface DataTableProps<T> {
   footer?: ReactNode
   className?: string
   rowContextMenu?: (row: T) => ReactNode
+  /** Which rows have a checkbox (others, e.g. built-in items, cannot be picked). */
+  canPick?: (row: T) => boolean
+  /** Rows can be dragged into a new order (small tables: no virtual scrolling); gets every row id in the new order. */
+  onReorder?: (ids: string[]) => void
+  /** Which rows can move; others stay put and cannot be dropped on. */
+  reorderable?: (row: T) => boolean
+  /** Names a row for its grip's label. */
+  rowLabel?: (row: T) => string
 }
 
 export function DataTable<T>(props: DataTableProps<T>) {
@@ -148,6 +216,10 @@ function Table<T>({
   footer,
   className,
   rowContextMenu,
+  onReorder,
+  reorderable,
+  rowLabel,
+  canPick,
 }: DataTableProps<T>) {
   const revealDock = useRevealDock()
   const [sizing, setSizing] = useState<ColumnSizingState>(() => loadWidths(id))
@@ -244,19 +316,21 @@ function Table<T>({
   const selectedRow = useRef<HTMLTableRowElement>(null)
 
   const ids = useMemo(() => rows?.map(rowId) ?? [], [rows, rowId])
+  const pickableIds = useMemo(() => (canPick ? (rows ?? []).filter(canPick).map(rowId) : ids), [rows, rowId, canPick, ids])
   const pickedInView = useMemo(
-    () => (picked ? ids.filter((id) => picked.has(id)).length : 0),
-    [picked, ids]
+    () => (picked ? pickableIds.filter((id) => picked.has(id)).length : 0),
+    [picked, pickableIds]
   )
   const pickedCount = pickedInView
   const pickable = Boolean(onPick && picked)
   const bulking = Boolean(bulk && picked && picked.size > 0)
   const visibleColumns = table.getVisibleLeafColumns()
   const menuWidth = id ? 32 : 0
-  const span = visibleColumns.length + (pickable ? 1 : 0) + (id ? 1 : 0)
+  const sortable = Boolean(onReorder)
+  const span = visibleColumns.length + (pickable ? 1 : 0) + (id ? 1 : 0) + (sortable ? 1 : 0)
 
   const tableRows = table.getRowModel().rows
-  const virtualize = tableRows.length > 80
+  const virtualize = !sortable && tableRows.length > 80
   const rowVirtualizer = useVirtualizer({
     count: virtualize ? tableRows.length : 0,
     getScrollElement: () => scrollRef.current,
@@ -279,6 +353,7 @@ function Table<T>({
   const widthOf = (column: { id: string; columnDef: ColumnDef<T, unknown> }) =>
     sizing[column.id] ?? column.columnDef.meta?.width
   const minWidth =
+    (sortable ? 28 : 0) +
     (pickable ? 36 : 0) +
     menuWidth +
     visibleColumns.reduce((sum, column) => sum + (widthOf(column) ?? FLEX_MIN), 0)
@@ -287,40 +362,50 @@ function Table<T>({
   // live inside <tbody>, so rows only render a trigger around the <tr>.
   const [rowMenu, setRowMenu] = useState<ReactNode>(null)
 
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  )
+  const onDragEnd = ({ active, over }: DragEndEvent) => {
+    if (!over || active.id === over.id || !onReorder) return
+    const target = rows?.find((row) => rowId(row) === over.id)
+    if (target && reorderable && !reorderable(target)) return
+    onReorder(arrayMove(ids, ids.indexOf(String(active.id)), ids.indexOf(String(over.id))))
+  }
+
   const renderRow = (row: Row<T>) => {
     const isSelected = row.id === selected
     const menu = rowContextMenu?.(row.original)
-    const tr = (
-      <tr
-        key={row.id}
-        ref={isSelected ? selectedRow : undefined}
-        data-state={isSelected ? "selected" : undefined}
-        onContextMenu={menu ? () => setRowMenu(menu) : undefined}
-        onClick={
-          onRowClick
-            ? () => {
-                revealDock?.()
-                onRowClick(row.original)
-              }
-            : undefined
-        }
-        className={cn(
-          "group/row transition-colors",
-          onRowClick && "cursor-pointer hover:bg-accent",
-          isSelected && "bg-selection hover:bg-selection",
-          rowClassName?.(row.original)
-        )}
-      >
+    const rowProps = {
+      "data-state": isSelected ? "selected" : undefined,
+      onContextMenu: menu ? () => setRowMenu(menu) : undefined,
+      onClick: onRowClick
+        ? () => {
+            revealDock?.()
+            onRowClick(row.original)
+          }
+        : undefined,
+      className: cn(
+        "group/row transition-colors",
+        onRowClick && "cursor-pointer hover:bg-accent",
+        isSelected && "bg-selection hover:bg-selection",
+        rowClassName?.(row.original)
+      ),
+    }
+    const cells = (
+      <>
         {pickable && (
           <td
-            className={cn("pl-3.5 align-middle py-2.5", isSelected && "")}
+            className="pl-3.5 align-middle py-2.5"
             onClick={(event) => event.stopPropagation()}
           >
-            <Checkbox
-              aria-label="선택"
-              checked={picked!.has(row.id)}
-              onCheckedChange={(checked) => onPick!([row.id], Boolean(checked))}
-            />
+            {(!canPick || canPick(row.original)) && (
+              <Checkbox
+                aria-label="선택"
+                checked={picked!.has(row.id)}
+                onCheckedChange={(checked) => onPick!([row.id], Boolean(checked))}
+              />
+            )}
           </td>
         )}
         {row.getVisibleCells().map((cell, index) => {
@@ -330,8 +415,7 @@ function Table<T>({
               key={cell.id}
               className={cn(
                 "px-3 py-2.5 align-middle text-sm text-foreground",
-                index === 0 && !pickable && "pl-4",
-                index === 0 && !pickable && isSelected && "",
+                index === 0 && !pickable && !sortable && "pl-4",
                 meta?.wrap ? "break-words whitespace-pre-wrap" : "truncate",
                 meta?.align === "end" && "text-right tabular-nums",
                 meta?.className
@@ -342,6 +426,27 @@ function Table<T>({
           )
         })}
         {id && <td />}
+      </>
+    )
+    const tr = sortable ? (
+      <SortableRow
+        key={row.id}
+        ref={isSelected ? selectedRow : undefined}
+        sortId={row.id}
+        locked={reorderable ? !reorderable(row.original) : false}
+        label={rowLabel?.(row.original) ?? "행"}
+        {...rowProps}
+      >
+        {(grip) => (
+          <>
+            <td className="pl-1 align-middle">{grip}</td>
+            {cells}
+          </>
+        )}
+      </SortableRow>
+    ) : (
+      <tr key={row.id} ref={isSelected ? selectedRow : undefined} {...rowProps}>
+        {cells}
       </tr>
     )
     if (menu) {
@@ -363,6 +468,7 @@ function Table<T>({
           style={{ minWidth }}
         >
           <colgroup>
+            {sortable && <col className="w-7" />}
             {pickable && <col className="w-9" />}
             {visibleColumns.map((column) => (
               <col
@@ -375,18 +481,20 @@ function Table<T>({
           <thead className="sticky top-0 z-10 bg-chrome backdrop-blur-xs select-none">
             {table.getHeaderGroups().map((group) => (
               <tr key={group.id}>
+                {sortable && <th className="h-8" />}
                 {pickable && (
                   <th className="h-8 pl-3.5 text-left align-middle">
                     <Checkbox
                       aria-label="모두 선택"
+                      disabled={pickableIds.length === 0}
                       checked={
-                        ids.length > 0 && pickedCount === ids.length
+                        pickableIds.length > 0 && pickedCount === pickableIds.length
                           ? true
                           : pickedCount
                           ? "indeterminate"
                           : false
                       }
-                      onCheckedChange={(checked) => onPick!(ids, Boolean(checked))}
+                      onCheckedChange={(checked) => onPick!(pickableIds, Boolean(checked))}
                     />
                   </th>
                 )}
@@ -408,7 +516,7 @@ function Table<T>({
                       key={header.id}
                       className={cn(
                         "group/th relative h-8  px-3 text-left align-middle text-xs font-normal text-muted-foreground whitespace-nowrap",
-                        index === 0 && !pickable && "pl-4",
+                        index === 0 && !pickable && !sortable && "pl-4",
                         header.column.columnDef.meta?.align === "end" && "text-right"
                       )}
                     >
@@ -473,6 +581,12 @@ function Table<T>({
                   </td>
                 </tr>
               ))
+            ) : sortable ? (
+              <DndContext sensors={sensors} collisionDetection={closestCenter} modifiers={[verticalOnly]} onDragEnd={onDragEnd}>
+                <SortableContext items={ids} strategy={verticalListSortingStrategy}>
+                  {tableRows.map(renderRow)}
+                </SortableContext>
+              </DndContext>
             ) : !virtualize ? (
               tableRows.map(renderRow)
             ) : (() => {

@@ -74,18 +74,7 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
       // Keep the person's translation and status; the run's text stays a candidate beside it.
       issues.push(HUMAN_OWNED_NOTE);
     } else {
-      if (params.statusId) {
-        const target = tx.select({ name: s.statuses.name, humanOnly: s.statuses.humanOnly }).from(s.statuses).where(eq(s.statuses.id, params.statusId)).get();
-        if (target?.humanOnly) {
-          // Only a person may set it: the line waits in the review inbox instead, saying why.
-          const inbox = tx.select({ id: s.statuses.id }).from(s.statuses).where(and(eq(s.statuses.projectId, input.projectId), eq(s.statuses.inReview, true), eq(s.statuses.humanOnly, false))).orderBy(asc(s.statuses.sort)).get();
-          if (inbox) {
-            patch.statusId = inbox.id;
-            issues.push(`‘${target.name}’은(는) 워크플로가 지정하지 않는 상태라 검토함으로 보냈습니다.`);
-          } else issues.push(`‘${target.name}’은(는) 워크플로가 지정하지 않는 상태라 바꾸지 않았습니다(검토함 상태가 없음).`);
-        } else patch.statusId = params.statusId;
-        if (patch.statusId) Object.assign(patch, { statusBy: 'ai', statusRunId: input.runId });
-      }
+      if (params.statusId) Object.assign(patch, { statusId: params.statusId, statusBy: 'ai', statusRunId: input.runId });
       if (Object.keys(patch).length) tx.update(s.units).set(patch).where(eq(s.units.id, input.unit.id)).run();
     }
     // A tag that no longer belongs on lines (its places were narrowed after the node was set up) is skipped, with a notice.

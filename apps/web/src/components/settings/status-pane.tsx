@@ -1,5 +1,5 @@
 /** Right-hand pane to add or edit one status. */
-import { ArrowDown, ArrowUp, Trash2 } from 'lucide-react';
+import { Trash2 } from 'lucide-react';
 import { DEFAULT_STATUS_COLOR } from '@tw/shared';
 import { InspectorSection, InspectorField, InspectorFields, InspectorToggle, InspectorHeader, InspectorBlock, Inspector, Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@loca/ui';
 import { STATUS_KIND } from '@/lib/labels';
@@ -8,32 +8,26 @@ import { ChangedElsewhere } from '@/components/changed-elsewhere';
 import { type Kind, type StatusForm, type StatusRowData } from '@/components/settings/status-types';
 import { Swatches } from '@/components/settings/swatches';
 
-/** Add or edit one status: its fields are a draft until saved; the order buttons act at once. */
-const STATUS_FIELD_LABEL: Record<keyof StatusForm, string> = { name: '이름', color: '색상', kind: '종류', inReview: '검토함', humanOnly: '워크플로 지정 안 함' };
+/** Add or edit one status: its fields are a draft until saved (rows are reordered by dragging in the table). */
+const STATUS_FIELD_LABEL: Record<keyof StatusForm, string> = { name: '이름', color: '색상', kind: '종류', inReview: '검토함' };
 
 export function StatusPane({
   status,
-  index = 0,
   count = 0,
   pending,
-  reordering,
   onClose,
   onSave,
-  onMove,
   onDelete,
 }: {
   status?: StatusRowData;
-  index?: number;
   count?: number;
   pending: boolean;
-  reordering?: boolean;
   onClose: () => void;
   /** The whole form (to add) and the fields that differ from the saved status (to edit). */
   onSave: (form: StatusForm, changed: Partial<StatusForm>) => void;
-  onMove?: (delta: number) => void;
   onDelete?: () => void;
 }) {
-  const saved: StatusForm = { name: status?.name ?? '', color: status?.color ?? DEFAULT_STATUS_COLOR, kind: status?.kind ?? 'normal', inReview: status?.inReview ?? false, humanOnly: status?.humanOnly ?? false };
+  const saved: StatusForm = { name: status?.name ?? '', color: status?.color ?? DEFAULT_STATUS_COLOR, kind: status?.kind ?? 'normal', inReview: status?.inReview ?? false };
   const { draft: form, setDraft: setForm, dirty: changed, conflicts, keepMine, takeSaved } = useFormFrom(saved, status && `status.${status.id}`);
   const dirty = !status || changed;
   return (
@@ -67,23 +61,7 @@ export function StatusPane({
               </SelectContent>
             </Select>
           </InspectorField>
-          {status && onMove && (
-            <InspectorField label="순서">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-sm text-foreground">{index + 1} / {count}</span>
-                <div className="flex items-center gap-1">
-                  <Button variant="outline" size="icon" disabled={index === 0 || reordering} onClick={() => onMove(-1)} aria-label={`${status.name} 위로`}>
-                    <ArrowUp />
-                  </Button>
-                  <Button variant="outline" size="icon" disabled={index === count - 1 || reordering} onClick={() => onMove(1)} aria-label={`${status.name} 아래로`}>
-                    <ArrowDown />
-                  </Button>
-                </div>
-              </div>
-            </InspectorField>
-          )}
           <InspectorToggle label="검토함" description="검토함 목록에 이 상태의 대사를 모읍니다." checked={form.inReview} onChange={(inReview) => setForm((current) => ({ ...current, inReview }))} />
-          <InspectorToggle label="워크플로 지정 안 함" description="워크플로가 이 상태로 바꾸려 하면 검토함으로 보냅니다. 사람만 지정합니다." checked={form.humanOnly} onChange={(humanOnly) => setForm((current) => ({ ...current, humanOnly }))} />
         </InspectorFields>
       </InspectorSection>
     </Inspector>

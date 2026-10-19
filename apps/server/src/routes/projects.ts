@@ -7,7 +7,7 @@ import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { forgetProjectContext } from '../services/context.ts';
 import { markConditions } from '../services/line-marks.ts';
-import { createStatus, createTag, deleteStatus, deleteTag, projectTags, TaxonomyMutationError, updateStatus, updateTag } from '../services/project-taxonomy.ts';
+import { createStatus, createTag, deleteStatuses, deleteTags, orderTags, projectTags, TaxonomyMutationError, updateStatus, updateTag } from '../services/project-taxonomy.ts';
 import { projectSettingsInput, updateProjectSettings } from '../services/project-settings.ts';
 import { importProject } from '../services/importer.ts';
 import type { DecidedTable } from '../services/status-by.ts';
@@ -138,7 +138,6 @@ export const projectRoutes = new Hono<Env>()
         kind: s.statuses.kind,
         sort: s.statuses.sort,
         inReview: s.statuses.inReview,
-        humanOnly: s.statuses.humanOnly,
         units: sql<number>`(select count(*) from units u where u.status_id = "statuses"."id")`,
       })
       .from(s.statuses)
@@ -171,16 +170,16 @@ export const projectRoutes = new Hono<Env>()
     events.changed(projectId, 'statuses');
     return c.json({ ok: true });
   })
-  /** Lines in a deleted status move to `moveTo`; workflows that still reference it fail validation. */
-  .delete('/:projectId/statuses/:id', validate('json', z.object({ moveTo: z.string() })), (c) => {
+  /** Lines in the deleted statuses move to `moveTo`; workflows that still reference them fail validation. */
+  .post('/:projectId/statuses/delete', validate('json', z.object({ ids: z.array(z.string()).min(1), moveTo: z.string() })), (c) => {
+    const { ids, moveTo } = c.req.valid('json');
     try {
-      deleteStatus(c.var.deps.db, c.req.param('projectId'), c.req.param('id'), c.req.valid('json').moveTo);
+      return c.json(deleteStatuses(c.var.deps.db, c.req.param('projectId'), ids, moveTo));
     } catch (error) {
       if (error instanceof TaxonomyMutationError && error.status === 404) found(undefined, error.message.includes('옮길') ? '옮길 상태' : '상태');
       if (error instanceof TaxonomyMutationError) badRequest(error.message);
       throw error;
     }
-    return c.json({ ok: true });
   })
   .post('/:projectId/tags', validate('json', tagInput), (c) => {
     const projectId = c.req.param('projectId');
@@ -197,15 +196,15 @@ export const projectRoutes = new Hono<Env>()
     }
     return c.json({ ok: true });
   })
-  .delete('/:projectId/tags/:id', (c) => {
+  .put('/:projectId/tags/order', validate('json', z.object({ ids: z.array(z.string()) })), (c) => c.json(orderTags(c.var.deps.db, c.req.param('projectId'), c.req.valid('json').ids)))
+  .post('/:projectId/tags/delete', validate('json', z.object({ ids: z.array(z.string()).min(1) })), (c) => {
     try {
-      deleteTag(c.var.deps.db, c.req.param('projectId'), c.req.param('id'));
+      return c.json(deleteTags(c.var.deps.db, c.req.param('projectId'), c.req.valid('json').ids));
     } catch (error) {
       if (error instanceof TaxonomyMutationError && error.status === 404) found(undefined, '태그');
       if (error instanceof TaxonomyMutationError) badRequest(error.message);
       throw error;
     }
-    return c.json({ ok: true });
   })
   /** 자연어로 정규식 만들기: one format rule from a description, checked with the settings' own pattern rule. Nothing is saved. */
   .post('/:projectId/generate-regex', validate('json', z.object({ prompt: z.string().trim().min(1).max(500), target: z.enum(REGEX_TARGETS) })), async (c) => {
