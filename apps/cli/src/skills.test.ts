@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Command } from 'commander';
 import { expect, it } from 'vitest';
+import { AGENT_TOOLS } from '@tw/shared';
 import { program } from './main.ts';
 
 const skillsDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../skills');
@@ -52,6 +53,15 @@ it('skills only use loca commands, subcommands and flags that exist', () => {
     if (!command) continue;
     const known = new Set([...global, ...flagsOf(command)]);
     for (const flag of text.match(/(?<=^|\s)--?[a-z][\w-]*/g) ?? []) if (!known.has(flag)) problems.push(`${file}: loca ${text} — ${command.name()}에 없는 옵션 ${flag}`);
+  }
+  expect(problems).toEqual([]);
+});
+
+it('skills only call agent tools that exist', () => {
+  const problems: string[] = [];
+  for (const { file, text } of invocations()) {
+    const match = /^(?:call|tools)\s+([a-z_]+)/.exec(text);
+    if (match && !Object.hasOwn(AGENT_TOOLS, match[1]!)) problems.push(`${file}: loca ${text} — 없는 도구 "${match[1]}"`);
   }
   expect(problems).toEqual([]);
 });

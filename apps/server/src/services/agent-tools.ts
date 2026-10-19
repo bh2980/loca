@@ -4,7 +4,7 @@ import { tool } from 'ai';
 import { HTTPException } from 'hono/http-exception';
 import { and, asc, count, desc, eq, inArray, like, ne, or } from 'drizzle-orm';
 import { z } from 'zod';
-import { APPLY_TARGETS, AI_OUTPUTS, DEFAULT_TAG_COLOR, AI_PRESETS, aiNodeConfigSchema, KNOWLEDGE_TAG_KINDS, patchOf, TAG_SCOPES, withRunModels, AUTO_MARKS, batchChangeSchema, CONDITION_MARK_IDS, CONNECTION_KIND_INFO, createGroupSchema, createUnitSchema, deleteUnitsSchema, findReadingRouteInputSchema, FUNCTIONS, LINE_MARK_IDS, lineFilterSchema, lineMarksSchema, NODE_TYPES, sourceOf, updateGroupSchema, updateUnitSchema, workflowDefinitionSchema } from '@tw/shared';
+import { APPLY_TARGETS, AI_OUTPUTS, DEFAULT_TAG_COLOR, AI_PRESETS, AI_PRESET_IDS, type AiPresetId, aiNodeConfigSchema, KNOWLEDGE_TAG_KINDS, patchOf, TAG_SCOPES, withRunModels, AUTO_MARKS, batchChangeSchema, CONDITION_MARK_IDS, CONNECTION_KIND_INFO, createGroupSchema, createUnitSchema, deleteUnitsSchema, findReadingRouteInputSchema, FUNCTIONS, LINE_MARK_IDS, lineFilterSchema, lineMarksSchema, NODE_TYPES, sourceOf, updateGroupSchema, updateUnitSchema, workflowDefinitionSchema } from '@tw/shared';
 import { z as zod } from 'zod';
 import type { Db } from '../db/index.ts';
 import { byPerson } from './status-by.ts';
@@ -360,9 +360,9 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       execute: (input) => planRun(db, projectId, input),
     }),
     harness_reference: tool({
-      description: 'How workflows work: node types, their exits, the condition data model, available AI connections (with each default model and the efforts it takes), statuses and tags. Read this before proposing a workflow.',
-      inputSchema: z.object({}),
-      execute: () => ({
+      description: 'How workflows work: node types, their exits, the condition data model, available AI connections (with each default model and the efforts it takes), statuses and tags. Read this before proposing a workflow. AI presets come as a summary; pass preset (an id) for one preset\'s full instructions, output fields and context.',
+      inputSchema: z.object({ preset: z.enum(AI_PRESET_IDS as [AiPresetId, ...AiPresetId[]]).optional() }),
+      execute: ({ preset }) => preset ? { preset, ...AI_PRESETS[preset] } : ({
         nodeTypes: NODE_TYPES,
         definitionShape: 'nodes: [{id, type: entry|ai|function|condition|end, position:{x,y}, label?, config}], edges: [{id, source, sourceHandle (exit id), target}], settings: {maxVisitsPerNode, concurrency, maxConsecutiveFailures}',
         aiNode: {
@@ -370,7 +370,9 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
           config: zod.toJSONSchema(aiNodeConfigSchema, { io: 'input' }),
           outputs: AI_OUTPUTS,
           exits: 'verdict → pass/fail/error; others → out/error',
-          presets: AI_PRESETS,
+          // A summary: the presets' full instructions would fill the whole result and push out everything below.
+          presets: Object.fromEntries(Object.entries(AI_PRESETS).map(([id, item]) => [id, { label: item.label, description: item.description, output: item.output, scope: item.scope, fields: (item.fields as { name: string }[]).map((field) => field.name) }])),
+          presetDetail: 'harness_reference with {preset: id} returns that preset\'s full instructions, fields, choice and context.',
         },
         functionNode: {
           config: '{fn, params}',
