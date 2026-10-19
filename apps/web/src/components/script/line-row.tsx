@@ -315,7 +315,7 @@ export function LineRow({
     <SpeakerCard projectId={projectId} name={line.speaker}><SpeakerIdentity speaker={line.speaker} listener={said ? (who.unknown ? null : who.text) : undefined} listenerIsPerson={!line.listener || !Object.hasOwn(SPECIAL_LISTENERS, line.listener) && !who.unknown} /></SpeakerCard>
   ) : line.kind === 'dialogue' ? <SpeakerIdentity speaker={null} /> : null;
   const identity = (
-    <div className="flex min-w-0 items-center gap-1.5" onClick={(event) => event.stopPropagation()}>
+    <div className="flex min-w-0 items-center gap-1.5">
       {speaker}
       {marked && <span className="shrink-0 text-warning">● {findLabel}</span>}
     </div>
