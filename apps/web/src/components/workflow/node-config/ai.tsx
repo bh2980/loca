@@ -69,7 +69,22 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
   if (part === 'model') {
     return (
       <Field label="모델">
-        <ModelPicker need={need} value={config.model} onChange={(model) => set({ model })} />
+        {/* More than one model splits the work between them. */}
+        <div className="space-y-1.5">
+          <ModelPicker need={need} value={config.model} onChange={(model) => set({ model })} />
+          {extras.map((extra, index) => (
+            <div key={index} className="flex min-w-0 items-center gap-1.5">
+              <ModelPicker need={need} value={extra} onChange={(value) => setExtra(index, value)} className="min-w-0" />
+              <Button size="icon" variant="ghost" className="shrink-0" aria-label="모델 빼기" onClick={() => set({ extraModels: extras.filter((_, i) => i !== index) })}>
+                <X />
+              </Button>
+            </div>
+          ))}
+          {config.output === 'text' && chosenModels.size > 1 && <p className="text-xs text-warning">서로 다른 모델이 번역을 나누면 장면마다 문체가 달라질 수 있습니다.</p>}
+          <Button variant="ghost" className="-ml-2 text-muted-foreground" disabled={!config.model.model || extras.some((choice) => !choice.model)} onClick={() => set({ extraModels: [...extras, { connectionId: '', model: '' }] })}>
+            <Plus /> 모델
+          </Button>
+        </div>
       </Field>
     );
   }
@@ -342,47 +357,6 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
                     />
                   </Field>
               </div>
-            </AdvancedDisclosure>
-            <AdvancedDisclosure label="모델 분산" className="space-y-3">
-              <Field label="모델">
-                <div className="space-y-1.5">
-                  {extras.map((extra, index) => (
-                    <div key={index} className="flex min-w-0 items-center gap-1.5">
-                      <ModelPicker
-                        need={need}
-                        value={extra}
-                        onChange={(value) => setExtra(index, value)}
-                        className="min-w-0"
-                      />
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="shrink-0"
-                        aria-label="함께 나눌 모델 빼기"
-                        onClick={() =>
-                          set({ extraModels: extras.filter((_, i) => i !== index) })
-                        }
-                      >
-                        <X />
-                      </Button>
-                    </div>
-                  ))}
-                  {config.output === 'text' && chosenModels.size > 1 && (
-                    <p className="text-xs text-warning">
-                      서로 다른 모델이 번역을 나누면 장면마다 문체가 달라질 수 있습니다.
-                    </p>
-                  )}
-                  <Button
-                    variant="outline"
-                    onClick={() =>
-                      set({ extraModels: [...extras, { connectionId: '', model: '' }] })
-                    }
-                    disabled={extras.some((choice) => !choice.model)}
-                  >
-                    <Plus /> 모델 추가
-                  </Button>
-                </div>
-              </Field>
             </AdvancedDisclosure>
           </div>
         </div>

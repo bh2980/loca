@@ -57,7 +57,7 @@ describe('workflow validation', () => {
   it('flags a deleted connection among the models sharing a node', () => {
     const template = workflowDefinitionSchema.parse(translationTemplate(ids));
     const shared: WorkflowDefinition = { ...template, nodes: template.nodes.map((n) => (n.type === 'ai' && n.id === 'review' ? { ...n, config: { ...n.config, extraModels: [{ connectionId: 'gone', model: 'm' }] } } : n)) };
-    expect(validateWorkflow(shared, refs)).toContainEqual(expect.objectContaining({ level: 'error', nodeId: 'review', message: expect.stringContaining('함께 나눌') }));
+    expect(validateWorkflow(shared, refs)).toContainEqual(expect.objectContaining({ level: 'error', nodeId: 'review', message: expect.stringContaining('추가한 모델') }));
   });
 
   it('warns about a loop that nothing can leave', () => {

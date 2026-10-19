@@ -331,8 +331,8 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
       const { model, extraModels } = node.config;
       if (!model.connectionId || !model.model) error('AI 연결과 모델을 고르세요.', { nodeId: node.id });
       else if (!refs.connections.has(model.connectionId)) error('고른 AI 연결이 삭제되었습니다. 다시 고르세요.', { nodeId: node.id });
-      if (extraModels.some((choice) => !choice.connectionId || !choice.model)) error('함께 나눌 모델을 고르거나 그 칸을 지우세요.', { nodeId: node.id });
-      else if (extraModels.some((choice) => !refs.connections.has(choice.connectionId))) error('함께 나눌 모델 중 연결이 삭제된 것이 있습니다.', { nodeId: node.id });
+      if (extraModels.some((choice) => !choice.connectionId || !choice.model)) error('추가한 모델을 고르거나 그 칸을 지우세요.', { nodeId: node.id });
+      else if (extraModels.some((choice) => !refs.connections.has(choice.connectionId))) error('추가한 모델 중 연결이 삭제된 것이 있습니다.', { nodeId: node.id });
       if (node.config.output === 'json' && !node.config.fields.length) error('JSON 출력에는 필드가 하나 이상 필요합니다.', { nodeId: node.id });
       if (node.config.output === 'json' && node.config.fields.some((field) => field.type === 'list' && !field.fields?.length)) error('목록 필드에는 항목 필드가 하나 이상 필요합니다.', { nodeId: node.id });
       if (node.config.output === 'choice' && node.config.choice.source === 'custom' && !node.config.choice.values.length) error('선택지를 하나 이상 적으세요.', { nodeId: node.id });
