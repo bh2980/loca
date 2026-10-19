@@ -89,11 +89,12 @@ export const connectionInputSchema = z.object({
   /** How every call through this connection is made, wherever it is picked. */
   timeoutSeconds: z.number().int().min(10).max(3600).optional(),
   maxAttempts: z.number().int().min(1).max(5).optional(),
-  maxOutputTokens: z.number().int().min(256).max(200_000).optional(),
+  /** A cap on each call's output; null = the model's own limit (nothing is sent). */
+  maxOutputTokens: z.number().int().min(256).max(1_000_000).nullable().optional(),
   /** Where calls go when this connection keeps failing transiently (rate limit, network, timeout); that connection's own fallback is followed in turn. */
   fallback: modelChoiceSchema.nullable().optional(),
 });
 export type ConnectionInput = z.infer<typeof connectionInputSchema>;
 
 /** Defaults of a new connection's call settings. */
-export const CONNECTION_CALL_DEFAULTS = { timeoutSeconds: 300, maxAttempts: 2, maxOutputTokens: 16_000 } as const;
+export const CONNECTION_CALL_DEFAULTS = { timeoutSeconds: 300, maxAttempts: 2 } as const;

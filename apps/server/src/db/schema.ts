@@ -471,7 +471,8 @@ export const connections = sqliteTable('connections', {
   /** How every call through this connection is made, wherever it is picked. */
   timeoutSeconds: integer('timeout_seconds').notNull().default(300),
   maxAttempts: integer('max_attempts').notNull().default(2),
-  maxOutputTokens: integer('max_output_tokens').notNull().default(16000),
+  /** A cap on each call's output; null = the model's own limit. */
+  maxOutputTokens: integer('max_output_tokens'),
   /** Where calls go when this connection keeps failing transiently; that connection's own fallback is followed in turn. */
   fallback: json<ModelChoice>('fallback'),
 });
@@ -518,7 +519,8 @@ export interface RouteSnapshot {
 export interface AiSnapshot {
   /** "connection · model · effort", as people read it. */
   label: string;
-  maxOutputTokens: number;
+  /** Unset: the model's own limit. */
+  maxOutputTokens?: number;
   timeoutSeconds: number;
   maxAttempts: number;
   routes: RouteSnapshot[];
