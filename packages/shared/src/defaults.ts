@@ -239,8 +239,8 @@ export function listenerTemplate(ids: Model): WorkflowDefinition {
         id: 'needs',
         type: 'condition',
         position: at(1),
-        label: '청자가 이미 있나?',
-        config: { expression: { var: 'listenerKnown' }, description: '가져오기·사람·확신 높은 AI 청자가 있거나 대사가 아니면 건너뜁니다.' },
+        label: '청자 미상?',
+        config: { expression: { in: ['unknownListener', { var: 'unit.marks' }] }, description: '청자 미상 자동 태그가 붙은 줄만 추정합니다.' },
       },
       aiNode('listener', 'listener', ids.model, 2),
       {
@@ -249,13 +249,13 @@ export function listenerTemplate(ids: Model): WorkflowDefinition {
         position: at(3),
         label: `확신도 ${LISTENER_CONFIDENCE} 이상?`,
         config: {
-          expression: { and: [{ '!!': [{ var: 'outputs.listener.value' }] }, { '>=': [{ var: 'outputs.listener.confidence' }, LISTENER_CONFIDENCE] }] },
-          description: `청자를 골랐고 확신도가 ${LISTENER_CONFIDENCE} 이상일 때만 적습니다.`,
+          expression: { '>=': [{ var: 'outputs.listener.confidence' }, LISTENER_CONFIDENCE] },
+          description: `확신도가 ${LISTENER_CONFIDENCE} 이상일 때만 적습니다.`,
         },
       },
       applyNode('set-listener', 'setListener', 'listener', 4, { map: { listener: 'value', confidence: 'confidence' } }),
     ],
-    edges: [edge('entry', 'out', 'needs'), edge('needs', 'false', 'listener'), edge('listener', 'out', 'sure'), edge('sure', 'true', 'set-listener')],
+    edges: [edge('entry', 'out', 'needs'), edge('needs', 'true', 'listener'), edge('listener', 'out', 'sure'), edge('sure', 'true', 'set-listener')],
   };
 }
 

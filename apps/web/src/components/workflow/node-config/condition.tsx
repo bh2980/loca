@@ -22,10 +22,10 @@ const KIND_LABELS: Record<string, string> = {
 };
 
 const FIELD_OPERATORS: Record<FieldOperator, string> = { '>=': '≥', '<=': '≤', '==': '=', '!=': '≠', filled: '비어 있지 않음' };
-const ADDABLE = { status: '상태', lineKind: '종류', tag: '태그', mark: '자동 태그', visits: '방문 횟수', field: '노드 결과', listenerKnown: '청자가 이미 있음', candidate: '번역문이 있음' } as const;
+const ADDABLE = { status: '상태', lineKind: '종류', tag: '태그', mark: '자동 태그', listener: '청자', candidate: '번역문', field: '노드 결과', visits: '방문 횟수' } as const;
 type Addable = keyof typeof ADDABLE;
 
-const VARIABLES = `읽을 수 있는 값: visits.<노드ID>, outputs.<노드ID>.<필드>, candidate, issues, listenerKnown, unit.kind, unit.speaker, unit.statusId, unit.tagIds, unit.marks (${CONDITION_MARK_IDS.join(' · ')})`;
+const VARIABLES = `읽을 수 있는 값: visits.<노드ID>, outputs.<노드ID>.<필드>, candidate, issues, unit.kind, unit.speaker, unit.listener, unit.statusId, unit.tagIds, unit.marks (${CONDITION_MARK_IDS.join(' · ')})`;
 
 function Pick({ value, onChange, label, className, children }: { value: string; onChange: (value: string) => void; label: string; className?: string; children: React.ReactNode }) {
   return (
@@ -33,6 +33,16 @@ function Pick({ value, onChange, label, className, children }: { value: string; 
       <SelectTrigger size="sm" className={cn('min-w-0', className)} aria-label={label}><SelectValue /></SelectTrigger>
       <SelectContent>{children}</SelectContent>
     </Select>
+  );
+}
+
+/** 임/아님 or 있음/없음 after a line property. */
+function Negate({ not, words, onChange }: { not?: boolean; words: [string, string]; onChange: (not: boolean) => void }) {
+  return (
+    <Pick label="조건 방향" value={not ? 'not' : 'is'} onChange={(value) => onChange(value === 'not')} className="w-20">
+      <SelectItem value="is">{words[0]}</SelectItem>
+      <SelectItem value="not">{words[1]}</SelectItem>
+    </Pick>
   );
 }
 
@@ -76,7 +86,7 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
         const field = first.fields[0]!;
         return { kind, nodeId: first.node.id, field: field.name, op: field.type === 'boolean' ? '==' : field.type === 'number' ? '>=' : 'filled', value: field.type === 'boolean' ? true : field.type === 'number' ? 0.7 : '' };
       }
-      case 'listenerKnown': return { kind };
+      case 'listener': return { kind };
       case 'candidate': return { kind };
     }
   };
@@ -86,13 +96,13 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
     const set = (next: Clause) => setClause(index, next);
     switch (clause.kind) {
       case 'status':
-        return <>상태 <Pick label="상태" value={clause.statusId} onChange={(statusId) => set({ ...clause, statusId })} className="w-36">{statuses.map((st) => <SelectItem key={st.id} value={st.id}><StatusIcon status={st} /> {st.name}</SelectItem>)}</Pick></>;
+        return <>상태 <Pick label="상태" value={clause.statusId} onChange={(statusId) => set({ ...clause, statusId })} className="w-36">{statuses.map((st) => <SelectItem key={st.id} value={st.id}><StatusIcon status={st} /> {st.name}</SelectItem>)}</Pick> <Negate not={clause.not} words={['임', '아님']} onChange={(not) => set({ ...clause, not })} /></>;
       case 'lineKind':
-        return <>종류 <Pick label="종류" value={clause.value} onChange={(value) => set({ ...clause, value })} className="w-32">{Object.entries(KIND_LABELS).map(([key, name]) => <SelectItem key={key} value={key}>{name}</SelectItem>)}</Pick></>;
+        return <>종류 <Pick label="종류" value={clause.value} onChange={(value) => set({ ...clause, value })} className="w-32">{Object.entries(KIND_LABELS).map(([key, name]) => <SelectItem key={key} value={key}>{name}</SelectItem>)}</Pick> <Negate not={clause.not} words={['임', '아님']} onChange={(not) => set({ ...clause, not })} /></>;
       case 'tag':
-        return <>태그 <Pick label="태그" value={clause.tagId} onChange={(tagId) => set({ ...clause, tagId })} className="w-36">{tags.map((tg) => <SelectItem key={tg.id} value={tg.id}><TagChip tag={tg} /></SelectItem>)}</Pick> 있음</>;
+        return <>태그 <Pick label="태그" value={clause.tagId} onChange={(tagId) => set({ ...clause, tagId })} className="w-36">{tags.map((tg) => <SelectItem key={tg.id} value={tg.id}><TagChip tag={tg} /></SelectItem>)}</Pick> <Negate not={clause.not} words={['있음', '없음']} onChange={(not) => set({ ...clause, not })} /></>;
       case 'mark':
-        return <>자동 태그 <Pick label="자동 태그" value={clause.mark} onChange={(mark) => set({ ...clause, mark })} className="w-40">{CONDITION_MARK_IDS.map((id) => <SelectItem key={id} value={id}><MarkChip mark={id as AutoMark} /></SelectItem>)}</Pick> 있음</>;
+        return <>자동 태그 <Pick label="자동 태그" value={clause.mark} onChange={(mark) => set({ ...clause, mark })} className="w-40">{CONDITION_MARK_IDS.map((id) => <SelectItem key={id} value={id}><MarkChip mark={id as AutoMark} /></SelectItem>)}</Pick> <Negate not={clause.not} words={['있음', '없음']} onChange={(not) => set({ ...clause, not })} /></>;
       case 'visits':
         return <><Pick label="노드" value={clause.nodeId} onChange={(nodeId) => set({ ...clause, nodeId })} className="w-36">{others.map((other) => <SelectItem key={other.id} value={other.id}>{nodeName(other)}</SelectItem>)}</Pick> 방문 <Input type="number" min={1} className="h-8 w-14" aria-label="방문 횟수" value={clause.limit} onChange={(event) => set({ ...clause, limit: Number(event.target.value) })} /> 회 미만</>;
       case 'field': {
@@ -120,10 +130,10 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
           </>
         );
       }
-      case 'listenerKnown':
-        return <>청자가 이미 있음</>;
+      case 'listener':
+        return <>청자 <Negate not={clause.not} words={['있음', '없음']} onChange={(not) => set({ ...clause, not })} /></>;
       case 'candidate':
-        return <>번역문이 있음</>;
+        return <>번역문 <Negate not={clause.not} words={['있음', '없음']} onChange={(not) => set({ ...clause, not })} /></>;
     }
   };
 

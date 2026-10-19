@@ -1,6 +1,6 @@
 import type { AiNode, IssueKind, JsonField } from '@tw/shared';
 import type { FunctionResult } from './functions/index.ts';
-import type { PromptLine } from './prompts.ts';
+import { answerSchema, type PromptLine } from './prompts.ts';
 
 /** A node's result for one line: the exit to take plus what it produced. */
 export interface Outcome extends FunctionResult {
@@ -65,7 +65,10 @@ export function readAiOutput(node: AiNode, raw: unknown, lines: PromptLine[], mo
       });
     case 'json': {
       const fields = node.config.fields;
+      const strict = answerSchema(fields);
       if (node.config.scope === 'batch') {
+        // An answer that breaks a field's limits counts as none: every line is asked again.
+        if (!strict.safeParse(raw ?? {}).success) return lines.map(() => null);
         // One answer for the whole request; to save space in run_items.data (H7) only the first line carries it.
         const found = withLineKeys((raw ?? {}) as Record<string, unknown>, fields, keyOf);
         return lines.map((_, index) => ({ port: 'out', output: index === 0 ? { ...found, batchLeader: true } : { batchLeader: false } }));
@@ -74,6 +77,8 @@ export function readAiOutput(node: AiNode, raw: unknown, lines: PromptLine[], mo
         const entry = entryOf(line);
         if (!entry) return null;
         const { id: _id, ...answer } = entry;
+        // A line whose answer breaks a field's limits (empty required, number out of bounds) is asked again.
+        if (!strict.safeParse(answer).success) return null;
         return { port: 'out', output: withLineKeys(answer, fields, keyOf) };
       });
     }

@@ -8,6 +8,20 @@ const hasBranches = (context: BatchContext) => Object.values(context.preceding).
 const hasAiNotes = (context: BatchContext) => Object.values(context.aiNotes).some((list) => list.length > 0);
 
 /** A JSON output field as a zod type, nested lists included. `lines` are ids of the request's lines (turned into line keys when read). */
+/** What a field's limits say to the model, after its description. */
+function limitsText(field: JsonField): string {
+  const parts: string[] = [];
+  if (field.required && field.type !== 'number' && field.type !== 'boolean') parts.push('Required: never empty.');
+  if (field.type === 'number' && field.min !== undefined && field.max !== undefined) parts.push(`Between ${field.min} and ${field.max}.`);
+  else if (field.type === 'number' && field.min !== undefined) parts.push(`At least ${field.min}.`);
+  else if (field.type === 'number' && field.max !== undefined) parts.push(`At most ${field.max}.`);
+  return [field.description, ...parts].filter(Boolean).join(' ');
+}
+
+/**
+ * A field's type for the request. Limits (required, bounds) are only described here: a schema that
+ * enforced them would fail the whole batch for one line, so `answerSchema` checks them line by line.
+ */
 function fieldSchema(field: JsonField): z.ZodType<unknown> {
   const type =
     field.type === 'number'
@@ -21,9 +35,32 @@ function fieldSchema(field: JsonField): z.ZodType<unknown> {
             : field.type === 'list'
               ? z.array(fieldsSchema(field.fields ?? []))
               : z.string();
-  return field.description ? type.describe(field.description) : type;
+  const text = limitsText(field);
+  return text ? type.describe(text) : type;
 }
 const fieldsSchema = (fields: JsonField[]) => z.object(Object.fromEntries(fields.map((field) => [field.name, fieldSchema(field)])));
+
+/** One answer checked against its fields' limits too: an empty required field or a number out of bounds fails it. */
+function strictField(field: JsonField): z.ZodType<unknown> {
+  switch (field.type) {
+    case 'number': {
+      let type = z.number();
+      if (field.min !== undefined) type = type.min(field.min);
+      if (field.max !== undefined) type = type.max(field.max);
+      return type;
+    }
+    case 'boolean':
+      return z.boolean();
+    case 'strings':
+    case 'lines':
+      return field.required ? z.array(z.string()).min(1) : z.array(z.string());
+    case 'list':
+      return field.required ? z.array(answerSchema(field.fields ?? [])).min(1) : z.array(answerSchema(field.fields ?? []));
+    default:
+      return field.required ? z.string().trim().min(1) : z.string();
+  }
+}
+export const answerSchema = (fields: JsonField[]): z.ZodType<unknown> => z.object(Object.fromEntries(fields.map((field) => [field.name, strictField(field)])));
 
 /** Whether a node answers once for the whole request instead of once per line. */
 export const isBatchScope = (node: AiNode) => node.config.output === 'json' && node.config.scope === 'batch';

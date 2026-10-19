@@ -80,6 +80,8 @@ export const isSpecialListener = (name: string | null | undefined): name is Spec
  * their own (extras such as SWAT, a passer-by). Only rules use it; a line's listener is never "others".
  */
 export const OTHERS_LISTENER = 'others';
+/** What an AI answers when it cannot tell who a line is addressed to: the line stays 청자 미상 and nothing is written. */
+export const UNKNOWN_LISTENER = 'unknown';
 /** A listener as people read it: a name, or the Korean word for a special listener. */
 export const listenerLabel = (name: string) => (isSpecialListener(name) ? SPECIAL_LISTENERS[name] : name === OTHERS_LISTENER ? '그 밖의 사람' : name);
 

@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { get } from 'es-toolkit/compat';
-import { AGE_BANDS, APPLY_FUNCTION_NAMES, APPLY_TARGETS, applyParams, CHARACTER_ROLES, DOCUMENT_KINDS, GENDERS, SPEECH_LEVELS, tagScope, TERM_KIND_LABELS, TERM_KINDS, type AiConfirm, type ApplyField, type ApplyFunctionName, type ApplyParams } from '@tw/shared';
+import { AGE_BANDS, APPLY_FUNCTION_NAMES, APPLY_TARGETS, applyParams, CHARACTER_ROLES, DOCUMENT_KINDS, GENDERS, SPEECH_LEVELS, tagScope, TERM_KIND_LABELS, TERM_KINDS, UNKNOWN_LISTENER, type AiConfirm, type ApplyField, type ApplyFunctionName, type ApplyParams } from '@tw/shared';
 import type { Db } from '../../db/index.ts';
 import * as s from '../../db/schema.ts';
 import type { Topic } from '../../events.ts';
@@ -297,7 +297,10 @@ function runLine(fn: 'saveCandidate' | 'setListener' | 'tagLines', context: Cont
     return { port: 'out', candidate: text, output: { applied, candidateId }, ...(!applied ? { issues: [HUMAN_OWNED_NOTE] } : {}) };
   }
   if (fn === 'setListener') {
-    const entry = { key: unit.key, listener: item.listener as string, confidence: (item.confidence as number | undefined) ?? 1 };
+    // "unknown" (or nothing) is the AI saying it cannot tell: the line stays 청자 미상.
+    const listener = typeof item.listener === 'string' ? item.listener.trim() : '';
+    if (!listener || listener === UNKNOWN_LISTENER) return { port: 'out', output: { recorded: false, reason: '청자 미상' } };
+    const entry = { key: unit.key, listener, confidence: (item.confidence as number | undefined) ?? 1 };
     if (params.propose) {
       addToRunProposal(tx, { ...base, tool: target.tool, input: {} }, 'lines', entry);
       return { port: 'out', output: { proposed: true } };

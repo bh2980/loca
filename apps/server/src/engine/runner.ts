@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, gte, inArray, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
 import jsonLogic from 'json-logic-js';
 import * as ai from '@tw/ai';
-import { estimateTokens, batchConfigSchema, FUNCTIONS, choiceKey, isUnknownListener, lineMarksOf, nodeModels, nodeName, type AiNode, type ConditionData, type FunctionName, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import { estimateTokens, batchConfigSchema, FUNCTIONS, choiceKey, lineMarksOf, nodeModels, nodeName, type AiNode, type ConditionData, type FunctionName, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -532,17 +532,14 @@ export class Runner {
         return tx.update(s.runItems).set({ state: 'done' }).where(eq(s.runItems.id, item.id)).run();
       case 'condition': {
         const finalStatus = tx.select({ kind: s.statuses.kind }).from(s.statuses).where(eq(s.statuses.id, unit.statusId)).get()?.kind === 'final';
-        // Lines that need no listener (narration, format tokens only) count as known: nothing to guess.
         const rules = tx.select({ rules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, run.projectId)).get()?.rules;
-        const listenerKnown = !isUnknownListener(unit, rules);
         const marks = lineMarksOf(unit, finalStatus, rules);
         const data: ConditionData = {
           visits: item.visits,
           outputs: item.data.outputs ?? {},
           candidate: item.data.candidateText ?? unit.translation,
           issues: item.data.issues ?? [],
-          unit: { kind: unit.kind, speaker: unit.speaker, statusId: unit.statusId, tagIds, marks },
-          listenerKnown,
+          unit: { kind: unit.kind, speaker: unit.speaker, listener: unit.listener, statusId: unit.statusId, tagIds, marks },
         };
         try {
           return this.route(tx, run, item, jsonLogic.apply(node.config.expression as jsonLogic.RulesLogic, data) ? 'true' : 'false');

@@ -55,4 +55,11 @@ describe('reading an AI answer line by line (#49)', () => {
     const out = readAiOutput(node({ output: 'json', scope: 'batch', fields }), raw, lines, 'm');
     expect(out.map((entry) => entry?.output)).toEqual([{ title: 't', evidence: ['k1'], people: [{ name: 'A', evidence: ['k2'], moments: [] }], batchLeader: true }, { batchLeader: false }]);
   });
+  it('json: a line that breaks its field limits (empty required text, number out of bounds) is left out to be asked again', () => {
+    const fields = [{ name: 'value', type: 'string', required: true }, { name: 'confidence', type: 'number', min: 0, max: 1 }];
+    const out = readAiOutput(node({ output: 'json', fields }), { results: [{ id: '1', value: ' ', confidence: 0.9 }, { id: '2', value: 'MIRA', confidence: 43 }] }, lines, 'm');
+    expect(out).toEqual([null, null]);
+    const ok = readAiOutput(node({ output: 'json', fields }), { results: [{ id: '1', value: 'MIRA', confidence: 0.9 }, { id: '2', value: 'unknown', confidence: 0 }] }, lines, 'm');
+    expect(ok.map((entry) => entry?.output)).toEqual([{ value: 'MIRA', confidence: 0.9 }, { value: 'unknown', confidence: 0 }]);
+  });
 });

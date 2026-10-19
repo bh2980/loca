@@ -122,7 +122,7 @@ function Runs() {
             id: run.id,
             kind: 'run' as const,
             title: run.workflowName,
-            sub: `v${run.workflowVersion}`,
+            sub: '',
             status: run.status,
             error: run.status === 'paused' ? run.notice : null,
             progress: { done: (run.states.done ?? 0) + (run.states.failed ?? 0) + (run.states.cancelled ?? 0), total: run.total, unit: '줄' },

@@ -7,6 +7,12 @@ import { Button, ControlIdContext, DropdownMenu, DropdownMenuContent, DropdownMe
 
 const fieldsSchema = z.array(jsonFieldSchema);
 
+/** A field's limits in its read row: 필수, or a number's range. */
+const limitsLabel = (field: JsonField) =>
+  field.type === 'number'
+    ? field.min !== undefined || field.max !== undefined ? `${field.min ?? ''}~${field.max ?? ''}` : ''
+    : field.required ? '필수' : '';
+
 type Editing = { path: string | null; open: (path: string | null) => void; folded: Set<string>; fold: (path: string) => void };
 
 /** One field: read as `name` · type over its description; a click opens just this field for editing (Esc or a click elsewhere closes it). */
@@ -50,7 +56,7 @@ function FieldItem({ field, path, first, last, descriptionPlaceholder, editing, 
             </Button>
           ) : <span className="w-4 shrink-0" />}
           <span className="truncate font-mono text-sm font-semibold text-foreground">{field.name || 'name'}</span>
-          <span className="ml-1 shrink-0 text-xs text-muted-foreground">{JSON_FIELD_TYPE_LABELS[field.type]}{field.type === 'list' && editing.folded.has(path) && ` · 필드 ${field.fields?.length ?? 0}개`}</span>
+          <span className="ml-1 shrink-0 text-xs text-muted-foreground">{[JSON_FIELD_TYPE_LABELS[field.type], limitsLabel(field), field.type === 'list' && editing.folded.has(path) && `필드 ${field.fields?.length ?? 0}개`].filter(Boolean).join(' · ')}</span>
         </div>
         {field.description && <p className="pl-5 text-xs whitespace-pre-wrap text-muted-foreground">{field.description}</p>}
       </div>
@@ -84,6 +90,19 @@ function FieldItem({ field, path, first, last, descriptionPlaceholder, editing, 
         </DropdownMenu>
       </div>
       <Textarea rows={1} className="field-sizing-content min-h-7 resize-none text-xs" value={field.description} placeholder={descriptionPlaceholder} aria-label="설명" onChange={(event) => onChange({ description: event.target.value })} />
+      {field.type === 'number' ? (
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          범위
+          <Input type="number" className="h-7 w-20 text-xs" aria-label="최소" placeholder="최소" value={field.min ?? ''} onChange={(event) => onChange({ min: event.target.value === '' ? undefined : Number(event.target.value) })} />
+          ~
+          <Input type="number" className="h-7 w-20 text-xs" aria-label="최대" placeholder="최대" value={field.max ?? ''} onChange={(event) => onChange({ max: event.target.value === '' ? undefined : Number(event.target.value) })} />
+        </div>
+      ) : field.type !== 'boolean' && (
+        <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Switch checked={!!field.required} onCheckedChange={(required) => onChange({ required: required || undefined })} />
+          필수
+        </label>
+      )}
     </div>
   );
 }

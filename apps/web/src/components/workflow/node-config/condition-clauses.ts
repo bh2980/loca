@@ -5,15 +5,16 @@
 import type { JsonField, WorkflowNode } from '@tw/shared';
 
 export type FieldOperator = '>=' | '<=' | '==' | '!=' | 'filled';
+/** `not` turns a line property around: 상태가 … 아님, 태그 … 없음, 청자 없음. */
 export type Clause =
-  | { kind: 'status'; statusId: string }
-  | { kind: 'lineKind'; value: string }
-  | { kind: 'tag'; tagId: string }
-  | { kind: 'mark'; mark: string }
+  | { kind: 'status'; statusId: string; not?: boolean }
+  | { kind: 'lineKind'; value: string; not?: boolean }
+  | { kind: 'tag'; tagId: string; not?: boolean }
+  | { kind: 'mark'; mark: string; not?: boolean }
+  | { kind: 'listener'; not?: boolean }
+  | { kind: 'candidate'; not?: boolean }
   | { kind: 'visits'; nodeId: string; limit: number }
-  | { kind: 'field'; nodeId: string; field: string; op: FieldOperator; value: string | number | boolean }
-  | { kind: 'listenerKnown' }
-  | { kind: 'candidate' };
+  | { kind: 'field'; nodeId: string; field: string; op: FieldOperator; value: string | number | boolean };
 export type Join = 'and' | 'or';
 export type Condition = { join: Join; clauses: Clause[] };
 
@@ -29,14 +30,18 @@ const args = (rule: Rule): unknown[] => {
 const COMPARE = new Set(['>=', '<=', '==', '!=']);
 
 function parseClause(rule: unknown): Clause | null {
-  const path = varOf(rule);
-  if (path === 'listenerKnown') return { kind: 'listenerKnown' };
   if (!isRule(rule)) return null;
   const name = op(rule);
   const [left, right] = args(rule);
+  if (name === '!') {
+    // Only a line property can be turned around ({"!": …}); results and visits have their own operators.
+    const inner = parseClause(left);
+    return inner && inner.kind !== 'field' && inner.kind !== 'visits' && !inner.not ? { ...inner, not: true } : null;
+  }
   if (name === '!!') {
     const target = varOf(left);
     if (target === 'candidate') return { kind: 'candidate' };
+    if (target === 'unit.listener') return { kind: 'listener' };
     const output = target?.match(/^outputs\.([^.]+)\.(.+)$/);
     return output ? { kind: 'field', nodeId: output[1]!, field: output[2]!, op: 'filled', value: '' } : null;
   }
@@ -77,6 +82,11 @@ export function parseCondition(expression: unknown): Condition | null {
 }
 
 function clauseRule(clause: Clause): unknown {
+  const rule = baseRule(clause);
+  return 'not' in clause && clause.not ? { '!': [rule] } : rule;
+}
+
+function baseRule(clause: Clause): unknown {
   switch (clause.kind) {
     case 'status':
       return { '==': [{ var: 'unit.statusId' }, clause.statusId] };
@@ -92,8 +102,8 @@ function clauseRule(clause: Clause): unknown {
       const reference = { var: `outputs.${clause.nodeId}.${clause.field}` };
       return clause.op === 'filled' ? { '!!': [reference] } : { [clause.op]: [reference, clause.value] };
     }
-    case 'listenerKnown':
-      return { var: 'listenerKnown' };
+    case 'listener':
+      return { '!!': [{ var: 'unit.listener' }] };
     case 'candidate':
       return { '!!': [{ var: 'candidate' }] };
   }

@@ -655,7 +655,6 @@ function WorkflowEditor() {
       <PageHeading>
         <Link to="/p/$projectId/workflows" params={{ projectId }} className="text-xs text-muted-foreground">워크플로</Link><ChevronRight className="size-3 text-muted-foreground" />
         <NameField name={current.name} onRename={(name) => setDraft((value) => ({ ...value, name }))} />
-        <span className="text-xs text-muted-foreground">v{workflow.data.version}</span>
         <span className="truncate text-xs text-muted-foreground" role="status">{save.isPending ? '저장 중…' : save.isError ? '저장 실패 · 편집 보관됨' : draft ? '저장 대기' : `자동 저장됨 ${savedAt(workflow.data.updatedAt)}`}</span>
       </PageHeading>
       <HeaderActions>

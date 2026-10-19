@@ -146,8 +146,16 @@ function fillDef(def: JsonDef, name: string, ctx: { ids: string[]; speakers: str
   if (def.enum?.length) return def.enum[0];
   switch (def.type) {
     case 'number':
-    case 'integer':
+    case 'integer': {
+      // Bounds are described, not enforced, in the request schema ("Between 0 and 1.", "At most 5."): stay inside them.
+      const between = def.description?.match(/Between (-?[\d.]+) and (-?[\d.]+)\./);
+      if (between) return Number(between[1]) + (Number(between[2]) - Number(between[1])) * 0.9;
+      const most = def.description?.match(/At most (-?[\d.]+)\./);
+      const least = def.description?.match(/At least (-?[\d.]+)\./);
+      if (most) return Math.min(ctx.source, Number(most[1]));
+      if (least) return Math.max(ctx.source, Number(least[1]));
       return ctx.source;
+    }
     case 'boolean':
       return ctx.source % 2 === 0;
     case 'array': {

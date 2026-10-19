@@ -230,12 +230,7 @@ export interface ConditionData {
   candidate: string | null;
   issues: string[];
   /** marks: the line's automatic marks right now (lineMarksOf in marks.ts; diverged is only known to the list filter). */
-  unit: { kind: string; speaker: string | null; statusId: string; tagIds: string[]; marks: string[] };
-  /**
-   * The line needs no listener estimate: its listener came from the import or a person, or is an AI guess
-   * at or above the confidence threshold, or the line is not dialogue.
-   */
-  listenerKnown: boolean;
+  unit: { kind: string; speaker: string | null; listener: string | null; statusId: string; tagIds: string[]; marks: string[] };
 }
 
 export interface WorkflowIssue {

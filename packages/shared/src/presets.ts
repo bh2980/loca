@@ -176,8 +176,8 @@ export const AI_PRESETS = {
     scope: 'line',
     include: { candidate: false, issues: false },
     fields: [
-      field('value', 'string', 'Who the line is addressed to: a cast name, an extra as the lines name them, or group / public / self. Empty when you cannot tell.'),
-      field('confidence', 'number', 'How sure you are, 0 to 1.'),
+      { ...field('value', 'string', 'Who the line is addressed to: a cast name, an extra as the lines name them, group / public / self, or unknown when you cannot tell.'), required: true },
+      { ...field('confidence', 'number', 'How sure you are.'), min: 0, max: 1 },
       field('reason', 'string', 'One short line on why.'),
     ],
     context: { glossary: false, cast: true, characters: true, relationships: true, documents: true, precedingLines: 8, previousScenes: 1 },
@@ -187,7 +187,7 @@ export const AI_PRESETS = {
       'Read the whole batch as a scene: who is present, turn-taking, vocatives, questions and answers. ' +
       'Answer with the name as in the cast list (the player character included, even if it never speaks). Someone not in the cast — an extra such as a SWAT officer or a passer-by — is named ' +
       'exactly as they appear as a speaker in the lines (e.g. "SWAT 2"), or as the lines call them when they never speak; never put a cast member in an extra\'s place. Use "group" for several people present, ' +
-      '"public" for an unspecified audience (broadcast, announcement, post), "self" for thinking aloud, and an empty value when you cannot tell. Give a confidence from 0 to 1; never guess with high confidence.',
+      '"public" for an unspecified audience (broadcast, announcement, post), "self" for thinking aloud, and "unknown" when you cannot tell. Give a confidence from 0 to 1; never guess with high confidence.',
   },
   terms: {
     label: 'AI 용어 추출',

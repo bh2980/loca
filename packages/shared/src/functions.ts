@@ -35,6 +35,11 @@ export interface JsonField {
   description: string;
   /** Item fields of a `list`. */
   fields?: JsonField[];
+  /** The answer must fill it: a text or list that is not empty. Numbers and true/false are always required. */
+  required?: boolean;
+  /** Bounds of a `number`. */
+  min?: number;
+  max?: number;
 }
 export const jsonFieldSchema: z.ZodType<JsonField> = z.lazy(() =>
   z.object({
@@ -42,6 +47,9 @@ export const jsonFieldSchema: z.ZodType<JsonField> = z.lazy(() =>
     type: z.enum(JSON_FIELD_TYPES).default('string'),
     description: z.string().default(''),
     fields: z.array(jsonFieldSchema).optional(),
+    required: z.boolean().optional(),
+    min: z.number().optional(),
+    max: z.number().optional(),
   }),
 ) as z.ZodType<JsonField>;
 
@@ -117,7 +125,7 @@ export const APPLY_TARGETS = {
   },
   setListener: {
     label: '청자 설정',
-    description: '대사의 청자를 적습니다(출처: AI). 사람이 정했거나 가져온 청자는 바꾸지 않습니다.',
+    description: '대사의 청자를 적습니다(출처: AI). ‘unknown’이면 아무것도 적지 않습니다(청자 미상). 사람이 정했거나 가져온 청자는 바꾸지 않습니다.',
     shape: 'line',
     fields: [
       { name: 'listener', label: '청자', type: 'string', required: true },
