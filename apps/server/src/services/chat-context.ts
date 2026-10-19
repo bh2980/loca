@@ -2,8 +2,8 @@ import type { UIMessage } from 'ai';
 
 /**
  * Model context built from the one conversation record (`chat_sessions.messages`).
- * Every backend reads the same record: the API chat sends it as messages, pi is seeded with it, a
- * CLI gets it as text. A backend's own session (pi in memory, a CLI on disk) is only a cache that
+ * Every backend reads the same record: the API chat sends it as messages, a CLI gets it as text.
+ * A CLI's own session (on disk) is only a cache that
  * remembers how much of the record it has seen; what it missed is handed over from here (#46).
  */
 
@@ -15,7 +15,7 @@ export interface AnsweredBy {
 }
 
 /** Characters of earlier conversation each backend gets before older parts are shortened. */
-export const CONTEXT_BUDGET = { api: 200_000, pi: 200_000, cli: 120_000 } as const;
+export const CONTEXT_BUDGET = { api: 200_000, cli: 120_000 } as const;
 /** An old message shortened to fit the budget keeps this much of its text. */
 const SHORT = 300;
 
@@ -120,7 +120,7 @@ export function transcript(messages: UIMessage[], budget: number) {
   return lines.join('\n');
 }
 
-/** The whole earlier conversation for a backend that starts fresh (a new CLI or pi session, another model). */
+/** The whole earlier conversation for a backend that starts fresh (a new CLI session, another model). */
 export function handover(earlier: UIMessage[], budget: number) {
   const text = transcript(earlier, budget);
   return text ? `이 대화의 이전 기록(다른 AI와 나눈 부분 포함, 이어서 대화하세요):\n${text}` : null;
@@ -138,7 +138,7 @@ const sizeOf = (message: UIMessage) => JSON.stringify(message.parts).length;
 /**
  * The record as API messages within `budget` characters: when it is longer, the older part becomes
  * one text message (a handover) and the rest is sent as it is, starting at a user message so a tool
- * call is never cut from its result (pi's compaction keeps the same boundary).
+ * call is never cut from its result.
  */
 export function fitMessages(record: UIMessage[], budget: number): UIMessage[] {
   const messages = expandSteers(record);

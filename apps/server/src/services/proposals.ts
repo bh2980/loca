@@ -7,7 +7,7 @@ import { agentCatalog } from './agent-catalog.ts';
 import { captureUndo, dropConflicts, isRecord, orderedCalls, rebaseLineCall, rememberLineRevisions } from './proposal-undo.ts';
 
 /** Stores a proposal; callers check it first with prepareProposal (proposal-check.ts). */
-export function propose(db: Pick<Db, 'insert'>, input: { projectId: string; sessionId: string | null; model?: string | null; source: 'pi' | 'cli' | 'api' | 'run'; /** A workflow apply node's proposal (source 'run'): its run and node. */ runId?: string; nodeId?: string; tool: string; input: Record<string, unknown>; report?: s.ProposalReport | null; review?: string | null }) {
+export function propose(db: Pick<Db, 'insert'>, input: { projectId: string; sessionId: string | null; model?: string | null; source: 'cli' | 'api' | 'run'; /** A workflow apply node's proposal (source 'run'): its run and node. */ runId?: string; nodeId?: string; tool: string; input: Record<string, unknown>; report?: s.ProposalReport | null; review?: string | null }) {
   const row = db.insert(s.proposals).values(input).returning().get();
   events.changed(input.projectId, 'proposals');
   return row;

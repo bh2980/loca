@@ -12,7 +12,7 @@ import { fitText } from './tool-output.ts';
 import { agentTools } from './agent-tools.ts';
 
 /**
- * The one way an agent's change reaches the project (#45), for every chat backend (API, pi, CLI):
+ * The one way an agent's change reaches the project (#45), for every chat backend (API, CLI):
  * check it (prepareProposal), store it as a proposal, then let the conversation's permission mode
  * decide: ask → the person decides on the card (#43 tells the agent); auto → applied now when the
  * review below passes, otherwise asked; bypass → applied now. Applied changes are proposals too
@@ -61,7 +61,7 @@ export type GateResult =
   | { ok: false; error: string; hint?: string }
   | { ok: true; proposalId: string; applied: boolean; status: s.ProposalStatus; result?: unknown; review?: string; text: string; report: s.ProposalReport | null };
 
-export async function proposeChange(db: Db, request: { projectId: string; sessionId: string | null; model?: string | null; source: 'pi' | 'cli' | 'api'; tool: string; input: Record<string, unknown> }): Promise<GateResult> {
+export async function proposeChange(db: Db, request: { projectId: string; sessionId: string | null; model?: string | null; source: 'cli' | 'api'; tool: string; input: Record<string, unknown> }): Promise<GateResult> {
   const denied = checkAgentPermission(db, request.projectId, request.tool, request.input);
   if (denied) return { ok: false, error: denied };
   const prepared = await prepareProposal(db, request.projectId, request.tool, request.input);
@@ -85,8 +85,7 @@ export async function proposeChange(db: Db, request: { projectId: string; sessio
 }
 
 /**
- * The agent's tools for the API chat (AI SDK): change tools go through proposeChange like pi's and
- * the CLI's, instead of the SDK's own approval step, so the three backends decide changes the same
+ * The agent's tools for the API chat (AI SDK): change tools go through proposeChange like the CLI's, instead of the SDK's own approval step, so the three backends decide changes the same
  * way. edit_workflow_node has no execute (the open editor applies it) and stays as it is.
  */
 export function gatedTools(db: Db, projectId: string, sessionId: string, author: { model: string | null }): ToolSet {

@@ -23,7 +23,7 @@ interface Part {
 
 export function ToolPart({ part, stale, onDecide, onOutput, proposal }: {
   part: Part;
-  /** For pi chats: the stored proposal a change tool produced (decided with its own buttons). */
+  /** For CLI chats: the stored proposal a change tool produced (decided with its own buttons). */
   proposal?: Proposal;
   /** Not in the latest reply: an unanswered proposal can no longer be applied. */
   stale?: boolean;

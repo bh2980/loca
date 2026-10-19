@@ -309,7 +309,7 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
   const busy = status === 'submitted' || status === 'streaming';
   // A turn this window is not streaming (sent before a reload) that is still going on the server.
   const elsewhere = !busy && Boolean(turn?.startedAt) && messages.at(-1)?.role === 'user';
-  // pi chats store change requests as proposals; their cards are decided through the API.
+  // CLI chats store change requests as proposals; their cards are decided through the API.
   const proposals = useQuery(q.proposals(projectId, sessionId));
   const proposalById = new Map(proposals.data?.map((proposal) => [proposal.id, proposal]));
   const [undoingReply, setUndoingReply] = useState(false);

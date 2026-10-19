@@ -14,7 +14,6 @@ import { hasInterjections, takeInterjections, writeInterjections, type Interject
 import { afterTurn, startTurn, turnEnded, turnStartedAt, type ChatTurn } from './chat-turns.ts';
 import { chatStream, errorText } from './chat-stream.ts';
 import { cliChatResponse } from './cli-chat.ts';
-import { piChatResponse } from './pi-chat.ts';
 import { hasUnreportedDecisions, openProposals, takeDecisions } from './proposals.ts';
 import { liveChoice } from './routes.ts';
 import { withFittedResults } from './tool-output.ts';
@@ -62,14 +61,6 @@ export async function runChatTurn(deps: Pick<Deps, 'db' | 'secrets'>, given: typ
   const turn = startTurn(session.projectId, session.id);
   if ((ai.CHAT_CLI_KINDS as string[]).includes(route.kind))
     return cliChatResponse({ db, chat: session, route, system: [AGENT_SYSTEM, NO_EDITOR_NOTE].join('\n\n'), view, messages, answeredBy, timeoutMs: live.snapshot.timeoutSeconds * 1000, turn });
-  if (route.kind === 'pi') {
-    try {
-      return await piChatResponse({ db, chat: session, route, system: [AGENT_SYSTEM, NO_EDITOR_NOTE].join('\n\n'), view, messages, answeredBy, turn });
-    } catch (error) {
-      turn.end();
-      throw error;
-    }
-  }
   return apiChatResponse({ db, session, route, live, view, messages, answeredBy, turn });
 }
 

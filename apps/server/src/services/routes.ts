@@ -34,7 +34,6 @@ export function snapshotChoice(db: Db, choice: ModelChoice, byId = new Map<strin
     executable: connection.executable,
     model,
     effort: effort || null,
-    piOptions: connection.options ?? null,
   });
   const routes = [route(primary, choice.model, choice.effort)];
   const seen = new Set([choiceKey(choice)]);
@@ -71,7 +70,6 @@ export function resolveRoutes(snapshot: AiSnapshot, secrets: SecretStore): Resol
     model: route.model,
     effort: route.effort ?? undefined,
     apiKey: secrets.get(route.connectionId) ?? undefined,
-    piOptions: route.piOptions ?? undefined,
   }));
 }
 
@@ -97,7 +95,6 @@ export function connectionRoute(db: Db, connectionId: string, secrets: SecretSto
     baseUrl: connection.baseUrl ?? undefined,
     executable: connection.executable ?? undefined,
     apiKey: secrets.get(connection.id) ?? undefined,
-    piOptions: connection.options ?? undefined,
   };
 }
 

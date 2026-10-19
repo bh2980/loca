@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import { AGE_BANDS, CHARACTER_ROLES, GENDERS, KNOWLEDGE_TAG_KINDS, TAG_ROLES, type TagRole, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, PERMISSION_MODES, type AiConfirm, type CharacterStyle, type EditorAi, type ExclusionRules, type ModelLimits, LINE_TRANSLATE, type LineMark, type MarkColors, type ModelChoice, type ContextItem, type FormatRules, type NodeType, type PiOptions, type RelationshipChange, type WorkflowDefinition } from '@tw/shared';
+import { AGE_BANDS, CHARACTER_ROLES, GENDERS, KNOWLEDGE_TAG_KINDS, TAG_ROLES, type TagRole, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, PERMISSION_MODES, type AiConfirm, type CharacterStyle, type EditorAi, type ExclusionRules, type ModelLimits, LINE_TRANSLATE, type LineMark, type MarkColors, type ModelChoice, type ContextItem, type FormatRules, type NodeType, type RelationshipChange, type WorkflowDefinition } from '@tw/shared';
 import type { Usage } from '@tw/ai';
 
 const id = () => text('id').primaryKey().$defaultFn(() => crypto.randomUUID());
@@ -455,14 +455,12 @@ export const termJobs = sqliteTable(
 /** App-wide: connections are shared by every project. Secrets live in the OS keyring. */
 export const connections = sqliteTable('connections', {
   id: id(),
-  kind: text('kind', { enum: ['openai', 'pi', 'systemone', 'codex', 'claude', 'grok', 'antigravity', 'opencode', 'http'] }).notNull(),
+  kind: text('kind', { enum: ['openai', 'systemone', 'codex', 'claude', 'grok', 'antigravity', 'opencode', 'http'] }).notNull(),
   name: text('name').notNull(),
   baseUrl: text('base_url'),
   executable: text('executable'),
   headerTemplate: text('header_template'),
   createdAt: createdAt(),
-  /** pi connections: packages, extensions and built-in tools to load (see piOptionsSchema). */
-  options: json<PiOptions>('options'),
   /** Model calls this account takes at once, shared by every run. */
   concurrency: integer('concurrency').notNull().default(2),
   /** Filled in when the connection is picked somewhere; templates and imported workflows use it. */
@@ -513,7 +511,6 @@ export interface RouteSnapshot {
   executable: string | null;
   model: string;
   effort: string | null;
-  piOptions?: PiOptions | null;
 }
 /**
  * A model choice as it was resolved when work started: the picked route first, then the
@@ -642,7 +639,7 @@ export const runSteps = sqliteTable(
 );
 
 /**
- * A change an agent asked for outside the AI SDK approval flow (pi chat, the CLI). Nothing is
+ * A change an agent asked for outside the AI SDK approval flow (a CLI chat, the loca CLI). Nothing is
  * applied until a person accepts it in the chat panel; then the same tool runs with this input.
  */
 /** Lines a batch proposal left out (errors, conflicts) and warnings about the ones it kept. */
@@ -670,7 +667,7 @@ export const proposals = sqliteTable(
     sessionId: text('session_id'),
     /** Model that proposed the change; null for person-originated proposals. */
     model: text('model'),
-    source: text('source', { enum: ['pi', 'cli', 'api', 'run'] }).notNull(),
+    source: text('source', { enum: ['cli', 'api', 'run'] }).notNull(),
     /** A workflow run's apply node filed it (source 'run'): the run and the node, so the list can group by run. */
     runId: text('run_id').references(() => runs.id, { onDelete: 'set null' }),
     nodeId: text('node_id'),

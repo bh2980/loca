@@ -120,37 +120,6 @@ export const agentSettingsSchema = z.object({
 });
 export type AgentSettings = z.infer<typeof agentSettingsSchema>;
 
-/** pi's own coding tools; off unless switched on, since they act on this computer's files. */
-export const PI_BUILTIN_TOOLS = {
-  read: '파일 읽기',
-  grep: '파일 내용 검색',
-  find: '파일 찾기',
-  ls: '폴더 보기',
-  edit: '파일 고치기',
-  write: '파일 쓰기',
-  bash: '쉘 명령 실행',
-} as const;
-export type PiBuiltinTool = keyof typeof PI_BUILTIN_TOOLS;
-
-/**
- * What a pi connection loads besides the workbench tools. pi users usually have their own harness
- * (web access, routers, guardrails…), so packages/extensions load by default and each can be
- * switched off; anything that touches local files or adds instructions is opt-in.
- */
-export const piOptionsSchema = z.object({
-  extensions: z.boolean().default(true),
-  /** Extension paths switched off individually. */
-  disabledExtensions: z.array(z.string()).default([]),
-  builtinTools: z.array(z.enum(Object.keys(PI_BUILTIN_TOOLS) as [PiBuiltinTool, ...PiBuiltinTool[]])).default([]),
-  skills: z.boolean().default(false),
-  promptTemplates: z.boolean().default(false),
-  /** AGENTS.md / CLAUDE.md files found from the working folder. */
-  contextFiles: z.boolean().default(false),
-  /** Working folder for pi's file tools and context files; empty = a temporary folder. */
-  cwd: z.string().default(''),
-});
-export type PiOptions = z.infer<typeof piOptionsSchema>;
-
 /**
  * A conversation's name from its first message, without a model call: the first sentence, the
  * request ending and filler words dropped ("지금 진행 상황을 요약해줘" → "진행 상황 요약"), so the

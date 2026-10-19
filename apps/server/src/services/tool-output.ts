@@ -1,6 +1,6 @@
 /**
  * Chat tools can return far more than a model should read in one step (a 50k-line game's term
- * list, every check finding). Every chat path (API, pi, CLI) sends a tool result through
+ * list, every check finding). Every chat path (API, CLI) sends a tool result through
  * `fitResult`, so the model always learns that it got part of it and how to get the rest, instead
  * of each path cutting the text silently at its own length.
  */
@@ -45,7 +45,7 @@ export function fitResult(result: unknown, limit = TOOL_RESULT_CHARS): unknown {
   return { text: text.slice(0, limit - 200), truncated: { shown: limit - 200, total: text.length, note: '결과가 길어 앞부분 글자만 보냅니다. 더 좁은 조건으로 다시 부르세요.' } };
 }
 
-/** A tool result as text for a chat that takes text (pi, CLI). */
+/** A tool result as text for a chat that takes text (CLI). */
 export const fitText = (result: unknown, limit = TOOL_RESULT_CHARS) => JSON.stringify(fitResult(result, limit));
 
 /** The API chat's tools with every result passed through `fitResult` (the SDK hands results to the model as they are). */

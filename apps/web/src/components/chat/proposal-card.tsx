@@ -35,7 +35,7 @@ export function useUndo(projectId: string, sessionId: string) {
   });
 }
 
-/** A change an agent proposed (pi chat or the CLI). Accepting runs it now; nothing changes before that. */
+/** A change an agent proposed (a CLI chat or the loca CLI). Accepting runs it now; nothing changes before that. */
 export function ProposalCard({ proposal }: { proposal: Proposal }) {
   const queryClient = useQueryClient();
   const undo = useUndo(proposal.projectId, proposal.sessionId ?? '');

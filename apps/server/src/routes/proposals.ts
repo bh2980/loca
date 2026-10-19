@@ -6,7 +6,7 @@ import * as s from '../db/schema.ts';
 import { decideProposal, listedProposal, proposalRuns, undoProposals } from '../services/proposals.ts';
 import { continueAfterDecisions } from '../services/chat-run.ts';
 
-/** Changes proposed by pi chat sessions and the CLI, decided in the chat panel. */
+/** Changes proposed by CLI chats and the loca CLI, decided in the chat panel. */
 export const proposalRoutes = new Hono<Env>()
   // Without `session`: everything not tied to a chat (the CLI's and the workflows' apply nodes), newest first.
   // `status` filters, `runId` narrows to one run's proposals; page with limit/offset (x-total-count is the full count).

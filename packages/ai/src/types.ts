@@ -11,8 +11,6 @@ export interface ResolvedRoute {
   apiKey?: string;
   model: string;
   effort?: string;
-  /** pi connections: what to load besides the workbench tools. */
-  piOptions?: import('@tw/shared').PiOptions;
 }
 
 /** What a call used, as the connection reported it. Absent fields were not reported. */
