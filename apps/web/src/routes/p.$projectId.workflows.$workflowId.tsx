@@ -402,14 +402,10 @@ function WorkflowEditor() {
     if (picks.length) {
       const picked = new Set(multi.length ? multi : search.node ? [search.node] : []);
       for (const change of picks) if (change.type === 'select') (change.selected ? picked.add(change.id) : picked.delete(change.id));
+      // A box or ⌘/Ctrl+click picks (ringed), even a single node; only a plain click (onNodeClick) opens its pane.
       const ids = [...picked];
-      if (ids.length >= 2) {
-        setMulti(ids);
-        if (search.node) select(undefined);
-      } else {
-        if (multi.length) setMulti([]);
-        if (ids[0] !== search.node && (ids[0] || multi.length === 0)) select(ids[0]);
-      }
+      setMulti(ids);
+      if (ids.length && search.node) select(undefined);
     }
     if (!moved.length && !removed.length) return;
     if (removed.length) setMulti([]);
@@ -722,7 +718,13 @@ function WorkflowEditor() {
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
-            onNodeClick={(_event, node) => (select(node.id), setEdgeId(undefined), setContextMenu(null))}
+            onNodeClick={(event, node) => {
+              if (event.metaKey || event.ctrlKey) return;
+              setMulti([]);
+              select(node.id);
+              setEdgeId(undefined);
+              setContextMenu(null);
+            }}
             onEdgeClick={(_event, edge) => (setEdgeId(edge.id), setContextMenu(null))}
             onEdgeMouseEnter={(_event, edge) => setHoveredEdgeId(edge.id)}
             onEdgeMouseLeave={() => setHoveredEdgeId(undefined)}

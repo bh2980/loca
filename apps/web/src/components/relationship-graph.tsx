@@ -153,12 +153,12 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
   onDeleteCharacters?: (ids: string[], ask: boolean) => void;
 }) {
   const dark = useIsDark();
-  // Characters picked together (Shift+drag box, ⌘/Ctrl+click), as in the other graphs: two or more.
-  // One picked is the ordinary selection (the page's, with its pane). The graph's own: tables keep theirs.
+  // Characters picked with a Shift+drag box or ⌘/Ctrl+click, as in the other graphs: ringed, even a
+  // single one; only a plain click is the page's selection with its pane. The graph's own: tables keep theirs.
   const [picked, setPicked] = useState<Set<string>>(new Set());
   // The characters the right-click menu acts on (the picked ones when it opens on one of them); the pane and edges open no menu.
   const [menuFor, setMenuFor] = useState<string[] | null>(null);
-  const selection = picked.size > 1 ? [...picked] : selectedCharacterId ? [selectedCharacterId] : [];
+  const selection = picked.size ? [...picked] : selectedCharacterId ? [selectedCharacterId] : [];
   useEffect(() => {
     if (!onDeleteCharacters || !selection.length) return;
     const onKey = (event: KeyboardEvent) => {
@@ -246,7 +246,7 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
         type: 'person',
         position: placed[character.id] ?? positions?.byId[character.id] ?? { x: 0, y: 0 },
         data: { label: character.name, role: character.role, dim: emphasis.active && !emphasis.nodeIds.has(character.id), target: Boolean(menuFor?.includes(character.id)) },
-        selected: picked.size > 1 ? picked.has(character.id) : character.id === selectedCharacterId,
+        selected: picked.size ? picked.has(character.id) : character.id === selectedCharacterId,
         width: NODE_WIDTH,
         height: NODE_HEIGHT,
       })),
@@ -293,7 +293,7 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
 
   if (!positions) return <div className="flex h-full items-center justify-center text-sm text-muted-foreground">배치 계산 중…</div>;
   const menuCharacter = menuFor?.length === 1 ? characters.find((character) => character.id === menuFor[0]) : undefined;
-  /** The picked set after React Flow's select changes (a box, a ⌘/Ctrl+click): one left is the ordinary selection. */
+  /** The picked set after React Flow's select changes (a box, a ⌘/Ctrl+click; a plain click is settled in onNodeClick). */
   const pick = (changes: NodeChange<PersonNode>[]) => {
     const select = changes.filter((change) => change.type === 'select');
     if (!select.length) return;
@@ -302,14 +302,8 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
       if (change.selected) next.add(change.id);
       else next.delete(change.id);
     }
-    if (next.size > 1) {
-      setPicked(next);
-      if (selectedCharacterId) onClear();
-    } else {
-      setPicked(new Set());
-      const [only] = next;
-      if (only && only !== selectedCharacterId) onSelectCharacter(only);
-    }
+    setPicked(next);
+    if (next.size && selectedCharacterId) onClear();
   };
   return (
     <ContextMenu onOpenChange={(open) => !open && setMenuFor(null)}>
@@ -347,7 +341,7 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
       selectionMode={SelectionMode.Partial}
       // Deleting goes through the page (Delete key above, the node's menu), not React Flow's own.
       deleteKeyCode={null}
-      onNodeContextMenu={(_event, node) => setMenuFor(picked.size > 1 && picked.has(node.id) ? [...picked] : [node.id])}
+      onNodeContextMenu={(_event, node) => setMenuFor(picked.has(node.id) ? [...picked] : [node.id])}
       onEdgeContextMenu={(event) => event.preventDefault()}
       onPaneContextMenu={(event) => event.preventDefault()}
       // A ⌘/Ctrl+click adds to the picked set (pick, above); a plain click is the ordinary selection.
