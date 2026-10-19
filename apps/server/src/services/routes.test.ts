@@ -31,6 +31,13 @@ describe('model choices', () => {
     expect(snapshotChoice(db, { connectionId: 'gone', model: 'x' })).toBeUndefined();
   });
 
+  it('falls back to another model of the same connection once, without looping', () => {
+    const db = openDatabase(':memory:');
+    db.insert(s.connections).values({ id: 'or', kind: 'openai', name: 'OpenRouter', fallback: { connectionId: 'or', model: 'cheap' } }).run();
+    expect(snapshotChoice(db, { connectionId: 'or', model: 'big' })!.routes.map((route) => route.model)).toEqual(['big', 'cheap']);
+    expect(snapshotChoice(db, { connectionId: 'or', model: 'cheap' })!.routes.map((route) => route.model)).toEqual(['cheap']);
+  });
+
   it('refuse a connection that cannot do what the place needs', () => {
     const db = openDatabase(':memory:');
     db.insert(s.connections).values({ id: 'j', kind: 'systemone', name: 'Judge' }).run();

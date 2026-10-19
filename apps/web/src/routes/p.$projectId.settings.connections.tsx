@@ -466,7 +466,7 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
               render={({ field }) => (
                 <InspectorField
                   label="대체 모델"
-                  description="이 연결이 막히면 넘길 모델. 채팅에는 쓰지 않습니다."
+                  description="이 연결이 막히면 넘길 모델. 같은 연결의 다른 모델도 됩니다. 채팅에는 쓰지 않습니다."
                   error={(errors.fallback?.model ?? errors.fallback)?.message}
                   action={field.value && (
                     <Button variant="ghost" size="inline" onClick={() => field.onChange(null)}>
@@ -474,7 +474,7 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
                     </Button>
                   )}
                 >
-                  <ModelPicker exclude={connection.id} value={field.value} onChange={(next: ModelValue) => field.onChange(next.model ? next : { ...next, model: '' })} />
+                  <ModelPicker value={field.value} onChange={(next: ModelValue) => field.onChange(next.model ? next : { ...next, model: '' })} />
                 </InspectorField>
               )}
             />
