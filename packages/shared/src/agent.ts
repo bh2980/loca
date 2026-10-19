@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { agentPermissionsSchema } from './agent-permissions.ts';
+import { modelChoiceSchema } from './model-choice.ts';
 
 /** Tool display labels and proposal risk classes. Resource/action authorization lives in
  * agent-permissions.ts; these labels are not permission switches. */
@@ -112,6 +113,8 @@ export const agentSettingsSchema = z.object({
   disabledTools: z.array(z.string()).default([]),
   /** Per-resource operations; old tool switches are conservatively interpreted until saved. */
   permissions: agentPermissionsSchema.optional(),
+  /** The model a new conversation talks to; unset, it takes the one the latest conversation picked. */
+  chatModel: modelChoiceSchema.nullable().default(null),
   /** The permission mode a new conversation starts in. */
   defaultPermissionMode: z.enum(PERMISSION_MODES).default('ask'),
   /** Bypass applies changes without asking, so these limits bound a runaway conversation. */

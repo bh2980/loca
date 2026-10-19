@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { UI_MESSAGE_STREAM_HEADERS, type UIMessage } from 'ai';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { modelChoiceSchema, PERMISSION_MODES, type ModelChoice } from '@tw/shared';
+import { agentSettingsSchema, modelChoiceSchema, PERMISSION_MODES, type ModelChoice } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
@@ -63,12 +63,13 @@ export const chatRoutes = new Hono<Env>()
   .post('/projects/:projectId/chat', validate('json', z.object({ model: modelChoiceSchema.optional() })), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
-    // A new conversation talks to the AI the latest one picked, unless told otherwise.
+    // A new conversation talks to the project's chat model, else the AI the latest one picked, unless told otherwise.
+    const settings = agentSettingsSchema.parse(db.select({ settings: s.projects.agentSettings }).from(s.projects).where(eq(s.projects.id, projectId)).get()?.settings ?? {});
     const latest = db.select({ connectionId: s.chatSessions.connectionId, model: s.chatSessions.model, effort: s.chatSessions.effort }).from(s.chatSessions).where(and(eq(s.chatSessions.projectId, projectId), sql`${s.chatSessions.model} is not null`)).orderBy(desc(s.chatSessions.updatedAt)).get();
     const fallback = defaultModelChoice(db, 'chat');
-    const choice = c.req.valid('json').model ?? latest ?? (fallback.connectionId && fallback.model ? fallback : undefined);
+    const choice = c.req.valid('json').model ?? settings.chatModel ?? latest ?? (fallback.connectionId && fallback.model ? fallback : undefined);
     // …and starts in the project's default permission mode (#45).
-    const permissionMode = db.select({ settings: s.projects.agentSettings }).from(s.projects).where(eq(s.projects.id, projectId)).get()?.settings.defaultPermissionMode ?? 'ask';
+    const permissionMode = settings.defaultPermissionMode;
     const row = db.insert(s.chatSessions).values({ projectId, title: '새 대화', ...choiceColumns(choice), permissionMode }).returning().get();
     events.changed(projectId, 'chat');
     return c.json(row, 201);

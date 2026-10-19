@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams } from '@tanstack/react-router';
 import { toast } from 'sonner';
-import { AGENT_ACTIONS, AGENT_RESOURCES, agentSettingsSchema, effectiveAgentPermissions, type AgentAction, type AgentPermissions, type AgentResource, type AgentSettings, type PermissionMode } from '@tw/shared';
+import { AGENT_ACTIONS, AGENT_RESOURCES, agentSettingsSchema, effectiveAgentPermissions, PERMISSION_MODE_INFO, type AgentAction, type AgentPermissions, type AgentResource, type AgentSettings, type PermissionMode } from '@tw/shared';
 import { PermissionModePicker } from '@/components/chat/permission-mode';
-import { AdvancedDisclosure, Button, Field, FieldLabel, Input, PermissionMatrix, SettingsSection, Switch } from '@loca/ui';
+import { Button, Input, InspectorField, PermissionMatrix, SettingsSection } from '@loca/ui';
+import { ModelPicker } from '@/components/model-picker';
 import { client, unwrap } from '@/lib/api';
 import { optimistic } from '@/lib/optimistic';
 import { q } from '@/lib/queries';
@@ -41,7 +42,7 @@ export function AgentTab({ projectId: propProjectId }: { projectId?: string } = 
     onMutate: async (next) => ({
       undo: await optimistic(queryClient, [{ key: ['units', 'project', projectId], update: (data: { agentSettings: object }) => ({ ...data, agentSettings: next }) }]),
     }),
-    onSuccess: () => toast.success('에이전트 설정을 저장했습니다.'),
+    onSuccess: () => toast.success('채팅 설정을 저장했습니다.'),
     onError: (error, _next, context) => {
       context?.undo();
       toast.error(error.message);
@@ -59,33 +60,55 @@ export function AgentTab({ projectId: propProjectId }: { projectId?: string } = 
     saveSettings(settings, nextPermissions);
   };
 
-  const limits = (
-    <SettingsSection title="다시 확인" description="대화별 기준이며 전체 과금 상한은 아닙니다.">
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field>
-          <FieldLabel htmlFor="bypass-changes">대화당 변경 수</FieldLabel>
-          <Input id="bypass-changes" type="number" min={1} max={10_000} step={1} value={changesDraft} disabled={!loaded || save.isPending} onChange={(event) => setChangesDraft(event.target.value)} aria-invalid={!changesValid} />
-          {!changesValid && <p role="alert" className="text-xs text-destructive">1부터 10,000까지의 정수를 입력하세요.</p>}
-        </Field>
-        <Field>
-          <FieldLabel htmlFor="bypass-cost">대화당 비용</FieldLabel>
-          <Input id="bypass-cost" type="number" min={0} step="any" placeholder="제한 없음" value={costDraft} disabled={!loaded || save.isPending} onChange={(event) => setCostDraft(event.target.value)} aria-invalid={!costValid} />
-          {!costValid && <p role="alert" className="text-xs text-destructive">0 이상의 비용을 입력하거나 비워 두세요.</p>}
-        </Field>
-      </div>
-      <Button disabled={!loaded || save.isPending || !limitsDirty || !changesValid || !costValid} onClick={() => saveSettings({ ...settings, bypassLimits: { changes, costUsd } })}>한도 저장</Button>
-    </SettingsSection>
-  );
-
   return (
     <div>
-      <p role="status" aria-live="polite" className="sr-only">{save.isPending ? '에이전트 설정 저장 중' : save.isSuccess ? '에이전트 설정 저장됨' : ''}</p>
+      <p role="status" aria-live="polite" className="sr-only">{save.isPending ? '채팅 설정 저장 중' : save.isSuccess ? '채팅 설정 저장됨' : ''}</p>
       <div className="space-y-8">
-        <SettingsSection title="권한 모드">
-          <PermissionModePicker className="w-48" value={defaultMode} disabled={!loaded || save.isPending} onChange={(mode) => saveSettings({ ...settings, defaultPermissionMode: mode })} />
+        <SettingsSection title="새 대화 모델" description="새 대화가 처음 쓰는 모델. 비워 두면 마지막 대화의 모델을 씁니다.">
+          <div className="flex max-w-md items-center gap-2">
+            <div className="min-w-0 flex-1">
+              <ModelPicker
+                need={['chat']}
+                value={settings.chatModel ?? { connectionId: '', model: '' }}
+                onChange={(next) => next.connectionId && next.model && saveSettings({ ...settings, chatModel: next })}
+              />
+            </div>
+            {settings.chatModel && (
+              <Button variant="ghost" disabled={!loaded || save.isPending} onClick={() => saveSettings({ ...settings, chatModel: null })}>
+                지우기
+              </Button>
+            )}
+          </div>
         </SettingsSection>
 
-        <SettingsSection title="도구 권한" description="채팅 AI와 터미널의 loca call에만 적용됩니다.">
+        <SettingsSection title="권한 모드" description="새 대화가 시작하는 모드. 대화마다 바꿀 수 있습니다.">
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <PermissionModePicker className="w-48" value={defaultMode} disabled={!loaded || save.isPending} onChange={(mode) => saveSettings({ ...settings, defaultPermissionMode: mode })} />
+              <p className="text-xs text-muted-foreground">{PERMISSION_MODE_INFO[defaultMode].description}</p>
+            </div>
+            {/* The brake on 바로 반영: under the mode it belongs to, so what it limits is plain. */}
+            <div className="max-w-md space-y-3 rounded-md border border-border-subtle p-3">
+              <div>
+                <p className="text-sm font-medium text-foreground">바로 반영 한도</p>
+                <p className="text-xs text-muted-foreground">‘바로 반영’ 대화에서 이만큼 바꾸거나 비용이 들면, 그다음 변경부터 다시 묻습니다. 대화마다 따로 셉니다.</p>
+              </div>
+              <InspectorField label="변경 수" error={!changesValid ? '1부터 10,000까지의 정수' : undefined}>
+                <Input type="number" min={1} max={10_000} step={1} value={changesDraft} disabled={!loaded || save.isPending} onChange={(event) => setChangesDraft(event.target.value)} aria-invalid={!changesValid} />
+              </InspectorField>
+              <InspectorField label="비용 (USD)" description="비우면 비용으로는 묻지 않습니다." error={!costValid ? '0 이상이거나 비워 두세요' : undefined}>
+                <Input type="number" min={0} step="any" placeholder="제한 없음" value={costDraft} disabled={!loaded || save.isPending} onChange={(event) => setCostDraft(event.target.value)} aria-invalid={!costValid} />
+              </InspectorField>
+              {limitsDirty && (
+                <Button disabled={!loaded || save.isPending || !changesValid || !costValid} onClick={() => saveSettings({ ...settings, bypassLimits: { changes, costUsd } })}>
+                  한도 저장
+                </Button>
+              )}
+            </div>
+          </div>
+        </SettingsSection>
+
+        <SettingsSection title="도구 권한" description="채팅 AI와 터미널의 loca call에만 적용됩니다. 삭제는 기본으로 꺼져 있습니다.">
           <PermissionMatrix
             actions={MATRIX_ACTIONS}
             rows={MATRIX_ROWS}
@@ -94,8 +117,6 @@ export function AgentTab({ projectId: propProjectId }: { projectId?: string } = 
             onChange={setPermission}
           />
         </SettingsSection>
-
-        {defaultMode === 'bypass' ? limits : <AdvancedDisclosure label="바로 반영 한도">{limits}</AdvancedDisclosure>}
       </div>
     </div>
   );

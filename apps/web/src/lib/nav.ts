@@ -40,7 +40,7 @@ export const NAV_GROUPS: NavGroup[] = [
     item('project-settings', '프로젝트', '/settings/project', Settings2, 'settings', '설정'),
     item('statuses', '상태·태그', '/settings/statuses', Tags, 'settings', '설정'),
     item('editor-settings', '에디터', '/settings/editor', PenLine, 'settings', '설정', { also: ['/ai/usage'] }),
-    item('agent-settings', '에이전트', '/settings/agent', Bot, 'settings', '설정', { also: ['/agent', '/settings/ai-results'] }),
+    item('chat-settings', '채팅', '/settings/chat', Bot, 'settings', '설정'),
     item('connections', '연결', '/settings/connections', Plug, 'settings', '설정', { also: ['/ai/connections', '/keys'] }),
   ] },
 ];
