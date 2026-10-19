@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { Command, Option } from 'commander';
 import { hc } from 'hono/client';
 import type { AppType } from '@tw/server/app';
-import { acceptedLabel, AUTO_MARKS, CHECK_KINDS, CONTEXT_ITEM_KINDS, importFileJsonSchema, importFileSchema, importWarnings, KNOWLEDGE_MARK_IDS, KNOWLEDGE_STATUS_LABELS, LINE_MARK_IDS, lineChangeSchema, summarizeImport, TERM_MARK_IDS, type AutoMark, type KnowledgeStatus, type LineFilterInput, type LineMark, personLabel } from '@tw/shared';
+import { acceptedLabel, AUTO_MARKS, CHECK_KINDS, EXCLUSION_REASON_LABELS, CONTEXT_ITEM_KINDS, importFileJsonSchema, importFileSchema, importWarnings, KNOWLEDGE_MARK_IDS, KNOWLEDGE_STATUS_LABELS, LINE_MARK_IDS, lineChangeSchema, summarizeImport, TERM_MARK_IDS, type AutoMark, type KnowledgeStatus, type LineFilterInput, type LineMark, personLabel } from '@tw/shared';
 
 /**
  * loca — the workbench from a terminal, for people and for agents with a shell (codex, claude, pi).
@@ -868,6 +868,7 @@ format
     if (globals().json) return print({ ok: true, summary, warnings });
     console.log(`형식이 맞습니다: ${summary.name}`);
     console.log(`  묶음 ${summary.groups} · 대사 ${summary.units} · 인물 ${summary.characters} · 문서 ${summary.documents} · 용어 ${summary.terms}`);
+    if (summary.excluded) console.log(`  번역 제외로 보이는 원문 ${summary.excluded} (${Object.entries(summary.excludedBy).map(([reason, count]) => `${EXCLUSION_REASON_LABELS[reason as keyof typeof EXCLUSION_REASON_LABELS]} ${count}`).join(' · ')}): 진행률·실행·내보내기에서 빠집니다. 규칙은 앱의 설정 › 에디터 › 번역 제외`);
     console.log(summary.graphNodes ? `  그래프 노드 ${summary.graphNodes} · 연결 ${summary.graphEdges}` : '  그래프 없음: 앞 대사 문맥을 장면 순서로만 찾습니다');
     for (const warning of warnings) console.log(`  경고  ${warning.message}${warning.examples.length ? ` (예: ${warning.examples.join(', ')})` : ''}`);
   });

@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:f
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
-import { formatRulesSchema, needsListener } from '@tw/shared';
+import { exclusionRulesSchema, formatRulesSchema, lineExclusion, needsListener, type LineTranslate } from '@tw/shared';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import * as schema from './schema.ts';
@@ -53,6 +53,16 @@ export function openDatabase(file: string, folder = migrationsFolder) {
       const key = typeof rules === 'string' ? rules : '';
       if (!rulesOf.has(key)) rulesOf.set(key, formatRulesSchema.parse(key ? JSON.parse(key) : {}));
       return needsListener({ kind: String(kind), speaker: typeof speaker === 'string' ? speaker : null, source: String(source ?? '') }, rulesOf.get(key)) ? 1 : 0;
+    });
+    // exclusion_reason(source, translate, format_rules json, exclusion_rules json, source_language): lineExclusion
+    // in shared itself, so 번역 제외 in SQL (line-marks.ts) is what the app shows. Null = for translation.
+    const exclusionsOf = new Map<string, ReturnType<typeof exclusionRulesSchema.parse>>();
+    sqlite.function('exclusion_reason', { deterministic: true }, (source: unknown, translate: unknown, format: unknown, rules: unknown, language: unknown) => {
+      const formatKey = typeof format === 'string' ? format : '';
+      if (!rulesOf.has(formatKey)) rulesOf.set(formatKey, formatRulesSchema.parse(formatKey ? JSON.parse(formatKey) : {}));
+      const rulesKey = typeof rules === 'string' ? rules : '';
+      if (!exclusionsOf.has(rulesKey)) exclusionsOf.set(rulesKey, exclusionRulesSchema.parse(rulesKey ? JSON.parse(rulesKey) : {}));
+      return lineExclusion({ source: String(source ?? ''), translate: (translate as LineTranslate | null) ?? null }, rulesOf.get(formatKey), exclusionsOf.get(rulesKey), typeof language === 'string' ? language : null);
     });
     const backup = existed ? backupBeforeMigration(sqlite, file, folder) : null;
     const db = drizzle(sqlite, { schema });

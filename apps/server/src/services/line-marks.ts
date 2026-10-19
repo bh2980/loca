@@ -18,10 +18,19 @@ export const sameSource = (column: SQL) => sql`trim(lower(${column}), ' .,!?…"
  */
 export const knownListenerSql = sql`(${s.units.listener} is not null and (coalesce(${s.units.listenerOrigin}, '') not in ('ai', 'scene') or coalesce(${s.units.listenerConfidence}, 0) >= ${LISTENER_MIN_CONFIDENCE}))`;
 
+/**
+ * 번역 제외 (exclusionReason / lineExclusion in shared, through the exclusion_reason SQL function):
+ * a person's call on the line, else the project's rules over its source.
+ */
+export const excludedSql = (projectId: string) =>
+  sql`exclusion_reason(${s.units.source}, ${s.units.translate}, (select ${s.projects.formatRules} from ${s.projects} where ${s.projects.id} = ${projectId}), (select ${s.projects.exclusionRules} from ${s.projects} where ${s.projects.id} = ${projectId}), (select ${s.projects.sourceLanguage} from ${s.projects} where ${s.projects.id} = ${projectId})) is not null`;
+/** Lines for translation: what progress, the remaining lines, the review inbox, runs, exports and checks count. */
+export const translatableSql = (projectId: string) => sql`not (${excludedSql(projectId)})`;
+
 function markCondition(projectId: string, mark: LineMark): SQL {
   switch (mark) {
     case 'remaining':
-      return sql`${s.units.statusId} in (select id from ${s.statuses} where ${s.statuses.projectId} = ${projectId} and ${s.statuses.kind} != 'final')`;
+      return sql`${s.units.statusId} in (select id from ${s.statuses} where ${s.statuses.projectId} = ${projectId} and ${s.statuses.kind} != 'final') and ${translatableSql(projectId)}`;
     case 'ai':
       return eq(s.units.statusBy, 'ai');
     // needsListener in shared: dialogue with a speaker and text besides the project's format tokens.
@@ -31,6 +40,8 @@ function markCondition(projectId: string, mark: LineMark): SQL {
       return sql`${s.units.translation} is not null and ${sameSource(sql`${s.units.source}`)} in (select ${sameSource(sql`u.source`)} from ${s.units} u where u.project_id = ${projectId} and u.translation is not null and u.translation != '' and ${sameSource(sql`u.source`)} != '' group by 1 having count(distinct trim(u.translation)) > 1)`;
     case 'noted':
       return sql`${s.units.note} != ''`;
+    case 'excluded':
+      return excludedSql(projectId);
   }
 }
 

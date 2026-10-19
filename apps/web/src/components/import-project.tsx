@@ -105,6 +105,7 @@ export function ImportProjectDialog({ trigger }: { trigger?: React.ReactNode }) 
                 ['인물', result.summary.characters],
                 ['참조 문서', result.summary.documents],
                 ['용어', result.summary.terms],
+                ['번역 제외로 보이는 원문', result.summary.excluded],
               ] as const
             ).map(([label, value]) => (
               <FieldRow key={label} label={label}>

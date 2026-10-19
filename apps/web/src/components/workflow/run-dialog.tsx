@@ -318,6 +318,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
                   {data!.lines.translated > 0 && <span className="text-muted-foreground"> (그중 이미 번역 있는 줄 {data!.lines.translated.toLocaleString()})</span>}
                 </>
               )}
+              {data && data.lines.excluded > 0 && <span className="text-muted-foreground"> · 번역 제외 {data.lines.excluded.toLocaleString()}줄은 빠집니다</span>}
             </p>
             {wholeProject && Boolean(total) && (
               <p className="text-xs text-warning">프로젝트 전체입니다. 처음이면 장면 하나로 먼저 시험해 보세요.</p>

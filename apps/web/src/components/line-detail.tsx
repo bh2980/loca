@@ -3,8 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { CircleAlert, CircleCheck, Network, Pencil } from 'lucide-react';
-import { checkFormat, isUnknownListener, listenerLabel, needsListener, PALETTE, SPEECH_LEVEL_LABELS, speechLevelOf, TAG_SCOPES, type FormatRules, type SpeechLevel } from '@tw/shared';
-import { AiMark, Badge, Button, CandidateCard, Group, InspectorBlock, InspectorField, InspectorFields, InspectorHeader, Inspector, InspectorList, InspectorSection, PropertyGrid, PropertyRow, SpeakerIdentity, StatusIcon, TagChip, TagListEditor } from '@loca/ui';
+import { checkFormat, EXCLUSION_REASON_LABELS, exclusionReason, isUnknownListener, type LineTranslate, listenerLabel, needsListener, PALETTE, SPEECH_LEVEL_LABELS, speechLevelOf, TAG_SCOPES, type FormatRules, type SpeechLevel } from '@tw/shared';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, AiMark, Badge, Button, CandidateCard, Group, InspectorBlock, InspectorField, InspectorFields, InspectorHeader, Inspector, InspectorList, InspectorSection, PropertyGrid, PropertyRow, SpeakerIdentity, StatusIcon, TagChip, TagListEditor } from '@loca/ui';
 import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
 import { AiButton } from '@/components/ai-button';
 import { AiContextPanel } from '@/components/ai-context';
@@ -66,7 +66,7 @@ export function LineDetail({
 
   const queryClient = useQueryClient();
   const patch = useMutation({
-    mutationFn: (json: { tagIds?: string[]; listener?: string | null }) => unwrap(client.units[':unitId'].$patch({ param: { unitId }, json })),
+    mutationFn: (json: { tagIds?: string[]; listener?: string | null; translate?: LineTranslate | null }) => unwrap(client.units[':unitId'].$patch({ param: { unitId }, json })),
     onMutate: async (json) => ({ undo: await optimistic(queryClient, unitChanges([unitId], patchedLine(json))) }),
     onError: (error, _json, context) => {
       context?.undo();
@@ -89,6 +89,9 @@ export function LineDetail({
   const unknown = line ? isUnknownListener(line, project.data?.formatRules ?? undefined) : true;
   const cast = (people.data?.characters ?? []).filter((person) => person.status === 'confirmed').map((person) => ({ name: person.name, player: person.player }));
   const hasDialogueContext = line?.kind === 'dialogue' && Boolean(line.speaker?.trim());
+  // 번역 제외: what the project's rules say about this source, and what a person's choice does.
+  const ruleReason = line ? exclusionReason(line.source, project.data?.formatRules ?? undefined, project.data?.exclusionRules, project.data?.sourceLanguage) : null;
+  const translateNote = line?.translate === 'exclude' || (!line?.translate && ruleReason) ? '진행률·실행·내보내기·검사에서 빠집니다. 번역은 그대로 둡니다.' : undefined;
   const kindLabel = line?.kind === 'ui' ? 'UI 문자열' : line?.kind === 'document' ? '문서' : hasDialogueContext ? '대사' : '서술';
   const speakerTitle = line?.speaker || '화자 없음';
   const speakerPerson = line?.speaker ? people.data?.characters.find((person) => person.name.toLowerCase() === line.speaker!.toLowerCase() || person.aliases.some((alias) => alias.toLowerCase() === line.speaker!.toLowerCase())) : undefined;
@@ -238,6 +241,18 @@ export function LineDetail({
                   </div>
                 </InspectorField>
               )}
+              <InspectorField label="번역 대상" description={translateNote}>
+                <Select value={line.translate ?? 'auto'} onValueChange={(value) => patch.mutate({ translate: value === 'auto' ? null : (value as LineTranslate) })}>
+                  <SelectTrigger className="w-full" aria-label="번역 대상">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">규칙대로 ({ruleReason ? `제외 · ${EXCLUSION_REASON_LABELS[ruleReason]}` : '번역함'})</SelectItem>
+                    <SelectItem value="include">번역함</SelectItem>
+                    <SelectItem value="exclude">제외</SelectItem>
+                  </SelectContent>
+                </Select>
+              </InspectorField>
               <InspectorField label="태그">
                 <TagListEditor
                   tags={orderedTags}

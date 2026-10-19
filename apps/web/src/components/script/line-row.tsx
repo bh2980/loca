@@ -3,7 +3,7 @@ import { useMemo, type ComponentProps, type ReactNode, type RefObject } from 're
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, CircleAlert } from 'lucide-react';
 import { toast } from 'sonner';
-import { AUTO_MARKS, compileFormatRules, isUnknownListener, listenerLabel, needsListener, PALETTE, SPECIAL_LISTENERS, TAG_SCOPES, type FormatRules, type LineMark, type ListenerOrigin, mentions, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
+import { AUTO_MARKS, compileFormatRules, isUnknownListener, lineExclusion, listenerLabel, needsListener, PALETTE, SPECIAL_LISTENERS, TAG_SCOPES, type FormatRules, type LineMark, type ListenerOrigin, mentions, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
 import { MarkChip } from '@/components/status';
 import { TranslationEditor } from '@/components/translation-editor';
 import { LineSourceText, MarkedSourceText, TokenText } from '@/components/editor/source-text';
@@ -219,11 +219,15 @@ export function LineRow({
   onFilterTag: (tagId: string) => void;
   onFilterMark: (mark: LineMark) => void;
 }) {
-  const rules = useQuery(q.project(projectId)).data?.formatRules ?? undefined;
+  const project = useQuery(q.project(projectId)).data;
+  const rules = project?.formatRules ?? undefined;
+  // 번역 제외: kept in the list (seen, muted, marked) but out of progress, runs and exports.
+  const excluded = lineExclusion(line, rules, project?.exclusionRules, project?.sourceLanguage) !== null;
   // Narration and lines of format tokens only are said to nobody: no listener slot, unless a person or the import gave one.
   const said = needsListener(line, rules) || (Boolean(line.listener) && (line.listenerOrigin === 'human' || line.listenerOrigin === 'import'));
   const who = listenerText(line, rules);
   const marks: LineMark[] = [];
+  if (excluded) marks.push('excluded');
   if (line.note.trim()) marks.push('noted');
   const attachedTags = tags.filter((tag) => line.tagIds.includes(tag.id));
   const orderedTags = [...attachedTags.filter((tag) => tag.role), ...attachedTags.filter((tag) => !tag.role)];
@@ -364,7 +368,7 @@ export function LineRow({
       selected={selected}
       compact={compact}
       layout="grid"
-      className={cn(selected ? 'bg-selection' : 'cursor-pointer hover:bg-accent', marked && !selected && 'bg-warning/5')}
+      className={cn(selected ? 'bg-selection' : 'cursor-pointer hover:bg-accent', marked && !selected && 'bg-warning/5', excluded && !selected && 'opacity-60')}
     />
   );
   const saveLine = useSaveLine();

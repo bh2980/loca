@@ -789,12 +789,12 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       execute: ({ kind, ids }) => deleteItems(db, projectId, kind, ids),
     }),
     read_project_settings: tool({
-      description: "The project's settings: name, description, format rules (placeholder presets and custom patterns the format check keeps), AI confirmation (aiConfirm), editor AI, mark colours, and the agent settings (switched-off tools, default permission mode; read-only for you).",
+      description: "The project's settings: name, description, format rules (placeholder presets and custom patterns the format check keeps), exclusion rules (번역 제외: which sources are not for translation — blank, format tokens only, no letters, no letter of the source language, patterns), AI confirmation (aiConfirm), editor AI, mark colours, and the agent settings (switched-off tools, default permission mode; read-only for you).",
       inputSchema: z.object({}),
       execute: () => readProjectSettings(db, projectId) ?? { error: '프로젝트를 찾을 수 없습니다.' },
     }),
     update_project_settings: tool({
-      description: 'Change project settings: name, description, formatRules, aiConfirm, editorAi, markColors (send only what changes; each object replaces the stored one, so read_project_settings first and send it whole with your edit). Agent settings (tools, permission mode) cannot be changed by you.',
+      description: 'Change project settings: name, description, formatRules, exclusionRules, aiConfirm, editorAi, markColors (send only what changes; each object replaces the stored one, so read_project_settings first and send it whole with your edit). Agent settings (tools, permission mode) cannot be changed by you.',
       inputSchema: projectSettingsInput,
       needsApproval: true,
       execute: (patch) => (updateProjectSettings(db, projectId, patch) ? { ok: true } : { ok: false, error: '프로젝트를 찾을 수 없습니다.' }),

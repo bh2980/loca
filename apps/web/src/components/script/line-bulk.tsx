@@ -70,14 +70,21 @@ export function useLineBulk({ projectId, pickKey, rows, selectionRows, tagName, 
     onError: undoOnError,
     onSuccess: (_data, { tagId, add }) => toast.success(`${picked.size}개 대사${add ? '에' : '에서'} #${tagName(tagId)} 태그를 ${add ? '붙였습니다' : '뗐습니다'}.`),
   });
-  return { picked, pick, stopPicking, pickedByAi, tagState, setStatus, setListener, check, setTag };
+  // 번역 제외 by hand for the picked lines (null = the project's rules decide again).
+  const setTranslate = useMutation({
+    mutationFn: (translate: 'include' | 'exclude' | null) => unwrap(client.projects[':projectId'].units.$patch({ param: { projectId }, json: { unitIds: [...picked], translate } })),
+    onMutate: async (translate) => ({ undo: await optimistic(queryClient, unitChanges(picked, patchedLine({ translate }))) }),
+    onError: undoOnError,
+    onSuccess: (_data, translate) => toast.success(`${picked.size}개 대사를 ${translate === 'exclude' ? '번역에서 뺐습니다' : translate === 'include' ? '번역 대상으로 정했습니다' : '규칙대로 되돌렸습니다'}.`),
+  });
+  return { picked, pick, stopPicking, pickedByAi, tagState, setStatus, setListener, check, setTag, setTranslate };
 }
 
 export type LineBulk = ReturnType<typeof useLineBulk>;
 
 /** The head row above the lines: column labels, or the picked lines' actions. */
 export function LineHeadRow({ projectId, rows, bulk, statusList, tags }: { projectId: string; rows: { id: string; speaker: string | null }[]; bulk: LineBulk; statusList: { id: string; name: string; color: string }[]; tags: ComponentProps<typeof TagMenu>['tags'] }) {
-  const { picked, pick, stopPicking, check, pickedByAi, setStatus, setListener, tagState, setTag } = bulk;
+  const { picked, pick, stopPicking, check, pickedByAi, setStatus, setListener, tagState, setTag, setTranslate } = bulk;
   const people = useQuery(q.characters(projectId));
   const project = useQuery(q.project(projectId));
   const sourceLanguage = project.data?.sourceLanguage?.split('-')[0]?.toLocaleUpperCase();
@@ -127,6 +134,16 @@ export function LineHeadRow({ projectId, rows, bulk, statusList, tags }: { proje
                 state={tagState}
                 onToggle={(tagId, add) => setTag.mutate({ tagId, add })}
               />
+              <Select value="" onValueChange={(value) => setTranslate.mutate(value === 'auto' ? null : (value as 'include' | 'exclude'))}>
+                <SelectTrigger size="sm" className="w-28 shrink-0" aria-label="번역 대상 바꾸기">
+                  <SelectValue placeholder="번역 대상" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="exclude">번역 제외</SelectItem>
+                  <SelectItem value="include">번역함</SelectItem>
+                  <SelectItem value="auto">규칙대로</SelectItem>
+                </SelectContent>
+              </Select>
             </SelectionBar>
           ) : undefined}
         />

@@ -36,11 +36,12 @@ export function normalizeTagScopes(raw: readonly string[] | undefined): TagScope
  * `on` says where each one applies.
  */
 export const AUTO_MARKS = {
-  remaining: { name: '남은 줄', on: ['lines'], color: '#0486d3', description: '최종 상태가 아닌 대사' },
+  remaining: { name: '남은 줄', on: ['lines'], color: '#0486d3', description: '최종 상태가 아닌 대사 (번역 제외 빼고)' },
   ai: { name: 'AI 초안', on: ['lines', 'terms', 'people', 'documents', 'events'], color: '#8f68cb', description: 'AI가 정하고 아직 사람이 확인하지 않음 (✦)' },
   unknownListener: { name: '청자 미상', on: ['lines'], color: '#c46016', description: '화자가 있는 대사 중 청자를 모르거나 AI의 추정이 불확실한 대사(지문·서식만 있는 줄 제외)' },
   diverged: { name: '번역 불일치', on: ['lines'], color: '#d24c49', description: '같은 원문이 다른 곳에서 다르게 번역됨' },
   noted: { name: '메모', on: ['lines'], color: '#009589', description: '줄 메모가 있음' },
+  excluded: { name: '번역 제외', on: ['lines'], color: '#7b8494', description: '번역할 글자가 없거나 제외 규칙·직접 지정으로 빠진 대사. 진행률·실행·내보내기·검사에서 빠짐' },
   candidate: { name: '후보', on: ['terms', 'people', 'documents', 'events'], color: '#bc5694', description: '아직 번역 문맥에 쓰이지 않음' },
   noEvidence: { name: '근거 부재', on: ['people', 'documents', 'events'], color: '#c46016', description: '근거 대사가 없음' },
   emptyTarget: { name: '번역 누락', on: ['terms'], color: '#d24c49', description: '한국어 번역어가 비어 있음' },
@@ -68,8 +69,8 @@ export type LineMark = { [K in AutoMark]: 'lines' extends (typeof AUTO_MARKS)[K]
 export const LINE_MARK_IDS = AUTO_MARK_IDS.filter((id): id is LineMark => (AUTO_MARKS[id].on as readonly string[]).includes('lines'));
 export const lineMarksSchema = z.array(z.enum(LINE_MARK_IDS as [LineMark, ...LineMark[]]));
 
-/** The line marks read off the line itself (lineMarksOf: what workflow conditions can test). 같은 원문 다른 번역 compares across lines, so only the list filter and run scope know it. */
-export const CONDITION_MARK_IDS = LINE_MARK_IDS.filter((id) => id !== 'diverged');
+/** The line marks read off the line itself (lineMarksOf: what workflow conditions can test). 같은 원문 다른 번역 compares across lines, so only the list filter and run scope know it; excluded lines never enter a run. */
+export const CONDITION_MARK_IDS = LINE_MARK_IDS.filter((id) => id !== 'diverged' && id !== 'excluded');
 
 /**
  * Marks that are values of one field: a knowledge item or a term is either a candidate or decided
@@ -115,8 +116,8 @@ export const needsListener = (line: Pick<ListenerLine, 'kind' | 'speaker' | 'sou
 export const isUnknownListener = (line: ListenerLine, rules: FormatRules | undefined) => needsListener(line, rules) && (!line.listener || isUnsureListener(line));
 
 /** The marks a line carries, for its row chips and workflow conditions (the SQL in line-marks.ts selects by the same rules). */
-export function lineMarksOf(line: ListenerLine & { statusBy: StatusBy; note: string }, final: boolean, rules: FormatRules | undefined): LineMark[] {
-  return [!final && 'remaining', line.statusBy === 'ai' && 'ai', isUnknownListener(line, rules) && 'unknownListener', line.note.trim() !== '' && 'noted'].filter((mark): mark is LineMark => Boolean(mark));
+export function lineMarksOf(line: ListenerLine & { statusBy: StatusBy; note: string }, final: boolean, rules: FormatRules | undefined, excluded = false): LineMark[] {
+  return [excluded ? 'excluded' : !final && 'remaining', line.statusBy === 'ai' && 'ai', isUnknownListener(line, rules) && 'unknownListener', line.note.trim() !== '' && 'noted'].filter((mark): mark is LineMark => Boolean(mark));
 }
 
 /** The marks a knowledge item carries. */

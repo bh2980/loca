@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { chatTitle } from './agent.ts';
 import { checkFormat, compileFormatRules, matchTokens } from './format-check.ts';
-import { importFileSchema, importWarnings } from './import-format.ts';
+import { importFileSchema, importWarnings, summarizeImport } from './import-format.ts';
 import { politenessOf, speechLevelOf, styleInstruction, styleNames } from './knowledge.ts';
 import { ANALYSIS_WORKFLOW, analysisTemplate, defaultWorkflows, draftTranslationTemplate, eventExtractionTemplate, listenerTemplate, MODEL_TEMPLATES, peopleRelationsTemplate, speechFixTemplate, termExtractionTemplate, translationTemplate } from './defaults.ts';
 import { APPLY_TARGETS } from './functions.ts';
@@ -145,7 +145,7 @@ describe('import format', () => {
     expect(result.error!.issues.map((issue) => issue.path.join('.'))).toEqual(['relationships.0.changes.0.at', 'speechRules.1.start', 'events.0.evidence.1']);
   });
 
-  it('warns about lines outside the graph, unknown speakers and empty source', () => {
+  it('warns about lines outside the graph and unknown speakers, and counts sources not for translation', () => {
     const file = importFileSchema.parse({
       ...base,
       units: [
@@ -155,7 +155,8 @@ describe('import format', () => {
       graph: { nodes: [{ key: 'n1', units: ['u1'] }], edges: [] },
       characters: [{ name: 'Alice' }],
     });
-    expect(importWarnings(file).map((warning) => warning.examples)).toEqual([['u2'], ['Bob'], ['u2']]);
+    expect(importWarnings(file).map((warning) => warning.examples)).toEqual([['u2'], ['Bob']]);
+    expect(summarizeImport(file)).toMatchObject({ excluded: 1, excludedBy: { empty: 1 } });
   });
 });
 

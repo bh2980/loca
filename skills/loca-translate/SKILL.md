@@ -39,7 +39,7 @@ description: Translate game script lines in a loca project from the terminal in 
    경고(자리표시자, 용어)가 있으면 고쳐서 다시 `--dry-run`. 충돌은 그사이 사람이 고친 줄이라 건너뜁니다(덮어쓰지 않음).
 6. 제안 ID와 요약을 알립니다. 끝나면 `loca workspace clean ch1-translate`.
 
-import 파일의 줄에는 번역 말고도 `status`(상태 이름), `addTags`·`removeTags`(대사에 붙는 태그만), `listener`(사람이 확정한 청자)를 넣을 수 있습니다.
+import 파일의 줄에는 번역 말고도 `status`(상태 이름), `addTags`·`removeTags`(대사에 붙는 태그만), `listener`(사람이 확정한 청자), `translate`(`exclude` 번역에서 뺌 · `include` 번역함 · `null` 규칙대로)를 넣을 수 있습니다. #번역 제외 줄은 내보내기에 나오지 않으니 번역할 필요가 없습니다.
 
 ## 다듬기(이미 번역된 줄)
 `--translated`로 내보내고 `translation`을 고친 뒤 같은 방식으로 import합니다. 바뀌지 않은 줄은 자동으로 빠집니다.

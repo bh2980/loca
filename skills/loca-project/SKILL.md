@@ -30,6 +30,16 @@ loca call delete_tag '{"ids":["…"]}'               # 붙어 있던 곳에서�
 - 대사에 붙이고 떼기는 import 파일의 `addTags`·`removeTags`(`loca-translate`), 용어·자료에는 `tag_items`(`loca-glossary`, `loca-knowledge`).
 - 순서는 앱에서 끌어서 바꿉니다.
 
+## 번역 제외
+추출된 원문 중 번역 대상이 아닌 줄(빈 원문, 서식만, 숫자·기호뿐…)은 #번역 제외가 붙어 진행률·실행·내보내기·검사에서 빠집니다. 번역은 건드리지 않습니다.
+```
+loca lines --mark excluded --limit 20               # 지금 빠진 줄
+loca call read_project_settings                     # exclusionRules: empty, formatOnly, noLetters, noSourceScript(기본 끔), patterns
+```
+- 규칙은 `update_project_settings`의 `exclusionRules`로 바꿉니다(통째로). 예: 개발용 키를 빼려면 `patterns`에 `{"label":"키","pattern":"^[A-Z0-9_]+$"}`.
+- 한 줄씩은 import 파일 줄에 `"translate":"exclude"`(뺌) · `"include"`(규칙과 상관없이 번역) · `null`(규칙대로)을 넣습니다(`loca-translate`의 import).
+- 규칙을 바꾸기 전후로 `loca lines --mark excluded`를 비교해 번역해야 할 줄이 빠지지 않았는지 사용자에게 보여 줍니다.
+
 ## 서식 규칙과 프로젝트 설정
 ```
 loca call read_project_settings                  # 이름, 설명, formatRules, aiConfirm, editorAi, markColors

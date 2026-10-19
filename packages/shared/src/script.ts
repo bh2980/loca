@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { LINE_TRANSLATE } from './exclusion.ts';
 import { lineMarksSchema } from './marks.ts';
 
 /**
@@ -42,6 +43,8 @@ export const lineChangeSchema = z.object({
   /** Who the line is addressed to (a character name), or null for unknown. */
   listener: z.string().nullable().optional(),
   status: z.string().optional(),
+  /** 번역 제외, a person's call: include / exclude whatever the rules say; null hands it back to the rules. */
+  translate: z.enum(LINE_TRANSLATE).nullable().optional(),
   addTags: z.array(z.string()).default([]),
   removeTags: z.array(z.string()).default([]),
   note: z.string().default(''),
