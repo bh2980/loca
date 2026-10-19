@@ -507,8 +507,8 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
             <InspectorField label="최대 시도 횟수" error={errors.maxAttempts?.message}>
               <Input type="number" {...form.register('maxAttempts', number)} aria-invalid={!!errors.maxAttempts} />
             </InspectorField>
-            <InspectorField label="최대 출력 토큰" error={errors.maxOutputTokens?.message}>
-              <Input type="number" {...form.register('maxOutputTokens', number)} aria-invalid={!!errors.maxOutputTokens} />
+            <InspectorField label="최대 출력 토큰" description="비우면 모델 최대까지 씁니다. 넣으면 호출마다 이 이상 쓰지 않습니다." error={errors.maxOutputTokens?.message}>
+              <Input type="number" min={256} placeholder="모델 최대" {...form.register('maxOutputTokens', { setValueAs: (value: string) => (value === '' ? null : Number(value)) })} aria-invalid={!!errors.maxOutputTokens} />
             </InspectorField>
           </InspectorFields>
         </InspectorSection>

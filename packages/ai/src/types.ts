@@ -81,7 +81,8 @@ export interface GenerateRequest<T> {
   system: string;
   prompt: string;
   schema: z.ZodType<T>;
-  maxOutputTokens: number;
+  /** Unset: the model's own limit. */
+  maxOutputTokens?: number;
   temperature?: number;
   timeoutMs: number;
   signal?: AbortSignal;
@@ -91,7 +92,8 @@ export interface GenerateRequest<T> {
 export interface CompleteRequest {
   system: string;
   prompt: string;
-  maxOutputTokens: number;
+  /** Unset: the model's own limit. */
+  maxOutputTokens?: number;
   timeoutMs: number;
   signal?: AbortSignal;
 }
