@@ -8,7 +8,7 @@ import { buildPrompt, outputSchema } from '../engine/prompts.ts';
 import { events } from '../events.ts';
 import { logged } from './ai-calls.ts';
 import { buildContext } from './context.ts';
-import { CompleteRefused, editorCallsToday } from './editor-complete.ts';
+import { CompleteRefused } from './editor-complete.ts';
 import { liveChoice } from './routes.ts';
 import type { SecretStore } from './secrets.ts';
 import { addCandidate } from './candidates.ts';
@@ -53,11 +53,6 @@ export async function assistLine(db: Db, secrets: SecretStore, unitId: string, r
   const settings = editorAiSchema.parse(project.editorAi ?? {});
   if (!settings.assistModel) throw new CompleteRefused('AI › 사용 방식에서 편집기 AI 번역 모델을 고르세요.', 400);
   if (request.mode === 'refine' && !request.draft.trim()) throw new CompleteRefused('다듬을 번역이 없습니다.', 400);
-  if (editorCallsToday(db, unit.projectId) >= settings.dailyCap) {
-    const midnight = new Date();
-    midnight.setHours(24, 0, 0, 0);
-    throw new CompleteRefused(`오늘 편집기 AI 한도(${settings.dailyCap}회)를 다 썼습니다.`, 429, Math.ceil((midnight.getTime() - Date.now()) / 1000));
-  }
   const { snapshot, routes } = liveChoice(db, settings.assistModel, secrets, 'generate');
 
   const refine = request.mode === 'refine';
@@ -85,12 +80,11 @@ export async function assistLine(db: Db, secrets: SecretStore, unitId: string, r
   const entry = (result.result.object as { results?: { id: string; text: string; changes?: { kind: (typeof REFINE_KINDS)[number]; why: string }[] }[] }).results?.find((item) => item.id === '1');
   const text = entry?.text?.trim();
   if (!text) throw new CompleteRefused('모델이 번역을 돌려주지 않았습니다. 다시 해 보세요.', 400);
-  const usage = { callsToday: editorCallsToday(db, unit.projectId), dailyCap: settings.dailyCap };
   // Whitespace alone is not a change worth a candidate.
-  if (refine && text.replace(/\s+/g, ' ') === request.draft.trim().replace(/\s+/g, ' ')) return { unchanged: true as const, ...usage };
+  if (refine && text.replace(/\s+/g, ' ') === request.draft.trim().replace(/\s+/g, ' ')) return { unchanged: true as const };
   const reasons = (entry?.changes ?? []).map((change) => `${KIND_LABELS[change.kind]} · ${change.why.trim()}`).filter((reason) => !reason.endsWith('· '));
   const note = refine ? ['다듬기', ...reasons].join(' — ') : 'AI 번역';
   const candidateId = addCandidate(db, { unitId, text, origin: 'ai', model: result.route.model, note });
   events.changed(unit.projectId, 'units');
-  return { candidateId, text, reasons, ...usage };
+  return { candidateId, text, reasons };
 }

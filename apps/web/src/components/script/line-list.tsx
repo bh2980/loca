@@ -131,7 +131,7 @@ export function LineList({
     }
     return grouped;
   }, [matchRows]);
-  const emptyNoun = review ? '검토할 대사' : (displayKind ?? kind) === 'ui' ? 'UI 문자열' : (displayKind ?? kind) === 'document' ? '문서 원문' : '대사';
+  const emptyNoun = review ? '검토할 대사' : (displayKind ?? kind) === 'ui' ? 'UI 문자열' : (displayKind ?? kind) === 'document' ? '문서' : '대사';
   const groupNoun = (displayKind ?? kind) === 'ui' ? 'UI 묶음' : (displayKind ?? kind) === 'document' ? '문서 묶음' : (displayKind ?? kind) === 'scene' ? '장면' : '묶음';
   const speakers = useQuery(q.speakers(projectId));
   const listeners = useQuery(q.listeners(projectId));

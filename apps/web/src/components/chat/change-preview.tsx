@@ -115,11 +115,11 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
     case 'update_status':
       return <dl className="space-y-1">{field('상태', input.id)}{field('이름', input.name)}{field('종류', input.kind)}{field('색', input.color)}{field('검토', input.inReview === undefined ? undefined : input.inReview ? '검토 필요' : '검토 불필요')}</dl>;
     case 'delete_status':
-      return <dl className="space-y-1">{field('삭제할 상태', input.id)}{field('대사를 옮길 상태', input.moveTo)}{pending && <p className="text-destructive">대사의 상태가 바뀌고 상태를 삭제합니다.</p>}</dl>;
+      return <dl className="space-y-1">{field('삭제할 상태', input.ids)}{field('대사를 옮길 상태', input.moveTo)}{pending && <p className="text-destructive">대사의 상태가 바뀌고 상태를 삭제합니다.</p>}</dl>;
     case 'update_tag':
       return <dl className="space-y-1">{field('태그', input.id)}{field('이름', input.name)}{field('색', input.color)}{field('붙는 곳', input.scope)}</dl>;
     case 'delete_tag':
-      return <dl className="space-y-1">{field('삭제할 태그', input.id)}{pending && <p className="text-destructive">항목에 붙은 이 태그도 함께 제거됩니다.</p>}</dl>;
+      return <dl className="space-y-1">{field('삭제할 태그', input.ids)}{pending && <p className="text-destructive">항목에 붙은 태그도 함께 제거됩니다.</p>}</dl>;
     case 'delete_workflow':
       return <dl className="space-y-1">{field('삭제할 워크플로', input.id)}{pending && <p className="text-destructive">워크플로와 실행 계획을 삭제합니다.</p>}</dl>;
     case 'create_group':

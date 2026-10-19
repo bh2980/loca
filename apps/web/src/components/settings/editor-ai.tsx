@@ -43,32 +43,37 @@ export function EditorAiSection({ projectId }: { projectId: string }) {
         <Field>
           <FieldLabel>번역 모델</FieldLabel>
           <ModelPicker value={settings.assistModel} onChange={(assistModel) => change({ assistModel })} />
+          <FieldDescription>편집기의 AI 번역·다듬기 버튼이 씁니다. CLI 연결도 됩니다.</FieldDescription>
         </Field>
         <Field orientation="horizontal">
           <Switch id="editor-ai-on" checked={settings.enabled} onCheckedChange={(enabled) => change({ enabled })} />
           <FieldLabel htmlFor="editor-ai-on">자동완성</FieldLabel>
         </Field>
-        <Field>
-          <FieldLabel>자동완성 모델</FieldLabel>
-          <ModelPicker value={settings.model} onChange={(model) => change({ model })} kinds={['openai']} />
-        </Field>
-        <Field>
-          <FieldLabel htmlFor="editor-ai-cap">하루 최대 호출</FieldLabel>
-          <Input
-            id="editor-ai-cap"
-            type="number"
-            min={1}
-            className="w-32"
-            value={cap}
-            onChange={(event) => setCap(event.target.value)}
-            onBlur={() => {
-              const value = Math.max(1, Math.round(Number(cap) || settings.dailyCap));
-              setCap(String(value));
-              if (value !== settings.dailyCap) change({ dailyCap: value });
-            }}
-          />
-          <FieldDescription>오늘 {project.data?.editorCallsToday ?? 0}회 사용</FieldDescription>
-        </Field>
+        {/* Indented under the switch: the model and the daily cap belong to autocomplete only. */}
+        <FieldGroup className="gap-4 border-l border-border-subtle pl-4">
+          <Field>
+            <FieldLabel>자동완성 모델</FieldLabel>
+            <ModelPicker value={settings.model} onChange={(model) => change({ model })} kinds={['openai']} />
+            <FieldDescription>입력하는 동안 바로 답해야 해서 API 연결만 고를 수 있습니다. CLI 연결은 응답이 느립니다.</FieldDescription>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="editor-ai-cap">하루 최대 호출</FieldLabel>
+            <Input
+              id="editor-ai-cap"
+              type="number"
+              min={1}
+              className="w-32"
+              value={cap}
+              onChange={(event) => setCap(event.target.value)}
+              onBlur={() => {
+                const value = Math.max(1, Math.round(Number(cap) || settings.dailyCap));
+                setCap(String(value));
+                if (value !== settings.dailyCap) change({ dailyCap: value });
+              }}
+            />
+            <FieldDescription>자동완성 호출만 셉니다. 오늘 {project.data?.editorCallsToday ?? 0}회 사용</FieldDescription>
+          </Field>
+        </FieldGroup>
         <div role={save.isError ? 'alert' : 'status'} aria-live={save.isError ? 'assertive' : 'polite'} className="flex min-h-5 items-center gap-1.5 text-xs text-muted-foreground">
           {save.isPending && <><LoaderCircle aria-hidden="true" className="size-3.5 animate-spin" /> 저장 중</>}
           {save.isSuccess && <><Check aria-hidden="true" className="size-3.5 text-success" /> 저장했습니다</>}

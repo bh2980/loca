@@ -57,7 +57,7 @@ export function LineDetail({
   const [editingSource, setEditingSource] = useState(false);
   useReportView('line-detail', [
     unit.data && {
-      kind: unit.data.kind === 'ui' ? 'UI 문자열' : unit.data.kind === 'document' ? '문서 원문' : '대사',
+      kind: unit.data.kind === 'ui' ? 'UI 문자열' : unit.data.kind === 'document' ? '문서' : '대사',
       id: unit.data.id,
       label: `${unit.data.speaker?.trim() ? `${unit.data.speaker.trim()}: ` : ''}${unit.data.source.slice(0, 40)}`,
       detail: JSON.stringify({ key: unit.data.key }),
@@ -89,7 +89,7 @@ export function LineDetail({
   const unknown = line ? isUnknownListener(line, project.data?.formatRules ?? undefined) : true;
   const cast = (people.data?.characters ?? []).filter((person) => person.status === 'confirmed').map((person) => ({ name: person.name, player: person.player }));
   const hasDialogueContext = line?.kind === 'dialogue' && Boolean(line.speaker?.trim());
-  const kindLabel = line?.kind === 'ui' ? 'UI 문자열' : line?.kind === 'document' ? '문서 원문' : hasDialogueContext ? '대사' : '서술';
+  const kindLabel = line?.kind === 'ui' ? 'UI 문자열' : line?.kind === 'document' ? '문서' : hasDialogueContext ? '대사' : '서술';
   const speakerTitle = line?.speaker || '화자 없음';
   const speakerPerson = line?.speaker ? people.data?.characters.find((person) => person.name.toLowerCase() === line.speaker!.toLowerCase() || person.aliases.some((alias) => alias.toLowerCase() === line.speaker!.toLowerCase())) : undefined;
   const listenerTitle = !line || !needsListener(line, project.data?.formatRules ?? undefined) || unknown || !line.listener ? '청자 미상' : listenerLabel(line.listener);
@@ -277,7 +277,7 @@ function CandidatesAndMatches({ unit, draft, onUse, tokenPattern }: { unit: Line
   const matches = useQuery(q.lineMatches(unit.id));
   const origins = new Set(unit.candidates.map((candidate) => candidate.origin));
   const title = origins.size === 1 ? `${ORIGIN_TITLE[unit.candidates[0]!.origin]} 후보` : '후보';
-  const subject = unit.kind === 'ui' ? 'UI 문자열' : unit.kind === 'document' ? '문서 원문' : '대사';
+  const subject = unit.kind === 'ui' ? 'UI 문자열' : unit.kind === 'document' ? '문서' : '대사';
   const rows = matches.data ?? [];
   const inEditor = (text: string) => draft !== (unit.translation ?? '') && text === draft;
   const useButton = (text: string) => <Button variant="ghost" disabled={inEditor(text)} onClick={() => onUse(text)}>{inEditor(text) ? '초안에 있음' : '쓰기'}</Button>;

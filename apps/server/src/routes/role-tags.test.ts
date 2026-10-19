@@ -24,7 +24,7 @@ describe('app tags and automatic mark colors', () => {
       .route('/projects', projectRoutes);
     const send = (method: string, url: string, body?: unknown) => app.request(url, { method, headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
 
-    expect((await send('DELETE', `/projects/${projectId}/tags/${tag.id}`)).status).toBe(400);
+    expect((await send('POST', `/projects/${projectId}/tags/delete`, { ids: [tag.id] })).status).toBe(400);
     expect((await send('PATCH', `/projects/${projectId}/tags/${tag.id}`, { name: '다른 이름' })).status).toBe(400);
     expect((await send('PATCH', `/projects/${projectId}/tags/${tag.id}`, { color: '#22c55e' })).status).toBe(200);
     expect(db.select().from(s.tags).where(eq(s.tags.id, tag.id)).get()).toMatchObject({ name: REVIEW_TAG.name, color: '#22c55e' });

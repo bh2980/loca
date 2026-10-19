@@ -4,7 +4,7 @@ import { importFileSchema, translationTemplate } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from './importer.ts';
-import { createStatus, deleteStatus, TaxonomyMutationError, updateStatus } from './project-taxonomy.ts';
+import { createStatus, createTag, deleteStatuses, orderTags, projectTags, TaxonomyMutationError, updateStatus } from './project-taxonomy.ts';
 import { deleteWorkflow, saveWorkflow, WorkflowMutationError } from './workflow-mutations.ts';
 
 function setup() {
@@ -26,7 +26,7 @@ describe('shared project mutations', () => {
     createStatus(db, projectId, { name: 'Second initial', kind: 'initial' });
 
     expect(() => updateStatus(db, projectId, initial.id, { kind: 'final' })).toThrow(TaxonomyMutationError);
-    expect(() => deleteStatus(db, projectId, initial.id, final.id)).toThrow(TaxonomyMutationError);
+    expect(() => deleteStatuses(db, projectId, [initial.id], final.id)).toThrow(TaxonomyMutationError);
     expect(db.select().from(s.statuses).where(eq(s.statuses.id, initial.id)).get()).toBeDefined();
     expect(db.select().from(s.units).where(eq(s.units.id, unit.id)).get()?.statusId).toBe(initial.id);
 
@@ -37,8 +37,29 @@ describe('shared project mutations', () => {
   it('keeps at least one initial and one final status', () => {
     const { db, projectId, initial, final } = setup();
     const normal = db.select().from(s.statuses).where(and(eq(s.statuses.projectId, projectId), eq(s.statuses.kind, 'normal'))).get()!;
-    expect(() => deleteStatus(db, projectId, initial.id, normal.id)).toThrow('처음 상태는 하나 이상 있어야 합니다.');
+    expect(() => deleteStatuses(db, projectId, [initial.id], normal.id)).toThrow('처음 상태는 하나 이상 있어야 합니다.');
     expect(() => updateStatus(db, projectId, final.id, { kind: 'normal' })).toThrow('완료 상태는 하나 이상 있어야 합니다.');
+  });
+
+  it('deletes several statuses at once, moving their lines, but not every start status together', () => {
+    const { db, projectId, unit, initial } = setup();
+    const extra = createStatus(db, projectId, { name: 'Extra initial', kind: 'initial' });
+    const a = createStatus(db, projectId, { name: 'A' });
+    const b = createStatus(db, projectId, { name: 'B' });
+    db.update(s.units).set({ statusId: a.id }).where(eq(s.units.id, unit.id)).run();
+    expect(() => deleteStatuses(db, projectId, [initial.id, extra.id], a.id)).toThrow('처음 상태는 하나 이상 있어야 합니다.');
+    expect(() => deleteStatuses(db, projectId, [a.id, b.id], a.id)).toThrow('삭제할 상태로는 옮길 수 없습니다.');
+    expect(deleteStatuses(db, projectId, [a.id, b.id, extra.id], initial.id)).toMatchObject({ ok: true, deleted: 3 });
+    expect(db.select().from(s.units).where(eq(s.units.id, unit.id)).get()?.statusId).toBe(initial.id);
+  });
+
+  it('lists a person\'s tags in the order they set, new ones last', () => {
+    const { db, projectId } = setup();
+    const [x, y] = ['X', 'Y'].map((name) => createTag(db, projectId, { name }));
+    orderTags(db, projectId, [y!.id, x!.id]);
+    const z = createTag(db, projectId, { name: 'A' });
+    const own = projectTags(db, projectId).filter((tag) => !tag.role).map((tag) => tag.id);
+    expect(own).toEqual([y!.id, x!.id, z.id]);
   });
 
   it('blocks workflow edits and deletion while a run is paused, then allows them after completion', () => {
