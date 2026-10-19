@@ -1,7 +1,7 @@
 /** Right-hand pane to add or edit one status. */
 import { ArrowDown, ArrowUp, Trash2 } from 'lucide-react';
 import { DEFAULT_STATUS_COLOR } from '@tw/shared';
-import { DangerZone, InspectorSection, InspectorField, InspectorFields, InspectorToggle, InspectorHeader, InspectorBlock, Inspector, Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@loca/ui';
+import { InspectorSection, InspectorField, InspectorFields, InspectorToggle, InspectorHeader, InspectorBlock, Inspector, Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@loca/ui';
 import { STATUS_KIND } from '@/lib/labels';
 import { changedFields, useFormFrom } from '@/lib/use-form-from';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
@@ -37,7 +37,9 @@ export function StatusPane({
   const { draft: form, setDraft: setForm, dirty: changed, conflicts, keepMine, takeSaved } = useFormFrom(saved, status && `status.${status.id}`);
   const dirty = !status || changed;
   return (
-    <Inspector header={<InspectorHeader kind="상태" name={status ? status.name : '상태 추가'} status={status ? `대사 ${status.units.toLocaleString()}개` : undefined} onClose={onClose} />} footer={
+    <Inspector footerStart={onDelete ? (<><Button variant="ghost" className="text-destructive" disabled={count < 2} title={count < 2 ? '상태가 하나뿐이면 지울 수 없습니다' : undefined} onClick={onDelete}>
+            <Trash2 /> 상태 삭제
+          </Button></>) : undefined} header={<InspectorHeader kind="상태" name={status ? status.name : '상태 추가'} status={status ? `대사 ${status.units.toLocaleString()}개` : undefined} onClose={onClose} />} footer={
         <Button disabled={!form.name.trim() || !dirty || pending} onClick={() => onSave(form, changedFields(form, saved))}>
           {status ? '저장' : '추가'}
         </Button>
@@ -84,14 +86,6 @@ export function StatusPane({
           <InspectorToggle label="워크플로 지정 안 함" description="워크플로가 이 상태로 바꾸려 하면 검토함으로 보냅니다. 사람만 지정합니다." checked={form.humanOnly} onChange={(humanOnly) => setForm((current) => ({ ...current, humanOnly }))} />
         </InspectorFields>
       </InspectorSection>
-      {onDelete && (
-        <DangerZone title="삭제">
-          <Button variant="outline" className="text-destructive" disabled={count < 2} onClick={onDelete}>
-            <Trash2 /> 상태 삭제
-          </Button>
-          {count < 2 && <p className="text-xs text-muted-foreground">상태가 하나뿐이면 지울 수 없습니다.</p>}
-        </DangerZone>
-      )}
     </Inspector>
   );
 }

@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import { AI_OUTPUTS, AI_SCOPES, CHOICE_SOURCES, JSON_FIELD_TYPE_LABELS, NODE_TYPES, nodeName, nodePorts, type JsonField, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
-import { Button, DangerZone, Inspector, InspectorHeader, InspectorBlock, InspectorList, InspectorSection, InspectorTabs, PropertyGrid, PropertyRow, StatusIcon, Checkbox, Input, GroupHeading } from '@loca/ui';
+import { Button, Inspector, InspectorHeader, InspectorBlock, InspectorList, InspectorSection, InspectorTabs, PropertyGrid, PropertyRow, StatusIcon, Checkbox, Input, GroupHeading } from '@loca/ui';
 import { nodeIcon } from '../node-view';
 import { AiConfig } from '@/components/workflow/node-config/ai';
 import { ConditionEditor } from '@/components/workflow/node-config/condition';
@@ -40,7 +40,9 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
   const outgoingPorts = nodePorts(node);
 
   return (
-    <Inspector
+    <Inspector footerStart={!readOnly && node.type !== 'entry' ? (<><Button variant="ghost" className="text-destructive" onClick={onDelete}>
+                <Trash2 /> 노드 삭제
+              </Button></>) : undefined}
       className="min-w-0 border-l-0"
       header={<InspectorHeader icon={<Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />} kind={`${NODE_TYPES[node.type].label} · ${node.id}`} name={nodeName(node)} onClose={onClose} />}
       tabs={<InspectorTabs<NodeConfigTab> value={activeTab} onChange={changeTab} items={[{ value: 'settings', label: '설정' }, { value: 'io', label: '입출력' }, { value: 'errors', label: issues.length ? `오류 ${issues.length}` : '오류' }]} />}
@@ -75,13 +77,6 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
               {node.type === 'condition' && <ConditionEditor node={node} nodes={refs.nodes} refs={refs} readOnly={readOnly} onChange={onChange} />}
             </InspectorSection>
           ) : null}
-          {!readOnly && node.type !== 'entry' && (
-            <DangerZone title="삭제">
-              <Button variant="ghost" className="text-destructive" onClick={onDelete}>
-                <Trash2 /> 노드 삭제
-              </Button>
-            </DangerZone>
-          )}
         </fieldset>
       )}
 

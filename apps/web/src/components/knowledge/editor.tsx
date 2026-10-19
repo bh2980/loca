@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { DOCUMENT_KINDS, STYLE_AXES, type StyleAxis, type CharacterRole, type Gender, type AgeBand, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled, AGE_BAND_LABELS, CHARACTER_ROLE_LABELS, GENDER_LABELS, PALETTE, knowledgeKindScope, type TagScope, type KnowledgeTagKind } from '@tw/shared';
-import { Inspector, InspectorHeader, InspectorBlock, InspectorSection, InspectorFields, InspectorField, InspectorToggle, useControlId, TagListEditor, DirtyBar, DangerZone, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, AiMark } from '@loca/ui';
+import { Inspector, InspectorHeader, InspectorBlock, InspectorSection, InspectorFields, InspectorField, InspectorToggle, useControlId, TagListEditor, DirtyBar, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, AiMark } from '@loca/ui';
 import { ChipInput, joinList, splitList } from '@/components/chip-input';
 import { useDraft } from '@/lib/drafts';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
@@ -199,7 +199,7 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
       </div>
     );
   return (
-    <Inspector
+    <Inspector footerStart={<>{official ? deleteButton : discardButton}</>}
       header={<InspectorHeader kind={KINDS[kind]} name={spec.label(row)} status={
         <span className="flex items-center gap-1.5">
           <SourceBadge row={row} />
@@ -210,7 +210,6 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
       footer={dirty ? dirtyBar : !official ? confirm() : null}
     >
       {body}
-      <DangerZone title={official ? '삭제' : '후보'}>{official ? deleteButton : discardButton}</DangerZone>
     </Inspector>
   );
 }

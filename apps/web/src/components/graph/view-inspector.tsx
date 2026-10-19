@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { Sparkles, Trash2 } from 'lucide-react';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
-  Button, DangerZone, Inspector, InspectorActionRow, InspectorField, InspectorFields, InspectorHeader, InspectorList, InspectorSection, Input, PropertyGrid, PropertyRow, Skeleton,
+  Button, Inspector, InspectorActionRow, InspectorField, InspectorFields, InspectorHeader, InspectorList, InspectorSection, Input, PropertyGrid, PropertyRow, Skeleton,
 } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
@@ -83,7 +83,9 @@ export function ViewInspector({ projectId, viewId, shownNodes, derivedEdges, onC
   const data = view.data;
   const ai = data.origin === 'ai';
   return (
-    <Inspector
+    <Inspector footerStart={<><Button variant="ghost" className="text-destructive" onClick={() => setConfirming(true)}>
+          <Trash2 /> 보기 삭제
+        </Button></>}
       header={<InspectorHeader kind={ai ? 'AI 보기' : '보기'} name={data.label} onClose={onClose} />}
       footer={
         ai ? (
@@ -118,11 +120,6 @@ export function ViewInspector({ projectId, viewId, shownNodes, derivedEdges, onC
           />
         </InspectorSection>
       )}
-      <DangerZone title="삭제">
-        <Button variant="outline" className="text-destructive" onClick={() => setConfirming(true)}>
-          <Trash2 /> 보기 삭제
-        </Button>
-      </DangerZone>
       <AlertDialog open={confirming} onOpenChange={setConfirming}>
         <AlertDialogContent>
           <AlertDialogHeader>

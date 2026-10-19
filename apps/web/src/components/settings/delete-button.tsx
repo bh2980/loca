@@ -6,7 +6,7 @@ export function DeleteButton({ label, description, pending, onConfirm }: { label
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <Button type="button" variant="outline" className="text-destructive" disabled={pending}>
+        <Button type="button" variant="ghost" className="text-destructive" disabled={pending}>
           <Trash2 />
           삭제
         </Button>

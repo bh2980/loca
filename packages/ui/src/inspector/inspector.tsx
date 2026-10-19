@@ -11,12 +11,15 @@ export interface InspectorProps {
   loading?: boolean
   className?: string
   bodyClassName?: string
+  /** The footer's left side: the pane's destructive action (삭제, 버리기), apart from the primary action on the right. */
+  footerStart?: ReactNode
 }
 
-export function InspectorFooter({ children, className }: { children: ReactNode; className?: string }) {
+export function InspectorFooter({ children, start, className }: { children?: ReactNode; start?: ReactNode; className?: string }) {
   return (
     <footer className={cn("flex shrink-0 flex-wrap items-center gap-2 border-t border-border bg-panel px-4 py-2.5", className)}>
-      {children}
+      {start && <div className="flex items-center gap-2">{start}</div>}
+      {children != null && children !== false && <div className="ml-auto flex flex-wrap items-center justify-end gap-2">{children}</div>}
     </footer>
   )
 }
@@ -30,6 +33,7 @@ export function Inspector({
   loading = false,
   className,
   bodyClassName,
+  footerStart,
 }: InspectorProps) {
   return (
     <div className={cn("flex h-full min-h-0 flex-col border-l border-border bg-panel", className)}>
@@ -46,7 +50,7 @@ export function Inspector({
           <div className={cn("space-y-0", bodyClassName)}>{children}</div>
         )}
       </ScrollArea>
-      {footer != null && footer !== false && <InspectorFooter>{footer}</InspectorFooter>}
+      {((footer != null && footer !== false) || footerStart) && <InspectorFooter start={footerStart}>{footer}</InspectorFooter>}
     </div>
   )
 }
