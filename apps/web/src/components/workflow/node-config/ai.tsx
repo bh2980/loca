@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Plus, X } from 'lucide-react';
 import { AI_OUTPUTS, AI_PRESETS, AI_SCOPES, CHOICE_SOURCES, CONNECTION_KIND_INFO, contextConfigSchema, nodeName, type AiOutput, type AiScope, type BatchConfig, type Capability, type ChoiceSource, type WorkflowNode } from '@tw/shared';
-import { AdvancedDisclosure, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Button, Dialog, DialogContent, DialogHeader, DialogTitle, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, InspectorSection } from '@loca/ui';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Button, Dialog, DialogContent, DialogHeader, DialogTitle, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, InspectorSection } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
 import { AiContextPanel } from '@/components/ai-context';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
@@ -64,7 +64,6 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
   const takesTemperature = connection ? CONNECTION_KIND_INFO[connection.kind].transport !== 'cli' && connection.kind !== 'systemone' : false;
   const contextOn = [context.glossary, context.speech, config.include.issues, context.precedingLines > 0, context.previousScenes > 0, context.cast, context.characters, context.relationships, context.documents].filter(Boolean).length;
   const preset = config.preset ? (AI_PRESETS as Record<string, { label: string } & PresetFill>)[config.preset] : undefined;
-  const batchLabel: Record<BatchConfig['mode'], string> = { group: '장면별', count: '개수별', unit: '대사 하나씩', whole: '대본 전체' };
 
   if (part === 'model') {
     return (
@@ -173,6 +172,90 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
         )}
       </InspectorSection>
 
+      <InspectorSection title={`문맥 · ${contextOn}개 켬`} defaultOpen={false}>
+        <div className="space-y-2.5">
+            <ToggleRow
+              label="확정된 것만"
+              checked={context.humanOnly}
+              onChange={(value) => set({ context: { ...context, humanOnly: value } })}
+            />
+            <ToggleRow
+              label="용어집"
+              checked={context.glossary}
+              onChange={(value) => set({ context: { ...context, glossary: value } })}
+            />
+            <ToggleRow
+              label="청자·말투"
+              checked={context.speech}
+              onChange={(value) => set({ context: { ...context, speech: value } })}
+            />
+            <ToggleRow
+              label="앞 단계 지적"
+              checked={config.include.issues}
+              onChange={(value) => set({ include: { ...config.include, issues: value } })}
+            />
+            <CountRow
+              label="앞 대사"
+              unit="줄"
+              value={context.precedingLines}
+              fallback={8}
+              max={50}
+              onChange={(value) => set({ context: { ...context, precedingLines: value } })}
+            />
+            {context.precedingLines > 0 && (
+              <div className="pl-4">
+                <ToggleRow
+                  label="앞 대사 번역"
+                  checked={context.precedingTranslations}
+                  onChange={(value) =>
+                    set({ context: { ...context, precedingTranslations: value } })
+                  }
+                />
+              </div>
+            )}
+            <CountRow
+              label="이전 장면"
+              unit="개"
+              value={context.previousScenes}
+              fallback={1}
+              max={10}
+              onChange={(value) => set({ context: { ...context, previousScenes: value } })}
+            />
+            <ToggleRow
+              label="인물 명단"
+              checked={context.cast}
+              onChange={(value) => set({ context: { ...context, cast: value } })}
+            />
+            <ToggleRow
+              label="인물 프로필"
+              checked={context.characters}
+              onChange={(value) => set({ context: { ...context, characters: value } })}
+            />
+            <ToggleRow
+              label="인물 관계"
+              checked={context.relationships}
+              onChange={(value) => set({ context: { ...context, relationships: value } })}
+            />
+            <ToggleRow
+              label="문서"
+              checked={context.documents}
+              onChange={(value) => set({ context: { ...context, documents: value } })}
+            />
+            <Field label="문맥 상한">
+              <Input
+                type="number"
+                min={500}
+                max={200000}
+                step={500}
+                value={context.maxTokens}
+                onChange={(event) =>
+                  set({ context: { ...context, maxTokens: Number(event.target.value) } })
+                }
+              />
+            </Field>
+        </div>
+      </InspectorSection>
+
       <InspectorSection title="고급">
         <div className="space-y-2.5">
           {takesTemperature && (
@@ -196,168 +279,79 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
               />
             </Field>
           )}
-          <div className="space-y-2">
-            {config.output === 'text' && (
-              <AdvancedDisclosure label="기존 번역">
-                <Field label="방식">
-                  <Select
-                    value={config.include.candidate ? 'revise' : 'fresh'}
-                    onValueChange={(value) =>
-                      set({ include: { ...config.include, candidate: value === 'revise' } })
-                    }
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="fresh">보지 않고 새로 번역</SelectItem>
-                      <SelectItem value="revise">보고 고침</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </Field>
-              </AdvancedDisclosure>
+          {config.output === 'text' && (
+            <Field label="기존 번역">
+              <Select
+                value={config.include.candidate ? 'revise' : 'fresh'}
+                onValueChange={(value) =>
+                  set({ include: { ...config.include, candidate: value === 'revise' } })
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="fresh">보지 않고 새로 번역</SelectItem>
+                  <SelectItem value="revise">보고 고침</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+          )}
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="묶음">
+              <Select
+                value={config.batch.mode}
+                onValueChange={(value) =>
+                  set({
+                    batch: {
+                      ...config.batch,
+                      mode: value as BatchConfig['mode'],
+                      maxTokens:
+                        value === 'whole'
+                          ? Math.max(config.batch.maxTokens, 300_000)
+                          : Math.min(config.batch.maxTokens, 6_000),
+                    },
+                  })
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="group">장면별</SelectItem>
+                  <SelectItem value="count">개수별</SelectItem>
+                  <SelectItem value="unit">대사 하나씩</SelectItem>
+                  <SelectItem value="whole">대본 전체</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+            {config.batch.mode === 'whole' && (
+              <Field label="요청당 최대 토큰">
+                <Input
+                  type="number"
+                  min={500}
+                  max={1_000_000}
+                  step={10_000}
+                  value={config.batch.maxTokens}
+                  onChange={(event) =>
+                    set({ batch: { ...config.batch, maxTokens: Number(event.target.value) } })
+                  }
+                />
+              </Field>
             )}
-            <AdvancedDisclosure label={`묶음 · ${batchLabel[config.batch.mode]}`}>
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="단위">
-                  <Select
-                    value={config.batch.mode}
-                    onValueChange={(value) =>
-                      set({
-                        batch: {
-                          ...config.batch,
-                          mode: value as BatchConfig['mode'],
-                          maxTokens:
-                            value === 'whole'
-                              ? Math.max(config.batch.maxTokens, 300_000)
-                              : Math.min(config.batch.maxTokens, 6_000),
-                        },
-                      })
-                    }
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="group">장면별</SelectItem>
-                      <SelectItem value="count">개수별</SelectItem>
-                      <SelectItem value="unit">대사 하나씩</SelectItem>
-                      <SelectItem value="whole">대본 전체</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </Field>
-                {config.batch.mode === 'whole' && (
-                  <Field label="요청당 최대 토큰">
-                    <Input
-                      type="number"
-                      min={500}
-                      max={1_000_000}
-                      step={10_000}
-                      value={config.batch.maxTokens}
-                      onChange={(event) =>
-                        set({ batch: { ...config.batch, maxTokens: Number(event.target.value) } })
-                      }
-                    />
-                  </Field>
-                )}
-                {config.batch.mode !== 'unit' && config.batch.mode !== 'whole' && (
-                  <Field label="최대 크기">
-                    <Input
-                      type="number"
-                      min={1}
-                      max={200}
-                      value={config.batch.size}
-                      onChange={(event) =>
-                        set({ batch: { ...config.batch, size: Number(event.target.value) } })
-                      }
-                    />
-                  </Field>
-                )}
-              </div>
-            </AdvancedDisclosure>
-            <AdvancedDisclosure label={`문맥 ${contextOn}개 켬 · 상한 ${context.maxTokens.toLocaleString()} 토큰`}>
-              <div className="space-y-2.5">
-                  <ToggleRow
-                    label="확정된 것만"
-                    checked={context.humanOnly}
-                    onChange={(value) => set({ context: { ...context, humanOnly: value } })}
-                  />
-                  <ToggleRow
-                    label="용어집"
-                    checked={context.glossary}
-                    onChange={(value) => set({ context: { ...context, glossary: value } })}
-                  />
-                  <ToggleRow
-                    label="청자·말투"
-                    checked={context.speech}
-                    onChange={(value) => set({ context: { ...context, speech: value } })}
-                  />
-                  <ToggleRow
-                    label="앞 단계 지적"
-                    checked={config.include.issues}
-                    onChange={(value) => set({ include: { ...config.include, issues: value } })}
-                  />
-                  <CountRow
-                    label="앞 대사"
-                    unit="줄"
-                    value={context.precedingLines}
-                    fallback={8}
-                    max={50}
-                    onChange={(value) => set({ context: { ...context, precedingLines: value } })}
-                  />
-                  {context.precedingLines > 0 && (
-                    <div className="pl-4">
-                      <ToggleRow
-                        label="앞 대사 번역"
-                        checked={context.precedingTranslations}
-                        onChange={(value) =>
-                          set({ context: { ...context, precedingTranslations: value } })
-                        }
-                      />
-                    </div>
-                  )}
-                  <CountRow
-                    label="이전 장면"
-                    unit="개"
-                    value={context.previousScenes}
-                    fallback={1}
-                    max={10}
-                    onChange={(value) => set({ context: { ...context, previousScenes: value } })}
-                  />
-                  <ToggleRow
-                    label="인물 명단"
-                    checked={context.cast}
-                    onChange={(value) => set({ context: { ...context, cast: value } })}
-                  />
-                  <ToggleRow
-                    label="인물 프로필"
-                    checked={context.characters}
-                    onChange={(value) => set({ context: { ...context, characters: value } })}
-                  />
-                  <ToggleRow
-                    label="인물 관계"
-                    checked={context.relationships}
-                    onChange={(value) => set({ context: { ...context, relationships: value } })}
-                  />
-                  <ToggleRow
-                    label="문서"
-                    checked={context.documents}
-                    onChange={(value) => set({ context: { ...context, documents: value } })}
-                  />
-                  <Field label="문맥 상한">
-                    <Input
-                      type="number"
-                      min={500}
-                      max={200000}
-                      step={500}
-                      value={context.maxTokens}
-                      onChange={(event) =>
-                        set({ context: { ...context, maxTokens: Number(event.target.value) } })
-                      }
-                    />
-                  </Field>
-              </div>
-            </AdvancedDisclosure>
+            {config.batch.mode !== 'unit' && config.batch.mode !== 'whole' && (
+              <Field label="최대 크기">
+                <Input
+                  type="number"
+                  min={1}
+                  max={200}
+                  value={config.batch.size}
+                  onChange={(event) =>
+                    set({ batch: { ...config.batch, size: Number(event.target.value) } })
+                  }
+                />
+              </Field>
+            )}
           </div>
         </div>
       </InspectorSection>

@@ -4,7 +4,6 @@ import { ArrowDown, ArrowUp, ChevronRight, MoreHorizontal, Plus, Trash2 } from '
 import { z } from 'zod';
 import { JSON_FIELD_TYPES, JSON_FIELD_TYPE_LABELS, jsonFieldSchema, type JsonField, type JsonFieldType } from '@tw/shared';
 import { Button, ControlIdContext, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Switch, Textarea, cn } from '@loca/ui';
-import { Field } from '@/components/workflow/node-config/shared';
 
 const fieldsSchema = z.array(jsonFieldSchema);
 
@@ -129,8 +128,9 @@ function FieldRows({ fields, descriptionPlaceholder, path, editing, onChange }: 
   );
 }
 
-/** The 출력 필드 field: the rows, or the same fields as JSON behind the heading's JSON switch. */
+/** The 출력 필드 field, folded until opened: the rows, or the same fields as JSON behind the heading's JSON switch. */
 export function JsonFieldsEditor({ label, fields, descriptionPlaceholder, onChange }: { label: string; fields: JsonField[]; descriptionPlaceholder: string; onChange: (fields: JsonField[]) => void }) {
+  const [shown, setShown] = useState(false);
   const [asSchema, setAsSchema] = useState(false);
   const [editingPath, setEditingPath] = useState<string | null>(null);
   const [folded, setFolded] = useState<Set<string>>(() => new Set());
@@ -167,25 +167,32 @@ export function JsonFieldsEditor({ label, fields, descriptionPlaceholder, onChan
     onChange(result.data);
   };
   return (
-    <Field
-      label={label}
-      action={
-        <label className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
-          JSON
-          <Switch checked={asSchema} onCheckedChange={setAsSchema} />
-        </label>
-      }
-    >
-      <ControlIdContext.Provider value={undefined}>
-        {asSchema ? (
-          <div className="space-y-1">
-            <Textarea aria-label={`${label} JSON`} spellCheck={false} value={text} className="min-h-40 font-mono text-xs" onChange={(event) => edit(event.target.value)} />
-            {error && <p className="text-xs text-destructive">{error}</p>}
-          </div>
-        ) : (
-          <FieldRows fields={fields} descriptionPlaceholder={descriptionPlaceholder} path="" editing={editing} onChange={onChange} />
+    <div className="min-w-0 space-y-1.5">
+      <div className="flex min-h-7 min-w-0 items-center justify-between gap-2">
+        <Button variant="ghost" className="-ml-2 min-w-0 gap-1 px-2 text-xs font-normal" aria-expanded={shown} onClick={() => setShown((value) => !value)}>
+          <ChevronRight className={cn('transition-transform', shown && 'rotate-90')} />
+          {label}
+          <span className="text-muted-foreground tabular-nums">{fields.length}</span>
+        </Button>
+        {shown && (
+          <label className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+            JSON
+            <Switch checked={asSchema} onCheckedChange={setAsSchema} />
+          </label>
         )}
-      </ControlIdContext.Provider>
-    </Field>
+      </div>
+      {shown && (
+        <ControlIdContext.Provider value={undefined}>
+          {asSchema ? (
+            <div className="space-y-1">
+              <Textarea aria-label={`${label} JSON`} spellCheck={false} value={text} className="min-h-40 font-mono text-xs" onChange={(event) => edit(event.target.value)} />
+              {error && <p className="text-xs text-destructive">{error}</p>}
+            </div>
+          ) : (
+            <FieldRows fields={fields} descriptionPlaceholder={descriptionPlaceholder} path="" editing={editing} onChange={onChange} />
+          )}
+        </ControlIdContext.Provider>
+      )}
+    </div>
   );
 }

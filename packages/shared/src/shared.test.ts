@@ -344,7 +344,8 @@ describe('analysis workflow and presets', () => {
   });
 
   it('presets match their output forms', () => {
-    expect(AI_PRESETS.listener).toMatchObject({ output: 'choice', choice: { source: 'characters', allowNone: true } });
+    expect(AI_PRESETS.listener).toMatchObject({ output: 'json', scope: 'line' });
+    expect(AI_PRESETS.listener.fields.map((field) => field.name)).toEqual(['value', 'confidence', 'reason']);
     for (const id of ['terms', 'knowledge', 'events'] as const) expect(AI_PRESETS[id]).toMatchObject({ output: 'json', scope: 'batch' });
     expect(AI_PRESETS.review.output).toBe('verdict');
   });

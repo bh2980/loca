@@ -171,11 +171,15 @@ export const AI_PRESETS = {
   listener: {
     label: 'AI 청자 추정',
     description: '대사마다 누구에게 하는 말인지 고르고 확신도를 냅니다.',
-    output: 'choice',
+    // A json answer, not a choice: an extra outside the cast (e.g. "SWAT 2") is a valid listener, and a choice would drop it.
+    output: 'json',
     scope: 'line',
-    choice: { source: 'characters', values: [], allowNone: true },
     include: { candidate: false, issues: false },
-    fields: [],
+    fields: [
+      field('value', 'string', 'Who the line is addressed to: a cast name, an extra as the lines name them, or group / public / self. Empty when you cannot tell.'),
+      field('confidence', 'number', 'How sure you are, 0 to 1.'),
+      field('reason', 'string', 'One short line on why.'),
+    ],
     context: { glossary: false, cast: true, characters: true, relationships: true, documents: true, precedingLines: 8, previousScenes: 1 },
     batch: { mode: 'group', size: 80, maxTokens: 6_000 },
     instructions:
@@ -183,7 +187,7 @@ export const AI_PRESETS = {
       'Read the whole batch as a scene: who is present, turn-taking, vocatives, questions and answers. ' +
       'Answer with the name as in the cast list (the player character included, even if it never speaks). Someone not in the cast — an extra such as a SWAT officer or a passer-by — is named ' +
       'exactly as they appear as a speaker in the lines (e.g. "SWAT 2"), or as the lines call them when they never speak; never put a cast member in an extra\'s place. Use "group" for several people present, ' +
-      '"public" for an unspecified audience (broadcast, announcement, post), "self" for thinking aloud, and none when you cannot tell. Give a confidence from 0 to 1; never guess with high confidence.',
+      '"public" for an unspecified audience (broadcast, announcement, post), "self" for thinking aloud, and an empty value when you cannot tell. Give a confidence from 0 to 1; never guess with high confidence.',
   },
   terms: {
     label: 'AI 용어 추출',

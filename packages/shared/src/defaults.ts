@@ -249,7 +249,7 @@ export function listenerTemplate(ids: Model): WorkflowDefinition {
         position: at(3),
         label: `확신도 ${LISTENER_CONFIDENCE} 이상?`,
         config: {
-          expression: { and: [{ '!=': [{ var: 'outputs.listener.value' }, null] }, { '>=': [{ var: 'outputs.listener.confidence' }, LISTENER_CONFIDENCE] }] },
+          expression: { and: [{ '!!': [{ var: 'outputs.listener.value' }] }, { '>=': [{ var: 'outputs.listener.confidence' }, LISTENER_CONFIDENCE] }] },
           description: `청자를 골랐고 확신도가 ${LISTENER_CONFIDENCE} 이상일 때만 적습니다.`,
         },
       },
