@@ -8,6 +8,7 @@ import {
   InputGroupInput,
 } from "../primitives/input-group"
 import { cn } from "../lib/utils"
+import { chipStyle } from "../tokens/status"
 
 export interface FilterBarProps {
   children?: ReactNode
@@ -177,6 +178,8 @@ export interface FilterChip {
   key: string
   label: ReactNode
   name?: string
+  /** A tag or mark filter: the chip takes the tag's own colour (one pill, its × inside), not a pill in a pill. */
+  color?: string
   clear: () => void
 }
 
@@ -188,7 +191,8 @@ export function FilterChips({ chips }: { chips: FilterChip[] }) {
       size="xs"
       onClick={chip.clear}
       aria-label={`${chip.name ?? chip.label} 필터 지우기`}
-      className="h-6 gap-1 rounded-xs px-1.5 text-xs font-normal"
+      className={cn("h-6 gap-1 rounded-md px-2 text-xs", chip.color ? "font-medium hover:opacity-80" : "font-normal")}
+      style={chip.color ? chipStyle(chip.color) : undefined}
     >
       {chip.label} <X className="size-3 opacity-60" />
     </Button>

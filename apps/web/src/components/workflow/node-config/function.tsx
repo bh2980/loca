@@ -5,6 +5,7 @@ import { Play, Plus, Trash2 } from 'lucide-react';
 import { APPLY_FUNCTION_NAMES, APPLY_TARGETS, applyIssues, DEFAULT_PARTICLE_PATTERN, formatPatternError, FUNCTIONS, JSON_FIELD_TYPE_LABELS, nodeName, PALETTE_FUNCTION_NAMES, type ApplyField, type ApplyFunctionName, type ApplyParams, type CustomFormatRule, type JsonFieldType, type WorkflowDefinition, type FunctionName, type JsonField, type WorkflowNode } from '@tw/shared';
 import { Button, Input, InspectorActionRow, InspectorFields, InspectorList, InspectorResult, InspectorToggle, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, StatusIcon, TagChip } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
+import { cn } from '@/lib/utils';
 import { AiRegexInput } from '@/components/ai-regex-input';
 import { client, unwrap } from '@/lib/api';
 import { JsonFieldsEditor } from '@/components/workflow/node-config/json-fields-editor';
@@ -205,9 +206,12 @@ function SetStatusConfig({ params, refs, set, setMany }: { params: Record<string
             {refs.tags.map((tag) => {
               const on = add.includes(tag.id), off = remove.includes(tag.id);
               return (
+                // The tag's own chip is the toggle (no pill in a button): faint until picked, + puts it on, − takes it off.
                 <Button
                   key={tag.id}
-                  variant={on || off ? 'secondary' : 'outline'}
+                  variant="ghost"
+                  size="inline"
+                  className="h-auto p-0 hover:bg-transparent"
                   aria-pressed={on || off}
                   onClick={() =>
                     setMany({
@@ -216,8 +220,8 @@ function SetStatusConfig({ params, refs, set, setMany }: { params: Record<string
                     })
                   }
                 >
-                  {on ? '+ ' : off ? '− ' : ''}
-                  <TagChip tag={tag} />
+                  {(on || off) && <span className="text-xs text-muted-foreground">{on ? '+' : '−'}</span>}
+                  <TagChip tag={tag} className={cn(!on && !off && 'opacity-50 hover:opacity-100', off && 'line-through')} />
                 </Button>
               );
             })}

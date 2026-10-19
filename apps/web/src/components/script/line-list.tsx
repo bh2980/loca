@@ -2,12 +2,12 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Play } from 'lucide-react';
 import { LineDetail } from '@/components/line-detail';
-import { useRevealDock, SplitPane, EditorToolbar, FilterChips, Pager, SearchInput, FilterBar, ActionBar, EmptyState, Button, Skeleton, TagChip } from '@loca/ui';
+import { useRevealDock, SplitPane, EditorToolbar, FilterChips, Pager, SearchInput, FilterBar, ActionBar, EmptyState, Button, Skeleton } from '@loca/ui';
 import { HeaderActions } from '@/components/page';
-import { MarkChip } from '@/components/status';
 import { tokenPatternOf } from '@/lib/line-context';
 import { RunDialog } from '@/components/workflow/run-dialog';
-import { lineTags, q } from '@/lib/queries';
+import { lineTags, q, useMarkColors } from '@/lib/queries';
+import { markColor } from '@tw/shared';
 import { hasLineFilter, LineFilters, filterChips, type LinesSearch } from '@/components/script/line-filters';
 import { LineHeadRow, useLineBulk } from '@/components/script/line-bulk';
 import { LineRow } from '@/components/script/line-row';
@@ -70,6 +70,7 @@ export function LineList({
   withSpeakers?: boolean;
 }) {
   const statuses = useQuery(q.statuses(projectId));
+  const markColors = useMarkColors(projectId);
   // Format tokens read as numbered chips (#1) in every row; the full token is on hover.
   const projectInfo = useQuery(q.project(projectId));
   const tokenPattern = useMemo(() => tokenPatternOf(projectInfo.data?.formatRules ?? undefined), [projectInfo.data?.formatRules]);
@@ -273,8 +274,8 @@ export function LineList({
         <FilterChips
           chips={chips.map((chip) => ({
             key: chip.key,
-            label: chip.mark ? <MarkChip mark={chip.mark} /> : chip.tag ? <TagChip tag={chip.tag} /> : chip.label,
-            name: chip.label,
+            label: chip.label,
+            color: chip.mark ? markColor(chip.mark, markColors) : chip.tag?.color,
             clear: () => onSearch({ ...chip.clear, page: undefined }),
           }))}
         />

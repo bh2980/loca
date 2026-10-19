@@ -3,17 +3,16 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, CircleStop, ScanSearch, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
-import { DataTable, type ColumnDef, EmptyState, TagMenu, SplitPane, FilterChips, SearchInput, FilterBar, ActionBar, type FilterChip, Button, TagChip, StatusBarItem, useRevealDock, ContextMenuItem, ContextMenuSeparator, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Spinner } from '@loca/ui';
+import { DataTable, type ColumnDef, EmptyState, TagMenu, SplitPane, FilterChips, SearchInput, FilterBar, ActionBar, type FilterChip, Button, StatusBarItem, useRevealDock, ContextMenuItem, ContextMenuSeparator, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Spinner } from '@loca/ui';
 import { HeaderFilter, MarkFilter, markTagGroups } from '@/components/header-filter';
-import { MarkChip } from '@/components/status';
 import { FillDialog } from '@/components/glossary/fill-dialog';
 import { NEW_TERM, NewTermPane, TermEditor, type Term } from '@/components/glossary/term-pane';
 import { HeaderActions, Page } from '@/components/page';
 import { JobProgress } from '@/components/job-progress';
 import { BulkDecide, matches, SourceBadge, TagCell } from '@/components/knowledge/table';
-import { AUTO_MARKS, type AutoMark, isSettled, matchesMarks, parseMarks, TERM_MARK_IDS, termMarksOf, KNOWLEDGE_SOURCES, SOURCE_LABELS, type KnowledgeSource, aiDecided } from '@tw/shared';
+import { AUTO_MARKS, markColor, type AutoMark, isSettled, matchesMarks, parseMarks, TERM_MARK_IDS, termMarksOf, KNOWLEDGE_SOURCES, SOURCE_LABELS, type KnowledgeSource, aiDecided } from '@tw/shared';
 import { client, unwrap } from '@/lib/api';
-import { q, tagsIn } from '@/lib/queries';
+import { q, tagsIn, useMarkColors } from '@/lib/queries';
 import { usePicked } from '@/lib/use-picked';
 import { useReportView } from '@/lib/view-context';
 
@@ -43,6 +42,7 @@ interface GlossarySearch {
 
 function Glossary() {
   const { projectId } = Route.useParams();
+  const markColors = useMarkColors(projectId);
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const terms = useQuery(q.terms(projectId));
@@ -144,10 +144,10 @@ function Glossary() {
   const chips: FilterChip[] = [
     ...(search.ids ? [{ key: 'ids', label: `실행 범위 ${search.ids.length}`, clear: () => setFilter({ ids: undefined }) }] : []),
     ...(search.source ? [{ key: 'source', label: SOURCE_LABELS[search.source], clear: () => setFilter({ source: undefined }) }] : []),
-    ...(search.marks ?? []).map((mark) => ({ key: `mark:${mark}`, label: <MarkChip mark={mark} />, name: AUTO_MARKS[mark].name, clear: () => toggleMark(mark, false) })),
+    ...(search.marks ?? []).map((mark) => ({ key: `mark:${mark}`, label: `#${AUTO_MARKS[mark].name}`, color: markColor(mark, markColors), clear: () => toggleMark(mark, false) })),
     ...pickedTags.map((id) => {
       const known = knownTags.find((tag) => tag.id === id);
-      return { key: `tag:${id}`, label: known ? <TagChip tag={known} /> : `#${id}`, name: `#${known?.name ?? id}`, clear: () => toggleTag(id, false) };
+      return { key: `tag:${id}`, label: `#${known?.name ?? id}`, color: known?.color, clear: () => toggleTag(id, false) };
     }),
   ];
 

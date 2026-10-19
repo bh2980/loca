@@ -95,6 +95,5 @@ export * from "./editor/context-line"
 export * from "./editor/graph-endpoint-bar"
 
 export { usePanelWidth } from './layout/use-panel-width'
-export { CanvasLegend } from './canvas/canvas-legend'
 export * from "./canvas/canvas-overlay"
 export * from "./canvas/canvas-surface"

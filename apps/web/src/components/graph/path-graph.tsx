@@ -165,7 +165,7 @@ function PathNodeView({ data, selected }: NodeProps<PathNode>) {
         <div className="flex h-7 w-full items-center justify-center gap-1 rounded-full border bg-muted px-2 text-xs whitespace-nowrap text-muted-foreground">
           {data.pill}
           {data.seamMark && <SeamMark state={data.seamMark.state} />}
-          {data.arm && <ArmChip arm={data.arm} />}
+          {data.arm && <ArmChip arm={data.arm} className="h-auto border-0 bg-transparent px-0 font-normal text-muted-foreground" />}
         </div>
         {handles}
       </div>

@@ -19,6 +19,9 @@ export interface CanvasToolbarProps {
   className?: string
 }
 
+/** Words in the toolbar show only on a canvas wide enough for them; a narrow one (a pane open) keeps the icons. */
+const COMPACT = "hidden @2xl/canvas:inline"
+
 /** Small canvas controls designed to float along the bottom edge of a graph. */
 export function CanvasToolbar({ zoomPercent, onZoomIn, onZoomOut, onFit, onResetZoom, onLayout, minimapVisible, onToggleMinimap, layoutLabel, direction, onDirectionChange, directionDisabled, className }: CanvasToolbarProps) {
   return <div role="toolbar" aria-label="캔버스 도구" className={cn("flex h-9 items-center gap-0.5 rounded-md border border-border bg-popover px-1 shadow-sm", className)}>
@@ -31,10 +34,10 @@ export function CanvasToolbar({ zoomPercent, onZoomIn, onZoomOut, onFit, onReset
     <Button variant="ghost" size="icon-xs" aria-label="확대" onClick={onZoomIn}><Plus /></Button>
     <span className="mx-1 h-4 border-l border-border" />
     <Button variant="ghost" size="icon-xs" aria-label="화면에 맞춤" onClick={onFit}><Maximize /></Button>
-    {onLayout && <Button variant="ghost" size={layoutLabel ? "sm" : "icon-xs"} aria-label={layoutLabel ?? "자동 정렬"} title={layoutLabel ?? "자동 정렬"} onClick={onLayout}><WandSparkles />{layoutLabel}</Button>}
+    {onLayout && <Button variant="ghost" size={layoutLabel ? "sm" : "icon-xs"} aria-label={layoutLabel ?? "자동 정렬"} title={layoutLabel ?? "자동 정렬"} onClick={onLayout}><WandSparkles />{layoutLabel && <span className={COMPACT}>{layoutLabel}</span>}</Button>}
     {direction && onDirectionChange && <>
       <span className="mx-1 h-4 border-l border-border" />
-      <CanvasDirectionControl direction={direction} onDirectionChange={onDirectionChange} disabled={directionDisabled} variant="ghost" />
+      <CanvasDirectionControl direction={direction} onDirectionChange={onDirectionChange} disabled={directionDisabled} variant="ghost" labelClassName={COMPACT} />
     </>}
     {onToggleMinimap && minimapVisible !== undefined && <>
       <span className="mx-1 h-4 border-l border-border" />

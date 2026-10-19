@@ -4,11 +4,13 @@ import { SegmentedControl } from "../layout/segmented-control"
 export type CanvasDirection = "vertical" | "horizontal"
 
 /** Shared orientation control for graph canvases. */
-export function CanvasDirectionControl({ direction, onDirectionChange, disabled, className, variant = "default" }: {
+export function CanvasDirectionControl({ direction, onDirectionChange, disabled, className, labelClassName, variant = "default" }: {
   direction: CanvasDirection
   onDirectionChange: (direction: CanvasDirection) => void
   disabled?: boolean
   className?: string
+  /** Classes for the words beside the arrows (a narrow canvas keeps only the arrows). */
+  labelClassName?: string
   variant?: "default" | "ghost"
 }) {
   return <SegmentedControl
@@ -19,8 +21,8 @@ export function CanvasDirectionControl({ direction, onDirectionChange, disabled,
     className={className}
     variant={variant}
     items={[
-      { value: "horizontal", label: <><ArrowRight aria-hidden="true" />가로</> },
-      { value: "vertical", label: <><ArrowDown aria-hidden="true" />세로</> },
+      { value: "horizontal", name: "가로", label: <><ArrowRight aria-hidden="true" /><span className={labelClassName}>가로</span></> },
+      { value: "vertical", name: "세로", label: <><ArrowDown aria-hidden="true" /><span className={labelClassName}>세로</span></> },
     ]}
   />
 }
