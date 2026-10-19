@@ -80,7 +80,7 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
           ) : null}
         </div>
         <div className="pl-6 font-mono text-xs text-muted-foreground truncate">
-          {examples.length > 0 ? examples.join('   ') : preset.example}
+          {examples.length > 0 ? <><span className="font-sans text-subtle-foreground">대본에서 찾은 예 </span>{examples.join('   ')}</> : preset.example}
         </div>
       </label>
     );

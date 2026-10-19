@@ -37,6 +37,12 @@ function usesOf(db: Db, id: string) {
 }
 
 export const connectionRoutes = new Hono<Env>()
+  // Where a CLI connection's executable resolves (for the form: found path and version, or not found).
+  .post('/locate', validate('json', z.object({ kind: z.string(), executable: z.string().optional() })), async (c) => {
+    const { kind, executable } = c.req.valid('json');
+    if (CONNECTION_KIND_INFO[kind as keyof typeof CONNECTION_KIND_INFO]?.transport !== 'cli') badRequest('CLI 연결이 아닙니다.');
+    return c.json(await ai.locateCli(kind as Parameters<typeof ai.locateCli>[0], executable));
+  })
   .get('/', (c) => {
     const { db, secrets } = c.var.deps;
     const rows = db.select().from(s.connections).orderBy(asc(s.connections.name)).all();

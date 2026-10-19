@@ -4,7 +4,7 @@ import { ChevronRight, Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import { useQuery } from '@tanstack/react-query';
 import { Page } from '@/components/page';
-import { InspectorHeader, Inspector, SplitPane, EmptyState, DataTable, type ColumnDef, JobStatusBadge, Button, Progress, Spinner, Collapsible, CollapsibleContent, CollapsibleTrigger, Skeleton, ContextMenuItem } from '@loca/ui';
+import { InspectorHeader, Inspector, InspectorList, InspectorSection, SplitPane, EmptyState, DataTable, type ColumnDef, JobStatusBadge, Button, Progress, Spinner, Collapsible, CollapsibleContent, CollapsibleTrigger, Skeleton, ContextMenuItem } from '@loca/ui';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { cn } from '@/lib/utils';
@@ -221,13 +221,14 @@ function JobCalls({ projectId, job, onClose }: { projectId: string; job: { id: s
             </Button>
           )}
         </>
-      } onClose={onClose} />} loading={!calls.data} bodyClassName="space-y-0 p-0">
+      } onClose={onClose} />} loading={!calls.data}>
+      <InspectorSection title={`AI 호출${calls.data ? ` ${calls.data.calls.length.toLocaleString()}` : ''}`}>
       {calls.data?.calls.length === 0 ? (
-        <p className="px-4 py-6 text-sm text-muted-foreground">이 작업의 AI 호출 기록이 없습니다.</p>
+        <p className="text-sm text-muted-foreground">이 작업의 AI 호출 기록이 없습니다.</p>
       ) : (
-        <ul>
+        <InspectorList>
           {calls.data?.calls.map((call) => (
-            <li key={call.id} className="space-y-0.5 px-4 py-2.5 text-sm">
+            <li key={call.id} className="space-y-0.5 py-2.5 text-sm first:pt-0 last:pb-0">
               <div className="flex items-center gap-2">
                 <span className="min-w-0 flex-1 truncate">{call.label}</span>
                 {call.status === 'running' ? (
@@ -248,9 +249,10 @@ function JobCalls({ projectId, job, onClose }: { projectId: string; job: { id: s
               {(call.hasRequest || call.hasResponse) && <SentRequest projectId={projectId} callId={call.id} hasRequest={call.hasRequest} hasResponse={call.hasResponse} />}
             </li>
           ))}
-        </ul>
+        </InspectorList>
       )}
-      {calls.data && calls.data.calls.length >= 200 && <p className="px-4 py-2 text-xs text-muted-foreground">최근 200건만 보여 줍니다.</p>}
+      {calls.data && calls.data.calls.length >= 200 && <p className="text-xs text-muted-foreground">최근 200건만 보여 줍니다.</p>}
+      </InspectorSection>
     </Inspector>
   );
 }

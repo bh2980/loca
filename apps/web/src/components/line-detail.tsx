@@ -4,7 +4,7 @@ import { Link } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { CircleAlert, CircleCheck, Network, Pencil } from 'lucide-react';
 import { checkFormat, isUnknownListener, listenerLabel, needsListener, PALETTE, SPEECH_LEVEL_LABELS, speechLevelOf, TAG_SCOPES, type FormatRules, type SpeechLevel } from '@tw/shared';
-import { AiMark, Badge, Button, CandidateCard, Group, InspectorHeader, Inspector, InspectorSection, PropertyGrid, PropertyRow, SpeakerIdentity, StatusIcon, TagChip, TagListEditor } from '@loca/ui';
+import { AiMark, Badge, Button, CandidateCard, Group, InspectorBlock, InspectorField, InspectorFields, InspectorHeader, Inspector, InspectorList, InspectorSection, PropertyGrid, PropertyRow, SpeakerIdentity, StatusIcon, TagChip, TagListEditor } from '@loca/ui';
 import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
 import { AiButton } from '@/components/ai-button';
 import { AiContextPanel } from '@/components/ai-context';
@@ -175,18 +175,16 @@ export function LineDetail({
         kind={kind}
         name={title}
         status={metadata}
-        actions={line && <>
-          <Button type="button" variant="outline" onClick={() => setEditingSource(true)}><Pencil /> 원문 편집</Button>
-          {line.statusBy === 'ai' && <Button type="button" variant="outline" onClick={() => check.mutate()}>확인함</Button>}
-        </>}
+        actions={line && <Button type="button" variant="outline" onClick={() => setEditingSource(true)}><Pencil /> 원문 편집</Button>}
         onClose={onClose}
       />}
+      footer={line?.statusBy === 'ai' ? <Button type="button" disabled={check.isPending} onClick={() => check.mutate()}>확인함</Button> : undefined}
       loading={!line}
     >
-      {line && editor && <section className="border-b border-border-subtle p-4"><TranslationEditor projectId={projectId} unit={{ id: line.id, source: line.source, translation: line.translation, statusId: line.statusId, statusBy: line.statusBy, candidates: line.candidates }} statuses={statuses.data?.statuses ?? []} /></section>}
+      {line && editor && <InspectorBlock><TranslationEditor projectId={projectId} unit={{ id: line.id, source: line.source, translation: line.translation, statusId: line.statusId, statusBy: line.statusBy, candidates: line.candidates }} statuses={statuses.data?.statuses ?? []} /></InspectorBlock>}
       {line && (
         <>
-          <InspectorSection title="기본 정보">
+          <InspectorSection title="정보">
             <PropertyGrid>
               <PropertyRow label="대사 키">
                 <code className="font-mono text-xs break-all text-muted-foreground">{line.key}</code>
@@ -225,33 +223,34 @@ export function LineDetail({
                 </PropertyRow>
               )}
               {line.speaker && <PropertyRow label="화자"><SpeakerCard projectId={projectId} name={line.speaker}><SpeakerIdentity speaker={line.speaker} /></SpeakerCard></PropertyRow>}
-              {needsListener(line, project.data?.formatRules ?? undefined) && <PropertyRow label="청자">
-                <div className="flex min-w-0 flex-col items-start gap-1">
-                  <ListenerPicker line={{ speaker: line.speaker, listener: line.listener, listenerOrigin: line.listenerOrigin, listenerConfidence: line.listenerConfidence, sceneNames: line.sceneNames }} cast={cast} onPick={(listener) => patch.mutate({ listener })} />
-                </div>
-              </PropertyRow>}
               {line.speech && <PropertyRow label="말투 규칙"><Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', item: line.speech.ruleId }} className="block truncate hover:underline" title={line.speech.rule}>{line.speech.rule}</Link></PropertyRow>}
               {line.speaker && <PropertyRow label="인물"><Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'characters', ...(speakerPerson && { item: speakerPerson.id }) }} className="block truncate hover:underline">보기</Link></PropertyRow>}
-              <PropertyRow label="태그">
+            </PropertyGrid>
+            {line.speaker && <LineHints projectId={projectId} line={{ id: line.id, source: line.source, translation: line.translation, speaker: line.speaker, listener: line.listener, lastRun: lastRun ? { issues: lastRun.data.issues ?? [] } : null }} part="context" />}
+          </InspectorSection>
+
+          <InspectorSection title="속성">
+            <InspectorFields>
+              {needsListener(line, project.data?.formatRules ?? undefined) && (
+                <InspectorField label="청자">
+                  <div className="flex min-w-0 flex-col items-start gap-1">
+                    <ListenerPicker line={{ speaker: line.speaker, listener: line.listener, listenerOrigin: line.listenerOrigin, listenerConfidence: line.listenerConfidence, sceneNames: line.sceneNames }} cast={cast} onPick={(listener) => patch.mutate({ listener })} />
+                  </div>
+                </InspectorField>
+              )}
+              <InspectorField label="태그">
                 <TagListEditor
                   tags={orderedTags}
                   allTags={tags}
                   onToggle={(tagId, add) => patch.mutate({ tagIds: add ? [...line.tagIds, tagId] : line.tagIds.filter((id) => id !== tagId) })}
                   onCreate={createTagInline}
-                  heading="태그"
+                  heading="줄에 붙일 태그"
                 />
-              </PropertyRow>
-              <PropertyRow label="메모">
-                {line.note || noting ? (
-                  <LineNote unitId={line.id} note={line.note} editing={noting} onEditing={setNoting} />
-                ) : (
-                  <Button variant="ghost" onClick={() => setNoting(true)}>
-                    메모 추가
-                  </Button>
-                )}
-              </PropertyRow>
-            </PropertyGrid>
-            {line.speaker && <LineHints projectId={projectId} line={{ id: line.id, source: line.source, translation: line.translation, speaker: line.speaker, listener: line.listener, lastRun: lastRun ? { issues: lastRun.data.issues ?? [] } : null }} part="context" />}
+              </InspectorField>
+              <InspectorField label="메모" action={!line.note && !noting ? <Button variant="ghost" size="inline" onClick={() => setNoting(true)}>메모 추가</Button> : undefined}>
+                {line.note || noting ? <LineNote unitId={line.id} note={line.note} editing={noting} onEditing={setNoting} /> : null}
+              </InspectorField>
+            </InspectorFields>
           </InspectorSection>
 
           <CandidatesAndMatches unit={line} draft={draft} onUse={useText} tokenPattern={tokenPattern} />
@@ -289,11 +288,11 @@ function CandidatesAndMatches({ unit, draft, onUse, tokenPattern }: { unit: Line
     </>}>
       <div className="space-y-4">
         <Group title={<>{title} <span className="font-normal text-muted-foreground tabular-nums">{unit.candidates.length}</span></>} className="space-y-2">
-          <ul className="space-y-2">
+          <InspectorList>
             {unit.candidates.map((candidate) => {
               const current = candidate.text === (unit.translation ?? null);
               return (
-                <li key={candidate.id}>
+                <li key={candidate.id} className="py-1 first:pt-0 last:pb-0">
                   <CandidateCard
                     text={<TokenText text={candidate.text} source={unit.source} pattern={tokenPattern} className="whitespace-pre-wrap" />}
                     current={current}
@@ -304,15 +303,15 @@ function CandidatesAndMatches({ unit, draft, onUse, tokenPattern }: { unit: Line
                 </li>
               );
             })}
-            {!unit.candidates.length && <li className="text-sm text-muted-foreground">아직 후보가 없습니다.</li>}
-          </ul>
+            {!unit.candidates.length && <li className="py-2 text-sm text-muted-foreground">아직 후보가 없습니다.</li>}
+          </InspectorList>
         </Group>
         <Group title={<>TM <span className="font-normal text-muted-foreground tabular-nums">{rows.length}</span></>} className="space-y-2">
-          <ul className="space-y-2">
+          <InspectorList>
             {rows.map((match) => {
               const current = match.translation === (unit.translation ?? null);
               return (
-                <li key={match.unitId}>
+                <li key={match.unitId} className="py-1 first:pt-0 last:pb-0">
                   <CandidateCard
                     text={<>
                       <TokenText text={match.translation} source={unit.source} pattern={tokenPattern} className="whitespace-pre-wrap" />
@@ -331,8 +330,8 @@ function CandidatesAndMatches({ unit, draft, onUse, tokenPattern }: { unit: Line
                 </li>
               );
             })}
-            {!rows.length && <li className="text-sm text-muted-foreground">{matches.isPending ? '찾는 중…' : '같거나 비슷한 원문이 없습니다.'}</li>}
-          </ul>
+            {!rows.length && <li className="py-2 text-sm text-muted-foreground">{matches.isPending ? '찾는 중…' : '같거나 비슷한 원문이 없습니다.'}</li>}
+          </InspectorList>
         </Group>
       </div>
     </InspectorSection>
@@ -344,9 +343,9 @@ function HistorySection({ projectId, history }: { projectId: string; history: Li
   return (
     <InspectorSection title={`이력 ${history.length}`} defaultOpen={history.length > 0}>
       {history.length ? (
-        <ul className="space-y-2 text-sm">
+        <InspectorList className="text-sm">
           {history.map((item) => (
-            <li key={item.id} className="space-y-0.5 rounded-md border p-2.5">
+            <li key={item.id} className="space-y-0.5 py-2 first:pt-0 last:pb-0">
               <div className="flex min-w-0 items-center gap-2">
                 <Link to="/p/$projectId/runs/$runId" params={{ projectId, runId: item.runId }} className="min-w-0 flex-1 truncate font-medium hover:underline">
                   {item.workflowName}
@@ -358,7 +357,7 @@ function HistorySection({ projectId, history }: { projectId: string; history: Li
               {item.error && <p className="text-xs text-destructive">{item.error}</p>}
             </li>
           ))}
-        </ul>
+        </InspectorList>
       ) : (
         <p className="text-sm text-muted-foreground">이 줄이 포함된 실행이 없습니다.</p>
       )}

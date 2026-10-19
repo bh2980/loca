@@ -8,7 +8,10 @@ export interface InspectorSectionProps {
   title: ReactNode
   children?: ReactNode
   actions?: ReactNode
+  /** Given, the section folds and starts open or closed; without it the section is plain (most are). */
   defaultOpen?: boolean
+  /** Fold even without a default (rarely needed: pass defaultOpen instead). */
+  collapsible?: boolean
   id?: string
   className?: string
 }
@@ -20,9 +23,25 @@ export function InspectorBlock({ children, className, id }: { children?: ReactNo
   return <section id={id} className={cn(inspectorBlockStyles, className)}>{children}</section>
 }
 
-export function InspectorSection({ title, children, actions, defaultOpen = true, id, className }: InspectorSectionProps) {
+/**
+ * A titled part of a pane. Plain by default: a pane is a few sections the eye reads top to bottom, and
+ * a chevron on each one is noise. Only long or occasional parts fold (문맥, 고급, 프롬프트, 이력): give
+ * them `defaultOpen`.
+ */
+export function InspectorSection({ title, children, actions, defaultOpen, collapsible, id, className }: InspectorSectionProps) {
+  const folds = collapsible ?? defaultOpen !== undefined
+  if (!folds)
+    return (
+      <section id={id} className={cn(inspectorBlockStyles, "space-y-3", className)}>
+        <div className="flex min-h-7 items-center justify-between gap-2">
+          <h3 className="min-w-0 truncate text-sm font-semibold text-foreground">{title}</h3>
+          {actions && <div className="flex shrink-0 items-center gap-1">{actions}</div>}
+        </div>
+        {children}
+      </section>
+    )
   return (
-    <Collapsible defaultOpen={defaultOpen} asChild>
+    <Collapsible defaultOpen={defaultOpen ?? true} asChild>
       <section id={id} className={cn(inspectorBlockStyles, "space-y-3", className)}>
         <div className="flex min-h-7 items-center justify-between gap-2">
           <CollapsibleTrigger asChild>

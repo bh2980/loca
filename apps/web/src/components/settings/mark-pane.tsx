@@ -1,6 +1,6 @@
 /** Right-hand pane for a built-in automatic tag: only its color is the project's to change. */
 import { AUTO_MARKS, type AutoMark } from '@tw/shared';
-import { InspectorSection, InspectorHeader, Inspector, Button, Field, FieldDescription, FieldGroup, FieldLabel, chipStyle } from '@loca/ui';
+import { InspectorSection, InspectorField, InspectorFields, InspectorHeader, Inspector, PropertyGrid, PropertyRow, Button, chipStyle } from '@loca/ui';
 import { scopeLabel } from '@/components/settings/status-types';
 import { Swatches } from '@/components/settings/swatches';
 import { useFormFrom } from '@/lib/use-form-from';
@@ -12,33 +12,30 @@ export function MarkPane({ mark, color, pending, onClose, onSave }: { mark: Auto
   return (
     <Inspector header={<InspectorHeader kind="자동 태그" name={`#${info.name}`} status={`붙는 곳: ${scopeLabel(info.on)}`} onClose={onClose} />} footer={
         <>
-          <Button disabled={draft === color || pending} onClick={() => onSave(draft)}>
-            저장
-          </Button>
           <Button variant="outline" disabled={draft === info.color} onClick={() => setDraft(info.color)}>
             기본 색으로
           </Button>
+          <Button disabled={draft === color || pending} onClick={() => onSave(draft)}>
+            저장
+          </Button>
         </>
       }>
-      <InspectorSection title="설정">
-        <FieldGroup className="gap-4">
-          <Field>
-            <FieldLabel>뜻</FieldLabel>
-            <FieldDescription>{info.description}</FieldDescription>
-          </Field>
-          <Field>
-            <FieldLabel>색상</FieldLabel>
-            <Swatches value={draft} onChange={setDraft} />
-          </Field>
-          <Field>
-            <FieldLabel>미리보기</FieldLabel>
-            <span>
-              <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium" style={chipStyle(draft)}>
-                #{info.name}
-              </span>
+      <InspectorSection title="정보">
+        <PropertyGrid>
+          <PropertyRow label="뜻">{info.description}</PropertyRow>
+          <PropertyRow label="미리보기">
+            <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium" style={chipStyle(draft)}>
+              #{info.name}
             </span>
-          </Field>
-        </FieldGroup>
+          </PropertyRow>
+        </PropertyGrid>
+      </InspectorSection>
+      <InspectorSection title="설정">
+        <InspectorFields>
+          <InspectorField label="색상">
+            <Swatches value={draft} onChange={setDraft} />
+          </InspectorField>
+        </InspectorFields>
       </InspectorSection>
     </Inspector>
   );

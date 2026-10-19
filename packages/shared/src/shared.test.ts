@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { chatTitle } from './agent.ts';
-import { checkFormat } from './format-check.ts';
+import { checkFormat, compileFormatRules, matchTokens } from './format-check.ts';
 import { importFileSchema, importWarnings } from './import-format.ts';
 import { politenessOf, speechLevelOf, styleInstruction, styleNames } from './knowledge.ts';
 import { ANALYSIS_WORKFLOW, analysisTemplate, defaultWorkflows, draftTranslationTemplate, eventExtractionTemplate, listenerTemplate, MODEL_TEMPLATES, peopleRelationsTemplate, speechFixTemplate, termExtractionTemplate, translationTemplate } from './defaults.ts';
@@ -361,5 +361,13 @@ describe('chatTitle', () => {
     expect(chatTitle('첫 문장. 둘째 문장은 길다')).toBe('첫 문장');
     expect(chatTitle('a'.repeat(40))).toHaveLength(24);
     expect(chatTitle('해줘')).toBe('해줘');
+  });
+});
+
+describe('printf placeholders', () => {
+  it('match %s, %d, %1$s and %.2f but not a percent sign followed by a word', () => {
+    const pattern = compileFormatRules({ presets: ['printf'], custom: [] }).placeholder;
+    expect(matchTokens('Got %s and %d, %1$s at %.2f', pattern)).toEqual(['%s', '%d', '%1$s', '%.2f']);
+    expect(matchTokens('A 50% interest rate, 100% done', pattern)).toEqual([]);
   });
 });

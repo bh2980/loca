@@ -57,7 +57,7 @@ export interface FormatIssue {
 export const FORMAT_PRESETS = {
   brace: { kind: 'placeholder', label: '중괄호 변수', example: '{name} {0}', pattern: String.raw`\{[^{}\r\n]+\}` },
   doubleBrace: { kind: 'placeholder', label: '이중 중괄호', example: '{{name}}', pattern: String.raw`\{\{[^{}\r\n]+\}\}` },
-  printf: { kind: 'placeholder', label: 'printf', example: '%s %d %1$s %.2f', pattern: String.raw`%(?:\d+\$)?[-+0 #]*\d*(?:\.\d+)?[sdifuxX@]` },
+  printf: { kind: 'placeholder', label: 'printf', example: '%s %d %1$s %.2f', pattern: String.raw`%(?:\d+\$)?[-+0#]*\d*(?:\.\d+)?[sdifuxX@]` }, // no space flag: "50% interest" is prose, not % i
   dollar: { kind: 'placeholder', label: '달러 변수', example: '$name$ ${name}', pattern: String.raw`\$\{[^}\r\n]+\}|\$[A-Za-z_]\w*\$` },
   square: { kind: 'placeholder', label: '대괄호 변수', example: '[PLAYER] [name]', pattern: String.raw`\[[A-Za-z_][\w.]*\]` },
   rpgmaker: { kind: 'placeholder', label: 'RPG Maker 제어 문자', example: String.raw`\N[1] \C[2] \V[3] \G`, pattern: String.raw`\\[A-Za-z]+\[[^\]\r\n]*\]|\\[A-Za-z{}$.|!><^]` },

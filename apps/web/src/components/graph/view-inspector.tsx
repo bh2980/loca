@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Pencil, Sparkles, Trash2 } from 'lucide-react';
+import { Sparkles, Trash2 } from 'lucide-react';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
-  Button, Inspector, InspectorHeader, InspectorSection, Input, PropertyGrid, PropertyRow, Skeleton,
+  Button, DangerZone, Inspector, InspectorActionRow, InspectorField, InspectorFields, InspectorHeader, InspectorList, InspectorSection, Input, PropertyGrid, PropertyRow, Skeleton,
 } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { chatDock } from '@/lib/chat-dock';
+import { dateTime } from '@/lib/datetime';
 import type { LayoutEdge } from './graph-canvas';
 
 /** How many omitted nodes the pane reads lines for; the rest are counted. */
@@ -44,27 +45,17 @@ export function useViewActions(projectId: string) {
   return { create, change, remove };
 }
 
-/** Rename in place: the name is text until clicked, saved on Enter or blur, dropped on Esc. */
-function InlineName({ value, onSave }: { value: string; onSave: (next: string) => void }) {
-  const [editing, setEditing] = useState(false);
+/** The name field: saved on Enter or blur, dropped on Esc. */
+function NameInput({ value, onSave }: { value: string; onSave: (next: string) => void }) {
   const [draft, setDraft] = useState(value);
   useEffect(() => setDraft(value), [value]);
   const commit = () => {
-    setEditing(false);
     const next = draft.trim();
     if (next && next !== value) onSave(next);
     else setDraft(value);
   };
-  if (!editing)
-    return (
-      <Button variant="ghost" className="-ml-2 max-w-full justify-start" aria-label="보기 이름 바꾸기" onClick={() => setEditing(true)}>
-        <span className="truncate">{value}</span>
-        <Pencil className="text-muted-foreground" />
-      </Button>
-    );
   return (
     <Input
-      autoFocus
       value={draft}
       maxLength={80}
       aria-label="보기 이름"
@@ -72,10 +63,7 @@ function InlineName({ value, onSave }: { value: string; onSave: (next: string) =
       onBlur={commit}
       onKeyDown={(event) => {
         if (event.key === 'Enter') commit();
-        if (event.key === 'Escape') {
-          setDraft(value);
-          setEditing(false);
-        }
+        if (event.key === 'Escape') setDraft(value);
       }}
     />
   );
@@ -98,32 +86,21 @@ export function ViewInspector({ projectId, viewId, shownNodes, derivedEdges, onC
     <Inspector
       header={<InspectorHeader kind={ai ? 'AI 보기' : '보기'} name={data.label} onClose={onClose} />}
       footer={
-        <>
-          {ai && (
-            <Button
-              variant="outline"
-              onClick={() => chatDock.prefill(projectId, remakeViewPrompt(data.label, data.request))}
-            >
-              <Sparkles /> 다시 만들기
-            </Button>
-          )}
-          <Button variant="outline" className="ml-auto text-destructive" onClick={() => setConfirming(true)}>
-            <Trash2 /> 삭제
+        ai ? (
+          <Button onClick={() => chatDock.prefill(projectId, remakeViewPrompt(data.label, data.request))}>
+            <Sparkles /> 다시 만들기
           </Button>
-        </>
+        ) : undefined
       }
     >
-      <InspectorSection title="이름">
-        <InlineName value={data.label} onSave={(label) => actions.change.mutate({ id: data.id, label })} />
-      </InspectorSection>
       <InspectorSection title="정보">
+        <InspectorFields>
+          <InspectorField label="이름" description={data.request ? <span className="whitespace-pre-wrap">요청: {data.request}</span> : undefined}>
+            <NameInput value={data.label} onSave={(label) => actions.change.mutate({ id: data.id, label })} />
+          </InspectorField>
+        </InspectorFields>
         <PropertyGrid>
-          <PropertyRow label="수정">{new Date(data.updatedAt).toLocaleString()}</PropertyRow>
-        </PropertyGrid>
-        {data.request && <p className="mt-3 whitespace-pre-wrap rounded-md border border-border bg-card px-3 py-2 text-sm">{data.request}</p>}
-      </InspectorSection>
-      <InspectorSection title="크기">
-        <PropertyGrid>
+          <PropertyRow label="수정">{dateTime(data.updatedAt)}</PropertyRow>
           <PropertyRow label="남긴 노드">{data.nodeIds.length.toLocaleString()}개</PropertyRow>
           <PropertyRow label="화면 노드">{shownNodes.toLocaleString()}개</PropertyRow>
           <PropertyRow label="생략 구간">{derivedEdges.toLocaleString()}개</PropertyRow>
@@ -131,12 +108,21 @@ export function ViewInspector({ projectId, viewId, shownNodes, derivedEdges, onC
       </InspectorSection>
       {data.missing.length > 0 && (
         <InspectorSection title="원본에 없음">
-          <p className="text-sm text-destructive">남긴 노드 {data.missing.length.toLocaleString()}개가 원본 그래프에서 사라졌습니다. </p>
-          <Button variant="outline" className="mt-2" onClick={() => actions.change.mutate({ id: data.id, remove: data.missing })}>
-            없는 노드 정리
-          </Button>
+          <InspectorActionRow
+            label={`남긴 노드 ${data.missing.length.toLocaleString()}개가 원본 그래프에서 사라졌습니다.`}
+            action={
+              <Button variant="outline" onClick={() => actions.change.mutate({ id: data.id, remove: data.missing })}>
+                없는 노드 정리
+              </Button>
+            }
+          />
         </InspectorSection>
       )}
+      <DangerZone title="삭제">
+        <Button variant="outline" className="text-destructive" onClick={() => setConfirming(true)}>
+          <Trash2 /> 보기 삭제
+        </Button>
+      </DangerZone>
       <AlertDialog open={confirming} onOpenChange={setConfirming}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -198,29 +184,29 @@ export function OmittedPane({ projectId, edge, sections, onOpenSource, onClose }
     >
       <InspectorSection title={`노드 ${ids.length.toLocaleString()} · 대사 ${omitted?.lines.toLocaleString() ?? 0}줄`}>
         {details.length === 0 && <p className="text-sm text-muted-foreground">생략한 대사가 없습니다.</p>}
-        <ul className="space-y-2">
+        <InspectorList>
           {details.map((result, index) =>
             result.data ? (
               result.data.units.length ? (
                 result.data.units.map((unit) => (
-                  <li key={unit.id} className="grid grid-cols-[5rem_minmax(0,1fr)] gap-3 text-sm">
+                  <li key={unit.id} className="grid grid-cols-[5rem_minmax(0,1fr)] gap-3 py-2 text-sm first:pt-0">
                     <span className="truncate text-xs text-muted-foreground">{unit.speaker ?? '지문·화면 문구'}</span>
                     <span className="min-w-0 break-words">{unit.source}</span>
                   </li>
                 ))
               ) : (
-                <li key={shown[index]} className="text-xs text-muted-foreground">
+                <li key={shown[index]} className="py-2 text-xs text-muted-foreground">
                   대사 없는 노드 · {result.data.label ?? result.data.key}
                 </li>
               )
             ) : (
-              <li key={shown[index]}>
+              <li key={shown[index]} className="py-2">
                 <Skeleton className="h-4" />
               </li>
             ),
           )}
-        </ul>
-        {ids.length > shown.length && <p className="mt-2 text-xs text-muted-foreground">외 노드 {(ids.length - shown.length).toLocaleString()}개</p>}
+        </InspectorList>
+        {ids.length > shown.length && <p className="text-xs text-muted-foreground">외 노드 {(ids.length - shown.length).toLocaleString()}개</p>}
       </InspectorSection>
     </Inspector>
   );

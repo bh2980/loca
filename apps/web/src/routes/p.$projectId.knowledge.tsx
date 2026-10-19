@@ -134,7 +134,7 @@ function Knowledge() {
       fields: [
         { name: 'title', label: '제목', type: 'text' },
         { name: 'kind', label: '종류', type: 'docKind' },
-        { name: 'alwaysInclude', label: '문맥에 넣기', type: 'bool' },
+        { name: 'alwaysInclude', label: '문맥에 넣기', description: '켜면 모든 AI 호출의 문맥에 들어갑니다.', type: 'bool' },
         { name: 'body', label: '본문', type: 'long' },
       ],
       create: () => unwrap(api.documents.$post({ param: { projectId }, json: { title: '새 문서', kind: 'note', body: '', alwaysInclude: false } })),
@@ -180,7 +180,7 @@ function Knowledge() {
         { name: 'fromId', label: '누가', type: 'character' },
         { name: 'toId', label: '누구에게', type: 'character' },
         { name: 'kind', label: '관계', type: 'text' },
-        { name: 'mutual', label: '쌍방', type: 'bool' },
+        { name: 'mutual', label: '쌍방', description: '반대 방향에도 같은 관계입니다.', type: 'bool' },
         { name: 'description', label: '설명', type: 'long' },
       ],
       label: (row) => `${nameOf.get(row.fromId) ?? '?'} → ${nameOf.get(row.toId) ?? '?'}`,
@@ -221,7 +221,7 @@ function Knowledge() {
         { head: '이유', cell: (row) => <span className="line-clamp-1 text-muted-foreground">{row.note}</span> },
       ],
       fields: [
-        { name: 'fromName', label: '화자', type: 'text' },
+        { name: 'fromName', label: '화자', description: '인물 이름이나 별칭', type: 'text' },
         { name: 'toName', label: '청자', description: '여럿: group · 불특정 다수: public · 혼잣말: self · 그 밖의 사람: others', type: 'text' },
         { name: 'level', label: '말투', type: 'level' },
         { name: 'address', label: '호칭', type: 'chips', suggestions: (rules.data ?? []).flatMap((rule) => splitList(rule.address)) },

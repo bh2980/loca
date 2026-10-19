@@ -1,8 +1,8 @@
-import type { ReactNode } from 'react';
-import { ChevronDown } from 'lucide-react';
-import { InspectorSection, InspectorHeader, Inspector, Button, DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@loca/ui';
+import { InspectorField, InspectorFields, InspectorList, InspectorSection, Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from '@loca/ui';
 import type { PathNodeText, PathSlice } from '@/components/graph/path-graph';
 import type { OverviewNode } from '@/components/graph/path-window';
+
+const AUTO = '__auto';
 
 /** The other ways out of a choice: said in the pane of its node, never drawn as boxes. */
 export interface ForkChoices {
@@ -53,58 +53,42 @@ export function PathNodeExtras({ choices, loops, onPick, onAuto }: { choices?: F
     <>
       {choices && (
         <InspectorSection title="다른 선택">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" className="max-w-full justify-between" data-testid="fork-menu">
-                <span className="truncate">{chosen?.label ?? '갈래 고르기'}</span>
-                <span className="shrink-0 text-muted-foreground">다른 선택 {choices.count.toLocaleString()}개</span>
-                <ChevronDown />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="max-w-80">
-              {choices.arms.map((arm) => (
-                <DropdownMenuCheckboxItem key={arm.id} checked={arm.chosen} onCheckedChange={() => !arm.chosen && onPick(choices.forkNodeId, arm.id)}>
-                  <span className="truncate">{arm.label}</span>
-                  {!arm.chosen && arm.lines !== undefined && (
-                    <span className="shrink-0 text-muted-foreground">
-                      · {arm.lines.toLocaleString()}줄{arm.alone ? ' · 따로 끝남' : ''}
-                    </span>
+          <InspectorFields>
+            <InspectorField label="이 선택에서 따라갈 갈래" description={`다른 선택 ${choices.count.toLocaleString()}개`}>
+              <Select value={chosen?.id ?? ''} onValueChange={(value) => (value === AUTO ? onAuto(choices.forkNodeId) : onPick(choices.forkNodeId, value))}>
+                <SelectTrigger className="w-full" data-testid="fork-menu">
+                  <SelectValue placeholder="갈래 고르기" />
+                </SelectTrigger>
+                <SelectContent>
+                  {choices.arms.map((arm) => (
+                    <SelectItem key={arm.id} value={arm.id}>
+                      {arm.label}
+                      {!arm.chosen && arm.lines !== undefined && ` · ${arm.lines.toLocaleString()}줄${arm.alone ? ' · 따로 끝남' : ''}`}
+                    </SelectItem>
+                  ))}
+                  {choices.picked && (
+                    <>
+                      <SelectSeparator />
+                      <SelectItem value={AUTO}>자동으로 고르기</SelectItem>
+                    </>
                   )}
-                </DropdownMenuCheckboxItem>
-              ))}
-              {choices.picked && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onSelect={() => onAuto(choices.forkNodeId)}>자동으로 고르기</DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
+                </SelectContent>
+              </Select>
+            </InspectorField>
+          </InspectorFields>
         </InspectorSection>
       )}
       {loops.length > 0 && (
         <InspectorSection title="되돌아가는 곳">
-          <ul className="space-y-1 text-sm" data-testid="loop-list">
+          <div data-testid="loop-list"><InspectorList className="text-sm">
             {loops.map((to, index) => (
-              <li key={index} className="truncate">
+              <li key={index} className="truncate py-1.5 first:pt-0 last:pb-0">
                 ↺ ‹{to}›로 되돌아감
               </li>
             ))}
-          </ul>
+          </InspectorList></div>
         </InspectorSection>
       )}
     </>
-  );
-}
-
-/**
- * The right-hand pane of a node picked on the map. The lines themselves are translated in the list
- * in the middle; this says what the node is and holds what the map does not draw on it.
- */
-export function PathNodePane({ title, subtitle, extras, onClose }: { title: string; subtitle?: string; extras: ReactNode; onClose: () => void }) {
-  return (
-    <Inspector header={<InspectorHeader kind="길 조각" name={title} status={subtitle} onClose={onClose} />}>
-      {extras}
-    </Inspector>
   );
 }
