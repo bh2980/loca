@@ -72,3 +72,21 @@ describe('번역 제외 in the project', () => {
     expect(all.find((row) => row.key === 'b')?.marks).not.toContain('remaining');
   });
 });
+
+describe('숨기기 filters', () => {
+  it('leave out lines by mark, tag, status or speaker, any one of each', () => {
+    const db = openDatabase(':memory:');
+    const { projectId } = importProject(db, importFileSchema.parse({
+      format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }],
+      units: [{ key: 'a', group: 'g', speaker: 'A', source: 'Hello' }, { key: 'b', group: 'g', speaker: 'B', source: 'Bye' }, { key: 'c', group: 'g', source: '{0}' }],
+    }));
+    const keys = (filter: Record<string, unknown>) => findLines(db, projectId, { offset: 0, limit: 50, ...filter }).rows.map((row) => row.key);
+    expect(keys({ hideMarks: ['excluded'] })).toEqual(['a', 'b']);
+    expect(keys({ hideSpeakers: ['A'] })).toEqual(['b', 'c']);
+    db.update(s.units).set({ note: 'x' }).where(eq(s.units.key, 'b')).run();
+    expect(keys({ hideMarks: ['excluded', 'noted'] })).toEqual(['a']);
+    const final = db.select().from(s.statuses).where(and(eq(s.statuses.projectId, projectId), eq(s.statuses.kind, 'final'))).get()!;
+    db.update(s.units).set({ statusId: final.id, translation: '안녕' }).where(eq(s.units.key, 'a')).run();
+    expect(keys({ hideStatuses: [final.name] })).toEqual(['b', 'c']);
+  });
+});

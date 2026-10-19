@@ -6,7 +6,7 @@ import type { InferResponseType } from 'hono/client';
 import { AUTO_MARKS, markColor, type MarkColors, type AgeBand, type CharacterRole, type CharacterStyle, type Gender, type DOCUMENT_KINDS, type SpeechLevel, type AutoMark, KNOWLEDGE_MARK_IDS, knowledgeMarksOf, matchesMarks, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, sourceOf, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type StatusBy } from '@tw/shared';
 import { DataTable, type ColumnDef, type FilterChip, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, AiMark, TagChip } from '@loca/ui';
 import { MarkChip } from '@/components/status';
-import { HeaderFilter, MarkFilter, markTagGroups, type FilterOption } from '@/components/header-filter';
+import { HeaderFilter, MarkFilter, markTagGroups, togglePick, type FilterOption, type FilterPick } from '@/components/header-filter';
 import type { client } from '@/lib/api';
 
 export const KINDS = { documents: '문서', characters: '인물', relationships: '관계', events: '사건', speechRules: '말투 규칙' } as const;
@@ -132,6 +132,10 @@ export type SourceFilter = KnowledgeSource | undefined;
 /** `marks` is the page's marks param: rules of matchesMarks (#후보 and #AI가 정함 together mean either). */
 export const matches = (row: Draft, source: SourceFilter, marks?: readonly AutoMark[], tags?: string[]) =>
   (!source || sourceOf(row) === source) && matchesMarks(knowledgeMarksOf(row), marks) && (tags ?? []).every((tag) => row.tags?.some((item) => item.id === tag));
+/** 숨기기: an item carrying any hidden mark or tag is left out. */
+export const isHidden = (marks: readonly AutoMark[], tagIds: readonly string[], hidden: { hideMarks?: readonly AutoMark[]; hideTags?: readonly string[] }) =>
+  marks.some((mark) => hidden.hideMarks?.includes(mark)) || tagIds.some((id) => hidden.hideTags?.includes(id));
+export const rowHidden = (row: Draft, hidden: { hideMarks?: readonly AutoMark[]; hideTags?: readonly string[] }) => isHidden(knowledgeMarksOf(row), (row.tags ?? []).map((tag) => tag.id), hidden);
 
 /** The marks a knowledge item can be filtered by. */
 export { KNOWLEDGE_MARK_IDS };
@@ -184,24 +188,25 @@ export interface KnowledgeFilterState {
   marks?: AutoMark[];
   /** Picked tag ids: items carrying all of them. */
   tags?: string[];
+  /** 숨기기: items carrying any of these marks or tags are left out. */
+  hideMarks?: AutoMark[];
+  hideTags?: string[];
   /** The project's tags (lines' problem types left out): the 태그 column's chips and filter. */
   known: TagInfo[];
-  onChange: (next: { source?: SourceFilter; marks?: AutoMark[]; tags?: string[] }) => void;
+  onChange: (next: { source?: SourceFilter; marks?: AutoMark[]; tags?: string[]; hideMarks?: AutoMark[]; hideTags?: string[] }) => void;
 }
 
 /** The 태그 filter: the app's marks, then the tags; every pick narrows the rows (marks of one field widen, see matchesMarks). */
 function TagFilter({ filters, marks = KNOWLEDGE_MARK_IDS }: { filters: KnowledgeFilterState; marks?: readonly AutoMark[] }) {
-  const toggle = (id: string, on: boolean) => {
-    const picked = filters.tags ?? [];
-    const next = on ? [...picked, id] : picked.filter((other) => other !== id);
-    filters.onChange({ tags: next.length ? next : undefined });
+  const pickMark = (mark: AutoMark, mode: FilterPick) => {
+    const next = togglePick(filters.marks, filters.hideMarks, mark, mode);
+    filters.onChange({ marks: next.show, hideMarks: next.hide });
   };
-  const toggleMark = (key: AutoMark, on: boolean) => {
-    const picked = filters.marks ?? [];
-    const next = on ? [...picked, key] : picked.filter((other) => other !== key);
-    filters.onChange({ marks: next.length ? next : undefined });
+  const pickTag = (id: string, mode: FilterPick) => {
+    const next = togglePick(filters.tags, filters.hideTags, id, mode);
+    filters.onChange({ tags: next.show, hideTags: next.hide });
   };
-  return <MarkFilter label="태그" groups={markTagGroups({ marks, picked: filters.marks, onToggle: toggleMark, tags: filters.known, pickedTags: filters.tags, onToggleTag: toggle })} onClear={() => filters.onChange({ marks: undefined, tags: undefined })} />;
+  return <MarkFilter label="태그" groups={markTagGroups({ marks, picked: filters.marks, hidden: filters.hideMarks, onMark: pickMark, tags: filters.known, pickedTags: filters.tags, hiddenTags: filters.hideTags, onTag: pickTag })} onClear={() => filters.onChange({ marks: undefined, tags: undefined, hideMarks: undefined, hideTags: undefined })} />;
 }
 
 export function metaColumns<T>(draftOf: (row: T) => Draft, filters: KnowledgeFilterState, marksOf: (row: T) => AutoMark[] = (row) => knowledgeMarksOf(draftOf(row))): ColumnDef<T, unknown>[] {
@@ -242,6 +247,20 @@ export function knowledgeFilterChips(filters: KnowledgeFilterState, markColors?:
         const next = (filters.tags ?? []).filter((other) => other !== id);
         filters.onChange({ tags: next.length ? next : undefined });
       },
+    })),
+    ...(filters.hideMarks ?? []).map((mark) => ({
+      key: `hide-mark:${mark}`,
+      label: `#${AUTO_MARKS[mark].name}`,
+      color: markColor(mark, markColors),
+      hidden: true,
+      clear: () => filters.onChange({ hideMarks: togglePick(undefined, filters.hideMarks, mark, 'hide').hide }),
+    })),
+    ...(filters.hideTags ?? []).map((id) => ({
+      key: `hide-tag:${id}`,
+      label: `#${filters.known.find((tag) => tag.id === id)?.name ?? id}`,
+      color: filters.known.find((tag) => tag.id === id)?.color,
+      hidden: true,
+      clear: () => filters.onChange({ hideTags: togglePick(undefined, filters.hideTags, id, 'hide').hide }),
     })),
   ];
 }

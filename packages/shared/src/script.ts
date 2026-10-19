@@ -26,6 +26,11 @@ export const lineFilterSchema = z.object({
   tags: z.array(z.string().min(1)).optional(),
   /** Automatic marks (the app's built-in tags) the lines must all have; same rules as the script list. */
   marks: lineMarksSchema.optional(),
+  /** Hidden: lines spoken by any of these, in any of these statuses, carrying any of these tags or marks are left out (the app's 숨기기). */
+  hideSpeakers: z.array(z.string().min(1)).optional(),
+  hideStatuses: z.array(z.string().min(1)).optional(),
+  hideTags: z.array(z.string().min(1)).optional(),
+  hideMarks: lineMarksSchema.optional(),
   translated: z.boolean().optional(),
   keys: z.array(z.string().min(1)).optional(),
   offset: z.number().int().min(0).default(0),

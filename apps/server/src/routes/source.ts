@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { readingRouteQuery } from '../services/reading-route-query.ts';
 import { projectReadingRoute } from '../services/reading-route.ts';
-import { and, asc, count, desc, eq, gt, inArray, like, lt, ne, notLike, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, inArray, like, lt, ne, notInArray, notLike, or, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { createGroupSchema, updateGroupSchema, createUnitSchema, updateUnitSchema, isSpecialListener, LINE_TRANSLATE, type NodeType } from '@tw/shared';
 import { createGroup, updateGroup, deleteGroup, createUnit, updateUnit, deleteUnits } from '../services/source-mutations.ts';
@@ -25,21 +25,30 @@ import { seamDetail, seamLines, seamNodes, seamStates } from '../services/seam-c
 import { lineMatches } from '../services/line-matches.ts';
 import { lineTextFilter } from '../services/line-text.ts';
 import { lineMarksSchema } from '@tw/shared';
-import { excludedSql, knownListenerSql, markConditions, sameSource, translatableSql } from '../services/line-marks.ts';
+import { excludedSql, hiddenMarkConditions, knownListenerSql, markConditions, sameSource, translatableSql } from '../services/line-marks.ts';
 import { CompleteRefused, completeLine } from '../services/editor-complete.ts';
 import { assistLine } from '../services/editor-assist.ts';
 import { describeRule, knownListener as knownListenerOf, speechRuleIndex } from '../services/speech.ts';
+
+const NAMES = z.string().optional().transform((value, context) => { if (!value) return undefined; try { const list = JSON.parse(value) as unknown; if (Array.isArray(list) && list.every((item) => typeof item === 'string')) return list as string[]; } catch { /* reported below */ } context.addIssue({ code: 'custom', message: '이름 목록은 JSON 배열입니다.' }); return z.NEVER; });
 
 const listQuery = z.object({
   groupId: z.string().optional(),
   section: z.string().optional(),
   /** Kind of the containing group (scene / document / ui). */
   kind: z.enum(['scene', 'document', 'ui']).optional(),
-  statusId: z.string().optional(),
+  /** Status ids, comma-separated: lines in any of them. */
+  statusIds: z.string().optional(),
   /** Tag ids, comma-separated: lines carrying every one of them. */
   tagIds: z.string().optional(),
   q: z.string().trim().optional(),
-  speaker: z.string().optional(),
+  /** Speaker names as a JSON array (names may hold commas): lines by any of them. */
+  speakers: NAMES,
+  /** 숨기기: lines in any of these statuses, by any of these speakers, or carrying any of these tags or marks are left out. */
+  hideStatusIds: z.string().optional(),
+  hideSpeakers: NAMES,
+  hideTagIds: z.string().optional(),
+  hideMarks: z.string().optional().transform((value) => value?.split(',').filter(Boolean)).pipe(lineMarksSchema.optional()),
   /** A character name (a known listener). */
   listener: z.string().optional(),
   /** Only lines whose status is shown in the review inbox. */
@@ -58,13 +67,17 @@ function unitConditions(projectId: string, query: Omit<z.infer<typeof listQuery>
   if (query.groupId) conditions.push(eq(s.units.groupId, query.groupId));
   if (query.kind) conditions.push(eq(s.groups.kind, query.kind));
   if (query.section) conditions.push(eq(s.groups.section, query.section));
-  if (query.statusId) conditions.push(eq(s.units.statusId, query.statusId));
-  for (const tagId of query.tagIds?.split(',').filter(Boolean) ?? []) conditions.push(sql`${s.units.id} in (select unit_id from ${s.unitTags} where tag_id = ${tagId})`);
+  const ids = (value: string | undefined) => value?.split(',').filter(Boolean) ?? [];
+  if (ids(query.statusIds).length) conditions.push(inArray(s.units.statusId, ids(query.statusIds)));
+  for (const tagId of ids(query.tagIds)) conditions.push(sql`${s.units.id} in (select unit_id from ${s.unitTags} where tag_id = ${tagId})`);
   if (query.q) conditions.push(lineTextFilter(query.q));
-  if (query.speaker) conditions.push(eq(s.units.speaker, query.speaker));
+  if (query.speakers?.length) conditions.push(inList(s.units.speaker, query.speakers));
+  if (ids(query.hideStatusIds).length) conditions.push(notInArray(s.units.statusId, ids(query.hideStatusIds)));
+  if (query.hideSpeakers?.length) conditions.push(sql`coalesce(${s.units.speaker}, '') not in (select value from json_each(${JSON.stringify(query.hideSpeakers)}))`);
+  for (const tagId of ids(query.hideTagIds)) conditions.push(sql`${s.units.id} not in (select unit_id from ${s.unitTags} where tag_id = ${tagId})`);
   if (query.listener) conditions.push(and(eq(s.units.listener, query.listener), knownListenerSql)!);
   if (query.review) conditions.push(sql`${s.units.statusId} in (select id from ${s.statuses} where ${s.statuses.projectId} = ${projectId} and ${s.statuses.inReview} = 1)`);
-  conditions.push(...markConditions(projectId, query.marks));
+  conditions.push(...markConditions(projectId, query.marks), ...hiddenMarkConditions(projectId, query.hideMarks));
   return and(...conditions)!;
 }
 

@@ -39,7 +39,7 @@ import { RunDialog } from '@/components/workflow/run-dialog';
 import { Play } from 'lucide-react';
 import { DraftEditor } from '@/components/knowledge/editor';
 import { RelationshipChanges, RuleLines } from '@/components/knowledge/evidence';
-import { BulkDecide, fail, KINDS, KnowledgeFilters, knowledgeFilterChips, KNOWLEDGE_MARK_IDS, matches, type KnowledgeFilterState, SourceBadge, type Kind, type KindSpec, type Row, type SourceFilter, defineKind, metaColumns, candidateRow } from '@/components/knowledge/table';
+import { BulkDecide, fail, KINDS, KnowledgeFilters, knowledgeFilterChips, KNOWLEDGE_MARK_IDS, matches, rowHidden, type KnowledgeFilterState, SourceBadge, type Kind, type KindSpec, type Row, type SourceFilter, defineKind, metaColumns, candidateRow } from '@/components/knowledge/table';
 import { pairKey, buildPairs, PairDetail, pairItems, pairMatches, pairSummary, PairTable, type Pair, type SpeechRuleCreate } from '@/components/knowledge/pairs';
 import { AddPairPopover } from '@/components/knowledge/add-pair-popover';
 import { EventFlow } from '@/components/knowledge/event-flow';
@@ -62,6 +62,9 @@ interface KnowledgeSearch {
   marks?: AutoMark[];
   /** 태그 filter: project tag ids (확인 권장, a person's own); items carrying all of them. */
   tags?: string[];
+  /** 숨기기: items carrying any of these marks or tags are left out. */
+  hideMarks?: AutoMark[];
+  hideTags?: string[];
   /** Only these items (a run's scope, from the run dialog's readiness list); shown as a removable chip, combined with the other filters. In 인물·관계 tables the pairs holding them. */
   ids?: string[];
   /** Selected item id, or a pair key ("from→to") in 인물·관계 › 관계. */
@@ -77,6 +80,8 @@ export const Route = createFileRoute('/p/$projectId/knowledge')({
     source: typeof raw.source === 'string' && (KNOWLEDGE_SOURCES as readonly string[]).includes(raw.source) ? (raw.source as KnowledgeSource) : undefined,
     marks: parseMarks(raw.marks, KNOWLEDGE_MARK_IDS),
     tags: Array.isArray(raw.tags) && raw.tags.length && raw.tags.every((id) => typeof id === 'string') ? (raw.tags as string[]) : undefined,
+    hideMarks: parseMarks(raw.hideMarks, KNOWLEDGE_MARK_IDS),
+    hideTags: Array.isArray(raw.hideTags) && raw.hideTags.length && raw.hideTags.every((id) => typeof id === 'string') ? (raw.hideTags as string[]) : undefined,
     ids: Array.isArray(raw.ids) && raw.ids.length && raw.ids.every((id) => typeof id === 'string') ? (raw.ids as string[]) : undefined,
     item: typeof raw.item === 'string' && raw.item ? raw.item : undefined,
     display: raw.display === 'table' || raw.display === 'characters' ? raw.display : undefined,
@@ -240,9 +245,9 @@ function Knowledge() {
 
   const characters = people.data?.characters ?? [];
   const inScope = (id: string) => !search.ids || search.ids.includes(id);
-  const shown = (row: Row) => inScope(row.id) && matches(row, search.source, search.marks, search.tags);
+  const shown = (row: Row) => inScope(row.id) && matches(row, search.source, search.marks, search.tags) && !rowHidden(row, search);
   const pairs = useMemo(() => buildPairs(characters, specs.relationships.rows, specs.speechRules.rows), [characters, specs.relationships.rows, specs.speechRules.rows]);
-  const visiblePairs = pairs.filter((pair) => pairMatches(pair, search.source, search.marks, search.tags) && (!search.ids || pairItems(pair).some((item) => inScope(item.row.id))));
+  const visiblePairs = pairs.filter((pair) => pairMatches(pair, search.source, search.marks, search.tags, search) && (!search.ids || pairItems(pair).some((item) => inScope(item.row.id))));
   // A link may name a relationship or rule id; it opens the pair holding it.
   const pair = pairsView || graph ? pairs.find((candidate) => candidate.key === search.item || pairItems(candidate).some((item) => item.row.id === search.item)) : undefined;
 
@@ -343,8 +348,10 @@ function Knowledge() {
     source: search.source,
     marks: search.marks,
     tags: search.tags,
+    hideMarks: search.hideMarks,
+    hideTags: search.hideTags,
     known: knowledgeTags,
-    onChange: (next) => set({ ...('source' in next && { source: next.source }), ...('marks' in next && { marks: next.marks }), ...('tags' in next && { tags: next.tags }), item: undefined }),
+    onChange: (next) => set({ ...('source' in next && { source: next.source }), ...('marks' in next && { marks: next.marks }), ...('tags' in next && { tags: next.tags }), ...('hideMarks' in next && { hideMarks: next.hideMarks }), ...('hideTags' in next && { hideTags: next.hideTags }), item: undefined }),
   };
   const filtered = Boolean(search.source || search.marks?.length || search.tags?.length || search.ids);
   const chips = [...knowledgeFilterChips(filters, markColors), ...(search.ids ? [{ key: 'ids', label: `실행 범위 ${search.ids.length}`, clear: () => set({ ids: undefined, item: undefined }) }] : [])];

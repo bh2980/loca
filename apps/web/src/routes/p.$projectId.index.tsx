@@ -138,7 +138,7 @@ function Home() {
       icon: <Workflow />,
       title: `${initial?.name ?? '미번역'} ${LINE_KIND_LABEL[kind]}`,
       count: initial ? statusCounts[initial.id] ?? 0 : 0,
-      link: <Link to="/p/$projectId/script" params={{ projectId }} search={{ kind, status: initial?.id, mode: 'find' }} />,
+      link: <Link to="/p/$projectId/script" params={{ projectId }} search={{ kind, statuses: initial ? [initial.id] : undefined, mode: 'find' }} />,
     })),
   ];
   const loading = !project.data || !runs.data || !groups.data || !rules.data || !terms.data || aiLineCounts.some((query) => !query.data);
@@ -182,7 +182,7 @@ function Home() {
               <ul className="flex flex-wrap gap-x-1 gap-y-1">
                 {statusList.map((status) => (
                   <li key={status.id}>
-                    <Link to="/p/$projectId/script" params={{ projectId }} search={{ kind, status: status.id, mode: 'find' }} className="flex items-center gap-1.5 rounded-xs px-2 py-1 text-sm hover:bg-muted transition-colors">
+                    <Link to="/p/$projectId/script" params={{ projectId }} search={{ kind, statuses: [status.id], mode: 'find' }} className="flex items-center gap-1.5 rounded-xs px-2 py-1 text-sm hover:bg-muted transition-colors">
                       <StatusIcon status={status} />
                       {status.name}
                       <span className="text-xs text-muted-foreground tabular-nums">{(statusCounts[status.id] ?? 0).toLocaleString()}</span>

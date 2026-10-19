@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react"
-import { ChevronLeft, ChevronRight, Search, X } from "lucide-react"
+import { ChevronLeft, ChevronRight, EyeOff, Search, X } from "lucide-react"
 import { Button } from "../primitives/button"
 import {
   InputGroup,
@@ -180,6 +180,8 @@ export interface FilterChip {
   name?: string
   /** A tag or mark filter: the chip takes the tag's own colour (one pill, its × inside), not a pill in a pill. */
   color?: string
+  /** A 숨기기 pick: rows that have it are left out; shown with an eye shut. */
+  hidden?: boolean
   clear: () => void
 }
 
@@ -190,10 +192,11 @@ export function FilterChips({ chips }: { chips: FilterChip[] }) {
       variant="secondary"
       size="xs"
       onClick={chip.clear}
-      aria-label={`${chip.name ?? chip.label} 필터 지우기`}
+      aria-label={`${chip.name ?? chip.label} ${chip.hidden ? '숨김' : '필터'} 지우기`}
       className={cn("h-6 gap-1 rounded-md px-2 text-xs", chip.color ? "font-medium hover:opacity-80" : "font-normal")}
       style={chip.color ? chipStyle(chip.color) : undefined}
     >
+      {chip.hidden && <EyeOff className="size-3" aria-label="숨김" />}
       {chip.label} <X className="size-3 opacity-60" />
     </Button>
   ))

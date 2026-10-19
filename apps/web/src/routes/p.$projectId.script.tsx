@@ -5,6 +5,7 @@ import { MoreHorizontal, ChevronDown, ChevronRight, ChevronUp, Plus, X } from 'l
 import { Page } from '@/components/page';
 import { GroupList, type GroupRow } from '@/components/script/group-list';
 import { filterChips, isFinding, LineList, linesSearchSchema, type LinesSearch } from '@/components/script/line-list';
+import { lineQueryParams } from '@/components/script/line-filters';
 import { SourceEditor, type SourceEditorMode, type SourceSaved } from '@/components/script/source-editor';
 import { Button, ResizableNavigationPanel, EditorToolbarProvider, EditorToolbarSlot, PageHeading, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, ResizablePanel, ResizablePanelGroup, Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
 import { askAgent } from '@/lib/agent';
@@ -103,7 +104,7 @@ function Script() {
   const finding = isFinding(search) && !search.review;
   const matches = useQuery({
     // Walking a filter stays inside the open view (대사 · UI · 문서).
-    ...q.unitMatches(projectId, { kind: view, section: search.section, statusId: search.status, tagIds: search.tags?.join(','), q: search.q, speaker: search.speaker, listener: search.listener, marks: search.marks?.join(',') }),
+    ...q.unitMatches(projectId, { kind: view, section: search.section, ...lineQueryParams(search) }),
     enabled: finding,
   });
   const matchRows = useMemo(() => (finding ? (matches.data?.rows ?? []) : []), [finding, matches.data]);

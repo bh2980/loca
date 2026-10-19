@@ -123,7 +123,7 @@ function ProjectLayout() {
                             key={s.id}
                             to="/p/$projectId/script"
                             params={{ projectId }}
-                            search={{ status: s.id }}
+                            search={{ statuses: [s.id] }}
                             className="flex items-center justify-between rounded px-1.5 py-1 text-sm hover:bg-accent hover:text-accent-foreground"
                           >
                             <span className="flex items-center gap-1.5">
