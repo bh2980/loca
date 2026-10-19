@@ -10,6 +10,8 @@ export interface NodeCardPort {
   label: string
   tone?: "neutral" | "warning" | "destructive"
   handle?: ReactNode
+  /** No line leaves this exit: the line stops here (끝), or fails (실패) when it is the error exit. */
+  open?: boolean
 }
 
 export interface NodeCardProps {
@@ -26,6 +28,8 @@ export interface NodeCardProps {
   disabled?: boolean
   direction?: CanvasDirection
   className?: string
+  /** Lines start here: a 시작 mark before the input, which opens the start settings when given a handler. */
+  start?: { label?: string; onOpen?: () => void }
 }
 
 export const NODE_CARD_KIND_APPEARANCE: Record<NodeCardKind, { label: string; icon: string; header: string; dot: string; capsule?: boolean }> = {
@@ -38,7 +42,7 @@ export const NODE_CARD_KIND_APPEARANCE: Record<NodeCardKind, { label: string; ic
 }
 
 /** Compact workflow node shared by graph renderers: capsule for entry/end, chamfered diamond for condition, rounded rectangle for actions. */
-export function NodeCard({ kind, icon, title, summary, inputHandle, outputs = [], errors = 0, warnings = 0, live, selected, disabled, direction = "vertical", className }: NodeCardProps) {
+export function NodeCard({ kind, icon, title, summary, inputHandle, outputs = [], errors = 0, warnings = 0, live, selected, disabled, direction = "vertical", className, start }: NodeCardProps) {
   const style = NODE_CARD_KIND_APPEARANCE[kind]
   const hasLive = live && live.queued + live.running + live.failed > 0
   const isHorizontal = direction === "horizontal"
@@ -130,6 +134,39 @@ export function NodeCard({ kind, icon, title, summary, inputHandle, outputs = []
         {content}
       </div>
       {outputs.map((port) => <span key={`${port.id}-handle`}>{port.handle}</span>)}
+      {start && <StartMark direction={direction} {...start} />}
+      {outputs.map((port, index) => port.open && <EndMark key={`${port.id}-end`} direction={direction} at={(index + 0.5) / outputs.length} failed={port.tone === "destructive"} />)}
+    </div>
+  )
+}
+
+/** Marks, not nodes: where lines enter the workflow and where they stop. They sit outside the card, beside the handles. */
+function StartMark({ direction, label = "시작", onOpen }: { direction: CanvasDirection; label?: string; onOpen?: () => void }) {
+  const vertical = direction !== "horizontal"
+  return (
+    <div className={cn("nodrag nopan absolute flex items-center", vertical ? "bottom-full left-1/2 -translate-x-1/2 flex-col" : "right-full top-1/2 -translate-y-1/2 flex-row")}>
+      <button
+        type="button"
+        onClick={(event) => { event.stopPropagation(); onOpen?.() }}
+        className="max-w-48 truncate rounded-full border border-border bg-card px-2 py-0.5 text-xs font-medium text-muted-foreground shadow-xs hover:text-foreground"
+      >
+        {label}
+      </button>
+      <span className={cn("bg-muted-foreground/50", vertical ? "h-4 w-px" : "h-px w-4")} />
+    </div>
+  )
+}
+
+function EndMark({ direction, at, failed }: { direction: CanvasDirection; at: number; failed: boolean }) {
+  const vertical = direction !== "horizontal"
+  return (
+    <div
+      aria-hidden
+      className={cn("pointer-events-none absolute flex items-center gap-0", vertical ? "top-full -translate-x-1/2 flex-col" : "left-full -translate-y-1/2 flex-row")}
+      style={vertical ? { left: `${at * 100}%` } : { top: `${at * 100}%` }}
+    >
+      <span className={cn(failed ? "bg-destructive/60" : "bg-muted-foreground/50", vertical ? "h-3 w-px" : "h-px w-3")} />
+      <span className={cn("text-xs", failed ? "text-destructive" : "text-muted-foreground")}>{failed ? "실패" : "끝"}</span>
     </div>
   )
 }

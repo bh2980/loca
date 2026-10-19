@@ -291,6 +291,10 @@ function WorkflowEditor() {
   );
   const nodes: FlowNode[] = useMemo(
     () => {
+      const all = current?.definition ?? { nodes: [], edges: [] };
+      const entry = all.nodes.find((node) => node.type === 'entry');
+      const starts = new Set(all.edges.filter((edge) => edge.source === entry?.id).map((edge) => edge.target));
+      const startLabel = entry && entry.type === 'entry' && entry.config.statusIds.length ? `시작 · ${summary(entry)}` : '시작';
       return definitions.map((node) => ({
         id: node.id,
         type: 'workflow',
@@ -305,6 +309,8 @@ function WorkflowEditor() {
           errors: issues.filter((issue) => issue.nodeId === node.id && issue.level === 'error').map((issue) => issue.message),
           warnings: issues.filter((issue) => issue.nodeId === node.id && issue.level === 'warning').map((issue) => issue.message),
           live: liveCounts.get(node.id),
+          start: starts.has(node.id) && entry ? { label: startLabel, onOpen: () => select(entry.id) } : undefined,
+          open: nodePorts(node).map((port) => port.id).filter((port) => !all.edges.some((edge) => edge.source === node.id && edge.sourceHandle === port)),
           status: (() => {
             const statusId = node.type === 'function' && node.config.fn === 'setStatus' ? (node.config.params as { statusId?: string }).statusId : undefined;
             const status = statusId ? statuses.data?.statuses.find((item) => item.id === statusId) : undefined;
@@ -313,7 +319,7 @@ function WorkflowEditor() {
         },
       }));
     },
-    [definitions, search.node, multi, direction, issues, liveCounts, statuses.data, connections.data, measured], // eslint-disable-line react-hooks/exhaustive-deps
+    [definitions, current?.definition, search.node, multi, direction, issues, liveCounts, statuses.data, connections.data, measured], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const edges: FlowEdge[] = useMemo(
     () => {

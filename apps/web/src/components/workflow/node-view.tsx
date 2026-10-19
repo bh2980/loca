@@ -51,11 +51,15 @@ export type FlowNode = Node<{
   status?: { name: string; color: string };
   live?: { queued: number; running: number; failed: number };
   direction: CanvasDirection;
+  /** Lines enter here (the hidden entry node points at it): its 시작 mark, which opens the start settings. */
+  start?: { label: string; onOpen: () => void };
+  /** Exits with no line leaving them: drawn with an end mark. */
+  open: string[];
 }, 'workflow'>;
 
 /** Workflow ports move with the shared graph orientation and keep their accessible names. */
 export const WorkflowNodeView = memo(function WorkflowNodeView({ id, data, selected }: NodeProps<FlowNode>) {
-  const { node, summary, errors, warnings, status, live, direction } = data;
+  const { node, summary, errors, warnings, status, live, direction, start, open } = data;
   const updateNodeInternals = useUpdateNodeInternals();
   useEffect(() => updateNodeInternals(id), [direction, id, updateNodeInternals]);
   const Icon = nodeIcon(node);
@@ -67,6 +71,7 @@ export const WorkflowNodeView = memo(function WorkflowNodeView({ id, data, selec
     id: port.id,
     label: port.id === 'error' ? '오류' : port.label,
     tone: workflowPortTone(port.id),
+    open: open.includes(port.id),
     handle: <Handle
       type="source"
       position={isVertical ? Position.Bottom : Position.Right}
@@ -96,6 +101,7 @@ export const WorkflowNodeView = memo(function WorkflowNodeView({ id, data, selec
     warnings={warnings.length}
     live={live}
     selected={selected}
+    start={start}
     className={isEntry ? 'w-48' : isVertical ? 'w-56' : 'w-72'}
   />;
 });

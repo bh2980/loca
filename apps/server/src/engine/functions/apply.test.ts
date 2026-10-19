@@ -196,6 +196,10 @@ describe('apply nodes', () => {
     expect(ctx.db.select().from(s.units).where(eq(s.units.key, 'a2')).get()?.listener).toBe('Guard');
     // A choice with no answer (value null) applies nothing.
     expect(apply(ctx, 'setListener', params, { value: null, confidence: 0 }, 'a1').output).toMatchObject({ applied: false });
+    // "unknown" is the AI saying it cannot tell: nothing is proposed, the line stays 청자 미상.
+    const before = proposals(ctx).length;
+    expect(apply(ctx, 'setListener', params, { value: 'unknown', confidence: 0.95 }, 'a1').output).toMatchObject({ recorded: false, reason: '청자 미상' });
+    expect(proposals(ctx)).toHaveLength(before);
   });
 
   it('tags lines by name and never creates a tag', async () => {
