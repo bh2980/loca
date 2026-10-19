@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BaseEdge, Background, Controls, EdgeLabelRenderer, Handle, MarkerType, Panel, Position, ReactFlow, useInternalNode, type Edge, type EdgeProps, type InternalNode, type Node, type NodeChange, type NodeProps } from '@xyflow/react';
+import { BaseEdge, Background, Controls, EdgeLabelRenderer, Handle, MarkerType, Panel, Position, ReactFlow, useInternalNode, type Edge, type EdgeProps, type InternalNode, type Node, type NodeChange, type NodeProps, SelectionMode } from '@xyflow/react';
 import { Button, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '@loca/ui';
 import ELK from 'elkjs/lib/elk.bundled.js';
 import '@xyflow/react/dist/style.css';
@@ -137,7 +137,7 @@ const edgeTypes = { relation: FloatingEdge };
  * narrative, so ELK's stress layout is used instead of a layered (directional) one. People can be
  * dragged; where a person was put is remembered in this browser (`storageKey`) over the layout.
  */
-export function RelationshipGraph({ storageKey, characters, relationships, selectedCharacterId, selectedRelationshipId, onSelectCharacter, onSelectRelationship, onClear, onDeleteCharacter }: {
+export function RelationshipGraph({ storageKey, characters, relationships, selectedCharacterId, selectedRelationshipId, onSelectCharacter, onSelectRelationship, onClear, onDeleteCharacters }: {
   storageKey: string;
   characters: GraphCharacter[];
   relationships: GraphRelationship[];
@@ -146,24 +146,32 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
   onSelectCharacter: (id: string) => void;
   onSelectRelationship: (id: string) => void;
   onClear: () => void;
-  /** Delete a character (the page confirms): the node's right-click menu and the Delete key on the picked node. */
-  onDeleteCharacter?: (id: string) => void;
+  /**
+   * Delete characters: the Delete key deletes the selection at once (`ask` false), the menu's 삭제
+   * asks first (`ask` true, the page confirms).
+   */
+  onDeleteCharacters?: (ids: string[], ask: boolean) => void;
 }) {
   const dark = useIsDark();
-  // The character the right-click menu is for (a node right-clicked); the pane and edges open no menu.
-  const [menuFor, setMenuFor] = useState<string | null>(null);
+  // Characters picked together (Shift+drag box, ⌘/Ctrl+click), as in the other graphs: two or more.
+  // One picked is the ordinary selection (the page's, with its pane). The graph's own: tables keep theirs.
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  // The characters the right-click menu acts on (the picked ones when it opens on one of them); the pane and edges open no menu.
+  const [menuFor, setMenuFor] = useState<string[] | null>(null);
+  const selection = picked.size > 1 ? [...picked] : selectedCharacterId ? [selectedCharacterId] : [];
   useEffect(() => {
-    if (!onDeleteCharacter || !selectedCharacterId) return;
+    if (!onDeleteCharacters || !selection.length) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Delete' && event.key !== 'Backspace') return;
       const target = event.target as HTMLElement | null;
       if (target?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"], [role="menu"]')) return;
       event.preventDefault();
-      onDeleteCharacter(selectedCharacterId);
+      setPicked(new Set());
+      onDeleteCharacters(selection, false);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onDeleteCharacter, selectedCharacterId]);
+  }, [onDeleteCharacters, selection.join('|')]);
   const known = useMemo(() => new Set(characters.map((character) => character.id)), [characters]);
   const drawable = useMemo(() => relationships.filter((relationship) => known.has(relationship.fromId) && known.has(relationship.toId)), [relationships, known]);
   const layoutKey = useMemo(() => JSON.stringify([characters.map((c) => c.id), drawable.map((r) => [r.fromId, r.toId])]), [characters, drawable]);
@@ -237,12 +245,12 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
         id: character.id,
         type: 'person',
         position: placed[character.id] ?? positions?.byId[character.id] ?? { x: 0, y: 0 },
-        data: { label: character.name, role: character.role, dim: emphasis.active && !emphasis.nodeIds.has(character.id), target: character.id === menuFor },
-        selected: character.id === selectedCharacterId,
+        data: { label: character.name, role: character.role, dim: emphasis.active && !emphasis.nodeIds.has(character.id), target: Boolean(menuFor?.includes(character.id)) },
+        selected: picked.size > 1 ? picked.has(character.id) : character.id === selectedCharacterId,
         width: NODE_WIDTH,
         height: NODE_HEIGHT,
       })),
-    [characters, positions, placed, selectedCharacterId, emphasis, menuFor],
+    [characters, positions, placed, selectedCharacterId, emphasis, menuFor, picked],
   );
   // Where nodes are while being dragged, on top of the memoized nodes: emphasis or selection changing
   // mid-drag must not put a node back where it was. The drop is kept in `placed`.
@@ -284,7 +292,25 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
   }, [drawable, selectedRelationshipId, emphasis, onSelectRelationship]);
 
   if (!positions) return <div className="flex h-full items-center justify-center text-sm text-muted-foreground">배치 계산 중…</div>;
-  const menuCharacter = menuFor ? characters.find((character) => character.id === menuFor) : undefined;
+  const menuCharacter = menuFor?.length === 1 ? characters.find((character) => character.id === menuFor[0]) : undefined;
+  /** The picked set after React Flow's select changes (a box, a ⌘/Ctrl+click): one left is the ordinary selection. */
+  const pick = (changes: NodeChange<PersonNode>[]) => {
+    const select = changes.filter((change) => change.type === 'select');
+    if (!select.length) return;
+    const next = new Set(selection);
+    for (const change of select) {
+      if (change.selected) next.add(change.id);
+      else next.delete(change.id);
+    }
+    if (next.size > 1) {
+      setPicked(next);
+      if (selectedCharacterId) onClear();
+    } else {
+      setPicked(new Set());
+      const [only] = next;
+      if (only && only !== selectedCharacterId) onSelectCharacter(only);
+    }
+  };
   return (
     <ContextMenu onOpenChange={(open) => !open && setMenuFor(null)}>
     <ContextMenuTrigger asChild>
@@ -296,6 +322,7 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
       onNodesChange={(changes: NodeChange<PersonNode>[]) => {
         const moved = changes.flatMap((change) => (change.type === 'position' && change.position ? [[change.id, change.position] as const] : []));
         if (moved.length) setMoving((current) => ({ ...current, ...Object.fromEntries(moved) }));
+        pick(changes);
       }}
       onNodeDragStart={() => setDragging(true)}
       onNodeDragStop={(_event, _node, dragged) => {
@@ -313,15 +340,29 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
       nodesDraggable
       nodesConnectable={false}
       elementsSelectable
-      // Deleting goes through the page's confirmation (Delete key above, the node's menu), not React Flow's own.
+      // Same as the other graphs: left or middle drag pans, Shift+drag draws a selection box, ⌘/Ctrl+click adds a person.
+      panOnDrag={[0, 1]}
+      selectionKeyCode="Shift"
+      multiSelectionKeyCode={['Meta', 'Control']}
+      selectionMode={SelectionMode.Partial}
+      // Deleting goes through the page (Delete key above, the node's menu), not React Flow's own.
       deleteKeyCode={null}
-      onNodeContextMenu={(_event, node) => setMenuFor(node.id)}
+      onNodeContextMenu={(_event, node) => setMenuFor(picked.size > 1 && picked.has(node.id) ? [...picked] : [node.id])}
       onEdgeContextMenu={(event) => event.preventDefault()}
       onPaneContextMenu={(event) => event.preventDefault()}
-      onNodeClick={(_event, node) => onSelectCharacter(node.id)}
+      // A ⌘/Ctrl+click adds to the picked set (pick, above); a plain click is the ordinary selection.
+      onNodeClick={(event, node) => {
+        if (event.metaKey || event.ctrlKey) return;
+        setPicked(new Set());
+        onSelectCharacter(node.id);
+      }}
       onEdgeClick={(_event, edge) => onSelectRelationship(edge.id.split('+')[0])}
       // A click on a relationship label also reaches the pane; it picks that relationship, not nothing.
-      onPaneClick={(event) => !(event.target as HTMLElement).closest('[data-relation-label]') && onClear()}
+      onPaneClick={(event) => {
+        if ((event.target as HTMLElement).closest('[data-relation-label]')) return;
+        setPicked(new Set());
+        onClear();
+      }}
       proOptions={{ hideAttribution: true }}
     >
       <Background />
@@ -336,13 +377,21 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
     </ReactFlow>
     </div>
     </ContextMenuTrigger>
-    {menuCharacter && (
+    {menuFor && (menuCharacter || menuFor.length > 1) && (
       <ContextMenuContent>
-        <ContextMenuItem onClick={() => onSelectCharacter(menuCharacter.id)}>상세 열기</ContextMenuItem>
-        {onDeleteCharacter && (
+        {menuCharacter && <ContextMenuItem onClick={() => onSelectCharacter(menuCharacter.id)}>상세 열기</ContextMenuItem>}
+        {onDeleteCharacters && (
           <>
-            <ContextMenuSeparator />
-            <ContextMenuItem variant="destructive" onClick={() => onDeleteCharacter(menuCharacter.id)}>삭제</ContextMenuItem>
+            {menuCharacter && <ContextMenuSeparator />}
+            <ContextMenuItem
+              variant="destructive"
+              onClick={() => {
+                setPicked(new Set());
+                onDeleteCharacters(menuFor, true);
+              }}
+            >
+              {menuFor.length > 1 ? `삭제 (${menuFor.length}명)` : '삭제'}
+            </ContextMenuItem>
           </>
         )}
       </ContextMenuContent>

@@ -569,7 +569,7 @@ function Knowledge() {
                 onSelectCharacter={(id) => set({ item: id })}
                 onSelectRelationship={(key) => set({ item: key })}
                 onClear={() => set({ item: undefined })}
-                onDeleteCharacter={(id) => setDeletingIds([id])}
+                onDeleteCharacters={(ids, ask) => (ask ? setDeletingIds(ids) : deleteMutation.mutate(ids))}
               />
             )}
           </div>
