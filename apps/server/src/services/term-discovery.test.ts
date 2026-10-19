@@ -76,10 +76,10 @@ describe('discoverTerms (language-agnostic)', () => {
 
   it('ignores English function words (For, To, You, With) and sentence-initial common words while extracting proper nouns', () => {
     const units = [
-      { key: 'u1', source: 'For the record, Orwell is watching you.' },
-      { key: 'u2', source: 'To be honest, you should talk to Orwell with care.' },
-      { key: 'u3', source: 'You know that for sure, with or without BNSA.' },
-      { key: 'u4', source: 'With time, people forget what BNSA did to you.' },
+      { key: 'u1', source: 'For the record, Ravenna is watching you.' },
+      { key: 'u2', source: 'To be honest, you should talk to Ravenna with care.' },
+      { key: 'u3', source: 'You know that for sure, with or without NOVA.' },
+      { key: 'u4', source: 'With time, people forget what NOVA did to you.' },
       { key: 'u5', source: 'Time is running out for you and me.' },
     ];
     const found = discoverTerms(units, [], { sourceLanguage: 'en', minLines: 2 });
@@ -89,7 +89,7 @@ describe('discoverTerms (language-agnostic)', () => {
     expect(lowerSources).not.toContain('you');
     expect(lowerSources).not.toContain('with');
     expect(lowerSources).not.toContain('time');
-    expect(found.map((t) => t.source)).toContain('Orwell');
-    expect(found.map((t) => t.source)).toContain('BNSA');
+    expect(found.map((t) => t.source)).toContain('Ravenna');
+    expect(found.map((t) => t.source)).toContain('NOVA');
   });
 });

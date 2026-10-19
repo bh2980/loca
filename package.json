@@ -17,7 +17,6 @@
     "db:generate": "pnpm --filter @tw/server db:generate",
     "samples": "tsx scripts/make-samples.ts",
     "mock-llm": "tsx scripts/mock-llm.ts",
-    "orwell2:en": "tsx scripts/orwell2-en.ts",
     "loca": "node apps/cli/bin/loca.mjs",
     "ui-rules": "tsx scripts/ui-rules.ts"
   },

@@ -1,6 +1,6 @@
 /**
  * 길 따라 보기: which part of the slice's overview is drawn. The overview (services/route-slice.ts)
- * is too big to read at once on real data (Night Call 103 nodes, Orwell 169), so the page shows a
+ * is too big to read at once on real data (a hundred or more nodes in a real game), so the page shows a
  * window around the current place (`at`): a few choices and joins ahead, one back, and the sections
  * between them. Everything here is plain data in, plain data out.
  */
