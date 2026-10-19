@@ -1,9 +1,10 @@
-/** Config of a condition node: common conditions as a form, anything else as JSON Logic. */
+/** Config of a condition node: the condition as rows, anything rows cannot say as JSON Logic. */
 import { useEffect, useState } from 'react';
-import { AUTO_MARKS, type AutoMark, CONDITION_MARK_IDS } from '@tw/shared';
-import { nodeName, type JsonField, type WorkflowNode } from '@tw/shared';
+import { Plus, X } from 'lucide-react';
+import { type AutoMark, CONDITION_MARK_IDS, nodeName, type WorkflowNode } from '@tw/shared';
 import { MarkChip } from '@/components/status';
-import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, StatusIcon, TagChip, Textarea, GroupHeading } from '@loca/ui';
+import { Button, cn, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, StatusIcon, Switch, TagChip, Textarea } from '@loca/ui';
+import { comparableFields, conditionExpression, parseCondition, type Clause, type Condition, type FieldOperator, type Join } from '@/components/workflow/node-config/condition-clauses';
 import { AiButton } from '@/components/ai-button';
 import { Field, type ConditionNode, type NodeRefs } from '@/components/workflow/node-config/shared';
 
@@ -14,62 +15,116 @@ export const hasVerdict = (node: WorkflowNode) =>
   (node.type === 'ai' && node.config.output === 'verdict') ||
   (node.type === 'function' && (node.config.fn === 'formatCheck' || node.config.fn === 'glossaryCheck' || (node.config.fn === 'http' && (node.config.params as { mode?: string }).mode === 'verdict')));
 
-/** Nodes that hand declared fields to later conditions (outputs.<id>.<field>): an AI JSON output or a script with `data` fields. */
-const declaredFields = (node: WorkflowNode): JsonField[] => {
-  const fields = node.type === 'ai' && node.config.output === 'json' ? node.config.fields : node.type === 'function' && node.config.fn === 'script' ? ((node.config.params as { fields?: JsonField[] }).fields ?? []) : [];
-  // Only top-level scalars can be compared in a form; lists and evidence go through the JSON Logic box.
-  return fields.filter((field) => field.name && (field.type === 'string' || field.type === 'number' || field.type === 'boolean'));
-};
-
-const OPERATORS = { '>=': '이상', '<=': '이하', '==': '같음', '!=': '다름' } as const;
-type Operator = keyof typeof OPERATORS;
-
 const KIND_LABELS: Record<string, string> = {
   dialogue: '대사',
   ui: 'UI 문자열',
   document: '문서·교재',
 };
 
-/** Common conditions as a form; anything else is plain JSON Logic. */
+const FIELD_OPERATORS: Record<FieldOperator, string> = { '>=': '≥', '<=': '≤', '==': '=', '!=': '≠', filled: '비어 있지 않음' };
+const ADDABLE = { status: '상태', lineKind: '종류', tag: '태그', mark: '자동 태그', visits: '방문 횟수', field: '노드 결과', listenerKnown: '청자가 이미 있음', candidate: '번역문이 있음' } as const;
+type Addable = keyof typeof ADDABLE;
+
+const VARIABLES = `읽을 수 있는 값: visits.<노드ID>, outputs.<노드ID>.<필드>, candidate, issues, listenerKnown, unit.kind, unit.speaker, unit.statusId, unit.tagIds, unit.marks (${CONDITION_MARK_IDS.join(' · ')})`;
+
+function Pick({ value, onChange, label, className, children }: { value: string; onChange: (value: string) => void; label: string; className?: string; children: React.ReactNode }) {
+  return (
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger size="sm" className={cn('min-w-0', className)} aria-label={label}><SelectValue /></SelectTrigger>
+      <SelectContent>{children}</SelectContent>
+    </Select>
+  );
+}
+
+/** The condition as rows (상태가 … · 노드 결과 ≥ …), joined by 모두/하나라도; JSON behind a switch, and always for what rows cannot say. */
 export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { node: ConditionNode; nodes: WorkflowNode[]; refs?: NodeRefs; readOnly?: boolean; onChange: (node: WorkflowNode) => void }) {
   const [text, setText] = useState(() => JSON.stringify(node.config.expression ?? null, null, 2));
   const [error, setError] = useState<string | null>(null);
+  const [asJson, setAsJson] = useState(false);
   useEffect(() => {
     setText(JSON.stringify(node.config.expression ?? null, null, 2));
+    setError(null);
   }, [node.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const apply = (expression: unknown, description: string) => {
-    setText(JSON.stringify(expression, null, 2));
-    setError(null);
-    onChange({ ...node, config: { expression, description } });
-  };
-  const others = nodes.filter((other) => other.id !== node.id && other.type !== 'entry' && other.type !== 'end');
-  const verdicts = nodes.filter(hasVerdict);
+  const parsed = parseCondition(node.config.expression);
+  const json = asJson || !parsed;
   const statuses = refs?.statuses ?? [];
   const tags = refs?.tags ?? [];
-  const [target, setTarget] = useState(others.find((other) => other.id === 'review')?.id ?? others[0]?.id ?? '');
-  const [limit, setLimit] = useState(3);
-  const [passNode, setPassNode] = useState(verdicts[0]?.id ?? '');
-  const [mark, setMark] = useState<AutoMark>(CONDITION_MARK_IDS[0]);
-  const [statusId, setStatusId] = useState(statuses[0]?.id ?? '');
-  const [tagId, setTagId] = useState(tags[0]?.id ?? '');
-  const classifiers = nodes.filter((other) => other.type === 'ai' && other.config.output === 'choice');
-  const texters = nodes.filter((other) => other.type === 'ai' && other.config.output === 'text');
-  const [texter, setTexter] = useState(texters[0]?.id ?? '');
-  const fielded = nodes.filter((other) => declaredFields(other).length > 0);
-  const [classifier, setClassifier] = useState(classifiers[0]?.id ?? '');
-  const [threshold, setThreshold] = useState(0.9);
-  const [answer, setAnswer] = useState('');
-  const [fieldNode, setFieldNode] = useState(fielded[0]?.id ?? '');
-  const [fieldName, setFieldName] = useState('');
-  const [operator, setOperator] = useState<Operator>('==');
-  const [operand, setOperand] = useState('');
-  const fieldList = declaredFields(nodes.find((other) => other.id === fieldNode) ?? node);
-  const pickedField = fieldList.find((field) => field.name === fieldName) ?? fieldList[0];
-  const [lineKind, setLineKind] = useState<'dialogue' | 'ui' | 'document'>('dialogue');
-  const label = (id: string) => {
-    const other = nodes.find((candidate) => candidate.id === id);
-    return other ? nodeName(other) : id;
+  const others = nodes.filter((other) => other.id !== node.id && other.type !== 'entry' && other.type !== 'end');
+  const outputs = others.map((other) => ({ node: other, fields: comparableFields(other, hasVerdict(other)) })).filter((entry) => entry.fields.length > 0);
+  const fieldsOf = (id: string) => outputs.find((entry) => entry.node.id === id)?.fields ?? [];
+
+  const write = (condition: Condition) => {
+    const expression = conditionExpression(condition);
+    setText(JSON.stringify(expression, null, 2));
+    setError(null);
+    onChange({ ...node, config: { ...node.config, expression } });
+  };
+  const condition = parsed ?? { join: 'and' as Join, clauses: [] };
+  const setClause = (index: number, clause: Clause) => write({ ...condition, clauses: condition.clauses.map((item, i) => (i === index ? clause : item)) });
+  const removeClause = (index: number) => write({ ...condition, clauses: condition.clauses.filter((_, i) => i !== index) });
+  const fresh = (kind: Addable): Clause | null => {
+    switch (kind) {
+      case 'status': return statuses[0] ? { kind, statusId: statuses[0].id } : null;
+      case 'lineKind': return { kind, value: 'dialogue' };
+      case 'tag': return tags[0] ? { kind, tagId: tags[0].id } : null;
+      case 'mark': return { kind, mark: CONDITION_MARK_IDS[0] };
+      case 'visits': return others[0] ? { kind, nodeId: others[0].id, limit: 3 } : null;
+      case 'field': {
+        const first = outputs[0];
+        if (!first) return null;
+        const field = first.fields[0]!;
+        return { kind, nodeId: first.node.id, field: field.name, op: field.type === 'boolean' ? '==' : field.type === 'number' ? '>=' : 'filled', value: field.type === 'boolean' ? true : field.type === 'number' ? 0.7 : '' };
+      }
+      case 'listenerKnown': return { kind };
+      case 'candidate': return { kind };
+    }
+  };
+  const addable = (Object.keys(ADDABLE) as Addable[]).filter((kind) => fresh(kind));
+
+  const row = (clause: Clause, index: number) => {
+    const set = (next: Clause) => setClause(index, next);
+    switch (clause.kind) {
+      case 'status':
+        return <>상태 <Pick label="상태" value={clause.statusId} onChange={(statusId) => set({ ...clause, statusId })} className="w-36">{statuses.map((st) => <SelectItem key={st.id} value={st.id}><StatusIcon status={st} /> {st.name}</SelectItem>)}</Pick></>;
+      case 'lineKind':
+        return <>종류 <Pick label="종류" value={clause.value} onChange={(value) => set({ ...clause, value })} className="w-32">{Object.entries(KIND_LABELS).map(([key, name]) => <SelectItem key={key} value={key}>{name}</SelectItem>)}</Pick></>;
+      case 'tag':
+        return <>태그 <Pick label="태그" value={clause.tagId} onChange={(tagId) => set({ ...clause, tagId })} className="w-36">{tags.map((tg) => <SelectItem key={tg.id} value={tg.id}><TagChip tag={tg} /></SelectItem>)}</Pick> 있음</>;
+      case 'mark':
+        return <>자동 태그 <Pick label="자동 태그" value={clause.mark} onChange={(mark) => set({ ...clause, mark })} className="w-40">{CONDITION_MARK_IDS.map((id) => <SelectItem key={id} value={id}><MarkChip mark={id as AutoMark} /></SelectItem>)}</Pick> 있음</>;
+      case 'visits':
+        return <><Pick label="노드" value={clause.nodeId} onChange={(nodeId) => set({ ...clause, nodeId })} className="w-36">{others.map((other) => <SelectItem key={other.id} value={other.id}>{nodeName(other)}</SelectItem>)}</Pick> 방문 <Input type="number" min={1} className="h-8 w-14" aria-label="방문 횟수" value={clause.limit} onChange={(event) => set({ ...clause, limit: Number(event.target.value) })} /> 회 미만</>;
+      case 'field': {
+        const fields = fieldsOf(clause.nodeId);
+        const field = fields.find((item) => item.name === clause.field);
+        const type = field?.type ?? 'string';
+        const pickField = (name: string) => {
+          const next = fields.find((item) => item.name === name);
+          const nextType = next?.type ?? 'string';
+          set({ ...clause, field: name, op: nextType === 'boolean' ? '==' : nextType === 'number' ? '>=' : 'filled', value: nextType === 'boolean' ? true : nextType === 'number' ? 0.7 : '' });
+        };
+        const ops = (Object.keys(FIELD_OPERATORS) as FieldOperator[]).filter((item) => (type === 'number' ? item !== 'filled' : type === 'boolean' ? item === '==' : item === '==' || item === '!=' || item === 'filled'));
+        return (
+          <>
+            <Pick label="노드" value={clause.nodeId} onChange={(nodeId) => { const first = fieldsOf(nodeId)[0]; set({ ...clause, nodeId, field: first?.name ?? '' }); }} className="w-36">{outputs.map((entry) => <SelectItem key={entry.node.id} value={entry.node.id}>{nodeName(entry.node)}</SelectItem>)}</Pick>
+            <Pick label="필드" value={clause.field} onChange={pickField} className="w-32 font-mono">{fields.map((item) => <SelectItem key={item.name} value={item.name}>{item.name}</SelectItem>)}</Pick>
+            {type === 'boolean' ? (
+              <Pick label="값" value={clause.value === false ? 'false' : 'true'} onChange={(value) => set({ ...clause, op: '==', value: value === 'true' })} className="w-20"><SelectItem value="true">참</SelectItem><SelectItem value="false">거짓</SelectItem></Pick>
+            ) : (
+              <>
+                <Pick label="비교" value={clause.op} onChange={(value) => set({ ...clause, op: value as FieldOperator })} className={clause.op === 'filled' ? 'w-36' : 'w-16'}>{ops.map((item) => <SelectItem key={item} value={item}>{FIELD_OPERATORS[item]}</SelectItem>)}</Pick>
+                {clause.op !== 'filled' && <Input type={type === 'number' ? 'number' : 'text'} step={type === 'number' ? 0.05 : undefined} className="h-8 w-20" aria-label="비교할 값" value={String(clause.value)} onChange={(event) => set({ ...clause, value: type === 'number' ? Number(event.target.value) : event.target.value })} />}
+              </>
+            )}
+          </>
+        );
+      }
+      case 'listenerKnown':
+        return <>청자가 이미 있음</>;
+      case 'candidate':
+        return <>번역문이 있음</>;
+    }
   };
 
   return (
@@ -86,254 +141,69 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
       >
         <Input value={node.config.description} onChange={(event) => onChange({ ...node, config: { ...node.config, description: event.target.value } })} />
       </Field>
-      {!readOnly && (
-        <div className="space-y-3 rounded-md border p-3">
-          <GroupHeading>자주 쓰는 조건</GroupHeading>
-
-          {statuses.length > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5 text-sm">
-              상태가
-              <Select value={statusId || statuses[0]!.id} onValueChange={setStatusId}>
-                <SelectTrigger size="sm" className="w-36">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {statuses.map((st) => (
-                    <SelectItem key={st.id} value={st.id}>
-                      <StatusIcon status={st} /> {st.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              임
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => {
-                  const picked = statuses.find((st) => st.id === (statusId || statuses[0]!.id));
-                  if (picked) apply({ '==': [{ var: 'unit.statusId' }, picked.id] }, `상태가 '${picked.name}'`);
-                }}
-              >
-                적용
-              </Button>
-            </div>
-          )}
-
-          {tags.length > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5 text-sm">
-              줄에
-              <Select value={tagId || tags[0]!.id} onValueChange={setTagId}>
-                <SelectTrigger size="sm" className="w-36">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {tags.map((tg) => (
-                    <SelectItem key={tg.id} value={tg.id}>
-                      <TagChip tag={tg} />
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              태그가 있음
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => {
-                  const picked = tags.find((tg) => tg.id === (tagId || tags[0]!.id));
-                  if (picked) apply({ in: [picked.id, { var: 'unit.tagIds' }] }, `'${picked.name}' 태그가 있음`);
-                }}
-              >
-                적용
-              </Button>
-            </div>
-          )}
-
-          <div className="flex flex-wrap items-center gap-1.5 text-sm">
-            종류가
-            <Select value={lineKind} onValueChange={(v) => setLineKind(v as 'dialogue' | 'ui' | 'document')}>
-              <SelectTrigger size="sm" className="w-32">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {Object.entries(KIND_LABELS).map(([k, l]) => (
-                  <SelectItem key={k} value={k}>
-                    {l}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            임
-            <Button variant="secondary" onClick={() => apply({ '==': [{ var: 'unit.kind' }, lineKind] }, `${KIND_LABELS[lineKind]} 줄`)}>
-              적용
-            </Button>
+      <Field
+        label="조건"
+        action={
+          <div className="flex shrink-0 items-center gap-2">
+            {!json && condition.clauses.length > 1 && (
+              <Pick label="묶는 방식" value={condition.join} onChange={(join) => write({ ...condition, join: join as Join })} className="w-32">
+                <SelectItem value="and">모두 만족</SelectItem>
+                <SelectItem value="or">하나라도 만족</SelectItem>
+              </Pick>
+            )}
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              JSON
+              <Switch checked={json} disabled={!parsed} onCheckedChange={setAsJson} />
+            </label>
           </div>
-
-          {others.length > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5 text-sm">
-              <Select value={target} onValueChange={setTarget}>
-                <SelectTrigger size="sm" className="w-36">
-                  <SelectValue placeholder="노드" />
-                </SelectTrigger>
-                <SelectContent>
-                  {others.map((other) => (
-                    <SelectItem key={other.id} value={other.id}>
-                      {nodeName(other)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              방문
-              <Input type="number" min={1} className="h-8 w-14" value={limit} onChange={(event) => setLimit(Number(event.target.value))} />
-              회 미만
-              <Button variant="secondary" disabled={!target} onClick={() => apply({ '<': [{ var: `visits.${target}` }, limit] }, `'${label(target)}' 방문이 ${limit}회 미만`)}>
-                적용
-              </Button>
-            </div>
-          )}
-
-          {verdicts.length > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5 text-sm">
-              <Select value={passNode} onValueChange={setPassNode}>
-                <SelectTrigger size="sm" className="w-36">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {verdicts.map((other) => (
-                    <SelectItem key={other.id} value={other.id}>
-                      {nodeName(other)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              을(를) 통과했음
-              <Button variant="secondary" onClick={() => apply({ '==': [{ var: `outputs.${passNode}.passed` }, true] }, `'${label(passNode)}' 통과`)}>
-                적용
-              </Button>
-            </div>
-          )}
-
-          {classifiers.length > 0 && (
-            <div className="space-y-1.5">
-              <div className="flex flex-wrap items-center gap-1.5 text-sm">
-                <Select value={classifier} onValueChange={setClassifier}>
-                  <SelectTrigger size="sm" className="w-36"><SelectValue /></SelectTrigger>
-                  <SelectContent>{classifiers.map((other) => <SelectItem key={other.id} value={other.id}>{nodeName(other)}</SelectItem>)}</SelectContent>
-                </Select>
-                확신도가
-                <Input type="number" min={0} max={1} step={0.05} className="h-8 w-16" value={threshold} onChange={(event) => setThreshold(Number(event.target.value))} />
-                이상
-                <Button variant="secondary" disabled={!classifier} onClick={() => apply({ '>=': [{ var: `outputs.${classifier}.confidence` }, threshold] }, `'${label(classifier)}' 확신도 ${threshold} 이상`)}>적용</Button>
+        }
+      >
+        {json ? (
+          <div className="space-y-1">
+            <Textarea
+              value={text}
+              spellCheck={false}
+              readOnly={readOnly}
+              className="min-h-28 font-mono text-xs"
+              onChange={(event) => {
+                setText(event.target.value);
+                try {
+                  onChange({ ...node, config: { ...node.config, expression: JSON.parse(event.target.value) } });
+                  setError(null);
+                } catch {
+                  setError('JSON 형식이 아닙니다.');
+                }
+              }}
+            />
+            {error && <p className="text-xs text-destructive">{error}</p>}
+            <p className="text-xs text-muted-foreground">{VARIABLES}</p>
+          </div>
+        ) : (
+          <div className="space-y-1.5">
+            {condition.clauses.map((clause, index) => (
+              <div key={index} className="flex min-w-0 items-center gap-1.5 text-sm">
+                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">{row(clause, index)}</div>
+                {!readOnly && (
+                  <Button size="icon-sm" variant="ghost" className="shrink-0 text-muted-foreground" aria-label="조건 빼기" onClick={() => removeClause(index)}>
+                    <X />
+                  </Button>
+                )}
               </div>
-              <div className="flex flex-wrap items-center gap-1.5 text-sm">
-                '{label(classifier)}' 선택(value)이
-                <Input className="h-8 w-32" value={answer} placeholder="예: Casual" aria-label="비교할 값" onChange={(event) => setAnswer(event.target.value)} />
-                와 같음
-                <Button variant="secondary" disabled={!classifier || !answer.trim()} onClick={() => apply({ '==': [{ var: `outputs.${classifier}.value` }, answer.trim()] }, `'${label(classifier)}' 값이 "${answer.trim()}"`)}>적용</Button>
-              </div>
-            </div>
-          )}
-
-          {texters.length > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5 text-sm">
-              <Select value={texter || texters[0]!.id} onValueChange={setTexter}>
-                <SelectTrigger size="sm" className="w-36"><SelectValue /></SelectTrigger>
-                <SelectContent>{texters.map((other) => <SelectItem key={other.id} value={other.id}>{nodeName(other)}</SelectItem>)}</SelectContent>
-              </Select>
-              의 문장이 비어 있지 않음
-              <Button variant="secondary" onClick={() => { const id = texter || texters[0]!.id; apply({ '!!': { var: `outputs.${id}.text` } }, `'${label(id)}' 문장이 비어 있지 않음`); }}>적용</Button>
-            </div>
-          )}
-
-          {fielded.length > 0 && pickedField && (
-            <div className="flex flex-wrap items-center gap-1.5 text-sm">
-              <Select value={fieldNode} onValueChange={(value) => { setFieldNode(value); setFieldName(''); }}>
-                <SelectTrigger size="sm" className="w-36"><SelectValue /></SelectTrigger>
-                <SelectContent>{fielded.map((other) => <SelectItem key={other.id} value={other.id}>{nodeName(other)}</SelectItem>)}</SelectContent>
-              </Select>
-              <Select value={pickedField.name} onValueChange={setFieldName}>
-                <SelectTrigger size="sm" className="w-28 font-mono" aria-label="필드"><SelectValue /></SelectTrigger>
-                <SelectContent>{fieldList.map((field) => <SelectItem key={field.name} value={field.name}>{field.name}</SelectItem>)}</SelectContent>
-              </Select>
-              {pickedField.type === 'boolean' ? (
-                <Select value={operand === 'false' ? 'false' : 'true'} onValueChange={setOperand}>
-                  <SelectTrigger size="sm" className="w-24" aria-label="값"><SelectValue /></SelectTrigger>
-                  <SelectContent><SelectItem value="true">참</SelectItem><SelectItem value="false">거짓</SelectItem></SelectContent>
-                </Select>
-              ) : (
-                <>
-                  <Select value={operator} onValueChange={(value) => setOperator(value as Operator)}>
-                    <SelectTrigger size="sm" className="w-24" aria-label="비교"><SelectValue /></SelectTrigger>
-                    <SelectContent>{(Object.keys(OPERATORS) as Operator[]).filter((op) => pickedField.type === 'number' || op === '==' || op === '!=').map((op) => <SelectItem key={op} value={op}>{OPERATORS[op]}</SelectItem>)}</SelectContent>
-                  </Select>
-                  <Input type={pickedField.type === 'number' ? 'number' : 'text'} className="h-8 w-24" value={operand} aria-label="비교할 값" onChange={(event) => setOperand(event.target.value)} />
-                </>
-              )}
-              <Button
-                variant="secondary"
-                disabled={pickedField.type !== 'boolean' && operand.trim() === ''}
-                onClick={() => {
-                  const reference = { var: `outputs.${fieldNode}.${pickedField.name}` };
-                  const text = `'${label(fieldNode)}'의 ${pickedField.name}`;
-                  if (pickedField.type === 'boolean') {
-                    const expected = operand !== 'false';
-                    apply({ '==': [reference, expected] }, `${text}이(가) ${expected ? '참' : '거짓'}`);
-                  } else {
-                    const value = pickedField.type === 'number' ? Number(operand) : operand.trim();
-                    apply({ [operator]: [reference, value] }, `${text} ${OPERATORS[operator]} ${value}`);
-                  }
-                }}
-              >
-                적용
-              </Button>
-            </div>
-          )}
-
-          <div className="flex flex-wrap items-center gap-1.5 text-sm">
-            줄에
-            <Select value={mark} onValueChange={(value) => setMark(value as AutoMark)}>
-              <SelectTrigger size="sm" className="w-44">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {CONDITION_MARK_IDS.map((id) => (
-                  <SelectItem key={id} value={id}>
-                    <MarkChip mark={id} />
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            자동 태그가 있음
-            <Button variant="secondary" onClick={() => apply({ in: [mark, { var: 'unit.marks' }] }, `줄에 #${AUTO_MARKS[mark].name} 자동 태그가 있음`)}>
-              적용
-            </Button>
+            ))}
+            {!readOnly && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" className="-ml-2 text-muted-foreground"><Plus /> 조건</Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  {addable.map((kind) => (
+                    <DropdownMenuItem key={kind} onClick={() => write({ ...condition, clauses: [...condition.clauses, fresh(kind)!] })}>{ADDABLE[kind]}</DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
-
-          <div className="flex flex-wrap items-center gap-1.5 pt-1">
-            <Button variant="outline" onClick={() => apply({ var: 'listenerKnown' }, '청자가 이미 파악됨')}>
-              청자가 이미 있나?
-            </Button>
-            <Button variant="outline" onClick={() => apply({ '!!': { var: 'candidate' } }, '번역문이 있음')}>
-              번역문이 있나?
-            </Button>
-          </div>
-        </div>
-      )}
-      <Field label="조건식" hint={`읽을 수 있는 값: visits.<노드ID>, outputs.<노드ID>.<필드>, candidate, issues, listenerKnown, unit.kind, unit.speaker, unit.statusId, unit.tagIds, unit.marks (${CONDITION_MARK_IDS.join(' · ')})`}>
-        <Textarea
-          value={text}
-          spellCheck={false}
-          className="min-h-28 font-mono text-xs"
-          onChange={(event) => {
-            setText(event.target.value);
-            try {
-              onChange({ ...node, config: { ...node.config, expression: JSON.parse(event.target.value) } });
-              setError(null);
-            } catch {
-              setError('JSON 형식이 아닙니다.');
-            }
-          }}
-        />
-        {error && <p className="text-xs text-destructive">{error}</p>}
+        )}
       </Field>
     </div>
   );
