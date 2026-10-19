@@ -5,8 +5,9 @@ import type { ReactNode } from 'react';
 import type { InferRequestType } from 'hono/client';
 import { toast } from 'sonner';
 import { type AutoMark, isSpecialListener, knowledgeMarksOf, listenerLabel, matchesMarks, OTHERS_LISTENER, PALETTE, SPEECH_LEVEL_LABELS } from '@tw/shared';
-import { EmptyState, DataTable, type ColumnDef, Inspector, GroupHeading, InspectorHeader, InspectorSection, PropertyGrid, PropertyRow, TagListEditor, Badge, Button, Collapsible, CollapsibleContent, CollapsibleTrigger } from '@loca/ui';
+import { EmptyState, DataTable, type ColumnDef, Inspector, InspectorHeader, InspectorSection, InspectorBlock, InspectorField, InspectorList, InspectorResult, TagListEditor, Badge, Button } from '@loca/ui';
 import { DraftEditor } from '@/components/knowledge/editor';
+import { StretchPicker } from '@/components/knowledge/evidence';
 import { candidateRow, fail, matches, metaColumns, SourceBadge, type Draft, type KnowledgeFilterState, type KindSpec, type RelationshipRow, type SourceFilter, type SpeechRuleRow } from '@/components/knowledge/table';
 import { splitList } from '@/components/chip-input';
 import { client, unwrap } from '@/lib/api';
@@ -203,22 +204,15 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
     }
   };
 
+  const relationshipKind = pair.relationship?.kind;
   return (
     <Inspector header={<InspectorHeader kind="관계·말투" name={`${pair.from} → ${listenerLabel(pair.to)}`} onClose={onClose} />}>
       {pairItemsList.length > 0 && (
-        <InspectorSection title="기본 정보">
-          <PropertyGrid>
-            <PropertyRow label="태그">
-              <TagListEditor
-                tags={attachedPairTags}
-                allTags={knowledgeTags}
-                onToggle={(tagId, add) => pairTagMutation.mutate({ tagId, add })}
-                onCreate={handleCreatePairTag}
-                heading="태그"
-              />
-            </PropertyRow>
-          </PropertyGrid>
-        </InspectorSection>
+        <InspectorBlock>
+          <InspectorField label="태그" description="이 쌍의 관계와 말투 규칙 모두에 붙습니다.">
+            <TagListEditor tags={attachedPairTags} allTags={knowledgeTags} onToggle={(tagId, add) => pairTagMutation.mutate({ tagId, add })} onCreate={handleCreatePairTag} heading="태그" />
+          </InspectorField>
+        </InspectorBlock>
       )}
       <InspectorSection
         title="말투"
@@ -236,109 +230,78 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
               : '말투 규칙이 없습니다.'}
           </p>
         )}
-        <ul className="space-y-2">
+        <InspectorList>
           {rules.map((rule) => {
             const open = openRule === rule.id;
             const review = reviewOf(rule, reviewTag);
             return (
-              <li key={rule.id} className={cn('rounded-md border', rule.status === 'candidate' && 'border-dashed border-warning')}>
-                <Collapsible open={open} onOpenChange={(next) => setOpenRule(next ? rule.id : undefined)}>
-                  <CollapsibleTrigger asChild>
-                    <Button variant="ghost" size="row" className="px-3 py-2">
-                      <ChevronRight className={cn('text-muted-foreground transition-transform', open && 'rotate-90')} />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-xs text-muted-foreground">{startLabel(rule)}</span>
-                        <span className="flex items-center gap-2">
-                          <span className="font-medium">{SPEECH_LEVEL_LABELS[rule.level]}</span>
-                          {rule.address ? <span className="truncate text-muted-foreground">호칭 {splitList(rule.address).map((form) => `“${form}”`).join(' · ')}</span> : null}
-                          {review && <ReviewBadge reasons={review} />}
-                        </span>
-                      </span>
-                      <SourceBadge row={rule} />
-                    </Button>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent>
-                    <div className="space-y-3 border-t p-3">
-                      {review && <p className="text-sm text-warning">확인 권장: {review}</p>}
-                      <DraftEditor embedded projectId={projectId} kind="speechRules" spec={ruleSpec} row={rule} characters={characters} onDecide={(action) => onDecide('speechRules', [rule.id], action)} />
-                    </div>
-                  </CollapsibleContent>
-                </Collapsible>
+              <li key={rule.id} className="py-1 first:pt-0 last:pb-0">
+                <Button variant="ghost" size="row" aria-expanded={open} onClick={() => setOpenRule(open ? undefined : rule.id)}>
+                  <ChevronRight className={cn('text-muted-foreground transition-transform', open && 'rotate-90')} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-xs text-muted-foreground">{startLabel(rule)}</span>
+                    <span className="flex items-center gap-2">
+                      <span className="font-medium">{SPEECH_LEVEL_LABELS[rule.level]}</span>
+                      {rule.address ? <span className="truncate text-muted-foreground">호칭 {splitList(rule.address).map((form) => `“${form}”`).join(' · ')}</span> : null}
+                      {review && <ReviewBadge reasons={review} />}
+                    </span>
+                  </span>
+                  {rule.status === 'candidate' && <Badge variant="outline">후보</Badge>}
+                  <SourceBadge row={rule} />
+                </Button>
+                {open && (
+                  <div className="space-y-3 pt-2 pb-2 pl-6">
+                    {review && <InspectorResult tone="info">확인 권장: {review}</InspectorResult>}
+                    <DraftEditor embedded projectId={projectId} kind="speechRules" spec={ruleSpec} row={rule} characters={characters} onDecide={(action) => onDecide('speechRules', [rule.id], action)} />
+                  </div>
+                )}
               </li>
             );
           })}
-        </ul>
+        </InspectorList>
         {pair.to !== OTHERS_LISTENER && !isSpecialListener(pair.to) && onOpenPair && (
           <Button
             variant="ghost"
             size="inline"
-            className="mt-2 text-muted-foreground"
+            className="text-muted-foreground"
             onClick={() => (others ? onOpenPair(others.key) : addRule({ fromName: pair.from, toName: OTHERS_LISTENER, level: 'haeyo', address: '' }).then(() => onOpenPair(pairKey(pair.from, OTHERS_LISTENER))))}
           >
             {others?.rules.length ? `${pair.from} → 그 밖의 사람: ${SPEECH_LEVEL_LABELS[others.rules[0].level]}` : `${pair.from} → 그 밖의 사람 말투`}
           </Button>
         )}
       </InspectorSection>
-      <Collapsible>
-        <CollapsibleTrigger asChild>
-          <Button variant="ghost" size="row" className="group/rel -mx-2 w-[calc(100%+1rem)] text-sm font-semibold text-foreground">
-            <ChevronRight className="transition-transform group-data-[state=open]/rel:rotate-90" />
-            관계{pair.relationship ? ` · ${pair.relationship.kind}` : ' 없음'}
-            {pair.relationship && <span className="ml-auto"><SourceBadge row={pair.relationship} /></span>}
-          </Button>
-        </CollapsibleTrigger>
-        <CollapsibleContent className="pt-2">
-          {pair.relationship ? (
-            <DraftEditor
-              key={pair.relationship.id}
-              embedded
-              projectId={projectId}
-              kind="relationships"
-              spec={relationships}
-              row={pair.relationship}
-              characters={characters}
-              onDecide={(action) => onDecide('relationships', [pair.relationship!.id], action)}
-            />
-          ) : (
-            <Button variant="outline" disabled={!pair.fromId || !pair.toId || !relationships.create || addRelationship.isPending} title={!pair.fromId || !pair.toId ? '두 사람이 모두 인물 목록에 있어야 합니다' : undefined} onClick={() => addRelationship.mutate()}>
+      <InspectorSection
+        title={relationshipKind ? `관계 · ${relationshipKind}` : '관계'}
+        defaultOpen={Boolean(pair.relationship && pair.relationship.status === 'candidate')}
+        actions={
+          pair.relationship && (
+            <span className="flex items-center gap-1.5">
+              {pair.relationship.status === 'candidate' && <Badge variant="outline">후보</Badge>}
+              <SourceBadge row={pair.relationship} />
+            </span>
+          )
+        }
+      >
+        {pair.relationship ? (
+          <DraftEditor
+            key={pair.relationship.id}
+            embedded
+            projectId={projectId}
+            kind="relationships"
+            spec={relationships}
+            row={pair.relationship}
+            characters={characters}
+            onDecide={(action) => onDecide('relationships', [pair.relationship!.id], action)}
+          />
+        ) : (
+          <>
+            <p className="text-sm text-muted-foreground">{!pair.fromId || !pair.toId ? '두 사람이 모두 인물 목록에 있어야 관계를 만들 수 있습니다.' : '정해진 관계가 없습니다.'}</p>
+            <Button variant="outline" disabled={!pair.fromId || !pair.toId || !relationships.create || addRelationship.isPending} onClick={() => addRelationship.mutate()}>
               <Plus /> 관계 추가
             </Button>
-          )}
-        </CollapsibleContent>
-      </Collapsible>
+          </>
+        )}
+      </InspectorSection>
     </Inspector>
-  );
-}
-
-/** This pair's lines (by listener), to pick the one where the speech changes. */
-function StretchPicker({ projectId, from, to, taken, onPick, onCancel }: { projectId: string; from: string; to: string; taken: Set<string>; onPick: (key: string) => void; onCancel: () => void }) {
-  const lines = useQuery(q.units(projectId, { speaker: from, listener: to, limit: 300 }));
-  return (
-    <div className="mb-3 rounded-md border bg-muted p-2">
-      <div className="mb-1 flex items-center gap-2 px-1">
-        <GroupHeading>시작 대사 선택</GroupHeading>
-        <Button variant="ghost" size="inline" className="ml-auto text-muted-foreground" onClick={onCancel}>
-          취소
-        </Button>
-      </div>
-      {!lines.data ? (
-        <p className="px-1 py-2 text-sm text-muted-foreground">불러오는 중…</p>
-      ) : lines.data.rows.length === 0 ? (
-        <p className="px-1 py-2 text-sm text-muted-foreground">청자가 {listenerLabel(to)}로 정해진 {from}의 대사가 없습니다.</p>
-      ) : (
-        <ul className="max-h-64 overflow-auto">
-          {lines.data.rows.map((line) => (
-            <li key={line.id}>
-              <Button variant="ghost" size="row" className="text-sm" disabled={taken.has(line.key)} onClick={() => onPick(line.key)}>
-                <span className="min-w-0">
-                  <span className="text-xs text-muted-foreground">{line.groupTitle} · </span>
-                  {line.source}
-                </span>
-              </Button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
   );
 }

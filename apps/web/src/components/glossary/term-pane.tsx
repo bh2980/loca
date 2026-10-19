@@ -4,7 +4,7 @@ import { Link } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Play, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { Inspector, InspectorHeader, InspectorBlock, InspectorSection, PropertyGrid, PropertyRow, TagListEditor, DirtyBar, DangerZone, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Textarea } from '@loca/ui';
+import { Inspector, InspectorHeader, InspectorBlock, InspectorSection, InspectorField, InspectorFields, InspectorList, TagListEditor, DirtyBar, DangerZone, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Textarea } from '@loca/ui';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { confirmLabel, SourceBadge, StateCell, type ItemTag } from '@/components/knowledge/table';
 import { isSettled, PALETTE, TAG_SCOPES, type KnowledgeOrigin, type KnowledgeStatus, type StatusBy } from '@tw/shared';
@@ -32,17 +32,17 @@ export const NEW_TERM = 'new';
 /** The three editable fields of a term, shared by the new-term and edit panes. */
 function TermFields({ form, onChange }: { form: { source: string; target: string; note: string }; onChange: (form: { source: string; target: string; note: string }) => void }) {
   return (
-    <PropertyGrid>
-      <PropertyRow label="원문">
-        <Input aria-label="원문" value={form.source} onChange={(event) => onChange({ ...form, source: event.target.value })} />
-      </PropertyRow>
-      <PropertyRow label="번역">
-        <Input aria-label="번역" value={form.target} onChange={(event) => onChange({ ...form, target: event.target.value })} />
-      </PropertyRow>
-      <PropertyRow label="메모">
-        <Textarea aria-label="메모" rows={4} value={form.note} placeholder="선택" onChange={(event) => onChange({ ...form, note: event.target.value })} />
-      </PropertyRow>
-    </PropertyGrid>
+    <InspectorFields>
+      <InspectorField label="원문">
+        <Input value={form.source} onChange={(event) => onChange({ ...form, source: event.target.value })} />
+      </InspectorField>
+      <InspectorField label="번역">
+        <Input value={form.target} onChange={(event) => onChange({ ...form, target: event.target.value })} />
+      </InspectorField>
+      <InspectorField label="메모">
+        <Textarea rows={4} value={form.note} placeholder="선택" onChange={(event) => onChange({ ...form, note: event.target.value })} />
+      </InspectorField>
+    </InspectorFields>
   );
 }
 
@@ -138,23 +138,18 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
       footer={dirty ? <DirtyBar dirtyCount={Object.keys(changedFields(form, saved)).length} onRevert={takeSaved} onSave={() => save.mutate()} saving={save.isPending} disabled={!form.source.trim()} /> : (candidate ? <Button variant="outline" disabled={deciding || !term.target.trim()} onClick={() => onDecide(true)}><Check /> {confirmLabel([{ ...term, evidence: [] }])}</Button> : null)}
     >
       {conflicts.length > 0 && <InspectorBlock><ChangedElsewhere fields={conflicts.map((field) => TERM_FIELD_LABEL[field as keyof typeof TERM_FIELD_LABEL])} onTakeSaved={takeSaved} onKeepMine={keepMine} /></InspectorBlock>}
-      <InspectorSection title="기본 정보">
+      <InspectorSection title="용어">
         <TermFields form={form} onChange={setForm} />
       </InspectorSection>
       <InspectorSection title="태그">
-        <PropertyGrid>
-          <PropertyRow label="태그">
-            <TagListEditor
-              tags={attachedTags}
-              allTags={termTags}
-              onToggle={(tagId, add) => tagMutation.mutate({ tagId, add })}
-              onCreate={handleCreateTag}
-              heading="태그"
-            />
-          </PropertyRow>
-        </PropertyGrid>
+        <TagListEditor
+          tags={attachedTags}
+          allTags={termTags}
+          onToggle={(tagId, add) => tagMutation.mutate({ tagId, add })}
+          onCreate={handleCreateTag}
+          heading="용어에 붙일 태그"
+        />
       </InspectorSection>
-      {candidate && <div className="flex justify-end"><Button variant="outline" disabled={deciding || dirty || !term.target.trim()} title={term.target.trim() ? (dirty ? '먼저 저장하세요.' : undefined) : '번역을 채운 뒤 확정할 수 있습니다.'} onClick={() => onDecide(true)}><Check /> {confirmLabel([{ ...term, evidence: [] }])}</Button></div>}
       <InspectorSection
         title={`등장 대사 ${usage.data?.count ?? "…"}`}
         actions={
@@ -168,15 +163,19 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
           )
         }
       >
-        <ul className="max-h-60 space-y-1 overflow-auto">
-          {usage.data?.rows.map((row) => <li key={row.id}><Link to="/p/$projectId/script" params={{ projectId }} search={{ group: row.groupId, line: row.id }} className="block rounded px-2 py-1 text-sm hover:bg-muted"><span className="text-xs text-muted-foreground">{row.groupTitle} · </span>{row.speaker && <span className="font-medium">{row.speaker}: </span>}{row.source}{row.translation && <span className="block text-muted-foreground">{row.translation}</span>}</Link></li>)}
-        </ul>
+        {usage.data && usage.data.rows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">이 용어가 나오는 대사가 없습니다.</p>
+        ) : (
+          <InspectorList className="max-h-60 overflow-auto">
+            {usage.data?.rows.map((row) => <li key={row.id}><Link to="/p/$projectId/script" params={{ projectId }} search={{ group: row.groupId, line: row.id }} className="block px-1 py-1.5 text-sm hover:bg-muted"><span className="text-xs text-muted-foreground">{row.groupTitle} · </span>{row.speaker && <span className="font-medium">{row.speaker}: </span>}{row.source}{row.translation && <span className="block text-muted-foreground">{row.translation}</span>}</Link></li>)}
+          </InspectorList>
+        )}
       </InspectorSection>
-      <DangerZone title="용어 삭제">
+      <DangerZone title="삭제">
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <Button variant="ghost" className="text-destructive">
-                <Trash2 /> 삭제
+              <Button variant="outline" className="text-destructive">
+                <Trash2 /> 용어 삭제
               </Button>
             </AlertDialogTrigger>
             <AlertDialogContent>
@@ -191,7 +190,7 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
             </AlertDialogContent>
           </AlertDialog>
           {candidate && (
-            <Button variant="ghost" className="text-destructive" disabled={deciding} onClick={() => onDecide(false)}>버리기</Button>
+            <Button variant="outline" className="text-destructive" disabled={deciding} onClick={() => onDecide(false)}>버리기</Button>
           )}
       </DangerZone>
     </Inspector>

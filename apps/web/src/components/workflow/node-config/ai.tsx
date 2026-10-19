@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Plus, X } from 'lucide-react';
 import { AI_OUTPUTS, AI_PRESETS, AI_SCOPES, CHOICE_SOURCES, CONNECTION_KIND_INFO, contextConfigSchema, nodeName, type AiOutput, type AiScope, type BatchConfig, type Capability, type ChoiceSource, type WorkflowNode } from '@tw/shared';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Button, Dialog, DialogContent, DialogHeader, DialogTitle, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, InspectorSection } from '@loca/ui';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Button, Dialog, DialogContent, DialogHeader, DialogTitle, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, InspectorActionRow, InspectorResult, InspectorSection } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
 import { AiContextPanel } from '@/components/ai-context';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
@@ -79,7 +79,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
               </Button>
             </div>
           ))}
-          {config.output === 'text' && chosenModels.size > 1 && <p className="text-xs text-warning">서로 다른 모델이 번역을 나누면 장면마다 문체가 달라질 수 있습니다.</p>}
+          {config.output === 'text' && chosenModels.size > 1 && <InspectorResult tone="info">서로 다른 모델이 번역을 나누면 장면마다 문체가 달라질 수 있습니다.</InspectorResult>}
           <Button variant="ghost" className="-ml-2 text-muted-foreground" disabled={!config.model.model || extras.some((choice) => !choice.model)} onClick={() => set({ extraModels: [...extras, { connectionId: '', model: '' }] })}>
             <Plus /> 모델
           </Button>
@@ -90,22 +90,25 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
 
   return (
     <>
-      <InspectorSection title="지시문" defaultOpen actions={
-            <div className="flex items-center gap-1">
-              <Button type="button" variant="ghost" onClick={() => setExpanded(true)}>크게 열기</Button>
-              <AiButton variant="ghost" prompt={`이 AI 노드의 지시문을 ${config.instructions.trim() ? '다듬어줘' : '작성해줘'}.`}>
-                {config.instructions.trim() ? 'AI로 다듬기' : 'AI로 작성'}
-              </AiButton>
-            </div>
+      <InspectorSection title="지시문" actions={
+        <>
+          <Button type="button" variant="ghost" size="inline" onClick={() => setExpanded(true)}>크게 열기</Button>
+          <AiButton variant="ghost" prompt={`이 AI 노드의 지시문을 ${config.instructions.trim() ? '다듬어줘' : '작성해줘'}.`}>
+            {config.instructions.trim() ? 'AI로 다듬기' : 'AI로 작성'}
+          </AiButton>
+        </>
       }>
         <Textarea aria-label="지시문" value={config.instructions} onChange={(event) => set({ instructions: event.target.value })} className="min-h-28 text-sm" />
-        <div className="flex items-center justify-between gap-2">
-          <span className="min-w-0 truncate text-xs text-muted-foreground">{config.preset ? (preset ? `프리셋 · ${preset.label}` : `프리셋 · ${config.preset}`) : '프리셋 없음'}</span>
-          <div className="flex shrink-0 items-center gap-1">
-            {preset && <Button type="button" variant="ghost" onClick={() => setRefilling(true)}>다시 채우기</Button>}
-            <Button type="button" variant="ghost" onClick={() => setPreviewing(true)}>프롬프트</Button>
-          </div>
-        </div>
+        <InspectorActionRow
+          label="프롬프트"
+          description={config.preset ? (preset ? `프리셋 · ${preset.label}` : `프리셋 · ${config.preset}`) : '프리셋 없음'}
+          action={
+            <>
+              {preset && <Button type="button" variant="ghost" onClick={() => setRefilling(true)}>다시 채우기</Button>}
+              <Button type="button" variant="ghost" onClick={() => setPreviewing(true)}>미리보기</Button>
+            </>
+          }
+        />
         <AlertDialog open={refilling} onOpenChange={setRefilling}>
           <AlertDialogContent>
             <AlertDialogHeader>
@@ -173,91 +176,32 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
       </InspectorSection>
 
       <InspectorSection title={`문맥 · ${contextOn}개 켬`} defaultOpen={false}>
-        <div className="space-y-2.5">
-            <ToggleRow
-              label="확정된 것만"
-              checked={context.humanOnly}
-              onChange={(value) => set({ context: { ...context, humanOnly: value } })}
-            />
-            <ToggleRow
-              label="용어집"
-              checked={context.glossary}
-              onChange={(value) => set({ context: { ...context, glossary: value } })}
-            />
-            <ToggleRow
-              label="청자·말투"
-              checked={context.speech}
-              onChange={(value) => set({ context: { ...context, speech: value } })}
-            />
-            <ToggleRow
-              label="앞 단계 지적"
-              checked={config.include.issues}
-              onChange={(value) => set({ include: { ...config.include, issues: value } })}
-            />
-            <CountRow
-              label="앞 대사"
-              unit="줄"
-              value={context.precedingLines}
-              fallback={8}
-              max={50}
-              onChange={(value) => set({ context: { ...context, precedingLines: value } })}
-            />
-            {context.precedingLines > 0 && (
-              <div className="pl-4">
-                <ToggleRow
-                  label="앞 대사 번역"
-                  checked={context.precedingTranslations}
-                  onChange={(value) =>
-                    set({ context: { ...context, precedingTranslations: value } })
-                  }
-                />
-              </div>
-            )}
-            <CountRow
-              label="이전 장면"
-              unit="개"
-              value={context.previousScenes}
-              fallback={1}
-              max={10}
-              onChange={(value) => set({ context: { ...context, previousScenes: value } })}
-            />
-            <ToggleRow
-              label="인물 명단"
-              checked={context.cast}
-              onChange={(value) => set({ context: { ...context, cast: value } })}
-            />
-            <ToggleRow
-              label="인물 프로필"
-              checked={context.characters}
-              onChange={(value) => set({ context: { ...context, characters: value } })}
-            />
-            <ToggleRow
-              label="인물 관계"
-              checked={context.relationships}
-              onChange={(value) => set({ context: { ...context, relationships: value } })}
-            />
-            <ToggleRow
-              label="문서"
-              checked={context.documents}
-              onChange={(value) => set({ context: { ...context, documents: value } })}
-            />
-            <Field label="문맥 상한">
-              <Input
-                type="number"
-                min={500}
-                max={200000}
-                step={500}
-                value={context.maxTokens}
-                onChange={(event) =>
-                  set({ context: { ...context, maxTokens: Number(event.target.value) } })
-                }
-              />
-            </Field>
+        <ToggleRow label="확정된 것만" checked={context.humanOnly} onChange={(value) => set({ context: { ...context, humanOnly: value } })} />
+        <div className="space-y-2.5 border-t border-border-subtle pt-3">
+          <CountRow label="앞 대사" unit="줄" value={context.precedingLines} fallback={8} max={50} onChange={(value) => set({ context: { ...context, precedingLines: value } })} />
+          {context.precedingLines > 0 && (
+            <div className="pl-4">
+              <ToggleRow label="앞 대사 번역" checked={context.precedingTranslations} onChange={(value) => set({ context: { ...context, precedingTranslations: value } })} />
+            </div>
+          )}
+          <CountRow label="이전 장면" unit="개" value={context.previousScenes} fallback={1} max={10} onChange={(value) => set({ context: { ...context, previousScenes: value } })} />
+          <ToggleRow label="앞 단계 지적" checked={config.include.issues} onChange={(value) => set({ include: { ...config.include, issues: value } })} />
         </div>
+        <div className="space-y-2.5 border-t border-border-subtle pt-3">
+          <ToggleRow label="용어집" checked={context.glossary} onChange={(value) => set({ context: { ...context, glossary: value } })} />
+          <ToggleRow label="청자·말투" checked={context.speech} onChange={(value) => set({ context: { ...context, speech: value } })} />
+          <ToggleRow label="인물 명단" checked={context.cast} onChange={(value) => set({ context: { ...context, cast: value } })} />
+          <ToggleRow label="인물 프로필" checked={context.characters} onChange={(value) => set({ context: { ...context, characters: value } })} />
+          <ToggleRow label="인물 관계" checked={context.relationships} onChange={(value) => set({ context: { ...context, relationships: value } })} />
+          <ToggleRow label="문서" checked={context.documents} onChange={(value) => set({ context: { ...context, documents: value } })} />
+        </div>
+        <Field label="문맥 상한">
+          <Input type="number" min={500} max={200000} step={500} value={context.maxTokens} onChange={(event) => set({ context: { ...context, maxTokens: Number(event.target.value) } })} />
+        </Field>
       </InspectorSection>
 
-      <InspectorSection title="고급">
-        <div className="space-y-2.5">
+      <InspectorSection title="고급" defaultOpen={false}>
+        <>
           {takesTemperature && (
             <Field label="온도">
               <Input
@@ -297,7 +241,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
               </Select>
             </Field>
           )}
-          <div className="grid grid-cols-2 gap-3">
+          <>
             <Field label="묶음">
               <Select
                 value={config.batch.mode}
@@ -352,8 +296,8 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
                 />
               </Field>
             )}
-          </div>
-        </div>
+          </>
+        </>
       </InspectorSection>
     </>
   );

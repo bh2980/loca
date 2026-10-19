@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { Plus, X } from 'lucide-react';
 import { type AutoMark, CONDITION_MARK_IDS, nodeName, type WorkflowNode } from '@tw/shared';
 import { MarkChip } from '@/components/status';
-import { Button, cn, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, StatusIcon, Switch, TagChip, Textarea } from '@loca/ui';
+import { Button, cn, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Input, InspectorFields, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, StatusIcon, Switch, TagChip, Textarea } from '@loca/ui';
 import { comparableFields, conditionExpression, parseCondition, type Clause, type Condition, type FieldOperator, type Join } from '@/components/workflow/node-config/condition-clauses';
 import { AiButton } from '@/components/ai-button';
 import { Field, type ConditionNode, type NodeRefs } from '@/components/workflow/node-config/shared';
@@ -138,7 +138,7 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
   };
 
   return (
-    <div className="space-y-4">
+    <InspectorFields>
       <Field
         label="설명"
         action={
@@ -153,6 +153,7 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
       </Field>
       <Field
         label="조건"
+        hint={json ? VARIABLES : undefined}
         action={
           <div className="flex shrink-0 items-center gap-2">
             {!json && condition.clauses.length > 1 && (
@@ -186,7 +187,6 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
               }}
             />
             {error && <p className="text-xs text-destructive">{error}</p>}
-            <p className="text-xs text-muted-foreground">{VARIABLES}</p>
           </div>
         ) : (
           <div className="space-y-1.5">
@@ -215,6 +215,6 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
           </div>
         )}
       </Field>
-    </div>
+    </InspectorFields>
   );
 }

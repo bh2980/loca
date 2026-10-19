@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import { AI_OUTPUTS, AI_SCOPES, CHOICE_SOURCES, JSON_FIELD_TYPE_LABELS, NODE_TYPES, nodeName, nodePorts, type JsonField, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
-import { Button, DangerZone, Inspector, InspectorHeader, InspectorSection, InspectorTabs, PropertyGrid, PropertyRow, StatusIcon, Checkbox, Input, GroupHeading } from '@loca/ui';
+import { Button, DangerZone, Inspector, InspectorHeader, InspectorBlock, InspectorList, InspectorSection, InspectorTabs, PropertyGrid, PropertyRow, StatusIcon, Checkbox, Input, GroupHeading } from '@loca/ui';
 import { nodeIcon } from '../node-view';
 import { AiConfig } from '@/components/workflow/node-config/ai';
 import { ConditionEditor } from '@/components/workflow/node-config/condition';
@@ -43,7 +43,7 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
     <Inspector
       className="min-w-0 border-l-0"
       header={<InspectorHeader icon={<Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />} kind={`${NODE_TYPES[node.type].label} · ${node.id}`} name={nodeName(node)} onClose={onClose} />}
-      tabs={<InspectorTabs<NodeConfigTab> value={activeTab} onChange={changeTab} items={[{ value: 'settings', label: '설정' }, { value: 'io', label: '입출력' }, { value: 'errors', label: '오류' }]} />}
+      tabs={<InspectorTabs<NodeConfigTab> value={activeTab} onChange={changeTab} items={[{ value: 'settings', label: '설정' }, { value: 'io', label: '입출력' }, { value: 'errors', label: issues.length ? `오류 ${issues.length}` : '오류' }]} />}
       bodyClassName="space-y-0 p-0"
     >
       {activeTab === 'settings' && (
@@ -70,13 +70,13 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
           {node.type === 'ai' ? (
             <AiConfig part="rest" node={node} refs={refs} onChange={onChange} />
           ) : node.type === 'function' || node.type === 'condition' ? (
-            <InspectorSection title="설정">
+            <InspectorSection title={NODE_TYPES[node.type].label}>
               {node.type === 'function' && <FunctionConfig node={node} refs={refs} readOnly={readOnly} onChange={onChange} />}
               {node.type === 'condition' && <ConditionEditor node={node} nodes={refs.nodes} refs={refs} readOnly={readOnly} onChange={onChange} />}
             </InspectorSection>
           ) : null}
           {!readOnly && node.type !== 'entry' && (
-            <DangerZone title="노드 삭제">
+            <DangerZone title="삭제">
               <Button variant="ghost" className="text-destructive" onClick={onDelete}>
                 <Trash2 /> 노드 삭제
               </Button>
@@ -96,7 +96,7 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
                   const port = source && nodePorts(source).find((item) => item.id === edge.sourceHandle);
                   return (
                     <PropertyRow key={edge.id} label={port?.label ?? edge.sourceHandle}>
-                      <span className="block truncate" title={source ? nodeName(source) : edge.source}>
+                      <span className="block break-words" title={source ? nodeName(source) : edge.source}>
                         {source ? nodeName(source) : `삭제된 노드 (${edge.source})`}
                       </span>
                     </PropertyRow>
@@ -113,7 +113,7 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
                   <PropertyRow key={port.id} label={port.label}>
                     {targets.length ? (
                       targets.map((target, index) => (
-                        <span key={`${target?.id ?? index}`} className="block truncate" title={target ? nodeName(target) : '삭제된 노드'}>
+                        <span key={`${target?.id ?? index}`} className="block break-words" title={target ? nodeName(target) : '삭제된 노드'}>
                           {target ? nodeName(target) : '삭제된 노드'}
                         </span>
                       ))
@@ -137,13 +137,13 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
       )}
 
       {activeTab === 'errors' && (
-        <div className="min-w-0">
-          {issues.length === 0 ? <p className="px-5 py-3 text-sm text-muted-foreground">현재 설정에서 발견된 문제가 없습니다.</p> : (
-            <ul className="space-y-2 px-5 py-3">
-              {issues.map((issue, index) => <li key={index} className={issue.level === 'error' ? 'text-destructive' : 'text-warning'}><span className="font-medium">{issue.level === 'error' ? '오류' : '경고'} · </span>{issue.message}</li>)}
-            </ul>
+        <InspectorBlock>
+          {issues.length === 0 ? <p className="text-sm text-muted-foreground">현재 설정에서 발견된 문제가 없습니다.</p> : (
+            <InspectorList>
+              {issues.map((issue, index) => <li key={index} className={`py-2 text-sm first:pt-0 last:pb-0 ${issue.level === 'error' ? 'text-destructive' : 'text-warning'}`}><span className="font-medium">{issue.level === 'error' ? '오류' : '경고'} · </span>{issue.message}</li>)}
+            </InspectorList>
           )}
-        </div>
+        </InspectorBlock>
       )}
     </Inspector>
   );

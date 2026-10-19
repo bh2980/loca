@@ -2,7 +2,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { FileText } from 'lucide-react';
 import { toast } from 'sonner';
-import { InspectorHeader, Inspector, Badge, Button, GroupHeading } from '@loca/ui';
+import { InspectorHeader, Inspector, InspectorBlock, InspectorList, InspectorResult, InspectorSection, Badge, Button } from '@loca/ui';
 import { TokenText } from '@/components/editor/source-text';
 import { client, unwrap } from '@/lib/api';
 import { tokenPatternOf } from '@/lib/line-context';
@@ -44,53 +44,55 @@ export function SeamCheckPane({ projectId, nodeId, onClose }: { projectId: strin
 
   const state = data?.check?.state;
   const line = (item: Line) => (
-    <li key={item.unitId} className="group flex items-start gap-2 px-3 py-2" data-testid="seam-line">
+    <li key={item.unitId} className="group flex items-start gap-2 py-2 first:pt-0 last:pb-0" data-testid="seam-line">
       <div className="min-w-0 flex-1 space-y-0.5 text-sm">
         <p className="text-xs text-muted-foreground">{item.speaker ?? '지문·문구'}</p>
         <TokenText text={item.source} source={item.source} pattern={tokens} />
         {item.translation ? <TokenText text={item.translation} source={item.source} pattern={tokens} className="text-muted-foreground" /> : <p className="text-xs text-muted-foreground">번역 없음</p>}
       </div>
-      <Button variant="ghost" size="icon-xs" asChild className="shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100">
+      <Button variant="ghost" size="icon-xs" asChild className="shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100">
         <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: item.groupId, line: item.unitId }} title="번역 화면에서 열기" aria-label="번역 화면에서 열기">
           <FileText />
         </Link>
       </Button>
     </li>
   );
-  const heading = (text: string) => <GroupHeading className="block bg-muted px-3 py-1.5">{text}</GroupHeading>;
+  const lines = (items: Line[], empty: string) =>
+    items.length ? <InspectorList>{items.map(line)}</InspectorList> : <p className="text-sm text-muted-foreground">{empty}</p>;
 
   return (
     <Inspector header={<InspectorHeader kind="경로" name="이음새" status={data && <SeamStateChip state={state} />} onClose={onClose} />} footer={
         data ? (
           <>
-            <Button disabled={mark.isPending || unmark.isPending} onClick={() => (state === 'checked' ? unmark.mutate() : mark.mutate(data.sig))}>
-              {state === 'checked' ? '점검 취소' : '점검함'}
-            </Button>
             {state === 'stale' && (
-              <Button variant="ghost" disabled={unmark.isPending} onClick={() => unmark.mutate()}>
+              <Button variant="outline" disabled={unmark.isPending} onClick={() => unmark.mutate()}>
                 점검 취소
               </Button>
             )}
-            {state === 'stale' && <span className="text-xs text-muted-foreground">점검한 뒤 이 줄들의 번역이 바뀌었습니다.</span>}
+            <Button disabled={mark.isPending || unmark.isPending} onClick={() => (state === 'checked' ? unmark.mutate() : mark.mutate(data.sig))}>
+              {state === 'checked' ? '점검 취소' : '점검함'}
+            </Button>
           </>
         ) : undefined
-      } loading={detail.isPending} bodyClassName="space-y-4 p-4">
-      {detail.isError && <p className="text-sm text-destructive">이음새 정보를 불러오지 못했습니다: {detail.error.message}</p>}
+      } loading={detail.isPending}>
+      {detail.isError && (
+        <InspectorBlock>
+          <InspectorResult tone="error">이음새 정보를 불러오지 못했습니다: {detail.error.message}</InspectorResult>
+        </InspectorBlock>
+      )}
+      {data && state === 'stale' && (
+        <InspectorBlock>
+          <InspectorResult tone="info">점검한 뒤 이 줄들의 번역이 바뀌었습니다.</InspectorResult>
+        </InspectorBlock>
+      )}
       {data && (
-        <div className="rounded-md border" data-testid="seam-route">
+        <div data-testid="seam-route">
           {data.before.map((entry, i) => (
-            <div key={entry.from}>
-              {heading(data.before.length > 1 ? `이번 길 ${i + 1}/${data.before.length}` : '이번 길')}
-              <ul>{entry.lines.length ? entry.lines.map(line) : <li className="px-3 py-2 text-xs text-muted-foreground">이 갈래에는 이음새 앞 대사가 없습니다.</li>}</ul>
-            </div>
+            <InspectorSection key={entry.from} title={data.before.length > 1 ? `이번 길 ${i + 1}/${data.before.length}` : '이번 길'}>
+              {lines(entry.lines, '이 갈래에는 이음새 앞 대사가 없습니다.')}
+            </InspectorSection>
           ))}
-          <div role="separator" className="flex items-center gap-2 border-y bg-muted px-3 py-1 text-xs text-muted-foreground">
-            <span className="h-px flex-1 bg-border" />
-            이음새
-            <span className="h-px flex-1 bg-border" />
-          </div>
-          {heading('번역한 길')}
-          <ul>{data.after.length ? data.after.map(line) : <li className="px-3 py-2 text-xs text-muted-foreground">이음새 뒤에 대사가 없습니다.</li>}</ul>
+          <InspectorSection title="번역한 길">{lines(data.after, '이음새 뒤에 대사가 없습니다.')}</InspectorSection>
         </div>
       )}
     </Inspector>

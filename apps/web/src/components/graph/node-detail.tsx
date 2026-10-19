@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { CornerDownRight, FileText, Network, PencilLine } from 'lucide-react';
-import { Inspector, InspectorHeader, Button, Skeleton } from '@loca/ui';
+import { Inspector, InspectorBlock, InspectorHeader, Button, Skeleton } from '@loca/ui';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { KIND_LABEL } from './shapes';
@@ -16,24 +16,27 @@ export function SceneNodeDetail({ projectId, groupId, onClose }: { projectId: st
   useReportView('graph-node', [group.data && { kind: '장면', id: group.data.id, label: group.data.title }]);
   if (!group.data) return <Skeleton className="m-4 h-24" />;
   return (
-    <div className="flex h-full flex-col">
-      <InspectorHeader kind="장면" name={group.data.title} status={<span className="font-mono text-xs break-all" title={group.data.key}>{group.data.key}</span>} onClose={onClose} />
-      <div className="space-y-3 p-4">
-        {group.data.description && <p className="text-sm">{group.data.description}</p>}
-        <div className="flex flex-col gap-2">
-          <Button asChild>
-            <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: groupId }}>
-              <FileText /> 장면 열기
-            </Link>
-          </Button>
+    <Inspector
+      header={<InspectorHeader kind="장면" name={group.data.title} status={<span className="font-mono text-xs break-all" title={group.data.key}>{group.data.key}</span>} onClose={onClose} />}
+      footer={
+        <>
           <Button variant="outline" asChild>
             <Link to="/p/$projectId/graph" params={{ projectId }} search={{ scope: 'dialogue', scene: groupId }}>
               <Network /> 대사 그래프에서 보기
             </Link>
           </Button>
-        </div>
-      </div>
-    </div>
+          <Button asChild>
+            <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: groupId }}>
+              <FileText /> 장면 열기
+            </Link>
+          </Button>
+        </>
+      }
+    >
+      <InspectorBlock>
+        {group.data.description ? <p className="text-sm">{group.data.description}</p> : <p className="text-sm text-muted-foreground">이 장면에는 설명이 없습니다.</p>}
+      </InspectorBlock>
+    </Inspector>
   );
 }
 
@@ -111,13 +114,15 @@ export function FlowPane({ projectId, nodeIds, title, way, extra, marked, editin
       key={key}
       data-marked={options.scrollTo || undefined}
       data-editing={(options.unitId && options.unitId === editing) || undefined}
-      className={cn('group relative grid gap-3 px-3 py-2', options.unitId && 'cursor-pointer hover:bg-muted', options.unitId && options.unitId === editing && 'bg-primary/5 shadow-[inset_2px_0_0_var(--primary)]', options.className)}
+      className={cn('group relative grid gap-3 px-4 py-2', options.unitId && 'cursor-pointer hover:bg-muted focus-visible:bg-muted focus-visible:outline-none', options.unitId && options.unitId === editing && 'bg-primary/5 shadow-[inset_2px_0_0_var(--primary)]', options.className)}
       style={{ gridTemplateColumns: `${width}px minmax(0,1fr)` }}
+      tabIndex={options.unitId ? 0 : undefined}
       onClick={options.unitId ? () => onEdit(options.unitId!) : undefined}
+      onKeyDown={options.unitId ? (event) => { if (event.key === 'Enter' && event.target === event.currentTarget) onEdit(options.unitId!); } : undefined}
     >
       <span className="truncate pt-px text-xs text-muted-foreground">{who}</span>
       <div className="min-w-0 text-sm">{what}</div>
-      {options.unitId && <PencilLine className="absolute top-2.5 right-2 size-3.5 text-muted-foreground opacity-0 group-hover:opacity-100" />}
+      {options.unitId && <PencilLine className="absolute top-2.5 right-3 size-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100" />}
     </li>
   );
   const lines = nodes.flatMap((node) => {
@@ -171,9 +176,9 @@ export function FlowPane({ projectId, nodeIds, title, way, extra, marked, editin
         )
       }
     >
-      {extra && <div className="space-y-4 p-4">{extra}</div>}
+      {extra}
       {way && way.labels.length > 0 && (
-        <p className="flex flex-wrap items-center gap-1 bg-muted px-3 py-1.5 text-xs text-muted-foreground">
+        <p className="flex flex-wrap items-center gap-1 bg-muted px-4 py-1.5 text-xs text-muted-foreground">
           <CornerDownRight className="size-3.5" aria-label="들어오는 길" />
           {way.labels.map((label, index) => (
             <span key={index} className={cn('rounded-full border px-1.5', label.choice ? 'border-choice/30 bg-choice/10 text-choice' : 'bg-background')}>
@@ -189,7 +194,7 @@ export function FlowPane({ projectId, nodeIds, title, way, extra, marked, editin
           aria-orientation="vertical"
           aria-label="화자 칸 폭"
           className="absolute top-0 bottom-0 z-10 w-2 cursor-col-resize hover:bg-border/60"
-          style={{ left: width + 12 + 2 }}
+          style={{ left: width + 16 + 2 }}
           onPointerDown={(event) => {
             const start = event.clientX;
             const from = width;
