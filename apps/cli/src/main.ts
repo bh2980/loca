@@ -657,10 +657,10 @@ workflows
   });
 
 workflows
-  .command('reference')
-  .description('워크플로를 만들 때 참고: 노드 종류와 출구, 조건이 읽는 값, AI 출력·프리셋, 반영 노드, 연결된 모델')
-  .action(async () => {
-    const raw = await readTool<{ text?: string } | Record<string, unknown>>('harness_reference');
+  .command('reference [프리셋]')
+  .description('워크플로를 만들 때 참고: 노드 종류와 출구, 조건이 읽는 값, AI 출력·프리셋(요약), 반영 노드, 연결된 모델. 프리셋 id를 주면 그 프리셋의 지시문·출력 필드·문맥 전문')
+  .action(async (preset?: string) => {
+    const raw = await readTool<{ text?: string } | Record<string, unknown>>('harness_reference', preset ? { preset } : {});
     // The tool hands the reference over as one JSON string.
     const data = typeof raw.text === 'string' ? (() => { try { return JSON.parse(raw.text as string) as unknown; } catch { return raw.text; } })() : raw;
     console.log(typeof data === 'string' ? data : JSON.stringify(data, null, 2));
