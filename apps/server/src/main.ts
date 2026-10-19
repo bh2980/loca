@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { and, eq, notLike } from 'drizzle-orm';
@@ -56,6 +56,10 @@ for (const projectId of projectsMissingSections(db)) if (!outdated.has(projectId
 
 const app = createApp({ db, secrets, runner, terms: new TermService(db, secrets) });
 if (existsSync(config.webDist)) {
+  // The built app is served as it is: one built before the latest pull shows yesterday's screens.
+  const built = statSync(path.join(config.webDist, 'index.html'), { throwIfNoEntry: false })?.mtimeMs ?? 0;
+  const source = newestChange(path.join(config.webDist, '..', 'src'));
+  if (source > built) console.warn(`웹 빌드(${config.webDist})가 소스보다 오래됐습니다. 이 주소의 화면은 예전 것입니다: pnpm build 를 다시 하거나 pnpm dev 의 주소를 쓰세요.`);
   const root = path.relative(process.cwd(), config.webDist);
   app.use('/*', serveStatic({ root }));
   app.get('*', serveStatic({ root, path: 'index.html' }));
@@ -82,3 +86,13 @@ const shutdown = async () => {
 process.on('SIGINT', () => void shutdown());
 process.on('SIGTERM', () => void shutdown());
 
+/** The latest change under a folder (its files' modification times), 0 when it is missing. */
+function newestChange(folder: string): number {
+  if (!existsSync(folder)) return 0;
+  let newest = 0;
+  for (const entry of readdirSync(folder, { withFileTypes: true, recursive: true })) {
+    if (!entry.isFile()) continue;
+    newest = Math.max(newest, statSync(path.join(entry.parentPath, entry.name)).mtimeMs);
+  }
+  return newest;
+}
