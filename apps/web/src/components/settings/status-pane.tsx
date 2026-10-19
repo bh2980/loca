@@ -1,7 +1,7 @@
 /** Right-hand pane to add or edit one status. */
 import { ArrowDown, ArrowUp, Trash2 } from 'lucide-react';
 import { DEFAULT_STATUS_COLOR } from '@tw/shared';
-import { InspectorSection, PropertyRow, PropertyGrid, InspectorHeader, Inspector, Button, Field, FieldGroup, FieldLabel, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Switch } from '@loca/ui';
+import { InspectorSection, PropertyRow, PropertyGrid, InspectorHeader, InspectorBlock, Inspector, Button, Field, FieldGroup, FieldLabel, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Switch } from '@loca/ui';
 import { STATUS_KIND } from '@/lib/labels';
 import { changedFields, useFormFrom } from '@/lib/use-form-from';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
@@ -49,7 +49,7 @@ export function StatusPane({
           )}
         </>
       }>
-      {conflicts.length > 0 && <ChangedElsewhere fields={conflicts.map((field) => STATUS_FIELD_LABEL[field as keyof StatusForm])} onTakeSaved={takeSaved} onKeepMine={keepMine} />}
+      {conflicts.length > 0 && <InspectorBlock><ChangedElsewhere fields={conflicts.map((field) => STATUS_FIELD_LABEL[field as keyof StatusForm])} onTakeSaved={takeSaved} onKeepMine={keepMine} /></InspectorBlock>}
       <InspectorSection title="설정">
         <FieldGroup className="gap-4">
           <Field>

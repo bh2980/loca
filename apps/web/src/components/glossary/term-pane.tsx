@@ -4,7 +4,7 @@ import { Link } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Play, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { Inspector, InspectorHeader, InspectorSection, PropertyGrid, PropertyRow, TagListEditor, DirtyBar, DangerZone, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Textarea } from '@loca/ui';
+import { Inspector, InspectorHeader, InspectorBlock, InspectorSection, PropertyGrid, PropertyRow, TagListEditor, DirtyBar, DangerZone, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Textarea } from '@loca/ui';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { confirmLabel, SourceBadge, StateCell, type ItemTag } from '@/components/knowledge/table';
 import { isSettled, PALETTE, TAG_SCOPES, type KnowledgeOrigin, type KnowledgeStatus, type StatusBy } from '@tw/shared';
@@ -137,7 +137,7 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
       } onClose={onClose} />}
       footer={dirty ? <DirtyBar dirtyCount={Object.keys(changedFields(form, saved)).length} onRevert={takeSaved} onSave={() => save.mutate()} saving={save.isPending} disabled={!form.source.trim()} /> : (candidate ? <Button variant="outline" disabled={deciding || !term.target.trim()} onClick={() => onDecide(true)}><Check /> {confirmLabel([{ ...term, evidence: [] }])}</Button> : null)}
     >
-      {conflicts.length > 0 && <ChangedElsewhere fields={conflicts.map((field) => TERM_FIELD_LABEL[field as keyof typeof TERM_FIELD_LABEL])} onTakeSaved={takeSaved} onKeepMine={keepMine} />}
+      {conflicts.length > 0 && <InspectorBlock><ChangedElsewhere fields={conflicts.map((field) => TERM_FIELD_LABEL[field as keyof typeof TERM_FIELD_LABEL])} onTakeSaved={takeSaved} onKeepMine={keepMine} /></InspectorBlock>}
       <InspectorSection title="기본 정보">
         <TermFields form={form} onChange={setForm} />
       </InspectorSection>

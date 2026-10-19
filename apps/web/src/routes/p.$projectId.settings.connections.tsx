@@ -30,6 +30,7 @@ import {
   Input,
   Inspector,
   InspectorHeader,
+  InspectorBlock,
   InspectorSection,
   Select,
   SelectContent,
@@ -231,6 +232,7 @@ function NewConnection({ onClose, onCreated }: { onClose: () => void; onCreated?
           추가
         </Button>
       }>
+      <InspectorBlock>
       <form id="new-connection-form" onSubmit={form.handleSubmit((values) => create.mutate(values))}>
         <FieldGroup className="gap-5">
           <Field>
@@ -291,6 +293,7 @@ function NewConnection({ onClose, onCreated }: { onClose: () => void; onCreated?
           )}
         </FieldGroup>
       </form>
+      </InspectorBlock>
     </Inspector>
   );
 }
@@ -411,7 +414,7 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
         )
       }
     >
-      <div className="space-y-6">
+      <div>
         <InspectorSection title="기본 정보">
           <FieldGroup className="gap-4">
             <Field data-invalid={!!errors.name}>

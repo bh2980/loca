@@ -1,7 +1,7 @@
 /** Right-hand pane to add, edit or delete a project tag. */
 import { Trash2 } from 'lucide-react';
 import { DEFAULT_TAG_COLOR, TAG_SCOPES, TAG_SCOPE_LABELS } from '@tw/shared';
-import { InspectorSection, InspectorHeader, Inspector, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Field, FieldDescription, FieldGroup, FieldLabel, Checkbox, Input, Label } from '@loca/ui';
+import { InspectorSection, InspectorHeader, InspectorBlock, Inspector, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Field, FieldDescription, FieldGroup, FieldLabel, Checkbox, Input, Label } from '@loca/ui';
 import { scopeLabel, type TagForm, type TagRowData } from '@/components/settings/status-types';
 import { Swatches } from '@/components/settings/swatches';
 import { changedFields, useFormFrom } from '@/lib/use-form-from';
@@ -41,7 +41,7 @@ export function TagPane({ tag, pending, onClose, onSave, onDelete }: { tag?: Tag
           )}
         </>
       }>
-      {conflicts.length > 0 && <ChangedElsewhere fields={conflicts.map((field) => TAG_FIELD_LABEL[field as keyof TagForm])} onTakeSaved={takeSaved} onKeepMine={keepMine} />}
+      {conflicts.length > 0 && <InspectorBlock><ChangedElsewhere fields={conflicts.map((field) => TAG_FIELD_LABEL[field as keyof TagForm])} onTakeSaved={takeSaved} onKeepMine={keepMine} /></InspectorBlock>}
       <InspectorSection title="설정">
         <FieldGroup className="gap-4">
           <Field>

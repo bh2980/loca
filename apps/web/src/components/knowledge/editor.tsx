@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { DOCUMENT_KINDS, STYLE_AXES, type StyleAxis, type CharacterRole, type Gender, type AgeBand, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled, AGE_BAND_LABELS, CHARACTER_ROLE_LABELS, GENDER_LABELS, PALETTE, knowledgeKindScope, type TagScope, type KnowledgeTagKind } from '@tw/shared';
-import { Inspector, InspectorHeader, InspectorSection, PropertyGrid, PropertyRow, TagListEditor, DirtyBar, DangerZone, Group, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Switch, Textarea, AiMark } from '@loca/ui';
+import { Inspector, InspectorHeader, InspectorBlock, InspectorSection, PropertyGrid, PropertyRow, TagListEditor, DirtyBar, DangerZone, Group, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Switch, Textarea, AiMark } from '@loca/ui';
 import { ChipInput, joinList, splitList } from '@/components/chip-input';
 import { useDraft } from '@/lib/drafts';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
@@ -106,7 +106,7 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
 
   const body = (
     <>
-      {changedElsewhere && <ChangedElsewhere onTakeSaved={clear} onKeepMine={() => setBase(saved)} />}
+      {changedElsewhere && <InspectorBlock><ChangedElsewhere onTakeSaved={clear} onKeepMine={() => setBase(saved)} /></InspectorBlock>}
       <InspectorSection title="기본 정보">
         <PropertyGrid>
           {primaryFields.map((field) => (

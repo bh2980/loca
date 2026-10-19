@@ -1,6 +1,5 @@
-import type { ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
-import { InspectorSection, InspectorHeader, Inspector, Button, DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@loca/ui';
+import { InspectorSection, Button, DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@loca/ui';
 import type { PathNodeText, PathSlice } from '@/components/graph/path-graph';
 import type { OverviewNode } from '@/components/graph/path-window';
 
@@ -94,17 +93,5 @@ export function PathNodeExtras({ choices, loops, onPick, onAuto }: { choices?: F
         </InspectorSection>
       )}
     </>
-  );
-}
-
-/**
- * The right-hand pane of a node picked on the map. The lines themselves are translated in the list
- * in the middle; this says what the node is and holds what the map does not draw on it.
- */
-export function PathNodePane({ title, subtitle, extras, onClose }: { title: string; subtitle?: string; extras: ReactNode; onClose: () => void }) {
-  return (
-    <Inspector header={<InspectorHeader kind="길 조각" name={title} status={subtitle} onClose={onClose} />}>
-      {extras}
-    </Inspector>
   );
 }

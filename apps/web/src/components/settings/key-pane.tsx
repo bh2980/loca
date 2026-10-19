@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Field, FieldDescription, FieldGroup, FieldLabel, Input, Inspector, InspectorHeader } from '@loca/ui';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Field, FieldDescription, FieldGroup, FieldLabel, Input, Inspector, InspectorBlock, InspectorHeader } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 
 export type KeyRow = { id: string; name: string; headerTemplate: string | null; hasKey: boolean };
@@ -62,6 +62,7 @@ export function KeyPane({ row, onClose, onCreated }: { row?: KeyRow; onClose: ()
           )}
         </>
       }>
+      <InspectorBlock>
       <FieldGroup className="gap-4">
         <Field>
           <FieldLabel htmlFor="key-name">이름</FieldLabel>
@@ -80,6 +81,7 @@ export function KeyPane({ row, onClose, onCreated }: { row?: KeyRow; onClose: ()
           <FieldDescription>OS 키체인에 저장되며 DB·내보내기에 들어가지 않습니다.</FieldDescription>
         </Field>
       </FieldGroup>
+      </InspectorBlock>
     </Inspector>
   );
 }
