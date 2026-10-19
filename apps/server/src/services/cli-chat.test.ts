@@ -1,11 +1,16 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { importFileSchema } from '@tw/shared';
-import type * as ai from '@tw/ai';
+import { agentWith, setAgentStarter, stopIdleAgents } from '@tw/ai';
+import { inProcessStarter } from '@tw/ai/fake-acp';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { cliChatResponse, parsedOutput, readLocaCall, readToolCalls, setAgentShellUrl } from './cli-chat.ts';
+import { cliChatResponse } from './cli-chat.ts';
+import { runChatTurn } from './chat-run.ts';
+import { memoryStore } from './secrets.ts';
+import { enqueueSteer } from './chat-interject.ts';
 import { importProject } from './importer.ts';
+import { decideProposal, hasUnreportedDecisions, propose } from './proposals.ts';
 
 function setup() {
   const db = openDatabase(':memory:');
@@ -21,119 +26,121 @@ function setup() {
   return { db, projectId, chat };
 }
 
-const fakeTurn = () => ({ token: crypto.randomUUID(), signal: new AbortController().signal, end: () => {}, record: () => {}, markClosing: () => {} });
-
+const fakeTurn = () => ({ signal: new AbortController().signal, end: () => {}, record: () => {}, markClosing: () => {} });
 const user = (text: string) => ({ id: crypto.randomUUID(), role: 'user' as const, parts: [{ type: 'text' as const, text }] });
 
-describe('CLI chat', () => {
-  it('reads tool blocks out of an answer', () => {
-    const answer = '찾아볼게요.\n```loca-tools\n[{"tool":"find_lines","input":{"speakers":["Alice"]}}]\n```';
-    expect(readToolCalls(answer)).toEqual({ visible: '찾아볼게요.', calls: [{ tool: 'find_lines', input: { speakers: ['Alice'] } }], error: undefined });
-    expect(readToolCalls('```loca-tools\n[{bad json\n```').error).toMatch(/JSON/);
+function respond(db: ReturnType<typeof setup>['db'], chat: typeof s.chatSessions.$inferSelect, text: string, turn = fakeTurn()) {
+  return cliChatResponse({
+    db,
+    chat,
+    route: { kind: 'grok', model: 'fake' },
+    answeredBy: { kind: 'grok', connectionId: 'conn-grok', model: 'fake' },
+    system: 'test',
+    view: null,
+    messages: [...((chat.messages ?? []) as never[]), user(text)],
+    timeoutMs: 10_000,
+    turn,
   });
+}
 
-  it('parses the supported loca call command forms and leaves other shell commands alone', () => {
-    expect(readLocaCall(`loca call find_lines '{"speakers":["Alice"]}'`)).toEqual({ tool: 'find_lines', input: { speakers: ['Alice'] } });
-    expect(readLocaCall("loca call find_lines - <<'JSON'\n{\"limit\":20}\nJSON")).toEqual({ tool: 'find_lines', input: { limit: 20 } });
-    // A change's note (stderr) comes before its JSON (stdout) in Codex's output.
-    expect(parsedOutput('제안을 올렸습니다 (proposal p1).\n{\n  "proposalId": "p1"\n}\n')).toEqual({ proposalId: 'p1', message: '제안을 올렸습니다 (proposal p1).' });
-    expect(parsedOutput('[1, 2]')).toEqual([1, 2]);
-    // …or after it: Codex interleaves the two streams in either order.
-    expect(parsedOutput('{\n  "proposalId": "p2"\n}\n우회 모드로 바로 반영했습니다 (proposal p2).\n')).toEqual({ proposalId: 'p2', message: '우회 모드로 바로 반영했습니다 (proposal p2).' });
-    expect(parsedOutput('{"a":1}\n')).toEqual({ a: 1 });
-    expect(parsedOutput('오류: 없는 도구입니다')).toBe('오류: 없는 도구입니다');
-    // As Codex reports them: wrapped in the shell it ran them with.
-    expect(readLocaCall(`/bin/bash -lc "loca call project_overview '{}'"`)).toEqual({ tool: 'project_overview', input: {} });
-    expect(readLocaCall(`/bin/bash -lc "loca call find_lines '{\\"q\\":\\"a\\$b\\"}'"`)).toEqual({ tool: 'find_lines', input: { q: 'a$b' } });
-    expect(readLocaCall(`/bin/bash -lc 'loca call find_lines '\\''{"q":"it'\\''s"}'\\'''`)).toEqual({ tool: 'find_lines', input: { q: "it's" } });
-    expect(readLocaCall('/bin/bash -lc "ls /tmp"')).toEqual({ command: 'ls /tmp' });
-    expect(readLocaCall("loca call find_lines '{broken}'")).toEqual({ tool: 'find_lines', input: { command: "loca call find_lines '{broken}'" } });
-    expect(readLocaCall('loca call find_lines unsupported')).toEqual({ tool: 'find_lines', input: { command: 'loca call find_lines unsupported' } });
-    expect(readLocaCall('pwd')).toEqual({ command: 'pwd' });
-  });
+afterEach(async () => {
+  await stopIdleAgents(true);
+  setAgentStarter(null);
+});
 
-  it('runs requested tools, proposes changes for the chat, and resumes the same CLI session with the results', async () => {
-    const { db, projectId, chat } = setup();
-    const prompts: { sessionId?: string; prompt: string }[] = [];
-    const answers = [
-      '앨리스의 대사를 보고 프로필을 제안하겠습니다.\n```loca-tools\n[{"tool":"find_lines","input":{"speakers":["Alice"]}},{"tool":"save_character","input":{"name":"Bob"}}]\n```',
-      '앨리스는 "You\'re late."라고 말합니다. 밥의 인물 추가를 제안했습니다.',
-    ];
-    const turn = async (_route: ai.ResolvedRoute, request: ai.CliChatTurn): Promise<ai.CliChatResult> => {
-      prompts.push({ sessionId: request.sessionId, prompt: request.prompt });
-      return { sessionId: 'cli-1', text: answers[prompts.length - 1], usage: {} };
-    };
-    const response = await cliChatResponse({
-      db,
-      chat,
-      route: { kind: 'grok', model: 'grok-4.7' },
-      answeredBy: { kind: 'grok', connectionId: 'conn-grok', model: 'grok-4.7' },
-      system: 'test',
-      view: null,
-      messages: [user('앨리스 프로필 만들어줘')],
-      timeoutMs: 1000,
-      turn: fakeTurn(),
-      cli: turn,
-    });
-    const body = await response.text();
+describe('CLI chat over ACP', () => {
+  it('streams the reply, runs workbench tools through MCP and proposes changes for this chat', async () => {
+    setAgentStarter(inProcessStarter({ FAKE_ACP_CHAT_TOOLS: JSON.stringify([{ name: 'find_lines', arguments: { speakers: ['Alice'] } }, { name: 'save_character', arguments: { name: 'Bob' } }]) }));
+    const { db, chat } = setup();
+    const body = await (await respond(db, chat, '앨리스 프로필 만들어줘')).text();
 
-    // First turn starts a session; the second resumes it with the tool results.
-    expect(prompts.map((p) => p.sessionId)).toEqual([undefined, 'cli-1']);
-    expect(prompts[1].prompt).toContain('작업실 도구 결과');
-    expect(prompts[1].prompt).toContain("You're late.");
-    expect(prompts[1].prompt).toContain('save_character: 제안을 올렸습니다');
-    // The change waits as a proposal of this chat; nothing was written.
-    const proposals = db.select().from(s.proposals).where(eq(s.proposals.projectId, projectId)).all();
-    expect(proposals.map((p) => [p.tool, p.sessionId, p.status])).toEqual([['save_character', chat.id, 'pending']]);
-    expect(db.select().from(s.characters).where(eq(s.characters.name, 'Bob')).get()).toBeUndefined();
-    // The panel sees both tool calls and the final text; the CLI session is remembered.
     expect(body).toContain('"toolName":"find_lines"');
+    expect(body).toContain("You're late.");
+    expect(body).toContain('"toolName":"save_character"');
     expect(body).toContain('"proposalId"');
-    expect(body).toContain('밥의 인물 추가를 제안했습니다');
-    expect(db.select().from(s.chatSessions).where(eq(s.chatSessions.id, chat.id)).get()!.agentSession).toMatchObject({ kind: 'grok', model: 'grok-4.7', id: 'cli-1' });
+    // The text arrives in pieces, not as one block at the end.
+    expect(body.match(/"type":"text-delta"/g)!.length).toBeGreaterThan(1);
+    // Text after a tool call is a new step: a last step of finished tool calls would make the panel send again.
+    const steps = body.split('"type":"start-step"').slice(1);
+    expect(steps.at(-1)).not.toContain('tool-output');
+    const proposal = db.select().from(s.proposals).get();
+    expect(proposal).toMatchObject({ sessionId: chat.id, tool: 'save_character', source: 'cli' });
+  });
+
+  it('keeps one CLI session across turns and tells it only what it missed', async () => {
+    setAgentStarter(inProcessStarter({ FAKE_ACP_CHAT_TOOLS: '[]' }));
+    const { db, chat } = setup();
+    await (await respond(db, chat, '첫 질문')).text();
+    const first = db.select().from(s.chatSessions).where(eq(s.chatSessions.id, chat.id)).get()!;
+    expect(first.agentSession).toMatchObject({ kind: 'grok', model: 'fake', seen: 2 });
+    const body = await (await respond(db, first, '둘째 질문')).text();
+    const second = db.select().from(s.chatSessions).where(eq(s.chatSessions.id, chat.id)).get()!;
+    expect(second.agentSession!.id).toBe(first.agentSession!.id);
+    expect(body).toContain('둘째 질문');
+    expect(body).not.toContain('이전 기록');
+  });
+
+  it('reopens the saved session in a new process after a restart', async () => {
+    setAgentStarter(inProcessStarter({ FAKE_ACP_CHAT_TOOLS: '[]' }));
+    const { db, chat } = setup();
+    await (await respond(db, chat, '첫 질문')).text();
+    await stopIdleAgents(true);
+    const first = db.select().from(s.chatSessions).where(eq(s.chatSessions.id, chat.id)).get()!;
+    await (await respond(db, first, '둘째 질문')).text();
+    expect(db.select().from(s.chatSessions).where(eq(s.chatSessions.id, chat.id)).get()!.agentSession!.id).toBe(first.agentSession!.id);
+  });
+
+  it('hands a message sent during the turn to the agent and carries on', async () => {
+    setAgentStarter(inProcessStarter({ FAKE_ACP_CHAT_TOOLS: '[]', FAKE_ACP_CHUNK_MS: '30' }));
+    const { db, chat } = setup();
+    const response = await respond(db, chat, '첫 질문');
+    enqueueSteer(db, chat.id, '이것도 봐줘');
+    const body = await response.text();
+    expect(body).toContain('"type":"data-steer"');
+    expect(body.match(/"type":"start-step"/g)).toHaveLength(2);
   });
 
   it('finishes and saves a reply nobody reads any more (the page was reloaded)', async () => {
+    setAgentStarter(inProcessStarter({ FAKE_ACP_CHAT_TOOLS: '[]' }));
     const { db, chat } = setup();
     const onEnd = vi.fn();
-    await cliChatResponse({
-      db,
-      chat,
-      route: { kind: 'grok', model: 'grok-4.7' },
-      answeredBy: { kind: 'grok', connectionId: 'conn-grok', model: 'grok-4.7' },
-      system: 'test',
-      view: null,
-      messages: [user('안녕')],
-      timeoutMs: 1000,
-      turn: { ...fakeTurn(), end: onEnd },
-      cli: async () => ({ sessionId: 'cli-1', text: '안녕하세요.', usage: {} }),
-    });
+    await respond(db, chat, '안녕', { ...fakeTurn(), end: onEnd });
     // The response body is never read.
     await vi.waitFor(() => expect(onEnd).toHaveBeenCalledOnce());
-    expect(JSON.stringify(db.select().from(s.chatSessions).where(eq(s.chatSessions.id, chat.id)).get()!.messages)).toContain('안녕하세요.');
+    expect(JSON.stringify(db.select().from(s.chatSessions).where(eq(s.chatSessions.id, chat.id)).get()!.messages)).toContain('가짜 ACP 에이전트');
   });
 
-  it('renders Codex shell commands as tool parts and does not parse loca-tools blocks', async () => {
-    const { db, chat } = setup();
-    setAgentShellUrl('http://[::1]:5000');
-    const cli = async (_route: ai.ResolvedRoute, request: ai.CliChatTurn): Promise<ai.CliChatResult> => {
-      expect(request.shell).toMatchObject({ env: { LOCA_URL: 'http://[::1]:5000', LOCA_PROJECT: chat.projectId, LOCA_CHAT: expect.any(String) }, readPaths: [expect.any(String)], deny: [expect.any(String)], loca: expect.stringContaining('/apps/cli/bin/loca.mjs') });
-      return {
-        sessionId: 'codex-1', text: '완료했습니다.\n```loca-tools\n[{"tool":"find_lines"}]\n```', usage: {},
-        commands: [{ command: "loca call save_character '{\"name\":\"Bob\"}'", output: '{"proposalId":"proposal-1"}', exitCode: 0 }],
-      };
-    };
-    const response = await cliChatResponse({
-      db, chat, route: { kind: 'codex', model: 'gpt-6-luna' },
-      answeredBy: { kind: 'codex', connectionId: 'conn-codex', model: 'gpt-6-luna' },
-      system: 'test', view: null, messages: [user('용어집을 확인해줘')], timeoutMs: 1000, turn: fakeTurn(), cli,
-    });
-    const body = await response.text();
+  it('tells the agent once how its proposals were decided, and keeps ids out of the reason the person reads', async () => {
+    setAgentStarter(inProcessStarter({ FAKE_ACP_CHAT_TOOLS: JSON.stringify([{ name: 'save_character', arguments: { id: 'no-such-id', name: 'X' } }]) }));
+    const { db, projectId, chat } = setup();
+    const proposal = propose(db, { projectId, sessionId: chat.id, source: 'cli', tool: 'save_character', input: { name: 'Bob' } });
+    await decideProposal(db, proposal.id, false);
+    expect(hasUnreportedDecisions(db, chat.id)).toBe(true);
+    const body = await (await respond(db, chat, '계속')).text();
+    expect(hasUnreportedDecisions(db, chat.id)).toBe(false);
+    expect(body).toContain('"type":"data-steer"');
+    expect(body).toContain('제안하지 못했습니다: 없는 인물입니다.');
+    expect(body.match(/"errorText":"[^"]*"/)?.[0]).not.toContain('no-such-id');
+    // The agent's copy of the reason has the id to fix it with (the fake agent quotes it in its reply).
+    const reply = [...body.matchAll(/"delta":"((?:[^"\\]|\\.)*)"/g)].map((match) => JSON.parse(`"${match[1]}"`) as string).join('');
+    expect(reply).toContain('id=no-such-id');
+    expect(reply).toContain('사용자가 거절함');
+  });
 
-    expect(body).toContain('"toolName":"save_character"');
-    expect(body).toContain('"proposalId":"proposal-1"');
-    expect(body).toContain('완료했습니다.');
-    expect(body).toContain('```loca-tools');
-    expect(body.match(/"type":"start-step"/g)).toHaveLength(1);
+  it('lets the CLI session go when the chat moves to another model', async () => {
+    setAgentStarter(inProcessStarter({ FAKE_ACP_CHAT_TOOLS: '[]' }));
+    const { db, chat } = setup();
+    const connection = db.insert(s.connections).values({ name: 'Grok', kind: 'grok', defaultModel: 'fake' }).returning().get();
+    const send = async (model: string, text: string) => {
+      const current = db.update(s.chatSessions).set({ connectionId: connection.id, model }).where(eq(s.chatSessions.id, chat.id)).returning().get();
+      await (await runChatTurn({ db, secrets: memoryStore() }, current, { incoming: user(text) })).text();
+      return db.select().from(s.chatSessions).where(eq(s.chatSessions.id, chat.id)).get()!.agentSession!;
+    };
+    const first = await send('fake', '하나');
+    expect(await agentWith('grok', undefined, first.id)).not.toBeNull();
+    const second = await send('fake-2', '둘');
+    expect(second.id).not.toBe(first.id);
+    await vi.waitFor(async () => expect(await agentWith('grok', undefined, first.id)).toBeNull());
+    expect(await agentWith('grok', undefined, second.id)).not.toBeNull();
   });
 });

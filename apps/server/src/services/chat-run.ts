@@ -1,6 +1,6 @@
 import { convertToModelMessages, stepCountIs, streamText, type ModelMessage, type UIMessage } from 'ai';
 import { eq } from 'drizzle-orm';
-import { chatTitle } from '@tw/shared';
+import { chatTitle, estimateTokens } from '@tw/shared';
 import * as ai from '@tw/ai';
 import type { Deps } from '../context.ts';
 import type { Db } from '../db/index.ts';
@@ -9,7 +9,9 @@ import { events } from '../events.ts';
 import { startCall } from './ai-calls.ts';
 import { AGENT_SYSTEM } from './agent-tools.ts';
 import { gatedTools } from './change-gate.ts';
-import { CONTEXT_BUDGET, fitMessages, mergeIncoming, type AnsweredBy } from './chat-context.ts';
+import { expandSteers, mergeIncoming, type AnsweredBy } from './chat-context.ts';
+import { fitRecord } from './chat-compaction.ts';
+import { agentCatalog, jsonSchemaOf } from './agent-catalog.ts';
 import { hasInterjections, takeInterjections, writeInterjections, type Interjection } from './chat-interject.ts';
 import { afterTurn, startTurn, turnEnded, turnStartedAt, type ChatTurn } from './chat-turns.ts';
 import { chatStream, errorText } from './chat-stream.ts';
@@ -59,7 +61,12 @@ export async function runChatTurn(deps: Pick<Deps, 'db' | 'secrets'>, given: typ
   const view = request.view ?? null;
   // The turn, not this request, decides when the reply stops (a reload keeps it going; 중단 stops it).
   const turn = startTurn(session.projectId, session.id);
-  if ((ai.CHAT_CLI_KINDS as string[]).includes(route.kind))
+  // A chat that moved to another connection or model lets its CLI session go. The record is ours:
+  // back on the same CLI and model after API turns, the CLI's saved session is reopened; after
+  // another CLI's turns, a new session gets the record.
+  const previous = session.agentSession;
+  if (previous && (previous.kind !== route.kind || previous.model !== route.model)) void ai.closeSession(previous.id);
+  if (ai.isAcpKind(route.kind))
     return cliChatResponse({ db, chat: session, route, system: [AGENT_SYSTEM, NO_EDITOR_NOTE].join('\n\n'), view, messages, answeredBy, timeoutMs: live.snapshot.timeoutSeconds * 1000, turn });
   return apiChatResponse({ db, session, route, live, view, messages, answeredBy, turn });
 }
@@ -97,6 +104,9 @@ export function continueAfterDecisions(deps: Pick<Deps, 'db' | 'secrets'>, sessi
     });
 }
 
+/** What the agent's tool definitions take in a request. */
+export const toolTokens = (db: Db, projectId: string) => estimateTokens(agentCatalog(db, projectId).map((tool) => ({ name: tool.name, description: tool.description, input: jsonSchemaOf(tool.schema) })));
+
 /** Steps one API turn may take, across the passes steering messages start. */
 const MAX_STEPS = 30;
 
@@ -129,7 +139,11 @@ function apiChatResponse(input: {
       writer.write({ type: 'start', messageId, messageMetadata: { answeredBy } });
       const interject = (items: Interjection[]) => ({ role: 'user' as const, content: writeInterjections(writer, items) });
       // An editor proposal left unanswered before the next message is dropped rather than failing the turn.
-      let modelMessages: ModelMessage[] = await convertToModelMessages(fitMessages(messages, CONTEXT_BUDGET.api), { ignoreIncompleteToolCalls: true });
+      // The whole record, its start summarized only when it would not fit the model (chat-compaction.ts).
+      const system = [AGENT_SYSTEM, input.view].filter(Boolean).join('\n\n');
+      const overhead = estimateTokens(system) + toolTokens(db, session.projectId);
+      const fitted = await fitRecord({ db, chat: session, route, record: messages, overhead, signal: turn.signal });
+      let modelMessages: ModelMessage[] = await convertToModelMessages(expandSteers(fitted), { ignoreIncompleteToolCalls: true });
       // Messages a previous turn could not take (it stopped for an approval) come first.
       const leftover = takeInterjections(db, session.id);
       if (leftover.length) modelMessages = [...modelMessages, interject(leftover)];
@@ -143,7 +157,7 @@ function apiChatResponse(input: {
           onFinish: ({ totalUsage }) => finish({ usage: { inputTokens: totalUsage.inputTokens, cachedInputTokens: totalUsage.inputTokenDetails?.cacheReadTokens, outputTokens: totalUsage.outputTokens } }),
           onError: ({ error }) => finish({ error }),
           onAbort: () => finish({ error: '중단함' }),
-          system: [AGENT_SYSTEM, input.view].filter(Boolean).join('\n\n'),
+          system,
           messages: modelMessages,
           tools,
           // A waiting steering message ends the pass after the current step (its tool results are in).

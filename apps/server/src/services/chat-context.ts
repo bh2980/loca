@@ -2,9 +2,10 @@ import type { UIMessage } from 'ai';
 
 /**
  * Model context built from the one conversation record (`chat_sessions.messages`).
- * Every backend reads the same record: the API chat sends it as messages, a CLI gets it as text.
- * A CLI's own session (on disk) is only a cache that
- * remembers how much of the record it has seen; what it missed is handed over from here (#46).
+ * Every backend reads the same record, whole: the API chat sends it as messages, a CLI gets it as
+ * text. A CLI's own session (on disk) is only a cache that remembers how much of the record it has
+ * seen; what it missed is handed over from here (#46). Nothing is shortened here: a record that
+ * outgrows the model's window is compacted (chat-compaction.ts).
  */
 
 /** Who answered: kept on every assistant message, so a switch mid-conversation stays visible. */
@@ -14,18 +15,11 @@ export interface AnsweredBy {
   model: string;
 }
 
-/** Characters of earlier conversation each backend gets before older parts are shortened. */
-export const CONTEXT_BUDGET = { api: 200_000, cli: 120_000 } as const;
-/** An old message shortened to fit the budget keeps this much of its text. */
-const SHORT = 300;
-
 export const textOf = (message: UIMessage) => message.parts.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('\n');
 
-const clip = (text: string, limit: number) => (text.length > limit ? `${text.slice(0, limit)}…` : text);
-const json = (value: unknown, limit: number) => {
+const json = (value: unknown) => {
   if (value === undefined || value === null) return '';
-  const text = typeof value === 'string' ? value : JSON.stringify(value);
-  return clip(text ?? '', limit);
+  return (typeof value === 'string' ? value : JSON.stringify(value)) ?? '';
 };
 
 interface ToolPart {
@@ -38,18 +32,18 @@ interface ToolPart {
 }
 
 /** A tool call and its result on one line, for a reader that cannot take the structured parts. */
-function toolLine(part: ToolPart, limit: number) {
+function toolLine(part: ToolPart) {
   const name = part.toolName ?? part.type.replace(/^tool-/, '');
-  const result = part.state === 'output-error' ? ` → 실패: ${json(part.errorText, limit)}` : part.state === 'output-available' ? ` → ${json(part.output, limit)}` : part.state === 'output-denied' ? ' → 거절됨' : '';
-  return `[도구 ${name} ${json(part.input, Math.min(limit, 400))}${result}]`;
+  const result = part.state === 'output-error' ? ` → 실패: ${json(part.errorText)}` : part.state === 'output-available' ? ` → ${json(part.output)}` : part.state === 'output-denied' ? ' → 거절됨' : '';
+  return `[도구 ${name} ${json(part.input)}${result}]`;
 }
 
-/** One message as text: what was said plus the tools it used (results shortened). */
-export function messageText(message: UIMessage, limit = 2_000) {
+/** One message as text: what was said plus the tools it used and what they returned. */
+export function messageText(message: UIMessage) {
   const pieces: string[] = [];
   for (const part of message.parts) {
     if (part.type === 'text' && part.text.trim()) pieces.push(part.text);
-    else if (part.type.startsWith('tool-') || part.type === 'dynamic-tool') pieces.push(toolLine(part as ToolPart, limit));
+    else if (part.type.startsWith('tool-') || part.type === 'dynamic-tool') pieces.push(toolLine(part as ToolPart));
   }
   return pieces.join('\n');
 }
@@ -93,67 +87,26 @@ const speaker = (message: UIMessage) => {
   return by ? `에이전트(${by.model})` : '에이전트';
 };
 
-/**
- * The conversation as text within `budget` characters. Recent messages stay whole; older ones are
- * shortened, and if that is still too long the oldest are left out with a note saying how many.
- */
-export function transcript(messages: UIMessage[], budget: number) {
-  const full = expandSteers(messages).map((message) => ({ who: speaker(message), text: messageText(message) })).filter((line) => line.text);
-  if (!full.length) return '';
-  const lines: string[] = [];
-  let used = 0;
-  let index = full.length - 1;
-  // Newest first: whole while they fit in most of the budget, then shortened.
-  for (; index >= 0; index--) {
-    const line = `${full[index].who}: ${full[index].text}`;
-    if (used + line.length > budget * 0.7) break;
-    lines.unshift(line);
-    used += line.length + 1;
-  }
-  for (; index >= 0; index--) {
-    const line = `${full[index].who}: ${clip(full[index].text, SHORT)}`;
-    if (used + line.length > budget) break;
-    lines.unshift(line);
-    used += line.length + 1;
-  }
-  if (index >= 0) lines.unshift(`(앞선 메시지 ${index + 1}개는 길이 때문에 생략)`);
-  return lines.join('\n');
+/** The conversation as text, every message whole, naming who answered. */
+export function transcript(messages: UIMessage[]) {
+  return expandSteers(messages)
+    .map((message) => ({ who: speaker(message), text: messageText(message) }))
+    .filter((line) => line.text)
+    .map((line) => `${line.who}: ${line.text}`)
+    .join('\n');
 }
 
 /** The whole earlier conversation for a backend that starts fresh (a new CLI session, another model). */
-export function handover(earlier: UIMessage[], budget: number) {
-  const text = transcript(earlier, budget);
+export function handover(earlier: UIMessage[]) {
+  const text = transcript(earlier);
   return text ? `이 대화의 이전 기록(다른 AI와 나눈 부분 포함, 이어서 대화하세요):\n${text}` : null;
 }
 
 /** What a backend's cached session missed: messages after the ones it saw (another model answered in between). */
-export function catchUp(earlier: UIMessage[], seen: number, budget: number) {
+export function catchUp(earlier: UIMessage[], seen: number) {
   const missed = earlier.slice(Math.max(0, Math.min(seen, earlier.length)));
-  const text = transcript(missed, budget);
+  const text = transcript(missed);
   return text ? `지난번 이후 이 대화에서 오간 내용(다른 AI가 답한 부분):\n${text}` : null;
-}
-
-const sizeOf = (message: UIMessage) => JSON.stringify(message.parts).length;
-
-/**
- * The record as API messages within `budget` characters: when it is longer, the older part becomes
- * one text message (a handover) and the rest is sent as it is, starting at a user message so a tool
- * call is never cut from its result.
- */
-export function fitMessages(record: UIMessage[], budget: number): UIMessage[] {
-  const messages = expandSteers(record);
-  let total = messages.reduce((sum, message) => sum + sizeOf(message), 0);
-  if (total <= budget) return messages;
-  let start = 0;
-  while (start < messages.length - 1 && total > budget * 0.7) {
-    total -= sizeOf(messages[start]);
-    start++;
-  }
-  while (start > 0 && messages[start].role !== 'user') start--;
-  if (start === 0) return messages;
-  const summary = handover(messages.slice(0, start), budget * 0.3);
-  if (!summary) return messages.slice(start);
-  return [{ id: 'earlier', role: 'user', parts: [{ type: 'text', text: summary }] }, ...messages.slice(start)];
 }
 
 /**

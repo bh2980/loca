@@ -3,8 +3,8 @@ import { existsSync, readdirSync, statSync } from 'node:fs';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { and, eq, notLike } from 'drizzle-orm';
-import { agentShellApp, createApp } from './app.ts';
-import { setAgentShellUrl } from './services/cli-chat.ts';
+import * as ai from '@tw/ai';
+import { createApp } from './app.ts';
 import { config } from './config.ts';
 import { openDatabase } from './db/index.ts';
 import * as s from './db/schema.ts';
@@ -69,16 +69,13 @@ if (existsSync(config.webDist)) {
 const server = serve({ fetch: app.fetch, hostname: '127.0.0.1', port: config.port }, (info) => {
   console.log(`loca → http://127.0.0.1:${info.port}  (data: ${config.dataDir})`);
 });
-// Codex's shell reaches only this (see agentShellApp); without IPv6 loopback, Codex chats refuse to start.
-const agentShell = serve({ fetch: agentShellApp(app).fetch, hostname: '::1', port: 0 }, (info) => setAgentShellUrl(`http://[::1]:${info.port}`));
-agentShell.on('error', (error) => console.error('agent tool listener on ::1 failed; Codex chats are off', error));
 
 const shutdown = async () => {
   try {
     events.emit('shutdown');
     await runner.stop();
     server.close();
-    agentShell.close();
+    await ai.stopIdleAgents(true);
   } catch (error) {
     console.error('shutdown failed', error);
   }

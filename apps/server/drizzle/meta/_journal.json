@@ -505,6 +505,13 @@
       "when": 1792422603536,
       "tag": "0071_remove_pi",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "6",
+      "when": 1792427071119,
+      "tag": "0072_chat_compaction",
+      "breakpoints": true
     }
   ]
 }
