@@ -75,7 +75,7 @@ describe('preflight', () => {
       const ran = actual(node.nodeId);
       if (ran) expect(Math.abs(node.requests.expected! - ran) / ran).toBeLessThanOrEqual(0.2);
     }
-    expect(second.nodes[0].overheadTokens).toBeGreaterThan(20_000);
+    expect(second.nodes[0].overheadTokens).toBeGreaterThan(10_000);
     expect(second.totals.calls.expected).toBeGreaterThan(0);
   }, 60_000);
 });

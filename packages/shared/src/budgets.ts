@@ -47,3 +47,11 @@ export function autoBudgets(limits: Pick<ModelLimits, 'contextWindow' | 'maxOutp
 /** The line-text budget a batch config packs to: its own number, or the default when left to "auto" and not resolved. */
 export const batchTokens = (config: { mode: string; maxTokens?: number | null }) => config.maxTokens ?? (config.mode === 'whole' ? DEFAULT_BUDGETS.whole : DEFAULT_BUDGETS.lines);
 export const contextTokens = (config: { maxTokens?: number | null }) => config.maxTokens ?? DEFAULT_BUDGETS.context;
+
+/**
+ * What one line costs a request beyond its text: its number, the JSON around it in the answer.
+ * Batches count lines by `lineCost`, so a request of many short lines is bounded by tokens too
+ * (there is no separate line-count cap; a model that drops lines in a long list is asked again for those).
+ */
+export const LINE_OVERHEAD = 20;
+export const lineCost = (line: { tokens: number }) => line.tokens + LINE_OVERHEAD;

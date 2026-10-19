@@ -291,16 +291,16 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
               </Select>
             </Field>
             {(config.batch.mode === 'whole' || config.batch.mode === 'group') && (
-              <Field label="요청당 최대 토큰" hint={`한 요청에 넣는 대사 원문의 양. ${limitsHint}`}>
+              <Field label="요청당 최대 토큰" hint={`한 요청에 넣는 대사의 양(줄마다 번호·형식 몫 포함). 줄 수 제한은 따로 없습니다. ${limitsHint}`}>
                 <BudgetInput value={config.batch.maxTokens} auto={auto.lines} onChange={(maxTokens) => set({ batch: { ...config.batch, maxTokens } })} label="요청당 최대 토큰" />
               </Field>
             )}
-            {config.batch.mode !== 'unit' && config.batch.mode !== 'whole' && (
-              <Field label="최대 크기">
+            {config.batch.mode === 'count' && (
+              <Field label="요청당 줄 수">
                 <Input
                   type="number"
                   min={1}
-                  max={200}
+                  max={1000}
                   value={config.batch.size}
                   onChange={(event) =>
                     set({ batch: { ...config.batch, size: Number(event.target.value) } })

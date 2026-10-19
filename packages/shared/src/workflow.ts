@@ -42,8 +42,8 @@ export const batchConfigSchema = z.object({
    * scenes; unit: one line each; whole: the whole script in as few requests as `maxTokens` allows (work analysis).
    */
   mode: z.enum(['unit', 'group', 'count', 'whole']).default('group'),
-  /** Most lines in one request. */
-  size: z.number().int().min(1).max(200).default(60),
+  /** Lines per request in "count" mode; the other modes are bounded by tokens only (lineCost per line). */
+  size: z.number().int().min(1).max(1_000).default(60),
   /** Most estimated tokens of line text in one request ("group", "whole"); context is capped separately. Null = auto, from the model's limits (autoBudgets). */
   maxTokens: z.number().int().min(500).max(10_000_000).nullable().default(null),
 });

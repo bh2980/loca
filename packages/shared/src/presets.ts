@@ -162,7 +162,7 @@ export const AI_PRESETS = {
     include: { candidate: true, issues: false },
     fields: [],
     context: { speech: true, documents: false, characters: false, relationships: false, glossary: false, precedingLines: 4, previousScenes: 0 },
-    batch: { mode: 'group', size: 40 },
+    batch: { mode: 'group' },
     instructions:
       'Each line has a current translation ("candidate") and, where known, its listener and a confirmed speechRule. ' +
       'Change only the sentence endings, honorifics and forms of address so the line follows its speechRule; keep the meaning, word choice and everything else as it is. ' +
@@ -182,7 +182,7 @@ export const AI_PRESETS = {
     ],
     // Not the lines' own listeners and speech rules: those are what this node decides.
     context: { glossary: false, speech: false, cast: true, characters: true, relationships: true, documents: true, precedingLines: 8, previousScenes: 1 },
-    batch: { mode: 'group', size: 80 },
+    batch: { mode: 'group' },
     instructions:
       'For each line, decide who the speaker is addressing, so a Korean translator can pick the right speech level. ' +
       'Read the whole batch as a scene: who is present, turn-taking, vocatives, questions and answers. ' +
@@ -197,7 +197,7 @@ export const AI_PRESETS = {
     scope: 'batch',
     include: { candidate: false, issues: false },
     context: { characters: true, documents: true, speech: false, precedingLines: 0, previousScenes: 0 },
-    batch: { mode: 'group', size: 60 },
+    batch: { mode: 'group' },
     fields: [listField('terms', 'Terms found across all lines of the request; empty when there are none.', termFields)],
     instructions: [
       'Find proper nouns, coined words and recurring game terms in the source lines that are not already in the glossary.',
@@ -212,7 +212,7 @@ export const AI_PRESETS = {
     scope: 'batch',
     include: { candidate: false, issues: false },
     context: { glossary: false, cast: true, characters: true, relationships: true, documents: true, speech: true, precedingLines: 8, previousScenes: 1 },
-    batch: { mode: 'group', size: 120 },
+    batch: { mode: 'group' },
     fields: [
       listField('characters', 'People these lines add; empty when none are new.', characterFields),
       listField('relationships', 'Relationships these lines start or change.', relationshipFields),
@@ -234,7 +234,7 @@ export const AI_PRESETS = {
     scope: 'batch',
     include: { candidate: false, issues: false },
     context: { glossary: false, cast: true, characters: true, relationships: false, documents: true, speech: false, precedingLines: 0, previousScenes: 1 },
-    batch: { mode: 'group', size: 120 },
+    batch: { mode: 'group' },
     fields: [listField('events', 'Events in these lines that later lines may refer back to; empty when none.', eventFields)],
     instructions: ['Read these lines as one scene and report the events in it.', KNOWN_CAST, EVIDENCE_RULES, RULE_EVENTS].join('\n'),
   },
@@ -246,7 +246,7 @@ export const AI_PRESETS = {
     include: { candidate: false, issues: false },
     // The script itself is the context; stored knowledge would only bias the reading. Only the names people fixed are sent (cast).
     context: READING_CONTEXT,
-    batch: { mode: 'whole', size: 200 },
+    batch: { mode: 'whole' },
     fields: [
       field('overviewTitle', 'string', 'A short Korean title for the overview document, e.g. "작품 개요".'),
       field('overview', 'string', 'Markdown document in Korean with the headings 배경 (the setting), 주요 갈등 (the main conflict) and 줄거리 (the plot so far). Use only what the text says.'),
