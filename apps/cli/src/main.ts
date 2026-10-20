@@ -772,26 +772,25 @@ runs
     console.log(`실행 요청을 올렸습니다 (${proposalId}). ${ACCEPT_HINT}. 시작한 뒤에는 loca runs list로 봅니다.`);
   });
 
-const proposals = program.command('proposals').description('CLI와 워크플로가 올린 제안: 목록과 결정 상태 (결정은 앱에서)');
+const proposals = program.command('proposals').description('CLI가 올린 제안: 목록과 결정 상태 (결정은 앱에서)');
 
 proposals
   .command('list')
   .description('제안 목록, 최근 것부터')
   .addOption(new Option('--status <상태>', '이 상태만').choices(['pending', 'running', 'accepted', 'rejected', 'failed']))
-  .option('--run <id>', '이 실행이 올린 제안만')
   .option('--limit <n>', '최대 몇 개', '50')
-  .action(async (options: { status?: 'pending'; run?: string; limit: string }) => {
-    const response = await api().projects[':projectId'].proposals.$get({ param: { projectId: await projectId() }, query: { status: options.status, runId: options.run, limit: options.limit } });
+  .action(async (options: { status?: 'pending'; limit: string }) => {
+    const response = await api().projects[':projectId'].proposals.$get({ param: { projectId: await projectId() }, query: { status: options.status, limit: options.limit } });
     const rows = await unwrap(Promise.resolve(response));
     const total = Number(response.headers.get('x-total-count') ?? rows.length);
     log(`제안 ${total.toLocaleString()}개 중 ${rows.length.toLocaleString()}개`);
     if (globals().json) return printList(total, rows);
     const word: Record<string, string> = { pending: '대기', running: '적용 중', accepted: '수락', rejected: '거절', failed: '실패' };
-    const from: Record<string, string> = { cli: 'CLI', run: '실행', chat: '채팅' };
-    for (const row of rows as { id: string; tool: string; status: string; source?: string; runId?: string | null; input?: Record<string, unknown>; createdAt: string }[]) {
+    const from: Record<string, string> = { cli: 'CLI', api: 'API' };
+    for (const row of rows as { id: string; tool: string; status: string; source?: string; input?: Record<string, unknown>; createdAt: string }[]) {
       // How many entries it carries (lines, items, changes), when it is a list.
       const size = Object.values(row.input ?? {}).find(Array.isArray)?.length;
-      console.log(`${new Date(row.createdAt).toLocaleString()}  [${word[row.status] ?? row.status}] ${row.tool}${size ? ` ${size.toLocaleString()}건` : ''} · ${from[row.source ?? ''] ?? row.source ?? ''}${row.runId ? ` ${row.runId.slice(0, 8)}` : ''}  (${row.id})`);
+      console.log(`${new Date(row.createdAt).toLocaleString()}  [${word[row.status] ?? row.status}] ${row.tool}${size ? ` ${size.toLocaleString()}건` : ''} · ${from[row.source ?? ''] ?? row.source ?? ''}  (${row.id})`);
     }
   });
 

@@ -664,10 +664,7 @@ export const proposals = sqliteTable(
     sessionId: text('session_id'),
     /** Model that proposed the change; null for person-originated proposals. */
     model: text('model'),
-    source: text('source', { enum: ['cli', 'api', 'run'] }).notNull(),
-    /** A workflow run's apply node filed it (source 'run'): the run and the node, so the list can group by run. */
-    runId: text('run_id').references(() => runs.id, { onDelete: 'set null' }),
-    nodeId: text('node_id'),
+    source: text('source', { enum: ['cli', 'api'] }).notNull(),
     tool: text('tool').notNull(),
     input: json<Record<string, unknown>>('input').notNull(),
     /** Inverse agent-tool calls, or why this change cannot be undone. */

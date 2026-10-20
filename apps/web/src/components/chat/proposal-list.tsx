@@ -1,18 +1,13 @@
-/** Proposals waiting for a decision, grouped by the workflow run that filed them, with bulk accept/reject. */
-import { useMemo, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from '@tanstack/react-router';
+/** Proposals waiting for a decision, with bulk accept/reject. */
+import { useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Check, ChevronRight, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button, Checkbox, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectionBar, Spinner } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
-import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { ProposalCard, type Proposal } from './proposal-card';
 import { LABEL } from './change-preview';
-
-/** Proposals a workflow run filed carry its id; everything else (CLI, API) falls in one group. */
-const runIdOf = (proposal: Proposal) => proposal.runId ?? null;
 
 function summary(proposal: Proposal) {
   const input = proposal.input as Record<string, unknown>;
@@ -20,24 +15,7 @@ function summary(proposal: Proposal) {
   return first ?? '';
 }
 
-export function ProposalGroups({ projectId, proposals, title }: { projectId: string; proposals: Proposal[]; title: string }) {
-  const runs = useQuery(q.runs(projectId));
-  const runName = useMemo(() => new Map((runs.data ?? []).map((run) => [run.id, run.workflowName])), [runs.data]);
-  const groups = useMemo(() => {
-    const byRun = new Map<string | null, Proposal[]>();
-    for (const proposal of proposals) byRun.set(runIdOf(proposal), [...(byRun.get(runIdOf(proposal)) ?? []), proposal]);
-    return [...byRun.entries()];
-  }, [proposals]);
-  return (
-    <div className="space-y-2">
-      {groups.map(([runId, list]) => (
-        <ProposalGroup key={runId ?? 'other'} projectId={projectId} runId={runId} title={runId ? (runName.get(runId) ?? '워크플로 실행') : title} proposals={list} />
-      ))}
-    </div>
-  );
-}
-
-function ProposalGroup({ projectId, runId, title, proposals }: { projectId: string; runId: string | null; title: string; proposals: Proposal[] }) {
+export function ProposalList({ projectId, title, proposals }: { projectId: string; title: string; proposals: Proposal[] }) {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(proposals.length <= 5);
   const [kind, setKind] = useState('all');
@@ -74,11 +52,6 @@ function ProposalGroup({ projectId, runId, title, proposals }: { projectId: stri
           <span className="truncate">{title}</span>
           <span className="shrink-0 font-normal text-muted-foreground tabular-nums">{proposals.length.toLocaleString()}개</span>
         </Button>
-        {runId && (
-          <Link to="/p/$projectId/runs/$runId" params={{ projectId, runId }} className="shrink-0 text-xs text-primary underline">
-            실행 보기
-          </Link>
-        )}
       </div>
       {open && (
         <div className="space-y-2 border-t px-3 py-2">

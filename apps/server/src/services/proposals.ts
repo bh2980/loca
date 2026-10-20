@@ -7,7 +7,7 @@ import { agentCatalog } from './agent-catalog.ts';
 import { captureUndo, dropConflicts, isRecord, orderedCalls, rebaseLineCall, rememberLineRevisions } from './proposal-undo.ts';
 
 /** Stores a proposal; callers check it first with prepareProposal (proposal-check.ts). */
-export function propose(db: Pick<Db, 'insert'>, input: { projectId: string; sessionId: string | null; model?: string | null; source: 'cli' | 'api' | 'run'; /** A workflow apply node's proposal (source 'run'): its run and node. */ runId?: string; nodeId?: string; tool: string; input: Record<string, unknown>; report?: s.ProposalReport | null; review?: string | null }) {
+export function propose(db: Pick<Db, 'insert'>, input: { projectId: string; sessionId: string | null; model?: string | null; source: 'cli' | 'api'; tool: string; input: Record<string, unknown>; report?: s.ProposalReport | null; review?: string | null }) {
   const row = db.insert(s.proposals).values(input).returning().get();
   events.changed(input.projectId, 'proposals');
   return row;
@@ -19,19 +19,11 @@ type PreviewChange = { translation?: string; status?: string; addTags?: string[]
 const isPreviewChange = (value: unknown): value is PreviewChange =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 
-/** The run a proposal with source 'run' came from, as the list shows it. */
-export interface ProposalRun { id: string; workflow: string; createdAt: Date }
-export function proposalRuns(db: Db, rows: (typeof s.proposals.$inferSelect)[]): Map<string, ProposalRun> {
-  const ids = [...new Set(rows.flatMap((row) => (row.runId ? [row.runId] : [])))];
-  if (!ids.length) return new Map();
-  return new Map(db.select({ id: s.runs.id, workflow: s.runs.workflowName, createdAt: s.runs.createdAt }).from(s.runs).where(inArray(s.runs.id, ids)).all().map((run) => [run.id, run]));
-}
-
 /**
  * A batch proposal can carry a whole game (50k lines, several MB): the list sends its counts and
  * the first lines, and accepting still runs the stored input.
  */
-export function listedProposal(proposal: typeof s.proposals.$inferSelect, run: ProposalRun | null = null) {
+export function listedProposal(proposal: typeof s.proposals.$inferSelect) {
   const { undo, ...rest } = proposal;
   const summary: { calls: number } | { none: string } | null = undo && 'calls' in undo
     ? { calls: undo.calls.length }
@@ -45,8 +37,7 @@ export function listedProposal(proposal: typeof s.proposals.$inferSelect, run: P
       counts: { dropped: report.dropped.length, warnings: report.warnings.length },
     }
     : report;
-  // A proposal an apply node filed says which run (and workflow) it came from, so the list can group by run.
-  const listed = { ...rest, undo: summary, report: listedReport, run };
+  const listed = { ...rest, undo: summary, report: listedReport };
   const changes = Array.isArray(listed.input.changes) ? listed.input.changes.filter(isPreviewChange) : null;
   if (!changes || changes.length <= PREVIEW_CHANGES) return listed;
   const counts = {

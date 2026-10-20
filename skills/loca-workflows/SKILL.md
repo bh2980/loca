@@ -77,6 +77,5 @@ loca runs start <워크플로> -g <장면>       # 시작 제안. 범위와 옵�
 ```
 loca runs list --since 24                 # 최근 실행: 상태, 대사(용어 실행은 용어) 수, 토큰, 실패가 많은 노드
 loca runs show <id>                       # 노드별 진행(상태별 대사·용어 수)과 최근 실패
-loca proposals list --status pending      # 실행이 올린 제안 중 기다리는 것
 ```
 실패가 한 노드에 몰리면 그 노드의 설정(모델, 출력 필드, 지시문)과 연결 상태를 봅니다. 모델이 출력 형식을 못 지키면 필드 설명을 구체적으로 쓰거나 `required`·`min`·`max`를 점검하고, 연결이 막히면 `extraModels`로 대체 모델을 둡니다.

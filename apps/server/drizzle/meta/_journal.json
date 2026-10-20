@@ -575,6 +575,13 @@
       "when": 1792498862255,
       "tag": "0081_drop_ai_confirm",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "6",
+      "when": 1792501271508,
+      "tag": "0082_drop_run_proposals",
+      "breakpoints": true
     }
   ]
 }

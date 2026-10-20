@@ -705,5 +705,5 @@
 
 5. **검증**
    - [ ] `pnpm typecheck`, `pnpm test`, `pnpm ui-rules`, `pnpm build`
-   - [ ] 격리 `WORKBENCH_DATA_DIR` + `pnpm mock-llm` + `samples/realistic-9k.json`으로 브라우저 전체 여정: 작품 분석 워크플로 실행 → 제안 수백 건 수락, 청자 추정 → 조건 → 청자 설정, 그래프 보기 만들기·열기·뒤로/앞으로
+   - [ ] 격리 `WORKBENCH_DATA_DIR` + `pnpm mock-llm` + `samples/realistic-9k.json`으로 브라우저 전체 여정: 작품 분석 워크플로 실행 → 결과가 바로 반영되는지 확인, 청자 추정 → 조건 → 청자 설정, 그래프 보기 만들기·열기·뒤로/앞으로
    - [ ] CLI·skills는 개발 종료 후 한 번에 맞춘다

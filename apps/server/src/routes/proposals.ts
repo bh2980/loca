@@ -3,35 +3,32 @@ import { and, count, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { badRequest, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
-import { decideProposal, listedProposal, proposalRuns, undoProposals } from '../services/proposals.ts';
+import { decideProposal, listedProposal, undoProposals } from '../services/proposals.ts';
 import { continueAfterDecisions } from '../services/chat-run.ts';
 
 /** Changes proposed by CLI chats and the loca CLI, decided in the chat panel. */
 export const proposalRoutes = new Hono<Env>()
-  // Without `session`: everything not tied to a chat (the CLI's and the workflows' apply nodes), newest first.
-  // `status` filters, `runId` narrows to one run's proposals; page with limit/offset (x-total-count is the full count).
+  // Without `session`: everything not tied to a chat (the CLI's), newest first.
+  // `status` filters; page with limit/offset (x-total-count is the full count).
   .get(
     '/projects/:projectId/proposals',
     validate('query', z.object({
       session: z.string().optional(),
       status: z.enum(['pending', 'running', 'accepted', 'rejected', 'failed']).optional(),
-      runId: z.string().optional(),
       limit: z.coerce.number().int().min(1).max(5000).default(1000),
       offset: z.coerce.number().int().min(0).default(0),
     })),
     (c) => {
       const { db } = c.var.deps;
-      const { session, status, runId, limit, offset } = c.req.valid('query');
+      const { session, status, limit, offset } = c.req.valid('query');
       const where = and(
         eq(s.proposals.projectId, c.req.param('projectId')),
         session ? eq(s.proposals.sessionId, session) : isNull(s.proposals.sessionId),
         status ? eq(s.proposals.status, status) : undefined,
-        runId ? eq(s.proposals.runId, runId) : undefined,
       );
       const rows = db.select().from(s.proposals).where(where).orderBy(desc(s.proposals.createdAt)).limit(limit).offset(offset).all();
-      const runs = proposalRuns(db, rows);
       c.header('x-total-count', String(db.select({ count: count() }).from(s.proposals).where(where).get()!.count));
-      return c.json(rows.map((row) => listedProposal(row, row.runId ? (runs.get(row.runId) ?? null) : null)));
+      return c.json(rows.map((row) => listedProposal(row)));
     },
   )
   // Many at once (a run can file hundreds): decided one after the other, oldest first (characters before the
