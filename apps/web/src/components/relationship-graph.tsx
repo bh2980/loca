@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useGraphShortcuts } from '@/lib/graph-shortcuts';
 import { BaseEdge, Background, Controls, EdgeLabelRenderer, Handle, MarkerType, Panel, Position, ReactFlow, useInternalNode, type Edge, type EdgeProps, type InternalNode, type Node, type NodeChange, type NodeProps, SelectionMode } from '@xyflow/react';
 import { Button, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '@loca/ui';
 import ELK from 'elkjs/lib/elk.bundled.js';
@@ -147,8 +148,8 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
   onSelectRelationship: (id: string) => void;
   onClear: () => void;
   /**
-   * Delete characters: the Delete key deletes the selection at once (`ask` false), the menu's 삭제
-   * asks first (`ask` true, the page confirms).
+   * Delete characters; `ask` true means the page confirms first. The Delete key and the menu's 삭제
+   * both ask, since a deleted character does not come back with ⌘/Ctrl+Z.
    */
   onDeleteCharacters?: (ids: string[], ask: boolean) => void;
 }) {
@@ -159,19 +160,8 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
   // The characters the right-click menu acts on (the picked ones when it opens on one of them); the pane and edges open no menu.
   const [menuFor, setMenuFor] = useState<string[] | null>(null);
   const selection = picked.size ? [...picked] : selectedCharacterId ? [selectedCharacterId] : [];
-  useEffect(() => {
-    if (!onDeleteCharacters || !selection.length) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Delete' && event.key !== 'Backspace') return;
-      const target = event.target as HTMLElement | null;
-      if (target?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"], [role="menu"]')) return;
-      event.preventDefault();
-      setPicked(new Set());
-      onDeleteCharacters(selection, false);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onDeleteCharacters, selection.join('|')]);
+  // The shared graph keys: Delete removes the selection, but characters cannot come back with ⌘/Ctrl+Z, so it asks first.
+  useGraphShortcuts({ remove: () => onDeleteCharacters?.(selection, true) }, Boolean(onDeleteCharacters && selection.length));
   const known = useMemo(() => new Set(characters.map((character) => character.id)), [characters]);
   const drawable = useMemo(() => relationships.filter((relationship) => known.has(relationship.fromId) && known.has(relationship.toId)), [relationships, known]);
   const layoutKey = useMemo(() => JSON.stringify([characters.map((c) => c.id), drawable.map((r) => [r.fromId, r.toId])]), [characters, drawable]);

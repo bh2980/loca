@@ -41,6 +41,7 @@ import { workflowEdits } from '@/lib/workflow-edits';
 import { sameWorkflowDraft, reconcileSavedDraft, normalizeWorkflowDraft } from '@/lib/workflow-draft';
 import { dateTime } from '@/lib/datetime';
 import { useIsDark } from '@/lib/theme';
+import { useGraphShortcuts, type GraphShortcuts } from '@/lib/graph-shortcuts';
 
 /** When the workflow was last saved: 10. 13. 오전 06:16. Runs keep their own copy of what they ran. */
 const savedAt = (at: string) => dateTime(at);
@@ -82,6 +83,13 @@ function NameField({ name, onRename }: { name: string; onRename: (name: string) 
 
 /** A preset as the palette reads it: label/description for the list, the rest is the AI node config it fills. */
 type PresetEntry = { label: string; description?: string; output: string; inputs?: readonly ('lines' | 'terms')[] } & Record<string, unknown>;
+
+/** Nodes copied with ⌘/Ctrl+C or X, with the lines among them: pasted into this or another workflow. */
+interface GraphClipboard {
+  nodes: WorkflowNode[];
+  edges: WorkflowDefinition['edges'];
+}
+let graphClipboard: GraphClipboard | null = null;
 
 export const Route = createFileRoute('/p/$projectId/workflows/$workflowId')({
   validateSearch: (raw: Record<string, unknown>): { node?: string; nodeTab?: 'io' | 'errors'; direction?: CanvasDirection } => ({
@@ -461,6 +469,56 @@ function WorkflowEditor() {
     };
   }, [direction, current?.definition.direction, draft, save.isPending, search.direction, workflow.data?.version, workflow.data?.definition.direction, workflowId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Undo history of the editor: every change to the workflow (a drag or typing in a field counts as one
+  // step until it pauses), across autosaves; ⌘/Ctrl+Z goes back, ⌘/Ctrl+Shift+Z forward.
+  const history = useRef<{ past: string[]; future: string[]; last?: string; replaying: boolean; at: number }>({ past: [], future: [], replaying: false, at: 0 });
+  useEffect(() => {
+    history.current = { past: [], future: [], replaying: false, at: 0 };
+  }, [workflowId]);
+  const snapshot = current ? JSON.stringify({ name: current.name, definition: current.definition }) : undefined;
+  useEffect(() => {
+    const h = history.current;
+    if (!snapshot || snapshot === h.last) return;
+    if (h.last === undefined || h.replaying) {
+      h.replaying = false;
+      h.last = snapshot;
+      return;
+    }
+    const now = Date.now();
+    if (now - h.at > 400) {
+      h.past.push(h.last);
+      if (h.past.length > 100) h.past.shift();
+    }
+    h.at = now;
+    h.future = [];
+    h.last = snapshot;
+  }, [snapshot]);
+  const restore = (from: 'past' | 'future') => {
+    const h = history.current;
+    const target = h[from].pop();
+    if (!target || h.last === undefined) return;
+    (from === 'past' ? h.future : h.past).push(h.last);
+    h.replaying = true;
+    h.at = 0;
+    const { name, definition } = JSON.parse(target) as { name: string; definition: WorkflowDefinition };
+    setDraft((value) => ({ ...value, name, definition }));
+    // A selection of a node the restored workflow does not have goes with it.
+    const kept = new Set(definition.nodes.map((node) => node.id));
+    setMulti((ids) => ids.filter((id) => kept.has(id)));
+    setEdgeId((id) => (id && definition.edges.some((edge) => edge.id === id) ? id : undefined));
+    if (search.node && !kept.has(search.node)) void navigate({ search: (previous) => ({ ...previous, node: undefined }) });
+  };
+  // The keys every graph shares (lib/graph-shortcuts); the actions are set below, once the workflow is loaded.
+  const actions = useRef<GraphShortcuts>({});
+  useGraphShortcuts({
+    undo: () => actions.current.undo?.(),
+    redo: () => actions.current.redo?.(),
+    copy: () => actions.current.copy?.(),
+    cut: () => actions.current.cut?.(),
+    paste: () => actions.current.paste?.(),
+    remove: () => actions.current.remove?.(),
+  }, Boolean(current));
+
   if (!workflow.data || !current)
     return (
       <Page title="워크플로">
@@ -550,7 +608,11 @@ function WorkflowEditor() {
   const duplicateNodes = (ids: string[]) => {
     if (!current) return;
     const originals = current.definition.nodes.filter((node) => ids.includes(node.id) && node.type !== 'entry');
-    if (!originals.length) return;
+    pasteNodes({ nodes: originals, edges: current.definition.edges });
+  };
+  /** Puts copies of `nodes` beside them (new ids), with the lines among them, and picks the copies. */
+  const pasteNodes = ({ nodes: originals, edges }: GraphClipboard) => {
+    if (!current || !originals.length) return;
     const taken = new Set(current.definition.nodes.map((node) => node.id));
     const renamed = new Map<string, string>();
     for (const node of originals) {
@@ -560,7 +622,7 @@ function WorkflowEditor() {
       renamed.set(node.id, id);
     }
     const copies = originals.map((node) => workflowNodeSchema.parse({ ...structuredClone(node), id: renamed.get(node.id), position: { x: node.position.x + 240, y: node.position.y } }));
-    const lines = current.definition.edges
+    const lines = edges
       .filter((edge) => renamed.has(edge.source) && renamed.has(edge.target))
       .map((edge) => ({ id: `e-${crypto.randomUUID().slice(0, 8)}`, source: renamed.get(edge.source)!, sourceHandle: edge.sourceHandle, target: renamed.get(edge.target)! }));
     setDraft((value) => ({ ...value, definition: syncEntryEdges({ ...value.definition, nodes: [...value.definition.nodes, ...copies], edges: [...value.definition.edges, ...lines] }) }));
@@ -570,6 +632,23 @@ function WorkflowEditor() {
   const deleteSelected = () => {
     if (!selected || selected.type === 'entry') return;
     deleteNode(selected.id);
+  };
+  /** The nodes the keys act on: the picked group, else the open node. */
+  const pickedIds = multi.length ? multi : search.node ? [search.node] : [];
+  const copyPicked = () => {
+    const nodes = current.definition.nodes.filter((node) => pickedIds.includes(node.id) && node.type !== 'entry');
+    if (!nodes.length) return false;
+    const ids = new Set(nodes.map((node) => node.id));
+    graphClipboard = { nodes: structuredClone(nodes), edges: current.definition.edges.filter((edge) => ids.has(edge.source) && ids.has(edge.target)) };
+    return true;
+  };
+  actions.current = {
+    undo: () => restore('past'),
+    redo: () => restore('future'),
+    copy: () => void (copyPicked() && toast.success(`노드 ${pickedIds.length}개를 복사했습니다.`)),
+    cut: () => void (copyPicked() && deleteNodes(pickedIds)),
+    paste: () => graphClipboard && pasteNodes(graphClipboard),
+    remove: () => (edgeId ? removeEdges([edgeId]) : deleteNodes(pickedIds)),
   };
 
   return (
@@ -656,7 +735,15 @@ function WorkflowEditor() {
               setEdgeId(undefined);
               setContextMenu(null);
             }}
-            onEdgeClick={(_event, edge) => (setEdgeId(edge.id), setContextMenu(null))}
+            // A plain click picks only the line: the node's selection (and its pane) goes, as anywhere else a plain click picks one thing.
+            onEdgeClick={(event, edge) => {
+              if (!(event.metaKey || event.ctrlKey)) {
+                select(undefined);
+                setMulti([]);
+              }
+              setEdgeId(edge.id);
+              setContextMenu(null);
+            }}
             onEdgeMouseEnter={(_event, edge) => setHoveredEdgeId(edge.id)}
             onEdgeMouseLeave={() => setHoveredEdgeId(undefined)}
             onPaneClick={() => (select(undefined), setMulti([]), setEdgeId(undefined), setContextMenu(null))}
@@ -702,7 +789,8 @@ function WorkflowEditor() {
             multiSelectionKeyCode={['Meta', 'Control']}
             selectionMode={SelectionMode.Partial}
             minZoom={0.05}
-            deleteKeyCode={['Backspace', 'Delete']}
+            // Delete goes through the shared graph keys (the entry node stays; undo brings anything back).
+            deleteKeyCode={null}
             proOptions={{ hideAttribution: true }}
           >
             <Background size={1.5} gap={20} color="var(--graph-grid)" />
