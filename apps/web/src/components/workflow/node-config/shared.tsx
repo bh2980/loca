@@ -1,6 +1,6 @@
 /** Pieces shared by the node-kind configs: shared field primitives and the node/ref types. */
 import { Button, Checkbox, Input, InspectorField, InspectorToggle, NODE_CARD_KIND_APPEARANCE, Switch, cn } from '@loca/ui';
-import { CONNECTION_KIND_INFO, nodeName, workflowInput, type WorkflowEdge, type WorkflowNode, type WorkflowSubject } from '@tw/shared';
+import { CONNECTION_KIND_INFO, functionGroup, nodeName, workflowInput, type WorkflowEdge, type WorkflowNode, type WorkflowSubject } from '@tw/shared';
 import { nodeIcon } from '@/components/workflow/node-view';
 
 export type AiNode = Extract<WorkflowNode, { type: 'ai' }>;
@@ -27,7 +27,7 @@ export function StepChips({ steps, refs, suffix }: { steps: WorkflowNode[]; refs
     <div className="flex flex-wrap items-center gap-1.5 text-sm">
       {steps.map((step) => {
         const Icon = nodeIcon(step);
-        const kind = step.type === 'function' && step.config.fn === 'setStatus' ? 'status' : step.type;
+        const kind = step.type === 'function' ? functionGroup(step.config.fn) : step.type;
         return (
           <Button key={step.id} variant="outline" size="sm" className="h-7 gap-1.5 px-2" disabled={!refs.onOpenNode} onClick={() => refs.onOpenNode?.(step.id)} title="이 노드 열기">
             <Icon className={cn('size-3.5', NODE_CARD_KIND_APPEARANCE[kind].icon)} />

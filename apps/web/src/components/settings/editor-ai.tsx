@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, Check, ChevronRight, LoaderCircle } from 'lucide-react';
 import { toast } from 'sonner';
-import { AI_PRESETS, COMPLETE_SYSTEM, DEFAULT_EDITOR_AI, type EditorAi, type EditorButton } from '@tw/shared';
+import { AI_PROMPTS, COMPLETE_SYSTEM, DEFAULT_EDITOR_AI, type EditorAi, type EditorButton } from '@tw/shared';
 import { ModelPicker } from '@/components/model-picker';
 import { Button, Checkbox, Collapsible, CollapsibleContent, CollapsibleTrigger, Field, FieldDescription, FieldGroup, FieldLabel, Input, Switch, SettingsSection, Textarea } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
@@ -151,8 +151,8 @@ export function EditorAiSection({ projectId }: { projectId: string }) {
                   id={`editor-ai-${id}-instructions`}
                   label={id === 'translate' ? 'AI 번역' : '다듬기'}
                   value={settings[id].instructions}
-                  preset={AI_PRESETS[id].instructions}
-                  presetLabel={`프리셋 ${AI_PRESETS[id].label}`}
+                  preset={AI_PROMPTS[id].instructions}
+                  presetLabel="기본 지시문"
                   storage={key(`${id}-instructions`)}
                   onSave={(instructions) => setButton(id, { instructions })}
                 />

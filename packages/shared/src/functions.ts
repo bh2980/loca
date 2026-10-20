@@ -266,29 +266,6 @@ export const APPLY_TARGETS = {
     tool: 'save_document',
     inputs: ['lines', 'terms'],
   },
-  saveSceneListeners: {
-    label: '장면 청자 저장',
-    description: '장면마다 화자별 청자를 그 장면의 청자 없는 대사에 적습니다(출처: AI, 장면 추정). 사람이 정했거나 가져온 청자는 바꾸지 않습니다.',
-    shape: 'list',
-    fields: [
-      { name: 'scene', label: '장면', type: 'string', required: true },
-      { name: 'speaker', label: '화자', type: 'string', required: true },
-      { name: 'listener', label: '청자', type: 'string', required: true },
-      { name: 'confidence', label: '확신도', type: 'number' },
-      {
-        name: 'exceptions',
-        label: '예외 대사',
-        type: 'list',
-        fields: [
-          { name: 'line', label: '대사', type: 'lines', required: true },
-          { name: 'listener', label: '청자', type: 'string', required: true },
-          { name: 'confidence', label: '확신도', type: 'number' },
-        ],
-      },
-    ],
-    tool: 'set_listeners',
-    inputs: ['lines', 'terms'],
-  },
 } as const satisfies Record<string, ApplyTarget>;
 export type ApplyFunctionName = keyof typeof APPLY_TARGETS;
 export const APPLY_FUNCTION_NAMES = Object.keys(APPLY_TARGETS) as ApplyFunctionName[];
@@ -373,14 +350,6 @@ export const FUNCTIONS = {
   ...(Object.fromEntries(
     Object.entries(APPLY_TARGETS).map(([name, target]) => [name, { label: target.label, description: target.description, params: applyParams, ports: () => out, async: false, inputs: target.inputs }]),
   ) as unknown as Record<ApplyFunctionName, FunctionInfo<typeof applyParams>>),
-  fail: {
-    label: '실패로 끝내기',
-    description: '대사를 실패로 끝내고 이유를 남깁니다. 비워 두면 앞 노드의 오류를 그대로 남깁니다. 다시 시도해도 안 될 때 씁니다.',
-    params: z.object({ message: z.string().default('') }),
-    ports: () => [],
-    async: false,
-    ends: true,
-  },
   http: {
     label: 'HTTP 호출',
     description: '외부 API(맞춤법·사전 등)를 주소로 호출하고 결과를 후보·판정·데이터로 받습니다. 키가 필요하면 설정의 API 키를 고릅니다.',
@@ -406,10 +375,15 @@ export const PALETTE_FUNCTION_NAMES: FunctionName[] = [
   'setTermStatus',
   'formatCheck',
   'glossaryCheck',
-  'fail',
   'script',
   'http',
 ];
+
+/**
+ * The editor's group of a function node, which also gives its colour: 반영 writes to the project (the
+ * apply targets and the status changes), 함수 reads and judges or computes.
+ */
+export const functionGroup = (fn: string): 'apply' | 'function' => (fn in APPLY_TARGETS || fn === 'setStatus' || fn === 'setTermStatus' ? 'apply' : 'function');
 
 export function functionPorts(fn: string, params: unknown): Port[] {
   const info = FUNCTIONS[fn as FunctionName] as unknown as FunctionInfo | undefined;

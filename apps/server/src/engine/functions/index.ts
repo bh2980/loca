@@ -41,11 +41,6 @@ export function lineView(input: FunctionInput) {
 
 /** Whether a run picks its lines by the entry node's statuses (rather than lines named regardless of status). */
 export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknown, input: FunctionInput) => FunctionResult>> = {
-  /** 실패로 끝내기: the line ends as failed; with no message it keeps the failure it was sent with. */
-  fail(_tx, raw, input) {
-    const { message } = FUNCTIONS.fail.params.parse(raw);
-    return { port: 'error', error: message.trim() || input.item.data.error?.message || '워크플로가 실패로 끝냈습니다.' };
-  },
   formatCheck(tx, raw, input) {
     const params = formatCheckParams.parse(raw);
     const text = candidateOf(input);

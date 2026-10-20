@@ -47,7 +47,7 @@ loca call save_relationship @"$W/rel.json"       # {"from":"Alice","to":"Bob","k
 loca call save_speech_rule @"$W/rule.json"       # {"fromName":"Alice","toName":"Bob","level":"haeyo","address":"밥 씨","note":"직장 선배","startKey":null}
 loca check speech --speaker Alice --listener Bob # 규칙과 번역 어미가 다른 곳 (어미로 추정)
 ```
-규칙을 고친 뒤 기존 번역을 맞추려면, 그 쌍의 대사를 말투만 고치는 워크플로(AI 노드 프리셋 `speechFix`)로 다시 돌리도록 제안합니다. 프로젝트에 그런 워크플로가 있는지는 `loca workflows list`로 확인하고, 없으면 `loca-workflows`로 만듭니다.
+규칙을 고친 뒤 기존 번역을 맞추려면, 그 쌍의 대사를 말투만 고치는 워크플로(기본 "말투만 고치기")로 다시 돌리도록 제안합니다. 프로젝트에 그런 워크플로가 있는지는 `loca workflows list`로 확인하고, 없으면 `loca-workflows`로 만듭니다.
 
 ## 대사의 청자
 청자는 말투를 정하는 열쇠입니다. 화자가 있는 대사 중 청자를 모르는 줄에 #청자 미상(`unknownListener`)이 붙습니다(화자 없는 지문·서식만 있는 줄은 빠짐).

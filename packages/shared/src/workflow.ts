@@ -211,7 +211,7 @@ export const DEFAULT_CALL_MINUTES = 10;
 /**
  * Why a line left a node through its "error" exit, as conditions read it (error.kind). The runner
  * never splits or re-sends a failed request on its own: a workflow routes these (a retry loop, a
- * smaller-batch node, "실패로 끝내기"). Rate limits and dropped connections are not the line's
+ * smaller-batch node), or an exit left unconnected ends the line as failed. Rate limits and dropped connections are not the line's
  * fault: those lines wait for a later request, and the run pauses after the workflow's
  * "연속 실패" count.
  */

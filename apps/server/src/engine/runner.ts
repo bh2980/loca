@@ -210,7 +210,7 @@ export class Runner {
           .where(and(eq(s.runItems.runId, runId), inArray(s.runItems.state, ['failed', 'queued'])))
           .all()
           .filter((item) => item.state === 'failed' || item.data.error);
-        // A line goes back to the node that failed it (not to 실패로 끝내기, which only ended it),
+        // A line goes back to the node that failed it,
         // arriving there as for the first time so the workflow's retry path applies again.
         const known = new Set(next.definition.nodes.map((node) => node.id));
         for (const item of failed) {
@@ -303,14 +303,14 @@ export class Runner {
   }
 
   /**
-   * Moves an item out through `port`. An exit with no edge ends the item (failed for `error`). An
+   * Moves an item out through `port`. An exit with no edge ends the item (failed while it carries a failure). An
    * exit with several edges sends the line down each of them: the item takes the first, and a copy
    * of it each of the others (validation keeps those branches apart until they end).
    */
   private route(tx: Tx, run: Run, item: Item, port: string, error?: string, kind?: ItemErrorKind) {
     const definition: WorkflowDefinition = run.definition;
-    // What conditions read as error: set by an "error" exit (a node without its own kind, such as
-    // 실패로 끝내기, keeps the failure it was sent with), kept through conditions (they only route the
+    // What conditions read as error: set by an "error" exit (a node without its own kind keeps the
+    // failure it was sent with), kept through conditions (they only route the
     // line), cleared once a working node handles it.
     const previous = item.data.error;
     const routing = this.node(run, item.nodeId)?.type === 'condition';
@@ -325,7 +325,9 @@ export class Runner {
       let message = failure?.message || error || null;
       const visits = { ...item.visits };
       if (!target) {
-        state = port === 'error' ? 'failed' : 'done';
+        // An exit with nothing after it ends the line: failed when it still carries a failure (an
+        // "error" exit, or a condition it reached from one), else done.
+        state = failure ? 'failed' : 'done';
       } else {
         nodeId = target;
         visits[nodeId] = (visits[nodeId] ?? 0) + 1;

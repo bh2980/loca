@@ -165,15 +165,6 @@ describe('apply nodes', () => {
     expect(ctx.db.select().from(s.tags).all()).toHaveLength(1);
   });
 
-  it('writes scene listeners with their exceptions as scene guesses', () => {
-    const ctx = setup();
-    const params = { list: 'scenes', map: { scene: 'scene', speaker: 'speaker', listener: 'to', confidence: 'conf', exceptions: 'except' } };
-    const output = { scenes: [{ scene: 'g1', speaker: 'Alice', to: 'Bob', conf: 0.95, except: [{ line: ['a1'], listener: 'Crowd' }] }], batchLeader: true };
-    const written = apply(ctx, 'saveSceneListeners', params, output);
-    expect(written.output).toMatchObject({ changed: 1 });
-    expect(ctx.db.select().from(s.units).where(eq(s.units.key, 'a1')).get()).toMatchObject({ listener: 'Crowd', listenerOrigin: 'ai' });
-  });
-
   it('is registered as instant functions and names the topics it writes', () => {
     expect(Object.keys(syncFunctions)).toEqual(expect.arrayContaining(Object.keys(APPLY_TOPICS)));
     expect(APPLY_TOPICS.saveTerms).toEqual(['terms']);

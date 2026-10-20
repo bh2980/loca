@@ -6,7 +6,7 @@ import { importFileSchema, importWarnings, summarizeImport } from './import-form
 import { politenessOf, speechLevelOf, styleInstruction, styleNames } from './knowledge.ts';
 import { ANALYSIS_WORKFLOW, analysisTemplate, defaultWorkflows, draftTranslationTemplate, eventExtractionTemplate, listenerTemplate, MODEL_TEMPLATES, peopleRelationsTemplate, speechFixTemplate, termExtractionTemplate, translationTemplate } from './defaults.ts';
 import { APPLY_TARGETS } from './functions.ts';
-import { AI_PRESETS, presetConfig } from './presets.ts';
+import { AI_PRESETS, AI_PROMPTS, presetConfig } from './presets.ts';
 import { applyIssues, nodePorts, pickPaths, previousSteps, readinessUses, validateWorkflow, workflowDefinitionSchema, workflowNodeSchema, type WorkflowDefinition } from './workflow.ts';
 
 const model = { connectionId: 'c', model: 'm' };
@@ -199,7 +199,7 @@ describe('templates', () => {
   it('term extraction template is entry → AI → save terms, written directly', () => {
     const definition = workflowDefinitionSchema.parse(termExtractionTemplate({ model }));
     expect(errors(definition)).toEqual([]);
-    expect(kinds(definition)).toEqual(['entry', 'ai', 'saveTerms', 'condition', 'fail']);
+    expect(kinds(definition)).toEqual(['entry', 'ai', 'saveTerms']);
     expect(definition.nodes[2]).toMatchObject({ config: { params: { list: 'terms', map: { source: 'source', target: 'target', kind: 'kind', meaning: 'meaning', evidence: 'evidence' } } } });
   });
 
@@ -223,8 +223,7 @@ describe('templates', () => {
     const analysis = analysisTemplate({ model });
     for (const node of analysis.nodes) {
       if (node.type !== 'function' || !(node.config.fn in APPLY_TARGETS) || !node.config.params.list) continue;
-      // Each save reads the step before it: the analysis itself, or the node that combines its parts.
-      const fields = previousSteps(analysis, node.id)[0]?.id === 'merge' ? AI_PRESETS.analysisMerge.fields : AI_PRESETS.analysis.fields;
+      const fields = AI_PROMPTS.analysis.fields;
       const items = fields.find((field) => field.name === node.config.params.list)?.fields?.map((field) => field.name) ?? [];
       const accepted = APPLY_TARGETS[node.config.fn as keyof typeof APPLY_TARGETS].fields.map((field) => field.name).filter((name) => items.includes(name));
       expect(Object.keys(node.config.params.map as object)).toEqual(expect.arrayContaining(accepted));
@@ -232,11 +231,11 @@ describe('templates', () => {
   });
 
   it('writes translations itself in the translation templates and keeps the listener flow explicit', () => {
-    expect(kinds(draftTranslationTemplate({ model, untranslated: 's0', draft: 's1' }))).toEqual(['entry', 'ai', 'saveCandidate', 'setStatus', 'condition', 'fail']);
+    expect(kinds(draftTranslationTemplate({ model, untranslated: 's0', draft: 's1' }))).toEqual(['entry', 'ai', 'saveCandidate', 'setStatus']);
     const saved = translationTemplate(ids).nodes.find((node) => node.id === 'save');
     expect(saved).toMatchObject({ config: { fn: 'saveCandidate', params: { map: { text: 'text' } } } });
     const listener = listenerTemplate({ model });
-    expect(kinds(listener)).toEqual(['entry', 'ai', 'setListener', 'condition', 'fail']);
+    expect(kinds(listener)).toEqual(['entry', 'ai', 'setListener']);
     expect(listener.nodes.find((node) => node.id === 'set-listener')).toMatchObject({ config: { params: { map: { listener: 'value', confidence: 'confidence' } } } });
   });
 
@@ -334,24 +333,26 @@ describe('analysis workflow and presets', () => {
 
   it('builds the work analysis: one AI node, then every list saved in a chain', () => {
     const definition = workflowDefinitionSchema.parse(analysisTemplate({ model }));
-    expect(definition.nodes.map((node) => (node.type === 'function' ? node.config.fn : node.type)).filter((kind) => kind !== 'condition' && kind !== 'fail')).toEqual(['entry', 'ai', 'saveCharacters', 'saveRelationships', 'saveSpeechRules', 'saveEvents', 'saveTerms', 'saveSceneListeners', 'saveDocument']);
-    expect(definition.edges.filter((edge) => edge.source === 'analysis').map((edge) => [edge.sourceHandle, edge.target])).toEqual([['out', 'save-characters'], ['error', 'analysis-again']]);
+    expect(definition.nodes.map((node) => (node.type === 'function' ? node.config.fn : node.type))).toEqual(['entry', 'ai', 'saveCharacters', 'saveRelationships', 'saveSpeechRules', 'saveEvents', 'saveTerms', 'saveDocument']);
+    expect(definition.edges.filter((edge) => edge.source === 'analysis').map((edge) => [edge.sourceHandle, edge.target])).toEqual([['out', 'save-characters']]);
     expect(validateWorkflow(definition, { statusIds: new Set(), connections: new Set(['c']) } as never).filter((issue) => issue.level === 'error').map((issue) => issue.message)).toEqual([]);
     expect(definition.nodes.find((node) => node.id === 'save-overview')).toMatchObject({ config: { params: { map: { title: 'overviewTitle', body: 'overview' } } } });
   });
 
-  it('fills an analysis AI node from its preset: json, whole script, every rule in the visible instructions', () => {
+  it('fills the analysis AI node from its built-in prompt (not a preset): json, whole script, every rule in the visible instructions', () => {
     const config = presetConfig('analysis', model);
-    expect(config).toMatchObject({ output: 'json', scope: 'batch', preset: 'analysis', batch: { mode: 'whole', maxTokens: null }, context: { cast: true } });
-    expect(config.fields.map((field) => field.name)).toEqual(['overviewTitle', 'overview', 'characters', 'relationships', 'events', 'speechRules', 'sceneListeners', 'terms']);
-    for (const word of ['Do NOT use prior knowledge', 'player character', 'hasoseo', 'exceptions', 'loanword']) expect(config.instructions).toContain(word);
+    expect(config.preset).toBeUndefined();
+    expect(config).toMatchObject({ output: 'json', scope: 'batch', batch: { mode: 'whole', maxTokens: null }, context: { cast: true } });
+    expect(config.fields.map((field) => field.name)).toEqual(['overviewTitle', 'overview', 'characters', 'relationships', 'events', 'speechRules', 'terms']);
+    for (const word of ['Do NOT use prior knowledge', 'player character', 'hasoseo', 'loanword']) expect(config.instructions).toContain(word);
     expect(workflowNodeSchema.parse({ id: 'a', type: 'ai', position: { x: 0, y: 0 }, config }).type).toBe('ai');
   });
 
-  it('presets match their output forms', () => {
-    expect(AI_PRESETS.listener).toMatchObject({ output: 'json', scope: 'line' });
-    expect(AI_PRESETS.listener.fields.map((field) => field.name)).toEqual(['value', 'confidence']);
-    for (const id of ['terms', 'knowledge', 'events'] as const) expect(AI_PRESETS[id]).toMatchObject({ output: 'json', scope: 'batch' });
+  it('built-in prompts match their output forms; only 번역 and 검수 are presets', () => {
+    expect(Object.keys(AI_PRESETS)).toEqual(['translate', 'review']);
+    expect(AI_PROMPTS.listener).toMatchObject({ output: 'json', scope: 'line' });
+    expect(AI_PROMPTS.listener.fields.map((field) => field.name)).toEqual(['value', 'confidence']);
+    for (const id of ['terms', 'knowledge', 'events'] as const) expect(AI_PROMPTS[id]).toMatchObject({ output: 'json', scope: 'batch' });
     expect(AI_PRESETS.review.output).toBe('verdict');
   });
 });

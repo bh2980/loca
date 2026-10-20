@@ -5,10 +5,12 @@ import type { JsonFieldType } from './functions.ts';
 import { aiNodeConfigSchema, type AiNode, type AiOutput, type AiScope, type BatchConfig, type ChoiceConfig, type ContextConfig, type JsonField } from './workflow.ts';
 
 /**
- * Ready-made AI node configurations (2.3 of the improvement plan). Choosing one only fills the node's
- * instructions, output form, fields and context options; after that it is an ordinary AI node and
- * every field stays editable. Everything the model is told beyond the output format (which the server
- * adds from the node's schema) is in `instructions` or in a field's `description`: nothing is hidden.
+ * Built-in AI node configurations: what the default workflows' AI nodes and the editor's AI buttons
+ * start from. Each fills a node's instructions, output form, fields and context options; after that
+ * it is an ordinary AI node and every field stays editable. Everything the model is told beyond the
+ * output format (which the server adds from the node's schema) is in `instructions` or in a field's
+ * `description`: nothing is hidden. Only the general ones (AI_PRESETS: 번역, 검수) are offered as
+ * presets in the workflow editor; the rest live in the one workflow (or editor button) that uses them.
  */
 export interface AiPreset {
   label: string;
@@ -47,8 +49,6 @@ const RULE_RELATIONSHIPS =
   '- relationships: one per direction that matters, people named as the script does; "changes" give the line id ("at") where the relationship changes, what changed and why.';
 const RULE_EVENTS = '- events: what happened, its cause and its outcome, the people involved; include events that later lines refer back to.';
 const RULE_SPEECH_RULES = `- speechRules: for every speaker → listener direction with several lines (the listener may also be "group", "public" or "self": how the speaker talks to several people present, to an unspecified audience, or to themself), the Korean speech level the translation should use, one of: ${SPEECH_LEVEL_GUIDE}. Decide from the relationship (age, rank, intimacy, hostility, era and setting) as a Korean translator would; narration-like or written addresses often take 해라체, close friends 해체. "address" is how the speaker should address the listener in Korean (e.g. "수사관님", "언니"); when several forms are used, separate them with commas (e.g. "행크 경위님, 경위님"); empty if none. If the level changes at some point (falling out, reconciliation, promotion), give one rule per stretch: "startKey" is the line id where the new stretch begins (empty for the first). Do not mark a single sarcastic or emotional line as a change. "note" says why.`;
-const RULE_SCENE_LISTENERS =
-  '- sceneListeners: for each scene and each speaker in it, whom that speaker mostly addresses there ("scene" is the key in [brackets]; "listener" a character name, or for an extra outside the cast (a SWAT officer, a passer-by) their name exactly as it appears as a speaker; "group" when the speaker addresses several people present at once (a meeting, a group call); "public" for an unspecified audience (a broadcast, announcement, speech, post or advert); "self" for thinking aloud, a diary or muttering; or empty when you cannot tell) and your confidence from 0 to 1. In "exceptions", list each line of that speaker in the scene that addresses someone else (an extra, a third person, the group, themself), with its line id, its listener (same names as above) and your confidence; "confidence" then says how sure you are that every OTHER line of that speaker there addresses "listener". Name listeners by name, never by a role ("the negotiator", "the suspect") when the script shows who that is. List exceptions only where the text shows it (a vocative, an order to someone else, an answer to another speaker); do not list a line just because you are unsure. In a group scene where a speaker mostly talks to everyone, "group" is right and the few lines answering one person are exceptions. Skip scenes with a single obvious speaker talking to nobody in particular.';
 const RULE_TERMS = `- terms: names and words whose Korean form must stay the same across the whole translation: people, places, organizations, products and technology, coined words and in-world concepts (also lower-case ones, such as a slang word, a species or a drug), ranks and titles, and interface words that recur. Not ordinary words. Skip what the glossary already has. "source" exactly as the script writes it, "kind" one of ${TERM_KINDS.join(', ')}, "meaning" one short Korean sentence, "target" the Korean form a translator should use (names by Korean loanword convention), "evidence" a few lines where it appears. At most about 150, the most important first.`;
 /** The terms rule for reading translated lines: the Korean form is taken from the translations, never made up. */
 const RULE_TERMS_FROM_TRANSLATIONS = `- terms: names and words whose Korean form must stay the same across the whole translation: people, places, organizations, products and technology, coined words and in-world concepts (also lower-case ones, such as a slang word, a species or a drug), ranks and titles, and interface words that recur. Not ordinary words. Skip what the glossary already has. "source" exactly as the script writes it, "kind" one of ${TERM_KINDS.join(', ')}, "meaning" one short Korean sentence, "target" the Korean form the translations of those lines use for it; when the lines have no translation, or their translations render it in different ways, leave "target" empty and say so in "meaning". "evidence" a few lines where it appears.`;
@@ -108,24 +108,11 @@ const termFields: JsonField[] = [
 const translatedTermFields: JsonField[] = termFields.map((entry) =>
   entry.name === 'target' ? field('target', 'string', "The Korean form the lines' translations use for it; empty when they have none or disagree.") : entry,
 );
-const sceneListenerFields: JsonField[] = [
-  field('scene', 'string', 'The scene key shown in [brackets] in the script header.'),
-  field('speaker', 'string', 'The speaker in that scene.'),
-  field('listener', 'string', 'Whom the speaker mostly addresses there: a name, "group", "public" or "self"; empty when you cannot tell.'),
-  field('confidence', 'number', 'From 0 to 1; never guess with high confidence.'),
-  field('exceptions', 'list', 'Lines of that speaker in the scene that address someone else.', [
-    field('line', 'lines', 'The id of the line.'),
-    field('listener', 'string', 'Whom that line addresses (same names as above); empty when unclear.'),
-    field('confidence', 'number', 'From 0 to 1.'),
-  ]),
-  evidence('whom the speaker addresses'),
-];
-
 const listField = (name: string, description: string, fields: JsonField[]) => field(name, 'list', description, fields);
 
 const READING_CONTEXT: Partial<ContextConfig> = { glossary: false, speech: false, documents: false, characters: false, relationships: false, cast: true, precedingLines: 0, previousScenes: 0 };
 
-export const AI_PRESETS = {
+export const AI_PROMPTS = {
   translate: {
     label: 'AI 번역',
     description: '대사마다 번역문 하나를 냅니다.',
@@ -152,17 +139,6 @@ export const AI_PRESETS = {
       'breaks the established pattern (not every line) and name the line it conflicts with. ' +
       'List concrete problems in issues (in the target language); empty when passed. ' +
       'Name the kind of each problem: speech (speech level, honorifics, form of address), term (a glossary term or name rendered differently), meaning (mistranslation, omission, addition), style (unnatural or awkward Korean), format (placeholders, tags, line breaks) or other.',
-  },
-  revise: {
-    label: 'AI 수정',
-    description: '지적된 문제를 고친 번역문을 냅니다.',
-    output: 'text',
-    scope: 'line',
-    include: { candidate: true, issues: true },
-    fields: [],
-    instructions:
-      'Revise each candidate translation so it resolves every listed issue while keeping what was already correct. ' +
-      'Keep every placeholder, rich-text tag and line break exactly.',
   },
   refine: {
     label: 'AI 다듬기',
@@ -293,7 +269,7 @@ export const AI_PRESETS = {
   },
   analysis: {
     label: 'AI 작품 분석',
-    description: '대본 전체를 읽고 개요·인물·관계·사건·말투 규칙·장면별 청자·용어를 근거와 함께 냅니다.',
+    description: '대본 전체를 읽고 개요·인물·관계·사건·말투 규칙·용어를 근거와 함께 냅니다.',
     output: 'json',
     scope: 'batch',
     include: { candidate: false, issues: false },
@@ -309,7 +285,6 @@ export const AI_PRESETS = {
       listField('relationships', 'One per direction that matters.', relationshipFields),
       listField('events', 'What happened, including events later lines refer back to.', eventFields),
       listField('speechRules', 'For every speaker → listener direction with several lines.', speechRuleFields),
-      listField('sceneListeners', 'Per scene and speaker, whom they mostly address.', sceneListenerFields),
       listField('terms', 'Names and words whose Korean form must stay the same everywhere; about 150 at most, the most important first.', termFields),
     ],
     instructions: [
@@ -321,43 +296,22 @@ export const AI_PRESETS = {
       RULE_RELATIONSHIPS,
       RULE_EVENTS,
       RULE_SPEECH_RULES,
-      RULE_SCENE_LISTENERS,
       RULE_TERMS,
       '- Keep the whole answer under about 15,000 words.',
     ].join('\n'),
   },
-  analysisMerge: {
-    label: 'AI 결과 합치기',
-    description: '작품 분석이 대본을 여러 요청으로 나눠 읽었을 때, 조각마다 나온 인물과 개요를 하나로 합칩니다(모으기 뒤).',
-    output: 'json',
-    scope: 'batch',
-    include: { candidate: false, issues: false },
-    // Only the parts go in: the cast list keeps the names people fixed.
-    context: { ...READING_CONTEXT, glossary: false },
-    fields: [
-      field('overviewTitle', 'string', 'A short Korean title for the overview document, e.g. "작품 개요".'),
-      field('overview', 'string', 'One Markdown document in Korean for the whole script, with the headings 배경, 주요 갈등 and 줄거리 (the plot of every part, in order); at most about 1,500 words.'),
-      listField('characters', 'Every person of the parts, once.', characterFields.filter((entry) => entry.name !== 'evidence' && entry.name !== 'speech')),
-    ],
-    instructions: [
-      'An earlier node read the script in several requests, in script order; "previous" holds what they found ("parts", one per request): each part\'s characters and overview. Combine them into one answer:',
-      '- characters: one entry per person. The same person under different names (one part calls them by a title or a code name, another by their name) is ONE entry: use the name the parts use most (or the cast list\'s name) as "name" and put every other name in "aliases". Merge the profiles into 1-3 sentences. For gender, ageBand, role and player keep what the parts say when they agree, otherwise "unknown" (player: true if any part says so). Never invent a person no part names.',
-      '- overview: rewrite the parts\' overviews as one document for the whole script; the plot follows the parts in order.',
-      KNOWN_CAST,
-      '- Use only what the parts say. Write in Korean, except names.',
-    ].join('\n'),
-  },
 } satisfies Record<string, AiPreset>;
-export type AiPresetId = keyof typeof AI_PRESETS;
-export const AI_PRESET_IDS = Object.keys(AI_PRESETS) as AiPresetId[];
+export type AiPromptId = keyof typeof AI_PROMPTS;
 
-/** Core AI presets offered in the workflow node library. */
-export const PALETTE_AI_PRESET_IDS = ['translate', 'review', 'revise', 'refine', 'speechFix', 'listener', 'terms', 'termTranslate', 'knowledge', 'events', 'analysis'] as const satisfies readonly AiPresetId[];
-export type PaletteAiPresetId = (typeof PALETTE_AI_PRESET_IDS)[number];
+/** The presets the workflow editor offers (palette, AI node): general ones any workflow can use. */
+export const AI_PRESET_IDS = ['translate', 'review'] as const satisfies readonly AiPromptId[];
+export type AiPresetId = (typeof AI_PRESET_IDS)[number];
+export const AI_PRESETS: Record<AiPresetId, AiPreset> = { translate: AI_PROMPTS.translate, review: AI_PROMPTS.review };
+const isPreset = (id: string): id is AiPresetId => (AI_PRESET_IDS as readonly string[]).includes(id);
 
-/** The configuration of an AI node filled from a preset (what choosing the preset in the editor writes). */
-export function presetConfig(id: AiPresetId, model: DraftModelChoice | null | undefined, overrides: Partial<AiNode['config']> = {}): AiNode['config'] {
-  const preset: AiPreset = AI_PRESETS[id];
+/** An AI node's configuration filled from a built-in prompt; a preset's id is kept on the node (프리셋 · 번역). */
+export function presetConfig(id: AiPromptId, model: DraftModelChoice | null | undefined, overrides: Partial<AiNode['config']> = {}): AiNode['config'] {
+  const preset: AiPreset = AI_PROMPTS[id];
   return aiNodeConfigSchema.parse({
     // No AI connection yet: the node waits for one to be picked.
     model: model ?? { ...EMPTY_MODEL_CHOICE },
@@ -366,7 +320,7 @@ export function presetConfig(id: AiPresetId, model: DraftModelChoice | null | un
     scope: preset.scope,
     fields: structuredClone(preset.fields),
     choice: preset.choice,
-    preset: id,
+    ...(isPreset(id) && { preset: id }),
     include: preset.include,
     context: preset.context,
     batch: preset.batch,

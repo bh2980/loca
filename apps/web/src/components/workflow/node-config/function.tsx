@@ -33,12 +33,6 @@ export function FunctionConfig({ node, refs, readOnly, onChange }: { node: Funct
         return <FormatCheckConfig params={params} refs={refs} set={set} />;
       case 'glossaryCheck':
         return <InspectorResult tone="info">설정 항목이 없습니다.</InspectorResult>;
-      case 'fail':
-        return (
-          <Field label="남길 이유" hint="비워 두면 이 노드로 보낸 오류(앞 노드의 실패 이유)를 그대로 남깁니다.">
-            <Input value={params.message as string} placeholder="앞 노드의 오류" readOnly={readOnly} onChange={(event) => set('message', event.target.value)} />
-          </Field>
-        );
       case 'setStatus':
         return <SetStatusConfig params={params} refs={refs} set={set} setMany={setMany} />;
       case 'setTermStatus':

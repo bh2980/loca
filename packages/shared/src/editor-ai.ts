@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { modelChoiceSchema } from './model-choice.ts';
-import { AI_PRESETS, type AiPresetId } from './presets.ts';
+import { AI_PROMPTS, type AiPromptId } from './presets.ts';
 import { aiNodeConfigSchema, contextConfigSchema } from './workflow.ts';
 
 /** The continuation's instructions until a person changes them (the input's layout is described in the prompt itself). */
@@ -8,8 +8,8 @@ export const COMPLETE_SYSTEM =
   'You continue a Korean game translation in a translator\'s editor. Reply with nothing but the Korean translation of the line: if the translator has started it (the text between <started> and </started>), your reply begins with exactly that text and goes on. Copy the format tokens exactly. Follow the glossary and the speech level. No labels, quotes, notes or explanations.';
 
 /** An editor button's own part: its instructions and what of the line it shows the model, from its preset until changed. */
-function editorButtonSchema(preset: AiPresetId) {
-  const filled = AI_PRESETS[preset];
+function editorButtonSchema(preset: AiPromptId) {
+  const filled = AI_PROMPTS[preset];
   return z
     .object({
       instructions: z.string().default(filled.instructions),
@@ -55,7 +55,7 @@ export type EditorButton = 'translate' | 'refine';
 
 /** A button's settings as the AI node they make: its preset's output, the shared model, context and time limit. */
 export function editorNodeConfig(settings: z.infer<typeof editorAiSchema>, button: EditorButton) {
-  const preset = AI_PRESETS[button];
+  const preset = AI_PROMPTS[button];
   return aiNodeConfigSchema.parse({
     model: settings.model,
     instructions: settings[button].instructions,

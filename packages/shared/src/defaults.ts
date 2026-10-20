@@ -1,5 +1,5 @@
 import { APPLY_TARGETS, type ApplyFunctionName, type JsonField } from './functions.ts';
-import { AI_PRESETS, presetConfig, type AiPresetId } from './presets.ts';
+import { AI_PROMPTS, presetConfig, type AiPromptId } from './presets.ts';
 import type { DraftModelChoice } from './model-choice.ts';
 import { entryConfigSchema, type EntryConfig, type WorkflowDefinition, type WorkflowEdge, type WorkflowNode } from './workflow.ts';
 
@@ -67,7 +67,7 @@ type Model = { model: DraftModelChoice };
 
 const entryNode = (input: EntryConfig['input'] = 'lines'): WorkflowNode => ({ id: 'entry', type: 'entry', position: at(0), config: entryConfigSchema.parse({ input }) });
 
-const aiNode = (id: string, preset: AiPresetId, model: DraftModelChoice, row: number, column = 0, label: string = AI_PRESETS[preset].label): WorkflowNode => ({
+const aiNode = (id: string, preset: AiPromptId, model: DraftModelChoice, row: number, column = 0, label: string = AI_PROMPTS[preset].label): WorkflowNode => ({
   id,
   type: 'ai',
   position: at(row, column),
@@ -76,7 +76,7 @@ const aiNode = (id: string, preset: AiPresetId, model: DraftModelChoice, row: nu
 });
 
 /** Item fields of a list in a preset (what an apply node can map from). */
-const itemFields = (preset: AiPresetId, list: string): JsonField[] => AI_PRESETS[preset].fields.find((field) => field.name === list)?.fields ?? [];
+const itemFields = (preset: AiPromptId, list: string): JsonField[] => AI_PROMPTS[preset].fields.find((field) => field.name === list)?.fields ?? [];
 
 /** Target field → source field of the same name, for every field of the target the list's items have. */
 function mapByName(fn: ApplyFunctionName, source: JsonField[]): Record<string, string> {
@@ -98,45 +98,11 @@ const applyNode = (id: string, fn: ApplyFunctionName, row: number, options: Appl
   config: { fn, params: { list: options.list ?? '', map: options.map } },
 });
 /** An apply node for one list of a preset's JSON output, mapped by field name. */
-const saveList = (id: string, fn: ApplyFunctionName, preset: AiPresetId, list: string, row: number, column = 0): WorkflowNode =>
+const saveList = (id: string, fn: ApplyFunctionName, preset: AiPromptId, list: string, row: number, column = 0): WorkflowNode =>
   applyNode(id, fn, row, { list, map: mapByName(fn, itemFields(preset, list)) }, column);
 
 const edge = (source: string, sourceHandle: string, target: string): WorkflowEdge => ({ id: `${source}-${sourceHandle}-${target}`, source, sourceHandle, target });
 
-/** Failure kinds a retry cannot fix: the same request would be too large again. */
-const TOO_LARGE = ['too-long', 'cut-off'] as const;
-/**
- * What a template does when an AI node fails, drawn as nodes rather than done by the runner: lines
- * the answer left out, a malformed answer or a timeout go back to the node once (they ride in its
- * next request); a request too large for the model, or a second failure, ends the line as failed with
- * the reason ("실패로 끝내기"). One retry, not more: the run pauses after SETTINGS.maxConsecutiveFailures
- * failed requests in a row, and a batch that fails twice ends rather than pausing everything.
- */
-function retryOnError(nodeId: string, row: number, column = 1): { nodes: WorkflowNode[]; edges: WorkflowEdge[] } {
-  const again = `${nodeId}-again`;
-  const fail = `${nodeId}-fail`;
-  return {
-    nodes: [
-      {
-        id: again,
-        type: 'condition',
-        position: at(row, column),
-        label: '다시 시도?',
-        config: {
-          expression: { and: [{ '<': [{ var: `visits.${nodeId}` }, 2] }, ...TOO_LARGE.map((kind) => ({ '!': [{ '==': [{ var: 'error.kind' }, kind] }] }))] },
-          description: '처음 실패했고 요청이 너무 크지 않을 때(빠짐·형식 오류·시간 초과) 같은 노드로 한 번 다시 보냅니다.',
-        },
-      },
-      { id: fail, type: 'function', position: at(row, column + 1), label: '실패로 끝내기', config: { fn: 'fail', params: { message: '' } } },
-    ],
-    edges: [edge(nodeId, 'error', again), edge(again, 'true', nodeId), edge(again, 'false', fail)],
-  };
-}
-/** A template with retryOnError added for each [AI node id, row, column] (where its retry nodes go). */
-function withRetries(definition: WorkflowDefinition, placed: [string, number, number?][]): WorkflowDefinition {
-  const added = placed.map(([id, row, column]) => retryOnError(id, row, column));
-  return { ...definition, nodes: [...definition.nodes, ...added.flatMap((part) => part.nodes)], edges: [...definition.edges, ...added.flatMap((part) => part.edges)] };
-}
 /** Edges along a chain of nodes, each from its `out` exit. */
 const chain = (...ids: string[]) => ids.slice(1).map((id, index) => edge(ids[index]!, 'out', id));
 
@@ -173,54 +139,59 @@ export function translationTemplate(ids: {
   needsReview: string;
   confirmed: string;
 }): WorkflowDefinition {
-  return withRetries(
-    {
-      settings: { ...SETTINGS },
-      nodes: [
-        entryNode(),
-        aiNode('translate', 'translate', ids.model, 1),
-        writeTranslation('save', 2),
-        statusNode('draft', '초벌로', ids.draft, 3),
-        formatCheckNode(4),
-        aiNode('review', 'review', ids.model, 5),
-        statusNode('confirm', '확정으로', ids.confirmed, 6),
-        {
-          id: 'retry',
-          type: 'condition',
-          position: at(5, 1),
-          label: '검수 3회 미만?',
-          config: { expression: { '<': [{ var: 'visits.review' }, 3] }, description: "'AI 검수' 방문이 3회 미만이면 다시 수정합니다." },
-        },
-        aiNode('revise', 'revise', ids.model, 4, 2),
-        writeTranslation('save-revision', 5, 2, '수정 번역 기록'),
-        statusNode('escalate', '사람 확인 필요로', ids.needsReview, 6, 1),
-      ],
-      edges: [
-        ...chain('entry', 'translate', 'save', 'draft', 'check'),
-        edge('check', 'pass', 'review'),
-        edge('check', 'fail', 'retry'),
-        edge('review', 'pass', 'confirm'),
-        edge('review', 'fail', 'retry'),
-        edge('retry', 'true', 'revise'),
-        edge('retry', 'false', 'escalate'),
-        edge('revise', 'out', 'save-revision'),
-        edge('save-revision', 'out', 'check'),
-      ],
-    },
-    [['translate', 1], ['revise', 3, 3], ['review', 7, 0]],
-  );
+  // A retry drawn by hand, as a person would: a failed request goes back to its node once (not when too large); otherwise the line ends failed.
+  const again = (nodeId: string, row: number, column: number): WorkflowNode => ({
+    id: `${nodeId}-again`,
+    type: 'condition',
+    position: at(row, column),
+    label: '다시 시도?',
+    config: { expression: { and: [{ '<': [{ var: `visits.${nodeId}` }, 2] }, ...['too-long', 'cut-off'].map((kind) => ({ '!': [{ '==': [{ var: 'error.kind' }, kind] }] }))] }, description: '처음 실패했고 요청이 너무 크지 않을 때 같은 노드로 한 번 다시 보냅니다.' },
+  });
+  const retried = [['translate', 1, 1], ['revise', 3, 3], ['review', 7, 0]] as const;
+  return {
+    settings: { ...SETTINGS },
+    nodes: [
+      entryNode(),
+      ...retried.map(([id, row, column]) => again(id, row, column)),
+      aiNode('translate', 'translate', ids.model, 1),
+      writeTranslation('save', 2),
+      statusNode('draft', '초벌로', ids.draft, 3),
+      formatCheckNode(4),
+      aiNode('review', 'review', ids.model, 5),
+      statusNode('confirm', '확정으로', ids.confirmed, 6),
+      {
+        id: 'retry',
+        type: 'condition',
+        position: at(5, 1),
+        label: '검수 3회 미만?',
+        config: { expression: { '<': [{ var: 'visits.review' }, 3] }, description: "'AI 검수' 방문이 3회 미만이면 다시 수정합니다." },
+      },
+      aiNode('revise', 'translate', ids.model, 4, 2, 'AI 수정'),
+      writeTranslation('save-revision', 5, 2, '수정 번역 기록'),
+      statusNode('escalate', '사람 확인 필요로', ids.needsReview, 6, 1),
+    ],
+    edges: [
+      ...chain('entry', 'translate', 'save', 'draft', 'check'),
+      edge('check', 'pass', 'review'),
+      edge('check', 'fail', 'retry'),
+      edge('review', 'pass', 'confirm'),
+      edge('review', 'fail', 'retry'),
+      edge('retry', 'true', 'revise'),
+      edge('retry', 'false', 'escalate'),
+      edge('revise', 'out', 'save-revision'),
+      edge('save-revision', 'out', 'check'),
+      ...retried.flatMap(([id]) => [edge(id, 'error', `${id}-again`), edge(`${id}-again`, 'true', id)]),
+    ],
+  };
 }
 
 /** 초벌 번역: AI 번역 → 번역 후보 기록 → 초벌로. */
 export function draftTranslationTemplate(ids: { model: DraftModelChoice; untranslated: string; draft: string }): WorkflowDefinition {
-  return withRetries(
-    {
-      settings: { ...SETTINGS },
-      nodes: [entryNode(), aiNode('translate', 'translate', ids.model, 1), writeTranslation('save', 2), statusNode('draft', '초벌로', ids.draft, 3)],
-      edges: chain('entry', 'translate', 'save', 'draft'),
-    },
-    [['translate', 1]],
-  );
+  return {
+    settings: { ...SETTINGS },
+    nodes: [entryNode(), aiNode('translate', 'translate', ids.model, 1), writeTranslation('save', 2), statusNode('draft', '초벌로', ids.draft, 3)],
+    edges: chain('entry', 'translate', 'save', 'draft'),
+  };
 }
 
 /**
@@ -229,14 +200,11 @@ export function draftTranslationTemplate(ids: { model: DraftModelChoice; untrans
  * or as candidates, as the project's AI 문맥 switch says). Statuses and translations are not touched.
  */
 export function termExtractionTemplate(ids: Model): WorkflowDefinition {
-  return withRetries(
-    {
-      settings: { ...SETTINGS },
-      nodes: [entryNode(), aiNode('terms', 'terms', ids.model, 1), saveList('save-terms', 'saveTerms', 'terms', 'terms', 2)],
-      edges: chain('entry', 'terms', 'save-terms'),
-    },
-    [['terms', 1]],
-  );
+  return {
+    settings: { ...SETTINGS },
+    nodes: [entryNode(), aiNode('terms', 'terms', ids.model, 1), saveList('save-terms', 'saveTerms', 'terms', 'terms', 2)],
+    edges: chain('entry', 'terms', 'save-terms'),
+  };
 }
 
 /**
@@ -245,48 +213,39 @@ export function termExtractionTemplate(ids: Model): WorkflowDefinition {
  * project's AI 문맥 switch says.
  */
 export function termTranslationTemplate(ids: Model): WorkflowDefinition {
-  return withRetries(
-    {
-      settings: { ...SETTINGS },
-      nodes: [
-        entryNode('terms'),
-        aiNode('translate', 'termTranslate', ids.model, 1),
-        applyNode('save-term', 'saveTermEntry', 2, { map: { target: 'target', note: 'note' } }),
-      ],
-      edges: chain('entry', 'translate', 'save-term'),
-    },
-    [['translate', 1]],
-  );
+  return {
+    settings: { ...SETTINGS },
+    nodes: [
+      entryNode('terms'),
+      aiNode('translate', 'termTranslate', ids.model, 1),
+      applyNode('save-term', 'saveTermEntry', 2, { map: { target: 'target', note: 'note' } }),
+    ],
+    edges: chain('entry', 'translate', 'save-term'),
+  };
 }
 
 /** 인물·관계 추출: scene groups are read against what is known; new people, relationships and speech rules are saved. */
 export function peopleRelationsTemplate(ids: Model): WorkflowDefinition {
-  return withRetries(
-    {
-      settings: { ...SETTINGS },
-      nodes: [
-        entryNode(),
-        aiNode('people', 'knowledge', ids.model, 1),
-        saveList('save-characters', 'saveCharacters', 'knowledge', 'characters', 2),
-        saveList('save-relationships', 'saveRelationships', 'knowledge', 'relationships', 3),
-        saveList('save-speech-rules', 'saveSpeechRules', 'knowledge', 'speechRules', 4),
-      ],
-      edges: chain('entry', 'people', 'save-characters', 'save-relationships', 'save-speech-rules'),
-    },
-    [['people', 1]],
-  );
+  return {
+    settings: { ...SETTINGS },
+    nodes: [
+      entryNode(),
+      aiNode('people', 'knowledge', ids.model, 1),
+      saveList('save-characters', 'saveCharacters', 'knowledge', 'characters', 2),
+      saveList('save-relationships', 'saveRelationships', 'knowledge', 'relationships', 3),
+      saveList('save-speech-rules', 'saveSpeechRules', 'knowledge', 'speechRules', 4),
+    ],
+    edges: chain('entry', 'people', 'save-characters', 'save-relationships', 'save-speech-rules'),
+  };
 }
 
 /** 사건 추출: scene groups are read for events (cause, outcome, people) and they are saved. */
 export function eventExtractionTemplate(ids: Model): WorkflowDefinition {
-  return withRetries(
-    {
-      settings: { ...SETTINGS },
-      nodes: [entryNode(), aiNode('events', 'events', ids.model, 1), saveList('save-events', 'saveEvents', 'events', 'events', 2)],
-      edges: chain('entry', 'events', 'save-events'),
-    },
-    [['events', 1]],
-  );
+  return {
+    settings: { ...SETTINGS },
+    nodes: [entryNode(), aiNode('events', 'events', ids.model, 1), saveList('save-events', 'saveEvents', 'events', 'events', 2)],
+    edges: chain('entry', 'events', 'save-events'),
+  };
 }
 
 /**
@@ -295,14 +254,11 @@ export function eventExtractionTemplate(ids: Model): WorkflowDefinition {
  * marked 청자 미상. A listener a person set or imported is never changed. Translations and statuses are untouched.
  */
 export function listenerTemplate(ids: Model): WorkflowDefinition {
-  return withRetries(
-    {
-      settings: { ...SETTINGS },
-      nodes: [entryNode(), aiNode('listener', 'listener', ids.model, 1), applyNode('set-listener', 'setListener', 2, { map: { listener: 'value', confidence: 'confidence' } })],
-      edges: chain('entry', 'listener', 'set-listener'),
-    },
-    [['listener', 1]],
-  );
+  return {
+    settings: { ...SETTINGS },
+    nodes: [entryNode(), aiNode('listener', 'listener', ids.model, 1), applyNode('set-listener', 'setListener', 2, { map: { listener: 'value', confidence: 'confidence' } })],
+    edges: chain('entry', 'listener', 'set-listener'),
+  };
 }
 
 /**
@@ -311,14 +267,11 @@ export function listenerTemplate(ids: Model): WorkflowDefinition {
  * The fitted text is written as the translation (not proposed); the status stays as it was.
  */
 export function speechFixTemplate(ids: Model): WorkflowDefinition {
-  return withRetries(
-    {
-      settings: { ...SETTINGS },
-      nodes: [entryNode(), aiNode('fit', 'speechFix', ids.model, 1), writeTranslation('save', 2, 0, '말투 맞춘 번역 기록')],
-      edges: chain('entry', 'fit', 'save'),
-    },
-    [['fit', 1]],
-  );
+  return {
+    settings: { ...SETTINGS },
+    nodes: [entryNode(), aiNode('fit', 'speechFix', ids.model, 1), writeTranslation('save', 2, 0, '말투 맞춘 번역 기록')],
+    edges: chain('entry', 'fit', 'save'),
+  };
 }
 
 /** The workflow that a speech rule's "re-run affected lines" picks first. */
@@ -338,24 +291,20 @@ export const ANALYSIS_WORKFLOW_DESCRIPTION = '대본 전체를 읽고 개요·�
  */
 export function analysisTemplate(ids: Model): WorkflowDefinition {
   const analysis = 'analysis';
-  return withRetries(
-    {
-      settings: { ...SETTINGS },
-      nodes: [
-        entryNode(),
-        aiNode(analysis, 'analysis', ids.model, 1, 0, '작품 분석'),
-        saveList('save-characters', 'saveCharacters', 'analysis', 'characters', 2),
-        saveList('save-relationships', 'saveRelationships', 'analysis', 'relationships', 3),
-        saveList('save-speech-rules', 'saveSpeechRules', 'analysis', 'speechRules', 4),
-        saveList('save-events', 'saveEvents', 'analysis', 'events', 5),
-        saveList('save-terms', 'saveTerms', 'analysis', 'terms', 6),
-        saveList('save-scene-listeners', 'saveSceneListeners', 'analysis', 'sceneListeners', 7),
-        applyNode('save-overview', 'saveDocument', 8, { map: { title: 'overviewTitle', body: 'overview' } }),
-      ],
-      edges: chain('entry', analysis, 'save-characters', 'save-relationships', 'save-speech-rules', 'save-events', 'save-terms', 'save-scene-listeners', 'save-overview'),
-    },
-    [[analysis, 1]],
-  );
+  return {
+    settings: { ...SETTINGS },
+    nodes: [
+      entryNode(),
+      aiNode(analysis, 'analysis', ids.model, 1, 0, '작품 분석'),
+      saveList('save-characters', 'saveCharacters', 'analysis', 'characters', 2),
+      saveList('save-relationships', 'saveRelationships', 'analysis', 'relationships', 3),
+      saveList('save-speech-rules', 'saveSpeechRules', 'analysis', 'speechRules', 4),
+      saveList('save-events', 'saveEvents', 'analysis', 'events', 5),
+      saveList('save-terms', 'saveTerms', 'analysis', 'terms', 6),
+      applyNode('save-overview', 'saveDocument', 7, { map: { title: 'overviewTitle', body: 'overview' } }),
+    ],
+    edges: chain('entry', analysis, 'save-characters', 'save-relationships', 'save-speech-rules', 'save-events', 'save-terms', 'save-overview'),
+  };
 }
 
 

@@ -1,7 +1,7 @@
 import { memo, useEffect } from 'react';
 import { Handle, Position, useUpdateNodeInternals, type Node, type NodeProps } from '@xyflow/react';
 import { BookPlus, Braces, CircleDot, Code, Combine, Flag, GitFork, Globe, ListChecks, MessageCircleQuestion, NotebookPen, ScanSearch, Sparkles, SpellCheck, Tag, UserCheck } from 'lucide-react';
-import { nodeName, nodePorts, type WorkflowNode } from '@tw/shared';
+import { functionGroup, nodeName, nodePorts, type WorkflowNode } from '@tw/shared';
 import { NodeCard, type CanvasDirection } from '@loca/ui';
 
 type Icon = typeof Sparkles;
@@ -84,7 +84,7 @@ export const WorkflowNodeView = memo(function WorkflowNodeView({ id, data, selec
         : { top: `${((index + 0.5) / (ports.length || 1)) * 100}%` }}
     />,
   }));
-  const kind = node.type === 'function' && node.config.fn === 'setStatus' ? 'status' : node.type;
+  const kind = node.type === 'function' ? functionGroup(node.config.fn) : node.type;
   const detail = node.type === 'function' && node.config.fn === 'setStatus'
     ? `→ ${status?.name ?? '상태 그대로'}`
     : summary;

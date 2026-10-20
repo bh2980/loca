@@ -135,10 +135,6 @@ const HANDLERS: Record<Exclude<ApplyFunctionName, ItemTarget>, Handler> = {
   saveDocument: {
     write: (items, { tx, write }) => ({ document: items[0] ? aiSaveDocument(tx, write, items[0] as never) : 'none' }),
   },
-  saveSceneListeners: {
-    write: (items, { tx, input }) =>
-      aiSetSceneListeners(tx, input.projectId, items.map((item) => ({ ...item, exceptions: ((item.exceptions as Item[]) ?? []).map((exception) => ({ ...exception, line: first(exception.line) ?? '' })) })) as never),
-  },
 };
 
 /** Topics an apply node's writes reach besides the run's own `units`, for the runner to notify. */
@@ -153,7 +149,6 @@ export const APPLY_TOPICS: Record<ApplyFunctionName, Topic[]> = {
   saveSpeechRules: ['knowledge'],
   saveEvents: ['knowledge'],
   saveDocument: ['knowledge'],
-  saveSceneListeners: [],
 };
 
 function run(fn: ApplyFunctionName, tx: Tx, raw: unknown, input: FunctionInput): FunctionResult {
