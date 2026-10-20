@@ -9,6 +9,9 @@ export const KNOWLEDGE_STATUSES = ['candidate', 'confirmed', 'rejected'] as cons
 export const KNOWLEDGE_ORIGINS = ['human', 'ai', 'import', 'script'] as const;
 /** A correction to the 사건 흐름's derived lines: a line drawn by hand, or a derived line dropped. */
 export const EVENT_LINK_KINDS = ['added', 'hidden'] as const;
+/** Where a dialogue-graph node or line came from: the imported file, a person in the app, the AI. */
+export const GRAPH_ORIGINS = ['import', 'human', 'ai'] as const;
+export type GraphOrigin = (typeof GRAPH_ORIGINS)[number];
 export type EventLinkKind = (typeof EVENT_LINK_KINDS)[number];
 export type KnowledgeStatus = (typeof KNOWLEDGE_STATUSES)[number];
 export type KnowledgeOrigin = (typeof KNOWLEDGE_ORIGINS)[number];

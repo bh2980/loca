@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { customType, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import { AGE_BANDS, CHARACTER_ROLES, GENDERS, KNOWLEDGE_TAG_KINDS, TAG_ROLES, type TagRole, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, EVENT_LINK_KINDS, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, PERMISSION_MODES, type CharacterStyle, type EditorAi, type ExclusionRules, type ModelLimits, LINE_TRANSLATE, type AutoMark, type MarkColors, type ModelChoice, type ContextItem, type FormatRules, type ItemErrorKind, type NodeType, type RelationshipChange, type WorkflowDefinition, workflowDefinitionSchema, WORKFLOW_SUBJECT_IDS, type WorkflowSubject } from '@tw/shared';
+import { AGE_BANDS, CHARACTER_ROLES, GENDERS, KNOWLEDGE_TAG_KINDS, TAG_ROLES, type TagRole, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, EVENT_LINK_KINDS, GRAPH_ORIGINS, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, PERMISSION_MODES, type CharacterStyle, type EditorAi, type ExclusionRules, type ModelLimits, LINE_TRANSLATE, type AutoMark, type MarkColors, type ModelChoice, type ContextItem, type FormatRules, type ItemErrorKind, type NodeType, type RelationshipChange, type WorkflowDefinition, workflowDefinitionSchema, WORKFLOW_SUBJECT_IDS, type WorkflowSubject } from '@tw/shared';
 import type { Usage } from '@tw/ai';
 
 const id = () => text('id').primaryKey().$defaultFn(() => crypto.randomUUID());
@@ -204,6 +204,8 @@ export const graphNodes = sqliteTable(
     groupId: text('group_id'),
     unitIds: json<string[]>('unit_ids').notNull(),
     meta: json<Record<string, unknown>>('meta'),
+    /** Who made it: the imported file, a person in the app, or the AI (a proposal accepted). */
+    origin: text('origin', { enum: GRAPH_ORIGINS }).notNull().default('import'),
   },
   (t) => [uniqueIndex('graph_nodes_key').on(t.projectId, t.key), index('graph_nodes_group').on(t.groupId)],
 );
@@ -217,6 +219,8 @@ export const graphEdges = sqliteTable(
     toId: text('to_id').notNull().references(() => graphNodes.id, { onDelete: 'cascade' }),
     kind: text('kind'),
     label: text('label'),
+    /** As graph_nodes.origin: a line drawn in the app says so in its pane. */
+    origin: text('origin', { enum: GRAPH_ORIGINS }).notNull().default('import'),
   },
   (t) => [index('graph_edges_from').on(t.fromId), index('graph_edges_to').on(t.toId)],
 );

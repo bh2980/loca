@@ -60,5 +60,13 @@ loca call update_group '{"groupId":"…","title":"…"}'   # 종류는 못 바�
 loca call create_unit '{"groupId":"…","key":"letter_01","source":"…","speaker":null}'
 loca call update_unit '{"unitId":"…","source":"…"}'   # 원문을 바꾸면 그 줄 상태가 처음으로 돌아감. groupId로 같은 종류의 다른 묶음으로 옮김
 ```
+
+대사 그래프도 프로젝트 데이터라 고칠 수 있습니다(가져온 파일이 원본이 아님). 대사·노드는 키로 부르고, 바꾼 것은 제안으로 올라가 사람이 앱에서 수락합니다. 직접 그은 선과 넣은 대사는 "AI가 만듦"으로 남습니다.
+```
+loca call link_lines '{"from":"<키>","to":"<키>","action":"link"}'      # 선 잇기(label로 선택지 이름), "unlink"면 지우기
+loca call add_line_after '{"after":"<키>","source":"…","speaker":"Mira"}' # 그 대사 바로 뒤: 다음 대사가 하나면 사이에, 갈래면 새 갈래로
+loca call delete_lines '{"keys":["<키>"]}'                              # 지우면서 앞뒤를 이어 줌(bridge:false면 끊음)
+```
+- 파일에 없는 원문만 넣습니다. 흐름이 틀렸는지는 `loca call line_context`·`show_graph`로 먼저 확인합니다.
 - 그래프 연결(어느 대사 다음에 어느 대사)은 만들지 않습니다. 게임 데이터에서 다시 가져와야 하면 `loca-import-format`.
 - 장면 설명(AI 번역 노드가 장면 문맥으로 받음)은 `loca-knowledge`의 `save_group_summary`.

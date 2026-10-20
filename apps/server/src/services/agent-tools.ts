@@ -12,6 +12,7 @@ import { inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { linkEvents, projectEventFlow } from './event-routes.ts';
+import { deleteNodes, insertLineAfter, linkNodes, nodeByKey, unlinkEdges } from './graph-edit.ts';
 import { characterInput, documentInput, eventInput, relationshipInput, speechRuleInput, termInput } from '../schemas/knowledge.ts';
 import { describeRule, knownListener, speechRuleIndex } from './speech.ts';
 import { workflowIssues } from './workflow-issues.ts';
@@ -477,6 +478,35 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       inputSchema: z.object({ fromId: z.string().min(1), toId: z.string().min(1), action: z.enum(['link', 'unlink']) }),
       needsApproval: true,
       execute: (input) => linkEvents(db, projectId, { ...input, origin: 'ai' }),
+    }),
+    link_lines: tool({
+      description: 'Draw or delete a line of the dialogue graph between two lines (or nodes), by key: link adds from → to (with the choice label if given), unlink removes it. Use when the flow is wrong or missing (find_lines / line_context / show_graph first). Lines drawn this way are marked as made by the AI.',
+      inputSchema: z.object({ from: z.string().min(1), to: z.string().min(1), action: z.enum(['link', 'unlink']), label: z.string().optional() }),
+      needsApproval: true,
+      execute: ({ from, to, action, label }) => {
+        const fromId = nodeByKey(db, projectId, from);
+        const toId = nodeByKey(db, projectId, to);
+        if (action === 'link') return { ok: true, edge: linkNodes(db, projectId, { fromId, toId, label: label ?? null, origin: 'ai' }).edge.id };
+        const edge = db.select({ id: s.graphEdges.id }).from(s.graphEdges).where(and(eq(s.graphEdges.fromId, fromId), eq(s.graphEdges.toId, toId))).get();
+        if (!edge) return { ok: true, result: '이어진 선이 없습니다.' };
+        unlinkEdges(db, projectId, [edge.id]);
+        return { ok: true };
+      },
+    }),
+    add_line_after: tool({
+      description: 'Add a source line right after another line (by key) in its scene and in the dialogue graph: between it and its next line when it has one way on, else as another way out. Only for source the file lacks (the user asked); not for translations.',
+      inputSchema: z.object({ after: z.string().min(1), source: z.string().min(1), speaker: z.string().optional(), listener: z.string().optional() }),
+      needsApproval: true,
+      execute: ({ after, ...line }) => {
+        const result = insertLineAfter(db, projectId, nodeByKey(db, projectId, after), { ...line, origin: 'ai' });
+        return { ok: true, key: db.select({ key: s.units.key }).from(s.units).where(eq(s.units.id, result.unitId)).get()?.key };
+      },
+    }),
+    delete_lines: tool({
+      description: 'Delete source lines (by key) and their dialogue-graph nodes. bridge (default true) keeps the way through them: what led into them leads to what they led to. Only when the user asks.',
+      inputSchema: z.object({ keys: z.array(z.string().min(1)).min(1), bridge: z.boolean().default(true) }),
+      needsApproval: true,
+      execute: ({ keys, bridge }) => ({ ok: true, ...deleteNodes(db, projectId, keys.map((key) => nodeByKey(db, projectId, key)), bridge), token: undefined }),
     }),
     save_document: tool({
       description: 'Create a note (자료 › 노트: story / world / style / note), or update it when id is given. alwaysInclude (shown as 번역 문맥에 넣기) puts its full text into the prompts of AI nodes that have the 노트 context on.',
