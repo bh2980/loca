@@ -17,6 +17,7 @@ export type ContextItemKind = keyof typeof CONTEXT_ITEM_KINDS;
  * workflow AI node and the editor's AI settings.
  */
 export const CONTEXT_FIELDS = {
+  candidate: { label: '지금 번역', help: '항목의 지금 번역(용어는 지금 표기)을 함께 보냅니다. 끄면 원문만 보고 새로 번역합니다. 판정(검수) 출력은 늘 보냅니다.' },
   glossary: { label: '확정 용어', help: '보내는 원문에 나오는 확정된 용어와 그 표기를 함께 보냅니다.' },
   speech: { label: '청자·말투', help: '대사마다 누구에게 하는 말인지와, 그 화자→청자에게 확정된 말투 규칙을 보냅니다.' },
   precedingLines: { label: '앞 대사', help: '보내는 대사들 바로 앞의 대사를 원문으로 함께 보냅니다. 흐름과 말투를 이어가게 합니다.' },

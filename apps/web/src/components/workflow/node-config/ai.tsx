@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { Plus, X } from 'lucide-react';
 import { AI_OUTPUTS, AI_SCOPES, CONTEXT_FIELDS, CHOICE_SOURCES, CONNECTION_KIND_INFO, BATCH_MODE_LABELS, contextConfigSchema, INPUT_TYPES, nodeName, previousSteps, type WorkflowSubject, type AiOutput, type AiScope, type BatchConfig, type Capability, type ChoiceSource, type WorkflowNode } from '@tw/shared';
-import { Button, Dialog, DialogContent, DialogHeader, DialogTitle, Input, NumberInput, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, InspectorResult, InspectorSection } from '@loca/ui';
+import { Button, HelpTip, Dialog, DialogContent, DialogHeader, DialogTitle, Input, NumberInput, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, InspectorResult, InspectorSection } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
 import { JsonFieldsEditor } from '@/components/workflow/node-config/json-fields-editor';
@@ -43,7 +43,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
   const setExtra = (index: number, value: ModelValue) => set({ extraModels: extras.map((choice, i) => (i === index ? value : choice)) });
   const connection = refs.connections.find((item) => item.id === config.model.connectionId);
   const takesTemperature = connection ? CONNECTION_KIND_INFO[connection.kind].transport !== 'cli' && connection.kind !== 'systemone' : false;
-  const contextOn = [context.glossary, context.speech, config.include.issues, context.precedingLines > 0, context.previousScenes > 0, context.cast, context.characters, context.relationships, context.documents].filter(Boolean).length;
+  const contextOn = [config.include.candidate, context.glossary, context.speech, config.include.issues, context.precedingLines > 0, context.previousScenes > 0, context.cast, context.characters, context.relationships, context.documents].filter(Boolean).length;
 
   if (part === 'model') {
     return (
@@ -143,26 +143,8 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
               <NumberInput min={0} max={2} step={0.1} integer={false} optional className="w-28" value={config.temperature} placeholder="기본값" onValueChange={(temperature) => set({ temperature })} />
             </Field>
           )}
-          {config.output === 'text' && (
-            <Field label="기존 번역">
-              <Select
-                value={config.include.candidate ? 'revise' : 'fresh'}
-                onValueChange={(value) =>
-                  set({ include: { ...config.include, candidate: value === 'revise' } })
-                }
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="fresh">보지 않고 새로 번역</SelectItem>
-                  <SelectItem value="revise">보고 고침</SelectItem>
-                </SelectContent>
-              </Select>
-            </Field>
-          )}
           <>
-            <Field label="묶음">
+            <Field label={<span className="flex items-center gap-1">요청 단위<HelpTip>AI 요청 한 번에 항목을 어떻게 묶어 보낼지 정합니다.</HelpTip></span>}>
               <Select
                 value={config.batch.mode}
                 onValueChange={(value) =>
@@ -221,6 +203,7 @@ export function AiContextFields({ config, set, input }: { config: Pick<AiNode['c
         )}
       </div>
       <div className="space-y-2.5 border-t border-border-subtle pt-3">
+        <ToggleRow label={CONTEXT_FIELDS.candidate.label} help={CONTEXT_FIELDS.candidate.help} checked={config.include.candidate} onChange={(value) => set({ include: { ...config.include, candidate: value } })} />
         <ToggleRow label={CONTEXT_FIELDS.glossary.label} help={CONTEXT_FIELDS.glossary.help} checked={context.glossary} onChange={(value) => setContext({ glossary: value })} />
         {lines && <ToggleRow label={CONTEXT_FIELDS.speech.label} help={CONTEXT_FIELDS.speech.help} checked={context.speech} onChange={(value) => setContext({ speech: value })} />}
         <ToggleRow label={CONTEXT_FIELDS.cast.label} help={CONTEXT_FIELDS.cast.help} checked={context.cast} onChange={(value) => setContext({ cast: value })} />
