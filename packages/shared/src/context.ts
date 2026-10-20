@@ -8,7 +8,7 @@ export const CONTEXT_ITEM_KINDS = {
   relationship: '관계',
   scene: '장면',
   previousScene: '이전 장면',
-  document: '문서',
+  document: '노트',
 } as const;
 export type ContextItemKind = keyof typeof CONTEXT_ITEM_KINDS;
 
@@ -27,7 +27,7 @@ export const CONTEXT_FIELDS = {
   cast: { label: '인물 명단', help: '확정된 인물 전체의 이름·별칭·플레이어 여부·성별·나이대를 보냅니다.' },
   characters: { label: '인물 프로필', help: '보내는 원문에 나오는 확정된 인물의 소개를 보냅니다.' },
   relationships: { label: '인물 관계', help: '보내는 원문에 함께 나오는 인물 사이의 확정된 관계를 보냅니다.' },
-  documents: { label: '문서', help: '"항상 포함"으로 정한 확정 문서(세계관·줄거리 등)를 보냅니다.' },
+  documents: { label: '노트', help: '"번역 문맥에 넣기"를 켠 확정 노트(세계관·줄거리 등)를 보냅니다.' },
 } as const;
 
 /** Filled in this order until the token cap; later kinds are dropped first. */

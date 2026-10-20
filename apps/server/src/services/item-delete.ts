@@ -15,7 +15,7 @@ export const DELETABLE = {
   speechRules: { table: s.speechRules, what: '말투 규칙', topic: 'knowledge' },
   events: { table: s.storyEvents, what: '사건', topic: 'knowledge' },
   eventLinks: { table: s.eventLinks, what: '사건 연결', topic: 'knowledge' },
-  documents: { table: s.documents, what: '문서', topic: 'knowledge' },
+  documents: { table: s.documents, what: '노트', topic: 'knowledge' },
   terms: { table: s.terms, what: '용어', topic: 'terms' },
   tags: { table: s.tags, what: '태그', topic: 'statuses' },
 } as const;

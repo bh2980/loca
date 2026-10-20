@@ -557,7 +557,7 @@ terms
   });
 
 const KNOWLEDGE_KINDS = {
-  documents: { tool: 'read_documents', pick: undefined, label: '문서' },
+  documents: { tool: 'read_documents', pick: undefined, label: '노트' },
   characters: { tool: 'list_characters', pick: 'characters', label: '인물' },
   relationships: { tool: 'list_characters', pick: 'relationships', label: '관계' },
   events: { tool: 'list_events', pick: undefined, label: '사건' },
@@ -892,7 +892,7 @@ format
     const warnings = importWarnings(result.data);
     if (globals().json) return print({ ok: true, summary, warnings });
     console.log(`형식이 맞습니다: ${summary.name}`);
-    console.log(`  묶음 ${summary.groups} · 대사 ${summary.units} · 인물 ${summary.characters} · 문서 ${summary.documents} · 용어 ${summary.terms}`);
+    console.log(`  묶음 ${summary.groups} · 대사 ${summary.units} · 인물 ${summary.characters} · 노트 ${summary.documents} · 용어 ${summary.terms}`);
     if (summary.excluded) console.log(`  번역 제외로 보이는 원문 ${summary.excluded} (${Object.entries(summary.excludedBy).map(([reason, count]) => `${EXCLUSION_REASON_LABELS[reason as keyof typeof EXCLUSION_REASON_LABELS]} ${count}`).join(' · ')}): 진행률·실행·내보내기에서 빠집니다. 규칙은 앱의 설정 › 에디터 › 번역 제외`);
     console.log(summary.graphNodes ? `  그래프 노드 ${summary.graphNodes} · 연결 ${summary.graphEdges}` : '  그래프 없음: 앞 대사 문맥을 장면 순서로만 찾습니다');
     for (const warning of warnings) console.log(`  경고  ${warning.message}${warning.examples.length ? ` (예: ${warning.examples.join(', ')})` : ''}`);

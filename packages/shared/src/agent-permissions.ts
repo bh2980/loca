@@ -9,7 +9,7 @@ export const AGENT_RESOURCES = {
   relationships: { label: '관계', actions: ['create', 'read', 'update', 'delete'] },
   speechRules: { label: '말투 규칙', actions: ['create', 'read', 'update', 'delete'] },
   events: { label: '사건', actions: ['create', 'read', 'update', 'delete'] },
-  documents: { label: '문서', actions: ['create', 'read', 'update', 'delete'] },
+  documents: { label: '노트', actions: ['create', 'read', 'update', 'delete'] },
   terms: { label: '용어집', actions: ['create', 'read', 'update', 'delete'] },
   statuses: { label: '상태', actions: ['create', 'read', 'update', 'delete'] },
   tags: { label: '태그', actions: ['create', 'read', 'update', 'delete'] },

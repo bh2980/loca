@@ -429,7 +429,7 @@ export function buildContext(
     for (const { statusBy, ...doc } of rows) {
       const ai = unverified({ statusBy });
       candidates.document.push({
-        item: { kind: 'document', label: ai ? `${doc.title} (AI 추론)` : doc.title, reason: `‘번역 문맥에 넣기’를 켠 문서 (전문)${ai ? ' · 확인 안 된 AI 항목이라 사실과 따로 전달' : ''}` },
+        item: { kind: 'document', label: ai ? `${doc.title} (AI 추론)` : doc.title, reason: `‘번역 문맥에 넣기’를 켠 노트 (전문)${ai ? ' · 확인 안 된 AI 항목이라 사실과 따로 전달' : ''}` },
         payload: doc,
         keep: () => (ai ? result.aiNotes.documents : result.documents).push(doc),
       });

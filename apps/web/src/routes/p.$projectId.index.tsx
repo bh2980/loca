@@ -104,10 +104,10 @@ function Home() {
     })),
     ...(
       [
-        ['documents', '문서', { tab: 'documents' }],
         ['characters', '인물', { tab: 'people', display: 'characters' }],
         ['pairs', '관계·말투 규칙', { tab: 'people' }],
         ['events', '사건', { tab: 'events' }],
+        ['documents', '노트', { tab: 'documents' }],
       ] as const
     ).map(([key, name, where]) => ({
       key: `ai-${key}`,

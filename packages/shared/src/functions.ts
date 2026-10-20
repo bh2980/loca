@@ -274,8 +274,8 @@ export const APPLY_TARGETS = {
     inputs: ['lines', 'terms'],
   },
   saveDocument: {
-    label: '문서 저장',
-    description: '세계관·줄거리 같은 문서를 넣습니다. 같은 제목의 문서가 있으면 AI가 쓴 것만 내용을 바꿉니다.',
+    label: '노트 저장',
+    description: '세계관·줄거리 같은 노트를 넣습니다. 같은 제목의 노트가 있으면 AI가 쓴 것만 내용을 바꿉니다.',
     shape: 'single',
     fields: [
       { name: 'title', label: '제목', type: 'string', required: true },

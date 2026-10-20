@@ -54,7 +54,7 @@ for (const [tool, field, what, exists] of [
   ['save_relationship', 'id', '관계', scoped(s.relationships)],
   ['save_speech_rule', 'id', '말투 규칙', scoped(s.speechRules)],
   ['save_event', 'id', '사건', scoped(s.storyEvents)],
-  ['save_document', 'id', '문서', scoped(s.documents)],
+  ['save_document', 'id', '노트', scoped(s.documents)],
   ['save_workflow', 'id', '워크플로', scoped(s.workflows)],
   ['start_run', 'workflowId', '워크플로', scoped(s.workflows)],
   ['propose_translation', 'unitId', '대사', scoped(s.units)],

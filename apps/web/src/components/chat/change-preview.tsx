@@ -38,7 +38,7 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
     case 'save_document':
       return <dl className="space-y-1">{field('작업', action)}{field('제목', input.title)}{field('종류', input.kind)}{field('문맥에 넣기', input.alwaysInclude ? '예' : '아니오')}{markdown(input.body)}</dl>;
     case 'tag_items': {
-      const kinds: Record<string, string> = { terms: '용어', characters: '인물', relationships: '관계', speechRules: '말투 규칙', events: '사건', documents: '문서' };
+      const kinds: Record<string, string> = { terms: '용어', characters: '인물', relationships: '관계', speechRules: '말투 규칙', events: '사건', documents: '노트' };
       const names = (value: unknown) => ((value as string[] | undefined) ?? []).map((name) => `#${name.replace(/^#/, '')}`);
       return (
         <dl className="space-y-1">
@@ -54,7 +54,7 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
         ['relationships', '관계', (item: Record<string, unknown>) => `${String(item.from ?? '?')} → ${String(item.to ?? '?')}${item.kind ? ` (${String(item.kind)})` : ''}`],
         ['speechRules', '말투 규칙', (item: Record<string, unknown>) => (item.fromName ? `${String(item.fromName)} → ${String(item.toName ?? '?')}${item.level ? ` (${String(item.level)})` : ''}` : String(item.id ?? ''))],
         ['events', '사건', (item: Record<string, unknown>) => String(item.title ?? item.id ?? '')],
-        ['documents', '문서', (item: Record<string, unknown>) => String(item.title ?? item.id ?? '')],
+        ['documents', '노트', (item: Record<string, unknown>) => String(item.title ?? item.id ?? '')],
       ] as const;
       return (
         <div className="max-h-56 space-y-2 overflow-auto">
@@ -79,7 +79,7 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
       );
     }
     case 'delete_items': {
-      const kinds: Record<string, string> = { terms: '용어', characters: '인물', relationships: '관계', speechRules: '말투 규칙', events: '사건', documents: '문서', tags: '태그' };
+      const kinds: Record<string, string> = { terms: '용어', characters: '인물', relationships: '관계', speechRules: '말투 규칙', events: '사건', documents: '노트', tags: '태그' };
       const ids = (input.ids as string[] | undefined) ?? [];
       return (
         <dl className="space-y-1">

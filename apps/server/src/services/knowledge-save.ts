@@ -64,7 +64,7 @@ export function saveRelationshipItem(db: Db, projectId: string, { id, from, to, 
 const SAVES = {
   speechRules: { table: s.speechRules, schema: speechRuleInput, missing: '없는 말투 규칙입니다.' },
   events: { table: s.storyEvents, schema: eventInput, missing: '없는 사건입니다.' },
-  documents: { table: s.documents, schema: documentInput, missing: '없는 문서입니다.' },
+  documents: { table: s.documents, schema: documentInput, missing: '없는 노트입니다.' },
 } as const;
 
 /** Speech rules, events and documents: the same create-or-patch, differing only by table and schema. */

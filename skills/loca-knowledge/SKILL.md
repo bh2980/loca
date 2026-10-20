@@ -58,13 +58,13 @@ loca lines --mark unknownListener -g "<장면>"
 - 근거로 추정한 AI의 추측: `loca call set_listeners`로 확신도(0–1)와 함께 제안합니다. 줄마다(`lines`) 주고, 사람이 정했거나 가져오기로 들어온 청자는 바꾸지 않습니다. 이런 줄은 #AI 초안으로 남아 사람이 확인합니다. 형식은 `loca tools set_listeners`.
 - 특별한 청자: 여럿(`group`) · 불특정 다수(`public`) · 혼잣말(`self`) · 그 밖의 사람(`others`).
 
-## 사건·문서·장면 설명
+## 사건·노트·장면 설명
 ```
 loca call save_event @"$W/event.json"            # {"title":"…","summary":"…","outcome":"…","participants":["Alice"],"evidence":["<키>"]}
 loca call save_document @"$W/doc.json"           # {"title":"세계관","kind":"world","body":"…","alwaysInclude":false}
 loca call save_group_summary '{"groupId":"…","description":"…"}'   # 장면을 끝까지 읽은 뒤, 2–5문장 사실만
 ```
-- 문서 `kind`: `story` 스토리 · `world` 세계관 · `style` 문체 · `note` 메모. `alwaysInclude`(번역 문맥에 넣기)는 작품 문서 문맥을 켠 AI 노드에 전문이 들어가니 짧고 꼭 필요한 것만 켭니다.
+- 노트 `kind`: `story` 스토리 · `world` 세계관 · `style` 문체 · `note` 메모. `alwaysInclude`(번역 문맥에 넣기)는 작품 노트 문맥을 켠 AI 노드에 전문이 들어가니 짧고 꼭 필요한 것만 켭니다.
 - 장면 설명은 AI 번역 노드가 장면 문맥으로 받습니다: 누가 있는지, 무슨 일이 있는지, 분위기.
 - 사건의 `evidence`는 그 사건을 보여 주는 대사 키입니다. 근거가 없으면 #근거 부재가 붙습니다.
 - 사건 흐름의 선: `loca knowledge events --json`의 `next`가 사건이 이어지는 사건입니다(`source` `graph` = 대사 그래프에서 계산, `added` = 직접 이음). 대사 그래프로는 안 보이는 인과(나란히 열리는 장면)만 `loca call link_events '{"fromId":"…","toId":"…","action":"link"}'`로 잇고, 틀린 선은 `"action":"unlink"`로 뺍니다(계산된 선은 다시 계산해도 빠진 채). 사건이 엉뚱한 곳에 있어서 선이 틀렸다면 잇지 말고 `save_event`로 `evidence`를 고칩니다.

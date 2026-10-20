@@ -10,7 +10,7 @@ export const TAG_SCOPE_LABELS: Record<TagScope, string> = {
   terms: '용어집',
   knowledge: '자료',
   people: '인물·관계',
-  documents: '문서',
+  documents: '노트',
   events: '사건',
 };
 

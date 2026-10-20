@@ -9,7 +9,7 @@ import { MarkChip } from '@/components/status';
 import { HeaderFilter, MarkFilter, markTagGroups, togglePick, type FilterOption, type FilterPick } from '@/components/header-filter';
 import type { client } from '@/lib/api';
 
-export const KINDS = { documents: '문서', characters: '인물', relationships: '관계', events: '사건', speechRules: '말투 규칙' } as const;
+export const KINDS = { documents: '노트', characters: '인물', relationships: '관계', events: '사건', speechRules: '말투 규칙' } as const;
 export type Kind = keyof typeof KINDS;
 
 /** Fields every knowledge row has, whatever its kind. */

@@ -20,7 +20,7 @@ loca call delete_status '{"ids":["…","…"],"moveTo":"<남길 상태 id>"}'   
 - 순서는 앱의 설정 › 상태·태그에서 끌어서 바꿉니다(CLI 없음).
 
 ## 태그
-태그는 붙는 곳(`scope`)에만 붙습니다: `lines` 대사 · `terms` 용어집 · `people` 인물·관계 · `documents` 문서 · `events` 사건 (`knowledge`는 people·documents·events 셋). 앱 기본 태그(문제 유형, 확인 권장)는 이름·붙는 곳을 바꾸거나 지울 수 없고 색만 바꿀 수 있습니다.
+태그는 붙는 곳(`scope`)에만 붙습니다: `lines` 대사 · `terms` 용어집 · `people` 인물·관계 · `events` 사건 · `documents` 노트 (`knowledge`는 people·documents·events 셋). 앱 기본 태그(문제 유형, 확인 권장)는 이름·붙는 곳을 바꾸거나 지울 수 없고 색만 바꿀 수 있습니다.
 ```
 loca tags                                        # 태그와 기본 표시의 붙는 곳, 색, 쓰인 수
 loca call save_status '{"type":"tag","name":"지명","scope":["terms"]}'

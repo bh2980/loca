@@ -54,7 +54,7 @@ import { cn } from '@/lib/utils';
 import { useReportView } from '@/lib/view-context';
 
 /** Tabs (the top bar's section tabs link to them). Relationships and speech rules share 인물·관계 because both describe speaker → listener pairs. */
-const TABS = { documents: '문서', people: '인물·관계', events: '사건' } as const;
+const TABS = { people: '인물·관계', events: '사건', documents: '노트' } as const;
 type Tab = keyof typeof TABS;
 interface KnowledgeSearch {
   tab?: Tab;
@@ -106,7 +106,7 @@ function Knowledge() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const revealDock = useRevealDock();
-  const tab: Tab = search.tab ?? 'documents';
+  const tab: Tab = search.tab ?? 'people';
   // 인물·관계 is one graph (people and their relationships) or two tables (pairs / people).
   const graph = tab === 'people' && !search.display;
   const pairsView = tab === 'people' && search.display === 'table';
@@ -149,7 +149,7 @@ function Knowledge() {
         { name: 'alwaysInclude', label: '문맥에 넣기', description: '켜면 모든 AI 호출의 문맥에 들어갑니다.', type: 'bool' },
         { name: 'body', label: '본문', type: 'long' },
       ],
-      create: () => unwrap(api.documents.$post({ param: { projectId }, json: { title: '새 문서', kind: 'note', body: '', alwaysInclude: false } })),
+      create: () => unwrap(api.documents.$post({ param: { projectId }, json: { title: '새 노트', kind: 'note', body: '', alwaysInclude: false } })),
       label: (row) => row.title,
       save: patchTo(api.documents[':id'].$patch),
       remove: (id) => unwrap(api.documents[':id'].$delete(param(id))),

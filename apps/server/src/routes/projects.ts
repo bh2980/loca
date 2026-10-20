@@ -75,7 +75,7 @@ export const projectRoutes = new Hono<Env>()
         const t = table as typeof s.terms;
         return sum + db.select({ count: count() }).from(t).where(and(eq(t.projectId, projectId), eq(t.statusBy, 'ai'), notInArray(t.status, ['candidate', 'rejected']))).get()!.count;
       }, 0);
-    // Knowledge by the tab that lists it (자료 › 문서 / 인물 / 관계·말투 / 사건; the pairs table lists the pairs holding these items), so a count opens the tab it counts.
+    // Knowledge by the tab that lists it (자료 › 인물 / 관계·말투 / 사건 / 노트; the pairs table lists the pairs holding these items), so a count opens the tab it counts.
     const aiDecided = {
       lines: aiLines,
       terms: aiConfirmed(s.terms),

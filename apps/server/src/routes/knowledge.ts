@@ -72,7 +72,7 @@ export const knowledgeRoutes = new Hono<Env>()
   .get('/documents/:id', (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId')!;
-    const row = found(db.select().from(s.documents).where(byProject(s.documents, c.req.param('id'), projectId)).get(), '문서');
+    const row = found(db.select().from(s.documents).where(byProject(s.documents, c.req.param('id'), projectId)).get(), '노트');
     return c.json(withTags(db, 'documents', [row])[0]);
   })
   .post('/documents', validate('json', documentInput), (c) => {
