@@ -10,11 +10,6 @@ import { Field, refsInput, type ConditionNode, type NodeRefs } from '@/component
 
 // ── condition node ────────────────────────────────────────────────────
 
-/** Nodes whose output has a `passed` flag a condition can test. */
-export const hasVerdict = (node: WorkflowNode) =>
-  (node.type === 'ai' && node.config.output === 'verdict') ||
-  (node.type === 'function' && (node.config.fn === 'formatCheck' || node.config.fn === 'glossaryCheck' || (node.config.fn === 'http' && (node.config.params as { mode?: string }).mode === 'verdict')));
-
 const KIND_LABELS: Record<string, string> = {
   dialogue: '대사',
   ui: 'UI 문자열',
@@ -62,7 +57,7 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
   const statuses = refs?.statuses ?? [];
   const tags = refs?.tags ?? [];
   const others = nodes.filter((other) => other.id !== node.id && other.type !== 'entry' && other.type !== 'end');
-  const outputs = others.map((other) => ({ node: other, fields: comparableFields(other, hasVerdict(other)) })).filter((entry) => entry.fields.length > 0);
+  const outputs = others.map((other) => ({ node: other, fields: comparableFields(other) })).filter((entry) => entry.fields.length > 0);
   const fieldsOf = (id: string) => outputs.find((entry) => entry.node.id === id)?.fields ?? [];
 
   const write = (condition: Condition) => {

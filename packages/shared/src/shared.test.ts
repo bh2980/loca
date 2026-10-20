@@ -7,8 +7,8 @@ import { politenessOf, speechLevelOf, styleInstruction, styleNames } from './kno
 import { ANALYSIS_WORKFLOW, analysisTemplate, defaultWorkflows, draftTranslationTemplate, eventExtractionTemplate, listenerTemplate, MODEL_TEMPLATES, peopleRelationsTemplate, speechFixTemplate, termExtractionTemplate, translationTemplate } from './defaults.ts';
 import { APPLY_TARGETS } from './functions.ts';
 import { AI_PRESETS, AI_PROMPTS, presetConfig } from './presets.ts';
-import { APPLY_PALETTE_ORDER, FUNCTION_NAMES, functionGroup } from './functions.ts';
-import { applyIssues, nodePorts, pickPaths, previousSteps, readinessUses, validateWorkflow, workflowDefinitionSchema, workflowNodeSchema, type WorkflowDefinition } from './workflow.ts';
+import { APPLY_PALETTE_ORDER, fieldsFromSample, FUNCTION_NAMES, functionGroup } from './functions.ts';
+import { applyIssues, nodeOutputFields, nodePorts, pickPaths, previousStepId, previousSteps, readinessUses, validateWorkflow, workflowDefinitionSchema, workflowNodeSchema, type WorkflowDefinition, type WorkflowNode } from './workflow.ts';
 
 const model = { connectionId: 'c', model: 'm' };
 const ids = { model, untranslated: 's0', draft: 's1', needsReview: 's2', confirmed: 's3' };
@@ -357,6 +357,22 @@ describe('analysis workflow and presets', () => {
     expect(AI_PROMPTS.listener.fields.map((field) => field.name)).toEqual(['value', 'confidence']);
     for (const id of ['terms', 'knowledge', 'events'] as const) expect(AI_PROMPTS[id]).toMatchObject({ output: 'json', scope: 'batch' });
     expect(AI_PRESETS.review.output).toBe('verdict');
+  });
+});
+
+describe('node outputs', () => {
+  it('lets every node that returns something declare it, and the next step read it', () => {
+    const at = { x: 0, y: 0 };
+    const check = { id: 'check', type: 'function', position: at, config: { fn: 'formatCheck', params: {} } } as WorkflowNode;
+    const http = { id: 'http', type: 'function', position: at, config: { fn: 'http', params: { fields: [{ name: 'suggestion', type: 'string', description: '' }] } } } as WorkflowNode;
+    const status = { id: 'status', type: 'function', position: at, config: { fn: 'setStatus', params: {} } } as WorkflowNode;
+    expect(nodeOutputFields(check)?.map((field) => field.name)).toEqual(['text', 'passed', 'issues']);
+    expect(nodeOutputFields(http)?.map((field) => field.name)).toEqual(['suggestion']);
+    expect(nodeOutputFields(status)).toBeNull();
+    // translate → check → status: the step before the status change is the check, which returns the text it checked.
+    const definition = { nodes: [{ id: 'translate', type: 'ai', position: at, config: {} } as unknown as WorkflowNode, check, status] };
+    expect(previousStepId(definition, [{ nodeId: 'translate', port: 'out' }, { nodeId: 'check', port: 'fail' }, { nodeId: 'status', port: 'out' }])).toBe('check');
+    expect(fieldsFromSample({ text: '번역', passed: false, issues: ['a'], meta: { x: 1 }, 'bad-name': 1 }).map((field) => [field.name, field.type])).toEqual([['text', 'string'], ['passed', 'boolean'], ['issues', 'strings'], ['meta', 'string']]);
   });
 });
 

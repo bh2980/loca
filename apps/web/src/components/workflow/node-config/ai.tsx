@@ -43,7 +43,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
   const setExtra = (index: number, value: ModelValue) => set({ extraModels: extras.map((choice, i) => (i === index ? value : choice)) });
   const connection = refs.connections.find((item) => item.id === config.model.connectionId);
   const takesTemperature = connection ? CONNECTION_KIND_INFO[connection.kind].transport !== 'cli' && connection.kind !== 'systemone' : false;
-  const contextOn = [config.include.candidate, context.glossary, context.speech, config.include.issues, context.precedingLines > 0, context.previousScenes > 0, context.cast, context.characters, context.relationships, context.documents].filter(Boolean).length;
+  const contextOn = [config.include.candidate, context.glossary, context.speech, context.precedingLines > 0, context.previousScenes > 0, context.cast, context.characters, context.relationships, context.documents].filter(Boolean).length;
 
   if (part === 'model') {
     return (
@@ -197,7 +197,6 @@ export function AiContextFields({ config, set, input }: { config: Pick<AiNode['c
               </div>
             )}
             <CountRow label={CONTEXT_FIELDS.previousScenes.label} help={CONTEXT_FIELDS.previousScenes.help} unit="개" value={context.previousScenes} fallback={1} max={10} onChange={(value) => setContext({ previousScenes: value })} />
-            <ToggleRow label={CONTEXT_FIELDS.issues.label} help={CONTEXT_FIELDS.issues.help} checked={config.include.issues} onChange={(value) => set({ include: { ...config.include, issues: value } })} />
         </> : (
             <CountRow label={CONTEXT_FIELDS.examples.label} help={CONTEXT_FIELDS.examples.help} unit="줄" value={context.examples} fallback={2} max={5} onChange={(value) => setContext({ examples: value })} />
         )}

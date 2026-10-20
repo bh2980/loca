@@ -34,6 +34,7 @@ export function lineView(input: FunctionInput) {
       ? { unit: { key: input.unit.key, kind: input.unit.kind, speaker: input.unit.speaker, source: input.unit.source, translation: input.unit.translation } }
       : { term: { source: input.term.source, target: input.term.target, note: input.term.note, status: input.term.status, lines: input.term.lines } }),
     candidate: candidateOf(input),
+    previous: input.previous ?? null,
     issues: input.item.data.issues ?? [],
     outputs: input.item.data.outputs ?? {},
     visits: input.item.visits,
@@ -61,18 +62,18 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     const text = candidateOf(input);
     const rules = tx.select({ formatRules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, input.projectId)).get()?.formatRules;
     const issues = text === null ? [NEEDS_CANDIDATE] : checkFormat(sourceOf(input), text, params, rules).map((issue) => issue.message);
-    return { port: issues.length ? 'fail' : 'pass', issues, output: { passed: !issues.length, issues }, ...(text !== null && { issueTags: issues.length ? { add: ['format'] } : { clear: ['format'] } }) };
+    return { port: issues.length ? 'fail' : 'pass', issues, output: { text, passed: !issues.length, issues }, ...(text !== null && { issueTags: issues.length ? { add: ['format'] } : { clear: ['format'] } }) };
   },
 
   glossaryCheck(tx, _raw, input) {
     const text = candidateOf(input);
-    if (text === null) return { port: 'fail', issues: [NEEDS_CANDIDATE], output: { passed: false, issues: [NEEDS_CANDIDATE] } };
+    if (text === null) return { port: 'fail', issues: [NEEDS_CANDIDATE], output: { text, passed: false, issues: [NEEDS_CANDIDATE] } };
     const issues = knowledgeOf(tx as unknown as Db, input.projectId)
       .glossary()
       .matcher.find(sourceOf(input))
       .filter((term) => !text.toLowerCase().includes(term.target.toLowerCase()))
       .map((term) => `용어 "${term.source}"은(는) "${term.target}"(으)로 옮겨야 합니다.`);
-    return { port: issues.length ? 'fail' : 'pass', issues, output: { passed: !issues.length, issues }, issueTags: issues.length ? { add: ['term'] } : { clear: ['term'] } };
+    return { port: issues.length ? 'fail' : 'pass', issues, output: { text, passed: !issues.length, issues }, issueTags: issues.length ? { add: ['term'] } : { clear: ['term'] } };
   },
 
   setStatus(tx, raw, input) {
@@ -145,29 +146,14 @@ function render(template: string, view: unknown, json: boolean): string {
   });
 }
 
-export async function runAsyncFunction(
-  fn: FunctionName,
-  raw: unknown,
-  input: FunctionInput,
-  deps: { db: Db; secrets: SecretStore; signal: AbortSignal },
-): Promise<FunctionResult> {
-  if (fn === 'script') {
-    const params = scriptParams.parse(raw);
-    const result = await runScript(params.code, lineView(input));
-    const port = result.port ?? params.ports[0];
-    if (!params.ports.includes(port)) throw new Error(`스크립트가 선언하지 않은 출구를 반환했습니다: ${port}`);
-    return { port, candidate: result.candidate, output: validateScriptData(result.data, params.fields), issues: result.issues };
-  }
-
-  if (fn === 'http') {
-    const params = httpParams.parse(raw);
-    const view = lineView(input);
+/** One HTTP call for an item's view (url, body and the key header as the node sets them): the parsed response. */
+export async function callHttp(params: z.infer<typeof httpParams>, view: unknown, { db, secrets, signal }: { db: Db; secrets: SecretStore; signal: AbortSignal }): Promise<unknown> {
     const url = render(params.url.trim(), view, false);
     if (!/^https?:\/\//.test(url)) throw new Error('HTTP 호출 주소가 http(s)://로 시작하지 않습니다.');
     const headers: Record<string, string> = { Accept: 'application/json' };
-    const connection = params.connectionId ? deps.db.select().from(s.connections).where(eq(s.connections.id, params.connectionId)).get() : undefined;
+    const connection = params.connectionId ? db.select().from(s.connections).where(eq(s.connections.id, params.connectionId)).get() : undefined;
     if (params.connectionId && !connection) throw new Error('고른 API 키를 찾을 수 없습니다.');
-    const key = connection ? deps.secrets.get(connection.id) : undefined;
+    const key = connection ? secrets.get(connection.id) : undefined;
     if (connection && key && connection.headerTemplate) {
       const [name, ...rest] = connection.headerTemplate.split(':');
       headers[name.trim()] = rest.join(':').trim().replace('{key}', key);
@@ -187,18 +173,33 @@ export async function runAsyncFunction(
       headers,
       body,
       redirect: 'error',
-      signal: AbortSignal.any([deps.signal, AbortSignal.timeout(params.timeoutSeconds * 1000)]),
+      signal: AbortSignal.any([signal, AbortSignal.timeout(params.timeoutSeconds * 1000)]),
     });
     if (!response.ok) throw new Error(`HTTP ${response.status} — ${(await response.text()).slice(0, 200)}`);
-    const payload: unknown = (response.headers.get('content-type') ?? '').includes('json') ? await response.json() : await response.text();
-    const result = params.resultPath ? get(payload, params.resultPath) : payload;
-    if (params.mode === 'candidate') {
-      if (typeof result !== 'string') throw new Error(`응답의 "${params.resultPath || '(전체)'}" 값이 문자열이 아닙니다.`);
-      return { port: 'out', candidate: result, output: { text: result, changed: result !== view.candidate } };
-    }
-    if (params.mode === 'verdict') return { port: result ? 'pass' : 'fail', output: { passed: Boolean(result), result } };
-    return { port: 'out', output: { result } };
+    return (response.headers.get('content-type') ?? '').includes('json') ? await response.json() : await response.text();
+}
+
+/** The declared fields of an HTTP call's result, each from its place in the response (its path, else its own name), held to the declaration like a script's data. */
+export const httpOutput = (params: z.infer<typeof httpParams>, payload: unknown) =>
+  validateScriptData(Object.fromEntries(params.fields.map((field) => [field.name, get(payload, params.paths[field.name]?.trim() || field.name)])), params.fields);
+
+export async function runAsyncFunction(
+  fn: FunctionName,
+  raw: unknown,
+  input: FunctionInput,
+  deps: { db: Db; secrets: SecretStore; signal: AbortSignal },
+): Promise<FunctionResult> {
+  if (fn === 'script') {
+    const params = scriptParams.parse(raw);
+    const result = await runScript(params.code, lineView(input));
+    const port = result.port ?? params.ports[0];
+    if (!params.ports.includes(port)) throw new Error(`스크립트가 선언하지 않은 출구를 반환했습니다: ${port}`);
+    return { port, candidate: result.candidate, output: validateScriptData(result.data, params.fields), issues: result.issues };
   }
 
+  if (fn === 'http') {
+    const params = httpParams.parse(raw);
+    return { port: 'out', output: httpOutput(params, await callHttp(params, lineView(input), deps)) };
+  }
   throw new Error(`실행할 수 없는 함수입니다: ${fn}`);
 }

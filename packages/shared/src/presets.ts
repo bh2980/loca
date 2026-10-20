@@ -20,7 +20,7 @@ export interface AiPreset {
   instructions: string;
   fields: JsonField[];
   choice?: Partial<ChoiceConfig>;
-  include: { candidate: boolean; issues: boolean };
+  include: { candidate: boolean };
   context?: Partial<ContextConfig>;
   batch?: Partial<BatchConfig>;
   /** The node's call time limit when it is not the default (DEFAULT_CALL_MINUTES). */
@@ -118,7 +118,7 @@ export const AI_PROMPTS = {
     description: '대사마다 번역문 하나를 냅니다.',
     output: 'text',
     scope: 'line',
-    include: { candidate: false, issues: false },
+    include: { candidate: false },
     fields: [],
     instructions:
       'Translate each line. Keep every placeholder ({name}, %s), rich-text tag and line break exactly. ' +
@@ -129,7 +129,7 @@ export const AI_PROMPTS = {
     description: '번역 후보를 원문과 견주어 통과·실패로 판정합니다.',
     output: 'verdict',
     scope: 'line',
-    include: { candidate: true, issues: false },
+    include: { candidate: true },
     fields: [],
     instructions:
       'Review each candidate translation against its source. Pass it only if meaning, nuance, tone, character voice, ' +
@@ -146,7 +146,7 @@ export const AI_PROMPTS = {
     // json, not text: each change says why (the editor shows it on the candidate); "text" is the line's new translation.
     output: 'json',
     scope: 'line',
-    include: { candidate: true, issues: false },
+    include: { candidate: true },
     fields: [
       { ...field('text', 'string', 'The translation after your changes: the candidate exactly as it is when nothing needs fixing.'), required: true },
       field('changes', 'list', 'One entry per change; empty when nothing changed.', [
@@ -168,7 +168,7 @@ export const AI_PROMPTS = {
     description: '번역의 어미·호칭만 말투 규칙에 맞게 고칩니다.',
     output: 'text',
     scope: 'line',
-    include: { candidate: true, issues: false },
+    include: { candidate: true },
     fields: [],
     context: { speech: true, documents: false, characters: false, relationships: false, glossary: false, precedingLines: 4, previousScenes: 0 },
     batch: { mode: 'group' },
@@ -183,7 +183,7 @@ export const AI_PROMPTS = {
     // A json answer, not a choice: an extra outside the cast (e.g. "SWAT 2") is a valid listener, and a choice would drop it.
     output: 'json',
     scope: 'line',
-    include: { candidate: false, issues: false },
+    include: { candidate: false },
     fields: [
       { ...field('value', 'string', 'Who the line is addressed to: a cast name, an extra as the lines name them, group / public / self, or unknown when you cannot tell.'), required: true },
       { ...field('confidence', 'number', 'How sure you are.'), min: 0, max: 1 },
@@ -206,7 +206,7 @@ export const AI_PROMPTS = {
     output: 'json',
     scope: 'batch',
     // The lines' current translations are where the Korean forms come from.
-    include: { candidate: true, issues: false },
+    include: { candidate: true },
     context: { characters: true, documents: true, speech: false, precedingLines: 0, previousScenes: 0 },
     batch: { mode: 'group' },
     fields: [listField('terms', 'Terms found across all lines of the request; empty when there are none.', translatedTermFields)],
@@ -222,7 +222,7 @@ export const AI_PROMPTS = {
     inputs: ['terms'],
     output: 'json',
     scope: 'line',
-    include: { candidate: false, issues: false },
+    include: { candidate: false },
     fields: [
       { ...field('target', 'string', 'The Korean form to use everywhere.'), required: true },
       field('note', 'string', 'A few Korean words on what it is (e.g. "단체 이름", "지명", "인물 호칭").'),
@@ -241,7 +241,7 @@ export const AI_PROMPTS = {
     description: '장면 묶음마다 새 인물, 관계와 그 변화, 말투 규칙을 이미 아는 자료와 견주어 뽑습니다.',
     output: 'json',
     scope: 'batch',
-    include: { candidate: false, issues: false },
+    include: { candidate: false },
     context: { glossary: false, cast: true, characters: true, relationships: true, documents: true, speech: true, precedingLines: 8, previousScenes: 1 },
     batch: { mode: 'group' },
     fields: [
@@ -263,7 +263,7 @@ export const AI_PROMPTS = {
     description: '장면 묶음마다 사건과 원인·결과, 관련 인물을 뽑습니다.',
     output: 'json',
     scope: 'batch',
-    include: { candidate: false, issues: false },
+    include: { candidate: false },
     context: { glossary: false, cast: true, characters: true, relationships: false, documents: true, speech: false, precedingLines: 0, previousScenes: 1 },
     batch: { mode: 'group' },
     fields: [listField('events', 'Events in these lines that later lines may refer back to; empty when none.', eventFields)],
@@ -274,7 +274,7 @@ export const AI_PROMPTS = {
     description: '대본 전체를 읽고 개요·인물·관계·사건·말투 규칙·용어를 근거와 함께 냅니다.',
     output: 'json',
     scope: 'batch',
-    include: { candidate: false, issues: false },
+    include: { candidate: false },
     // The script itself is the context; stored knowledge would only bias the reading. Only the names people fixed are sent (cast).
     context: READING_CONTEXT,
     batch: { mode: 'whole' },

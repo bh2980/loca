@@ -1,6 +1,6 @@
 /** Pieces shared by the node-kind configs: shared field primitives and the node/ref types. */
 import { Button, Checkbox, HelpTip, Input, NumberInput, InspectorField, InspectorToggle, NODE_CARD_KIND_APPEARANCE, Switch, cn } from '@loca/ui';
-import { CONNECTION_KIND_INFO, functionGroup, nodeName, workflowInput, type WorkflowEdge, type WorkflowNode, type WorkflowSubject } from '@tw/shared';
+import { CONNECTION_KIND_INFO, functionGroup, leavesResult, nodeName, nodeOutputFields, workflowInput, type WorkflowEdge, type WorkflowNode, type WorkflowSubject } from '@tw/shared';
 import { nodeIcon } from '@/components/workflow/node-view';
 
 export type AiNode = Extract<WorkflowNode, { type: 'ai' }>;
@@ -85,19 +85,10 @@ export function ToggleRow({ label, help, checked, onChange }: { label: string; h
 /** The workflow's input (its entry node), which decides each node's extension. */
 export const refsInput = (refs: Pick<NodeRefs, 'nodes'>): WorkflowSubject => workflowInput({ nodes: refs.nodes });
 
-/** Fields of a node's output an input can keep (top level; a list keeps its items whole). */
-export function outputFieldNames(node: WorkflowNode): string[] {
-  if (node.type === 'ai') {
-    if (node.config.output === 'json') return node.config.fields.map((field) => field.name);
-    if (node.config.output === 'verdict') return ['passed', 'issues'];
-    if (node.config.output === 'choice') return ['value', 'confidence', 'reason'];
-    return ['text'];
-  }
-  if (node.type === 'function' && node.config.fn === 'script') return ((node.config.params as { fields?: { name: string }[] }).fields ?? []).map((field) => field.name);
-  return [];
-}
+/** Fields of a node's output an input can keep (top level; a list keeps its items whole): what it declares (nodeOutputFields). */
+export const outputFieldNames = (node: WorkflowNode): string[] => (nodeOutputFields(node) ?? []).map((field) => field.name);
 
-/** Nodes before this one that leave an output: AI and script nodes. */
+/** Nodes before this one that leave an output (leavesResult: AI, checks, script, HTTP, gather). */
 export function upstreamSources(node: WorkflowNode, refs: Pick<NodeRefs, 'nodes' | 'edges'>): WorkflowNode[] {
   const into = Map.groupBy(refs.edges ?? [], (edge) => edge.target);
   const before = new Set<string>();
@@ -108,5 +99,5 @@ export function upstreamSources(node: WorkflowNode, refs: Pick<NodeRefs, 'nodes'
         before.add(edge.source);
         stack.push(edge.source);
       }
-  return refs.nodes.filter((other) => other.id !== node.id && before.has(other.id) && (other.type === 'ai' || (other.type === 'function' && other.config.fn === 'script')));
+  return refs.nodes.filter((other) => other.id !== node.id && before.has(other.id) && leavesResult(other));
 }

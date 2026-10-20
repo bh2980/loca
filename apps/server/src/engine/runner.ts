@@ -292,6 +292,9 @@ export class Runner {
   private record(tx: Tx, run: Run, item: Item, outcome: Outcome) {
     const data: ItemData = { ...item.data, outputs: { ...item.data.outputs } };
     if (outcome.output) data.outputs![item.nodeId] = outcome.output;
+    // A returned "text" is the line's working text (an HTTP call or a script that rewrites it), like an AI translation.
+    const returned = (outcome.output as { text?: unknown } | undefined)?.text;
+    if (outcome.candidate === undefined && typeof returned === 'string' && returned !== item.data.candidateText) outcome = { ...outcome, candidate: returned };
     if (outcome.candidate !== undefined) {
       // The run's working text only; the line itself changes in an apply node ("번역 저장").
       data.candidateText = outcome.candidate;
@@ -721,6 +724,9 @@ export class Runner {
       const tagIds = this.db.select({ tagId: s.unitTags.tagId }).from(s.unitTags).where(eq(s.unitTags.unitId, unit.id)).all().map((row) => row.tagId);
       input = { subject: 'lines', unit, item, tagIds, projectId: run.projectId, runId: run.id };
     }
+    // Like an AI node's input: the result of the step before it on the item's way here.
+    const previousStep = previousStepId(run.definition, item.data.path);
+    if (previousStep) input = { ...input, previous: item.data.outputs?.[previousStep] as Record<string, unknown> | undefined };
     try {
       const outcome = await runAsyncFunction(node.config.fn as FunctionName, node.config.params, input, { db: this.db, secrets: this.secrets, signal });
       this.db.transaction((tx) => {

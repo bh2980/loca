@@ -15,7 +15,7 @@ description: Build, change, run and debug loca workflows — the user-defined au
 | 진입(entry) | 고른 상태의 대사가 들어옴. 워크플로마다 하나 | `out` |
 | AI(ai) | 모델·지시문·문맥으로 호출해 결과를 냄. 출력 종류: `text` 글 · `verdict` 판정 · `choice` 선택 · `json` 필드가 있는 JSON | verdict는 `pass`/`fail`/`error`, 나머지는 `out`/`error` |
 | 반영(apply, 함수 노드의 한 갈래) | 프로젝트에 씀: 선으로 이어진 앞 단계(AI·스크립트 노드; 조건·다른 반영 노드는 건너뜀)의 결과를 번역·청자·태그·용어·인물·관계·말투 규칙·사건·문서로 넣고, 상태 변경·용어 상태 변경도 여기 속함 | `out`/`error` |
-| 함수(function) | 읽고 판단·계산: 형식 검사, 용어 검사, HTTP, 스크립트 | 함수마다 다름 (reference) |
+| 함수(function) | 읽고 판단·계산: 형식 검사, 용어 검사, HTTP, 스크립트. 모두 같은 입력(`unit`/`term`, `candidate` 지금 번역, `previous` 앞 단계 결과)을 받고 결과 칸을 돌려줌. 검사는 `{text, passed, issues}` 고정, 스크립트·HTTP는 `fields`로 선언(HTTP는 `paths`로 응답의 위치). 결과의 `text`는 대사의 지금 번역이 됨 | 함수마다 다름 (reference) |
 | 흐름: 조건(condition) | 대사의 데이터로 갈래를 나눔 | 조건식에 따라 |
 | 흐름: 모으기(gather) | 실행 전체의 앞 단계 결과를 다 기다렸다가 하나로 넘김 | `out` |
 | 종료(end) | 흐름을 마침 | — |
@@ -51,7 +51,7 @@ loca workflows reference <프리셋 id>       # 그 프리셋의 지시문·출�
    - `model`은 `{connectionId, model, effort?}`, `extraModels`는 막혔을 때 넘길 대체 모델(같은 연결의 다른 모델도 됨).
    - `output: "json"`이면 `fields`로 형태를 정합니다: `name`(영문·숫자·_), `type`, `description`, 목록은 `fields`로 하위 필드, `required`(비면 그 줄은 답이 없는 것으로 침), 숫자는 `min`·`max`(예: 확신도 0–1). 모델이 지키지 못하거나 답에서 빠진 줄은 `error` 출구로 나갑니다(`error.kind` = `missing`).
    - `scope: "batch"`는 여러 줄을 한 번에 보냅니다(추출용). batch의 json 결과는 묶음의 첫 줄에만 실려 반영이 한 번만 됩니다.
-   - `input`: `previous: true`면 선으로 이어진 **앞 단계의 결과**가 대사마다 `previous`로 들어갑니다. 앞 단계는 그 대사가 지나온 길에서 마지막으로 결과를 낸 노드(AI·스크립트·모으기)이고, 조건·검사·저장 노드는 건너뜁니다(노드를 골라 먼 결과를 가져오지 않음, 필요하면 그래프를 그렇게 그림). `fields`로 경로만 남김(예: `["listener"]`, `["characters.name"]`; 비면 전체). 묶음 전체 결과는 묶음 첫 줄에만 있어 나머지 줄엔 들어가지 않습니다. `lines: false`면 대사 없이 `previous` 목록만 보냅니다(출력 `json` · `scope: "batch"`만).
+   - `input`: `previous: true`면 선으로 이어진 **앞 단계의 결과**가 대사마다 `previous`로 들어갑니다. 앞 단계는 그 대사가 지나온 길에서 마지막으로 결과를 낸 노드이고(결과 칸을 선언한 노드: AI, 형식 검사·용어 검사 `{text, passed, issues}`, 스크립트, HTTP, 모으기), 조건·저장·상태 변경 노드는 건너뜁니다. 검사 뒤의 AI는 검사의 지적을 `previous`로 받고, 고칠 번역문은 문맥 `include.candidate`(지금 번역)로 받습니다(노드를 골라 먼 결과를 가져오지 않음, 필요하면 그래프를 그렇게 그림). `fields`로 경로만 남김(예: `["listener"]`, `["characters.name"]`; 비면 전체). 묶음 전체 결과는 묶음 첫 줄에만 있어 나머지 줄엔 들어가지 않습니다. `lines: false`면 대사 없이 `previous` 목록만 보냅니다(출력 `json` · `scope: "batch"`만).
    - `timeoutMinutes`(기본 10, 작품 분석 프리셋 30): 요청 하나가 이 시간을 넘으면 그 줄들은 `error`(`timeout`)로 나갑니다. 연결에는 제한 시간이 없습니다.
    - 실패는 워크플로가 다룹니다. 엔진은 요청을 나누거나 다시 보내지 않습니다(요청 한도·네트워크 끊김만 잠시 뒤 다시 보내고, 연속 실패가 `settings.maxConsecutiveFailures`회면 실행을 멈춤). 이어지지 않은 `error` 출구는 그 줄을 이유와 함께 실패로 끝내고, 실패한 줄은 앱의 실행 기록 › 이어서 실행의 "실패 다시 보내기"로 다시 돌립니다. 워크플로 안에서 다시 시도하려면 `error` → 조건(`visits.<노드> < 2`이고 `error.kind`가 `too-long`·`cut-off`가 아님) → 같은 노드로 직접 그립니다(기본 템플릿에는 없음). 사람이 볼 줄은 상태 변경·태그로 남깁니다. 요청이 너무 크면(`too-long`·`cut-off`) 더 작은 묶음(장면별·개수별)으로 읽는 노드로 보내세요.
    - 문맥(용어집·말투 규칙·앞 대사·문서·인물 등)은 노드마다 켜고 끕니다. 무엇이 실제로 들어가는지는 `loca context <키> -n <노드 id>`로 봅니다(모델은 부르지 않음).

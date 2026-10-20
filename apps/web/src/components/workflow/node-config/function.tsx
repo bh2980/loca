@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Play, Plus, Trash2 } from 'lucide-react';
-import { APPLY_FUNCTION_NAMES, APPLY_TARGETS, applyIssues, DEFAULT_PARTICLE_PATTERN, formatPatternError, FUNCTIONS, functionTakes, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, JSON_FIELD_TYPE_LABELS, nodeName, PALETTE_FUNCTION_NAMES, previousSteps, type ApplyField, type ApplyFunctionName, type ApplyParams, type CustomFormatRule, type JsonFieldType, type WorkflowDefinition, type FunctionName, type JsonField, type WorkflowNode } from '@tw/shared';
+import { APPLY_FUNCTION_NAMES, APPLY_TARGETS, fieldsFromSample, httpParams, nodeOutputFields, applyIssues, DEFAULT_PARTICLE_PATTERN, formatPatternError, FUNCTIONS, functionTakes, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, JSON_FIELD_TYPE_LABELS, nodeName, PALETTE_FUNCTION_NAMES, previousSteps, type ApplyField, type ApplyFunctionName, type ApplyParams, type CustomFormatRule, type JsonFieldType, type WorkflowDefinition, type FunctionName, type JsonField, type WorkflowNode } from '@tw/shared';
 import { Button, Input, NumberInput, InspectorActionRow, InspectorFields, InspectorList, InspectorResult, InspectorToggle, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, StatusIcon, TagChip } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
 import { AiConfirmNote } from '@/components/settings/ai-confirm';
@@ -237,7 +237,7 @@ function SetStatusConfig({ params, refs, set, setMany }: { params: Record<string
 }
 
 
-const PLACEHOLDERS = '{{candidate}}, {{unit.source}}, {{unit.speaker}}, {{unit.key}}, {{outputs.<노드ID>.<필드>}}';
+const PLACEHOLDERS = '{{candidate}}, {{unit.source}}, {{unit.speaker}}, {{unit.key}}, {{previous.<필드>}}, {{outputs.<노드ID>.<필드>}}';
 
 function HttpConfig({ params, refs, set }: { params: Record<string, unknown>; refs: NodeRefs; set: (key: string, value: unknown) => void }) {
   const tools = refs.connections.filter((connection) => connection.kind === 'http');
@@ -277,24 +277,59 @@ function HttpConfig({ params, refs, set }: { params: Record<string, unknown>; re
           <Textarea className="min-h-28 font-mono text-xs" spellCheck={false} value={params.body as string} onChange={(event) => set('body', event.target.value)} />
         </Field>
       )}
-      <Field label="응답 경로" hint="응답 JSON에서 값을 꺼낼 경로입니다.">
-        <Input className="font-mono text-xs" placeholder="result.text" value={params.resultPath as string} onChange={(event) => set('resultPath', event.target.value)} />
-      </Field>
-      <Field label="결과" hint="응답을 번역 후보, 통과/실패 판정, 또는 다음 노드가 읽는 데이터로 씁니다.">
-        <Select value={params.mode as string} onValueChange={(value) => set('mode', value)}>
-          <SelectTrigger className="w-full">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="candidate">번역 후보</SelectItem>
-            <SelectItem value="verdict">판정</SelectItem>
-            <SelectItem value="data">데이터</SelectItem>
-          </SelectContent>
-        </Select>
-      </Field>
+      <HttpFields params={params} projectId={refs.projectId} set={set} />
       <Field label="제한 시간" hint="초 단위, 1–300.">
         <NumberInput min={1} max={300} value={params.timeoutSeconds as number} onValueChange={(next) => next !== undefined && set('timeoutSeconds', next)} />
       </Field>
+    </>
+  );
+}
+
+/**
+ * What an HTTP call returns: declared fields (like a script's), each read from the response at its path
+ * (default: its own name). A test call shows the response and can fill the fields from it.
+ */
+function HttpFields({ params, projectId, set }: { params: Record<string, unknown>; projectId: string; set: (key: string, value: unknown) => void }) {
+  const fields = (params.fields as JsonField[] | undefined) ?? [];
+  const paths = (params.paths as Record<string, string> | undefined) ?? {};
+  const test = useMutation({
+    mutationFn: () => unwrap(client.projects[':projectId']['http-test'].$post({ param: { projectId }, json: { params: httpParams.parse(params) } })),
+  });
+  const sampled = test.data?.ok ? fieldsFromSample(test.data.raw) : [];
+  return (
+    <>
+      <JsonFieldsEditor label="결과 칸" fields={fields} descriptionPlaceholder="설명" onChange={(next) => set('fields', next)} />
+      {fields.length > 0 && (
+        <Field label="응답에서 가져올 곳" hint="비우면 칸 이름과 같은 키를 씁니다. 예: result.text">
+          <div className="space-y-1.5">
+            {fields.map((field) => (
+              <div key={field.name} className="flex items-center gap-2 text-xs">
+                <span className="w-24 shrink-0 truncate font-mono">{field.name}</span>
+                <Input className="font-mono text-xs" placeholder={field.name} value={paths[field.name] ?? ''} onChange={(event) => set('paths', { ...paths, [field.name]: event.target.value })} />
+              </div>
+            ))}
+          </div>
+        </Field>
+      )}
+      <InspectorActionRow
+        label="시험 호출"
+        description="첫 대사로 주소를 한 번 호출해 봅니다."
+        action={<Button variant="outline" disabled={test.isPending || !(params.url as string)?.trim()} onClick={() => test.mutate()}><Play /> 호출</Button>}
+        result={
+          test.isPending ? <InspectorResult tone="pending">호출 중</InspectorResult> : test.data ? (
+            <InspectorResult
+              tone={test.data.ok ? 'ok' : 'error'}
+              detail={<pre className="max-h-64 overflow-auto whitespace-pre-wrap font-mono">{test.data.ok ? JSON.stringify(test.data.raw, null, 2) : test.data.error}</pre>}>
+              {test.data.ok ? (
+                <span className="flex items-center gap-2">
+                  {test.data.ms}ms
+                  {sampled.length > 0 && <Button size="sm" variant="ghost" onClick={() => set('fields', sampled)}>이 결과로 칸 채우기</Button>}
+                </span>
+              ) : '오류'}
+            </InspectorResult>
+          ) : null
+        }
+      />
     </>
   );
 }
@@ -306,6 +341,7 @@ function ScriptConfig({ params, projectId, readOnly, set }: { params: Record<str
   const test = useMutation({
     mutationFn: () => unwrap(client.projects[':projectId']['script-test'].$post({ param: { projectId }, json: { code: params.code as string, ports, fields } })),
   });
+  const sampledScript = test.data?.ok ? fieldsFromSample(test.data.raw) : [];
   return (
     <>
       <Field label="출구" hint="쉼표로 구분합니다. 코드가 이 중 하나를 반환합니다.">
@@ -353,7 +389,12 @@ function ScriptConfig({ params, projectId, readOnly, set }: { params: Record<str
                     {JSON.stringify(test.data.input, null, 2)}
                   </pre>
                 }>
-                {test.data.ok ? `출구: ${test.data.port}${test.data.validPort ? '' : ' (선언하지 않은 출구!)'} · ${test.data.ms}ms` : '오류'}
+                {test.data.ok ? (
+                  <span className="flex items-center gap-2">
+                    {`출구: ${test.data.port}${test.data.validPort ? '' : ' (선언하지 않은 출구!)'} · ${test.data.ms}ms`}
+                    {sampledScript.length > 0 && <Button size="sm" variant="ghost" onClick={() => set('fields', sampledScript)}>이 결과로 칸 채우기</Button>}
+                  </span>
+                ) : '오류'}
               </InspectorResult>
             ) : null
           }
@@ -371,21 +412,8 @@ interface SourceField {
   fields?: SourceField[];
 }
 
-/** The fields a node's output offers to later nodes. */
-function outputFields(node: WorkflowNode): SourceField[] {
-  if (node.type === 'function') return ((node.config.params as { fields?: SourceField[] }).fields ?? []);
-  if (node.type !== 'ai') return [];
-  switch (node.config.output) {
-    case 'text':
-      return [{ name: 'text', type: 'string' }];
-    case 'verdict':
-      return [{ name: 'passed', type: 'boolean' }, { name: 'issues', type: 'strings' }];
-    case 'choice':
-      return [{ name: 'value', type: 'string' }, { name: 'confidence', type: 'number' }, { name: 'reason', type: 'string' }];
-    default:
-      return node.config.fields;
-  }
-}
+/** The fields a node's output offers to later nodes: what it declares (nodeOutputFields). */
+const outputFields = (node: WorkflowNode): SourceField[] => nodeOutputFields(node) ?? [];
 
 /** Which source types a target field of the given type can take. */
 const ACCEPTS: Record<JsonFieldType, JsonFieldType[]> = {

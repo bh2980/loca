@@ -26,6 +26,8 @@ interface Common {
   tagIds: string[];
   projectId: string;
   runId: string;
+  /** The previous step's result on the item's way here (scripts and HTTP templates see it as `previous`). */
+  previous?: Record<string, unknown>;
 }
 /** What a function gets for one item: a line, or a term (the run's subject). */
 export type FunctionInput = (Common & { subject: 'lines'; unit: Unit; term?: undefined }) | (Common & { subject: 'terms'; term: Term; unit?: undefined });

@@ -312,7 +312,7 @@ describe('function nodes', () => {
             },
           },
         },
-        http: fn('http', { url: `http://127.0.0.1:${port}/spell`, connectionId: tool.id, body: '{ "text": "{{candidate}}" }', resultPath: 'result.text' }),
+        http: fn('http', { url: `http://127.0.0.1:${port}/spell`, connectionId: tool.id, body: '{ "text": "{{candidate}}" }', fields: [{ name: 'text', type: 'string', description: '' }], paths: { text: 'result.text' } }),
         confirm: fn('setStatus', { statusId: confirmed.id }),
       },
       ['entry -> translate', 'translate -> script', 'script.first -> http', 'script.other -> confirm', 'http -> confirm', 'confirm -> end'],

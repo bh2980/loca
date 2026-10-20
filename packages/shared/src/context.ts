@@ -23,7 +23,6 @@ export const CONTEXT_FIELDS = {
   precedingLines: { label: '앞 대사', help: '보내는 대사들 바로 앞의 대사를 원문으로 함께 보냅니다. 흐름과 말투를 이어가게 합니다.' },
   precedingTranslations: { label: '앞 대사 번역', help: '앞 대사의 지금 번역도 함께 보냅니다(상태와 상관없이 있는 그대로).' },
   previousScenes: { label: '이전 장면', help: '대사 그래프상 바로 앞 장면의 설명(가져오기 파일이나 원문 편집에서 쓴 장면 설명)을 보냅니다. 설명이 없는 장면은 보내지 않습니다.' },
-  issues: { label: '앞 단계 지적', help: '앞 노드(검수·검사)가 이 대사에 남긴 지적을 함께 보냅니다.' },
   examples: { label: '나온 대사', help: '용어마다 그 용어가 나온 대사를 지금 번역과 함께 보냅니다.' },
   cast: { label: '인물 명단', help: '확정된 인물 전체의 이름·별칭·플레이어 여부·성별·나이대를 보냅니다.' },
   characters: { label: '인물 프로필', help: '보내는 원문에 나오는 확정된 인물의 소개를 보냅니다.' },

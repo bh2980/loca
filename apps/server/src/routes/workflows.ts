@@ -2,13 +2,13 @@ import { Hono } from 'hono';
 import { scopeMismatch } from '../services/run-plan.ts';
 import { and, asc, count, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { choiceKey, nodeName, FUNCTIONS, type FunctionName, isWholeScriptWorkflow, nodeModels, CONNECTION_KIND_INFO, workflowInput, AUTO_MARK_IDS, type AutoMark, scriptParams, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels } from '@tw/shared';
+import { choiceKey, nodeName, httpParams, FUNCTIONS, type FunctionName, isWholeScriptWorkflow, nodeModels, CONNECTION_KIND_INFO, workflowInput, AUTO_MARK_IDS, type AutoMark, scriptParams, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { workflowIssues } from '../services/workflow-issues.ts';
 import { events } from '../events.ts';
-import { lineView, validateScriptData } from '../engine/functions/index.ts';
+import { callHttp, httpOutput, lineView, validateScriptData } from '../engine/functions/index.ts';
 import { runScript } from '../engine/functions/sandbox.ts';
 import { WHOLE_SCRIPT_BUSY, createRunInSteps, FILLING, refuseSecondWholeScript, selectRunTerms, selectRunUnits } from '../engine/run-create.ts';
 import { listBatches, preflight } from '../services/preflight.ts';
@@ -175,7 +175,24 @@ export const workflowRoutes = new Hono<Env>()
       const result = await runScript(code, input);
       const port = result.port ?? ports[0];
       // The data as the run would store it: held to the declared fields (a bad value is reported as the error).
-      return c.json({ ok: true as const, input, result: { ...result, data: validateScriptData(result.data, fields) }, port, validPort: ports.includes(port), ms: Date.now() - started });
+      // `raw`: what the code returned, for "이 결과로 칸 채우기" before any field is declared.
+      return c.json({ ok: true as const, input, result: { ...result, data: validateScriptData(result.data, fields) }, raw: result.data ?? null, port, validPort: ports.includes(port), ms: Date.now() - started });
+    } catch (error) {
+      return c.json({ ok: false as const, input, error: error instanceof Error ? error.message : String(error), ms: Date.now() - started });
+    }
+  })
+
+  /** One HTTP node call for the project's first line (the person asked for it): the response as it came, and the declared fields read from it. */
+  .post('/projects/:projectId/http-test', validate('json', z.object({ params: httpParams })), async (c) => {
+    const { db, secrets } = c.var.deps;
+    const { params } = c.req.valid('json');
+    const unit = db.select().from(s.units).where(eq(s.units.projectId, c.req.param('projectId'))).orderBy(asc(s.units.seq)).limit(1).get();
+    if (!unit) badRequest('시험할 대사가 없습니다.');
+    const input = lineView({ subject: 'lines', unit, item: { data: { path: [], outputs: {} }, visits: {} } as never, tagIds: [], projectId: unit.projectId, runId: 'test' });
+    const started = Date.now();
+    try {
+      const raw = await callHttp(params, input, { db, secrets, signal: AbortSignal.timeout(params.timeoutSeconds * 1000) });
+      return c.json({ ok: true as const, input, raw, result: httpOutput(params, raw), ms: Date.now() - started });
     } catch (error) {
       return c.json({ ok: false as const, input, error: error instanceof Error ? error.message : String(error), ms: Date.now() - started });
     }

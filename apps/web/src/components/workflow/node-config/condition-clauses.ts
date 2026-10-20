@@ -2,7 +2,7 @@
  * A condition node's JSON Logic as rows people can read and edit: one clause per row, joined by
  * "all" or "any". Expressions these rows cannot say stay JSON (parseCondition returns null).
  */
-import type { ItemErrorKind, JsonField, WorkflowNode } from '@tw/shared';
+import { nodeOutputFields, type ItemErrorKind, type JsonField, type WorkflowNode } from '@tw/shared';
 
 export type FieldOperator = '>=' | '<=' | '==' | '!=' | 'filled';
 /** `not` turns a line property around: 상태가 … 아님, 태그 … 없음, 청자 없음. */
@@ -134,15 +134,7 @@ export function conditionExpression({ join, clauses }: Condition): unknown {
   return { [join]: clauses.map(clauseRule) };
 }
 
-/** Node outputs a field row can compare: a verdict's `passed`, a choice's value and confidence, a text, declared JSON or script fields. */
-export function comparableFields(node: WorkflowNode, hasVerdict: boolean): JsonField[] {
-  const field = (name: string, type: JsonField['type']): JsonField => ({ name, type, description: '' });
-  const fields: JsonField[] = [];
-  if (hasVerdict) fields.push(field('passed', 'boolean'));
-  if (node.type === 'ai' && node.config.output === 'choice') fields.push(field('value', 'string'), field('confidence', 'number'));
-  if (node.type === 'ai' && node.config.output === 'text') fields.push(field('text', 'string'));
-  const declared = node.type === 'ai' && node.config.output === 'json' ? node.config.fields : node.type === 'function' && node.config.fn === 'script' ? ((node.config.params as { fields?: JsonField[] }).fields ?? []) : [];
-  // Only top-level scalars compare in a row; lists and evidence go through JSON.
-  fields.push(...declared.filter((item) => item.name && (item.type === 'string' || item.type === 'number' || item.type === 'boolean')));
-  return fields;
+/** Node outputs a field row can compare: the top-level text, number and true/false fields the node declares (nodeOutputFields). Lists and evidence go through JSON. */
+export function comparableFields(node: WorkflowNode): JsonField[] {
+  return (nodeOutputFields(node) ?? []).filter((item) => item.name && (item.type === 'string' || item.type === 'number' || item.type === 'boolean'));
 }

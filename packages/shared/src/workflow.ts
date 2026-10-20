@@ -95,9 +95,29 @@ export const aiInputSchema = z
   .object({ lines: z.boolean().default(true), previous: z.boolean().default(false), fields: z.array(z.string().trim().min(1)).default([]) })
   .prefault({});
 
-/** Nodes whose result the next step reads (an AI node's "previous", an apply node, a gather): AI, script and gather nodes. Others pass the line on. */
-export const leavesResult = (node: WorkflowNode | undefined) =>
-  node?.type === 'ai' || node?.type === 'gather' || (node?.type === 'function' && node.config.fn === 'script');
+/**
+ * What a node returns for the next steps, as fields (their "앞 단계 결과", a save node's field links,
+ * condition rows): an AI node by its output form, a function by FUNCTIONS[fn].outputs (fixed, or
+ * declared by the node: a script's or an HTTP call's fields). Null: it returns nothing and passes the
+ * line on (conditions, save nodes, status changes). A gather returns its parts.
+ */
+export function nodeOutputFields(node: WorkflowNode | undefined): JsonField[] | null {
+  if (!node) return null;
+  if (node.type === 'ai') {
+    if (node.config.output === 'json') return node.config.fields;
+    if (node.config.output === 'verdict') return [{ name: 'passed', type: 'boolean', description: '' }, { name: 'issues', type: 'strings', description: '' }];
+    if (node.config.output === 'choice') return [{ name: 'value', type: 'string', description: '' }, { name: 'confidence', type: 'number', description: '' }, { name: 'reason', type: 'string', description: '' }];
+    return [{ name: 'text', type: 'string', description: '' }];
+  }
+  if (node.type === 'gather') return [{ name: 'parts', type: 'list', description: '' }];
+  if (node.type !== 'function') return null;
+  const outputs = (FUNCTIONS[node.config.fn as FunctionName] as { outputs?: readonly JsonField[] | 'declared' } | undefined)?.outputs;
+  if (!outputs) return null;
+  return outputs === 'declared' ? ((node.config.params as { fields?: JsonField[] }).fields ?? []) : [...outputs];
+}
+
+/** Nodes whose result the next step reads (an AI node's "previous", an apply node, a gather): those that declare outputs. Others pass the line on. */
+export const leavesResult = (node: WorkflowNode | undefined) => nodeOutputFields(node) !== null;
 
 /** The id of the previous step on an item's way (`path`): the last node it passed that leaves a result, not through its error exit. */
 export function previousStepId(definition: Pick<WorkflowDefinition, 'nodes'>, path: { nodeId: string; port: string }[]): string | undefined {
@@ -244,10 +264,8 @@ export const aiNodeConfigSchema = z.object({
   choice: choiceConfigSchema.default(choiceConfigSchema.parse({})),
   /** The preset this node was filled from (shown as a hint; the node is an ordinary AI node). */
   preset: z.string().optional(),
-  /** Also show the model the line's current candidate / the latest failing issues. */
-  include: z
-    .object({ candidate: z.boolean().default(true), issues: z.boolean().default(true) })
-    .default({ candidate: true, issues: true }),
+  /** Also show the model the line's current translation (문맥 › 지금 번역). */
+  include: z.object({ candidate: z.boolean().default(true) }).default({ candidate: true }),
   context: contextConfigSchema.default(contextConfigSchema.parse({})),
   batch: batchConfigSchema.default(batchConfigSchema.parse({})),
   /** How long one request of this node may take before it fails with error kind "timeout". */

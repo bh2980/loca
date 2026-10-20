@@ -23,6 +23,11 @@ export interface FunctionInfo<P extends z.ZodType = z.ZodType> {
   async: boolean;
   /** The workflow inputs it is a node of (unset: both). */
   inputs?: readonly Subject[];
+  /**
+   * What it returns for the next steps (their "앞 단계 결과", a save node's fields, condition rows):
+   * fixed fields, or "declared" by the node (a script's or an HTTP call's fields). Unset: it passes the line on.
+   */
+  outputs?: readonly JsonField[] | 'declared';
 }
 
 /**
@@ -45,6 +50,24 @@ export interface JsonField {
   min?: number;
   max?: number;
 }
+/**
+ * Fields read off a sample result (a script's or an HTTP call's test run), for "이 결과로 칸 채우기":
+ * each top-level key with the type its value has; a list of objects keeps its items' fields. Names
+ * that cannot be field names are left out.
+ */
+export function fieldsFromSample(sample: unknown): JsonField[] {
+  if (!sample || typeof sample !== 'object' || Array.isArray(sample)) return [];
+  const typeOf = (value: unknown): Pick<JsonField, 'type' | 'fields'> => {
+    if (typeof value === 'number') return { type: 'number' };
+    if (typeof value === 'boolean') return { type: 'boolean' };
+    if (Array.isArray(value)) return value.every((entry) => typeof entry === 'string') ? { type: 'strings' } : { type: 'list', fields: fieldsFromSample(value.find((entry) => entry && typeof entry === 'object')) };
+    return { type: 'string' };
+  };
+  return Object.entries(sample as Record<string, unknown>)
+    .filter(([name]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name))
+    .map(([name, value]) => ({ name, description: '', ...typeOf(value) }));
+}
+
 export const jsonFieldSchema: z.ZodType<JsonField> = z.lazy(() =>
   z.object({
     name: z.string().trim().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, '영문·숫자·_ 로 된 이름'),
@@ -58,6 +81,12 @@ export const jsonFieldSchema: z.ZodType<JsonField> = z.lazy(() =>
 ) as z.ZodType<JsonField>;
 
 const pass: Port[] = [{ id: 'pass', label: '통과' }, { id: 'fail', label: '실패' }];
+/** What a check returns: the text it checked, whether it passed, and what it found. */
+export const CHECK_OUTPUTS: readonly JsonField[] = [
+  { name: 'text', type: 'string', description: '검사한 번역문' },
+  { name: 'passed', type: 'boolean', description: '통과했는지' },
+  { name: 'issues', type: 'strings', description: '찾은 문제' },
+];
 const out: Port[] = [{ id: 'out', label: '다음' }];
 
 export const formatCheckParams = z.object({
@@ -277,10 +306,10 @@ export const httpParams = z.object({
   method: z.enum(['GET', 'POST']).default('POST'),
   /** JSON body; "{{candidate}}", "{{unit.source}}", "{{outputs.<node>.<field>}}" are replaced per line. */
   body: z.string().default('{\n  "text": "{{candidate}}"\n}'),
-  /** Where the answer is in the response, e.g. "result.text". Empty = whole body. */
-  resultPath: z.string().default(''),
-  /** candidate: the result becomes a new candidate · verdict: a boolean picks pass/fail · data: just store it. */
-  mode: z.enum(['candidate', 'verdict', 'data']).default('candidate'),
+  /** What it returns: fields like a script's; each is read from the response at its path in `paths` (default: the field's own name). A "text" field becomes the line's working text. */
+  fields: z.array(jsonFieldSchema).default([]),
+  /** Field name → where it is in the response, e.g. "result.text". */
+  paths: z.record(z.string(), z.string()).default({}),
   timeoutSeconds: z.number().int().min(1).max(300).default(30),
 });
 
@@ -289,7 +318,7 @@ export const scriptParams = z.object({
     .string()
     .default(
       [
-        '// input: { unit, candidate, outputs, visits }',
+        '// input: { unit(용어면 term), candidate(지금 번역), previous(앞 단계 결과), outputs, visits }',
         '// 반환: { port?: "out" | 선언한 출구, candidate?: string, data?: object, issues?: string[] }',
         'export default function run(input) {',
         '  const text = (input.candidate ?? "").replace(/\\s+$/g, "");',
@@ -311,6 +340,7 @@ export const FUNCTIONS = {
     ports: () => pass,
     async: false,
     inputs: ['lines', 'terms'],
+    outputs: CHECK_OUTPUTS,
   },
   glossaryCheck: {
     label: '용어 검사',
@@ -319,6 +349,7 @@ export const FUNCTIONS = {
     ports: () => pass,
     async: false,
     inputs: ['lines', 'terms'],
+    outputs: CHECK_OUTPUTS,
   },
   setStatus: {
     label: '상태 변경',
@@ -333,10 +364,11 @@ export const FUNCTIONS = {
   ) as unknown as Record<ApplyFunctionName, FunctionInfo<typeof applyParams>>),
   http: {
     label: 'HTTP 호출',
-    description: '외부 API(맞춤법·사전 등)를 주소로 호출하고 결과를 후보·판정·데이터로 받습니다. 키가 필요하면 설정의 API 키를 고릅니다.',
+    description: '외부 API(맞춤법·사전 등)를 주소로 호출하고, 응답에서 고른 값을 선언한 결과 칸으로 돌려줍니다. text 칸은 대사의 지금 번역이 됩니다. 키가 필요하면 설정의 API 키를 고릅니다.',
     params: httpParams,
-    ports: (params: z.infer<typeof httpParams>) => (params.mode === 'verdict' ? pass : out),
+    ports: () => out,
     async: true,
+    outputs: 'declared',
   },
   script: {
     label: '스크립트',
@@ -344,6 +376,7 @@ export const FUNCTIONS = {
     params: scriptParams,
     ports: (params: z.infer<typeof scriptParams>) => params.ports.map((id) => ({ id, label: id })),
     async: true,
+    outputs: 'declared',
   },
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 } satisfies Record<string, FunctionInfo<any>>;
