@@ -8,7 +8,7 @@ import { importProject } from '../services/importer.ts';
 import { snapshotWorkflowModels } from '../services/routes.ts';
 import { memoryStore } from '../services/secrets.ts';
 import { promptEntries } from './prompts.ts';
-import { Runner, type ModelPort } from './runner.ts';
+import { errorKindOf, Runner, type ModelPort } from './runner.ts';
 import { createRun, createRunInSteps } from './run-create.ts';
 
 /** A project of `scenes` scenes; scene i has `size(i)` lines. Scene keys sort opposite to script order. */
@@ -184,6 +184,13 @@ describe('runner guards', () => {
 });
 
 describe('incomplete answers', () => {
+  it('names a failure by what went wrong', () => {
+    expect(errorKindOf(new ai.ModelError('invalid-output', 'bad JSON', false))).toBe('invalid-output');
+    expect(errorKindOf(new ai.ModelError('cli', 'Your previous response was cut off because it exceeded the output token limit', false))).toBe('cut-off');
+    expect(errorKindOf(new ai.ModelError('cli', '모델이 응답을 거절했습니다.', false))).toBe('refused');
+    expect(errorKindOf(new Error('boom'))).toBe('other');
+  });
+
   it('sends lines an answer left out through "error" (missing); the template asks again for just those', async () => {
     const { db, start } = setup(1, () => 10);
     const runId = start();

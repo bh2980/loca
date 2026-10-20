@@ -71,6 +71,8 @@ export function errorKindOf(error: unknown): ItemErrorKind {
   if (outputCutOff(error)) return 'cut-off';
   const code = (error as { code?: string }).code;
   if (code === 'invalid-output' || code === 'too-long' || code === 'timeout') return code;
+  // A model that declines to answer (an API's content filter, a CLI's refusal stop reason).
+  if (/거절|refus|content[_ ]filter/i.test(error instanceof Error ? error.message : String(error))) return 'refused';
   return 'other';
 }
 /** What a person can do about a request that was too large for the model. */
