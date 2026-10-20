@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray, isNotNull, ne, sql } from 'drizzle-orm';
-import { batchConfigSchema, TERM_BATCH_MODES, readinessUses, CONNECTION_KIND_INFO, estimateTokens, isFreeModel, isUnknownListener, isUnreviewed, needsListener, nodeName, termMatcher, type AiNode, type WorkflowDefinition } from '@tw/shared';
+import { batchConfigSchema, functionTakes, TERM_BATCH_MODES, readinessUses, CONNECTION_KIND_INFO, estimateTokens, isFreeModel, isUnknownListener, isUnreviewed, needsListener, nodeName, termMatcher, type AiNode, type WorkflowDefinition, type WorkflowSubject } from '@tw/shared';
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -125,6 +125,7 @@ export async function preflight(db: Db, workflow: Pick<typeof s.workflows.$infer
     readiness,
     pace,
     load: aiLoad(db, definition),
+    unsupported: unsupportedNodes(definition, 'lines'),
     lines: { total: units.length, excluded: excludedInScope(db, projectId, definition, scope), translated: units.filter((unit) => unit.translation).length, untranslated: units.filter((unit) => !unit.translation).length },
     plan: {
       batches: sizes.length,
@@ -201,6 +202,7 @@ async function termPreflight(db: Db, workflow: { id: string | null; projectId: s
     readiness: { dialogueLines: 0, unknownListenerLines: 0, unreviewedRules: none, unreviewedTerms: none, pairsWithoutRule: { count: 0, examples: [] as string[] }, applies: readinessUses(definition) },
     pace: paceOf(db, estimates),
     load: aiLoad(db, definition),
+    unsupported: unsupportedNodes(definition, 'terms'),
     lines: { total: rows.length, excluded: 0, translated: rows.filter((row) => row.target).length, untranslated: rows.filter((row) => !row.target).length },
     plan: { batches: 0, linesPerBatch: null, list: listBatches(db, []) },
     nodes: estimates,
@@ -258,6 +260,10 @@ function readinessOf(db: Db, projectId: string, units: { kind: string; speaker: 
     pairsWithoutRule: { count: withoutRule.length, examples: withoutRule.slice(0, 3).map(([key]) => names.get(key)!) },
   };
 }
+
+/** Nodes that do not work on this kind of item: the items leave them through "error" (a notice before starting, nothing is refused). */
+const unsupportedNodes = (definition: WorkflowDefinition, subject: WorkflowSubject) =>
+  definition.nodes.flatMap((node) => (node.type === 'function' && !functionTakes(node.config.fn, subject) ? [nodeName(node)] : []));
 
 /** The most AI requests a definition sends at once: its AI nodes' 동시 처리 수 together. */
 const aiSlots = (definition: WorkflowDefinition) => definition.nodes.reduce((sum, node) => sum + (node.type === 'ai' ? node.config.concurrency : 0), 0);

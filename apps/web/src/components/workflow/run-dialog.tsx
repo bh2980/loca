@@ -380,7 +380,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
               onLeave={() => setOpen(false)}
             />
           ) : null}
-          {data && total ? <Pace data={data} projectId={projectId} /> : null}
+          {data && total ? <Pace data={data} projectId={projectId} items={terms ? '용어' : '대사'} /> : null}
           {data && total ? (
             <RunModels
               nodes={data.nodes}

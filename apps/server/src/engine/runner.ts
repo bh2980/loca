@@ -106,7 +106,7 @@ const attemptsOf = (error: unknown): ai.Attempt[] => ((error as { attempts?: ai.
 
 
 /** Why a node that only works on the other kind of item sends this one out through "error". */
-const unsupported = (node: WorkflowNode, subject: Run['subject']) => `'${nodeName(node)}'는 ${subject === 'terms' ? '용어' : '대사'}에는 쓸 수 없는 노드라 오류 출구로 보냈습니다.`;
+const unsupported = (node: WorkflowNode, subject: Run['subject']) => `'${nodeName(node)}' 노드는 ${subject === 'terms' ? '용어' : '대사'}에 쓸 수 없어 오류 출구로 보냈습니다.`;
 
 /** An AI node's batching for this run: terms have no scenes or script, so a scene or whole-script batch takes them by count. */
 const runBatch = (run: Run, node: AiNode) => {

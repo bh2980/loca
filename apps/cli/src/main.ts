@@ -729,6 +729,7 @@ runs
       totals: { calls: { min: number; expected: number | null; max: number }; inputTokens: { min: number; expected: number | null; max: number } };
       pace: { seconds: number | null; costUsd: number | null; subscription: boolean };
       load: { runs: number; max: number; added: number };
+      unsupported: string[];
       readiness: { dialogueLines: number; unknownListenerLines: number; unreviewedRules: Names; unreviewedTerms: Names; pairsWithoutRule: { count: number; examples: string[] } };
     }>('plan_run', { workflow, subject: options.terms || options.term?.length ? 'terms' : undefined, groups: options.group, keys: options.key, tags: options.tag, marks: options.mark, terms: options.term, ignoreStatus: options.ignoreStatus, models: runModels(options.model) });
     if (globals().json) return print(data);
@@ -740,6 +741,7 @@ runs
     if (!terms) console.log(`  묶음 ${data.plan.batches.toLocaleString()}개${per ? ` (묶음당 ${per.min}~${per.max}줄, 중간 ${per.median})` : ''}`);
     console.log(`  AI 요청 ${range(data.totals.calls)} · 입력 토큰 ${range(data.totals.inputTokens)}${data.pace.seconds !== null ? ` · 약 ${Math.round(data.pace.seconds / 60)}분` : ''}${data.pace.subscription ? ' · 구독' : data.pace.costUsd !== null ? ` · 약 $${data.pace.costUsd.toFixed(2)}` : ''}`);
     for (const node of data.nodes) console.log(`    ${node.name}  ${node.model ?? '(모델 없음)'}  요청 ${range(node.requests)} · 동시 ${node.concurrency} · 프롬프트 약 ${node.promptTokens.toLocaleString()}토큰`);
+    if (data.unsupported.length) console.log(`  주의: ${data.unsupported.map((name) => `'${name}'`).join('·')} 노드는 ${terms ? '용어' : '대사'}에 쓸 수 없어, 여기 닿은 ${terms ? '용어' : '대사'}는 오류 출구로 나갑니다.`);
     if (data.load.runs) console.log(`  주의: 다른 실행 ${data.load.runs}개가 AI 요청을 최대 ${data.load.max}개까지 동시에 보내는 중입니다. 이 실행을 시작하면 최대 ${data.load.max + data.load.added}개가 됩니다.   → loca runs list`);
     if (terms) return console.log('\n용어로 실행할 때는 청자·말투 규칙 준비 상태를 보지 않습니다. 시작 전 loca terms로 대상 용어를 확인하세요.');
     const ready = data.readiness;

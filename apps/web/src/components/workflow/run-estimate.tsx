@@ -13,7 +13,7 @@ const duration = (seconds: number) => (seconds < 90 ? `${Math.max(1, Math.round(
  * How long and how much, in plain words (for the models picked below). With `projectId`, also how
  * many AI requests other runs already send at once and what this one adds: a notice, never a block.
  */
-export function Pace({ data, projectId }: { data: PlanData; projectId?: string }) {
+export function Pace({ data, projectId, items = '대사' }: { data: PlanData; projectId?: string; /** What the run takes, as the notice names it. */ items?: '대사' | '용어' }) {
   const calls = data.totals.calls;
   const callText = calls.expected !== null ? `${calls.expected.toLocaleString()}회` : `${calls.min.toLocaleString()}~${calls.max.toLocaleString()}회`;
   const { seconds, costUsd, subscription } = data.pace;
@@ -32,6 +32,11 @@ export function Pace({ data, projectId }: { data: PlanData; projectId?: string }
         )}
         {money && ` · ${money}`}
       </p>
+      {data.unsupported.length > 0 && (
+        <p className="text-xs text-warning" role="status">
+          {data.unsupported.map((name) => `'${name}'`).join('·')} 노드는 {items}에 쓸 수 없어, 여기 닿은 {items}는 오류 출구로 나갑니다.
+        </p>
+      )}
       {projectId && data.load.runs > 0 && (
         <p className="text-xs text-warning" role="status">
           다른 실행 {data.load.runs}개가 AI 요청을 최대 {data.load.max}개까지 동시에 보내는 중입니다. 이 실행을 시작하면 최대 {data.load.max + data.load.added}개가 됩니다.{' '}
